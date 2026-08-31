@@ -1,0 +1,17 @@
+{
+  "name": "colab-dry-scientific-timeline",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first scientific version timeline and deterministic RFI provenance",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test",
+    "test:watch": "node --disable-warning=ExperimentalWarning --test --watch",
+    "desktop": "bash desktop/build.sh",
+    "desktop:test": "swiftc -O -framework Cocoa -framework WebKit -o /tmp/colab-anchor-tests desktop/CompletionTransaction.swift desktop/AssistSourceIdentity.swift desktop/DependencyReference.swift desktop/HostGeometry.swift desktop/WebText.swift desktop/HostTextAdapter.swift desktop/tests/main.swift && /tmp/colab-anchor-tests"
+  }
+}
