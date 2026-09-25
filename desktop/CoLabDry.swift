@@ -314,7 +314,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 URLQueryItem(name: "object", value: reference.objectId),
                 URLQueryItem(name: "version", value: reference.versionId),
             ]
-            if let target = components?.url { NSWorkspace.shared.open(target) }
+            if let target = components?.url, NSWorkspace.shared.open(target) {
+                RecommendationUsageClient.recordResolvedOpen(serverURL: url, objectId: reference.objectId)
+            }
         }
         inspector.onShare = { [weak self] reference in
             guard let url = self?.server.url, let projectId = GlobalAssistant.shared.projectId else { return }

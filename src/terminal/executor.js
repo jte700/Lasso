@@ -45,7 +45,7 @@ export class TerminalCommandExecutor {
     this.registry = registry;
   }
 
-  context(projectId, actor) {
+  context(projectId, actor, options = {}) {
     return {
       projectId,
       actor,
@@ -57,6 +57,8 @@ export class TerminalCommandExecutor {
       rules: this.rules,
       indexing: this.indexing,
       registry: this.registry,
+      documentPath: options.documentPath ?? null,
+      writingContext: options.context ?? null,
     };
   }
 
@@ -85,13 +87,13 @@ export class TerminalCommandExecutor {
    * rather than thrown, because a terminal reports a refusal in the transcript
    * rather than losing the session to it.
    */
-  run(projectId, input, actor) {
+  run(projectId, input, actor, options = {}) {
     const first = String(input ?? '').trim().split(/\s+/)[0]?.toLowerCase() ?? '';
     const command = parseCommand(input, this.registry.booleanFlags(first));
     if (command.empty) return result('', { headline: null, blocks: [] });
 
     if (command.name === '?' || command.name === 'help') {
-      return helpCommand(this.context(projectId, actor), command);
+      return helpCommand(this.context(projectId, actor, options), command);
     }
     if (command.name === 'clear') return { ...result('clear', {}), clear: true };
 
@@ -105,7 +107,7 @@ export class TerminalCommandExecutor {
     }
 
     try {
-      return definition.run(this.context(projectId, actor), command);
+      return definition.run(this.context(projectId, actor, options), command);
     } catch (error) {
       if (error instanceof HttpError || Number.isInteger(error?.status)) {
         return failure(command.name, error.message, { hints: error.details ? [String(error.details)] : [] });
@@ -143,7 +145,7 @@ export class TerminalCommandExecutor {
    * argument or flag value is — a dependency name, an indexed file, a
    * directory, a duration.
    */
-  complete(projectId, input) {
+  complete(projectId, input, options = {}) {
     const first = String(input ?? '').trim().split(/\s+/)[0]?.toLowerCase() ?? '';
     const context = completionContext(input, this.registry.booleanFlags(first));
     const empty = { position: context.position, heading: null, fragment: context.fragment, suggestions: [] };
@@ -184,7 +186,7 @@ export class TerminalCommandExecutor {
         position: 'flagValue',
         heading: `--${context.flag}`,
         fragment: context.fragment,
-        suggestions: this.suggestionsOfKind(projectId, kind, context.fragment),
+        suggestions: this.suggestionsOfKind(projectId, kind, context.fragment, options),
       };
     }
 
@@ -209,46 +211,51 @@ export class TerminalCommandExecutor {
       position: 'argument',
       heading: HEADINGS[kind] ?? 'dependency',
       fragment: context.fragment,
-      suggestions: this.suggestionsOfKind(projectId, kind, context.fragment),
+      suggestions: this.suggestionsOfKind(projectId, kind, context.fragment, options),
     };
   }
 
   /** One kind of thing the index can complete. */
-  suggestionsOfKind(projectId, kind, fragment) {
+  suggestionsOfKind(projectId, kind, fragment, options = {}) {
     const shape = (suggestion) => ({
       value: suggestion.name,
       kind: suggestion.kind,
       detail: suggestion.detail,
       preview: suggestion.value ?? null,
+      ...(suggestion.objectId ? { objectId: suggestion.objectId } : {}),
+      ...(suggestion.objectKey ? { objectKey: suggestion.objectKey } : {}),
+      ...(suggestion.path ? { path: suggestion.path } : {}),
+      ...(suggestion.ranking ? { ranking: suggestion.ranking, reason: suggestion.ranking.reason } : {}),
     });
 
     switch (kind) {
-      case 'name': return this.graph.nameSuggestions(projectId, fragment, 12).map(shape);
+      case 'name': return this.graph.nameSuggestions(projectId, fragment, 12, options).map(shape);
 
       case 'nameOrPath': {
-        // A file is the most identifiable handle a source has, so indexed
-        // files lead. Names follow; any that only loosely match are marked
-        // `related` and the box says so.
-        const files = this.graph.sourceSuggestions(projectId, fragment).map(shape);
-        const names = this.graph.nameSuggestions(projectId, fragment, 12).map(shape);
+        const files = this.graph.sourceSuggestions(projectId, fragment, 14, options);
+        // With no query, browsing starts at the file level. This also avoids
+        // offering several cells from one recently used spreadsheet.
+        if (!String(fragment ?? '').trim()) return files.map(shape);
+        const names = this.graph.nameSuggestions(projectId, fragment, 14, options);
         // Once a whole file name has been typed, that file is the answer —
         // listing everything inside it as "related" would bury it.
         const named = String(fragment ?? '').toLowerCase();
-        const complete = named && files.some((file) => file.value.toLowerCase() === named
-          || file.value.toLowerCase().endsWith(`/${named}`));
-        return [...files, ...(complete ? names.filter((item) => item.kind !== 'related') : names)]
-          .slice(0, 14);
+        const complete = named && files.some((file) => file.name.toLowerCase() === named
+          || file.name.toLowerCase().endsWith(`/${named}`));
+        return this.graph.rankRecommendations(projectId,
+          [...files, ...(complete ? names.filter((item) => item.kind !== 'related') : names)],
+          { ...options, query: fragment, limit: 14, diversify: true, maxPerFile: 2 }).map(shape);
       }
 
       case 'path': {
         const directories = this.graph.directorySuggestions(projectId, fragment, 6).map(shape);
-        const files = this.graph.sourceSuggestions(projectId, fragment, 8).map(shape);
+        const files = this.graph.sourceSuggestions(projectId, fragment, 8, options).map(shape);
         return [...directories, ...files].slice(0, 12);
       }
 
       case 'directory': return this.graph.directorySuggestions(projectId, fragment).map(shape);
       case 'sourceType': return this.graph.sourceTypeSuggestions(projectId, fragment).map(shape);
-      case 'address': return this.graph.addressSuggestions(projectId, fragment).map(shape);
+      case 'address': return this.graph.addressSuggestions(projectId, fragment, 12, options).map(shape);
 
       case 'duration': return DURATIONS
         .filter((entry) => !fragment || entry.value.startsWith(fragment.toLowerCase()))
@@ -256,9 +263,8 @@ export class TerminalCommandExecutor {
 
       case 'alias': {
         const wanted = String(fragment ?? '').toLowerCase();
-        return this.aliases.list(projectId)
-          .filter((alias) => alias.name.startsWith(wanted))
-          .map((alias) => ({ value: alias.name, kind: 'alias', detail: alias.address, preview: null }));
+        return this.graph.nameSuggestions(projectId, fragment, Number.MAX_SAFE_INTEGER, { ...options, diversify: false })
+          .filter((entry) => entry.kind === 'alias' && entry.name.startsWith(wanted)).map(shape);
       }
 
       case 'aliasName':

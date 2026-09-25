@@ -26,6 +26,8 @@ export function findCommand(context, command) {
     updatedWithinMs,
     includeContainers: flags.all === true,
     limit: Number(flags.limit) || 25,
+    documentPath: context.documentPath,
+    context: context.writingContext,
   });
 
   const filters = [
@@ -50,12 +52,15 @@ export function findCommand(context, command) {
     headline: plural(matches.length, 'match', 'matches'),
     subhead: namedSource ? `everything indexed from ${query}` : filters.length ? filters.join(' · ') : null,
     blocks: exact > 1 ? [text(`${exact} sources share the name ${query}. \`conflicts ${query}\` compares them.`, 'warn')] : [],
-    results: matches.map(({ object, matchKind }) => objectResult(object, {
-      graph: context.graph,
-      projectId: context.projectId,
-      // `exact` and `source` are what the query already said; only a looser
-      // kind of match is worth labelling.
-      badge: ['exact', 'source'].includes(matchKind) ? null : matchKind,
+    results: matches.map(({ object, matchKind, ranking }) => ({
+      ...objectResult(object, {
+        graph: context.graph,
+        projectId: context.projectId,
+        badge: ['exact', 'source'].includes(matchKind) ? null : matchKind,
+        extraLines: ranking?.reason ? [ranking.reason] : [],
+      }),
+      ranking,
+      reason: ranking?.reason ?? null,
     })),
     actions: [ACTION.inspect, ACTION.impact],
     data: { query, filters },

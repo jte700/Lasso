@@ -263,7 +263,9 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       if (request.method === 'POST' && parameters && terminal) {
         const body = await readJson(request);
         return sendJson(response, 200, {
-          result: terminal.executor.run(parameters[0], body.input, actorFrom(body)),
+          result: terminal.executor.run(parameters[0], body.input, actorFrom(body), {
+            documentPath: body.documentPath, context: body.context,
+          }),
         });
       }
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/terminal\/session$/);
@@ -273,7 +275,9 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/terminal\/complete$/);
       if (request.method === 'GET' && parameters && terminal) {
         return sendJson(response, 200, {
-          completion: terminal.executor.complete(parameters[0], url.searchParams.get('input') ?? ''),
+          completion: terminal.executor.complete(parameters[0], url.searchParams.get('input') ?? '', {
+            documentPath: url.searchParams.get('documentPath'), context: url.searchParams.get('context'),
+          }),
         });
       }
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/terminal\/preview$/);
@@ -289,7 +293,14 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       }
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/dependency-objects$/);
       if (request.method === 'GET' && parameters) {
-        return sendJson(response, 200, { objects: dependencies.search(parameters[0], url.searchParams.get('query') ?? '') });
+        return sendJson(response, 200, { objects: dependencies.search(parameters[0], url.searchParams.get('query') ?? '', {
+          documentPath: url.searchParams.get('documentPath'),
+        }) });
+      }
+      parameters = match(pathname, /^\/api\/projects\/([^/]+)\/recommendation-usage$/);
+      if (request.method === 'POST' && parameters) {
+        const body = await readJson(request);
+        return sendJson(response, 200, { usage: dependencies.recordRecommendationUsage(parameters[0], body) });
       }
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/dependencies\/batch$/);
       if (request.method === 'POST' && parameters) {

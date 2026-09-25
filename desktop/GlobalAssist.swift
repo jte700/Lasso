@@ -7,6 +7,7 @@
 //
 //  Requires Accessibility and Input Monitoring permission. Nothing is captured
 //  or stored: the focused text window is sent only to 127.0.0.1 and discarded.
+//  Accepted source identities and deliberate opens are recorded locally for ranking.
 
 import Cocoa
 import ApplicationServices
@@ -26,8 +27,52 @@ struct AssistSuggestion {
     let objectId: String?
     let versionId: String?
     let snapshotId: String?
+    /// Sentence completions retain source identity for usage without becoming shareable.
+    let usageObjectId: String?
+    let projectId: String
+    let rankingReason: String?
 
     var isShareable: Bool { objectId != nil }
+}
+
+/// Records successful, intentional source interactions. The session is stable
+/// for this native process; previews and suggestion impressions never call it.
+enum RecommendationUsageClient {
+    private static let sessionId = UUID().uuidString
+
+    static func record(serverURL: URL, projectId: String, objectId: String?, path: String? = nil,
+                       kind: String) {
+        var body: [String: Any] = ["kind": kind, "sessionId": sessionId]
+        if let objectId, !objectId.isEmpty {
+            body["objectId"] = objectId
+        } else if let path, !path.isEmpty {
+            body["path"] = path
+        } else { return }
+        var request = URLRequest(url: serverURL
+            .appendingPathComponent("api/projects")
+            .appendingPathComponent(projectId)
+            .appendingPathComponent("recommendation-usage"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.timeoutInterval = 3
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: request) { _, _, _ in }.resume()
+    }
+
+    /// A persisted highlight can belong to a project other than the active one.
+    /// Resolve its owning project before counting an explicit inspector open.
+    static func recordResolvedOpen(serverURL: URL, objectId: String) {
+        var request = URLRequest(url: serverURL.appendingPathComponent("api/dependency-objects")
+            .appendingPathComponent(objectId))
+        request.timeoutInterval = 3
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            guard (response as? HTTPURLResponse)?.statusCode == 200, let data,
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let object = root["object"] as? [String: Any],
+                  let projectId = object["projectId"] as? String else { return }
+            record(serverURL: serverURL, projectId: projectId, objectId: objectId, kind: "open")
+        }.resume()
+    }
 }
 
 /// What `Tab` does. Sharing is never implicit: the default inserts plain text
@@ -543,7 +588,9 @@ final class AssistBoxView: NSView {
                              color: .systemGreen, alignment: .right)
                 }
                 let source = (suggestion.path as NSString).lastPathComponent
-                drawText(source.isEmpty ? "Project workspace" : source,
+                let caption = [suggestion.rankingReason, source.isEmpty ? "Project workspace" : source]
+                    .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                drawText(caption,
                          in: NSRect(x: 49, y: row.minY + 28, width: row.width - 62, height: 14),
                          font: NSFont.systemFont(ofSize: 9, weight: .regular),
                          color: .tertiaryLabelColor)
@@ -882,7 +929,7 @@ final class GlobalAssistant {
 
         let task = URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
             guard let self, let data else { return }
-            let parsed = Self.parse(data, windowLength: Array(captured.text.utf16).count)
+            let parsed = Self.parse(data, windowLength: Array(captured.text.utf16).count, projectId: projectId)
             let heading = Self.heading(data)
             DispatchQueue.main.async {
                 guard token == self.generation else { return }
@@ -916,7 +963,7 @@ final class GlobalAssistant {
         return nil
     }
 
-    private static func parse(_ data: Data, windowLength: Int) -> [AssistSuggestion] {
+    private static func parse(_ data: Data, windowLength: Int, projectId: String) -> [AssistSuggestion] {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let prediction = root["prediction"] as? [String: Any] else { return [] }
 
@@ -926,6 +973,7 @@ final class GlobalAssistant {
         // nothing.
         if let completion = prediction["completion"] as? [String: Any],
            let insert = completion["insertText"] as? String, !insert.isEmpty {
+            let candidate = completion["dependencyCandidate"] as? [String: Any] ?? [:]
             let source = (completion["source"] as? [String: Any])?["path"] as? String ?? ""
             results.append(AssistSuggestion(
                 insertText: insert,
@@ -933,7 +981,10 @@ final class GlobalAssistant {
                 detail: "sentence",
                 path: source,
                 replaceFrom: nil,
-                objectId: nil, versionId: nil, snapshotId: nil))
+                objectId: nil, versionId: nil, snapshotId: nil,
+                usageObjectId: candidate["id"] as? String,
+                projectId: projectId,
+                rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String))
         }
 
         // Once a source is linked the server answers with its downstream values
@@ -956,10 +1007,13 @@ final class GlobalAssistant {
                     replaceFrom: nil,
                     objectId: candidate["id"] as? String,
                     versionId: candidate["versionId"] as? String,
-                    snapshotId: candidate["snapshotId"] as? String))
-                if results.count >= 6 { break }
+                    snapshotId: candidate["snapshotId"] as? String,
+                    usageObjectId: candidate["id"] as? String,
+                    projectId: projectId,
+                    rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String))
+                if results.count >= 5 { break }
             }
-            if results.count >= 6 { break }
+            if results.count >= 5 { break }
         }
 
         let claims = prediction["claims"] as? [[String: Any]] ?? []
@@ -984,7 +1038,10 @@ final class GlobalAssistant {
                     replaceFrom: start,
                     objectId: candidate["id"] as? String,
                     versionId: candidate["versionId"] as? String,
-                    snapshotId: candidate["snapshotId"] as? String))
+                    snapshotId: candidate["snapshotId"] as? String,
+                    usageObjectId: candidate["id"] as? String,
+                    projectId: projectId,
+                    rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String))
                 if results.count >= 5 { break }
             }
             if results.count >= 5 { break }
@@ -1221,6 +1278,7 @@ final class GlobalAssistant {
             }
         case .success(let verified):
             AssistLog.write("  ✓ insertion verified · document range \(verified.documentRange.lowerBound)..<\(verified.documentRange.upperBound)")
+            recordAcceptedUsage(suggestion)
             // The next suggestion should offer this source's values, not the
             // same phrase again.
             if let objectId = suggestion.objectId, let snapshotId = suggestion.snapshotId {
@@ -1290,6 +1348,7 @@ final class GlobalAssistant {
             let landed = Self.verifyInsertion(of: plan.text, in: element)
             self.isInserting = false
             if landed {
+                self.recordAcceptedUsage(suggestion)
                 let source = (suggestion.path as NSString).lastPathComponent
                 self.flash(["Linked dependency inserted", "\(source) · \(suggestion.detail)"])
             } else {
@@ -1300,6 +1359,13 @@ final class GlobalAssistant {
                 self.flash(["The link could not be inserted.", "The share was revoked; nothing was shared."])
             }
         }
+    }
+
+    private func recordAcceptedUsage(_ suggestion: AssistSuggestion) {
+        guard let serverURL else { return }
+        RecommendationUsageClient.record(serverURL: serverURL, projectId: suggestion.projectId,
+                                         objectId: suggestion.usageObjectId, path: suggestion.path,
+                                         kind: "accept")
     }
 
     private static func verifyInsertion(of text: String, in element: AXUIElement) -> Bool {
