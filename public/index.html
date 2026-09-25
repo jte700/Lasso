@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <title>CoLab Dry</title>
+    <title>Lasso</title>
     <script>
-      try { document.documentElement.dataset.theme = localStorage.getItem('colab.theme') || 'carbon'; }
+      try { document.documentElement.dataset.theme = localStorage.getItem('lasso.theme') ?? localStorage.getItem('colab.theme') ?? 'carbon'; }
       catch { document.documentElement.dataset.theme = 'carbon'; }
     </script>
     <link rel="stylesheet" href="/terminal.css?v=29" />
@@ -137,7 +137,7 @@
           <div><span class="eyebrow">Local workspace</span><h2>Index a project</h2></div>
           <button class="dialog-close toolbar-icon" type="button" data-close-dialog aria-label="Close">×</button>
         </header>
-        <p>CoLab reads the directory in place and keeps its version history separately.</p>
+        <p>Lasso reads the directory in place and keeps its version history separately.</p>
         <label>Directory path<input name="rootPath" type="text" placeholder="/Users/maya/Research" required /></label>
         <label>Project name <span>(optional)</span><input name="name" type="text" placeholder="Research workspace" /></label>
         <div class="dialog-error" data-dialog-error></div>
@@ -155,7 +155,7 @@
           <div><span class="eyebrow">Local identity</span><h2>Who is working?</h2></div>
           <button class="dialog-close toolbar-icon" type="button" data-close-dialog aria-label="Close">×</button>
         </header>
-        <p>This identity is recorded on future checkpoints. CoLab never infers authorship.</p>
+        <p>This identity is recorded on future checkpoints. Lasso never infers authorship.</p>
         <label>Display name<input name="displayName" type="text" required /></label>
         <label>Actor type
           <select name="actorType">

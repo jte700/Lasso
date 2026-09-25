@@ -9,7 +9,7 @@ import { diffInternals } from '../src/history/diff.js';
 
 const maya = { id: 'human:maya', displayName: 'Maya Chen', actorType: 'HUMAN_SELF' };
 const alex = { id: 'human:alex', displayName: 'Alex Rivera', actorType: 'HUMAN_COLLABORATOR' };
-const agent = { id: 'agent:writer', displayName: 'CoLab Writing Agent', actorType: 'AI_AGENT' };
+const agent = { id: 'agent:writer', displayName: 'Lasso Writing Agent', actorType: 'AI_AGENT' };
 
 function manuscriptAnchor(content, text) {
   const blocks = diffInternals.markdownBlocks(content);
@@ -26,7 +26,7 @@ function manuscriptAnchor(content, text) {
 }
 
 test('predictive provenance editor acceptance workflows', async (suite) => {
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-predictive-test-'));
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-predictive-test-'));
   const projectRoot = path.join(sandbox, 'IGFStudy');
   const dataDir = path.join(sandbox, 'history');
   fs.mkdirSync(path.join(projectRoot, 'manuscript'), { recursive: true });

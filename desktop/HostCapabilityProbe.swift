@@ -1,6 +1,6 @@
 //  Host capability probe.
 //
-//  Answers one question empirically, per application: can CoLab obtain the text
+//  Answers one question empirically, per application: can Lasso obtain the text
 //  and the on-screen geometry of an arbitrary committed range here?
 //
 //  This exists so the adapter strategy is validated against real hosts instead

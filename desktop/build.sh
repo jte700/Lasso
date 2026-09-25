@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# Builds CoLab Dry.app — a self-contained macOS menu bar application that
+# Builds Lasso.app — a self-contained macOS menu bar application that
 # bundles the server code and runs it locally on demand.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"
-APP="$DIST/CoLab Dry.app"
+APP="$DIST/Lasso.app"
 CONTENTS="$APP/Contents"
 RESOURCES="$CONTENTS/Resources"
-SUPPORT="$HOME/Library/Application Support/CoLab Dry"
+SUPPORT="$HOME/Library/Application Support/Lasso"
+PREVIOUS_SUPPORT="$HOME/Library/Application Support/CoLab Dry"
 
-NODE_BIN="${COLAB_NODE:-$(command -v node || true)}"
+NODE_BIN="${LASSO_NODE:-${COLAB_NODE:-$(command -v node || true)}}"
 if [ -z "$NODE_BIN" ]; then
-  echo "error: node was not found on PATH. Install Node 24+ or set COLAB_NODE." >&2
+  echo "error: node was not found on PATH. Install Node 24+ or set LASSO_NODE." >&2
   exit 1
 fi
 
@@ -31,7 +32,7 @@ SWIFT
 echo "==> Compiling the menu bar app"
 swiftc -O \
   -framework Cocoa -framework WebKit \
-  -o "$CONTENTS/MacOS/CoLabDry" \
+  -o "$CONTENTS/MacOS/Lasso" \
   "$ROOT/desktop/BuildConfig.swift" \
   "$ROOT/desktop/NativeMaterial.swift" \
   "$ROOT/desktop/SyntheticKeyboard.swift" \
@@ -47,7 +48,7 @@ swiftc -O \
   "$ROOT/desktop/WebText.swift" \
   "$ROOT/desktop/ShareInsertion.swift" \
   "$ROOT/desktop/GlobalAssist.swift" \
-  "$ROOT/desktop/CoLabDry.swift"
+  "$ROOT/desktop/Lasso.swift"
 
 echo "==> Bundling the server"
 for item in src public migrations package.json; do
@@ -60,12 +61,12 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>CoLab Dry</string>
-  <key>CFBundleDisplayName</key><string>CoLab Dry</string>
-  <key>CFBundleIdentifier</key><string>dry.colab.desktop</string>
+  <key>CFBundleName</key><string>Lasso</string>
+  <key>CFBundleDisplayName</key><string>Lasso</string>
+  <key>CFBundleIdentifier</key><string>com.jte700.lasso</string>
   <key>CFBundleVersion</key><string>1.0.0</string>
   <key>CFBundleShortVersionString</key><string>1.0.0</string>
-  <key>CFBundleExecutable</key><string>CoLabDry</string>
+  <key>CFBundleExecutable</key><string>Lasso</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
@@ -76,9 +77,9 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <!-- System-wide suggestions read the text around the caret and watch for
        keystrokes. Both are opt-in from the menu bar. -->
   <key>NSInputMonitoringUsageDescription</key>
-  <string>CoLab Dry watches for typing so it can suggest sources from your indexed project.</string>
+  <string>Lasso watches for typing so it can suggest sources from your indexed project.</string>
   <key>NSAccessibilityUsageDescription</key>
-  <string>CoLab Dry reads the text around your cursor so it can suggest sources and insert them.</string>
+  <string>Lasso reads the text around your cursor so it can suggest sources and insert them.</string>
 </dict>
 </plist>
 PLIST
@@ -86,14 +87,23 @@ printf 'APPL????' > "$CONTENTS/PkgInfo"
 
 # First run keeps the history recorded so far by `npm start` instead of
 # opening an empty workspace. Existing app data is never overwritten.
-if [ ! -d "$SUPPORT/data" ] && [ -d "$ROOT/.colab-dry-data" ]; then
-  echo "==> Seeding app data from $ROOT/.colab-dry-data"
-  mkdir -p "$SUPPORT"
-  cp -R "$ROOT/.colab-dry-data" "$SUPPORT/data"
+if [ ! -d "$SUPPORT/data" ]; then
+  if [ -d "$PREVIOUS_SUPPORT/data" ]; then
+    DATA_SEED="$PREVIOUS_SUPPORT/data"
+  elif [ -d "$ROOT/.lasso-data" ]; then
+    DATA_SEED="$ROOT/.lasso-data"
+  elif [ -d "$ROOT/.colab-dry-data" ]; then
+    DATA_SEED="$ROOT/.colab-dry-data"
+  fi
+  if [ -n "${DATA_SEED:-}" ]; then
+    echo "==> Seeding app data from $DATA_SEED"
+    mkdir -p "$SUPPORT"
+    cp -R "$DATA_SEED" "$SUPPORT/data"
+  fi
 fi
 
-LOCAL_SIGNING_IDENTITY="CoLab Dry Local Development"
-SIGNING_MODE="${COLAB_SIGN_MODE:-auto}"
+LOCAL_SIGNING_IDENTITY="Lasso Local Development"
+SIGNING_MODE="${LASSO_SIGN_MODE:-${COLAB_SIGN_MODE:-auto}}"
 if [ "$SIGNING_MODE" != "adhoc" ] && security find-identity -v -p codesigning 2>/dev/null | grep -Fq "\"$LOCAL_SIGNING_IDENTITY\""; then
   echo "==> Signing ($LOCAL_SIGNING_IDENTITY)"
   codesign --force --deep --sign "$LOCAL_SIGNING_IDENTITY" "$APP"

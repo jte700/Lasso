@@ -2331,7 +2331,7 @@ export class PredictiveProvenanceService {
       });
     }
     const destination = this.timeline.resolveProjectPath(project, relativePath);
-    const temporary = `${destination}.colab-document-${id()}.tmp`;
+    const temporary = `${destination}.lasso-document-${id()}.tmp`;
     fs.writeFileSync(temporary, String(input.content ?? ''), { flag: 'wx' });
     fs.renameSync(temporary, destination);
     return this.timeline.capture(projectId, actorInput, {
@@ -3461,7 +3461,7 @@ export class PredictiveProvenanceService {
       }
     }
     if (!changes.length) return { changed: false };
-    const system = { id: 'system:colab', displayName: 'CoLab', actorType: 'SYSTEM' };
+    const system = { id: 'system:lasso', displayName: 'Lasso', actorType: 'SYSTEM' };
     const source = changes.some((change) => change.status === 'STALE') ? 'DEPENDENCY_STALE'
       : changes.some((change) => change.status === 'NEEDS_REVIEW') ? 'DEPENDENCY_CHANGED' : 'DEPENDENCY_CHANGED';
     const title = changes.length === 1

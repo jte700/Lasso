@@ -26,7 +26,7 @@ function firstTableObject(application, projectId) {
 }
 
 test('externally shared dependencies', async (suite) => {
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-share-test-'));
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-share-test-'));
   const projectRoot = path.join(sandbox, 'Accounting');
   seedProject(projectRoot);
 

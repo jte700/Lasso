@@ -41,7 +41,7 @@ const elements = Object.fromEntries([
 
 function loadIdentity() {
   try {
-    return JSON.parse(localStorage.getItem('colab.identity')) ?? defaultIdentity();
+    return JSON.parse(localStorage.getItem('lasso.identity') ?? localStorage.getItem('colab.identity')) ?? defaultIdentity();
   } catch { return defaultIdentity(); }
 }
 
@@ -105,7 +105,7 @@ function initials(name) {
 
 function setIdentity(identity) {
   state.identity = identity;
-  localStorage.setItem('colab.identity', JSON.stringify(identity));
+  localStorage.setItem('lasso.identity', JSON.stringify(identity));
   elements['avatar-initials'].textContent = initials(identity.displayName);
   const sidebarName = document.getElementById('sidebar-identity-name');
   const sidebarRole = document.getElementById('sidebar-identity-role');
@@ -123,7 +123,7 @@ async function loadProjects(preferredId = null) {
   state.projects = projects;
   elements['project-select'].innerHTML = '<option value="">No project selected</option>' + projects
     .map((project) => `<option value="${project.id}">${escapeHtml(project.name)} · V${project.currentVersion}</option>`).join('');
-  const saved = preferredId ?? localStorage.getItem('colab.projectId');
+  const saved = preferredId ?? localStorage.getItem('lasso.projectId') ?? localStorage.getItem('colab.projectId');
   const project = projects.find((candidate) => candidate.id === saved) ?? projects[0] ?? null;
   if (project) await selectProject(project.id, true);
   else renderEmpty();
@@ -154,7 +154,7 @@ async function selectProject(projectId, reconcile = true) {
   state.project = nextProject;
   state.preview = null;
   state.selection = null;
-  localStorage.setItem('colab.projectId', projectId);
+  localStorage.setItem('lasso.projectId', projectId);
   elements['project-select'].value = projectId;
   if (reopenEditor) {
     elements['detail-column'].innerHTML = `<div class="detail-placeholder"><p>Opening ${escapeHtml(nextProject.name)} documents…</p></div>`;
@@ -210,10 +210,10 @@ function renderProjectContext() {
   elements['project-name'].textContent = current.name;
   elements['project-path'].textContent = current.rootPath;
   elements['project-path'].title = current.rootPath;
-  document.title = `${current.name} — CoLab Dry`;
+  document.title = `${current.name} — Lasso`;
   refreshShell();
   // Tell the macOS app which project system-wide suggestions should use.
-  window.webkit?.messageHandlers?.colab?.postMessage({ activeProjectId: current.id });
+  window.webkit?.messageHandlers?.lasso?.postMessage({ activeProjectId: current.id });
   elements['window-project-name'].textContent = current.name;
   elements['status-project'].textContent = current.name;
   elements['status-version'].textContent = `Version ${current.currentVersion}`;
@@ -472,7 +472,7 @@ function renderDocumentEditor() {
   if (!documentState) return;
   const fileLabel = documentState.fileType === 'document' ? 'DOCX' : String(documentState.fileType ?? 'text').toUpperCase();
   const editLayerNote = documentState.originalPreserved
-    ? `<div class="edit-layer-note"><strong>${escapeHtml(fileLabel)} original preserved</strong><span>You are editing a versioned CoLab text layer. The source file is never overwritten.</span></div>` : '';
+    ? `<div class="edit-layer-note"><strong>${escapeHtml(fileLabel)} original preserved</strong><span>You are editing a versioned Lasso text layer. The source file is never overwritten.</span></div>` : '';
   const documentOptions = state.editor.documents.map((document) => `<option value="${escapeHtml(document.path)}" ${document.path === documentState.path ? 'selected' : ''}>${escapeHtml(document.path.split('/').pop())}</option>`).join('');
   elements['detail-column'].innerHTML = `<div class="document-editor-view">
     <header class="editor-header">
@@ -1882,7 +1882,7 @@ async function loadPickerResults(query, dependency = null) {
   const parameters = new URLSearchParams({ query });
   if (state.editor.document?.path) parameters.set('documentPath', state.editor.document.path);
   const { objects } = await api(`/api/projects/${state.project.id}/dependency-objects?${parameters}`);
-  target.innerHTML = objects.length ? objects.map((object) => `<button class="picker-result" data-object-id="${object.id}" data-object-snapshot="${object.snapshotId}"><i class="object-type">${escapeHtml(object.objectType)}</i><span><strong>${escapeHtml(object.label)} ${object.valueText ? `<b>${escapeHtml(object.valueText)}</b>` : ''}</strong><small>${escapeHtml([object.path, object.ranking?.reason].filter(Boolean).join(' · '))}</small></span></button>`).join('') : '<div class="no-candidate"><strong>No matching project dependency found.</strong><span>CoLab will not invent a source.</span></div>';
+  target.innerHTML = objects.length ? objects.map((object) => `<button class="picker-result" data-object-id="${object.id}" data-object-snapshot="${object.snapshotId}"><i class="object-type">${escapeHtml(object.objectType)}</i><span><strong>${escapeHtml(object.label)} ${object.valueText ? `<b>${escapeHtml(object.valueText)}</b>` : ''}</strong><small>${escapeHtml([object.path, object.ranking?.reason].filter(Boolean).join(' · '))}</small></span></button>`).join('') : '<div class="no-candidate"><strong>No matching project dependency found.</strong><span>Lasso will not invent a source.</span></div>';
   target.querySelectorAll('[data-object-id]').forEach((button) => button.addEventListener('click', () => {
     const object = objects.find((candidate) => candidate.id === button.dataset.objectId && candidate.snapshotId === button.dataset.objectSnapshot);
     linkCandidate(state.editor.manualClaim, object, 'MANUAL', dependency);
@@ -2395,7 +2395,7 @@ function renderSharedDependency(shared) {
   const content = ['table', 'table-context'].includes(shared.content.kind)
     ? renderSharedTable(shared.content)
     : `<div class="shared-text"><p>${escapeHtml(shared.content.text)}</p></div>`;
-  shell.innerHTML = `<header class="shared-topbar"><a class="brand" href="/"><span class="brand-mark">C</span><span>CoLab Dry</span></a><span class="shared-access-badge">${contextOnly ? 'Cited context' : 'Full source'} access</span></header>
+  shell.innerHTML = `<header class="shared-topbar"><a class="brand" href="/"><span class="brand-mark">L</span><span>Lasso</span></a><span class="shared-access-badge">${contextOnly ? 'Cited context' : 'Full source'} access</span></header>
     <main class="shared-source-view">
       <section class="shared-source-card">
         <div class="shared-source-heading"><span class="eyebrow">Verified project source</span><h1>${escapeHtml(shared.source.label)}</h1><p>${escapeHtml(shared.source.path)}</p></div>
@@ -2414,7 +2414,7 @@ async function loadSharedDependency(token) {
     renderSharedDependency(shared);
   } catch (error) {
     const shell = document.querySelector('.app-shell');
-    shell.innerHTML = `<main class="shared-source-view"><section class="shared-source-card shared-unavailable"><span class="brand-mark">C</span><h1>Source link unavailable</h1><p>${escapeHtml(error.message)}</p><a href="/">Return to CoLab Dry</a></section></main>`;
+    shell.innerHTML = `<main class="shared-source-view"><section class="shared-source-card shared-unavailable"><span class="brand-mark">L</span><h1>Source link unavailable</h1><p>${escapeHtml(error.message)}</p><a href="/">Return to Lasso</a></section></main>`;
   }
 }
 
@@ -2427,12 +2427,12 @@ const THEMES = [
 ];
 
 function currentTheme() {
-  try { return localStorage.getItem('colab.theme') || 'carbon'; } catch { return 'carbon'; }
+  try { return localStorage.getItem('lasso.theme') ?? localStorage.getItem('colab.theme') ?? 'carbon'; } catch { return 'carbon'; }
 }
 
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
-  try { localStorage.setItem('colab.theme', theme); } catch { /* presentation only */ }
+  try { localStorage.setItem('lasso.theme', theme); } catch { /* presentation only */ }
 }
 
 /// Everything the workspace can do, as one flat list for the palette.
@@ -2511,7 +2511,7 @@ function refreshShell() {
   shell.sidebar?.set(directoriesFromProjects(), state.project?.id ?? null);
   shell.tabs?.set(tabsForWorkspace(), shell.activeTab);
   const chrome = document.getElementById('window-project-name');
-  if (chrome) chrome.textContent = state.project?.name ?? 'colab';
+  if (chrome) chrome.textContent = state.project?.name ?? 'lasso';
 }
 
 /// Return to the structured workspace overview.

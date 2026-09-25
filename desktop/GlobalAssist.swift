@@ -1,7 +1,7 @@
 //  System-wide predictive provenance.
 //
 //  Watches typing in any application, reads the text around the caret through
-//  the Accessibility API, asks the local CoLab Dry server for source-backed
+//  the Accessibility API, asks the local Lasso server for source-backed
 //  suggestions, and draws a terminal-style completion box next to the caret.
 //  Tab inserts the suggestion into whatever app is focused.
 //
@@ -148,9 +148,9 @@ struct CaretContext {
 
 enum AssistLog {
     private static let url = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Logs/CoLab Dry/assist.log")
+        .appendingPathComponent("Library/Logs/Lasso/assist.log")
     /// On by default while the feature settles; turn it off with
-    /// `defaults write dry.colab.desktop AssistDebug -bool false`.
+    /// `defaults write dry.lasso.desktop AssistDebug -bool false`.
     static var enabled = UserDefaults.standard.object(forKey: "AssistDebug") as? Bool ?? true
 
     static func write(_ line: String) {
@@ -539,7 +539,7 @@ final class AssistBoxView: NSView {
         NSColor.clear.setFill()
         bounds.fill()
 
-        drawText("CoLab", in: NSRect(x: 12, y: 11, width: 42, height: 16),
+        drawText("Lasso", in: NSRect(x: 12, y: 11, width: 42, height: 16),
                  font: NSFont.systemFont(ofSize: 10.5, weight: .semibold), color: .labelColor)
         let context = sourceScoped ? title.replacingOccurrences(of: "_", with: " ") : "Project sources"
         drawText(context, in: NSRect(x: 55, y: 11, width: bounds.width - 105, height: 16),
@@ -723,8 +723,8 @@ final class GlobalAssistant {
                                             stale: AssistPermission.isListedButUntrusted)
             AssistPermission.requestAccessibility()
             return lastProblem!.stale
-                ? "macOS still lists CoLab Dry under Accessibility, but the approval belongs to an earlier build of the app, so it no longer applies.\n\nIn Privacy & Security → Accessibility, select CoLab Dry, remove it with the “−” button, then add it again with “+”."
-                : "Turn on CoLab Dry under Privacy & Security → Accessibility, then enable this again."
+                ? "macOS still lists Lasso under Accessibility, but the approval belongs to an earlier build of the app, so it no longer applies.\n\nIn Privacy & Security → Accessibility, select Lasso, remove it with the “−” button, then add it again with “+”."
+                : "Turn on Lasso under Privacy & Security → Accessibility, then enable this again."
         }
         // Input Monitoring is not always required: a keyboard tap usually works
         // with Accessibility alone. Ask for it only if the tap actually fails.
@@ -747,7 +747,7 @@ final class GlobalAssistant {
             lastProblem = PermissionProblem(service: "Input Monitoring",
                                             settingsAnchor: "Privacy_ListenEvent",
                                             stale: false)
-            return "The keyboard tap could not be created.\n\nTurn on CoLab Dry under Privacy & Security → Input Monitoring. If it is already listed, remove it with “−” and add it again — approvals are tied to a specific build."
+            return "The keyboard tap could not be created.\n\nTurn on Lasso under Privacy & Security → Input Monitoring. If it is already listed, remove it with “−” and add it again — approvals are tied to a specific build."
         }
 
         tap = created
@@ -1385,7 +1385,7 @@ final class GlobalAssistant {
     private func flash(_ lines: [String], seconds: TimeInterval = 2.2) {
         let panel = existingPanel()
         view.mode = .message
-        view.title = "colab"
+        view.title = "lasso"
         view.messageLines = lines
         refreshPanelGeometry()
         panel.orderFrontRegardless()

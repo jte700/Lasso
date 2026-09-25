@@ -6,7 +6,7 @@
 // keyboard navigation through results, inline completion, a source preview for
 // whatever is highlighted, and the single-key actions a result offers.
 
-const HISTORY_KEY = 'colab.terminal.history';
+const HISTORY_KEY = 'lasso.terminal.history';
 const HISTORY_LIMIT = 200;
 
 function escapeHtml(value) {
@@ -16,7 +16,7 @@ function escapeHtml(value) {
 
 function loadHistory() {
   try {
-    const stored = JSON.parse(localStorage.getItem(HISTORY_KEY));
+    const stored = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? localStorage.getItem('colab.terminal.history'));
     return Array.isArray(stored) ? stored.slice(-HISTORY_LIMIT) : [];
   } catch { return []; }
 }

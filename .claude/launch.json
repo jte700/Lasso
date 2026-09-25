@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "colab",
+      "name": "lasso",
       "runtimeExecutable": "node",
       "runtimeArgs": ["--disable-warning=ExperimentalWarning", "src/server.js"],
       "port": 4317

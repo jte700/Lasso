@@ -9,10 +9,10 @@ import { UNKNOWN_MESSAGE } from '../src/history/rfi.js';
 
 const maya = { id: 'human:maya', displayName: 'Maya Chen', actorType: 'HUMAN_SELF' };
 const alex = { id: 'human:alex', displayName: 'Alex Rivera', actorType: 'HUMAN_COLLABORATOR' };
-const agent = { id: 'agent:stats', displayName: 'CoLab Stats Agent', actorType: 'AI_AGENT' };
+const agent = { id: 'agent:stats', displayName: 'Lasso Stats Agent', actorType: 'AI_AGENT' };
 
 test('scientific timeline and RFI acceptance workflows', async (suite) => {
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-timeline-test-'));
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-timeline-test-'));
   const projectRoot = path.join(sandbox, 'LungAtlas');
   const dataDir = path.join(sandbox, 'history');
   fs.mkdirSync(path.join(projectRoot, 'analysis'), { recursive: true });
@@ -91,7 +91,7 @@ test('scientific timeline and RFI acceptance workflows', async (suite) => {
     project = service.getProject(project.id);
     aiSnapshot = approved.snapshot;
     assert.equal(approved.event.actor.actorType, 'AI_AGENT');
-    assert.equal(approved.event.actor.displayName, 'CoLab Stats Agent');
+    assert.equal(approved.event.actor.displayName, 'Lasso Stats Agent');
     assert.equal(approved.event.initiatedBy.displayName, 'Maya Chen');
     assert.match(fs.readFileSync(path.join(projectRoot, 'README.md'), 'utf8'), /reduced IL-6 by 18%/);
   });
@@ -103,7 +103,7 @@ test('scientific timeline and RFI acceptance workflows', async (suite) => {
     const result = application.rfi.request(project.id, { snapshotId: aiSnapshot.id, path: 'README.md', anchor: item.anchor });
     assert.equal(result.selection.value, 'Treatment reduced IL-6 by 18%.');
     assert.equal(result.firstRecorded.version, aiSnapshot.version);
-    assert.equal(result.firstRecorded.actor.displayName, 'CoLab Stats Agent');
+    assert.equal(result.firstRecorded.actor.displayName, 'Lasso Stats Agent');
     assert.equal(result.firstRecorded.initiatedBy.displayName, 'Maya Chen');
     assert.equal(result.provenanceEstablished, true);
     assert.equal(result.provenance[0].relation, 'DERIVED_FROM');
