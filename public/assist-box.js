@@ -48,11 +48,12 @@ export const assistText = (body) => boxLine(body);
 
 export function assistRow(row, index, selected, attributes = '') {
   const source = String(row.path ?? '').split('/').pop() ?? '';
+  const caption = [source, row.reason].filter(Boolean).join(' · ');
   return `<button type="button" tabindex="-1" class="ab-row ${selected ? 'selected' : ''}"
       role="option" aria-selected="${selected}" data-completion-index="${index}" ${attributes}>
     <span class="ab-label">${escapeHtml(row.label)}</span>
     <b class="ab-detail">${escapeHtml(row.detail ?? '')}</b>
-    <span class="ab-source">${escapeHtml(source)}</span>
+    <span class="ab-source" title="${escapeHtml(caption)}">${escapeHtml(caption)}</span>
   </button>`;
 }
 

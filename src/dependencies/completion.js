@@ -70,7 +70,8 @@ export function buildSentenceCorpus(sources) {
   const seen = new Set();
   for (const source of sources) {
     for (const sentence of sourceSentences(source.text)) {
-      const fingerprint = sentence.toLowerCase().replace(/\W+/g, ' ').trim();
+      // Keep identical passages from different files available to the ranker.
+      const fingerprint = `${source.path}\u0000${sentence.toLowerCase().replace(/\W+/g, ' ').trim()}`;
       if (seen.has(fingerprint)) continue;
       seen.add(fingerprint);
       corpus.push({
@@ -198,7 +199,7 @@ function bestSemanticContinuation(fragment, queryTokens, entry) {
   return best;
 }
 
-export function completeSentence(corpus, input) {
+export function completeSentence(corpus, input, options = {}) {
   const text = String(input.text ?? '');
   const cursor = Number.isInteger(input.cursor) ? input.cursor : text.length;
   if (cursor !== text.length || /[.!?]\s*$/.test(text)) return null;
@@ -207,6 +208,7 @@ export function completeSentence(corpus, input) {
   if (fragment.length < 8 || queryTokens.length < 2) return null;
 
   let best = null;
+  const candidates = [];
   for (const entry of corpus) {
     if (input.documentPath && entry.path === input.documentPath) continue;
     const lowerSentence = entry.sentence.toLowerCase();
@@ -238,10 +240,17 @@ export function completeSentence(corpus, input) {
         : null,
       generated: false,
     };
+    if (options.rank) candidates.push(candidate);
     if (!best || candidate.confidence > best.confidence
       || (candidate.confidence === best.confidence && candidate.insertText.length < best.insertText.length)
       || (candidate.confidence === best.confidence && candidate.insertText.length === best.insertText.length
         && candidate.source.path.localeCompare(best.source.path) < 0)) best = candidate;
+  }
+  if (options.rank) {
+    candidates.sort((left, right) => right.confidence - left.confidence
+      || left.insertText.length - right.insertText.length
+      || left.source.path.localeCompare(right.source.path));
+    return options.rank(candidates)[0] ?? null;
   }
   return best;
 }

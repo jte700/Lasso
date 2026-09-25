@@ -56,6 +56,22 @@ Candidates are ranked by exact numeric/directional value match, equivalent perce
 
 When recorded lineage connects a result to code, the result remains the suggested supporting object and the originating file/version/line range is shown as secondary context. Navigation opens that immutable source version and focuses its exact line, cell, JSON path, or notebook-cell anchor. CoLab never infers an unrecorded code origin.
 
+## File recommendation ranking
+
+Typing predictions, sentence completions, the manual source picker, and terminal search/completion use the shared `RecommendationRanking` service in `src/dependencies/ranking.js`. The priorities are direct matches, current writing/query context, existing document relationships, recent deliberate use, and repeated use. Exact names beat prefixes. Source type, value equivalence, author/year constraints, exclusions, and explicit linked-source scope still determine which candidates are eligible.
+
+Within a match tier, relevance is divided into bands of 0.08. Document relationships take priority within a band, followed by relevance plus a usage boost capped at 0.06. Usage never changes the reported source confidence or makes a below-threshold candidate eligible. With no query, related sources lead, then recent use and repeated use. Remaining ties retain the deterministic source/year ordering. Each candidate exposes a short `ranking.reason` for the UI along with its relevance and usage contributions.
+
+Automatic typing suggestions show at most five eligible choices, across all returned groups. Weak or unrelated prose stays quiet. Broad results prefer multiple files and allow at most two choices per file when alternatives exist. A single eligible file and explicitly selected source drilldowns retain their choices. Individual bibliography entries count as distinct citable works in typing suggestions even when stored together. Identical sentences in different files remain available until ranking chooses the source.
+
+Only deliberate interactions contribute usage: successful human source acceptance or selection, and successful source/inspector opens. Passive suggestions, automatic previews, hover, arrow navigation, failed actions, and system-created links do not contribute. Browser and native clients send a stable page/process session ID; callers without one use a 30-minute server time bucket. Each file/action/session contributes frequency once. Repeated deliberate use refreshes recency, and use with additional documents retains those relationships without inflating frequency.
+
+Acceptances have weight 1 and opens weight 0.35. Recency has a three-day half-life; session frequency has a fourteen-day half-life and saturates. The usage boost is `0.04 * recentScore + 0.02 * frequencyScore`, capped at 0.06. These initial weights are deterministic tuning values, not calibrated probabilities.
+
+Migration `014_recommendation_usage.sql` adds local usage and document-association tables. Both are scoped to the project and use stable file identities, so history survives restart and renames. Human link/batch acceptance records usage in the same database transaction as the accepted dependency. Native insertion and deliberate UI opens call `POST /api/projects/:projectId/recommendation-usage` with `kind`, `sessionId`, an `objectId`, `dependencyId`, or indexed `path`, and optional `documentPath`. Source identities are checked against the requested project; recording usage does not create a project snapshot or publish anything.
+
+Regression coverage includes `test/recommendation-ranking.test.js`, `test/recommendation-integration.test.js`, and the terminal recommendation tests. They cover exact-match precedence, bounded learning, decay, session deduplication, document relationships, file diversity, source exclusions, project isolation, persistence, renames, passive reads, and API validation.
+
 ## Persistence and graph integration
 
 Migration `002_predictive_provenance.sql` adds:

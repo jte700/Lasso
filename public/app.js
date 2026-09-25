@@ -5,6 +5,8 @@ import { createDependencyShell } from './dependency-shell.js?v=4';
 import { renderAssistBox } from './assist-box.js?v=2';
 
 const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
+const RECOMMENDATION_SESSION_ID = crypto.randomUUID();
+const AUTOMATIC_SUGGESTION_LIMIT = 5;
 // The interface build, taken from this module's own cache-busting query. Shown
 // in the terminal banner so "which build am I running?" is answerable on sight.
 const UI_BUILD = new URL(import.meta.url).searchParams.get('v') ?? 'dev';
@@ -67,6 +69,21 @@ async function api(url, options = {}) {
     throw error;
   }
   return body;
+}
+
+function recordRecommendationUsage(source, kind, context = {}) {
+  const projectId = context.projectId ?? state.project?.id;
+  const identity = source?.objectId ? { objectId: source.objectId }
+    : source?.dependencyId ? { dependencyId: source.dependencyId }
+      : source?.path ? { path: source.path } : null;
+  if (!projectId || !identity) return;
+  void api(`/api/projects/${encodeURIComponent(projectId)}/recommendation-usage`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...identity, kind, sessionId: RECOMMENDATION_SESSION_ID,
+      documentPath: context.documentPath ?? state.editor.document?.path,
+    }),
+  }).catch(() => { /* Ranking history must never interrupt the requested action. */ });
 }
 
 function toast(message, type = '') {
@@ -219,11 +236,13 @@ function renderEmpty() {
 }
 
 async function showPreview(snapshotId, path, returnEventId = null, focusAnchor = null) {
+  const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
   try {
     const { preview } = await api(`/api/snapshots/${snapshotId}/preview?path=${encodeURIComponent(path)}`);
     state.preview = preview;
     state.selection = null;
     renderPreview(preview, returnEventId, focusAnchor);
+    recordRecommendationUsage({ path }, 'open', usageContext);
   } catch (error) { toast(error.message, 'error'); }
 }
 
@@ -1000,7 +1019,8 @@ async function predictForBlock(block) {
     if (controller.signal.aborted || state.editor.predictionController !== controller
       || !block.isConnected || block.textContent !== requestedText) return;
     if (prediction.sourceCompletions?.length && prediction.sourceContext?.source) {
-      const findings = prediction.sourceCompletions.map((finding) => ({ ...finding, block, requestedText }));
+      const findings = prediction.sourceCompletions.slice(0, AUTOMATIC_SUGGESTION_LIMIT)
+        .map((finding) => ({ ...finding, block, requestedText }));
       const first = findings[0];
       state.editor.prediction = {
         mode: 'SOURCE_FINDINGS',
@@ -1020,6 +1040,7 @@ async function predictForBlock(block) {
     }
     if (prediction.workspaceCompletions?.length) {
       const workspaceSuggestions = prediction.workspaceCompletions
+        .slice(0, AUTOMATIC_SUGGESTION_LIMIT)
         .map((suggestion) => ({ ...suggestion, block, requestedText }));
       const first = workspaceSuggestions[0];
       state.editor.prediction = {
@@ -1056,6 +1077,7 @@ async function predictForBlock(block) {
     }
     const claim = prediction.claims.find((candidate) => candidate.candidates.length);
     if (claim) {
+      claim.candidates = claim.candidates.slice(0, AUTOMATIC_SUGGESTION_LIMIT);
       const completesCitation = claim.type === 'LITERATURE' && claim.partial
         && claim.candidates.some((candidate) => candidate.citationText);
       const completesStudyVariable = claim.type === 'STUDY_VARIABLE' && claim.partial
@@ -1214,17 +1236,20 @@ function showPredictionCompletion() {
       label: finding.replacementText,
       detail: 'finding',
       path: prediction.sourceContext.source.path,
+      reason: finding.dependencyCandidate?.ranking?.reason,
     }))
     : workspaceMode
       ? prediction.workspaceSuggestions.map((suggestion) => ({
         label: suggestion.replacementText,
         detail: suggestion.dependencyCandidate?.valueText ?? suggestion.category ?? '',
         path: suggestion.dependencyCandidate?.path ?? '',
+        reason: suggestion.dependencyCandidate?.ranking?.reason,
       }))
       : candidates.map((candidate) => ({
         label: candidate.label,
         detail: candidate.displayValue ?? candidate.valueText ?? candidate.objectType ?? '',
         path: candidate.path,
+        reason: candidate.ranking?.reason,
       }));
 
   const canPick = !(completing || prediction.sourceContext?.exclusive);
@@ -1507,6 +1532,7 @@ async function saveDocument(options = {}) {
             links: pendingAtStart.map(({ localId, ...link }) => link),
             expectedSnapshotId: state.project.currentSnapshotId,
             actor: state.identity,
+            sessionId: RECOMMENDATION_SESSION_ID,
           }),
         });
         updateEditorVersion(linked.snapshot);
@@ -1562,6 +1588,7 @@ function createClaimAnchor(claim, textOverride = null) {
 async function linkCandidate(claim, candidate, selectionMethod, dependencyToChange = null, options = {}) {
   try {
     if (dependencyToChange) {
+      const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
       const project = (await api(`/api/projects/${state.project.id}`)).project;
       const result = await api(`/api/dependencies/${dependencyToChange.id}/revise`, {
         method: 'POST', body: JSON.stringify({
@@ -1575,6 +1602,7 @@ async function linkCandidate(claim, candidate, selectionMethod, dependencyToChan
       updateEditorVersion(result.snapshot);
       state.editor.document.dependencies = state.editor.document.dependencies
         .map((dependency) => dependency.id === dependencyToChange.id ? result.dependency : dependency);
+      recordRecommendationUsage({ objectId: candidate.id }, 'accept', usageContext);
       toast('Linked source changed');
       hideDependencyPicker();
       return;
@@ -1851,8 +1879,10 @@ function wordTokensForSearch(value) {
 async function loadPickerResults(query, dependency = null) {
   const target = document.getElementById('picker-results');
   if (!target) return;
-  const { objects } = await api(`/api/projects/${state.project.id}/dependency-objects?query=${encodeURIComponent(query)}`);
-  target.innerHTML = objects.length ? objects.map((object) => `<button class="picker-result" data-object-id="${object.id}" data-object-snapshot="${object.snapshotId}"><i class="object-type">${escapeHtml(object.objectType)}</i><span><strong>${escapeHtml(object.label)} ${object.valueText ? `<b>${escapeHtml(object.valueText)}</b>` : ''}</strong><small>${escapeHtml(object.path)}</small></span></button>`).join('') : '<div class="no-candidate"><strong>No matching project dependency found.</strong><span>CoLab will not invent a source.</span></div>';
+  const parameters = new URLSearchParams({ query });
+  if (state.editor.document?.path) parameters.set('documentPath', state.editor.document.path);
+  const { objects } = await api(`/api/projects/${state.project.id}/dependency-objects?${parameters}`);
+  target.innerHTML = objects.length ? objects.map((object) => `<button class="picker-result" data-object-id="${object.id}" data-object-snapshot="${object.snapshotId}"><i class="object-type">${escapeHtml(object.objectType)}</i><span><strong>${escapeHtml(object.label)} ${object.valueText ? `<b>${escapeHtml(object.valueText)}</b>` : ''}</strong><small>${escapeHtml([object.path, object.ranking?.reason].filter(Boolean).join(' · '))}</small></span></button>`).join('') : '<div class="no-candidate"><strong>No matching project dependency found.</strong><span>CoLab will not invent a source.</span></div>';
   target.querySelectorAll('[data-object-id]').forEach((button) => button.addEventListener('click', () => {
     const object = objects.find((candidate) => candidate.id === button.dataset.objectId && candidate.snapshotId === button.dataset.objectSnapshot);
     linkCandidate(state.editor.manualClaim, object, 'MANUAL', dependency);
@@ -1865,6 +1895,7 @@ function hideDependencyPicker() {
 }
 
 async function showDependencyInspector(dependencyId, sourceNode = null) {
+  const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
   const { dependency } = await api(`/api/dependencies/${dependencyId}`);
   const inspector = document.getElementById('dependency-inspector');
   if (!inspector) return;
@@ -1932,6 +1963,8 @@ async function showDependencyInspector(dependencyId, sourceNode = null) {
     </footer>
   </section>
   <div id="inspector-rfi"></div><div id="dependency-sharing"></div>`;
+
+  recordRecommendationUsage({ dependencyId }, 'open', usageContext);
 
   inspector.querySelector('.native-source-inspector')?.focus({ preventScroll: true });
   inspector.addEventListener('keydown', (event) => {
@@ -2055,6 +2088,7 @@ function renderDependencySourceViewer(dialog, viewer) {
 
 async function openDependencySourceViewer(dependencyOrId, sheet = null) {
   const dependencyId = typeof dependencyOrId === 'string' ? dependencyOrId : dependencyOrId.id;
+  const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
   const dialog = ensureDependencySourceViewer();
   const target = dialog.querySelector('#dependency-source-viewer-content');
   target.innerHTML = '<div class="source-viewer-loading"><span></span><strong>Opening indexed source…</strong></div>';
@@ -2064,6 +2098,7 @@ async function openDependencySourceViewer(dependencyOrId, sheet = null) {
     const { viewer } = await api(`/api/dependencies/${encodeURIComponent(dependencyId)}/viewer${query}`);
     if (!dialog.open) return;
     renderDependencySourceViewer(dialog, viewer);
+    if (!sheet) recordRecommendationUsage({ dependencyId }, 'open', usageContext);
   } catch (error) {
     target.innerHTML = `<div class="source-viewer-unavailable"><strong>Source viewer unavailable</strong><p>${escapeHtml(error.message)}</p><button id="close-dependency-source-viewer">Close</button></div>`;
     document.getElementById('close-dependency-source-viewer').addEventListener('click', () => dialog.close());
@@ -2534,7 +2569,9 @@ const dependencyShell = createDependencyShell({
   input: terminalInput,
   api,
   getProjectId: () => state.project?.id ?? null,
+  getDocumentPath: () => state.editor.document?.path ?? null,
   getActor: () => state.identity,
+  onRecommendationUsage: recordRecommendationUsage,
   build: UI_BUILD,
   onStatus: (message) => toast(message),
   onSession: (session) => {

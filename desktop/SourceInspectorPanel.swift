@@ -7,10 +7,13 @@
 import Cocoa
 import WebKit
 
-final class SourceInspectorPanel: NSObject, WKScriptMessageHandler {
+final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private var panel: NSPanel?
     private var webView: WKWebView?
     private var reference: DependencyReference?
+    private var serverURL: URL?
+    private var pendingNavigation: WKNavigation?
+    private var resolvedSuccessfully = false
 
     var onOpenSource: ((DependencyReference) -> Void)?
     var onShare: ((DependencyReference) -> Void)?
@@ -20,6 +23,9 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler {
 
     func show(_ reference: DependencyReference, near rect: CGRect, serverURL: URL) {
         self.reference = reference
+        self.serverURL = serverURL
+        resolvedSuccessfully = false
+        pendingNavigation = nil
         let panel = existingPanel()
 
         var components = URLComponents(url: serverURL.appendingPathComponent("inspect"),
@@ -29,7 +35,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler {
             URLQueryItem(name: "version", value: reference.versionId),
             URLQueryItem(name: "reference", value: reference.id),
         ]
-        if let url = components?.url { webView?.load(URLRequest(url: url)) }
+        if let url = components?.url { pendingNavigation = webView?.load(URLRequest(url: url)) }
 
         panel.setFrame(NSRect(origin: placement(for: rect), size: size), display: true)
         panel.orderFrontRegardless()
@@ -63,6 +69,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler {
         let web = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: configuration)
         web.autoresizingMask = [.width, .height]
         web.underPageBackgroundColor = .clear
+        web.navigationDelegate = self
         webView = web
 
         let created = NSPanel(
@@ -83,6 +90,25 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler {
             tint: NSColor.windowBackgroundColor.withAlphaComponent(0.10))
         panel = created
         return created
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+                 decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        if navigationResponse.isForMainFrame,
+           let response = navigationResponse.response as? HTTPURLResponse,
+           let responseURL = response.url,
+           let components = URLComponents(url: responseURL, resolvingAgainstBaseURL: false),
+           components.queryItems?.first(where: { $0.name == "object" })?.value == reference?.objectId {
+            resolvedSuccessfully = (200..<300).contains(response.statusCode)
+        }
+        decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard navigation === pendingNavigation, resolvedSuccessfully, isVisible,
+              let serverURL, let reference else { return }
+        pendingNavigation = nil
+        RecommendationUsageClient.recordResolvedOpen(serverURL: serverURL, objectId: reference.objectId)
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {

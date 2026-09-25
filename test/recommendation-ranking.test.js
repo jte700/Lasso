@@ -1,0 +1,293 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createConfig } from '../src/config.js';
+import { openDatabase } from '../src/db.js';
+import { TimelineService } from '../src/history/service.js';
+import { RecommendationRanking } from '../src/dependencies/ranking.js';
+
+const actor = { id: 'human:ranking', displayName: 'Ranking tester', actorType: 'HUMAN_SELF' };
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function fixture(t) {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-ranking-'));
+  const root = path.join(sandbox, 'project');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'alpha.csv'), 'id,value\nA,10\n');
+  fs.writeFileSync(path.join(root, 'beta.csv'), 'id,value\nB,20\n');
+  fs.writeFileSync(path.join(root, 'gamma.csv'), 'id,value\nC,30\n');
+  fs.writeFileSync(path.join(root, 'notes.md'), '# Notes\n\nThe result is 10.\n');
+  const config = createConfig({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
+  let time = Date.UTC(2026, 8, 12, 12);
+  const state = { sandbox, root, config };
+  function connect() {
+    state.db = openDatabase(config);
+    state.timeline = new TimelineService(state.db, config);
+    state.ranking = new RecommendationRanking(state.timeline, { now: () => time });
+  }
+  connect();
+  state.project = state.timeline.importProject(root, actor, { watch: false }).project;
+  state.advance = (milliseconds) => { time += milliseconds; };
+  state.restart = () => {
+    state.timeline.close();
+    state.db.close();
+    connect();
+  };
+  state.record = (filePath, kind = 'accept', sessionId, documentPath) => state.ranking.record(state.project.id, {
+    path: filePath, kind, sessionId, documentPath,
+  });
+  state.popular = (filePath, count = 30) => {
+    for (let i = 0; i < count; i += 1) state.record(filePath, 'accept', `session-${i}`);
+  };
+  state.rank = (candidates, options = {}) => state.ranking.rank(state.project.id, candidates, options);
+  state.usage = () => state.ranking.usage(state.project.id);
+  t.after(() => {
+    state.timeline.close();
+    state.db.close();
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  });
+  return state;
+}
+
+function candidate(filePath, score = 0.83, extra = {}) {
+  return { id: filePath, path: filePath, label: path.basename(filePath), score, ...extra };
+}
+
+test('exact matches beat popular prefix matches and context matches without changing relevance', (t) => {
+  const f = fixture(t);
+  f.popular('beta.csv');
+  const exact = candidate('alpha.csv', 0.81);
+  const context = candidate('beta.csv', 0.99, { matchTier: 1 });
+  const result = f.rank([context, exact], { query: 'alpha' });
+  assert.equal(result[0].path, 'alpha.csv');
+  assert.equal(result[0].score, 0.81);
+  assert.equal(result[0].ranking.relevanceScore, 0.81);
+  assert.equal(result[0].ranking.reason, 'Exact name match');
+  const prefix = candidate('beta.csv', 1, { label: 'alpha details', matchTier: 0 });
+  const exactWithSameScore = candidate('alpha.csv', 1);
+  assert.equal(f.rank([prefix, exactWithSameScore], { query: 'alpha' })[0].path, 'alpha.csv');
+});
+
+test('usage is additive, capped and restricted to close relevance bands and valid confidence', (t) => {
+  const f = fixture(t);
+  f.popular('beta.csv', 100);
+  const popular = candidate('beta.csv', 0.83, { matchTier: 1 });
+  const close = candidate('alpha.csv', 0.85, { matchTier: 1 });
+  const result = f.rank([close, popular], { query: 'results' });
+  assert.equal(result[0].path, 'beta.csv');
+  assert.ok(result[0].ranking.usageBoost <= 0.06);
+  assert.equal(result[0].score, 0.83);
+  assert.equal(f.rank([candidate('alpha.csv', 0.879), candidate('beta.csv', 0.81)], { query: 'results' })[0].path, 'alpha.csv');
+  assert.equal(f.rank([candidate('alpha.csv', 0.88), candidate('beta.csv', 0.879)], { query: 'results' })[0].path, 'alpha.csv');
+  assert.deepEqual(f.rank([candidate('alpha.csv', 0.85), candidate('beta.csv', 0.79)], {
+    query: 'results', minimumScore: 0.8,
+  }).map((item) => item.path), ['alpha.csv']);
+});
+
+test('acceptances count more than opens, repeat sessions contribute and activity decays', (t) => {
+  const f = fixture(t);
+  f.record('alpha.csv', 'open', 'session-1');
+  f.record('beta.csv', 'accept', 'session-1');
+  let usage = new Map(f.usage().map((item) => [item.path, item]));
+  assert.ok(usage.get('beta.csv').usageBoost > usage.get('alpha.csv').usageBoost);
+  const beforeRepeat = usage.get('beta.csv').usageBoost;
+  f.record('beta.csv', 'accept', 'session-2');
+  usage = new Map(f.usage().map((item) => [item.path, item]));
+  assert.ok(usage.get('beta.csv').usageBoost > beforeRepeat);
+  const freshBoost = usage.get('beta.csv').usageBoost;
+  f.advance(90 * DAY_MS);
+  assert.ok(f.usage().find((item) => item.path === 'beta.csv').usageBoost < freshBoost / 20);
+  f.record('alpha.csv', 'open', 'fresh-open');
+  assert.equal(f.rank([candidate('beta.csv'), candidate('alpha.csv')], { query: '' })[0].path, 'alpha.csv');
+});
+
+test('a file action is counted once per kind and session, including a server fallback session', (t) => {
+  const f = fixture(t);
+  assert.equal(f.record('alpha.csv', 'accept', 'same-session').recorded, true);
+  for (let i = 0; i < 20; i += 1) assert.equal(f.record('alpha.csv', 'accept', 'same-session').recorded, false);
+  assert.equal(f.record('alpha.csv', 'open', 'same-session').recorded, true);
+  assert.equal(f.record('alpha.csv', 'accept').recorded, true);
+  assert.equal(f.record('alpha.csv', 'accept').recorded, false);
+  f.advance(31 * 60 * 1000);
+  assert.equal(f.record('alpha.csv', 'accept').recorded, true);
+  assert.equal(f.record('alpha.csv', 'accept', 'same-session').recorded, false);
+  assert.equal(f.usage()[0].acceptedSessions, 3);
+  assert.equal(f.usage()[0].openedSessions, 1);
+});
+
+test('later use refreshes recency and retains multiple document relationships without inflating frequency', (t) => {
+  const f = fixture(t);
+  f.record('alpha.csv', 'accept', 'same-session', 'notes.md');
+  const original = f.usage()[0];
+  f.advance(10 * DAY_MS);
+  const oldUsage = f.usage()[0];
+  assert.equal(f.record('alpha.csv', 'accept', 'same-session', 'beta.csv').recorded, false);
+  const refreshed = f.usage()[0];
+  assert.equal(refreshed.acceptedSessions, 1);
+  assert.equal(refreshed.decayedFrequency, oldUsage.decayedFrequency);
+  assert.ok(refreshed.recentScore > oldUsage.recentScore);
+  assert.ok(refreshed.lastUsedAt > original.lastUsedAt);
+  assert.equal(refreshed.documentProjectFileIds.length, 2);
+  for (const documentPath of ['notes.md', 'beta.csv']) {
+    assert.equal(f.rank([candidate('gamma.csv', 0.85), candidate('alpha.csv', 0.82)], {
+      query: 'result', documentPath,
+    })[0].path, 'alpha.csv');
+  }
+});
+
+test('usage validates the project, indexed path, action and bounded session ID', (t) => {
+  const f = fixture(t);
+  assert.throws(() => f.record('missing.csv'), { status: 404 });
+  assert.throws(() => f.record('../alpha.csv'), { status: 404 });
+  assert.throws(() => f.record('alpha.csv', 'impression'), { status: 400 });
+  assert.throws(() => f.record('alpha.csv', 'open', 'x'.repeat(129)), { status: 400 });
+  assert.throws(() => f.record('alpha.csv', 'open', 'bad\nsession'), { status: 400 });
+  assert.throws(() => f.ranking.record('other-project', { path: 'alpha.csv', kind: 'open' }), { status: 404 });
+  assert.deepEqual(f.usage(), []);
+});
+
+test('usage is isolated between projects sharing filenames and persists after restart', (t) => {
+  const f = fixture(t);
+  const secondRoot = path.join(f.sandbox, 'second-project');
+  fs.mkdirSync(secondRoot);
+  fs.writeFileSync(path.join(secondRoot, 'alpha.csv'), 'id,value\nD,40\n');
+  const second = f.timeline.importProject(secondRoot, actor, { watch: false }).project;
+  f.record('alpha.csv', 'accept', 'same-session');
+  const before = f.usage();
+  assert.deepEqual(f.ranking.usage(second.id), []);
+  f.restart();
+  assert.deepEqual(f.usage(), before);
+  assert.equal(f.record('alpha.csv', 'accept', 'same-session').recorded, false);
+  assert.deepEqual(f.ranking.usage(second.id), []);
+});
+
+test('file and document renames retain usage and document co-use through stable IDs', (t) => {
+  const f = fixture(t);
+  const recorded = f.record('beta.csv', 'accept', 'co-use', 'notes.md');
+  fs.renameSync(path.join(f.root, 'beta.csv'), path.join(f.root, 'renamed.csv'));
+  fs.renameSync(path.join(f.root, 'notes.md'), path.join(f.root, 'draft.md'));
+  f.timeline.capture(f.project.id, actor);
+  const usage = f.usage()[0];
+  assert.equal(usage.path, 'renamed.csv');
+  assert.equal(usage.projectFileId, recorded.projectFileId);
+  const results = f.rank([candidate('alpha.csv', 0.85), candidate('renamed.csv', 0.82)], {
+    query: 'result', documentPath: 'draft.md',
+  });
+  assert.equal(results[0].path, 'renamed.csv');
+  assert.equal(results[0].ranking.reason, 'Used with this document');
+});
+
+test('explicit document relationships beat popularity within a close band', (t) => {
+  const f = fixture(t);
+  f.popular('alpha.csv');
+  const results = f.rank([candidate('alpha.csv', 0.86), candidate('beta.csv', 0.82)], {
+    query: 'result', documentPath: 'notes.md', relatedPaths: ['beta.csv'],
+  });
+  assert.equal(results[0].path, 'beta.csv');
+  assert.equal(results[0].ranking.reason, 'Used in this document');
+  assert.equal(results[0].ranking.usageBoost, 0);
+  assert.equal(f.rank([candidate('alpha.csv', 0.89), candidate('beta.csv', 0.82)], {
+    query: 'result', relatedPaths: ['beta.csv'],
+  })[0].path, 'alpha.csv');
+});
+
+// Persist actual versioned dependency rows to exercise latest-version and rename
+// resolution independently of the link route, which also records an acceptance.
+function seedRelationship(f) {
+  const p = f.timeline.getProject(f.project.id);
+  const document = f.timeline.snapshotFile(p.currentSnapshotId, 'notes.md');
+  f.db.prepare(`INSERT INTO scientific_objects (id, project_id, object_key, object_type, created_at)
+    VALUES ('ranking-object', ?, 'ranking-source', 'DATASET', '2026-09-12')`).run(p.id);
+  f.db.prepare(`INSERT INTO scientific_object_versions
+    (id, object_id, snapshot_id, path, label, search_text, content_hash, created_at)
+    VALUES ('ranking-object-version', 'ranking-object', ?, 'beta.csv', 'Beta', 'result beta', 'fixture-hash', '2026-09-12')`).run(p.currentSnapshotId);
+  f.db.prepare(`INSERT INTO claim_dependencies (id, project_id, document_project_file_id, created_at)
+    VALUES ('ranking-dependency', ?, ?, '2026-09-12')`).run(p.id, document.projectFileId);
+  f.db.prepare(`INSERT INTO claim_dependency_versions
+    (id, dependency_id, snapshot_id, document_snapshot_id, document_path, document_anchor_json,
+     span_text, source_object_id, source_snapshot_id, selection_method, status, created_by_actor_id, created_at)
+    VALUES ('ranking-dependency-version', 'ranking-dependency', ?, ?, 'notes.md', '{}', 'result',
+      'ranking-object', ?, 'IMPORTED', 'LINKED', ?, '2026-09-12')`)
+    .run(p.currentSnapshotId, p.currentSnapshotId, p.currentSnapshotId, actor.id);
+  return p.currentSnapshotId;
+}
+
+test('current linked sources are related after renames, while removed dependency versions are excluded', (t) => {
+  const f = fixture(t);
+  const originalSnapshot = seedRelationship(f);
+  const options = { query: 'result', documentPath: 'notes.md' };
+  assert.equal(f.rank([candidate('alpha.csv', 0.85), candidate('beta.csv', 0.82)], options)[0].path, 'beta.csv');
+  fs.renameSync(path.join(f.root, 'beta.csv'), path.join(f.root, 'renamed.csv'));
+  const captured = f.timeline.capture(f.project.id, actor);
+  const candidates = [candidate('alpha.csv', 0.85), candidate('renamed.csv', 0.82)];
+  assert.equal(f.rank(candidates, options)[0].path, 'renamed.csv');
+  f.db.prepare(`INSERT INTO claim_dependency_versions
+    (id, dependency_id, snapshot_id, document_snapshot_id, document_path, document_anchor_json,
+     span_text, source_object_id, source_snapshot_id, selection_method, status, created_by_actor_id, created_at, is_removed)
+    VALUES ('ranking-dependency-removed', 'ranking-dependency', ?, ?, 'notes.md', '{}', 'result',
+      'ranking-object', ?, 'IMPORTED', 'LINKED', ?, '2026-09-13', 1)`)
+    .run(captured.snapshot.id, captured.snapshot.id, originalSnapshot, actor.id);
+  assert.equal(f.rank(candidates, options)[0].path, 'alpha.csv');
+  assert.equal(f.rank(candidates, options)[1].ranking.relationship, false);
+  assert.deepEqual(f.usage(), []);
+});
+
+test('diversity includes other files, keeps exact matches first and preserves focused single-file choices', (t) => {
+  const f = fixture(t);
+  const alphaRows = Array.from({ length: 5 }, (_, index) => candidate('alpha.csv', 0.84, { id: `alpha-${index}`, matchTier: 1 }));
+  const others = [candidate('beta.csv', 0.83), candidate('gamma.csv', 0.82)];
+  const diversified = f.rank([...alphaRows, ...others], { query: 'result', limit: 8 });
+  assert.deepEqual(diversified.slice(0, 3).map((item) => item.path), ['alpha.csv', 'beta.csv', 'gamma.csv']);
+  assert.equal(diversified.filter((item) => item.path === 'alpha.csv').length, 2);
+  const directRows = alphaRows.map((item) => ({ ...item, matchTier: 0 }));
+  const exact = f.rank([...directRows, ...others], { query: 'alpha', limit: 4 });
+  assert.deepEqual(exact.slice(0, 2).map((item) => item.path), ['alpha.csv', 'alpha.csv']);
+  const prefix = candidate('beta.csv', 0.84, { label: 'alpha additional', matchTier: 0 });
+  const exactBeforePrefix = f.rank([prefix, ...directRows], { query: 'alpha', limit: 3 });
+  assert.deepEqual(exactBeforePrefix.map((item) => item.path), ['alpha.csv', 'alpha.csv', 'beta.csv']);
+  assert.equal(f.rank(alphaRows, { query: 'result', limit: 5 }).length, 5);
+  assert.equal(f.rank([...alphaRows, ...others], { query: 'result', diversify: false, limit: 8 }).length, 7);
+  const references = alphaRows.slice(0, 3).map((item) => ({ ...item, diversityKey: item.id }));
+  const referenceResults = f.rank([...references, ...others], { query: 'result', limit: 8 });
+  assert.equal(referenceResults.filter((item) => item.path === 'alpha.csv').length, 3);
+});
+
+test('no-query recommendations prioritize related sources, recency, then repeated sessions', (t) => {
+  const f = fixture(t);
+  f.record('alpha.csv', 'accept', 'old');
+  f.advance(10 * DAY_MS);
+  f.record('beta.csv', 'open', 'current');
+  assert.equal(f.rank([candidate('alpha.csv'), candidate('beta.csv')])[0].path, 'beta.csv');
+  assert.equal(f.rank([candidate('alpha.csv'), candidate('beta.csv')], { relatedPaths: ['alpha.csv'] })[0].path, 'alpha.csv');
+  f.record('gamma.csv', 'open', 'current');
+  f.record('gamma.csv', 'open', 'second');
+  assert.equal(f.rank([candidate('beta.csv'), candidate('gamma.csv')])[0].path, 'gamma.csv');
+});
+
+test('ranking is read-only, explains explicit context and retains genuine caller ties', (t) => {
+  const f = fixture(t);
+  const input = [candidate('gamma.csv', 0.8, { matchTier: 1 }), candidate('alpha.csv', 0.8, { matchTier: 1 })];
+  const original = structuredClone(input);
+  for (let index = 0; index < 5; index += 1) {
+    const results = f.rank(input);
+    assert.deepEqual(results.map((item) => item.path), ['gamma.csv', 'alpha.csv']);
+    assert.equal(results[0].ranking.reason, 'Matches your context');
+  }
+  assert.deepEqual(input, original);
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS count FROM recommendation_usage').get().count, 0);
+  const inferred = f.rank([{ path: 'alpha.csv', label: 'Alpha', id: 'alpha' }], { query: 'alpha' });
+  assert.equal(inferred[0].score, 1);
+  assert.equal(inferred[0].ranking.tier, 0);
+  const scientific = f.rank([candidate('alpha.csv', 0.9, {
+    label: 'Alpha result', matchTier: 0, reasons: ['Matching value'],
+  })], { query: 'result' });
+  assert.equal(scientific[0].ranking.reason, 'Matching value');
+});
+
+test('internal ranking retains the requested candidate pool before caller deduplication', (t) => {
+  const f = fixture(t);
+  const candidates = Array.from({ length: 1200 }, (_, index) => candidate('alpha.csv', 0.9, { id: `item-${index}` }));
+  assert.equal(f.rank(candidates, { query: 'result', limit: candidates.length, diversify: false }).length, 1200);
+});

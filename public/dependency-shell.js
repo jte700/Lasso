@@ -122,7 +122,7 @@ function renderPreview(preview) {
 
 // ── the shell ───────────────────────────────────────────────────────────────
 
-export function createDependencyShell({ host = null, input, api, getProjectId, getActor, onOpenDocument, onStatus, onSession, build = 'dev' }) {
+export function createDependencyShell({ host = null, input, api, getProjectId, getDocumentPath, getActor, onRecommendationUsage, onOpenDocument, onStatus, onSession, build = 'dev' }) {
   let hostNode = host;
   const state = {
     transcript: [],
@@ -225,7 +225,7 @@ export function createDependencyShell({ host = null, input, api, getProjectId, g
                   role="option" aria-selected="${index === state.completionIndex}" data-completion="${index}">
             <span class="dsh-completion-value">${escapeHtml(suggestion.value)}</span>
             <span class="dsh-completion-preview">${escapeHtml(suggestion.preview ?? '')}</span>
-            <span class="dsh-completion-detail">${escapeHtml(suggestion.detail ?? '')}</span>
+            <span class="dsh-completion-detail" title="${escapeHtml(suggestion.detail ?? '')}">${escapeHtml(suggestion.ranking?.reason ?? suggestion.detail ?? '')}</span>
           </button>`).join('')}
       </div>
       <div class="query-suggestion-foot">
@@ -270,10 +270,17 @@ export function createDependencyShell({ host = null, input, api, getProjectId, g
       return;
     }
     try {
-      const body = await api(`/api/projects/${encodeURIComponent(projectId)}/terminal/complete?input=${encodeURIComponent(value)}`);
+      const parameters = new URLSearchParams({ input: value });
+      const documentPath = getDocumentPath?.();
+      if (documentPath) parameters.set('documentPath', documentPath);
+      const body = await api(`/api/projects/${encodeURIComponent(projectId)}/terminal/complete?${parameters}`);
       // A response for a line the user has already moved past is discarded.
-      if (input.value !== value) return;
-      state.completion = body.completion;
+      if (input.value !== value || getProjectId() !== projectId) return;
+      state.completion = {
+        ...body.completion,
+        suggestions: (body.completion?.suggestions ?? []).slice(0, 5),
+        projectId, documentPath,
+      };
       state.completionIndex = 0;
       state.completionNavigated = false;
     } catch { state.completion = null; }
@@ -283,6 +290,10 @@ export function createDependencyShell({ host = null, input, api, getProjectId, g
   function applyCompletion() {
     const suggestion = state.completion?.suggestions?.[state.completionIndex];
     if (!suggestion) return false;
+    if (state.completion.projectId !== getProjectId()) {
+      closeCompletion();
+      return false;
+    }
     const fragment = state.completion.fragment ?? '';
     const value = input.value;
     const base = fragment ? value.slice(0, value.length - fragment.length) : value;
@@ -291,6 +302,11 @@ export function createDependencyShell({ host = null, input, api, getProjectId, g
     const literal = /\s/.test(suggestion.value) ? `"${suggestion.value}"` : suggestion.value;
     input.value = `${base}${spacer}${literal} `;
     input.setSelectionRange(input.value.length, input.value.length);
+    if (suggestion.objectId || suggestion.dependencyId || suggestion.path) {
+      onRecommendationUsage?.(suggestion, 'accept', {
+        projectId: state.completion.projectId, documentPath: state.completion.documentPath,
+      });
+    }
     // Accepting closes the box, the way a shell does. Typing reopens it, and so
     // does another Tab.
     closeCompletion();
@@ -346,7 +362,7 @@ export function createDependencyShell({ host = null, input, api, getProjectId, g
     try {
       const body = await api(`/api/projects/${encodeURIComponent(projectId)}/terminal`, {
         method: 'POST',
-        body: JSON.stringify({ input: value, actor: getActor?.() ?? null }),
+        body: JSON.stringify({ input: value, actor: getActor?.() ?? null, documentPath: getDocumentPath?.() }),
       });
       result = body.result;
     } catch (error) {
@@ -391,6 +407,14 @@ export function createDependencyShell({ host = null, input, api, getProjectId, g
 
   // ── actions on the selected result ────────────────────────────────────────
 
+  async function inspectSource(ref, command) {
+    const context = { projectId: getProjectId(), documentPath: getDocumentPath?.() };
+    const result = await run(command);
+    if (result?.ok && (ref.objectId || ref.dependencyId || ref.path)) {
+      onRecommendationUsage?.(ref, 'open', context);
+    }
+  }
+
   function inspectSelected() {
     const item = selectedItem();
     if (!item?.ref) return;
@@ -399,8 +423,8 @@ export function createDependencyShell({ host = null, input, api, getProjectId, g
       // A reference lives in a document, so inspecting it opens the document
       // at the claim rather than printing more terminal output.
       case 'dependency': onOpenDocument?.(item.title.includes('/') ? item.title : null, ref); break;
-      case 'object': run(`impact ${ref.name}`); break;
-      case 'objectVersion': run(`history ${ref.name}`); break;
+      case 'object': inspectSource(ref, `impact ${ref.name}`); break;
+      case 'objectVersion': inspectSource(ref, `history ${ref.name}`); break;
       case 'conflict': run(`conflicts ${ref.name}`); break;
       case 'share': window.open(ref.url, '_blank', 'noopener'); break;
       case 'indexFailure': run(`index retry ${ref.path}`); break;
@@ -425,8 +449,7 @@ export function createDependencyShell({ host = null, input, api, getProjectId, g
         return true;
       case 's':
       case 'i':
-        if (ref.kind === 'share') run(`trace ${ref.name}`);
-        else if (ref.name) run(`trace ${ref.name}`);
+        if (ref.name) inspectSource(ref, `trace ${ref.name}`);
         return true;
       case 'a':
         if (ref.name) run(`impact ${ref.name}`);
@@ -560,6 +583,7 @@ export function createDependencyShell({ host = null, input, api, getProjectId, g
     refresh: refreshSession,
     run,
     reset() {
+      closeCompletion();
       state.transcript = [];
       state.activeEntryIndex = -1;
       state.selected = -1;
