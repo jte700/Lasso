@@ -1,6 +1,6 @@
-//  CoLab Dry — macOS menu bar application.
+//  Lasso — macOS menu bar application.
 //
-//  The app lives in the status bar. It supervises the local CoLab Dry server as
+//  The app lives in the status bar. It supervises the local Lasso server as
 //  a background child process and shows the workspace in a WKWebView window.
 //  No application logic lives here: this is a native shell around the same
 //  local-first server that `npm start` runs.
@@ -72,7 +72,8 @@ func resolveNodePath() -> String? {
     let fileManager = FileManager.default
     var candidates: [String] = []
 
-    if let override = ProcessInfo.processInfo.environment["COLAB_NODE"] {
+    if let override = ProcessInfo.processInfo.environment["LASSO_NODE"]
+        ?? ProcessInfo.processInfo.environment["COLAB_NODE"] {
         candidates.append(override)
     }
     candidates.append(BuildConfig.nodePath)
@@ -149,7 +150,7 @@ final class ServerController {
         transition(.starting)
 
         guard let node = resolveNodePath() else {
-            transition(.failed("Node.js 24+ was not found. Install Node, or set COLAB_NODE to its path."))
+            transition(.failed("Node.js 24+ was not found. Install Node, or set LASSO_NODE to its path."))
             return
         }
         // Share links embed the port, so a stable one is preferred: links sent
@@ -172,7 +173,7 @@ final class ServerController {
 
         var environment = ProcessInfo.processInfo.environment
         environment["PORT"] = String(port)
-        environment["COLAB_DRY_DATA_DIR"] = dataDirectory
+        environment["LASSO_DATA_DIR"] = dataDirectory
         // Isolated here so shares can later be served from a hosted origin.
         environment["SHARE_BASE_URL"] = ProcessInfo.processInfo.environment["SHARE_BASE_URL"]
             ?? "http://localhost:\(port)"
@@ -191,7 +192,7 @@ final class ServerController {
             guard let self else { return }
             DispatchQueue.main.async {
                 if case .ready = self.state, finished.terminationReason != .uncaughtSignal || finished.terminationStatus != 0 {
-                    self.transition(.failed("The CoLab Dry server stopped. Use Restart Server to bring it back."))
+                    self.transition(.failed("The Lasso server stopped. Use Restart Server to bring it back."))
                 }
             }
         }
@@ -281,23 +282,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func applicationDidFinishLaunching(_ notification: Notification) {
         let resources = Bundle.main.resourceURL!.appendingPathComponent("app", isDirectory: true)
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("CoLab Dry", isDirectory: true)
+            .appendingPathComponent("Lasso", isDirectory: true)
+        let data = support.appendingPathComponent("data", isDirectory: true)
+        let previousData = support.deletingLastPathComponent()
+            .appendingPathComponent("CoLab Dry/data", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: data.path),
+           FileManager.default.fileExists(atPath: previousData.path) {
+            do {
+                try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: previousData, to: data)
+            } catch {
+                NSLog("Lasso could not copy previous app history: %@", error.localizedDescription)
+            }
+        }
         let logs = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/CoLab Dry/server.log")
+            .appendingPathComponent("Library/Logs/Lasso/server.log")
 
         buildStatusItem()
         buildWindow()
 
         server = ServerController(
             appDirectory: resources.path,
-            dataDirectory: support.appendingPathComponent("data", isDirectory: true).path,
+            dataDirectory: data.path,
             logURL: logs)
         server.onStateChange = { [weak self] state in self?.render(state) }
         server.start()
         startHighlighting()
     }
 
-    /// Local dependency highlights: CoLab's own visual layer over other apps.
+    /// Local dependency highlights: Lasso's own visual layer over other apps.
     private func startHighlighting() {
         let highlighter = DependencyHighlighter.shared
         highlighter.onInspect = { [weak self] reference, rect in
@@ -364,14 +377,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private func buildStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         guard let button = statusItem.button else { return }
-        if let symbol = NSImage(systemSymbolName: "apple.terminal", accessibilityDescription: "CoLab Dry")
-            ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: "CoLab Dry") {
+        if let symbol = NSImage(systemSymbolName: "apple.terminal", accessibilityDescription: "Lasso")
+            ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: "Lasso") {
             symbol.isTemplate = true
             button.image = symbol
         } else {
             button.title = ">_"
         }
-        button.toolTip = "CoLab Dry"
+        button.toolTip = "Lasso"
         button.target = self
         button.action = #selector(statusItemClicked(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -392,7 +405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         menu.addItem(statusLabelItem)
         menu.addItem(.separator())
 
-        let open = NSMenuItem(title: "Open CoLab Dry", action: #selector(openWindow), keyEquivalent: "o")
+        let open = NSMenuItem(title: "Open Lasso", action: #selector(openWindow), keyEquivalent: "o")
         open.target = self
         menu.addItem(open)
 
@@ -447,7 +460,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         menu.addItem(assistLog)
 
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit CoLab Dry", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit Lasso", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
 
@@ -473,7 +486,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false)
-        window.title = "CoLab Dry"
+        window.title = "Lasso"
         // Keep native window controls and behavior while the web view supplies
         // the compact utility toolbar and object-detail hierarchy.
         window.titlebarAppearsTransparent = true
@@ -485,14 +498,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 820, height: 560)
         window.delegate = self
-        window.setFrameAutosaveName("CoLabDryUtilityWindow")
+        window.setFrameAutosaveName("LassoUtilityWindow")
         window.center()
 
         let configuration = WKWebViewConfiguration()
-        configuration.applicationNameForUserAgent = "CoLabDryDesktop"
+        configuration.applicationNameForUserAgent = "LassoDesktop"
         // The page reports the active project so system-wide suggestions know
         // which indexed sources to draw from.
-        configuration.userContentController.add(self, name: "colab")
+        configuration.userContentController.add(self, name: "lasso")
         webView = WKWebView(frame: frame, configuration: configuration)
         webView.navigationDelegate = self
         webView.underPageBackgroundColor = .clear
@@ -533,7 +546,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             let escaped = message.replacingOccurrences(of: "<", with: "&lt;")
             webView.loadHTMLString(errorPage(escaped), baseURL: nil)
         case .starting:
-            if !hasLoaded { webView.loadHTMLString(errorPage("Starting the local CoLab Dry server…"), baseURL: nil) }
+            if !hasLoaded { webView.loadHTMLString(errorPage("Starting the local Lasso server…"), baseURL: nil) }
         }
     }
 
@@ -542,7 +555,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         <html><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
         background:#14171a;color:#8b96a1;font:13px ui-monospace,SFMono-Regular,Menlo,monospace;">
         <div style="text-align:center;max-width:60ch;line-height:1.7;">
-        <div style="color:#d4d7d9;">CoLab Dry</div><div>\(message)</div></div></body></html>
+        <div style="color:#d4d7d9;">Lasso</div><div>\(message)</div></div></body></html>
         """
     }
 
@@ -575,7 +588,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     @objc private func revealLog() {
         let log = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/CoLab Dry/server.log")
+            .appendingPathComponent("Library/Logs/Lasso/server.log")
         NSWorkspace.shared.activateFileViewerSelecting([log])
     }
 
@@ -587,7 +600,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     @objc private func revealAssistLog() {
         let log = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/CoLab Dry/assist.log")
+            .appendingPathComponent("Library/Logs/Lasso/assist.log")
         NSWorkspace.shared.activateFileViewerSelecting([log])
     }
 
@@ -597,7 +610,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "colab",
+        guard message.name == "lasso",
               let payload = message.body as? [String: Any],
               let projectId = payload["activeProjectId"] as? String else { return }
         GlobalAssistant.shared.projectId = projectId
@@ -649,7 +662,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 }
 
 @main
-struct CoLabDryApp {
+struct LassoApp {
     static func main() {
         let application = NSApplication.shared
         // Held for the lifetime of run(), which only returns on quit.

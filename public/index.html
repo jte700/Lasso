@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <title>CoLab Dry</title>
+    <title>Lasso</title>
     <script>
-      try { document.documentElement.dataset.theme = localStorage.getItem('colab.theme') || 'carbon'; }
+      try { document.documentElement.dataset.theme = localStorage.getItem('lasso.theme') ?? localStorage.getItem('colab.theme') ?? 'carbon'; }
       catch { document.documentElement.dataset.theme = 'carbon'; }
     </script>
     <link rel="stylesheet" href="/terminal.css?v=29" />
@@ -34,7 +34,7 @@
               </button>
             </header>
             <div class="directory-list" id="directory-list" role="listbox" aria-label="Projects"></div>
-            <footer><span id="status-version">No index yet</span><span id="status-identity">Maya Chen</span></footer>
+            <footer><span id="status-version">No index yet</span><span id="status-identity">Local user</span></footer>
           </div>
         </div>
 
@@ -52,7 +52,7 @@
             <svg viewBox="0 0 20 20"><path d="M10 3v9m0-9L6.5 6.5M10 3l3.5 3.5M5 10v5.5h10V10"/></svg>
           </button>
           <button id="identity-button" class="account-button" type="button" aria-label="Change active identity">
-            <span class="avatar-button"><span id="avatar-initials">MC</span></span>
+            <span class="avatar-button"><span id="avatar-initials">LU</span></span>
           </button>
         </div>
       </header>
@@ -102,7 +102,7 @@
             <span>Open document editor</span>
           </button>
           <button id="identity-rail" class="identity-row" type="button" tabindex="-1" aria-hidden="true">
-            <span class="identity-copy"><strong id="sidebar-identity-name">Maya Chen</strong><small id="sidebar-identity-role">Local workspace</small></span>
+            <span class="identity-copy"><strong id="sidebar-identity-name">Local user</strong><small id="sidebar-identity-role">Local workspace</small></span>
           </button>
         </aside>
 
@@ -137,8 +137,8 @@
           <div><span class="eyebrow">Local workspace</span><h2>Index a project</h2></div>
           <button class="dialog-close toolbar-icon" type="button" data-close-dialog aria-label="Close">×</button>
         </header>
-        <p>CoLab reads the directory in place and keeps its version history separately.</p>
-        <label>Directory path<input name="rootPath" type="text" placeholder="/Users/maya/Research" required /></label>
+        <p>Lasso reads the directory in place and keeps its version history separately.</p>
+        <label>Directory path<input name="rootPath" type="text" placeholder="/Users/you/Research" required /></label>
         <label>Project name <span>(optional)</span><input name="name" type="text" placeholder="Research workspace" /></label>
         <div class="dialog-error" data-dialog-error></div>
         <div class="dialog-actions">
@@ -151,11 +151,11 @@
     <dialog id="identity-dialog" class="modal small-modal utility-dialog">
       <form method="dialog" id="identity-form">
         <header class="dialog-heading">
-          <span class="dialog-icon identity-icon">MC</span>
+          <span class="dialog-icon identity-icon">LU</span>
           <div><span class="eyebrow">Local identity</span><h2>Who is working?</h2></div>
           <button class="dialog-close toolbar-icon" type="button" data-close-dialog aria-label="Close">×</button>
         </header>
-        <p>This identity is recorded on future checkpoints. CoLab never infers authorship.</p>
+        <p>This identity is recorded on future checkpoints. Lasso never infers authorship.</p>
         <label>Display name<input name="displayName" type="text" required /></label>
         <label>Actor type
           <select name="actorType">
@@ -171,6 +171,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=54"></script>
+    <script type="module" src="/app.js?v=55"></script>
   </body>
 </html>

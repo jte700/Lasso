@@ -25,7 +25,7 @@ function locatedClaim(content, expectedText) {
 }
 
 test('dependency autocomplete acceptance workflows', async (suite) => {
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-autocomplete-test-'));
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-autocomplete-test-'));
   const projectRoot = path.join(sandbox, 'RecoveryStudy');
   const dataDir = path.join(sandbox, 'history');
   for (const directory of ['manuscript', 'references', 'results', 'analysis', 'data', 'figures']) {

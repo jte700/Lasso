@@ -1,4 +1,4 @@
-# CoLab Dry predictive provenance
+# Lasso predictive provenance
 
 A local-first implementation of **predictive provenance**: it indexes a real project directory, completes scientific writing from that corpus, and links every claim to the exact source it came from. Versioning runs underneath so links stay immutable and go stale when their source changes.
 
@@ -12,9 +12,10 @@ Requirements: Node.js 24 or newer. There are no third-party runtime dependencies
 npm start
 ```
 
-Open `http://127.0.0.1:4317`, enter an absolute local directory path, and create Version 1. History is stored in `.colab-dry-data` by default, never inside a selected project unless that directory is explicitly configured as the data directory.
+Open `http://127.0.0.1:4317`, enter an absolute local directory path, and create Version 1. History is stored in `.lasso-data` by default, never inside a selected project unless that directory is explicitly configured as the data directory.
 
-Set `COLAB_DRY_DATA_DIR` to move the database and blob store. Set `COLAB_WATCH_DEBOUNCE_MS` to change the default 2.5-second watcher batching window.
+Set `LASSO_DATA_DIR` to move the database and blob store. Set `LASSO_WATCH_DEBOUNCE_MS` to change the default 2.5-second watcher batching window.
+An existing `.colab-dry-data` directory is still used when `.lasso-data` does not exist, so upgrading does not start an empty history.
 
 ## macOS app
 
@@ -22,7 +23,7 @@ Set `COLAB_DRY_DATA_DIR` to move the database and blob store. Set `COLAB_WATCH_D
 npm run desktop
 ```
 
-This builds `dist/CoLab Dry.app`: a status bar application that supervises the
+This builds `dist/Lasso.app`: a status bar application that supervises the
 same local server as a background child process and shows the workspace in a
 native window. There is no Dock icon — the app lives in the menu bar.
 
@@ -32,17 +33,17 @@ native window. There is no Dock icon — the app lives in the menu bar.
   `Reveal Server Log`, and `Quit`
 - the server listens on an unused loopback port, so it never collides with
   `npm start`
-- app history lives in `~/Library/Application Support/CoLab Dry/data`, seeded on
-  first build from `.colab-dry-data` when that directory exists
-- the server log is at `~/Library/Logs/CoLab Dry/server.log`
-- Node 24+ must be installed; set `COLAB_NODE` to override which binary is used
+- app history lives in `~/Library/Application Support/Lasso/data`, seeded on
+  first build from the previous app data or a local data directory when available
+- the server log is at `~/Library/Logs/Lasso/server.log`
+- Node 24+ must be installed; set `LASSO_NODE` to override which binary is used
 
 Move it to `/Applications` to keep it, and add it to Login Items to have it
 start automatically.
 
 ### Suggestions while typing anywhere
 
-The menu bar item has **Suggest While Typing Anywhere**. When enabled, CoLab Dry
+The menu bar item has **Suggest While Typing Anywhere**. When enabled, Lasso
 watches typing in any application, reads the text just before the caret, and
 draws a terminal-style completion box beside the cursor:
 
@@ -56,10 +57,10 @@ draws a terminal-style completion box beside the cursor:
 ```
 
 `Tab` inserts the value into whatever app is focused. Suggestions come from the
-project selected in the CoLab Dry window.
+project selected in the Lasso window.
 
 When a source-backed suggestion is accepted as plain text, the host application
-still contains ordinary text. CoLab stores the source identity and a contextual
+still contains ordinary text. Lasso stores the source identity and a contextual
 text anchor locally, then draws its own restrained wash and underline in a
 transparent AppKit layer above the host. The anchor follows edits and is hidden
 if it cannot be relocated confidently. Clicking the local highlight opens the
@@ -87,8 +88,8 @@ relies on each app exposing its text through the Accessibility API: native
 Cocoa apps and Word behave well, Chrome needs its accessibility tree enabled,
 and apps that expose nothing fall back to positioning near the pointer.
 
-Because the app is signed ad-hoc, macOS treats each rebuild as a new binary and
-the two permissions must be granted again after `npm run desktop`.
+Because the app is signed ad-hoc and has a new app identifier, macOS may ask
+for Accessibility and Input Monitoring permissions again after rebuilding.
 
 ### Sharing a dependency outside the app
 
@@ -135,10 +136,10 @@ plain text.
 1. Start the app and enable **Suggest While Typing Anywhere**.
 2. Open Gmail in Chrome and compose a message.
 3. Type `The expected cost of office sup` and wait for the overlay.
-4. Press `Tab`; confirm CoLab draws a local underline/wash over the accepted text.
+4. Press `Tab`; confirm Lasso draws a local underline/wash over the accepted text.
 5. Click that local highlight; confirm the draggable inspector shows the exact source.
 6. Choose **Open source**; confirm the indexed object/version opens.
-7. Inspect Gmail's content or open the draft without CoLab; it is still plain text with no link.
+7. Inspect Gmail's content or open the draft without Lasso; it is still plain text with no link.
 8. Delete it, retype the trigger, and press `⌘⏎`.
 9. Confirm only the label is now a real Gmail hyperlink.
 10. Send the message to another account and open it on this Mac.
@@ -276,7 +277,7 @@ structured results; the terminal view decides how to draw them.
 
 ### The interface
 
-CoLab Dry is a terminal workspace: macOS window chrome, a dense tab strip, a
+Lasso is a terminal workspace: macOS window chrome, a dense tab strip, a
 sidebar of directories the user has granted access to, a hairline divider, and a
 terminal panel filling the rest. There is no second, graphical interface.
 

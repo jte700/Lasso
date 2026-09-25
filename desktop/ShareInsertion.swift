@@ -36,7 +36,7 @@ enum ShareClient {
                   let token = share["token"] as? String,
                   let raw = share["url"] as? String,
                   let url = URL(string: raw) else {
-                completion(.failure(NSError(domain: "CoLabDry", code: 1, userInfo: [
+                completion(.failure(NSError(domain: "Lasso", code: 1, userInfo: [
                     NSLocalizedDescriptionKey: "The share could not be created.",
                 ])))
                 return

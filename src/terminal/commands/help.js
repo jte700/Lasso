@@ -56,7 +56,7 @@ export function helpCommand(context, command) {
   blocks.push(text('keys'), ...KEYS.map(([key, meaning]) => dim(`  ${key.padEnd(8)}${meaning}`)));
 
   return result('help', {
-    headline: 'CoLab Dependency Shell',
+    headline: 'Lasso Dependency Shell',
     blocks,
     hints: ['`help <command>` describes one command.'],
     data: { commands: context.registry.names() },

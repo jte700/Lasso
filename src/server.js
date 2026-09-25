@@ -53,7 +53,7 @@ const isEntryPoint = process.argv[1] && fileURLToPath(import.meta.url) === proce
 if (isEntryPoint) {
   const application = createApplication();
   application.server.listen(application.config.port, '127.0.0.1', () => {
-    console.log(`CoLab Dry timeline is running at http://127.0.0.1:${application.config.port}`);
+    console.log(`Lasso timeline is running at http://127.0.0.1:${application.config.port}`);
     console.log(`History data: ${application.config.dataDir}`);
   });
   const shutdown = () => application.close().finally(() => process.exit(0));

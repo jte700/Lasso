@@ -75,7 +75,7 @@ export function renderUnavailable(status) {
     SOURCE_MISSING: 'The source for this dependency is no longer available.',
   }[status] ?? 'This dependency link is invalid or no longer available.';
   return page('Dependency unavailable',
-    `<h1>CoLab Dry</h1><p class="unavailable">${escapeHtml(message)}</p>`);
+    `<h1>Lasso</h1><p class="unavailable">${escapeHtml(message)}</p>`);
 }
 
 export function renderSharePage(resolved, token, preview) {
@@ -104,7 +104,7 @@ export function renderSharePage(resolved, token, preview) {
          `<td class="${cell.cited ? 'cited' : ''}">${escapeHtml(cell.value)}</td>`)).join('')}</tr>`).join('')}</tbody></table>`
     : '';
 
-  return page(`${source.label} · CoLab Dry`, `
+  return page(`${source.label} · Lasso`, `
     <p class="kicker">Shared source</p>
     <h1>${escapeHtml(source.label)}</h1>
     <div class="frame">

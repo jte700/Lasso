@@ -5,7 +5,7 @@
 // component, but the boundaries are the same: the shell knows nothing about
 // provenance, and the workspace knows nothing about how it is framed.
 
-const SIDEBAR = { min: 210, max: 460, ratio: 0.245, key: 'colab.sidebarWidth' };
+const SIDEBAR = { min: 210, max: 460, ratio: 0.245, key: 'lasso.sidebarWidth' };
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (character) => (
@@ -96,7 +96,7 @@ export function createTabBar({ host, onSelect }) {
 export function createSidebarResize({ handle, root }) {
   const proportional = () => Math.round(
     Math.min(SIDEBAR.max, Math.max(SIDEBAR.min, window.innerWidth * SIDEBAR.ratio)));
-  const stored = Number(localStorage.getItem(SIDEBAR.key));
+  const stored = Number(localStorage.getItem(SIDEBAR.key) ?? localStorage.getItem('colab.sidebarWidth'));
   let width = Number.isFinite(stored) && stored >= SIDEBAR.min && stored <= SIDEBAR.max
     ? stored : proportional();
   // Until the user drags it, the sidebar keeps the reference's proportion.
@@ -156,11 +156,11 @@ export function renderSession({ project, identity, warnings = [] }) {
     <span class="empty-orb" aria-hidden="true"></span>
     <p class="empty-eyebrow">Private project intelligence</p>
     <h1>Bring a project into focus.</h1>
-    <p class="empty-copy">Index a local directory once. CoLab will make its documents,
+    <p class="empty-copy">Index a local directory once. Lasso will make its documents,
       datasets, figures, values, and citations available while you write anywhere.</p>
     <div class="empty-flow">
       <div><i>1</i><span><strong>Choose a project</strong><small>Use the project capsule above or the + button below.</small></span></div>
-      <div><i>2</i><span><strong>Let CoLab build the index</strong><small>Your files stay in place and remain local.</small></span></div>
+      <div><i>2</i><span><strong>Let Lasso build the index</strong><small>Your files stay in place and remain local.</small></span></div>
       <div><i>3</i><span><strong>Write without searching</strong><small>Accept source-backed suggestions with Tab.</small></span></div>
     </div>
     <div class="empty-user"><span>${escapeHtml((identity?.displayName ?? 'Local user').slice(0, 2).toUpperCase())}</span><p>Ready for ${escapeHtml(identity?.displayName ?? 'the local user')}</p></div>

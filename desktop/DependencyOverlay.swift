@@ -1,6 +1,6 @@
 //  The native highlight overlay.
 //
-//  CoLab owns this visual layer entirely: the host application's document is
+//  Lasso owns this visual layer entirely: the host application's document is
 //  never touched. A borderless, transparent, non-activating panel floats above
 //  the focused window and draws a thin underline beneath each linked phrase.
 //  Mouse events pass straight through except over a dependency, so the user

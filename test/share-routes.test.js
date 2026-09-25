@@ -8,7 +8,7 @@ import { createApplication } from '../src/server.js';
 const maya = { id: 'human:maya', displayName: 'Maya Chen', actorType: 'HUMAN_SELF' };
 
 test('public share routes', async (suite) => {
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-share-http-'));
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-share-http-'));
   const projectRoot = path.join(sandbox, 'Accounting');
   fs.mkdirSync(path.join(projectRoot, 'Finance'), { recursive: true });
   fs.writeFileSync(path.join(projectRoot, 'Finance', 'Income-Statement.csv'),

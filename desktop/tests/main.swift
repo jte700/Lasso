@@ -437,7 +437,7 @@ do {
 print("reference store")
 do {
     let url = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("colab-refs-\(UUID().uuidString).json")
+        .appendingPathComponent("lasso-refs-\(UUID().uuidString).json")
     let store = DependencyReferenceStore(url: url)
     let reference = DependencyReference(
         id: "ref_1", objectId: "obj_1", versionId: "v1",

@@ -1,4 +1,4 @@
-/* CoLab Dry · native macOS visual system
+/* Lasso · native macOS visual system
    This layer intentionally sits after the legacy styles while the product
    migrates away from its terminal prototype. It follows the system appearance,
    uses semantic surfaces, and keeps provenance controls informative but quiet. */

@@ -12,7 +12,7 @@ export function renderPdfFigurePage(buffer, identifier) {
     || !fs.existsSync('/usr/bin/osascript') || !fs.existsSync('/usr/bin/sips')) {
     throw new Error('PDF figure rendering requires macOS PDFKit.');
   }
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-pdf-figure-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-pdf-figure-'));
   const input = path.join(directory, 'source.pdf');
   const selectedPage = path.join(directory, 'selected-page.pdf');
   const output = path.join(directory, 'figure-page.png');
