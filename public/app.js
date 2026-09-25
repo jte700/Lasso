@@ -41,12 +41,15 @@ const elements = Object.fromEntries([
 
 function loadIdentity() {
   try {
-    return JSON.parse(localStorage.getItem('lasso.identity') ?? localStorage.getItem('colab.identity')) ?? defaultIdentity();
+    const saved = JSON.parse(localStorage.getItem('lasso.identity') ?? localStorage.getItem('colab.identity'));
+    // Earlier builds silently saved a fictional demo identity on first load.
+    if (saved?.id === 'human-self:maya-chen' && saved.displayName === 'Maya Chen') return defaultIdentity();
+    return saved ?? defaultIdentity();
   } catch { return defaultIdentity(); }
 }
 
 function defaultIdentity() {
-  return { id: 'human-self:maya-chen', displayName: 'Maya Chen', actorType: 'HUMAN_SELF' };
+  return { id: 'human-self:local-user', displayName: 'Local user', actorType: 'HUMAN_SELF' };
 }
 
 function identityId(name, type) {
