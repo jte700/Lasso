@@ -1,7 +1,7 @@
 import { caretPointForTextLengths, contextualCompletionCase } from './editor-acceptance.js';
 import { createCommandPalette } from './palette.js';
-import { createDirectorySidebar, createTabBar, createSidebarResize, createSpatialWorkbench, renderSession, shortenPath } from './shell.js?v=3';
-import { createDependencyShell } from './dependency-shell.js?v=4';
+import { createDirectorySidebar, createTabBar, createSidebarResize, createSpatialWorkbench, renderSession, shortenPath } from './shell.js?v=4';
+import { createSourceWorkbench } from './source-workbench.js?v=1';
 import { renderAssistBox } from './assist-box.js?v=2';
 
 const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
@@ -193,7 +193,7 @@ function renderProjectContext() {
   elements['project-name'].textContent = current.name;
   elements['project-path'].textContent = current.rootPath;
   elements['project-path'].title = current.rootPath;
-  document.title = `${current.name} — CoLab Dry`;
+  document.title = `${current.name} — Lasso`;
   refreshShell();
   // Tell the macOS app which project system-wide suggestions should use.
   window.webkit?.messageHandlers?.colab?.postMessage({ activeProjectId: current.id });
@@ -207,12 +207,13 @@ function renderProjectContext() {
 
 function renderEmpty() {
   state.project = null;
-  elements['project-name'].textContent = 'Scientific timeline';
+  elements['project-name'].textContent = 'Welcome to Lasso';
+  showSession();
   elements['project-path'].textContent = 'Choose a local directory to begin.';
   refreshShell();
   elements['editor-nav'].disabled = true;
   elements['ribbon-editor'].disabled = true;
-  elements['window-project-name'].textContent = 'Scientific workspace';
+  elements['window-project-name'].textContent = 'Choose a project';
   elements['status-project'].textContent = 'No project';
   elements['status-version'].textContent = 'No version';
   elements['status-files'].textContent = '0 files';
@@ -453,7 +454,7 @@ function renderDocumentEditor() {
   if (!documentState) return;
   const fileLabel = documentState.fileType === 'document' ? 'DOCX' : String(documentState.fileType ?? 'text').toUpperCase();
   const editLayerNote = documentState.originalPreserved
-    ? `<div class="edit-layer-note"><strong>${escapeHtml(fileLabel)} original preserved</strong><span>You are editing a versioned CoLab text layer. The source file is never overwritten.</span></div>` : '';
+    ? `<div class="edit-layer-note"><strong>${escapeHtml(fileLabel)} original preserved</strong><span>You are editing a versioned Lasso text layer. The source file is never overwritten.</span></div>` : '';
   const documentOptions = state.editor.documents.map((document) => `<option value="${escapeHtml(document.path)}" ${document.path === documentState.path ? 'selected' : ''}>${escapeHtml(document.path.split('/').pop())}</option>`).join('');
   elements['detail-column'].innerHTML = `<div class="document-editor-view">
     <header class="editor-header">
@@ -1852,7 +1853,7 @@ async function loadPickerResults(query, dependency = null) {
   const target = document.getElementById('picker-results');
   if (!target) return;
   const { objects } = await api(`/api/projects/${state.project.id}/dependency-objects?query=${encodeURIComponent(query)}`);
-  target.innerHTML = objects.length ? objects.map((object) => `<button class="picker-result" data-object-id="${object.id}" data-object-snapshot="${object.snapshotId}"><i class="object-type">${escapeHtml(object.objectType)}</i><span><strong>${escapeHtml(object.label)} ${object.valueText ? `<b>${escapeHtml(object.valueText)}</b>` : ''}</strong><small>${escapeHtml(object.path)}</small></span></button>`).join('') : '<div class="no-candidate"><strong>No matching project dependency found.</strong><span>CoLab will not invent a source.</span></div>';
+  target.innerHTML = objects.length ? objects.map((object) => `<button class="picker-result" data-object-id="${object.id}" data-object-snapshot="${object.snapshotId}"><i class="object-type">${escapeHtml(object.objectType)}</i><span><strong>${escapeHtml(object.label)} ${object.valueText ? `<b>${escapeHtml(object.valueText)}</b>` : ''}</strong><small>${escapeHtml(object.path)}</small></span></button>`).join('') : '<div class="no-candidate"><strong>No matching project dependency found.</strong><span>Lasso will not invent a source.</span></div>';
   target.querySelectorAll('[data-object-id]').forEach((button) => button.addEventListener('click', () => {
     const object = objects.find((candidate) => candidate.id === button.dataset.objectId && candidate.snapshotId === button.dataset.objectSnapshot);
     linkCandidate(state.editor.manualClaim, object, 'MANUAL', dependency);
@@ -2360,7 +2361,7 @@ function renderSharedDependency(shared) {
   const content = ['table', 'table-context'].includes(shared.content.kind)
     ? renderSharedTable(shared.content)
     : `<div class="shared-text"><p>${escapeHtml(shared.content.text)}</p></div>`;
-  shell.innerHTML = `<header class="shared-topbar"><a class="brand" href="/"><span class="brand-mark">C</span><span>CoLab Dry</span></a><span class="shared-access-badge">${contextOnly ? 'Cited context' : 'Full source'} access</span></header>
+  shell.innerHTML = `<header class="shared-topbar"><a class="brand" href="/"><span class="brand-mark">L</span><span>Lasso</span></a><span class="shared-access-badge">${contextOnly ? 'Cited context' : 'Full source'} access</span></header>
     <main class="shared-source-view">
       <section class="shared-source-card">
         <div class="shared-source-heading"><span class="eyebrow">Verified project source</span><h1>${escapeHtml(shared.source.label)}</h1><p>${escapeHtml(shared.source.path)}</p></div>
@@ -2379,12 +2380,13 @@ async function loadSharedDependency(token) {
     renderSharedDependency(shared);
   } catch (error) {
     const shell = document.querySelector('.app-shell');
-    shell.innerHTML = `<main class="shared-source-view"><section class="shared-source-card shared-unavailable"><span class="brand-mark">C</span><h1>Source link unavailable</h1><p>${escapeHtml(error.message)}</p><a href="/">Return to CoLab Dry</a></section></main>`;
+    shell.innerHTML = `<main class="shared-source-view"><section class="shared-source-card shared-unavailable"><span class="brand-mark">L</span><h1>Source link unavailable</h1><p>${escapeHtml(error.message)}</p><a href="/">Return to Lasso</a></section></main>`;
   }
 }
 
 
 const THEMES = [
+  { id: 'system', label: 'System', hint: 'Follow macOS appearance' },
   { id: 'carbon', label: 'Carbon', hint: 'warm near-black · amber' },
   { id: 'slate', label: 'Slate', hint: 'cool grey · blue' },
   { id: 'palenight', label: 'Palenight', hint: 'indigo · violet' },
@@ -2392,11 +2394,12 @@ const THEMES = [
 ];
 
 function currentTheme() {
-  try { return localStorage.getItem('colab.theme') || 'carbon'; } catch { return 'carbon'; }
+  try { return localStorage.getItem('colab.theme') || 'system'; } catch { return 'system'; }
 }
 
 function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.theme = theme === 'system'
+    ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'carbon' : 'alabaster') : theme;
   try { localStorage.setItem('colab.theme', theme); } catch { /* presentation only */ }
 }
 
@@ -2476,7 +2479,7 @@ function refreshShell() {
   shell.sidebar?.set(directoriesFromProjects(), state.project?.id ?? null);
   shell.tabs?.set(tabsForWorkspace(), shell.activeTab);
   const chrome = document.getElementById('window-project-name');
-  if (chrome) chrome.textContent = state.project?.name ?? 'colab';
+  if (chrome) chrome.textContent = state.project?.name ?? 'Choose a project';
 }
 
 /// Return to the structured workspace overview.
@@ -2485,13 +2488,14 @@ function showSession() {
   state.editor.document = null;
   setWorkspaceView('session');
   if (!state.project) {
-    // Nothing is indexed yet, so there is nothing to operate on.
+    // First-run workspace.
     elements['detail-column'].innerHTML = renderSession({
       project: null,
       documents: [],
       identity: state.identity,
-      warnings: ['no directory granted yet · use + add directory'],
+      warnings: [],
     });
+    document.getElementById('empty-add-project')?.addEventListener('click', () => openDialog(elements['import-dialog']));
     refreshShell();
     return;
   }
@@ -2500,7 +2504,7 @@ function showSession() {
   dependencyShell.mount();
   dependencyShell.refresh();
   // The prompt is this view's primary surface, so it takes focus with it.
-  if (shell.activeTab === 'session') dependencyShell.focus();
+
   refreshShell();
 }
 
@@ -2530,22 +2534,24 @@ const terminalInput = document.getElementById('terminal-input');
 
 // The terminal and the editor are two views of one dependency graph, so the
 // shell opens documents through the same path the sidebar does.
-const dependencyShell = createDependencyShell({
+const dependencyShell = createSourceWorkbench({
   input: terminalInput,
   api,
   getProjectId: () => state.project?.id ?? null,
   getActor: () => state.identity,
   build: UI_BUILD,
+  onOpenSource: (object) => {
+    if (object.snapshotId) { setWorkspaceView('source'); showPreview(object.snapshotId, object.path); }
+  },
   onStatus: (message) => toast(message),
   onSession: (session) => {
-    const review = session ? (session.changes ?? 0) + (session.stale ?? 0)
-      + (session.conflicts ?? 0) + (session.failures ?? 0) : 0;
+    const review = session ? (session.stale ?? 0) + (session.failures ?? 0) : 0;
     const sourceCount = document.getElementById('rail-source-count');
     const changeCount = document.getElementById('rail-change-count');
     const reviewCount = document.getElementById('rail-review-count');
     if (sourceCount) sourceCount.textContent = String(session?.files ?? 0);
-    if (changeCount) changeCount.textContent = String(session?.changes ?? 0);
-    if (reviewCount) reviewCount.textContent = String(review);
+    if (changeCount) changeCount.textContent = session?.changes ? String(session.changes) : '';
+    if (reviewCount) reviewCount.textContent = review ? String(review) : '';
   },
   onOpenDocument: (documentPath, reference) => {
     const target = documentPath ?? reference?.documentPath;
@@ -2559,7 +2565,7 @@ createSpatialWorkbench({
   projectTrigger: document.getElementById('project-pill'),
   projectPopover: document.getElementById('project-popover'),
   workspaceButton: document.getElementById('workspace-nav'),
-  onWorkspace: showSession,
+  onWorkspace: () => { showSession(); dependencyShell.run('index status'); },
 });
 document.querySelectorAll('[data-workspace-query]').forEach((button) => {
   button.addEventListener('click', () => {
@@ -2586,7 +2592,8 @@ window.addEventListener('keydown', (event) => {
   // ⌘K, and ⌘⇧P for hosts where the browser claims ⌘K first.
   if (modifier && (event.key.toLowerCase() === 'k' || (event.shiftKey && event.key.toLowerCase() === 'p'))) {
     event.preventDefault();
-    commandPalette.toggle();
+    if (!event.shiftKey) { event.stopImmediatePropagation(); terminalInput.focus(); terminalInput.select(); }
+    else commandPalette.toggle();
   }
 }, true);
 
@@ -2602,4 +2609,20 @@ else {
       return null;
     })
     .catch((error) => toast(error.message, 'error'));
+}
+
+// The native shell owns permissions and the actual running state.
+const writingAssist = document.getElementById('writing-assist-toggle');
+if (writingAssist && window.webkit?.messageHandlers?.colab) {
+  writingAssist.hidden = false;
+  window.addEventListener('lasso-assist-state', event => {
+    writingAssist.setAttribute('aria-checked', String(Boolean(event.detail?.enabled)));
+    writingAssist.disabled = false;
+  });
+  writingAssist.addEventListener('click', () => {
+    if (!state.project) { openDialog(elements['import-dialog']); return; }
+    writingAssist.disabled = true;
+    window.webkit.messageHandlers.colab.postMessage({action:'toggleSuggestions'});
+  });
+  window.webkit.messageHandlers.colab.postMessage({action:'suggestionState'});
 }

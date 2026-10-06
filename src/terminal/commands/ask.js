@@ -9,7 +9,7 @@ import { parseSince } from '../parser.js';
 import { blank, dim, fields, group, result, text } from '../result.js';
 import { formatMoment, plural } from './shared.js';
 
-const OUT_OF_SCOPE = 'This terminal queries and operates on indexed CoLab sources.';
+const OUT_OF_SCOPE = 'This terminal queries and operates on indexed Lasso sources.';
 
 // Things people ask an assistant, which this is not.
 const GENERATIVE = /\b(write|draft|compose|rewrite|summari[sz]e|translate|explain how to|generate|invent|brainstorm|tell me a|poem|joke|story|email|essay|code for)\b/i;

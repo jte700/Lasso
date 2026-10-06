@@ -17,6 +17,7 @@ struct DependencyShare {
 /// insertion mechanics so neither depends on the other.
 enum ShareClient {
     static func createShare(serverURL: URL, projectId: String, objectId: String, versionId: String?,
+                            configuration: ShareConfiguration = .entireDocument,
                             completion: @escaping (Result<DependencyShare, Error>) -> Void) {
         var request = URLRequest(url: serverURL
             .appendingPathComponent("api/projects/\(projectId)/object-shares"))
@@ -25,6 +26,8 @@ enum ShareClient {
         request.timeoutInterval = 5
         var payload: [String: Any] = ["objectId": objectId]
         if let versionId { payload["versionId"] = versionId }
+        payload["accessScope"] = configuration.scope.rawValue
+        payload["redactions"] = configuration.redactions.map(\.payload)
         request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
 
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -36,7 +39,7 @@ enum ShareClient {
                   let token = share["token"] as? String,
                   let raw = share["url"] as? String,
                   let url = URL(string: raw) else {
-                completion(.failure(NSError(domain: "CoLabDry", code: 1, userInfo: [
+                completion(.failure(NSError(domain: "Lasso", code: 1, userInfo: [
                     NSLocalizedDescriptionKey: "The share could not be created.",
                 ])))
                 return
@@ -124,4 +127,39 @@ enum RichTextInserter {
     private static func paste() {
         SyntheticKeyboard.paste()
     }
+}
+enum ShareAccessScope: String {
+    case document = "DOCUMENT"
+    case indexed = "INDEXED"
+    case redacted = "REDACTED"
+}
+
+enum ShareRedactionEffect: String {
+    case blur = "BLUR"
+    case blank = "BLANK"
+}
+
+struct ShareRedaction: Hashable {
+    let kind: String
+    let sheet: Int?
+    let row: Int?
+    let column: Int?
+    let block: Int?
+    let effect: ShareRedactionEffect
+
+    var payload: [String: Any] {
+        var value: [String: Any] = ["kind": kind, "effect": effect.rawValue]
+        if let sheet { value["sheet"] = sheet }
+        if let row { value["row"] = row }
+        if let column { value["column"] = column }
+        if let block { value["block"] = block }
+        return value
+    }
+}
+
+struct ShareConfiguration {
+    let scope: ShareAccessScope
+    let redactions: [ShareRedaction]
+
+    static let entireDocument = ShareConfiguration(scope: .document, redactions: [])
 }

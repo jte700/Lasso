@@ -42,6 +42,11 @@ const STYLE = `
   th:last-child,td:last-child{border-right:0}tr:last-child td{border-bottom:0}th{color:var(--text3);font-weight:650}
   td.cited{background:color-mix(in srgb,var(--accent) 13%,var(--paper));box-shadow:inset 0 0 0 2px var(--accent);font-weight:700}
   .notice{margin-top:20px;color:var(--text3);font-size:11px}.unavailable{color:var(--red)}
+  .privacy-preview{display:flex;flex-wrap:wrap;gap:5px;margin-top:16px;padding:13px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+  .privacy-block{padding:3px 5px;border-radius:5px;background:var(--paper);font-size:11px}.redaction{display:inline-block;min-width:42px;border-radius:4px;background:rgba(120,120,128,.2);color:var(--text3);text-align:center;user-select:none}
+  .redaction.blur{filter:blur(1.7px);letter-spacing:2px}.redaction.blank{color:transparent;background:rgba(120,120,128,.12)}
+  td.redacted-cell{background:rgba(120,120,128,.1)!important;box-shadow:none!important}
+  .full-document{margin-top:16px}.full-document h2{margin:18px 0 7px;font-size:13px}.full-document .document-table{display:block;max-height:520px;overflow:auto;border:1px solid var(--line);border-radius:10px}.full-document .document-table table{width:max-content;min-width:100%;margin:0;border:0;border-radius:0}.full-document .document-table tr:first-child td{position:sticky;top:0;background:var(--paper);font-weight:650}.full-document .document-text{display:grid;gap:7px}.full-document .document-block{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);line-height:1.5}
   body.inspector{padding:20px;background:transparent}.inspector main{max-width:none}.inspector h1{font-size:17px}
   .inspector .frame{margin-top:14px;padding:15px;border:1px solid var(--line);border-radius:13px;background:color-mix(in srgb,var(--surface) 60%,transparent);box-shadow:none}
   .inspector dl{grid-template-columns:78px minmax(0,1fr);gap:7px 10px}.inspector .notice{margin:14px 2px 4px}
@@ -73,49 +78,116 @@ export function renderUnavailable(status) {
     REVOKED: 'This dependency link has been revoked.',
     EXPIRED: 'This dependency link has expired.',
     SOURCE_MISSING: 'The source for this dependency is no longer available.',
+    SCOPE_RESTRICTED: 'This link does not permit downloading the original document.',
   }[status] ?? 'This dependency link is invalid or no longer available.';
   return page('Dependency unavailable',
-    `<h1>CoLab Dry</h1><p class="unavailable">${escapeHtml(message)}</p>`);
+    `<h1>Lasso</h1><p class="unavailable">${escapeHtml(message)}</p>`);
 }
 
-export function renderSharePage(resolved, token, preview) {
+function shareScopeName(scope) {
+  return {
+    DOCUMENT: 'Entire document',
+    INDEXED: 'Indexed part only',
+    REDACTED: 'Complete document with redactions',
+  }[scope] ?? 'Indexed part only';
+}
+
+function previewTextBlocks(value) {
+  const words = String(value ?? '').trim().split(/\s+/).filter(Boolean);
+  const blocks = [];
+  for (let index = 0; index < words.length; index += 7) {
+    blocks.push(words.slice(index, index + 7).join(' '));
+  }
+  return blocks;
+}
+
+function findRedaction(redactions, kind, coordinates) {
+  return redactions.find((entry) => entry.kind === kind
+    && Object.entries(coordinates).every(([key, value]) => (
+      key === 'sheet' ? (entry[key] ?? 0) === value : entry[key] === value
+    )));
+}
+
+function maskedValue(value, redaction) {
+  if (!redaction) return escapeHtml(value);
+  const effect = redaction.effect === 'BLANK' ? 'blank' : 'blur';
+  const placeholder = effect === 'blank' ? '&nbsp;' : '••••••';
+  return `<span class="redaction ${effect}" aria-label="Redacted">${placeholder}</span>`;
+}
+
+function renderFullDocument(document, redactions) {
+  if (document?.kind === 'table' && document.sheets?.length) {
+    return `<div class="full-document">${document.sheets.map((sheet, sheetIndex) => (
+      `<section><h2>${escapeHtml(sheet.name || `Sheet ${sheetIndex + 1}`)}</h2>
+       <div class="document-table"><table><tbody>${sheet.rows.map((row, rowIndex) => (
+         `<tr>${row.map((cell, column) => {
+           const mask = findRedaction(redactions, 'CELL', { sheet: sheetIndex, row: rowIndex, column });
+           return `<td class="${mask ? 'redacted-cell' : ''}">${maskedValue(cell, mask)}</td>`;
+         }).join('')}</tr>`)).join('')}</tbody></table></div></section>`
+    )).join('')}</div>`;
+  }
+  if (document?.kind === 'text' && document.blocks?.length) {
+    return `<div class="full-document document-text">${document.blocks.map((block, index) => {
+      const mask = findRedaction(redactions, 'BLOCK', { block: index });
+      return `<div class="document-block">${maskedValue(block, mask)}</div>`;
+    }).join('')}</div>`;
+  }
+  return '<div class="privacy-preview">A complete preview could not be rendered for this file type.</div>';
+}
+
+export function renderSharePage(resolved, token, preview, document = null) {
   const { source, share } = resolved;
+  const scope = share.accessScope ?? 'DOCUMENT';
+  const redacted = scope === 'REDACTED';
+  const redactions = redacted ? (share.redactions ?? []) : [];
   const spreadsheet = ['DATASET_ROW', 'DATASET_CELL', 'TABLE_CELL', 'DATASET_COLUMN'].includes(source.objectType)
     || /\.(xlsx?|csv|tsv)$/i.test(source.filename);
 
   const rows = [];
-  if (source.valueText) rows.push(['Value', `<dd class="value">${escapeHtml(source.valueText)}</dd>`]);
+  if (!redacted && source.valueText) {
+    rows.push(['Value', `<dd class="value">${escapeHtml(source.valueText)}</dd>`]);
+  }
   if (spreadsheet) {
     rows.push(['Workbook', `<dd>${escapeHtml(source.filename)}</dd>`]);
     const sheet = source.anchor?.sheet ?? source.metadata?.sheet;
-    if (sheet) rows.push(['Sheet', `<dd>${escapeHtml(sheet)}</dd>`]);
-    rows.push(['Cell', `<dd>${escapeHtml(source.location)}</dd>`]);
+    if (sheet && !redacted) rows.push(['Sheet', `<dd>${escapeHtml(sheet)}</dd>`]);
+    if (!redacted) rows.push(['Cell', `<dd>${escapeHtml(source.location)}</dd>`]);
   } else {
     rows.push(['Source', `<dd>${escapeHtml(source.filename)}</dd>`]);
-    rows.push(['Location', `<dd>${escapeHtml(source.location)}</dd>`]);
+    if (!redacted) rows.push(['Location', `<dd>${escapeHtml(source.location)}</dd>`]);
   }
-  rows.push(['Context', `<dd>${escapeHtml(source.context)}</dd>`]);
+  if (!redacted) rows.push(['Context', `<dd>${escapeHtml(source.context)}</dd>`]);
+  rows.push(['Access', `<dd>${escapeHtml(shareScopeName(scope))}</dd>`]);
   rows.push(['Version', `<dd>Version ${escapeHtml(source.snapshotVersion)}</dd>`]);
   rows.push(['Shared', `<dd>${escapeHtml(formatDate(share.createdAt))}</dd>`]);
 
-  const table = preview?.headers?.length
+  const table = !redacted && preview?.headers?.length
     ? `<table><thead><tr>${preview.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead>
        <tbody>${preview.rows.map((row) => `<tr>${row.cells.map((cell) => (
          `<td class="${cell.cited ? 'cited' : ''}">${escapeHtml(cell.value)}</td>`)).join('')}</tr>`).join('')}</tbody></table>`
     : '';
+  const documentPreview = redacted ? renderFullDocument(document, redactions) : '';
 
-  return page(`${source.label} · CoLab Dry`, `
+  const download = scope === 'DOCUMENT'
+    ? `<div class="actions"><a class="action" href="/d/${encodeURIComponent(token)}/download">Download original</a></div>`
+    : '';
+  const notice = scope === 'DOCUMENT'
+    ? 'This link contains the pinned original document.'
+    : scope === 'INDEXED'
+      ? 'This link exposes only the indexed source context. The original document cannot be downloaded.'
+      : 'This link contains the complete document view with the marked areas removed. The original cannot be downloaded.';
+
+  return page(`${source.label} · Lasso`, `
     <p class="kicker">Shared source</p>
     <h1>${escapeHtml(source.label)}</h1>
     <div class="frame">
       <dl>${rows.map(([term, definition]) => `<dt>${escapeHtml(term)}</dt>${definition}`).join('')}</dl>
       ${table}
-      <div class="actions">
-        <a class="action" href="/d/${encodeURIComponent(token)}/download">Download original</a>
-      </div>
+      ${documentPreview}
+      ${download}
     </div>
-    <p class="notice">This link shows one recorded source version. It stays as it was when shared,
-    even if the file has changed since.</p>
+    <p class="notice">${escapeHtml(notice)} It stays at Version ${escapeHtml(source.snapshotVersion)},
+    even if the workspace source changes later.</p>
   `);
 }
 
@@ -154,7 +226,7 @@ export function renderInspectorPanel(resolved, reference, preview) {
 
       <footer class="inspector-toolbar">
         <button data-action="open"><span>↗</span>Open source</button>
-        <button data-action="share"><span>⌁</span>Share context</button>
+        <button data-action="share"><span>⌁</span>Share…</button>
         <button data-action="unlink" class="destructive"><span>×</span>Unlink</button>
       </footer>
     </section>

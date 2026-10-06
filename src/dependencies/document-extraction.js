@@ -3,6 +3,7 @@ import { inflateRawSync, inflateSync } from 'node:zlib';
 const MAX_PDF_METADATA_BYTES = 32_000_000;
 const MAX_PDF_BODY_BYTES = 3_000_000;
 const MAX_TEXT_EXCERPT = 20_000;
+const MAX_FULL_DOCUMENT_TEXT = 5_000_000;
 
 function decodeXml(value = '') {
   return String(value)
@@ -301,7 +302,7 @@ function textFromPdfContent(content, fonts, unicodeByFont) {
   return output.join(' ');
 }
 
-function structuredPdfText(buffer) {
+function structuredPdfText(buffer, limit = MAX_TEXT_EXCERPT) {
   const objects = pdfObjects(buffer);
   const unicodeByObject = new Map();
   for (const [objectId, object] of objects) {
@@ -321,11 +322,11 @@ function structuredPdfText(buffer) {
       if (text) output.push(text);
     }
   }
-  return cleanText(output.join(' '));
+  return cleanText(output.join(' '), limit);
 }
 
-function pdfTextFromStreams(buffer, acceptAny = false) {
-  const structured = structuredPdfText(buffer);
+function pdfTextFromStreams(buffer, acceptAny = false, limit = MAX_TEXT_EXCERPT) {
+  const structured = structuredPdfText(buffer, limit);
   if (usefulPdfExcerpt(structured)) return structured;
   const scan = buffer.subarray(0, Math.min(buffer.length, MAX_PDF_BODY_BYTES));
   const source = scan.toString('latin1');
@@ -360,7 +361,7 @@ function pdfTextFromStreams(buffer, acceptAny = false) {
   const unicodeMaps = decodedStreams.map(pdfUnicodeMap).filter(Boolean);
   for (const content of decodedStreams) {
     if (!/\b(?:BT|Tj|TJ)\b/.test(content)) continue;
-    for (let index = 0; index < content.length && outputLength < MAX_TEXT_EXCERPT; index += 1) {
+    for (let index = 0; index < content.length && outputLength < limit; index += 1) {
       if (content[index] !== '(') continue;
       const parsed = pdfLiteralAt(content, index);
       if (!parsed) continue;
@@ -368,15 +369,19 @@ function pdfTextFromStreams(buffer, acceptAny = false) {
       if (readablePdfText(parsed.value)) { output.push(parsed.value); outputLength += parsed.value.length + 1; }
     }
     for (const match of content.matchAll(/<([0-9a-f\s]{4,})>/gi)) {
-      if (outputLength >= MAX_TEXT_EXCERPT) break;
+      if (outputLength >= limit) break;
       const decoded = decodePdfHexText(match[1], unicodeMaps);
       if (!decoded) continue;
       output.push(decoded);
       outputLength += decoded.length + 1;
     }
   }
-  const result = cleanText(output.join(' '));
+  const result = cleanText(output.join(' '), limit);
   return acceptAny || usefulPdfExcerpt(result) ? result : '';
+}
+
+export function extractPdfFullText(buffer) {
+  return pdfTextFromStreams(buffer, true, MAX_FULL_DOCUMENT_TEXT);
 }
 
 function pdfScanSource(buffer) {
@@ -486,6 +491,19 @@ export function extractDocxDocument(buffer) {
     };
   } catch {
     return { authors: [], author: null, title: null, subject: null, year: null, doi: null, keywords: null, textExcerpt: '', extraction: 'DOCX_UNREADABLE' };
+  }
+}
+
+export function extractDocxFullText(buffer) {
+  try {
+    const documentXml = zipEntry(buffer, 'word/document.xml')?.toString('utf8') ?? '';
+    const structured = documentXml.replace(/<w:tab\b[^>]*\/>/gi, '\t')
+      .replace(/<w:br\b[^>]*\/>/gi, '\n').replace(/<\/w:p>/gi, '\n');
+    const text = [...structured.matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/gi)]
+      .map((match) => decodeXml(match[1])).join(' ').replace(/\s+\n/g, '\n');
+    return cleanText(text, MAX_FULL_DOCUMENT_TEXT);
+  } catch {
+    return '';
   }
 }
 

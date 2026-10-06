@@ -37,6 +37,32 @@ test('public share routes', async (suite) => {
     assert.equal((await fetch(`${base}/api/dependency-objects/not-real`)).status, 404);
   });
 
+  await suite.test('the native overlay previews the selected source document', async () => {
+    const response = await fetch(
+      `${base}/api/dependency-objects/${object.object_id}/preview?version=${object.version_id}`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.source.filename, 'Income-Statement.csv');
+    assert.equal(body.path, 'Finance/Income-Statement.csv');
+    assert.deepEqual(body.preview.columns, ['A', 'B', 'C']);
+    assert.ok(body.preview.rows.some((row) => row.cells.some((cell) => cell.cited)));
+    assert.equal((await fetch(`${base}/api/dependency-objects/not-real/preview`)).status, 404);
+  });
+
+  await suite.test('select and redact loads the complete source document', async () => {
+    const response = await fetch(
+      `${base}/api/dependency-objects/${object.object_id}/document?version=${object.version_id}`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.document.kind, 'table');
+    assert.equal(body.document.sheets.length, 1);
+    assert.equal(body.document.sheets[0].rows.length, 3);
+    assert.deepEqual(body.document.sheets[0].rows[0],
+      ['Account', 'Current Period', 'Prior Period']);
+    assert.ok(body.document.sheets[0].rows.flat().includes('Payroll taxes'));
+    assert.equal((await fetch(`${base}/api/dependency-objects/not-real/document`)).status, 404);
+  });
+
   let token;
   await suite.test('the overlay creates a share through the API', async () => {
     const response = await fetch(`${base}/api/projects/${project.id}/object-shares`, {
@@ -67,6 +93,46 @@ test('public share routes', async (suite) => {
     assert.equal(response.headers.get('content-disposition'),
       'attachment; filename="Income-Statement.csv"');
     assert.match(await response.text(), /Office Supplies,400/);
+  });
+
+  await suite.test('indexed-only links cannot download the original document', async () => {
+    const created = await fetch(`${base}/api/projects/${project.id}/object-shares`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        objectId: object.object_id, versionId: object.version_id, actor: maya,
+        accessScope: 'INDEXED',
+      }),
+    });
+    const share = (await created.json()).share;
+    const page = await fetch(`${base}/d/${share.token}`);
+    const html = await page.text();
+    assert.equal(page.status, 200);
+    assert.match(html, /Indexed part only/);
+    assert.doesNotMatch(html, /Download original/);
+    assert.equal((await fetch(`${base}/d/${share.token}/download`)).status, 403);
+  });
+
+  await suite.test('redacted links omit masked values and block the original', async () => {
+    const created = await fetch(`${base}/api/projects/${project.id}/object-shares`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        objectId: object.object_id, versionId: object.version_id, actor: maya,
+        accessScope: 'REDACTED',
+        redactions: [{ kind: 'CELL', sheet: 0, row: 1, column: 1, effect: 'BLUR' }],
+      }),
+    });
+    assert.equal(created.status, 201);
+    const share = (await created.json()).share;
+    const page = await fetch(`${base}/d/${share.token}`);
+    const html = await page.text();
+    assert.match(html, /Complete document with redactions/);
+    assert.match(html, /aria-label="Redacted"/);
+    assert.match(html, />225</);
+    assert.doesNotMatch(html, />400</);
+    assert.doesNotMatch(html, /Download original/);
+    assert.equal((await fetch(`${base}/d/${share.token}/download`)).status, 403);
   });
 
   await suite.test('unknown and malformed tokens do not leak anything', async () => {

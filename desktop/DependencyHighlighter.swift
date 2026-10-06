@@ -33,7 +33,7 @@ final class DependencyHighlighter {
 
     private init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("CoLab Dry", isDirectory: true)
+            .appendingPathComponent("Lasso", isDirectory: true)
         store = DependencyReferenceStore(url: support.appendingPathComponent("references.json"))
     }
 

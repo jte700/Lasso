@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Builds CoLab Dry.app — a self-contained macOS menu bar application that
+# Builds Lasso.app — a self-contained macOS menu bar application that
 # bundles the server code and runs it locally on demand.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"
-APP="$DIST/CoLab Dry.app"
+APP="$DIST/Lasso.app"
 CONTENTS="$APP/Contents"
 RESOURCES="$CONTENTS/Resources"
-SUPPORT="$HOME/Library/Application Support/CoLab Dry"
+SUPPORT="$HOME/Library/Application Support/Lasso"
+LEGACY_SUPPORT="$HOME/Library/Application Support/CoLab Dry"
 
 NODE_BIN="${COLAB_NODE:-$(command -v node || true)}"
 if [ -z "$NODE_BIN" ]; then
@@ -31,7 +32,7 @@ SWIFT
 echo "==> Compiling the menu bar app"
 swiftc -O \
   -framework Cocoa -framework WebKit \
-  -o "$CONTENTS/MacOS/CoLabDry" \
+  -o "$CONTENTS/MacOS/Lasso" \
   "$ROOT/desktop/BuildConfig.swift" \
   "$ROOT/desktop/NativeMaterial.swift" \
   "$ROOT/desktop/SyntheticKeyboard.swift" \
@@ -46,6 +47,7 @@ swiftc -O \
   "$ROOT/desktop/SourceInspectorPanel.swift" \
   "$ROOT/desktop/WebText.swift" \
   "$ROOT/desktop/ShareInsertion.swift" \
+  "$ROOT/desktop/ShareComposer.swift" \
   "$ROOT/desktop/GlobalAssist.swift" \
   "$ROOT/desktop/CoLabDry.swift"
 
@@ -60,12 +62,12 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>CoLab Dry</string>
-  <key>CFBundleDisplayName</key><string>CoLab Dry</string>
+  <key>CFBundleName</key><string>Lasso</string>
+  <key>CFBundleDisplayName</key><string>Lasso</string>
   <key>CFBundleIdentifier</key><string>dry.colab.desktop</string>
   <key>CFBundleVersion</key><string>1.0.0</string>
   <key>CFBundleShortVersionString</key><string>1.0.0</string>
-  <key>CFBundleExecutable</key><string>CoLabDry</string>
+  <key>CFBundleExecutable</key><string>Lasso</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
@@ -76,27 +78,40 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <!-- System-wide suggestions read the text around the caret and watch for
        keystrokes. Both are opt-in from the menu bar. -->
   <key>NSInputMonitoringUsageDescription</key>
-  <string>CoLab Dry watches for typing so it can suggest sources from your indexed project.</string>
+  <string>Lasso watches for typing so it can suggest sources from your indexed project.</string>
   <key>NSAccessibilityUsageDescription</key>
-  <string>CoLab Dry reads the text around your cursor so it can suggest sources and insert them.</string>
+  <string>Lasso reads the text around your cursor so it can suggest sources and insert them.</string>
 </dict>
 </plist>
 PLIST
 printf 'APPL????' > "$CONTENTS/PkgInfo"
 
-# First run keeps the history recorded so far by `npm start` instead of
-# opening an empty workspace. Existing app data is never overwritten.
+# Preserve existing local history and references when upgrading from the old
+# application name. Never overwrite an existing Lasso support directory.
+# Existing Lasso data is never overwritten.
+if [ ! -d "$SUPPORT" ] && [ -d "$LEGACY_SUPPORT" ]; then
+  echo "==> Migrating app data from $LEGACY_SUPPORT"
+  cp -R "$LEGACY_SUPPORT" "$SUPPORT"
+fi
+# First run can also seed history recorded by `npm start`.
 if [ ! -d "$SUPPORT/data" ] && [ -d "$ROOT/.colab-dry-data" ]; then
   echo "==> Seeding app data from $ROOT/.colab-dry-data"
   mkdir -p "$SUPPORT"
   cp -R "$ROOT/.colab-dry-data" "$SUPPORT/data"
 fi
 
-LOCAL_SIGNING_IDENTITY="CoLab Dry Local Development"
+LOCAL_SIGNING_IDENTITY="Lasso Local Development"
+LEGACY_SIGNING_IDENTITY="CoLab Dry Local Development"
 SIGNING_MODE="${COLAB_SIGN_MODE:-auto}"
-if [ "$SIGNING_MODE" != "adhoc" ] && security find-identity -v -p codesigning 2>/dev/null | grep -Fq "\"$LOCAL_SIGNING_IDENTITY\""; then
+AVAILABLE_SIGNING_IDENTITIES="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+if [ "$SIGNING_MODE" != "adhoc" ] && grep -Fq "\"$LOCAL_SIGNING_IDENTITY\"" <<<"$AVAILABLE_SIGNING_IDENTITIES"; then
   echo "==> Signing ($LOCAL_SIGNING_IDENTITY)"
   codesign --force --deep --sign "$LOCAL_SIGNING_IDENTITY" "$APP"
+elif [ "$SIGNING_MODE" != "adhoc" ] && grep -Fq "\"$LEGACY_SIGNING_IDENTITY\"" <<<"$AVAILABLE_SIGNING_IDENTITIES"; then
+  # The certificate name is not user-facing; its stable requirement keeps
+  # macOS Accessibility/Input Monitoring approvals valid between rebuilds.
+  echo "==> Signing ($LEGACY_SIGNING_IDENTITY)"
+  codesign --force --deep --sign "$LEGACY_SIGNING_IDENTITY" "$APP"
 else
   echo "==> Signing (ad-hoc)"
   codesign --force --deep --sign - "$APP" >/dev/null 2>&1 \

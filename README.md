@@ -1,4 +1,4 @@
-# CoLab Dry predictive provenance
+# Lasso predictive provenance
 
 A local-first implementation of **predictive provenance**: it indexes a real project directory, completes scientific writing from that corpus, and links every claim to the exact source it came from. Versioning runs underneath so links stay immutable and go stale when their source changes.
 
@@ -22,7 +22,7 @@ Set `COLAB_DRY_DATA_DIR` to move the database and blob store. Set `COLAB_WATCH_D
 npm run desktop
 ```
 
-This builds `dist/CoLab Dry.app`: a status bar application that supervises the
+This builds `dist/Lasso.app`: a status bar application that supervises the
 same local server as a background child process and shows the workspace in a
 native window. There is no Dock icon — the app lives in the menu bar.
 
@@ -32,9 +32,9 @@ native window. There is no Dock icon — the app lives in the menu bar.
   `Reveal Server Log`, and `Quit`
 - the server listens on an unused loopback port, so it never collides with
   `npm start`
-- app history lives in `~/Library/Application Support/CoLab Dry/data`, seeded on
-  first build from `.colab-dry-data` when that directory exists
-- the server log is at `~/Library/Logs/CoLab Dry/server.log`
+- app history lives in `~/Library/Application Support/Lasso/data`; upgrades migrate
+  the former app directory, and new installs can seed from `.colab-dry-data`
+- the server log is at `~/Library/Logs/Lasso/server.log`
 - Node 24+ must be installed; set `COLAB_NODE` to override which binary is used
 
 Move it to `/Applications` to keep it, and add it to Login Items to have it
@@ -42,24 +42,25 @@ start automatically.
 
 ### Suggestions while typing anywhere
 
-The menu bar item has **Suggest While Typing Anywhere**. When enabled, CoLab Dry
+The menu bar item has **Suggest While Typing Anywhere**. When enabled, Lasso
 watches typing in any application, reads the text just before the caret, and
-draws a terminal-style completion box beside the cursor:
+draws a two-pane source card beside the cursor:
 
 ```text
-┌─ dependency ─────────────────────────────────────┐
-│ › Supplies              400   Income-Statement…  │
-│   Prior period          310   Income-Statement…  │
-├──────────────────────────────────────────────────┤
-│ Tab accept   ↑↓ select   Esc close               │
-└──────────────────────────────────────────────────┘
+┌─ matching sources ─────────┬─ document preview ─────────────┐
+│ › Supplies            $400 │ Income-Statement.xlsx           │
+│   Prior period        $384 │ [nearby rows, cited cell marked]│
+├────────────────────────────┼─────────────────────────────────┤
+│ ⇥ Insert  ⌘↩ Link  ↑↓ Esc │ ↗ Open source        □↑ Share   │
+└────────────────────────────┴─────────────────────────────────┘
 ```
 
-`Tab` inserts the value into whatever app is focused. Suggestions come from the
-project selected in the CoLab Dry window.
+`Tab` inserts the value into whatever app is focused; `⌘↩` links the same
+selection locally without publishing it. **Share** opens the privacy composer before any public token is created. Arrow keys change the selection and its live preview.
+Suggestions come from the project selected in the Lasso window.
 
 When a source-backed suggestion is accepted as plain text, the host application
-still contains ordinary text. CoLab stores the source identity and a contextual
+still contains ordinary text. Lasso stores the source identity and a contextual
 text anchor locally, then draws its own restrained wash and underline in a
 transparent AppKit layer above the host. The anchor follows edits and is hidden
 if it cannot be relocated confidently. Clicking the local highlight opens the
@@ -67,13 +68,11 @@ draggable source inspector; **Open source** resolves the exact indexed object an
 version. None of this decoration or source metadata is added to the Gmail message
 or made visible to its recipient.
 
-The document editor draws the same box, and its source inspector is drawn on
-the same grid — a frame, label/value rows, the cited source laid out as text
-with the cited row marked, and its actions written along the bottom edge. It is one feature seen from two sides,
-so both are drawn from the same measurements — a 54-column character grid, the
-same frame, the same three columns, the same inverted selection row, the same
-key hints — from `desktop/GlobalAssist.swift` and its port in
-`public/assist-box.js`. Change one and change the other.
+The right pane previews the selected indexed document without leaving the host
+application. Spreadsheet sources show nearby rows, column letters, row numbers,
+and a green outline around the matched cell. Other document types show their
+indexed excerpt and exact location. **Open source** resolves the immutable source
+version, while **Share** asks whether to publish the whole document, only the indexed part, or a selectively redacted view.
 
 This needs two permissions, both requested from the menu item and revocable in
 System Settings → Privacy & Security:
@@ -96,11 +95,14 @@ Inserting a suggestion never publishes anything. Sharing is a separate, explicit
 action:
 
 - `Tab` — insert the dependency as plain text. No token, no link.
-- `⌘⏎` — insert it as a hyperlink backed by a share record.
+- `⌘⏎` — link it locally to its indexed source without publishing.
+- **Share** (or `⇧⌘⏎`) — choose the public access boundary, then create a hyperlink-backed share.
 
 The menu bar has a **Dependency insertion** preference controlling what `Tab`
 does — `Plain text by default` (the default), `Ask before sharing`, or
-`Share link by default`. `⌘⏎` always shares regardless of the setting.
+`Share link by default`. A public share always presents the privacy composer first.
+
+A share can publish the **entire document**, the **indexed part only**, or a **selectively redacted view**. In selective mode, Lasso opens the complete logical document: scroll every row or text section, switch among workbook sheets, and drag across cells or sections to Blur or Blank them. Masked values are replaced before rendering and restricted scopes never permit the original download.
 
 A shared insertion creates a record and pastes `<a href="…/d/TOKEN">label</a>`,
 so only the label is clickable and the URL is never shown. Tokens are 192 bits
@@ -112,7 +114,7 @@ Recipients get two routes:
 
 - `GET /d/:token` — provenance page: label, value, workbook, sheet, cell,
   context, version and share date, with the cited row highlighted
-- `GET /d/:token/download` — the original file as an attachment
+- `GET /d/:token/download` — the original file as an attachment only for whole-document shares; indexed and redacted tokens receive `403`
 
 Unknown, revoked and expired tokens are refused with distinct messages and never
 reveal whether other tokens exist. Revocation sets `revoked_at` rather than
@@ -135,10 +137,10 @@ plain text.
 1. Start the app and enable **Suggest While Typing Anywhere**.
 2. Open Gmail in Chrome and compose a message.
 3. Type `The expected cost of office sup` and wait for the overlay.
-4. Press `Tab`; confirm CoLab draws a local underline/wash over the accepted text.
+4. Press `Tab`; confirm Lasso draws a local underline/wash over the accepted text.
 5. Click that local highlight; confirm the draggable inspector shows the exact source.
 6. Choose **Open source**; confirm the indexed object/version opens.
-7. Inspect Gmail's content or open the draft without CoLab; it is still plain text with no link.
+7. Inspect Gmail's content or open the draft without Lasso; it is still plain text with no link.
 8. Delete it, retype the trigger, and press `⌘⏎`.
 9. Confirm only the label is now a real Gmail hyperlink.
 10. Send the message to another account and open it on this Mac.
@@ -276,7 +278,7 @@ structured results; the terminal view decides how to draw them.
 
 ### The interface
 
-CoLab Dry is a terminal workspace: macOS window chrome, a dense tab strip, a
+Lasso is a terminal workspace: macOS window chrome, a dense tab strip, a
 sidebar of directories the user has granted access to, a hairline divider, and a
 terminal panel filling the rest. There is no second, graphical interface.
 

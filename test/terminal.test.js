@@ -546,7 +546,7 @@ test('terminal command layer', async (suite) => {
 
     const generative = run('ask write me a poem about depreciation');
     assert.equal(generative.data.answered, false);
-    assert.equal(generative.headline, 'This terminal queries and operates on indexed CoLab sources.');
+    assert.equal(generative.headline, 'This terminal queries and operates on indexed Lasso sources.');
 
     const unsupported = run('ask why is the sky blue?');
     assert.equal(unsupported.data.answered, false);
@@ -556,7 +556,7 @@ test('terminal command layer', async (suite) => {
   await suite.test('unknown commands refuse rather than answer generally', () => {
     const result = run('write me an email');
     assert.equal(result.ok, false);
-    assert.equal(result.blocks[0].text, 'This terminal queries and operates on indexed CoLab sources.');
+    assert.equal(result.blocks[0].text, 'This terminal queries and operates on indexed Lasso sources.');
   });
 
   await suite.test('completion offers commands, dependencies, subcommands and flags', () => {

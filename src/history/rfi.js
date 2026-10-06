@@ -2,7 +2,7 @@ import { json } from '../db.js';
 import { HttpError } from './errors.js';
 import { resolveAnchor } from './preview.js';
 
-const UNKNOWN_MESSAGE = 'CoLab cannot determine the origin of this information from the recorded project history.';
+const UNKNOWN_MESSAGE = 'Lasso cannot determine the origin of this information from the recorded project history.';
 
 function anchorsCompatible(requestAnchor, storedAnchor) {
   if (!storedAnchor) return true;

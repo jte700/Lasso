@@ -34,6 +34,32 @@ enum AssistSourceIdentity {
         return "file:\(normalized)"
     }
 
+    /// Resolves an indexed file to a local URL without allowing a candidate
+    /// path (or a symlink inside the project) to escape the indexed root.
+    static func localFileURL(
+        projectRoot: String, sourcePath: String,
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> URL? {
+        guard (projectRoot as NSString).isAbsolutePath else { return nil }
+        let root = URL(fileURLWithPath: projectRoot, isDirectory: true)
+            .standardizedFileURL.resolvingSymlinksInPath()
+        let rawSource = sourcePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawSource.isEmpty else { return nil }
+
+        let normalizedSource = rawSource.replacingOccurrences(of: "\\", with: "/")
+        let sourceURL: URL
+        if (normalizedSource as NSString).isAbsolutePath {
+            sourceURL = URL(fileURLWithPath: normalizedSource)
+        } else {
+            sourceURL = root.appendingPathComponent(normalizedSource)
+        }
+
+        let resolved = sourceURL.standardizedFileURL.resolvingSymlinksInPath()
+        let rootPrefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        guard resolved.path.hasPrefix(rootPrefix), fileExists(resolved.path) else { return nil }
+        return resolved
+    }
+
     /// Keeps one palette slot per owning source, repairs old collisions, and
     /// preserves the first usable persisted preference for each source.
     static func colorAssignments(

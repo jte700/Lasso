@@ -4,7 +4,7 @@ import { URL } from 'node:url';
 import { buildPreview } from '../history/preview.js';
 import { HttpError } from '../history/errors.js';
 import { renderSharePage, renderUnavailable, renderInspectorPanel } from '../sharing/share-page.js';
-import { buildSharePreview } from '../sharing/share-preview.js';
+import { buildFullShareDocument, buildSharePreview } from '../sharing/share-preview.js';
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -109,20 +109,22 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
             renderUnavailable(resolved.status));
         }
         let preview = null;
+        let document = null;
         try {
           const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
-          preview = buildSharePreview(
-            file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null,
-            resolved.source.anchor, resolved.source.metadata);
-        } catch { preview = null; }
-        return sendHtml(response, 200, renderSharePage(resolved, token, preview));
+          const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null;
+          preview = buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata);
+          if (resolved.share.accessScope === 'REDACTED') document = buildFullShareDocument(sourceFile);
+        } catch { preview = null; document = null; }
+        return sendHtml(response, 200, renderSharePage(resolved, token, preview, document));
       }
 
       shareParameters = match(pathname, /^\/d\/([A-Za-z0-9_-]{16,128})\/download$/);
       if (request.method === 'GET' && shareParameters && objectShares) {
         const file = objectShares.sourceFile(shareParameters[0]);
         if (file.status !== 'OK') {
-          return sendHtml(response, file.status === 'NOT_FOUND' ? 404 : 410, renderUnavailable(file.status));
+          const status = file.status === 'NOT_FOUND' ? 404 : file.status === 'SCOPE_RESTRICTED' ? 403 : 410;
+          return sendHtml(response, status, renderUnavailable(file.status));
         }
         // Only the basename is ever published, and quotes/newlines are stripped
         // so the header cannot be split.
@@ -162,6 +164,40 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         if (!object) throw new HttpError(404, 'Indexed object not found.');
         return sendJson(response, 200, { object });
       }
+
+      const localObjectDocumentParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/document$/);
+      if (request.method === 'GET' && localObjectDocumentParameters && objectShares) {
+        const versionId = url.searchParams.get('version');
+        const resolved = objectShares.describe(localObjectDocumentParameters[0], versionId);
+        if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
+        let document = null;
+        try {
+          const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+          document = buildFullShareDocument(
+            file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null);
+        } catch { document = null; }
+        return sendJson(response, 200, {
+          source: resolved.source, path: resolved.internal.filePath, document,
+        });
+      }
+
+      const localObjectPreviewParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/preview$/);
+      if (request.method === 'GET' && localObjectPreviewParameters && objectShares) {
+        const versionId = url.searchParams.get('version');
+        const resolved = objectShares.describe(localObjectPreviewParameters[0], versionId);
+        if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
+        let preview = null;
+        try {
+          const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+          preview = buildSharePreview(
+            file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null,
+            resolved.source.anchor, resolved.source.metadata);
+        } catch { preview = null; }
+        return sendJson(response, 200, {
+          source: resolved.source, path: resolved.internal.filePath, preview,
+        });
+      }
+
       if (request.method === 'GET' && pathname === '/api/projects') {
         return sendJson(response, 200, { projects: timeline.listProjects() });
       }
@@ -287,6 +323,26 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const body = await readJson(request);
         return sendJson(response, 200, { prediction: dependencies.predict(parameters[0], body) });
       }
+      parameters = match(pathname, /^\/api\/projects\/([^/]+)\/source-library$/);
+      if (request.method === 'GET' && parameters) {
+        const objects = dependencies.objectsAt(parameters[0]).map(({ searchText, contentHash, metadata, ...object }) => object);
+        return sendJson(response, 200, { objects });
+      }
+      parameters = match(pathname, /^\/api\/projects\/([^/]+)\/source-review\/([^/]+)$/);
+      if (parameters && ['GET', 'POST'].includes(request.method)) {
+        const [projectId, objectId] = parameters;
+        const plan = dependencies.planSourceValueUpdate(projectId, objectId);
+        if (request.method === 'GET') return sendJson(response, 200, { plan });
+        const body = await readJson(request);
+        if (JSON.stringify(body.expectedPlan) !== JSON.stringify(plan)) {
+          throw new HttpError(409, 'The source or document changed. Review the updated comparison before continuing.');
+        }
+        if (!['apply', 'keep'].includes(body.action)) throw new HttpError(400, 'Choose an update action.');
+        const result = body.action === 'keep'
+          ? dependencies.keepCurrentValue(projectId, objectId, actorFrom(body))
+          : dependencies.applySourceValueUpdate(projectId, objectId, actorFrom(body));
+        return sendJson(response, 200, { result });
+      }
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/dependency-objects$/);
       if (request.method === 'GET' && parameters) {
         return sendJson(response, 200, { objects: dependencies.search(parameters[0], url.searchParams.get('query') ?? '') });
@@ -315,6 +371,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
             versionId: body.versionId ?? null,
             actor: actorFrom(body),
             expiresAt: body.expiresAt ?? null,
+            accessScope: body.accessScope ?? 'DOCUMENT',
+            redactions: body.redactions ?? [],
           }),
         });
       }

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createApplication } from '../src/server.js';
-import { buildSharePreview } from '../src/sharing/share-preview.js';
+import { buildFullShareDocument, buildSharePreview } from '../src/sharing/share-preview.js';
 
 const maya = { id: 'human:maya', displayName: 'Maya Chen', actorType: 'HUMAN_SELF' };
 
@@ -150,6 +150,65 @@ test('externally shared dependencies', async (suite) => {
       const populated = preview.headers[column] || preview.rows.some((row) => row.cells[column].value);
       assert.ok(populated, `column ${column} should carry a header or values`);
     });
+  });
+
+  await suite.test('the selective document model keeps every source row', () => {
+    const rows = [
+      'Account,Current,Prior',
+      'Office Supplies,400,384',
+      'Payroll taxes,225,218',
+      'Insurance,95,91',
+      'Travel,320,280',
+      'Repairs,75,62',
+      'Rent,900,900',
+      'Software,145,130',
+    ];
+    const document = buildFullShareDocument({
+      path: 'Finance/Complete.csv',
+      content: Buffer.from(rows.join('\n')),
+    });
+    assert.equal(document.kind, 'table');
+    assert.equal(document.sheets[0].rows.length, rows.length);
+    assert.deepEqual(document.sheets[0].rows.at(-1), ['Software', '145', '130']);
+  });
+
+  await suite.test('indexed shares never expose the original file', () => {
+    const share = shares.createShare({
+      projectId: project.id, objectId: object.object_id, versionId: object.version_id,
+      actor: maya, accessScope: 'INDEXED',
+    });
+    assert.equal(share.accessScope, 'INDEXED');
+    assert.equal(shares.resolveShare(share.token).share.accessScope, 'INDEXED');
+    assert.equal(shares.sourceFile(share.token).status, 'SCOPE_RESTRICTED');
+  });
+
+  await suite.test('selective shares persist only validated redaction targets', () => {
+    const share = shares.createShare({
+      projectId: project.id, objectId: object.object_id, versionId: object.version_id,
+      actor: maya, accessScope: 'REDACTED',
+      redactions: [
+        { kind: 'CELL', row: 0, column: 1, effect: 'BLUR' },
+        { kind: 'BLOCK', block: 2, effect: 'BLANK' },
+      ],
+    });
+    const resolved = shares.resolveShare(share.token);
+    assert.equal(resolved.share.accessScope, 'REDACTED');
+    assert.deepEqual(resolved.share.redactions, [
+      { kind: 'CELL', sheet: 0, row: 0, column: 1, effect: 'BLUR' },
+      { kind: 'BLOCK', block: 2, effect: 'BLANK' },
+    ]);
+    assert.equal(shares.sourceFile(share.token).status, 'SCOPE_RESTRICTED');
+  });
+
+  await suite.test('selective sharing refuses empty or malformed redactions', () => {
+    const base = {
+      projectId: project.id, objectId: object.object_id, versionId: object.version_id,
+      actor: maya, accessScope: 'REDACTED',
+    };
+    assert.throws(() => shares.createShare({ ...base, redactions: [] }), /at least one area/i);
+    assert.throws(() => shares.createShare({
+      ...base, redactions: [{ kind: 'CELL', row: -1, column: 0, effect: 'BLUR' }],
+    }), /invalid cell/i);
   });
 
   await suite.test('a token for an unknown object is refused', () => {

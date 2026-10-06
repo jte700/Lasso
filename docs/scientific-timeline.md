@@ -2,7 +2,7 @@
 
 ## Architecture
 
-The selected directory is the project boundary and remains the live source. CoLab only reads that directory during import/reconciliation; only an explicitly approved agent edit writes a project file. Historical state lives separately in a SQLite event store and content-addressed blob store.
+The selected directory is the project boundary and remains the live source. Lasso only reads that directory during import/reconciliation; only an explicitly approved agent edit writes a project file. Historical state lives separately in a SQLite event store and content-addressed blob store.
 
 All change producers use one capture path:
 
@@ -42,7 +42,7 @@ Opening a project reconciles the directory before starting its watcher. While op
 
 The batching interval is configurable with `COLAB_WATCH_DEBOUNCE_MS`. Because capture compares content hashes, noisy notifications and an internal edit plus watcher notification do not create duplicate events.
 
-On platforms where recursive `fs.watch` is unavailable, open-time and explicit reconciliation still work and a warning is logged. No daemon survives the CoLab process.
+On platforms where recursive `fs.watch` is unavailable, open-time and explicit reconciliation still work and a warning is logged. No daemon survives the Lasso process.
 
 ## Change and identity matching
 
@@ -121,13 +121,13 @@ History follows the stable `project_file_id` across renames and resolves the sam
 
 Supported provenance relationships are `DEPENDS_ON`, `DERIVED_FROM`, `GENERATED_BY`, `USES_DATASET`, `USED`, `USED_IN_FIGURE`, `SUPPORTS`, `PROPOSED_BY`, `APPROVED_BY`, `REPLACED_BY`, and `IDENTIFIED_BY`. Traversal is cycle-safe and bounded to eight edges. When no applicable link exists, the exact result is:
 
-> CoLab cannot determine the origin of this information from the recorded project history.
+> Lasso cannot determine the origin of this information from the recorded project history.
 
 The system may still report where the content was first recorded; it does not mislabel that version fact as an upstream scientific source.
 
 ## Collaboration and conflicts
 
-Collaborator actors retain their global identity when supplied by the collaboration/session layer. Each capture performs an optimistic comparison-and-swap against the expected/current parent. A stale collaborator or agent request receives HTTP 409 with both expected and current snapshot IDs. CoLab never rewrites the snapshots into a false sequential history.
+Collaborator actors retain their global identity when supplied by the collaboration/session layer. Each capture performs an optimistic comparison-and-swap against the expected/current parent. A stale collaborator or agent request receives HTTP 409 with both expected and current snapshot IDs. Lasso never rewrites the snapshots into a false sequential history.
 
 This repository has no pre-existing remote synchronization transport. The implemented boundary is therefore persistence plus conflict detection; merging or branch visualization belongs in the host product's future collaboration adapter.
 

@@ -153,16 +153,17 @@ export function createSidebarResize({ handle, root }) {
 export function renderSession({ project, identity, warnings = [] }) {
   if (project) return '';
   return `<section class="empty-workbench">
-    <span class="empty-orb" aria-hidden="true"></span>
-    <p class="empty-eyebrow">Private project intelligence</p>
-    <h1>Bring a project into focus.</h1>
-    <p class="empty-copy">Index a local directory once. CoLab will make its documents,
+    <span class="empty-project-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M7 13h13l4 5h17v22H7Z"/><path d="M24 24v10m-5-5h10"/></svg></span>
+    <p class="empty-eyebrow">Your sources, always within reach</p>
+    <h1>Start with a project.</h1>
+    <p class="empty-copy">Index a local directory once. Lasso will make its documents,
       datasets, figures, values, and citations available while you write anywhere.</p>
     <div class="empty-flow">
-      <div><i>1</i><span><strong>Choose a project</strong><small>Use the project capsule above or the + button below.</small></span></div>
-      <div><i>2</i><span><strong>Let CoLab build the index</strong><small>Your files stay in place and remain local.</small></span></div>
+      <div><i>1</i><span><strong>Choose a project</strong><small>Choose a folder with your documents and data.</small></span></div>
+      <div><i>2</i><span><strong>Let Lasso build the index</strong><small>Your files stay in place and remain local.</small></span></div>
       <div><i>3</i><span><strong>Write without searching</strong><small>Accept source-backed suggestions with Tab.</small></span></div>
     </div>
+    <button class="primary-button empty-add-project" id="empty-add-project" type="button">Add a project…</button>
     <div class="empty-user"><span>${escapeHtml((identity?.displayName ?? 'Local user').slice(0, 2).toUpperCase())}</span><p>Ready for ${escapeHtml(identity?.displayName ?? 'the local user')}</p></div>
     ${warnings.map((warning) => `<div class="empty-warning">${escapeHtml(warning)}</div>`).join('')}
   </section>`;

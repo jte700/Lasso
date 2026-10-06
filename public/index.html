@@ -4,14 +4,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <title>CoLab Dry</title>
+    <title>Lasso</title>
     <script>
-      try { document.documentElement.dataset.theme = localStorage.getItem('colab.theme') || 'carbon'; }
-      catch { document.documentElement.dataset.theme = 'carbon'; }
+      const appearance = matchMedia('(prefers-color-scheme: dark)');
+      function syncAppearance() {
+        let preference = 'system';
+        try { preference = localStorage.getItem('colab.theme') || 'system'; } catch {}
+        document.documentElement.dataset.theme = preference === 'system'
+          ? (appearance.matches ? 'carbon' : 'alabaster') : preference;
+      }
+      appearance.addEventListener('change', syncAppearance);
+      syncAppearance();
     </script>
     <link rel="stylesheet" href="/terminal.css?v=29" />
     <link rel="stylesheet" href="/macos.css?v=2" />
-    <link rel="stylesheet" href="/utility.css?v=2" />
+    <link rel="stylesheet" href="/utility.css?v=3" />
+    <link rel="stylesheet" href="/workbench.css?v=1" />
   </head>
   <body>
     <div class="app-window utility-window view-session" id="app-window">
@@ -41,7 +49,7 @@
         <label class="provenance-search" for="terminal-input">
           <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5"/><path d="m12.3 12.3 4 4"/></svg>
           <input id="terminal-input" type="text" autocomplete="off" spellcheck="false"
-                 aria-label="Search sources and provenance" placeholder="Search sources and provenance" />
+                 aria-label="Search files, phrases, or values" placeholder="Search files, phrases, or values" />
           <kbd>⌘K</kbd>
           <div class="dsh-completion" id="dsh-completion" hidden aria-label="Suggestions"></div>
         </label>
@@ -60,15 +68,11 @@
       <div class="utility-layout">
         <aside class="object-rail" aria-label="Workspace navigation">
           <div class="rail-section">
-            <p class="rail-label">Workspace</p>
+            <p class="rail-label">Library</p>
             <nav class="rail-navigation">
               <button class="rail-item active" id="workspace-nav" type="button">
                 <svg viewBox="0 0 20 20"><path d="M3.5 4.5h5v5h-5Zm8 0h5v5h-5Zm-8 7h5v5h-5Zm8 0h5v5h-5Z"/></svg>
-                <span>Overview</span>
-              </button>
-              <button class="rail-item" type="button" data-workspace-query="index status">
-                <svg viewBox="0 0 20 20"><path d="M3.5 5.5h13v9h-13Z"/><path d="M6 8h8M6 11h5"/></svg>
-                <span>Sources</span><b id="rail-source-count">0</b>
+                <span>All sources</span>
               </button>
               <button class="rail-item" type="button" data-workspace-query="changes">
                 <svg viewBox="0 0 20 20"><path d="M4 10a6 6 0 1 0 2-4.5M4 4v4h4"/><path d="M10 7v3l2 2"/></svg>
@@ -76,30 +80,34 @@
               </button>
               <button class="rail-item" type="button" data-workspace-query="share list">
                 <svg viewBox="0 0 20 20"><path d="M7.2 12.8 12.8 7.2M6.3 8.9 4.7 10.5a3 3 0 0 0 4.2 4.2l1.6-1.6M13.7 11.1l1.6-1.6a3 3 0 0 0-4.2-4.2L9.5 6.9"/></svg>
-                <span>Shares</span>
+                <span>Shared links</span>
               </button>
               <button class="rail-item" type="button" data-workspace-query="conflicts">
                 <svg viewBox="0 0 20 20"><path d="M10 3.5 16.5 15H3.5Z"/><path d="M10 7v4M10 13.5v.1"/></svg>
-                <span>Review</span><b id="rail-review-count">0</b>
+                <span>Review sources</span><b id="rail-review-count">0</b>
               </button>
             </nav>
           </div>
 
           <div class="rail-section rail-documents">
-            <div class="rail-label-row"><p class="rail-label">Documents</p>
+            <div class="rail-label-row"><p class="rail-label">Writing</p>
               <button class="rail-add" id="tab-add" type="button" title="Index another project" aria-label="Index another project">+</button>
             </div>
             <div class="document-list" id="tab-scroll" aria-label="Project documents"></div>
           </div>
 
           <div class="rail-spacer"></div>
+          <section class="writing-assist" aria-label="Suggestions while writing">
+            <button id="writing-assist-toggle" type="button" role="switch" aria-checked="false" hidden><span>Writing suggestions</span><i aria-hidden="true"></i></button>
+            <details><summary>Use Lasso in other apps</summary><p>Choose a project here, then enable writing suggestions in the Mac app. While you write in Word or another supported app, press Tab to insert a suggested value with a tracked source.</p></details>
+          </section>
           <div class="workspace-summary">
             <span class="summary-indicator"></span>
             <div><strong id="status-project">No project</strong><small id="status-files">0 sources</small></div>
           </div>
           <button id="editor-nav" class="open-editor-button" type="button" disabled>
             <svg viewBox="0 0 20 20"><path d="M4 3.5h8l4 4v9H4Z"/><path d="M12 3.5v4h4M7 11h6M7 14h5"/></svg>
-            <span>Open document editor</span>
+            <span>Open writing workspace</span>
           </button>
           <button id="identity-rail" class="identity-row" type="button" tabindex="-1" aria-hidden="true">
             <span class="identity-copy"><strong id="sidebar-identity-name">Maya Chen</strong><small id="sidebar-identity-role">Local workspace</small></span>
@@ -137,7 +145,7 @@
           <div><span class="eyebrow">Local workspace</span><h2>Index a project</h2></div>
           <button class="dialog-close toolbar-icon" type="button" data-close-dialog aria-label="Close">×</button>
         </header>
-        <p>CoLab reads the directory in place and keeps its version history separately.</p>
+        <p>Lasso reads the directory in place and keeps its version history separately.</p>
         <label>Directory path<input name="rootPath" type="text" placeholder="/Users/maya/Research" required /></label>
         <label>Project name <span>(optional)</span><input name="name" type="text" placeholder="Research workspace" /></label>
         <div class="dialog-error" data-dialog-error></div>
@@ -155,7 +163,7 @@
           <div><span class="eyebrow">Local identity</span><h2>Who is working?</h2></div>
           <button class="dialog-close toolbar-icon" type="button" data-close-dialog aria-label="Close">×</button>
         </header>
-        <p>This identity is recorded on future checkpoints. CoLab never infers authorship.</p>
+        <p>This identity is recorded on future checkpoints. Lasso never infers authorship.</p>
         <label>Display name<input name="displayName" type="text" required /></label>
         <label>Actor type
           <select name="actorType">
@@ -171,6 +179,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=54"></script>
+    <script type="module" src="/app.js?v=56"></script>
   </body>
 </html>

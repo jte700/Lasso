@@ -3,12 +3,18 @@
 // identified identically in both places.
 
 import path from 'node:path';
-import { extractSpreadsheetTables } from '../dependencies/document-extraction.js';
+import { extractDocxFullText, extractPdfFullText, extractSpreadsheetTables } from '../dependencies/document-extraction.js';
 import { tabularLayout } from '../dependencies/service.js';
+import { parseDelimited } from '../history/diff.js';
 
-function parseDelimited(text, delimiter) {
-  return text.split(/\r?\n/).filter((line) => line.length).map((line) => line.split(delimiter));
-}
+const FULL_TEXT_EXTENSIONS = new Set([
+  '.md', '.mdx', '.qmd', '.rmd', '.rst', '.txt', '.tex', '.bib', '.ris', '.enw', '.nbib', '.log',
+  '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.py', '.r', '.rb', '.go', '.rs', '.java',
+  '.c', '.h', '.cpp', '.hpp', '.cs', '.swift', '.kt', '.kts', '.sh', '.zsh', '.fish', '.sql',
+  '.html', '.htm', '.css', '.scss', '.vue', '.svelte', '.toml', '.ini', '.env',
+  '.json', '.geojson', '.yaml', '.yml', '.xml', '.rtf', '.ipynb',
+]);
+
 
 /**
  * Builds a few rows of context around the cited cell.
@@ -70,8 +76,16 @@ export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2) 
   if (!keep.length) return null;
 
   return {
+    columns: keep.map((column) => {
+      let value = '';
+      for (let current = column; current >= 0; current = Math.floor(current / 26) - 1) {
+        value = String.fromCharCode(65 + (current % 26)) + value;
+      }
+      return value;
+    }),
     headers: keep.map((column) => headers[column]),
     rows: rows.map((row, offset) => ({
+      rowNumber: layout.headerRowIndex + start + offset + 2,
       cells: keep.map((column) => ({
         value: row[column],
         // Row references highlight the whole row; cell references one cell.
@@ -79,4 +93,63 @@ export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2) 
       })),
     })),
   };
+}
+function fullTextBlocks(value) {
+  const normalized = String(value ?? '').replace(/\r\n/g, '\n').trim();
+  if (!normalized) return [];
+  const paragraphs = normalized.split(/\n{2,}/).map((item) => item.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const blocks = [];
+  for (const paragraph of paragraphs) {
+    const words = paragraph.split(/\s+/);
+    if (words.length <= 70) blocks.push(paragraph);
+    else {
+      for (let index = 0; index < words.length; index += 70) {
+        blocks.push(words.slice(index, index + 70).join(' '));
+      }
+    }
+  }
+  return blocks;
+}
+
+/**
+ * A complete logical rendering of the pinned source used by selective sharing.
+ * Unlike buildSharePreview, this never crops around the indexed object.
+ */
+export function buildFullShareDocument(file) {
+  if (!file?.content || !file?.path) return null;
+  const extension = path.extname(file.path).toLowerCase();
+
+  try {
+    if (['.xlsx', '.xls'].includes(extension)) {
+      const sheets = extractSpreadsheetTables(file.content).map((sheet) => ({
+        name: sheet.name,
+        rows: sheet.rows.map((row) => Array.from(
+          { length: row?.length ?? 0 }, (_, column) => String(row?.[column] ?? ''))),
+      }));
+      return sheets.length ? { kind: 'table', sheets } : null;
+    }
+    if (['.csv', '.tsv'].includes(extension)) {
+      const delimiter = extension === '.tsv' ? '\t' : ',';
+      return {
+        kind: 'table',
+        sheets: [{
+          name: path.basename(file.path, extension),
+          rows: parseDelimited(file.content.toString('utf8'), delimiter)
+            .map((row) => row.map((cell) => String(cell ?? ''))),
+        }],
+      };
+    }
+
+    let text = '';
+    if (extension === '.pdf') text = extractPdfFullText(file.content);
+    else if (extension === '.docx') text = extractDocxFullText(file.content);
+    else if (FULL_TEXT_EXTENSIONS.has(extension)
+      || ['dockerfile', 'makefile'].includes(path.basename(file.path).toLowerCase())) {
+      text = file.content.toString('utf8');
+    }
+    const blocks = fullTextBlocks(text);
+    return blocks.length ? { kind: 'text', blocks } : null;
+  } catch {
+    return null;
+  }
 }

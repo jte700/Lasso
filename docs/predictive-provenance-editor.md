@@ -54,7 +54,7 @@ Stable object identity uses `(project, project_file_id, structural key)`. A new 
 
 Candidates are ranked by exact numeric/directional value match, equivalent percent/fold-change representation, exact or conservatively fuzzy author and publication year, entity/token overlap from nearby text and section headings, compatible object type, recorded provenance, and deterministic version/year tie-breaks. Explicit author citations never fall back to arbitrary papers. Multiple plausible matches remain visible. The searchable manual picker always overrides prediction. It searches only the open project.
 
-When recorded lineage connects a result to code, the result remains the suggested supporting object and the originating file/version/line range is shown as secondary context. Navigation opens that immutable source version and focuses its exact line, cell, JSON path, or notebook-cell anchor. CoLab never infers an unrecorded code origin.
+When recorded lineage connects a result to code, the result remains the suggested supporting object and the originating file/version/line range is shown as secondary context. Navigation opens that immutable source version and focuses its exact line, cell, JSON path, or notebook-cell anchor. Lasso never infers an unrecorded code origin.
 
 ## Persistence and graph integration
 
@@ -119,4 +119,4 @@ A Markdown agent proposal is scanned before approval. The review modal displays 
 - `GET /api/dependencies/:id`
 - `POST /api/dependencies/:id/revise`
 
-All mutation routes use the same optimistic project-snapshot check as the rest of CoLab Dry.
+All mutation routes use the same optimistic project-snapshot check as the rest of Lasso.

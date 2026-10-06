@@ -66,9 +66,12 @@ export class ObjectShareService {
    * Creates a share for one indexed object version. The version is pinned so the
    * recipient always sees the source as it was at the moment of sharing.
    */
-  createShare({ projectId, objectId, versionId, actor, expiresAt = null }) {
+  createShare({ projectId, objectId, versionId, actor, expiresAt = null,
+    accessScope = "DOCUMENT", redactions = [] }) {
     if (!projectId) throw new HttpError(400, 'A project is required to share a source.');
     if (!objectId) throw new HttpError(400, 'An indexed object is required to share a source.');
+    const normalizedScope = normalizeShareScope(accessScope);
+    const normalizedRedactions = normalizeRedactions(redactions, normalizedScope);
 
     const version = versionId
       ? this.db.prepare(`
@@ -102,10 +105,11 @@ export class ObjectShareService {
     this.db.prepare(`
       INSERT INTO object_share_grants(
         id, project_id, object_id, object_version_id, token,
-        created_by_actor_id, created_at, expires_at, revoked_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        created_by_actor_id, created_at, expires_at, revoked_at, access_scope, redactions_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
     `).run(record.id, projectId, objectId, version.id, token,
-      normalizedActor.id, record.createdAt, record.expiresAt);
+      normalizedActor.id, record.createdAt, record.expiresAt, normalizedScope,
+      JSON.stringify(normalizedRedactions));
 
     return {
       id: record.id,
@@ -115,6 +119,8 @@ export class ObjectShareService {
       valueText: version.value_text,
       createdAt: record.createdAt,
       expiresAt: record.expiresAt,
+      accessScope: normalizedScope,
+      redactions: normalizedRedactions,
     };
   }
 
@@ -191,6 +197,8 @@ export class ObjectShareService {
         token: grant.token,
         createdAt: grant.created_at,
         expiresAt: grant.expires_at,
+        accessScope: grant.access_scope ?? 'DOCUMENT',
+        redactions: JSON.parse(grant.redactions_json ?? '[]'),
       },
       source: {
         label: version.label,
@@ -242,6 +250,7 @@ export class ObjectShareService {
   sourceFile(token) {
     const resolved = this.resolveShare(token);
     if (resolved.status !== 'OK') return resolved;
+    if (resolved.share.accessScope !== 'DOCUMENT') return { status: 'SCOPE_RESTRICTED' };
     const file = this.timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
     if (!file) return { status: 'SOURCE_MISSING' };
     // Content is content-addressed; the snapshot row only carries its hash.
@@ -272,7 +281,7 @@ export class ObjectShareService {
 
   listShares(projectId) {
     return this.db.prepare(`
-      SELECT g.id, g.token, g.created_at, g.expires_at, g.revoked_at, v.label, v.value_text
+      SELECT g.id, g.token, g.created_at, g.expires_at, g.revoked_at, g.access_scope, g.redactions_json, v.label, v.value_text
       FROM object_share_grants g
       JOIN scientific_object_versions v ON v.id = g.object_version_id
       WHERE g.project_id = ?
@@ -286,6 +295,54 @@ export class ObjectShareService {
       createdAt: row.created_at,
       expiresAt: row.expires_at,
       revokedAt: row.revoked_at,
+      accessScope: row.access_scope ?? 'DOCUMENT',
+      redactions: JSON.parse(row.redactions_json ?? '[]'),
     }));
   }
+}
+const SHARE_SCOPES = new Set(['DOCUMENT', 'INDEXED', 'REDACTED']);
+const REDACTION_KINDS = new Set(['CELL', 'BLOCK']);
+const REDACTION_EFFECTS = new Set(['BLUR', 'BLANK']);
+
+function normalizeShareScope(value) {
+  const scope = String(value ?? 'DOCUMENT').toUpperCase();
+  if (!SHARE_SCOPES.has(scope)) throw new HttpError(400, 'Unknown share access scope.');
+  return scope;
+}
+
+function normalizeRedactions(value, scope) {
+  if (scope !== 'REDACTED') return [];
+  if (!Array.isArray(value)) throw new HttpError(400, 'Redactions must be a list.');
+  if (value.length > 512) throw new HttpError(400, 'Too many redactions.');
+  const normalized = [];
+  const seen = new Set();
+  for (const entry of value) {
+    const kind = String(entry?.kind ?? '').toUpperCase();
+    const effect = String(entry?.effect ?? 'BLUR').toUpperCase();
+    if (!REDACTION_KINDS.has(kind) || !REDACTION_EFFECTS.has(effect)) {
+      throw new HttpError(400, 'Invalid redaction.');
+    }
+    let target;
+    if (kind === 'CELL') {
+      const sheet = entry.sheet == null ? 0 : Number(entry.sheet);
+      const row = Number(entry.row);
+      const column = Number(entry.column);
+      if (!Number.isInteger(sheet) || sheet < 0 || sheet > 99
+          || !Number.isInteger(row) || row < 0 || row > 9999
+          || !Number.isInteger(column) || column < 0 || column > 999) {
+        throw new HttpError(400, 'Invalid cell redaction.');
+      }
+      target = { kind, sheet, row, column, effect };
+    } else {
+      const block = Number(entry.block);
+      if (!Number.isInteger(block) || block < 0 || block > 9999) {
+        throw new HttpError(400, 'Invalid text redaction.');
+      }
+      target = { kind, block, effect };
+    }
+    const key = JSON.stringify(target);
+    if (!seen.has(key)) { seen.add(key); normalized.push(target); }
+  }
+  if (!normalized.length) throw new HttpError(400, 'Select at least one area to redact.');
+  return normalized;
 }

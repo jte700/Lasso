@@ -89,6 +89,34 @@ do {
           "repairs legacy same-source colors and avoids cross-source collisions")
 }
 
+print("local source files")
+do {
+    let root = "/tmp/Lasso Source Project"
+    let rootURL = URL(fileURLWithPath: root, isDirectory: true)
+        .standardizedFileURL.resolvingSymlinksInPath()
+    let workbook = rootURL.appendingPathComponent("Accounting/Income Statement.xlsx").path
+    let exists: (String) -> Bool = { $0 == workbook }
+
+    let resolved = AssistSourceIdentity.localFileURL(
+        projectRoot: root, sourcePath: "Accounting/Income Statement.xlsx", fileExists: exists)
+    check(resolved?.path == workbook, "resolves a project-relative indexed file")
+    let windows = AssistSourceIdentity.localFileURL(
+        projectRoot: root, sourcePath: "Accounting\\Income Statement.xlsx", fileExists: exists)
+    check(windows?.path == workbook, "normalizes source separators before opening")
+    let absolute = AssistSourceIdentity.localFileURL(
+        projectRoot: root, sourcePath: workbook, fileExists: exists)
+    check(absolute?.path == workbook, "accepts an absolute source inside the project")
+    check(AssistSourceIdentity.localFileURL(
+        projectRoot: root, sourcePath: "../outside.xlsx", fileExists: { _ in true }) == nil,
+          "rejects a relative path that escapes the project")
+    check(AssistSourceIdentity.localFileURL(
+        projectRoot: root, sourcePath: "/tmp/outside.xlsx", fileExists: { _ in true }) == nil,
+          "rejects an absolute path outside the project")
+    check(AssistSourceIdentity.localFileURL(
+        projectRoot: root, sourcePath: "missing.xlsx", fileExists: { _ in false }) == nil,
+          "does not ask macOS to open a missing file")
+}
+
 print("completion insertion preserves the sentence")
 do {
     let one = accept("The expected cost of office sup", insert: "office supplies")

@@ -1,9 +1,9 @@
 {
-  "name": "colab-dry-scientific-timeline",
+  "name": "lasso",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Local-first scientific version timeline and deterministic RFI provenance",
+  "description": "Lasso local-first source linking and deterministic provenance",
   "engines": {
     "node": ">=24.0.0"
   },

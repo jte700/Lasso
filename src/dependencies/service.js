@@ -3313,7 +3313,7 @@ export class PredictiveProvenanceService {
       }
     }
     if (!changes.length) return { changed: false };
-    const system = { id: 'system:colab', displayName: 'CoLab', actorType: 'SYSTEM' };
+    const system = { id: 'system:colab', displayName: 'Lasso', actorType: 'SYSTEM' };
     const source = changes.some((change) => change.status === 'STALE') ? 'DEPENDENCY_STALE'
       : changes.some((change) => change.status === 'NEEDS_REVIEW') ? 'DEPENDENCY_CHANGED' : 'DEPENDENCY_CHANGED';
     const title = changes.length === 1
