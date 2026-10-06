@@ -9,11 +9,11 @@ APP="$DIST/Lasso.app"
 CONTENTS="$APP/Contents"
 RESOURCES="$CONTENTS/Resources"
 SUPPORT="$HOME/Library/Application Support/Lasso"
-LEGACY_SUPPORT="$HOME/Library/Application Support/CoLab Dry"
+PREVIOUS_SUPPORT="$HOME/Library/Application Support/CoLab Dry"
 
-NODE_BIN="${COLAB_NODE:-$(command -v node || true)}"
+NODE_BIN="${LASSO_NODE:-${COLAB_NODE:-$(command -v node || true)}}"
 if [ -z "$NODE_BIN" ]; then
-  echo "error: node was not found on PATH. Install Node 24+ or set COLAB_NODE." >&2
+  echo "error: node was not found on PATH. Install Node 24+ or set LASSO_NODE." >&2
   exit 1
 fi
 
@@ -49,7 +49,7 @@ swiftc -O \
   "$ROOT/desktop/ShareInsertion.swift" \
   "$ROOT/desktop/ShareComposer.swift" \
   "$ROOT/desktop/GlobalAssist.swift" \
-  "$ROOT/desktop/CoLabDry.swift"
+  "$ROOT/desktop/Lasso.swift"
 
 echo "==> Bundling the server"
 for item in src public migrations package.json; do
@@ -64,7 +64,7 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 <dict>
   <key>CFBundleName</key><string>Lasso</string>
   <key>CFBundleDisplayName</key><string>Lasso</string>
-  <key>CFBundleIdentifier</key><string>dry.colab.desktop</string>
+  <key>CFBundleIdentifier</key><string>com.jte700.lasso</string>
   <key>CFBundleVersion</key><string>1.0.0</string>
   <key>CFBundleShortVersionString</key><string>1.0.0</string>
   <key>CFBundleExecutable</key><string>Lasso</string>
@@ -86,23 +86,26 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 PLIST
 printf 'APPL????' > "$CONTENTS/PkgInfo"
 
-# Preserve existing local history and references when upgrading from the old
-# application name. Never overwrite an existing Lasso support directory.
-# Existing Lasso data is never overwritten.
-if [ ! -d "$SUPPORT" ] && [ -d "$LEGACY_SUPPORT" ]; then
-  echo "==> Migrating app data from $LEGACY_SUPPORT"
-  cp -R "$LEGACY_SUPPORT" "$SUPPORT"
-fi
-# First run can also seed history recorded by `npm start`.
-if [ ! -d "$SUPPORT/data" ] && [ -d "$ROOT/.colab-dry-data" ]; then
-  echo "==> Seeding app data from $ROOT/.colab-dry-data"
-  mkdir -p "$SUPPORT"
-  cp -R "$ROOT/.colab-dry-data" "$SUPPORT/data"
+# First run keeps the history recorded so far by `npm start` instead of
+# opening an empty workspace. Existing app data is never overwritten.
+if [ ! -d "$SUPPORT/data" ]; then
+  if [ -d "$PREVIOUS_SUPPORT/data" ]; then
+    DATA_SEED="$PREVIOUS_SUPPORT/data"
+  elif [ -d "$ROOT/.lasso-data" ]; then
+    DATA_SEED="$ROOT/.lasso-data"
+  elif [ -d "$ROOT/.colab-dry-data" ]; then
+    DATA_SEED="$ROOT/.colab-dry-data"
+  fi
+  if [ -n "${DATA_SEED:-}" ]; then
+    echo "==> Seeding app data from $DATA_SEED"
+    mkdir -p "$SUPPORT"
+    cp -R "$DATA_SEED" "$SUPPORT/data"
+  fi
 fi
 
 LOCAL_SIGNING_IDENTITY="Lasso Local Development"
+SIGNING_MODE="${LASSO_SIGN_MODE:-${COLAB_SIGN_MODE:-auto}}"
 LEGACY_SIGNING_IDENTITY="CoLab Dry Local Development"
-SIGNING_MODE="${COLAB_SIGN_MODE:-auto}"
 AVAILABLE_SIGNING_IDENTITIES="$(security find-identity -v -p codesigning 2>/dev/null || true)"
 if [ "$SIGNING_MODE" != "adhoc" ] && grep -Fq "\"$LOCAL_SIGNING_IDENTITY\"" <<<"$AVAILABLE_SIGNING_IDENTITIES"; then
   echo "==> Signing ($LOCAL_SIGNING_IDENTITY)"

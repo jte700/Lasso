@@ -12,6 +12,7 @@ import {
   buildSentenceCorpus, completeFromLinkedSource, completeSentence, sourceFindingFragment,
 } from './completion.js';
 import { renderPdfFigurePage } from './figure-preview.js';
+import { RecommendationRanking } from './ranking.js';
 
 const OBJECT_TYPES = new Set([
   'REFERENCE', 'PAPER', 'RESULT', 'VALUE', 'CODE', 'CODE_BLOCK', 'CODE_LINE',
@@ -1139,6 +1140,7 @@ export class PredictiveProvenanceService {
     this.timeline = timeline;
     this.db = timeline.db;
     this.rfi = rfi;
+    this.ranking = new RecommendationRanking(timeline);
     this.completionCorpusCache = new Map();
     this.studyVariableCache = new Map();
     this.workspaceRetrievalCache = new Map();
@@ -1254,7 +1256,7 @@ export class PredictiveProvenanceService {
   /// local native overlay to migrate pre-source-identity references.
   objectById(objectId) {
     const row = this.db.prepare(`
-      SELECT o.id AS object_id, o.object_key, o.object_type,
+      SELECT o.id AS object_id, o.object_key, o.object_type, o.project_id,
         v.id AS version_id, v.snapshot_id, v.path, v.anchor_json, v.label, v.value_text,
         v.search_text, v.content_hash, v.metadata_json, s.version AS snapshot_version
       FROM scientific_object_versions v
@@ -1263,7 +1265,7 @@ export class PredictiveProvenanceService {
       WHERE o.id = ?
       ORDER BY s.version DESC LIMIT 1
     `).get(objectId);
-    return row ? mapObjectRow(row) : null;
+    return row ? { ...mapObjectRow(row), projectId: row.project_id } : null;
   }
 
   warmPredictionCaches(projectId, snapshotId = null) {
@@ -1396,9 +1398,8 @@ export class PredictiveProvenanceService {
           : object.metadata.samples?.length ? 0.012 : object.metadata.dictionary ? 0.01 : -0.015;
         const score = Math.min(0.99, base + variableObject * 0.04 + rowObject * 0.065
           + dictionary * 0.03 + dataPath * 0.02 + profileQuality);
-        const reasons = ['project study variable'];
-        if (exact) reasons.push('exact variable name');
-        else if (prefix || tokenPrefix) reasons.push('matching variable prefix');
+        const reasons = [exact ? 'Exact variable name'
+          : prefix || tokenPrefix ? 'Matching variable prefix' : 'Matching variable name'];
         if (dictionary) reasons.push('data dictionary definition');
         else if (rowObject) reasons.push('named dataset row');
         else if (variableObject) reasons.push('inferred from dataset column');
@@ -1407,6 +1408,7 @@ export class PredictiveProvenanceService {
           label: object.variable,
           completionText: object.variable,
           score: Number(score.toFixed(3)),
+          matchTier: exact ? 0 : 1,
           reasons,
           variableDefinition: object.objectType === 'VARIABLE' ? {
             variable: object.variable,
@@ -1424,7 +1426,10 @@ export class PredictiveProvenanceService {
         || left.path.localeCompare(right.path));
     const seen = new Set();
     const output = [];
-    for (const candidate of ranked) {
+    for (const candidate of this.ranking.rank(projectId, ranked, {
+      query, documentPath: options.documentPath, relatedPaths: options.relatedPaths,
+      minimumScore: 0.68, limit: ranked.length, diversify: false,
+    })) {
       const key = normalizedVariable(candidate.variable);
       if (seen.has(key)) continue;
       seen.add(key);
@@ -1441,6 +1446,7 @@ export class PredictiveProvenanceService {
     for (const fragment of progressiveVariableFragments(input.text, cursor)) {
       const candidates = this.candidatesForStudyVariable(projectId, fragment, {
         documentPath: input.documentPath,
+        relatedPaths: this.relatedSourcePaths(projectId, input),
         limit: 40,
       });
       if (candidates.length) return { fragment, candidates, context };
@@ -1520,7 +1526,11 @@ export class PredictiveProvenanceService {
         || left.retrievalText.localeCompare(right.retrievalText));
     const seen = new Set();
     const suggestions = [];
-    for (const object of objects) {
+    for (const object of this.ranking.rank(projectId, objects, {
+      query, documentPath: input.documentPath, relatedPaths: this.relatedSourcePaths(projectId, input),
+      minimumScore: options.minimumScore ?? 0.54, limit: objects.length,
+      diversify: false,
+    })) {
       const fingerprint = object.retrievalText.toLowerCase().replace(/\W+/g, ' ').trim();
       if (!fingerprint || seen.has(fingerprint)) continue;
       seen.add(fingerprint);
@@ -1538,9 +1548,8 @@ export class PredictiveProvenanceService {
         dependencyCandidate: candidate,
         generated: false,
       });
-      if (suggestions.length >= (options.limit ?? 8)) break;
     }
-    return suggestions;
+    return this.rankCompletions(projectId, suggestions, input, { query, limit: options.limit ?? 8 });
   }
 
   candidatesForClaim(projectId, claim, options = {}) {
@@ -1634,8 +1643,14 @@ export class PredictiveProvenanceService {
       return {
         ...object,
         displayValue: value.displayValue ?? (numericDescriptor(object.valueText) ? object.valueText : null),
+        // A bibliography holds several independently citable works.
+        diversityKey: object.objectType === 'REFERENCE' ? object.id : object.path,
         score: Number(score.toFixed(3)),
         reasons,
+        matchStrength: Math.max(value.score, entity, variable, reference, component),
+        matchTier: (value.score >= 0.8 && (!claim.variable || variable >= 0.7))
+          || reference >= 0.9 || author === 1 || component >= 0.9
+          || variable >= 0.9 || (['ENTITY', 'METHOD'].includes(claim.type) && entity >= 0.9) ? 0 : 1,
         authorSimilarity: Number(author.toFixed(3)),
         referenceSimilarity: Number(reference.toFixed(3)),
         titleSimilarity: Number(titleReference.toFixed(3)),
@@ -1656,13 +1671,57 @@ export class PredictiveProvenanceService {
         } : null,
       };
     }).filter((object) => object.score >= (options.minimumScore ?? (claim.type === 'LITERATURE' ? 0.08 : 0.2))
+      && (object.matchTier === 0 || object.matchStrength >= (options.minimumMatchStrength ?? 0))
       && (!referenceQuery || object.referenceSimilarity >= 0.68 || object.authorSimilarity >= 0.7)
       && (!referenceYear || !object.metadata.year || String(object.metadata.year).toLowerCase() === referenceYear))
       .sort((a, b) => b.score - a.score
         || (Number.parseInt(b.metadata.year, 10) || 0) - (Number.parseInt(a.metadata.year, 10) || 0)
-        || b.snapshotVersion - a.snapshotVersion || a.label.localeCompare(b.label))
-      .slice(0, options.limit ?? 8);
-    return ranked.map((object) => this.enrichObject(projectId, object));
+        || b.snapshotVersion - a.snapshotVersion || a.label.localeCompare(b.label));
+    return this.ranking.rank(projectId, ranked, {
+      query: claimTokens, documentPath: options.documentPath, relatedPaths: options.relatedPaths,
+      limit: options.limit ?? 8, diversify: !options.sourcePath,
+    }).map((object) => this.enrichObject(projectId, object));
+  }
+
+  relatedSourcePaths(projectId, input) {
+    const objectIds = (Array.isArray(input.pendingDependencies) ? input.pendingDependencies.slice(0, 50) : [])
+      .map((item) => item.sourceObjectId).filter((value) => typeof value === 'string');
+    if (!objectIds.length) return [];
+    const project = this.timeline.getProject(projectId);
+    this.ensureIndex(projectId, project.currentSnapshotId);
+    return this.db.prepare(`
+      SELECT DISTINCT v.path FROM scientific_object_versions v
+      JOIN scientific_objects o ON o.id = v.object_id
+      WHERE o.project_id = ? AND v.snapshot_id = ?
+        AND o.id IN (${objectIds.map(() => '?').join(',')})
+    `).all(projectId, project.currentSnapshotId, ...objectIds).map((row) => row.path);
+  }
+
+  rankCompletions(projectId, completions, input, options = {}) {
+    return this.ranking.rank(projectId, completions.map((completion) => ({
+      ...completion.dependencyCandidate,
+      score: completion.confidence ?? completion.dependencyCandidate?.score ?? 0,
+      completion,
+    })), {
+      query: input.text, documentPath: input.documentPath,
+      relatedPaths: this.relatedSourcePaths(projectId, input), ...options,
+    }).map(({ completion, ranking }) => ({
+      ...completion,
+      dependencyCandidate: { ...completion.dependencyCandidate, ranking },
+    }));
+  }
+
+  sentenceSuggestion(projectId, input) {
+    const permitted = this.autocompleteFilter(projectId);
+    return completeSentence(this.completionCorpus(projectId).filter(permitted), input, {
+      rank: (completions) => this.rankCompletions(projectId, completions.filter((item) => item.dependencyCandidate?.id).map((item) => ({
+        ...item,
+        dependencyCandidate: {
+          ...item.dependencyCandidate,
+          matchTier: item.matchKind === 'PREFIX' ? 0 : 1,
+        },
+      })), input, { limit: 1, diversify: false, minimumScore: 0.54 }),
+    });
   }
 
   linkedDependencyContext(projectId, input, cursor) {
@@ -1955,6 +2014,33 @@ export class PredictiveProvenanceService {
   }
 
   predict(projectId, input) {
+    const prediction = this.predictionCandidates(projectId, input);
+    const limit = input.surface === 'search' ? 12 : 5;
+    let remaining = limit;
+    const take = (items) => {
+      const selected = (items ?? []).slice(0, remaining);
+      remaining -= selected.length;
+      return selected;
+    };
+    const scoped = Boolean(prediction.sourceContext?.source);
+    prediction.sourceCompletions = take(this.rankCompletions(projectId,
+      prediction.sourceCompletions, input, { limit, diversify: !scoped }));
+    prediction.workspaceCompletions = take(this.rankCompletions(projectId,
+      prediction.workspaceCompletions, input, { limit, diversify: !scoped }));
+    prediction.claims = prediction.claims.map((claim) => {
+      const eligible = claim.candidates.filter((candidate) => candidate.matchTier === 0
+        || (candidate.matchStrength ?? candidate.score) >= (claim.type === 'STUDY_VARIABLE' ? 0.68 : 0.4));
+      return { ...claim, candidates: take(this.ranking.rank(projectId, eligible, {
+        query: claim.text, documentPath: input.documentPath,
+        relatedPaths: this.relatedSourcePaths(projectId, input),
+        limit: remaining, diversify: !scoped,
+      })) };
+    });
+    if (prediction.completion && remaining <= 0) prediction.completion = null;
+    return prediction;
+  }
+
+  predictionCandidates(projectId, input) {
     const text = String(input.text ?? '');
     const cursor = Number.isInteger(input.cursor) ? input.cursor : text.length;
     const linkedDependency = this.linkedDependencyContext(projectId, input, cursor);
@@ -2002,7 +2088,7 @@ export class PredictiveProvenanceService {
       const initialWorkspaceCompletions = preferWorkspace
         ? this.workspaceSuggestions(projectId, input, cursor, { limit: 8 }) : [];
       const exactProjectCompletion = hasVariableChoices || initialWorkspaceCompletions.length
-        ? null : completeSentence(this.completionCorpus(projectId), input);
+        ? null : this.sentenceSuggestion(projectId, input);
       const completion = exactProjectCompletion?.dependencyCandidate
         && !['PAPER', 'REFERENCE'].includes(exactProjectCompletion.dependencyCandidate.objectType)
         ? exactProjectCompletion : null;
@@ -2041,6 +2127,8 @@ export class PredictiveProvenanceService {
           context: input.context ?? text,
           section: input.section,
           documentPath: input.documentPath,
+          relatedPaths: this.relatedSourcePaths(projectId, input),
+          minimumMatchStrength: input.surface === 'search' ? 0 : 0.4,
           sourcePath: scopedToLinkedPaper ? linkedDependency.source.path : null,
           snapshotId: scopedToLinkedPaper ? linkedDependency.source.snapshotId : null,
         });
@@ -2058,7 +2146,7 @@ export class PredictiveProvenanceService {
         return { ...claim, candidates, scopedToLinkedPaper };
       });
     const predictedCompletion = claims.some((claim) => claim.candidates.length)
-      ? null : completeSentence(this.completionCorpus(projectId), input);
+      ? null : this.sentenceSuggestion(projectId, input);
     const completion = predictedCompletion?.dependencyCandidate ? predictedCompletion : null;
     return {
       claims, completion, sourceCompletions: [], workspaceCompletions: [],
@@ -2074,22 +2162,68 @@ export class PredictiveProvenanceService {
   }
 
   search(projectId, query, options = {}) {
-    const terms = wordTokens(query);
+    const normalizedQuery = String(query ?? '').toLowerCase().trim();
+    const terms = normalizedQuery.match(/[\p{L}\p{N}_.%-]+/gu) ?? [];
     // Terminal aliases are names in this workspace, so the editor's source
     // picker finds a source by an alias the same way the terminal does.
     const aliasedKeys = new Set((this.aliasesForProject?.(projectId) ?? [])
       .filter((alias) => wordTokens(alias.name).some((token) => terms.includes(token)))
       .map((alias) => alias.objectKey));
     const matches = this.objectsAt(projectId, options.snapshotId)
-      .map((object) => ({
-        ...object,
-        score: aliasedKeys.has(object.objectKey) ? 1
-          : terms.length ? terms.filter((term) => object.searchText.includes(term)).length / terms.length : 0.2,
-      }))
+      .map((object) => {
+        const direct = aliasedKeys.has(object.objectKey) || [object.label, object.path, path.posix.basename(object.path)]
+          .some((value) => String(value).toLowerCase() === normalizedQuery);
+        const searchable = `${object.searchText} ${object.path}`.toLowerCase();
+        return {
+          ...object,
+          ...(direct && normalizedQuery ? { matchTier: 0 } : {}),
+          score: direct && normalizedQuery ? 1
+            : terms.length ? terms.filter((term) => searchable.includes(term)).length / terms.length : 0.2,
+        };
+      })
       .filter((object) => !terms.length || object.score > 0)
-      .sort((a, b) => b.score - a.score || b.snapshotVersion - a.snapshotVersion || a.label.localeCompare(b.label))
-      .slice(0, options.limit ?? 30);
-    return matches.map((object) => this.enrichObject(projectId, object));
+      .sort((a, b) => b.score - a.score || b.snapshotVersion - a.snapshotVersion || a.label.localeCompare(b.label));
+    const sourcePaths = new Set(matches.filter((object) => normalizedQuery
+      && [object.path, path.posix.basename(object.path)].some((value) => value.toLowerCase() === normalizedQuery))
+      .map((object) => object.path));
+    return this.ranking.rank(projectId, matches, {
+      query: normalizedQuery, documentPath: options.documentPath,
+      limit: options.limit ?? 30, diversify: sourcePaths.size !== 1,
+    }).map((object) => this.enrichObject(projectId, object));
+  }
+
+  recordRecommendationUsage(projectId, input, { allowMissingSource = false } = {}) {
+    if (!input || !['accept', 'open'].includes(input.kind)) {
+      throw new HttpError(400, 'Usage must be an accepted suggestion or deliberate source open.');
+    }
+    const project = this.timeline.getProject(projectId);
+    let objectId = input.objectId;
+    if (input.dependencyId) {
+      if (typeof input.dependencyId !== 'string') throw new HttpError(400, 'A dependency identity is required.');
+      const dependency = this.db.prepare('SELECT project_id FROM claim_dependencies WHERE id = ?').get(input.dependencyId);
+      if (!dependency || dependency.project_id !== projectId) throw new HttpError(404, 'Dependency not found in this project.');
+      objectId = this.latestVersionRow(input.dependencyId)?.source_object_id;
+    }
+    let sourcePath = input.path;
+    if (objectId) {
+      if (typeof objectId !== 'string') throw new HttpError(400, 'An indexed source identity is required.');
+      // Resolve through file identity so an accepted older object follows a rename.
+      const source = this.db.prepare(`
+        SELECT current_file.path FROM scientific_objects o
+        JOIN scientific_object_versions v ON v.object_id = o.id
+        JOIN snapshots s ON s.id = v.snapshot_id
+        JOIN snapshot_files original ON original.snapshot_id = v.snapshot_id AND original.path = v.path
+        JOIN snapshot_files current_file ON current_file.project_file_id = original.project_file_id
+          AND current_file.snapshot_id = ?
+        WHERE o.project_id = ? AND o.id = ? ORDER BY s.version DESC LIMIT 1
+      `).get(project.currentSnapshotId, projectId, objectId);
+      if (!source && allowMissingSource) return { recorded: false };
+      if (!source) throw new HttpError(404, 'Indexed source not found in this project.');
+      sourcePath = source.path;
+    }
+    return this.ranking.record(projectId, {
+      path: sourcePath, kind: input.kind, sessionId: input.sessionId, documentPath: input.documentPath,
+    });
   }
 
   documentEditLayer(projectId, projectFileId, snapshotId) {
@@ -2197,7 +2331,7 @@ export class PredictiveProvenanceService {
       });
     }
     const destination = this.timeline.resolveProjectPath(project, relativePath);
-    const temporary = `${destination}.colab-document-${id()}.tmp`;
+    const temporary = `${destination}.lasso-document-${id()}.tmp`;
     fs.writeFileSync(temporary, String(input.content ?? ''), { flag: 'wx' });
     fs.renameSync(temporary, destination);
     return this.timeline.capture(projectId, actorInput, {
@@ -2299,6 +2433,13 @@ export class PredictiveProvenanceService {
         JSON.stringify({ dependencyId, objectId: object.object_id, objectType: object.object_type, label: object.label, value: object.value_text }),
         eventId, timestamp,
       );
+      if (['AUTOCOMPLETE', 'PREDICTED_ACCEPTED', 'MANUAL'].includes(method)
+        && ['HUMAN_SELF', 'HUMAN_COLLABORATOR'].includes(actor.actorType)) {
+        this.recordRecommendationUsage(projectId, {
+          objectId: object.object_id, kind: 'accept', sessionId: input.sessionId,
+          documentPath: input.documentPath,
+        }, { allowMissingSource: true });
+      }
     });
     return { dependency: this.getDependency(dependencyId), ...result };
   }
@@ -2367,6 +2508,13 @@ export class PredictiveProvenanceService {
           }),
           eventId, timestamp,
         );
+        if (['AUTOCOMPLETE', 'PREDICTED_ACCEPTED', 'MANUAL'].includes(item.method)
+          && ['HUMAN_SELF', 'HUMAN_COLLABORATOR'].includes(actor.actorType)) {
+          this.recordRecommendationUsage(projectId, {
+            objectId: item.object.object_id, kind: 'accept', sessionId: input.sessionId,
+            documentPath: item.input.documentPath,
+          }, { allowMissingSource: true });
+        }
       }
     });
     return { dependencies: prepared.map((item) => this.getDependency(item.dependencyId)), ...result };
@@ -3313,7 +3461,7 @@ export class PredictiveProvenanceService {
       }
     }
     if (!changes.length) return { changed: false };
-    const system = { id: 'system:colab', displayName: 'Lasso', actorType: 'SYSTEM' };
+    const system = { id: 'system:lasso', displayName: 'Lasso', actorType: 'SYSTEM' };
     const source = changes.some((change) => change.status === 'STALE') ? 'DEPENDENCY_STALE'
       : changes.some((change) => change.status === 'NEEDS_REVIEW') ? 'DEPENDENCY_CHANGED' : 'DEPENDENCY_CHANGED';
     const title = changes.length === 1

@@ -10,4 +10,4 @@ ALTER TABLE object_share_grants
 ADD COLUMN redactions_json TEXT NOT NULL DEFAULT '[]';
 
 INSERT OR IGNORE INTO schema_migrations(version, applied_at)
-VALUES (14, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+VALUES (15, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));

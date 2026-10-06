@@ -32,7 +32,7 @@ SQLite triggers reject updates/deletes to snapshots, snapshot files, timeline ev
 
 ## Snapshot model
 
-The initial import recursively enumerates regular files, excluding version-control internals, dependency trees, `.colab-dry-data`, symlinks, editor temporaries, and `.DS_Store`. Each file is SHA-256 hashed and its bytes are written once to `blobs/<prefix>/<hash>`. Snapshots reference the content hash, so unchanged and repeated content consumes no additional blob bytes.
+The initial import recursively enumerates regular files, excluding version-control internals, dependency trees, `.lasso-data`, symlinks, editor temporaries, and `.DS_Store`. Each file is SHA-256 hashed and its bytes are written once to `blobs/<prefix>/<hash>`. Snapshots reference the content hash, so unchanged and repeated content consumes no additional blob bytes.
 
 The manifest hash covers sorted `(path, content hash, size, file type)` tuples. Version 1 has no parent and its event is always `Project imported`, attributed to the current authenticated/session actor supplied by the caller. No prior history is inferred.
 
@@ -40,7 +40,7 @@ The manifest hash covers sorted `(path, content hash, size, file type)` tuples. 
 
 Opening a project reconciles the directory before starting its watcher. While open, file notifications reset a project-level 2.5-second timer. Continuous saves are grouped until the directory is idle. Explicit checkpoints, project open, and approved agent edits capture immediately. Changing session identity restarts the watcher with the new execution identity.
 
-The batching interval is configurable with `COLAB_WATCH_DEBOUNCE_MS`. Because capture compares content hashes, noisy notifications and an internal edit plus watcher notification do not create duplicate events.
+The batching interval is configurable with `LASSO_WATCH_DEBOUNCE_MS`. Because capture compares content hashes, noisy notifications and an internal edit plus watcher notification do not create duplicate events.
 
 On platforms where recursive `fs.watch` is unavailable, open-time and explicit reconciliation still work and a warning is logged. No daemon survives the Lasso process.
 

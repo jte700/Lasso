@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { detectFileType, isTrackedFile } from './file-types.js';
 
-const IGNORED_DIRECTORIES = new Set(['.git', '.svn', '.hg', 'node_modules', '.colab-dry-data']);
+const IGNORED_DIRECTORIES = new Set(['.git', '.svn', '.hg', 'node_modules', '.lasso-data', '.colab-dry-data']);
 
 function metadataFor(type, buffer) {
   const metadata = {};

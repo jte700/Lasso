@@ -79,6 +79,13 @@ export class DependencyGraph {
 
   // ── search ───────────────────────────────────────────────────────────────
 
+  /** Use the same relevance, relationship and usage priorities as the editor. */
+  rankRecommendations(projectId, candidates, options = {}) {
+    const ordered = [...candidates].sort((left, right) => String(left.name ?? left.label ?? '').localeCompare(String(right.name ?? right.label ?? ''))
+      || String(left.path ?? '').localeCompare(String(right.path ?? '')));
+    return this.dependencies.ranking.rank(projectId, ordered, options);
+  }
+
   /**
    * Exact-name matching first, then relevance over the indexed search text.
    * Exact matches always outrank fuzzy ones, so a name that exists is never
@@ -88,6 +95,7 @@ export class DependencyGraph {
     const raw = String(query ?? '').trim();
     const wanted = normalizeQueryName(raw);
     const terms = tokens(raw);
+    const contextTerms = tokens(options.context);
     const pool = options.includeContainers
       ? this.namedObjects(projectId, options.snapshotId)
       : this.addressableObjects(projectId, options.snapshotId);
@@ -95,22 +103,30 @@ export class DependencyGraph {
     // Naming an indexed file means that file. Scoring its path word by word
     // would drag in every sibling that shares a directory.
     const named = raw.toLowerCase();
-    const inFile = (object) => object.path.toLowerCase() === named || object.fileName.toLowerCase() === named;
+    const permitted = (object) => {
+      if (options.directory && !`${object.path}/`.toLowerCase().startsWith(`${String(options.directory).replace(/\/+$/, '').toLowerCase()}/`)) return false;
+      if (options.sourceType && path.posix.extname(object.path).slice(1).toLowerCase() !== String(options.sourceType).toLowerCase().replace(/^\./, '')) return false;
+      if (options.pathFragment && !object.path.toLowerCase().includes(String(options.pathFragment).toLowerCase())) return false;
+      if (options.updatedWithinMs) {
+        const updated = this.sourceUpdatedAt(projectId, object);
+        if (updated == null || Date.parse(updated) < Date.now() - options.updatedWithinMs) return false;
+      }
+      return true;
+    };
+    const inFile = (object) => (object.path.toLowerCase() === named || object.fileName.toLowerCase() === named);
     const exactSource = named && (pool.filter(inFile).length
       ? pool.filter(inFile)
       : this.namedObjects(projectId, options.snapshotId).filter(inFile));
     if (exactSource && exactSource.length) {
-      return exactSource
-        .sort((left, right) => left.name.localeCompare(right.name))
-        .slice(0, options.limit ?? 25)
-        .map((object) => ({ object, score: 1, matchKind: 'source' }));
+      return this.rankRecommendations(projectId, exactSource.filter(permitted).map((object) => ({
+        object, path: object.path, id: object.id, label: object.name,
+        score: 1, matchTier: 0, matchKind: 'source', reasons: ['Exact file match'],
+      })), { ...options, query: raw, diversify: false, limit: options.limit ?? 25 });
     }
 
     const scored = [];
     for (const object of pool) {
-      if (options.directory && !`${object.path}/`.toLowerCase().startsWith(`${String(options.directory).replace(/\/+$/, '').toLowerCase()}/`)) continue;
-      if (options.sourceType && path.posix.extname(object.path).slice(1).toLowerCase() !== String(options.sourceType).toLowerCase().replace(/^\./, '')) continue;
-      if (options.pathFragment && !object.path.toLowerCase().includes(String(options.pathFragment).toLowerCase())) continue;
+      if (!permitted(object)) continue;
 
       let score = 0;
       let matchKind = null;
@@ -118,31 +134,29 @@ export class DependencyGraph {
       else if (wanted && object.name.startsWith(wanted)) { score = 0.82; matchKind = 'prefix'; }
       else if (wanted && object.name.includes(wanted)) { score = 0.66; matchKind = 'contains'; }
       if (terms.length) {
-        const haystack = object.searchText;
+        const haystack = String(object.searchText ?? '').toLowerCase();
         const hits = terms.filter((term) => haystack.includes(term)).length;
         const semantic = (hits / terms.length) * 0.6;
         if (semantic > score) { score = semantic; matchKind = matchKind ?? 'relevance'; }
         else if (hits === terms.length && matchKind === null) { score = semantic; matchKind = 'relevance'; }
       }
       if (!raw) { score = 0.2; matchKind = 'all'; }
+      if (contextTerms.length && (!raw || score > 0)) {
+        const haystack = String(object.searchText ?? '').toLowerCase();
+        const hits = contextTerms.filter((term) => haystack.includes(term)).length;
+        if (!raw && hits) { score = 0.25 + (hits / contextTerms.length) * 0.35; matchKind = 'context'; }
+        else if (score < 1) score = Math.min(0.95, score + (hits / contextTerms.length) * 0.03);
+      }
       if (score <= 0) continue;
-      scored.push({ object, score, matchKind });
+      const matchTier = ['exact', 'prefix'].includes(matchKind) ? 0 : matchKind === 'all' ? 3 : 1;
+      const reason = { exact: 'Exact name match', prefix: 'Name starts with your query', contains: 'Name matches your query', context: 'Matches current context', relevance: 'Relevant content', all: 'Indexed source' }[matchKind];
+      scored.push({ object, path: object.path, id: object.id, label: object.name, score, matchTier, matchKind, reasons: [reason] });
     }
 
-    let results = scored;
-    if (options.updatedWithinMs) {
-      const cutoff = Date.now() - options.updatedWithinMs;
-      results = results.filter(({ object }) => {
-        const updated = this.sourceUpdatedAt(projectId, object);
-        return updated != null && Date.parse(updated) >= cutoff;
-      });
-    }
-
-    return results
-      .sort((left, right) => right.score - left.score
-        || left.object.name.localeCompare(right.object.name)
-        || left.object.path.localeCompare(right.object.path))
-      .slice(0, options.limit ?? 25);
+    return this.rankRecommendations(projectId, scored, {
+      ...options, query: raw, limit: options.limit ?? 25,
+      diversify: options.diversify !== false, maxPerFile: options.maxPerFile ?? 2,
+    });
   }
 
   // ── name resolution ──────────────────────────────────────────────────────
@@ -196,43 +210,56 @@ export class DependencyGraph {
    * than an empty box — a person who types `find account` is looking for
    * something, and the index usually knows what.
    */
-  nameSuggestions(projectId, fragment, limit = 12) {
+  nameSuggestions(projectId, fragment, limit = 12, options = {}) {
     const wanted = normalizeQueryName(fragment);
-    const seen = new Map();
-    const add = (entry) => {
-      if (!seen.has(entry.name)) seen.set(entry.name, entry);
-    };
+    const candidates = [];
     const describe = (object) => ({
       name: object.name,
+      label: object.name,
       kind: 'dependency',
       value: object.valueText ?? null,
       detail: [object.fileName, object.locator].filter(Boolean).join(' · '),
+      path: object.path,
+      id: object.id,
+      objectId: object.id,
       objectKey: object.objectKey,
     });
 
     for (const alias of this.aliases?.list(projectId) ?? []) {
       if (!wanted || alias.name.startsWith(wanted)) {
-        add({ name: alias.name, kind: 'alias', value: null, detail: alias.address, objectKey: alias.objectKey });
+        const object = this.objectByKey(projectId, alias.objectKey);
+        const source = object ? describe(object) : { path: alias.path, objectKey: alias.objectKey, value: null };
+        candidates.push({ ...source, name: alias.name, label: alias.name, kind: 'alias', detail: alias.address,
+          score: !wanted ? 0.2 : alias.name === wanted ? 1 : 0.82, matchTier: wanted ? 0 : 3,
+          reasons: [wanted ? alias.name === wanted ? 'Exact name match' : 'Name starts with your query' : 'Indexed source'],
+        });
       }
     }
-    for (const object of this.addressableObjects(projectId)) {
-      if (wanted && !object.name.startsWith(wanted)) continue;
-      add(describe(object));
-      if (seen.size >= limit * 3) break;
+    const matches = this.search(projectId, fragment, {
+      ...options, limit: this.namedObjects(projectId).length, diversify: false,
+    });
+    for (const match of matches) {
+      if (wanted && !match.object.name.startsWith(wanted)) continue;
+      candidates.push({ ...describe(match.object), score: match.score, matchTier: match.matchTier, reasons: match.reasons });
     }
 
-    const prefixed = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name)).slice(0, limit);
-    // Prefix matches are what completing a name means, so when there are any,
-    // padding the list out with loosely related sources would only be noise.
-    if (prefixed.length || !wanted) return prefixed;
-
-    // Nothing starts with the fragment. Rather than an empty box, offer what
-    // the index considers related, marked so the terminal can say as much.
-    for (const { object } of this.search(projectId, fragment, { limit })) {
-      add({ ...describe(object), kind: 'related' });
-      if (seen.size >= limit) break;
+    // Keep the established prefix-only completion behavior. A broad search is
+    // still useful when the fragment does not begin an indexed name.
+    if (!candidates.length && wanted) {
+      for (const match of matches) {
+        candidates.push({ ...describe(match.object), kind: 'related', score: match.score, matchTier: match.matchTier, reasons: match.reasons });
+      }
     }
-    return [...seen.values()].slice(0, limit);
+    // Rank before collapsing duplicate names so the provenance shown for an
+    // ambiguous name comes from the best matching source, not index order.
+    const ordered = this.rankRecommendations(projectId, candidates, {
+      ...options, query: fragment, diversify: false, limit: candidates.length,
+    });
+    const seen = new Map();
+    for (const entry of ordered) if (!seen.has(entry.name)) seen.set(entry.name, entry);
+    return this.rankRecommendations(projectId, [...seen.values()], {
+      ...options, query: fragment, limit, diversify: options.diversify !== false, maxPerFile: options.maxPerFile ?? 2,
+    });
   }
 
   /**
@@ -240,30 +267,39 @@ export class DependencyGraph {
    * what it is, so this is often the most direct thing to complete: the name
    * matches first, then the path, then anything containing the fragment.
    */
-  sourceSuggestions(projectId, fragment, limit = 8) {
-    const wanted = String(fragment ?? '').toLowerCase();
+  sourceSuggestions(projectId, fragment, limit = 8, options = {}) {
+    const wanted = String(fragment ?? '').trim().toLowerCase();
+    const contextTerms = tokens(options.context);
     const files = new Map();
     for (const object of this.namedObjects(projectId)) {
-      if (files.has(object.path)) continue;
       const name = object.fileName.toLowerCase();
       const full = object.path.toLowerCase();
-      const rank = !wanted ? 3
-        : name.startsWith(wanted) ? 0
-        : full.startsWith(wanted) ? 1
-        : name.includes(wanted) || full.includes(wanted) ? 2
-        : -1;
-      if (rank < 0) continue;
+      const exact = wanted && (name === wanted || full === wanted);
+      let score = !wanted ? 0.2 : exact ? 1 : name.startsWith(wanted) ? 0.88
+        : full.startsWith(wanted) ? 0.82 : name.includes(wanted) || full.includes(wanted) ? 0.68 : 0;
+      if (!score) continue;
+      let matchTier = !wanted ? 3 : exact || name.startsWith(wanted) || full.startsWith(wanted) ? 0 : 1;
+      let reason = !wanted ? 'Indexed source' : exact ? 'Exact file match' : matchTier === 0 ? 'File starts with your query' : 'File matches your query';
+      if (!wanted && contextTerms.length) {
+        const haystack = `${full} ${object.searchText ?? ''}`.toLowerCase();
+        const hits = contextTerms.filter((term) => haystack.includes(term)).length;
+        if (hits) { score = 0.25 + (hits / contextTerms.length) * 0.35; matchTier = 1; reason = 'Matches current context'; }
+      }
+      const existing = files.get(object.path);
+      if (existing && existing.score >= score) continue;
       files.set(object.path, {
         name: object.path,
+        label: object.fileName,
+        path: object.path,
         kind: 'source',
         value: null,
         detail: `${this.objectsInFile(projectId, object.path)} indexed`,
-        rank,
+        score, matchTier, reasons: [reason],
       });
     }
-    return [...files.values()]
-      .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name))
-      .slice(0, limit);
+    return this.rankRecommendations(projectId, [...files.values()], {
+      ...options, query: fragment, limit, diversify: false,
+    });
   }
 
   /** How many indexed objects one file contributes. */
@@ -297,21 +333,35 @@ export class DependencyGraph {
   }
 
   /** `path:locator` addresses, which is what `alias` pins. */
-  addressSuggestions(projectId, fragment, limit = 12) {
+  addressSuggestions(projectId, fragment, limit = 12, options = {}) {
     const wanted = String(fragment ?? '').toLowerCase();
-    return this.addressableObjects(projectId)
+    const candidates = this.addressableObjects(projectId)
       .map((object) => ({
         name: canonicalAddress(object),
+        label: canonicalAddress(object),
+        id: object.id,
+        objectId: object.id,
+        objectKey: object.objectKey,
+        path: object.path,
         kind: 'address',
         value: object.valueText ?? null,
         detail: object.name,
       }))
       .filter((entry) => !wanted || entry.name.toLowerCase().includes(wanted)
         || entry.detail.toLowerCase().startsWith(wanted))
-      // An address is pinned in order to name a value, so those lead.
-      .sort((a, b) => Number(b.value != null) - Number(a.value != null)
-        || a.name.localeCompare(b.name))
-      .slice(0, limit);
+      .map((entry) => {
+        const exact = wanted && entry.name.toLowerCase() === wanted;
+        const prefix = wanted && (entry.name.toLowerCase().startsWith(wanted) || entry.detail.toLowerCase().startsWith(wanted));
+        return { ...entry, score: !wanted ? 0.2 : exact ? 1 : prefix ? 0.82 : 0.66,
+          matchTier: !wanted ? 3 : exact || prefix ? 0 : 1,
+          reasons: [!wanted ? 'Indexed source' : exact ? 'Exact address match' : 'Address matches your query'],
+        };
+      });
+    const scopedFile = wanted && candidates.some((entry) => entry.path.toLowerCase() === wanted
+      || sourceFileName(entry.path).toLowerCase() === wanted);
+    return this.rankRecommendations(projectId, candidates, {
+      ...options, query: fragment, limit, diversify: !scopedFile && options.diversify !== false, maxPerFile: options.maxPerFile ?? 2,
+    });
   }
 
   /** File extensions present in the index, for `--source`. */
@@ -895,4 +945,3 @@ export class DependencyGraph {
     };
   }
 }
-

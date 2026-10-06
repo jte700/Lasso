@@ -581,7 +581,7 @@ export class TimelineService {
     }
     const destination = this.resolveProjectPath(project, proposal.path);
     fs.mkdirSync(path.dirname(destination), { recursive: true });
-    const temporary = `${destination}.colab-${executionId}.tmp`;
+    const temporary = `${destination}.lasso-${executionId}.tmp`;
     fs.writeFileSync(temporary, this.blobs.get(proposal.contentHashAfter), { flag: 'wx' });
     fs.renameSync(temporary, destination);
 

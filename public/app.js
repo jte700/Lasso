@@ -5,6 +5,8 @@ import { createSourceWorkbench } from './source-workbench.js?v=1';
 import { renderAssistBox } from './assist-box.js?v=2';
 
 const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
+const RECOMMENDATION_SESSION_ID = crypto.randomUUID();
+const AUTOMATIC_SUGGESTION_LIMIT = 5;
 // The interface build, taken from this module's own cache-busting query. Shown
 // in the terminal banner so "which build am I running?" is answerable on sight.
 const UI_BUILD = new URL(import.meta.url).searchParams.get('v') ?? 'dev';
@@ -39,12 +41,15 @@ const elements = Object.fromEntries([
 
 function loadIdentity() {
   try {
-    return JSON.parse(localStorage.getItem('colab.identity')) ?? defaultIdentity();
+    const saved = JSON.parse(localStorage.getItem('lasso.identity') ?? localStorage.getItem('colab.identity'));
+    // Earlier builds silently saved a fictional demo identity on first load.
+    if (saved?.id === 'human-self:maya-chen' && saved.displayName === 'Maya Chen') return defaultIdentity();
+    return saved ?? defaultIdentity();
   } catch { return defaultIdentity(); }
 }
 
 function defaultIdentity() {
-  return { id: 'human-self:maya-chen', displayName: 'Maya Chen', actorType: 'HUMAN_SELF' };
+  return { id: 'human-self:local-user', displayName: 'Local user', actorType: 'HUMAN_SELF' };
 }
 
 function identityId(name, type) {
@@ -69,6 +74,21 @@ async function api(url, options = {}) {
   return body;
 }
 
+function recordRecommendationUsage(source, kind, context = {}) {
+  const projectId = context.projectId ?? state.project?.id;
+  const identity = source?.objectId ? { objectId: source.objectId }
+    : source?.dependencyId ? { dependencyId: source.dependencyId }
+      : source?.path ? { path: source.path } : null;
+  if (!projectId || !identity) return;
+  void api(`/api/projects/${encodeURIComponent(projectId)}/recommendation-usage`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...identity, kind, sessionId: RECOMMENDATION_SESSION_ID,
+      documentPath: context.documentPath ?? state.editor.document?.path,
+    }),
+  }).catch(() => { /* Ranking history must never interrupt the requested action. */ });
+}
+
 function toast(message, type = '') {
   const node = document.createElement('div');
   node.className = `toast ${type}`;
@@ -88,7 +108,7 @@ function initials(name) {
 
 function setIdentity(identity) {
   state.identity = identity;
-  localStorage.setItem('colab.identity', JSON.stringify(identity));
+  localStorage.setItem('lasso.identity', JSON.stringify(identity));
   elements['avatar-initials'].textContent = initials(identity.displayName);
   const sidebarName = document.getElementById('sidebar-identity-name');
   const sidebarRole = document.getElementById('sidebar-identity-role');
@@ -106,7 +126,7 @@ async function loadProjects(preferredId = null) {
   state.projects = projects;
   elements['project-select'].innerHTML = '<option value="">No project selected</option>' + projects
     .map((project) => `<option value="${project.id}">${escapeHtml(project.name)} · V${project.currentVersion}</option>`).join('');
-  const saved = preferredId ?? localStorage.getItem('colab.projectId');
+  const saved = preferredId ?? localStorage.getItem('lasso.projectId') ?? localStorage.getItem('colab.projectId');
   const project = projects.find((candidate) => candidate.id === saved) ?? projects[0] ?? null;
   if (project) await selectProject(project.id, true);
   else renderEmpty();
@@ -137,7 +157,7 @@ async function selectProject(projectId, reconcile = true) {
   state.project = nextProject;
   state.preview = null;
   state.selection = null;
-  localStorage.setItem('colab.projectId', projectId);
+  localStorage.setItem('lasso.projectId', projectId);
   elements['project-select'].value = projectId;
   if (reopenEditor) {
     elements['detail-column'].innerHTML = `<div class="detail-placeholder"><p>Opening ${escapeHtml(nextProject.name)} documents…</p></div>`;
@@ -196,7 +216,7 @@ function renderProjectContext() {
   document.title = `${current.name} — Lasso`;
   refreshShell();
   // Tell the macOS app which project system-wide suggestions should use.
-  window.webkit?.messageHandlers?.colab?.postMessage({ activeProjectId: current.id });
+  window.webkit?.messageHandlers?.lasso?.postMessage({ activeProjectId: current.id });
   elements['window-project-name'].textContent = current.name;
   elements['status-project'].textContent = current.name;
   elements['status-version'].textContent = `Version ${current.currentVersion}`;
@@ -220,11 +240,13 @@ function renderEmpty() {
 }
 
 async function showPreview(snapshotId, path, returnEventId = null, focusAnchor = null) {
+  const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
   try {
     const { preview } = await api(`/api/snapshots/${snapshotId}/preview?path=${encodeURIComponent(path)}`);
     state.preview = preview;
     state.selection = null;
     renderPreview(preview, returnEventId, focusAnchor);
+    recordRecommendationUsage({ path }, 'open', usageContext);
   } catch (error) { toast(error.message, 'error'); }
 }
 
@@ -1001,7 +1023,8 @@ async function predictForBlock(block) {
     if (controller.signal.aborted || state.editor.predictionController !== controller
       || !block.isConnected || block.textContent !== requestedText) return;
     if (prediction.sourceCompletions?.length && prediction.sourceContext?.source) {
-      const findings = prediction.sourceCompletions.map((finding) => ({ ...finding, block, requestedText }));
+      const findings = prediction.sourceCompletions.slice(0, AUTOMATIC_SUGGESTION_LIMIT)
+        .map((finding) => ({ ...finding, block, requestedText }));
       const first = findings[0];
       state.editor.prediction = {
         mode: 'SOURCE_FINDINGS',
@@ -1021,6 +1044,7 @@ async function predictForBlock(block) {
     }
     if (prediction.workspaceCompletions?.length) {
       const workspaceSuggestions = prediction.workspaceCompletions
+        .slice(0, AUTOMATIC_SUGGESTION_LIMIT)
         .map((suggestion) => ({ ...suggestion, block, requestedText }));
       const first = workspaceSuggestions[0];
       state.editor.prediction = {
@@ -1057,6 +1081,7 @@ async function predictForBlock(block) {
     }
     const claim = prediction.claims.find((candidate) => candidate.candidates.length);
     if (claim) {
+      claim.candidates = claim.candidates.slice(0, AUTOMATIC_SUGGESTION_LIMIT);
       const completesCitation = claim.type === 'LITERATURE' && claim.partial
         && claim.candidates.some((candidate) => candidate.citationText);
       const completesStudyVariable = claim.type === 'STUDY_VARIABLE' && claim.partial
@@ -1215,17 +1240,20 @@ function showPredictionCompletion() {
       label: finding.replacementText,
       detail: 'finding',
       path: prediction.sourceContext.source.path,
+      reason: finding.dependencyCandidate?.ranking?.reason,
     }))
     : workspaceMode
       ? prediction.workspaceSuggestions.map((suggestion) => ({
         label: suggestion.replacementText,
         detail: suggestion.dependencyCandidate?.valueText ?? suggestion.category ?? '',
         path: suggestion.dependencyCandidate?.path ?? '',
+        reason: suggestion.dependencyCandidate?.ranking?.reason,
       }))
       : candidates.map((candidate) => ({
         label: candidate.label,
         detail: candidate.displayValue ?? candidate.valueText ?? candidate.objectType ?? '',
         path: candidate.path,
+        reason: candidate.ranking?.reason,
       }));
 
   const canPick = !(completing || prediction.sourceContext?.exclusive);
@@ -1508,6 +1536,7 @@ async function saveDocument(options = {}) {
             links: pendingAtStart.map(({ localId, ...link }) => link),
             expectedSnapshotId: state.project.currentSnapshotId,
             actor: state.identity,
+            sessionId: RECOMMENDATION_SESSION_ID,
           }),
         });
         updateEditorVersion(linked.snapshot);
@@ -1563,6 +1592,7 @@ function createClaimAnchor(claim, textOverride = null) {
 async function linkCandidate(claim, candidate, selectionMethod, dependencyToChange = null, options = {}) {
   try {
     if (dependencyToChange) {
+      const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
       const project = (await api(`/api/projects/${state.project.id}`)).project;
       const result = await api(`/api/dependencies/${dependencyToChange.id}/revise`, {
         method: 'POST', body: JSON.stringify({
@@ -1576,6 +1606,7 @@ async function linkCandidate(claim, candidate, selectionMethod, dependencyToChan
       updateEditorVersion(result.snapshot);
       state.editor.document.dependencies = state.editor.document.dependencies
         .map((dependency) => dependency.id === dependencyToChange.id ? result.dependency : dependency);
+      recordRecommendationUsage({ objectId: candidate.id }, 'accept', usageContext);
       toast('Linked source changed');
       hideDependencyPicker();
       return;
@@ -1852,8 +1883,10 @@ function wordTokensForSearch(value) {
 async function loadPickerResults(query, dependency = null) {
   const target = document.getElementById('picker-results');
   if (!target) return;
-  const { objects } = await api(`/api/projects/${state.project.id}/dependency-objects?query=${encodeURIComponent(query)}`);
-  target.innerHTML = objects.length ? objects.map((object) => `<button class="picker-result" data-object-id="${object.id}" data-object-snapshot="${object.snapshotId}"><i class="object-type">${escapeHtml(object.objectType)}</i><span><strong>${escapeHtml(object.label)} ${object.valueText ? `<b>${escapeHtml(object.valueText)}</b>` : ''}</strong><small>${escapeHtml(object.path)}</small></span></button>`).join('') : '<div class="no-candidate"><strong>No matching project dependency found.</strong><span>Lasso will not invent a source.</span></div>';
+  const parameters = new URLSearchParams({ query });
+  if (state.editor.document?.path) parameters.set('documentPath', state.editor.document.path);
+  const { objects } = await api(`/api/projects/${state.project.id}/dependency-objects?${parameters}`);
+  target.innerHTML = objects.length ? objects.map((object) => `<button class="picker-result" data-object-id="${object.id}" data-object-snapshot="${object.snapshotId}"><i class="object-type">${escapeHtml(object.objectType)}</i><span><strong>${escapeHtml(object.label)} ${object.valueText ? `<b>${escapeHtml(object.valueText)}</b>` : ''}</strong><small>${escapeHtml([object.path, object.ranking?.reason].filter(Boolean).join(' · '))}</small></span></button>`).join('') : '<div class="no-candidate"><strong>No matching project dependency found.</strong><span>Lasso will not invent a source.</span></div>';
   target.querySelectorAll('[data-object-id]').forEach((button) => button.addEventListener('click', () => {
     const object = objects.find((candidate) => candidate.id === button.dataset.objectId && candidate.snapshotId === button.dataset.objectSnapshot);
     linkCandidate(state.editor.manualClaim, object, 'MANUAL', dependency);
@@ -1866,6 +1899,7 @@ function hideDependencyPicker() {
 }
 
 async function showDependencyInspector(dependencyId, sourceNode = null) {
+  const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
   const { dependency } = await api(`/api/dependencies/${dependencyId}`);
   const inspector = document.getElementById('dependency-inspector');
   if (!inspector) return;
@@ -1933,6 +1967,8 @@ async function showDependencyInspector(dependencyId, sourceNode = null) {
     </footer>
   </section>
   <div id="inspector-rfi"></div><div id="dependency-sharing"></div>`;
+
+  recordRecommendationUsage({ dependencyId }, 'open', usageContext);
 
   inspector.querySelector('.native-source-inspector')?.focus({ preventScroll: true });
   inspector.addEventListener('keydown', (event) => {
@@ -2056,6 +2092,7 @@ function renderDependencySourceViewer(dialog, viewer) {
 
 async function openDependencySourceViewer(dependencyOrId, sheet = null) {
   const dependencyId = typeof dependencyOrId === 'string' ? dependencyOrId : dependencyOrId.id;
+  const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
   const dialog = ensureDependencySourceViewer();
   const target = dialog.querySelector('#dependency-source-viewer-content');
   target.innerHTML = '<div class="source-viewer-loading"><span></span><strong>Opening indexed source…</strong></div>';
@@ -2065,6 +2102,7 @@ async function openDependencySourceViewer(dependencyOrId, sheet = null) {
     const { viewer } = await api(`/api/dependencies/${encodeURIComponent(dependencyId)}/viewer${query}`);
     if (!dialog.open) return;
     renderDependencySourceViewer(dialog, viewer);
+    if (!sheet) recordRecommendationUsage({ dependencyId }, 'open', usageContext);
   } catch (error) {
     target.innerHTML = `<div class="source-viewer-unavailable"><strong>Source viewer unavailable</strong><p>${escapeHtml(error.message)}</p><button id="close-dependency-source-viewer">Close</button></div>`;
     document.getElementById('close-dependency-source-viewer').addEventListener('click', () => dialog.close());
@@ -2394,13 +2432,13 @@ const THEMES = [
 ];
 
 function currentTheme() {
-  try { return localStorage.getItem('colab.theme') || 'system'; } catch { return 'system'; }
+  try { return localStorage.getItem('lasso.theme') ?? localStorage.getItem('colab.theme') ?? 'system'; } catch { return 'system'; }
 }
 
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme === 'system'
     ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'carbon' : 'alabaster') : theme;
-  try { localStorage.setItem('colab.theme', theme); } catch { /* presentation only */ }
+  try { localStorage.setItem('lasso.theme', theme); } catch { /* presentation only */ }
 }
 
 /// Everything the workspace can do, as one flat list for the palette.
@@ -2538,7 +2576,9 @@ const dependencyShell = createSourceWorkbench({
   input: terminalInput,
   api,
   getProjectId: () => state.project?.id ?? null,
+  getDocumentPath: () => state.editor.document?.path ?? null,
   getActor: () => state.identity,
+  onRecommendationUsage: recordRecommendationUsage,
   build: UI_BUILD,
   onOpenSource: (object) => {
     if (object.snapshotId) { setWorkspaceView('source'); showPreview(object.snapshotId, object.path); }
@@ -2613,7 +2653,7 @@ else {
 
 // The native shell owns permissions and the actual running state.
 const writingAssist = document.getElementById('writing-assist-toggle');
-if (writingAssist && window.webkit?.messageHandlers?.colab) {
+if (writingAssist && window.webkit?.messageHandlers?.lasso) {
   writingAssist.hidden = false;
   window.addEventListener('lasso-assist-state', event => {
     writingAssist.setAttribute('aria-checked', String(Boolean(event.detail?.enabled)));
@@ -2622,7 +2662,7 @@ if (writingAssist && window.webkit?.messageHandlers?.colab) {
   writingAssist.addEventListener('click', () => {
     if (!state.project) { openDialog(elements['import-dialog']); return; }
     writingAssist.disabled = true;
-    window.webkit.messageHandlers.colab.postMessage({action:'toggleSuggestions'});
+    window.webkit.messageHandlers.lasso.postMessage({action:'toggleSuggestions'});
   });
-  window.webkit.messageHandlers.colab.postMessage({action:'suggestionState'});
+  window.webkit.messageHandlers.lasso.postMessage({action:'suggestionState'});
 }

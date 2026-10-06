@@ -235,7 +235,7 @@ test('PDF extraction decodes body text through embedded ToUnicode font maps', ()
 test('PDF figure dependencies render the actual cited page instead of a scalar value', {
   skip: process.platform !== 'darwin' ? 'macOS PDFKit is required for the local renderer' : false,
 }, async () => {
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-pdf-figure-test-'));
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-pdf-figure-test-'));
   const root = path.join(sandbox, 'FigureProject');
   fs.mkdirSync(path.join(root, 'Readings'), { recursive: true });
   fs.writeFileSync(path.join(root, 'draft.md'), '# Findings\n\nFigure 2\n');
@@ -305,7 +305,7 @@ test('legacy XLS extraction exposes named rows and their cell values', () => {
 });
 
 test('legacy spreadsheet row names autocomplete in ordinary document prose', async () => {
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-legacy-xls-index-test-'));
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-legacy-xls-index-test-'));
   const root = path.join(sandbox, 'Accounting');
   fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(path.join(root, 'Income-Statement-Template.xls'), sampleLegacyXls());
@@ -328,7 +328,7 @@ test('legacy spreadsheet row names autocomplete in ordinary document prose', asy
 });
 
 test('opaque project papers autocomplete from internal metadata with tolerant author matching', async () => {
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-document-index-test-'));
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-document-index-test-'));
   const root = path.join(sandbox, 'OpaquePapers');
   fs.mkdirSync(path.join(root, 'manuscript'), { recursive: true });
   fs.mkdirSync(path.join(root, 'Readings'), { recursive: true });
@@ -629,7 +629,7 @@ Figure 2. White-specific placental signaling network.
   const beforeLayer = application.timeline.getProject(project.id);
   application.dependencies.saveDocument(project.id, {
     path: 'Readings/review-not-named-for-author.docx',
-    content: '# Revised review\n\nThis paragraph was edited in CoLab without replacing the DOCX.\n',
+    content: '# Revised review\n\nThis paragraph was edited in Lasso without replacing the DOCX.\n',
     baseSnapshotId: beforeLayer.currentSnapshotId,
   }, researcher);
   const editedDocx = application.dependencies.getDocument(project.id, 'Readings/review-not-named-for-author.docx');
@@ -637,7 +637,7 @@ Figure 2. White-specific placental signaling network.
   assert.equal(editedDocx.editingMode, 'TEXT_LAYER');
   assert.equal(editedDocx.originalPreserved, true);
   assert.equal(editedDocx.blocks[0].type, 'heading');
-  assert.match(editedDocx.blocks[1].text, /edited in CoLab/);
+  assert.match(editedDocx.blocks[1].text, /edited in Lasso/);
   assert.deepEqual(fs.readFileSync(docxPath), originalDocx);
 
   await application.close();

@@ -72,7 +72,8 @@ func resolveNodePath() -> String? {
     let fileManager = FileManager.default
     var candidates: [String] = []
 
-    if let override = ProcessInfo.processInfo.environment["COLAB_NODE"] {
+    if let override = ProcessInfo.processInfo.environment["LASSO_NODE"]
+        ?? ProcessInfo.processInfo.environment["COLAB_NODE"] {
         candidates.append(override)
     }
     candidates.append(BuildConfig.nodePath)
@@ -149,7 +150,7 @@ final class ServerController {
         transition(.starting)
 
         guard let node = resolveNodePath() else {
-            transition(.failed("Node.js 24+ was not found. Install Node, or set COLAB_NODE to its path."))
+            transition(.failed("Node.js 24+ was not found. Install Node, or set LASSO_NODE to its path."))
             return
         }
         // Share links embed the port, so a stable one is preferred: links sent
@@ -172,7 +173,7 @@ final class ServerController {
 
         var environment = ProcessInfo.processInfo.environment
         environment["PORT"] = String(port)
-        environment["COLAB_DRY_DATA_DIR"] = dataDirectory
+        environment["LASSO_DATA_DIR"] = dataDirectory
         // Isolated here so shares can later be served from a hosted origin.
         environment["SHARE_BASE_URL"] = ProcessInfo.processInfo.environment["SHARE_BASE_URL"]
             ?? "http://localhost:\(port)"
@@ -291,12 +292,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let resources = Bundle.main.resourceURL!.appendingPathComponent("app", isDirectory: true)
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Lasso", isDirectory: true)
-        let legacySupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("CoLab Dry", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: support.path),
-           FileManager.default.fileExists(atPath: legacySupport.path) {
-            try? FileManager.default.copyItem(at: legacySupport, to: support)
+        let data = support.appendingPathComponent("data", isDirectory: true)
+        let previousData = support.deletingLastPathComponent()
+            .appendingPathComponent("CoLab Dry/data", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: data.path),
+           FileManager.default.fileExists(atPath: previousData.path) {
+            do {
+                try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: previousData, to: data)
+            } catch {
+                NSLog("Lasso could not copy previous app history: %@", error.localizedDescription)
+            }
         }
         let logs = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/Lasso/server.log")
@@ -309,7 +315,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
         server = ServerController(
             appDirectory: resources.path,
-            dataDirectory: support.appendingPathComponent("data", isDirectory: true).path,
+            dataDirectory: data.path,
             logURL: logs)
         server.onStateChange = { [weak self] state in self?.render(state) }
         server.start()
@@ -333,7 +339,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 URLQueryItem(name: "object", value: reference.objectId),
                 URLQueryItem(name: "version", value: reference.versionId),
             ]
-            if let target = components?.url { NSWorkspace.shared.open(target) }
+            if let target = components?.url, NSWorkspace.shared.open(target) {
+                RecommendationUsageClient.recordResolvedOpen(serverURL: url, objectId: reference.objectId)
+            }
         }
         inspector.onShare = { [weak self] reference in
             guard let self, let url = self.server.url,
@@ -520,7 +528,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         configuration.applicationNameForUserAgent = "LassoDesktop"
         // The page reports the active project so system-wide suggestions know
         // which indexed sources to draw from.
-        configuration.userContentController.add(self, name: "colab")
+        configuration.userContentController.add(self, name: "lasso")
         webView = WKWebView(frame: frame, configuration: configuration)
         webView.navigationDelegate = self
         webView.underPageBackgroundColor = .clear
@@ -625,7 +633,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "colab", message.frameInfo.isMainFrame,
+        guard message.name == "lasso", message.frameInfo.isMainFrame,
               let origin = message.frameInfo.request.url,
               let local = server?.url, origin.host == local.host,
               origin.port == local.port, origin.scheme == local.scheme,

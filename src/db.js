@@ -10,11 +10,26 @@ export function openDatabase(config) {
   const hasMigrations = db
     .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'")
     .get();
-  const currentVersion = hasMigrations
+  let currentVersion = hasMigrations
     ? (db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get()?.version ?? 0)
     : 0;
 
   const migrationDirectory = path.resolve('migrations');
+  // Two development branches shipped different migration 014s. A database
+  // carrying the share-scope columns already applied the local UI branch.
+  // Install the idempotent ranking schema, then acknowledge its scope schema
+  // as migration 015 without trying to add the same columns a second time.
+  if (currentVersion === 14) {
+    const shareColumns = new Set(db.prepare('PRAGMA table_info(object_share_grants)').all().map(column => column.name));
+    if (shareColumns.has('access_scope') && shareColumns.has('redactions_json')) {
+      transaction(db, () => {
+        db.exec(fs.readFileSync(path.join(migrationDirectory, '014_recommendation_usage.sql'), 'utf8'));
+        db.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(15, new Date().toISOString());
+      });
+      currentVersion = 15;
+    }
+  }
+
   const migrations = fs.readdirSync(migrationDirectory)
     .filter((name) => /^\d+_.*\.sql$/.test(name))
     .map((name) => ({ name, version: Number(name.split('_')[0]) }))

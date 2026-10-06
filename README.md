@@ -12,9 +12,10 @@ Requirements: Node.js 24 or newer. There are no third-party runtime dependencies
 npm start
 ```
 
-Open `http://127.0.0.1:4317`, enter an absolute local directory path, and create Version 1. History is stored in `.colab-dry-data` by default, never inside a selected project unless that directory is explicitly configured as the data directory.
+Open `http://127.0.0.1:4317`, enter an absolute local directory path, and create Version 1. History is stored in `.lasso-data` by default, never inside a selected project unless that directory is explicitly configured as the data directory.
 
-Set `COLAB_DRY_DATA_DIR` to move the database and blob store. Set `COLAB_WATCH_DEBOUNCE_MS` to change the default 2.5-second watcher batching window.
+Set `LASSO_DATA_DIR` to move the database and blob store. Set `LASSO_WATCH_DEBOUNCE_MS` to change the default 2.5-second watcher batching window.
+An existing `.colab-dry-data` directory is still used when `.lasso-data` does not exist, so upgrading does not start an empty history.
 
 ## macOS app
 
@@ -35,7 +36,7 @@ native window. There is no Dock icon — the app lives in the menu bar.
 - app history lives in `~/Library/Application Support/Lasso/data`; upgrades migrate
   the former app directory, and new installs can seed from `.colab-dry-data`
 - the server log is at `~/Library/Logs/Lasso/server.log`
-- Node 24+ must be installed; set `COLAB_NODE` to override which binary is used
+- Node 24+ must be installed; set `LASSO_NODE` to override which binary is used
 
 Move it to `/Applications` to keep it, and add it to Login Items to have it
 start automatically.
@@ -86,8 +87,8 @@ relies on each app exposing its text through the Accessibility API: native
 Cocoa apps and Word behave well, Chrome needs its accessibility tree enabled,
 and apps that expose nothing fall back to positioning near the pointer.
 
-Because the app is signed ad-hoc, macOS treats each rebuild as a new binary and
-the two permissions must be granted again after `npm run desktop`.
+Because the app is signed ad-hoc and has a new app identifier, macOS may ask
+for Accessibility and Input Monitoring permissions again after rebuilding.
 
 ### Sharing a dependency outside the app
 

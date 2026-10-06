@@ -27,7 +27,7 @@ const INCOME_V2 = [
 
 /** A workspace whose shape mirrors the ambiguity the terminal has to handle. */
 function buildWorkspace() {
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-terminal-test-'));
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-terminal-test-'));
   const root = path.join(sandbox, 'Workspace');
   for (const directory of ['Finance/Q3', 'Analytics', 'Client-A', 'manuscript', 'Archive']) {
     fs.mkdirSync(path.join(root, directory), { recursive: true });
@@ -723,7 +723,7 @@ test('terminal command layer', async (suite) => {
 });
 
 test('a claim follows its text, and is retired when the text goes', async (suite) => {
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-anchor-test-'));
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-anchor-test-'));
   const root = path.join(sandbox, 'Workspace');
   fs.mkdirSync(path.join(root, 'Finance'), { recursive: true });
   fs.mkdirSync(path.join(root, 'manuscript'), { recursive: true });
@@ -817,6 +817,107 @@ test('a claim follows its text, and is retired when the text goes', async (suite
     assert.equal(applied.data.removed.length, 1);
     assert.deepEqual(live(), []);
     assert.equal(application.dependencies.getDependency(dependencyId).removed, true);
+  });
+});
+
+test('terminal recommendations share relevance, relationship and usage priorities', async (suite) => {
+  const { sandbox, root, application, project } = buildWorkspace();
+  const { graph, executor } = application.terminal;
+  const ranking = application.dependencies.ranking;
+  const currentTime = Date.parse('2026-09-12T15:00:00Z');
+  let time = currentTime;
+  ranking.now = () => time;
+  const record = (filePath, kind = 'accept', sessionId = 'terminal-test') => ranking.record(project.id, { path: filePath, kind, sessionId });
+
+  fs.writeFileSync(path.join(root, 'Analytics/revenue-notes.csv'), 'metric,value\nrevenue-plan,500\n');
+  fs.writeFileSync(path.join(root, 'Analytics/many-values.csv'),
+    `metric,value\n${Array.from({ length: 60 }, (_, index) => `indicator-${String(index).padStart(2, '0')},${index}`).join('\n')}\n`);
+  fs.writeFileSync(path.join(root, 'Client-A/metrics-special.csv'), 'metric,value\nindicator-z-favorite,999\n');
+  application.timeline.capture(project.id, ada, { source: 'EXPLICIT_CHECKPOINT' });
+  application.dependencies.ensureIndex(project.id);
+
+  suite.beforeEach(() => {
+    time = currentTime;
+    application.timeline.db.prepare('DELETE FROM recommendation_usage WHERE project_id = ?').run(project.id);
+  });
+  suite.after(async () => {
+    await application.close();
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  });
+
+  await suite.test('an exact dependency beats a popular prefix without resolving ambiguity', () => {
+    for (let session = 0; session < 20; session += 1) record('Analytics/revenue-notes.csv', 'accept', `popular-${session}`);
+    const found = executor.run(project.id, 'find revenue', ada);
+    assert.deepEqual(found.results.slice(0, 4).map((item) => item.title), ['revenue', 'revenue', 'revenue', 'revenue']);
+    const prefix = found.results.find((item) => item.title === 'revenue-plan');
+    assert.ok(prefix.ranking.usageBoost > 0);
+    assert.ok(found.results.every((item) => item.ranking && item.reason && item.ref.objectId && item.ref.path));
+    assert.equal(graph.resolve(project.id, 'revenue').status, 'AMBIGUOUS');
+  });
+
+  await suite.test('empty queries suggest recent files before historically frequent files', () => {
+    time = currentTime - 10 * 86400000;
+    for (let session = 0; session < 20; session += 1) record('Finance/Q3/Income-Statement.csv', 'accept', `older-${session}`);
+    time = currentTime;
+    record('Client-A/forecast.csv', 'open', 'recent-open');
+    const suggestions = executor.complete(project.id, 'find ').suggestions;
+    assert.equal(suggestions[0].path, 'Client-A/forecast.csv');
+    assert.equal(suggestions[1].path, 'Finance/Q3/Income-Statement.csv');
+    assert.ok(suggestions.every((item) => item.kind === 'source'));
+    assert.equal(new Set(suggestions.map((item) => item.path)).size, suggestions.length);
+    assert.match(suggestions[0].ranking.reason, /Recently used/);
+  });
+
+  await suite.test('completion ranks the full candidate pool before limiting and carries source identity', () => {
+    record('Client-A/metrics-special.csv');
+    const suggestions = executor.complete(project.id, 'trace indicator').suggestions;
+    assert.equal(suggestions[0].value, 'indicator-z-favorite');
+    assert.equal(suggestions[0].path, 'Client-A/metrics-special.csv');
+    assert.ok(suggestions[0].objectId && suggestions[0].objectKey && suggestions[0].ranking.reason);
+    assert.ok(suggestions.filter((item) => item.path === 'Analytics/many-values.csv').length <= 2);
+  });
+
+  await suite.test('broad results are diverse while exact source drilldowns remain complete and filtered', () => {
+    const broad = executor.run(project.id, 'find indicator', ada);
+    const counts = new Map();
+    for (const item of broad.results) counts.set(item.ref.path, (counts.get(item.ref.path) ?? 0) + 1);
+    assert.ok(counts.size > 1);
+    assert.ok([...counts.values()].every((count) => count <= 2));
+    const exact = executor.run(project.id, 'find Analytics/many-values.csv --limit=200', ada);
+    const expected = graph.addressableObjects(project.id).filter((object) => object.path === 'Analytics/many-values.csv').length;
+    assert.equal(exact.results.length, expected);
+    assert.ok(exact.results.length > 50);
+    const addresses = graph.addressSuggestions(project.id, 'Analytics/many-values.csv', 200);
+    assert.equal(addresses.length, expected, 'an explicit source also exposes every address when pinning an alias');
+    assert.equal(executor.run(project.id, 'find Analytics/many-values.csv --directory Finance', ada).results.length, 0);
+    assert.equal(executor.run(project.id, 'find Analytics/many-values.csv --source md', ada).results.length, 0);
+    assert.equal(executor.run(project.id, 'find Archive/old-figures.csv --updated 7d', ada).results.length, 0);
+  });
+
+  await suite.test('current writing context precedes unrelated usage and passive reads add no usage', () => {
+    record('Archive/old-figures.csv');
+    const countUsage = () => application.timeline.db.prepare('SELECT COUNT(*) AS count FROM recommendation_usage WHERE project_id = ?').get(project.id).count;
+    const before = countUsage();
+    const sources = executor.complete(project.id, 'find ', { context: 'depreciation' }).suggestions;
+    assert.equal(sources[0].path, 'Finance/Q3/Income-Statement.csv');
+    assert.equal(sources[0].ranking.tier, 1);
+    const suggestion = executor.complete(project.id, 'trace office').suggestions[0];
+    assert.ok(executor.preview(project.id, suggestion));
+    executor.run(project.id, 'find revenue', ada);
+    assert.equal(countUsage(), before, 'suggestions, searches and highlighted previews are passive');
+  });
+
+  await suite.test('current-document relationships break relevant ties before usage', () => {
+    const source = graph.resolve(project.id, 'revenue', { directory: 'Finance' }).object;
+    linkClaim(application, project, 'manuscript/accounting.md', 'Office supplies totalled 400.', source.id);
+    for (let session = 0; session < 20; session += 1) record('Archive/old-figures.csv', 'accept', `archive-${session}`);
+    const options = { documentPath: 'manuscript/accounting.md' };
+    const found = executor.run(project.id, 'find revenue', ada, options);
+    assert.equal(found.results[0].ref.path, 'Finance/Q3/model.csv');
+    assert.equal(found.results[0].ranking.relationship, true);
+    const recent = executor.complete(project.id, 'find ', options).suggestions;
+    assert.equal(recent[0].path, 'Finance/Q3/model.csv');
+    assert.match(recent[0].ranking.reason, /this document/);
   });
 });
 

@@ -5,7 +5,7 @@
 // component, but the boundaries are the same: the shell knows nothing about
 // provenance, and the workspace knows nothing about how it is framed.
 
-const SIDEBAR = { min: 210, max: 460, ratio: 0.245, key: 'colab.sidebarWidth' };
+const SIDEBAR = { min: 210, max: 460, ratio: 0.245, key: 'lasso.sidebarWidth' };
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (character) => (
@@ -96,7 +96,7 @@ export function createTabBar({ host, onSelect }) {
 export function createSidebarResize({ handle, root }) {
   const proportional = () => Math.round(
     Math.min(SIDEBAR.max, Math.max(SIDEBAR.min, window.innerWidth * SIDEBAR.ratio)));
-  const stored = Number(localStorage.getItem(SIDEBAR.key));
+  const stored = Number(localStorage.getItem(SIDEBAR.key) ?? localStorage.getItem('colab.sidebarWidth'));
   let width = Number.isFinite(stored) && stored >= SIDEBAR.min && stored <= SIDEBAR.max
     ? stored : proportional();
   // Until the user drags it, the sidebar keeps the reference's proportion.

@@ -59,7 +59,7 @@ test('linked-paper findings prefer grammatical narrative clauses over flattened 
 });
 
 test('the prediction API binds sentence completion to a canonical dependency source', async () => {
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-sentence-completion-test-'));
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-sentence-completion-test-'));
   const root = path.join(sandbox, 'SentenceStudy');
   fs.mkdirSync(path.join(root, 'manuscript'), { recursive: true });
   fs.mkdirSync(path.join(root, 'notes'), { recursive: true });
