@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createConfig } from '../src/config.js';
 import { openDatabase } from '../src/db.js';
 import { TimelineService } from '../src/history/service.js';
-import { RecommendationRanking } from '../src/dependencies/ranking.js';
+import { RecommendationRanking, directRecommendationMatch } from '../src/dependencies/ranking.js';
 
 const actor = { id: 'human:ranking', displayName: 'Ranking tester', actorType: 'HUMAN_SELF' };
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -254,13 +254,15 @@ test('diversity includes other files, keeps exact matches first and preserves fo
   assert.equal(referenceResults.filter((item) => item.path === 'alpha.csv').length, 3);
 });
 
-test('no-query recommendations prioritize related sources, recency, then repeated sessions', (t) => {
+test('no-query recommendations prioritize recency then repeated sessions before relationships', (t) => {
   const f = fixture(t);
   f.record('alpha.csv', 'accept', 'old');
   f.advance(10 * DAY_MS);
   f.record('beta.csv', 'open', 'current');
   assert.equal(f.rank([candidate('alpha.csv'), candidate('beta.csv')])[0].path, 'beta.csv');
-  assert.equal(f.rank([candidate('alpha.csv'), candidate('beta.csv')], { relatedPaths: ['alpha.csv'] })[0].path, 'alpha.csv');
+  const related = f.rank([candidate('alpha.csv'), candidate('beta.csv')], { relatedPaths: ['alpha.csv'] });
+  assert.equal(related[0].path, 'beta.csv');
+  assert.equal(related[0].ranking.reason, 'Recently used in this project');
   f.record('gamma.csv', 'open', 'current');
   f.record('gamma.csv', 'open', 'second');
   assert.equal(f.rank([candidate('beta.csv'), candidate('gamma.csv')])[0].path, 'gamma.csv');
@@ -273,7 +275,7 @@ test('ranking is read-only, explains explicit context and retains genuine caller
   for (let index = 0; index < 5; index += 1) {
     const results = f.rank(input);
     assert.deepEqual(results.map((item) => item.path), ['gamma.csv', 'alpha.csv']);
-    assert.equal(results[0].ranking.reason, 'Matches your context');
+    assert.equal(results[0].ranking.reason, 'Available in this project');
   }
   assert.deepEqual(input, original);
   assert.equal(f.db.prepare('SELECT COUNT(*) AS count FROM recommendation_usage').get().count, 0);
@@ -290,4 +292,77 @@ test('internal ranking retains the requested candidate pool before caller dedupl
   const f = fixture(t);
   const candidates = Array.from({ length: 1200 }, (_, index) => candidate('alpha.csv', 0.9, { id: `item-${index}` }));
   assert.equal(f.rank(candidates, { query: 'result', limit: candidates.length, diversify: false }).length, 1200);
+});
+
+test('exact values and identifiers remain ahead of popular content and name prefixes', (t) => {
+  const f = fixture(t);
+  f.popular('beta.csv');
+  for (const [query, identity, reason] of [
+    ['-12.5%', { valueText: '-12.5%' }, 'Exact value match'],
+    ['TP53', { metadata: { variable: 'TP53' } }, 'Exact identifier match'],
+    ['10.1234/study', { metadata: { doi: '10.1234/study' } }, 'Exact identifier match'],
+    ['object:alpha', { id: 'object:alpha' }, 'Exact identifier match'],
+  ]) {
+    const exact = candidate('alpha.csv', 0.83, { ...identity, matchTier: 1 });
+    const prefix = candidate('beta.csv', 0.99, { label: `${query} additional`, matchTier: 0 });
+    const results = f.rank([prefix, exact], { query });
+    assert.equal(results[0].path, 'alpha.csv');
+    assert.equal(results[0].ranking.reason, reason);
+    assert.equal(results[0].ranking.relevanceScore, 0.83);
+  }
+  assert.equal(directRecommendationMatch({ valueText: '120' }, '12').direct, false);
+  assert.equal(directRecommendationMatch({ valueText: '-12.5%' }, '12.5%').direct, false);
+});
+
+test('ranking rejects invented paths and foreign identities while preserving indexed historical scope', (t) => {
+  const f = fixture(t);
+  const otherRoot = path.join(f.sandbox, 'other');
+  fs.mkdirSync(otherRoot);
+  fs.writeFileSync(path.join(otherRoot, 'alpha.csv'), 'id,value\nD,40\n');
+  const other = f.timeline.importProject(otherRoot, actor, { watch: false }).project;
+  const originalSnapshot = f.project.currentSnapshotId;
+  seedRelationship(f);
+  f.db.prepare(`INSERT INTO scientific_objects (id, project_id, object_key, object_type, created_at)
+    VALUES ('foreign-object', ?, 'foreign-source', 'DATASET', '2026-09-12')`).run(other.id);
+  f.db.prepare(`INSERT INTO scientific_object_versions
+    (id, object_id, snapshot_id, path, label, search_text, content_hash, created_at)
+    VALUES ('foreign-version', 'foreign-object', ?, 'alpha.csv', 'Foreign', '', 'fixture', '2026-09-12')`)
+    .run(other.currentSnapshotId);
+  const inputs = [candidate('missing.csv', 1), candidate('../alpha.csv', 1),
+    candidate('alpha.csv', 1, { snapshotId: other.currentSnapshotId }),
+    candidate('alpha.csv', 1, { projectId: other.id }),
+    candidate('alpha.csv', 1, { id: 'foreign-object', objectType: 'DATASET', snapshotId: originalSnapshot }),
+    candidate('alpha.csv', 1, { objectId: 'foreign-object' }), candidate('alpha.csv', 0.9)];
+  assert.deepEqual(f.rank(inputs, { query: 'alpha' }).map((item) => item.path), ['alpha.csv']);
+  fs.renameSync(path.join(f.root, 'beta.csv'), path.join(f.root, 'renamed.csv'));
+  f.timeline.capture(f.project.id, actor);
+  assert.equal(f.rank([candidate('beta.csv')]).length, 0);
+  assert.equal(f.rank([candidate('beta.csv', 0.9, { snapshotId: originalSnapshot })])[0].path, 'beta.csv');
+  assert.equal(f.rank([candidate('beta.csv', 0.9, {
+    id: 'ranking-object', objectType: 'DATASET', snapshotId: originalSnapshot,
+  })])[0].id, 'ranking-object');
+});
+
+test('historical source usage follows file identity when a renamed path is reused', (t) => {
+  const f = fixture(t);
+  const originalSnapshot = f.project.currentSnapshotId;
+  f.record('beta.csv', 'accept', 'before-rename', 'notes.md');
+  fs.renameSync(path.join(f.root, 'beta.csv'), path.join(f.root, 'renamed.csv'));
+  f.timeline.capture(f.project.id, actor);
+  fs.writeFileSync(path.join(f.root, 'beta.csv'), 'id,value\nReplacement,99\n');
+  f.timeline.capture(f.project.id, actor);
+  const historical = candidate('beta.csv', 0.83, { id: 'historic', snapshotId: originalSnapshot });
+  const replacement = candidate('beta.csv', 0.83, { id: 'replacement' });
+  const results = f.rank([replacement, historical], { query: 'result', documentPath: 'notes.md', diversify: false });
+  assert.equal(results[0].id, 'historic');
+  assert.ok(results[0].ranking.usageBoost > 0);
+  assert.equal(results[0].ranking.relationship, true);
+  assert.equal(results[1].ranking.usageBoost, 0);
+  assert.equal(results[1].ranking.relationship, false);
+  const mixedVersions = f.rank([
+    ...Array.from({ length: 4 }, (_, index) => ({ ...historical, id: `history-${index}` })),
+    candidate('renamed.csv', 0.83), candidate('alpha.csv', 0.83),
+  ], { query: 'result', limit: 6 });
+  assert.equal(mixedVersions.filter((item) => ['beta.csv', 'renamed.csv'].includes(item.path)).length, 2);
+  assert.ok(mixedVersions.some((item) => item.path === 'alpha.csv'));
 });

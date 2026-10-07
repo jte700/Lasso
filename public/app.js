@@ -75,7 +75,7 @@ async function api(url, options = {}) {
 }
 
 function recordRecommendationUsage(source, kind, context = {}) {
-  const projectId = context.projectId ?? state.project?.id;
+  const projectId = Object.hasOwn(context, 'projectId') ? context.projectId : state.project?.id;
   const identity = source?.objectId ? { objectId: source.objectId }
     : source?.dependencyId ? { dependencyId: source.dependencyId }
       : source?.path ? { path: source.path } : null;
@@ -84,7 +84,7 @@ function recordRecommendationUsage(source, kind, context = {}) {
     method: 'POST',
     body: JSON.stringify({
       ...identity, kind, sessionId: RECOMMENDATION_SESSION_ID,
-      documentPath: context.documentPath ?? state.editor.document?.path,
+      documentPath: Object.hasOwn(context, 'documentPath') ? context.documentPath : state.editor.document?.path,
     }),
   }).catch(() => { /* Ranking history must never interrupt the requested action. */ });
 }
@@ -239,14 +239,15 @@ function renderEmpty() {
   elements['status-files'].textContent = '0 files';
 }
 
-async function showPreview(snapshotId, path, returnEventId = null, focusAnchor = null) {
-  const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
+async function showPreview(snapshotId, path, returnEventId = null, focusAnchor = null, source = null, context = null) {
+  const usageContext = context ?? { projectId: state.project?.id, documentPath: state.editor.document?.path };
   try {
     const { preview } = await api(`/api/snapshots/${snapshotId}/preview?path=${encodeURIComponent(path)}`);
+    if (usageContext.projectId !== state.project?.id) return;
     state.preview = preview;
     state.selection = null;
     renderPreview(preview, returnEventId, focusAnchor);
-    recordRecommendationUsage({ path }, 'open', usageContext);
+    recordRecommendationUsage(source?.id ? { objectId: source.id } : { path }, 'open', usageContext);
   } catch (error) { toast(error.message, 'error'); }
 }
 
@@ -2577,11 +2578,12 @@ const dependencyShell = createSourceWorkbench({
   api,
   getProjectId: () => state.project?.id ?? null,
   getDocumentPath: () => state.editor.document?.path ?? null,
+  getContext: () => state.editor.activeBlock?.textContent ?? '',
   getActor: () => state.identity,
   onRecommendationUsage: recordRecommendationUsage,
   build: UI_BUILD,
-  onOpenSource: (object) => {
-    if (object.snapshotId) { setWorkspaceView('source'); showPreview(object.snapshotId, object.path); }
+  onOpenSource: (object, context) => {
+    if (object.snapshotId) { setWorkspaceView('source'); showPreview(object.snapshotId, object.path, null, null, object, context); }
   },
   onStatus: (message) => toast(message),
   onSession: (session) => {

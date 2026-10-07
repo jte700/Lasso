@@ -342,6 +342,7 @@ source supports.
 - dependency acceptance is immediate and local in the editor; content and selected sources are committed together by a non-blocking five-minute autosave, without reopening the manuscript or interrupting typing
 - variable-aware result linking reads CSV and XLSX data dictionaries, enriches result cells with their definitions, and falls back to inferred column meaning, type, range, and sample values when no dictionary exists
 - exact value, signed-percent/fold-change, author/year, entity, type, section-context, provenance, and version-aware deterministic ranking
+- shared project-scoped file recommendations across search, source library, autocomplete and writing suggestions, with protected direct matches, document relationships, capped local usage preferences, file diversity and short ranking explanations
 - `Cmd/Ctrl + Shift + L` manual linking for selected manuscript text
 - immutable, anchor-migrating `ClaimDependency` versions connected to the Scientific State Graph with `DEPENDS_ON`
 - linked-source inspection, code-line navigation through recorded provenance, RFI from manuscript spans, and explicit unlinked behavior

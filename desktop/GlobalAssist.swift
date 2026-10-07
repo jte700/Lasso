@@ -1650,7 +1650,6 @@ final class GlobalAssistant {
 
     private func openCurrentSource() {
         guard let suggestion = currentSuggestion,
-              let projectId,
               let serverURL else {
             flash(["The local source is unavailable right now."])
             return
@@ -1658,7 +1657,7 @@ final class GlobalAssistant {
         let previewPath = view.preview?.path.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let sourcePath = previewPath.isEmpty ? suggestion.path : previewPath
         let endpoint = serverURL.appendingPathComponent("api/projects")
-            .appendingPathComponent(projectId)
+            .appendingPathComponent(suggestion.projectId)
         let task = URLSession.shared.dataTask(with: endpoint) { [weak self] data, response, _ in
             guard let self else { return }
             guard let data,
@@ -1672,23 +1671,30 @@ final class GlobalAssistant {
                 return
             }
             DispatchQueue.main.async {
-                self.openLocalSource(path: sourcePath, projectRoot: rootPath)
+                self.openLocalSource(path: sourcePath, projectRoot: rootPath,
+                                     suggestion: suggestion, serverURL: serverURL)
             }
         }
         task.resume()
     }
 
-    private func openLocalSource(path: String, projectRoot: String) {
-        guard let fileURL = AssistSourceIdentity.localFileURL(
-            projectRoot: projectRoot, sourcePath: path
-        ) else {
+    private func openLocalSource(path: String, projectRoot: String,
+                                 suggestion: AssistSuggestion, serverURL: URL) {
+        let result = AssistSourceIdentity.openLocalFile(
+            projectRoot: projectRoot, sourcePath: path,
+            open: { NSWorkspace.shared.open($0) },
+            onOpened: {
+                RecommendationUsageClient.record(serverURL: serverURL, projectId: suggestion.projectId,
+                                                 objectId: suggestion.usageObjectId, path: suggestion.path,
+                                                 kind: "open")
+            })
+        switch result {
+        case .unavailable:
             flash(["The source file is no longer available locally."])
-            return
-        }
-        if NSWorkspace.shared.open(fileURL) {
+        case .opened:
             hide()
-        } else {
-            flash(["macOS could not open \(fileURL.lastPathComponent)."])
+        case .failed:
+            flash(["macOS could not open \((path as NSString).lastPathComponent)."])
         }
     }
 

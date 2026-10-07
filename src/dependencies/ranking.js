@@ -10,19 +10,37 @@ const normalized = (value) => String(value ?? '').trim().toLowerCase().replace(/
 const tokens = (value) => [...new Set(normalized(value).match(/[\p{L}\p{N}_-]+/gu) ?? [])];
 const decay = (age, halfLifeDays) => 2 ** (-Math.max(0, age) / (halfLifeDays * DAY_MS));
 
-function textMatch(candidate, query) {
+export function directRecommendationMatch(candidate, input) {
+  const query = normalized(input);
   if (!query) return { score: 0, direct: false, reason: null };
-  const candidatePath = normalized(candidate.path);
+  const source = candidate.object ?? candidate;
+  const candidatePath = normalized(candidate.path ?? source.path);
   const filename = path.posix.basename(candidatePath);
   const stem = filename.slice(0, filename.length - path.posix.extname(filename).length);
-  const label = normalized(candidate.label);
-  const names = [candidatePath, filename, stem, label].filter(Boolean);
+  const names = [candidatePath, filename, stem, candidate.label, candidate.name, source.label]
+    .map(normalized).filter(Boolean);
   if (names.includes(query)) return { score: 1, direct: true, exact: true, reason: 'Exact name match' };
+  const metadata = source.metadata ?? {};
+  const anchor = source.anchor ?? {};
+  const identifiers = [source.id, source.objectKey, metadata.variable, metadata.column, metadata.symbol,
+    metadata.identifier, metadata.citationKey, metadata.doi, metadata.pmid,
+    anchor.identifier, anchor.key, anchor.path].map(normalized).filter(Boolean);
+  if (identifiers.includes(query)) return { score: 1, direct: true, exact: true, reason: 'Exact identifier match' };
+  if (source.valueText != null && normalized(source.valueText) === query) {
+    return { score: 1, direct: true, exact: true, reason: 'Exact value match' };
+  }
   if (query.length >= 2 && names.some((name) => name.startsWith(query))) {
     return { score: 0.9, direct: true, reason: 'Name starts with your query' };
   }
+  return { score: 0, direct: false, reason: null };
+}
+
+function textMatch(candidate, query) {
+  const direct = directRecommendationMatch(candidate, query);
+  if (direct.direct || !query) return direct;
   const queryTokens = tokens(query);
-  const candidateTokens = new Set(tokens(`${candidatePath} ${label} ${candidate.searchText ?? ''}`));
+  const source = candidate.object ?? candidate;
+  const candidateTokens = new Set(tokens(`${candidate.path ?? source.path} ${candidate.label ?? source.label} ${source.searchText ?? ''}`));
   const overlap = queryTokens.filter((token) => candidateTokens.has(token)).length;
   return {
     score: queryTokens.length ? 0.75 * overlap / queryTokens.length : 0,
@@ -164,18 +182,52 @@ export class RecommendationRanking {
     const document = typeof options.documentPath === 'string'
       ? this.timeline.snapshotFile(project.currentSnapshotId, options.documentPath) : null;
     const related = this.relatedFilePaths(project, document, Array.isArray(options.relatedPaths) ? options.relatedPaths : []);
-    const usageByPath = new Map(this.usageForProject(project).map((item) => [item.path, item]));
+    const usageByFile = new Map(this.usageForProject(project).map((item) => [item.projectFileId, item]));
+    // Validate the actual indexed snapshot, including explicitly pinned sources.
+    // Resolve its file identity to the current path for usage and relationships.
+    const snapshots = [...new Set([project.currentSnapshotId, ...candidates.map((candidate) =>
+      (candidate.object ?? candidate).snapshotId).filter((value) => typeof value === 'string')])];
+    const files = new Map(this.db.prepare(`SELECT sf.snapshot_id, sf.path, sf.project_file_id,
+        current_file.path AS current_path
+      FROM snapshot_files sf JOIN snapshots s ON s.id = sf.snapshot_id
+      LEFT JOIN snapshot_files current_file ON current_file.project_file_id = sf.project_file_id
+        AND current_file.snapshot_id = ?
+      WHERE s.project_id = ? AND sf.snapshot_id IN (${snapshots.map(() => '?').join(',')})`)
+      .all(project.currentSnapshotId, projectId, ...snapshots)
+      .map((file) => [`${file.snapshot_id}\u0000${file.path}`, file]));
+    const objectIdentity = (source) => source.objectId ?? (source.objectType ? source.id : null);
+    const objectIds = [...new Set(candidates.map((candidate) => objectIdentity(candidate.object ?? candidate))
+      .filter((value) => typeof value === 'string'))];
+    const objectVersions = new Set(objectIds.length ? this.db.prepare(`
+      SELECT v.object_id, v.snapshot_id, v.path FROM scientific_object_versions v
+      JOIN scientific_objects o ON o.id = v.object_id JOIN snapshots s ON s.id = v.snapshot_id
+      WHERE o.project_id = ? AND s.project_id = ?
+        AND v.snapshot_id IN (${snapshots.map(() => '?').join(',')})
+        AND v.object_id IN (${objectIds.map(() => '?').join(',')})`)
+      .all(projectId, projectId, ...snapshots, ...objectIds)
+      .map((version) => `${version.object_id}\u0000${version.snapshot_id}\u0000${version.path}`) : []);
     const prepared = candidates.flatMap((candidate, index) => {
+      const source = candidate.object ?? candidate;
+      if (source.projectId != null && source.projectId !== projectId) return [];
+      const snapshotId = source.snapshotId ?? project.currentSnapshotId;
+      const filePath = candidate.path ?? source.path;
+      const file = files.get(`${snapshotId}\u0000${filePath}`);
+      if (!file) return [];
+      const sourceId = objectIdentity(source);
+      if ((source.objectType || source.objectId != null)
+        && !objectVersions.has(`${sourceId}\u0000${snapshotId}\u0000${filePath}`)) return [];
       const match = textMatch(candidate, query);
       const relevanceScore = Number.isFinite(candidate.score) ? clamp(candidate.score) : match.score;
       if (relevanceScore < minimumScore) return [];
-      const usage = usageByPath.get(candidate.path);
+      const usage = usageByFile.get(file.project_file_id);
       const documentUsed = Boolean(document && usage?.documentProjectFileIds.includes(document.projectFileId));
-      const relationship = related.has(candidate.path) || documentUsed;
+      const relationship = related.has(file.current_path ?? file.path) || documentUsed;
       const explicitTier = Number.isInteger(candidate.matchTier) && candidate.matchTier >= 0 && candidate.matchTier <= 3;
-      const tier = explicitTier ? candidate.matchTier : !query ? 3
-        : match.direct ? 0 : relevanceScore > 0 ? 1 : relationship ? 2 : 3;
+      const tier = !query ? 3 : match.direct ? 0 : explicitTier ? candidate.matchTier
+        : relevanceScore > 0 ? 1 : relationship ? 2 : 3;
       const reason = tier === 0 ? (match.direct ? match.reason : null) ?? candidate.reasons?.[0] ?? 'Direct match'
+        : !query && usage?.recentScore > 0.05 ? 'Recently used in this project'
+          : !query && usage?.frequencyScore > 0.01 ? 'Frequently used in this project'
         : relationship ? (documentUsed ? 'Used with this document' : 'Used in this document')
           : tier <= 1 ? candidate.reasons?.[0] ?? match.reason ?? 'Matches your context'
             : usage?.recentScore > 0.05 ? 'Recently used in this project'
@@ -188,7 +240,9 @@ export class RecommendationRanking {
         acceptedSessions: usage?.acceptedSessions ?? 0, openedSessions: usage?.openedSessions ?? 0,
         lastUsedAt: usage?.lastUsedAt ?? null,
       };
-      return [{ candidate: { ...candidate, score: candidate.score ?? relevanceScore, ranking }, index }];
+      const fileKey = candidate.diversityKey && candidate.diversityKey !== filePath
+        ? candidate.diversityKey : source.objectType === 'REFERENCE' ? source.id : file.project_file_id;
+      return [{ candidate: { ...candidate, score: candidate.score ?? relevanceScore, ranking }, index, fileKey }];
     });
 
     prepared.sort((left, right) => {
@@ -197,16 +251,17 @@ export class RecommendationRanking {
       return a.tier - b.tier
         || b.directSpecificity - a.directSpecificity
         || (query ? b.relevanceBand - a.relevanceBand : 0)
-        || Number(b.relationship) - Number(a.relationship)
-        || (query ? (b.relevanceScore + b.usageBoost) - (a.relevanceScore + a.usageBoost)
+        || (query ? Number(b.relationship) - Number(a.relationship)
           : b.recentScore - a.recentScore || b.frequencyScore - a.frequencyScore)
+        || (query ? (b.relevanceScore + b.usageBoost) - (a.relevanceScore + a.usageBoost)
+          : Number(b.relationship) - Number(a.relationship))
         || b.relevanceScore - a.relevanceScore
         // Preserve the caller's established scientific/source tie preferences.
         || left.index - right.index
         || String(left.candidate.path ?? '').localeCompare(String(right.candidate.path ?? ''))
         || String(left.candidate.id ?? '').localeCompare(String(right.candidate.id ?? ''));
     });
-    const distinctFiles = new Set(prepared.map((item) => item.candidate.diversityKey || item.candidate.path || item.candidate.id));
+    const distinctFiles = new Set(prepared.map((item) => item.fileKey));
     if (options.diversify === false || distinctFiles.size <= 1) {
       return prepared.slice(0, limit).map((item) => item.candidate);
     }
@@ -218,7 +273,7 @@ export class RecommendationRanking {
       const ranking = item.candidate.ranking;
       const key = `${ranking.tier}:${ranking.directSpecificity}:${query ? ranking.relevanceBand : 0}`;
       if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(item.candidate);
+      groups.get(key).push(item);
     }
     const counts = new Map();
     const result = [];
@@ -227,8 +282,7 @@ export class RecommendationRanking {
       while (remaining.length && result.length < limit) {
         const usedThisRound = new Set();
         for (let index = 0; index < remaining.length && result.length < limit;) {
-          const candidate = remaining[index];
-          const fileKey = candidate.diversityKey || candidate.path || candidate.id || candidate;
+          const { candidate, fileKey } = remaining[index];
           if ((counts.get(fileKey) ?? 0) >= maxPerFile) {
             remaining.splice(index, 1);
           } else if (usedThisRound.has(fileKey)) {

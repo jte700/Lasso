@@ -12,7 +12,7 @@ import {
   buildSentenceCorpus, completeFromLinkedSource, completeSentence, sourceFindingFragment,
 } from './completion.js';
 import { renderPdfFigurePage } from './figure-preview.js';
-import { RecommendationRanking } from './ranking.js';
+import { RecommendationRanking, directRecommendationMatch } from './ranking.js';
 
 const OBJECT_TYPES = new Set([
   'REFERENCE', 'PAPER', 'RESULT', 'VALUE', 'CODE', 'CODE_BLOCK', 'CODE_LINE',
@@ -2015,7 +2015,8 @@ export class PredictiveProvenanceService {
 
   predict(projectId, input) {
     const prediction = this.predictionCandidates(projectId, input);
-    const limit = input.surface === 'search' ? 12 : 5;
+    const explicitSearch = input.surface === 'search';
+    const limit = explicitSearch ? 12 : 5;
     let remaining = limit;
     const take = (items) => {
       const selected = (items ?? []).slice(0, remaining);
@@ -2028,7 +2029,7 @@ export class PredictiveProvenanceService {
     prediction.workspaceCompletions = take(this.rankCompletions(projectId,
       prediction.workspaceCompletions, input, { limit, diversify: !scoped }));
     prediction.claims = prediction.claims.map((claim) => {
-      const eligible = claim.candidates.filter((candidate) => candidate.matchTier === 0
+      const eligible = claim.candidates.filter((candidate) => explicitSearch || candidate.matchTier === 0
         || (candidate.matchStrength ?? candidate.score) >= (claim.type === 'STUDY_VARIABLE' ? 0.68 : 0.4));
       return { ...claim, candidates: take(this.ranking.rank(projectId, eligible, {
         query: claim.text, documentPath: input.documentPath,
@@ -2085,8 +2086,9 @@ export class PredictiveProvenanceService {
       const { fragment, candidates } = studyPrediction;
       const hasVariableChoices = Boolean(fragment && candidates.length);
       const preferWorkspace = !hasVariableChoices && !hasSpecificCompletionTail(studyPrediction.context.sentence);
+      const resultLimit = input.surface === 'search' ? 12 : 8;
       const initialWorkspaceCompletions = preferWorkspace
-        ? this.workspaceSuggestions(projectId, input, cursor, { limit: 8 }) : [];
+        ? this.workspaceSuggestions(projectId, input, cursor, { limit: resultLimit }) : [];
       const exactProjectCompletion = hasVariableChoices || initialWorkspaceCompletions.length
         ? null : this.sentenceSuggestion(projectId, input);
       const completion = exactProjectCompletion?.dependencyCandidate
@@ -2094,7 +2096,7 @@ export class PredictiveProvenanceService {
         ? exactProjectCompletion : null;
       const workspaceCompletions = hasVariableChoices || completion
         ? [] : initialWorkspaceCompletions.length ? initialWorkspaceCompletions
-          : this.workspaceSuggestions(projectId, input, cursor, { limit: 8 });
+          : this.workspaceSuggestions(projectId, input, cursor, { limit: resultLimit });
       return {
         claims: fragment && candidates.length ? [{
           ...fragment,
@@ -2129,6 +2131,7 @@ export class PredictiveProvenanceService {
           documentPath: input.documentPath,
           relatedPaths: this.relatedSourcePaths(projectId, input),
           minimumMatchStrength: input.surface === 'search' ? 0 : 0.4,
+          limit: input.surface === 'search' ? 12 : 8,
           sourcePath: scopedToLinkedPaper ? linkedDependency.source.path : null,
           snapshotId: scopedToLinkedPaper ? linkedDependency.source.snapshotId : null,
         });
@@ -2164,21 +2167,42 @@ export class PredictiveProvenanceService {
   search(projectId, query, options = {}) {
     const normalizedQuery = String(query ?? '').toLowerCase().trim();
     const terms = normalizedQuery.match(/[\p{L}\p{N}_.%-]+/gu) ?? [];
+    const contextTerms = wordTokens(options.context);
     // Terminal aliases are names in this workspace, so the editor's source
     // picker finds a source by an alias the same way the terminal does.
-    const aliasedKeys = new Set((this.aliasesForProject?.(projectId) ?? [])
-      .filter((alias) => wordTokens(alias.name).some((token) => terms.includes(token)))
+    const aliases = this.aliasesForProject?.(projectId) ?? [];
+    const aliasedKeys = new Set(aliases
+      .filter((alias) => normalizedQuery && normalizedVariable(alias.name) === normalizedVariable(normalizedQuery))
       .map((alias) => alias.objectKey));
+    const aliasContextScores = new Map();
+    if (terms.length) {
+      for (const alias of aliases) {
+        const name = String(alias.name).toLowerCase();
+        const score = 0.75 * terms.filter((term) => name.includes(term)).length / terms.length;
+        if (score) aliasContextScores.set(alias.objectKey, Math.max(score, aliasContextScores.get(alias.objectKey) ?? 0));
+      }
+    }
     const matches = this.objectsAt(projectId, options.snapshotId)
+      .filter((object) => !options.sourcePath || object.path === options.sourcePath)
       .map((object) => {
-        const direct = aliasedKeys.has(object.objectKey) || [object.label, object.path, path.posix.basename(object.path)]
-          .some((value) => String(value).toLowerCase() === normalizedQuery);
+        const match = directRecommendationMatch(object, normalizedQuery);
+        const aliasMatch = aliasedKeys.has(object.objectKey);
+        const direct = match.direct || aliasMatch;
         const searchable = `${object.searchText} ${object.path}`.toLowerCase();
+        const contextScore = contextTerms.length
+          ? contextTerms.filter((term) => searchable.includes(term)).length / contextTerms.length : 0;
+        const aliasScore = aliasContextScores.get(object.objectKey) ?? 0;
+        const score = aliasMatch ? 1 : direct && normalizedQuery ? match.score
+          : terms.length ? Math.max(aliasScore, terms.filter((term) => searchable.includes(term)).length / terms.length)
+            : contextScore ? 0.25 + contextScore * 0.35 : 0.2;
         return {
           ...object,
+          diversityKey: object.objectType === 'REFERENCE' ? object.id : object.path,
           ...(direct && normalizedQuery ? { matchTier: 0 } : {}),
-          score: direct && normalizedQuery ? 1
-            : terms.length ? terms.filter((term) => searchable.includes(term)).length / terms.length : 0.2,
+          ...(!normalizedQuery && contextTerms.length ? { matchTier: contextScore ? 1 : 3 } : {}),
+          reasons: direct && normalizedQuery ? [aliasMatch ? 'Exact alias match' : match.reason]
+            : aliasScore ? ['Matches a source alias'] : contextScore ? ['Matches current context'] : [],
+          score: normalizedQuery && !direct && score > 0 ? Math.min(1, score + contextScore * 0.03) : score,
         };
       })
       .filter((object) => !terms.length || object.score > 0)
@@ -2186,10 +2210,12 @@ export class PredictiveProvenanceService {
     const sourcePaths = new Set(matches.filter((object) => normalizedQuery
       && [object.path, path.posix.basename(object.path)].some((value) => value.toLowerCase() === normalizedQuery))
       .map((object) => object.path));
-    return this.ranking.rank(projectId, matches, {
-      query: normalizedQuery, documentPath: options.documentPath,
-      limit: options.limit ?? 30, diversify: sourcePaths.size !== 1,
-    }).map((object) => this.enrichObject(projectId, object));
+    const ranked = this.ranking.rank(projectId, matches, {
+      query: normalizedQuery || options.context, documentPath: options.documentPath,
+      limit: options.limit ?? 30,
+      diversify: options.diversify !== false && !options.sourcePath && sourcePaths.size !== 1,
+    });
+    return options.enrich === false ? ranked : ranked.map((object) => this.enrichObject(projectId, object));
   }
 
   recordRecommendationUsage(projectId, input, { allowMissingSource = false } = {}) {
@@ -2198,11 +2224,26 @@ export class PredictiveProvenanceService {
     }
     const project = this.timeline.getProject(projectId);
     let objectId = input.objectId;
-    if (input.dependencyId) {
-      if (typeof input.dependencyId !== 'string') throw new HttpError(400, 'A dependency identity is required.');
+    for (const key of ['objectId', 'dependencyId']) {
+      if (Object.hasOwn(input, key) && (typeof input[key] !== 'string' || !input[key].trim()
+        || input[key].length > 128 || /[\u0000-\u001f\u007f]/.test(input[key]))) {
+        throw new HttpError(400, 'An indexed source or dependency identity is required.');
+      }
+    }
+    if (Object.hasOwn(input, 'path') && (typeof input.path !== 'string' || !input.path
+      || input.path.length > 4096)) throw new HttpError(400, 'An indexed file path is required.');
+    if (objectId) {
+      const source = this.db.prepare('SELECT project_id FROM scientific_objects WHERE id = ?').get(objectId);
+      if (!source || source.project_id !== projectId) throw new HttpError(404, 'Indexed source not found in this project.');
+    }
+    if (Object.hasOwn(input, 'dependencyId')) {
       const dependency = this.db.prepare('SELECT project_id FROM claim_dependencies WHERE id = ?').get(input.dependencyId);
       if (!dependency || dependency.project_id !== projectId) throw new HttpError(404, 'Dependency not found in this project.');
-      objectId = this.latestVersionRow(input.dependencyId)?.source_object_id;
+      const dependencyObjectId = this.latestVersionRow(input.dependencyId)?.source_object_id;
+      if (objectId && objectId !== dependencyObjectId) throw new HttpError(400, 'Source and dependency identities do not match.');
+      objectId = dependencyObjectId;
+      if (!objectId && allowMissingSource) return { recorded: false };
+      if (!objectId) throw new HttpError(404, 'Dependency source not found in this project.');
     }
     let sourcePath = input.path;
     if (objectId) {

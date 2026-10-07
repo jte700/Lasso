@@ -70,8 +70,10 @@ export function buildSentenceCorpus(sources) {
   const seen = new Set();
   for (const source of sources) {
     for (const sentence of sourceSentences(source.text)) {
-      // Keep identical passages from different files available to the ranker.
-      const fingerprint = `${source.path}\u0000${sentence.toLowerCase().replace(/\W+/g, ' ').trim()}`;
+      // Bibliography entries are independently citable even in one file.
+      const sourceKey = source.dependencyCandidate?.objectType === 'REFERENCE'
+        ? source.dependencyCandidate.id : source.path;
+      const fingerprint = `${sourceKey}\u0000${sentence.toLowerCase().replace(/\W+/g, ' ').trim()}`;
       if (seen.has(fingerprint)) continue;
       seen.add(fingerprint);
       corpus.push({

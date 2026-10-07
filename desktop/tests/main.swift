@@ -117,6 +117,36 @@ do {
           "does not ask macOS to open a missing file")
 }
 
+print("intentional source opening")
+do {
+    let root = "/tmp/Lasso Source Project"
+    var opens = 0
+    var recorded = 0
+    let exists: (String) -> Bool = { $0.hasSuffix("/Source.csv") }
+    let open: (URL) -> Bool = { _ in opens += 1; return true }
+    let record: () -> Void = { recorded += 1 }
+    let succeeded = AssistSourceIdentity.openLocalFile(
+        projectRoot: root, sourcePath: "Source.csv", fileExists: exists,
+        open: open, onOpened: record)
+    check(succeeded == .opened && opens == 1 && recorded == 1,
+          "records usage after a deliberate local source successfully opens")
+    let failed = AssistSourceIdentity.openLocalFile(
+        projectRoot: root, sourcePath: "Source.csv", fileExists: exists,
+        open: { _ in opens += 1; return false }, onOpened: record)
+    check(failed == .failed && opens == 2 && recorded == 1,
+          "failed macOS source opens do not count as use")
+    let missing = AssistSourceIdentity.openLocalFile(
+        projectRoot: root, sourcePath: "Missing.csv", fileExists: exists,
+        open: open, onOpened: record)
+    let outside = AssistSourceIdentity.openLocalFile(
+        projectRoot: root, sourcePath: "../Outside.csv", fileExists: { _ in true },
+        open: open, onOpened: record)
+    check(missing == .unavailable && outside == .unavailable && opens == 2 && recorded == 1,
+          "missing and out-of-project sources are never opened or counted")
+    _ = AssistSourceIdentity.localFileURL(projectRoot: root, sourcePath: "Source.csv", fileExists: exists)
+    check(recorded == 1, "passive source resolution does not count as usage")
+}
+
 print("completion insertion preserves the sentence")
 do {
     let one = accept("The expected cost of office sup", insert: "office supplies")
@@ -515,4 +545,3 @@ do {
 print("")
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)
-

@@ -313,6 +313,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         return sendJson(response, 200, {
           completion: terminal.executor.complete(parameters[0], url.searchParams.get('input') ?? '', {
             documentPath: url.searchParams.get('documentPath'), context: url.searchParams.get('context'),
+            surface: url.searchParams.get('surface'),
           }),
         });
       }
@@ -329,7 +330,13 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       }
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/source-library$/);
       if (request.method === 'GET' && parameters) {
-        const objects = dependencies.objectsAt(parameters[0]).map(({ searchText, contentHash, metadata, ...object }) => object);
+        // The library groups by file itself, so keep every matching indexed
+        // object while using the same query, document and usage ranking.
+        const objects = dependencies.search(parameters[0], url.searchParams.get('query') ?? '', {
+          documentPath: url.searchParams.get('documentPath'),
+          context: url.searchParams.get('context'),
+          limit: Number.MAX_SAFE_INTEGER, diversify: false, enrich: false,
+        }).map(({ searchText, contentHash, metadata, ...object }) => object);
         return sendJson(response, 200, { objects });
       }
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/source-review\/([^/]+)$/);

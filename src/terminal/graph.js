@@ -10,6 +10,7 @@ import path from 'node:path';
 import { json } from '../db.js';
 import { parseDelimited } from '../history/diff.js';
 import { extractSpreadsheetTables } from '../dependencies/document-extraction.js';
+import { directRecommendationMatch } from '../dependencies/ranking.js';
 import {
   canonicalAddress, dependencyName, describeObject, slug, sourceDirectory, sourceFileName, sourceLocator,
 } from './names.js';
@@ -96,14 +97,18 @@ export class DependencyGraph {
     const wanted = normalizeQueryName(raw);
     const terms = tokens(raw);
     const contextTerms = tokens(options.context);
+    const alias = raw ? this.aliases?.find(projectId, raw) : null;
+    const aliasObject = alias ? this.objectByKey(projectId, alias.objectKey, options.snapshotId) : null;
     const pool = options.includeContainers
       ? this.namedObjects(projectId, options.snapshotId)
       : this.addressableObjects(projectId, options.snapshotId);
+    if (aliasObject && !pool.some((object) => object.id === aliasObject.id)) pool.push(aliasObject);
 
     // Naming an indexed file means that file. Scoring its path word by word
     // would drag in every sibling that shares a directory.
     const named = raw.toLowerCase();
     const permitted = (object) => {
+      if (options.sourcePath && object.path !== options.sourcePath) return false;
       if (options.directory && !`${object.path}/`.toLowerCase().startsWith(`${String(options.directory).replace(/\/+$/, '').toLowerCase()}/`)) return false;
       if (options.sourceType && path.posix.extname(object.path).slice(1).toLowerCase() !== String(options.sourceType).toLowerCase().replace(/^\./, '')) return false;
       if (options.pathFragment && !object.path.toLowerCase().includes(String(options.pathFragment).toLowerCase())) return false;
@@ -120,6 +125,7 @@ export class DependencyGraph {
     if (exactSource && exactSource.length) {
       return this.rankRecommendations(projectId, exactSource.filter(permitted).map((object) => ({
         object, path: object.path, id: object.id, label: object.name,
+        diversityKey: object.objectType === 'REFERENCE' ? object.id : object.path,
         score: 1, matchTier: 0, matchKind: 'source', reasons: ['Exact file match'],
       })), { ...options, query: raw, diversify: false, limit: options.limit ?? 25 });
     }
@@ -130,7 +136,19 @@ export class DependencyGraph {
 
       let score = 0;
       let matchKind = null;
-      if (wanted && object.name === wanted) { score = 1; matchKind = 'exact'; }
+      // File completion has its own surface. A directory/filename prefix must
+      // not turn every cell in that file into a strong dependency-name match.
+      const direct = directRecommendationMatch({ ...object, path: '' }, raw);
+      const aliasMatch = aliasObject && object.id === aliasObject.id;
+      if (aliasMatch) { score = 1; matchKind = 'identifier'; }
+      else if (direct.direct && direct.exact) {
+        score = 1;
+        matchKind = direct.reason === 'Exact value match' ? 'value'
+          : direct.reason === 'Exact identifier match' ? 'identifier'
+            : object.name === wanted ? 'exact' : 'sourceName';
+      }
+      else if (wanted && object.name === wanted) { score = 1; matchKind = 'exact'; }
+      else if (direct.direct) { score = direct.score; matchKind = 'prefix'; }
       else if (wanted && object.name.startsWith(wanted)) { score = 0.82; matchKind = 'prefix'; }
       else if (wanted && object.name.includes(wanted)) { score = 0.66; matchKind = 'contains'; }
       if (terms.length) {
@@ -148,13 +166,16 @@ export class DependencyGraph {
         else if (score < 1) score = Math.min(0.95, score + (hits / contextTerms.length) * 0.03);
       }
       if (score <= 0) continue;
-      const matchTier = ['exact', 'prefix'].includes(matchKind) ? 0 : matchKind === 'all' ? 3 : 1;
-      const reason = { exact: 'Exact name match', prefix: 'Name starts with your query', contains: 'Name matches your query', context: 'Matches current context', relevance: 'Relevant content', all: 'Indexed source' }[matchKind];
-      scored.push({ object, path: object.path, id: object.id, label: object.name, score, matchTier, matchKind, reasons: [reason] });
+      const matchTier = ['exact', 'prefix', 'value', 'identifier', 'sourceName'].includes(matchKind) ? 0 : matchKind === 'all' ? 3 : 1;
+      const reason = aliasMatch ? 'Exact alias match' : direct.direct && direct.exact ? direct.reason
+        : { exact: 'Exact name match', prefix: 'Name starts with your query', contains: 'Name matches your query', context: 'Matches current context', relevance: 'Relevant content', all: 'Indexed source' }[matchKind];
+      scored.push({ object, path: object.path, id: object.id, label: object.name,
+        diversityKey: object.objectType === 'REFERENCE' ? object.id : object.path,
+        score, matchTier, matchKind, reasons: [reason] });
     }
 
     return this.rankRecommendations(projectId, scored, {
-      ...options, query: raw, limit: options.limit ?? 25,
+      ...options, query: raw || options.context, limit: options.limit ?? 25,
       diversify: options.diversify !== false, maxPerFile: options.maxPerFile ?? 2,
     });
   }
@@ -213,6 +234,8 @@ export class DependencyGraph {
   nameSuggestions(projectId, fragment, limit = 12, options = {}) {
     const wanted = normalizeQueryName(fragment);
     const candidates = [];
+    const permitted = options.surface === 'search' || options.sourcePath
+      ? () => true : this.dependencies.autocompleteFilter(projectId);
     const describe = (object) => ({
       name: object.name,
       label: object.name,
@@ -223,12 +246,14 @@ export class DependencyGraph {
       id: object.id,
       objectId: object.id,
       objectKey: object.objectKey,
+      diversityKey: object.objectType === 'REFERENCE' ? object.id : object.path,
     });
 
     for (const alias of this.aliases?.list(projectId) ?? []) {
       if (!wanted || alias.name.startsWith(wanted)) {
         const object = this.objectByKey(projectId, alias.objectKey);
-        const source = object ? describe(object) : { path: alias.path, objectKey: alias.objectKey, value: null };
+        if (!object || !permitted(object) || (options.sourcePath && object.path !== options.sourcePath)) continue;
+        const source = describe(object);
         candidates.push({ ...source, name: alias.name, label: alias.name, kind: 'alias', detail: alias.address,
           score: !wanted ? 0.2 : alias.name === wanted ? 1 : 0.82, matchTier: wanted ? 0 : 3,
           reasons: [wanted ? alias.name === wanted ? 'Exact name match' : 'Name starts with your query' : 'Indexed source'],
@@ -239,6 +264,7 @@ export class DependencyGraph {
       ...options, limit: this.namedObjects(projectId).length, diversify: false,
     });
     for (const match of matches) {
+      if (!permitted(match.object)) continue;
       if (wanted && !match.object.name.startsWith(wanted)) continue;
       candidates.push({ ...describe(match.object), score: match.score, matchTier: match.matchTier, reasons: match.reasons });
     }
@@ -247,18 +273,23 @@ export class DependencyGraph {
     // still useful when the fragment does not begin an indexed name.
     if (!candidates.length && wanted) {
       for (const match of matches) {
+        if (!permitted(match.object)) continue;
         candidates.push({ ...describe(match.object), kind: 'related', score: match.score, matchTier: match.matchTier, reasons: match.reasons });
       }
     }
     // Rank before collapsing duplicate names so the provenance shown for an
     // ambiguous name comes from the best matching source, not index order.
     const ordered = this.rankRecommendations(projectId, candidates, {
-      ...options, query: fragment, diversify: false, limit: candidates.length,
+      ...options, query: fragment || options.context, diversify: false, limit: candidates.length,
     });
     const seen = new Map();
-    for (const entry of ordered) if (!seen.has(entry.name)) seen.set(entry.name, entry);
+    for (const entry of ordered) {
+      const key = entry.diversityKey && entry.diversityKey !== entry.path
+        ? `work:${entry.diversityKey}` : entry.name;
+      if (!seen.has(key)) seen.set(key, entry);
+    }
     return this.rankRecommendations(projectId, [...seen.values()], {
-      ...options, query: fragment, limit, diversify: options.diversify !== false, maxPerFile: options.maxPerFile ?? 2,
+      ...options, query: fragment || options.context, limit, diversify: options.diversify !== false, maxPerFile: options.maxPerFile ?? 2,
     });
   }
 
@@ -271,12 +302,15 @@ export class DependencyGraph {
     const wanted = String(fragment ?? '').trim().toLowerCase();
     const contextTerms = tokens(options.context);
     const files = new Map();
+    const permitted = options.surface === 'search' || options.sourcePath
+      ? () => true : this.dependencies.autocompleteFilter(projectId);
     for (const object of this.namedObjects(projectId)) {
+      if (!permitted(object) || (options.sourcePath && object.path !== options.sourcePath)) continue;
       const name = object.fileName.toLowerCase();
       const full = object.path.toLowerCase();
       const exact = wanted && (name === wanted || full === wanted);
-      let score = !wanted ? 0.2 : exact ? 1 : name.startsWith(wanted) ? 0.88
-        : full.startsWith(wanted) ? 0.82 : name.includes(wanted) || full.includes(wanted) ? 0.68 : 0;
+      let score = !wanted ? 0.2 : exact ? 1 : name.startsWith(wanted) ? 0.94
+        : full.startsWith(wanted) ? 0.9 : name.includes(wanted) || full.includes(wanted) ? 0.68 : 0;
       if (!score) continue;
       let matchTier = !wanted ? 3 : exact || name.startsWith(wanted) || full.startsWith(wanted) ? 0 : 1;
       let reason = !wanted ? 'Indexed source' : exact ? 'Exact file match' : matchTier === 0 ? 'File starts with your query' : 'File matches your query';
@@ -298,7 +332,7 @@ export class DependencyGraph {
       });
     }
     return this.rankRecommendations(projectId, [...files.values()], {
-      ...options, query: fragment, limit, diversify: false,
+      ...options, query: fragment || options.context, limit, diversify: false,
     });
   }
 
@@ -335,13 +369,17 @@ export class DependencyGraph {
   /** `path:locator` addresses, which is what `alias` pins. */
   addressSuggestions(projectId, fragment, limit = 12, options = {}) {
     const wanted = String(fragment ?? '').toLowerCase();
+    const permitted = options.surface === 'search' || options.sourcePath
+      ? () => true : this.dependencies.autocompleteFilter(projectId);
     const candidates = this.addressableObjects(projectId)
+      .filter((object) => permitted(object) && (!options.sourcePath || object.path === options.sourcePath))
       .map((object) => ({
         name: canonicalAddress(object),
         label: canonicalAddress(object),
         id: object.id,
         objectId: object.id,
         objectKey: object.objectKey,
+        diversityKey: object.objectType === 'REFERENCE' ? object.id : object.path,
         path: object.path,
         kind: 'address',
         value: object.valueText ?? null,

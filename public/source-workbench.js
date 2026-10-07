@@ -17,16 +17,17 @@ const location = object => {
  const a = object.anchor ?? {};
  return a.kind==='table-cell' ? [a.sheet, `Row ${(a.rowIndex??0)+1}`, a.column].filter(Boolean).join(' · ') : a.cellId ? [a.sheet, a.cellId].filter(Boolean).join('!') : a.rowKey ? `Row ${a.rowKey}` : a.page ? `Page ${a.page}` : a.line ? `Line ${a.line}` : a.blockIndex != null ? `Passage ${a.blockIndex + 1}` : object.objectType?.toLowerCase().replaceAll('_',' ') ?? 'Source';
 };
-export function createSourceWorkbench({input, api, getProjectId, getActor, onOpenDocument, onOpenSource, onStatus, onSession}) {
+export function createSourceWorkbench({input, api, getProjectId, getDocumentPath, getContext, getActor, onRecommendationUsage, onOpenDocument, onOpenSource, onStatus, onSession}) {
  let host, epoch=0, detailEpoch=0, timer, objects=[], mode='library', query='', selectedPath='', selectedObject=null, report=null, preview=null, plan=null, busy=false, problem='', candidates=null;
  let session=null, renderedKey='';
  const base = () => `/api/projects/${encodeURIComponent(getProjectId())}`;
- const command = async line => (await api(`${base()}/terminal`, {method:'POST',body:JSON.stringify({input:line,actor:getActor()})})).result;
+ const usageContext = () => ({projectId:getProjectId(),documentPath:getDocumentPath?.()});
+ const command = async line => (await api(`${base()}/terminal`, {method:'POST',body:JSON.stringify({input:line,actor:getActor(),documentPath:getDocumentPath?.(),context:getContext?.()})})).result;
  const empty = (title,copy) => `<div class="wb-empty">${icon('search')}<h2>${escape(title)}</h2><p>${escape(copy)}</p></div>`;
  const rows = () => {
+  if(query) return objects;
   const valuedFiles=new Set(objects.filter(o=>o.objectType==='DATASET_VALUE').map(o=>o.path));
-  return objects.filter(o=>!(valuedFiles.has(o.path) && ['DATASET','DATASET_ROW','VARIABLE'].includes(o.objectType)))
-   .filter(o => !query || `${o.label} ${o.path} ${o.valueText ?? ''}`.toLowerCase().includes(query.toLowerCase()));
+  return objects.filter(o=>!(valuedFiles.has(o.path) && ['DATASET','DATASET_ROW','VARIABLE'].includes(o.objectType)));
  };
  const title = () => ({library:'Source library',attention:'Needs attention',changes:'Recent changes',shares:'Shared links',names:'Repeated source names',report:'Results'}[mode]);
  function syncNavigation() {
@@ -43,11 +44,14 @@ export function createSourceWorkbench({input, api, getProjectId, getActor, onOpe
   const scroll=renderedKey===renderKey ? host.querySelector('.wb-inspector')?.scrollTop??0 : 0;
   renderedKey=renderKey;
   syncNavigation();
-  const matched=rows(), paths=[...new Set(matched.map(o=>o.path))].sort((a,b)=>a.localeCompare(b));
+  // The server ranks eligible objects before grouping. Preserve that order so
+  // an exact filename or recently used source remains the first file shown.
+  const matched=rows(), paths=[...new Set(matched.map(o=>o.path))];
   if(!paths.includes(selectedPath)) selectedPath=paths[0]??'';
   const list = mode==='library' ? paths.map(path => {
    const count=matched.filter(o=>o.path===path).length;
-   return `<button class="wb-file ${selectedPath===path?'selected':''}" data-file="${escape(path)}" aria-pressed="${selectedPath===path}">${fileIcon(path)}<span><strong>${escape(basename(path))}</strong><small>${count} indexed items</small></span></button>`;
+   const reason=matched.find(o=>o.path===path)?.ranking?.reason;
+   return `<button class="wb-file ${selectedPath===path?'selected':''}" data-file="${escape(path)}" aria-pressed="${selectedPath===path}">${fileIcon(path)}<span><strong>${escape(basename(path))}</strong><small>${escape(reason ?? `${count} indexed items`)}</small></span></button>`;
   }).join('') : (report?.results ?? []).map((item,i)=>`<button class="wb-file ${selectedObject?.listIndex===i?'selected':''}" data-report="${i}">${icon(item.tone==='warn'?'warning':'file')}<span><strong>${escape(item.title)}</strong><small>${escape(item.lines?.[0]??'')}</small></span>${item.tone==='warn'?'<i class="wb-dot"></i>':''}</button>`).join('');
   host.innerHTML = `<section class="wb" aria-label="${title()}">
    <header class="wb-heading"><div><h1>${title()}</h1><p>${escape(mode==='library' ? 'Find the evidence you need. Keep its source attached.' : mode==='attention' ? 'Compare changed values and choose what your documents should keep.' : mode==='changes' ? 'See what changed at the source.' : mode==='shares' ? 'See which evidence is available to others.' : mode==='names' ? 'The same name can refer to different evidence. Compare before choosing.' : report?.headline??'')}</p></div>${mode==='library' && session?.conflicts?'<button class="wb-button" data-names>Compare repeated names</button>':''}<button class="wb-button" data-refresh title="Refresh sources">↻ <span>Refresh</span></button></header>
@@ -118,7 +122,10 @@ export function createSourceWorkbench({input, api, getProjectId, getActor, onOpe
   const project=getProjectId();if(!project)return;
   const token=++epoch;busy=true;problem='';render();
   try {
-   const [library,banner]=await Promise.all([api(`${base()}/source-library`),api(`${base()}/terminal/session`)]);
+   const parameters=new URLSearchParams({query});
+   const documentPath=getDocumentPath?.();if(documentPath)parameters.set('documentPath',documentPath);
+   const context=getContext?.();if(context)parameters.set('context',context);
+   const [library,banner]=await Promise.all([api(`${base()}/source-library?${parameters}`),api(`${base()}/terminal/session`)]);
    if(token!==epoch || project!==getProjectId())return;
    objects=library.objects;session=banner.session;onSession?.(session);
    if(mode==='attention') {
@@ -157,11 +164,11 @@ export function createSourceWorkbench({input, api, getProjectId, getActor, onOpe
   host.querySelector('[data-names]')?.addEventListener('click',()=>run('names'));
   host.querySelector('[data-retry]')?.addEventListener('click',async()=>{try{const result=await command(`index retry -- ${quote(selectedObject.retryPath)}`);onStatus(result.headline);selectedObject=null;refresh();}catch(error){onStatus(error.message);}});
   host.querySelector('[data-back]')?.addEventListener('click',()=>{++detailEpoch;selectedObject=null;candidates=null;render();});
-  host.querySelector('[data-open]')?.addEventListener('click',()=>onOpenSource?.(selectedObject));
+  host.querySelector('[data-open]')?.addEventListener('click',()=>onOpenSource?.(selectedObject,usageContext()));
   host.querySelector('[data-copy]')?.addEventListener('click',async()=>{
-   const o=selectedObject, excerpt=preview?.lines?.filter(l=>l.highlighted).map(l=>l.text).join('\n') || preview?.lines?.map(l=>l.text).join('\n');
+   const o=selectedObject, context=usageContext(), excerpt=preview?.lines?.filter(l=>l.highlighted).map(l=>l.text).join('\n') || preview?.lines?.map(l=>l.text).join('\n');
    const text=`${o.valueText || excerpt || o.label}\nSource: ${o.path} · ${location(o)}${o.snapshotVersion?` · Version ${o.snapshotVersion}`:''}`;
-   try{await navigator.clipboard.writeText(text);onStatus('Copied with source citation.');}catch{onStatus('Could not access the clipboard. Select and copy the displayed value.');}
+   try{await navigator.clipboard.writeText(text);onRecommendationUsage?.({objectId:o.id},'accept',context);onStatus('Copied with source citation.');}catch{onStatus('Could not access the clipboard. Select and copy the displayed value.');}
   });
   host.querySelector('[data-copy-link]')?.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(selectedObject.shareUrl);onStatus('Shared link copied.');}catch{onStatus('Could not access the clipboard.');}});
   host.querySelectorAll('[data-document]').forEach(b=>b.onclick=()=>onOpenDocument(b.dataset.document,{dependencyId:b.dataset.dependency}));
@@ -171,7 +178,7 @@ export function createSourceWorkbench({input, api, getProjectId, getActor, onOpe
   host.querySelector('.wb-alias')?.addEventListener('submit',async event=>{event.preventDefault();try{const form=event.currentTarget;const name=new FormData(form).get('alias').trim();if(!name)return;const result=await command(`alias -- ${quote(name)} ${quote(selectedObject.aliasAddress)}`);if(!result.ok){onStatus(result.headline);return;}onStatus('Source name saved.');await run('names');}catch(error){onStatus(error.message);}});
   host.querySelector('.wb-file-list')?.addEventListener('keydown',event=>{if(!['ArrowDown','ArrowUp'].includes(event.key))return;const buttons=[...host.querySelectorAll('.wb-file')];const i=buttons.indexOf(document.activeElement);const next=buttons[Math.max(0,Math.min(buttons.length-1,i+(event.key==='ArrowDown'?1:-1)))];if(next){event.preventDefault();next.click();host.querySelectorAll('.wb-file')[buttons.indexOf(next)]?.focus();}});
  }
- input.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>{++detailEpoch;query=input.value.trim();mode='library';selectedObject=null;candidates=null;render();},100);});
- input.addEventListener('keydown',event=>{if(event.key==='Escape'){input.value='';query='';render();}if(event.key==='ArrowDown'){event.preventDefault();host?.querySelector('.wb-file')?.focus();}});
+ input.addEventListener('input',()=>{clearTimeout(timer);++epoch;timer=setTimeout(()=>{++detailEpoch;query=input.value.trim();mode='library';selectedObject=null;candidates=null;preview=null;plan=null;refresh();},100);});
+ input.addEventListener('keydown',event=>{if(event.key==='Escape'){clearTimeout(timer);input.value='';query='';selectedObject=null;candidates=null;refresh();}if(event.key==='ArrowDown'){event.preventDefault();host?.querySelector('.wb-file')?.focus();}});
  return {setHost(node){host=node;},mount(){render();},refresh,run,reset(){++epoch;++detailEpoch;clearTimeout(timer);objects=[];query='';input.value='';selectedObject=null;selectedPath='';candidates=null;report=null;plan=null;preview=null;mode='library';session=null;problem='';busy=false;},focus(){input.focus();},get state(){return {session};}};
 }

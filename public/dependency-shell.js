@@ -133,6 +133,7 @@ export function createDependencyShell({ host = null, input, api, getProjectId, g
     activeEntryIndex: -1,
     completion: null,
     completionIndex: 0,
+    completionToken: 0,
     // Set once the user picks a row themselves, so Enter takes their choice
     // instead of running a half-typed line.
     completionNavigated: false,
@@ -247,6 +248,7 @@ export function createDependencyShell({ host = null, input, api, getProjectId, g
   }
 
   function closeCompletion() {
+    state.completionToken += 1;
     state.completion = null;
     state.completionIndex = 0;
     state.completionNavigated = false;
@@ -262,28 +264,30 @@ export function createDependencyShell({ host = null, input, api, getProjectId, g
     return true;
   }
 
-  async function refreshCompletion() {
+  async function refreshCompletion(explicit = false) {
     const projectId = getProjectId();
     const value = input.value;
+    const token = ++state.completionToken;
     if (!projectId || !value.trim()) {
       closeCompletion();
       return;
     }
     try {
       const parameters = new URLSearchParams({ input: value });
+      if (explicit) parameters.set('surface', 'search');
       const documentPath = getDocumentPath?.();
       if (documentPath) parameters.set('documentPath', documentPath);
       const body = await api(`/api/projects/${encodeURIComponent(projectId)}/terminal/complete?${parameters}`);
       // A response for a line the user has already moved past is discarded.
-      if (input.value !== value || getProjectId() !== projectId) return;
+      if (token !== state.completionToken || input.value !== value || getProjectId() !== projectId) return;
       state.completion = {
         ...body.completion,
-        suggestions: (body.completion?.suggestions ?? []).slice(0, 5),
+        suggestions: (body.completion?.suggestions ?? []).slice(0, explicit ? 14 : 5),
         projectId, documentPath,
       };
       state.completionIndex = 0;
       state.completionNavigated = false;
-    } catch { state.completion = null; }
+    } catch { if (token !== state.completionToken) return; state.completion = null; }
     renderCompletion();
   }
 
@@ -484,7 +488,7 @@ export function createDependencyShell({ host = null, input, api, getProjectId, g
     if (event.key === 'Tab') {
       event.preventDefault();
       if (completing) applyCompletion();
-      else refreshCompletion();
+      else refreshCompletion(true);
       return;
     }
     if (event.key === 'l' && (event.ctrlKey || event.metaKey)) {

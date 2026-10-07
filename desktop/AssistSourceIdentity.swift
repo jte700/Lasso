@@ -9,6 +9,8 @@
 import Foundation
 
 enum AssistSourceIdentity {
+    enum OpenResult { case unavailable, failed, opened }
+
     static func canonicalPath(candidatePath: String?, provenanceLabel: String?) -> String {
         let candidate = candidatePath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !candidate.isEmpty { return candidate }
@@ -58,6 +60,20 @@ enum AssistSourceIdentity {
         let rootPrefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
         guard resolved.path.hasPrefix(rootPrefix), fileExists(resolved.path) else { return nil }
         return resolved
+    }
+
+    /// Only a completed, deliberate open may influence recommendations. The
+    /// injected operations keep failed opens and rejected source paths testable.
+    static func openLocalFile(
+        projectRoot: String, sourcePath: String,
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
+        open: (URL) -> Bool, onOpened: () -> Void
+    ) -> OpenResult {
+        guard let url = localFileURL(projectRoot: projectRoot, sourcePath: sourcePath,
+                                     fileExists: fileExists) else { return .unavailable }
+        guard open(url) else { return .failed }
+        onOpened()
+        return .opened
     }
 
     /// Keeps one palette slot per owning source, repairs old collisions, and
