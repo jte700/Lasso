@@ -30,7 +30,11 @@ enum BuildConfig {
 SWIFT
 
 echo "==> Compiling the menu bar app"
-swiftc -O \
+SWIFT_OPTIONS=(-O)
+if [ "${LASSO_BROWSER_GEOMETRY_TEST:-0}" = "1" ]; then
+  SWIFT_OPTIONS+=(-D BROWSER_GEOMETRY_TEST "$ROOT/desktop/tests/browser-geometry.swift")
+fi
+swiftc "${SWIFT_OPTIONS[@]}" \
   -framework Cocoa -framework WebKit \
   -o "$CONTENTS/MacOS/Lasso" \
   "$ROOT/desktop/BuildConfig.swift" \
@@ -38,6 +42,7 @@ swiftc -O \
   "$ROOT/desktop/SyntheticKeyboard.swift" \
   "$ROOT/desktop/CompletionTransaction.swift" \
   "$ROOT/desktop/AssistSourceIdentity.swift" \
+  "$ROOT/desktop/AssistPopupHost.swift" \
   "$ROOT/desktop/DependencyReference.swift" \
   "$ROOT/desktop/HostGeometry.swift" \
   "$ROOT/desktop/HostTextAdapter.swift" \
@@ -48,13 +53,18 @@ swiftc -O \
   "$ROOT/desktop/WebText.swift" \
   "$ROOT/desktop/ShareInsertion.swift" \
   "$ROOT/desktop/ShareComposer.swift" \
+  "$ROOT/desktop/SourceChooser.swift" \
   "$ROOT/desktop/GlobalAssist.swift" \
   "$ROOT/desktop/Lasso.swift"
 
 echo "==> Bundling the server"
-for item in src public migrations package.json; do
+for item in src public migrations scripts package.json; do
   cp -R "$ROOT/$item" "$RESOURCES/app/"
 done
+
+echo "==> Compiling local PDF drawing reader"
+swiftc -O -framework PDFKit -o "$RESOURCES/app/scripts/extract-drawing-layout" \
+  "$ROOT/scripts/extract-drawing-layout.swift"
 
 echo "==> Writing Info.plist"
 cat > "$CONTENTS/Info.plist" <<'PLIST'

@@ -1,10 +1,10 @@
-//  Reading the caret inside web content.
+//  Reading text and exact geometry inside web content.
 //
 //  Native text views answer AXValue / AXSelectedTextRange / AXBoundsForRange.
-//  Web content largely does not: a Gmail compose box is a contenteditable, which
-//  exposes no value and no character ranges. Browsers instead publish the
-//  "text marker" attributes that screen readers use, which give both the text
-//  before the caret and the caret's screen rectangle.
+//  Rich contenteditables such as Gmail expose AXValue on the editor and exact
+//  character bounds on their text leaves. Other browser surfaces publish the
+//  "text marker" attributes that screen readers use for document ranges and
+//  the caret's screen rectangle.
 //
 //  Markers are opaque CFTypes; they are only ever passed straight back to the
 //  Accessibility API, never inspected.
@@ -13,6 +13,94 @@ import Cocoa
 import ApplicationServices
 
 enum WebTextReader {
+    /// Align browser text leaves with the editor's UTF-16 value. Contenteditable
+    /// inserts paragraph separators between leaves, but those separators have
+    /// no text leaf of their own. Never search ahead past other visible text:
+    /// that could attach a reference to a different occurrence of the word.
+    static func elementRanges(for runs: [String], in text: String) -> [Range<Int>]? {
+        let units = Array(text.utf16)
+        var offset = 0
+        var ranges: [Range<Int>] = []
+        func isLineBreak(_ unit: UInt16) -> Bool {
+            unit == 10 || unit == 13 || unit == 0x2028 || unit == 0x2029
+        }
+        for run in runs {
+            let value = Array(run.utf16)
+            guard !value.isEmpty else { return nil }
+            func matches() -> Bool {
+                offset + value.count <= units.count && units[offset..<(offset + value.count)].elementsEqual(value)
+            }
+            while !matches(), offset < units.count, isLineBreak(units[offset]) { offset += 1 }
+            guard matches() else { return nil }
+            ranges.append(offset..<(offset + value.count))
+            offset += value.count
+        }
+        guard units[offset...].allSatisfy(isLineBreak) else { return nil }
+        return ranges
+    }
+
+    /// Chrome measures text leaves even when the containing rich editor rejects
+    /// AXBoundsForRange. Read only that editor's subtree, verify its text, then
+    /// ask the browser for leaf-local bounds. No live selection is involved.
+    static func rects(forElementRange range: Range<Int>, text: String, from element: AXUIElement) -> [CGRect] {
+        guard !range.isEmpty, range.lowerBound >= 0, range.upperBound <= text.utf16.count else { return [] }
+        var leaves: [(element: AXUIElement, text: String)] = []
+        var visited = 0
+        func collect(_ node: AXUIElement, depth: Int) -> Bool {
+            visited += 1
+            guard visited <= 2_000, depth <= 40 else { return false }
+            if attribute(node, kAXRoleAttribute as String) as? String == kAXStaticTextRole as String {
+                guard let value = attribute(node, kAXValueAttribute as String) as? String else { return false }
+                if !value.isEmpty { leaves.append((node, value)) }
+                return true
+            }
+            for child in attribute(node, kAXChildrenAttribute as String) as? [AXUIElement] ?? [] {
+                if !collect(child, depth: depth + 1) { return false }
+            }
+            return true
+        }
+        guard collect(element, depth: 0), !leaves.isEmpty,
+              let ranges = elementRanges(for: leaves.map(\.text), in: text) else { return [] }
+
+        func bounds(_ leaf: AXUIElement, _ range: NSRange) -> CGRect? {
+            var cfRange = CFRange(location: range.location, length: range.length)
+            guard let parameter = AXValueCreate(.cfRange, &cfRange),
+                  let value = parameterized(leaf, kAXBoundsForRangeParameterizedAttribute as String, parameter),
+                  CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+            var rect = CGRect.zero
+            guard AXValueGetValue(value as! AXValue, .cgRect, &rect),
+                  HostGeometryConverter.isUsable(rect) else { return nil }
+            return rect
+        }
+
+        var fragments: [CGRect] = []
+        for (leaf, documentRange) in zip(leaves, ranges) {
+            let start = max(range.lowerBound, documentRange.lowerBound)
+            let end = min(range.upperBound, documentRange.upperBound)
+            guard start < end else { continue }
+            let local = NSRange(location: start - documentRange.lowerBound, length: end - start)
+            // Query composed characters separately so wrapping yields one box
+            // per line, including emoji whose UTF-16 length exceeds one.
+            let string = leaf.text as NSString
+            var offset = local.location
+            while offset < NSMaxRange(local) {
+                let character = string.rangeOfComposedCharacterSequence(at: offset)
+                let overlap = NSIntersectionRange(character, local)
+                if let rect = bounds(leaf.element, overlap) {
+                    fragments.append(rect)
+                } else if !string.substring(with: overlap).unicodeScalars.allSatisfy({
+                    CharacterSet.whitespacesAndNewlines.contains($0)
+                }) {
+                    // A wrapped/collapsed space may have no box. Missing
+                    // geometry for visible text must still fail closed.
+                    return []
+                }
+                offset = NSMaxRange(character)
+            }
+        }
+        return DependencyGeometry.coalesce(fragments, referenceId: "").fragments
+    }
+
     // Undocumented but long-stable attribute names, shared by WebKit and Blink.
     private static let selectedRange = "AXSelectedTextMarkerRange"
     private static let startMarker = "AXStartTextMarker"

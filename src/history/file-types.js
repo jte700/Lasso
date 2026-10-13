@@ -15,6 +15,7 @@ const NOTEBOOK = new Set(['.ipynb']);
 const DOCUMENT = new Set(['.docx']);
 const IMAGE = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.tif', '.tiff', '.svg']);
 const PDF = new Set(['.pdf']);
+const DRAWING = new Set(['.ifc', '.dxf', '.dwg', '.rvt', '.dgn', '.landxml']);
 
 export function detectFileType(filePath) {
   const name = path.basename(filePath).toLowerCase();
@@ -30,6 +31,8 @@ export function detectFileType(filePath) {
   if (DOCUMENT.has(extension)) return 'document';
   if (IMAGE.has(extension)) return 'image';
   if (PDF.has(extension)) return 'pdf';
+  if (DRAWING.has(extension)) return 'drawing';
+  if (extension === '.xml') return 'xml';
   return 'binary';
 }
 

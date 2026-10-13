@@ -270,6 +270,8 @@ function focusPreviewAnchor(anchor) {
   const node = candidates.find((candidate) => {
     const item = JSON.parse(candidate.dataset.anchor);
     return item.kind === anchor.kind
+      && (anchor.identifier == null || item.identifier === anchor.identifier)
+      && (anchor.pageNumber == null || item.pageNumber === anchor.pageNumber)
       && (anchor.line == null || item.line === anchor.line)
       && (anchor.cellId == null || item.cellId === anchor.cellId)
       && (anchor.path == null || item.path === anchor.path)
@@ -282,6 +284,7 @@ function focusPreviewAnchor(anchor) {
 }
 
 function previewContent(preview) {
+  if (preview.kind === 'drawing') return `${(preview.warnings ?? []).map(warning => `<p class="selection-hint">${escapeHtml(warning)}</p>`).join('')}<div class="json-preview">${preview.items.map(item => `<span class="json-path" title="${escapeHtml(item.location)}">${escapeHtml(item.path)}<small> · ${item.basis === 'geometry' ? 'Boundary geometry' : 'Model property'}</small></span><span class="json-value selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.value)}</span>`).join('')}</div>`;
   if (preview.kind === 'blocks') return preview.items.map((item) => `<div class="preview-block ${item.blockType} selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text)}</div>`).join('');
   if (preview.kind === 'lines') return `<div class="code-preview">${preview.items.map((item) => `<div class="code-line"><span class="number">${item.label}</span><span class="selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text) || ' '}</span></div>`).join('')}</div>`;
   if (preview.kind === 'table') return `<div style="overflow:auto"><table class="data-preview"><thead><tr>${preview.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>${preview.rows.map((row) => `<tr>${row.cells.map((cell) => `<td class="selectable" data-anchor='${escapeHtml(JSON.stringify(cell.anchor))}'>${escapeHtml(cell.value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
@@ -2581,7 +2584,7 @@ const dependencyShell = createSourceWorkbench({
   onRecommendationUsage: recordRecommendationUsage,
   build: UI_BUILD,
   onOpenSource: (object) => {
-    if (object.snapshotId) { setWorkspaceView('source'); showPreview(object.snapshotId, object.path); }
+    if (object.snapshotId) { setWorkspaceView('source'); showPreview(object.snapshotId, object.path, null, object.anchor); }
   },
   onStatus: (message) => toast(message),
   onSession: (session) => {

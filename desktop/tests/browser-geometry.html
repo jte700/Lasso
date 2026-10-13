@@ -1,0 +1,116 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Lasso isolated geometry regression</title>
+<style>
+  body { margin: 32px; font: 13px Arial, sans-serif; }
+  #lasso-geometry-editor { box-sizing: border-box; width: 550px; height: 240px;
+    padding: 8px; border: 1px solid #aaa; overflow: auto; white-space: pre-wrap;
+    font: 13px/22px Arial, sans-serif; outline: none; }
+  #lasso-geometry-editor p { margin: 0 0 14px; }
+</style>
+<p>Unrelated supplies outside the editor must never be measured.</p>
+<div id="lasso-geometry-editor" role="textbox" aria-multiline="true" contenteditable="true"></div>
+<p>Another unrelated supplies reference.</p>
+<script>
+  const editor = document.getElementById('lasso-geometry-editor');
+  function selectEnd() {
+    editor.focus();
+    const range = document.createRange();
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+    let last, node;
+    while ((node = walker.nextNode())) last = node;
+    if (last) {
+      range.setStart(last, last.length);
+      range.collapse(true);
+    } else {
+      range.selectNodeContents(editor);
+      range.collapse(false);
+    }
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+  }
+  window.fixture = {
+    phrase: 'supplies',
+    reset(html = 'I was looking at supplies', phrase = 'supplies') {
+      this.phrase = phrase;
+      editor.style.width = '550px';
+      editor.innerHTML = html;
+      editor.scrollTop = 0;
+      selectEnd();
+    },
+    selectStart() {
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(true);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+    },
+    selectEnd,
+    caretSnapshot() {
+      // Popup cases place the caret at the end. A collapsed Range at the
+      // editor's element boundary has no box in Blink, so measure the same
+      // insertion point at the end of its final text node instead.
+      const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+      let last, node;
+      while ((node = walker.nextNode())) last = node;
+      const range = document.createRange();
+      range.setStart(last, last.length);
+      range.collapse(true);
+      const { x, y, width, height } = range.getBoundingClientRect();
+      return { x, y, width, height };
+    },
+    selectLastText(length) {
+      const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+      let last, node;
+      while ((node = walker.nextNode())) last = node;
+      const range = document.createRange();
+      range.setStart(last, 0);
+      range.setEnd(last, Math.min(length, last.length));
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+    },
+    selectionSnapshot() {
+      const selection = getSelection();
+      function nodePath(node) {
+        const parts = [];
+        while (node && node !== editor) {
+          parts.unshift([...node.parentNode.childNodes].indexOf(node));
+          node = node.parentNode;
+        }
+        return parts;
+      }
+      return { anchorPath: nodePath(selection.anchorNode), anchorOffset: selection.anchorOffset,
+        focusPath: nodePath(selection.focusNode), focusOffset: selection.focusOffset,
+        text: selection.toString() };
+    },
+    snapshot() {
+      const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+      const nodes = [];
+      let node;
+      let text = '';
+      while ((node = walker.nextNode())) { nodes.push([node, text.length]); text += node.data; }
+      // A DOM <br> contributes a newline to AXValue but none to textContent.
+      // Ignore newlines only while locating the endpoints; the Range still
+      // spans the actual line break and Chrome supplies its real rectangles.
+      const positions = [];
+      for (let i = 0; i < text.length; i++) if (text[i] !== '\n' && text[i] !== '\r') positions.push(i);
+      const searchable = positions.map(i => text[i]).join('');
+      const phrase = this.phrase.replace(/[\r\n]/g, '');
+      const match = searchable.indexOf(phrase);
+      if (match < 0) throw new Error('Fixture phrase missing');
+      const start = positions[match];
+      const end = positions[match + phrase.length - 1] + 1;
+      const range = document.createRange();
+      for (const [node, offset] of nodes) {
+        if (start >= offset && start < offset + node.length) range.setStart(node, start - offset);
+        if (end > offset && end <= offset + node.length) { range.setEnd(node, end - offset); break; }
+      }
+      const { x, y, width, height } = editor.getBoundingClientRect();
+      return { phrase: this.phrase, text: editor.innerText, editorFrame: { x, y, width, height },
+        selection: this.selectionSnapshot(),
+        rects: [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0)
+          .map(({ x, y, width, height }) => ({ x, y, width, height })) };
+    }
+  };
+  fixture.reset();
+</script>

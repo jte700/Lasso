@@ -82,3 +82,8 @@ html .view-session #dependency-shell { width:100%; height:100%; max-width:none; 
 .writing-assist button i::after { content:'';position:absolute;width:12px;height:12px;top:2px;left:2px;border-radius:50%;background:white;box-shadow:0 1px 2px #0003; }
 .writing-assist [aria-checked="true"] i { background:var(--u-blue); }.writing-assist [aria-checked="true"] i::after { left:12px; }
 .writing-assist summary { font-size:10px;cursor:default;padding:5px 0; }.writing-assist p { font-size:11px;line-height:1.6;margin:7px 0; }
+
+.wb-evidence-table thead th { position:sticky;top:0;z-index:1;min-width:110px;max-width:280px;white-space:normal;background:var(--wb-ground);color:var(--wb-ink);font-weight:600;vertical-align:top; }
+.wb-evidence-table thead th:first-child { min-width:30px; }
+.wb-evidence-table thead small { display:block;margin-bottom:4px;color:var(--wb-muted);font-size:10px;font-weight:400; }
+.wb-evidence-table thead span { display:block;font-size:12px;line-height:1.4; }

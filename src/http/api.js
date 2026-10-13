@@ -158,6 +158,12 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       if (request.method === 'GET' && pathname === '/api/health') {
         return sendJson(response, 200, { ok: true, service: 'scientific-version-timeline' });
       }
+      if (request.method === 'GET' && pathname === '/api/sharing/status' && objectShares) {
+        const baseUrl = objectShares.baseUrl();
+        const host = new URL(baseUrl).hostname;
+        const localOnly = /^(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)$/i.test(host);
+        return sendJson(response, 200, { baseUrl, localOnly });
+      }
       const localObjectParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)$/);
       if (request.method === 'GET' && localObjectParameters) {
         const object = dependencies.objectById(localObjectParameters[0]);

@@ -104,7 +104,7 @@ export class IndexControlService {
   }
 
   failures(projectId, options = {}) {
-    return this.db.prepare(`
+    const stored = this.db.prepare(`
       SELECT * FROM index_failures WHERE project_id = ? ORDER BY detected_at DESC, path
     `).all(projectId)
       .filter((row) => options.includeResolved || !row.resolved_at)
@@ -117,6 +117,20 @@ export class IndexControlService {
         resolvedAt: row.resolved_at,
         retryable: row.code !== 'UNSUPPORTED_FORMAT',
       }));
+    const project = this.timeline.getProject(projectId);
+    const drawingProblems = new Map();
+    for (const object of this.dependencies.objectsAt(projectId, project.currentSnapshotId, ['DRAWING'])) {
+      if (object.objectType !== 'DRAWING' || !object.metadata.extractionStatus || object.metadata.extractionStatus === 'ready') continue;
+      const previous = drawingProblems.get(object.path);
+      const warnings = [...new Set([...(previous?.warnings ?? []), ...(object.metadata.warnings ?? [])])];
+      drawingProblems.set(object.path, {
+        id: `drawing:${object.id}`, path: object.path, code: `DRAWING_${object.metadata.extractionStatus.toUpperCase()}`,
+        reason: warnings.join(' ') || 'Some drawing measurements could not be indexed.', warnings,
+        detectedAt: this.timeline.getSnapshot(project.currentSnapshotId).createdAt, resolvedAt: null,
+        retryable: false,
+      });
+    }
+    return [...stored, ...[...drawingProblems.values()].filter((problem) => !stored.some((entry) => entry.path === problem.path))];
   }
 
   // ── status ───────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { diffInternals, parseDelimited } from './diff.js';
 import { HttpError } from './errors.js';
+import { extractDesignDocument } from '../dependencies/drawing-objects.js';
 
 function lineItems(text, language = 'text') {
   return text.replace(/\r\n/g, '\n').split('\n').map((value, index) => ({
@@ -64,6 +65,17 @@ export function buildPreview(snapshot, file, buffer) {
     fileType: file.fileType,
     contentHash: file.contentHash,
   };
+
+  if (['drawing', 'xml'].includes(file.fileType) || /\.(?:ifc|dxf|dwg|rvt|dgn|landxml|xml)$/i.test(file.path)) {
+    const design = extractDesignDocument(file, buffer);
+    if (design.isDrawing) return { ...base, kind: 'drawing', warnings: design.warnings,
+      items: design.pages.flatMap((page) => page.annotations.map((fact) => ({
+        path: [fact.storey, fact.label, fact.propertyName && !fact.label.toLowerCase().includes(fact.propertyName.toLowerCase()) ? fact.propertyName : null].filter(Boolean).join(' · '),
+        value: fact.value, basis: fact.measurementBasis,
+        location: [fact.elementId, fact.propertySet, fact.propertyName].filter(Boolean).join(' · '),
+        anchor: { kind: 'cad-property', identifier: fact.id, elementId: fact.elementId, propertyName: fact.propertyName },
+      }))) };
+  }
 
   if (file.fileType === 'markdown') {
     return {
@@ -153,7 +165,10 @@ export function resolveAnchor(file, buffer, anchor, exactSnapshot = false) {
   if (!anchor?.kind) throw new HttpError(400, 'A stable preview anchor is required.');
   const text = buffer.toString('utf8').replace(/\r\n/g, '\n');
   let container = null;
-  if (anchor.kind === 'markdown-block' || anchor.kind === 'manuscript-span') {
+  if (anchor.kind === 'cad-property') {
+    const facts = extractDesignDocument(file, buffer).pages.flatMap((page) => page.annotations);
+    container = facts.find((fact) => fact.id === anchor.identifier)?.value ?? null;
+  } else if (anchor.kind === 'markdown-block' || anchor.kind === 'manuscript-span') {
     container = diffInternals.markdownBlocks(text)[anchor.blockIndex]?.text ?? null;
   } else if (anchor.kind === 'line') {
     container = text.split('\n')[anchor.line - 1] ?? null;

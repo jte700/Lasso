@@ -43,10 +43,19 @@ final class ShareComposerController: NSObject {
     private var requests: [URLSessionDataTask] = []
     private var generation = 0
     private var completion: ((ShareConfiguration) -> Void)?
+    private var cancellation: (() -> Void)?
+    var isVisible: Bool { panel?.isVisible == true }
+
+    func cancel() {
+        hide()
+        let callback = cancellation
+        cancellation = nil; completion = nil
+        callback?()
+    }
 
     override private init() {
         super.init()
-        view.onCancel = { [weak self] in self?.hide() }
+        view.onCancel = { [weak self] in self?.cancel() }
         view.onCreate = { [weak self] configuration in
             guard let self else { return }
             self.hide()
@@ -56,14 +65,27 @@ final class ShareComposerController: NSObject {
     }
 
     func show(objectId: String, versionId: String?, label: String, sourcePath: String,
-              near anchor: NSRect, serverURL: URL,
+              near anchor: NSRect, serverURL: URL, actionTitle: String = "Copy link",
+              onCancel: (() -> Void)? = nil,
               completion: @escaping (ShareConfiguration) -> Void) {
         self.completion = completion
+        cancellation = onCancel
         generation += 1
         let token = generation
         requests.forEach { $0.cancel() }
         requests.removeAll()
         view.reset(label: label, filename: (sourcePath as NSString).lastPathComponent)
+        view.actionTitle = actionTitle
+        let statusRequest = URLSession.shared.dataTask(with: serverURL.appendingPathComponent("api/sharing/status")) { [weak self] data, _, _ in
+            DispatchQueue.main.async {
+                guard let self, token == self.generation, let data,
+                      let status = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+                self.view.localOnly = status["localOnly"] as? Bool ?? true
+                self.view.needsDisplay = true
+            }
+        }
+        requests.append(statusRequest)
+        statusRequest.resume()
         let panel = existingPanel()
         panel.setFrame(NSRect(origin: placement(near: anchor), size: canvasSize), display: true)
         panel.orderFrontRegardless()
@@ -212,6 +234,8 @@ private struct ShareHitTarget {
 }
 
 final class ShareComposerView: NSView {
+    var actionTitle = "Copy link"
+    var localOnly = true
     var scope: ShareAccessScope = .indexed
     var preview: AssistDocumentPreview?
     var fullDocument: ShareFullDocument?
@@ -246,6 +270,7 @@ final class ShareComposerView: NSView {
         self.label = label
         self.filename = filename.isEmpty ? "Indexed source" : filename
         scope = .indexed
+        localOnly = true
         effect = .blur
         masks.removeAll()
         preview = nil
@@ -302,7 +327,7 @@ final class ShareComposerView: NSView {
         NSBezierPath(roundedRect: iconRect, xRadius: 7, yRadius: 7).fill()
         drawSymbol("square.and.arrow.up", in: iconRect.insetBy(dx: 8, dy: 8), fraction: 0.72)
 
-        drawText("Share source", in: NSRect(x: 62, y: 14, width: 250, height: 18),
+        drawText(actionTitle == "Insert link" ? "Insert source hyperlink" : "Share source", in: NSRect(x: 62, y: 14, width: 250, height: 18),
                  font: .systemFont(ofSize: 13, weight: .semibold), color: .labelColor)
         drawText(filename, in: NSRect(x: 62, y: 33, width: 360, height: 15),
                  font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
@@ -619,12 +644,14 @@ final class ShareComposerView: NSView {
 
         NSColor.controlBackgroundColor.withAlphaComponent(0.10).setFill()
         NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rowHeight).fill()
-        let labels = preview.columns.isEmpty ? preview.headers : preview.columns
+        let labels = preview.headers.enumerated().map { index, heading in
+            heading.isEmpty ? "Column \(index < preview.columns.count ? preview.columns[index] : String(index + 1))" : heading
+        }
         for column in 0..<columns {
             let text = column < labels.count ? labels[column] : String(column + 1)
             drawText(text, in: NSRect(x: rect.minX + rowHeader + CGFloat(column) * columnWidth,
-                                      y: rect.minY + 6, width: columnWidth, height: 14),
-                     font: .systemFont(ofSize: 8.8), color: .secondaryLabelColor, alignment: .center)
+                                      y: rect.minY + 6, width: columnWidth, height: max(14, rowHeight - 10)),
+                     font: .systemFont(ofSize: 9, weight: .medium), color: .secondaryLabelColor, alignment: .center, wrap: true)
         }
 
         for (rowIndex, row) in rows.enumerated() {
@@ -717,14 +744,15 @@ final class ShareComposerView: NSView {
         case .redacted: detail = masks.isEmpty ? "Select at least one area to redact." : "\(masks.count) area\(masks.count == 1 ? "" : "s") removed from the shared view."
         }
         drawSymbol("lock.shield", in: NSRect(x: 18, y: y + 20, width: 15, height: 15), fraction: 0.58)
-        drawText(notice ?? detail, in: NSRect(x: 40, y: y + 19, width: 335, height: 17),
+        let availability = localOnly ? "Only on this Mac. Email recipients need hosted sharing." : detail
+        drawText(notice ?? availability, in: NSRect(x: 40, y: y + 12, width: 335, height: 32),
                  font: .systemFont(ofSize: 9.5),
-                 color: notice == nil ? .secondaryLabelColor : .systemRed)
+                 color: notice == nil ? .secondaryLabelColor : .systemRed, wrap: true)
 
         drawButton("Cancel", in: NSRect(x: bounds.width - 213, y: y + 11, width: 82, height: 35),
                    prominent: false, enabled: true)
         let enabled = scope != .redacted || !masks.isEmpty
-        drawButton("Create link", in: NSRect(x: bounds.width - 123, y: y + 11, width: 108, height: 35),
+        drawButton(actionTitle, in: NSRect(x: bounds.width - 123, y: y + 11, width: 108, height: 35),
                    prominent: true, enabled: enabled)
     }
 
@@ -886,10 +914,10 @@ final class ShareComposerView: NSView {
     }
 
     private func drawText(_ value: String, in rect: NSRect, font: NSFont, color: NSColor,
-                          alignment: NSTextAlignment = .left) {
+                          alignment: NSTextAlignment = .left, wrap: Bool = false) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = alignment
-        paragraph.lineBreakMode = .byTruncatingTail
+        paragraph.lineBreakMode = wrap ? .byWordWrapping : .byTruncatingTail
         NSAttributedString(string: value, attributes: [
             .font: font, .foregroundColor: color, .paragraphStyle: paragraph,
         ]).draw(in: rect)

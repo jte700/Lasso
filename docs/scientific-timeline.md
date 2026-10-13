@@ -2,7 +2,7 @@
 
 ## Architecture
 
-The selected directory is the project boundary and remains the live source. Lasso only reads that directory during import/reconciliation; only an explicitly approved agent edit writes a project file. Historical state lives separately in a SQLite event store and content-addressed blob store.
+The selected directory is the project boundary and remains the live source. Import and reconciliation read it in place. Saving Markdown or plain text in the writing workspace and approving an agent edit can write a tracked project file. DOCX and PDF edits are stored as separate versioned text layers; the original files are preserved. Historical state lives separately in a SQLite event store and content-addressed blob store.
 
 All change producers use one capture path:
 
@@ -34,7 +34,7 @@ SQLite triggers reject updates/deletes to snapshots, snapshot files, timeline ev
 
 The initial import recursively enumerates regular files, excluding version-control internals, dependency trees, `.lasso-data`, symlinks, editor temporaries, and `.DS_Store`. Each file is SHA-256 hashed and its bytes are written once to `blobs/<prefix>/<hash>`. Snapshots reference the content hash, so unchanged and repeated content consumes no additional blob bytes.
 
-The manifest hash covers sorted `(path, content hash, size, file type)` tuples. Version 1 has no parent and its event is always `Project imported`, attributed to the current authenticated/session actor supplied by the caller. No prior history is inferred.
+The manifest hash covers sorted `(path, content hash, size, file type)` tuples. Version 1 has no parent and its event is always `Project imported`, attributed to the local/session actor supplied by the caller. This attribution is not authentication. No prior history is inferred.
 
 ## Capture and batching
 
@@ -74,7 +74,7 @@ The LCS matrix has a bounded complexity guard. Very large line products fall bac
 
 ## Actor attribution and agent edits
 
-Actor identity is accepted only from the caller's execution/session context; it is never inferred from file content. Actor IDs cannot change type.
+Actor identity comes from the caller's execution/session context; it is never inferred from file content. The local API currently accepts actor fields supplied by its client, and the identity switcher changes attribution rather than authenticating a user. Actor IDs cannot change type.
 
 An agent proposal stores:
 
@@ -129,7 +129,7 @@ The system may still report where the content was first recorded; it does not mi
 
 Collaborator actors retain their global identity when supplied by the collaboration/session layer. Each capture performs an optimistic comparison-and-swap against the expected/current parent. A stale collaborator or agent request receives HTTP 409 with both expected and current snapshot IDs. Lasso never rewrites the snapshots into a false sequential history.
 
-This repository has no pre-existing remote synchronization transport. The implemented boundary is therefore persistence plus conflict detection; merging or branch visualization belongs in the host product's future collaboration adapter.
+The application provides local persistence and optimistic conflict detection. It does not include a remote synchronization or merge service. Shared source links expose selected evidence through the running server; they do not synchronize project directories.
 
 ## HTTP surface
 
@@ -158,11 +158,13 @@ Production adapters should source actors from authenticated server-side context,
 
 ## Limitations
 
-- DOCX content is preserved but opaque; paragraph/table diffing needs an approved parser and stable OOXML anchor policy.
+- DOCX text and metadata are extracted for search, source linking, and the writing workspace. Historical comparisons of the original DOCX bytes remain hash/metadata comparisons; structured OOXML paragraph/table diffs and round-trip editing are not implemented.
 - YAML is currently line-compared rather than parsed semantically.
 - Source code is line-based; AST-aware adapters can be added without changing event semantics.
 - Notebook metadata outside cell type/source/output is not currently surfaced.
-- The local web shell takes an absolute path because browsers do not expose native filesystem paths. A desktop host should replace this with its native directory picker.
-- Remote synchronization/merge transport and production authentication do not exist in the previously empty workspace.
-- Blob garbage collection and project deletion policy are intentionally unset because immutable-history retention is a product decision.
-- Node 24's built-in SQLite module is currently marked experimental by Node; the app suppresses that warning but documents the runtime requirement.
+- Project registration currently uses an absolute directory path in both the browser interface and its macOS wrapper.
+- Remote synchronization, merge transport, and production authentication are not implemented.
+- Automatic blob garbage collection and project-history deletion are not implemented.
+- Node.js 24 or later is required. Launch commands suppress the built-in SQLite experimental warning.
+
+See [current limitations](limitations.md) for deployment, native-host, and format boundaries.

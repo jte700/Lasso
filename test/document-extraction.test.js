@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createApplication } from '../src/server.js';
 import { extractDocxDocument, extractPdfDocument, extractSpreadsheetTables } from '../src/dependencies/document-extraction.js';
+import { buildSharePreview } from '../src/sharing/share-preview.js';
 import { anchorForSpan } from '../src/dependencies/service.js';
 
 const researcher = { id: 'human:researcher', displayName: 'Researcher', actorType: 'HUMAN_SELF' };
@@ -106,12 +107,12 @@ function biffNumber(row, column, value) {
   return biffRecord(0x0203, data);
 }
 
-function sampleLegacyXls() {
+function sampleLegacyXls(headerRow = 0, dataRow = 1) {
   const strings = ['Account', 'Current Period', 'Prior Period', 'Payroll Taxes and Benefits-Direct'];
   const sheet = Buffer.concat([
     biffBof(0x0010),
-    biffLabelSst(0, 0, 0), biffLabelSst(0, 1, 1), biffLabelSst(0, 2, 2),
-    biffLabelSst(1, 0, 3), biffNumber(1, 1, 225), biffNumber(1, 2, 215),
+    biffLabelSst(headerRow, 0, 0), biffLabelSst(headerRow, 1, 1), biffLabelSst(headerRow, 2, 2),
+    biffLabelSst(dataRow, 0, 3), biffNumber(dataRow, 1, 225), biffNumber(dataRow, 2, 215),
     biffRecord(0x000a),
   ]);
   const sheetName = Buffer.from('Accounting', 'latin1');
@@ -288,7 +289,7 @@ test('DOCX extraction reads OOXML metadata and visible document text', () => {
 test('XLSX extraction exposes worksheet rows for data-dictionary indexing', () => {
   const sheets = extractSpreadsheetTables(sampleXlsx);
   assert.deepEqual(sheets, [{
-    name: 'Data Dictionary',
+    name: 'Data Dictionary', rowNumbers: [1, 2], merges: [], tables: [],
     rows: [['variable', 'description'], ['plac_wt', 'Placental weight after delivery']],
   }]);
 });
@@ -296,7 +297,7 @@ test('XLSX extraction exposes worksheet rows for data-dictionary indexing', () =
 test('legacy XLS extraction exposes named rows and their cell values', () => {
   const sheets = extractSpreadsheetTables(sampleLegacyXls());
   assert.deepEqual(sheets, [{
-    name: 'Accounting',
+    name: 'Accounting', rowNumbers: [1, 2], merges: [],
     rows: [
       ['Account', 'Current Period', 'Prior Period'],
       ['Payroll Taxes and Benefits-Direct', '225', '215'],
@@ -642,4 +643,28 @@ Figure 2. White-specific placental signaling network.
 
   await application.close();
   fs.rmSync(sandbox, { recursive: true, force: true });
+});
+
+
+test('XLSX follows worksheet relationships and extracts offset table headings', () => {
+  const workbook = storedZip({
+    'xl/workbook.xml': '<workbook><sheets><sheet name="Budget" r:id="rId9"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="rId9" Target="worksheets/sheet7.xml"/></Relationships>',
+    'xl/worksheets/sheet7.xml': '<worksheet><sheetData><row r="30"><c r="D30" t="inlineStr"><is><t>Account</t></is></c><c r="E30" t="inlineStr"><is><t>Total</t></is></c></row><row r="31"><c r="D31" t="inlineStr"><is><t>Rent</t></is></c><c r="E31"><v>42</v></c></row></sheetData><mergeCells><mergeCell ref="D28:E28"/></mergeCells><tableParts><tablePart r:id="t1"/></tableParts></worksheet>',
+    'xl/worksheets/_rels/sheet7.xml.rels': '<Relationships><Relationship Id="t1" Target="../tables/table3.xml"/></Relationships>',
+    'xl/tables/table3.xml': '<table ref="D30:E31"><tableColumns><tableColumn name="Account"/><tableColumn name="Total"/></tableColumns></table>',
+  });
+  const [sheet] = extractSpreadsheetTables(workbook);
+  assert.equal(sheet.name, 'Budget');
+  assert.deepEqual(sheet.rowNumbers, [30, 31]);
+  assert.deepEqual(sheet.tables[0], {firstRow:30,lastRow:31,firstColumn:3,lastColumn:4,headerRowCount:1,headers:['Account','Total']});
+  assert.deepEqual(sheet.merges[0], {firstRow:28,lastRow:28,firstColumn:3,lastColumn:4});
+});
+
+test('legacy Excel previews retain distant period headings and the physical cited row', () => {
+  const preview = buildSharePreview({path:'statement.xls',content:sampleLegacyXls(7,23)}, {rowIndex:1,columnIndex:2,sheet:'Accounting'});
+  assert.deepEqual(preview.headers, ['Account','Current Period','Prior Period']);
+  assert.equal(preview.rows[0].rowNumber, 24);
+  assert.equal(preview.rows[0].cells[2].value, '215');
+  assert.equal(preview.rows[0].cells[2].cited, true);
 });

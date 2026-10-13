@@ -6,6 +6,7 @@
 // one.
 
 import { parseSince } from '../parser.js';
+import { answerDrawingQuestion } from '../drawing-queries.js';
 import { blank, dim, fields, group, result, text } from '../result.js';
 import { formatMoment, plural } from './shared.js';
 
@@ -111,6 +112,8 @@ export function askCommand(context, command) {
         dim('  when was q3-revenue last updated?'),
         dim('  what depends on depreciation-direct?'),
         dim('  what changed since yesterday?'),
+        dim('  what is the square footage of Office 101?'),
+        dim('  what is the slope of storm pipe P1?'),
       ],
       data: { answered: false },
     });
@@ -123,6 +126,9 @@ export function askCommand(context, command) {
       data: { answered: false, reason: 'OUT_OF_SCOPE' },
     });
   }
+
+  const drawingAnswer = answerDrawingQuestion(context, question);
+  if (drawingAnswer) return drawingAnswer;
 
   const intent = classify(question);
   if (!intent) {
@@ -180,6 +186,9 @@ export function askCommand(context, command) {
   switch (intent.kind) {
     case 'SOURCE_OF':
     case 'VALUE_OF': {
+      if (intent.kind === 'VALUE_OF' && found.inferred && ['drawing-annotation', 'cad-property'].includes(object.anchor?.kind)) {
+        return cannotVerify(question, 'That question does not identify a supported drawing measurement. Ask for an explicit area, length, perimeter, diameter, slope, or elevation.');
+      }
       if (object.valueText == null && intent.kind === 'VALUE_OF') {
         return cannotVerify(question, `${object.name} is indexed at ${object.path}, but no value is recorded for it.`);
       }

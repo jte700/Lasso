@@ -1,9 +1,9 @@
 {
-  "name": "lasso-scientific-timeline",
+  "name": "lasso",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Lasso local-first source linking and deterministic provenance",
+  "description": "Local-first source library and writing assistant with versioned evidence",
   "engines": {
     "node": ">=24.0.0"
   },
@@ -12,6 +12,7 @@
     "test": "node --disable-warning=ExperimentalWarning --test",
     "test:watch": "node --disable-warning=ExperimentalWarning --test --watch",
     "desktop": "bash desktop/build.sh",
-    "desktop:test": "swiftc -O -framework Cocoa -framework WebKit -o /tmp/lasso-anchor-tests desktop/CompletionTransaction.swift desktop/AssistSourceIdentity.swift desktop/DependencyReference.swift desktop/HostGeometry.swift desktop/WebText.swift desktop/HostTextAdapter.swift desktop/tests/main.swift && /tmp/lasso-anchor-tests"
+    "desktop:test:browser": "LASSO_BROWSER_GEOMETRY_TEST=1 npm run desktop && node desktop/tests/browser-geometry.mjs",
+    "desktop:test": "swiftc -O -framework Cocoa -framework WebKit -o /tmp/lasso-anchor-tests desktop/CompletionTransaction.swift desktop/SyntheticKeyboard.swift desktop/ShareInsertion.swift desktop/AssistSourceIdentity.swift desktop/DependencyReference.swift desktop/HostGeometry.swift desktop/WebText.swift desktop/HostTextAdapter.swift desktop/tests/main.swift && /tmp/lasso-anchor-tests"
   }
 }

@@ -70,6 +70,9 @@ export function dependencyName(object) {
     // The row itself is the container of its cells, never the value.
     case 'table-row': return `${slug(anchor.rowKey ?? object.label)}-row`;
     case 'table-column': return slug(anchor.column ?? object.label);
+    case 'drawing-sheet': return slug(`sheet ${anchor.sheetNumber ?? metadata.sheetNumber ?? object.label ?? anchor.pageNumber}`);
+    case 'cad-property':
+    case 'drawing-annotation': return slug(object.label ?? anchor.label ?? anchor.identifier);
     case 'table-summary': return slug(`${metadata.dataset ?? object.label}-${anchor.metric ?? 'summary'}`);
     case 'line': return slug(metadata.symbol ?? object.label);
     case 'notebook-cell': return slug(`${metadata.dataset ?? object.label}`);
@@ -115,6 +118,20 @@ export function sourceLocator(object) {
         return sheet ? `${sheet}!${letter}:${letter}` : `column ${letter}`;
       }
       return `column: ${anchor.column ?? metadata.column ?? ''}`.trim();
+    }
+    case 'cad-property': return [
+      (anchor.elementId ?? metadata.elementId) ? `element ${anchor.elementId ?? metadata.elementId}` : null,
+      (anchor.propertyName ?? metadata.propertyName) ? `property ${anchor.propertyName ?? metadata.propertyName}` : null,
+    ].filter(Boolean).join(' · ');
+    case 'drawing-sheet':
+    case 'drawing-annotation': {
+      const sheetNumber = anchor.sheetNumber ?? metadata.sheetNumber;
+      const pageNumber = anchor.pageNumber ?? metadata.pageNumber;
+      return [
+        sheetNumber ? `sheet ${sheetNumber}` : null,
+        pageNumber != null ? `page ${pageNumber}` : null,
+        anchor.kind === 'drawing-annotation' ? anchor.identifier ?? anchor.label ?? object.label : null,
+      ].filter(Boolean).join(' · ');
     }
     case 'table-summary': return [sheet, anchor.metric].filter(Boolean).join(' · ');
     case 'line': return metadata.symbol ? `${metadata.symbol}()  line ${anchor.line}` : `line ${anchor.line}`;
@@ -174,7 +191,7 @@ export function describeObject(object) {
     directory: sourceDirectory(object.path),
     fileName: sourceFileName(object.path),
     locator: object.locator ?? sourceLocator(object),
-    sheet: object.metadata?.sheet ?? object.anchor?.sheet ?? null,
+    sheet: object.metadata?.sheet ?? object.anchor?.sheet ?? object.metadata?.sheetNumber ?? object.anchor?.sheetNumber ?? null,
     units: object.metadata?.units ?? null,
     definition: object.metadata?.definition ?? null,
   };

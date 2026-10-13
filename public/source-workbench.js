@@ -15,6 +15,9 @@ const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[name] 
 const fileIcon = path => icon(/\.(csv|tsv|xlsx?|numbers)$/i.test(path) ? 'table' : 'file');
 const location = object => {
  const a = object.anchor ?? {};
+ if(a.kind==='cad-property') return [object.metadata?.storey, a.layer, a.propertySet, a.propertyName, a.elementId].filter(Boolean).join(' · ');
+ if(a.kind==='drawing-sheet'||a.kind==='drawing-annotation') return [a.sheetNumber, a.pageNumber?`Page ${a.pageNumber}`:null].filter(Boolean).join(' · ');
+ if(a.kind==='cad-model') return object.metadata?.format ? `${object.metadata.format} model` : 'Design model';
  return a.kind==='table-cell' ? [a.sheet, `Row ${(a.rowIndex??0)+1}`, a.column].filter(Boolean).join(' · ') : a.cellId ? [a.sheet, a.cellId].filter(Boolean).join('!') : a.rowKey ? `Row ${a.rowKey}` : a.page ? `Page ${a.page}` : a.line ? `Line ${a.line}` : a.blockIndex != null ? `Passage ${a.blockIndex + 1}` : object.objectType?.toLowerCase().replaceAll('_',' ') ?? 'Source';
 };
 export function createSourceWorkbench({input, api, getProjectId, getActor, onOpenDocument, onOpenSource, onStatus, onSession}) {
@@ -62,7 +65,7 @@ export function createSourceWorkbench({input, api, getProjectId, getActor, onOpe
  }
  function previewHTML() {
   if(!preview) return '<p class="wb-muted">Loading source preview…</p>';
-  if(preview.kind==='table') return `<div class="wb-table-scroll"><table class="wb-evidence-table"><tbody>${preview.rows.map(row=>`<tr class="${row.highlighted?'cited':''}"><th>${row.rowNumber}</th>${row.cells.map((cell,i)=>`<td class="${row.highlighted && i===preview.highlightColumn?'cited-cell':''}">${escape(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  if(preview.kind==='table') return `<div class="wb-table-scroll"><table class="wb-evidence-table"><thead><tr><th scope="col" aria-label="Row number"></th>${(preview.headerRow??preview.columns??[]).map((heading,i)=>`<th scope="col"><span>${escape(heading||(preview.columns?.[i]?`Column ${preview.columns[i]}`:'Column'))}</span></th>`).join('')}</tr></thead><tbody>${preview.rows.map(row=>`<tr class="${row.highlighted?'cited':''}"><th>${row.rowNumber}</th>${row.cells.map((cell,i)=>`<td class="${row.highlighted && i===preview.highlightColumn?'cited-cell':''}">${escape(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   if(preview.kind==='text') return `<div class="wb-excerpt">${preview.lines.map(line=>`<div class="${line.highlighted?'cited':''}"><span>${line.lineNumber}</span><p>${escape(line.text)||' '}</p></div>`).join('')}</div>`;
   return `<p class="wb-prose">${escape(preview.reason??preview.value??'A visual preview is unavailable for this source. Open its recorded version to inspect it.')}</p>`;
  }
@@ -172,6 +175,12 @@ export function createSourceWorkbench({input, api, getProjectId, getActor, onOpe
   host.querySelector('.wb-file-list')?.addEventListener('keydown',event=>{if(!['ArrowDown','ArrowUp'].includes(event.key))return;const buttons=[...host.querySelectorAll('.wb-file')];const i=buttons.indexOf(document.activeElement);const next=buttons[Math.max(0,Math.min(buttons.length-1,i+(event.key==='ArrowDown'?1:-1)))];if(next){event.preventDefault();next.click();host.querySelectorAll('.wb-file')[buttons.indexOf(next)]?.focus();}});
  }
  input.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>{++detailEpoch;query=input.value.trim();mode='library';selectedObject=null;candidates=null;render();},100);});
- input.addEventListener('keydown',event=>{if(event.key==='Escape'){input.value='';query='';render();}if(event.key==='ArrowDown'){event.preventDefault();host?.querySelector('.wb-file')?.focus();}});
+ input.addEventListener('keydown',async event=>{
+  if(event.key==='Enter' && /^(?:ask\s|what\b|which\b|where\b|when\b|how\b|show\s+me\b|give\s+me\b)/i.test(input.value.trim())){
+   event.preventDefault();const question=input.value.trim().replace(/^ask\s+/i,'');await run(`ask ${question}`);return;
+  }
+  if(event.key==='Escape'){input.value='';query='';render();}
+  if(event.key==='ArrowDown'){event.preventDefault();host?.querySelector('.wb-file')?.focus();}
+ });
  return {setHost(node){host=node;},mount(){render();},refresh,run,reset(){++epoch;++detailEpoch;clearTimeout(timer);objects=[];query='';input.value='';selectedObject=null;selectedPath='';candidates=null;report=null;plan=null;preview=null;mode='library';session=null;problem='';busy=false;},focus(){input.focus();},get state(){return {session};}};
 }

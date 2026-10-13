@@ -702,6 +702,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 struct LassoApp {
     static func main() {
         let application = NSApplication.shared
+        #if BROWSER_GEOMETRY_TEST
+        if BrowserGeometryRegression.run(arguments: CommandLine.arguments) { return }
+        #endif
         // Held for the lifetime of run(), which only returns on quit.
         let delegate = AppDelegate()
         application.delegate = delegate

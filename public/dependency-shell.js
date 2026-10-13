@@ -107,7 +107,7 @@ function renderPreview(preview) {
       <td class="dsh-gutter">${row.rowNumber}</td>
       ${row.cells.slice(0, 8).map((cell, column) => `<td class="${column === preview.highlightColumn ? 'hit-cell' : ''}">${escapeHtml(cell)}</td>`).join('')}
     </tr>`).join('');
-    return `<aside class="dsh-preview">${head}<div class="dsh-table-wrap"><table class="dsh-table"><tbody>${body}</tbody></table></div></aside>`;
+    return `<aside class="dsh-preview">${head}<div class="dsh-table-wrap"><table class="dsh-table"><thead><tr><th></th>${(preview.headerRow??[]).slice(0,8).map((heading,i)=>`<th scope="col">${escapeHtml(heading||preview.columns?.[i]||'Column')}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div></aside>`;
   }
   if (preview.kind === 'text') {
     return `<aside class="dsh-preview">${head}<pre class="dsh-preview-code">${preview.lines
