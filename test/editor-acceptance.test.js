@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import fs from 'node:fs';
+import vm from 'node:vm';
 import { caretPointForTextLengths, contextualCompletionCase } from '../public/editor-acceptance.js';
 
 test('accepted labels inherit sentence casing without damaging scientific identifiers', () => {
@@ -15,4 +17,139 @@ test('caret boundaries resolve after accepted linked text, not inside its final 
   assert.deepEqual(caretPointForTextLengths([8], 8), { atEnd: true });
   assert.deepEqual(caretPointForTextLengths([8, 4], 8), { atEnd: false, nodeIndex: 1, offset: 0 });
   assert.deepEqual(caretPointForTextLengths([8, 4], 3), { atEnd: false, nodeIndex: 0, offset: 3 });
+});
+
+// Execute the browser's actual async handlers with controlled network ordering.
+// The DOM surface here only supplies the elements touched by each regression.
+const appSource = fs.readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+function appHandlers(names, globals) {
+  const context = vm.createContext({ URLSearchParams, AbortController, clearTimeout, ...globals });
+  for (const name of names) {
+    const start = appSource.search(new RegExp(`^(?:async )?function ${name}\\(`, 'm'));
+    assert.notEqual(start, -1);
+    const next = appSource.slice(start + 1).search(/\n(?:async )?function /);
+    vm.runInContext(appSource.slice(start, next < 0 ? undefined : start + 1 + next), context);
+  }
+  return context;
+}
+const flush = () => new Promise(resolve => setImmediate(resolve));
+function editorHarness() {
+  const requests = [], rendered = [], errors = [];
+  const detail = { innerHTML: '' };
+  const state = { project: { id: 'one' }, projectSwitchRevision: 0, editor: {
+    document: null, documents: [], pendingLinks: [], navigationRevision: 0,
+  } };
+  const context = appHandlers(['openDocument', 'showSession'], {
+    state, shell: {}, elements: { 'detail-column': detail }, document: { getElementById() { return {}; } },
+    api: url => new Promise((resolve, reject) => requests.push({ url, resolve, reject })),
+    setWorkspaceView(view) { state.view = view; if (view !== 'editor') state.editor.navigationRevision += 1; },
+    refreshShell() {}, clearPrediction() {}, hideDependencyPicker() {},
+    prepareDocumentForEditor: value => value, renderManuscriptBrowser() {},
+    renderDocumentEditor() { rendered.push(state.editor.document.path); },
+    toast(message) { errors.push(message); },
+    dependencyShell: { setHost() {}, mount() {}, refresh() {} },
+  });
+  const doc = path => ({ document: { path, audit: { summary: {} } } });
+  return { context, state, requests, rendered, errors, detail, doc };
+}
+
+test('opening documents keeps the latest selection when earlier project metadata arrives late', async () => {
+  const h = editorHarness();
+  const first = h.context.openDocument('First.md');
+  h.requests[0].resolve(h.doc('First.md')); await flush();
+  assert.equal(h.state.editor.document, null, 'document and project metadata commit together');
+  const second = h.context.openDocument('Second.md');
+  h.requests[2].resolve(h.doc('Second.md')); await flush();
+  h.requests[3].resolve({ project: { id: 'one', currentVersion: 2 } }); await second;
+  h.requests[1].resolve({ project: { id: 'one', currentVersion: 1 } }); await first;
+  assert.deepEqual(h.rendered, ['Second.md']);
+  assert.equal(h.state.editor.document.path, 'Second.md');
+  assert.equal(h.state.project.currentVersion, 2);
+  assert.equal(h.state.view, 'editor');
+});
+
+test('returning to sources cancels an unfinished document opening and its errors', async () => {
+  for (const fail of [false, true]) {
+    const h = editorHarness();
+    const opening = h.context.openDocument('Previous.md');
+    await h.context.showSession();
+    const html = h.detail.innerHTML;
+    if (fail) h.requests[0].reject(new Error('Previous document failure'));
+    else h.requests[0].resolve(h.doc('Previous.md'));
+    await opening;
+    assert.equal(h.state.editor.document, null);
+    assert.equal(h.state.view, 'session');
+    assert.equal(h.detail.innerHTML, html);
+    assert.deepEqual(h.rendered, []);
+    assert.deepEqual(h.errors, []);
+  }
+});
+
+test('manual source search ignores older queries and errors after the picker closes', async () => {
+  const requests = [];
+  const target = { isConnected: true, innerHTML: '', querySelectorAll() { return []; } };
+  const picker = { hidden: false, replaceChildren() { target.isConnected = false; } };
+  const state = { editor: { document: { path: 'Draft.md', projectId: 'one' }, manualClaim: { text: 'value' } } };
+  const context = appHandlers(['loadPickerResults', 'hideDependencyPicker'], {
+    state, document: { getElementById: id => id === 'picker-results' ? target : picker },
+    api: (url, options) => new Promise((resolve, reject) => requests.push({ url, options, resolve, reject })),
+    escapeHtml: String,
+  });
+  const first = context.loadPickerResults('first');
+  const second = context.loadPickerResults('second');
+  assert.equal(requests[0].options.signal.aborted, true);
+  requests[1].resolve({ objects: [{ id: 'two', label: 'Current source' }] }); await second;
+  const current = target.innerHTML;
+  requests[0].resolve({ objects: [{ id: 'one', label: 'Old source' }] }); await first;
+  assert.equal(target.innerHTML, current);
+  assert.match(current, /Current source/);
+  const third = context.loadPickerResults('third');
+  context.hideDependencyPicker();
+  requests[2].reject(new Error('Cancelled request')); await third;
+  assert.equal(requests[2].options.signal.aborted, true);
+  assert.equal(target.innerHTML, current);
+});
+
+test('a source viewer cannot be overwritten by an older source response or failure', async () => {
+  for (const fail of [false, true]) {
+    const requests = [], rendered = [], usage = [];
+    const target = { innerHTML: '' };
+    const dialog = { open: false, querySelector() { return target; }, showModal() { this.open = true; } };
+    const context = appHandlers(['openDependencySourceViewer'], {
+      state: { project: { id: 'one' }, editor: { viewerRequest: 0 } },
+      api: url => new Promise((resolve, reject) => requests.push({ url, resolve, reject })),
+      ensureDependencySourceViewer: () => dialog,
+      renderDependencySourceViewer(_, viewer) { rendered.push(viewer.id); target.innerHTML = viewer.id; },
+      recordRecommendationUsage(source) { usage.push(source.dependencyId); },
+    });
+    const first = context.openDependencySourceViewer('first');
+    const second = context.openDependencySourceViewer('second');
+    requests[1].resolve({ viewer: { id: 'second' } }); await second;
+    if (fail) requests[0].reject(new Error('Obsolete failure'));
+    else requests[0].resolve({ viewer: { id: 'first' } });
+    await first;
+    assert.deepEqual(rendered, ['second']);
+    assert.deepEqual(usage, ['second']);
+    assert.equal(target.innerHTML, 'second');
+  }
+});
+
+test('source-sharing responses stay attached to the inspected source', async () => {
+  const requests = [], rendered = [];
+  const target = { isConnected: true, innerHTML: '' };
+  const context = appHandlers(['openDependencySharing'], {
+    state: { editor: { sharingRequest: 0 } },
+    document: { getElementById() { return target; } },
+    api: url => new Promise(resolve => requests.push({ url, resolve })),
+    renderDependencySharing(dependency) { rendered.push(dependency.id); },
+  });
+  const first = context.openDependencySharing({ id: 'first' });
+  const second = context.openDependencySharing({ id: 'second' });
+  requests[1].resolve({ sharing: {} }); await second;
+  requests[0].resolve({ sharing: {} }); await first;
+  assert.deepEqual(rendered, ['second']);
+  const third = context.openDependencySharing({ id: 'third' });
+  target.isConnected = false;
+  requests[2].resolve({ sharing: {} }); await third;
+  assert.deepEqual(rendered, ['second']);
 });

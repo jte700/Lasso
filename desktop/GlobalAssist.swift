@@ -85,9 +85,8 @@ enum RecommendationUsageClient {
         URLSession.shared.dataTask(with: request) { _, _, _ in }.resume()
     }
 
-    /// A persisted highlight can belong to a project other than the active one.
-    /// Resolve its owning project before counting an explicit inspector open.
-    static func recordResolvedOpen(serverURL: URL, objectId: String) {
+    /// Persisted highlights keep their source identity across directory toggles.
+    static func resolveProject(serverURL: URL, objectId: String, completion: @escaping (String?) -> Void) {
         var request = URLRequest(url: serverURL.appendingPathComponent("api/dependency-objects")
             .appendingPathComponent(objectId))
         request.timeoutInterval = 3
@@ -95,9 +94,16 @@ enum RecommendationUsageClient {
             guard (response as? HTTPURLResponse)?.statusCode == 200, let data,
                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let object = root["object"] as? [String: Any],
-                  let projectId = object["projectId"] as? String else { return }
-            record(serverURL: serverURL, projectId: projectId, objectId: objectId, kind: "open")
+                  let projectId = object["projectId"] as? String else { completion(nil); return }
+            completion(projectId)
         }.resume()
+    }
+
+    static func recordResolvedOpen(serverURL: URL, objectId: String) {
+        resolveProject(serverURL: serverURL, objectId: objectId) { projectId in
+            guard let projectId else { return }
+            record(serverURL: serverURL, projectId: projectId, objectId: objectId, kind: "open")
+        }
     }
 }
 
@@ -178,20 +184,39 @@ enum AssistLog {
     /// On by default while the feature settles; turn it off with
     /// `defaults write dry.lasso.desktop AssistDebug -bool false`.
     static var enabled = UserDefaults.standard.object(forKey: "AssistDebug") as? Bool ?? true
+    private static let queue = DispatchQueue(label: "lasso.assist-log", qos: .utility)
+    private static let formatter = ISO8601DateFormatter()
+    private static var bytesWritten: UInt64?
+    private static let maximumBytes: UInt64 = 1_048_576
 
     static func write(_ line: String) {
         guard enabled else { return }
-        let stamp = ISO8601DateFormatter().string(from: Date())
+        let timestamp = Date()
+        queue.async { append(line, at: timestamp) }
+    }
+
+    private static func append(_ line: String, at timestamp: Date) {
+        let stamp = formatter.string(from: timestamp)
         let entry = "[\(stamp)] \(line)\n"
-        let directory = url.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if bytesWritten == nil {
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            bytesWritten = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.uint64Value ?? 0
+        }
+        let data = Data(entry.utf8)
+        if (bytesWritten ?? 0) + UInt64(data.count) > maximumBytes {
+            let previous = url.appendingPathExtension("1")
+            try? FileManager.default.removeItem(at: previous)
+            try? FileManager.default.moveItem(at: url, to: previous)
+            bytesWritten = 0
+        }
         if let handle = try? FileHandle(forWritingTo: url) {
             handle.seekToEndOfFile()
-            handle.write(Data(entry.utf8))
+            handle.write(data)
             try? handle.close()
         } else {
             try? entry.write(to: url, atomically: true, encoding: .utf8)
         }
+        bytesWritten = (bytesWritten ?? 0) + UInt64(data.count)
     }
 }
 
@@ -430,12 +455,6 @@ enum AccessibilityReader {
             let hasValue = (parentNames as? [String] ?? []).contains(kAXValueAttribute as String)
             AssistLog.write("  ancestor[\(depth)] role=\(parentRole) hasAXValue=\(hasValue)")
         }
-    }
-
-    /// The whole text of an element, for verifying an edit after the fact.
-    static func wholeText(of element: AXUIElement) -> String? {
-        if let value = attribute(element, kAXValueAttribute as String) as? String { return value }
-        return WebTextReader.documentText(from: element)
     }
 
     /// Caret rectangle alone, without pulling any text. Cheap enough to run on
@@ -684,7 +703,10 @@ final class AssistBoxView: NSView {
                 let slotY = bodyTop + CGFloat(index) * suggestionHeight
                 let selection = NSRect(x: 10, y: slotY + 13,
                                        width: leftWidth - 20, height: 63)
-                if index == selected { drawSelectedSurface(in: selection) }
+                if index == selected {
+                    drawSelectedSurface(in: selection,
+                        color: DirectoryColorPreferences.color(for: suggestion.projectId)?.color ?? .controlAccentColor)
+                }
 
                 drawSourceIcon(for: suggestion.path,
                                in: NSRect(x: 22, y: slotY + 26, width: 32, height: 32))
@@ -747,11 +769,11 @@ final class AssistBoxView: NSView {
         }
     }
 
-    private func drawSelectedSurface(in rect: NSRect) {
-        NSColor.controlAccentColor.withAlphaComponent(
+    private func drawSelectedSurface(in rect: NSRect, color: NSColor = .controlAccentColor) {
+        color.withAlphaComponent(
             NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 0.30 : 0.16).setFill()
         NSBezierPath(roundedRect: rect, xRadius: 10, yRadius: 10).fill()
-        NSColor.controlAccentColor.withAlphaComponent(0.45).setStroke()
+        color.withAlphaComponent(0.45).setStroke()
         let outline = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10)
         outline.lineWidth = 0.75
         outline.stroke()
@@ -918,6 +940,8 @@ final class AssistBoxView: NSView {
     }
 
     private func drawTablePreview(_ preview: AssistDocumentPreview, in rect: NSRect) {
+        let projectId = suggestions.indices.contains(selected) ? suggestions[selected].projectId : nil
+        let sourceColor = DirectoryColorPreferences.color(for: projectId)?.color ?? .systemGreen
         let availableColumns = max(1, preview.rows.map(\.cells.count).max() ?? 1)
         let count = min(4, availableColumns)
         let rowHeaderWidth: CGFloat = 37
@@ -966,13 +990,13 @@ final class AssistBoxView: NSView {
                      in: NSRect(x: table.minX, y: y + 8,
                                width: rowHeaderWidth - 8, height: 14),
                      font: NSFont.systemFont(ofSize: 11),
-                     color: citedRow ? .systemGreen : .secondaryLabelColor,
+                     color: citedRow ? sourceColor : .secondaryLabelColor,
                      alignment: .right)
 
             if citedRow {
                 let labelCell = NSRect(x: table.minX + rowHeaderWidth, y: y,
                                        width: columnWidths[0], height: rowHeight)
-                NSColor.systemGreen.withAlphaComponent(0.075).setFill()
+                sourceColor.withAlphaComponent(0.075).setFill()
                 labelCell.fill()
             }
 
@@ -983,7 +1007,7 @@ final class AssistBoxView: NSView {
                 let cellRect = NSRect(x: table.minX + rowHeaderWidth + columnOffset(column),
                                       y: y, width: columnWidths[column], height: rowHeight)
                 if cell.cited {
-                    NSColor.systemGreen.withAlphaComponent(0.025).setFill()
+                    sourceColor.withAlphaComponent(0.025).setFill()
                     cellRect.fill()
                 }
                 drawText(cell.value,
@@ -1021,7 +1045,7 @@ final class AssistBoxView: NSView {
         }
 
         for rect in citedOutlines {
-            NSColor.systemGreen.withAlphaComponent(0.65).setStroke()
+            sourceColor.withAlphaComponent(0.65).setStroke()
             let outline = NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5))
             outline.lineWidth = 0.8
             outline.stroke()
@@ -1134,8 +1158,26 @@ final class GlobalAssistant {
     static let shared = GlobalAssistant()
 
     var serverURL: URL?
-    var projectId: String?
+    private(set) var projectIds: [String] = []
+    private var workspaceRevision = ""
     private(set) var isEnabled = false
+
+    /// The menu and retrieval share the server's persisted active directory set.
+    func updateWorkspace(projectIds: [String], revision: String) {
+        let updated = Array(Set(projectIds)).sorted()
+        guard updated != self.projectIds || revision != workspaceRevision else { return }
+        hide()
+        self.projectIds = updated
+        workspaceRevision = revision
+        linkedSources.removeAll { !updated.contains($0.projectId) }
+        if isEnabled, !updated.isEmpty { scheduleRefresh() }
+    }
+
+    /// Pause retrieval immediately while the directory selection is changing.
+    func suspendWorkspace() {
+        hide()
+        projectIds = []
+    }
 
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -1147,6 +1189,7 @@ final class GlobalAssistant {
     private var previewGeneration = 0
     private var previewKey: String?
     private var previewCache: [String: AssistDocumentPreview] = [:]
+    private var previewCacheOrder: [String] = []
     private var context: CaretContext?
     private var generation = 0
     private var sawEvent = false
@@ -1154,13 +1197,19 @@ final class GlobalAssistant {
     private var pendingShare: AssistSuggestion?
     /// Sources linked in the current surface, newest last. Reported to the
     /// server so it can offer their values instead of matching the same phrase.
-    private struct LinkedSource { let objectId: String; let snapshotId: String; let text: String }
+    private struct LinkedSource {
+        let projectId: String
+        let objectId: String
+        let snapshotId: String
+        let text: String
+    }
     private var linkedSources: [LinkedSource] = []
     private var linkedContext: String?
     private var flashTimer: Timer?
     private var lastTrack = Date.distantPast
 
     var onStateChange: (() -> Void)?
+    var onWorkspaceChange: (() -> Void)?
 
     // MARK: Lifecycle
 
@@ -1175,7 +1224,7 @@ final class GlobalAssistant {
     private(set) var lastProblem: PermissionProblem?
 
     @discardableResult
-    func enable() -> String? {
+    func enable(requestPermissions: Bool = true) -> String? {
         guard !isEnabled else { return nil }
         let accessibility = AssistPermission.hasAccessibility
         let input = AssistPermission.hasInputMonitoring
@@ -1185,14 +1234,13 @@ final class GlobalAssistant {
             lastProblem = PermissionProblem(service: "Accessibility",
                                             settingsAnchor: "Privacy_Accessibility",
                                             stale: AssistPermission.isListedButUntrusted)
-            AssistPermission.requestAccessibility()
+            if requestPermissions { AssistPermission.requestAccessibility() }
             return lastProblem!.stale
-                ? "macOS still lists Lasso under Accessibility, but the approval belongs to an earlier build of the app, so it no longer applies.\n\nIn Privacy & Security → Accessibility, select Lasso, remove it with the “−” button, then add it again with “+”."
+                ? "macOS is not granting Lasso Accessibility access. Approval for an earlier build may no longer apply.\n\nAfter installing the current app, open Privacy & Security → Accessibility, remove the old Lasso entry with “−”, then add the current app with “+” and authorize it."
                 : "Turn on Lasso under Privacy & Security → Accessibility, then enable this again."
         }
         // Input Monitoring is not always required: a keyboard tap usually works
         // with Accessibility alone. Ask for it only if the tap actually fails.
-        if !input { AssistPermission.requestInputMonitoring() }
         lastProblem = nil
 
         let mask = (1 << CGEventType.keyDown.rawValue)
@@ -1208,10 +1256,11 @@ final class GlobalAssistant {
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()) else {
             AssistLog.write("tap creation failed (accessibility=\(accessibility) inputMonitoring=\(input))")
+            if !input && requestPermissions { AssistPermission.requestInputMonitoring() }
             lastProblem = PermissionProblem(service: "Input Monitoring",
                                             settingsAnchor: "Privacy_ListenEvent",
                                             stale: false)
-            return "The keyboard tap could not be created.\n\nTurn on Lasso under Privacy & Security → Input Monitoring. If it is already listed, remove it with “−” and add it again — approvals are tied to a specific build."
+            return "The keyboard tap could not be created.\n\nTurn on Lasso under Privacy & Security → Input Monitoring. Approval for an earlier ad-hoc build may no longer apply. If needed, remove the old entry with “−” and add the current app with “+”."
         }
 
         tap = created
@@ -1349,7 +1398,7 @@ final class GlobalAssistant {
     }
 
     private func refresh() {
-        guard isEnabled, let serverURL, let projectId else { return }
+        guard isEnabled, let serverURL, !projectIds.isEmpty else { hide(); return }
         guard let captured = AccessibilityReader.focusedContext() else { hide(); return }
         let trimmed = captured.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 4 else { hide(); return }
@@ -1368,7 +1417,7 @@ final class GlobalAssistant {
         request?.cancel()
 
         var request = URLRequest(url: serverURL
-            .appendingPathComponent("api/projects/\(projectId)/dependencies/predict"))
+            .appendingPathComponent("api/workspace/dependencies/predict"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.timeoutInterval = 2.5
@@ -1384,6 +1433,7 @@ final class GlobalAssistant {
             let needle = Array(link.text.utf16)
             guard let start = TextAnchorResolver.indices(of: needle, in: window).last else { return nil }
             return [
+                "projectId": link.projectId,
                 "blockIndex": 0,
                 "start": start,
                 "end": start + needle.count,
@@ -1393,14 +1443,25 @@ final class GlobalAssistant {
         }
         if !pending.isEmpty { body["pendingDependencies"] = pending }
         let sourceScoped = !pending.isEmpty
+        let activeProjectIds = Set(projectIds)
+        let expectedRevision = workspaceRevision
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         let task = URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
             guard let self, let data else { return }
-            let parsed = Self.parse(data, windowLength: Array(captured.text.utf16).count, projectId: projectId)
+            let parsed = Self.parse(data, windowLength: Array(captured.text.utf16).count, activeProjectIds: activeProjectIds)
             let heading = Self.heading(data)
+            let returnedRevision = Self.predictionRevision(data)
             DispatchQueue.main.async {
-                guard token == self.generation else { return }
+                guard token == self.generation, self.isEnabled,
+                      expectedRevision == self.workspaceRevision, activeProjectIds == Set(self.projectIds) else { return }
+                if let returnedRevision, returnedRevision != expectedRevision {
+                    // Browser selections and watch captures may change the server
+                    // between menu refreshes. Adopt its state before showing results.
+                    self.suspendWorkspace()
+                    self.onWorkspaceChange?()
+                    return
+                }
                 if parsed.isEmpty {
                     self.hide()
                 } else {
@@ -1412,6 +1473,13 @@ final class GlobalAssistant {
         }
         self.request = task
         task.resume()
+    }
+
+    private static func predictionRevision(_ data: Data) -> String? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let prediction = root["prediction"] as? [String: Any] else { return nil }
+        if let revision = prediction["workspaceRevision"] as? String { return revision }
+        return (prediction["workspaceRevision"] as? NSNumber)?.stringValue
     }
 
     /// Turns a prediction payload into at most five insertable rows.
@@ -1462,87 +1530,88 @@ final class GlobalAssistant {
         return label
     }
 
-    private static func parse(_ data: Data, windowLength: Int, projectId: String) -> [AssistSuggestion] {
+    private static func parse(_ data: Data, windowLength: Int, activeProjectIds: Set<String>) -> [AssistSuggestion] {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let prediction = root["prediction"] as? [String: Any] else { return [] }
 
-        var results: [AssistSuggestion] = []
+        // Every result retains its owning directory. A single-directory payload
+        // can still be decoded during an upgrade from an older local server.
+        func owner(_ values: [String: Any]...) -> String? {
+            for value in values {
+                if let id = value["projectId"] as? String {
+                    return activeProjectIds.contains(id) ? id : nil
+                }
+            }
+            return activeProjectIds.count == 1 ? activeProjectIds.first : nil
+        }
 
-        // A sentence completion continues what is already typed, so it replaces
-        // nothing.
+        var results: [AssistSuggestion] = []
+        var identities = Set<String>()
+        func append(_ suggestion: AssistSuggestion) {
+            let identity = suggestion.projectId + "|" + (suggestion.objectId ?? suggestion.usageObjectId ?? "")
+                + "|" + suggestion.insertText
+            if identities.insert(identity).inserted { results.append(suggestion) }
+        }
+
         if let completion = prediction["completion"] as? [String: Any],
            let insert = completion["insertText"] as? String, !insert.isEmpty {
             let candidate = completion["dependencyCandidate"] as? [String: Any] ?? [:]
-            let source = (completion["source"] as? [String: Any])?["path"] as? String ?? ""
-            results.append(AssistSuggestion(
-                insertText: insert,
-                label: insert.trimmingCharacters(in: .whitespaces),
-                detail: "sentence",
-                path: source,
-                location: "",
-                replaceFrom: nil,
-                objectId: nil, versionId: nil, snapshotId: nil,
-                usageObjectId: candidate["id"] as? String,
-                projectId: projectId,
-                rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String))
+            let source = completion["source"] as? [String: Any] ?? [:]
+            if let projectId = owner(completion, candidate, source) {
+                append(AssistSuggestion(
+                    insertText: insert,
+                    label: insert.trimmingCharacters(in: .whitespaces),
+                    detail: "sentence", path: source["path"] as? String ?? "", location: "",
+                    replaceFrom: nil, objectId: nil, versionId: nil, snapshotId: nil,
+                    usageObjectId: candidate["id"] as? String,
+                    projectId: projectId,
+                    rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String))
+            }
         }
 
-        // Once a source is linked the server answers with its downstream values
-        // — the rows, columns and findings belonging to it — rather than with
-        // the same phrase again.
         for group in ["workspaceCompletions", "sourceCompletions"] {
             for entry in (prediction[group] as? [[String: Any]] ?? []) {
                 let candidate = entry["dependencyCandidate"] as? [String: Any] ?? [:]
                 let insert = (entry["replacementText"] as? String)
                     ?? (entry["insertText"] as? String) ?? ""
-                guard !insert.isEmpty else { continue }
-                results.append(AssistSuggestion(
-                    insertText: insert,
-                    label: insert,
+                guard !insert.isEmpty, let projectId = owner(entry, candidate) else { continue }
+                append(AssistSuggestion(
+                    insertText: insert, label: insert,
                     detail: candidate["valueText"] as? String ?? (entry["category"] as? String ?? ""),
                     path: AssistSourceIdentity.canonicalPath(
                         candidatePath: candidate["path"] as? String,
-                        provenanceLabel: entry["provenanceLabel"] as? String
-                    ),
-                    location: sourceLocation(candidate),
-                    replaceFrom: nil,
+                        provenanceLabel: entry["provenanceLabel"] as? String),
+                    location: sourceLocation(candidate), replaceFrom: nil,
                     objectId: candidate["id"] as? String,
                     versionId: candidate["versionId"] as? String,
                     snapshotId: candidate["snapshotId"] as? String,
-                    usageObjectId: candidate["id"] as? String,
-                    projectId: projectId,
+                    usageObjectId: candidate["id"] as? String, projectId: projectId,
                     rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String))
                 if results.count >= 5 { break }
             }
             if results.count >= 5 { break }
         }
 
-        let claims = prediction["claims"] as? [[String: Any]] ?? []
-        for claim in claims {
-            // Only swap out the word when the claim actually runs to the caret.
-            // If anything follows it — a space, say — this is a plain insertion.
+        for claim in (prediction["claims"] as? [[String: Any]] ?? []) {
             let claimStart = claim["start"] as? Int
             let claimEnd = claim["end"] as? Int
-            let start = (claimEnd == windowLength) ? claimStart : nil
+            let start = claimEnd == windowLength ? claimStart : nil
             let claimType = claim["type"] as? String
             for candidate in (claim["candidates"] as? [[String: Any]] ?? []) {
                 let label = candidate["label"] as? String ?? ""
-                let value = candidate["valueText"] as? String
-                    ?? (candidate["displayValue"] as? String)
-                let path = candidate["path"] as? String ?? ""
+                let value = candidate["valueText"] as? String ?? candidate["displayValue"] as? String
                 let insert = AssistSuggestionSemantics.insertionText(
-                    claimType: claimType, label: label, value: value)
-                guard !insert.isEmpty else { continue }
-                results.append(AssistSuggestion(
+                    claimType: claimType, label: label, value: value,
+                    completionText: candidate["completionText"] as? String)
+                guard !insert.isEmpty, let projectId = owner(candidate, claim) else { continue }
+                append(AssistSuggestion(
                     insertText: insert, label: label,
-                    detail: value ?? (candidate["objectType"] as? String ?? ""), path: path,
-                    location: sourceLocation(candidate),
-                    replaceFrom: start,
-                    objectId: candidate["id"] as? String,
+                    detail: value ?? (candidate["objectType"] as? String ?? ""),
+                    path: candidate["path"] as? String ?? "", location: sourceLocation(candidate),
+                    replaceFrom: start, objectId: candidate["id"] as? String,
                     versionId: candidate["versionId"] as? String,
                     snapshotId: candidate["snapshotId"] as? String,
-                    usageObjectId: candidate["id"] as? String,
-                    projectId: projectId,
+                    usageObjectId: candidate["id"] as? String, projectId: projectId,
                     rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String))
                 if results.count >= 5 { break }
             }
@@ -1568,6 +1637,8 @@ final class GlobalAssistant {
         if previewKey == key, view.preview != nil || view.isPreviewLoading { return }
         previewKey = key
         if let cached = previewCache[key] {
+            previewCacheOrder.removeAll { $0 == key }
+            previewCacheOrder.append(key)
             view.preview = cached
             view.isPreviewLoading = false
             view.needsDisplay = true
@@ -1606,6 +1677,11 @@ final class GlobalAssistant {
             DispatchQueue.main.async {
                 guard token == self.previewGeneration, self.previewKey == key else { return }
                 self.previewCache[key] = parsed
+                self.previewCacheOrder.removeAll { $0 == key }
+                self.previewCacheOrder.append(key)
+                while self.previewCacheOrder.count > 32 {
+                    self.previewCache.removeValue(forKey: self.previewCacheOrder.removeFirst())
+                }
                 self.view.preview = parsed
                 self.view.isPreviewLoading = false
                 self.view.needsDisplay = true
@@ -1937,7 +2013,7 @@ final class GlobalAssistant {
     }
 
     private func beginShare(_ suggestion: AssistSuggestion) {
-        guard let serverURL, projectId != nil, let objectId = suggestion.objectId else {
+        guard let serverURL, !suggestion.projectId.isEmpty, let objectId = suggestion.objectId else {
             flash(["Sharing is unavailable right now."])
             return
         }
@@ -2039,7 +2115,7 @@ final class GlobalAssistant {
             // The next suggestion should offer this source's values, not the
             // same phrase again.
             if let objectId = suggestion.objectId, let snapshotId = suggestion.snapshotId {
-                linkedSources.append(LinkedSource(objectId: objectId, snapshotId: snapshotId,
+                linkedSources.append(LinkedSource(projectId: suggestion.projectId, objectId: objectId, snapshotId: snapshotId,
                                                   text: plan.insertText))
                 if linkedSources.count > 8 { linkedSources.removeFirst() }
                 AssistLog.write("  · source context: \(suggestion.label)")
@@ -2052,6 +2128,7 @@ final class GlobalAssistant {
             // a fresh search of the document.
             DependencyHighlighter.shared.recordVerifiedInsertion(
                 objectId: objectId, versionId: suggestion.versionId,
+                projectId: suggestion.projectId,
                 label: suggestion.label, valueText: suggestion.detail,
                 sourcePath: suggestion.path, sourceLocation: suggestion.detail,
                 document: afterUnits, range: verified.snapshotRange,
@@ -2062,7 +2139,7 @@ final class GlobalAssistant {
     /// Create the record, build the URL, insert the link, verify it landed, and
     /// revoke the record if it did not.
     private func insertShared(_ suggestion: AssistSuggestion, configuration: ShareConfiguration) {
-        guard let context, let serverURL, let projectId, let objectId = suggestion.objectId else {
+        guard let context, let serverURL, let objectId = suggestion.objectId else {
             flash(["Sharing is unavailable right now."])
             return
         }
@@ -2076,7 +2153,7 @@ final class GlobalAssistant {
         hide()
         flash(["Creating share link…"])
 
-        ShareClient.createShare(serverURL: serverURL, projectId: projectId,
+        ShareClient.createShare(serverURL: serverURL, projectId: suggestion.projectId,
                                 objectId: objectId, versionId: suggestion.versionId, configuration: configuration) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -2186,6 +2263,7 @@ final class GlobalAssistant {
     }
 
     func hide() {
+        generation += 1
         debounce?.invalidate()
         flashTimer?.invalidate()
         request?.cancel()

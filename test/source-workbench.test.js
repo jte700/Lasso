@@ -5,8 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {createApplication} from '../src/server.js';
 import {anchorForSpan} from '../src/dependencies/service.js';
-import {createSourceWorkbench} from '../public/source-workbench.js';
-import {createDependencyShell} from '../public/dependency-shell.js';
+import {createSourceWorkbench,groupSourceObjects} from '../public/source-workbench.js';
 const actor={id:'human:reviewer',displayName:'Reviewer',actorType:'HUMAN_SELF'};
 test('source workbench reviews the exact project and refuses outdated comparisons',async t=>{
  const sandbox=fs.mkdtempSync(path.join(os.tmpdir(),'lasso-workbench-'));
@@ -126,8 +125,9 @@ function workbenchHarness(t,options={}) {
   },
   querySelector(selector){return selector==='.wb-file-list'?fileList:selector==='.wb-inspector'?inspector:this.querySelectorAll(selector)[0]??null;},
  };
- const usage=[],opened=[],requests=[];
+ const usage=[],opened=[],documentsOpened=[],requests=[];
  let project='project-one';
+ let version='snapshot-one';
  const libraryObjects=[
   {id:'z',path:'Z.csv',label:'Supplies',objectType:'DATASET_VALUE',snapshotId:'snapshot',ranking:{reason:'Recently used in this project'}},
   {id:'a',path:'A.csv',label:'Travel',objectType:'DATASET_VALUE',snapshotId:'snapshot',ranking:{reason:'Matches your context'}},
@@ -136,15 +136,16 @@ function workbenchHarness(t,options={}) {
   if(url.includes('/source-library'))return {objects:libraryObjects};
   if(url.endsWith('/terminal/session'))return {session:{files:2}};
   if(url.endsWith('/terminal/preview'))return {preview:{kind:'text',lines:[{lineNumber:1,text:'Supplies 400',highlighted:true}]}};
-  if(url.includes('/source-review/'))return {plan:{edits:[]}};
+  if(url.includes('/source-review/'))return {plan:options.plan??{edits:[]}};
   throw new Error(`Unexpected URL: ${url}`);
  });
  const workbench=createSourceWorkbench({input,api:async(url,args)=>{requests.push({url,args});return api(url,args);},
-  getProjectId:()=>project,getDocumentPath:()=> 'Draft.md',getContext:()=> 'We found supplies',getActor:()=>actor,
-  onRecommendationUsage:(...args)=>usage.push(args),onOpenSource:(...args)=>opened.push(args),onStatus(){}});
+  getProjectId:()=>project,getProjectVersion:()=>version,getDocumentPath:()=> 'Draft.md',getContext:()=> 'We found supplies',getActor:()=>actor,
+  getWorkspaceId:options.workspace?()=>version:undefined,getDocumentProjectId:options.workspace?()=>project:undefined,
+  onRecommendationUsage:(...args)=>usage.push(args),onOpenSource:(...args)=>opened.push(args),onOpenDocument:(...args)=>documentsOpened.push(args),onStatus(){}});
  workbench.setHost(host);
- return {workbench,host,input,listeners,fileList,usage,opened,requests,libraryObjects,
-  failCopy(value){copyFails=value;},setProject(value){project=value;}};
+ return {workbench,host,input,listeners,fileList,usage,opened,documentsOpened,requests,libraryObjects,
+  failCopy(value){copyFails=value;},setProject(value){project=value;},setVersion(value){version=value;}};
 }
 
 test('workbench preserves ranking and selection and counts only successful deliberate reuse',async t=>{
@@ -186,6 +187,7 @@ test('workbench asks the shared search for queries and ignores obsolete response
  }});
  const first=harness.workbench.refresh();
  harness.input.value='DOI-identifier';harness.listeners.get('input')();
+ assert.equal(harness.requests.find(request=>request.url.includes('/source-library')).args.signal.aborted,true,'new input immediately cancels obsolete search work');
  await new Promise(resolve=>setTimeout(resolve,120));
  assert.equal(pending.length,2);
  assert.equal(new URL(pending[1].url,'http://localhost').searchParams.get('query'),'DOI-identifier');
@@ -195,37 +197,160 @@ test('workbench asks the shared search for queries and ignores obsolete response
  pending[0].resolve({objects:[{id:'old',path:'Obsolete.csv',label:'Obsolete',objectType:'DATASET_VALUE'}]});
  await first;
  assert.doesNotMatch(harness.host.innerHTML,/Obsolete.csv/);
+ assert.equal(harness.requests.filter(request=>request.url.endsWith('/terminal/session')).length,1,'searches reuse the project session summary');
 });
 
-test('terminal shell distinguishes automatic completion from explicit Tab invocation',async t=>{
- const {input,listeners}=workbenchHarness(t);
- input.closest=()=>({classList:{toggle(){}}});
- input.setSelectionRange=()=>{};
- input.value='trace supplies';
- const requests=[];
- const shell=createDependencyShell({input,getProjectId:()=> 'project-one',getDocumentPath:()=> 'Draft.md',
-  api:async url=>{requests.push(url);return {completion:{fragment:'supplies',suggestions:Array.from({length:20},(_,index)=>({value:`source-${index}`,kind:'related'}))}};}});
- listeners.get('input')();await new Promise(resolve=>setImmediate(resolve));
- assert.equal(new URL(requests[0],'http://localhost').searchParams.has('surface'),false);
- assert.equal(shell.state.completion.suggestions.length,5);
- listeners.get('keydown')({key:'Escape'});
- listeners.get('keydown')({key:'Tab',preventDefault(){}});await new Promise(resolve=>setImmediate(resolve));
- assert.equal(new URL(requests[1],'http://localhost').searchParams.get('surface'),'search');
- assert.equal(shell.state.completion.suggestions.length,14);
+test('source grouping preserves ranked matches and browse semantics with linear work',()=>{
+ const objects=[
+  {id:'summary',path:'Z.csv',objectType:'DATASET'},
+  {id:'value',path:'Z.csv',objectType:'DATASET_VALUE',ranking:{reason:'Recent'}},
+  {id:'row',path:'Z.csv',objectType:'DATASET_ROW'},
+  {id:'other',path:'A.csv',objectType:'DATASET_ROW'},
+ ];
+ const browse=groupSourceObjects(objects);
+ assert.deepEqual([...browse.keys()],['Z.csv','A.csv']);
+ assert.deepEqual(browse.get('Z.csv').items.map(item=>item.id),['value']);
+ assert.equal(browse.get('Z.csv').reason,'Recent');
+ assert.deepEqual(groupSourceObjects(objects,'metadata query').get('Z.csv').items.map(item=>item.id),['summary','value','row'],'search retains all server matches');
+ let pathReads=0;
+ const large=Array.from({length:10000},(_,index)=>({id:String(index),objectType:'PASSAGE',get path(){pathReads+=1;return `source-${index%5000}.md`;}}));
+ assert.equal(groupSourceObjects(large).size,5000);
+ assert.ok(pathReads<=40000,`grouping should touch paths a bounded number of times, got ${pathReads}`);
 });
 
-test('an older automatic terminal response cannot replace explicit results or reopen dismissal',async t=>{
- const {input,listeners}=workbenchHarness(t);
- input.closest=()=>({classList:{toggle(){}}});input.value='trace supplies';
+test('workspace source grouping keeps identical paths and dataset summaries in separate directories',()=>{
+ const objects=[
+  {id:'value',projectId:'one',path:'Data.csv',objectType:'DATASET_VALUE'},
+  {id:'summary',projectId:'one',path:'Data.csv',objectType:'DATASET'},
+  {id:'other-summary',projectId:'two',path:'Data.csv',objectType:'DATASET'},
+ ];
+ const groups=[...groupSourceObjects(objects).values()];
+ assert.equal(groups.length,2);
+ assert.deepEqual(groups.map(group=>group.projectId),['one','two']);
+ assert.deepEqual(groups.map(group=>group.items.map(object=>object.id)),[['value'],['other-summary']]);
+});
+
+test('workspace browsing routes source actions to their owner and document navigation to the destination',async t=>{
+ const plan={edits:[{documentPath:'Draft.md',dependencyId:'link-two',projectId:'project-two',action:'MANUAL',spanText:'Supplies cost 400.'}]};
+ const h=workbenchHarness(t,{workspace:true,plan});
+ h.libraryObjects.splice(0,h.libraryObjects.length,
+  {id:'one',projectId:'project-one',projectName:'Research',path:'Data.csv',label:'Travel',objectType:'DATASET_VALUE',snapshotId:'snapshot-one'},
+  {id:'two',projectId:'project-two',projectName:'Finance',path:'Data.csv',label:'Supplies',objectType:'DATASET_VALUE',snapshotId:'snapshot-two'});
+ await h.workbench.refresh();
+ assert.equal(h.host.querySelectorAll('[data-file]').length,2,'same relative path remains independently selectable');
+ assert.match(h.host.innerHTML,/Research/);assert.match(h.host.innerHTML,/Finance/);
+ const libraryRequest=h.requests.find(request=>request.url.includes('/source-library'));
+ assert.ok(libraryRequest.url.startsWith('/api/workspace/source-library?'));
+ assert.equal(new URL(libraryRequest.url,'http://localhost').searchParams.get('documentProjectId'),'project-one');
+ assert.ok(h.requests.some(request=>request.url==='/api/workspace/terminal/session'));
+ h.host.querySelectorAll('[data-file]')[1].click();
+ await h.host.querySelector('[data-object]').click();
+ const previewRequest=h.requests.find(request=>request.url.endsWith('/terminal/preview'));
+ const previewBody=JSON.parse(previewRequest.args.body);
+ assert.equal(previewBody.projectId,'project-two');assert.equal(previewBody.ref.projectId,'project-two');
+ assert.ok(h.requests.some(request=>request.url==='/api/workspace/source-review/two'));
+ await h.host.querySelector('[data-copy]').click();
+ assert.equal(h.usage[0][0].projectId,'project-two');assert.equal(h.usage[0][2].projectId,'project-two');
+ h.host.querySelector('[data-open]').click();
+ assert.equal(h.opened[0][0].snapshotId,'snapshot-two');assert.equal(h.opened[0][1].projectId,'project-two');
+ h.host.querySelector('[data-document]').click();
+ assert.deepEqual(h.documentsOpened[0],['Draft.md',{dependencyId:'link-two',projectId:'project-two'}]);
+});
+
+test('search reuses session counters until the project snapshot changes',async t=>{
+ const h=workbenchHarness(t);
+ await h.workbench.refresh();
+ await h.workbench.refresh({refreshSession:false});
+ assert.equal(h.requests.filter(request=>request.url.endsWith('/terminal/session')).length,1);
+ h.setVersion('snapshot-two');
+ await h.workbench.refresh({refreshSession:false});
+ assert.equal(h.requests.filter(request=>request.url.endsWith('/terminal/session')).length,2);
+});
+
+test('source pagination keeps every ranked file and every indexed item reachable',async t=>{
+ const {workbench,host,fileList,libraryObjects}=workbenchHarness(t);
+ libraryObjects.splice(0,libraryObjects.length,...Array.from({length:205},(_,index)=>({id:`file-${index}`,path:`Source-${index}.md`,label:`Evidence ${index}`,objectType:'PASSAGE'})));
+ await workbench.refresh();
+ assert.equal(host.querySelectorAll('[data-file]').length,100);
+ assert.equal(host.querySelectorAll('[data-file]')[0].dataset.file,'Source-0.md');
+ host.querySelectorAll('[data-file]').at(-1).focus();
+ fileList.handlers.get('keydown')({key:'ArrowDown',preventDefault(){}});
+ assert.equal(host.querySelectorAll('[data-file]')[0].dataset.file,'Source-100.md','arrow navigation crosses page boundaries');
+ fileList.handlers.get('keydown')({key:'ArrowUp',preventDefault(){}});
+ assert.equal(host.querySelectorAll('[data-file]')[0].dataset.file,'Source-0.md');
+ host.querySelectorAll('[data-file-page]').find(button=>button.dataset.filePage==='1').click();
+ assert.equal(host.querySelectorAll('[data-file]')[0].dataset.file,'Source-100.md');
+ host.querySelectorAll('[data-file-page]').find(button=>button.dataset.filePage==='2').click();
+ assert.equal(host.querySelectorAll('[data-file]').length,5);
+ assert.equal(host.querySelectorAll('[data-file]').at(-1).dataset.file,'Source-204.md');
+ host.querySelectorAll('[data-file]').at(-1).click();
+ await workbench.refresh();
+ assert.match(host.innerHTML,/class="wb-file selected" data-file="Source-204.md"/,'refresh keeps the selected file and its page');
+ libraryObjects.splice(0,libraryObjects.length,...Array.from({length:850},(_,index)=>({id:`item-${index}`,path:'Table.csv',label:`Value ${index}`,objectType:'DATASET_VALUE'})));
+ await workbench.refresh();
+ assert.equal(host.querySelectorAll('[data-object]').length,400);
+ host.querySelector('[data-more-items]').click();
+ assert.equal(host.querySelectorAll('[data-object]').length,800);
+ host.querySelector('[data-more-items]').click();
+ assert.equal(host.querySelectorAll('[data-object]').length,850);
+ assert.equal(host.querySelector('[data-more-items]'),null);
+});
+
+test('reset cancels library and source detail requests without applying old results',async t=>{
  const pending=[];
- const shell=createDependencyShell({input,getProjectId:()=> 'project-one',api:()=>new Promise(resolve=>pending.push(resolve))});
- listeners.get('input')();
- listeners.get('keydown')({key:'Tab',preventDefault(){}});
- const body={completion:{fragment:'supplies',suggestions:Array.from({length:14},(_,index)=>({value:`source-${index}`}))}};
- pending[1](body);await new Promise(resolve=>setImmediate(resolve));
- pending[0](body);await new Promise(resolve=>setImmediate(resolve));
- assert.equal(shell.state.completion.suggestions.length,14);
- listeners.get('input')();
- shell.reset();pending[2](body);await new Promise(resolve=>setImmediate(resolve));
- assert.equal(shell.state.completion,null);
+ const harness=workbenchHarness(t,{api:async(url,args)=>{
+  if(url.endsWith('/terminal/session'))return {session:{files:1}};
+  if(url.includes('/source-library'))return {objects:[{id:'one',path:'Source.md',label:'Source',objectType:'PASSAGE'}]};
+  return new Promise(resolve=>pending.push({url,signal:args.signal,resolve}));
+ }});
+ await harness.workbench.refresh();
+ const selecting=harness.host.querySelector('[data-object]').click();
+ assert.equal(pending.length,2);
+ harness.workbench.reset();harness.workbench.mount();
+ assert.ok(pending.every(request=>request.signal.aborted));
+ const resetHTML=harness.host.innerHTML;
+ pending.find(request=>request.url.endsWith('/terminal/preview')).resolve({preview:{kind:'text',lines:[{lineNumber:1,text:'Old preview'}]}});
+ pending.find(request=>request.url.includes('/source-review/')).resolve({plan:{edits:[]}});
+ await selecting;
+ assert.equal(harness.host.innerHTML,resetHTML);
+});
+
+test('selecting a report without a source cancels the previous source inspection',async t=>{
+ const pending=[];
+ const h=workbenchHarness(t,{api:async(url,args)=>{
+  if(url.includes('/source-library'))return {objects:[]};
+  if(url.endsWith('/terminal/session'))return {session:{files:1}};
+  if(url.endsWith('/terminal'))return {result:{headline:'Source changes',results:[
+   {title:'Previous source',ref:{objectId:'old',path:'Old.csv'}},
+   {title:'Indexing failure',lines:['Retry this file'],ref:{kind:'indexFailure',path:'Current.csv',retryable:true}},
+  ]}};
+  return new Promise(resolve=>pending.push({url,signal:args.signal,resolve}));
+ }});
+ await h.workbench.run('changes');
+ const inspecting=h.host.querySelectorAll('[data-report]')[0].click();
+ await h.host.querySelectorAll('[data-report]')[1].click();
+ assert.ok(pending.every(request=>request.signal.aborted),'a new report selection cancels source detail work');
+ const selectedHTML=h.host.innerHTML;
+ pending.find(request=>request.url.endsWith('/terminal/preview')).resolve({preview:{kind:'text',lines:[{lineNumber:1,text:'Obsolete evidence'}]}});
+ pending.find(request=>request.url.includes('/source-review/')).resolve({plan:{edits:[]}});
+ await inspecting;
+ assert.equal(h.host.innerHTML,selectedHTML,'old evidence must not be attached to the new report');
+ assert.match(selectedHTML,/Retry this file/);
+});
+
+test('an old command failure cannot replace the current report',async t=>{
+ let rejectPrevious;
+ const h=workbenchHarness(t,{api:async(url,args)=>{
+  if(url.includes('/source-library'))return {objects:[]};
+  if(url.endsWith('/terminal/session'))return {session:{files:1}};
+  if(JSON.parse(args.body).input==='trace previous')return new Promise((resolve,reject)=>{rejectPrevious=reject;});
+  return {result:{headline:'Current source changes',results:[]}};
+ }});
+ const previous=h.workbench.run('trace previous');
+ await h.workbench.run('changes');
+ const currentHTML=h.host.innerHTML;
+ rejectPrevious(new Error('Obsolete command failure'));
+ await previous;
+ assert.equal(h.host.innerHTML,currentHTML);
+ assert.doesNotMatch(h.host.innerHTML,/Obsolete command failure/);
 });

@@ -147,12 +147,16 @@ export class RfiService {
       const key = `${node.snapshotId}|${node.path}|${JSON.stringify(node.anchor ?? null)}`;
       if (visited.has(key) || node.depth > 8) continue;
       visited.add(key);
+      // A recorded dependency may cross work-directory boundaries. Follow
+      // subsequent provenance in the immutable snapshot's owning project.
+      const owner = this.db.prepare('SELECT project_id FROM snapshots WHERE id = ?').get(node.snapshotId);
+      const ownerId = owner?.project_id ?? projectId;
       const rows = this.db.prepare(`
         SELECT p.*, s.version AS to_version
         FROM provenance_links p LEFT JOIN snapshots s ON s.id = p.to_snapshot_id
         WHERE p.project_id = ? AND p.from_snapshot_id = ? AND p.from_path = ?
         ORDER BY p.created_at
-      `).all(projectId, node.snapshotId, node.path);
+      `).all(ownerId, node.snapshotId, node.path);
       for (const row of rows) {
         const fromAnchor = json(row.from_anchor_json, null);
         if (!anchorsCompatible(node.anchor, fromAnchor)) continue;

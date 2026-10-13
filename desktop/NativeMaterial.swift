@@ -5,23 +5,6 @@
 import Cocoa
 
 enum NativeMaterial {
-    static func materialContainer(
-        content: NSView,
-        material: NSVisualEffectView.Material,
-        blendingMode: NSVisualEffectView.BlendingMode = .behindWindow,
-        cornerRadius: CGFloat = 0
-    ) -> NSView {
-        let effect = NSVisualEffectView(frame: content.frame)
-        effect.material = material
-        effect.blendingMode = blendingMode
-        effect.state = .followsWindowActiveState
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = cornerRadius
-        effect.layer?.masksToBounds = cornerRadius > 0
-        embed(content, in: effect)
-        return effect
-    }
-
     static func glassContainer(
         content: NSView,
         cornerRadius: CGFloat,

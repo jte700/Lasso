@@ -8,7 +8,7 @@ No prediction can exist unless it resolves to a real versioned project object. S
 
 ## Editor workflow
 
-Tracked Markdown files appear under **Manuscript**. The reference editor renders structural Markdown blocks—heading, paragraph, list, and code—inside a paper-like surface. Saving creates a normal `DOCUMENT_CHANGE` snapshot and deterministic Markdown diff.
+The writing list shows tracked documents for the selected directory. The editor renders structural text blocks inside a paper-like surface. Markdown and text saves update their tracked files; DOCX and PDF edits use a versioned text layer while preserving the binary original. Saves enter the normal document history path.
 
 After a short 140 ms cancellable quiet window, a block is checked for a predictive dependency. Sentence-level language from Markdown, text, DOCX, locally extractable PDF content/metadata, and reference records is matched to the text at the caret. Common scientific equivalents such as results/findings, showed/indicated, and increased/elevated are normalized so a continuation does not require literal word-for-word overlap. If a matching sentence and canonical source object are both available, the continuation appears as grey inline text beside a compact source card. `Tab` completes the sentence and links the completed claim to that source in one editor action. A continuation with no linkable project object is discarded.
 
@@ -112,7 +112,7 @@ The relationship stores the accepting actor separately from the actor responsibl
 
 A manuscript anchor contains document version context, Markdown block index/type, span start/end, bounded prefix/suffix, and a normalized block fingerprint. Offsets are only local coordinates inside a structural block.
 
-After a document capture, migration first resolves the exact claim within its prior block. It then searches all blocks and migrates only when the text has one unambiguous location. Missing or ambiguous spans become `NEEDS_REVIEW`; they are never attached to unrelated text.
+After a document capture, migration first resolves the exact claim within its prior block. It then searches all blocks and migrates only when the text has one unambiguous location. Deleted or ambiguous claims are retired with their version history preserved. Retyping the same words does not restore a retired link; linking again is explicit. A missing document keeps its reference under review.
 
 ## Upstream changes
 

@@ -1,10 +1,20 @@
-//  Pure-logic tests for dependency anchoring and geometry.
+//  Native regression tests for insertion, dependency anchoring, and geometry.
 //  Built and run by `npm run desktop:test` — no framework, no dependencies.
 
 import Cocoa
 
 var failures = 0
 var checks = 0
+
+final class MemoryDirectoryDefaults: UserDefaults {
+    var values: [String: Any] = [:]
+    override func dictionary(forKey defaultName: String) -> [String: Any]? {
+        values[defaultName] as? [String: Any]
+    }
+    override func set(_ value: Any?, forKey defaultName: String) {
+        values[defaultName] = value
+    }
+}
 
 func check(_ condition: Bool, _ what: String) {
     checks += 1
@@ -57,6 +67,77 @@ func accept(_ before: String, insert: String, caret: Int? = nil)
     case .success(let range): return (string(after), range, nil)
     case .failure(let failure): return (string(after), nil, failure)
     }
+}
+
+print("sharing preserves clipboard changes")
+do {
+    let pasteboard = NSPasteboard.withUniqueName()
+    defer { pasteboard.releaseGlobally() }
+    func copy(_ text: String) {
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+    func finishPaste() { RunLoop.current.run(until: Date().addingTimeInterval(0.7)) }
+    copy("Original clipboard")
+    RichTextInserter.withBorrowedPasteboard(pasteboard) { copy("First link") }
+    finishPaste()
+    check(pasteboard.string(forType: .string) == "Original clipboard",
+          "sharing restores the original clipboard after the paste")
+    RichTextInserter.withBorrowedPasteboard(pasteboard) { copy("Second link") }
+    copy("Newly copied text")
+    finishPaste()
+    check(pasteboard.string(forType: .string) == "Newly copied text",
+          "a copy made during sharing is never overwritten")
+    RichTextInserter.withBorrowedPasteboard(pasteboard) { copy("Third link") }
+    RichTextInserter.withBorrowedPasteboard(pasteboard) { copy("Fourth link") }
+    finishPaste()
+    check(pasteboard.string(forType: .string) == "Newly copied text",
+          "consecutive shares restore the user's original clipboard")
+}
+
+print("suggestion activation across permission changes")
+do {
+    var activation = AssistActivation(requested: false)
+    activation.setRequested(true)
+    check(activation.shouldAttempt(serverReady: true, accessibility: false,
+                                   inputMonitoring: false, running: false,
+                                   userInitiated: true),
+          "first enable requests the missing permission")
+    check(activation.requested, "missing permission keeps the user's enable choice")
+    check(!activation.shouldAttempt(serverReady: true, accessibility: false,
+                                    inputMonitoring: false, running: false),
+          "waiting for Accessibility does not repeat permission requests")
+    check(activation.shouldAttempt(serverReady: true, accessibility: true,
+                                   inputMonitoring: false, running: false),
+          "granting Accessibility resumes suggestions automatically")
+    check(!activation.shouldAttempt(serverReady: true, accessibility: true,
+                                    inputMonitoring: false, running: false),
+          "failed tap creation does not retry on every timer tick")
+    check(activation.shouldAttempt(serverReady: true, accessibility: true,
+                                   inputMonitoring: true, running: false),
+          "granting Input Monitoring retries the pending activation")
+    check(!activation.shouldAttempt(serverReady: true, accessibility: true,
+                                    inputMonitoring: true, running: true),
+          "active suggestions do not create another keyboard tap")
+    activation.setRequested(false)
+    check(!activation.shouldAttempt(serverReady: true, accessibility: true,
+                                    inputMonitoring: true, running: false),
+          "turning suggestions off prevents later automatic activation")
+    activation.setRequested(true)
+    check(!activation.shouldAttempt(serverReady: false, accessibility: true,
+                                    inputMonitoring: true, running: false),
+          "pending activation waits for its server")
+    check(activation.shouldAttempt(serverReady: true, accessibility: true,
+                                   inputMonitoring: true, running: false),
+          "server recovery resumes the requested activation")
+    var restored = AssistActivation(requested: true)
+    check(restored.shouldAttempt(serverReady: true, accessibility: true,
+                                 inputMonitoring: true, running: false),
+          "a remembered enable choice resumes after app restart")
+    check(restored.shouldAttempt(serverReady: true, accessibility: true,
+                                 inputMonitoring: true, running: false,
+                                 userInitiated: true),
+          "explicit retry works after an unsuccessful automatic attempt")
 }
 
 print("canonical source identity")
@@ -477,6 +558,103 @@ do {
     }
 }
 
+print("highlights remain attached across newlines and caret movement")
+do {
+    let font = NSFont.systemFont(ofSize: 14)
+    let base = "forecast for facilities was 48000."
+    let prefix = "forecast for facilities was "
+    let start = prefix.utf16.count
+    let target = start..<(start + 5)
+    let frame = CGRect(x: 100, y: 300, width: 500, height: 300)
+    let adapter = AccessibilityTextAdapter()
+    func width(_ value: String) -> CGFloat {
+        NSAttributedString(string: value, attributes: [.font: font]).size().width
+    }
+    func measure(_ value: String, range: Range<Int>, caret: Int, x: CGFloat, y: CGFloat,
+                 style: NSParagraphStyle? = nil) -> [CGRect] {
+        var attributes: [NSAttributedString.Key: Any] = [.font: font]
+        if let style { attributes[.paragraphStyle] = style }
+        return adapter.layoutRects(
+            attributedText: NSAttributedString(string: value, attributes: attributes),
+            range: range, elementFrame: frame, caret: caret,
+            actualCaret: CGRect(x: frame.minX + 5 + x, y: frame.minY + 2 + y, width: 1, height: 17))
+    }
+    func same(_ left: [CGRect], _ right: [CGRect]) -> Bool {
+        left.count == right.count && zip(left, right).allSatisfy {
+            abs($0.minX - $1.minX) < 0.1 && abs($0.minY - $1.minY) < 0.1
+                && abs($0.width - $1.width) < 0.1 && abs($0.height - $1.height) < 0.1
+        }
+    }
+    let original = measure(base, range: target, caret: base.utf16.count, x: width(base), y: 0)
+    check(original.count == 1, "measures the accepted 48000 value on its text line")
+    for (ending, lines, name) in [("\n", 1, "LF"), ("\n\n", 2, "blank paragraph"),
+                                 ("\r\n", 1, "CRLF"), ("\u{2028}", 1, "line separator"),
+                                 ("\u{2029}", 1, "paragraph separator")] {
+        let value = base + ending
+        let measured = measure(value, range: target, caret: value.utf16.count,
+                               x: 0, y: CGFloat(lines) * 17)
+        check(!measured.isEmpty && same(original, measured),
+              "adding \(name) does not move the earlier highlight")
+    }
+    let ending = "All the best."
+    let paragraphs = base + "\n\n" + ending
+    for (caret, x, y) in [(0, CGFloat(0), CGFloat(0)),
+                          (base.utf16.count + 1, 0, 17),
+                          (base.utf16.count + 2, 0, 34),
+                          (paragraphs.utf16.count, width(ending), 34)] {
+        let measured = measure(paragraphs, range: target, caret: caret, x: x, y: y)
+        check(!measured.isEmpty && same(original, measured),
+              "moving the caret to offset \(caret) preserves the earlier highlight")
+    }
+    let blankLines = base + "\n\n"
+    let all = measure(blankLines, range: 0..<blankLines.utf16.count,
+                      caret: blankLines.utf16.count, x: 0, y: 34)
+    check(all.count == 1 && (all.first?.width ?? frame.width) < frame.width * 0.75,
+          "a range containing newlines draws text without container-wide blue strips")
+    check(measure(blankLines, range: base.utf16.count..<blankLines.utf16.count,
+                  caret: blankLines.utf16.count, x: 0, y: 34).isEmpty,
+          "blank paragraphs alone have no highlight geometry")
+
+    let style = NSMutableParagraphStyle()
+    style.firstLineHeadIndent = 24
+    style.paragraphSpacingBefore = 4
+    style.lineSpacing = 3
+    let styledOriginal = measure(base, range: target, caret: base.utf16.count,
+                                  x: 24 + width(base), y: 0, style: style)
+    let styledNewline = measure(base + "\n", range: target, caret: base.utf16.count + 1,
+                                 x: 24, y: 24, style: style)
+    check(!styledNewline.isEmpty && same(styledOriginal, styledNewline),
+          "new paragraph caret retains indentation and paragraph spacing")
+}
+
+print("browser geometry respects line breaks and font metadata")
+do {
+    let units = Array("\na\r\nb\u{2028}c\u{2029}".utf16)
+    check(WebTextReader.visibleGeometryRanges(forRange: 0..<units.count, inUTF16: units)
+          == [1..<2, 4..<5, 6..<7], "browser ranges exclude every hard line break without shifting offsets")
+    let emoji = Array("48000\n🙂".utf16)
+    check(WebTextReader.visibleGeometryRanges(forRange: 0..<emoji.count, inUTF16: emoji)
+          == [0..<5, 6..<8], "browser range splitting preserves UTF-16 offsets for emoji")
+    check(WebTextReader.visibleGeometryRanges(forRange: -1..<2, inUTF16: units).isEmpty,
+          "invalid negative browser offsets are refused")
+    check(WebTextReader.visibleGeometryRanges(forRange: 0..<(units.count + 1), inUTF16: units).isEmpty,
+          "browser offsets outside the text snapshot are refused")
+
+    let value = "Forecast 48000"
+    let font = NSFont.systemFont(ofSize: 32)
+    let attributes: [NSAttributedString.Key: Any] = [
+        NSAttributedString.Key("AXFont"): ["AXFontSize": 32],
+    ]
+    let expected = NSAttributedString(string: value, attributes: [.font: font])
+    let rects = AccessibilityTextAdapter().layoutRects(
+        attributedText: NSAttributedString(string: value, attributes: attributes),
+        range: 9..<value.utf16.count, elementFrame: CGRect(x: 100, y: 300, width: 900, height: 100),
+        caret: value.utf16.count, actualCaret: CGRect(x: 105 + expected.size().width, y: 302, width: 1, height: 39))
+    let expectedWidth = NSAttributedString(string: "48000", attributes: [.font: font]).size().width
+    check(rects.count == 1 && abs((rects.first?.width ?? 0) - expectedWidth) < 1.5,
+          "Chromium AXFont size is used instead of a guessed capped font")
+}
+
 print("multi-line fragments")
 do {
     // A wrapped phrase is several rectangles that must group into one hit target.
@@ -490,6 +668,32 @@ do {
     check(hit.contains(CGPoint(x: 50, y: 130)), "hits the second line")
     check(!hit.contains(CGPoint(x: 400, y: 108)), "misses outside every fragment")
     check(hit.bounds.height >= 40, "bounds span both lines")
+
+    let first = CGRect(x: 10, y: 100, width: 8, height: 18)
+    let last = CGRect(x: 130, y: 100, width: 8, height: 18)
+    check(HostGeometryConverter.isSingleLine(
+        whole: first.union(last), first: first, last: last),
+          "single-line geometry can skip per-character Accessibility reads")
+    check(!HostGeometryConverter.isSingleLine(
+        whole: hit.bounds, first: first,
+        last: CGRect(x: 80, y: 122, width: 8, height: 18)),
+          "wrapped endpoints still require line fragments")
+    check(!HostGeometryConverter.isSingleLine(
+        whole: CGRect(x: 10, y: 100, width: 128, height: 60), first: first, last: last),
+          "matching endpoints do not hide multiline or column-spanning bounds")
+    check(!HostGeometryConverter.isSingleLine(whole: .zero, first: first, last: last),
+          "invalid host geometry never takes the single-line shortcut")
+
+    let paragraph = NSAttributedString(
+        string: "Office supplies and travel costs are shared across the entire department.",
+        attributes: [.font: NSFont.systemFont(ofSize: 14)])
+    let wrapped = AccessibilityTextAdapter().layoutRects(
+        attributedText: paragraph, range: 0..<paragraph.length,
+        elementFrame: CGRect(x: 50, y: 100, width: 150, height: 300),
+        caret: 0, actualCaret: CGRect(x: 54, y: 104, width: 1, height: 18))
+    check(wrapped.count >= 3, "shared TextKit preparation preserves every wrapped line")
+    check(Set(wrapped.map(\.minY)).count == wrapped.count,
+          "wrapped fallback fragments retain their separate vertical positions")
 }
 
 print("reference store")
@@ -497,7 +701,7 @@ do {
     let url = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("lasso-refs-\(UUID().uuidString).json")
     let store = DependencyReferenceStore(url: url)
-    let reference = DependencyReference(
+    var reference = DependencyReference(
         id: "ref_1", objectId: "obj_1", versionId: "v1",
         hostBundleIdentifier: "com.google.Chrome", hostApplication: "Google Chrome",
         documentContext: "compose-1",
@@ -507,9 +711,14 @@ do {
         sourcePath: "Income-Statement.xlsx", sourceLocation: "Accounting!B21",
         sourceColorSlot: 2,
         createdAt: Date(), updatedAt: Date())
+    reference.projectId = "directory-finance"
 
     store.add(reference)
     check(store.references.count == 1, "stores a reference")
+    check(store.hasReferences(bundleIdentifier: "com.google.Chrome"),
+          "enables host observation only for applications with references")
+    check(!store.hasReferences(bundleIdentifier: "com.apple.Safari"),
+          "unrelated applications require no background Accessibility polling")
     check(store.references(forContext: "compose-1", bundleIdentifier: "com.google.Chrome").count == 1,
           "finds it by host document")
     check(store.references(forContext: "compose-2", bundleIdentifier: "com.google.Chrome").isEmpty,
@@ -521,18 +730,91 @@ do {
     check(reloaded.references.count == 1, "survives a restart")
     check(reloaded.reference(id: "ref_1")?.sourceColorSlot == 2,
           "persists the source color identity")
+    check(reloaded.reference(id: "ref_1")?.projectId == "directory-finance",
+          "persists the source's owning directory across restart")
+    var legacy = try! JSONSerialization.jsonObject(with: JSONEncoder().encode(reference)) as! [String: Any]
+    legacy.removeValue(forKey: "projectId")
+    let oldReference = try! JSONDecoder().decode(DependencyReference.self,
+        from: JSONSerialization.data(withJSONObject: legacy))
+    check(oldReference.projectId == nil && oldReference.sourceColorSlot == 2,
+          "legacy references without an owner still decode with their old color")
+    check(reloaded.hasReferences(bundleIdentifier: "com.google.Chrome"),
+          "restores host observation eligibility after restart")
 
     store.update(id: "ref_1") { $0.state = .changed }
     check(store.reference(id: "ref_1")?.state == .changed, "records a state change")
 
+    store.update(id: "ref_1") { $0.state = .unresolved }
+    let unresolvedRevision = store.revision
+    let unresolvedTimestamp = store.reference(id: "ref_1")?.updatedAt
+    let unresolvedData = try? Data(contentsOf: url)
+    for _ in 0..<100 { store.update(id: "ref_1") { $0.state = .unresolved } }
+    check(store.revision == unresolvedRevision, "repeated ambiguous refreshes do not mutate the store")
+    check(store.reference(id: "ref_1")?.updatedAt == unresolvedTimestamp,
+          "an unchanged unresolved state retains its timestamp")
+    check((try? Data(contentsOf: url)) == unresolvedData,
+          "an idle ambiguous reference does not rewrite persisted content")
+    store.batchUpdates {
+        store.update(id: "ref_1") { $0.state = .healthy }
+        store.update(id: "ref_1") { $0.sourceColorSlot = 3 }
+        check((try? Data(contentsOf: url)) == unresolvedData,
+              "multiple changes defer persistence until the refresh is complete")
+    }
+    let batchReload = DependencyReferenceStore(url: url)
+    check(batchReload.reference(id: "ref_1")?.state == .healthy
+          && batchReload.reference(id: "ref_1")?.sourceColorSlot == 3,
+          "batched updates persist the complete final reference")
+
+    let cache = TextAnchorResolutionCache()
+    let original = "The cost of office supplies is 400."
+    let firstMatch = cache.resolve([reference], in: original)[reference.id]
+    check(firstMatch == .resolved(12..<27), "anchor cache resolves the original document")
+    let shifted = "Today: " + original
+    check(cache.resolve([reference], in: shifted)[reference.id] == .resolved(19..<34),
+          "editing a document invalidates cached offsets")
+    var renamed = reference
+    renamed.anchor = anchor(for: "cost", in: shifted)
+    check(cache.resolve([renamed], in: shifted)[reference.id] == .resolved(11..<15),
+          "changing an anchor invalidates a cache with unchanged document text")
+    check(cache.resolve([], in: shifted).isEmpty, "unlinking removes cached matches")
+    cache.clear()
+    check(cache.resolve([reference], in: original)[reference.id] == firstMatch,
+          "a new host snapshot resolves correctly after clearing cached text")
+
     store.remove(id: "ref_1")
     check(store.references.isEmpty, "removes on unlink")
+    check(!store.hasReferences(bundleIdentifier: "com.google.Chrome"),
+          "unlinking the last reference stops polling that host")
     check(DependencyReferenceStore(url: url).references.isEmpty, "removal persists")
     try? FileManager.default.removeItem(at: url)
 }
 
 print("claim-aware suggestion semantics")
 do {
+    let journalProfile = "journal id; inferred categorical variable; examples JE-0901, JE-0902, JE-0903, JE-0904, JE-0905, JE-0906"
+    check(AssistSuggestionSemantics.insertionText(
+        claimType: "STUDY_VARIABLE", label: "Journal ID", value: journalProfile,
+        completionText: "journal_id") == "journal_id",
+          "Tab inserts the explicit field name instead of its inferred profile and examples")
+    check(AssistSuggestionSemantics.insertionText(
+        claimType: "STUDY_VARIABLE", label: "Journal ID", value: journalProfile) == "Journal ID",
+          "legacy variable candidates fall back to their name without inserting preview metadata")
+    check(AssistSuggestionSemantics.insertionText(
+        claimType: "STUDY_VARIABLE", label: "Journal ID", value: journalProfile,
+        completionText: " \n ") == "Journal ID",
+          "blank variable completions fall back to the name")
+    check(AssistSuggestionSemantics.insertionText(
+        claimType: "STUDY_VARIABLE", label: "", value: journalProfile,
+        completionText: "") == "",
+          "a malformed nameless variable is skipped rather than inserting its profile")
+    check(AssistSuggestionSemantics.insertionText(
+        claimType: "STUDY_VARIABLE", label: "Revenue", value: "Total sales before deductions.",
+        completionText: "revenue") == "revenue",
+          "data dictionary definitions remain preview details when accepting a variable name")
+    check(AssistSuggestionSemantics.insertionText(
+        claimType: "QUANTITATIVE", label: "October forecast CAD", value: "190000",
+        completionText: "october_forecast_cad") == "190000",
+          "numeric claims still insert the value when a field completion is also present")
     check(AssistSuggestionSemantics.insertionText(
         claimType: "ENTITY", label: "Bad Debts/Losses and Thefts", value: "25") ==
           "Bad Debts/Losses and Thefts",
@@ -540,6 +822,91 @@ do {
     check(AssistSuggestionSemantics.insertionText(
         claimType: "QUANTITATIVE", label: "Bad Debts/Losses and Thefts · Current Period", value: "25") == "25",
           "a quantitative claim still inserts the source-backed value")
+}
+
+print("native workspace requests and errors")
+do {
+    let bodies = [WorkspaceAPI.addDirectoriesBody(["/tmp/Work"]),
+                  WorkspaceAPI.toggleDirectoryBody(active: true),
+                  WorkspaceAPI.toggleDirectoryBody(active: false)]
+    for body in bodies {
+        let data = try! JSONSerialization.data(withJSONObject: body)
+        let decoded = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let actor = decoded["actor"] as? [String: String]
+        check(actor?["displayName"] == "Desktop" && actor?["actorType"] == "HUMAN_SELF"
+              && actor?["id"] == "human:desktop",
+              "directory actions send a valid human actor through JSON")
+    }
+    let url = URL(string: "http://127.0.0.1:4319/api/workspace")!
+    let badRequest = HTTPURLResponse(url: url, statusCode: 400, httpVersion: nil, headerFields: nil)!
+    let nested = Data(#"{"error":{"message":"Actor displayName is required."}}"#.utf8)
+    check(WorkspaceAPI.errorMessage(data: nested, response: badRequest, error: nil)
+          == "Actor displayName is required.", "the actual API error is shown")
+    let legacy = Data(#"{"error":"Directory unavailable."}"#.utf8)
+    check(WorkspaceAPI.errorMessage(data: legacy, response: badRequest, error: nil)
+          == "Directory unavailable.", "plain-string server errors are still shown")
+    check(WorkspaceAPI.errorMessage(data: Data("not JSON".utf8), response: badRequest, error: nil)
+          == "The directory request failed (HTTP 400).", "invalid error bodies retain the HTTP status")
+    let transport = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost,
+                            userInfo: [NSLocalizedDescriptionKey: "Cannot connect to Lasso."])
+    check(WorkspaceAPI.errorMessage(data: nil, response: nil, error: transport)
+          == "Cannot connect to Lasso.", "connection failures retain their explanation")
+}
+
+print("directory colors follow accepted source references")
+do {
+    let defaults = MemoryDirectoryDefaults(suiteName: nil)!
+    check(DirectoryColorPreferences.color(for: "finance", defaults: defaults) == .blue,
+          "an uncustomized directory matches the menu's default blue")
+    check(DirectoryColorPreferences.color(for: nil, defaults: defaults) == nil,
+          "an unresolved legacy owner retains its file-color fallback")
+    DirectoryColorPreferences.set(.orange, for: "finance", defaults: defaults)
+    DirectoryColorPreferences.set(.green, for: "research", defaults: defaults)
+
+    func reference(_ id: String, owner: String, path: String, slot: Int) -> DependencyReference {
+        var result = DependencyReference(
+            id: id, objectId: "object-" + id, versionId: "v1",
+            hostBundleIdentifier: "com.google.Chrome", hostApplication: "Google Chrome",
+            documentContext: "draft", anchor: anchor(for: "120", in: "Supplies were 120."),
+            state: .healthy, label: "Supplies", valueText: "120",
+            sourcePath: path, sourceLocation: "B2", sourceColorSlot: slot,
+            createdAt: Date(), updatedAt: Date())
+        result.projectId = owner
+        return result
+    }
+    func matches(_ left: NSColor, _ right: NSColor) -> Bool {
+        let a = left.usingColorSpace(.sRGB)!, b = right.usingColorSpace(.sRGB)!
+        return abs(a.redComponent - b.redComponent) < 0.00001
+            && abs(a.greenComponent - b.greenComponent) < 0.00001
+            && abs(a.blueComponent - b.blueComponent) < 0.00001
+    }
+    func stroke(_ reference: DependencyReference) -> NSColor {
+        DependencyStyle.stroke(for: reference.state, sourceSlot: reference.sourceColorSlot ?? 0,
+            directoryColor: DirectoryColorPreferences.color(for: reference.projectId, defaults: defaults), hovered: true)
+    }
+    let first = reference("first", owner: "finance", path: "Budget.xlsx", slot: 1)
+    let second = reference("second", owner: "finance", path: "Expenses.csv", slot: 6)
+    let duplicate = reference("duplicate", owner: "research", path: "Budget.xlsx", slot: 1)
+    check(matches(stroke(first), DirectoryToggleColor.orange.color)
+          && matches(stroke(second), DirectoryToggleColor.orange.color),
+          "different files inside a directory use its selected color")
+    check(matches(stroke(duplicate), DirectoryToggleColor.green.color),
+          "identical file paths in different directories keep their owner's color")
+    DirectoryColorPreferences.set(.orange, for: "research", defaults: defaults)
+    check(matches(stroke(first), stroke(duplicate)),
+          "intentionally matching directory colors are not reassigned")
+    DirectoryColorPreferences.set(.purple, for: "finance", defaults: defaults)
+    check(matches(stroke(first), DirectoryToggleColor.purple.color)
+          && matches(stroke(second), DirectoryToggleColor.purple.color),
+          "changing a directory recolors references already accepted with Tab")
+    let reloaded = MemoryDirectoryDefaults(suiteName: nil)!
+    reloaded.values = defaults.values
+    check(DirectoryColorPreferences.color(for: first.projectId, defaults: reloaded) == .purple,
+          "saved directory choices are read consistently after preferences reload")
+    check(matches(
+        DependencyStyle.stroke(for: .stale, sourceSlot: 1, directoryColor: .orange, hovered: true),
+        DependencyStyle.stroke(for: .stale, sourceSlot: 1, directoryColor: .green, hovered: true)),
+          "source warning states keep their distinct styling")
 }
 
 print("")

@@ -13,6 +13,7 @@ import {
 } from './completion.js';
 import { renderPdfFigurePage } from './figure-preview.js';
 import { RecommendationRanking, directRecommendationMatch } from './ranking.js';
+import { BoundedCache } from '../cache.js';
 
 const OBJECT_TYPES = new Set([
   'REFERENCE', 'PAPER', 'RESULT', 'VALUE', 'CODE', 'CODE_BLOCK', 'CODE_LINE',
@@ -108,9 +109,8 @@ function numericDescriptor(value) {
   return { number: Number(match[1]), percent: Boolean(match[2]) };
 }
 
-function valueMatch(claim, candidate) {
-  const claimNumber = numericDescriptor(claim.value);
-  const candidateNumber = numericDescriptor(candidate.valueText);
+function valueMatch(claim, candidate, claimNumber = numericDescriptor(claim.value),
+  candidateNumber = numericDescriptor(candidate.valueText)) {
   if (!claimNumber || !candidateNumber) return { score: 0, displayValue: null };
   const direction = /\b(decreas|reduc|lower|declin|drop)/i.test(claim.text) ? -1
     : /\b(increas|rais|higher|grew|rise)/i.test(claim.text) ? 1 : 0;
@@ -139,8 +139,10 @@ function valueMatch(claim, candidate) {
 }
 
 function overlapScore(left, right) {
-  const a = wordTokens(left);
-  const b = new Set(wordTokens(right));
+  return tokenOverlap(wordTokens(left), new Set(wordTokens(right)));
+}
+
+function tokenOverlap(a, b) {
   if (!a.length) return 0;
   return a.filter((token) => b.has(token)).length / Math.max(2, a.length);
 }
@@ -242,13 +244,30 @@ function citedAuthor(text) {
   return String(text ?? '').match(/\b([A-Z][A-Za-z'’-]+)\s+et al\./)?.[1] ?? '';
 }
 
-function variableSimilarity(hint, object) {
-  if (!hint) return 0;
+// Weak keys allow these features to disappear as bounded snapshot caches evict
+// their immutable objects. Query text is never retained here.
+const matchingFeatures = new WeakMap();
+function objectMatchingFeatures(object) {
+  const cached = matchingFeatures.get(object);
+  if (cached) return cached;
   const fields = [object.metadata.variable, object.metadata.column, object.metadata.description,
     object.metadata.definition, object.metadata.inferredMeaning, object.label].filter(Boolean);
-  const expected = normalizedVariable(hint);
-  if (fields.some((field) => normalizedVariable(field) === expected)) return 1;
-  return Math.max(0, ...fields.map((field) => overlapScore(humanVariable(hint), humanVariable(field))));
+  const features = {
+    numeric: numericDescriptor(object.valueText),
+    words: new Set(wordTokens(`${object.label} ${object.searchText}`)),
+    variables: fields.map(normalizedVariable),
+    variableWords: fields.map((field) => new Set(wordTokens(humanVariable(field)))),
+    definitionKeys: [object.metadata.variable, object.metadata.column, object.metadata.row,
+      String(object.label).split(' · ')[0]].map(normalizedVariable),
+  };
+  if (Object.isFrozen(object)) matchingFeatures.set(object, features);
+  return features;
+}
+
+function variableSimilarity(expected, expectedWords, features) {
+  if (expected === null) return 0;
+  if (features.variables.includes(expected)) return 1;
+  return Math.max(0, ...features.variableWords.map((words) => tokenOverlap(expectedWords, words)));
 }
 
 function authorSimilarity(claimAuthor, author) {
@@ -1120,6 +1139,7 @@ export function studyVariableFragment(text, cursor = String(text ?? '').length) 
 function mapObjectRow(row) {
   return {
     id: row.object_id,
+    projectId: row.project_id,
     versionId: row.version_id,
     objectKey: row.object_key,
     objectType: row.object_type,
@@ -1135,26 +1155,51 @@ function mapObjectRow(row) {
   };
 }
 
+function freezeIndexedValue(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) freezeIndexedValue(child);
+  return Object.freeze(value);
+}
+
 export class PredictiveProvenanceService {
   constructor(timeline, rfi = null) {
     this.timeline = timeline;
     this.db = timeline.db;
     this.rfi = rfi;
     this.ranking = new RecommendationRanking(timeline);
-    this.completionCorpusCache = new Map();
-    this.studyVariableCache = new Map();
-    this.workspaceRetrievalCache = new Map();
-    this.sourceTextCache = new Map();
-    this.figurePreviewCache = new Map();
+    this.completionCorpusCache = new BoundedCache({ maxEntries: 16, maxWeight: 16 * 1024 * 1024,
+      weight: (corpus) => corpus.reduce((bytes, item) => bytes + item.sentence.length * 2 + item.tokens.length * 64, 0) });
+    this.studyVariableCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length });
+    this.workspaceRetrievalCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length });
+    this.objectCache = new BoundedCache({ maxEntries: 16, maxWeight: 120_000, weight: (objects) => objects.length });
+    // Raw descriptors are cached before dictionary enrichment. Changing a
+    // dictionary must still update unchanged source files in the next snapshot.
+    this.extractionCache = new BoundedCache({ maxEntries: 256, maxWeight: 24 * 1024 * 1024,
+      weight: (entry) => entry.bytes });
+    this.sourceTextCache = new BoundedCache({ maxEntries: 64, maxWeight: 8 * 1024 * 1024,
+      weight: (text) => text.length * 2 });
+    this.figurePreviewCache = new BoundedCache({ maxEntries: 12, maxWeight: 24 * 1024 * 1024,
+      weight: (preview) => preview.image.length });
+    this.reconcilingProjects = new Set();
     this.unsubscribe = timeline.onCapture((capture) => {
-      this.completionCorpusCache.clear();
-      this.studyVariableCache.clear();
-      this.workspaceRetrievalCache.clear();
+      // Snapshot keys are immutable. A change in one directory must leave the
+      // other enabled directories warm while releasing the superseded head.
+      const previous = capture?.event?.previousSnapshotId;
+      if (previous) {
+        for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache]) {
+          cache.delete(previous);
+        }
+      }
       this.reconcileAfterCapture(capture);
     });
   }
 
-  close() { this.unsubscribe?.(); }
+  close() {
+    this.unsubscribe?.();
+    this.ranking.close();
+    for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache,
+      this.objectCache, this.extractionCache, this.sourceTextCache, this.figurePreviewCache]) cache.clear();
+  }
 
   sourceText(source) {
     const key = `${source.snapshotId}|${source.id}|${source.contentHash}`;
@@ -1176,9 +1221,14 @@ export class PredictiveProvenanceService {
   ensureIndex(projectId, snapshotId = null) {
     const project = this.timeline.getProject(projectId);
     const targetSnapshotId = snapshotId ?? project.currentSnapshotId;
+    // Do not materialize the entire file manifest on every warm prediction.
+    const indexed = this.db.prepare(`SELECT s.project_id, i.snapshot_id AS indexed
+      FROM snapshots s LEFT JOIN snapshot_object_indexes i ON i.snapshot_id = s.id WHERE s.id = ?`)
+      .get(targetSnapshotId);
+    if (!indexed) throw new HttpError(404, 'Snapshot not found.');
+    if (indexed.project_id !== projectId) throw new HttpError(400, 'Snapshot does not belong to this project.');
+    if (indexed.indexed) return;
     const snapshot = this.timeline.getSnapshot(targetSnapshotId);
-    if (snapshot.projectId !== projectId) throw new HttpError(400, 'Snapshot does not belong to this project.');
-    if (this.db.prepare('SELECT 1 FROM snapshot_object_indexes WHERE snapshot_id = ?').get(targetSnapshotId)) return;
     const descriptors = [];
     const files = [...snapshot.files].sort((left, right) => dependencyFilePriority(right) - dependencyFilePriority(left)
       || left.path.localeCompare(right.path));
@@ -1189,7 +1239,16 @@ export class PredictiveProvenanceService {
       if (!['table', 'spreadsheet', 'code', 'notebook', 'image', 'json', 'text', 'markdown', 'pdf', 'document'].includes(file.fileType)) continue;
       if (file.fileType === 'text' && !['.bib', '.ris', '.enw', '.nbib'].includes(path.extname(file.path).toLowerCase())) continue;
       const available = MAX_SNAPSHOT_OBJECTS - descriptors.length;
-      descriptors.push(...objectsFromFile(file, this.timeline.blobs.get(file.contentHash)).slice(0, available));
+      const key = JSON.stringify([file.projectFileId, file.path, file.fileType, file.contentHash]);
+      let extracted = this.extractionCache.get(key);
+      if (!extracted) {
+        const objects = objectsFromFile(file, this.timeline.blobs.get(file.contentHash));
+        extracted = { objects, bytes: JSON.stringify(objects).length * 2 };
+        this.extractionCache.set(key, extracted);
+      }
+      descriptors.push(...extracted.objects.slice(0, available).map((descriptor) => ({
+        ...descriptor, metadata: { ...descriptor.metadata },
+      })));
     }
     applyVariableDefinitions(descriptors);
     transaction(this.db, () => {
@@ -1217,30 +1276,37 @@ export class PredictiveProvenanceService {
       this.db.prepare('INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count) VALUES (?, ?, ?)')
         .run(targetSnapshotId, now(), descriptors.length);
     });
+    this.objectCache.delete(targetSnapshotId);
+    this.ranking.invalidateSnapshot(targetSnapshotId);
   }
 
   objectsAt(projectId, snapshotId = null, objectTypes = null) {
     const project = this.timeline.getProject(projectId);
     const target = snapshotId ?? project.currentSnapshotId;
     this.ensureIndex(projectId, target);
-    const types = [...(objectTypes ?? [])].filter((type) => OBJECT_TYPES.has(type));
-    const typeClause = types.length ? `AND o.object_type IN (${types.map(() => '?').join(', ')})` : '';
-    return this.db.prepare(`
-      SELECT o.id AS object_id, o.object_key, o.object_type,
+    let objects = this.objectCache.get(target);
+    if (!objects) {
+      objects = this.db.prepare(`
+      SELECT o.id AS object_id, o.project_id, o.object_key, o.object_type,
         v.id AS version_id, v.snapshot_id, v.path, v.anchor_json, v.label, v.value_text,
         v.search_text, v.content_hash, v.metadata_json, s.version AS snapshot_version
       FROM scientific_object_versions v
       JOIN scientific_objects o ON o.id = v.object_id
       JOIN snapshots s ON s.id = v.snapshot_id
-      WHERE o.project_id = ? AND v.snapshot_id = ? ${typeClause}
+      WHERE o.project_id = ? AND v.snapshot_id = ?
       ORDER BY o.object_type, v.label LIMIT 30000
-    `).all(projectId, target, ...types).map(mapObjectRow);
+      `).all(projectId, target).map((row) => freezeIndexedValue(mapObjectRow(row)));
+      this.objectCache.set(target, objects);
+    }
+    const types = new Set([...(objectTypes ?? [])].filter((type) => OBJECT_TYPES.has(type)));
+    // Each consumer gets its own array. Indexed object values are immutable.
+    return types.size ? objects.filter((object) => types.has(object.objectType)) : [...objects];
   }
 
   objectAt(projectId, snapshotId, objectId) {
     this.ensureIndex(projectId, snapshotId);
     const row = this.db.prepare(`
-      SELECT o.id AS object_id, o.object_key, o.object_type,
+      SELECT o.id AS object_id, o.project_id, o.object_key, o.object_type,
         v.id AS version_id, v.snapshot_id, v.path, v.anchor_json, v.label, v.value_text,
         v.search_text, v.content_hash, v.metadata_json, s.version AS snapshot_version
       FROM scientific_object_versions v
@@ -1250,6 +1316,35 @@ export class PredictiveProvenanceService {
       LIMIT 1
     `).get(projectId, snapshotId, objectId);
     return row ? mapObjectRow(row) : null;
+  }
+
+  /** Resolve a source in its own directory without weakening objectsAt's
+   * explicit project/snapshot isolation. Document transitions remain owned by
+   * the destination directory even when their sources live elsewhere. */
+  sourceVersion(objectId, snapshotId = null, { destinationProjectId = null, newLink = false } = {}) {
+    const owner = this.db.prepare('SELECT project_id FROM scientific_objects WHERE id = ?').get(objectId);
+    if (!owner) return null;
+    const project = this.timeline.getProject(owner.project_id);
+    if (newLink && destinationProjectId && destinationProjectId !== project.id && this.workspace
+      && (!this.workspace.isActive(destinationProjectId) || !this.workspace.isActive(project.id))) {
+      throw new HttpError(409, 'Enable both work directories before linking sources between them.');
+    }
+    const target = snapshotId ?? project.currentSnapshotId;
+    const snapshot = this.db.prepare('SELECT project_id FROM snapshots WHERE id = ?').get(target);
+    if (!snapshot || snapshot.project_id !== project.id) return null;
+    this.ensureIndex(project.id, target);
+    return this.db.prepare(`
+      SELECT o.id AS object_id, o.project_id, o.object_type, o.object_key,
+        v.*, v.id AS version_id, s.version AS snapshot_version
+      FROM scientific_objects o JOIN scientific_object_versions v ON v.object_id = o.id
+      JOIN snapshots s ON s.id = v.snapshot_id
+      WHERE o.id = ? AND v.snapshot_id = ?
+    `).get(objectId, target) ?? null;
+  }
+
+  sourceProjectId(object) {
+    return object.projectId ?? this.db.prepare('SELECT project_id FROM scientific_objects WHERE id = ?')
+      .get(object.id)?.project_id ?? null;
   }
 
   /// Latest indexed version by globally unique object id. Used only by the
@@ -1346,10 +1441,11 @@ export class PredictiveProvenanceService {
   }
 
   enrichObject(projectId, object) {
-    const lineage = this.lineageForObject(projectId, object);
+    const ownerId = this.sourceProjectId(object) ?? projectId;
+    const lineage = this.lineageForObject(ownerId, object);
     const origin = lineage.find((item) => /\.(?:py|r|ipynb|js|ts|sql)$/i.test(item.path ?? '')
       || ['line', 'code-block', 'notebook-cell'].includes(item.anchor?.kind)) ?? lineage[0] ?? null;
-    return { ...object, lineage, origin };
+    return { ...object, projectId: ownerId, lineage, origin };
   }
 
   studyVariables(projectId, snapshotId = null) {
@@ -1554,6 +1650,10 @@ export class PredictiveProvenanceService {
 
   candidatesForClaim(projectId, claim, options = {}) {
     const claimTokens = `${claim.text} ${options.context ?? ''} ${options.section ?? ''}`;
+    const claimWords = wordTokens(claimTokens);
+    const claimNumber = numericDescriptor(claim.value);
+    const expectedVariable = claim.variable ? normalizedVariable(claim.variable) : null;
+    const expectedVariableWords = wordTokens(humanVariable(claim.variable));
     const referenceQuery = claim.type === 'LITERATURE' ? (claim.partial ? claim.value : citedAuthor(claim.text)) : '';
     const referenceYear = String(referenceQuery ?? '').match(/\b((?:19|20)\d{2}[a-z]?)\b/i)?.[1]?.toLowerCase() ?? '';
     const claimAuthor = claim.type === 'LITERATURE'
@@ -1589,16 +1689,16 @@ export class PredictiveProvenanceService {
       UNION SELECT to_path AS path FROM provenance_links WHERE project_id = ? AND to_path IS NOT NULL
     `).all(projectId, projectId).map((row) => row.path));
     const ranked = objects.map((object) => {
-      const value = valueMatch(claim, object);
+      const features = objectMatchingFeatures(object);
+      const value = valueMatch(claim, object, claimNumber, features.numeric);
       const entity = Math.max(
-        overlapScore(claimTokens, `${object.label} ${object.searchText}`),
+        tokenOverlap(claimWords, features.words),
         claim.type === 'ENTITY' ? prefixTokenScore(claim.value ?? claim.text, object.searchText) : 0,
       );
-      const directVariable = variableSimilarity(claim.variable, object);
-      const definition = [object.metadata.variable, object.metadata.column, object.metadata.row,
-        String(object.label).split(' · ')[0]]
-        .map(normalizedVariable).map((key) => variableDefinitions.get(key) ?? variableProfiles.get(key)).find(Boolean);
-      const dictionaryVariable = definition ? variableSimilarity(claim.variable, definition) : 0;
+      const directVariable = variableSimilarity(expectedVariable, expectedVariableWords, features);
+      const definition = features.definitionKeys.map((key) => variableDefinitions.get(key) ?? variableProfiles.get(key)).find(Boolean);
+      const dictionaryVariable = definition
+        ? variableSimilarity(expectedVariable, expectedVariableWords, objectMatchingFeatures(definition)) : 0;
       const variable = Math.max(directVariable, dictionaryVariable);
       const type = typePreference.has(object.objectType) ? 1 : 0;
       const author = claim.type === 'LITERATURE' ? authorSimilarity(claimAuthor, object.metadata.author) : 0;
@@ -1698,13 +1798,16 @@ export class PredictiveProvenanceService {
   }
 
   rankCompletions(projectId, completions, input, options = {}) {
-    return this.ranking.rank(projectId, completions.map((completion) => ({
+    const sourceProjectId = completions.length
+      ? this.sourceProjectId(completions[0].dependencyCandidate ?? {}) : null;
+    const rankingProjectId = sourceProjectId ?? projectId;
+    return this.ranking.rank(rankingProjectId, completions.map((completion) => ({
       ...completion.dependencyCandidate,
       score: completion.confidence ?? completion.dependencyCandidate?.score ?? 0,
       completion,
     })), {
-      query: input.text, documentPath: input.documentPath,
-      relatedPaths: this.relatedSourcePaths(projectId, input), ...options,
+      query: input.text, documentPath: rankingProjectId === projectId ? input.documentPath : null,
+      relatedPaths: this.relatedSourcePaths(rankingProjectId, input), ...options,
     }).map(({ completion, ranking }) => ({
       ...completion,
       dependencyCandidate: { ...completion.dependencyCandidate, ranking },
@@ -1751,8 +1854,9 @@ export class PredictiveProvenanceService {
         && Number.isInteger(item.end)
         && item.end <= cursor && item.end > sourceScopeBoundary && item.sourceObjectId && item.sourceSnapshotId)
       .map((item) => {
-        const source = this.objectAt(projectId, item.sourceSnapshotId, item.sourceObjectId);
-        if (!source) return null;
+        const row = this.sourceVersion(item.sourceObjectId, item.sourceSnapshotId);
+        if (!row || (this.workspace && !this.workspace.isActive(row.project_id))) return null;
+        const source = mapObjectRow(row);
         return {
           id: item.id ?? `pending:${item.sourceObjectId}`,
           anchor: {
@@ -1765,6 +1869,7 @@ export class PredictiveProvenanceService {
         };
       }).filter(Boolean);
     const dependency = [...persisted, ...pending]
+      .filter((item) => !this.workspace || this.workspace.isActive(this.sourceProjectId(item.source)))
       .sort((left, right) => right.anchor.end - left.anchor.end)[0] ?? null;
     if (!dependency || cursor - dependency.anchor.end > 420) return null;
     return dependency;
@@ -1815,7 +1920,7 @@ export class PredictiveProvenanceService {
     const dependencySelectsRow = sourceRow && normalizedRowSearch(dependencyText) === normalizedRowSearch(sourceRow);
     const dependencySelectsColumn = source.anchor?.kind === 'table-cell' && sourceColumn
       && normalizedVariable(dependencyText) === normalizedVariable(sourceColumn);
-    const workspaceObjects = this.workspaceRetrievalObjects(projectId, source.snapshotId);
+    const workspaceObjects = this.workspaceRetrievalObjects(this.sourceProjectId(source) ?? projectId, source.snapshotId);
     const allRelatedObjects = workspaceObjects
       .filter((object) => (object.id !== source.id || dependencySelectsRow || dependencySelectsColumn)
         && object.objectType !== 'VARIABLE'
@@ -2031,9 +2136,10 @@ export class PredictiveProvenanceService {
     prediction.claims = prediction.claims.map((claim) => {
       const eligible = claim.candidates.filter((candidate) => explicitSearch || candidate.matchTier === 0
         || (candidate.matchStrength ?? candidate.score) >= (claim.type === 'STUDY_VARIABLE' ? 0.68 : 0.4));
-      return { ...claim, candidates: take(this.ranking.rank(projectId, eligible, {
-        query: claim.text, documentPath: input.documentPath,
-        relatedPaths: this.relatedSourcePaths(projectId, input),
+      const rankingProjectId = eligible.length ? this.sourceProjectId(eligible[0]) ?? projectId : projectId;
+      return { ...claim, candidates: take(this.ranking.rank(rankingProjectId, eligible, {
+        query: claim.text, documentPath: rankingProjectId === projectId ? input.documentPath : null,
+        relatedPaths: this.relatedSourcePaths(rankingProjectId, input),
         limit: remaining, diversify: !scoped,
       })) };
     });
@@ -2125,11 +2231,12 @@ export class PredictiveProvenanceService {
           && ['PAPER', 'REFERENCE'].includes(linkedDependency.source.objectType)
           && ['TABLE_REFERENCE', 'FIGURE'].includes(claim.type)
           && claim.start >= linkedDependency.anchor.end;
-        let candidates = this.candidatesForClaim(projectId, claim, {
+        const sourceProjectId = scopedToLinkedPaper ? this.sourceProjectId(linkedDependency.source) ?? projectId : projectId;
+        let candidates = this.candidatesForClaim(sourceProjectId, claim, {
           context: input.context ?? text,
           section: input.section,
-          documentPath: input.documentPath,
-          relatedPaths: this.relatedSourcePaths(projectId, input),
+          documentPath: sourceProjectId === projectId ? input.documentPath : null,
+          relatedPaths: this.relatedSourcePaths(sourceProjectId, input),
           minimumMatchStrength: input.surface === 'search' ? 0 : 0.4,
           limit: input.surface === 'search' ? 12 : 8,
           sourcePath: scopedToLinkedPaper ? linkedDependency.source.path : null,
@@ -2222,7 +2329,7 @@ export class PredictiveProvenanceService {
     if (!input || !['accept', 'open'].includes(input.kind)) {
       throw new HttpError(400, 'Usage must be an accepted suggestion or deliberate source open.');
     }
-    const project = this.timeline.getProject(projectId);
+    let project = this.timeline.getProject(projectId);
     let objectId = input.objectId;
     for (const key of ['objectId', 'dependencyId']) {
       if (Object.hasOwn(input, key) && (typeof input[key] !== 'string' || !input[key].trim()
@@ -2232,18 +2339,29 @@ export class PredictiveProvenanceService {
     }
     if (Object.hasOwn(input, 'path') && (typeof input.path !== 'string' || !input.path
       || input.path.length > 4096)) throw new HttpError(400, 'An indexed file path is required.');
-    if (objectId) {
-      const source = this.db.prepare('SELECT project_id FROM scientific_objects WHERE id = ?').get(objectId);
-      if (!source || source.project_id !== projectId) throw new HttpError(404, 'Indexed source not found in this project.');
-    }
+    const suppliedSource = objectId
+      ? this.db.prepare('SELECT project_id FROM scientific_objects WHERE id = ?').get(objectId) : null;
+    if (objectId && !suppliedSource) throw new HttpError(404, 'Indexed source not found in this project.');
     if (Object.hasOwn(input, 'dependencyId')) {
       const dependency = this.db.prepare('SELECT project_id FROM claim_dependencies WHERE id = ?').get(input.dependencyId);
       if (!dependency || dependency.project_id !== projectId) throw new HttpError(404, 'Dependency not found in this project.');
       const dependencyObjectId = this.latestVersionRow(input.dependencyId)?.source_object_id;
+      // A foreign object is valid through a real dependency in this directory.
+      // An unrelated foreign identity must still fail before recording usage.
+      if (suppliedSource && suppliedSource.project_id !== projectId && objectId !== dependencyObjectId) {
+        throw new HttpError(404, 'Indexed source not found in this project.');
+      }
       if (objectId && objectId !== dependencyObjectId) throw new HttpError(400, 'Source and dependency identities do not match.');
       objectId = dependencyObjectId;
       if (!objectId && allowMissingSource) return { recorded: false };
       if (!objectId) throw new HttpError(404, 'Dependency source not found in this project.');
+    }
+    if (objectId) {
+      const source = suppliedSource ?? this.db.prepare('SELECT project_id FROM scientific_objects WHERE id = ?').get(objectId);
+      if (!source || (source.project_id !== projectId && !Object.hasOwn(input, 'dependencyId'))) {
+        throw new HttpError(404, 'Indexed source not found in this project.');
+      }
+      project = this.timeline.getProject(source.project_id);
     }
     let sourcePath = input.path;
     if (objectId) {
@@ -2257,13 +2375,14 @@ export class PredictiveProvenanceService {
         JOIN snapshot_files current_file ON current_file.project_file_id = original.project_file_id
           AND current_file.snapshot_id = ?
         WHERE o.project_id = ? AND o.id = ? ORDER BY s.version DESC LIMIT 1
-      `).get(project.currentSnapshotId, projectId, objectId);
+      `).get(project.currentSnapshotId, project.id, objectId);
       if (!source && allowMissingSource) return { recorded: false };
       if (!source) throw new HttpError(404, 'Indexed source not found in this project.');
       sourcePath = source.path;
     }
-    return this.ranking.record(projectId, {
-      path: sourcePath, kind: input.kind, sessionId: input.sessionId, documentPath: input.documentPath,
+    return this.ranking.record(project.id, {
+      path: sourcePath, kind: input.kind, sessionId: input.sessionId,
+      documentPath: project.id === projectId ? input.documentPath : null,
     });
   }
 
@@ -2348,15 +2467,17 @@ export class PredictiveProvenanceService {
   }
 
   saveDocument(projectId, input, actorInput) {
+    const actor = this.timeline.validateActor(actorInput);
     const project = this.timeline.getProject(projectId);
     const baseSnapshotId = input.baseSnapshotId ?? project.currentSnapshotId;
     if (baseSnapshotId !== project.currentSnapshotId) throw new VersionConflictError(baseSnapshotId, project.currentSnapshotId);
     const relativePath = posixPath(input.path);
     const existing = this.timeline.snapshotFile(baseSnapshotId, relativePath);
     if (!existing || !EDITABLE_DOCUMENT_TYPES.has(existing.fileType)) throw new HttpError(400, 'This tracked file is not editable here.');
+    const destination = this.timeline.assertWorkingFileUnchanged(project, relativePath, existing.contentHash);
     if (['document', 'pdf'].includes(existing.fileType)) {
       const content = String(input.content ?? '');
-      return this.cloneTransition(projectId, actorInput, {
+      return this.cloneTransition(projectId, actor, {
         source: 'DOCUMENT_CHANGE',
         title: `Edited ${relativePath} without changing the original ${existing.fileType.toUpperCase()}`,
       }, ({ resultingSnapshotId, timestamp, actor }) => {
@@ -2371,11 +2492,10 @@ export class PredictiveProvenanceService {
         );
       });
     }
-    const destination = this.timeline.resolveProjectPath(project, relativePath);
     const temporary = `${destination}.lasso-document-${id()}.tmp`;
     fs.writeFileSync(temporary, String(input.content ?? ''), { flag: 'wx' });
     fs.renameSync(temporary, destination);
-    return this.timeline.capture(projectId, actorInput, {
+    return this.timeline.capture(projectId, actor, {
       expectedSnapshotId: baseSnapshotId,
       source: 'DOCUMENT_CHANGE',
     });
@@ -2433,12 +2553,9 @@ export class PredictiveProvenanceService {
     }
     this.ensureIndex(projectId, project.currentSnapshotId);
     const anchored = this.validateAnchor(project.currentSnapshotId, input.documentPath, input.anchor, input.spanText);
-    const object = this.db.prepare(`
-      SELECT o.id AS object_id, o.object_type, o.object_key, v.*, s.version AS snapshot_version
-      FROM scientific_objects o JOIN scientific_object_versions v ON v.object_id = o.id
-      JOIN snapshots s ON s.id = v.snapshot_id
-      WHERE o.project_id = ? AND o.id = ? AND v.snapshot_id = ?
-    `).get(projectId, input.sourceObjectId, input.sourceSnapshotId ?? project.currentSnapshotId);
+    const object = this.sourceVersion(input.sourceObjectId, input.sourceSnapshotId, {
+      destinationProjectId: projectId, newLink: true,
+    });
     if (!object) throw new HttpError(404, 'The selected scientific object does not exist in that project version.');
     const method = SELECTION_METHODS.has(input.selectionMethod) ? input.selectionMethod : 'MANUAL';
     const dependencyId = id();
@@ -2476,9 +2593,9 @@ export class PredictiveProvenanceService {
       );
       if (['AUTOCOMPLETE', 'PREDICTED_ACCEPTED', 'MANUAL'].includes(method)
         && ['HUMAN_SELF', 'HUMAN_COLLABORATOR'].includes(actor.actorType)) {
-        this.recordRecommendationUsage(projectId, {
+        this.recordRecommendationUsage(object.project_id, {
           objectId: object.object_id, kind: 'accept', sessionId: input.sessionId,
-          documentPath: input.documentPath,
+          documentPath: object.project_id === projectId ? input.documentPath : null,
         }, { allowMissingSource: true });
       }
     });
@@ -2495,12 +2612,9 @@ export class PredictiveProvenanceService {
     this.ensureIndex(projectId, project.currentSnapshotId);
     const prepared = links.map((link) => {
       const anchored = this.validateAnchor(project.currentSnapshotId, link.documentPath, link.anchor, link.spanText);
-      const object = this.db.prepare(`
-        SELECT o.id AS object_id, o.object_type, o.object_key, v.*, s.version AS snapshot_version
-        FROM scientific_objects o JOIN scientific_object_versions v ON v.object_id = o.id
-        JOIN snapshots s ON s.id = v.snapshot_id
-        WHERE o.project_id = ? AND o.id = ? AND v.snapshot_id = ?
-      `).get(projectId, link.sourceObjectId, link.sourceSnapshotId ?? project.currentSnapshotId);
+      const object = this.sourceVersion(link.sourceObjectId, link.sourceSnapshotId, {
+        destinationProjectId: projectId, newLink: true,
+      });
       if (!object) throw new HttpError(404, 'A selected scientific object does not exist in that project version.');
       return {
         input: link,
@@ -2551,9 +2665,9 @@ export class PredictiveProvenanceService {
         );
         if (['AUTOCOMPLETE', 'PREDICTED_ACCEPTED', 'MANUAL'].includes(item.method)
           && ['HUMAN_SELF', 'HUMAN_COLLABORATOR'].includes(actor.actorType)) {
-          this.recordRecommendationUsage(projectId, {
+          this.recordRecommendationUsage(item.object.project_id, {
             objectId: item.object.object_id, kind: 'accept', sessionId: input.sessionId,
-            documentPath: item.input.documentPath,
+            documentPath: item.object.project_id === projectId ? item.input.documentPath : null,
           }, { allowMissingSource: true });
         }
       }
@@ -2566,7 +2680,7 @@ export class PredictiveProvenanceService {
       SELECT v.*, s.version AS project_version, a.display_name AS actor_name, a.actor_type,
         origin_v.created_by_actor_id AS linked_by_actor_id,
         origin_a.display_name AS linked_by_actor_name, origin_a.actor_type AS linked_by_actor_type,
-        o.object_type, o.object_key,
+        o.object_type, o.object_key, o.project_id AS source_project_id,
         ov.path AS source_path, ov.anchor_json AS source_anchor_json, ov.label AS source_label,
         ov.metadata_json AS source_metadata_json, ov.content_hash AS source_content_hash
       FROM claim_dependency_versions v
@@ -2610,6 +2724,7 @@ export class PredictiveProvenanceService {
       },
       source: {
         id: row.source_object_id,
+        projectId: row.source_project_id,
         objectKey: row.object_key,
         objectType: row.object_type,
         snapshotId: row.source_snapshot_id,
@@ -2810,7 +2925,9 @@ export class PredictiveProvenanceService {
     if (!this.figurePreviewCache.has(cacheKey)) {
       const buffer = this.timeline.blobs.get(file.contentHash);
       try {
-        this.figurePreviewCache.set(cacheKey, renderPdfFigurePage(buffer, identifier));
+        const preview = renderPdfFigurePage(buffer, identifier);
+        this.figurePreviewCache.set(cacheKey, preview);
+        return preview;
       } catch (error) {
         throw new HttpError(422, error.message);
       }
@@ -3009,7 +3126,11 @@ export class PredictiveProvenanceService {
 
   currentDependencies(projectId, options = {}) {
     const project = this.timeline.getProject(projectId);
-    const maximum = options.snapshotId ? this.timeline.getSnapshot(options.snapshotId).version : this.timeline.getSnapshot(project.currentSnapshotId).version;
+    const snapshot = this.db.prepare('SELECT version, project_id FROM snapshots WHERE id = ?')
+      .get(options.snapshotId ?? project.currentSnapshotId);
+    if (!snapshot) throw new HttpError(404, 'Snapshot not found.');
+    if (snapshot.project_id !== projectId) throw new HttpError(400, 'Snapshot does not belong to this project.');
+    const maximum = snapshot.version;
     const ids = this.db.prepare(`
       SELECT d.id FROM claim_dependencies d
       WHERE d.project_id = ? AND (? IS NULL OR d.document_project_file_id = ?)
@@ -3038,15 +3159,12 @@ export class PredictiveProvenanceService {
     }
     let nextSource = currentDependency.source;
     if (input.sourceObjectId) {
-      this.ensureIndex(project.id, project.currentSnapshotId);
-      const row = this.db.prepare(`
-        SELECT o.id AS object_id, o.object_type, o.object_key, v.*, s.version AS snapshot_version
-        FROM scientific_objects o JOIN scientific_object_versions v ON v.object_id = o.id
-        JOIN snapshots s ON s.id = v.snapshot_id WHERE o.project_id = ? AND o.id = ? AND v.snapshot_id = ?
-      `).get(project.id, input.sourceObjectId, input.sourceSnapshotId ?? project.currentSnapshotId);
+      const row = this.sourceVersion(input.sourceObjectId, input.sourceSnapshotId, {
+        destinationProjectId: project.id, newLink: input.sourceObjectId !== currentDependency.source.id,
+      });
       if (!row) throw new HttpError(404, 'Replacement scientific object not found.');
       nextSource = {
-        id: row.object_id, objectKey: row.object_key, objectType: row.object_type, snapshotId: row.snapshot_id,
+        id: row.object_id, projectId: row.project_id, objectKey: row.object_key, objectType: row.object_type, snapshotId: row.snapshot_id,
         path: row.path, anchor: json(row.anchor_json, null), label: row.label, valueText: row.value_text,
         contentHash: row.content_hash, metadata: json(row.metadata_json, {}),
       };
@@ -3134,13 +3252,16 @@ export class PredictiveProvenanceService {
    */
   planSourceValueUpdate(projectId, objectId, options = {}) {
     const project = this.timeline.getProject(projectId);
-    this.ensureIndex(projectId, project.currentSnapshotId);
-    const current = this.objectAt(projectId, project.currentSnapshotId, objectId);
+    const source = this.sourceVersion(objectId);
+    const current = source ? mapObjectRow(source) : null;
     if (!current) throw new HttpError(404, 'That source is no longer present in the current version.');
     const wanted = options.dependencyIds ? new Set(options.dependencyIds) : null;
     const dependencies = this.currentDependencies(projectId)
       .filter((dependency) => dependency.source.id === objectId)
       .filter((dependency) => !wanted || wanted.has(dependency.id));
+    if (current.projectId !== projectId && !dependencies.length) {
+      throw new HttpError(404, 'That source is not referenced in this work directory.');
+    }
 
     const documents = new Map();
     const edits = [];
@@ -3207,6 +3328,8 @@ export class PredictiveProvenanceService {
     return {
       object: {
         id: current.id,
+        projectId: current.projectId,
+        snapshotId: current.snapshotId,
         objectKey: current.objectKey,
         path: current.path,
         label: current.label,
@@ -3221,16 +3344,31 @@ export class PredictiveProvenanceService {
     };
   }
 
+  validateSourceValueUpdate(projectId, plan, actorInput) {
+    const actor = this.timeline.validateActor(actorInput);
+    const changes = plan.edits.filter((edit) => ['REWRITE', 'RELINK'].includes(edit.action));
+    if (!changes.length) return actor;
+    // Watcher capture is debounced. Check all reviewed files before the first
+    // write, since saving one document also captures the rest of its directory.
+    const project = this.timeline.getProject(projectId);
+    const sourceProject = this.timeline.getProject(plan.object.projectId);
+    const sourceFile = this.timeline.snapshotFile(plan.object.snapshotId, plan.object.path);
+    this.timeline.assertWorkingFileUnchanged(sourceProject, plan.object.path, sourceFile.contentHash);
+    for (const documentPath of new Set(changes.map((edit) => edit.documentPath))) {
+      const file = this.timeline.snapshotFile(project.currentSnapshotId, documentPath);
+      this.timeline.assertWorkingFileUnchanged(project, documentPath, file.contentHash);
+    }
+    return actor;
+  }
+
   /**
    * Applies a plan: rewrites the documents, then re-points each dependency at
    * the current source version. Documents are only ever written from an
    * explicit call to this method.
    */
   applySourceValueUpdate(projectId, objectId, actorInput, options = {}) {
-    // Validated before the first write: a rejected actor must not be able to
-    // leave one document rewritten and the next untouched.
-    const actor = normalizeActor(actorInput);
     const plan = this.planSourceValueUpdate(projectId, objectId, options);
+    const actor = this.validateSourceValueUpdate(projectId, plan, actorInput);
     const rewrites = plan.edits.filter((edit) => edit.action === 'REWRITE');
     const relinks = plan.edits.filter((edit) => edit.action === 'RELINK');
     if (!rewrites.length && !relinks.length) return { ...plan, applied: [], captures: [] };
@@ -3260,10 +3398,9 @@ export class PredictiveProvenanceService {
 
     const applied = [];
     for (const edit of [...rewrites, ...relinks]) {
-      const project = this.timeline.getProject(projectId);
       const revision = this.revise(edit.dependencyId, actor, {
         sourceObjectId: objectId,
-        sourceSnapshotId: project.currentSnapshotId,
+        sourceSnapshotId: plan.object.snapshotId,
         status: 'LINKED',
         ...(edit.action === 'REWRITE' ? { spanText: edit.nextSpanText } : {}),
       });
@@ -3452,9 +3589,22 @@ export class PredictiveProvenanceService {
 
   reconcileAfterCapture(capture) {
     if (!capture?.changed || !capture.projectId) return;
-    const count = this.db.prepare('SELECT COUNT(*) AS count FROM claim_dependencies WHERE project_id = ?').get(capture.projectId).count;
-    if (!count) return;
-    this.reconcileProject(capture.projectId, capture.snapshot.id);
+    const destinations = this.db.prepare(`
+      SELECT DISTINCT d.project_id FROM claim_dependencies d
+      LEFT JOIN claim_dependency_versions v ON v.dependency_id = d.id
+      LEFT JOIN scientific_objects o ON o.id = v.source_object_id
+      WHERE d.project_id = ? OR o.project_id = ?
+    `).all(capture.projectId, capture.projectId);
+    for (const destination of destinations) {
+      if (this.reconcilingProjects.has(destination.project_id)) continue;
+      this.reconcilingProjects.add(destination.project_id);
+      try {
+        this.reconcileProject(destination.project_id,
+          destination.project_id === capture.projectId ? capture.snapshot.id : null);
+      } finally {
+        this.reconcilingProjects.delete(destination.project_id);
+      }
+    }
   }
 
   reconcileProject(projectId, sourceSnapshotId = null) {
@@ -3468,11 +3618,9 @@ export class PredictiveProvenanceService {
       const migration = this.migrateAnchor(dependency, targetSnapshotId);
       let status = migration.status;
       let details = migration.reason ? { anchorIssue: migration.reason } : {};
-      const currentSource = this.db.prepare(`
-        SELECT v.*, o.object_type FROM scientific_object_versions v
-        JOIN scientific_objects o ON o.id = v.object_id
-        WHERE v.object_id = ? AND v.snapshot_id = ?
-      `).get(dependency.source.id, targetSnapshotId);
+      const ownerId = this.sourceProjectId(dependency.source);
+      const currentSource = this.sourceVersion(dependency.source.id,
+        ownerId === projectId ? targetSnapshotId : null);
       if (!currentSource) {
         status = 'BROKEN';
         details = { ...details, sourceIssue: 'The linked scientific object no longer resolves.' };

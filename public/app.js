@@ -1,23 +1,21 @@
 import { caretPointForTextLengths, contextualCompletionCase } from './editor-acceptance.js';
 import { createCommandPalette } from './palette.js';
-import { createDirectorySidebar, createTabBar, createSidebarResize, createSpatialWorkbench, renderSession, shortenPath } from './shell.js?v=4';
-import { createSourceWorkbench } from './source-workbench.js?v=1';
+import { createDirectorySidebar, createTabBar, createSpatialWorkbench, renderSession } from './shell.js?v=5';
+import { createSourceWorkbench } from './source-workbench.js?v=2';
 import { renderAssistBox } from './assist-box.js?v=2';
+import { createVisibilityRefresh } from './visibility-refresh.js';
 
 const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
 const RECOMMENDATION_SESSION_ID = crypto.randomUUID();
 const AUTOMATIC_SUGGESTION_LIMIT = 5;
-// The interface build, taken from this module's own cache-busting query. Shown
-// in the terminal banner so "which build am I running?" is answerable on sight.
-const UI_BUILD = new URL(import.meta.url).searchParams.get('v') ?? 'dev';
 
 const state = {
   projects: [],
+  workspace: { directories: [], activeProjectIds: [], revision: null },
   project: null,
   preview: null,
   identity: loadIdentity(),
   proposedExecution: null,
-  pollTimer: null,
   statusTimer: null,
   projectSwitchRevision: 0,
   view: 'timeline',
@@ -29,6 +27,8 @@ const state = {
     pendingLinks: [], autosaveTimer: null, savePromise: null, editRevision: 0,
     undoStack: [], redoStack: [], restoringHistory: false, lastHistoryAt: 0, lastHistoryType: null,
     activeDependencyId: null, sourcePeekTimer: null, sourcePeekRequest: 0,
+    navigationRevision: 0, pickerTimer: null, pickerController: null,
+    inspectorRequest: 0, viewerRequest: 0, sharingRequest: 0,
   },
 };
 
@@ -74,8 +74,49 @@ async function api(url, options = {}) {
   return body;
 }
 
+let nativeWindowVisible = window.__lassoWindowVisible !== false;
+const projectRefresh = createVisibilityRefresh({
+  visible: !document.hidden && nativeWindowVisible,
+  load: (projectId, signal) => Promise.all([
+    projectId === 'workspace' ? Promise.resolve(null) : api(`/api/projects/${projectId}`, { signal }),
+    api('/api/workspace', { signal }),
+  ]),
+  apply: ([projectResponse, workspace], projectId) => {
+    if ((state.project?.id ?? 'workspace') !== projectId) return;
+    const changed = applyWorkspace(workspace);
+    const projectChanged = projectResponse && JSON.stringify(state.project) !== JSON.stringify(projectResponse.project);
+    if (projectResponse) state.project = projectResponse.project;
+    if (changed || projectChanged) {
+      if (state.project) renderProjectContext();
+      else {
+        const first = state.projects.find(project => project.available !== false);
+        if (first) void selectProject(first.id, false).catch(error => toast(error.message, 'error'));
+        else renderEmpty();
+      }
+    }
+    if (changed) {
+      clearPrediction();
+      dependencyShell.reset();
+      if (state.view === 'session' && state.project) void dependencyShell.refresh();
+    }
+  },
+  onError: error => toast(error.message, 'error'),
+});
+function updateWindowVisibility() {
+  const visible = !document.hidden && nativeWindowVisible;
+  projectRefresh.setVisible(visible);
+  if (!visible) clearPrediction();
+}
+document.addEventListener('visibilitychange', updateWindowVisibility);
+window.addEventListener('lasso-window-visibility', event => {
+  nativeWindowVisible = event.detail?.visible !== false;
+  updateWindowVisibility();
+});
+window.addEventListener('pagehide', () => projectRefresh.setVisible(false));
+window.addEventListener('pageshow', updateWindowVisibility);
+
 function recordRecommendationUsage(source, kind, context = {}) {
-  const projectId = Object.hasOwn(context, 'projectId') ? context.projectId : state.project?.id;
+  const projectId = source?.projectId ?? (Object.hasOwn(context, 'projectId') ? context.projectId : state.project?.id);
   const identity = source?.objectId ? { objectId: source.objectId }
     : source?.dependencyId ? { dependencyId: source.dependencyId }
       : source?.path ? { path: source.path } : null;
@@ -122,18 +163,48 @@ function formatDateTime(value) {
 }
 
 async function loadProjects(preferredId = null) {
-  const { projects } = await api('/api/projects');
-  state.projects = projects;
-  elements['project-select'].innerHTML = '<option value="">No project selected</option>' + projects
-    .map((project) => `<option value="${project.id}">${escapeHtml(project.name)} · V${project.currentVersion}</option>`).join('');
+  applyWorkspace(await api('/api/workspace'));
+  const projects = state.projects.filter(project => project.available !== false);
   const saved = preferredId ?? localStorage.getItem('lasso.projectId') ?? localStorage.getItem('colab.projectId');
-  const project = projects.find((candidate) => candidate.id === saved) ?? projects[0] ?? null;
+  const project = projects.find((candidate) => candidate.id === saved) ?? projects.find(candidate => candidate.active) ?? projects[0] ?? null;
   if (project) await selectProject(project.id, true);
   else renderEmpty();
 }
 
+function workspaceVersion() {
+  return `${state.workspace.revision}:${state.projects.filter(project => project.active && project.available !== false)
+    .map(project => `${project.id}:${project.currentSnapshotId}`).join(',')}`;
+}
+
+function applyWorkspace(workspace) {
+  if (Number.isFinite(workspace.revision) && Number.isFinite(state.workspace.revision)
+    && workspace.revision < state.workspace.revision) return false;
+  const changed = JSON.stringify(state.workspace) !== JSON.stringify(workspace);
+  state.workspace = workspace;
+  state.projects = workspace.directories ?? [];
+  elements['project-select'].innerHTML = '<option value="">No directory selected</option>' + state.projects
+    .map(project => `<option value="${escapeHtml(project.id)}" ${project.available === false ? 'disabled' : ''}>${escapeHtml(project.name)} · V${project.currentVersion}${project.active ? '' : ' · Paused'}</option>`).join('');
+  if (state.project) elements['project-select'].value = state.project.id;
+  return changed;
+}
+
+async function toggleDirectory(projectId, active) {
+  try {
+    await api(`/api/workspace/directories/${encodeURIComponent(projectId)}`, {
+      method: 'POST', body: JSON.stringify({ active, actor: state.identity }),
+    });
+    applyWorkspace(await api('/api/workspace'));
+    clearPrediction();
+    dependencyShell.reset();
+    renderProjectContext();
+    if (state.view === 'session') await dependencyShell.refresh();
+    toast(active ? 'Directory included in workspace' : 'Directory paused');
+  } catch (error) { refreshShell(); toast(error.message, 'error'); }
+}
+
 async function selectProject(projectId, reconcile = true) {
   const switchRevision = ++state.projectSwitchRevision;
+  state.editor.navigationRevision += 1;
   const previousProjectId = state.project?.id ?? null;
   const switchingProjects = Boolean(previousProjectId && previousProjectId !== projectId);
   const reopenEditor = state.view === 'editor';
@@ -147,6 +218,7 @@ async function selectProject(projectId, reconcile = true) {
     }
   }
   const listedProject = state.projects.find((project) => project.id === projectId);
+  if (listedProject?.available === false) throw new Error('This directory is unavailable. Restore it before opening its documents.');
   const nextProject = listedProject ?? (await api(`/api/projects/${projectId}`)).project;
   if (switchRevision !== state.projectSwitchRevision) return false;
   if (switchingProjects) {
@@ -162,7 +234,7 @@ async function selectProject(projectId, reconcile = true) {
   if (reopenEditor) {
     elements['detail-column'].innerHTML = `<div class="detail-placeholder"><p>Opening ${escapeHtml(nextProject.name)} documents…</p></div>`;
   }
-  if (reconcile) {
+  if (reconcile && listedProject?.active) {
     try {
       const result = await api(`/api/projects/${projectId}/open`, {
         method: 'POST', body: JSON.stringify({ actor: state.identity }),
@@ -178,8 +250,6 @@ async function selectProject(projectId, reconcile = true) {
   renderProjectContext();
   elements['editor-nav'].disabled = false;
   elements['ribbon-editor'].disabled = false;
-  clearInterval(state.pollTimer);
-  state.pollTimer = setInterval(() => refreshProject(true), 5000);
   // Load the document list so tabs and the palette are populated, then rest on
   // the session view unless the user already had a document open.
   try {
@@ -187,24 +257,14 @@ async function selectProject(projectId, reconcile = true) {
     if (state.project?.id === projectId) state.editor.documents = documents;
   } catch { /* the session view says when nothing is indexed */ }
   if (reopenEditor) await openManuscriptWorkspace(null, { projectId, switchRevision });
-  else showSession();
+  else await showSession();
   return true;
 }
 
 async function refreshProject(silent = false, requestedProjectId = state.project?.id) {
-  if (!requestedProjectId) return;
-  try {
-    const [projectResponse, projectsResponse] = await Promise.all([
-      api(`/api/projects/${requestedProjectId}`),
-      api('/api/projects'),
-    ]);
-    if (state.project?.id !== requestedProjectId) return;
-    state.project = projectResponse.project;
-    state.projects = projectsResponse.projects;
-    renderProjectContext();
-  } catch (error) {
-    if (!silent) toast(error.message, 'error');
-  }
+  if (!requestedProjectId || state.project?.id !== requestedProjectId) return;
+  projectRefresh.setProject(requestedProjectId);
+  await projectRefresh.refresh({ silent });
 }
 
 function renderProjectContext() {
@@ -213,20 +273,19 @@ function renderProjectContext() {
   elements['project-name'].textContent = current.name;
   elements['project-path'].textContent = current.rootPath;
   elements['project-path'].title = current.rootPath;
-  document.title = `${current.name} — Lasso`;
+  document.title = `${current.name} · Lasso`;
   refreshShell();
-  // Tell the macOS app which project system-wide suggestions should use.
-  window.webkit?.messageHandlers?.lasso?.postMessage({ activeProjectId: current.id });
-  elements['window-project-name'].textContent = current.name;
-  elements['status-project'].textContent = current.name;
   elements['status-version'].textContent = `Version ${current.currentVersion}`;
-  elements['status-files'].textContent = `${current.fileCount ?? state.project.fileCount ?? 0} files`;
+  const active = state.projects.filter(project => project.active && project.available !== false);
+  elements['status-project'].textContent = `${active.length} ${active.length === 1 ? 'directory' : 'directories'} active`;
+  elements['status-files'].textContent = `${active.reduce((count, project) => count + (project.fileCount ?? 0), 0)} files`;
   const selectedOption = elements['project-select'].querySelector(`option[value="${current.id}"]`);
   if (selectedOption) selectedOption.textContent = `${current.name} · V${current.currentVersion}`;
 }
 
 function renderEmpty() {
   state.project = null;
+  projectRefresh.setProject('workspace');
   elements['project-name'].textContent = 'Welcome to Lasso';
   showSession();
   elements['project-path'].textContent = 'Choose a local directory to begin.';
@@ -239,28 +298,28 @@ function renderEmpty() {
   elements['status-files'].textContent = '0 files';
 }
 
-async function showPreview(snapshotId, path, returnEventId = null, focusAnchor = null, source = null, context = null) {
+async function showPreview(snapshotId, path, focusAnchor = null, source = null, context = null) {
   const usageContext = context ?? { projectId: state.project?.id, documentPath: state.editor.document?.path };
+  const requestedProjectId = state.project?.id;
   try {
     const { preview } = await api(`/api/snapshots/${snapshotId}/preview?path=${encodeURIComponent(path)}`);
-    if (usageContext.projectId !== state.project?.id) return;
-    state.preview = preview;
+    if (requestedProjectId !== state.project?.id) return;
+    state.preview = { ...preview, projectId: source?.projectId ?? usageContext.projectId };
     state.selection = null;
-    renderPreview(preview, returnEventId, focusAnchor);
-    recordRecommendationUsage(source?.id ? { objectId: source.id } : { path }, 'open', usageContext);
+    renderPreview(preview, focusAnchor);
+    recordRecommendationUsage(source?.id ? { objectId: source.id, projectId: source.projectId } : { path, projectId: source?.projectId }, 'open', usageContext);
   } catch (error) { toast(error.message, 'error'); }
 }
 
-function renderPreview(preview, returnEventId, focusAnchor = null) {
+function renderPreview(preview, focusAnchor = null) {
   elements['detail-column'].innerHTML = `<div class="preview-view">
     <header class="preview-header">
       <div class="preview-title"><strong>${escapeHtml(preview.path)}</strong><span>Version ${preview.version} · ${escapeHtml(preview.fileType)}</span></div>
-      <div class="preview-actions">${returnEventId ? `<button class="secondary-button" id="back-to-event">Back to event</button>` : ''}<button class="primary-button" id="request-info" disabled>Request information</button></div>
+      <div class="preview-actions"><button class="primary-button" id="request-info" disabled>Request information</button></div>
     </header>
     <div class="preview-body"><p class="selection-hint">Select a sentence, line, cell, or value below. The selection is anchored to Version ${preview.version}.</p>${previewContent(preview)}<div id="rfi-result"></div></div>
   </div>`;
   elements['detail-column'].scrollTop = 0;
-  if (returnEventId) document.getElementById('back-to-event').addEventListener('click', () => showEvent(returnEventId));
   document.getElementById('request-info').addEventListener('click', requestInformation);
   bindSelections();
   if (focusAnchor) focusPreviewAnchor(focusAnchor);
@@ -291,6 +350,31 @@ function previewContent(preview) {
   return `<div class="binary-preview"><p>${escapeHtml(preview.message)}</p><span>${preview.size.toLocaleString()} bytes</span><span class="binary-hash">SHA-256 ${preview.contentHash}</span></div>`;
 }
 
+function bindSelections() {
+  document.querySelectorAll('.selectable[data-anchor]').forEach(node => {
+    node.addEventListener('click', () => {
+      document.querySelectorAll('.selected-anchor').forEach(selected => selected.classList.remove('selected-anchor'));
+      node.classList.add('selected-anchor');
+      state.selection = JSON.parse(node.dataset.anchor);
+      document.getElementById('request-info').disabled = false;
+    });
+  });
+}
+
+async function requestInformation() {
+  const preview = state.preview;
+  const anchor = state.selection;
+  if (!preview || !anchor) return;
+  const target = document.getElementById('rfi-result');
+  try {
+    const { rfi } = await api(`/api/projects/${encodeURIComponent(preview.projectId)}/rfi`, {
+      method: 'POST', body: JSON.stringify({ snapshotId: preview.snapshotId, path: preview.path, anchor }),
+    });
+    if (!target.isConnected || state.preview !== preview) return;
+    target.innerHTML = `<section class="source-lineage"><h3>Recorded source history</h3><p>${escapeHtml(rfi.message ?? 'The source has recorded provenance.')}</p>${rfi.history.map(item => `<p>Version ${item.version} · ${escapeHtml(String(item.value))}</p>`).join('')}${rfi.provenance.map(link => `<p>${escapeHtml(link.relation)} · ${escapeHtml(link.to.path ?? link.metadata?.label ?? 'Recorded source')}</p>`).join('')}</section>`;
+  } catch (error) { toast(error.message, 'error'); }
+}
+
 function textOffset(root, target, offset) {
   const range = document.createRange();
   range.setStart(root, 0);
@@ -299,6 +383,7 @@ function textOffset(root, target, offset) {
 }
 
 function setWorkspaceView(view) {
+  if (view !== 'editor') state.editor.navigationRevision += 1;
   state.view = view;
   const window_ = document.getElementById('app-window');
   window_?.classList.toggle('view-editor', view === 'editor');
@@ -309,6 +394,8 @@ function setWorkspaceView(view) {
 }
 
 function resetEditorProjectState() {
+  state.editor.navigationRevision += 1;
+  hideDependencyPicker();
   clearPrediction();
   clearTimeout(state.editor.autosaveTimer);
   clearTimeout(state.editor.revealTimer);
@@ -336,12 +423,13 @@ function resetEditorProjectState() {
 async function openManuscriptWorkspace(preferredPath = null, options = {}) {
   const projectId = options.projectId ?? state.project?.id;
   if (!projectId || state.project?.id !== projectId) return;
+  const navigationRevision = ++state.editor.navigationRevision;
   setWorkspaceView('editor');
   const column = document.querySelector('.files-column');
   column.innerHTML = '<div class="column-header"><div><span class="eyebrow">Project files</span><h2>Documents</h2></div><span class="editor-live-pill">Sources</span></div><div class="manuscript-browser" id="manuscript-browser"><p class="browser-loading">Finding editable documents…</p></div>';
   try {
     const { documents } = await api(`/api/projects/${projectId}/documents`);
-    if (state.project?.id !== projectId
+    if (state.project?.id !== projectId || navigationRevision !== state.editor.navigationRevision
       || (options.switchRevision != null && options.switchRevision !== state.projectSwitchRevision)) return;
     state.editor.documents = documents;
     renderManuscriptBrowser();
@@ -350,7 +438,7 @@ async function openManuscriptWorkspace(preferredPath = null, options = {}) {
     if (target) await openDocument(target, projectId);
     else elements['detail-column'].innerHTML = '<div class="detail-placeholder"><h2>No editable document found</h2><p>Add a document to the selected project, then checkpoint the project.</p></div>';
   } catch (error) {
-    if (state.project?.id !== projectId) return;
+    if (state.project?.id !== projectId || navigationRevision !== state.editor.navigationRevision) return;
     toast(error.message, 'error');
     const browser = document.getElementById('manuscript-browser');
     if (browser) browser.innerHTML = `<p class="browser-loading">${escapeHtml(error.message)}</p>`;
@@ -375,8 +463,20 @@ function renderManuscriptBrowser() {
 
 async function openDocument(filePath, requestedProjectId = state.project?.id) {
   if (!requestedProjectId || state.project?.id !== requestedProjectId) return;
+  const navigationRevision = ++state.editor.navigationRevision;
+  const isCurrent = () => navigationRevision === state.editor.navigationRevision && state.project?.id === requestedProjectId;
+  if (state.editor.document && (state.editor.dirty || state.editor.pendingLinks.length || state.editor.savePromise)) {
+    await saveDocument();
+    if (!isCurrent()) return;
+    if (state.editor.dirty || state.editor.pendingLinks.length) {
+      toast('Finish saving the current document before opening another document.', 'error');
+      return;
+    }
+  }
   shell.activeTab = `doc:${filePath}`;
+  setWorkspaceView('editor');
   refreshShell();
+  hideDependencyPicker();
   clearPrediction();
   clearTimeout(state.editor.autosaveTimer);
   state.editor.autosaveTimer = null;
@@ -389,19 +489,19 @@ async function openDocument(filePath, requestedProjectId = state.project?.id) {
   elements['detail-column'].innerHTML = '<div class="detail-placeholder"><p>Opening manuscript…</p></div>';
   try {
     const { document } = await api(`/api/projects/${requestedProjectId}/documents?path=${encodeURIComponent(filePath)}`);
-    if (state.project?.id !== requestedProjectId) return;
+    if (!isCurrent()) return;
+    const refreshedProject = (await api(`/api/projects/${requestedProjectId}`)).project;
+    if (!isCurrent()) return;
     state.editor.document = { ...prepareDocumentForEditor(document), projectId: requestedProjectId };
     state.editor.documents = state.editor.documents.map((item) => item.path === document.path
       ? { ...item, ...document.audit.summary }
       : item);
     state.editor.dirty = false;
-    const refreshedProject = (await api(`/api/projects/${requestedProjectId}`)).project;
-    if (state.project?.id !== requestedProjectId) return;
     state.project = refreshedProject;
     renderManuscriptBrowser();
     renderDocumentEditor();
   } catch (error) {
-    if (state.project?.id === requestedProjectId) toast(error.message, 'error');
+    if (isCurrent()) toast(error.message, 'error');
   }
 }
 
@@ -725,8 +825,8 @@ async function showSourcePeek(dependencyId, sourceNode) {
     peek.style.left = `${left}px`;
     peek.style.top = `${top}px`;
     peek.hidden = false;
-    peek.addEventListener('pointerenter', () => clearTimeout(state.editor.sourcePeekTimer));
-    peek.addEventListener('pointerleave', () => scheduleSourcePeekClose());
+    peek.onpointerenter = () => clearTimeout(state.editor.sourcePeekTimer);
+    peek.onpointerleave = () => scheduleSourcePeekClose();
     peek.querySelector('header button').addEventListener('click', () => scheduleSourcePeekClose(0));
     peek.querySelector('.source-peek-open').addEventListener('click', () => {
       scheduleSourcePeekClose(0);
@@ -999,6 +1099,7 @@ function caretOffsetWithin(block) {
 async function predictForBlock(block) {
   if (!block?.isConnected || !block.textContent.trim()) return;
   const requestedText = block.textContent;
+  const requestedDocument = state.editor.document;
   const controller = new AbortController();
   state.editor.predictionController?.abort();
   state.editor.predictionController = controller;
@@ -1008,7 +1109,7 @@ async function predictForBlock(block) {
     const blockIndex = Number(block.dataset.blockIndex);
     const section = blocks.slice(0, blockIndex + 1).reverse()
       .find((item) => item.dataset.blockType === 'heading')?.textContent ?? '';
-    const { prediction } = await api(`/api/projects/${state.project.id}/dependencies/predict`, {
+    const { prediction } = await api('/api/workspace/dependencies/predict', {
       method: 'POST', body: JSON.stringify({
         text: requestedText,
         context: blocks.slice(Math.max(0, blockIndex - 1), blockIndex + 2).map((item) => item.textContent).join(' '),
@@ -1016,6 +1117,7 @@ async function predictForBlock(block) {
         blockIndex,
         section,
         documentPath: state.editor.document.path,
+        documentProjectId: state.editor.document.projectId,
         sourceScopeBoundary: Number.isInteger(Number(block.dataset.sourceScopeBoundary))
           ? Number(block.dataset.sourceScopeBoundary) : undefined,
         pendingDependencies: pendingDependenciesForPrediction(),
@@ -1023,6 +1125,26 @@ async function predictForBlock(block) {
     });
     if (controller.signal.aborted || state.editor.predictionController !== controller
       || !block.isConnected || block.textContent !== requestedText) return;
+    if (prediction.workspaceRevision != null && prediction.workspaceRevision !== state.workspace.revision) {
+      clearPrediction();
+      const refreshController = new AbortController();
+      state.editor.predictionController = refreshController;
+      try {
+        const workspace = await api('/api/workspace', { signal: refreshController.signal });
+        if (refreshController.signal.aborted || state.editor.predictionController !== refreshController) return;
+        if (applyWorkspace(workspace)) {
+          renderProjectContext();
+          dependencyShell.reset();
+        }
+        if (block.isConnected && block.textContent === requestedText
+          && state.editor.document === requestedDocument && state.editor.activeBlock === block) {
+          state.editor.predictionTimer = setTimeout(() => predictForBlock(block), 45);
+        }
+      } finally {
+        if (state.editor.predictionController === refreshController) state.editor.predictionController = null;
+      }
+      return;
+    }
     if (prediction.sourceCompletions?.length && prediction.sourceContext?.source) {
       const findings = prediction.sourceCompletions.slice(0, AUTOMATIC_SUGGESTION_LIMIT)
         .map((finding) => ({ ...finding, block, requestedText }));
@@ -1593,7 +1715,7 @@ function createClaimAnchor(claim, textOverride = null) {
 async function linkCandidate(claim, candidate, selectionMethod, dependencyToChange = null, options = {}) {
   try {
     if (dependencyToChange) {
-      const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
+      const usageContext = { projectId: candidate.projectId ?? state.project?.id, documentPath: state.editor.document?.path };
       const project = (await api(`/api/projects/${state.project.id}`)).project;
       const result = await api(`/api/dependencies/${dependencyToChange.id}/revise`, {
         method: 'POST', body: JSON.stringify({
@@ -1607,7 +1729,7 @@ async function linkCandidate(claim, candidate, selectionMethod, dependencyToChan
       updateEditorVersion(result.snapshot);
       state.editor.document.dependencies = state.editor.document.dependencies
         .map((dependency) => dependency.id === dependencyToChange.id ? result.dependency : dependency);
-      recordRecommendationUsage({ objectId: candidate.id }, 'accept', usageContext);
+      recordRecommendationUsage({ objectId: candidate.id, projectId: candidate.projectId }, 'accept', usageContext);
       toast('Linked source changed');
       hideDependencyPicker();
       return;
@@ -1856,6 +1978,7 @@ function openManualPickerFromSelection() {
 }
 
 async function showDependencyPicker(claim, mode = 'link', dependency = null) {
+  hideDependencyPicker();
   clearPrediction();
   state.editor.manualClaim = claim;
   state.editor.pickerMode = mode;
@@ -1865,16 +1988,19 @@ async function showDependencyPicker(claim, mode = 'link', dependency = null) {
   if (inspector) inspector.hidden = true;
   picker.hidden = false;
   picker.className = 'dependency-picker';
-  picker.innerHTML = `<header><div><span class="eyebrow">Select dependency</span><strong>${mode === 'change' ? 'Change linked source' : `“${escapeHtml(claim.text.slice(0, 70))}”`}</strong></div><button id="close-picker" aria-label="Close dependency picker">×</button></header><label><span class="sr-only">Search project</span><input id="dependency-search" placeholder="Search sources, figures, datasets, and code"></label><div class="picker-results" id="picker-results"><p>Searching the current project…</p></div>`;
+  picker.innerHTML = `<header><div><span class="eyebrow">Select dependency</span><strong>${mode === 'change' ? 'Change linked source' : `“${escapeHtml(claim.text.slice(0, 70))}”`}</strong></div><button id="close-picker" aria-label="Close dependency picker">×</button></header><label><span class="sr-only">Search active directories</span><input id="dependency-search" placeholder="Search sources, figures, datasets, and code"></label><div class="picker-results" id="picker-results"><p>Searching active directories…</p></div>`;
   document.getElementById('close-picker').addEventListener('click', hideDependencyPicker);
   const input = document.getElementById('dependency-search');
   input.value = wordTokensForSearch(dependency
     ? `${dependency.source.label} ${dependency.source.valueText ?? ''}`
     : claim.searchText ?? claim.text);
-  let timer;
-  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => loadPickerResults(input.value, dependency), 220); });
+  input.addEventListener('input', () => {
+    clearTimeout(state.editor.pickerTimer);
+    state.editor.pickerController?.abort();
+    state.editor.pickerTimer = setTimeout(() => loadPickerResults(input.value, dependency), 220);
+  });
   await loadPickerResults(input.value, dependency);
-  input.focus();
+  if (input.isConnected && !picker.hidden) input.focus();
 }
 
 function wordTokensForSearch(value) {
@@ -1884,26 +2010,45 @@ function wordTokensForSearch(value) {
 async function loadPickerResults(query, dependency = null) {
   const target = document.getElementById('picker-results');
   if (!target) return;
+  state.editor.pickerController?.abort();
+  const controller = new AbortController();
+  state.editor.pickerController = controller;
+  const documentAtStart = state.editor.document;
+  const claim = state.editor.manualClaim;
+  const isCurrent = () => state.editor.pickerController === controller && !controller.signal.aborted && target.isConnected && state.editor.document === documentAtStart;
   const parameters = new URLSearchParams({ query });
   if (state.editor.document?.path) parameters.set('documentPath', state.editor.document.path);
-  const { objects } = await api(`/api/projects/${state.project.id}/dependency-objects?${parameters}`);
-  target.innerHTML = objects.length ? objects.map((object) => `<button class="picker-result" data-object-id="${object.id}" data-object-snapshot="${object.snapshotId}"><i class="object-type">${escapeHtml(object.objectType)}</i><span><strong>${escapeHtml(object.label)} ${object.valueText ? `<b>${escapeHtml(object.valueText)}</b>` : ''}</strong><small>${escapeHtml([object.path, object.ranking?.reason].filter(Boolean).join(' · '))}</small></span></button>`).join('') : '<div class="no-candidate"><strong>No matching project dependency found.</strong><span>Lasso will not invent a source.</span></div>';
+  if (state.editor.document?.projectId) parameters.set('documentProjectId', state.editor.document.projectId);
+  try {
+  const { objects } = await api(`/api/workspace/source-library?${parameters}`, { signal: controller.signal });
+  if (!isCurrent()) return;
+  target.innerHTML = objects.length ? objects.map((object) => `<button class="picker-result" data-object-id="${object.id}" data-object-snapshot="${object.snapshotId}"><i class="object-type">${escapeHtml(object.objectType)}</i><span><strong>${escapeHtml(object.label)} ${object.valueText ? `<b>${escapeHtml(object.valueText)}</b>` : ''}</strong><small>${escapeHtml([object.projectName, object.path, object.ranking?.reason].filter(Boolean).join(' · '))}</small></span></button>`).join('') : '<div class="no-candidate"><strong>No matching dependency in active directories.</strong><span>Lasso will not invent a source.</span></div>';
   target.querySelectorAll('[data-object-id]').forEach((button) => button.addEventListener('click', () => {
     const object = objects.find((candidate) => candidate.id === button.dataset.objectId && candidate.snapshotId === button.dataset.objectSnapshot);
-    linkCandidate(state.editor.manualClaim, object, 'MANUAL', dependency);
+    if (isCurrent() && object) linkCandidate(claim, object, 'MANUAL', dependency);
   }));
+  } catch (error) {
+    if (isCurrent()) target.innerHTML = `<div class="no-candidate"><strong>Could not search sources.</strong><span>${escapeHtml(error.message)}</span></div>`;
+  }
 }
 
 function hideDependencyPicker() {
+  clearTimeout(state.editor.pickerTimer);
+  state.editor.pickerTimer = null;
+  state.editor.pickerController?.abort();
+  state.editor.pickerController = null;
   const picker = document.getElementById('dependency-picker');
   if (picker) { picker.hidden = true; picker.replaceChildren(); }
 }
 
 async function showDependencyInspector(dependencyId, sourceNode = null) {
-  const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
-  const { dependency } = await api(`/api/dependencies/${dependencyId}`);
+  const request = ++state.editor.inspectorRequest;
+  const documentAtStart = state.editor.document;
   const inspector = document.getElementById('dependency-inspector');
   if (!inspector) return;
+  const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
+  const { dependency } = await api(`/api/dependencies/${dependencyId}`);
+  if (request !== state.editor.inspectorRequest || state.editor.document !== documentAtStart || !inspector.isConnected) return;
   state.editor.activeDependencyId = dependencyId;
   inspector.hidden = false;
   inspector.className = 'dependency-inspector';
@@ -1972,14 +2117,15 @@ async function showDependencyInspector(dependencyId, sourceNode = null) {
   recordRecommendationUsage({ dependencyId }, 'open', usageContext);
 
   inspector.querySelector('.native-source-inspector')?.focus({ preventScroll: true });
-  inspector.addEventListener('keydown', (event) => {
+  inspector.onkeydown = (event) => {
     if (event.key === 'Escape') { document.getElementById('close-inspector')?.click(); return; }
     const match = actions.find((action) => action.key === event.key.toLowerCase());
     if (match) { event.preventDefault(); document.getElementById(match.id)?.click(); }
-  });
+  };
 
   bindDraggableInspector(inspector);
   const close = () => {
+    state.editor.inspectorRequest += 1;
     inspector.hidden = true;
     state.editor.activeDependencyId = null;
   };
@@ -1991,7 +2137,7 @@ async function showDependencyInspector(dependencyId, sourceNode = null) {
     await openDependencySharing(dependency, true);
     document.getElementById('dependency-sharing')?.scrollIntoView({ block: 'nearest' });
   });
-  document.getElementById('open-dependency-origin')?.addEventListener('click', () => showPreview(origin.snapshotId, origin.path, null, origin.anchor));
+  document.getElementById('open-dependency-origin')?.addEventListener('click', () => showPreview(origin.snapshotId, origin.path, origin.anchor));
   document.getElementById('change-dependency')?.addEventListener('click', () => showDependencyPicker({ ...dependency.anchor, text: dependency.spanText }, 'change', dependency));
   document.getElementById('remove-dependency')?.addEventListener('click', () => reviseDependency(dependency, { action: 'REMOVE' }));
   document.getElementById('keep-historical')?.addEventListener('click', () => reviseDependency(dependency, { action: 'KEEP_HISTORICAL' }));
@@ -2049,6 +2195,7 @@ function ensureDependencySourceViewer() {
     if (event.target === dialog) dialog.close();
   });
   dialog.addEventListener('close', () => {
+    state.editor.viewerRequest += 1;
     dialog.querySelector('iframe')?.setAttribute('src', 'about:blank');
   });
   return dialog;
@@ -2092,6 +2239,7 @@ function renderDependencySourceViewer(dialog, viewer) {
 }
 
 async function openDependencySourceViewer(dependencyOrId, sheet = null) {
+  const request = ++state.editor.viewerRequest;
   const dependencyId = typeof dependencyOrId === 'string' ? dependencyOrId : dependencyOrId.id;
   const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
   const dialog = ensureDependencySourceViewer();
@@ -2101,10 +2249,11 @@ async function openDependencySourceViewer(dependencyOrId, sheet = null) {
   try {
     const query = sheet ? `?sheet=${encodeURIComponent(sheet)}` : '';
     const { viewer } = await api(`/api/dependencies/${encodeURIComponent(dependencyId)}/viewer${query}`);
-    if (!dialog.open) return;
+    if (!dialog.open || request !== state.editor.viewerRequest) return;
     renderDependencySourceViewer(dialog, viewer);
     if (!sheet) recordRecommendationUsage({ dependencyId }, 'open', usageContext);
   } catch (error) {
+    if (!dialog.open || request !== state.editor.viewerRequest) return;
     target.innerHTML = `<div class="source-viewer-unavailable"><strong>Source viewer unavailable</strong><p>${escapeHtml(error.message)}</p><button id="close-dependency-source-viewer">Close</button></div>`;
     document.getElementById('close-dependency-source-viewer').addEventListener('click', () => dialog.close());
   }
@@ -2167,11 +2316,15 @@ const SHARE_CHOICES = {
 async function openDependencySharing(dependency, alternativesOpen = false) {
   const target = document.getElementById('dependency-sharing');
   if (!target) return;
+  const request = ++state.editor.sharingRequest;
+  const isCurrent = () => request === state.editor.sharingRequest && target.isConnected;
   target.innerHTML = '<div class="share-loading">Loading source access…</div>';
   try {
     const { sharing } = await api(`/api/dependencies/${dependency.id}/share`);
+    if (!isCurrent()) return;
     renderDependencySharing(dependency, sharing, 'CONTEXT', alternativesOpen);
   } catch (error) {
+    if (!isCurrent()) return;
     target.innerHTML = `<div class="share-error">${escapeHtml(error.message)}</div>`;
   }
 }
@@ -2194,6 +2347,8 @@ function renderShareGrant(grant) {
 function renderDependencySharing(dependency, sharing, selectedScope = 'CONTEXT', alternativesOpen = false) {
   const target = document.getElementById('dependency-sharing');
   if (!target) return;
+  const request = ++state.editor.sharingRequest;
+  const isCurrent = () => request === state.editor.sharingRequest && target.isConnected;
   const selected = SHARE_CHOICES[selectedScope];
   const alternatives = Object.entries(SHARE_CHOICES).filter(([scope]) => scope !== selectedScope);
   target.innerHTML = `<section class="share-card">
@@ -2206,7 +2361,7 @@ function renderDependencySharing(dependency, sharing, selectedScope = 'CONTEXT',
     <button class="share-primary" id="apply-share-scope">${selectedScope === 'PRIVATE' ? 'Revoke source access' : `Create ${selectedScope === 'CONTEXT' ? 'context' : 'full-source'} link`}</button>
     ${sharing.grants.length ? `<div class="share-grants"><span class="eyebrow">Active links</span>${sharing.grants.map(renderShareGrant).join('')}</div>` : '<p class="no-share-grants">No active source links. The dependency is private.</p>'}
   </section>`;
-  document.getElementById('close-sharing').addEventListener('click', () => { target.replaceChildren(); });
+  document.getElementById('close-sharing').addEventListener('click', () => { state.editor.sharingRequest += 1; target.replaceChildren(); });
   document.getElementById('share-alternatives-toggle').addEventListener('click', () => renderDependencySharing(dependency, sharing, selectedScope, !alternativesOpen));
   target.querySelectorAll('[data-share-scope]').forEach((button) => button.addEventListener('click', () => renderDependencySharing(dependency, sharing, button.dataset.shareScope, false)));
   document.getElementById('apply-share-scope').addEventListener('click', async (event) => {
@@ -2222,7 +2377,7 @@ function renderDependencySharing(dependency, sharing, selectedScope = 'CONTEXT',
           actor: state.identity,
         }),
       });
-      renderDependencySharing(dependency, updated, selectedScope, false);
+      if (isCurrent()) renderDependencySharing(dependency, updated, selectedScope, false);
       toast(selectedScope === 'PRIVATE' ? 'Source access revoked' : `${selected.label} link created`);
     } catch (error) { toast(error.message, 'error'); button.disabled = false; }
   });
@@ -2238,7 +2393,7 @@ function renderDependencySharing(dependency, sharing, selectedScope = 'CONTEXT',
     try {
       await api(`/api/dependency-shares/${encodeURIComponent(button.dataset.revokeShare)}`, { method: 'DELETE' });
       const { sharing: updated } = await api(`/api/dependencies/${dependency.id}/share`);
-      renderDependencySharing(dependency, updated, selectedScope, alternativesOpen);
+      if (isCurrent()) renderDependencySharing(dependency, updated, selectedScope, alternativesOpen);
       toast('Source link revoked');
     } catch (error) { toast(error.message, 'error'); }
   }));
@@ -2368,12 +2523,16 @@ elements['import-form'].addEventListener('submit', async (event) => {
   submit.classList.add('loading'); submit.disabled = true;
   try {
     const values = Object.fromEntries(new FormData(form));
-    const result = await api('/api/projects/import', {
-      method: 'POST', body: JSON.stringify({ ...values, actor: state.identity }),
+    const rootPaths = values.rootPaths.split(/\r?\n/).map(path => path.trim()).filter(Boolean);
+    if (!rootPaths.length) throw new Error('Enter at least one absolute directory path.');
+    await api('/api/workspace/directories', {
+      method: 'POST', body: JSON.stringify({ rootPaths, actor: state.identity }),
     });
     elements['import-dialog'].close(); form.reset();
-    toast(result.imported ? 'Version 1 created' : 'Project already registered');
-    await loadProjects(result.project.id);
+    const workspace = await api('/api/workspace');
+    const added = workspace.directories.find(directory => rootPaths.includes(directory.rootPath));
+    toast(`${rootPaths.length} ${rootPaths.length === 1 ? 'directory' : 'directories'} included in workspace`);
+    await loadProjects(added?.id);
   } catch (error) { form.querySelector('[data-dialog-error]').textContent = error.message; }
   finally { submit.classList.remove('loading'); submit.disabled = false; }
 });
@@ -2456,11 +2615,15 @@ function paletteCommands() {
   }
 
   for (const project of state.projects ?? []) {
-    if (project.id === state.project?.id) continue;
-    commands.push({
+    if (project.id !== state.project?.id && project.available !== false) commands.push({
       title: `switch to ${project.name}`,
-      hint: `project · V${project.currentVersion}`,
+      hint: `documents · V${project.currentVersion}${project.active ? '' : ' · directory paused'}`,
       run: () => selectProject(project.id),
+    });
+    if (project.available !== false) commands.push({
+      title: `${project.active ? 'pause' : 'include'} ${project.name}`,
+      hint: 'workspace sources and suggestions',
+      run: () => toggleDirectory(project.id, !project.active),
     });
   }
 
@@ -2470,7 +2633,7 @@ function paletteCommands() {
   }
 
   commands.push(
-    { title: 'index a project directory', hint: 'add a new local project', run: () => openDialog(elements['import-dialog']) },
+    { title: 'add work directories', hint: 'include local folders in the workspace', run: () => openDialog(elements['import-dialog']) },
     { title: 'change identity', hint: `currently ${state.identity.displayName}`, run: () => {
       const form = elements['identity-form'];
       form.elements.displayName.value = state.identity.displayName;
@@ -2502,7 +2665,9 @@ function directoriesFromProjects() {
     id: project.id,
     name: project.name,
     path: project.rootPath,
-    status: project.id === state.project?.id ? 'active' : 'available',
+    active: project.active,
+    available: project.available,
+    error: project.error,
   }));
 }
 
@@ -2518,12 +2683,27 @@ function refreshShell() {
   shell.sidebar?.set(directoriesFromProjects(), state.project?.id ?? null);
   shell.tabs?.set(tabsForWorkspace(), shell.activeTab);
   const chrome = document.getElementById('window-project-name');
-  if (chrome) chrome.textContent = state.project?.name ?? 'Choose a project';
+  if (chrome) {
+    const active = state.projects.filter(project => project.active && project.available !== false).length;
+    chrome.textContent = active ? `${active} work ${active === 1 ? 'directory' : 'directories'}` : 'Choose work directories';
+  }
 }
 
 /// Return to the structured workspace overview.
-function showSession() {
+async function showSession() {
+  const navigationRevision = ++state.editor.navigationRevision;
+  const projectId = state.project?.id;
+  const switchRevision = state.projectSwitchRevision;
+  if (state.editor.document && (state.editor.dirty || state.editor.pendingLinks.length || state.editor.savePromise)) {
+    await saveDocument();
+    if (state.project?.id !== projectId || state.projectSwitchRevision !== switchRevision || navigationRevision !== state.editor.navigationRevision) return false;
+    if (state.editor.dirty || state.editor.pendingLinks.length) {
+      toast('Finish saving the current document before opening the source library.', 'error');
+      return false;
+    }
+  }
   shell.activeTab = 'session';
+  hideDependencyPicker();
   state.editor.document = null;
   setWorkspaceView('session');
   if (!state.project) {
@@ -2536,7 +2716,7 @@ function showSession() {
     });
     document.getElementById('empty-add-project')?.addEventListener('click', () => openDialog(elements['import-dialog']));
     refreshShell();
-    return;
+    return true;
   }
   elements['detail-column'].innerHTML = '<div class="dsh" id="dependency-shell"></div>';
   dependencyShell.setHost(document.getElementById('dependency-shell'));
@@ -2545,6 +2725,7 @@ function showSession() {
   // The prompt is this view's primary surface, so it takes focus with it.
 
   refreshShell();
+  return true;
 }
 
 function selectShellTab(id) {
@@ -2559,14 +2740,11 @@ applyTheme(currentTheme());
 shell.sidebar = createDirectorySidebar({
   host: document.getElementById('directory-list'),
   onSelect: (id) => selectProject(id).catch((error) => toast(error.message, 'error')),
+  onToggle: toggleDirectory,
 });
 shell.tabs = createTabBar({
   host: document.getElementById('tab-scroll'),
   onSelect: selectShellTab,
-});
-createSidebarResize({
-  handle: document.getElementById('resize-handle'),
-  root: document.documentElement,
 });
 document.getElementById('sidebar-add').addEventListener('click', () => openDialog(elements['import-dialog']));
 const terminalInput = document.getElementById('terminal-input');
@@ -2577,13 +2755,15 @@ const dependencyShell = createSourceWorkbench({
   input: terminalInput,
   api,
   getProjectId: () => state.project?.id ?? null,
+  getProjectVersion: workspaceVersion,
+  getWorkspaceId: () => workspaceVersion(),
+  getDocumentProjectId: () => state.editor.document?.projectId ?? null,
   getDocumentPath: () => state.editor.document?.path ?? null,
   getContext: () => state.editor.activeBlock?.textContent ?? '',
   getActor: () => state.identity,
   onRecommendationUsage: recordRecommendationUsage,
-  build: UI_BUILD,
   onOpenSource: (object, context) => {
-    if (object.snapshotId) { setWorkspaceView('source'); showPreview(object.snapshotId, object.path, null, null, object, context); }
+    if (object.snapshotId) { setWorkspaceView('source'); showPreview(object.snapshotId, object.path, null, object, context); }
   },
   onStatus: (message) => toast(message),
   onSession: (session) => {
@@ -2595,24 +2775,27 @@ const dependencyShell = createSourceWorkbench({
     if (changeCount) changeCount.textContent = session?.changes ? String(session.changes) : '';
     if (reviewCount) reviewCount.textContent = review ? String(review) : '';
   },
-  onOpenDocument: (documentPath, reference) => {
+  onOpenDocument: async (documentPath, reference) => {
     const target = documentPath ?? reference?.documentPath;
     if (!target) return;
-    openDocument(target).then(() => {
+    try {
+      const projectId = reference?.projectId ?? state.project?.id;
+      if (projectId !== state.project?.id && !await selectProject(projectId, false)) return;
+      await openDocument(target, projectId);
       if (reference?.dependencyId) focusDependency(reference.dependencyId);
-    }).catch((error) => toast(error.message, 'error'));
+    } catch (error) { toast(error.message, 'error'); }
   },
 });
 createSpatialWorkbench({
   projectTrigger: document.getElementById('project-pill'),
   projectPopover: document.getElementById('project-popover'),
   workspaceButton: document.getElementById('workspace-nav'),
-  onWorkspace: () => { showSession(); dependencyShell.run('index status'); },
+  onWorkspace: async () => { if (await showSession()) await dependencyShell.run('index status'); },
 });
 document.querySelectorAll('[data-workspace-query]').forEach((button) => {
-  button.addEventListener('click', () => {
+  button.addEventListener('click', async () => {
     if (!state.project) { openDialog(elements['import-dialog']); return; }
-    showSession();
+    if (!await showSession()) return;
     document.querySelectorAll('.rail-item').forEach((item) => item.classList.remove('active'));
     button.closest('.rail-item')?.classList.add('active');
     dependencyShell.run(button.dataset.workspaceQuery);

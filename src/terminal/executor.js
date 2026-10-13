@@ -298,8 +298,17 @@ export class TerminalCommandExecutor {
    * Runs the enabled rules against the changes recorded by a capture. Called
    * after every capture, so the terminal and the editor read the same flags.
    */
-  evaluateRules(projectId) {
-    const changes = this.graph.valueChanges(projectId, { limit: 200 });
+  evaluateRules(projectId, capture = null) {
+    if (!this.rules.list(projectId, { enabledOnly: true })
+      .some((rule) => rule.action.kind !== 'EXCLUDE_FROM_AUTOCOMPLETE')) return [];
+    if (capture && !capture.event?.previousSnapshotId) return [];
+    const changes = this.graph.valueChanges(projectId, {
+      limit: 200,
+      ...(capture ? {
+        snapshotId: capture.snapshot.id,
+        previousSnapshotId: capture.event.previousSnapshotId,
+      } : {}),
+    });
     if (!changes.length) return [];
     const shares = this.graph.shares(projectId, { status: 'active' });
     return this.rules.evaluate(projectId, { changes, shares });

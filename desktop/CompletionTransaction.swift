@@ -26,7 +26,6 @@ struct CompletionPlan: Equatable {
     /// What replaces it.
     let insertText: String
 
-    var isPureInsertion: Bool { range.isEmpty }
 }
 
 /// A bounded view of a host document. Browser editors such as Gmail expose the

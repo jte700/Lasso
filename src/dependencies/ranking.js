@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { HttpError } from '../history/errors.js';
+import { BoundedCache } from '../cache.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SESSION_MS = 30 * 60 * 1000;
@@ -59,6 +60,35 @@ export class RecommendationRanking {
     this.timeline = timeline;
     this.db = timeline.db;
     this.now = now;
+    this.snapshotCache = new BoundedCache({ maxEntries: 16, maxWeight: 120_000,
+      weight: (snapshot) => snapshot.files.size + snapshot.objects.size });
+  }
+
+  close() { this.snapshotCache.clear(); }
+  invalidateSnapshot(snapshotId) { this.snapshotCache.delete(snapshotId); }
+
+  indexedSnapshot(projectId, snapshotId) {
+    const cached = this.snapshotCache.get(snapshotId);
+    if (cached) return cached.projectId === projectId ? cached : null;
+    const row = this.db.prepare(`SELECT s.project_id, i.snapshot_id AS indexed
+      FROM snapshots s LEFT JOIN snapshot_object_indexes i ON i.snapshot_id = s.id
+      WHERE s.id = ? AND s.project_id = ?`).get(snapshotId, projectId);
+    if (!row) return null;
+    const files = this.db.prepare('SELECT path, project_file_id FROM snapshot_files WHERE snapshot_id = ?')
+      .all(snapshotId);
+    const versions = this.db.prepare(`SELECT v.object_id, v.path FROM scientific_object_versions v
+      JOIN scientific_objects o ON o.id = v.object_id WHERE v.snapshot_id = ? AND o.project_id = ?`)
+      .all(snapshotId, projectId);
+    const snapshot = {
+      projectId,
+      files: new Map(files.map((file) => [file.path, file])),
+      pathsById: new Map(files.map((file) => [file.project_file_id, file.path])),
+      objects: new Set(versions.map((version) => `${version.object_id}\u0000${version.path}`)),
+    };
+    // A partially built index can acquire objects later. Cache only completed,
+    // immutable snapshots so validation never rejects newly indexed sources.
+    if (row.indexed) this.snapshotCache.set(snapshotId, snapshot);
+    return snapshot;
   }
 
   record(projectId, { path: filePath, kind, sessionId, documentPath } = {}) {
@@ -177,6 +207,7 @@ export class RecommendationRanking {
     const project = this.timeline.getProject(projectId);
     const query = normalized(options.query);
     const limit = Math.trunc(finiteOption(options.limit, 8, 0, candidates.length));
+    if (!limit || !candidates.length) return [];
     const minimumScore = finiteOption(options.minimumScore, 0, 0, 1);
     const maxPerFile = Math.trunc(finiteOption(options.maxPerFile, 2, 1, Math.max(1, candidates.length)));
     const document = typeof options.documentPath === 'string'
@@ -187,41 +218,30 @@ export class RecommendationRanking {
     // Resolve its file identity to the current path for usage and relationships.
     const snapshots = [...new Set([project.currentSnapshotId, ...candidates.map((candidate) =>
       (candidate.object ?? candidate).snapshotId).filter((value) => typeof value === 'string')])];
-    const files = new Map(this.db.prepare(`SELECT sf.snapshot_id, sf.path, sf.project_file_id,
-        current_file.path AS current_path
-      FROM snapshot_files sf JOIN snapshots s ON s.id = sf.snapshot_id
-      LEFT JOIN snapshot_files current_file ON current_file.project_file_id = sf.project_file_id
-        AND current_file.snapshot_id = ?
-      WHERE s.project_id = ? AND sf.snapshot_id IN (${snapshots.map(() => '?').join(',')})`)
-      .all(project.currentSnapshotId, projectId, ...snapshots)
-      .map((file) => [`${file.snapshot_id}\u0000${file.path}`, file]));
+    const indexed = new Map(snapshots.map((snapshotId) => [snapshotId, this.indexedSnapshot(projectId, snapshotId)]));
+    const current = indexed.get(project.currentSnapshotId);
     const objectIdentity = (source) => source.objectId ?? (source.objectType ? source.id : null);
-    const objectIds = [...new Set(candidates.map((candidate) => objectIdentity(candidate.object ?? candidate))
-      .filter((value) => typeof value === 'string'))];
-    const objectVersions = new Set(objectIds.length ? this.db.prepare(`
-      SELECT v.object_id, v.snapshot_id, v.path FROM scientific_object_versions v
-      JOIN scientific_objects o ON o.id = v.object_id JOIN snapshots s ON s.id = v.snapshot_id
-      WHERE o.project_id = ? AND s.project_id = ?
-        AND v.snapshot_id IN (${snapshots.map(() => '?').join(',')})
-        AND v.object_id IN (${objectIds.map(() => '?').join(',')})`)
-      .all(projectId, projectId, ...snapshots, ...objectIds)
-      .map((version) => `${version.object_id}\u0000${version.snapshot_id}\u0000${version.path}`) : []);
     const prepared = candidates.flatMap((candidate, index) => {
       const source = candidate.object ?? candidate;
       if (source.projectId != null && source.projectId !== projectId) return [];
       const snapshotId = source.snapshotId ?? project.currentSnapshotId;
       const filePath = candidate.path ?? source.path;
-      const file = files.get(`${snapshotId}\u0000${filePath}`);
+      const snapshot = indexed.get(snapshotId);
+      const file = snapshot?.files.get(filePath);
       if (!file) return [];
       const sourceId = objectIdentity(source);
       if ((source.objectType || source.objectId != null)
-        && !objectVersions.has(`${sourceId}\u0000${snapshotId}\u0000${filePath}`)) return [];
-      const match = textMatch(candidate, query);
+        && !snapshot.objects.has(`${sourceId}\u0000${filePath}`)) return [];
+      // Retrieval already supplied the score and explanation for most callers.
+      // Preserve direct-match protection without tokenizing the same source a
+      // second time merely to calculate an unused fallback score.
+      const match = Number.isFinite(candidate.score) && candidate.reasons?.[0] != null
+        ? directRecommendationMatch(candidate, query) : textMatch(candidate, query);
       const relevanceScore = Number.isFinite(candidate.score) ? clamp(candidate.score) : match.score;
       if (relevanceScore < minimumScore) return [];
       const usage = usageByFile.get(file.project_file_id);
       const documentUsed = Boolean(document && usage?.documentProjectFileIds.includes(document.projectFileId));
-      const relationship = related.has(file.current_path ?? file.path) || documentUsed;
+      const relationship = related.has(current?.pathsById.get(file.project_file_id) ?? file.path) || documentUsed;
       const explicitTier = Number.isInteger(candidate.matchTier) && candidate.matchTier >= 0 && candidate.matchTier <= 3;
       const tier = !query ? 3 : match.direct ? 0 : explicitTier ? candidate.matchTier
         : relevanceScore > 0 ? 1 : relationship ? 2 : 3;

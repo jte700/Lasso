@@ -135,6 +135,20 @@ test('public share routes', async (suite) => {
     assert.equal((await fetch(`${base}/d/${share.token}/download`)).status, 403);
   });
 
+  await suite.test('redacting an indexed row label also removes it from the page title and heading', async () => {
+    const share = application.objectShares.createShare({
+      projectId: project.id, objectId: object.object_id, versionId: object.version_id, actor: maya,
+      accessScope: 'REDACTED',
+      redactions: [{ kind: 'CELL', sheet: 0, row: 1, column: 0, effect: 'BLANK' }],
+    });
+    const page = await fetch(`${base}/d/${share.token}`);
+    const html = await page.text();
+    assert.equal(page.status, 200);
+    assert.doesNotMatch(html, /Office Supplies/);
+    assert.match(html, /<h1>Income-Statement\.csv<\/h1>/);
+    assert.match(html, /Payroll taxes/);
+  });
+
   await suite.test('unknown and malformed tokens do not leak anything', async () => {
     const unknown = await fetch(`${base}/d/${'a'.repeat(32)}`);
     assert.equal(unknown.status, 404);

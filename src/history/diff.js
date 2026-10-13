@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { hashBuffer } from './blob-store.js';
+import { isTextualType } from './file-types.js';
 
 function decode(buffer) {
   return buffer?.toString('utf8').replace(/\r\n/g, '\n') ?? '';
@@ -280,6 +281,7 @@ export function createStructuredDiff({ fileType, filePath, beforeBuffer, afterBu
     return { format: 'file', message: changeType === 'MOVED' ? 'File moved.' : 'File renamed.' };
   }
   if (!beforeBuffer || !afterBuffer) return { format: 'binary', message: 'File changed. Structured comparison unavailable.' };
+  if (!isTextualType(fileType)) return { format: 'binary', message: 'File changed. Structured comparison unavailable.' };
 
   const beforeText = decode(beforeBuffer);
   const afterText = decode(afterBuffer);

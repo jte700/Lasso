@@ -30,18 +30,18 @@
             <span class="workspace-symbol" aria-hidden="true">
               <svg viewBox="0 0 20 20"><path d="M3.5 6.5h5l1.7 2H16.5v7H3.5Z"/></svg>
             </span>
-            <span><small>Workspace</small><strong id="window-project-name">Choose project</strong></span>
+            <span><small>Workspace</small><strong id="window-project-name">Choose work directories</strong></span>
             <svg class="disclosure" viewBox="0 0 12 8" aria-hidden="true"><path d="M1.5 1.5 6 6l4.5-4.5"/></svg>
           </button>
 
           <div class="project-popover utility-popover" id="project-popover" hidden>
             <header>
-              <div><small>Local workspaces</small><strong>Projects</strong></div>
-              <button class="toolbar-icon" id="sidebar-add" type="button" title="Index a project" aria-label="Index a project">
+              <div><small>Include folders with the checkboxes</small><strong>Work directories</strong></div>
+              <button class="toolbar-icon" id="sidebar-add" type="button" title="Add work directories" aria-label="Add work directories">
                 <svg viewBox="0 0 20 20"><path d="M10 4v12M4 10h12"/></svg>
               </button>
             </header>
-            <div class="directory-list" id="directory-list" role="listbox" aria-label="Projects"></div>
+            <div class="directory-list" id="directory-list" role="group" aria-label="Work directories"></div>
             <footer><span id="status-version">No index yet</span><span id="status-identity">Local user</span></footer>
           </div>
         </div>
@@ -51,7 +51,6 @@
           <input id="terminal-input" type="text" autocomplete="off" spellcheck="false"
                  aria-label="Search files, phrases, or values" placeholder="Search files, phrases, or values" />
           <kbd>⌘K</kbd>
-          <div class="dsh-completion" id="dsh-completion" hidden aria-label="Suggestions"></div>
         </label>
 
         <div class="toolbar-actions">
@@ -99,7 +98,7 @@
           <div class="rail-spacer"></div>
           <section class="writing-assist" aria-label="Suggestions while writing">
             <button id="writing-assist-toggle" type="button" role="switch" aria-checked="false" hidden><span>Writing suggestions</span><i aria-hidden="true"></i></button>
-            <details><summary>Use Lasso in other apps</summary><p>Choose a project here, then enable writing suggestions in the Mac app. While you write in Word or another supported app, press Tab to insert a suggested value with a tracked source.</p></details>
+            <details><summary>Use Lasso in other apps</summary><p>Include work directories from the Mac menu bar, then enable writing suggestions. While you write in Word or another supported app, press Tab to insert a suggested value with a tracked source. Suggestions combine all included directories.</p></details>
           </section>
           <div class="workspace-summary">
             <span class="summary-indicator"></span>
@@ -131,7 +130,6 @@
       </div>
     </div>
 
-    <div id="resize-handle" hidden></div>
     <label class="sr-only" for="project-select">Project</label>
     <select id="project-select" class="sr-only"><option value="">No project selected</option></select>
     <button id="ribbon-editor" class="sr-only" disabled>Documents</button>
@@ -142,16 +140,15 @@
       <form method="dialog" id="import-form">
         <header class="dialog-heading">
           <span class="dialog-icon"><svg viewBox="0 0 22 22"><path d="M3.5 7h6l1.5 2h7.5v9H3.5Z"/><path d="M11 11v5M8.5 13.5h5"/></svg></span>
-          <div><span class="eyebrow">Local workspace</span><h2>Index a project</h2></div>
+          <div><span class="eyebrow">Local workspace</span><h2>Add work directories</h2></div>
           <button class="dialog-close toolbar-icon" type="button" data-close-dialog aria-label="Close">×</button>
         </header>
-        <p>Lasso reads the directory in place and keeps its version history separately.</p>
-        <label>Directory path<input name="rootPath" type="text" placeholder="/Users/you/Research" required /></label>
-        <label>Project name <span>(optional)</span><input name="name" type="text" placeholder="Research workspace" /></label>
+        <p>Enter one absolute directory path per line. All added directories are included in suggestions and search. Files stay in place and their histories remain separate.</p>
+        <label>Directory paths<textarea name="rootPaths" rows="3" placeholder="/Users/you/Research&#10;/Users/you/Finance" required></textarea></label>
         <div class="dialog-error" data-dialog-error></div>
         <div class="dialog-actions">
           <button class="secondary-button" type="button" data-close-dialog>Cancel</button>
-          <button class="primary-button" type="submit" value="default">Index project</button>
+          <button class="primary-button" type="submit" value="default">Add directories</button>
         </div>
       </form>
     </dialog>
@@ -179,6 +176,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=57"></script>
+    <script type="module" src="/app.js?v=58"></script>
   </body>
 </html>

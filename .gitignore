@@ -6,3 +6,4 @@ node_modules/
 *.sqlite-shm
 dist/
 desktop/BuildConfig.swift
+ed.hup

@@ -8,6 +8,7 @@
 
 import path from 'node:path';
 import { json } from '../db.js';
+import { BoundedCache } from '../cache.js';
 import { parseDelimited } from '../history/diff.js';
 import { extractSpreadsheetTables } from '../dependencies/document-extraction.js';
 import { directRecommendationMatch } from '../dependencies/ranking.js';
@@ -26,6 +27,11 @@ function normalizeQueryName(value) {
   return slug(value);
 }
 
+function namedObject(object) {
+  return { ...object, name: dependencyName(object), locator: sourceLocator(object),
+    directory: sourceDirectory(object.path), fileName: sourceFileName(object.path) };
+}
+
 export class DependencyGraph {
   constructor({ timeline, dependencies, objectShares = null, aliases = null }) {
     this.timeline = timeline;
@@ -33,11 +39,19 @@ export class DependencyGraph {
     this.objectShares = objectShares;
     this.aliases = aliases;
     this.db = timeline.db;
-    this.namedObjectCache = new Map();
-    this.unsubscribe = timeline.onCapture(() => this.namedObjectCache.clear());
+    this.namedObjectCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length });
+    this.foreignDependencyCache = new BoundedCache({ maxEntries: 16, maxWeight: 10_000,
+      weight: (dependencies) => dependencies.length });
+    this.unsubscribe = timeline.onCapture((capture) => {
+      const previous = capture?.event?.previousSnapshotId;
+      if (previous) {
+        this.namedObjectCache.delete(previous);
+        this.foreignDependencyCache.delete(previous);
+      }
+    });
   }
 
-  close() { this.unsubscribe?.(); }
+  close() { this.unsubscribe?.(); this.namedObjectCache.clear(); this.foreignDependencyCache.clear(); }
 
   project(projectId) { return this.timeline.getProject(projectId); }
 
@@ -52,15 +66,39 @@ export class DependencyGraph {
    */
   namedObjects(projectId, snapshotId = null) {
     const target = snapshotId ?? this.currentSnapshotId(projectId);
-    if (this.namedObjectCache.has(target)) return this.namedObjectCache.get(target);
-    const objects = this.dependencies.objectsAt(projectId, target).map((object) => ({
-      ...object,
-      name: dependencyName(object),
-      locator: sourceLocator(object),
-      directory: sourceDirectory(object.path),
-      fileName: sourceFileName(object.path),
-    }));
-    this.namedObjectCache.set(target, objects);
+    let ownObjects = this.namedObjectCache.get(target);
+    if (!ownObjects) {
+      ownObjects = this.dependencies.objectsAt(projectId, target).map(namedObject);
+      this.namedObjectCache.set(target, ownObjects);
+    }
+    // Sources remain in their owning version chain. A destination needs the
+    // sources it references for trace/update/unlink without importing their
+    // complete corpus or confusing equal paths from different roots.
+    const foreign = new Map();
+    let foreignDependencies = this.foreignDependencyCache.get(target);
+    if (!foreignDependencies) {
+      foreignDependencies = this.dependencies.currentDependencies(projectId, { snapshotId: target })
+        .filter((dependency) => dependency.source.projectId !== projectId);
+      this.foreignDependencyCache.set(target, foreignDependencies);
+    }
+    if (!foreignDependencies.length) return ownObjects;
+    const sourceHeads = new Map();
+    for (const dependency of foreignDependencies) {
+      const ownerId = this.dependencies.sourceProjectId(dependency.source);
+      if (!sourceHeads.has(ownerId)) sourceHeads.set(ownerId, this.currentSnapshotId(ownerId));
+    }
+    const foreignKey = `${target}|${snapshotId ? 'historical' : [...sourceHeads.values()].join('|')}`;
+    const combined = this.namedObjectCache.get(foreignKey);
+    if (combined) return combined;
+    for (const dependency of foreignDependencies) {
+      const ownerId = this.dependencies.sourceProjectId(dependency.source);
+      if (!ownerId || ownerId === projectId || foreign.has(dependency.source.id)) continue;
+      const sourceSnapshotId = snapshotId ? dependency.source.snapshotId : sourceHeads.get(ownerId);
+      const current = this.dependencies.objectAt(ownerId, sourceSnapshotId, dependency.source.id);
+      foreign.set(dependency.source.id, current ?? { ...dependency.source, currentSourceAvailable: false });
+    }
+    const objects = foreign.size ? [...ownObjects, ...[...foreign.values()].map(namedObject)] : ownObjects;
+    this.namedObjectCache.set(foreignKey, objects);
     return objects;
   }
 
@@ -78,13 +116,63 @@ export class DependencyGraph {
     return this.namedObjects(projectId, snapshotId).find((object) => object.id === objectId) ?? null;
   }
 
+  suggestionFilter(projectId, options = {}) {
+    const filters = new Map();
+    return (object) => {
+      const ownerId = object.projectId ?? projectId;
+      if (ownerId !== projectId && this.dependencies.workspace && !this.dependencies.workspace.isActive(ownerId)) return false;
+      if (options.surface === 'search' || options.sourcePath) return true;
+      if (!filters.has(ownerId)) filters.set(ownerId, this.dependencies.autocompleteFilter(ownerId));
+      return filters.get(ownerId)(object);
+    };
+  }
+
   // ── search ───────────────────────────────────────────────────────────────
 
   /** Use the same relevance, relationship and usage priorities as the editor. */
   rankRecommendations(projectId, candidates, options = {}) {
     const ordered = [...candidates].sort((left, right) => String(left.name ?? left.label ?? '').localeCompare(String(right.name ?? right.label ?? ''))
       || String(left.path ?? '').localeCompare(String(right.path ?? '')));
-    return this.dependencies.ranking.rank(projectId, ordered, options);
+    const owners = new Map();
+    for (const candidate of ordered) {
+      const source = candidate.object ?? candidate;
+      const ownerId = source.projectId ?? projectId;
+      const group = owners.get(ownerId) ?? [];
+      group.push(candidate);
+      owners.set(ownerId, group);
+    }
+    if (!owners.size || (owners.size === 1 && owners.has(projectId))) {
+      return this.dependencies.ranking.rank(projectId, ordered, options);
+    }
+    const ranked = [];
+    for (const [ownerId, group] of owners) {
+      ranked.push(...this.dependencies.ranking.rank(ownerId, group, { ...options,
+        documentPath: ownerId === projectId ? options.documentPath : null,
+        relatedPaths: ownerId === projectId ? options.relatedPaths : group.map((candidate) => candidate.path),
+        limit: group.length, diversify: false,
+      }));
+    }
+    const hasQuery = Boolean(options.query);
+    ranked.sort((a, b) => a.ranking.tier - b.ranking.tier
+      || b.ranking.directSpecificity - a.ranking.directSpecificity
+      || (hasQuery ? b.ranking.relevanceBand - a.ranking.relevanceBand : 0)
+      || (hasQuery ? Number(b.ranking.relationship) - Number(a.ranking.relationship)
+        : b.ranking.recentScore - a.ranking.recentScore || b.ranking.frequencyScore - a.ranking.frequencyScore)
+      || (hasQuery ? (b.ranking.relevanceScore + b.ranking.usageBoost) - (a.ranking.relevanceScore + a.ranking.usageBoost)
+        : Number(b.ranking.relationship) - Number(a.ranking.relationship))
+      || b.ranking.relevanceScore - a.ranking.relevanceScore
+      || String(a.id ?? a.objectId ?? '').localeCompare(String(b.id ?? b.objectId ?? '')));
+    const limit = options.limit ?? 8;
+    if (options.diversify === false) return ranked.slice(0, limit);
+    const counts = new Map();
+    return ranked.filter((candidate) => {
+      const source = candidate.object ?? candidate;
+      const key = `${source.projectId ?? projectId}|${candidate.diversityKey ?? candidate.path ?? source.path}`;
+      const count = counts.get(key) ?? 0;
+      if (count >= (options.maxPerFile ?? 2)) return false;
+      counts.set(key, count + 1);
+      return true;
+    }).slice(0, limit);
   }
 
   /**
@@ -108,6 +196,8 @@ export class DependencyGraph {
     // would drag in every sibling that shares a directory.
     const named = raw.toLowerCase();
     const permitted = (object) => {
+      if (object.projectId !== projectId && this.dependencies.workspace
+        && !this.dependencies.workspace.isActive(object.projectId)) return false;
       if (options.sourcePath && object.path !== options.sourcePath) return false;
       if (options.directory && !`${object.path}/`.toLowerCase().startsWith(`${String(options.directory).replace(/\/+$/, '').toLowerCase()}/`)) return false;
       if (options.sourceType && path.posix.extname(object.path).slice(1).toLowerCase() !== String(options.sourceType).toLowerCase().replace(/^\./, '')) return false;
@@ -234,8 +324,7 @@ export class DependencyGraph {
   nameSuggestions(projectId, fragment, limit = 12, options = {}) {
     const wanted = normalizeQueryName(fragment);
     const candidates = [];
-    const permitted = options.surface === 'search' || options.sourcePath
-      ? () => true : this.dependencies.autocompleteFilter(projectId);
+    const permitted = this.suggestionFilter(projectId, options);
     const describe = (object) => ({
       name: object.name,
       label: object.name,
@@ -243,6 +332,7 @@ export class DependencyGraph {
       value: object.valueText ?? null,
       detail: [object.fileName, object.locator].filter(Boolean).join(' · '),
       path: object.path,
+      projectId: object.projectId,
       id: object.id,
       objectId: object.id,
       objectKey: object.objectKey,
@@ -302,8 +392,7 @@ export class DependencyGraph {
     const wanted = String(fragment ?? '').trim().toLowerCase();
     const contextTerms = tokens(options.context);
     const files = new Map();
-    const permitted = options.surface === 'search' || options.sourcePath
-      ? () => true : this.dependencies.autocompleteFilter(projectId);
+    const permitted = this.suggestionFilter(projectId, options);
     for (const object of this.namedObjects(projectId)) {
       if (!permitted(object) || (options.sourcePath && object.path !== options.sourcePath)) continue;
       const name = object.fileName.toLowerCase();
@@ -319,15 +408,17 @@ export class DependencyGraph {
         const hits = contextTerms.filter((term) => haystack.includes(term)).length;
         if (hits) { score = 0.25 + (hits / contextTerms.length) * 0.35; matchTier = 1; reason = 'Matches current context'; }
       }
-      const existing = files.get(object.path);
+      const fileKey = `${object.projectId ?? projectId}|${object.path}`;
+      const existing = files.get(fileKey);
       if (existing && existing.score >= score) continue;
-      files.set(object.path, {
+      files.set(fileKey, {
         name: object.path,
         label: object.fileName,
         path: object.path,
+        projectId: object.projectId,
         kind: 'source',
         value: null,
-        detail: `${this.objectsInFile(projectId, object.path)} indexed`,
+        detail: `${this.objectsInFile(projectId, object.path, object.projectId)} indexed`,
         score, matchTier, reasons: [reason],
       });
     }
@@ -337,15 +428,16 @@ export class DependencyGraph {
   }
 
   /** How many indexed objects one file contributes. */
-  objectsInFile(projectId, filePath) {
-    return this.namedObjects(projectId).filter((object) => object.path === filePath).length;
+  objectsInFile(projectId, filePath, ownerId = null) {
+    return this.namedObjects(projectId).filter((object) => object.path === filePath
+      && (!ownerId || object.projectId === ownerId)).length;
   }
 
   /** Directories that hold indexed files, for `--directory` and `index remove`. */
   directorySuggestions(projectId, fragment, limit = 10) {
     const wanted = String(fragment ?? '').toLowerCase().replace(/\/+$/, '');
     const directories = new Map();
-    for (const object of this.namedObjects(projectId)) {
+    for (const object of this.namedObjects(projectId).filter((object) => object.projectId === projectId)) {
       const parts = sourceDirectory(object.path).split('/').filter(Boolean);
       for (let depth = 1; depth <= parts.length; depth += 1) {
         const directory = parts.slice(0, depth).join('/');
@@ -369,8 +461,7 @@ export class DependencyGraph {
   /** `path:locator` addresses, which is what `alias` pins. */
   addressSuggestions(projectId, fragment, limit = 12, options = {}) {
     const wanted = String(fragment ?? '').toLowerCase();
-    const permitted = options.surface === 'search' || options.sourcePath
-      ? () => true : this.dependencies.autocompleteFilter(projectId);
+    const permitted = this.suggestionFilter(projectId, options);
     const candidates = this.addressableObjects(projectId)
       .filter((object) => permitted(object) && (!options.sourcePath || object.path === options.sourcePath))
       .map((object) => ({
@@ -381,6 +472,7 @@ export class DependencyGraph {
         objectKey: object.objectKey,
         diversityKey: object.objectType === 'REFERENCE' ? object.id : object.path,
         path: object.path,
+        projectId: object.projectId,
         kind: 'address',
         value: object.valueText ?? null,
         detail: object.name,
@@ -444,6 +536,7 @@ export class DependencyGraph {
     const enriched = this.dependencies.enrichObject(projectId, object);
     return {
       ...describeObject(object),
+      sourceProjectId: object.projectId ?? projectId,
       address: canonicalAddress(object),
       alias: this.aliases?.findByObjectKey(projectId, object.objectKey)?.name ?? null,
       updatedAt: this.sourceUpdatedAt(projectId, object),
@@ -482,6 +575,8 @@ export class DependencyGraph {
     const object = this.objectById(projectId, objectId);
     const currentValue = object?.valueText ?? null;
     return this.dependenciesForObject(projectId, objectId).map((dependency) => ({
+      projectId,
+      sourceProjectId: dependency.source.projectId,
       dependencyId: dependency.id,
       documentPath: dependency.documentPath,
       documentName: sourceFileName(dependency.documentPath),
@@ -573,11 +668,27 @@ export class DependencyGraph {
    * change is always attributable to a snapshot the timeline recorded.
    */
   valueChanges(projectId, options = {}) {
-    this.dependencies.ensureIndex(projectId);
-    const rows = this.db.prepare(`
+    this.dependencies.ensureIndex(projectId, options.snapshotId);
+    if (options.previousSnapshotId) this.dependencies.ensureIndex(projectId, options.previousSnapshotId);
+    // Automatic rules compare only the capture they are handling. Interactive
+    // history queries retain their complete historical view below.
+    const rows = options.snapshotId && options.previousSnapshotId ? this.db.prepare(`
+      SELECT v.object_id, o.project_id AS source_project_id, v.snapshot_id, v.value_text, v.content_hash, v.path, v.anchor_json,
+        v.metadata_json, v.label, s.version, s.created_at,
+        previous.value_text AS previous_value, previous.path AS previous_path,
+        previous_snapshot.version AS previous_version, previous_snapshot.created_at AS previous_at
+      FROM scientific_object_versions v
+      JOIN scientific_objects o ON o.id = v.object_id
+      JOIN snapshots s ON s.id = v.snapshot_id
+      JOIN scientific_object_versions previous ON previous.object_id = v.object_id AND previous.snapshot_id = ?
+      JOIN snapshots previous_snapshot ON previous_snapshot.id = previous.snapshot_id
+      WHERE v.snapshot_id = ? AND o.project_id = ?
+        AND (v.value_text IS NOT previous.value_text OR v.path IS NOT previous.path)
+      ORDER BY v.object_id
+    `).all(options.previousSnapshotId, options.snapshotId, projectId) : this.db.prepare(`
       WITH ordered AS (
         SELECT
-          v.object_id, v.snapshot_id, v.value_text, v.content_hash, v.path, v.anchor_json,
+          v.object_id, o.project_id AS source_project_id, v.snapshot_id, v.value_text, v.content_hash, v.path, v.anchor_json,
           v.metadata_json, v.label, s.version, s.created_at,
           LAG(v.value_text) OVER window_by_object AS previous_value,
           LAG(v.path) OVER window_by_object AS previous_path,
@@ -595,6 +706,27 @@ export class DependencyGraph {
       ORDER BY version DESC, object_id
     `).all(projectId);
 
+    if (!options.previousSnapshotId) {
+      const foreignIds = this.namedObjects(projectId)
+        .filter((object) => object.projectId !== projectId).map((object) => object.id);
+      if (foreignIds.length) rows.push(...this.db.prepare(`
+        WITH ordered AS (
+          SELECT v.object_id, o.project_id AS source_project_id, v.snapshot_id, v.value_text,
+            v.content_hash, v.path, v.anchor_json, v.metadata_json, v.label, s.version, s.created_at,
+            LAG(v.value_text) OVER window_by_object AS previous_value,
+            LAG(v.path) OVER window_by_object AS previous_path,
+            LAG(s.version) OVER window_by_object AS previous_version,
+            LAG(s.created_at) OVER window_by_object AS previous_at
+          FROM scientific_object_versions v JOIN scientific_objects o ON o.id = v.object_id
+          JOIN snapshots s ON s.id = v.snapshot_id
+          WHERE o.id IN (${foreignIds.map(() => '?').join(',')})
+          WINDOW window_by_object AS (PARTITION BY v.object_id ORDER BY s.version)
+        ) SELECT * FROM ordered WHERE previous_version IS NOT NULL
+          AND (value_text IS NOT previous_value OR path IS NOT previous_path)
+      `).all(...foreignIds));
+      rows.sort((left, right) => String(right.created_at).localeCompare(String(left.created_at))
+        || right.version - left.version || left.object_id.localeCompare(right.object_id));
+    }
     const seen = new Set();
     const changes = [];
     for (const row of rows) {
@@ -627,6 +759,7 @@ export class DependencyGraph {
       const unresolved = references.filter((reference) => reference.status !== 'LINKED').length;
       if (options.unresolvedOnly && !unresolved) continue;
       changes.push({
+        projectId: row.source_project_id,
         name,
         objectId: row.object_id,
         objectKey: object?.objectKey ?? null,
@@ -664,7 +797,8 @@ export class DependencyGraph {
       if (dependency.status === 'LINKED' || dependency.status === 'PREDICTED') continue;
       const object = this.objectById(projectId, dependency.source.id);
       const name = object?.name ?? dependencyName(dependency.source);
-      const entry = grouped.get(name) ?? {
+      const key = dependency.source.projectId === projectId ? name : `${dependency.source.projectId}|${dependency.source.id}`;
+      const entry = grouped.get(key) ?? {
         name,
         objectId: dependency.source.id,
         objectKey: dependency.source.objectKey,
@@ -680,7 +814,7 @@ export class DependencyGraph {
       entry.documentValue = details.linkedSourceValue ?? entry.documentValue;
       entry.sourceValue = details.currentSourceValue ?? object?.valueText ?? null;
       if (dependency.status === 'BROKEN') {
-        entry.reason = object ? 'source file moved' : 'source no longer resolves';
+        entry.reason = object && object.currentSourceAvailable !== false ? 'source file moved' : 'source no longer resolves';
         if (object && object.path !== dependency.source.path) entry.previousPath = dependency.source.path;
       } else if (dependency.status === 'STALE') {
         entry.reason = entry.reason ?? 'referenced value changed';
@@ -699,7 +833,7 @@ export class DependencyGraph {
         status: dependency.status,
         blockIndex: dependency.anchor?.blockIndex ?? null,
       });
-      grouped.set(name, entry);
+      grouped.set(key, entry);
     }
     return [...grouped.values()]
       .map((entry) => ({ ...entry, referenceCount: entry.references.length }))
@@ -744,7 +878,9 @@ export class DependencyGraph {
         locator: sourceLocator(shape),
         recordedAt: row.created_at,
         sourceUpdatedAt: row.mtime_ms == null ? null : new Date(row.mtime_ms).toISOString(),
-        referenceCount: this.referencesAtVersion(projectId, objectId, row.version),
+        referenceCount: this.dependencies.sourceProjectId({ id: objectId }) === projectId
+          ? this.referencesAtVersion(projectId, objectId, row.version)
+          : this.referencesAtTime(projectId, objectId, row.created_at),
         shared: shareVersions.has(row.version_id),
       };
     });
@@ -762,6 +898,18 @@ export class DependencyGraph {
         WHERE d.project_id = ? AND s.version <= ?
       ) WHERE rank = 1 AND is_removed = 0 AND source_object_id = ?
     `).get(projectId, projectVersion, objectId).count;
+  }
+
+  referencesAtTime(projectId, objectId, instant) {
+    return this.db.prepare(`
+      SELECT COUNT(*) AS count FROM (
+        SELECT v.dependency_id, v.source_object_id, v.is_removed,
+          ROW_NUMBER() OVER (PARTITION BY v.dependency_id ORDER BY s.version DESC) AS rank
+        FROM claim_dependency_versions v JOIN claim_dependencies d ON d.id = v.dependency_id
+        JOIN snapshots s ON s.id = v.snapshot_id
+        WHERE d.project_id = ? AND s.created_at <= ?
+      ) WHERE rank = 1 AND is_removed = 0 AND source_object_id = ?
+    `).get(projectId, instant, objectId).count;
   }
 
   /** The recorded state closest to, but not after, a point in time. */
@@ -804,8 +952,13 @@ export class DependencyGraph {
    * the typing overlay, and a manuscript claim shared with its source.
    */
   sharesForObject(projectId, objectId) {
-    return this.shares(projectId, { includeRevoked: true, includeExpired: true })
-      .filter((share) => share.objectId === objectId);
+    const ownerId = this.db.prepare('SELECT project_id FROM scientific_objects WHERE id = ?').get(objectId)?.project_id;
+    const rows = this.shares(projectId, { includeRevoked: true, includeExpired: true });
+    if (ownerId && ownerId !== projectId) {
+      rows.push(...this.shares(ownerId, { includeRevoked: true, includeExpired: true }));
+    }
+    const seen = new Set();
+    return rows.filter((share) => share.objectId === objectId && !seen.has(share.id) && seen.add(share.id));
   }
 
   shares(projectId, options = {}) {
@@ -918,6 +1071,7 @@ export class DependencyGraph {
     const file = this.timeline.snapshotFile(object.snapshotId, object.path);
     if (!file) return { kind: 'unavailable', reason: 'The source file is not in this snapshot.' };
     const header = {
+      projectId: object.projectId ?? this.dependencies.sourceProjectId(object) ?? projectId,
       fileName: object.fileName ?? sourceFileName(object.path),
       path: object.path,
       locator: object.locator ?? sourceLocator(object),

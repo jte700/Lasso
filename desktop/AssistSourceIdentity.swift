@@ -109,7 +109,16 @@ enum AssistSourceIdentity {
 /// carry both a semantic name and a child value; the claim type decides which
 /// one the writer is asking for.
 enum AssistSuggestionSemantics {
-    static func insertionText(claimType: String?, label: String, value: String?) -> String {
+    static func insertionText(claimType: String?, label: String, value: String?,
+                              completionText: String? = nil) -> String {
+        if claimType == "STUDY_VARIABLE" {
+            // The value describes the column for the preview. Acceptance types
+            // its name, matching the server's explicit completion and web UI.
+            if let completionText, !completionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return completionText
+            }
+            return label
+        }
         let labelFirst = Set(["ENTITY", "DATASET_REFERENCE", "FIGURE", "TABLE_REFERENCE", "METHOD"])
         if let claimType, labelFirst.contains(claimType), !label.isEmpty { return label }
         return value ?? label

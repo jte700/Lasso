@@ -41,12 +41,14 @@ enum WebTextReader {
 
     /// Walks up to the enclosing web area, which is where browsers answer
     /// document-level marker questions.
-    private static func webArea(from element: AXUIElement) -> AXUIElement? {
+    private static func webArea(from element: AXUIElement, before deadline: TimeInterval? = nil) -> AXUIElement? {
         var current = element
         for _ in 0..<25 {
+            if let deadline, !hasTime(before: deadline) { return nil }
             if let role = attribute(current, kAXRoleAttribute as String) as? String, role == "AXWebArea" {
                 return current
             }
+            if let deadline, !hasTime(before: deadline) { return nil }
             guard let parent = attribute(current, kAXParentAttribute as String),
                   CFGetTypeID(parent) == AXUIElementGetTypeID() else { return nil }
             current = parent as! AXUIElement
@@ -92,6 +94,280 @@ enum WebTextReader {
     private static let markerForIndex = "AXTextMarkerForIndex"
     private static let boundsForRange = "AXBoundsForTextMarkerRange"
 
+    private static func hasTime(before deadline: TimeInterval) -> Bool {
+        ProcessInfo.processInfo.systemUptime < deadline
+    }
+
+    /// A short-lived bridge between an editable element's AXValue offsets and
+    /// the browser's opaque text markers. Root-document marker indices are not
+    /// interchangeable with the focused element's UTF-16 offsets.
+    final class ElementGeometry {
+        private let holder: AXUIElement
+        private let element: AXUIElement
+        private let elementRange: AXTextMarkerRange
+        private let start: AXTextMarker
+        private let end: AXTextMarker
+        private let units: [UInt16]
+        private let text: NSString
+        private let frame: CGRect
+        private let deadline: TimeInterval
+        private var markers: [Int: AXTextMarker]
+        private var remainingSteps = 192
+        private var valid = true
+
+        fileprivate init(holder: AXUIElement, element: AXUIElement, elementRange: AXTextMarkerRange,
+                         start: AXTextMarker, end: AXTextMarker,
+                         text: String, frame: CGRect, deadline: TimeInterval) {
+            self.holder = holder
+            self.element = element
+            self.elementRange = elementRange
+            self.start = start
+            self.end = end
+            self.units = Array(text.utf16)
+            self.text = text as NSString
+            self.frame = frame
+            self.deadline = deadline
+            self.markers = [0: start, text.utf16.count: end]
+        }
+
+        fileprivate var hasTimeRemaining: Bool { valid && WebTextReader.hasTime(before: deadline) }
+
+        /// A synchronous AX request can itself reach the host timeout, but no
+        /// additional request is started once this refresh's 50 ms budget ends.
+        private func query(_ name: String, _ parameter: CFTypeRef) -> CFTypeRef? {
+            guard hasTimeRemaining else { return nil }
+            return parameterized(holder, name, parameter)
+        }
+
+        /// Recheck the text before and after measuring so a host edit during an
+        /// Accessibility read cannot attach the old offsets to new content.
+        private func matchesSnapshot() -> Bool {
+            guard hasTimeRemaining,
+                  let currentValue = attribute(element, kAXValueAttribute as String) as? String,
+                  currentValue.utf16.elementsEqual(units),
+                  let current = query(stringForRange, elementRange) as? String,
+                  current.utf16.elementsEqual(units), hasTimeRemaining else {
+                valid = false
+                return false
+            }
+            return true
+        }
+
+        private func markerRange(_ first: AXTextMarker, _ last: AXTextMarker) -> AXTextMarkerRange {
+            AXTextMarkerRangeCreate(kCFAllocatorDefault, first, last)
+        }
+
+        /// Selection markers can save a long walk, but only after both sides of
+        /// the marker prove the same local offset as the element's AXValue.
+        fileprivate func rememberSelectionMarker(_ marker: AXTextMarker, at offset: Int) {
+            guard hasTimeRemaining, offset >= 0, offset <= units.count,
+                  let before = query(stringForRange, markerRange(start, marker)) as? String,
+                  before.utf16.elementsEqual(units[..<offset]),
+                  let after = query(stringForRange, markerRange(marker, end)) as? String,
+                  after.utf16.elementsEqual(units[offset...]), hasTimeRemaining else { return }
+            markers[offset] = marker
+        }
+
+        private func marker(at target: Int) -> AXTextMarker? {
+            guard hasTimeRemaining, target >= 0, target <= units.count else { return nil }
+            if let cached = markers[target] { return cached }
+            guard let origin = markers.keys.min(by: { abs($0 - target) < abs($1 - target) }),
+                  var current = markers[origin] else { return nil }
+            var offset = origin
+            var emptySteps = 0
+            let forward = target > origin
+            let movement = forward ? "AXNextTextMarkerForTextMarker" : "AXPreviousTextMarkerForTextMarker"
+
+            while offset != target, remainingSteps > 0, hasTimeRemaining {
+                remainingSteps -= 1
+                guard let value = query(movement, current),
+                      CFGetTypeID(value) == AXTextMarkerGetTypeID() else { return nil }
+                let next = value as! AXTextMarker
+                guard !CFEqual(current, next) else { return nil }
+                let stepRange = forward ? markerRange(current, next) : markerRange(next, current)
+                guard let step = query(stringForRange, stepRange) as? String else { return nil }
+                let stepUnits = Array(step.utf16)
+                let newOffset = forward ? offset + stepUnits.count : offset - stepUnits.count
+                guard newOffset >= 0, newOffset <= units.count,
+                      stepUnits.elementsEqual(units[min(offset, newOffset)..<max(offset, newOffset)]) else {
+                    valid = false
+                    return nil
+                }
+
+                if stepUnits.isEmpty {
+                    // Adjacent AX nodes can represent the same text boundary.
+                    // A short allowance crosses those nodes without looping.
+                    emptySteps += 1
+                    guard emptySteps <= 4 else { return nil }
+                } else {
+                    emptySteps = 0
+                    markers[newOffset] = next
+                }
+                current = next
+                offset = newOffset
+                // A browser character can span several UTF-16 code units. An
+                // offset inside it is not a measurable marker boundary.
+                if (forward && offset > target) || (!forward && offset < target) { return nil }
+            }
+            return offset == target && hasTimeRemaining ? current : nil
+        }
+
+        private func bounds(for range: Range<Int>) -> CGRect? {
+            guard let first = marker(at: range.lowerBound), let last = marker(at: range.upperBound) else { return nil }
+            let markerRange = markerRange(first, last)
+            guard let measured = query(stringForRange, markerRange) as? String,
+                  measured.utf16.elementsEqual(units[range]) else {
+                valid = false
+                return nil
+            }
+            guard let value = query(boundsForRange, markerRange),
+                  CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+            var rect = CGRect.zero
+            guard AXValueGetValue(value as! AXValue, .cgRect, &rect),
+                  HostGeometryConverter.isUsable(rect),
+                  frame.insetBy(dx: -4, dy: -4).contains(rect), hasTimeRemaining else { return nil }
+            return rect
+        }
+
+        /// Measured rectangles only. Unsupported or unproven offsets return no
+        /// geometry so the caller can use its separately calibrated fallback.
+        func rects(forRange range: Range<Int>) -> [CGRect] {
+            guard !range.isEmpty, range.lowerBound >= 0, range.upperBound <= units.count,
+                  matchesSnapshot() else { return [] }
+            let visibleRanges = WebTextReader.visibleGeometryRanges(forRange: range, inUTF16: units)
+            guard !visibleRanges.isEmpty else { return [] }
+
+            // Whole-range bounds are cheap and accurate when the two endpoint
+            // characters prove that the browser has kept the phrase on one line.
+            if visibleRanges.count == 1, visibleRanges[0] == range,
+               let whole = bounds(for: range) {
+                let first = text.rangeOfComposedCharacterSequence(at: range.lowerBound)
+                let last = text.rangeOfComposedCharacterSequence(at: range.upperBound - 1)
+                guard first.location == range.lowerBound,
+                      NSMaxRange(last) == range.upperBound else { return [] }
+                if first == last {
+                    return matchesSnapshot() ? [whole] : []
+                }
+                if let firstRect = bounds(for: first.location..<NSMaxRange(first)),
+                   let lastRect = bounds(for: last.location..<NSMaxRange(last)),
+                   HostGeometryConverter.isSingleLine(whole: whole, first: firstRect, last: lastRect) {
+                    return matchesSnapshot() ? [whole] : []
+                }
+            }
+
+            // Never draw a multiline bounding box or a newline glyph's wide
+            // selection box. Short phrases are measured one grapheme at a time.
+            guard range.count <= 160 else { return [] }
+            var fragments: [CGRect] = []
+            for visible in visibleRanges {
+                var offset = visible.lowerBound
+                while offset < visible.upperBound {
+                    guard hasTimeRemaining else { return [] }
+                    let character = text.rangeOfComposedCharacterSequence(at: offset)
+                    guard character.location == offset, NSMaxRange(character) <= visible.upperBound,
+                          let rect = bounds(for: offset..<NSMaxRange(character)) else { return [] }
+                    fragments.append(rect)
+                    offset = NSMaxRange(character)
+                }
+            }
+            guard matchesSnapshot() else { return [] }
+            return DependencyGeometry.coalesce(fragments, referenceId: "").fragments
+        }
+    }
+
+    /// Excludes hard line breaks before geometry is measured. Offsets retain
+    /// the original UTF-16 index space, including CRLF's two code units.
+    static func visibleGeometryRanges(forRange range: Range<Int>, inUTF16 units: [UInt16]) -> [Range<Int>] {
+        guard !range.isEmpty, range.lowerBound >= 0, range.upperBound <= units.count else { return [] }
+        var ranges: [Range<Int>] = []
+        var start = range.lowerBound
+        for index in range where [UInt16(10), 13, 0x2028, 0x2029].contains(units[index]) {
+            if start < index { ranges.append(start..<index) }
+            start = index + 1
+        }
+        if start < range.upperBound { ranges.append(start..<range.upperBound) }
+        return ranges
+    }
+
+    /// Establishes element-relative marker offsets only when the marker range's
+    /// entire text is exactly the AXValue snapshot being highlighted.
+    static func elementGeometry(forText text: String, from element: AXUIElement) -> ElementGeometry? {
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.050
+        guard !text.isEmpty,
+              let position = attribute(element, kAXPositionAttribute as String),
+              hasTime(before: deadline),
+              let size = attribute(element, kAXSizeAttribute as String),
+              CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
+        var origin = CGPoint.zero
+        var extent = CGSize.zero
+        guard AXValueGetValue(position as! AXValue, .cgPoint, &origin),
+              AXValueGetValue(size as! AXValue, .cgSize, &extent) else { return nil }
+        let frame = CGRect(origin: origin, size: extent)
+        guard frame.origin.x.isFinite, frame.origin.y.isFinite,
+              frame.width.isFinite, frame.height.isFinite, frame.width > 8, frame.height > 0 else { return nil }
+
+        // Try the focused node first. Looking up the enclosing web area and
+        // proving optional selection offsets share the same elapsed-time budget.
+        for attempt in 0..<2 {
+            guard hasTime(before: deadline) else { return nil }
+            let holder: AXUIElement
+            if attempt == 0 {
+                holder = element
+            } else {
+                guard let area = webArea(from: element, before: deadline) else { return nil }
+                holder = area
+            }
+            guard hasTime(before: deadline),
+                  let value = parameterized(holder, "AXTextMarkerRangeForUIElement", element),
+                  CFGetTypeID(value) == AXTextMarkerRangeGetTypeID() else { continue }
+            let range = value as! AXTextMarkerRange
+            guard hasTime(before: deadline),
+                  let measured = parameterized(holder, stringForRange, range) as? String,
+                  measured.utf16.elementsEqual(text.utf16) else { continue }
+            let start = AXTextMarkerRangeCopyStartMarker(range)
+            let end = AXTextMarkerRangeCopyEndMarker(range)
+            guard CFGetTypeID(start) == AXTextMarkerGetTypeID(),
+                  CFGetTypeID(end) == AXTextMarkerGetTypeID() else { continue }
+            let geometry = ElementGeometry(holder: holder, element: element, elementRange: range,
+                                           start: start, end: end, text: text, frame: frame, deadline: deadline)
+
+            if geometry.hasTimeRemaining,
+               let localValue = attribute(element, kAXSelectedTextRangeAttribute as String),
+               CFGetTypeID(localValue) == AXValueGetTypeID() {
+                var local = CFRange()
+                if AXValueGetValue(localValue as! AXValue, .cfRange, &local),
+                   local.location >= 0, local.length >= 0,
+                   local.location <= text.utf16.count,
+                   local.length <= text.utf16.count - local.location {
+                    for selectionHolder in [element, holder] {
+                        guard geometry.hasTimeRemaining else { break }
+                        guard let selected = attribute(selectionHolder, selectedRange),
+                              CFGetTypeID(selected) == AXTextMarkerRangeGetTypeID() else { continue }
+                        let selectedRange = selected as! AXTextMarkerRange
+                        let first = AXTextMarkerRangeCopyStartMarker(selectedRange)
+                        let last = AXTextMarkerRangeCopyEndMarker(selectedRange)
+                        if CFGetTypeID(first) == AXTextMarkerGetTypeID(),
+                           CFGetTypeID(last) == AXTextMarkerGetTypeID() {
+                            // Selection ranges can be backwards. Each candidate
+                            // is accepted only where its prefix/suffix prove it.
+                            let selectedMarkers = CFEqual(first, last) ? [first] : [first, last]
+                            for marker in selectedMarkers {
+                                guard geometry.hasTimeRemaining else { break }
+                                geometry.rememberSelectionMarker(marker, at: local.location)
+                                if local.length > 0 {
+                                    geometry.rememberSelectionMarker(marker, at: local.location + local.length)
+                                }
+                            }
+                        }
+                        break
+                    }
+                }
+            }
+            return geometry.hasTimeRemaining ? geometry : nil
+        }
+        return nil
+    }
+
     /// The web area, which is the index space `documentText` reports in. Both
     /// text and geometry must be asked of the same element or the offsets refer
     /// to different things.
@@ -129,6 +405,12 @@ enum WebTextReader {
         // A wrapped phrase needs one rectangle per line. Measuring each
         // character is only worth it when the phrase is short and actually wraps.
         guard range.count <= 160 else { return [whole] }
+        if range.count <= 1 { return [whole] }
+        if let first = bounds(range.lowerBound, range.lowerBound + 1),
+           let last = bounds(range.upperBound - 1, range.upperBound),
+           HostGeometryConverter.isSingleLine(whole: whole, first: first, last: last) {
+            return [whole]
+        }
         var perCharacter: [CGRect] = []
         for index in range {
             if let rect = bounds(index, index + 1) { perCharacter.append(rect) }
@@ -140,7 +422,7 @@ enum WebTextReader {
     }
 
     /// The whole document text, for hosts that expose it only through markers.
-    static func documentText(from element: AXUIElement, limit: Int = 20_000) -> String? {
+    static func documentText(from element: AXUIElement) -> String? {
         guard let (holder, area, _) = selection(for: element) else { return nil }
         let source = area ?? holder
         guard let start = attribute(source, startMarker),
@@ -148,7 +430,74 @@ enum WebTextReader {
         let pair = [start, end] as CFArray
         guard let range = parameterized(holder, rangeForMarkers, pair),
               let string = parameterized(holder, stringForRange, range) as? String else { return nil }
-        return String(string.prefix(limit))
+        // The host already returned the entire text. Truncating it here makes
+        // references beyond the cutoff look deleted to the anchor resolver.
+        return string
+    }
+
+    /// Returns attributes only for the proven text immediately before a
+    /// collapsed caret. Marker navigation avoids mixing editable-field offsets
+    /// with the browser's document offsets when verifying a pasted hyperlink.
+    static func attributedTextBeforeCaret(expectedText: String,
+                                          from element: AXUIElement) -> NSAttributedString? {
+        let expected = Array(expectedText.utf16)
+        guard !expected.isEmpty else { return nil }
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.15
+        guard let (selectionHolder, area, selected) = selection(for: element),
+              hasTime(before: deadline),
+              CFGetTypeID(selected) == AXTextMarkerRangeGetTypeID() else { return nil }
+        let selectedMarkers = selected as! AXTextMarkerRange
+        let caret = AXTextMarkerRangeCopyStartMarker(selectedMarkers)
+        let selectedEnd = AXTextMarkerRangeCopyEndMarker(selectedMarkers)
+        guard CFEqual(caret, selectedEnd) else { return nil }
+
+        var holders = [selectionHolder]
+        if let area, !CFEqual(area, selectionHolder) { holders.append(area) }
+        var remainingSteps = 192
+        for holder in holders {
+            func query(_ name: String, _ parameter: CFTypeRef) -> CFTypeRef? {
+                guard hasTime(before: deadline) else { return nil }
+                return parameterized(holder, name, parameter)
+            }
+            var first = caret
+            var offset = expected.count
+            var emptySteps = 0
+            while offset > 0, remainingSteps > 0, hasTime(before: deadline) {
+                remainingSteps -= 1
+                guard let value = query("AXPreviousTextMarkerForTextMarker", first),
+                      CFGetTypeID(value) == AXTextMarkerGetTypeID() else { break }
+                let previous = value as! AXTextMarker
+                guard !CFEqual(previous, first) else { break }
+                let stepRange = AXTextMarkerRangeCreate(kCFAllocatorDefault, previous, first)
+                guard let step = query(stringForRange, stepRange) as? String else { break }
+                let units = Array(step.utf16)
+                guard units.count <= offset,
+                      units.elementsEqual(expected[(offset - units.count)..<offset]) else { break }
+                if units.isEmpty {
+                    emptySteps += 1
+                    guard emptySteps <= 4 else { break }
+                } else {
+                    emptySteps = 0
+                }
+                offset -= units.count
+                first = previous
+            }
+            guard offset == 0 else { continue }
+            let range = AXTextMarkerRangeCreate(kCFAllocatorDefault, first, caret)
+            guard let text = query(stringForRange, range) as? String,
+                  text.utf16.elementsEqual(expected),
+                  let attributed = query("AXAttributedStringForTextMarkerRange", range) as? NSAttributedString,
+                  attributed.string.utf16.elementsEqual(expected),
+                  hasTime(before: deadline),
+                  let current = attribute(selectionHolder, selectedRange),
+                  CFGetTypeID(current) == AXTextMarkerRangeGetTypeID(),
+                  hasTime(before: deadline) else { continue }
+            let currentRange = current as! AXTextMarkerRange
+            guard CFEqual(AXTextMarkerRangeCopyStartMarker(currentRange), caret),
+                  CFEqual(AXTextMarkerRangeCopyEndMarker(currentRange), caret) else { return nil }
+            return attributed
+        }
+        return nil
     }
 
     /// Returns whatever the browser is willing to answer: the text just before

@@ -41,3 +41,13 @@ test('binary changes never fabricate a structured explanation', () => {
   });
   assert.deepEqual(diff, { format: 'binary', message: 'File changed. Structured comparison unavailable.' });
 });
+
+test('binary changes do not decode either buffer as text', () => {
+  const before = Buffer.from([1, 2]);
+  const after = Buffer.from([1, 3]);
+  before.toString = after.toString = () => { throw new Error('Binary data must not be decoded.'); };
+  const diff = createStructuredDiff({
+    fileType: 'pdf', filePath: 'source.pdf', beforeBuffer: before, afterBuffer: after, changeType: 'MODIFIED',
+  });
+  assert.equal(diff.format, 'binary');
+});

@@ -3,7 +3,8 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { BlobStore, hashBuffer } from './blob-store.js';
-import { scanDirectory } from './scanner.js';
+import { isIgnoredScanPath, scanDirectory } from './scanner.js';
+import { isTrackedFile } from './file-types.js';
 import { createStructuredDiff, deterministicEventTitle } from './diff.js';
 import { ACTOR_TYPES } from '../config.js';
 import { json, transaction } from '../db.js';
@@ -72,8 +73,17 @@ export class TimelineService {
     this.db = db;
     this.config = config;
     this.blobs = new BlobStore(config.blobDir);
+    this.storagePaths = [config.dataDir, config.databasePath, config.blobDir,
+      `${config.databasePath}-wal`, `${config.databasePath}-shm`, `${config.databasePath}-journal`].map((storage) => {
+      try { return fs.realpathSync(storage); } catch {
+        try { return path.join(fs.realpathSync(path.dirname(storage)), path.basename(storage)); }
+        catch { return path.resolve(storage); }
+      }
+    });
     this.watchers = new Map();
     this.pendingTimers = new Map();
+    this.pendingPaths = new Map();
+    this.scanCaches = new Map();
     this.captureListeners = new Set();
     // Set by the terminal's index controls. The timeline owns scanning; the
     // terminal owns which paths the user excluded and what failed to be read.
@@ -85,12 +95,26 @@ export class TimelineService {
    * could not be read to the index-control layer so `index failures` reports
    * real failures rather than an empty list.
    */
-  scanProject(project) {
+  scanProject(project, options = {}) {
     const failures = [];
-    const exclude = this.scanPolicy?.exclusionFilter?.(project.id) ?? null;
-    const files = scanDirectory(project.rootPath, this.blobs, { exclude, failures });
+    const exclude = this.scanExclusion(project.rootPath, project.id);
+    if (!this.scanCaches.has(project.id)) this.scanCaches.set(project.id, new Map());
+    const files = scanDirectory(project.rootPath, this.blobs, {
+      exclude, failures, fileCache: this.scanCaches.get(project.id),
+      reuseUnchanged: options.source === 'WATCHER' && Array.isArray(options.dirtyPaths),
+      dirtyPaths: options.dirtyPaths,
+    });
     this.scanPolicy?.recordFailures?.(project.id, failures);
     return files;
+  }
+
+  scanExclusion(rootPath, projectId = null) {
+    const userExclude = projectId ? this.scanPolicy?.exclusionFilter?.(projectId) : null;
+    const storagePaths = this.storagePaths
+      .map((storage) => path.relative(rootPath, storage).split(path.sep).join('/'))
+      .filter((relative) => relative !== '..' && !relative.startsWith('../') && !path.isAbsolute(relative));
+    return (relative, isDirectory) => storagePaths.some((storage) => storage === ''
+      || relative === storage || relative.startsWith(`${storage}/`)) || Boolean(userExclude?.(relative, isDirectory));
   }
 
   onCapture(listener) {
@@ -113,14 +137,21 @@ export class TimelineService {
     for (const timer of this.pendingTimers.values()) clearTimeout(timer);
     this.watchers.clear();
     this.pendingTimers.clear();
+    this.pendingPaths.clear();
+    this.scanCaches.clear();
   }
 
-  upsertActor(actor) {
+  validateActor(actor) {
     const normalized = normalizeActor(actor);
     const existing = this.db.prepare('SELECT * FROM actors WHERE id = ?').get(normalized.id);
     if (existing && existing.actor_type !== normalized.actorType) {
       throw new HttpError(409, 'An actor ID cannot change actor type.');
     }
+    return normalized;
+  }
+
+  upsertActor(actor) {
+    const normalized = this.validateActor(actor);
     this.db.prepare(`
       INSERT INTO actors(id, display_name, actor_type, created_at)
       VALUES (?, ?, ?, ?)
@@ -144,12 +175,13 @@ export class TimelineService {
       currentSnapshotId: row.current_snapshot_id,
       currentVersion: row.current_version,
       watcherEnabled: Boolean(row.watcher_enabled),
+      active: Boolean(row.workspace_active),
     };
   }
 
   listProjects() {
     return this.db.prepare(`
-      SELECT p.id, p.name, p.root_path, p.created_at, p.current_snapshot_id, s.version AS current_version,
+      SELECT p.id, p.name, p.root_path, p.created_at, p.current_snapshot_id, p.workspace_active, s.version AS current_version,
         (SELECT COUNT(*) FROM snapshot_files sf WHERE sf.snapshot_id = p.current_snapshot_id) AS file_count
       FROM projects p LEFT JOIN snapshots s ON s.id = p.current_snapshot_id
       ORDER BY p.created_at DESC
@@ -161,6 +193,7 @@ export class TimelineService {
       currentSnapshotId: row.current_snapshot_id,
       currentVersion: row.current_version,
       fileCount: row.file_count,
+      active: Boolean(row.workspace_active),
     }));
   }
 
@@ -176,7 +209,8 @@ export class TimelineService {
     if (existing) return { project: this.getProject(existing.id), imported: false };
 
     const actor = normalizeActor(actorInput);
-    const scanned = scanDirectory(realRoot, this.blobs);
+    const fileCache = new Map();
+    const scanned = scanDirectory(realRoot, this.blobs, { fileCache, exclude: this.scanExclusion(realRoot) });
     const projectId = id();
     const snapshotId = id();
     const eventId = id();
@@ -220,6 +254,7 @@ export class TimelineService {
       }
     });
 
+    this.scanCaches.set(projectId, fileCache);
     if (options.watch !== false && this.config.watchProjects) this.watchProject(projectId, actor);
     const result = { project: this.getProject(projectId), imported: true, event: this.getEvent(eventId) };
     this.notifyCapture({ changed: true, projectId, snapshot: this.getSnapshot(snapshotId), event: result.event });
@@ -315,7 +350,7 @@ export class TimelineService {
       throw new VersionConflictError(options.expectedSnapshotId, project.currentSnapshotId);
     }
     const previous = this.getSnapshot(project.currentSnapshotId);
-    const scanned = this.scanProject(project);
+    const scanned = this.scanProject(project, options);
     const comparison = this.compareScan(previous.files, scanned);
     if (!comparison.changes.length) return { changed: false, snapshot: previous, event: null };
 
@@ -483,11 +518,35 @@ export class TimelineService {
   }
 
   resolveProjectPath(project, relativePath) {
-    if (!relativePath || path.isAbsolute(relativePath)) throw new HttpError(400, 'A relative project file path is required.');
+    if (typeof relativePath !== 'string' || !relativePath || path.isAbsolute(relativePath)) {
+      throw new HttpError(400, 'A relative project file path is required.');
+    }
     const root = path.resolve(project.rootPath);
     const destination = path.resolve(root, relativePath);
-    if (destination !== root && !destination.startsWith(`${root}${path.sep}`)) {
+    if (destination === root || !destination.startsWith(`${root}${path.sep}`)) {
       throw new HttpError(400, 'File path escapes the project directory.');
+    }
+    // A directory can have been replaced by a symlink since it was indexed.
+    // The scanner skips symlinks, so writes must apply the same boundary.
+    let current = root;
+    for (const part of ['', ...path.relative(root, destination).split(path.sep)]) {
+      current = path.join(current, part);
+      let stat;
+      try { stat = fs.lstatSync(current); }
+      catch (error) { if (error.code === 'ENOENT') break; throw error; }
+      if (stat.isSymbolicLink()) throw new HttpError(409, 'The project file path now contains a symbolic link. Reopen the directory before editing.');
+      if (current !== destination && !stat.isDirectory()) throw new HttpError(409, 'The project file directory has changed.');
+    }
+    return destination;
+  }
+
+  assertWorkingFileUnchanged(project, relativePath, expectedHash) {
+    const destination = this.resolveProjectPath(project, relativePath);
+    let actualHash = null;
+    try { actualHash = hashBuffer(fs.readFileSync(destination)); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (actualHash !== expectedHash) {
+      throw new HttpError(409, 'The file changed on disk. Reload its latest version before applying this edit.');
     }
     return destination;
   }
@@ -579,7 +638,12 @@ export class TimelineService {
       this.db.prepare("UPDATE agent_executions SET status = 'CONFLICT' WHERE id = ?").run(executionId);
       throw new HttpError(409, 'The target file no longer matches the proposed before version.');
     }
-    const destination = this.resolveProjectPath(project, proposal.path);
+    let destination;
+    try { destination = this.assertWorkingFileUnchanged(project, proposal.path, proposal.contentHashBefore); }
+    catch (error) {
+      if (error.status === 409) this.db.prepare("UPDATE agent_executions SET status = 'CONFLICT' WHERE id = ?").run(executionId);
+      throw error;
+    }
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     const temporary = `${destination}.lasso-${executionId}.tmp`;
     fs.writeFileSync(temporary, this.blobs.get(proposal.contentHashAfter), { flag: 'wx' });
@@ -603,7 +667,7 @@ export class TimelineService {
         toPath: link.toPath ?? null,
         toAnchor: link.toAnchor ?? null,
         metadata: link.metadata ?? {},
-        createdByEventId: capture.event.id,
+        createdByEventId: capture.event?.id ?? null,
       });
     }
     const appliedExecution = this.getExecution(executionId);
@@ -639,17 +703,38 @@ export class TimelineService {
 
   watchProject(projectId, actorInput) {
     if (!this.config.watchProjects) return;
+    if (this.workspace && !this.workspace.isActive(projectId)) return;
     const project = this.getProject(projectId);
     const actor = normalizeActor(actorInput);
     this.unwatchProject(projectId);
     let watcher;
     try {
-      watcher = fs.watch(project.rootPath, { recursive: true }, () => {
+      watcher = fs.watch(project.rootPath, { recursive: true }, (_event, filename) => {
+        const rawPath = filename == null ? null : filename.toString();
+        const eventPath = rawPath ? path.posix.normalize(rawPath.split(path.sep).join('/')) : null;
+        const knownPath = eventPath && eventPath !== '.' && !path.posix.isAbsolute(eventPath)
+          && eventPath !== '..' && !eventPath.startsWith('../') ? eventPath : null;
+        if (knownPath && (isIgnoredScanPath(knownPath)
+          || this.scanExclusion(project.rootPath, projectId)(knownPath))) return;
+        if (knownPath && !isTrackedFile(knownPath)) {
+          let isDirectory = false;
+          try { isDirectory = fs.lstatSync(path.join(project.rootPath, knownPath)).isDirectory(); } catch { /* deleted path */ }
+          const hadChildren = [...(this.scanCaches.get(projectId)?.keys() ?? [])]
+            .some((filePath) => filePath.startsWith(`${knownPath}/`));
+          if (!isDirectory && !hadChildren) return;
+        }
+        const pending = this.pendingPaths.get(projectId) ?? { paths: new Set(), unknown: false };
+        if (knownPath) pending.paths.add(knownPath);
+        else pending.unknown = true;
+        this.pendingPaths.set(projectId, pending);
         clearTimeout(this.pendingTimers.get(projectId));
         this.pendingTimers.set(projectId, setTimeout(() => {
           this.pendingTimers.delete(projectId);
+          this.pendingPaths.delete(projectId);
           try {
-            this.capture(projectId, actor, { source: 'WATCHER' });
+            this.capture(projectId, actor, {
+              source: 'WATCHER', dirtyPaths: pending.unknown ? null : [...pending.paths],
+            });
           } catch (error) {
             console.error(`Project watcher capture failed for ${projectId}:`, error.message);
           }
@@ -668,6 +753,7 @@ export class TimelineService {
     this.watchers.delete(projectId);
     clearTimeout(this.pendingTimers.get(projectId));
     this.pendingTimers.delete(projectId);
+    this.pendingPaths.delete(projectId);
   }
 }
 

@@ -171,6 +171,7 @@ export class IndexControlService {
     }).sort((a, b) => a.name.localeCompare(b.name));
 
     const workspace = this.timeline.listProjects();
+    const active = workspace.filter((entry) => entry.active ?? entry.workspaceActive ?? true);
     return {
       project: {
         id: project.id,
@@ -185,8 +186,8 @@ export class IndexControlService {
         lastScanTitle: lastEvent?.title ?? null,
       },
       workspace: {
-        directories: workspace.length,
-        files: workspace.reduce((total, entry) => total + (entry.fileCount ?? 0), 0),
+        directories: active.length,
+        files: active.reduce((total, entry) => total + (entry.fileCount ?? 0), 0),
       },
       directories: rows,
       grantedDirectories: workspace.map((entry) => ({
@@ -194,7 +195,7 @@ export class IndexControlService {
         name: entry.name,
         rootPath: entry.rootPath,
         files: entry.fileCount ?? 0,
-        active: entry.id === projectId,
+        active: entry.active ?? entry.workspaceActive ?? true,
       })),
       exclusions,
       failures,

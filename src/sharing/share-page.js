@@ -140,6 +140,8 @@ export function renderSharePage(resolved, token, preview, document = null) {
   const scope = share.accessScope ?? 'DOCUMENT';
   const redacted = scope === 'REDACTED';
   const redactions = redacted ? (share.redactions ?? []) : [];
+  // Indexed labels can repeat a masked row key or document heading.
+  const title = redacted ? source.filename : source.label;
   const spreadsheet = ['DATASET_ROW', 'DATASET_CELL', 'TABLE_CELL', 'DATASET_COLUMN'].includes(source.objectType)
     || /\.(xlsx?|csv|tsv)$/i.test(source.filename);
 
@@ -177,9 +179,9 @@ export function renderSharePage(resolved, token, preview, document = null) {
       ? 'This link exposes only the indexed source context. The original document cannot be downloaded.'
       : 'This link contains the complete document view with the marked areas removed. The original cannot be downloaded.';
 
-  return page(`${source.label} · Lasso`, `
+  return page(`${title} · Lasso`, `
     <p class="kicker">Shared source</p>
-    <h1>${escapeHtml(source.label)}</h1>
+    <h1>${escapeHtml(title)}</h1>
     <div class="frame">
       <dl>${rows.map(([term, definition]) => `<dt>${escapeHtml(term)}</dt>${definition}`).join('')}</dl>
       ${table}

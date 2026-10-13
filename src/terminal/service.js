@@ -27,7 +27,10 @@ export function createTerminal({ timeline, dependencies, objectShares }) {
   const unsubscribe = timeline.onCapture((capture) => {
     if (!capture?.changed || !capture.projectId) return;
     try {
-      executor.evaluateRules(capture.projectId);
+      // Preserve each recorded object version for later history queries, even
+      // when the project has no rules or linked manuscript dependencies.
+      dependencies.ensureIndex(capture.projectId);
+      executor.evaluateRules(capture.projectId, capture);
     } catch (error) {
       console.error('Rule evaluation failed:', error.message);
     }

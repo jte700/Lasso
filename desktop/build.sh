@@ -6,8 +6,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"
 APP="$DIST/Lasso.app"
-CONTENTS="$APP/Contents"
-RESOURCES="$CONTENTS/Resources"
 SUPPORT="$HOME/Library/Application Support/Lasso"
 PREVIOUS_SUPPORT="$HOME/Library/Application Support/CoLab Dry"
 
@@ -17,8 +15,60 @@ if [ -z "$NODE_BIN" ]; then
   exit 1
 fi
 
-echo "==> Cleaning previous build"
-rm -rf "$APP"
+# Resolve signing before replacing the previous app. Accessibility approvals
+# identify certificate-signed updates consistently; ad-hoc builds change hash.
+SIGNING_MODE="${LASSO_SIGN_MODE:-${COLAB_SIGN_MODE:-required}}"
+SIGNING_IDENTITY="${LASSO_SIGN_IDENTITY:-${COLAB_SIGN_IDENTITY:-}}"
+case "$SIGNING_MODE" in
+  required|auto|adhoc) ;;
+  *) echo "error: LASSO_SIGN_MODE must be required, auto, or adhoc." >&2; exit 1 ;;
+esac
+if [ "$SIGNING_MODE" = "adhoc" ]; then
+  if [ -n "$SIGNING_IDENTITY" ]; then
+    echo "error: choose certificate signing or adhoc mode, rather than both." >&2
+    exit 1
+  fi
+  SIGNING_IDENTITY="-"
+  echo "warning: this temporary ad-hoc build may invalidate Accessibility approval." >&2
+else
+  AVAILABLE_SIGNING_IDENTITIES="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+  if [ -z "$SIGNING_IDENTITY" ]; then
+    for candidate_identity in "Lasso Local Development" "CoLab Dry Local Development"; do
+      if grep -Fq "\"$candidate_identity\"" <<<"$AVAILABLE_SIGNING_IDENTITIES"; then
+        SIGNING_IDENTITY="$candidate_identity"
+        break
+      fi
+    done
+  fi
+  if [ -z "$SIGNING_IDENTITY" ]; then
+    echo "error: a stable code-signing identity is required before rebuilding Lasso." >&2
+    echo "Set LASSO_SIGN_IDENTITY to a valid certificate name or SHA-1 fingerprint." >&2
+    echo "The previous app has been preserved. Use LASSO_SIGN_MODE=adhoc only for a temporary build." >&2
+    exit 1
+  fi
+  if [[ "$SIGNING_IDENTITY" =~ ^[a-fA-F0-9]{40}$ ]]; then
+    matching_identities="$(grep -Fi " $SIGNING_IDENTITY \"" <<<"$AVAILABLE_SIGNING_IDENTITIES" || true)"
+  else
+    matching_identities="$(grep -F "\"$SIGNING_IDENTITY\"" <<<"$AVAILABLE_SIGNING_IDENTITIES" || true)"
+  fi
+  identity_count="$(awk 'NF { count++ } END { print count+0 }' <<<"$matching_identities")"
+  if [ "$identity_count" != "1" ]; then
+    echo "error: signing identity must match exactly one valid certificate. Use its SHA-1 fingerprint." >&2
+    exit 1
+  fi
+  SIGNING_IDENTITY="$(awk '{ print $2 }' <<<"$matching_identities")"
+fi
+
+BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/lasso-build.XXXXXX")"
+trap 'rm -rf "$BUILD_DIR"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+BUILD_APP="$BUILD_DIR/Lasso.app"
+CONTENTS="$BUILD_APP/Contents"
+RESOURCES="$CONTENTS/Resources"
+
+echo "==> Preparing staged build"
 mkdir -p "$CONTENTS/MacOS" "$RESOURCES/app"
 
 echo "==> Recording build configuration (node: $NODE_BIN)"
@@ -31,10 +81,16 @@ SWIFT
 
 echo "==> Compiling the menu bar app"
 swiftc -O \
+  -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" \
   -framework Cocoa -framework WebKit \
   -o "$CONTENTS/MacOS/Lasso" \
   "$ROOT/desktop/BuildConfig.swift" \
+  "$ROOT/desktop/WorkspaceAPI.swift" \
+  "$ROOT/desktop/AssistActivation.swift" \
+  "$ROOT/desktop/DirectoryColors.swift" \
   "$ROOT/desktop/NativeMaterial.swift" \
+  "$ROOT/desktop/DirectoryMenu.swift" \
+  "$ROOT/desktop/StatusPopover.swift" \
   "$ROOT/desktop/SyntheticKeyboard.swift" \
   "$ROOT/desktop/CompletionTransaction.swift" \
   "$ROOT/desktop/AssistSourceIdentity.swift" \
@@ -52,7 +108,7 @@ swiftc -O \
   "$ROOT/desktop/Lasso.swift"
 
 echo "==> Bundling the server"
-for item in src public migrations package.json; do
+for item in src public migrations scripts package.json; do
   cp -R "$ROOT/$item" "$RESOURCES/app/"
 done
 
@@ -103,24 +159,15 @@ if [ ! -d "$SUPPORT/data" ]; then
   fi
 fi
 
-LOCAL_SIGNING_IDENTITY="Lasso Local Development"
-SIGNING_MODE="${LASSO_SIGN_MODE:-${COLAB_SIGN_MODE:-auto}}"
-LEGACY_SIGNING_IDENTITY="CoLab Dry Local Development"
-AVAILABLE_SIGNING_IDENTITIES="$(security find-identity -v -p codesigning 2>/dev/null || true)"
-if [ "$SIGNING_MODE" != "adhoc" ] && grep -Fq "\"$LOCAL_SIGNING_IDENTITY\"" <<<"$AVAILABLE_SIGNING_IDENTITIES"; then
-  echo "==> Signing ($LOCAL_SIGNING_IDENTITY)"
-  codesign --force --deep --sign "$LOCAL_SIGNING_IDENTITY" "$APP"
-elif [ "$SIGNING_MODE" != "adhoc" ] && grep -Fq "\"$LEGACY_SIGNING_IDENTITY\"" <<<"$AVAILABLE_SIGNING_IDENTITIES"; then
-  # The certificate name is not user-facing; its stable requirement keeps
-  # macOS Accessibility/Input Monitoring approvals valid between rebuilds.
-  echo "==> Signing ($LEGACY_SIGNING_IDENTITY)"
-  codesign --force --deep --sign "$LEGACY_SIGNING_IDENTITY" "$APP"
-else
-  echo "==> Signing (ad-hoc)"
-  codesign --force --deep --sign - "$APP" >/dev/null 2>&1 \
-    || echo "   (ad-hoc signing skipped)"
-  echo "   Stable local signing is unavailable; native rebuilds may require permissions again."
-fi
+echo "==> Signing"
+# Keep the certificate-bound designated requirement generated by codesign.
+codesign --force --sign "$SIGNING_IDENTITY" "$BUILD_APP"
+codesign --verify --deep --strict "$BUILD_APP"
+
+echo "==> Replacing app with verified build"
+mkdir -p "$DIST"
+rm -rf "$APP"
+mv "$BUILD_APP" "$APP"
 
 echo
 echo "Built: $APP"

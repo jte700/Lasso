@@ -11,6 +11,91 @@ const maya = { id: 'human:maya', displayName: 'Maya Chen', actorType: 'HUMAN_SEL
 const alex = { id: 'human:alex', displayName: 'Alex Rivera', actorType: 'HUMAN_COLLABORATOR' };
 const agent = { id: 'agent:stats', displayName: 'Lasso Stats Agent', actorType: 'AI_AGENT' };
 
+function editFixture(t) {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-edit-conflict-'));
+  const root = path.join(sandbox, 'project');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'note.md'), 'Original note.\n');
+  const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
+  const { project } = app.timeline.importProject(root, maya, { watch: false });
+  t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  return { app, root, project, sandbox };
+}
+
+test('document saves preserve edits and deletions not yet captured by the watcher', (t) => {
+  const { app, root, project } = editFixture(t);
+  const target = path.join(root, 'note.md');
+  const save = () => app.dependencies.saveDocument(project.id, {
+    path: 'note.md', content: 'Editor replacement.', baseSnapshotId: project.currentSnapshotId,
+  }, maya);
+  fs.writeFileSync(target, 'Uncaptured collaborator edit.\n');
+  assert.throws(save, { status: 409 });
+  assert.equal(fs.readFileSync(target, 'utf8'), 'Uncaptured collaborator edit.\n');
+  fs.unlinkSync(target);
+  assert.throws(save, { status: 409 });
+  assert.equal(fs.existsSync(target), false);
+  assert.equal(app.timeline.getProject(project.id).currentSnapshotId, project.currentSnapshotId);
+});
+
+test('rejected document actors cannot change the file before validation fails', (t) => {
+  const { app, root, project } = editFixture(t);
+  for (const actor of [{}, { ...maya, actorType: 'AI_AGENT' }]) {
+    assert.throws(() => app.dependencies.saveDocument(project.id, {
+      path: 'note.md', content: 'Must not reach disk.',
+    }, actor), (error) => error.status === 400 || error.status === 409);
+    assert.equal(fs.readFileSync(path.join(root, 'note.md'), 'utf8'), 'Original note.\n');
+  }
+  assert.equal(app.timeline.getProject(project.id).currentSnapshotId, project.currentSnapshotId);
+});
+
+test('agent approval detects uncaptured edits and newly created target files', (t) => {
+  const { app, root, project } = editFixture(t);
+  for (const relativePath of ['note.md', 'new.md']) {
+    const proposal = app.timeline.proposeAgentEdit(project.id, {
+      path: relativePath, content: 'Proposed replacement.', agent, initiatedBy: maya,
+    });
+    fs.writeFileSync(path.join(root, relativePath), 'Keep the live file.\n');
+    assert.throws(() => app.timeline.approveAgentEdit(proposal.id), { status: 409 });
+    assert.equal(fs.readFileSync(path.join(root, relativePath), 'utf8'), 'Keep the live file.\n');
+    assert.equal(app.timeline.getExecution(proposal.id).status, 'CONFLICT');
+  }
+});
+
+test('file writes refuse indexed directories replaced with external symlinks', (t) => {
+  const { app, root, project, sandbox } = editFixture(t);
+  const nested = path.join(root, 'nested');
+  const outside = path.join(sandbox, 'outside');
+  fs.mkdirSync(nested);
+  fs.mkdirSync(outside);
+  for (const directory of [nested, outside]) fs.writeFileSync(path.join(directory, 'note.md'), 'Same original.');
+  app.timeline.capture(project.id, maya);
+  const proposal = app.timeline.proposeAgentEdit(project.id, {
+    path: 'nested/note.md', content: 'Agent replacement.', agent, initiatedBy: maya,
+  });
+  fs.renameSync(nested, path.join(root, 'original-nested'));
+  fs.symlinkSync(outside, nested, 'dir');
+  assert.throws(() => app.dependencies.saveDocument(project.id, {
+    path: 'nested/note.md', content: 'Editor replacement.',
+  }, maya), { status: 409 });
+  assert.throws(() => app.timeline.approveAgentEdit(proposal.id), { status: 409 });
+  assert.equal(fs.readFileSync(path.join(outside, 'note.md'), 'utf8'), 'Same original.');
+});
+
+test('approving unchanged text with provenance succeeds without a file-change event', (t) => {
+  const { app, project } = editFixture(t);
+  const proposal = app.timeline.proposeAgentEdit(project.id, {
+    path: 'note.md', content: 'Original note.\n', agent, initiatedBy: maya,
+    provenance: [{ relation: 'DERIVED_FROM', toPath: 'note.md' }],
+  });
+  const result = app.timeline.approveAgentEdit(proposal.id);
+  assert.equal(result.changed, false);
+  assert.equal(result.event, null);
+  assert.equal(result.execution.status, 'APPLIED');
+  const link = app.db.prepare('SELECT * FROM provenance_links WHERE project_id = ?').get(project.id);
+  assert.equal(link.created_by_event_id, null);
+  assert.equal(link.to_snapshot_id, project.currentSnapshotId);
+});
+
 test('scientific timeline and RFI acceptance workflows', async (suite) => {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-timeline-test-'));
   const projectRoot = path.join(sandbox, 'LungAtlas');

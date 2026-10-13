@@ -8,6 +8,12 @@
 import Cocoa
 import ApplicationServices
 
+enum HostTextSafety {
+    static func isSecure(role: String?, subrole: String?) -> Bool {
+        role == "AXSecureTextField" || subrole == "AXSecureTextField"
+    }
+}
+
 /// Identity of the surface being written in, so highlights never appear over an
 /// unrelated window or document.
 struct HostContext: Equatable {
@@ -36,8 +42,34 @@ protocol HostTextAdapter {
 /// The general implementation, built on the same Accessibility reads the typing
 /// assistant already uses.
 final class AccessibilityTextAdapter: HostTextAdapter {
-    /// Surfaces whose text was read from the element rather than the document.
-    private var elementSpace: Set<String> = []
+    // Each refresh reads one host snapshot and shares its expensive fallback
+    // layout across every dependency. Never retain layouts across host changes.
+    private var cachedElement: AXUIElement?
+    private var cachedValue: String?
+    private var inferredLayout: PreparedLayout?
+    private var attemptedInference = false
+    private var markerGeometry: WebTextReader.ElementGeometry?
+    private var attemptedMarkers = false
+
+    func beginRefresh() {
+        cachedElement = nil
+        cachedValue = nil
+        inferredLayout = nil
+        attemptedInference = false
+        markerGeometry = nil
+        attemptedMarkers = false
+    }
+
+    private func textValue(of element: AXUIElement) -> String? {
+        if let cachedElement, CFEqual(cachedElement, element) { return cachedValue }
+        cachedElement = element
+        cachedValue = attribute(element, kAXValueAttribute as String) as? String
+        inferredLayout = nil
+        attemptedInference = false
+        markerGeometry = nil
+        attemptedMarkers = false
+        return cachedValue
+    }
 
     private func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
         var value: CFTypeRef?
@@ -53,6 +85,9 @@ final class AccessibilityTextAdapter: HostTextAdapter {
         guard let focused = attribute(applicationElement, kAXFocusedUIElementAttribute as String),
               CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
         let element = focused as! AXUIElement
+        let role = attribute(element, kAXRoleAttribute as String) as? String
+        let subrole = attribute(element, kAXSubroleAttribute as String) as? String
+        guard !HostTextSafety.isSecure(role: role, subrole: subrole) else { return nil }
 
         // Identify the surface: a DOM identifier when the host offers one, the
         // window title otherwise. Both change when the user moves elsewhere.
@@ -63,7 +98,7 @@ final class AccessibilityTextAdapter: HostTextAdapter {
            let name = attribute(title as! AXUIElement, kAXTitleAttribute as String) as? String {
             parts.append(name)
         }
-        if let role = attribute(element, kAXRoleAttribute as String) as? String { parts.append(role) }
+        if let role { parts.append(role) }
 
         var frame: CGRect?
         if let window = attribute(applicationElement, kAXFocusedWindowAttribute as String),
@@ -83,11 +118,9 @@ final class AccessibilityTextAdapter: HostTextAdapter {
         // Native controls report text and geometry in the element's own index
         // space; web content reports both in the document's. Whichever answers
         // must answer for geometry too, so the choice is recorded.
-        if let value = attribute(context.element, kAXValueAttribute as String) as? String {
-            elementSpace.insert(context.documentContext)
+        if let value = textValue(of: context.element) {
             return value
         }
-        elementSpace.remove(context.documentContext)
         return WebTextReader.documentText(from: context.element)
     }
 
@@ -95,18 +128,31 @@ final class AccessibilityTextAdapter: HostTextAdapter {
         // AXValue defines element index space. Chrome's Gmail AXTextArea exposes
         // that text but refuses AXBoundsForRange, so direct geometry is followed
         // by a calibrated TextKit layout using the live caret rectangle.
-        if let text = attribute(context.element, kAXValueAttribute as String) as? String {
-            elementSpace.insert(context.documentContext)
-            if let whole = boundsForRange(context.element, range),
-               HostGeometryConverter.isUsable(whole) {
-                let fragments = splitByLine(context.element, range: range, whole: whole)
-                return fragments.isEmpty ? [whole] : fragments
+        if let text = textValue(of: context.element) {
+            let visible = WebTextReader.visibleGeometryRanges(forRange: range, inUTF16: Array(text.utf16))
+            guard !visible.isEmpty else { return [] }
+            var direct: [CGRect] = []
+            for textRange in visible {
+                guard let whole = boundsForRange(context.element, textRange),
+                      HostGeometryConverter.isUsable(whole) else { direct.removeAll(); break }
+                let fragments = splitByLine(context.element, range: textRange, whole: whole)
+                direct.append(contentsOf: fragments.isEmpty ? [whole] : fragments)
             }
+            if !direct.isEmpty {
+                return matchesSnapshot(text, element: context.element) ? direct : []
+            }
+            if !attemptedMarkers {
+                attemptedMarkers = true
+                markerGeometry = WebTextReader.elementGeometry(forText: text, from: context.element)
+            }
+            if let measured = markerGeometry?.rects(forRange: range), !measured.isEmpty {
+                return measured
+            }
+            guard matchesSnapshot(text, element: context.element) else { return [] }
             let inferred = inferredRects(for: range, text: text, in: context.element)
-            if !inferred.isEmpty { return inferred }
+            if !inferred.isEmpty && matchesSnapshot(text, element: context.element) { return inferred }
             return []
         }
-        elementSpace.remove(context.documentContext)
 
         // Document index space: go through markers on the web area, which is
         // the element the offsets came from.
@@ -121,10 +167,17 @@ final class AccessibilityTextAdapter: HostTextAdapter {
         return []
     }
 
+    private func matchesSnapshot(_ text: String, element: AXUIElement) -> Bool {
+        guard let current = attribute(element, kAXValueAttribute as String) as? String else { return false }
+        return current.utf16.elementsEqual(text.utf16)
+    }
+
     /// Chrome exposes Gmail's compose body as AXValue but not as measurable
     /// character ranges. Recreate its text layout and calibrate it against the
     /// browser's real live-caret rectangle; return nothing if any evidence is absent.
     func inferredRects(for range: Range<Int>, text: String, in element: AXUIElement) -> [CGRect] {
+        if attemptedInference { return inferredLayout.map { rects(for: range, layout: $0) } ?? [] }
+        attemptedInference = true
         let units = Array(text.utf16)
         guard !range.isEmpty, range.lowerBound >= 0, range.upperBound <= units.count else { return [] }
         guard let frame = elementFrame(element), frame.width > 8, frame.height > 0 else { return [] }
@@ -136,9 +189,9 @@ final class AccessibilityTextAdapter: HostTextAdapter {
               actualCaret.height > 0 else { return [] }
 
         let attributed = attributedText(text, from: element)
-        return layoutRects(
-            attributedText: attributed, range: range, elementFrame: frame,
-            caret: caret, actualCaret: actualCaret)
+        inferredLayout = prepareLayout(
+            attributedText: attributed, elementFrame: frame, caret: caret, actualCaret: actualCaret)
+        return inferredLayout.map { rects(for: range, layout: $0) } ?? []
     }
 
     private func attributedText(_ text: String, from element: AXUIElement) -> NSAttributedString {
@@ -179,8 +232,13 @@ final class AccessibilityTextAdapter: HostTextAdapter {
     /// Walks the range a character at a time, grouping by line. Only used for
     /// short phrases, and only when the whole-range rectangle looks wrapped.
     private func splitByLine(_ element: AXUIElement, range: Range<Int>, whole: CGRect) -> [CGRect] {
-        // A single-line phrase needs no further work.
         guard whole.height > 0, range.count <= 240 else { return [] }
+        if range.count <= 1 { return [] }
+        let first = boundsForRange(element, range.lowerBound..<(range.lowerBound + 1))
+        let last = boundsForRange(element, (range.upperBound - 1)..<range.upperBound)
+        if let first, let last, HostGeometryConverter.isSingleLine(whole: whole, first: first, last: last) {
+            return []
+        }
         var perCharacter: [CGRect] = []
         for offset in range {
             if let rect = boundsForRange(element, offset..<(offset + 1)),
@@ -202,18 +260,44 @@ final class AccessibilityTextAdapter: HostTextAdapter {
         attributedText: NSAttributedString, range: Range<Int>, elementFrame: CGRect,
         caret: Int, actualCaret: CGRect
     ) -> [CGRect] {
-        guard attributedText.length > 0 else { return [] }
+        guard let prepared = prepareLayout(attributedText: attributedText,
+                                            elementFrame: elementFrame,
+                                            caret: caret, actualCaret: actualCaret) else { return [] }
+        return rects(for: range, layout: prepared)
+    }
+
+    private struct PreparedLayout {
+        let storage: NSTextStorage
+        let manager: NSLayoutManager
+        let container: NSTextContainer
+        let elementFrame: CGRect
+        let predictedCaret: CGRect
+        let actualCaret: CGRect
+        let dx: CGFloat
+    }
+
+    private func prepareLayout(attributedText: NSAttributedString, elementFrame: CGRect,
+                               caret: Int, actualCaret: CGRect) -> PreparedLayout? {
+        guard attributedText.length > 0, caret >= 0, caret <= attributedText.length else { return nil }
 
         let prepared = NSMutableAttributedString(attributedString: attributedText)
-        var hasFont = false
-        prepared.enumerateAttribute(.font, in: NSRange(location: 0, length: prepared.length)) {
-            value, _, stop in
-            if value is NSFont { hasFont = true; stop.pointee = true }
-        }
-        if !hasFont {
-            let size = min(24, max(11, actualCaret.height * 0.78))
-            prepared.addAttribute(.font, value: NSFont.systemFont(ofSize: size),
-                                  range: NSRange(location: 0, length: prepared.length))
+        prepared.enumerateAttributes(in: NSRange(location: 0, length: prepared.length)) {
+            attributes, range, _ in
+            guard !(attributes[.font] is NSFont) else { return }
+            // Chromium exposes font metadata in AXFont instead of .font.
+            let metadata = attributes[NSAttributedString.Key("AXFont")] as? [String: Any] ?? [:]
+            let reportedSize = (metadata["AXFontSize"] as? NSNumber).map { CGFloat($0.doubleValue) }
+            let size = reportedSize.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+                ?? min(24, max(11, actualCaret.height * 0.78))
+            let name = metadata["AXFontName"] as? String ?? metadata["AXFontFamily"] as? String
+            var font = name.flatMap { NSFont(name: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
+            if metadata["AXFontBold"] as? Bool == true {
+                font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+            }
+            if metadata["AXFontItalic"] as? Bool == true {
+                font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+            }
+            prepared.addAttribute(.font, value: font, range: range)
         }
 
         let storage = NSTextStorage(attributedString: prepared)
@@ -239,39 +323,65 @@ final class AccessibilityTextAdapter: HostTextAdapter {
             predictedCaret = localRect(for: NSRange(location: caret, length: 1)).map {
                 CGRect(x: $0.minX, y: $0.minY, width: 1, height: $0.height)
             }
+        } else if layout.extraLineFragmentTextContainer === container,
+                  layout.extraLineFragmentUsedRect.height > 0 {
+            // After a newline the insertion point belongs to the new empty
+            // line, not the container-wide bounds of the previous newline.
+            let used = layout.extraLineFragmentUsedRect
+            predictedCaret = CGRect(x: used.minX, y: used.minY, width: 1, height: used.height)
         } else if caret > 0 {
             predictedCaret = localRect(for: NSRange(location: caret - 1, length: 1)).map {
                 CGRect(x: $0.maxX, y: $0.minY, width: 1, height: $0.height)
             }
-        } else { return [] }
-        guard let predictedCaret else { return [] }
+        } else { return nil }
+        guard let predictedCaret else { return nil }
 
         let dx = actualCaret.minX - (elementFrame.minX + predictedCaret.minX)
         let dy = actualCaret.minY - (elementFrame.minY + predictedCaret.minY)
         guard dx.isFinite, dy.isFinite,
-              abs(dx) <= max(120, elementFrame.width * 0.25) else { return [] }
+              abs(dx) <= max(120, elementFrame.width * 0.25) else { return nil }
 
-        let targetGlyphs = layout.glyphRange(
-            forCharacterRange: NSRange(location: range.lowerBound, length: range.count),
-            actualCharacterRange: nil)
-        guard targetGlyphs.length > 0 else { return [] }
+        return PreparedLayout(storage: storage, manager: layout, container: container,
+                              elementFrame: elementFrame, predictedCaret: predictedCaret,
+                              actualCaret: actualCaret, dx: dx)
+    }
+
+    private func rects(for range: Range<Int>, layout prepared: PreparedLayout) -> [CGRect] {
+        guard !range.isEmpty, range.lowerBound >= 0, range.upperBound <= prepared.storage.length else { return [] }
+        let layout = prepared.manager
+        let container = prepared.container
+        let elementFrame = prepared.elementFrame
+        let actualCaret = prepared.actualCaret
+        let predictedCaret = prepared.predictedCaret
+        let dx = prepared.dx
+
+        // A paragraph separator's glyph can stretch to the container edge.
+        // Draw only text-bearing runs so blank lines never become blue strips.
+        let units = Array(prepared.storage.string.utf16)
+        let textRanges = WebTextReader.visibleGeometryRanges(forRange: range, inUTF16: units)
         var fragments: [CGRect] = []
-        layout.enumerateLineFragments(forGlyphRange: targetGlyphs) { _, _, _, lineRange, _ in
-            let overlap = NSIntersectionRange(targetGlyphs, lineRange)
-            guard overlap.length > 0 else { return }
-            let local = layout.boundingRect(forGlyphRange: overlap, in: container)
-            guard local.width > 0, local.height > 0, local.height < 100 else { return }
-            // TextKit's line box can be a few pixels taller than Chrome's CSS
-            // caret. Anchor every line to the live caret baseline and use its
-            // measured height so the translucent wash hugs the host text.
-            let screen = CGRect(
-                x: local.minX + elementFrame.minX + dx,
-                y: actualCaret.minY + (local.minY - predictedCaret.minY),
-                width: local.width,
-                height: actualCaret.height
-            )
-            if elementFrame.insetBy(dx: -4, dy: -4).intersects(screen) {
-                fragments.append(screen)
+        for textRange in textRanges {
+            let targetGlyphs = layout.glyphRange(
+                forCharacterRange: NSRange(location: textRange.lowerBound, length: textRange.count),
+                actualCharacterRange: nil)
+            guard targetGlyphs.length > 0 else { continue }
+            layout.enumerateLineFragments(forGlyphRange: targetGlyphs) { _, _, _, lineRange, _ in
+                let overlap = NSIntersectionRange(targetGlyphs, lineRange)
+                guard overlap.length > 0 else { return }
+                let local = layout.boundingRect(forGlyphRange: overlap, in: container)
+                guard local.width > 0, local.height > 0, local.height < 100 else { return }
+                // TextKit's line box can be a few pixels taller than Chrome's CSS
+                // caret. Anchor every line to the live caret baseline and use its
+                // measured height so the translucent wash hugs the host text.
+                let screen = CGRect(
+                    x: local.minX + elementFrame.minX + dx,
+                    y: actualCaret.minY + (local.minY - predictedCaret.minY),
+                    width: local.width,
+                    height: actualCaret.height
+                )
+                if elementFrame.insetBy(dx: -4, dy: -4).intersects(screen) {
+                    fragments.append(screen)
+                }
             }
         }
         return fragments

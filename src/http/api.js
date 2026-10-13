@@ -92,7 +92,7 @@ function serveStatic(publicDir, pathname, response) {
   return true;
 }
 
-export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null) {
+export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null, workspace = null) {
   return async function requestHandler(request, response) {
     try {
       const url = new URL(request.url, 'http://localhost');
@@ -158,6 +158,58 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       if (request.method === 'GET' && pathname === '/api/health') {
         return sendJson(response, 200, { ok: true, service: 'scientific-version-timeline' });
       }
+      if (workspace) {
+        if (request.method === 'GET' && pathname === '/api/workspace') {
+          return sendJson(response, 200, workspace.state());
+        }
+        if (request.method === 'POST' && pathname === '/api/workspace/directories') {
+          const body = await readJson(request);
+          return sendJson(response, 200, await workspace.add(body.rootPaths, actorFrom(body)));
+        }
+        const directory = match(pathname, /^\/api\/workspace\/directories\/([^/]+)$/);
+        if (request.method === 'POST' && directory) {
+          const body = await readJson(request);
+          return sendJson(response, 200, await workspace.toggle(directory[0], body.active, actorFrom(body)));
+        }
+        if (request.method === 'POST' && pathname === '/api/workspace/dependencies/predict') {
+          return sendJson(response, 200, { prediction: await workspace.predict(await readJson(request)) });
+        }
+        if (request.method === 'GET' && pathname === '/api/workspace/source-library') {
+          return sendJson(response, 200, { objects: workspace.search(url.searchParams.get('query') ?? '', {
+            documentProjectId: url.searchParams.get('documentProjectId'),
+            documentPath: url.searchParams.get('documentPath'), context: url.searchParams.get('context'),
+            limit: Number.MAX_SAFE_INTEGER, diversify: false, enrich: false,
+          }).map(({ searchText, contentHash, metadata, ...object }) => object) });
+        }
+        const review = match(pathname, /^\/api\/workspace\/source-review\/([^/]+)$/);
+        if (review && ['GET', 'POST'].includes(request.method)) {
+          const body = request.method === 'POST' ? await readJson(request) : null;
+          const plan = workspace.sourceValuePlan(review[0]);
+          if (request.method === 'GET') return sendJson(response, 200, { plan });
+          if (JSON.stringify(body.expectedPlan) !== JSON.stringify(plan)) {
+            throw new HttpError(409, 'The source or document changed. Review the updated comparison before continuing.');
+          }
+          if (!['apply', 'keep'].includes(body.action)) throw new HttpError(400, 'Choose an update action.');
+          return sendJson(response, 200, { result: workspace.applySourceValuePlan(review[0], body.action, actorFrom(body), plan) });
+        }
+        if (request.method === 'GET' && pathname === '/api/workspace/terminal/session') {
+          return sendJson(response, 200, { session: workspace.terminalSession() });
+        }
+        if (request.method === 'GET' && pathname === '/api/workspace/terminal/complete') {
+          return sendJson(response, 200, { completion: workspace.terminalComplete(url.searchParams.get('input') ?? '', {
+            documentPath: url.searchParams.get('documentPath'), context: url.searchParams.get('context'),
+            surface: url.searchParams.get('surface'),
+          }) });
+        }
+        if (request.method === 'POST' && pathname === '/api/workspace/terminal/preview') {
+          const body = await readJson(request);
+          return sendJson(response, 200, { preview: workspace.terminalPreview(body.ref) });
+        }
+        if (request.method === 'POST' && pathname === '/api/workspace/terminal') {
+          const body = await readJson(request);
+          return sendJson(response, 200, { result: await workspace.terminalRun(body.input, actorFrom(body), body) });
+        }
+      }
       const localObjectParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)$/);
       if (request.method === 'GET' && localObjectParameters) {
         const object = dependencies.objectById(localObjectParameters[0]);
@@ -215,6 +267,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       if (request.method === 'POST' && parameters) {
         const body = await readJson(request);
         const project = timeline.getProject(parameters[0]);
+        workspace?.requireActive(project.id);
         const capture = timeline.capture(project.id, actorFrom(body), {
           expectedSnapshotId: body.expectedSnapshotId,
           source: 'OPEN_RECONCILE',
@@ -342,9 +395,9 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/source-review\/([^/]+)$/);
       if (parameters && ['GET', 'POST'].includes(request.method)) {
         const [projectId, objectId] = parameters;
+        const body = request.method === 'POST' ? await readJson(request) : null;
         const plan = dependencies.planSourceValueUpdate(projectId, objectId);
         if (request.method === 'GET') return sendJson(response, 200, { plan });
-        const body = await readJson(request);
         if (JSON.stringify(body.expectedPlan) !== JSON.stringify(plan)) {
           throw new HttpError(409, 'The source or document changed. Review the updated comparison before continuing.');
         }

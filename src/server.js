@@ -8,6 +8,7 @@ import { PredictiveProvenanceService } from './dependencies/service.js';
 import { createRequestHandler } from './http/api.js';
 import { ObjectShareService } from './sharing/object-share.js';
 import { createTerminal } from './terminal/service.js';
+import { WorkspaceService } from './workspace.js';
 
 export function createApplication(overrides = {}) {
   const config = createConfig(overrides);
@@ -19,7 +20,10 @@ export function createApplication(overrides = {}) {
   rfi.dependencies = dependencies;
   const objectShares = new ObjectShareService(db, timeline, config);
   const terminal = createTerminal({ timeline, dependencies, objectShares });
-  const server = http.createServer(createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal));
+  const workspace = new WorkspaceService({ timeline, dependencies, terminal });
+  if (config.watchProjects) workspace.ready = workspace.restore();
+  const server = http.createServer(createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal, workspace));
+  let closing;
   return {
     config,
     db,
@@ -28,12 +32,15 @@ export function createApplication(overrides = {}) {
     dependencies,
     objectShares,
     terminal,
+    workspace,
     server,
     close() {
+      if (closing) return closing;
+      workspace.close();
       timeline.close();
       dependencies.close();
       terminal.close();
-      return new Promise((resolve, reject) => {
+      closing = new Promise((resolve, reject) => {
         if (!server.listening) {
           db.close();
           resolve();
@@ -45,6 +52,7 @@ export function createApplication(overrides = {}) {
           else resolve();
         });
       });
+      return closing;
     },
   };
 }

@@ -62,10 +62,16 @@ enum ShareClient {
 /// Gmail's compose field receives a hyperlink. Isolated here so no other layer
 /// depends on clipboard behaviour.
 enum RichTextInserter {
+    private typealias ClipboardItems = [[NSPasteboard.PasteboardType: Data]]
+    private static var borrowed: [NSPasteboard.Name: (items: ClipboardItems, changeCount: Int)] = [:]
+
     /// Insertion is a paste, so the clipboard is borrowed and put back.
-    private static func withBorrowedPasteboard(_ body: () -> Void) {
-        let pasteboard = NSPasteboard.general
-        let saved = pasteboard.pasteboardItems?.compactMap { item -> [NSPasteboard.PasteboardType: Data] in
+    static func withBorrowedPasteboard(_ pasteboard: NSPasteboard = .general, _ body: () -> Void) {
+        // Consecutive insertions share the original clipboard until it is
+        // restored or the user copies something else.
+        let previous = borrowed[pasteboard.name]
+        let saved = previous?.changeCount == pasteboard.changeCount ? previous!.items
+            : pasteboard.pasteboardItems?.map { item -> [NSPasteboard.PasteboardType: Data] in
             var copy: [NSPasteboard.PasteboardType: Data] = [:]
             for type in item.types {
                 if let data = item.data(forType: type) { copy[type] = data }
@@ -74,9 +80,14 @@ enum RichTextInserter {
         } ?? []
 
         body()
+        let changeCount = pasteboard.changeCount
+        borrowed[pasteboard.name] = (saved, changeCount)
 
         // Restore once the target application has had time to read the paste.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            guard borrowed[pasteboard.name]?.changeCount == changeCount else { return }
+            borrowed.removeValue(forKey: pasteboard.name)
+            guard pasteboard.changeCount == changeCount else { return }
             pasteboard.clearContents()
             let restored = saved.map { entry -> NSPasteboardItem in
                 let item = NSPasteboardItem()
