@@ -28,6 +28,12 @@ test('public share routes', async (suite) => {
   await new Promise((resolve) => application.server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${application.server.address().port}`;
 
+  await suite.test('local sharing is identified before a link is created', async () => {
+    const response = await fetch(`${base}/api/sharing/status`);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).localOnly, true);
+  });
+
   await suite.test('the native overlay resolves an indexed object to its owning file', async () => {
     const response = await fetch(`${base}/api/dependency-objects/${object.object_id}`);
     assert.equal(response.status, 200);
@@ -45,6 +51,7 @@ test('public share routes', async (suite) => {
     assert.equal(body.source.filename, 'Income-Statement.csv');
     assert.equal(body.path, 'Finance/Income-Statement.csv');
     assert.deepEqual(body.preview.columns, ['A', 'B', 'C']);
+    assert.deepEqual(body.preview.headers, ['Account', 'Current Period', 'Prior Period']);
     assert.ok(body.preview.rows.some((row) => row.cells.some((cell) => cell.cited)));
     assert.equal((await fetch(`${base}/api/dependency-objects/not-real/preview`)).status, 404);
   });

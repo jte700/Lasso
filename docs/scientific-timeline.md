@@ -74,7 +74,7 @@ The LCS matrix has a bounded complexity guard. Very large line products fall bac
 
 ## Actor attribution and agent edits
 
-Actor identity is accepted only from the caller's execution/session context; it is never inferred from file content. Actor IDs cannot change type.
+Actor identity comes from the caller's execution/session context; it is never inferred from file content. The local API currently accepts actor fields supplied by its client, and the identity switcher changes attribution rather than authenticating a user. Actor IDs cannot change type.
 
 An agent proposal stores:
 
@@ -129,7 +129,7 @@ The system may still report where the content was first recorded; it does not mi
 
 Collaborator actors retain their global identity when supplied by the collaboration/session layer. Each capture performs an optimistic comparison-and-swap against the expected/current parent. A stale collaborator or agent request receives HTTP 409 with both expected and current snapshot IDs. Lasso never rewrites the snapshots into a false sequential history.
 
-This repository has no pre-existing remote synchronization transport. The implemented boundary is therefore persistence plus conflict detection; merging or branch visualization belongs in the host product's future collaboration adapter.
+The application provides local persistence and optimistic conflict detection. It does not include a remote synchronization or merge service. Shared source links expose selected evidence through the running server; they do not synchronize project directories.
 
 ## HTTP surface
 
@@ -166,3 +166,5 @@ Production adapters should source actors from authenticated server-side context,
 - Remote synchronization, production authentication, and concurrent rich-text editing are not implemented.
 - Blob garbage collection and project deletion policy are intentionally unset because immutable-history retention is a product decision.
 - Node 24's built-in SQLite module is currently marked experimental by Node; the app suppresses that warning but documents the runtime requirement.
+
+See [current limitations](limitations.md) for deployment, native-host, and format boundaries.

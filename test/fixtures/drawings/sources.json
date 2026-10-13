@@ -1,0 +1,112 @@
+{
+  "retrievedOn": "2026-10-11",
+  "timezone": "America/Toronto",
+  "fixtures": [
+    {
+      "file": "AC20-FZK-Haus.ifc",
+      "title": "AC20-FZK-Haus: Karlsruhe Institute of Technology house model",
+      "format": "IFC4 STEP",
+      "sourceUrl": "https://www.ifcwiki.org/images/e/e3/AC20-FZK-Haus.ifc",
+      "sourcePage": "https://docs.ifcopenshell.org/introduction/introduction_to_ifc.html",
+      "origin": "Institute for Automation and Applied Informatics (IAI), Karlsruhe Institute of Technology; ARCHICAD 20 export",
+      "sourceModified": "2016-12-21T17:54:06",
+      "modified": false,
+      "expectedFacts": [
+        {
+          "name": "Schlafzimmer",
+          "roomNumber": "4",
+          "entityType": "IFCSPACE",
+          "entityId": "#20909",
+          "globalId": "347jFE2yX7IhCEIALmupEH",
+          "property": "NetFloorArea",
+          "value": 21.410325,
+          "unit": "m2",
+          "quantityEntityId": "#21093",
+          "quantitySetEntityId": "#21104",
+          "relationshipEntityId": "#21106",
+          "unitEntityId": "#14",
+          "sourceLine": 11968
+        },
+        {
+          "name": "Schlafzimmer",
+          "roomNumber": "4",
+          "entityType": "IFCSPACE",
+          "entityId": "#20909",
+          "globalId": "347jFE2yX7IhCEIALmupEH",
+          "property": "GrossFloorArea",
+          "value": 22.0725,
+          "unit": "m2",
+          "quantityEntityId": "#21092",
+          "quantitySetEntityId": "#21104",
+          "relationshipEntityId": "#21106",
+          "unitEntityId": "#14",
+          "sourceLine": 11967
+        },
+        {
+          "name": "Buero",
+          "roomNumber": "2",
+          "entityType": "IFCSPACE",
+          "entityId": "#21640",
+          "globalId": "2RSCzLOBz4FAK$_wE8VckM",
+          "property": "NetFloorArea",
+          "value": 12.59545,
+          "unit": "m2",
+          "quantityEntityId": "#21819",
+          "unitEntityId": "#14",
+          "sourceLine": 12388
+        }
+      ],
+      "verification": "Read STEP space, quantity, relationship, and project unit assignment records directly; retain exported values rather than calculating from geometry.",
+      "sha256": "70cc8ff245fc0894201d96496c031005a5cbd7a96b22d8a1b87c5a883fb77994",
+      "sizeBytes": 2570803
+    },
+    {
+      "file": "civil3d-main-road.xml",
+      "title": "LandXML road sample exported from Autodesk Civil 3D 2023 Quantities-7.dwg",
+      "format": "LandXML 1.2",
+      "sourceUrl": "https://raw.githubusercontent.com/mac999/landxml_parser/main/landxml_road_sample.xml",
+      "sourcePage": "https://github.com/mac999/landxml_parser/blob/main/landxml_road_sample.xml",
+      "origin": "mac999/landxml_parser public sample; Autodesk Civil 3D export",
+      "sourceModified": "2024-03-04T08:25:34",
+      "modified": false,
+      "expectedFacts": [
+        {
+          "name": "Main Road",
+          "entityType": "Alignment",
+          "property": "length",
+          "value": 2455.497573251083,
+          "unit": "ft",
+          "sourceLine": 9,
+          "sourceAttribute": "Alignment[@name=\"Main Road\"]/@length",
+          "unitSource": "Units/Imperial/@linearUnit=\"foot\""
+        }
+      ],
+      "verification": "Read Alignment length and declared Units from the original XML using an independent XML parser.",
+      "sourceRevision": "04effe416e90caef8afa4fdc558cd39ab4cc596d",
+      "immutableSourceUrl": "https://raw.githubusercontent.com/mac999/landxml_parser/04effe416e90caef8afa4fdc558cd39ab4cc596d/landxml_road_sample.xml",
+      "sha256": "ef94784cec2b43dbfb01b9a17b18b036223791c2bebeef377d6d04feb80010f0",
+      "sizeBytes": 14038
+    },
+    {
+      "file": "ncsu-office-kit.pdf",
+      "title": "NC State University Office Space Kit-of-Parts, October 2025",
+      "format": "PDF",
+      "sourceUrl": "https://facilities.ofa.ncsu.edu/files/2025/10/Office-Kit-of-Parts.pdf",
+      "origin": "NC State University Facilities Division, Campus Planning and Strategic Investment",
+      "modified": false,
+      "expectedFacts": [
+        {
+          "name": "Small Conference",
+          "property": "printed area",
+          "value": 180,
+          "unit": "ft2",
+          "page": 17,
+          "printedDimensions": "12x15"
+        }
+      ],
+      "verification": "Independently rendered PDF page 17 with Poppler and visually verified 180 sf above Small Conference beside floor-plan diagrams. Optional PDF fallback fixture; primary acceptance uses IFC/LandXML metadata.",
+      "sha256": "16283d3d73a3a12235cc4feb69bcd71c010d0501c1724a43bf4be31aa60f7d6f",
+      "sizeBytes": 3504901
+    }
+  ]
+}

@@ -108,3 +108,13 @@ Architecture and implementation references:
 - [Timeline, snapshots, and recorded provenance](docs/scientific-timeline.md)
 - [Predictive dependencies, editor behaviour, and ranking](docs/predictive-provenance-editor.md)
 - [Ranking algorithm reference (PDF)](docs/lasso-ranking-algorithm.pdf)
+
+## Drawing and CAD sources
+
+The source library also indexes explicit evidence from DXF, IFC, LandXML, and drawing PDFs. Supported drawing questions can be submitted with Enter in source search, such as “What is the length of Main Road?”. Measurements require recorded evidence; geometry is not guessed from an image.
+
+Run `node --disable-warning=ExperimentalWarning scripts/validate-drawing-sample.js --pdf` to validate the hash-checked architectural, civil, and PDF samples. Optional live Chrome checks use `npm run desktop:test:browser`; this builds a test variant, so restore the regular app afterward with `npm run desktop`.
+
+- [Design source indexing](docs/design-source-indexing.md)
+- [Drawing sample validation](docs/drawing-sample-validation.md)
+- [Format and deployment limitations](docs/limitations.md)

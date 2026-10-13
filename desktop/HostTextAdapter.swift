@@ -141,6 +141,12 @@ final class AccessibilityTextAdapter: HostTextAdapter {
             if !direct.isEmpty {
                 return matchesSnapshot(text, element: context.element) ? direct : []
             }
+            let descendantRects = WebTextReader.rects(forElementRange: range, text: text, from: context.element)
+            if !descendantRects.isEmpty, let frame = elementFrame(context.element),
+               matchesSnapshot(text, element: context.element) {
+                let visible = descendantRects.map { $0.intersection(frame) }.filter(HostGeometryConverter.isUsable)
+                if !visible.isEmpty { return visible }
+            }
             if !attemptedMarkers {
                 attemptedMarkers = true
                 markerGeometry = WebTextReader.elementGeometry(forText: text, from: context.element)

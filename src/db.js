@@ -30,6 +30,23 @@ export function openDatabase(config) {
     }
   }
 
+  // Both development branches shipped migration 016. Normalize either shape
+  // transactionally, preserving existing history and directory choices.
+  if (currentVersion === 16) {
+    transaction(db, () => {
+      const projectColumns = db.prepare('PRAGMA table_info(projects)').all();
+      if (!projectColumns.some(column => column.name === 'workspace_active')) {
+        db.exec('ALTER TABLE projects ADD COLUMN workspace_active INTEGER NOT NULL DEFAULT 1 CHECK (workspace_active IN (0, 1))');
+      }
+      const indexColumns = db.prepare('PRAGMA table_info(snapshot_object_indexes)').all();
+      if (!indexColumns.some(column => column.name === 'drawing_index_version')) {
+        db.exec('ALTER TABLE snapshot_object_indexes ADD COLUMN drawing_index_version INTEGER NOT NULL DEFAULT 0');
+      }
+      db.prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(17, new Date().toISOString());
+    });
+    currentVersion = 17;
+  }
+
   const migrations = fs.readdirSync(migrationDirectory)
     .filter((name) => /^\d+_.*\.sql$/.test(name))
     .map((name) => ({ name, version: Number(name.split('_')[0]) }))

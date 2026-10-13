@@ -1,3 +1,4 @@
+import { buildSharePreview } from '../sharing/share-preview.js';
 // The read layer every terminal command shares.
 //
 // It owns no data. Every answer here is assembled from the same tables the
@@ -12,12 +13,13 @@ import { BoundedCache } from '../cache.js';
 import { parseDelimited } from '../history/diff.js';
 import { extractSpreadsheetTables } from '../dependencies/document-extraction.js';
 import { directRecommendationMatch } from '../dependencies/ranking.js';
+import { drawingContext } from '../dependencies/drawing-objects.js';
 import {
   canonicalAddress, dependencyName, describeObject, slug, sourceDirectory, sourceFileName, sourceLocator,
 } from './names.js';
 
 /** Objects that are containers rather than addressable values. */
-const CONTAINER_TYPES = new Set(['DATASET', 'DOCUMENT', 'TABLE', 'CODE_BLOCK']);
+const CONTAINER_TYPES = new Set(['DATASET', 'DOCUMENT', 'TABLE', 'CODE_BLOCK', 'DRAWING']);
 
 function tokens(value) {
   return String(value ?? '').toLowerCase().match(/[a-z0-9]+/g) ?? [];
@@ -1082,6 +1084,13 @@ export class DependencyGraph {
       const table = this.tablePreview(file, object, radius);
       if (table) return { kind: 'table', ...header, ...table };
     }
+    if (object.metadata?.drawing) {
+      const context = drawingContext(object);
+      return { kind: 'text', ...header, measurementBasis: object.metadata.measurementBasis,
+        bbox: anchor.bbox ?? null, pageNumber: anchor.pageNumber ?? null,
+        lines: context.text.split('\n').map((text, index) => ({ lineNumber: index + 1,
+          highlighted: Boolean(object.metadata.rawText?.includes(text)), text })) };
+    }
     const text = this.textPreview(file, object, radius);
     if (text) return { kind: 'text', ...header, ...text };
     return { kind: 'meta', ...header, value: object.valueText ?? null, objectType: object.objectType };
@@ -1089,32 +1098,13 @@ export class DependencyGraph {
 
   tablePreview(file, object, radius) {
     const buffer = this.timeline.blobs.get(file.contentHash);
-    if (!buffer) return null;
-    let rows = null;
-    const anchor = object.anchor ?? {};
-    try {
-      if (file.fileType === 'spreadsheet') {
-        const sheetName = object.metadata?.sheet ?? anchor.sheet ?? null;
-        const sheets = extractSpreadsheetTables(buffer);
-        const sheet = sheets.find((candidate) => candidate.name === sheetName) ?? sheets[0];
-        rows = sheet?.rows ?? null;
-      } else {
-        const delimiter = path.posix.extname(file.path).toLowerCase() === '.tsv' ? '\t' : ',';
-        rows = parseDelimited(buffer.subarray(0, 2_000_000).toString('utf8'), delimiter);
-      }
-    } catch { return null; }
-    if (!rows?.length) return null;
-    const target = Number.isInteger(anchor.rowIndex) ? anchor.rowIndex : 0;
-    const start = Math.max(0, target - radius);
-    const end = Math.min(rows.length, target + radius + 1);
+    const context = buildSharePreview({path:file.path,content:buffer}, object.anchor ?? {}, object.metadata ?? {}, radius);
+    if (!context) return null;
     return {
-      headerRow: rows[0]?.map((cell) => String(cell ?? '')) ?? [],
-      rows: rows.slice(start, end).map((row, offset) => ({
-        rowNumber: start + offset + 1,
-        highlighted: start + offset === target,
-        cells: row.map((cell) => String(cell ?? '')),
-      })),
-      highlightColumn: Number.isInteger(anchor.columnIndex) ? anchor.columnIndex : null,
+      headerRow:context.headers,
+      columns:context.columns,
+      rows:context.rows.map(row=>({rowNumber:row.rowNumber,highlighted:row.cells.some(cell=>cell.cited),cells:row.cells.map(cell=>cell.value)})),
+      highlightColumn:context.rows.find(row=>row.cells.some(cell=>cell.cited))?.cells.findIndex(cell=>cell.cited) ?? null,
     };
   }
 

@@ -164,7 +164,7 @@ export function renderSharePage(resolved, token, preview, document = null) {
   rows.push(['Shared', `<dd>${escapeHtml(formatDate(share.createdAt))}</dd>`]);
 
   const table = !redacted && preview?.headers?.length
-    ? `<table><thead><tr>${preview.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead>
+    ? `<table><thead><tr>${preview.headers.map((header, i) => `<th>${escapeHtml(header || `Column ${preview.columns?.[i] ?? i + 1}`)}</th>`).join('')}</tr></thead>
        <tbody>${preview.rows.map((row) => `<tr>${row.cells.map((cell) => (
          `<td class="${cell.cited ? 'cited' : ''}">${escapeHtml(cell.value)}</td>`)).join('')}</tr>`).join('')}</tbody></table>`
     : '';
@@ -202,7 +202,7 @@ export function renderInspectorPanel(resolved, reference, preview) {
   const sourceType = source.filename.split('.').pop()?.toUpperCase().slice(0, 4) || 'SRC';
   const table = preview?.headers?.length
     ? `<div class="inspector-preview"><div class="preview-heading"><span>Evidence preview</span><small>Exact cited context</small></div>
-       <div class="preview-scroll"><table><thead><tr>${preview.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead>
+       <div class="preview-scroll"><table><thead><tr>${preview.headers.map((header, i) => `<th>${escapeHtml(header || `Column ${preview.columns?.[i] ?? i + 1}`)}</th>`).join('')}</tr></thead>
        <tbody>${preview.rows.map((row) => `<tr>${row.cells.map((cell) => (
          `<td class="${cell.cited ? 'cited' : ''}">${escapeHtml(cell.value)}</td>`)).join('')}</tr>`).join('')}</tbody></table></div></div>`
     : `<div class="inspector-preview text-preview"><div class="preview-heading"><span>Evidence preview</span><small>Indexed source context</small></div>

@@ -108,32 +108,62 @@ enum RichTextInserter {
     /// Selects the partial word, then pastes `label` as a link to `url`.
     /// Only the label is clickable; no raw URL is shown.
     static func insertLink(label: String, url: URL, replacing length: Int, at caret: Int,
-                           in element: AXUIElement, onPasted: @escaping () -> Void) {
-        let html = "<a href=\"\(escapeHtml(url.absoluteString))\">\(escapeHtml(label))</a>"
-
+                           in element: AXUIElement, keyboardDeleteCount: Int, onPasted: @escaping (Bool) -> Void) {
         if length > 0 {
             if caret >= 0, caret - length >= 0 {
                 var range = CFRange(location: caret - length, length: length)
-                if let axRange = AXValueCreate(.cfRange, &range) {
-                    AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axRange)
+                guard let axRange = AXValueCreate(.cfRange, &range),
+                      AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axRange) == .success else {
+                    onPasted(false); return
                 }
             } else {
                 // Web content exposes no ranges: erase the partial word first.
-                SyntheticKeyboard.deleteBackwards(length)
+                SyntheticKeyboard.deleteBackwards(keyboardDeleteCount)
             }
         }
 
         withBorrowedPasteboard {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
-            pasteboard.declareTypes([.html, .string], owner: nil)
-            pasteboard.setString(html, forType: .html)
-            // Plain-text fallback for fields that cannot take HTML.
-            pasteboard.setString(label, forType: .string)
+            let formats = representations(label: label, url: url)
+            pasteboard.declareTypes(Array(formats.keys), owner: nil)
+            for (type, data) in formats { pasteboard.setData(data, forType: type) }
             paste()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: onPasted)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onPasted(true) }
         }
     }
+
+    static func representations(label: String, url: URL) -> [NSPasteboard.PasteboardType: Data] {
+        let html = "<a href=\"\(escapeHtml(url.absoluteString))\">\(escapeHtml(label))</a>"
+        var formats: [NSPasteboard.PasteboardType: Data] = [
+            .html: Data(html.utf8), .string: Data(plainText(label: label, url: url).utf8),
+        ]
+        let attributed = NSAttributedString(string: label, attributes: [.link: url])
+        if let rtf = try? attributed.data(from: NSRange(location: 0, length: attributed.length),
+                                         documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]) {
+            formats[.rtf] = rtf
+        }
+        return formats
+    }
+
+    static func containsLink(_ text: NSAttributedString, to url: URL) -> Bool {
+        guard text.length > 0 else { return false }
+        var valid = true
+        text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, _, _ in
+            let value = attributes[.link] ?? attributes[NSAttributedString.Key("AXLink")]
+            var destination = (value as? URL)?.absoluteString ?? value as? String
+            if let value, CFGetTypeID(value as CFTypeRef) == AXUIElementGetTypeID() {
+                var raw: CFTypeRef?
+                if AXUIElementCopyAttributeValue(value as! AXUIElement, kAXURLAttribute as CFString, &raw) == .success {
+                    destination = (raw as? URL)?.absoluteString ?? raw as? String
+                }
+            }
+            if destination != url.absoluteString { valid = false }
+        }
+        return valid
+    }
+
+    static func plainText(label: String, url: URL) -> String { "\(label) (\(url.absoluteString))" }
 
     private static func paste() {
         SyntheticKeyboard.paste()

@@ -46,6 +46,25 @@ struct VerifiedCompletion: Equatable {
 }
 
 enum CompletionTransaction {
+    /// Delayed keyboard fallback may only use the original collapsed caret or
+    /// the exact prefix selection established by the accessibility write.
+    static func canRetry(before: CompletionSnapshot, current: CompletionSnapshot,
+                         selectionLength: Int, expectedPrefix: String, selectedPrefix: Bool) -> Bool {
+        let length = expectedPrefix.utf16.count
+        if !selectedPrefix {
+            return selectionLength == 0 && before.documentStart == current.documentStart
+                && equivalentHostText(before.text, current.text)
+        }
+        guard length > 0, selectionLength == length,
+              current.documentEnd == before.documentEnd - length,
+              length <= before.text.count else { return false }
+        let overlapStart = max(before.documentStart, current.documentStart)
+        guard overlapStart <= current.documentEnd else { return false }
+        let old = Array(before.text[(overlapStart - before.documentStart)..<(before.text.count - length)])
+        let new = Array(current.text[(overlapStart - current.documentStart)...])
+        return equivalentHostText(old, new)
+    }
+
     /// Content-editable hosts commonly expose a trailing space as NBSP while
     /// it is at the caret, then turn it back into an ordinary space as soon as
     /// more text follows. Those code units are the same visible edit evidence;

@@ -14,11 +14,12 @@ import {
 import { renderPdfFigurePage } from './figure-preview.js';
 import { RecommendationRanking, directRecommendationMatch } from './ranking.js';
 import { BoundedCache } from '../cache.js';
+import { drawingDescriptors, drawingContext } from './drawing-objects.js';
 
 const OBJECT_TYPES = new Set([
   'REFERENCE', 'PAPER', 'RESULT', 'VALUE', 'CODE', 'CODE_BLOCK', 'CODE_LINE',
   'NOTEBOOK_CELL', 'DATASET', 'DATASET_ROW', 'DATASET_VALUE', 'TABLE', 'FIGURE', 'METHOD', 'MODEL',
-  'PARAMETER', 'PROTOCOL', 'ANALYSIS_RUN', 'DOCUMENT', 'VARIABLE',
+  'PARAMETER', 'PROTOCOL', 'ANALYSIS_RUN', 'DOCUMENT', 'VARIABLE', 'DRAWING', 'DRAWING_ANNOTATION',
 ]);
 const SELECTION_METHODS = new Set(['AUTOCOMPLETE', 'PREDICTED_ACCEPTED', 'MANUAL', 'SYSTEM_LINKED', 'IMPORTED']);
 const STATUS_TYPES = new Set(['PREDICTED', 'LINKED', 'NEEDS_REVIEW', 'STALE', 'BROKEN']);
@@ -325,6 +326,7 @@ function referenceTitleSimilarity(query, object) {
 function workspaceCompletionText(object) {
   const variable = String(object.metadata.variable ?? object.metadata.column ?? '').trim();
   const value = String(object.valueText ?? '').trim();
+  if (object.objectType === 'DRAWING_ANNOTATION') return `${object.label} is ${value}`;
   if (object.metadata.metric === 'row-count' && value) {
     const dataset = String(object.metadata.dataset ?? object.label).replace(/\s*·\s*included rows$/i, '');
     const sheet = object.metadata.sheet ? ` (${object.metadata.sheet})` : '';
@@ -342,6 +344,7 @@ function workspaceCompletionText(object) {
 }
 
 function workspaceSuggestionCategory(object) {
+  if (object.objectType === 'DRAWING_ANNOTATION') return 'Drawing measurement';
   if (object.objectType === 'DATASET_ROW') return 'Row';
   if (object.objectType === 'VARIABLE') return 'Variable';
   if (['RESULT', 'VALUE', 'DATASET_VALUE'].includes(object.objectType)) return 'Result';
@@ -857,6 +860,11 @@ function objectsFromFile(file, buffer) {
   const fileName = path.posix.basename(file.path, path.posix.extname(file.path));
   const text = buffer.subarray(0, 5_000_000).toString('utf8').replace(/\r\n/g, '\n');
 
+  if (['pdf', 'drawing', 'xml'].includes(file.fileType) || /\.(?:ifc|dxf|dwg|rvt|dgn|landxml|xml)$/i.test(file.path)) {
+    const { drawing, descriptors } = drawingDescriptors(file, buffer);
+    if (drawing.isDrawing) return descriptors.map(objectDescriptor);
+  }
+
   if (file.fileType === 'table') {
     const delimiter = path.extname(file.path).toLowerCase() === '.tsv' ? '\t' : ',';
     const layout = tabularLayout(parseDelimited(text, delimiter));
@@ -1222,21 +1230,23 @@ export class PredictiveProvenanceService {
     const project = this.timeline.getProject(projectId);
     const targetSnapshotId = snapshotId ?? project.currentSnapshotId;
     // Do not materialize the entire file manifest on every warm prediction.
-    const indexed = this.db.prepare(`SELECT s.project_id, i.snapshot_id AS indexed
+    const indexed = this.db.prepare(`SELECT s.project_id, i.snapshot_id AS indexed, i.drawing_index_version
       FROM snapshots s LEFT JOIN snapshot_object_indexes i ON i.snapshot_id = s.id WHERE s.id = ?`)
       .get(targetSnapshotId);
     if (!indexed) throw new HttpError(404, 'Snapshot not found.');
     if (indexed.project_id !== projectId) throw new HttpError(400, 'Snapshot does not belong to this project.');
-    if (indexed.indexed) return;
+    if (indexed.indexed && indexed.drawing_index_version >= 1) return;
     const snapshot = this.timeline.getSnapshot(targetSnapshotId);
     const descriptors = [];
     const files = [...snapshot.files].sort((left, right) => dependencyFilePriority(right) - dependencyFilePriority(left)
       || left.path.localeCompare(right.path));
     for (const file of files) {
       if (descriptors.length >= MAX_SNAPSHOT_OBJECTS) break;
-      if (file.size > 25_000_000 && !['image', 'pdf', 'document'].includes(file.fileType)) continue;
-      if (file.size > 5_000_000 && !['image', 'pdf', 'document', 'table', 'spreadsheet'].includes(file.fileType)) continue;
-      if (!['table', 'spreadsheet', 'code', 'notebook', 'image', 'json', 'text', 'markdown', 'pdf', 'document'].includes(file.fileType)) continue;
+      const design = ['drawing', 'xml'].includes(file.fileType) || /\.(?:ifc|dxf|dwg|rvt|dgn|landxml|xml)$/i.test(file.path);
+      if (indexed.indexed && file.fileType !== 'pdf' && !design) continue;
+      if (file.size > 25_000_000 && !design && !['image', 'pdf', 'document'].includes(file.fileType)) continue;
+      if (file.size > 5_000_000 && !design && !['image', 'pdf', 'document', 'table', 'spreadsheet'].includes(file.fileType)) continue;
+      if (!design && !['table', 'spreadsheet', 'code', 'notebook', 'image', 'json', 'text', 'markdown', 'pdf', 'document'].includes(file.fileType)) continue;
       if (file.fileType === 'text' && !['.bib', '.ris', '.enw', '.nbib'].includes(path.extname(file.path).toLowerCase())) continue;
       const available = MAX_SNAPSHOT_OBJECTS - descriptors.length;
       const key = JSON.stringify([file.projectFileId, file.path, file.fileType, file.contentHash]);
@@ -1246,9 +1256,16 @@ export class PredictiveProvenanceService {
         extracted = { objects, bytes: JSON.stringify(objects).length * 2 };
         this.extractionCache.set(key, extracted);
       }
-      descriptors.push(...extracted.objects.slice(0, available).map((descriptor) => ({
+      const included = extracted.objects.slice(0, available).map((descriptor) => ({
         ...descriptor, metadata: { ...descriptor.metadata },
-      })));
+      }));
+      if (extracted.objects.length > available) for (const descriptor of included) {
+        if (descriptor.type !== 'DRAWING') continue;
+        descriptor.metadata.extractionStatus = 'partial';
+        descriptor.metadata.warnings = [...(descriptor.metadata.warnings ?? []), 'The workspace object limit was reached; some measurements were not indexed.'];
+      }
+      descriptors.push(...included);
+
     }
     applyVariableDefinitions(descriptors);
     transaction(this.db, () => {
@@ -1273,8 +1290,10 @@ export class PredictiveProvenanceService {
           JSON.stringify(descriptor.metadata), now(),
         );
       }
-      this.db.prepare('INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count) VALUES (?, ?, ?)')
-        .run(targetSnapshotId, now(), descriptors.length);
+      const objectCount = this.db.prepare('SELECT COUNT(*) AS count FROM scientific_object_versions WHERE snapshot_id = ?').get(targetSnapshotId).count;
+      this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version) VALUES (?, ?, ?, 1)
+        ON CONFLICT(snapshot_id) DO UPDATE SET drawing_index_version = 1, indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
+        .run(targetSnapshotId, now(), objectCount);
     });
     this.objectCache.delete(targetSnapshotId);
     this.ranking.invalidateSnapshot(targetSnapshotId);
@@ -1452,7 +1471,7 @@ export class PredictiveProvenanceService {
     const project = this.timeline.getProject(projectId);
     const target = snapshotId ?? project.currentSnapshotId;
     if (this.studyVariableCache.has(target)) return this.studyVariableCache.get(target);
-    const dataTypes = new Set(['VARIABLE', 'RESULT', 'VALUE', 'DATASET_ROW', 'DATASET_VALUE', 'TABLE']);
+    const dataTypes = new Set(['VARIABLE', 'RESULT', 'VALUE', 'DATASET_ROW', 'DATASET_VALUE', 'TABLE', 'DRAWING_ANNOTATION']);
     const workspaceObjects = this.workspaceRetrievalCache.get(target);
     const indexed = (workspaceObjects ?? this.objectsAt(projectId, target, dataTypes))
       .filter((object) => dataTypes.has(object.objectType))
@@ -1557,6 +1576,7 @@ export class PredictiveProvenanceService {
     const retrievableTypes = new Set([
       'VARIABLE', 'RESULT', 'VALUE', 'DATASET_ROW', 'DATASET_VALUE', 'DATASET', 'METHOD', 'MODEL',
       'PARAMETER', 'PROTOCOL', 'ANALYSIS_RUN', 'FIGURE', 'TABLE', 'DOCUMENT',
+      'DRAWING_ANNOTATION',
     ]);
     const objects = this.objectsAt(projectId, target, retrievableTypes)
       .filter((object) => retrievableTypes.has(object.objectType))
@@ -1662,12 +1682,12 @@ export class PredictiveProvenanceService {
       && /^(?:document|report|file|note|memo|proposal|manuscript|protocol|spreadsheet|workbook|presentation|slides?)$/i.test(claim.referenceKind ?? '');
     const typePreference = claim.type === 'LITERATURE'
       ? new Set(documentReference ? ['REFERENCE', 'PAPER', 'DOCUMENT'] : ['REFERENCE', 'PAPER']) : ({
-      QUANTITATIVE: new Set(['RESULT', 'VALUE', 'DATASET_VALUE', 'TABLE', 'PARAMETER', 'VARIABLE']),
+      QUANTITATIVE: new Set(['RESULT', 'VALUE', 'DATASET_VALUE', 'TABLE', 'PARAMETER', 'VARIABLE', 'DRAWING_ANNOTATION']),
       SAMPLE_SIZE: new Set(['RESULT', 'VALUE', 'DATASET', 'DATASET_VALUE', 'TABLE', 'VARIABLE']),
       // An entity phrase can name a whole spreadsheet row. Keep that semantic
       // object in the result set instead of forcing retrieval down to one of
       // its numeric cells; value claims will still select DATASET_VALUE.
-      ENTITY: new Set(['RESULT', 'VALUE', 'DATASET_ROW', 'DATASET_VALUE', 'FIGURE', 'MODEL', 'VARIABLE']),
+      ENTITY: new Set(['RESULT', 'VALUE', 'DATASET_ROW', 'DATASET_VALUE', 'FIGURE', 'MODEL', 'VARIABLE', 'DRAWING_ANNOTATION']),
       DATASET_REFERENCE: new Set(['DATASET', 'ANALYSIS_RUN']),
       FIGURE: new Set(['FIGURE']), TABLE_REFERENCE: new Set(['TABLE']),
       METHOD: new Set(['METHOD', 'MODEL', 'CODE', 'CODE_BLOCK', 'CODE_LINE', 'NOTEBOOK_CELL', 'PROTOCOL']),
@@ -2882,6 +2902,7 @@ export class PredictiveProvenanceService {
     const source = semanticDependencySource(dependency);
     const file = this.timeline.snapshotFile(source.snapshotId, source.path);
     if (!file) throw new HttpError(404, 'The shared source version is no longer available.');
+    if (source.metadata?.drawing && scope !== 'FULL') return drawingContext(source);
     const buffer = this.timeline.blobs.get(file.contentHash);
     if (['table', 'spreadsheet'].includes(file.fileType)) {
       return this.tabularShareContent(file, buffer, source.anchor ?? {}, scope, radius)
@@ -2980,6 +3001,14 @@ export class PredictiveProvenanceService {
       version: this.timeline.getSnapshot(source.snapshotId)?.version ?? null,
       fileUrl,
     };
+
+    if (source.metadata?.drawing && file.fileType !== 'pdf') {
+      const text = drawingContext(source).text;
+      const selectedText = source.metadata.rawText ?? source.valueText ?? '';
+      return { ...base, kind: 'document', text,
+        selectedText, selectedStart: selectedText ? text.indexOf(selectedText) : -1,
+        locationLabel: [source.metadata.elementId, source.metadata.propertySet, source.metadata.propertyName].filter(Boolean).join(' · ') };
+    }
 
     if (file.fileType === 'pdf') {
       let pageNumber = Number(source.anchor?.pageNumber) || 1;

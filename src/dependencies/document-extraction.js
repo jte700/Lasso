@@ -1,4 +1,5 @@
 import { inflateRawSync, inflateSync } from 'node:zlib';
+import path from 'node:path';
 
 const MAX_PDF_METADATA_BYTES = 32_000_000;
 const MAX_PDF_BODY_BYTES = 3_000_000;
@@ -521,7 +522,7 @@ function spreadsheetStrings(source = '') {
   });
 }
 
-function spreadsheetRows(source = '', sharedStrings = []) {
+function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null) {
   const rows = [];
   for (const rowMatch of String(source).matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/gi)) {
     const row = [];
@@ -538,7 +539,10 @@ function spreadsheetRows(source = '', sharedStrings = []) {
       row[column] = cleanText(value, 2_000);
       fallbackColumn = column + 1;
     }
-    if (row.some((value) => String(value ?? '').trim())) rows.push(row);
+    if (row.some((value) => String(value ?? '').trim())) {
+      rowNumbers?.push(Number(rowMatch[0].match(/^<row\b[^>]*\br="(\d+)"/i)?.[1] ?? rows.length + 1));
+      rows.push(row);
+    }
   }
   return rows;
 }
@@ -761,7 +765,14 @@ function extractBiffWorkbookStream(stream) {
   for (const [sheetIndex, sheet] of sheets.entries()) {
     const end = sheets[sheetIndex + 1]?.offset ?? stream.length;
     const rows = new Map();
+    const merges = [];
     for (const record of biffRecords(stream, sheet.offset, end)) {
+      if (record.id === 0x00e5 && record.data.length >= 2) {
+        for (let i = 0; i < record.data.readUInt16LE(0) && 2 + (i + 1) * 8 <= record.data.length; i++) {
+          const offset = 2 + i * 8;
+          merges.push({firstRow:record.data.readUInt16LE(offset)+1,lastRow:record.data.readUInt16LE(offset+2)+1,firstColumn:record.data.readUInt16LE(offset+4),lastColumn:record.data.readUInt16LE(offset+6)});
+        }
+      }
       if (record.id === 0x00bd && record.data.length >= 12) {
         const rowIndex = record.data.readUInt16LE(0);
         const firstColumn = record.data.readUInt16LE(2);
@@ -781,7 +792,7 @@ function extractBiffWorkbookStream(stream) {
       rows.get(rowIndex)[columnIndex] = String(value);
     }
     const values = [...rows.entries()].sort((left, right) => left[0] - right[0]).map((entry) => entry[1]);
-    if (values.length) output.push({ name: sheet.name, rows: values });
+    if (values.length) output.push({ name: sheet.name, rows: values, rowNumbers: [...rows.keys()].sort((a,b)=>a-b).map(row=>row+1), merges });
   }
   return output;
 }
@@ -791,18 +802,44 @@ function extractBiffSpreadsheetTables(buffer) {
   return stream ? extractBiffWorkbookStream(stream) : [];
 }
 
+function spreadsheetRange(reference) {
+  const match = String(reference).match(/^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/i);
+  if (!match) return null;
+  return {firstRow:Number(match[2]),lastRow:Number(match[4] ?? match[2]),firstColumn:spreadsheetColumnIndex(match[1]),lastColumn:spreadsheetColumnIndex(match[3] ?? match[1])};
+}
+
 export function extractSpreadsheetTables(buffer) {
   try {
     if (buffer.subarray(0, 8).equals(COMPOUND_SIGNATURE)) return extractBiffSpreadsheetTables(buffer);
     const workbook = zipEntry(buffer, 'xl/workbook.xml')?.toString('utf8') ?? '';
-    const names = [...workbook.matchAll(/<sheet\b[^>]*\bname="([^"]+)"/gi)].map((match) => decodeXml(match[1]));
+    const attribute = (xml, name) => decodeXml(xml.match(new RegExp(`\\b${name}="([^"]*)"`, 'i'))?.[1] ?? '');
+    const relationships = (xml) => [...xml.matchAll(/<Relationship\b[^>]*>/gi)].map(m => ({ id:attribute(m[0], 'Id'), target:attribute(m[0], 'Target') }));
+    const workbookRels = relationships(zipEntry(buffer, 'xl/_rels/workbook.xml.rels')?.toString('utf8') ?? '');
+    const descriptors = [...workbook.matchAll(/<sheet\b[^>]*>/gi)].map((m,index) => {
+      const target = workbookRels.find(r => r.id === attribute(m[0], 'r:id'))?.target;
+      return { name:attribute(m[0], 'name') || `Sheet ${index+1}`, entry:target ? path.posix.normalize(target.startsWith('/') ? target.slice(1) : `xl/${target}`) : `xl/worksheets/sheet${index+1}.xml` };
+    });
     const shared = spreadsheetStrings(zipEntry(buffer, 'xl/sharedStrings.xml')?.toString('utf8') ?? '');
     const sheets = [];
-    for (let index = 1; index <= 40; index += 1) {
-      const source = zipEntry(buffer, `xl/worksheets/sheet${index}.xml`)?.toString('utf8');
+    for (const descriptor of descriptors.slice(0, 40)) {
+      const source = zipEntry(buffer, descriptor.entry)?.toString('utf8');
       if (!source) continue;
-      const rows = spreadsheetRows(source, shared);
-      if (rows.length) sheets.push({ name: names[index - 1] ?? `Sheet ${index}`, rows });
+      const rowNumbers = [];
+      const rows = spreadsheetRows(source, shared, rowNumbers);
+      const merges = [...source.matchAll(/<mergeCell\b[^>]*\bref="([^"]+)"/gi)].map(m => spreadsheetRange(m[1])).filter(Boolean);
+      const directory = path.posix.dirname(descriptor.entry);
+      const rels = relationships(zipEntry(buffer, `${directory}/_rels/${path.posix.basename(descriptor.entry)}.rels`)?.toString('utf8') ?? '');
+      const tables = [...source.matchAll(/<tablePart\b[^>]*>/gi)].flatMap(m => {
+        const target = rels.find(r => r.id === attribute(m[0], 'r:id'))?.target;
+        if (!target) return [];
+        const entry = path.posix.normalize(target.startsWith('/') ? target.slice(1) : `${directory}/${target}`);
+        const xml = zipEntry(buffer, entry)?.toString('utf8') ?? '';
+        const tag = xml.match(/<table\b[^>]*>/i)?.[0] ?? '';
+        const range = spreadsheetRange(attribute(tag, 'ref'));
+        if (!range) return [];
+        return [{...range, headerRowCount:Number(attribute(tag, 'headerRowCount') || 1), headers:[...xml.matchAll(/<tableColumn\b[^>]*>/gi)].map(c => attribute(c[0], 'name'))}];
+      });
+      if (rows.length) sheets.push({ name:descriptor.name, rows, rowNumbers, merges, tables });
     }
     return sheets;
   } catch {

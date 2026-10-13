@@ -2,7 +2,7 @@
 
 ## Product boundary
 
-The manuscript editor has one predictive-dependency system. It can suggest a source for text already typed or complete a sentence from a source-backed project passage, but it never presents prose completion as a separate feature. Claim detection, candidate retrieval, scoring, persistence, staleness, and RFI are deterministic. After acceptance, the completed claim and its authoritative dependency are handled together and the UI identifies the result as a linked dependency.
+The writing workspace has one predictive-dependency system. It can suggest a source for text already typed or complete a sentence from a source-backed project passage, but it never presents prose completion as a separate feature. Claim detection, candidate retrieval, scoring, persistence, staleness, and RFI are deterministic. After acceptance, the completed claim and its authoritative dependency are handled together and the UI identifies the result as a linked dependency.
 
 No prediction can exist unless it resolves to a real versioned project object. Sentence continuation is extractive rather than generative: it uses real project sentences, including semantically equivalent scientific phrasing, and carries the canonical object identifier, immutable source snapshot, and source file required to create the dependency. No remote language model is required, and none is called by this implementation.
 
@@ -10,9 +10,9 @@ No prediction can exist unless it resolves to a real versioned project object. S
 
 The writing list shows tracked documents for the selected directory. The editor renders structural text blocks inside a paper-like surface. Markdown and text saves update their tracked files; DOCX and PDF edits use a versioned text layer while preserving the binary original. Saves enter the normal document history path.
 
-After a short 140 ms cancellable quiet window, a block is checked for a predictive dependency. Sentence-level language from Markdown, text, DOCX, locally extractable PDF content/metadata, and reference records is matched to the text at the caret. Common scientific equivalents such as results/findings, showed/indicated, and increased/elevated are normalized so a continuation does not require literal word-for-word overlap. If a matching sentence and canonical source object are both available, the continuation appears as grey inline text beside a compact source card. `Tab` completes the sentence and links the completed claim to that source in one editor action. A continuation with no linkable project object is discarded.
+After a short cancellable quiet window, a block is checked for a predictive dependency. Sentence-level language from Markdown, text, DOCX, locally extractable PDF content/metadata, and reference records is matched to the text at the caret. Common scientific equivalents such as results/findings, showed/indicated, and increased/elevated are normalized so a continuation does not require literal word-for-word overlap. If a matching sentence and canonical source object are both available, the continuation appears as grey inline text beside a compact source card. `Tab` completes the sentence and links the completed claim to that source in one editor action. A continuation with no linkable project object is discarded.
 
-Author prefixes after citation cues, partial gene/biomarker tokens, and incomplete result values are queried progressively against the same predictive-dependency index. A partial narrative citation such as `The paper by Moha` receives candidate-specific citation text from the indexed paper metadata; accepting `Mohammad et al., 2021` replaces the partial span with `Mohammad et al. (2021)` before the dependency is anchored. Superseded requests are aborted to prevent stale suggestions from flashing. If real project candidates exist for already-written text, the same compact source card is positioned beside the detected span. It supports:
+Author prefixes after citation cues, partial gene/biomarker tokens, and incomplete result values are queried progressively against the same predictive-dependency index. A partial narrative citation such as `The paper by Moha` receives candidate-specific citation text from the indexed paper metadata; accepting `Mohammad et al., 2021` replaces the partial span with `Mohammad et al. (2021)` before the dependency is anchored. Superseded requests are aborted to prevent stale suggestions from flashing. If real project candidates exist for already-written text, the same compact source card is positioned beside the detected span.
 
 An accepted paper citation also establishes source context for the surrounding block. When the writer continues with an attribution cue such as `the authors found that`, the predictor switches into an exclusive source mode and ranks several extractive findings from that paper's accepted immutable snapshot. Project-wide candidates are suppressed while this menu is active. Choosing a finding inserts the selected clause and records a second dependency to the same paper, so completion and provenance remain one action. A new block, a different accepted source, or the absence of an attribution cue returns prediction to normal project-wide retrieval.
 
@@ -29,6 +29,10 @@ For original study results, ordinary numbers are detected when they follow a var
 
 Only the detected span receives a transient highlight. Accepted spans receive a restrained underline and open a compact inspector for RFI, source preview, relinking, historical pinning, or removal.
 
+## Native writing assistance
+
+The macOS app uses the same prediction endpoint and project source index for suggestions in supported external editors. Source selection, host text insertion, and dependency inspection use native adapters in `desktop/`. Host capabilities and permissions affect which insertion and preview behaviors are available. The editor workflow above describes Lasso's own writing workspace; its save timer and manuscript anchors do not imply that Lasso saves an external application's document.
+
 ## Detection and retrieval
 
 `detectClaimSpans` recognizes quantitative values, percentages, p-values, confidence intervals, fold changes, sample sizes, figure/table references, biomarkers and gene-like entities, dataset names, supported method phrases, explicit author/`et al.` citations, publication years, and literature-claim language. It also recognizes incomplete author, entity, p-value, and result-value prefixes at the caret. It returns offsets into the existing block; it never generates manuscript text.
@@ -43,12 +47,15 @@ Each immutable snapshot can be indexed into typed scientific objects:
 | Notebook | stable notebook cells |
 | JSON | leaf results and parameters |
 | Images | figures |
-| BibTeX | project reference records with available DOI/PMID metadata |
 | PDF | paper records from embedded PDF/XMP author, title, year, DOI, subject, keywords, and locally extractable text; filename metadata is only a fallback |
 | DOCX | document/paper records from OOXML core properties and visible paragraph/table text |
 | Markdown | paper/document records and visible text |
 | BibTeX/RIS/EndNote/NBIB | individual reference records with author, title, year, DOI, and PMID where available |
 | Named run artifacts | analysis runs |
+| IFC, DXF, LandXML | drawing containers and supported model properties or geometry measurements |
+| Drawing PDFs | positioned explicit annotations when local extraction is available |
+
+See [architectural and civil design indexing](design-source-indexing.md) for drawing formats, units, extraction limits, and unsupported native formats.
 
 Stable object identity uses `(project, project_file_id, structural key)`. A new snapshot creates a new immutable object version for the same identity.
 
@@ -110,7 +117,7 @@ The relationship stores the accepting actor separately from the actor responsibl
 
 ## Stable anchors
 
-A manuscript anchor contains document version context, Markdown block index/type, span start/end, bounded prefix/suffix, and a normalized block fingerprint. Offsets are only local coordinates inside a structural block.
+A manuscript anchor contains document version context, structural block index/type, span start/end, bounded prefix/suffix, and a normalized block fingerprint. Offsets are only local coordinates inside a structural block.
 
 After a document capture, migration first resolves the exact claim within its prior block. It then searches all blocks and migrates only when the text has one unambiguous location. Deleted or ambiguous claims are retired with their version history preserved. Retyping the same words does not restore a retired link; linking again is explicit. A missing document keeps its reference under review.
 
@@ -149,4 +156,4 @@ A Markdown agent proposal is scanned before approval. The review modal displays 
 - `GET /api/dependencies/:id`
 - `POST /api/dependencies/:id/revise`
 
-All mutation routes use the same optimistic project-snapshot check as the rest of Lasso.
+Document and dependency mutations use the same optimistic project-snapshot checks as the rest of Lasso. Actor fields record attribution; the local API does not authenticate those identities. See [current limitations](limitations.md).

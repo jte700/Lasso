@@ -62,9 +62,16 @@ enum HostCapabilityProbe {
 
         // 2. A committed range: the last word, not the live selection.
         let units = Array(text.utf16)
-        var start = units.count
-        while start > 0, units[start - 1] != 32, units[start - 1] != 10 { start -= 1 }
-        let range = start..<units.count
+        let whitespace: Set<UInt16> = [9, 10, 13, 32, 160, 0x2028, 0x2029]
+        var end = units.count
+        while end > 0, whitespace.contains(units[end - 1]) { end -= 1 }
+        var start = end
+        while start > 0, !whitespace.contains(units[start - 1]) { start -= 1 }
+        guard start < end else {
+            report.append("  · type a word into the field and probe again")
+            return report.joined(separator: "\n")
+        }
+        let range = start..<end
         let phrase = String(decoding: units[range], as: UTF16.self)
         report.append("  probing committed range \(range.lowerBound)..<\(range.upperBound) “\(phrase)”")
 
@@ -82,28 +89,20 @@ enum HostCapabilityProbe {
         }
         if !elementRects { report.append("  ✗ AXBoundsForRange on element") }
 
-        let markerRects = WebTextReader.rects(forRange: range, from: element)
-        if markerRects.isEmpty {
-            report.append("  ✗ AXTextMarkerForIndex → AXBoundsForTextMarkerRange")
+        let browserRects: [CGRect]
+        if let elementText {
+            browserRects = WebTextReader.rects(forElementRange: range, text: elementText, from: element)
+            report.append("  \(mark(!browserRects.isEmpty)) browser text-leaf bounds in element index space")
         } else {
-            report.append("  ✓ AXTextMarkerForIndex → AXBoundsForTextMarkerRange → "
-                          + "\(markerRects.count) rect(s), first \(describe(markerRects[0]))")
+            browserRects = WebTextReader.rects(forRange: range, from: element)
+            report.append("  \(mark(!browserRects.isEmpty)) text-marker bounds in document index space")
+        }
+        if let first = browserRects.first {
+            report.append("    \(browserRects.count) rect(s), first \(describe(first))")
         }
 
-        var inferredRects: [CGRect] = []
-        if !elementRects, markerRects.isEmpty, let elementText {
-            let adapter = AccessibilityTextAdapter()
-            inferredRects = adapter.inferredRects(for: range, text: elementText, in: element)
-            if inferredRects.isEmpty {
-                report.append("  ✗ calibrated AX attributed-text layout")
-            } else {
-                report.append("  ✓ calibrated AX attributed-text layout → "
-                              + "\(inferredRects.count) rect(s), first \(describe(inferredRects[0]))")
-            }
-        }
-
-        // 4. The verdict the architecture decision rests on.
-        let usable = elementRects || !markerRects.isEmpty || !inferredRects.isEmpty
+        // Approximate caret-based layout cannot establish persistent support.
+        let usable = elementRects || !browserRects.isEmpty
         let verdict = usable
             ? "✓ VERDICT: persistent highlighting supported here"
             : "✗ VERDICT: no committed-range geometry — this host needs a browser content bridge"

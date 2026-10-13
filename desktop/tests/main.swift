@@ -140,6 +140,44 @@ do {
           "explicit retry works after an unsuccessful automatic attempt")
 }
 
+print("email hyperlink formats")
+do {
+    let url = URL(string: "https://example.test/d/source?a=1&b=2")!
+    let formats = RichTextInserter.representations(label: "Supplies & <cost>", url: url)
+    let html = String(data: formats[.html]!, encoding: .utf8)!
+    check(html.contains("Supplies &amp; &lt;cost&gt;"), "escapes source labels in rich email")
+    check(html.contains("href=\"https://example.test/d/source?a=1&amp;b=2\""), "preserves the hyperlink destination")
+    check(String(data: formats[.string]!, encoding: .utf8)!.contains(url.absoluteString),
+          "plain-text email fallback keeps the URL")
+    let rtf = try! NSAttributedString(data: formats[.rtf]!, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
+    check(rtf.string == "Supplies & <cost>", "native rich-text paste preserves the label")
+    check(rtf.attribute(.link, at: 0, effectiveRange: nil) != nil, "native rich-text paste retains a clickable link")
+    check(RichTextInserter.containsLink(rtf, to: url), "read-back rich text proves the expected share destination")
+    check(!RichTextInserter.containsLink(NSAttributedString(string: rtf.string), to: url),
+          "a matching label without a hyperlink cannot confirm a share")
+    check(!RichTextInserter.containsLink(rtf, to: URL(string: "https://example.test/wrong")!),
+          "a hyperlink to another destination cannot confirm a share")
+}
+
+print("delayed insertion guards")
+do {
+    let before = CompletionSnapshot(documentStart: 100, text: units("hello sup"))
+    check(CompletionTransaction.canRetry(before: before, current: before, selectionLength: 0,
+          expectedPrefix: "sup", selectedPrefix: false), "unchanged caret permits keyboard fallback")
+    check(!CompletionTransaction.canRetry(before: before,
+          current: CompletionSnapshot(documentStart: 200, text: before.text), selectionLength: 0,
+          expectedPrefix: "sup", selectedPrefix: false), "identical text at a moved caret is rejected")
+    check(!CompletionTransaction.canRetry(before: before, current: before, selectionLength: 4,
+          expectedPrefix: "sup", selectedPrefix: false), "a newly selected range cannot be overwritten")
+    let selected = CompletionSnapshot(documentStart: 100, text: units("hello "))
+    check(CompletionTransaction.canRetry(before: before, current: selected, selectionLength: 3,
+          expectedPrefix: "sup", selectedPrefix: true), "exact prepared prefix selection permits retry")
+    check(!CompletionTransaction.canRetry(before: before, current: selected, selectionLength: 2,
+          expectedPrefix: "sup", selectedPrefix: true), "a changed prefix selection is rejected")
+    check(HostTextSafety.isSecure(role: "AXTextField", subrole: "AXSecureTextField"),
+          "secure text subroles are excluded before text reads")
+}
+
 print("canonical source identity")
 do {
     let workbook = AssistSourceIdentity.canonicalPath(
@@ -526,36 +564,27 @@ do {
 }
 
 
-print("calibrated Chrome text layout")
+print("browser editor text-run offsets")
 do {
-    let font = NSFont.systemFont(ofSize: 14)
-    let value = "The expected cost of supplies"
-    let attributed = NSAttributedString(string: value, attributes: [.font: font])
-    let valueUnits = Array(value.utf16)
-    let phrase = Array("supplies".utf16)
-    guard let start = TextAnchorResolver.indices(of: phrase, in: valueUnits).first else {
-        check(false, "finds the accepted phrase"); exit(1)
+    let phrase = "I was looking at the supplies"
+    for suffix in ["", "\n", "\n\n", "\r\n\r\n"] {
+        check(WebTextReader.elementRanges(for: [phrase], in: phrase + suffix) == [0..<phrase.utf16.count],
+              "trailing empty paragraphs do not change the word's offsets")
     }
-    let range = start..<(start + phrase.count)
-    let frame = CGRect(x: 1_000, y: 500, width: 500, height: 24)
-    let padding: CGFloat = 5
-    let caretWidth = attributed.size().width
-    let actualCaret = CGRect(x: frame.minX + padding + caretWidth, y: frame.minY + 2,
-                             width: 1, height: 17)
-    let adapter = AccessibilityTextAdapter()
-    let rects = adapter.layoutRects(
-        attributedText: attributed, range: range, elementFrame: frame,
-        caret: attributed.length, actualCaret: actualCaret)
-    check(rects.count == 1, "measures one committed Gmail line")
-    if let rect = rects.first {
-        let expectedX = frame.minX + padding + NSAttributedString(
-            string: "The expected cost of ", attributes: [.font: font]).size().width
-        check(abs(rect.minX - expectedX) < 1.5, "calibrates the range to Chrome's live caret")
-        check(abs(rect.width - NSAttributedString(string: "supplies", attributes: [.font: font]).size().width) < 1.5,
-              "keeps the accepted phrase width")
-        check(abs(rect.height - actualCaret.height) < 0.01,
-              "uses Chrome's measured caret height instead of a loose line box")
-    }
+    check(WebTextReader.elementRanges(for: ["First", "supplies", "Next"], in: "First\n\nsupplies\nNext")
+          == [0..<5, 7..<15, 16..<20], "maps browser-generated paragraph separators")
+    check(WebTextReader.elementRanges(for: ["office\nsupplies"], in: "office\nsupplies")
+          == [0..<15], "preserves a literal newline inside a text leaf")
+    check(WebTextReader.elementRanges(for: ["📦 ", "sup", "plies"], in: "📦 supplies")
+          == [0..<3, 3..<6, 6..<11], "preserves UTF-16 offsets across emoji and rich text runs")
+    check(WebTextReader.elementRanges(for: ["supplies", "supplies"], in: "supplies\nsupplies")
+          == [0..<8, 9..<17], "keeps repeated words in their original document order")
+    check(WebTextReader.elementRanges(for: ["supplies"], in: "unrelated supplies") == nil,
+          "does not search ahead to an unrelated occurrence")
+    check(WebTextReader.elementRanges(for: ["supplies"], in: "supplies changed") == nil,
+          "rejects a stale or incomplete accessibility subtree")
+    check(WebTextReader.elementRanges(for: ["First", "supplies"], in: "First other supplies") == nil,
+          "does not skip missing visible text between runs")
 }
 
 print("highlights remain attached across newlines and caret movement")

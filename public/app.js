@@ -301,14 +301,16 @@ function renderEmpty() {
 async function showPreview(snapshotId, path, focusAnchor = null, source = null, context = null) {
   const usageContext = context ?? { projectId: state.project?.id, documentPath: state.editor.document?.path };
   const requestedProjectId = state.project?.id;
+  const navigationRevision = ++state.editor.navigationRevision;
+  const isCurrent = () => requestedProjectId === state.project?.id && navigationRevision === state.editor.navigationRevision;
   try {
     const { preview } = await api(`/api/snapshots/${snapshotId}/preview?path=${encodeURIComponent(path)}`);
-    if (requestedProjectId !== state.project?.id) return;
+    if (!isCurrent()) return;
     state.preview = { ...preview, projectId: source?.projectId ?? usageContext.projectId };
     state.selection = null;
     renderPreview(preview, focusAnchor);
     recordRecommendationUsage(source?.id ? { objectId: source.id, projectId: source.projectId } : { path, projectId: source?.projectId }, 'open', usageContext);
-  } catch (error) { toast(error.message, 'error'); }
+  } catch (error) { if (isCurrent()) toast(error.message, 'error'); }
 }
 
 function renderPreview(preview, focusAnchor = null) {
@@ -330,6 +332,8 @@ function focusPreviewAnchor(anchor) {
   const node = candidates.find((candidate) => {
     const item = JSON.parse(candidate.dataset.anchor);
     return item.kind === anchor.kind
+      && (anchor.identifier == null || item.identifier === anchor.identifier)
+      && (anchor.pageNumber == null || item.pageNumber === anchor.pageNumber)
       && (anchor.line == null || item.line === anchor.line)
       && (anchor.cellId == null || item.cellId === anchor.cellId)
       && (anchor.path == null || item.path === anchor.path)
@@ -342,6 +346,7 @@ function focusPreviewAnchor(anchor) {
 }
 
 function previewContent(preview) {
+  if (preview.kind === 'drawing') return `${(preview.warnings ?? []).map(warning => `<p class="selection-hint">${escapeHtml(warning)}</p>`).join('')}<div class="json-preview">${preview.items.map(item => `<span class="json-path" title="${escapeHtml(item.location)}">${escapeHtml(item.path)}<small> · ${item.basis === 'geometry' ? 'Boundary geometry' : 'Model property'}</small></span><span class="json-value selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.value)}</span>`).join('')}</div>`;
   if (preview.kind === 'blocks') return preview.items.map((item) => `<div class="preview-block ${item.blockType} selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text)}</div>`).join('');
   if (preview.kind === 'lines') return `<div class="code-preview">${preview.items.map((item) => `<div class="code-line"><span class="number">${item.label}</span><span class="selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text) || ' '}</span></div>`).join('')}</div>`;
   if (preview.kind === 'table') return `<div style="overflow:auto"><table class="data-preview"><thead><tr>${preview.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>${preview.rows.map((row) => `<tr>${row.cells.map((cell) => `<td class="selectable" data-anchor='${escapeHtml(JSON.stringify(cell.anchor))}'>${escapeHtml(cell.value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
@@ -2763,7 +2768,7 @@ const dependencyShell = createSourceWorkbench({
   getActor: () => state.identity,
   onRecommendationUsage: recordRecommendationUsage,
   onOpenSource: (object, context) => {
-    if (object.snapshotId) { setWorkspaceView('source'); showPreview(object.snapshotId, object.path, null, object, context); }
+    if (object.snapshotId) { setWorkspaceView('source'); showPreview(object.snapshotId, object.path, object.anchor, object, context); }
   },
   onStatus: (message) => toast(message),
   onSession: (session) => {

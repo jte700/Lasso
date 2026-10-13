@@ -153,3 +153,23 @@ test('source-sharing responses stay attached to the inspected source', async () 
   requests[2].resolve({ sharing: {} }); await third;
   assert.deepEqual(rendered, ['second']);
 });
+
+
+test('drawing/file previews ignore late results after another source or document is opened', async () => {
+  const requests = [], rendered = [], errors = [];
+  const state = { project: { id: 'one' }, editor: { navigationRevision: 0 } };
+  const context = appHandlers(['showPreview'], {
+    state, api: () => new Promise((resolve, reject) => requests.push({ resolve, reject })),
+    renderPreview: preview => rendered.push(preview.path), recordRecommendationUsage() {},
+    toast: message => errors.push(message),
+  });
+  const first = context.showPreview('snapshot', 'old.ifc');
+  const second = context.showPreview('snapshot', 'current.ifc');
+  requests[1].resolve({ preview: { path: 'current.ifc' } }); await second;
+  requests[0].resolve({ preview: { path: 'old.ifc' } }); await first;
+  assert.deepEqual(rendered, ['current.ifc']);
+  const third = context.showPreview('snapshot', 'abandoned.ifc');
+  state.editor.navigationRevision += 1;
+  requests[2].reject(new Error('Old source error')); await third;
+  assert.deepEqual(errors, []);
+});
