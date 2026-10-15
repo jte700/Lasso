@@ -1,5 +1,7 @@
 # Drawing and model sample validation
 
+**Live Accounting verification, 2026-10-13:** a different public architectural IFC was freshly downloaded into the user's actual `/Users/adelyasin/Desktop/Accounting` folder. The running app automatically indexed it. All 42 area queries across 21 spaces matched an independent raw-file audit; actual browser interaction also confirmed the answer and source preview. See the [live validation report and evidence](validation/accounting-duplex-2026-10-13/README.md). The earlier fixture checks documented below used only a temporary project and did not validate the user's live workspace.
+
 The primary acceptance fixtures are unmodified IFC and LandXML files downloaded from public sources. They exercise architectural and civil engineering metadata, including stable entity identity, explicit units, quantities, and source relationships. The optional PDF fixture covers printed annotations.
 
 Source URLs, original byte sizes, SHA-256 hashes, retrieval date, and exact expected facts are recorded in [`test/fixtures/drawings/sources.json`](../test/fixtures/drawings/sources.json). The validation command checks these hashes before importing the samples. It creates a temporary project and database; it never opens the user's Lasso database or edits the source models.

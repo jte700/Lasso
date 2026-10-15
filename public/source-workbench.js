@@ -1,5 +1,6 @@
 // Source browsing and evidence review. The command API remains an adapter for
 // existing reports; users work with files, excerpts, and explicit actions.
+import { renderModelPlan, bindModelPlans } from './model-preview.js?v=2';
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const quote = value => String(value).split("'").map(part => `'${part}'`).join(`"'"`);
 const basename = value => String(value ?? '').split('/').pop();
@@ -99,11 +100,14 @@ export function createSourceWorkbench({input, api, getProjectId, getProjectVersi
    <footer class="wb-status"><span>${mode==='library'?`${paths.length} files · ${itemCount} indexed items`:escape(report?.headline??'')}</span><span>Local workspace${session?.version?` · Version ${session.version}`:''}</span></footer>
   </section>`;
   bind();
+  bindModelPlans(host);
   const inspector=host.querySelector('.wb-inspector');if(inspector)inspector.scrollTop=scroll;
   if(focusFile!==undefined||focusReport!==undefined)[...host.querySelectorAll('.wb-file')].find(b=>focusFile!==undefined?b.dataset.file===focusFile:b.dataset.report===focusReport)?.focus({preventScroll:true});
  }
  function previewHTML() {
   if(!preview) return '<p class="wb-muted">Loading source preview…</p>';
+  if(preview.kind==='model-plan') return renderModelPlan(preview);
+  if(preview.kind==='model-unavailable') return `<p class="wb-prose">${escape(preview.reason ?? 'No displayable geometry was found for this indexed element.')}</p>`;
   if(preview.kind==='table') return `<div class="wb-table-scroll"><table class="wb-evidence-table"><thead><tr><th scope="col" aria-label="Row number"></th>${(preview.headerRow??preview.columns??[]).map((heading,i)=>`<th scope="col"><span>${escape(heading||(preview.columns?.[i]?`Column ${preview.columns[i]}`:'Column'))}</span></th>`).join('')}</tr></thead><tbody>${preview.rows.map(row=>`<tr class="${row.highlighted?'cited':''}"><th>${row.rowNumber}</th>${row.cells.map((cell,i)=>`<td class="${row.highlighted && i===preview.highlightColumn?'cited-cell':''}">${escape(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   if(preview.kind==='text') return `<div class="wb-excerpt">${preview.lines.map(line=>`<div class="${line.highlighted?'cited':''}"><span>${line.lineNumber}</span><p>${escape(line.text)||' '}</p></div>`).join('')}</div>`;
   return `<p class="wb-prose">${escape(preview.reason??preview.value??'A visual preview is unavailable for this source. Open its recorded version to inspect it.')}</p>`;
@@ -137,6 +141,8 @@ export function createSourceWorkbench({input, api, getProjectId, getProjectVersi
   return empty(query?'No matching evidence':'Add sources to this project',query?'Try a file name, a phrase, or a value from your source.':'Documents and data in your project folder will appear here after indexing.');
  }
  async function selectObject(object,extra={}) {
+  // Explicit selection cancels a pending search before it can clear the preview.
+  clearTimeout(timer);query=input.value.trim();
   cancelDetails();const token=detailEpoch, project=scope(),controller=new AbortController();detailController=controller; selectedObject={...object,...extra}; candidates=null; preview=null;plan=null;render();
   try {
    const [p,r]=await Promise.all([

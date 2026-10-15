@@ -1,5 +1,6 @@
 // Server-rendered pages for externally shared sources. Kept deliberately plain:
 // recipients are outside the workspace and only need the provenance and the file.
+import { renderModelPlan } from '../../public/model-preview.js';
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (character) => (
@@ -203,7 +204,13 @@ export function renderInspectorPanel(resolved, reference, preview) {
   const position = preview?.location || source.location;
   let content = '<div class="preview-unavailable">This file cannot be displayed inline. Open the source to view it in its original application.</div>';
   let previewLabel = 'Source preview';
-  if (preview?.kind === 'table') {
+  if (preview?.kind === 'model-plan') {
+    previewLabel = 'Model preview';
+    content = `<div class="preview-scroll">${renderModelPlan(preview, { interactive: false })}</div>`;
+  } else if (preview?.kind === 'model-unavailable') {
+    previewLabel = 'Model preview';
+    content = `<div class="preview-unavailable">${escapeHtml(preview.reason ?? 'No displayable geometry was found for this indexed element.')}</div>`;
+  } else if (preview?.kind === 'table') {
     content = `<div class="preview-scroll"><table aria-label="Source worksheet"><thead><tr><th class="row-number" aria-label="Row number"></th>${preview.columns.map((column) => `<th scope="col">${escapeHtml(column)}</th>`).join('')}</tr></thead>
       <tbody>${preview.rows.map((row) => `<tr><th class="row-number" scope="row">${row.rowNumber}</th>${row.cells.filter((cell) => !cell.covered).map((cell) => `<td class="${cell.cited ? 'cited' : ''}" rowspan="${cell.rowSpan ?? 1}" colspan="${cell.colSpan ?? 1}">${escapeHtml(cell.value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   } else if (preview?.kind === 'pdf') {
@@ -217,6 +224,7 @@ export function renderInspectorPanel(resolved, reference, preview) {
       : `<div class="preview-scroll"><div class="source-lines">${preview.lines.map((line) => `<div class="source-line ${line.cited ? 'cited' : ''}"><span class="line-number">${line.lineNumber}</span><span class="line-content">${escapeHtml(line.value) || '&nbsp;'}</span></div>`).join('')}</div></div>`;
   }
   const localPayload = JSON.stringify({ referenceId: reference ?? null, absolutePath: source.absolutePath ?? null }).replace(/</g, '\\u003c');
+
   return page(`${source.label} · source`, `
     <section class="inspector-shell" aria-label="Source inspector">
       <div class="inspector-body">

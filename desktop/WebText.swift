@@ -101,6 +101,61 @@ enum WebTextReader {
         return DependencyGeometry.coalesce(fragments, referenceId: "").fragments
     }
 
+    /// Blink can omit AXLink from attributed text while exposing link nodes.
+    /// Align the focused editor's leaves to its complete value and prove that
+    /// every character immediately before the unchanged caret has this URL.
+    static func hyperlinkBeforeCaret(_ label: String, url: URL, caret: Int,
+                                     from element: AXUIElement) -> Bool {
+        let length = label.utf16.count
+        guard length > 0, caret >= length else { return false }
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.15
+        func selectionMatches() -> Bool {
+            guard let value = attribute(element, kAXSelectedTextRangeAttribute as String),
+                  CFGetTypeID(value) == AXValueGetTypeID() else { return false }
+            var range = CFRange()
+            return AXValueGetValue(value as! AXValue, .cfRange, &range)
+                && range.location == caret && range.length == 0
+        }
+        guard selectionMatches(),
+              let text = attribute(element, kAXValueAttribute as String) as? String else { return false }
+        let units = Array(text.utf16)
+        let target = (caret - length)..<caret
+        guard caret <= units.count, units[target].elementsEqual(label.utf16) else { return false }
+        var leaves: [(text: String, destination: String?)] = []
+        var visited = 0
+        func collect(_ node: AXUIElement, inheritedURL: String?, depth: Int) -> Bool {
+            visited += 1
+            guard visited <= 2_000, depth <= 40, hasTime(before: deadline) else { return false }
+            let role = attribute(node, kAXRoleAttribute as String) as? String
+            var destination = inheritedURL
+            if role == "AXLink" {
+                let value = attribute(node, kAXURLAttribute as String)
+                destination = (value as? URL)?.absoluteString ?? value as? String
+            }
+            if role == kAXStaticTextRole as String {
+                guard let value = attribute(node, kAXValueAttribute as String) as? String else { return false }
+                if !value.isEmpty { leaves.append((value, destination)) }
+                return true
+            }
+            for child in attribute(node, kAXChildrenAttribute as String) as? [AXUIElement] ?? [] {
+                if !collect(child, inheritedURL: destination, depth: depth + 1) { return false }
+            }
+            return true
+        }
+        guard collect(element, inheritedURL: nil, depth: 0),
+              let ranges = elementRanges(for: leaves.map(\.text), in: text) else { return false }
+        var covered = target.lowerBound
+        for (leaf, range) in zip(leaves, ranges) {
+            let start = max(target.lowerBound, range.lowerBound)
+            let end = min(target.upperBound, range.upperBound)
+            guard start < end else { continue }
+            guard start == covered, leaf.destination == url.absoluteString else { return false }
+            covered = end
+        }
+        return covered == target.upperBound && hasTime(before: deadline)
+            && selectionMatches() && attribute(element, kAXValueAttribute as String) as? String == text
+    }
+
     // Undocumented but long-stable attribute names, shared by WebKit and Blink.
     private static let selectedRange = "AXSelectedTextMarkerRange"
     private static let startMarker = "AXStartTextMarker"

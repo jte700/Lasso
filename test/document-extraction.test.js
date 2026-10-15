@@ -661,6 +661,53 @@ test('XLSX follows worksheet relationships and extracts offset table headings', 
   assert.deepEqual(sheet.merges[0], {firstRow:28,lastRow:28,firstColumn:3,lastColumn:4});
 });
 
+test('XLSX keeps literal greater-than characters inside quoted sheet and column names', () => {
+  const workbook = storedZip({
+    'xl/workbook.xml': "<workbook><sheets><sheet name='A > B' r:id='r1'/></sheets></workbook>",
+    'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="r1" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/worksheets/sheet1.xml': '<worksheet><sheetData><row r="1"><c r="A1"><v>42</v></c></row></sheetData><tableParts><tablePart r:id="t1"/></tableParts></worksheet>',
+    'xl/worksheets/_rels/sheet1.xml.rels': '<Relationships><Relationship Id="t1" Target="../tables/table1.xml"/></Relationships>',
+    'xl/tables/table1.xml': '<table ref="A1:A2"><tableColumns><tableColumn name="Actual > budget"/></tableColumns></table>',
+  });
+  const [sheet] = extractSpreadsheetTables(workbook);
+  assert.equal(sheet.name, 'A > B');
+  assert.deepEqual(sheet.rows, [['42']]);
+  assert.deepEqual(sheet.tables[0].headers, ['Actual > budget']);
+});
+
+for (const prefix of ['', 'x:']) {
+  test(`XLSX ${prefix || 'default namespace'} keeps empty cells, cached formulas and physical coordinates`, () => {
+    const qualify = xml => xml.replace(/<(\/?)([A-Za-z][A-Za-z0-9]*)/g, `<$1${prefix}$2`);
+    const workbook = storedZip({
+      'xl/workbook.xml': qualify('<workbook><sheets><sheet name="Clinic capacity" links:id="clinic"/></sheets></workbook>'),
+      'xl/_rels/workbook.xml.rels': '<pkg:Relationships><pkg:Relationship Id="clinic" Target="/xl/worksheets/sheet7.xml"/></pkg:Relationships>',
+      'xl/sharedStrings.xml': qualify('<sst><si><t>Clinic</t></si><si/><si><r><t>Harbour </t></r><r><t>North</t></r></si></sst>'),
+      'xl/worksheets/sheet7.xml': qualify(`<worksheet><sheetData>
+        <row r="20"><c r="A20" t="s"/><c r="B20" t="s"><v>0</v></c><c r="C20" t="inlineStr"><is><r><t>Available </t></r><r><t>slots</t></r></is></c></row>
+        <row r="21"/><row r="22"><c r="A22" s="1"/><c r="B22" s="1"/></row>
+        <row r="23"><c r="A23" s="1"/><c r="B23" t="s"><v>2</v></c><c r="C23"><f>SUM(C10:C12)</f><v>90</v></c><c r="D23"/></row>
+        <row r="24"/><row><c/><c t="s"><v>1</v></c><c><v>21</v></c></row>
+        </sheetData><mergeCells><mergeCell ref="B18:C18"/></mergeCells><tableParts><tablePart links:id="capacity"/></tableParts></worksheet>`),
+      'xl/worksheets/_rels/sheet7.xml.rels': '<pkg:Relationships><pkg:Relationship Id="capacity" Target="../tables/table3.xml"/></pkg:Relationships>',
+      'xl/tables/table3.xml': qualify('<table ref="B20:C23"><tableColumns><tableColumn name="Clinic"/><tableColumn name="Available slots"/></tableColumns></table>'),
+    });
+    const [sheet] = extractSpreadsheetTables(workbook);
+    assert.equal(sheet.name, 'Clinic capacity');
+    assert.deepEqual(sheet.rowNumbers, [20, 23, 25]);
+    assert.deepEqual(sheet.rows, [['', 'Clinic', 'Available slots'], ['', 'Harbour North', '90', ''], ['', '', '21']]);
+    assert.deepEqual(sheet.merges, [{ firstRow: 18, lastRow: 18, firstColumn: 1, lastColumn: 2 }]);
+    assert.deepEqual(sheet.tables, [{ firstRow: 20, lastRow: 23, firstColumn: 1, lastColumn: 2,
+      headerRowCount: 1, headers: ['Clinic', 'Available slots'] }]);
+    const preview = buildSharePreview({ path: 'capacity.xlsx', content: workbook },
+      { rowIndex: 1, columnIndex: 2, sheet: 'Clinic capacity' });
+    assert.deepEqual(preview.columns, ['B', 'C']);
+    assert.deepEqual(preview.headers, ['Clinic', 'Available slots']);
+    const selected = preview.rows.find(row => row.rowNumber === 23);
+    assert.equal(selected.cells[1].value, '90');
+    assert.equal(selected.cells[1].cited, true);
+  });
+}
+
 test('legacy Excel previews retain distant period headings and the physical cited row', () => {
   const preview = buildSharePreview({path:'statement.xls',content:sampleLegacyXls(7,23)}, {rowIndex:1,columnIndex:2,sheet:'Accounting'});
   assert.deepEqual(preview.headers, ['Account','Current Period','Prior Period']);

@@ -222,6 +222,12 @@ export class ObjectShareService {
 
   /// Human-readable position inside the source, e.g. "Accounting!B17".
   describeLocation(anchor = {}, metadata = {}) {
+    if (anchor.kind === 'cad-property') {
+      return [metadata.storey ?? anchor.layer,
+        metadata.roomNumber ?? anchor.stepId ?? anchor.elementId,
+        anchor.propertyName ?? metadata.propertyName].filter(Boolean).join(' · ') || 'Model property';
+    }
+    if (anchor.kind === 'cad-model') return 'Model overview';
     const sheet = anchor.sheet ?? metadata.sheet ?? null;
     if (Number.isInteger(anchor.rowIndex) && Number.isInteger(anchor.columnIndex)) {
       const cell = `${columnLetter(anchor.columnIndex)}${anchor.rowIndex + 1}`;

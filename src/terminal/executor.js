@@ -279,18 +279,21 @@ export class TerminalCommandExecutor {
   }
 
   /** A source preview for the highlighted result. */
-  preview(projectId, reference) {
+  previewSource(projectId, reference) {
     if (!reference) return null;
     if (reference.kind === 'dependency' && reference.dependencyId) {
       const dependency = this.dependencies.getDependency(reference.dependencyId);
-      const object = this.graph.objectById(projectId, dependency.source.id)
-        ?? { ...dependency.source, snapshotId: dependency.source.snapshotId };
-      return this.graph.preview(projectId, object);
+      return this.graph.objectById(projectId, dependency.source.id, dependency.source.snapshotId);
     }
     const objectId = reference.objectId
       ?? (reference.objectKey ? this.graph.objectByKey(projectId, reference.objectKey)?.id : null);
     if (!objectId) return null;
     const object = this.graph.objectById(projectId, objectId);
+    return object;
+  }
+
+  preview(projectId, reference) {
+    const object = this.previewSource(projectId, reference);
     return object ? this.graph.preview(projectId, object) : null;
   }
 

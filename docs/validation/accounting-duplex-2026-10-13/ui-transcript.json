@@ -1,0 +1,45 @@
+{
+  "url": "http://127.0.0.1:56857/",
+  "project": "84f23556-27d7-4de2-938f-f47ee6b146f0",
+  "question": "What is the square footage of A102?",
+  "interactions": [
+    {
+      "type": "click",
+      "selector": "#project-pill"
+    },
+    {
+      "type": "click",
+      "selector": "[data-directory=\"84f23556-27d7-4de2-938f-f47ee6b146f0\"]"
+    },
+    {
+      "type": "click",
+      "selector": "#terminal-input"
+    },
+    {
+      "type": "type",
+      "text": "What is the square footage of A102?"
+    },
+    {
+      "type": "key",
+      "key": "Enter"
+    },
+    {
+      "type": "click",
+      "selector": "[data-report=\"0\"]"
+    }
+  ],
+  "screens": [
+    "02-a102-square-footage-answer.png",
+    "03-a102-source-property.png"
+  ],
+  "answer": "Accounting\n⌘K\nLU\n\nLibrary\n\nAll sources\nChanges\nShared links\nReview sources\n4\n\nWriting\n\n+\nAccountingDoc.docx\nUse Lasso in other apps\nAccounting\n3 files\nOpen writing workspace\nResults\n\nLiving Room · A102 Area: 324.442 ft²\n\n↻\nRefresh\nItems\n1\nliving-room-a102-area\nDuplex_A_20110907.ifc\nSelect an item to inspect it.\nLiving Room · A102 Area: 324.442 ft²\n\nStructured model property; source value: 30.14164525 m².\n\nConverted from 30.14164525 m² using 1 ft = 0.3048 m (m² / 0.09290304).\n\nSource\n\nDuplex_A_20110907.ifc\n\nelement 0BTBFw6f90Nfh9rP1dlXr2 · property Area\n\nSource text: #67=IFCSPACE('0BTBFw6f90Nfh9rP1dlXr2',#33,'A102','',$,#53,#66,'Living Room',.ELEMENT.,.INTERNAL.,$); IFCPROPERTYSET PSet_Revit_Dimensions #170=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(30.14164524999992),$);\n\nLiving Room · A102 Area: 324.442 ft²\nLocal workspace · Version 34\nProject\nNo project selected\nAccounting · V34\nNTD · V43\nMCM · V5\nDocuments\nAdd directory",
+  "source": "Accounting\n⌘K\nLU\n\nLibrary\n\nAll sources\nChanges\nShared links\nReview sources\n4\n\nWriting\n\n+\nAccountingDoc.docx\nUse Lasso in other apps\nAccounting\n3 files\nOpen writing workspace\nResults\n\nLiving Room · A102 Area: 324.442 ft²\n\n↻\nRefresh\nItems\n1\nliving-room-a102-area\nDuplex_A_20110907.ifc\nSelect an item to inspect it.\n‹ Results\nDuplex_A_20110907.ifc\nLiving Room · A102 Area\nPSet_Revit_Dimensions · Area · 0BTBFw6f90Nfh9rP1dlXr2 · Version 34\n30.14164525 m²\nCopy with citation\nOpen source ↗\nSource context\nelement 0BTBFw6f90Nfh9rP1dlXr2 · property Area\n1\n\n#67 · 0BTBFw6f90Nfh9rP1dlXr2 · PSet_Revit_Dimensions · Area\n\n2\n\n#67=IFCSPACE('0BTBFw6f90Nfh9rP1dlXr2',#33,'A102','',$,#53,#66,'Living Room',.ELEMENT.,.INTERNAL.,$);\n\n3\n\nIFCPROPERTYSET PSet_Revit_Dimensions\n\n4\n\n#170=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(30.14164524999992),$);\n\nUsed in documents\n\nNo document links to this item yet. Use Lasso’s suggestions while writing to create a tracked reference.\n\nLiving Room · A102 Area: 324.442 ft²\nLocal workspace · Version 34\nProject\nNo project selected\nAccounting · V34\nNTD · V43\nMCM · V5\nDocuments\nAdd directory",
+  "checks": {
+    "selectedAccounting": true,
+    "showsSquareFeet": true,
+    "showsSourceFile": true,
+    "showsExactProperty": true
+  },
+  "status": "passed",
+  "evidenceNote": "Initial source-library DOM and screenshot omitted because they contained unrelated accounting content. Answer and citation DOM are unchanged."
+}

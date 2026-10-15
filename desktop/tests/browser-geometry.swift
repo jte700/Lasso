@@ -27,13 +27,25 @@ enum BrowserGeometryRegression {
                     write(response, to: resultURL)
                     return true
                 }
-                if !AXIsProcessTrusted() {
+                if request["command"] as? String == "render-model-preview" {
+                    if let input = request["input"] as? String, let output = request["output"] as? String,
+                       let previewData = try? Data(contentsOf: URL(fileURLWithPath: input)) {
+                        response["rendered"] = GlobalAssistant.regressionRenderPreview(
+                            data: previewData, to: URL(fileURLWithPath: output))
+                    } else { response["error"] = "Model preview JSON or output path is missing." }
+                } else if !AXIsProcessTrusted() {
                     response["error"] = "The signed Lasso app does not have Accessibility permission."
                 } else if request["command"] as? String == "ping" {
                     response["ready"] = true
                 } else if request["command"] as? String == "link-insert" {
                     do { response.merge(try insertLink(request)) { _, new in new } }
                     catch { response["error"] = error.localizedDescription }
+                } else if request["command"] as? String == "link-verify" {
+                    if let context = AccessibilityReader.focusedContext(),
+                       let label = request["label"] as? String,
+                       let rawURL = request["url"] as? String, let url = URL(string: rawURL) {
+                        response["linked"] = AccessibilityReader.hyperlinkPresent(label, url: url, in: context)
+                    } else { response["linked"] = false }
                 } else if (request["command"] as? String)?.hasPrefix("popup-") == true {
                     do { response.merge(try popup(request)) { _, new in new } }
                     catch { response["error"] = error.localizedDescription }
@@ -133,6 +145,7 @@ enum BrowserGeometryRegression {
         }
         let before = CompletionSnapshot(documentStart: captured.windowStart, text: Array(captured.text.utf16))
         var result: Bool?
+        var verification = "Paste did not complete"
         RichTextInserter.insertLink(label: label, url: url, replacing: plan.range.count,
             at: request["keyboardFallback"] as? Bool == true ? -1 : captured.absoluteCaret,
             in: captured.element, keyboardDeleteCount: plan.expectedPrefix.count,
@@ -142,20 +155,32 @@ enum BrowserGeometryRegression {
             }) { pasted in
                 guard pasted else { result = false; return }
                 RichTextInserter.verifyEventually(verify: {
-                    guard let after = AccessibilityReader.focusedContext(), CFEqual(after.element, captured.element),
-                          case .success = CompletionTransaction.verify(before: before,
+                    guard let after = AccessibilityReader.focusedContext(), CFEqual(after.element, captured.element) else {
+                        verification = "Focused editor changed"; return false
+                    }
+                    let transaction = CompletionTransaction.verify(before: before,
                             after: CompletionSnapshot(documentStart: after.windowStart, text: Array(after.text.utf16)),
-                            plan: plan) else { return false }
-                    return AccessibilityReader.hyperlinkPresent(label, url: url, in: after)
+                            plan: plan)
+                    verification = String(describing: transaction)
+                    guard case .success = transaction else { return false }
+                    let linked = AccessibilityReader.hyperlinkPresent(label, url: url, in: after)
+                    if !linked {
+                        verification = "Link attributes unavailable: \(String(describing: WebTextReader.attributedTextBeforeCaret(expectedText: label, from: after.element)))"
+                    }
+                    return linked
                 }) { result = $0 }
             }
         let deadline = Date().addingTimeInterval(4)
         while result == nil, Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.025)) }
         return ["inserted": result ?? false, "prefix": plan.expectedPrefix,
-                "caretBefore": captured.absoluteCaret, "windowBefore": captured.windowStart]
+                "caretBefore": captured.absoluteCaret, "windowBefore": captured.windowStart,
+                "verification": verification]
     }
 
     private static func measure(_ request: [String: Any], adapter: AccessibilityTextAdapter) throws -> [String: Any] {
+        // Match the production highlighter: each measurement starts a fresh
+        // host snapshot instead of retaining text from the previous edit.
+        adapter.beginRefresh()
         func failure(_ message: String) -> NSError {
             NSError(domain: "BrowserGeometryRegression", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
         }

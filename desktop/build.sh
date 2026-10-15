@@ -105,6 +105,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/HostCapabilityProbe.swift" \
   "$ROOT/desktop/DependencyOverlay.swift" \
   "$ROOT/desktop/DependencyHighlighter.swift" \
+  "$ROOT/desktop/ModelPreview.swift" \
   "$ROOT/desktop/SourceInspectorPanel.swift" \
   "$ROOT/desktop/WebText.swift" \
   "$ROOT/desktop/ShareInsertion.swift" \
@@ -114,8 +115,18 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/Lasso.swift"
 
 echo "==> Bundling the server"
-for item in src public migrations scripts package.json; do
+for item in src public migrations scripts package.json package-lock.json; do
   cp -R "$ROOT/$item" "$RESOURCES/app/"
+done
+
+echo "==> Bundling offline IFC geometry engine"
+if [ ! -f "$ROOT/node_modules/web-ifc/web-ifc-node.wasm" ]; then
+  echo "error: IFC dependencies are missing. Run npm ci before building." >&2
+  exit 1
+fi
+mkdir -p "$RESOURCES/app/node_modules"
+for dependency in web-ifc polygon-clipping robust-predicates splaytree; do
+  cp -R "$ROOT/node_modules/$dependency" "$RESOURCES/app/node_modules/"
 done
 
 echo "==> Compiling local PDF drawing reader"

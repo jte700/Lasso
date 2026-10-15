@@ -19,3 +19,30 @@ test('source library submits natural measurement questions on Enter through grou
   await handlers.get('keydown')({ key: 'Enter' });
   assert.equal(requests.length, 2, 'ordinary searches do not execute terminal commands');
 });
+
+test('an explicit source selection survives a pending debounced search', async () => {
+  const previousDocument = globalThis.document;
+  const handlers = new Map();
+  const input = { value: '', addEventListener: (name, handler) => handlers.set(name, handler) };
+  const object = { id: 'wall-area', path: 'building.ifc', label: 'Exterior wall Area', valueText: '13 m²',
+    anchor: { kind: 'cad-property', elementId: 'wall-guid', propertyName: 'Area' } };
+  const button = { dataset: { object: object.id } };
+  const host = { isConnected: true, innerHTML: '',
+    querySelector: () => null,
+    querySelectorAll: selector => selector === '[data-object]' ? [button] : [] };
+  globalThis.document = { activeElement: null, querySelectorAll: () => [], getElementById: () => null };
+  try {
+    const workbench = createSourceWorkbench({ input, getProjectId: () => 'project', getActor: () => ({ id: 'user' }),
+      api: async url => new URL(url, 'http://localhost').pathname.endsWith('/source-library') ? { objects: [object] }
+        : url.endsWith('/terminal/session') ? { session: {} }
+          : url.endsWith('/terminal/preview') ? { preview: { kind: 'text', lines: [{ text: 'Cited wall property', lineNumber: 1 }] } }
+            : { plan: { edits: [] } } });
+    workbench.setHost(host); await workbench.refresh();
+    input.value = 'Exterior wall'; handlers.get('input')();
+    await button.onclick();
+    await new Promise(resolve => setTimeout(resolve, 160));
+    assert.match(host.innerHTML, /Cited wall property/);
+    assert.match(host.innerHTML, /data-open/);
+    assert.doesNotMatch(host.innerHTML, /Select one to inspect its evidence/);
+  } finally { globalThis.document = previousDocument; }
+});

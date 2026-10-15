@@ -515,32 +515,45 @@ function spreadsheetColumnIndex(reference = '') {
   return Math.max(0, value - 1);
 }
 
+// SpreadsheetML allows a default namespace or any explicit namespace prefix.
+// Match the qualified closing tag and consume empty elements independently, so
+// a styled <c/> cannot steal the value from the next populated cell.
+function spreadsheetElements(source, name) {
+  const pattern = new RegExp(`<((?:[A-Za-z_][\\w.-]*:)?${name})(?=[\\s/>])((?:[^"'<>]|"[^"]*"|'[^']*')*?)(?:/\\s*>|>([\\s\\S]*?)<\\/\\1\\s*>)`, 'gi');
+  return [...String(source).matchAll(pattern)].map(match => ({ attributes: match[2], content: match[3] ?? '' }));
+}
+
+function spreadsheetAttribute(xml, name) {
+  const qualified = name.includes(':') ? `(?:[A-Za-z_][\\w.-]*:)?${name.split(':').pop()}` : name;
+  return decodeXml(String(xml).match(new RegExp(`(?:^|\\s)${qualified}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, 'i'))?.[2] ?? '');
+}
+
 function spreadsheetStrings(source = '') {
-  return [...String(source).matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/gi)].map((item) => {
-    const pieces = [...item[1].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/gi)].map((match) => decodeXml(match[1]));
-    return pieces.join('');
-  });
+  return spreadsheetElements(source, 'si').map(item => spreadsheetElements(item.content, 't')
+    .map(part => decodeXml(part.content)).join(''));
 }
 
 function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null) {
   const rows = [];
-  for (const rowMatch of String(source).matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/gi)) {
+  let fallbackRow = 1;
+  for (const rowElement of spreadsheetElements(source, 'row')) {
     const row = [];
+    const rowNumber = Number(spreadsheetAttribute(rowElement.attributes, 'r') || fallbackRow);
+    fallbackRow = rowNumber + 1;
     let fallbackColumn = 0;
-    for (const cell of rowMatch[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/gi)) {
-      const reference = cell[1].match(/\br="([^"]+)"/i)?.[1] ?? '';
+    for (const cell of spreadsheetElements(rowElement.content, 'c')) {
+      const reference = spreadsheetAttribute(cell.attributes, 'r');
       const column = reference ? spreadsheetColumnIndex(reference) : fallbackColumn;
-      const type = cell[1].match(/\bt="([^"]+)"/i)?.[1] ?? '';
-      const raw = cell[2].match(/<v\b[^>]*>([\s\S]*?)<\/v>/i)?.[1] ?? '';
-      const inline = [...cell[2].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/gi)]
-        .map((match) => decodeXml(match[1])).join('');
-      const value = type === 's' ? sharedStrings[Number(raw)] ?? raw
+      const type = spreadsheetAttribute(cell.attributes, 't');
+      const raw = spreadsheetElements(cell.content, 'v')[0]?.content ?? '';
+      const inline = spreadsheetElements(cell.content, 't').map(part => decodeXml(part.content)).join('');
+      const value = type === 's' && raw.trim() ? sharedStrings[Number(raw)] ?? raw
         : type === 'inlineStr' || inline ? inline : decodeXml(raw);
       row[column] = cleanText(value, 2_000);
       fallbackColumn = column + 1;
     }
     if (row.some((value) => String(value ?? '').trim())) {
-      rowNumbers?.push(Number(rowMatch[0].match(/^<row\b[^>]*\br="(\d+)"/i)?.[1] ?? rows.length + 1));
+      rowNumbers?.push(rowNumber);
       rows.push(row);
     }
   }
@@ -812,12 +825,13 @@ export function extractSpreadsheetTables(buffer) {
   try {
     if (buffer.subarray(0, 8).equals(COMPOUND_SIGNATURE)) return extractBiffSpreadsheetTables(buffer);
     const workbook = zipEntry(buffer, 'xl/workbook.xml')?.toString('utf8') ?? '';
-    const attribute = (xml, name) => decodeXml(xml.match(new RegExp(`\\b${name}="([^"]*)"`, 'i'))?.[1] ?? '');
-    const relationships = (xml) => [...xml.matchAll(/<Relationship\b[^>]*>/gi)].map(m => ({ id:attribute(m[0], 'Id'), target:attribute(m[0], 'Target') }));
+    const attribute = spreadsheetAttribute;
+    const relationships = (xml) => spreadsheetElements(xml, 'Relationship')
+      .map(({ attributes }) => ({ id: attribute(attributes, 'Id'), target: attribute(attributes, 'Target') }));
     const workbookRels = relationships(zipEntry(buffer, 'xl/_rels/workbook.xml.rels')?.toString('utf8') ?? '');
-    const descriptors = [...workbook.matchAll(/<sheet\b[^>]*>/gi)].map((m,index) => {
-      const target = workbookRels.find(r => r.id === attribute(m[0], 'r:id'))?.target;
-      return { name:attribute(m[0], 'name') || `Sheet ${index+1}`, entry:target ? path.posix.normalize(target.startsWith('/') ? target.slice(1) : `xl/${target}`) : `xl/worksheets/sheet${index+1}.xml` };
+    const descriptors = spreadsheetElements(workbook, 'sheet').map(({ attributes }, index) => {
+      const target = workbookRels.find(r => r.id === attribute(attributes, 'r:id'))?.target;
+      return { name: attribute(attributes, 'name') || `Sheet ${index+1}`, entry: target ? path.posix.normalize(target.startsWith('/') ? target.slice(1) : `xl/${target}`) : `xl/worksheets/sheet${index+1}.xml` };
     });
     const shared = spreadsheetStrings(zipEntry(buffer, 'xl/sharedStrings.xml')?.toString('utf8') ?? '');
     const sheets = [];
@@ -826,18 +840,19 @@ export function extractSpreadsheetTables(buffer) {
       if (!source) continue;
       const rowNumbers = [];
       const rows = spreadsheetRows(source, shared, rowNumbers);
-      const merges = [...source.matchAll(/<mergeCell\b[^>]*\bref="([^"]+)"/gi)].map(m => spreadsheetRange(m[1])).filter(Boolean);
+      const merges = spreadsheetElements(source, 'mergeCell')
+        .map(({ attributes }) => spreadsheetRange(attribute(attributes, 'ref'))).filter(Boolean);
       const directory = path.posix.dirname(descriptor.entry);
       const rels = relationships(zipEntry(buffer, `${directory}/_rels/${path.posix.basename(descriptor.entry)}.rels`)?.toString('utf8') ?? '');
-      const tables = [...source.matchAll(/<tablePart\b[^>]*>/gi)].flatMap(m => {
-        const target = rels.find(r => r.id === attribute(m[0], 'r:id'))?.target;
+      const tables = spreadsheetElements(source, 'tablePart').flatMap(({ attributes }) => {
+        const target = rels.find(r => r.id === attribute(attributes, 'r:id'))?.target;
         if (!target) return [];
         const entry = path.posix.normalize(target.startsWith('/') ? target.slice(1) : `${directory}/${target}`);
         const xml = zipEntry(buffer, entry)?.toString('utf8') ?? '';
-        const tag = xml.match(/<table\b[^>]*>/i)?.[0] ?? '';
+        const tag = spreadsheetElements(xml, 'table')[0]?.attributes ?? '';
         const range = spreadsheetRange(attribute(tag, 'ref'));
         if (!range) return [];
-        return [{...range, headerRowCount:Number(attribute(tag, 'headerRowCount') || 1), headers:[...xml.matchAll(/<tableColumn\b[^>]*>/gi)].map(c => attribute(c[0], 'name'))}];
+        return [{...range, headerRowCount:Number(attribute(tag, 'headerRowCount') || 1), headers:spreadsheetElements(xml, 'tableColumn').map(c => attribute(c.attributes, 'name'))}];
       });
       if (rows.length) sheets.push({ name:descriptor.name, rows, rowNumbers, merges, tables });
     }

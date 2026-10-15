@@ -13,6 +13,10 @@
     "test:watch": "node --disable-warning=ExperimentalWarning --test --watch",
     "desktop": "bash desktop/build.sh",
     "desktop:test:browser": "LASSO_BROWSER_GEOMETRY_TEST=1 npm run desktop && node desktop/tests/browser-geometry.mjs",
-    "desktop:test": "swiftc -O -module-cache-path /tmp/lasso-swift-module-cache -framework Cocoa -framework WebKit -o /tmp/lasso-anchor-tests desktop/ShareInsertion.swift desktop/SyntheticKeyboard.swift desktop/WorkspaceAPI.swift desktop/AssistActivation.swift desktop/DirectoryColors.swift desktop/CompletionTransaction.swift desktop/AssistSourceIdentity.swift desktop/DependencyReference.swift desktop/DependencyOverlay.swift desktop/HostGeometry.swift desktop/WebText.swift desktop/HostTextAdapter.swift desktop/tests/main.swift && /tmp/lasso-anchor-tests"
+    "desktop:test": "swiftc -O -module-cache-path /tmp/lasso-swift-module-cache -framework Cocoa -framework WebKit -o /tmp/lasso-anchor-tests desktop/ShareInsertion.swift desktop/SyntheticKeyboard.swift desktop/WorkspaceAPI.swift desktop/AssistActivation.swift desktop/DirectoryColors.swift desktop/CompletionTransaction.swift desktop/AssistSourceIdentity.swift desktop/ModelPreview.swift desktop/DependencyReference.swift desktop/DependencyOverlay.swift desktop/HostGeometry.swift desktop/WebText.swift desktop/HostTextAdapter.swift desktop/tests/main.swift && /tmp/lasso-anchor-tests"
+  },
+  "dependencies": {
+    "polygon-clipping": "0.15.7",
+    "web-ifc": "0.0.78"
   }
 }

@@ -242,12 +242,28 @@ try {
     const result = await helper('link-insert', {
       label: 'office supplies', url: destination, keyboardFallback,
     });
-    assert.equal(result.inserted, true, `Native hyperlink was not verified: ${JSON.stringify(result)}`);
-    assert.equal(result.prefix, 'off', 'Insertion did not replace the intended partial word');
     const actual = await evaluate(`({text: editor.textContent, links: [...editor.querySelectorAll('a')].map(a => ({label:a.textContent, url:a.href}))})`);
+    assert.equal(result.inserted, true, `Native hyperlink was not verified: ${JSON.stringify({ ...result, actual })}`);
+    assert.equal(result.prefix, 'off', 'Insertion did not replace the intended partial word');
     assert.equal(actual.text, 'The total is office supplies', 'Hyperlink paste changed surrounding text');
     assert.deepEqual(actual.links, [{ label: 'office supplies', url: destination }], 'Pasted source is not a real hyperlink');
     console.log(`  ok ${keyboardFallback ? 'read-only AX selection keyboard fallback' : 'native AX selection'} preserves text and inserts a clickable source`);
+  }
+  const destination = 'https://example.test/d/source-regression';
+  for (const [label, html, expected] of [
+    ['styled text is not a hyperlink', 'The total is <u>office supplies</u>', false],
+    ['a different destination is rejected', '<a href="https://example.test/wrong">office supplies</a>', false],
+    ['an earlier matching link is rejected', `<a href="${destination}">office supplies</a> and office supplies`, false],
+    ['a partially linked label is rejected', `<a href="${destination}">office</a> supplies`, false],
+    ['formatting inside the correct link is accepted', `The total is <a href="${destination}"><b>office</b> supplies</a>`, true],
+  ]) {
+    await evaluate(`fixture.reset(${JSON.stringify(html)}); fixture.selectEnd()`);
+    await settle();
+    const selection = await evaluate('fixture.selectionSnapshot()');
+    const result = await helper('link-verify', { label: 'office supplies', url: destination });
+    assert.equal(result.linked, expected, label);
+    assert.deepEqual(await evaluate('fixture.selectionSnapshot()'), selection, 'Verification changed the selection');
+    console.log(`  ok ${label}`);
   }
   await evaluate('fixture.reset()');
   await settle();

@@ -1,0 +1,1360 @@
+{
+  "file": "/Users/adelyasin/Desktop/Accounting/Duplex_A_20110907.ifc",
+  "bytes": 2380763,
+  "sha256": "b347a2c8aa8fff6db896a4417a9c50c22ac0ccd7c5cfc22b99b8d29336c606ed",
+  "schema": "'IFC2X3'",
+  "spaceCount": 21,
+  "unitEvidence": [
+    "#34=IFCPROJECT('1xS3BCk291UvhgP2a6eflL',#33,'0001',$,$,'Duplex Apartment','Project Status',(#27,#28),#23);",
+    "#23=IFCUNITASSIGNMENT((#15,#16,#17,#21,#22));",
+    "#16=IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.);"
+  ],
+  "areas": [
+    {
+      "number": "A102",
+      "name": "Living Room",
+      "guid": "0BTBFw6f90Nfh9rP1dlXr2",
+      "quantity": "GSA BIM Area",
+      "value": "30.14164524999992",
+      "units": "m²",
+      "squareFeet": "324.4419692832432609309663064",
+      "space": "#67",
+      "relation": "#70",
+      "quantitySet": "#69",
+      "property": "#68",
+      "evidence": [
+        {
+          "line": 17648,
+          "record": "#67=IFCSPACE('0BTBFw6f90Nfh9rP1dlXr2',#33,'A102','',$,#53,#66,'Living Room',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 57,
+          "record": "#70=IFCRELDEFINESBYPROPERTIES('3JCODKsnPDnQCwOVmiNtvy',#33,$,$,(#67),#69);"
+        },
+        {
+          "line": 56,
+          "record": "#69=IFCELEMENTQUANTITY('0TnLbAMunB8BqfZMTM2K4n',#33,'GSA Space Areas',$,'GSA BIM Area',(#68));"
+        },
+        {
+          "line": 55,
+          "record": "#68=IFCQUANTITYAREA('GSA BIM Area',$,$,30.14164524999992);"
+        }
+      ]
+    },
+    {
+      "number": "A103",
+      "name": "Kitchen",
+      "guid": "0BTBFw6f90Nfh9rP1dlXr$",
+      "quantity": "GSA BIM Area",
+      "value": "13.89750099999989",
+      "units": "m²",
+      "squareFeet": "149.5914557801325984596413637",
+      "space": "#212",
+      "relation": "#215",
+      "quantitySet": "#214",
+      "property": "#213",
+      "evidence": [
+        {
+          "line": 30864,
+          "record": "#212=IFCSPACE('0BTBFw6f90Nfh9rP1dlXr$',#33,'A103','',$,#201,#211,'Kitchen',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 199,
+          "record": "#215=IFCRELDEFINESBYPROPERTIES('0l4E5vpRPEXAIHJB8k0ErE',#33,$,$,(#212),#214);"
+        },
+        {
+          "line": 198,
+          "record": "#214=IFCELEMENTQUANTITY('3pXfhFCEjEXB26L2n040aL',#33,'GSA Space Areas',$,'GSA BIM Area',(#213));"
+        },
+        {
+          "line": 197,
+          "record": "#213=IFCQUANTITYAREA('GSA BIM Area',$,$,13.89750099999989);"
+        }
+      ]
+    },
+    {
+      "number": "A104",
+      "name": "Bathroom 1",
+      "guid": "0BTBFw6f90Nfh9rP1dlXru",
+      "quantity": "GSA BIM Area",
+      "value": "3.997752000000053",
+      "units": "m²",
+      "squareFeet": "43.03144439622269626483697412",
+      "space": "#355",
+      "relation": "#358",
+      "quantitySet": "#357",
+      "property": "#356",
+      "evidence": [
+        {
+          "line": 36022,
+          "record": "#355=IFCSPACE('0BTBFw6f90Nfh9rP1dlXru',#33,'A104','',$,#345,#354,'Bathroom 1',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 339,
+          "record": "#358=IFCRELDEFINESBYPROPERTIES('0We32diCj71fZenGNvDXAR',#33,$,$,(#355),#357);"
+        },
+        {
+          "line": 338,
+          "record": "#357=IFCELEMENTQUANTITY('1YwWvSwST6q8IN63ZqiW7y',#33,'GSA Space Areas',$,'GSA BIM Area',(#356));"
+        },
+        {
+          "line": 337,
+          "record": "#356=IFCQUANTITYAREA('GSA BIM Area',$,$,3.997752000000053);"
+        }
+      ]
+    },
+    {
+      "number": "A101",
+      "name": "Foyer",
+      "guid": "0BTBFw6f90Nfh9rP1dlXrr",
+      "quantity": "GSA BIM Area",
+      "value": "17.93623674999977",
+      "units": "m²",
+      "squareFeet": "193.0640455898942596496304104",
+      "space": "#514",
+      "relation": "#517",
+      "quantitySet": "#516",
+      "property": "#515",
+      "evidence": [
+        {
+          "line": 495,
+          "record": "#514=IFCSPACE('0BTBFw6f90Nfh9rP1dlXrr',#33,'A101','',$,#487,#513,'Foyer',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 498,
+          "record": "#517=IFCRELDEFINESBYPROPERTIES('245DqLXgPAHefUvCP1qnJ0',#33,$,$,(#514),#516);"
+        },
+        {
+          "line": 497,
+          "record": "#516=IFCELEMENTQUANTITY('1psRps31rBGx0ZYG2Ob9Es',#33,'GSA Space Areas',$,'GSA BIM Area',(#515));"
+        },
+        {
+          "line": 496,
+          "record": "#515=IFCQUANTITYAREA('GSA BIM Area',$,$,17.93623674999977);"
+        }
+      ]
+    },
+    {
+      "number": "A201",
+      "name": "Hallway",
+      "guid": "0BTBFw6f90Nfh9rP1dlXri",
+      "quantity": "GSA BIM Area",
+      "value": "7.799954699999879",
+      "units": "m²",
+      "squareFeet": "83.95801364519265462142035395",
+      "space": "#819",
+      "relation": "#822",
+      "quantitySet": "#821",
+      "property": "#820",
+      "evidence": [
+        {
+          "line": 795,
+          "record": "#819=IFCSPACE('0BTBFw6f90Nfh9rP1dlXri',#33,'A201','',$,#733,#818,'Hallway',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 798,
+          "record": "#822=IFCRELDEFINESBYPROPERTIES('3TqU6S2qLC29cy6g$Me8zi',#33,$,$,(#819),#821);"
+        },
+        {
+          "line": 797,
+          "record": "#821=IFCELEMENTQUANTITY('1gKnV5ujDEIQMRKsMIhl$$',#33,'GSA Space Areas',$,'GSA BIM Area',(#820));"
+        },
+        {
+          "line": 796,
+          "record": "#820=IFCQUANTITYAREA('GSA BIM Area',$,$,7.799954699999879);"
+        }
+      ]
+    },
+    {
+      "number": "A204",
+      "name": "Bathroom 2",
+      "guid": "0BTBFw6f90Nfh9rP1dlXre",
+      "quantity": "GSA BIM Area",
+      "value": "5.415819401311199",
+      "units": "m²",
+      "squareFeet": "58.29539486879222682056475224",
+      "space": "#1059",
+      "relation": "#1062",
+      "quantitySet": "#1061",
+      "property": "#1060",
+      "evidence": [
+        {
+          "line": 35752,
+          "record": "#1059=IFCSPACE('0BTBFw6f90Nfh9rP1dlXre',#33,'A204','',$,#1049,#1058,'Bathroom 2',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 1035,
+          "record": "#1062=IFCRELDEFINESBYPROPERTIES('2FFY5dcwv84fPjacTOlwj7',#33,$,$,(#1059),#1061);"
+        },
+        {
+          "line": 1034,
+          "record": "#1061=IFCELEMENTQUANTITY('2EL$EszfbALwKM4jpukSUn',#33,'GSA Space Areas',$,'GSA BIM Area',(#1060));"
+        },
+        {
+          "line": 1033,
+          "record": "#1060=IFCQUANTITYAREA('GSA BIM Area',$,$,5.415819401311199);"
+        }
+      ]
+    },
+    {
+      "number": "A203",
+      "name": "Bedroom 2",
+      "guid": "0BTBFw6f90Nfh9rP1dlXrb",
+      "quantity": "GSA BIM Area",
+      "value": "26.17799424999996",
+      "units": "m²",
+      "squareFeet": "281.7775849961417839502345671",
+      "space": "#1218",
+      "relation": "#1221",
+      "quantitySet": "#1220",
+      "property": "#1219",
+      "evidence": [
+        {
+          "line": 36196,
+          "record": "#1218=IFCSPACE('0BTBFw6f90Nfh9rP1dlXrb',#33,'A203','',$,#1197,#1217,'Bedroom 2',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 1191,
+          "record": "#1221=IFCRELDEFINESBYPROPERTIES('3EMRFc4WDAHfmrIL4mFjXm',#33,$,$,(#1218),#1220);"
+        },
+        {
+          "line": 1190,
+          "record": "#1220=IFCELEMENTQUANTITY('2FWaZW_bT4Hg7ITw3_0R0i',#33,'GSA Space Areas',$,'GSA BIM Area',(#1219));"
+        },
+        {
+          "line": 1189,
+          "record": "#1219=IFCQUANTITYAREA('GSA BIM Area',$,$,26.17799424999996);"
+        }
+      ]
+    },
+    {
+      "number": "A202",
+      "name": "Bedroom 1",
+      "guid": "0BTBFw6f90Nfh9rP1dlXrc",
+      "quantity": "GSA BIM Area",
+      "value": "26.11931424999996",
+      "units": "m²",
+      "squareFeet": "281.1459587328892574451815570",
+      "space": "#1442",
+      "relation": "#1445",
+      "quantitySet": "#1444",
+      "property": "#1443",
+      "evidence": [
+        {
+          "line": 36133,
+          "record": "#1442=IFCSPACE('0BTBFw6f90Nfh9rP1dlXrc',#33,'A202','',$,#1422,#1441,'Bedroom 1',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 1412,
+          "record": "#1445=IFCRELDEFINESBYPROPERTIES('2UV5AmlE16Q8st0xvYkWLo',#33,$,$,(#1442),#1444);"
+        },
+        {
+          "line": 1411,
+          "record": "#1444=IFCELEMENTQUANTITY('26HGuo9lbDfxc66q2n3YeR',#33,'GSA Space Areas',$,'GSA BIM Area',(#1443));"
+        },
+        {
+          "line": 1410,
+          "record": "#1443=IFCQUANTITYAREA('GSA BIM Area',$,$,26.11931424999996);"
+        }
+      ]
+    },
+    {
+      "number": "B102",
+      "name": "Living Room",
+      "guid": "0BTBFw6f90Nfh9rP1dl_CZ",
+      "quantity": "GSA BIM Area",
+      "value": "30.14164524999997",
+      "units": "m²",
+      "squareFeet": "324.4419692832437991264871419",
+      "space": "#1627",
+      "relation": "#1630",
+      "quantitySet": "#1629",
+      "property": "#1628",
+      "evidence": [
+        {
+          "line": 17462,
+          "record": "#1627=IFCSPACE('0BTBFw6f90Nfh9rP1dl_CZ',#33,'B102','',$,#1616,#1626,'Living Room',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 1594,
+          "record": "#1630=IFCRELDEFINESBYPROPERTIES('1ppzKq3lr1shV6HsN9uOly',#33,$,$,(#1627),#1629);"
+        },
+        {
+          "line": 1593,
+          "record": "#1629=IFCELEMENTQUANTITY('2x6M$Wgdf4GgRy4bu6pkOe',#33,'GSA Space Areas',$,'GSA BIM Area',(#1628));"
+        },
+        {
+          "line": 1592,
+          "record": "#1628=IFCQUANTITYAREA('GSA BIM Area',$,$,30.14164524999997);"
+        }
+      ]
+    },
+    {
+      "number": "B103",
+      "name": "Kitchen",
+      "guid": "0BTBFw6f90Nfh9rP1dl_3S",
+      "quantity": "GSA BIM Area",
+      "value": "13.89750099999979",
+      "units": "m²",
+      "squareFeet": "149.5914557801315220685996928",
+      "space": "#1782",
+      "relation": "#1785",
+      "quantitySet": "#1784",
+      "property": "#1783",
+      "evidence": [
+        {
+          "line": 31025,
+          "record": "#1782=IFCSPACE('0BTBFw6f90Nfh9rP1dl_3S',#33,'B103','',$,#1771,#1781,'Kitchen',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 1746,
+          "record": "#1785=IFCRELDEFINESBYPROPERTIES('3Bx8B1wX96owH41NlhgfAy',#33,$,$,(#1782),#1784);"
+        },
+        {
+          "line": 1745,
+          "record": "#1784=IFCELEMENTQUANTITY('3vhQavO518ox9UVRUolzA4',#33,'GSA Space Areas',$,'GSA BIM Area',(#1783));"
+        },
+        {
+          "line": 1744,
+          "record": "#1783=IFCQUANTITYAREA('GSA BIM Area',$,$,13.89750099999979);"
+        }
+      ]
+    },
+    {
+      "number": "B104",
+      "name": "Bathroom 1",
+      "guid": "0BTBFw6f90Nfh9rP1dl_3P",
+      "quantity": "GSA BIM Area",
+      "value": "3.997752000000072",
+      "units": "m²",
+      "squareFeet": "43.03144439622290077913489160",
+      "space": "#1928",
+      "relation": "#1931",
+      "quantitySet": "#1930",
+      "property": "#1929",
+      "evidence": [
+        {
+          "line": 1889,
+          "record": "#1928=IFCSPACE('0BTBFw6f90Nfh9rP1dl_3P',#33,'B104','',$,#1917,#1927,'Bathroom 1',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 1892,
+          "record": "#1931=IFCRELDEFINESBYPROPERTIES('1vwWpLunP7Z8FUDxnwGsLX',#33,$,$,(#1928),#1930);"
+        },
+        {
+          "line": 1891,
+          "record": "#1930=IFCELEMENTQUANTITY('2EpJAn0FzEoe9ftyEgraot',#33,'GSA Space Areas',$,'GSA BIM Area',(#1929));"
+        },
+        {
+          "line": 1890,
+          "record": "#1929=IFCQUANTITYAREA('GSA BIM Area',$,$,3.997752000000072);"
+        }
+      ]
+    },
+    {
+      "number": "B101",
+      "name": "Foyer",
+      "guid": "0BTBFw6f90Nfh9rP1dl_3Q",
+      "quantity": "GSA BIM Area",
+      "value": "17.93623674999994",
+      "units": "m²",
+      "squareFeet": "193.0640455898960895144012510",
+      "space": "#2108",
+      "relation": "#2111",
+      "quantitySet": "#2110",
+      "property": "#2109",
+      "evidence": [
+        {
+          "line": 2069,
+          "record": "#2108=IFCSPACE('0BTBFw6f90Nfh9rP1dl_3Q',#33,'B101','',$,#2081,#2107,'Foyer',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 2072,
+          "record": "#2111=IFCRELDEFINESBYPROPERTIES('3MHd4xOv1DWwJegUJD5M0p',#33,$,$,(#2108),#2110);"
+        },
+        {
+          "line": 2071,
+          "record": "#2110=IFCELEMENTQUANTITY('3YeMDKAmfDTBw6kiUfurYb',#33,'GSA Space Areas',$,'GSA BIM Area',(#2109));"
+        },
+        {
+          "line": 2070,
+          "record": "#2109=IFCQUANTITYAREA('GSA BIM Area',$,$,17.93623674999994);"
+        }
+      ]
+    },
+    {
+      "number": "B201",
+      "name": "Hallway",
+      "guid": "0BTBFw6f90Nfh9rP1dl_3G",
+      "quantity": "GSA BIM Area",
+      "value": "7.799954699999977",
+      "units": "m²",
+      "squareFeet": "83.95801364519370948464119150",
+      "space": "#2412",
+      "relation": "#2415",
+      "quantitySet": "#2414",
+      "property": "#2413",
+      "evidence": [
+        {
+          "line": 2368,
+          "record": "#2412=IFCSPACE('0BTBFw6f90Nfh9rP1dl_3G',#33,'B201','',$,#2326,#2411,'Hallway',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 2371,
+          "record": "#2415=IFCRELDEFINESBYPROPERTIES('2ancuZtv13ZBMWmrC8bmwk',#33,$,$,(#2412),#2414);"
+        },
+        {
+          "line": 2370,
+          "record": "#2414=IFCELEMENTQUANTITY('14tDsMhs128h$v0wqGma7j',#33,'GSA Space Areas',$,'GSA BIM Area',(#2413));"
+        },
+        {
+          "line": 2369,
+          "record": "#2413=IFCQUANTITYAREA('GSA BIM Area',$,$,7.799954699999977);"
+        }
+      ]
+    },
+    {
+      "number": "B204",
+      "name": "Bathroom 2",
+      "guid": "0BTBFw6f90Nfh9rP1dl_3C",
+      "quantity": "GSA BIM Area",
+      "value": "5.441473058684557",
+      "units": "m²",
+      "squareFeet": "58.57152853862001717058989674",
+      "space": "#2637",
+      "relation": "#2640",
+      "quantitySet": "#2639",
+      "property": "#2638",
+      "evidence": [
+        {
+          "line": 35459,
+          "record": "#2637=IFCSPACE('0BTBFw6f90Nfh9rP1dl_3C',#33,'B204','',$,#2627,#2636,'Bathroom 2',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 2593,
+          "record": "#2640=IFCRELDEFINESBYPROPERTIES('2zI3LHyYD3RRuOKs9sDjP_',#33,$,$,(#2637),#2639);"
+        },
+        {
+          "line": 2592,
+          "record": "#2639=IFCELEMENTQUANTITY('2DuIKqxRL8leRtmk4U1c2u',#33,'GSA Space Areas',$,'GSA BIM Area',(#2638));"
+        },
+        {
+          "line": 2591,
+          "record": "#2638=IFCQUANTITYAREA('GSA BIM Area',$,$,5.441473058684557);"
+        }
+      ]
+    },
+    {
+      "number": "B203",
+      "name": "Bedroom 2",
+      "guid": "0BTBFw6f90Nfh9rP1dl_39",
+      "quantity": "GSA BIM Area",
+      "value": "26.17799424999995",
+      "units": "m²",
+      "squareFeet": "281.7775849961416763111304000",
+      "space": "#2789",
+      "relation": "#2792",
+      "quantitySet": "#2791",
+      "property": "#2790",
+      "evidence": [
+        {
+          "line": 36102,
+          "record": "#2789=IFCSPACE('0BTBFw6f90Nfh9rP1dl_39',#33,'B203','',$,#2768,#2788,'Bedroom 2',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 2742,
+          "record": "#2792=IFCRELDEFINESBYPROPERTIES('1VVUJv3kH7cw8BQ2hr9l8o',#33,$,$,(#2789),#2791);"
+        },
+        {
+          "line": 2741,
+          "record": "#2791=IFCELEMENTQUANTITY('06v2p8SH9589x8ki7vLy3_',#33,'GSA Space Areas',$,'GSA BIM Area',(#2790));"
+        },
+        {
+          "line": 2740,
+          "record": "#2790=IFCQUANTITYAREA('GSA BIM Area',$,$,26.17799424999995);"
+        }
+      ]
+    },
+    {
+      "number": "B202",
+      "name": "Bedroom 1",
+      "guid": "0BTBFw6f90Nfh9rP1dl_3A",
+      "quantity": "GSA BIM Area",
+      "value": "26.11931424999977",
+      "units": "m²",
+      "squareFeet": "281.1459587328872123022023822",
+      "space": "#3013",
+      "relation": "#3016",
+      "quantitySet": "#3015",
+      "property": "#3014",
+      "evidence": [
+        {
+          "line": 36164,
+          "record": "#3013=IFCSPACE('0BTBFw6f90Nfh9rP1dl_3A',#33,'B202','',$,#2993,#3012,'Bedroom 1',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 2963,
+          "record": "#3016=IFCRELDEFINESBYPROPERTIES('0tCDiP75HFV91_eZTARTHr',#33,$,$,(#3013),#3015);"
+        },
+        {
+          "line": 2962,
+          "record": "#3015=IFCELEMENTQUANTITY('2xqJNWR9L6W97Fk3renQTq',#33,'GSA Space Areas',$,'GSA BIM Area',(#3014));"
+        },
+        {
+          "line": 2961,
+          "record": "#3014=IFCQUANTITYAREA('GSA BIM Area',$,$,26.11931424999977);"
+        }
+      ]
+    },
+    {
+      "number": "A205",
+      "name": "Utility",
+      "guid": "2gRXFgjRn2HPE$YoDLX3FV",
+      "quantity": "GSA BIM Area",
+      "value": "1.754048598688885",
+      "units": "m²",
+      "squareFeet": "18.88042198284238061531678619",
+      "space": "#3197",
+      "relation": "#3200",
+      "quantitySet": "#3199",
+      "property": "#3198",
+      "evidence": [
+        {
+          "line": 3144,
+          "record": "#3197=IFCSPACE('2gRXFgjRn2HPE$YoDLX3FV',#33,'A205','',$,#3187,#3196,'Utility',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 3147,
+          "record": "#3200=IFCRELDEFINESBYPROPERTIES('03I6eXQs11LRz6ECdrLq4C',#33,$,$,(#3197),#3199);"
+        },
+        {
+          "line": 3146,
+          "record": "#3199=IFCELEMENTQUANTITY('0uTUkDgf55G8e8edMfDGpL',#33,'GSA Space Areas',$,'GSA BIM Area',(#3198));"
+        },
+        {
+          "line": 3145,
+          "record": "#3198=IFCQUANTITYAREA('GSA BIM Area',$,$,1.754048598688885);"
+        }
+      ]
+    },
+    {
+      "number": "B205",
+      "name": "Utility",
+      "guid": "2gRXFgjRn2HPE$YoDLX3FC",
+      "quantity": "GSA BIM Area",
+      "value": "1.72839494131539",
+      "units": "m²",
+      "squareFeet": "18.60428831301311560956455246",
+      "space": "#3325",
+      "relation": "#3328",
+      "quantitySet": "#3327",
+      "property": "#3326",
+      "evidence": [
+        {
+          "line": 3272,
+          "record": "#3325=IFCSPACE('2gRXFgjRn2HPE$YoDLX3FC',#33,'B205','',$,#3315,#3324,'Utility',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 3275,
+          "record": "#3328=IFCRELDEFINESBYPROPERTIES('3tT1l3HRfBCxLb93PNY2qZ',#33,$,$,(#3325),#3327);"
+        },
+        {
+          "line": 3274,
+          "record": "#3327=IFCELEMENTQUANTITY('1IOsqLNRb09B4I6JnAbWl7',#33,'GSA Space Areas',$,'GSA BIM Area',(#3326));"
+        },
+        {
+          "line": 3273,
+          "record": "#3326=IFCQUANTITYAREA('GSA BIM Area',$,$,1.72839494131539);"
+        }
+      ]
+    },
+    {
+      "number": "A105",
+      "name": "Stair",
+      "guid": "10mjSDZJj9gPS2PrQaxa3z",
+      "quantity": "GSA BIM Area",
+      "value": "4.922172500000023",
+      "units": "m²",
+      "squareFeet": "52.98182384559238319865528620",
+      "space": "#3456",
+      "relation": "#3459",
+      "quantitySet": "#3458",
+      "property": "#3457",
+      "evidence": [
+        {
+          "line": 3403,
+          "record": "#3456=IFCSPACE('10mjSDZJj9gPS2PrQaxa3z',#33,'A105','',$,#3436,#3455,'Stair',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 3406,
+          "record": "#3459=IFCRELDEFINESBYPROPERTIES('25M3DOpq95tgxf2M1YKCzZ',#33,$,$,(#3456),#3458);"
+        },
+        {
+          "line": 3405,
+          "record": "#3458=IFCELEMENTQUANTITY('0BpAAuw4f3EuRrOaRslMgS',#33,'GSA Space Areas',$,'GSA BIM Area',(#3457));"
+        },
+        {
+          "line": 3404,
+          "record": "#3457=IFCQUANTITYAREA('GSA BIM Area',$,$,4.922172500000023);"
+        }
+      ]
+    },
+    {
+      "number": "B105",
+      "name": "Room",
+      "guid": "10mjSDZJj9gPS2PrQaxa4o",
+      "quantity": "GSA BIM Area",
+      "value": "4.92217250000005",
+      "units": "m²",
+      "squareFeet": "52.98182384559267382423653736",
+      "space": "#3586",
+      "relation": "#3589",
+      "quantitySet": "#3588",
+      "property": "#3587",
+      "evidence": [
+        {
+          "line": 3533,
+          "record": "#3586=IFCSPACE('10mjSDZJj9gPS2PrQaxa4o',#33,'B105','',$,#3567,#3585,'Room',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 3536,
+          "record": "#3589=IFCRELDEFINESBYPROPERTIES('1Eq2w8iobAVvsyvd5nTOur',#33,$,$,(#3586),#3588);"
+        },
+        {
+          "line": 3535,
+          "record": "#3588=IFCELEMENTQUANTITY('0O5DhVVbH2I8TGalNd0e$S',#33,'GSA Space Areas',$,'GSA BIM Area',(#3587));"
+        },
+        {
+          "line": 3534,
+          "record": "#3587=IFCQUANTITYAREA('GSA BIM Area',$,$,4.92217250000005);"
+        }
+      ]
+    },
+    {
+      "number": "R301",
+      "name": "Roof",
+      "guid": "0pNy6pOyf7JPmXRLgxs3sW",
+      "quantity": "GSA BIM Area",
+      "value": "145.7216889999995",
+      "units": "m²",
+      "squareFeet": "1568.535206167629175536128850",
+      "space": "#3707",
+      "relation": "#3710",
+      "quantitySet": "#3709",
+      "property": "#3708",
+      "evidence": [
+        {
+          "line": 3654,
+          "record": "#3707=IFCSPACE('0pNy6pOyf7JPmXRLgxs3sW',#33,'R301','',$,#3697,#3706,'Roof',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 3657,
+          "record": "#3710=IFCRELDEFINESBYPROPERTIES('29PPQKB8H3nRsg6gyfLxyE',#33,$,$,(#3707),#3709);"
+        },
+        {
+          "line": 3656,
+          "record": "#3709=IFCELEMENTQUANTITY('1m9ktjXWjCQfiFtfDme8vw',#33,'GSA Space Areas',$,'GSA BIM Area',(#3708));"
+        },
+        {
+          "line": 3655,
+          "record": "#3708=IFCQUANTITYAREA('GSA BIM Area',$,$,145.7216889999995);"
+        }
+      ]
+    }
+  ],
+  "propertyAreas": [
+    {
+      "number": "A102",
+      "name": "Living Room",
+      "guid": "0BTBFw6f90Nfh9rP1dlXr2",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "30.14164524999992",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "324.4419692832432609309663064",
+      "space": "#67",
+      "relation": "#195",
+      "propertySet": "#194",
+      "property": "#170",
+      "evidence": [
+        {
+          "line": 17648,
+          "record": "#67=IFCSPACE('0BTBFw6f90Nfh9rP1dlXr2',#33,'A102','',$,#53,#66,'Living Room',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 182,
+          "record": "#195=IFCRELDEFINESBYPROPERTIES('1EKsiKMd17lO2jWco5pFC5',#33,$,$,(#67),#194);"
+        },
+        {
+          "line": 181,
+          "record": "#194=IFCPROPERTYSET('3a68FadBb1uxrkgQ0mNG83',#33,'PSet_Revit_Dimensions',$,(#170,#171,#172,#173));"
+        },
+        {
+          "line": 157,
+          "record": "#170=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(30.14164524999992),$);"
+        }
+      ]
+    },
+    {
+      "number": "A103",
+      "name": "Kitchen",
+      "guid": "0BTBFw6f90Nfh9rP1dlXr$",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "13.8975009999999",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "149.5914557801327060987455308",
+      "space": "#212",
+      "relation": "#339",
+      "propertySet": "#338",
+      "property": "#315",
+      "evidence": [
+        {
+          "line": 30864,
+          "record": "#212=IFCSPACE('0BTBFw6f90Nfh9rP1dlXr$',#33,'A103','',$,#201,#211,'Kitchen',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 323,
+          "record": "#339=IFCRELDEFINESBYPROPERTIES('2csUakHTXEewtxsYXO3cwS',#33,$,$,(#212),#338);"
+        },
+        {
+          "line": 322,
+          "record": "#338=IFCPROPERTYSET('1o5NQx2dvCWPSliMtTa2$v',#33,'PSet_Revit_Dimensions',$,(#315,#316,#317,#318));"
+        },
+        {
+          "line": 299,
+          "record": "#315=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(13.8975009999999),$);"
+        }
+      ]
+    },
+    {
+      "number": "A104",
+      "name": "Bathroom 1",
+      "guid": "0BTBFw6f90Nfh9rP1dlXru",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "3.997752000000053",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "43.03144439622269626483697412",
+      "space": "#355",
+      "relation": "#481",
+      "propertySet": "#480",
+      "property": "#457",
+      "evidence": [
+        {
+          "line": 36022,
+          "record": "#355=IFCSPACE('0BTBFw6f90Nfh9rP1dlXru',#33,'A104','',$,#345,#354,'Bathroom 1',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 462,
+          "record": "#481=IFCRELDEFINESBYPROPERTIES('0q823C3I95wQsTK88w8hNe',#33,$,$,(#355),#480);"
+        },
+        {
+          "line": 461,
+          "record": "#480=IFCPROPERTYSET('2Sim8EGvTAqOiKGeGOrdc2',#33,'PSet_Revit_Dimensions',$,(#457,#458,#459,#460));"
+        },
+        {
+          "line": 438,
+          "record": "#457=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(3.997752000000053),$);"
+        }
+      ]
+    },
+    {
+      "number": "A101",
+      "name": "Foyer",
+      "guid": "0BTBFw6f90Nfh9rP1dlXrr",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "17.93623674999977",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "193.0640455898942596496304104",
+      "space": "#514",
+      "relation": "#724",
+      "propertySet": "#723",
+      "property": "#700",
+      "evidence": [
+        {
+          "line": 495,
+          "record": "#514=IFCSPACE('0BTBFw6f90Nfh9rP1dlXrr',#33,'A101','',$,#487,#513,'Foyer',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 705,
+          "record": "#724=IFCRELDEFINESBYPROPERTIES('221H$sIAf1beB2jp5m6ygJ',#33,$,$,(#514),#723);"
+        },
+        {
+          "line": 704,
+          "record": "#723=IFCPROPERTYSET('2WXcQa25TFPA6hwaz39uPL',#33,'PSet_Revit_Dimensions',$,(#700,#701,#702,#703));"
+        },
+        {
+          "line": 681,
+          "record": "#700=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(17.93623674999977),$);"
+        }
+      ]
+    },
+    {
+      "number": "A201",
+      "name": "Hallway",
+      "guid": "0BTBFw6f90Nfh9rP1dlXri",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "7.799954699999879",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "83.95801364519265462142035395",
+      "space": "#819",
+      "relation": "#1043",
+      "propertySet": "#1042",
+      "property": "#1019",
+      "evidence": [
+        {
+          "line": 795,
+          "record": "#819=IFCSPACE('0BTBFw6f90Nfh9rP1dlXri',#33,'A201','',$,#733,#818,'Hallway',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 1019,
+          "record": "#1043=IFCRELDEFINESBYPROPERTIES('2ZMtMgqYH47uQcSlLlhO6Q',#33,$,$,(#819),#1042);"
+        },
+        {
+          "line": 1018,
+          "record": "#1042=IFCPROPERTYSET('0s2gvnbuHFsPHqUBVmekO5',#33,'PSet_Revit_Dimensions',$,(#1019,#1020,#1021,#1022));"
+        },
+        {
+          "line": 995,
+          "record": "#1019=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(7.799954699999879),$);"
+        }
+      ]
+    },
+    {
+      "number": "A204",
+      "name": "Bathroom 2",
+      "guid": "0BTBFw6f90Nfh9rP1dlXre",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "5.415819401311199",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "58.29539486879222682056475224",
+      "space": "#1059",
+      "relation": "#1191",
+      "propertySet": "#1190",
+      "property": "#1167",
+      "evidence": [
+        {
+          "line": 35752,
+          "record": "#1059=IFCSPACE('0BTBFw6f90Nfh9rP1dlXre',#33,'A204','',$,#1049,#1058,'Bathroom 2',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 1164,
+          "record": "#1191=IFCRELDEFINESBYPROPERTIES('1UrqM4CMf23eRRNnL6g9y6',#33,$,$,(#1059),#1190);"
+        },
+        {
+          "line": 1163,
+          "record": "#1190=IFCPROPERTYSET('1c9QrLEi51DAOC5wSkN0jT',#33,'PSet_Revit_Dimensions',$,(#1167,#1168,#1169,#1170));"
+        },
+        {
+          "line": 1140,
+          "record": "#1167=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(5.415819401311199),$);"
+        }
+      ]
+    },
+    {
+      "number": "A203",
+      "name": "Bedroom 2",
+      "guid": "0BTBFw6f90Nfh9rP1dlXrb",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "26.17799424999997",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "281.7775849961418915893387342",
+      "space": "#1218",
+      "relation": "#1416",
+      "propertySet": "#1415",
+      "property": "#1392",
+      "evidence": [
+        {
+          "line": 36196,
+          "record": "#1218=IFCSPACE('0BTBFw6f90Nfh9rP1dlXrb',#33,'A203','',$,#1197,#1217,'Bedroom 2',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 1386,
+          "record": "#1416=IFCRELDEFINESBYPROPERTIES('3t3_Arff10sAbfPbjB2ZQL',#33,$,$,(#1218),#1415);"
+        },
+        {
+          "line": 1385,
+          "record": "#1415=IFCPROPERTYSET('18x43GY_X1IPTGgPQsZu2M',#33,'PSet_Revit_Dimensions',$,(#1392,#1393,#1394,#1395));"
+        },
+        {
+          "line": 1362,
+          "record": "#1392=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(26.17799424999997),$);"
+        }
+      ]
+    },
+    {
+      "number": "A202",
+      "name": "Bedroom 1",
+      "guid": "0BTBFw6f90Nfh9rP1dlXrc",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "26.11931424999996",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "281.1459587328892574451815570",
+      "space": "#1442",
+      "relation": "#1610",
+      "propertySet": "#1609",
+      "property": "#1586",
+      "evidence": [
+        {
+          "line": 36133,
+          "record": "#1442=IFCSPACE('0BTBFw6f90Nfh9rP1dlXrc',#33,'A202','',$,#1422,#1441,'Bedroom 1',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 1577,
+          "record": "#1610=IFCRELDEFINESBYPROPERTIES('1NdLkKYSj8P80VDrAWD_FV',#33,$,$,(#1442),#1609);"
+        },
+        {
+          "line": 1576,
+          "record": "#1609=IFCPROPERTYSET('0BTfgrhSzE7A4ylBNY0c08',#33,'PSet_Revit_Dimensions',$,(#1586,#1587,#1588,#1589));"
+        },
+        {
+          "line": 1553,
+          "record": "#1586=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(26.11931424999996),$);"
+        }
+      ]
+    },
+    {
+      "number": "B102",
+      "name": "Living Room",
+      "guid": "0BTBFw6f90Nfh9rP1dl_CZ",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "30.14164524999997",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "324.4419692832437991264871419",
+      "space": "#1627",
+      "relation": "#1765",
+      "propertySet": "#1764",
+      "property": "#1741",
+      "evidence": [
+        {
+          "line": 17462,
+          "record": "#1627=IFCSPACE('0BTBFw6f90Nfh9rP1dl_CZ',#33,'B102','',$,#1616,#1626,'Living Room',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 1729,
+          "record": "#1765=IFCRELDEFINESBYPROPERTIES('2Odc0QCXj7qOg53PKv_NPN',#33,$,$,(#1627),#1764);"
+        },
+        {
+          "line": 1728,
+          "record": "#1764=IFCPROPERTYSET('3MpcAQiZD9bxGV8rU4mrnC',#33,'PSet_Revit_Dimensions',$,(#1741,#1742,#1743,#1744));"
+        },
+        {
+          "line": 1705,
+          "record": "#1741=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(30.14164524999997),$);"
+        }
+      ]
+    },
+    {
+      "number": "B103",
+      "name": "Kitchen",
+      "guid": "0BTBFw6f90Nfh9rP1dl_3S",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "13.89750099999979",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "149.5914557801315220685996928",
+      "space": "#1782",
+      "relation": "#1911",
+      "propertySet": "#1910",
+      "property": "#1887",
+      "evidence": [
+        {
+          "line": 31025,
+          "record": "#1782=IFCSPACE('0BTBFw6f90Nfh9rP1dl_3S',#33,'B103','',$,#1771,#1781,'Kitchen',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 1872,
+          "record": "#1911=IFCRELDEFINESBYPROPERTIES('3hOjqejHrAjxOgDxHqcJQK',#33,$,$,(#1782),#1910);"
+        },
+        {
+          "line": 1871,
+          "record": "#1910=IFCPROPERTYSET('2U8e6Duuj2yeNPYBf4VvI7',#33,'PSet_Revit_Dimensions',$,(#1887,#1888,#1889,#1890));"
+        },
+        {
+          "line": 1848,
+          "record": "#1887=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(13.89750099999979),$);"
+        }
+      ]
+    },
+    {
+      "number": "B104",
+      "name": "Bathroom 1",
+      "guid": "0BTBFw6f90Nfh9rP1dl_3P",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "3.997752000000072",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "43.03144439622290077913489160",
+      "space": "#1928",
+      "relation": "#2075",
+      "propertySet": "#2074",
+      "property": "#2051",
+      "evidence": [
+        {
+          "line": 1889,
+          "record": "#1928=IFCSPACE('0BTBFw6f90Nfh9rP1dl_3P',#33,'B104','',$,#1917,#1927,'Bathroom 1',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 2036,
+          "record": "#2075=IFCRELDEFINESBYPROPERTIES('29A592s2zDtA8O1HY743gi',#33,$,$,(#1928),#2074);"
+        },
+        {
+          "line": 2035,
+          "record": "#2074=IFCPROPERTYSET('0CxODC1SD0Q8s9UcbGdOFB',#33,'PSet_Revit_Dimensions',$,(#2051,#2052,#2053,#2054));"
+        },
+        {
+          "line": 2012,
+          "record": "#2051=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(3.997752000000072),$);"
+        }
+      ]
+    },
+    {
+      "number": "B101",
+      "name": "Foyer",
+      "guid": "0BTBFw6f90Nfh9rP1dl_3Q",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "17.93623674999994",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "193.0640455898960895144012510",
+      "space": "#2108",
+      "relation": "#2317",
+      "propertySet": "#2316",
+      "property": "#2293",
+      "evidence": [
+        {
+          "line": 2069,
+          "record": "#2108=IFCSPACE('0BTBFw6f90Nfh9rP1dl_3Q',#33,'B101','',$,#2081,#2107,'Foyer',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 2278,
+          "record": "#2317=IFCRELDEFINESBYPROPERTIES('0nVrVzyNT87BnO_OVwgkJ9',#33,$,$,(#2108),#2316);"
+        },
+        {
+          "line": 2277,
+          "record": "#2316=IFCPROPERTYSET('1D_mXdOwb7efr7pmeNddcD',#33,'PSet_Revit_Dimensions',$,(#2293,#2294,#2295,#2296));"
+        },
+        {
+          "line": 2254,
+          "record": "#2293=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(17.93623674999994),$);"
+        }
+      ]
+    },
+    {
+      "number": "B201",
+      "name": "Hallway",
+      "guid": "0BTBFw6f90Nfh9rP1dl_3G",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "7.799954699999978",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "83.95801364519372024855160821",
+      "space": "#2412",
+      "relation": "#2621",
+      "propertySet": "#2620",
+      "property": "#2597",
+      "evidence": [
+        {
+          "line": 2368,
+          "record": "#2412=IFCSPACE('0BTBFw6f90Nfh9rP1dl_3G',#33,'B201','',$,#2326,#2411,'Hallway',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 2577,
+          "record": "#2621=IFCRELDEFINESBYPROPERTIES('3bF_NnfBXEBAePb09nNQ_B',#33,$,$,(#2412),#2620);"
+        },
+        {
+          "line": 2576,
+          "record": "#2620=IFCPROPERTYSET('2FqGHNHnL7WgKguK2GWBKb',#33,'PSet_Revit_Dimensions',$,(#2597,#2598,#2599,#2600));"
+        },
+        {
+          "line": 2553,
+          "record": "#2597=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(7.799954699999978),$);"
+        }
+      ]
+    },
+    {
+      "number": "B204",
+      "name": "Bathroom 2",
+      "guid": "0BTBFw6f90Nfh9rP1dl_3C",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "5.441473058684558",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "58.57152853862002793450031345",
+      "space": "#2637",
+      "relation": "#2762",
+      "propertySet": "#2761",
+      "property": "#2738",
+      "evidence": [
+        {
+          "line": 35459,
+          "record": "#2637=IFCSPACE('0BTBFw6f90Nfh9rP1dl_3C',#33,'B204','',$,#2627,#2636,'Bathroom 2',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 2715,
+          "record": "#2762=IFCRELDEFINESBYPROPERTIES('1TRXseSgH2NR4XzZwp$kPS',#33,$,$,(#2637),#2761);"
+        },
+        {
+          "line": 2714,
+          "record": "#2761=IFCPROPERTYSET('3XJlLAjy577R5q9FRWJZsb',#33,'PSet_Revit_Dimensions',$,(#2738,#2739,#2740,#2741));"
+        },
+        {
+          "line": 2691,
+          "record": "#2738=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(5.441473058684558),$);"
+        }
+      ]
+    },
+    {
+      "number": "B203",
+      "name": "Bedroom 2",
+      "guid": "0BTBFw6f90Nfh9rP1dl_39",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "26.17799424999995",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "281.7775849961416763111304000",
+      "space": "#2789",
+      "relation": "#2987",
+      "propertySet": "#2986",
+      "property": "#2963",
+      "evidence": [
+        {
+          "line": 36102,
+          "record": "#2789=IFCSPACE('0BTBFw6f90Nfh9rP1dl_39',#33,'B203','',$,#2768,#2788,'Bedroom 2',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 2937,
+          "record": "#2987=IFCRELDEFINESBYPROPERTIES('15Zd8aMzT4i8era1md4r2r',#33,$,$,(#2789),#2986);"
+        },
+        {
+          "line": 2936,
+          "record": "#2986=IFCPROPERTYSET('1gqTCk8_P8j9YXl4pKM3fe',#33,'PSet_Revit_Dimensions',$,(#2963,#2964,#2965,#2966));"
+        },
+        {
+          "line": 2913,
+          "record": "#2963=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(26.17799424999995),$);"
+        }
+      ]
+    },
+    {
+      "number": "B202",
+      "name": "Bedroom 1",
+      "guid": "0BTBFw6f90Nfh9rP1dl_3A",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "26.11931424999978",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "281.1459587328873199413065493",
+      "space": "#3013",
+      "relation": "#3181",
+      "propertySet": "#3180",
+      "property": "#3157",
+      "evidence": [
+        {
+          "line": 36164,
+          "record": "#3013=IFCSPACE('0BTBFw6f90Nfh9rP1dl_3A',#33,'B202','',$,#2993,#3012,'Bedroom 1',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 3128,
+          "record": "#3181=IFCRELDEFINESBYPROPERTIES('3qqONgyL10OgN41gRugb6q',#33,$,$,(#3013),#3180);"
+        },
+        {
+          "line": 3127,
+          "record": "#3180=IFCPROPERTYSET('1TgxhwXBb0pvc4O3wApv7l',#33,'PSet_Revit_Dimensions',$,(#3157,#3158,#3159,#3160));"
+        },
+        {
+          "line": 3104,
+          "record": "#3157=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(26.11931424999978),$);"
+        }
+      ]
+    },
+    {
+      "number": "A205",
+      "name": "Utility",
+      "guid": "2gRXFgjRn2HPE$YoDLX3FV",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "1.754048598688885",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "18.88042198284238061531678619",
+      "space": "#3197",
+      "relation": "#3309",
+      "propertySet": "#3308",
+      "property": "#3285",
+      "evidence": [
+        {
+          "line": 3144,
+          "record": "#3197=IFCSPACE('2gRXFgjRn2HPE$YoDLX3FV',#33,'A205','',$,#3187,#3196,'Utility',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 3256,
+          "record": "#3309=IFCRELDEFINESBYPROPERTIES('1bokFGCxn2KBUvpvmxYjGG',#33,$,$,(#3197),#3308);"
+        },
+        {
+          "line": 3255,
+          "record": "#3308=IFCPROPERTYSET('3Kej1LMmLFFv1q5cOROun2',#33,'PSet_Revit_Dimensions',$,(#3285,#3286,#3287,#3288));"
+        },
+        {
+          "line": 3232,
+          "record": "#3285=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(1.754048598688885),$);"
+        }
+      ]
+    },
+    {
+      "number": "B205",
+      "name": "Utility",
+      "guid": "2gRXFgjRn2HPE$YoDLX3FC",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "1.72839494131539",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "18.60428831301311560956455246",
+      "space": "#3325",
+      "relation": "#3430",
+      "propertySet": "#3429",
+      "property": "#3406",
+      "evidence": [
+        {
+          "line": 3272,
+          "record": "#3325=IFCSPACE('2gRXFgjRn2HPE$YoDLX3FC',#33,'B205','',$,#3315,#3324,'Utility',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 3377,
+          "record": "#3430=IFCRELDEFINESBYPROPERTIES('17e9f5Lrr0ova_W$P5u6Yv',#33,$,$,(#3325),#3429);"
+        },
+        {
+          "line": 3376,
+          "record": "#3429=IFCPROPERTYSET('3Sx0flAK1DcOgyP_hApnz9',#33,'PSet_Revit_Dimensions',$,(#3406,#3407,#3408,#3409));"
+        },
+        {
+          "line": 3353,
+          "record": "#3406=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(1.72839494131539),$);"
+        }
+      ]
+    },
+    {
+      "number": "A105",
+      "name": "Stair",
+      "guid": "10mjSDZJj9gPS2PrQaxa3z",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "4.922172500000023",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "52.98182384559238319865528620",
+      "space": "#3456",
+      "relation": "#3561",
+      "propertySet": "#3560",
+      "property": "#3537",
+      "evidence": [
+        {
+          "line": 3403,
+          "record": "#3456=IFCSPACE('10mjSDZJj9gPS2PrQaxa3z',#33,'A105','',$,#3436,#3455,'Stair',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 3508,
+          "record": "#3561=IFCRELDEFINESBYPROPERTIES('0yTBCkh1PCmwh1GwLqMGOM',#33,$,$,(#3456),#3560);"
+        },
+        {
+          "line": 3507,
+          "record": "#3560=IFCPROPERTYSET('2gNTmBlCbFMgskn4OUoSbg',#33,'PSet_Revit_Dimensions',$,(#3537,#3538,#3539,#3540));"
+        },
+        {
+          "line": 3484,
+          "record": "#3537=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(4.922172500000023),$);"
+        }
+      ]
+    },
+    {
+      "number": "B105",
+      "name": "Room",
+      "guid": "10mjSDZJj9gPS2PrQaxa4o",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "4.92217250000005",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "52.98182384559267382423653736",
+      "space": "#3586",
+      "relation": "#3691",
+      "propertySet": "#3690",
+      "property": "#3667",
+      "evidence": [
+        {
+          "line": 3533,
+          "record": "#3586=IFCSPACE('10mjSDZJj9gPS2PrQaxa4o',#33,'B105','',$,#3567,#3585,'Room',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 3638,
+          "record": "#3691=IFCRELDEFINESBYPROPERTIES('3dVAo3iTrEFRicFhV50EKH',#33,$,$,(#3586),#3690);"
+        },
+        {
+          "line": 3637,
+          "record": "#3690=IFCPROPERTYSET('3uiiukItvFxOi6XylbuSjr',#33,'PSet_Revit_Dimensions',$,(#3667,#3668,#3669,#3670));"
+        },
+        {
+          "line": 3614,
+          "record": "#3667=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(4.92217250000005),$);"
+        }
+      ]
+    },
+    {
+      "number": "R301",
+      "name": "Roof",
+      "guid": "0pNy6pOyf7JPmXRLgxs3sW",
+      "propertyName": "Area",
+      "propertySetName": "PSet_Revit_Dimensions",
+      "value": "145.7216889999995",
+      "units": "m²",
+      "measureType": "IFCAREAMEASURE",
+      "squareFeet": "1568.535206167629175536128850",
+      "space": "#3707",
+      "relation": "#3774",
+      "propertySet": "#3773",
+      "property": "#3750",
+      "evidence": [
+        {
+          "line": 3654,
+          "record": "#3707=IFCSPACE('0pNy6pOyf7JPmXRLgxs3sW',#33,'R301','',$,#3697,#3706,'Roof',.ELEMENT.,.INTERNAL.,$);"
+        },
+        {
+          "line": 3721,
+          "record": "#3774=IFCRELDEFINESBYPROPERTIES('2tE52TwUHCSfOlWiihzoE3',#33,$,$,(#3707),#3773);"
+        },
+        {
+          "line": 3720,
+          "record": "#3773=IFCPROPERTYSET('38mf_QhV5AC9SCX170Di77',#33,'PSet_Revit_Dimensions',$,(#3750,#3751,#3752,#3753));"
+        },
+        {
+          "line": 3697,
+          "record": "#3750=IFCPROPERTYSINGLEVALUE('Area',$,IFCAREAMEASURE(145.7216889999995),$);"
+        }
+      ]
+    }
+  ]
+}

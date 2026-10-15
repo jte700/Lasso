@@ -15,6 +15,8 @@ import { renderPdfFigurePage } from './figure-preview.js';
 import { RecommendationRanking, directRecommendationMatch } from './ranking.js';
 import { BoundedCache } from '../cache.js';
 import { drawingDescriptors, drawingContext } from './drawing-objects.js';
+import { buildModelPreview } from './model-preview.js';
+import { drawingDiscovery, drawingReferenceMatch } from './drawing-discovery.js';
 
 const OBJECT_TYPES = new Set([
   'REFERENCE', 'PAPER', 'RESULT', 'VALUE', 'CODE', 'CODE_BLOCK', 'CODE_LINE',
@@ -968,10 +970,12 @@ function objectsFromFile(file, buffer) {
       metadata: parentMetadata,
     }));
     objects.push(...documentComponentDescriptors(file, extracted.textExcerpt, parentMetadata, base));
-  } else if (file.fileType === 'markdown') {
+  } else if (file.fileType === 'markdown' || (file.fileType === 'text' && path.extname(file.path).toLowerCase() === '.txt')) {
     const referenceLike = referenceLikePath(file.path);
     const heading = text.match(/^#\s+(.+)$/m)?.[1]?.trim();
-    const parentMetadata = { format: 'MARKDOWN', heading: heading ?? null, title: heading ?? null };
+    const parentMetadata = { format: file.fileType === 'markdown' ? 'MARKDOWN' : 'TXT',
+      heading: heading ?? null, title: heading ?? fileName,
+      ...(file.fileType === 'text' ? { textExcerpt: text.slice(0, 20_000) } : {}) };
     objects.push(objectDescriptor({
       key: `${base}:document`, type: referenceLike ? 'PAPER' : 'DOCUMENT', path: file.path,
       label: heading || fileName, value: heading || text.slice(0, 240), contentHash: file.contentHash,
@@ -1247,7 +1251,7 @@ export class PredictiveProvenanceService {
       if (file.size > 25_000_000 && !design && !['image', 'pdf', 'document'].includes(file.fileType)) continue;
       if (file.size > 5_000_000 && !design && !['image', 'pdf', 'document', 'table', 'spreadsheet'].includes(file.fileType)) continue;
       if (!design && !['table', 'spreadsheet', 'code', 'notebook', 'image', 'json', 'text', 'markdown', 'pdf', 'document'].includes(file.fileType)) continue;
-      if (file.fileType === 'text' && !['.bib', '.ris', '.enw', '.nbib'].includes(path.extname(file.path).toLowerCase())) continue;
+      if (file.fileType === 'text' && !['.txt', '.bib', '.ris', '.enw', '.nbib'].includes(path.extname(file.path).toLowerCase())) continue;
       const available = MAX_SNAPSHOT_OBJECTS - descriptors.length;
       const key = JSON.stringify([file.projectFileId, file.path, file.fileType, file.contentHash]);
       let extracted = this.extractionCache.get(key);
@@ -1567,6 +1571,26 @@ export class PredictiveProvenanceService {
       if (candidates.length) return { fragment, candidates, context };
     }
     return context.projectIntent ? { fragment: null, candidates: [], context } : null;
+  }
+
+  drawingReference(projectId, input, cursor) {
+    const fragments = progressiveVariableFragments(input.text, cursor);
+    if (!fragments.length) return null;
+    const permitted = this.autocompleteFilter(projectId);
+    const drawings = this.objectsAt(projectId, null, ['DRAWING'])
+      .filter(object => object.path !== input.documentPath && permitted(object));
+    for (const fragment of fragments) {
+      const candidates = drawings.flatMap(object => {
+        const match = drawingReferenceMatch(object, fragment.text);
+        return match ? [this.enrichObject(projectId, {
+          ...object, label: match.label, score: match.score,
+          matchTier: 0, reasons: ['Matching drawing reference'],
+        })] : [];
+      });
+      if (candidates.length) return { ...fragment, type: 'ENTITY', partial: true,
+        value: fragment.text, candidates };
+    }
+    return null;
   }
 
   workspaceRetrievalObjects(projectId, snapshotId = null) {
@@ -2170,6 +2194,13 @@ export class PredictiveProvenanceService {
   predictionCandidates(projectId, input) {
     const text = String(input.text ?? '');
     const cursor = Number.isInteger(input.cursor) ? input.cursor : text.length;
+    // An explicit model/file reference starts a new source even after another
+    // source was linked. It must not depend on scientific-writing intent.
+    const drawing = this.drawingReference(projectId, input, cursor);
+    if (drawing) return {
+      claims: [drawing], completion: null, sourceCompletions: [], workspaceCompletions: [],
+      sourceContext: null, deterministic: true, generatedText: false,
+    };
     const linkedDependency = this.linkedDependencyContext(projectId, input, cursor);
     const linkedPaper = this.findingsFromLinkedPaper(projectId, input, cursor, linkedDependency);
     if (linkedPaper) {
@@ -2309,9 +2340,16 @@ export class PredictiveProvenanceService {
         if (score) aliasContextScores.set(alias.objectKey, Math.max(score, aliasContextScores.get(alias.objectKey) ?? 0));
       }
     }
-    const matches = this.objectsAt(projectId, options.snapshotId)
-      .filter((object) => !options.sourcePath || object.path === options.sourcePath)
+    const objects = this.objectsAt(projectId, options.snapshotId)
+      .filter((object) => !options.sourcePath || object.path === options.sourcePath);
+    const drawingMatches = new Map(objects.flatMap(object => {
+      const match = drawingReferenceMatch(object, normalizedQuery);
+      return match ? [[object.id, match]] : [];
+    }));
+    const drawingPaths = new Set(objects.filter(object => drawingMatches.has(object.id)).map(object => object.path));
+    const matches = objects
       .map((object) => {
+        const drawing = drawingMatches.get(object.id);
         const match = directRecommendationMatch(object, normalizedQuery);
         const aliasMatch = aliasedKeys.has(object.objectKey);
         const direct = match.direct || aliasMatch;
@@ -2325,11 +2363,15 @@ export class PredictiveProvenanceService {
         return {
           ...object,
           diversityKey: object.objectType === 'REFERENCE' ? object.id : object.path,
-          ...(direct && normalizedQuery ? { matchTier: 0 } : {}),
+          ...(drawing ? { label: drawing.label, searchAliases: drawingDiscovery(object).aliases } : {}),
+          ...((drawing || direct && normalizedQuery) ? { matchTier: 0 }
+            : drawingPaths.has(object.path) ? { matchTier: 1 } : {}),
           ...(!normalizedQuery && contextTerms.length ? { matchTier: contextScore ? 1 : 3 } : {}),
-          reasons: direct && normalizedQuery ? [aliasMatch ? 'Exact alias match' : match.reason]
-            : aliasScore ? ['Matches a source alias'] : contextScore ? ['Matches current context'] : [],
-          score: normalizedQuery && !direct && score > 0 ? Math.min(1, score + contextScore * 0.03) : score,
+          reasons: aliasMatch ? ['Exact alias match'] : drawing ? ['Matches a drawing name or topic']
+            : direct && normalizedQuery ? [match.reason]
+              : aliasScore ? ['Matches a source alias'] : contextScore ? ['Matches current context'] : [],
+          score: drawing ? Math.max(drawing.score, direct ? score : 0)
+            : normalizedQuery && !direct && score > 0 ? Math.min(1, score + contextScore * 0.03) : score,
         };
       })
       .filter((object) => !terms.length || object.score > 0)
@@ -2984,6 +3026,17 @@ export class PredictiveProvenanceService {
       contentType: mimeTypes[extension] ?? 'application/octet-stream',
       filename: path.posix.basename(file.path),
     };
+  }
+
+  async sourceModelPreview(source) {
+    if (!/\.ifc$/i.test(source?.path ?? '')) return null;
+    const file = this.timeline.snapshotFile(source.snapshotId, source.path);
+    if (!file) return { kind: 'model-unavailable', reason: 'The indexed source version is no longer available.' };
+    return buildModelPreview({ path: file.path, content: this.timeline.blobs.get(file.contentHash) }, source);
+  }
+
+  dependencyModelPreview(dependencyId) {
+    return this.sourceModelPreview(semanticDependencySource(this.getDependency(dependencyId)));
   }
 
   dependencySourceViewer(dependencyId, options = {}) {

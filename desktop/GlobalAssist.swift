@@ -37,30 +37,6 @@ struct AssistSuggestion {
     var isShareable: Bool { objectId != nil }
 }
 
-struct AssistPreviewCell {
-    let value: String
-    let cited: Bool
-}
-
-struct AssistPreviewRow {
-    let rowNumber: Int?
-    let cells: [AssistPreviewCell]
-}
-
-struct AssistDocumentPreview {
-    let filename: String
-    let path: String
-    let location: String
-    let context: String
-    let valueText: String?
-    let objectType: String
-    let snapshotVersion: Int?
-    let columns: [String]
-    let headers: [String]
-    let rows: [AssistPreviewRow]
-}
-
-
 /// Records successful, intentional source interactions. The session is stable
 /// for this native process; previews and suggestion impressions never call it.
 enum RecommendationUsageClient {
@@ -583,8 +559,10 @@ enum AccessibilityReader {
                    RichTextInserter.containsLink(text, to: url) { return true }
             }
         }
-        guard let text = WebTextReader.attributedTextBeforeCaret(expectedText: label, from: context.element) else { return false }
-        return RichTextInserter.containsLink(text, to: url)
+        if let text = WebTextReader.attributedTextBeforeCaret(expectedText: label, from: context.element),
+           RichTextInserter.containsLink(text, to: url) { return true }
+        return WebTextReader.hyperlinkBeforeCaret(label, url: url, caret: context.absoluteCaret,
+                                                 from: context.element)
     }
 
     /// True when the text now sits immediately before the caret.
@@ -674,6 +652,7 @@ final class AssistBoxView: NSView {
     var sourceScoped = false
     var preview: AssistDocumentPreview?
     var isPreviewLoading = false
+    var previewError: String?
     var onSelectRow: ((Int) -> Void)?
     var onInsert: (() -> Void)?
     var onLocalLink: (() -> Void)?
@@ -963,13 +942,15 @@ final class AssistBoxView: NSView {
                  font: NSFont.systemFont(ofSize: 10), color: .secondaryLabelColor)
 
         let previewRect = NSRect(x: rightX + 18, y: bodyTop + 72,
-                                 width: rightWidth - 36, height: 184)
+                                 width: rightWidth - 36, height: preview?.model == nil ? 184 : 222)
         if isPreviewLoading {
             drawText("Loading document preview…",
                      in: NSRect(x: previewRect.minX, y: previewRect.midY - 8,
                                width: previewRect.width, height: 17),
                      font: NSFont.systemFont(ofSize: 10), color: .secondaryLabelColor,
                      alignment: .center)
+        } else if let model = preview?.model {
+            AssistModelRenderer.draw(model, in: previewRect)
         } else if let preview, !preview.rows.isEmpty {
             drawTablePreview(preview, in: previewRect)
         } else {
@@ -981,9 +962,9 @@ final class AssistBoxView: NSView {
                      in: NSRect(x: previewRect.minX + 13, y: previewRect.minY + 13,
                                width: previewRect.width - 26, height: 16),
                      font: NSFont.systemFont(ofSize: 11, weight: .semibold), color: .labelColor)
-            let excerpt = preview?.context.isEmpty == false
+            let excerpt = previewError ?? preview?.unavailableReason ?? (preview?.context.isEmpty == false
                 ? preview!.context
-                : "Select a source-backed result to preview its exact document context."
+                : "Select a source-backed result to preview its exact document context.")
             drawMultilineText(excerpt,
                               in: NSRect(x: previewRect.minX + 13, y: previewRect.minY + 38,
                                         width: previewRect.width - 26, height: previewRect.height - 51),
@@ -1790,8 +1771,10 @@ final class GlobalAssistant {
               let objectId = suggestion.objectId,
               let serverURL else {
             previewRequest?.cancel()
+            previewGeneration += 1
             previewKey = nil
             view.preview = nil
+            view.previewError = nil
             view.isPreviewLoading = false
             view.needsDisplay = true
             return
@@ -1799,7 +1782,11 @@ final class GlobalAssistant {
 
         let key = objectId + "|" + (suggestion.versionId ?? "")
         if previewKey == key, view.preview != nil || view.isPreviewLoading { return }
+        previewRequest?.cancel()
+        previewGeneration += 1
+        let token = previewGeneration
         previewKey = key
+        view.previewError = nil
         if let cached = previewCache[key] {
             previewCacheOrder.removeAll { $0 == key }
             previewCacheOrder.append(key)
@@ -1809,9 +1796,6 @@ final class GlobalAssistant {
             return
         }
 
-        previewRequest?.cancel()
-        previewGeneration += 1
-        let token = previewGeneration
         view.preview = nil
         view.isPreviewLoading = true
         view.needsDisplay = true
@@ -1824,9 +1808,16 @@ final class GlobalAssistant {
         if let versionId = suggestion.versionId {
             components?.queryItems = [URLQueryItem(name: "version", value: versionId)]
         }
-        guard let url = components?.url else { return }
+        guard let url = components?.url else {
+            view.isPreviewLoading = false
+            view.previewError = "The source preview address is unavailable."
+            view.needsDisplay = true
+            return
+        }
         var request = URLRequest(url: url)
-        request.timeoutInterval = 2.5
+        // A first IFC preview compiles the geometry engine and reads the model.
+        // Later previews reuse its geometry; ordinary table requests stay brief.
+        request.timeoutInterval = (suggestion.path as NSString).pathExtension.lowercased() == "ifc" ? 60 : 2.5
         let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
             guard let self, let data,
                   (response as? HTTPURLResponse)?.statusCode == 200,
@@ -1834,17 +1825,22 @@ final class GlobalAssistant {
                 DispatchQueue.main.async {
                     guard let self, token == self.previewGeneration, self.previewKey == key else { return }
                     self.view.isPreviewLoading = false
+                    self.view.previewError = "The document preview could not be loaded. Select this result again to retry."
                     self.view.needsDisplay = true
                 }
                 return
             }
             DispatchQueue.main.async {
                 guard token == self.previewGeneration, self.previewKey == key else { return }
-                self.previewCache[key] = parsed
-                self.previewCacheOrder.removeAll { $0 == key }
-                self.previewCacheOrder.append(key)
-                while self.previewCacheOrder.count > 32 {
-                    self.previewCache.removeValue(forKey: self.previewCacheOrder.removeFirst())
+                // Geometry worker errors are returned as informative previews,
+                // but a transient busy/timeout result must remain retryable.
+                if parsed.unavailableReason == nil {
+                    self.previewCache[key] = parsed
+                    self.previewCacheOrder.removeAll { $0 == key }
+                    self.previewCacheOrder.append(key)
+                    while self.previewCacheOrder.count > 8 {
+                        self.previewCache.removeValue(forKey: self.previewCacheOrder.removeFirst())
+                    }
                 }
                 self.view.preview = parsed
                 self.view.isPreviewLoading = false
@@ -1856,33 +1852,12 @@ final class GlobalAssistant {
     }
 
     static func parsePreview(_ data: Data) -> AssistDocumentPreview? {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let source = root["source"] as? [String: Any] else { return nil }
-        let table = root["preview"] as? [String: Any] ?? [:]
-        let rows = (table["rows"] as? [[String: Any]] ?? []).map { row in
-            AssistPreviewRow(
-                rowNumber: (row["rowNumber"] as? NSNumber)?.intValue,
-                cells: (row["cells"] as? [[String: Any]] ?? []).map {
-                    AssistPreviewCell(
-                        value: $0["value"] as? String ?? "",
-                        cited: $0["cited"] as? Bool ?? false)
-                })
-        }
-        return AssistDocumentPreview(
-            filename: source["filename"] as? String ?? "",
-            path: root["path"] as? String ?? "",
-            location: source["location"] as? String ?? "",
-            context: source["context"] as? String ?? "",
-            valueText: source["valueText"] as? String,
-            objectType: source["objectType"] as? String ?? "SOURCE",
-            snapshotVersion: (source["snapshotVersion"] as? NSNumber)?.intValue,
-            columns: table["columns"] as? [String] ?? [],
-            headers: table["headers"] as? [String] ?? [],
-            rows: rows)
+        AssistDocumentPreview.parse(data)
     }
 
     private func selectRow(_ index: Int) {
         guard index >= 0, index < view.suggestions.count else { return }
+        if view.preview?.unavailableReason != nil { previewKey = nil }
         view.selected = index
         view.needsDisplay = true
         loadPreviewForSelection()
@@ -1940,6 +1915,31 @@ final class GlobalAssistant {
 
     // MARK: Panel
     #if BROWSER_GEOMETRY_TEST
+    /// Captures the real panel renderer from an actual API response without
+    /// moving focus, synthesizing a room, or touching the user's host document.
+    static func regressionRenderPreview(data: Data, to output: URL) -> Bool {
+        guard let preview = parsePreview(data) else { return false }
+        let renderView = AssistBoxView()
+        let label = preview.model?.selectedLabel.isEmpty == false
+            ? preview.model!.selectedLabel : preview.location
+        renderView.suggestions = [AssistSuggestion(
+            insertText: label, label: label,
+            detail: preview.valueText ?? preview.context, path: preview.path,
+            location: preview.location, replaceFrom: nil,
+            objectId: nil, versionId: nil, snapshotId: nil,
+            usageObjectId: nil, projectId: "", rankingReason: nil)]
+        renderView.preview = preview
+        renderView.sourceScoped = true
+        renderView.frame = NSRect(origin: .zero, size: renderView.boxSize)
+        renderView.appearance = NSAppearance(named: .aqua)
+        renderView.layoutSubtreeIfNeeded()
+        guard let bitmap = renderView.bitmapImageRepForCachingDisplay(in: renderView.bounds) else { return false }
+        renderView.cacheDisplay(in: renderView.bounds, to: bitmap)
+        guard let png = bitmap.representation(using: .png, properties: [:]) else { return false }
+        do { try png.write(to: output, options: .atomic); return true }
+        catch { return false }
+    }
+
     // The signed integration build exercises the production popup, keyboard
     // handler, timer, and response delivery without depending on source data.
     private var regressionSuggestion: AssistSuggestion {
@@ -2591,6 +2591,7 @@ final class GlobalAssistant {
         view.mode = .suggestions
         view.title = "dependency"
         view.preview = nil
+        view.previewError = nil
         view.isPreviewLoading = false
         view.sourceScoped = false
         pendingShare = nil
