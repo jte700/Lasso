@@ -5,14 +5,15 @@
 IFC and LandXML provide semantic properties that a printed plan may not contain.
 DXF provides CAD entities and units. These are the primary inputs; PDF annotation
 extraction is a fallback. All processing is local and deterministic, with no model
-API, remote upload, or additional JavaScript dependency.
+API or remote upload. IFC visual previews use a bundled geometry engine.
 
 - **IFC STEP:** follow `IfcRelDefinesByProperties` to `IfcElementQuantity` and
   `IfcPropertySet`; read area, length, and volume measures. Resolve a quantity's
   own unit before the project's `IfcUnitAssignment`. Support SI prefixes and
   conversion-based units, preserving the original value/unit alongside the SI
   result. Track the element GUID, STEP identifiers, property set/name, room name
-  and number, and spatial hierarchy. No tessellation or missing-quantity inference.
+  and number, and spatial hierarchy. Numeric answers read explicit quantities;
+  visual preview tessellation never invents missing quantities.
 - **DXF ASCII:** inspect model-space `LWPOLYLINE`, declared `$INSUNITS`, and
   unambiguous enclosed `TEXT`/`MTEXT`. Compute simple closed boundary area and
   perimeter. Preserve entity handle, layer, vertices, and measurement basis.
@@ -58,6 +59,36 @@ room-area quantities rather than ceiling/wall area. Explicit net/gross questions
 select the corresponding floor-area property. Multiple matching sources require
 disambiguation. Requested square feet/metres convert using the exact definition
 `1 ft = 0.3048 m`; the response records the source value and conversion.
+
+## Visual IFC previews
+
+The native writing-suggestion panel and browser source views show the actual
+geometry of the selected indexed IFC element. Selection follows its GUID and
+STEP identifier, including doors, windows, walls, spaces, and other represented
+products. Multiple indexed properties of one element focus the same geometry.
+Spatial containers and product types can show their explicitly related products.
+There is no room-name heuristic or fabricated bounding-box drawing.
+
+`web-ifc` 0.0.78 tessellates the preserved source version in a worker thread.
+`polygon-clipping` 0.15.7 unions projected mesh faces into plan silhouettes,
+retaining concavity and holes. Both packages and the WASM runtime are pinned and
+bundled with the desktop application for offline operation. Plan views highlight
+the selected element in blue, with context from its storey. Whole-model previews
+start on the lowest storey containing spaces. Browser controls offer fit selection,
+show context, zoom and pan. This is a geometric plan projection, not a replacement
+for every authored construction sheet or a full 3D authoring application.
+
+The same file hash and exact property anchor drive each preview. Historical links
+render historical source bytes. Geometry is cached by source hash, not filename;
+switching suggestions discards stale responses. Missing or unsupported geometry
+shows an explanation, while indexed quantities remain available. Public share
+scope and redaction rules do not gain model-context access from these local views.
+
+Preview work is limited to 64 MB of input, 20,000 products, two million triangles,
+50,000 projected triangles per element and 400,000 plan points. Workers have a
+30-second processing timeout; the cache holds at most three completed source
+models and 32 MB of projected data. Preview limits are separate from indexing
+limits. Run `npm ci` before building so the offline runtime can be bundled.
 
 ## Export guidance and bounds
 

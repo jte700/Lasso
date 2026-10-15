@@ -5,6 +5,7 @@
 // what a command means. Its whole job is the interaction: a transcript,
 // keyboard navigation through results, inline completion, a source preview for
 // whatever is highlighted, and the single-key actions a result offers.
+import { renderModelPlan, bindModelPlans } from './model-preview.js?v=2';
 
 const HISTORY_KEY = 'lasso.terminal.history';
 const HISTORY_LIMIT = 200;
@@ -97,6 +98,7 @@ function renderEntry(entry, index, state) {
 
 function renderPreview(preview) {
   if (!preview) return '';
+  if (preview.kind === 'model-plan') return `<aside class="dsh-preview">${renderModelPlan(preview)}</aside>`;
   const head = `<div class="dsh-preview-head">
     <strong>${escapeHtml(preview.fileName ?? '')}</strong>
     <span>${escapeHtml(preview.locator ?? preview.path ?? '')}</span>
@@ -114,7 +116,7 @@ function renderPreview(preview) {
       .map((line) => `<span class="${line.highlighted ? 'hit' : ''}"><i>${String(line.lineNumber).padStart(4)}</i>${escapeHtml(line.text)}</span>`)
       .join('\n')}</pre></aside>`;
   }
-  if (preview.kind === 'unavailable') {
+  if (preview.kind === 'unavailable' || preview.kind === 'model-unavailable') {
     return `<aside class="dsh-preview">${head}<div class="dsh-line t-dim">${escapeHtml(preview.reason)}</div></aside>`;
   }
   return `<aside class="dsh-preview">${head}<div class="dsh-line">${escapeHtml(preview.value ?? preview.objectType ?? '')}</div></aside>`;
@@ -181,6 +183,7 @@ export function createDependencyShell({ host = null, input, api, getProjectId, g
     hostNode.innerHTML = `${bannerHtml()}
       ${state.transcript.map((entry, index) => renderEntry(entry, index, state)).join('')}
       ${state.busy ? '<div class="dsh-line t-dim">…</div>' : ''}`;
+    bindModelPlans(hostNode);
     hostNode.querySelectorAll('[data-result]').forEach((button) => {
       button.addEventListener('click', () => {
         state.activeEntryIndex = Number(button.closest('[data-entry]').dataset.entry);

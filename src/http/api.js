@@ -5,6 +5,8 @@ import { buildPreview } from '../history/preview.js';
 import { HttpError } from '../history/errors.js';
 import { renderSharePage, renderUnavailable, renderInspectorPanel } from '../sharing/share-page.js';
 import { buildFullShareDocument, buildSharePreview } from '../sharing/share-preview.js';
+import { buildModelPreview } from '../dependencies/model-preview.js';
+import { drawingDiscovery } from '../dependencies/drawing-discovery.js';
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -93,6 +95,8 @@ function serveStatic(publicDir, pathname, response) {
 }
 
 export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null) {
+  const resolvedModelPreview = resolved => dependencies.sourceModelPreview({ ...resolved.source,
+    path: resolved.internal.filePath, snapshotId: resolved.internal.snapshotId });
   return async function requestHandler(request, response) {
     try {
       const url = new URL(request.url, 'http://localhost');
@@ -152,6 +156,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
             file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null,
             resolved.source.anchor, resolved.source.metadata);
         } catch { preview = null; }
+        preview = await resolvedModelPreview(resolved) ?? preview;
         return sendHtml(response, 200, renderInspectorPanel(resolved, referenceId, preview));
       }
 
@@ -182,6 +187,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           document = buildFullShareDocument(
             file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null);
         } catch { document = null; }
+        document = await resolvedModelPreview(resolved) ?? document;
         return sendJson(response, 200, {
           source: resolved.source, path: resolved.internal.filePath, document,
         });
@@ -199,6 +205,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
             file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null,
             resolved.source.anchor, resolved.source.metadata);
         } catch { preview = null; }
+        preview = await resolvedModelPreview(resolved) ?? preview;
         return sendJson(response, 200, {
           source: resolved.source, path: resolved.internal.filePath, preview,
         });
@@ -257,7 +264,12 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const filePath = url.searchParams.get('path');
         const file = timeline.snapshotFile(snapshot.id, filePath);
         if (!file) throw new HttpError(404, 'File is not present in this snapshot.');
-        const preview = buildPreview(snapshot, file, timeline.blobs.get(file.contentHash));
+        const content = timeline.blobs.get(file.contentHash);
+        const properties = buildPreview(snapshot, file, content);
+        const model = await buildModelPreview({ path: file.path, content }, {
+          anchor: { elementId: url.searchParams.get('elementId') || undefined },
+        });
+        const preview = model ? { ...properties, ...model } : properties;
         return sendJson(response, 200, { preview });
       }
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/rfi$/);
@@ -325,7 +337,9 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/terminal\/preview$/);
       if (request.method === 'POST' && parameters && terminal) {
         const body = await readJson(request);
-        return sendJson(response, 200, { preview: terminal.executor.preview(parameters[0], body.ref) });
+        const source = terminal.executor.previewSource(parameters[0], body.ref);
+        const model = source ? await dependencies.sourceModelPreview(source) : null;
+        return sendJson(response, 200, { preview: model ?? terminal.executor.preview(parameters[0], body.ref) });
       }
 
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/dependencies\/predict$/);
@@ -335,7 +349,11 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       }
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/source-library$/);
       if (request.method === 'GET' && parameters) {
-        const objects = dependencies.objectsAt(parameters[0]).map(({ searchText, contentHash, metadata, ...object }) => object);
+        const objects = dependencies.objectsAt(parameters[0]).map(source => {
+          const { searchText, contentHash, metadata, ...object } = source;
+          const drawing = drawingDiscovery(source);
+          return drawing ? { ...object, label: drawing.label, searchAliases: drawing.aliases } : object;
+        });
         return sendJson(response, 200, { objects });
       }
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/source-review\/([^/]+)$/);
@@ -417,18 +435,18 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       }
       parameters = match(pathname, /^\/api\/dependencies\/([^/]+)\/viewer$/);
       if (request.method === 'GET' && parameters) {
+        const viewer = dependencies.dependencySourceViewer(parameters[0], { sheet: url.searchParams.get('sheet') });
+        const model = await dependencies.dependencyModelPreview(parameters[0]);
         return sendJson(response, 200, {
-          viewer: dependencies.dependencySourceViewer(parameters[0], {
-            sheet: url.searchParams.get('sheet'),
-          }),
+          viewer: model ? { ...viewer, ...model } : viewer,
         });
       }
       parameters = match(pathname, /^\/api\/dependencies\/([^/]+)\/preview$/);
       if (request.method === 'GET' && parameters) {
+        const preview = dependencies.dependencyPreview(parameters[0], { contextRadius: url.searchParams.get('contextRadius') });
+        const model = await dependencies.dependencyModelPreview(parameters[0]);
         return sendJson(response, 200, {
-          preview: dependencies.dependencyPreview(parameters[0], {
-            contextRadius: url.searchParams.get('contextRadius'),
-          }),
+          preview: model ? { ...preview, content: model } : preview,
         });
       }
       parameters = match(pathname, /^\/api\/dependencies\/([^/]+)\/share$/);

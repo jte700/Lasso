@@ -1,0 +1,2188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lasso — writing with evidence</title>
+<meta name="description" content="Lasso is a local-first source library and writing assistant. Every value you write stays tied to the exact file, location and version it came from.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500&family=Geist:wght@400;500;600&family=Instrument+Serif:ital@0;1&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0b0c0b;
+    --ink-2: #111311;
+    --ink-3: #171a17;
+    --line: rgba(232, 236, 226, .09);
+    --line-2: rgba(232, 236, 226, .16);
+    --text: #e8ece2;
+    --text-2: #a7ad9f;
+    --text-3: #6c7266;
+    --accent: #d4f75c;
+    --accent-ink: #141a04;
+    --accent-dim: rgba(212, 247, 92, .14);
+    --pin: #8fa8ff;
+    --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+    --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --sans: "Geist", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  a { color: inherit; }
+  ::selection { background: var(--accent); color: var(--accent-ink); }
+
+  /* ---------- nav ---------- */
+  .nav {
+    position: fixed; inset: 0 0 auto 0; z-index: 20;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px clamp(16px, 4vw, 40px);
+    font-family: var(--mono); font-size: 12px; letter-spacing: .02em;
+    transition: background .3s, border-color .3s;
+    border-bottom: 1px solid transparent;
+  }
+  .nav.scrolled { background: rgba(11, 12, 11, .78); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-color: var(--line); }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-family: var(--serif); font-style: italic; font-size: 24px; letter-spacing: 0; }
+  .brand svg { width: 26px; height: 26px; }
+  .nav-links { display: flex; gap: clamp(14px, 2.4vw, 28px); }
+  .nav-links a { text-decoration: none; color: var(--text-2); transition: color .2s; }
+  .nav-links a:hover { color: var(--accent); }
+
+  /* ---------- hero ---------- */
+  .hero { position: relative; height: 100svh; min-height: 640px; overflow: hidden; }
+  #field { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .hero::after {
+    content: ""; position: absolute; inset: auto 0 0 0; height: 30%;
+    background: linear-gradient(to bottom, transparent, var(--ink));
+    pointer-events: none;
+  }
+  .hero-content {
+    position: absolute; left: 50%; top: 47%; transform: translate(-50%, -50%);
+    z-index: 2; text-align: center; width: min(720px, calc(100% - 32px));
+    pointer-events: none;
+  }
+  .hero-content > * { pointer-events: auto; }
+  .kicker {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .14em;
+    color: var(--text-2); padding: 6px 12px; border: 1px solid var(--line-2); border-radius: 999px;
+    background: rgba(11, 12, 11, .7); backdrop-filter: blur(6px);
+  }
+  .kicker i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); animation: blink 2.4s infinite; }
+  @keyframes blink { 50% { opacity: .25; } }
+  h1 {
+    margin: 22px 0 10px; font-family: var(--serif); font-style: italic; font-weight: 400;
+    font-size: clamp(96px, 17vw, 210px); line-height: .82; letter-spacing: -.02em;
+    text-shadow: 0 0 40px rgba(11, 12, 11, .9), 0 0 80px rgba(11, 12, 11, .8);
+  }
+  h1 sup {
+    font-family: var(--mono); font-style: normal; font-size: 13px; letter-spacing: 0;
+    vertical-align: top; position: relative; top: .9em; margin-left: 6px;
+    color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 5px;
+    cursor: help;
+  }
+  .tagline {
+    margin: 0 auto 30px; max-width: 520px;
+    font-family: var(--mono); font-size: clamp(13px, 1.5vw, 15px); line-height: 1.65; color: var(--text-2);
+    text-shadow: 0 0 18px var(--ink), 0 0 6px var(--ink);
+  }
+  .tagline b { color: var(--text); font-weight: 400; }
+  .pills { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .pill {
+    font-family: var(--sans); font-size: 14px; font-weight: 500; text-decoration: none;
+    padding: 12px 22px; border-radius: 999px; border: 1px solid var(--line-2);
+    background: rgba(17, 19, 17, .78); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    color: var(--text); transition: border-color .2s, transform .2s, background .2s;
+  }
+  .pill:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .pill.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .pill.primary:hover { background: #e2ff86; }
+  .pill kbd { font-family: var(--mono); font-size: 11px; opacity: .6; margin-left: 6px; }
+
+  /* live index ledger */
+  .ledger {
+    position: absolute; left: clamp(16px, 3vw, 32px); bottom: clamp(16px, 3vw, 28px); z-index: 3;
+    width: min(440px, calc(100% - 32px));
+    font-family: var(--mono); font-size: 11px; color: var(--text-2);
+    background: rgba(11, 12, 11, .82); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  }
+  .ledger-head { display: flex; justify-content: space-between; padding: 9px 12px; border-bottom: 1px solid var(--line); text-transform: uppercase; letter-spacing: .12em; font-size: 10px; color: var(--text-3); }
+  .ledger-head b { color: var(--accent); font-weight: 400; }
+  .ledger ol { list-style: none; margin: 0; padding: 4px 0; height: 104px; overflow: hidden; }
+  .ledger li {
+    display: grid; grid-template-columns: 44px 76px 1fr 26px; gap: 8px; align-items: baseline;
+    padding: 4px 12px; white-space: nowrap; animation: ledgerIn .6s ease-out;
+  }
+  .ledger li span { overflow: hidden; text-overflow: ellipsis; }
+  .ledger li .id { color: var(--text-3); }
+  .ledger li .val { color: var(--text); }
+  .ledger li .ver { color: var(--pin); text-align: right; }
+  .ledger li:first-child { background: var(--accent-dim); }
+  .ledger li:first-child .val { color: var(--accent); }
+  @keyframes ledgerIn { from { opacity: 0; transform: translateY(-8px); background: rgba(212, 247, 92, .32); } }
+  .scroll-hint {
+    position: absolute; right: clamp(16px, 3vw, 32px); bottom: clamp(16px, 3vw, 28px); z-index: 3;
+    font-family: var(--mono); font-size: 11px; color: var(--text-3); writing-mode: vertical-rl; letter-spacing: .2em;
+    text-transform: uppercase; text-decoration: none;
+  }
+  .scroll-hint::after { content: ""; display: inline-block; width: 1px; height: 46px; margin-top: 10px; background: linear-gradient(var(--text-3), transparent); }
+
+  /* ---------- sections ---------- */
+  section { position: relative; padding: clamp(80px, 12vw, 140px) 16px; }
+  .wrap { width: min(720px, 100%); margin: 0 auto; }
+  .wide { width: min(1080px, 100%); margin: 0 auto; }
+  .eyebrow { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .16em; color: var(--text-3); margin: 0 0 18px; display: flex; gap: 10px; align-items: center; }
+  .eyebrow::before { content: ""; width: 18px; height: 1px; background: var(--accent); }
+  h2 { font-family: var(--serif); font-weight: 400; font-size: clamp(40px, 6vw, 68px); line-height: 1; letter-spacing: -.01em; margin: 0 0 22px; }
+  h2 em { color: var(--accent); }
+  .lede { font-family: var(--mono); font-size: 14px; line-height: 1.7; color: var(--text-2); max-width: 560px; margin: 0; }
+
+  /* manifesto */
+  .manifesto p {
+    font-family: var(--mono); font-size: clamp(15px, 1.7vw, 17.5px); line-height: 1.8; color: var(--text-2);
+    margin: 0 0 1.6em; font-weight: 300;
+  }
+  .manifesto p b { color: var(--text); font-weight: 400; }
+  .cite { position: relative; color: var(--text); cursor: help; border-bottom: 1px dashed rgba(212, 247, 92, .45); }
+  .cite sup { color: var(--accent); font-size: .62em; margin-left: 2px; }
+  .cite .card {
+    position: absolute; left: 0; bottom: calc(100% + 10px); z-index: 5; width: 300px;
+    font-size: 11px; line-height: 1.55; color: var(--text-2); white-space: normal;
+    background: var(--ink-3); border: 1px solid var(--line-2); border-radius: 8px; padding: 10px 12px;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, .5);
+    opacity: 0; transform: translateY(4px); pointer-events: none; transition: opacity .18s, transform .18s;
+  }
+  .cite .card strong { display: block; color: var(--accent); font-weight: 400; margin-bottom: 3px; }
+  .cite .card em { font-style: normal; color: var(--pin); }
+  .cite:hover .card, .cite:focus .card { opacity: 1; transform: none; }
+  .signoff { font-family: var(--serif); font-style: italic; font-size: 28px; color: var(--text); margin-top: 40px; }
+
+  /* demo editor */
+  .window { background: var(--ink-2); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .window-bar { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+  .window-bar i { width: 10px; height: 10px; border-radius: 50%; background: #2a2d29; }
+  .window-bar span { margin-left: 8px; }
+  .window-bar .right { margin-left: auto; color: var(--text-3); }
+  .doc {
+    position: relative; padding: 28px 30px 120px; min-height: 360px;
+    font-family: var(--serif); font-size: 23px; line-height: 1.55; color: var(--text);
+  }
+  .doc .h { font-family: var(--sans); font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: .12em; color: var(--text-3); margin-bottom: 14px; display: block; }
+  .caret { display: inline-block; width: 2px; height: 1.05em; background: var(--accent); vertical-align: -0.15em; margin-left: 1px; animation: caret 1s steps(1) infinite; }
+  @keyframes caret { 50% { opacity: 0; } }
+  .linked {
+    font-family: var(--mono); font-size: .72em; color: var(--accent);
+    background: var(--accent-dim); border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+    box-shadow: inset 0 -1.5px 0 var(--accent); animation: linkIn .5s ease-out;
+  }
+  .linked sup { font-size: .7em; color: var(--pin); margin-left: 3px; }
+  @keyframes linkIn { from { background: rgba(212, 247, 92, .5); } }
+  .popup {
+    position: absolute; z-index: 4; width: 340px; max-width: calc(100% - 24px);
+    background: #161916; border: 1px solid var(--line-2); border-radius: 10px; padding: 5px;
+    font-family: var(--mono); font-size: 12px; box-shadow: 0 24px 50px rgba(0, 0, 0, .55);
+    animation: popIn .16s ease-out;
+  }
+  @keyframes popIn { from { opacity: 0; transform: translateY(-4px); } }
+  .popup .row { display: grid; grid-template-columns: minmax(82px, max-content) minmax(0, 1fr) 24px; gap: 10px; padding: 7px 9px; border-radius: 6px; color: var(--text-2); }
+  .popup .row .v { color: var(--text); white-space: nowrap; }
+  .popup .row .s { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); }
+  .popup .row .ver { color: var(--pin); text-align: right; }
+  .popup .row.on { background: var(--accent-dim); }
+  .popup .row.on .v { color: var(--accent); }
+  .popup .foot { display: flex; gap: 12px; padding: 7px 9px 4px; border-top: 1px solid var(--line); margin-top: 4px; color: var(--text-3); font-size: 10.5px; }
+  .keys { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 14px; }
+  .key { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; font-family: var(--mono); font-size: 11.5px; color: var(--text-3); transition: border-color .2s, background .2s; }
+  .key kbd { align-self: flex-start; font-family: var(--mono); font-size: 12px; color: var(--text); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line-2); border-bottom-width: 2px; background: var(--ink-2); transition: all .15s; }
+  .key.hit { border-color: rgba(212, 247, 92, .5); background: var(--accent-dim); }
+  .key.hit kbd { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); transform: translateY(1px); border-bottom-width: 1px; }
+
+  /* pillars */
+  .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; margin-top: 46px; }
+  .pillar { background: var(--ink); padding: 26px 24px 30px; }
+  .pillar .n { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+  .pillar h3 { font-family: var(--serif); font-weight: 400; font-size: 30px; margin: 14px 0 10px; }
+  .pillar p { font-family: var(--mono); font-size: 12.5px; line-height: 1.7; color: var(--text-2); margin: 0; }
+  .pillar pre { font-family: var(--mono); font-size: 11px; line-height: 1.6; color: var(--text-3); margin: 0 0 6px; white-space: pre; overflow: hidden; }
+  .pillar pre b { color: var(--accent); font-weight: 400; }
+  .pillar pre s { color: #ff8a7a; text-decoration: line-through; }
+  .pillar pre u { color: var(--pin); text-decoration: none; }
+
+  /* formats */
+  .formats { margin-top: 40px; border-top: 1px solid var(--line); }
+  .fmt { display: grid; grid-template-columns: 220px 1fr; gap: 20px; padding: 15px 4px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 13px; transition: background .2s, padding .2s; }
+  .fmt:hover { background: var(--ink-2); padding-left: 14px; }
+  .fmt .ext { color: var(--text); }
+  .fmt .ext span { color: var(--accent); }
+  .fmt .what { color: var(--text-2); }
+  .note { font-family: var(--mono); font-size: 12px; line-height: 1.7; color: var(--text-3); margin-top: 22px; max-width: 640px; }
+
+  /* run + cards */
+  .term {
+    margin: 0 0 14px; padding: 18px 20px; border-radius: 12px; background: var(--ink-2); border: 1px solid var(--line);
+    font-family: var(--mono); font-size: 13px; line-height: 1.9; color: var(--text-2); position: relative; overflow-x: auto; white-space: pre;
+  }
+  .term .p { color: var(--accent); user-select: none; }
+  .term .c { color: var(--text-3); }
+  .copy {
+    position: absolute; top: 12px; right: 12px; font-family: var(--mono); font-size: 11px; color: var(--text-2);
+    background: var(--ink-3); border: 1px solid var(--line-2); border-radius: 6px; padding: 5px 9px; cursor: pointer;
+  }
+  .copy:hover { color: var(--accent); border-color: var(--accent); }
+  .cards { display: grid; gap: 8px; }
+  .card-link {
+    display: flex; align-items: center; justify-content: space-between; gap: 20px;
+    padding: 22px 20px; border-radius: 12px; text-decoration: none;
+    background: var(--ink-2); border: 1px solid var(--line); transition: border-color .2s, transform .2s, background .2s;
+  }
+  .card-link:hover { border-color: var(--line-2); background: var(--ink-3); transform: translateX(4px); }
+  .card-link .t { font-family: var(--sans); font-size: 16px; font-weight: 500; color: var(--text); }
+  .card-link .d { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); text-align: right; }
+  .card-link .d::after { content: "  →"; color: var(--text-2); }
+  .card-link.primary { background: var(--accent); border-color: var(--accent); padding: 30px 20px; }
+  .card-link.primary .t { color: var(--accent-ink); font-size: 24px; font-weight: 600; letter-spacing: -.01em; }
+  .card-link.primary .d, .card-link.primary .d::after { color: rgba(20, 26, 4, .72); }
+  .card-link.primary:hover { background: #e2ff86; }
+
+  footer { padding: 40px 16px 60px; border-top: 1px solid var(--line); }
+  footer .wide { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px; font-family: var(--mono); font-size: 11.5px; color: var(--text-3); }
+  footer .brand { font-size: 20px; color: var(--text-2); }
+
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .8s ease, transform .8s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+
+  /* ---------- find (retrieval) ---------- */
+  .find-win { margin-top: 46px; }
+  .searchbar { display: flex; align-items: center; gap: 12px; padding: 0 18px; height: 56px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 14px; color: var(--text); }
+  .searchbar svg { width: 18px; height: 18px; flex: none; }
+  .searchbar .q { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .searchbar .caret { flex: none; margin-left: 0; }
+  .searchbar .stat { margin-left: auto; padding-left: 12px; font-size: 11px; color: var(--text-3); white-space: nowrap; }
+  .find-body { display: grid; grid-template-columns: 1.2fr 1fr; min-height: 420px; }
+  .wall { position: relative; padding: 18px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; border-right: 1px solid var(--line); overflow: hidden; }
+  .wall::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; background: linear-gradient(90deg, transparent, rgba(212, 247, 92, .14), transparent) no-repeat; background-size: 35% 100%; }
+  .wall.scan::after { opacity: 1; animation: wallscan .8s linear; }
+  @keyframes wallscan { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+  .chip { font-family: var(--mono); font-size: 11px; color: var(--text-2); padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--ink); white-space: nowrap; transition: opacity .5s, color .3s, border-color .3s, background .3s; }
+  .chip i { font-style: normal; color: var(--text-3); margin-right: 6px; }
+  .chip.dim { opacity: .16; }
+  .chip.cand { color: var(--text); border-color: var(--line-2); }
+  .chip.hit { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+  .chip.hit i { color: var(--accent); }
+  .wall svg.loop { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+  .wall svg.loop path { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; transition: stroke-dashoffset .9s cubic-bezier(.3, .7, .3, 1), opacity .4s; }
+  .results { padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .results .empty { font-family: var(--mono); font-size: 12px; line-height: 1.7; color: var(--text-3); padding: 6px; margin: 0; }
+  .res { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); font-family: var(--mono); font-size: 11.5px; color: var(--text-2); animation: popIn .3s ease-out both; }
+  .res .top { display: flex; justify-content: space-between; gap: 8px; }
+  .res .f { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .res .rk { color: var(--text-3); white-space: nowrap; }
+  .res .l { color: var(--text-3); margin-top: 3px; }
+  .res .snip { margin-top: 8px; line-height: 1.6; }
+  .res mark { background: var(--accent-dim); color: var(--accent); border-radius: 3px; padding: 0 3px; }
+  .res .ver { color: var(--pin); }
+  .res .flag { color: #ff8a7a; }
+  .res .score { height: 2px; margin-top: 10px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .res .score b { display: block; height: 100%; background: var(--text-3); }
+  .res.best { border-color: rgba(212, 247, 92, .45); background: linear-gradient(var(--accent-dim), transparent 75%); }
+  .res.best .f { color: var(--accent); }
+  .res.best .score b { background: var(--accent); }
+  .points { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 14px; }
+  .points div { padding: 18px; border: 1px solid var(--line); border-radius: 12px; font-family: var(--mono); font-size: 12px; line-height: 1.65; color: var(--text-3); }
+  .points b { display: block; margin-bottom: 6px; font-family: var(--sans); font-size: 14.5px; font-weight: 500; color: var(--text); }
+
+  /* ---------- use-case tabs + previews ---------- */
+  .case-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-top: 40px; }
+  .tabs { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 999px; background: var(--ink-2); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .tab { display: flex; align-items: center; gap: 8px; padding: 9px 16px; border: 0; border-radius: 999px; background: none; color: var(--text-2); font-family: var(--sans); font-size: 13.5px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: color .2s, background .2s; }
+  .tab .n { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
+  .tab:hover { color: var(--text); }
+  .tab[aria-selected="true"] { background: var(--ink-3); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-2); }
+  .tab[aria-selected="true"] .n { color: var(--accent); }
+  .case-note { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+  .case-note b { color: var(--text-2); font-weight: 400; }
+  .pv { animation: pvIn .35s ease-out; }
+  @keyframes pvIn { from { opacity: 0; transform: translateY(5px); } }
+  .pv-head { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 10px; font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+  .pv-head .f { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pv-head .ver { color: var(--pin); white-space: nowrap; }
+  .pv-stage { position: relative; display: flex; align-items: center; justify-content: center; min-height: 250px; padding: 12px; border-radius: 10px; background: var(--ink); border: 1px solid var(--line); overflow: hidden; }
+  .pv-stage > svg { width: 100%; height: auto; display: block; }
+  .pv-stage svg text { font-family: var(--mono); }
+  .pv-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 12px; font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+  .pv-foot .val { font-size: 22px; color: var(--accent); white-space: nowrap; }
+  .pv-foot .loc { text-align: right; }
+  .sheet { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+  .sheet th { padding: 4px 6px; border: 1px solid var(--line); background: var(--ink-2); color: var(--text-3); font-weight: 400; text-align: center; }
+  .sheet td { padding: 6px; border: 1px solid var(--line); color: var(--text-2); text-align: right; white-space: nowrap; }
+  .sheet td.rn { background: var(--ink-2); color: var(--text-3); text-align: center; }
+  .sheet td.lab { text-align: left; color: var(--text); }
+  .sheet td.hd { color: var(--text-3); }
+  .sheet td.hl { background: var(--accent-dim); color: var(--accent); outline: 2px solid var(--accent); outline-offset: -2px; }
+  .sheet-wrap { width: 100%; }
+  .sheet-tabs { display: flex; gap: 4px; margin-top: 8px; font-family: var(--mono); font-size: 10px; color: var(--text-3); }
+  .sheet-tabs span { padding: 3px 8px; border-radius: 4px; }
+  .sheet-tabs span.on { background: var(--ink-3); color: var(--text); }
+  .page { position: relative; width: 100%; padding: 16px 16px 12px; border-radius: 4px; background: #efede5; color: #29291f; font-family: var(--serif); box-shadow: 0 12px 30px rgba(0, 0, 0, .45); }
+  .page .pt { font-size: 16px; line-height: 1.2; padding-right: 60px; }
+  .page .pa { margin: 4px 0 8px; font-family: var(--sans); font-size: 9.5px; color: #6c6a60; }
+  .page .ln { height: 4px; margin: 5px 0; border-radius: 2px; background: #d7d3c6; }
+  .page table { width: 100%; margin-top: 10px; border-collapse: collapse; font-family: var(--sans); font-size: 10px; }
+  .page caption { padding-bottom: 4px; text-align: left; font-size: 9.5px; font-weight: 600; color: #4c4a42; }
+  .page th, .page td { padding: 3px 5px; border-top: 1px solid #cdc8b9; text-align: left; }
+  .page td.hl, .page mark { background: #e2f59a; color: #29291f; box-shadow: 0 0 0 1.5px #7f9c12; border-radius: 2px; }
+  .page .pg { margin-top: 8px; font-family: var(--sans); font-size: 8.5px; color: #8b887c; text-align: right; }
+  .page .cl { font-size: 12.5px; line-height: 1.45; margin: 7px 0; color: #3f3e35; }
+  .page .cl b { font-family: var(--sans); font-size: 10px; margin-right: 6px; color: #29291f; }
+  .page .cl.dimmed { opacity: .45; }
+  .page .stamp { position: absolute; top: 14px; right: 12px; padding: 3px 7px; border: 1.5px solid; border-radius: 3px; transform: rotate(-6deg); font-family: var(--sans); font-size: 8.5px; font-weight: 600; letter-spacing: .1em; }
+  .page .stamp.ok { color: #3c6a17; }
+  .page .stamp.draft { color: #b4432e; }
+  .bib { width: 100%; margin: 0; font-family: var(--mono); font-size: 11px; line-height: 1.75; color: var(--text-2); white-space: pre-wrap; }
+  .bib b { color: var(--accent); font-weight: 400; background: var(--accent-dim); border-radius: 3px; }
+
+  /* ---------- meetings ---------- */
+  .dev-badge { display: inline-flex; align-items: center; padding: 3px 10px; border: 1px dashed var(--accent); border-radius: 999px; color: var(--accent); letter-spacing: .12em; }
+  .mac-wrap { position: relative; margin-top: 46px; border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; background: var(--ink); }
+  .mac { position: absolute; left: 0; top: 0; width: 960px; height: 560px; transform-origin: 0 0; overflow: hidden; font-family: var(--sans); color: #e9ebe5; background: radial-gradient(120% 90% at 15% 0%, #1e2b22 0%, #111511 45%, #0b0c0b 100%); }
+  .mac.compact { width: 520px; height: 660px; }
+  .menubar { display: flex; justify-content: space-between; align-items: center; height: 28px; padding: 0 14px; font-size: 12.5px; background: rgba(32, 35, 32, .75); border-bottom: 1px solid rgba(255, 255, 255, .06); }
+  .mb-left, .mb-right { display: flex; align-items: center; gap: 16px; }
+  .mb-left b { font-weight: 600; }
+  .mac.compact .mb-left span { display: none; }
+  .mb-right svg { width: 15px; height: 15px; }
+  .mb-lasso { position: relative; display: grid; place-items: center; width: 24px; height: 22px; border-radius: 5px; transition: background .2s; }
+  .mb-lasso svg { width: 16px; height: 16px; }
+  .mb-lasso.alert { background: rgba(212, 247, 92, .2); color: var(--accent); }
+  .mb-lasso.alert::after { content: ""; position: absolute; inset: -3px; border: 1.5px solid var(--accent); border-radius: 8px; animation: ping 1s ease-out infinite; }
+  .mb-lasso.open { background: rgba(255, 255, 255, .16); }
+  @keyframes ping { from { opacity: 1; transform: scale(.85); } to { opacity: 0; transform: scale(1.5); } }
+  .call { position: absolute; left: 36px; top: 56px; width: 600px; height: 470px; display: flex; flex-direction: column; overflow: hidden; background: #151715; border: 1px solid rgba(255, 255, 255, .08); border-radius: 12px; box-shadow: 0 30px 80px rgba(0, 0, 0, .55); }
+  .mac.compact .call { left: 14px; top: 44px; width: 492px; height: 440px; }
+  .call-bar { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; font-size: 12px; color: #9ea398; border-bottom: 1px solid rgba(255, 255, 255, .06); }
+  .call-bar i { width: 11px; height: 11px; border-radius: 50%; background: #3a3d39; }
+  .call-bar span { margin-left: 8px; }
+  .call-bar .tm { margin-left: auto; font-family: var(--mono); font-size: 10.5px; }
+  .tiles { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 6px; padding: 6px; }
+  .tile { position: relative; display: grid; place-items: center; border-radius: 8px; background: #1d201c; transition: box-shadow .3s; }
+  .tile .av { display: grid; place-items: center; width: 60px; height: 60px; border-radius: 50%; font-size: 19px; font-weight: 600; color: #0b0c0b; }
+  .tile .nm { position: absolute; left: 8px; bottom: 8px; padding: 2px 7px; border-radius: 4px; font-size: 11px; color: #d8dbd3; background: rgba(0, 0, 0, .45); }
+  .tile.speaking { box-shadow: inset 0 0 0 2px #9fdcae; }
+  .captions { min-height: 62px; padding: 11px 16px; font-size: 14.5px; line-height: 1.45; color: #eef0ea; background: #0f110f; border-top: 1px solid rgba(255, 255, 255, .06); }
+  .captions .who { margin-right: 6px; font-weight: 600; color: #9ea398; }
+  .captions mark { color: var(--accent); background: var(--accent-dim); border-radius: 3px; box-shadow: inset 0 -1.5px 0 var(--accent); transition: background .3s; }
+  .call-ctrl { display: flex; justify-content: center; align-items: center; gap: 10px; height: 48px; border-top: 1px solid rgba(255, 255, 255, .06); }
+  .call-ctrl span { width: 30px; height: 30px; border-radius: 50%; background: #262925; }
+  .call-ctrl span.end { width: 46px; border-radius: 15px; background: #b4432e; }
+  .meet-toast { position: absolute; left: 50%; bottom: 122px; display: flex; align-items: center; gap: 10px; width: max-content; max-width: 90%; padding: 9px 14px; border-radius: 10px; font-size: 12px; background: rgba(24, 27, 24, .96); border: 1px solid rgba(212, 247, 92, .4); box-shadow: 0 14px 40px rgba(0, 0, 0, .5); opacity: 0; transform: translate(-50%, 10px); transition: opacity .3s, transform .3s; }
+  .meet-toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .meet-toast b { color: var(--accent); font-weight: 500; font-family: var(--mono); font-size: 11.5px; }
+  .meet-toast small { color: #8f948a; font-family: var(--mono); font-size: 10.5px; }
+  .popover { position: absolute; top: 34px; right: 84px; width: 340px; padding: 14px; font-size: 12.5px; color: #e9ebe5; background: rgba(30, 33, 30, .94); border: 1px solid rgba(255, 255, 255, .1); border-radius: 14px; box-shadow: 0 30px 70px rgba(0, 0, 0, .6); opacity: 0; transform: translateY(-8px) scale(.98); transform-origin: top right; transition: opacity .25s, transform .25s; }
+  .mac.compact .popover { right: 12px; top: 230px; }
+  .popover.show { opacity: 1; transform: none; }
+  .pop-h { display: flex; align-items: center; gap: 10px; }
+  .pop-h .av { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 50%; font-size: 11px; font-weight: 600; color: #0b0c0b; }
+  .pop-h b { font-size: 13px; font-weight: 600; }
+  .pop-h small { display: block; margin-top: 1px; font-size: 11px; color: #8f948a; }
+  .pop-q { margin: 10px 0; padding: 8px 10px; border-radius: 8px; font-size: 12px; font-style: italic; color: #c9ccc4; background: rgba(255, 255, 255, .05); }
+  .pop-q mark { font-style: normal; color: var(--accent); background: none; }
+  .pop-search { display: none; align-items: center; gap: 8px; padding: 16px 10px; font-family: var(--mono); font-size: 11.5px; color: #8f948a; }
+  .pop-search i { width: 12px; height: 12px; border: 1.5px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .popover.loading .pop-search { display: flex; }
+  .popover.loading .pop-result { display: none; }
+  .pop-result { animation: pvIn .35s ease-out; }
+  .pop-label { margin: 2px 0 6px; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: #8f948a; }
+  .pop-match { display: grid; grid-template-columns: 78px 1fr; gap: 12px; padding: 10px; border-radius: 10px; border: 1px solid rgba(212, 247, 92, .4); background: rgba(212, 247, 92, .06); }
+  .thumb { height: 64px; padding: 5px; border-radius: 6px; overflow: hidden; background: #0d0f0d; border: 1px solid rgba(255, 255, 255, .08); }
+  .thumb.paper { background: #efede5; }
+  .thumb i { display: block; height: 4px; margin: 0 0 4px; border-radius: 2px; background: #2a2e29; }
+  .thumb i.a { background: rgba(212, 247, 92, .7); }
+  .thumb.paper i { background: #cfcabb; }
+  .thumb.paper i.t { height: 6px; background: #6b685c; width: 80%; }
+  .pop-match .f { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+  .pop-match .meta { margin-top: 4px; font-size: 11px; line-height: 1.5; color: #8f948a; }
+  .pop-alt { display: flex; justify-content: space-between; padding: 7px 10px 0; font-family: var(--mono); font-size: 10.5px; color: #8f948a; }
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 12px; padding: 2px; border-radius: 8px; text-align: center; font-size: 11px; background: rgba(255, 255, 255, .06); }
+  .seg span { padding: 5px 0; border-radius: 6px; color: #a2a69b; }
+  .seg span.on { color: #fff; background: rgba(255, 255, 255, .15); }
+  .to { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: #8f948a; }
+  .to .who { display: flex; align-items: center; gap: 6px; padding: 3px 9px 3px 3px; border-radius: 999px; color: #e9ebe5; background: rgba(255, 255, 255, .08); }
+  .to .who .av { width: 20px; height: 20px; font-size: 8.5px; border-radius: 50%; display: grid; place-items: center; font-weight: 600; color: #0b0c0b; }
+  .pop-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .btn { padding: 7px 13px; border-radius: 7px; font-size: 12px; font-weight: 500; background: rgba(255, 255, 255, .08); transition: transform .12s, background .2s, color .2s; }
+  .btn.go { color: var(--accent-ink); background: var(--accent); }
+  .btn.go.press { transform: scale(.94); }
+  .btn.go.done { color: var(--accent); background: rgba(212, 247, 92, .14); }
+  .cursor { position: absolute; z-index: 10; width: 18px; height: 24px; left: 420px; top: 470px; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .5)); transition: left .9s cubic-bezier(.5, 0, .2, 1), top .9s cubic-bezier(.5, 0, .2, 1), opacity .3s; }
+
+  /* ---------- suggestion box with attached preview ---------- */
+  .popup.rich { display: grid; grid-template-columns: 290px minmax(0, 1fr); width: 680px; padding: 0; overflow: hidden; }
+  .popup.rich .list { display: flex; flex-direction: column; padding: 5px; border-right: 1px solid var(--line); }
+  .popup.rich .row { grid-template-columns: minmax(64px, max-content) minmax(0, 1fr) 22px; }
+  .popup.rich .foot { margin-top: auto; }
+  .popup.rich .foot .go { color: var(--accent); }
+  .popup.rich.stack { grid-template-columns: 1fr; }
+  .popup.rich.stack .list { border-right: 0; border-bottom: 1px solid var(--line); }
+  .pvpane { padding: 10px 12px 12px; background: #121412; min-width: 0; }
+  .pvpane .pv-label { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); }
+  .pvpane .pv-label b { color: var(--accent); font-weight: 400; }
+  .pvpane .pv-head { margin-bottom: 8px; }
+  .pvpane .pv-stage { min-height: 210px; padding: 10px; }
+  .pvpane .pv-foot { margin-top: 9px; }
+  .pvpane .pv-foot .val { font-size: 18px; }
+  .ocr { margin-top: 8px; padding: 7px 9px; border-radius: 7px; background: var(--ink); border: 1px solid var(--line); font-size: 10.5px; color: var(--text-3); line-height: 1.5; }
+  .ocr mark { background: var(--accent-dim); color: var(--accent); border-radius: 3px; padding: 0 2px; }
+  .doc { min-height: 520px; }
+  .doc.tall { min-height: 760px; }
+
+  /* ---------- phone retrieval ---------- */
+  .stage2 { position: absolute; left: 0; top: 0; width: 960px; height: 580px; transform-origin: 0 0; overflow: hidden; font-family: var(--sans); color: #e9ebe5; background: radial-gradient(110% 90% at 85% 0%, #1b2420 0%, #111511 45%, #0b0c0b 100%); }
+  .stage2.compact { width: 520px; height: 820px; }
+  .scene-tag { position: absolute; top: 16px; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); transition: color .4s; }
+  .scene-tag.on { color: var(--accent); }
+  #tagPhone { left: 40px; }
+  #tagMac { left: 330px; }
+  .stage2.compact #tagPhone, .stage2.compact .phone { display: none; }
+  .stage2.compact #tagMac { left: 16px; }
+  .phone { position: absolute; left: 40px; top: 44px; width: 250px; height: 512px; padding: 10px; border-radius: 38px; background: #050605; border: 1px solid #2a2d29; box-shadow: 0 30px 70px rgba(0, 0, 0, .6); overflow: hidden; transition: opacity .5s, filter .5s; }
+  .phone > * { position: relative; }
+  .ph-status { display: flex; justify-content: space-between; align-items: center; height: 26px; padding: 0 16px; font-size: 11px; font-weight: 600; }
+  .ph-notch { width: 70px; height: 20px; border-radius: 12px; background: #000; }
+  .ph-head { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 8px 8px; }
+  .ph-head b { font-size: 20px; }
+  .ph-head span { font-size: 12px; color: #8fb8ff; }
+  .ph-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+  .ph-tile { position: relative; aspect-ratio: 1; overflow: hidden; background: #2a2d29; }
+  .ph-tile svg { display: block; width: 100%; height: 100%; }
+  .ph-tile.new { animation: tileIn .5s ease-out; }
+  @keyframes tileIn { from { transform: scale(.4); opacity: 0; } }
+  .ph-tile.hit::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 2.5px var(--accent); }
+  .ph-flash { position: absolute !important; inset: 0; background: #fff; opacity: 0; pointer-events: none; border-radius: 38px; }
+  .ph-flash.go { animation: flash .5s ease-out; }
+  @keyframes flash { 0% { opacity: .85; } 100% { opacity: 0; } }
+  .ph-badge { position: absolute !important; left: 14px; right: 14px; bottom: 18px; display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 14px; font-size: 11px; color: #a7ab9f; background: rgba(30, 33, 30, .95); border: 1px solid rgba(212, 247, 92, .35); opacity: 0; transform: translateY(16px); transition: opacity .35s, transform .35s; }
+  .ph-badge.show { opacity: 1; transform: none; }
+  .ph-badge svg { width: 22px; height: 22px; flex: none; }
+  .ph-badge b { display: block; color: #e9ebe5; font-size: 12px; font-weight: 600; }
+  .dimmed-dev { opacity: .4; filter: saturate(.6); }
+  .mail { position: absolute; left: 330px; top: 44px; width: 600px; height: 512px; display: flex; flex-direction: column; overflow: visible; background: #151715; border: 1px solid rgba(255, 255, 255, .08); border-radius: 12px; box-shadow: 0 30px 80px rgba(0, 0, 0, .55); transition: opacity .5s, filter .5s; }
+  .stage2.compact .mail { left: 14px; top: 44px; width: 492px; height: 760px; }
+  .mail .call-bar { border-radius: 12px 12px 0 0; }
+  .mail-f { display: flex; gap: 10px; padding: 9px 16px; font-size: 13px; color: #e9ebe5; border-bottom: 1px solid rgba(255, 255, 255, .06); }
+  .mail-f span { width: 54px; color: #8f948a; }
+  .mail-body { position: relative; flex: 1; padding: 16px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; color: #e9ebe5; }
+  .mail-body .linked { font-size: .8em; }
+  .mail-body .popup { white-space: normal; line-height: 1.4; }
+  .popup .foot span { white-space: nowrap; }
+  .stage2 .popup .foot { gap: 10px; font-size: 10px; }
+  .mail-att { display: flex; align-items: center; gap: 10px; margin: 0 14px 14px; padding: 9px 12px; border-radius: 10px; font-size: 11px; color: #8f948a; border: 1px solid rgba(212, 247, 92, .35); background: rgba(212, 247, 92, .05); opacity: 0; transform: translateY(8px); transition: opacity .35s, transform .35s; }
+  .mail-att.show { opacity: 1; transform: none; }
+  .mail-att b { display: block; font-family: var(--mono); font-weight: 400; color: var(--accent); font-size: 12px; }
+  .att-ic { width: 34px; height: 26px; border-radius: 4px; background: #e9ebe4 linear-gradient(transparent 40%, #1d3f8f 40% 46%, transparent 46% 62%, #b4432e 62% 68%, transparent 68%); }
+  .stage2 .popup.rich { width: 560px; grid-template-columns: 220px minmax(0, 1fr); }
+  .stage2 .popup.rich.stack { width: 460px; grid-template-columns: 1fr; }
+  .thread { position: absolute; left: 0; top: 0; width: 960px; height: 580px; pointer-events: none; overflow: visible; }
+  .thread path { fill: none; stroke: var(--accent); stroke-linecap: round; }
+  #phThreadPath { stroke-width: 1.3; stroke-dasharray: 3 5; opacity: 0; transition: opacity .3s; animation: march 1s linear infinite; }
+  #phThreadPath.show { opacity: .7; }
+  #phLoop { stroke-width: 1.8; transition: stroke-dashoffset .8s cubic-bezier(.3, .7, .3, 1), opacity .3s; }
+  @keyframes march { to { stroke-dashoffset: -16; } }
+  svg.wb-font text, .pv-stage svg.wb-font text { font-family: "Caveat", "Bradley Hand", "Segoe Print", cursive; font-weight: 600; }
+  .stage2 .pvpane .pv-stage { min-height: 0; padding: 6px; }
+  .stage2 .ocr { margin-top: 6px; }
+
+  /* ---------- inspect a linked value ---------- */
+  .linked { cursor: pointer; transition: background .2s; }
+  .linked.inspecting { background: rgba(212, 247, 92, .34); }
+  .popup.inspect { width: 400px; padding: 0; }
+  .popup.inspect .pv-label b { color: var(--pin); }
+  .insp-ok { margin-top: 8px; font-size: 10.5px; color: var(--accent); }
+  .insp-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .insp-actions span { padding: 5px 9px; border-radius: 6px; border: 1px solid var(--line-2); font-size: 10.5px; color: var(--text-2); white-space: nowrap; }
+  .insp-actions span.pri { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+  .doc-cursor { position: absolute; z-index: 6; width: 18px; height: 24px; left: 70%; top: 85%; opacity: 0; pointer-events: none; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .5)); transition: left .8s cubic-bezier(.5, 0, .2, 1), top .8s cubic-bezier(.5, 0, .2, 1), opacity .3s, transform .12s; }
+  .doc-cursor.show { opacity: 1; }
+  .doc-cursor.press, .cursor.press { transform: scale(.82); }
+
+  /* ---------- share a reference ---------- */
+  .stage3 { position: absolute; left: 0; top: 0; width: 960px; height: 600px; transform-origin: 0 0; overflow: hidden; font-family: var(--sans); color: #e9ebe5; background: radial-gradient(110% 90% at 50% 0%, #1c241e 0%, #111511 45%, #0b0c0b 100%); }
+  .stage3.compact { width: 520px; height: 1010px; }
+  #tagSam { left: 30px; }
+  #tagJordan { left: 612px; }
+  .stage3.compact #tagSam { left: 16px; }
+  .stage3.compact #tagJordan { left: 16px; top: 594px; }
+  #shCompose { left: 30px; top: 44px; width: 560px; height: 530px; }
+  .stage3.compact #shCompose { left: 14px; width: 492px; height: 520px; }
+  .mail-send { margin-left: auto; padding: 3px 12px; border-radius: 6px; font-size: 11.5px; font-weight: 600; color: var(--accent-ink); background: var(--accent); transition: transform .12s, background .2s, color .2s; }
+  .mail-send.done { color: var(--accent); background: rgba(212, 247, 92, .14); }
+  .stage3 .popup.rich { width: 524px; grid-template-columns: 196px minmax(0, 1fr); }
+  .stage3 .popup.rich.stack { width: 460px; grid-template-columns: 1fr; }
+  .stage3 .pvpane .pv-stage { min-height: 0; padding: 6px; }
+  .stage3 .popup .foot { gap: 10px; font-size: 10px; }
+  .pvpane .seg { margin: 0 0 8px; }
+  .share-meta { margin-top: 8px; font-size: 10.5px; color: var(--text-3); }
+  .pvpane .pop-actions { margin-top: 10px; }
+  .lease .cl { font-size: 11.5px; margin: 5px 0; transition: filter .4s, opacity .4s; }
+  .lease .cl.ref { padding: 2px 4px; margin-left: -4px; border-radius: 3px; background: rgba(226, 245, 154, .45); }
+  .lease .r { border-radius: 2px; transition: background .3s, color .3s; }
+  .lease .r.on { background: #1d1d1a; color: transparent; }
+  .lease.part .cl:not(.ref) { filter: blur(2.5px); opacity: .35; }
+  .linked.shared sup { color: var(--accent); }
+  .sh-inbox, .sh-page { position: absolute; overflow: hidden; background: #151715; border: 1px solid rgba(255, 255, 255, .08); border-radius: 12px; box-shadow: 0 30px 80px rgba(0, 0, 0, .55); opacity: 0; transition: opacity .4s, transform .4s; }
+  .sh-inbox { left: 612px; top: 44px; width: 318px; height: 230px; transform: translateX(20px); }
+  .sh-page { left: 420px; top: 150px; width: 510px; transform: translateY(18px) scale(.98); }
+  .stage3.compact .sh-inbox { left: 14px; top: 620px; width: 492px; height: 170px; }
+  .stage3.compact .sh-page { left: 14px; top: 560px; width: 492px; }
+  .sh-inbox.show, .sh-page.show { opacity: 1; transform: none; }
+  .ib-from { padding: 12px 14px 6px; font-size: 13px; }
+  .ib-from small { display: block; margin-top: 2px; font-size: 11px; color: #8f948a; }
+  .ib-body { padding: 6px 14px; font-size: 13px; line-height: 1.6; color: #d9dcd4; }
+  .ib-body .linked { font-size: .82em; }
+  .call-bar .url { flex: 1; margin-left: 14px; padding: 3px 10px; border-radius: 6px; font-family: var(--mono); font-size: 10.5px; color: #8f948a; background: rgba(255, 255, 255, .06); }
+  .sh-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid rgba(255, 255, 255, .06); font-size: 13px; }
+  .sh-head small { display: block; margin-top: 3px; font-family: var(--mono); font-size: 10.5px; color: #8f948a; }
+  .sh-head .btn { white-space: nowrap; }
+  .sh-doc { padding: 16px; }
+
+  .popup .foot .go.hit { padding: 0 4px; border-radius: 4px; background: var(--accent); color: var(--accent-ink); }
+
+  @media (max-width: 860px) {
+    .find-body, .points { grid-template-columns: 1fr; }
+    .wall { border-right: 0; border-bottom: 1px solid var(--line); }
+    .pillars { grid-template-columns: 1fr; }
+    .keys { grid-template-columns: repeat(3, 1fr); }
+    .fmt { grid-template-columns: 1fr; gap: 4px; }
+    .card-link { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .card-link .d { text-align: left; }
+  }
+  @media (max-width: 640px) {
+    .keys { grid-template-columns: repeat(2, 1fr); }
+    .nav-links a:not(:last-child) { display: none; }
+    .ledger ol { height: 78px; }
+    .ledger li { grid-template-columns: 40px 70px 1fr 24px; }
+    .scroll-hint { display: none; }
+    .searchbar { font-size: 12.5px; }
+    .searchbar .stat { display: none; }
+    .wall .chip:nth-of-type(n+23) { display: none; }
+    .tab { padding: 8px 12px; font-size: 13px; }
+    .hero-content { top: 42%; }
+    .doc { font-size: 20px; padding: 22px 20px 130px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .reveal { opacity: 1; transform: none; transition: none; }
+    .kicker i, .caret { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav" id="nav">
+  <a class="brand" href="#top" aria-label="Lasso home">
+    <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <ellipse cx="15" cy="12" rx="11" ry="7.5" transform="rotate(-10 15 12)" stroke="#d4f75c" stroke-width="2"/>
+      <path d="M19.5 18.6c1.6 3.2 4.6 4.6 7.6 9.4" stroke="#d4f75c" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="19.3" cy="18.4" r="2" fill="#d4f75c"/>
+    </svg>
+    lasso
+  </a>
+  <div class="nav-links">
+    <a href="#find">Find</a>
+    <a href="#write">Write</a>
+    <a href="#share">Share</a>
+    <a href="#meetings">Meetings</a>
+    <a href="#phone">Phone</a>
+    <a href="#run">Run</a>
+    <a href="https://github.com/jte700/Lasso">GitHub ↗</a>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <canvas id="field" aria-hidden="true"></canvas>
+  <div class="hero-content" id="heroContent">
+    <span class="kicker"><i></i>Local-first retrieval · no API key</span>
+    <h1>Lasso<sup title="lasso (n.) — a loop of rope for catching things. Here: evidence.">v1</sup></h1>
+    <p class="tagline">Stop digging through folders. Lasso <b>retrieves the exact document</b>, cell or passage you need, and ties every value you write back to it.</p>
+    <div class="pills">
+      <a class="pill primary" href="#run">Run locally</a>
+      <a class="pill" href="#find">See it work</a>
+      <a class="pill" href="https://github.com/jte700/Lasso#readme">Read the docs</a>
+    </div>
+  </div>
+  <aside class="ledger" id="ledger" aria-label="Live index (illustrative)">
+    <div class="ledger-head"><span>Live index</span><span><b id="ledgerCount">0</b> captured</span></div>
+    <ol id="ledgerRows"></ol>
+  </aside>
+  <a class="scroll-hint" href="#manifesto">Scroll</a>
+</header>
+
+<section id="manifesto" class="manifesto">
+  <div class="wrap reveal">
+    <p class="eyebrow">What Lasso is</p>
+    <p>Lasso is a <span class="cite" tabindex="0">local-first source library<sup>1</sup><span class="card"><strong>README.md › Lasso</strong>“A local-first source library and writing assistant with versioned evidence.”<br><em>pinned · aaff5fc</em></span></span> and writing assistant. It connects the information you use while writing to the <b>files it came from</b>.</p>
+    <p>Most of writing is <b>looking things up</b>: which folder, which version, which tab, which page. Lasso does the sifting. Ask for the number, the clause or the figure and it retrieves the <b>exact document and location</b> it lives in.</p>
+    <p>Point it at a project folder. It indexes documents, spreadsheets, notebooks, references and drawings, down to the <b>exact cell, passage or IfcSpace</b>, and keeps an <span class="cite" tabindex="0">immutable snapshot<sup>2</sup><span class="card"><strong>History store</strong>SQLite plus content-addressed file snapshots. Project files stay in their original directory.<br><em>pinned · aaff5fc</em></span></span> of every version.</p>
+    <p>As you type, it suggests values, citations and sentence continuations from <b>your own evidence</b>. Press <b>Tab</b> and the link comes with it: source object, location, version.</p>
+    <p>When a file changes, Lasso shows you <span class="cite" tabindex="0">which sentences depended on it<sup>3</sup><span class="card"><strong>Review changes</strong>Inspect previous and current values, affected document references and indexing failures before applying updates.<br><em>pinned · aaff5fc</em></span></span>, what the old value was, and what it is now.</p>
+    <p><b>No language model. No API key.</b> Retrieval, ranking, extraction and provenance all run on your machine. Ambiguous measurements <span class="cite" tabindex="0">aren’t guessed<sup>4</sup><span class="card"><strong>docs/design-source-indexing.md</strong>Lasso does not infer missing BIM quantities or reconstruct rooms from arbitrary drawing geometry.<br><em>pinned · aaff5fc</em></span></span>. If the evidence isn’t there, neither is the answer.</p>
+    <p class="signoff">Catch the value. Keep the rope.</p>
+  </div>
+</section>
+
+<section id="find">
+  <div class="wide">
+    <div class="reveal">
+      <p class="eyebrow">Retrieval first</p>
+      <h2>Stop sifting. <em>Start finding.</em></h2>
+      <p class="lede">Ask for the number, the clause or the figure. Lasso ranks every indexed document and takes you to the exact cell, passage or object it lives in, not just a file it might be in.</p>
+    </div>
+    <div class="window find-win reveal">
+      <div class="searchbar">
+        <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><ellipse cx="15" cy="12" rx="11" ry="7.5" transform="rotate(-10 15 12)" stroke="#d4f75c" stroke-width="2.2"/><path d="M19.5 18.6c1.6 3.2 4.6 4.6 7.6 9.4" stroke="#d4f75c" stroke-width="2.2" stroke-linecap="round"/></svg>
+        <span class="q" id="findQ"></span><span class="caret"></span>
+        <span class="stat" id="findStat"></span>
+      </div>
+      <div class="find-body">
+        <div class="wall" id="wall"></div>
+        <div class="results" id="results"></div>
+      </div>
+    </div>
+    <div class="points reveal">
+      <div><b>The exact location</b>Cell D12, clause 12.3, IfcSpace Schlafzimmer. Not “somewhere in this PDF”.</div>
+      <div><b>The right version</b>Drafts and superseded files are ranked and labelled, so you don’t cite the wrong one.</div>
+      <div><b>No evidence, no answer</b>If nothing in your project supports it, Lasso says so instead of guessing.</div>
+    </div>
+  </div>
+</section>
+
+<section id="write">
+  <div class="wide">
+    <div class="reveal">
+      <p class="eyebrow">Write with evidence</p>
+      <h2>Autocomplete that <em>shows its work.</em></h2>
+      <p class="lede">Suggestions come from your indexed project, not from a model. Right inside the suggestion box, Lasso previews the source itself (the floor plan, the sheet, the paper, the clause) so you can confirm it’s the right one before you press Tab. Later, click any highlight to check it again.</p>
+    </div>
+    <div class="case-row reveal">
+      <div class="tabs" role="tablist" id="tabs" aria-label="Use cases">
+        <button class="tab" role="tab" aria-selected="true" data-case="arch"><span class="n">01</span>Architecture</button>
+        <button class="tab" role="tab" aria-selected="false" data-case="finance"><span class="n">02</span>Finance</button>
+        <button class="tab" role="tab" aria-selected="false" data-case="research"><span class="n">03</span>Research</button>
+        <button class="tab" role="tab" aria-selected="false" data-case="legal"><span class="n">04</span>Legal</button>
+      </div>
+      <span class="case-note" id="caseNote"></span>
+    </div>
+    <div class="window reveal" style="margin-top:14px">
+      <div class="window-bar"><i></i><i></i><i></i><span id="docName">site-report.md</span><span class="right" id="docStatus">editing</span></div>
+      <div class="doc" id="doc"><span class="h" id="docHead"></span><span id="docText"></span><span class="caret"></span><svg class="doc-cursor" id="docCursor" viewBox="0 0 18 24" aria-hidden="true"><path d="M1.5 1.5v18.5l4.8-4.6 3.4 7.3 3-1.4-3.4-7.2h6.6z" fill="#fff" stroke="#111" stroke-width="1.2" stroke-linejoin="round"/></svg></div>
+    </div>
+    <div class="keys reveal">
+      <div class="key" data-key="tab"><kbd>Tab</kbd>Accept suggestion</div>
+      <div class="key" data-key="enter"><kbd>⌘ ↵</kbd>Insert with local tracking</div>
+      <div class="key" data-key="arrows"><kbd>↑ ↓</kbd>Choose another source</div>
+      <div class="key" data-key="share"><kbd>⇧ ⌘ ↵</kbd>Share the reference</div>
+      <div class="key" data-key="click"><kbd>Click</kbd>Inspect a linked value</div>
+      <div class="key" data-key="esc"><kbd>Esc</kbd>Dismiss</div>
+    </div>
+  </div>
+</section>
+
+<section id="share">
+  <div class="wide">
+    <div class="reveal">
+      <p class="eyebrow">Share what you cite</p>
+      <h2>Reference it. <em>They can open it.</em></h2>
+      <p class="lede">Press ⇧⌘↵ on a suggestion and the reference becomes a link. Share just the indexed part, the whole document, or a copy with sensitive details blacked out. No hunting for the file, no attaching, no editing out the private bits by hand. Your recipient clicks the highlight and gets the source, pinned to the version you cited.</p>
+    </div>
+    <div class="mac-wrap reveal" id="shareWrap">
+      <div class="stage3" id="shareStage" aria-hidden="true">
+        <div class="scene-tag" id="tagSam">You · writing to Jordan</div>
+        <div class="scene-tag" id="tagJordan">Jordan · opening it</div>
+        <div class="mail" id="shCompose">
+          <div class="call-bar"><i></i><i></i><i></i><span>New message</span><span class="mail-send" id="shSend">Send</span></div>
+          <div class="mail-f"><span>To</span>Jordan Ellis</div>
+          <div class="mail-f"><span>Subject</span>Unit 4 renewal: notice period</div>
+          <div class="mail-body" id="shBody"><span id="shText"></span><span class="caret"></span></div>
+        </div>
+        <div class="sh-inbox" id="shInbox">
+          <div class="call-bar"><i></i><i></i><i></i><span>Inbox · Jordan Ellis</span></div>
+          <div class="ib-from"><b>Sam Carter</b><small>Unit 4 renewal: notice period · now</small></div>
+          <div class="ib-body">The signed lease requires at least <span class="linked shared" id="ibChip">six months<sup>↗</sup></span>’ written notice before expiry. The clause is linked, with the commercial terms redacted.</div>
+        </div>
+        <div class="sh-page" id="shPage">
+          <div class="call-bar"><i></i><i></i><i></i><span class="url">lasso · shared link</span></div>
+          <div class="sh-head"><div><b>Sam shared a source with you</b><small>lease_unit4_signed.pdf · §12.3 · pinned v2 · redacted</small></div><span class="btn go" id="shDl">Download redacted PDF</span></div>
+          <div class="sh-doc" id="shDoc"></div>
+        </div>
+        <svg class="cursor" id="shCursor" viewBox="0 0 18 24"><path d="M1.5 1.5v18.5l4.8-4.6 3.4 7.3 3-1.4-3.4-7.2h6.6z" fill="#fff" stroke="#111" stroke-width="1.2" stroke-linejoin="round"/></svg>
+      </div>
+    </div>
+    <div class="points reveal">
+      <div><b>Indexed part</b>Share only the clause, cell or passage you cited, with enough context to read it. The rest of the file stays private.</div>
+      <div><b>Whole document</b>Share the full file when they need it, with the original available to download.</div>
+      <div><b>Redacted copy</b>Black out rent, account numbers, names or signatures before anyone else sees the document.</div>
+    </div>
+    <p class="note reveal">Share links pin the version you cited and can be revoked at any time.</p>
+  </div>
+</section>
+
+<section id="meetings">
+  <div class="wide">
+    <div class="reveal">
+      <p class="eyebrow">In meetings <span class="dev-badge">In development</span></p>
+      <h2>“Can you send me that?” <em>Sent.</em></h2>
+      <p class="lede">When someone in a call asks for a file, the Lasso icon in your menu bar lights up with the document they meant, a preview to confirm it, and a share addressed to exactly the person who asked.</p>
+    </div>
+    <div class="mac-wrap reveal" id="macWrap">
+      <div class="mac" id="mac" aria-hidden="true">
+        <div class="menubar">
+          <div class="mb-left"><b>Call</b><span>File</span><span>View</span><span>Window</span></div>
+          <div class="mb-right">
+            <span class="mb-lasso" id="mbLasso"><svg viewBox="0 0 32 32" fill="none"><ellipse cx="15" cy="12" rx="11" ry="7.5" transform="rotate(-10 15 12)" stroke="currentColor" stroke-width="2.4"/><path d="M19.5 18.6c1.6 3.2 4.6 4.6 7.6 9.4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1" fill="currentColor"/></svg>
+            <span>Tue 10:42</span>
+          </div>
+        </div>
+        <div class="call">
+          <div class="call-bar"><i></i><i></i><i></i><span>Weekly site sync</span><span class="tm">00:23:41</span></div>
+          <div class="tiles" id="tiles">
+            <div class="tile"><div class="av" style="background:#e7b98a">PR</div><span class="nm">Priya Raman</span></div>
+            <div class="tile"><div class="av" style="background:#8fb8ff">MB</div><span class="nm">Marco Bianchi</span></div>
+            <div class="tile"><div class="av" style="background:#c7a6ff">LS</div><span class="nm">Lena Schulz</span></div>
+            <div class="tile"><div class="av" style="background:#9fdcae">You</div><span class="nm">You</span></div>
+          </div>
+          <div class="captions" id="caps"></div>
+          <div class="call-ctrl"><span></span><span></span><span></span><span class="end"></span></div>
+          <div class="meet-toast" id="meetToast"></div>
+        </div>
+        <div class="popover" id="meetPop"></div>
+        <svg class="cursor" id="cursor" viewBox="0 0 18 24"><path d="M1.5 1.5v18.5l4.8-4.6 3.4 7.3 3-1.4-3.4-7.2h6.6z" fill="#fff" stroke="#111" stroke-width="1.2" stroke-linejoin="round"/></svg>
+      </div>
+    </div>
+    <div class="points reveal">
+      <div><b>Knows who asked</b>The share is addressed to the person who made the request, not the whole call.</div>
+      <div><b>You approve every share</b>Lasso suggests; nothing is sent until you click Share.</div>
+      <div><b>Whole, part or redacted</b>Uses Lasso’s existing share modes, pinned to a version and revocable.</div>
+    </div>
+    <p class="note reveal">Meeting retrieval is in development. The flow above is a design preview, not a shipping feature.</p>
+  </div>
+</section>
+
+<section id="phone">
+  <div class="wide">
+    <div class="reveal">
+      <p class="eyebrow">From your phone <span class="dev-badge">In development</span></p>
+      <h2>That whiteboard photo? <em>Already here.</em></h2>
+      <p class="lede">Snap the whiteboard after a working session. Days later, writing an email on the train, start describing it and Lasso offers the photo, found by what’s written on it. No scrolling through your camera roll.</p>
+    </div>
+    <div class="mac-wrap reveal" id="phoneWrap">
+      <div class="stage2" id="phoneStage" aria-hidden="true">
+        <div class="scene-tag" id="tagPhone">Tue 16:42 · after the session</div>
+        <div class="scene-tag" id="tagMac">Thu 08:15 · on the train</div>
+        <div class="phone" id="phoneDev">
+          <div class="ph-status"><span>16:42</span><span class="ph-notch"></span><span>●●● ▮</span></div>
+          <div class="ph-head"><b>Recents</b><span>Select</span></div>
+          <div class="ph-grid" id="phGrid"></div>
+          <div class="ph-flash" id="phFlash"></div>
+          <div class="ph-badge" id="phBadge"><svg viewBox="0 0 32 32" fill="none"><ellipse cx="15" cy="12" rx="11" ry="7.5" transform="rotate(-10 15 12)" stroke="#d4f75c" stroke-width="2.6"/><path d="M19.5 18.6c1.6 3.2 4.6 4.6 7.6 9.4" stroke="#d4f75c" stroke-width="2.6" stroke-linecap="round"/></svg><span><b>Indexed by Lasso</b>3 equations · 1 sketch read</span></div>
+        </div>
+        <div class="mail" id="mailWin">
+          <div class="call-bar"><i></i><i></i><i></i><span>New message</span></div>
+          <div class="mail-f"><span>To</span>Amara Okafor</div>
+          <div class="mail-f"><span>Subject</span>Heat equation: what we derived on Tuesday</div>
+          <div class="mail-body" id="mailBody"><span id="mailText"></span><span class="caret"></span></div>
+          <div class="mail-att" id="mailAtt"><span class="att-ic"></span><span><b>IMG_4182.jpg</b>2.4 MB · from iPhone · pinned</span></div>
+        </div>
+        <svg class="thread" id="phThread" viewBox="0 0 960 560"><path id="phThreadPath"/><path id="phLoop"/></svg>
+      </div>
+    </div>
+    <div class="points reveal">
+      <div><b>Found by what’s on it</b>Handwriting and equations are indexed, so “the derivation on the whiteboard” finds the right photo.</div>
+      <div><b>The right shot</b>Earlier drafts of the board and burst shots are ranked by time and content, and previewed before you attach.</div>
+      <div><b>Attach or cite</b>Insert the photo as an attachment, or link it as a source like any other file in your project.</div>
+    </div>
+    <p class="note reveal">Phone retrieval is in development. The flow above is a design preview, not a shipping feature.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wide">
+    <div class="reveal">
+      <p class="eyebrow">Everywhere you write</p>
+      <h2>Index. Write. <em>Review.</em></h2>
+    </div>
+    <div class="pillars reveal">
+      <div class="pillar">
+<pre>~/projects/tower-b
+ ├ plan_L2.ifc     <b>● 214 objects</b>
+ ├ budget.xlsx     <b>● 1,980 cells</b>
+ └ interviews/     <b>● 66 passages</b></pre>
+        <span class="n">01</span>
+        <h3>Index a folder</h3>
+        <p>Browse documents and data, inspect a neighbouring cell or passage, and search by filename, phrase or value.</p>
+      </div>
+      <div class="pillar">
+<pre>The slab is poured on day <b>41</b><u>¹</u>
+  ¹ minutes_0611.md · ¶4 · v2
+
+⌘ menu bar · suggest anywhere</pre>
+        <span class="n">02</span>
+        <h3>Write anywhere</h3>
+        <p>Inside Lasso’s editor, or in other macOS apps through the menu bar companion, with the source picker beside your cursor.</p>
+      </div>
+      <div class="pillar">
+<pre>budget.xlsx › C14   v4 → v5
+  <s>€ 48,210</s>  <b>€ 51,060</b>
+  ↳ 3 sentences depend on this</pre>
+        <span class="n">03</span>
+        <h3>Review changes</h3>
+        <p>See old and new values and the references they affect. Apply proposed wording, or keep the historical version.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="sources">
+  <div class="wide">
+    <div class="reveal">
+      <p class="eyebrow">Supported sources</p>
+      <h2>From prose to <em>polylines.</em></h2>
+      <p class="lede">Support varies by format and content. Files stay in history even when structured extraction isn’t available.</p>
+    </div>
+    <div class="formats reveal">
+      <div class="fmt"><span class="ext"><span>.md</span> .txt</span><span class="what">Passages, source-backed continuations and claims</span></div>
+      <div class="fmt"><span class="ext"><span>.csv</span> .tsv .xlsx</span><span class="what">Tables, rows, cells, values and variable definitions</span></div>
+      <div class="fmt"><span class="ext"><span>.docx</span> .pdf</span><span class="what">Extractable text and metadata; explicit drawing annotations in PDFs</span></div>
+      <div class="fmt"><span class="ext"><span>.ipynb</span> .json code</span><span class="what">Code locations, structured values and notebook cells</span></div>
+      <div class="fmt"><span class="ext"><span>.bib</span> .ris .enw .nbib</span><span class="what">Reference records with author, year, title, DOI and PMID</span></div>
+      <div class="fmt"><span class="ext"><span>.ifc</span></span><span class="what">Element quantities and typed properties, with entity identity and units</span></div>
+      <div class="fmt"><span class="ext"><span>.dxf</span></span><span class="what">Area and perimeter of supported closed model-space polylines</span></div>
+      <div class="fmt"><span class="ext"><span>.landxml</span></span><span class="what">Parcel areas, alignment and pipe lengths, diameters and elevations</span></div>
+    </div>
+    <p class="note reveal">Scanned PDFs need OCR first. DWG, RVT and DGN need an export to IFC, DXF or LandXML. Lasso does not infer missing quantities.</p>
+  </div>
+</section>
+
+<section id="run">
+  <div class="wrap">
+    <div class="reveal">
+      <p class="eyebrow">Get started</p>
+      <h2>Two commands. <em>No build step.</em></h2>
+      <p class="lede" style="margin-bottom:34px">Requires Node.js 24 or newer. Then open 127.0.0.1:4317, choose “Index a project” and point it at a local folder.</p>
+    </div>
+    <div class="term reveal" id="term"><button class="copy" id="copyBtn" type="button">copy</button><span class="p">$ </span>git clone https://github.com/jte700/Lasso.git &amp;&amp; cd Lasso
+<span class="p">$ </span>npm start
+<span class="c"># macOS companion: npm run desktop &amp;&amp; open dist/Lasso.app</span></div>
+    <div class="cards reveal">
+      <a class="card-link primary" href="https://github.com/jte700/Lasso#run-locally"><span class="t">Run Lasso locally</span><span class="d">Node.js 24+ · opens at 127.0.0.1:4317</span></a>
+      <a class="card-link" href="https://github.com/jte700/Lasso#macos-companion"><span class="t">macOS companion</span><span class="d">Suggestions in other editors from the menu bar</span></a>
+      <a class="card-link" href="https://github.com/jte700/Lasso/blob/main/docs/design-source-indexing.md"><span class="t">Design-source indexing</span><span class="d">Exact IFC, DXF and LandXML subsets</span></a>
+      <a class="card-link" href="https://github.com/jte700/Lasso/blob/main/docs/limitations.md"><span class="t">Current limitations</span><span class="d">Read before planning a hosted deployment</span></a>
+      <a class="card-link" href="https://github.com/jte700/Lasso"><span class="t">Source on GitHub</span><span class="d">jte700/Lasso</span></a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wide">
+    <span class="brand">lasso</span>
+    <span>Retrieval, ranking, extraction and provenance run locally.</span>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------------- shared source corpus ---------------- */
+  // Illustrative indexed objects. q = what a ghost caret types before the suggestion appears.
+  const SOURCES = [
+    { file: 'plan_L2.ifc', loc: 'IfcSpace#Schlafzimmer', key: 'NetFloorArea', val: '14.62 m²', q: 'bedroom area is ', v: 3 },
+    { file: 'site.landxml', loc: 'Alignment[Main Road]', key: 'length', val: '412.6 m', q: 'Main Road runs ', v: 2 },
+    { file: 'budget_2026.xlsx', loc: 'Sheet1!C14', key: 'total', val: '€ 48,210', q: 'budget of ', v: 5 },
+    { file: 'assay.csv', loc: 'row 218', key: 'IC50', val: '3.7 µM', q: 'IC50 was ', v: 1 },
+    { file: 'model.ipynb', loc: 'cell [27]', key: 'r²', val: '0.934', q: 'fit gives r² = ', v: 4 },
+    { file: 'drainage.dxf', loc: 'LWPOLYLINE#88', key: 'perimeter', val: '61.40 m', q: 'basin perimeter ', v: 2 },
+    { file: 'contract_v4.docx', loc: '§7.2', key: 'retention', val: '5 %', q: 'retention of ', v: 4 },
+    { file: 'survey.tsv', loc: 'B:B', key: 'n', val: '1,284', q: 'respondents: ', v: 2 },
+    { file: 'pipes.landxml', loc: 'Pipe[P-17]', key: 'diameter', val: 'DN 300', q: 'outfall pipe is ', v: 1 },
+    { file: 'minutes_0611.md', loc: '¶4', key: 'pour', val: 'day 41', q: 'slab poured on ', v: 2 },
+    { file: 'loads.xlsx', loc: 'Q3!F9', key: 'live load', val: '12.5 kN/m²', q: 'live load of ', v: 3 },
+    { file: 'refs.bib', loc: '@kim2024', key: 'year', val: '2024', q: 'Kim et al. (', v: 1 },
+    { file: 'plan_L2.ifc', loc: 'IfcSpace#Küche', key: 'NetFloorArea', val: '9.85 m²', q: 'kitchen is ', v: 3 },
+    { file: 'trial.csv', loc: 'row 44', key: 'dropout', val: '7.9 %', q: 'dropout rate ', v: 2 },
+    { file: 'parcels.landxml', loc: 'Parcel[12-B]', key: 'area', val: '2,318 m²', q: 'parcel 12-B ', v: 1 },
+    { file: 'config.json', loc: '$.watch.debounceMs', key: '=', val: '2500', q: 'debounce of ', v: 6 },
+    { file: 'interview_03.md', loc: '¶12', key: 'quote', val: '“on day 41”', q: 'she said ', v: 1 },
+    { file: 'facade.ifc', loc: 'IfcWall#W-204', key: 'Width', val: '0.365 m', q: 'wall is ', v: 2 },
+    { file: 'energy.xlsx', loc: 'Annual!D7', key: 'demand', val: '38 kWh/m²a', q: 'demand of ', v: 3 },
+    { file: 'grades.csv', loc: 'row 9', key: 'elevation', val: '+3.42 m', q: 'invert at ', v: 2 },
+    { file: 'lease_unit4.pdf', loc: '§12.3', key: 'notice', val: '6 months', q: 'notice period of ', v: 2 },
+    { file: 'smith2023.pdf', loc: 'Table 2', key: 'HR', val: '0.72', q: 'hazard ratio ', v: 1 },
+    { file: 'forecast_2026.xlsx', loc: 'P&L!D12', key: 'revenue', val: '€ 4.82 M', q: 'Q3 revenue of ', v: 5 },
+    { file: 'msa_v4.docx', loc: '§9.1', key: 'cap', val: '€ 250,000', q: 'liability cap ', v: 4 },
+    { file: 'lee2021.pdf', loc: 'Table 3', key: 'n', val: '1,377', q: 'registry of ', v: 1 },
+    { file: 'IMG_4182.jpg', loc: 'whiteboard', key: 'λ', val: '(π/L)²', q: 'eigenvalue ', v: 1 },
+  ];
+  const FILLER = [
+    'snapshot sha256:9f2c…e1', 'indexed 14:02:11', 'watcher +3 files', 'v3 → v4', 'passage 118/402',
+    'ranked 0.91', 'cells 1,980', '¶ 22–24', 'units m', 'linked ↳ site-report.md', 'IfcQuantityArea',
+    'no guess: ambiguous', 'pinned', 'BibTeX', 'row 1–260', 'diff ±2', 'scope project', 'local', 'OOXML',
+  ];
+
+  /* ---------------- hero field ---------------- */
+  const canvas = document.getElementById('field');
+  const ctx = canvas.getContext('2d');
+  const hero = canvas.parentElement;
+  const heroContent = document.getElementById('heroContent');
+  const ledgerEl = document.getElementById('ledger');
+  const ledgerRows = document.getElementById('ledgerRows');
+  const ledgerCount = document.getElementById('ledgerCount');
+  const nav = document.getElementById('nav');
+
+  const C = { text: [232, 236, 226], accent: [212, 247, 92], pin: [143, 168, 255], ink: '#0b0c0b' };
+  const SCRAMBLE = '·:;+=*<>/\\|{}[]01#%░▒abcdefxyz';
+  const FONT_SIZE = () => (innerWidth < 640 ? 10.5 : 12);
+
+  let W = 0, H = 0, dpr = 1, cw = 7.5, lh = 16, cols = 0, rows = 0;
+  let chars = [], ropeW, ropeS, inside, dim, scr, alt, tokens = [];
+  let mouse = { x: -9999, y: -9999 };
+  let events = [], nextSpawn = 0, captured = 0, running = true, idxSeq = 400;
+  const fontStr = () => `400 ${FONT_SIZE()}px "Geist Mono", ui-monospace, Menlo, monospace`;
+
+  function rng(a, b) { return a + Math.random() * (b - a); }
+  function pick(arr) { return arr[(Math.random() * arr.length) | 0]; }
+
+  function buildGrid() {
+    chars = new Array(rows);
+    tokens = [];
+    for (let r = 0; r < rows; r++) {
+      let line = '';
+      // random lead-in so columns don't line up
+      line += ' '.repeat((Math.random() * 6) | 0);
+      while (line.length < cols + 40) {
+        if (Math.random() < 0.72) {
+          const s = pick(SOURCES);
+          const head = `${s.file} › ${s.loc} ${s.key} `;
+          const start = line.length + head.length;
+          line += head + s.val;
+          if (start + s.val.length <= cols) tokens.push({ row: r, col: start, len: s.val.length, src: s });
+        } else {
+          line += pick(FILLER);
+        }
+        line += pick(['   ', '  ·  ', '    ', ' │ ']);
+      }
+      chars[r] = Array.from(line.slice(0, cols));
+      while (chars[r].length < cols) chars[r].push(' ');
+    }
+  }
+
+  // Rope: a tilted loop around the title, a honda knot, and a standing part trailing off-screen.
+  function buildRope() {
+    const pts = [];
+    const cx = W * 0.5, cy = H * 0.47;
+    const narrow = W < 700;
+    const rx = narrow ? W * 0.47 : Math.min(W * 0.45, H * 0.85);
+    const ry = narrow ? H * 0.36 : Math.min(H * 0.39, rx * 0.66);
+    const tilt = -0.14;
+    const cosT = Math.cos(tilt), sinT = Math.sin(tilt);
+    const knotA = 0.62 * Math.PI; // lower-right-ish (canvas y down)
+    const loopN = 420;
+    for (let i = 0; i <= loopN; i++) {
+      const a = knotA + (i / loopN) * Math.PI * 2.04;
+      const wob = 1 + 0.035 * Math.sin(3 * a + 0.7) + 0.02 * Math.sin(5 * a);
+      const x = Math.cos(a) * rx * wob, y = Math.sin(a) * ry * wob;
+      pts.push([cx + x * cosT - y * sinT, cy + x * sinT + y * cosT]);
+    }
+    const knot = pts[0];
+    // standing part: cubic bezier from knot to beyond the bottom-left corner
+    const p0 = knot, p1 = [knot[0] - W * 0.08, knot[1] + H * 0.22], p2 = [W * 0.22, H * 0.82], p3 = [-W * 0.06, H * 1.08];
+    const tailN = 200, tail = [];
+    for (let i = 1; i <= tailN; i++) {
+      const t = i / tailN, u = 1 - t;
+      tail.push([
+        u*u*u*p0[0] + 3*u*u*t*p1[0] + 3*u*t*t*p2[0] + t*t*t*p3[0],
+        u*u*u*p0[1] + 3*u*u*t*p1[1] + 3*u*t*t*p2[1] + t*t*t*p3[1],
+      ]);
+    }
+    // order so the arc parameter runs from the free end of the rope into the loop
+    const all = tail.reverse().concat(pts);
+    const len = [0];
+    for (let i = 1; i < all.length; i++) len.push(len[i - 1] + Math.hypot(all[i][0] - all[i - 1][0], all[i][1] - all[i - 1][1]));
+    const total = len[len.length - 1];
+    const width = Math.max(18, Math.min(W, H) * 0.05);
+
+    const N = rows * cols;
+    ropeW = new Float32Array(N); ropeS = new Float32Array(N); inside = new Uint8Array(N); dim = new Float32Array(N);
+    // soft dim zone behind the hero copy so the title always reads first
+    const hr = hero.getBoundingClientRect(), cb = heroContent.getBoundingClientRect();
+    const zx = (cb.left + cb.right) / 2 - hr.left, zy = (cb.top + cb.bottom) / 2 - hr.top;
+    const zw = cb.width / 2 + 30, zh = cb.height / 2 + 24;
+    for (let r = 0; r < rows; r++) {
+      const py = r * lh + lh * 0.5;
+      for (let c = 0; c < cols; c++) {
+        const px = c * cw + cw * 0.5;
+        let best = 1e9, bi = 0;
+        for (let i = 0; i < all.length; i += 2) {
+          const dx = all[i][0] - px, dy = all[i][1] - py;
+          const d = dx * dx + dy * dy;
+          if (d < best) { best = d; bi = i; }
+        }
+        const d = Math.sqrt(best);
+        const k = r * cols + c;
+        const w = Math.max(0, 1 - d / width);
+        ropeW[k] = w * w * (3 - 2 * w);
+        ropeS[k] = len[bi] / total;
+        // inside the (untilted) ellipse?
+        const dx = px - cx, dy = py - cy;
+        const ux = dx * cosT + dy * sinT, uy = -dx * sinT + dy * cosT;
+        inside[k] = (ux * ux) / (rx * rx) + (uy * uy) / (ry * ry) < 0.92 ? 1 : 0;
+        const qx = Math.max(0, Math.abs(px - zx) - zw) / 60, qy = Math.max(0, Math.abs(py - zy) - zh) / 50;
+        dim[k] = 0.18 + 0.82 * Math.min(1, Math.hypot(qx, qy));
+      }
+    }
+    scr = new Uint8Array(N); alt = new Array(N);
+  }
+
+  function resize() {
+    const rect = hero.getBoundingClientRect();
+    W = rect.width; H = rect.height;
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = fontStr();
+    cw = ctx.measureText('M').width;
+    lh = Math.round(FONT_SIZE() * 1.36);
+    cols = Math.ceil(W / cw); rows = Math.ceil(H / lh);
+    buildGrid(); buildRope();
+    events = [];
+    if (reduced) draw(0);
+  }
+
+  /* exclusion zones (hero content, ledger, nav) in grid space */
+  function zones() {
+    const hr = hero.getBoundingClientRect();
+    const toBox = (el, pad) => {
+      const b = el.getBoundingClientRect();
+      return { x0: b.left - hr.left - pad, y0: b.top - hr.top - pad, x1: b.right - hr.left + pad, y1: b.bottom - hr.top + pad };
+    };
+    return [toBox(heroContent, 26), toBox(ledgerEl, 18), { x0: 0, y0: 0, x1: W, y1: 70 }];
+  }
+  const overlaps = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+
+  const recent = [];
+  // does the dashed thread between popup and token cross a zone (e.g. the hero copy)?
+  function threadHits(sx, sy, ex, ey, zs) {
+    const mx = (sx + ex) / 2 + (ey - sy) * 0.25, my = (sy + ey) / 2 - (ex - sx) * 0.25;
+    for (let i = 1; i < 20; i++) {
+      const u = i / 20, v = 1 - u;
+      const x = v*v*sx + 2*v*u*mx + u*u*ex, y = v*v*sy + 2*v*u*my + u*u*ey;
+      if (zs.some(z => x > z.x0 && x < z.x1 && y > z.y0 && y < z.y1)) return true;
+    }
+    return false;
+  }
+
+  function spawn(now) {
+    const zs = zones();
+    const ex = zs.concat(events.map(e => e.box), events.map(e => e.tbox));
+    const popW = 38 * cw, popH = lh * 4.6;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const tok = pick(tokens);
+      if (!tok) return;
+      if (recent.includes(tok.src)) continue;
+      const tb = { x0: tok.col * cw - 14, y0: tok.row * lh - 14, x1: (tok.col + tok.len) * cw + 14, y1: (tok.row + 1) * lh + 30 };
+      if (tb.x1 > W - 10 || ex.some(z => overlaps(z, tb))) continue;
+      const s = tok.src;
+      const typeLen = s.q.length + s.val.length + 4;
+      const ccol = (Math.random() * Math.max(1, cols - Math.max(typeLen, 40))) | 0;
+      const crow = 4 + ((Math.random() * Math.max(1, rows - 10)) | 0);
+      const cx = ccol * cw, cy = crow * lh;
+      const cb = { x0: cx - 10, y0: cy - 8, x1: cx + Math.max(typeLen * cw, popW) + 10, y1: cy + lh * 1.3 + popH + 8 };
+      if (cb.x1 > W || cb.y1 > H - 20 || ex.some(z => overlaps(z, cb)) || overlaps(cb, tb)) continue;
+      const dist = Math.hypot(cx - tok.col * cw, cy - tok.row * lh);
+      if (dist < 160 || dist > 560) continue;
+      if (threadHits(cx + popW, cy + lh * 1.3 + lh * 0.6, tok.col * cw + tok.len * cw / 2, tok.row * lh + lh / 2, zs)) continue;
+      recent.push(s); if (recent.length > 6) recent.shift();
+      const others = [];
+      while (others.length < 2) { const o = pick(SOURCES); if (o !== s && !others.includes(o)) others.push(o); }
+      events.push({
+        t0: now, tok, s, cx, cy, others, box: { x0: cb.x0, y0: cb.y0, x1: cb.x1, y1: cb.y1 }, tbox: tb,
+        id: ++idxSeq, rot: rng(-0.18, 0.18), seed: Math.random() * 10, logged: false,
+      });
+      return;
+    }
+  }
+
+  const T = { type: 55, pop: 0, thread: 260, loop: 520, loopDur: 700, accept: 1700, fade: 3300, end: 3900 };
+
+  function logCapture(e) {
+    captured++;
+    ledgerCount.textContent = captured.toLocaleString();
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="id">#${String(e.id).padStart(4, '0')}</span><span class="val"></span><span class="src"></span><span class="ver">v${e.s.v}</span>`;
+    li.children[1].textContent = e.s.val;
+    li.children[2].textContent = `${e.s.file} › ${e.s.loc}`;
+    ledgerRows.prepend(li);
+    while (ledgerRows.children.length > 6) ledgerRows.lastChild.remove();
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+
+  function drawEvent(e, now) {
+    const t = now - e.t0;
+    const fade = t > T.fade ? Math.max(0, 1 - (t - T.fade) / (T.end - T.fade)) : 1;
+    const s = e.s;
+    const typeDur = s.q.length * T.type;
+    const popAt = typeDur + 120;
+    const acceptAt = popAt + T.accept;
+    ctx.save();
+    ctx.globalAlpha = fade;
+    ctx.font = fontStr();
+    ctx.textBaseline = 'middle';
+
+    // --- ghost caret typing the query
+    const typed = s.q.slice(0, Math.min(s.q.length, Math.floor(t / T.type)));
+    const accepted = t >= acceptAt;
+    const lineW = (typed.length + (accepted ? s.val.length + 2 : 0) + 1) * cw;
+    ctx.fillStyle = C.ink;
+    ctx.fillRect(e.cx - 6, e.cy - 2, lineW + 12, lh + 4);
+    ctx.fillStyle = rgba(C.text, 0.95);
+    ctx.fillText(typed, e.cx, e.cy + lh / 2);
+    let caretX = e.cx + typed.length * cw;
+    if (accepted) {
+      const vx = caretX;
+      const vw = s.val.length * cw;
+      ctx.fillStyle = rgba(C.accent, 0.16);
+      ctx.fillRect(vx - 2, e.cy, vw + 4, lh);
+      ctx.fillStyle = rgba(C.accent, 1);
+      ctx.fillText(s.val, vx, e.cy + lh / 2);
+      ctx.fillRect(vx - 2, e.cy + lh - 1.5, vw + 4, 1.5);
+      ctx.fillStyle = rgba(C.pin, 1);
+      ctx.font = `400 ${FONT_SIZE() * 0.72}px "Geist Mono", ui-monospace, monospace`;
+      ctx.fillText(String(e.id), vx + vw + 4, e.cy + 3);
+      ctx.font = fontStr();
+      caretX = vx + vw + 4 + String(e.id).length * cw * 0.72;
+    }
+    if (t < T.fade && Math.floor(now / 420) % 2 === 0) {
+      ctx.fillStyle = rgba(C.accent, 1);
+      ctx.fillRect(caretX + 1, e.cy + 1, 1.5, lh - 2);
+    }
+
+    // --- token highlight + lasso loop around it
+    const tx = e.tok.col * cw, ty = e.tok.row * lh, tw = e.tok.len * cw;
+    const loopT = t - (popAt + T.loop);
+    if (loopT > 0) {
+      const p = Math.min(1, loopT / T.loopDur);
+      const ease = 1 - Math.pow(1 - p, 3);
+      ctx.fillStyle = C.ink;
+      ctx.fillRect(tx - 3, ty, tw + 6, lh);
+      ctx.fillStyle = rgba(C.accent, 0.13 * ease);
+      ctx.fillRect(tx - 3, ty, tw + 6, lh);
+      ctx.fillStyle = rgba(C.accent, 0.35 + 0.65 * ease);
+      ctx.fillText(chars[e.tok.row].slice(e.tok.col, e.tok.col + e.tok.len).join(''), tx, ty + lh / 2);
+      // hand-drawn loop
+      const cxL = tx + tw / 2, cyL = ty + lh / 2;
+      const rx = tw / 2 + 14, ry = lh / 2 + 9;
+      const a0 = -Math.PI * 0.8, sweep = Math.PI * 2.15 * ease;
+      ctx.strokeStyle = rgba(C.accent, 0.95);
+      ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+      ctx.beginPath();
+      const steps = 60;
+      for (let i = 0; i <= steps; i++) {
+        const a = a0 + (i / steps) * sweep;
+        const wob = 1 + 0.06 * Math.sin(a * 3 + e.seed) + 0.03 * (i / steps);
+        const x = Math.cos(a) * rx * wob, y = Math.sin(a) * ry * wob;
+        const px = cxL + x * Math.cos(e.rot) - y * Math.sin(e.rot), py = cyL + x * Math.sin(e.rot) + y * Math.cos(e.rot);
+        i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+      }
+      ctx.stroke();
+      // index tag
+      if (accepted) {
+        const label = ` idx ${String(e.id).padStart(4, '0')} · v${s.v} `;
+        const lw = label.length * cw * 0.82, lhh = lh * 0.95;
+        const lx = Math.min(tx, W - lw - 8), ly = ty + lh + 10;
+        const k = Math.min(1, (t - acceptAt) / 220);
+        ctx.globalAlpha = fade * k;
+        ctx.fillStyle = '#121510';
+        roundRect(lx, ly, lw, lhh, 4); ctx.fill();
+        ctx.strokeStyle = rgba(C.accent, 0.6); ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = rgba(C.accent, 1);
+        ctx.font = `400 ${FONT_SIZE() * 0.82}px "Geist Mono", ui-monospace, monospace`;
+        ctx.fillText(label, lx, ly + lhh / 2 + 0.5);
+        ctx.font = fontStr();
+        ctx.globalAlpha = fade;
+      }
+    }
+
+    // --- completion popup
+    const px0 = e.cx, py0 = e.cy + lh * 1.3;
+    const rowH = lh * 1.25, popW = 38 * cw, popH = rowH * 3 + 10 + lh;
+    if (t >= popAt && !accepted) {
+      const k = Math.min(1, (t - popAt) / 140);
+      ctx.globalAlpha = fade * k;
+      ctx.fillStyle = 'rgba(20,23,20,.97)';
+      roundRect(px0, py0 - 4 * (1 - k), popW, popH, 7); ctx.fill();
+      ctx.strokeStyle = rgba(C.text, 0.16); ctx.lineWidth = 1; ctx.stroke();
+      const opts = [s, ...e.others];
+      opts.forEach((o, i) => {
+        const ry = py0 + 5 + i * rowH;
+        if (i === 0) { ctx.fillStyle = rgba(C.accent, 0.13); roundRect(px0 + 4, ry, popW - 8, rowH, 4); ctx.fill(); }
+        ctx.fillStyle = i === 0 ? rgba(C.accent, 1) : rgba(C.text, 0.85);
+        ctx.fillText(o.val.padEnd(11).slice(0, 11), px0 + 10, ry + rowH / 2);
+        ctx.fillStyle = rgba(C.text, 0.42);
+        ctx.fillText(o.file.slice(0, 20), px0 + 10 + 12 * cw, ry + rowH / 2);
+        ctx.fillStyle = rgba(C.pin, 0.9);
+        ctx.fillText('v' + o.v, px0 + popW - 4 * cw, ry + rowH / 2);
+      });
+      const fy = py0 + 5 + 3 * rowH + lh / 2 + 2;
+      ctx.fillStyle = rgba(C.text, 0.35);
+      ctx.font = `400 ${FONT_SIZE() * 0.82}px "Geist Mono", ui-monospace, monospace`;
+      const pressing = t > acceptAt - 260;
+      ctx.fillText('↑↓ choose', px0 + 10, fy);
+      ctx.fillStyle = pressing ? rgba(C.accent, 1) : rgba(C.text, 0.35);
+      ctx.fillText('⇥ accept', px0 + 10 + 11 * cw, fy);
+      ctx.fillStyle = rgba(C.text, 0.35);
+      ctx.fillText(s.loc.slice(0, 16), px0 + popW - 17 * cw * 0.82 - 10, fy);
+      ctx.font = fontStr();
+      ctx.globalAlpha = fade;
+
+      // thread from selected row to the source token
+      const thr = t - (popAt + T.thread);
+      if (thr > 0) {
+        const p = Math.min(1, thr / 500);
+        const sx = px0 + popW, sy = py0 + 5 + rowH / 2;
+        const ex = tx + tw / 2, ey = ty + lh / 2;
+        const mx = (sx + ex) / 2 + (ey - sy) * 0.25, my = (sy + ey) / 2 - (ex - sx) * 0.25;
+        ctx.setLineDash([3, 4]);
+        ctx.lineDashOffset = -now / 40;
+        ctx.strokeStyle = rgba(C.accent, 0.55);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        const n = 40;
+        for (let i = 1; i <= n * p; i++) {
+          const u = i / n, v = 1 - u;
+          ctx.lineTo(v*v*sx + 2*v*u*mx + u*u*ex, v*v*sy + 2*v*u*my + u*u*ey);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+    ctx.restore();
+
+    if (accepted && !e.logged) { e.logged = true; logCapture(e); }
+    return t < T.end;
+  }
+
+  const LEVELS = 14;
+  const buckets = Array.from({ length: LEVELS }, () => []);
+  const accentBuckets = Array.from({ length: 6 }, () => []);
+  let lastFrame = 0;
+
+  function draw(now) {
+    ctx.fillStyle = C.ink;
+    ctx.fillRect(0, 0, W, H);
+    ctx.font = fontStr();
+    ctx.textBaseline = 'middle';
+
+    const phase = reduced ? -1 : (now / 5200) % 1.25;
+    const sweepY = reduced ? -1e4 : ((now / 9000) % 1.6) * H;
+    const mx = mouse.x, my = mouse.y, sig2 = 2 * 110 * 110;
+
+    for (const b of buckets) b.length = 0;
+    for (const b of accentBuckets) b.length = 0;
+
+    // scramble a few cells
+    if (!reduced) {
+      const n = (rows * cols * 0.0025) | 0;
+      for (let i = 0; i < n; i++) {
+        const k = (Math.random() * rows * cols) | 0;
+        scr[k] = 4 + ((Math.random() * 8) | 0);
+        alt[k] = SCRAMBLE[(Math.random() * SCRAMBLE.length) | 0];
+      }
+    }
+
+    for (let r = 0; r < rows; r++) {
+      const row = chars[r];
+      const py = r * lh + lh * 0.5;
+      const sweep = Math.exp(-((py - sweepY) ** 2) / 1800) * 0.14;
+      for (let c = 0; c < cols; c++) {
+        const ch = row[c];
+        if (ch === ' ') continue;
+        const k = r * cols + c;
+        let a = 0.05 + inside[k] * 0.035 + sweep;
+        const w = ropeW[k];
+        let pulse = 0;
+        if (w > 0) {
+          if (phase >= 0) {
+            const d = ropeS[k] - phase;
+            pulse = Math.exp(-(d * d) / 0.0035);
+          }
+          a += w * (0.5 + 0.45 * pulse);
+        }
+        if (mx > -1000) {
+          const dx = c * cw - mx, dy = py - my;
+          a += 0.5 * Math.exp(-(dx * dx + dy * dy) / sig2);
+        }
+        a *= dim[k];
+        if (w > 0.35 && pulse > 0.45 && dim[k] > 0.6) {
+          accentBuckets[Math.min(5, (pulse * w * 6) | 0)].push(k);
+        } else {
+          buckets[Math.min(LEVELS - 1, (a * LEVELS) | 0)].push(k);
+        }
+      }
+    }
+
+    const put = (k) => {
+      const r = (k / cols) | 0, c = k - r * cols;
+      let ch = chars[r][c];
+      if (scr[k]) { ch = alt[k]; scr[k]--; }
+      ctx.fillText(ch, c * cw, r * lh + lh * 0.5);
+    };
+    for (let i = 0; i < LEVELS; i++) {
+      if (!buckets[i].length) continue;
+      ctx.fillStyle = rgba(C.text, Math.min(1, (i + 0.5) / LEVELS));
+      buckets[i].forEach(put);
+    }
+    for (let i = 0; i < 6; i++) {
+      if (!accentBuckets[i].length) continue;
+      ctx.fillStyle = rgba(C.accent, 0.45 + i * 0.1);
+      accentBuckets[i].forEach(put);
+    }
+
+    if (!reduced) {
+      events = events.filter(e => drawEvent(e, now));
+      const max = W < 700 ? 1 : 2;
+      if (now > nextSpawn && events.length < max) {
+        spawn(now);
+        nextSpawn = now + rng(900, 1700);
+      }
+    }
+  }
+
+  function loop(now) {
+    if (running && now - lastFrame > 30) { draw(now); lastFrame = now; }
+    requestAnimationFrame(loop);
+  }
+
+  function seedLedger() {
+    // a few static rows so the panel is never empty (and so reduced-motion users see it populated)
+    [SOURCES[0], SOURCES[2], SOURCES[1]].forEach((s, i) => logCapture({ id: 397 + i, s }));
+  }
+
+  hero.addEventListener('pointermove', (e) => { const r = hero.getBoundingClientRect(); mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top; });
+  hero.addEventListener('pointerleave', () => { mouse.x = mouse.y = -9999; });
+  new IntersectionObserver(([en]) => { running = en.isIntersecting && !document.hidden; }).observe(hero);
+  document.addEventListener('visibilitychange', () => { running = !document.hidden; });
+  let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(resize, 120); });
+  addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 40), { passive: true });
+
+  const start = () => { resize(); seedLedger(); if (!reduced) requestAnimationFrame(loop); };
+  (document.fonts && document.fonts.load) ? document.fonts.load(fontStr()).then(start, start) : start();
+
+  /* ---------------- reveal on scroll ---------------- */
+  const io = new IntersectionObserver((ens) => ens.forEach(en => { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } }), { threshold: 0.12 });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+  /* ---------------- copy button ---------------- */
+  document.getElementById('copyBtn').addEventListener('click', async (ev) => {
+    try {
+      await navigator.clipboard.writeText('git clone https://github.com/jte700/Lasso.git && cd Lasso\nnpm start');
+      ev.target.textContent = 'copied';
+    } catch { ev.target.textContent = 'select & copy'; }
+    setTimeout(() => (ev.target.textContent = 'copy'), 1600);
+  });
+
+  /* ---------------- shared demo helpers ---------------- */
+  const $ = (s, r = document) => r.querySelector(s);
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  // resolves once the element is on screen, so demos only advance while someone is watching
+  function gate(el, threshold = 0.25) {
+    let on = false;
+    new IntersectionObserver(([en]) => { on = en.isIntersecting; }, { threshold }).observe(el);
+    return { get on() { return on; }, wait: async () => { while (!on) await sleep(250); } };
+  }
+  const TYPE = (base) => (reduced ? 0 : base + Math.random() * base);
+
+  /* ---------------- retrieval demo ---------------- */
+  const FILES = [
+    ['▤', 'lease_unit4_signed.pdf'], ['▦', 'forecast_2026.xlsx'], ['◫', 'plan_L2.ifc'], ['¶', 'minutes_0611.md'], ['▤', 'smith2023.pdf'],
+    ['▦', 'invoices_q3.csv'], ['▤', 'lease_unit4_draft.pdf'], ['◫', 'plan_L1.ifc'], ['{}', 'analysis.ipynb'], ['▤', 'board_pack_q2.pdf'],
+    ['▦', 'rooms_2019.csv'], ['¶', 'site_sync_0702.md'], ['▤', 'msa_v4.docx'], ['◇', 'site.landxml'], ['@', 'refs.bib'],
+    ['▦', 'forecast_draft.xlsx'], ['▤', 'lee2021.pdf'], ['▦', 'payroll_2025.xlsx'], ['◫', 'facade.ifc'], ['▤', 'specs_v2.docx'],
+    ['¶', 'minutes_0618.md'], ['◇', 'drainage.dxf'], ['▦', 'cohort.csv'], ['▤', 'nda_template.docx'], ['▦', 'budget_2026.xlsx'],
+    ['▤', 'sections.pdf'], ['¶', 'interview_03.md'], ['▦', 'schedule.xlsx'], ['▤', 'contract_v3.docx'], ['◇', 'site_2022.landxml'],
+    ['▦', 'risk_register.xlsx'], ['▤', 'stormwater_review_2024.pdf'], ['¶', 'notes_lab.md'], ['▦', 'assay.csv'], ['{}', 'config.json'],
+    ['▤', 'contract_v4.docx'], ['▦', 'photo_log.csv'], ['¶', 'README.md'], ['▤', 'insurance_cert.pdf'], ['▦', 'energy.xlsx'],
+    ['▤', 'hale2019.pdf'], ['¶', 'email_export.txt'], ['▦', 'loads.xlsx'], ['▤', 'tender_return.pdf'],
+  ];
+  const QUERIES = [
+    {
+      q: 'What is the net floor area of Schlafzimmer?',
+      cand: ['plan_L2.ifc', 'plan_L1.ifc', 'rooms_2019.csv', 'sections.pdf'],
+      res: [
+        { f: 'plan_L2.ifc', l: 'IfcSpace · Schlafzimmer · NetFloorArea', s: 'NetFloorArea = <mark>14.62 m²</mark>', v: 'v3', sc: 96 },
+        { f: 'rooms_2019.csv', l: 'row 14 · area_m2', s: 'Schlafzimmer, <mark>12.9</mark>, L2', v: 'v1', sc: 61, flag: 'older schedule' },
+        { f: 'plan_L1.ifc', l: 'IfcSpace · Schlafzimmer 2', s: 'NetFloorArea = 11.20 m²', v: 'v2', sc: 44 },
+      ],
+    },
+    {
+      q: 'Notice period to renew the Unit 4 lease',
+      cand: ['lease_unit4_signed.pdf', 'lease_unit4_draft.pdf', 'minutes_0618.md', 'msa_v4.docx'],
+      res: [
+        { f: 'lease_unit4_signed.pdf', l: 'p. 14 · §12.3 Renewal', s: 'not less than <mark>six (6) months</mark>’ written notice', v: 'v2', sc: 94 },
+        { f: 'lease_unit4_draft.pdf', l: 'p. 14 · §12.3 Renewal', s: 'not less than three (3) months’ …', v: 'v1', sc: 72, flag: 'draft · not executed' },
+        { f: 'minutes_0618.md', l: '¶7', s: '“landlord agreed to extend the notice period”', v: 'v1', sc: 38 },
+      ],
+    },
+    {
+      q: 'Q3 operating revenue',
+      cand: ['forecast_2026.xlsx', 'forecast_draft.xlsx', 'board_pack_q2.pdf', 'budget_2026.xlsx', 'invoices_q3.csv'],
+      res: [
+        { f: 'forecast_2026.xlsx', l: 'P&L!D12 · Q3 actual', s: 'Revenue  <mark>4.82</mark>  (€ M)', v: 'v5', sc: 93 },
+        { f: 'forecast_draft.xlsx', l: 'P&L!D12', s: 'Revenue  4.61  (€ M)', v: 'v2', sc: 66, flag: 'superseded' },
+        { f: 'budget_2026.xlsx', l: 'Summary!E12 · Q3 budget', s: 'Revenue  4.95  (€ M)', v: 'v4', sc: 51 },
+      ],
+    },
+    {
+      q: 'Hazard ratio for recurrence in the Smith cohort',
+      cand: ['smith2023.pdf', 'refs.bib', 'analysis.ipynb', 'lee2021.pdf', 'cohort.csv'],
+      res: [
+        { f: 'smith2023.pdf', l: 'p. 6 · Table 2 · Overall', s: 'HR <mark>0.72</mark> (95% CI 0.61–0.85)', v: 'v1', sc: 95 },
+        { f: 'analysis.ipynb', l: 'cell [14]', s: 'hr_overall = 0.718', v: 'v3', sc: 63 },
+        { f: 'lee2021.pdf', l: 'p. 9 · Table 3', s: 'HR 0.81 (0.70–0.94)', v: 'v1', sc: 41, flag: 'different cohort' },
+      ],
+    },
+  ];
+
+  const wall = $('#wall'), results = $('#results'), findQ = $('#findQ'), findStat = $('#findStat');
+  const chipEls = new Map();
+  FILES.forEach(([ic, name]) => {
+    const c = document.createElement('span');
+    c.className = 'chip';
+    c.innerHTML = `<i>${esc(ic)}</i>${esc(name)}`;
+    wall.append(c); chipEls.set(name, c);
+  });
+  const NS = 'http://www.w3.org/2000/svg';
+  const loopSvg = document.createElementNS(NS, 'svg'); loopSvg.classList.add('loop');
+  const loopPath = document.createElementNS(NS, 'path'); loopSvg.append(loopPath); wall.append(loopSvg);
+
+  function lassoChip(chip) {
+    const x = chip.offsetLeft, y = chip.offsetTop, w = chip.offsetWidth, h = chip.offsetHeight;
+    loopSvg.setAttribute('width', wall.clientWidth); loopSvg.setAttribute('height', wall.clientHeight);
+    const cx = x + w / 2, cy = y + h / 2, rx = w / 2 + 12, ry = h / 2 + 10, rot = -0.08;
+    let d = '';
+    for (let i = 0; i <= 64; i++) {
+      const a = -Math.PI * 0.75 + (i / 64) * Math.PI * 2.12;
+      const wob = 1 + 0.05 * Math.sin(a * 3 + 1) + 0.04 * (i / 64);
+      const px = Math.cos(a) * rx * wob, py = Math.sin(a) * ry * wob;
+      d += (i ? 'L' : 'M') + (cx + px * Math.cos(rot) - py * Math.sin(rot)).toFixed(1) + ' ' + (cy + px * Math.sin(rot) + py * Math.cos(rot)).toFixed(1);
+    }
+    // a short trailing rope
+    const ex = cx + Math.cos(-Math.PI * 0.75 + Math.PI * 2.12) * rx, ey = cy + Math.sin(-Math.PI * 0.75 + Math.PI * 2.12) * ry;
+    d += ` Q ${ex + 30} ${ey + 22} ${ex + 58} ${ey + 52}`;
+    loopPath.setAttribute('d', d);
+    const len = loopPath.getTotalLength();
+    loopPath.style.transition = 'none';
+    loopPath.style.strokeDasharray = len; loopPath.style.strokeDashoffset = len; loopPath.style.opacity = 1;
+    loopPath.getBoundingClientRect();
+    loopPath.style.transition = '';
+    loopPath.style.strokeDashoffset = 0;
+  }
+
+  const findGate = gate($('.find-win'));
+  async function runFind() {
+    for (let qi = 0; ; qi = (qi + 1) % QUERIES.length) {
+      await findGate.wait();
+      const Q = QUERIES[qi];
+      chipEls.forEach(c => (c.className = 'chip'));
+      loopPath.style.opacity = 0;
+      results.innerHTML = '<p class="empty">Ask a question or type a value. Results point to the exact cell, passage or object, with the version they came from.</p>';
+      findQ.textContent = '';
+      findStat.textContent = `${FILES.length} files indexed`;
+      await sleep(500);
+      for (const ch of Q.q) { findQ.textContent += ch; await sleep(TYPE(24)); }
+      await sleep(250);
+      findStat.textContent = 'ranking…';
+      wall.classList.add('scan'); await sleep(800); wall.classList.remove('scan');
+      chipEls.forEach((c, name) => c.classList.add(Q.cand.includes(name) ? 'cand' : 'dim'));
+      findStat.textContent = `${Q.cand.length} candidates · ${FILES.length - Q.cand.length} ruled out`;
+      results.innerHTML = '';
+      for (let i = 0; i < Q.res.length; i++) {
+        const r = Q.res[i];
+        const el = document.createElement('div');
+        el.className = 'res' + (i === 0 ? ' best' : '');
+        el.innerHTML = `<div class="top"><span class="f">${esc(r.f)}</span><span class="rk">#${i + 1} · <span class="ver">${r.v}</span></span></div>
+          <div class="l">${esc(r.l)}${r.flag ? ` · <span class="flag">${esc(r.flag)}</span>` : ''}</div>
+          <div class="snip">${r.s}</div><div class="score"><b style="width:${r.sc}%"></b></div>`;
+        results.append(el);
+        await sleep(240);
+      }
+      const best = chipEls.get(Q.res[0].f);
+      best.classList.remove('cand'); best.classList.add('hit');
+      lassoChip(best);
+      findStat.textContent = `best match · ${Q.res[0].l}`;
+      await sleep(5200);
+    }
+  }
+  runFind();
+
+  /* ---------------- use-case editor demo ---------------- */
+  const svgText = (x, y, t, fill, size = 9, anchor = 'middle') => `<text x="${x}" y="${y}" fill="${fill}" font-size="${size}" text-anchor="${anchor}">${esc(t)}</text>`;
+  const ROOMS = [
+    { n: 'Wohnen', x: 10, y: 10, w: 170, h: 112 }, { n: 'Schlafzimmer', x: 180, y: 10, w: 130, h: 112 },
+    { n: 'Küche', x: 10, y: 122, w: 100, h: 88 }, { n: 'Bad', x: 110, y: 122, w: 70, h: 88 }, { n: 'Flur', x: 180, y: 122, w: 130, h: 88 },
+  ];
+  function pvPlan(room, area) {
+    const order = ROOMS.slice().sort((a, b) => (a.n === room) - (b.n === room));
+    let s = '<svg viewBox="0 0 320 236">';
+    s += '<rect x="10" y="10" width="300" height="200" fill="none" stroke="#a7ad9f" stroke-width="3"/>';
+    for (const r of order) {
+      const on = r.n === room;
+      s += `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="${on ? 'rgba(212,247,92,.16)' : 'none'}" stroke="${on ? '#d4f75c' : '#4b5049'}" stroke-width="${on ? 2 : 1}"/>`;
+      s += svgText(r.x + r.w / 2, r.y + r.h / 2 - (on ? 4 : -3), r.n, on ? '#e8ece2' : '#6c7266', 9);
+      if (on) s += svgText(r.x + r.w / 2, r.y + r.h / 2 + 11, area, '#d4f75c', 11);
+    }
+    // doors
+    s += '<path d="M180 70 a16 16 0 0 0 -16 16 M110 150 a14 14 0 0 1 14 -14 M240 122 a14 14 0 0 0 14 14" fill="none" stroke="#4b5049"/>';
+    s += svgText(12, 228, 'plan_L2.ifc · level 2 · 1:100', '#6c7266', 8, 'start') + svgText(308, 228, 'N ↑', '#6c7266', 8, 'end');
+    return s + '</svg>';
+  }
+  function pvSite(current) {
+    let s = '<svg viewBox="0 0 320 236">';
+    s += '<path d="M20 20 L150 30 L140 120 L30 110 Z M160 32 L300 24 L305 120 L150 125 Z M30 130 L140 138 L130 215 L25 210 Z M150 140 L300 135 L302 212 L148 214 Z" fill="none" stroke="#2f342e"/>';
+    const road = current ? 'M8 190 C 90 178, 150 70, 312 58' : 'M8 200 C 110 196, 160 110, 312 96';
+    const col = current ? '#d4f75c' : '#ff8a7a';
+    s += `<path d="${road}" fill="none" stroke="${col}" stroke-width="3" ${current ? '' : 'stroke-dasharray="6 5"'}/>`;
+    s += `<circle cx="8" cy="${current ? 190 : 200}" r="4" fill="${col}"/><circle cx="312" cy="${current ? 58 : 96}" r="4" fill="${col}"/>`;
+    s += svgText(10, current ? 178 : 188, '0+000', '#a7ad9f', 8, 'start');
+    s += svgText(308, current ? 48 : 86, current ? '0+412.6' : '0+398.0', col, 9, 'end');
+    s += svgText(160, current ? 134 : 162, current ? 'Alignment · Main Road' : 'Main Road · 2022 survey', '#e8ece2', 9);
+    s += svgText(12, 230, current ? 'site.landxml · current' : 'site_2022.landxml · superseded', current ? '#6c7266' : '#ff8a7a', 8, 'start');
+    return s + '</svg>';
+  }
+  const PL = [
+    ['', 'A', 'B', 'C', 'D', 'E'],
+    ['11', '€ M', 'Q1', 'Q2', 'Q3 act.', 'Q3 bud.'],
+    ['12', 'Revenue', '4.31', '4.58', '4.82', '4.95'],
+    ['13', 'COGS', '2.62', '2.70', '2.97', '2.99'],
+    ['14', 'Gross profit', '1.69', '1.88', '1.85', '1.96'],
+    ['15', 'Gross margin', '39.2%', '41.0%', '38.4%', '39.6%'],
+    ['16', 'Opex', '1.12', '1.15', '1.21', '1.18'],
+  ];
+  function pvSheet(rows, hl, tabs) {
+    let s = '<div class="sheet-wrap"><table class="sheet">';
+    rows.forEach((row, r) => {
+      s += '<tr>';
+      row.forEach((v, c) => {
+        if (r === 0) { s += `<th>${esc(v)}</th>`; return; }
+        const cls = c === 0 ? 'rn' : (r === 1 ? 'hd' : c === 1 ? 'lab' : '') + (hl && hl[0] === r && hl[1] === c ? ' hl' : '');
+        s += `<td class="${cls}">${esc(v)}</td>`;
+      });
+      s += '</tr>';
+    });
+    return s + `</table><div class="sheet-tabs">${tabs.map((t, i) => `<span class="${i ? '' : 'on'}">${esc(t)}</span>`).join('')}</div></div>`;
+  }
+  const withDraft = PL.map((r, i) => (i === 2 ? ['12', 'Revenue', '4.12', '4.40', '4.61', '4.95'] : r));
+  const ROOMS_CSV = [['', 'A', 'B', 'C'], ['1', 'room', 'area_m2', 'level'], ['13', 'Wohnen', '23.1', 'L2'], ['14', 'Schlafzimmer', '12.9', 'L2'], ['15', 'Küche', '9.4', 'L2'], ['16', 'Bad', '5.2', 'L2']];
+
+  function pvPaper(p) {
+    return `<div class="page"><div class="pt">${esc(p.title)}</div><div class="pa">${esc(p.authors)}</div>
+      <div class="ln"></div><div class="ln" style="width:92%"></div><div class="ln" style="width:70%"></div>
+      <table><caption>${esc(p.caption)}</caption><tr><th></th><th>HR</th><th>95% CI</th><th>n</th></tr>
+      ${p.rows.map((r, i) => `<tr><td>${esc(r[0])}</td><td class="${i === p.hl ? 'hl' : ''}">${esc(r[1])}</td><td>${esc(r[2])}</td><td>${esc(r[3])}</td></tr>`).join('')}
+      </table><div class="pg">${esc(p.page)}</div></div>`;
+  }
+  const SMITH = { title: 'Adjuvant therapy and five-year recurrence in a multicentre cohort', authors: 'J. Smith, A. Okafor, M. Lindqvist · 2023', caption: 'Table 2. Recurrence by subgroup', rows: [['Overall', '0.72', '0.61–0.85', '4,812'], ['Age < 65', '0.64', '0.51–0.80', '2,906'], ['Age ≥ 65', '0.83', '0.66–1.04', '1,906']], page: 'smith2023.pdf · p. 6' };
+  const LEE = { title: 'Recurrence after adjuvant treatment: a registry study', authors: 'H. Lee, R. Duarte · 2021', caption: 'Table 3. Adjusted hazard ratios', rows: [['All patients', '0.81', '0.70–0.94', '1,377'], ['Stage II', '0.77', '0.61–0.97', '640']], page: 'lee2021.pdf · p. 9' };
+  const pvBib = (key) => key === 'smith2023'
+    ? `<pre class="bib">@article{<b>smith2023</b>,
+  author  = {<b>Smith</b>, J. and Okafor, A. and
+             Lindqvist, M.},
+  title   = {Adjuvant therapy and five-year
+             recurrence in a multicentre cohort},
+  journal = {Journal of Clinical Cohorts},
+  year    = {<b>2023</b>},
+}</pre>`
+    : `<pre class="bib">@article{<b>smith2019</b>,
+  author  = {<b>Smith</b>, J. and Hale, P.},
+  title   = {Recurrence risk scoring in
+             early-stage disease},
+  journal = {Clinical Risk Review},
+  year    = {<b>2019</b>},
+}</pre>`;
+
+  function pvContract(signed, hl) {
+    const cl = (n, html, on) => `<div class="cl${on ? '' : ' dimmed'}"><b>${n}</b>${on ? html : html.replace(/<\/?mark>/g, '')}</div>`;
+    return `<div class="page"><span class="stamp ${signed ? 'ok' : 'draft'}">${signed ? 'EXECUTED · 14 MAR 2025' : 'DRAFT · NOT EXECUTED'}</span>
+      <div class="pt" style="font-size:14px">Lease Agreement · Unit 4</div><div class="pa">${signed ? 'lease_unit4_signed.pdf · p. 14' : 'lease_unit4_draft.pdf · p. 14'}</div>
+      ${cl('12.2', 'The Tenant may renew this Lease for a further term of five (5) years.', hl === '12.2')}
+      ${cl('12.3', `The Tenant shall give the Landlord not less than <mark>${signed ? 'six (6) months' : 'three (3) months'}</mark>’ written notice of its intention to renew prior to expiry.`, hl === '12.3')}
+      ${cl('18.1', 'The Landlord’s aggregate liability under this Lease shall not exceed <mark>€ 250,000</mark>.', hl === '18.1')}
+      </div>`;
+  }
+
+  const CASES = {
+    arch: {
+      doc: 'site-report.md', head: 'Level 2 fit-out · draft', note: '<b>Indexed:</b> IFC floor plans · LandXML site model',
+      script: [
+        { t: 'The net floor area of the bedroom is ' },
+        { s: [
+          { v: '14.62 m²', file: 'plan_L2.ifc', loc: 'IfcSpace · Schlafzimmer · NetFloorArea', ver: 'v3', pv: pvPlan('Schlafzimmer', '14.62 m²') },
+          { v: '9.85 m²', file: 'plan_L2.ifc', loc: 'IfcSpace · Küche · NetFloorArea', ver: 'v3', pv: pvPlan('Küche', '9.85 m²') },
+          { v: '12.9 m²', file: 'rooms_2019.csv', loc: 'row 14 · area_m2', ver: 'v1', pv: pvSheet(ROOMS_CSV, [3, 2], ['rooms_2019.csv']) },
+        ], choose: 0 },
+        { t: ', and Main Road runs for ' },
+        { s: [
+          { v: '398.0 m', file: 'site_2022.landxml', loc: 'Alignment · Main Road · length', ver: 'v1', pv: pvSite(false) },
+          { v: '412.6 m', file: 'site.landxml', loc: 'Alignment · Main Road · length', ver: 'v2', pv: pvSite(true) },
+        ], choose: 1 },
+        { t: ' between the two junctions.' },
+      ],
+    },
+    finance: {
+      doc: 'q3-board-memo.md', head: 'Q3 board memo', note: '<b>Indexed:</b> Excel forecasts and budgets',
+      script: [
+        { t: 'Operating revenue for the quarter came to ' },
+        { s: [
+          { v: '€ 4.82 M', file: 'forecast_2026.xlsx', loc: 'P&L!D12 · Q3 actual', ver: 'v5', pv: pvSheet(PL, [2, 4], ['P&L', 'Cash flow', 'Headcount']) },
+          { v: '€ 4.95 M', file: 'forecast_2026.xlsx', loc: 'P&L!E12 · Q3 budget', ver: 'v5', pv: pvSheet(PL, [2, 5], ['P&L', 'Cash flow', 'Headcount']) },
+          { v: '€ 4.61 M', file: 'forecast_draft.xlsx', loc: 'P&L!D12 · superseded', ver: 'v2', pv: pvSheet(withDraft, [2, 4], ['P&L (draft)']) },
+        ], choose: 0 },
+        { t: ', 2.6 % below budget, with a gross margin of ' },
+        { s: [
+          { v: '38.4 %', file: 'forecast_2026.xlsx', loc: 'P&L!D15 · Q3 gross margin', ver: 'v5', pv: pvSheet(PL, [5, 4], ['P&L', 'Cash flow', 'Headcount']) },
+          { v: '41.0 %', file: 'forecast_2026.xlsx', loc: 'P&L!C15 · Q2 gross margin', ver: 'v5', pv: pvSheet(PL, [5, 3], ['P&L', 'Cash flow', 'Headcount']) },
+        ], choose: 0 },
+        { t: '.' },
+      ],
+    },
+    research: {
+      doc: 'lit-review.md', head: 'Literature review · chapter 2', note: '<b>Indexed:</b> PDF papers · BibTeX library',
+      script: [
+        { t: 'In the largest cohort to date, adjuvant therapy lowered the risk of recurrence (HR ' },
+        { s: [
+          { v: '0.72', file: 'smith2023.pdf', loc: 'p. 6 · Table 2 · Overall', ver: 'v1', pv: pvPaper({ ...SMITH, hl: 0 }) },
+          { v: '0.64', file: 'smith2023.pdf', loc: 'p. 6 · Table 2 · Age < 65', ver: 'v1', pv: pvPaper({ ...SMITH, hl: 1 }) },
+          { v: '0.81', file: 'lee2021.pdf', loc: 'p. 9 · Table 3', ver: 'v1', pv: pvPaper({ ...LEE, hl: 0 }) },
+        ], choose: 0 },
+        { t: ', 95 % CI 0.61–0.85) ' },
+        { s: [
+          { v: '(Smith et al., 2023)', file: 'refs.bib', loc: '@smith2023', ver: 'v1', pv: pvBib('smith2023') },
+          { v: '(Smith & Hale, 2019)', file: 'refs.bib', loc: '@smith2019', ver: 'v1', pv: pvBib('smith2019') },
+        ], choose: 0 },
+        { t: '.' },
+      ],
+    },
+    legal: {
+      doc: 'advice-note.md', head: 'Advice note · Unit 4 lease renewal', note: '<b>Indexed:</b> signed and draft leases (PDF)',
+      script: [
+        { t: 'Under the lease, the tenant must give at least ' },
+        { s: [
+          { v: 'three months', file: 'lease_unit4_draft.pdf', loc: '§12.3 · notice to renew', ver: 'v1', pv: pvContract(false, '12.3') },
+          { v: 'six months', file: 'lease_unit4_signed.pdf', loc: '§12.3 · notice to renew', ver: 'v2', pv: pvContract(true, '12.3') },
+        ], choose: 1 },
+        { t: '’ written notice before expiry, and the landlord’s liability is capped at ' },
+        { s: [
+          { v: '€ 250,000', file: 'lease_unit4_signed.pdf', loc: '§18.1 · limitation of liability', ver: 'v2', pv: pvContract(true, '18.1') },
+        ], choose: 0 },
+        { t: '.' },
+      ],
+    },
+  };
+  const ORDER = ['arch', 'finance', 'research', 'legal'];
+
+  // The suggestion box: candidate list on the left, the selected source previewed beside it.
+  const pvBody = (o) => `<div class="pv"><div class="pv-head"><span class="f">${esc(o.file)}</span><span class="ver">${o.ver}</span></div>
+      <div class="pv-stage">${o.pv}</div>${o.ocr ? `<div class="ocr">Read from photo: ${o.ocr}</div>` : ''}
+      <div class="pv-foot"><span class="val">${esc(o.v)}</span><span class="loc">${esc(o.loc)}</span></div></div>`;
+  const pvPane = (o) => `<div class="pvpane"><div class="pv-label"><span>Preview</span><b>confirm before ⇥</b></div>${pvBody(o)}</div>`;
+  function richPopup(opts, sel, accept = 'accept', foot = null) {
+    return `<div class="list">${opts.map((o, i) => `<div class="row${i === sel ? ' on' : ''}"><span class="v">${esc(o.v)}</span><span class="s">${esc(o.file)}</span><span class="ver">${o.ver}</span></div>`).join('')}
+      <div class="foot">${foot || `<span class="go">⇥ ${accept}</span><span>↑↓ source</span><span>esc dismiss</span>`}</div></div>${pvPane(opts[sel])}`;
+  }
+  // clicking a linked value opens its source, pinned to the version it was linked to
+  const inspectHTML = (o, n) => `<div class="pvpane"><div class="pv-label"><span>Linked source [${n}]</span><b>pinned ${o.ver}</b></div>${pvBody(o)}
+      <div class="insp-ok">✓ Source unchanged since you linked it</div>
+      <div class="insp-actions"><span class="pri">Open source</span><span>Copy citation</span><span>Share ⇧⌘↵</span></div></div>`;
+
+  const docText = $('#docText'), doc = $('#doc'), docCursor = $('#docCursor');
+  const docStatus = $('#docStatus'), docName = $('#docName'), docHead = $('#docHead'), caseNote = $('#caseNote');
+  const tabs = [...document.querySelectorAll('.tab')];
+  const keyEls = Object.fromEntries([...document.querySelectorAll('.key')].map(k => [k.dataset.key, k]));
+  const docGate = gate(doc, 0.3);
+  const CANCEL = Symbol('cancel');
+  let gen = 0;
+  // sleeps that abort when the viewer switches tabs
+  const nap = (ms, g) => new Promise((res, rej) => setTimeout(() => (g === gen ? res() : rej(CANCEL)), ms));
+  const watch = async (g) => { while (!docGate.on) await nap(250, g); };
+  const hit = async (k, g, ms = 260) => { keyEls[k].classList.add('hit'); try { await nap(ms, g); } finally { keyEls[k].classList.remove('hit'); } };
+
+  async function playCase(key, g) {
+    const C = CASES[key];
+    docName.textContent = C.doc; docHead.textContent = C.head; caseNote.innerHTML = C.note + ' · example data';
+    docText.innerHTML = ''; docStatus.textContent = 'editing';
+    doc.querySelectorAll('.popup').forEach(p => p.remove());
+    docCursor.classList.remove('show');
+    let n = 0;
+    for (const step of C.script) {
+      await watch(g);
+      if (step.t) {
+        for (const ch of step.t) { docText.append(ch); await nap(TYPE(16), g); }
+        continue;
+      }
+      await nap(350, g);
+      const caret = doc.querySelector('.caret').getBoundingClientRect();
+      const dr = doc.getBoundingClientRect();
+      const stack = dr.width < 720;
+      const popW = Math.min(680, dr.width - 24);
+      doc.classList.toggle('tall', stack);
+      const pop = document.createElement('div');
+      pop.className = 'popup rich' + (stack ? ' stack' : '');
+      pop.style.width = popW + 'px';
+      pop.style.left = Math.max(12, Math.min(caret.left - dr.left - 8, dr.width - popW - 12)) + 'px';
+      pop.style.top = (caret.bottom - dr.top + 8) + 'px';
+      let sel = 0;
+      const render = () => { pop.innerHTML = richPopup(step.s, sel); };
+      render(); doc.append(pop);
+      docStatus.textContent = 'previewing · confirm before ⇥';
+      try {
+        await nap(1700, g);
+        while (sel < step.choose) { await hit('arrows', g); sel++; render(); await nap(1900, g); }
+        await nap(600, g);
+        pop.querySelector('.go').classList.add('hit');
+        await hit('tab', g, 300);
+      } finally { pop.remove(); }
+      const o = step.s[step.choose];
+      n++;
+      const span = document.createElement('span');
+      span.className = 'linked';
+      span.innerHTML = `${esc(o.v)}<sup>${n}</sup>`;
+      span._src = o; span._n = n;
+      docText.append(span);
+      docStatus.textContent = `linked [${n}] · pinned ${o.ver}`;
+      await nap(600, g);
+    }
+    docStatus.textContent = `saved · ${n} links pinned`;
+    // click the first highlight to verify where it came from
+    await nap(800, g);
+    const first = docText.querySelector('.linked');
+    const db = doc.getBoundingClientRect(), fb = first.getBoundingClientRect();
+    docCursor.classList.add('show');
+    await nap(300, g);
+    docCursor.style.left = (fb.left - db.left + fb.width * 0.5) + 'px';
+    docCursor.style.top = (fb.top - db.top + fb.height * 0.6) + 'px';
+    await nap(1000, g);
+    docCursor.classList.add('press'); keyEls.click.classList.add('hit');
+    await nap(150, g);
+    docCursor.classList.remove('press'); keyEls.click.classList.remove('hit');
+    openInspect(first);
+    docStatus.textContent = `inspecting [${first._n}] · pinned ${first._src.ver}`;
+    await nap(4200, g);
+    closeInspect(); docCursor.classList.remove('show');
+    docStatus.textContent = `saved · ${n} links pinned`;
+  }
+
+  function closeInspect() {
+    doc.querySelectorAll('.popup.inspect').forEach(p => p.remove());
+    doc.querySelectorAll('.linked.inspecting').forEach(c => c.classList.remove('inspecting'));
+  }
+  function openInspect(chip) {
+    closeInspect();
+    const db = doc.getBoundingClientRect(), cb = chip.getBoundingClientRect();
+    const w = Math.min(400, db.width - 24);
+    const pop = document.createElement('div');
+    pop.className = 'popup inspect';
+    pop.style.width = w + 'px';
+    pop.style.left = Math.max(12, Math.min(cb.left - db.left, db.width - w - 12)) + 'px';
+    pop.style.top = (cb.bottom - db.top + 8) + 'px';
+    pop.innerHTML = inspectHTML(chip._src, chip._n);
+    chip.classList.add('inspecting');
+    doc.append(pop);
+  }
+  doc.addEventListener('click', (e) => {
+    const chip = e.target.closest('.linked');
+    if (chip && chip._src) openInspect(chip);
+    else if (!e.target.closest('.popup.inspect')) closeInspect();
+  });
+
+  async function runCases(start) {
+    const g = ++gen;
+    try {
+      for (let k = start; ; k = ORDER[(ORDER.indexOf(k) + 1) % ORDER.length]) {
+        tabs.forEach(t => t.setAttribute('aria-selected', String(t.dataset.case === k)));
+        await playCase(k, g);
+        await nap(3800, g);
+      }
+    } catch (e) { if (e !== CANCEL) throw e; }
+  }
+  tabs.forEach(t => t.addEventListener('click', () => runCases(t.dataset.case)));
+  runCases('arch');
+
+  /* ---------------- meeting share demo (in development) ---------------- */
+  const mac = $('#mac'), macWrap = $('#macWrap'), mbLasso = $('#mbLasso'), caps = $('#caps');
+  const meetPop = $('#meetPop'), meetToast = $('#meetToast'), cursor = $('#cursor');
+  const tileEls = [...document.querySelectorAll('#tiles .tile')];
+  let macK = 1;
+  function fitMac() {
+    const w = macWrap.clientWidth, compact = w < 640;
+    mac.classList.toggle('compact', compact);
+    const SW = compact ? 520 : 960, SH = compact ? 660 : 560;
+    macK = w / SW;
+    mac.style.transform = `scale(${macK})`;
+    macWrap.style.height = SH * macK + 'px';
+  }
+  fitMac(); addEventListener('resize', fitMac);
+
+  const MEET = [
+    { who: 'Priya', full: 'Priya Raman', ini: 'PR', color: '#e7b98a', tile: 0,
+      line: 'Could you send me the updated budget you mentioned?', hl: 'send me the updated budget',
+      file: 'budget_2026.xlsx', ver: 'v5', thumb: 'sheet', meta: 'Summary sheet · updated 2 days ago<br>linked in 3 documents',
+      alt: ['budget_2026_draft.xlsx', 'v3 · older draft'], mode: 1 },
+    { who: 'Marco', full: 'Marco Bianchi', ini: 'MB', color: '#8fb8ff', tile: 1,
+      line: 'Can you send over that stormwater paper from last week?', hl: 'send over that stormwater paper',
+      file: 'stormwater_review_2024.pdf', ver: 'v1', thumb: 'paper', meta: '24 pages · added last Thursday<br>cited in site-report.md',
+      alt: ['drainage.dxf', 'v2 · related drawing'], mode: 0 },
+  ];
+  const MODES = ['Whole file', 'Indexed part', 'Redacted'];
+  const thumbHTML = (k) => k === 'paper'
+    ? '<div class="thumb paper"><i class="t"></i><i></i><i style="width:85%"></i><i class="a" style="width:60%"></i><i></i><i style="width:70%"></i></div>'
+    : '<div class="thumb"><i></i><i class="a" style="width:75%"></i><i></i><i style="width:90%"></i><i></i><i style="width:60%"></i></div>';
+  function popHTML(m) {
+    return `<div class="pop-h"><span class="av" style="background:${m.color}">${m.ini}</span><div><b>${m.who} asked for a file</b><small>Weekly site sync · just now</small></div></div>
+      <div class="pop-q">“…${esc(m.line.replace(m.hl, '§')).replace('§', `<mark>${esc(m.hl)}</mark>`)}”</div>
+      <div class="pop-search"><i></i>Finding the file ${esc(m.who)} meant…</div>
+      <div class="pop-result">
+        <div class="pop-label">Best match</div>
+        <div class="pop-match">${thumbHTML(m.thumb)}<div><div class="f">${esc(m.file)} · ${m.ver}</div><div class="meta">${m.meta}</div></div></div>
+        <div class="pop-alt"><span>${esc(m.alt[0])}</span><span>${esc(m.alt[1])}</span></div>
+        <div class="seg">${MODES.map((x, i) => `<span class="${i === m.mode ? 'on' : ''}">${x}</span>`).join('')}</div>
+        <div class="to">To <span class="who"><span class="av" style="background:${m.color}">${m.ini}</span>${esc(m.full)} · in this call</span></div>
+        <div class="pop-actions"><span class="btn">Not now</span><span class="btn go">Share with ${esc(m.who)}</span></div>
+      </div>`;
+  }
+  const meetGate = gate(macWrap, 0.35);
+  const restCursor = () => {
+    const compact = mac.classList.contains('compact');
+    cursor.style.left = (compact ? 300 : 420) + 'px'; cursor.style.top = (compact ? 600 : 500) + 'px';
+  };
+
+  async function runMeet() {
+    for (let i = 0; ; i = (i + 1) % MEET.length) {
+      await meetGate.wait();
+      const m = MEET[i];
+      restCursor();
+      tileEls.forEach((t, k) => t.classList.toggle('speaking', k === m.tile));
+      caps.innerHTML = `<span class="who">${m.full}</span><span class="t"></span>`;
+      const t = caps.querySelector('.t');
+      await sleep(600);
+      for (const ch of m.line) { t.textContent += ch; await sleep(TYPE(22)); }
+      await sleep(350);
+      t.innerHTML = esc(m.line).replace(esc(m.hl), `<mark>${esc(m.hl)}</mark>`);
+      await sleep(300);
+      mbLasso.classList.add('alert');
+      await sleep(1300);
+      mbLasso.classList.remove('alert'); mbLasso.classList.add('open');
+      meetPop.innerHTML = popHTML(m);
+      meetPop.classList.add('show', 'loading');
+      await sleep(1100);
+      meetPop.classList.remove('loading');
+      await sleep(1800);
+      const btn = meetPop.querySelector('.go');
+      const br = btn.getBoundingClientRect(), mr = mac.getBoundingClientRect();
+      cursor.style.left = ((br.left - mr.left) / macK + btn.offsetWidth * 0.55) + 'px';
+      cursor.style.top = ((br.top - mr.top) / macK + btn.offsetHeight * 0.45) + 'px';
+      await sleep(1100);
+      btn.classList.add('press'); await sleep(160); btn.classList.remove('press');
+      btn.classList.add('done'); btn.textContent = `Shared with ${m.who} ✓`;
+      await sleep(900);
+      meetPop.classList.remove('show'); mbLasso.classList.remove('open');
+      tileEls.forEach(tl => tl.classList.remove('speaking'));
+      restCursor();
+      meetToast.innerHTML = `<span>You shared <b>${esc(m.file)}</b> with ${esc(m.who)}</span><small>${MODES[m.mode].toLowerCase()} · pinned ${m.ver} · revocable</small>`;
+      meetToast.classList.add('show');
+      await sleep(3400);
+      meetToast.classList.remove('show');
+      caps.innerHTML = '';
+      await sleep(900);
+    }
+  }
+  runMeet();
+
+  /* ---------------- phone photo retrieval (in development) ---------------- */
+  function pvBoard(final) {
+    const B = '#1d3f8f', K = '#25282b', R = '#b4432e';
+    let s = `<svg viewBox="0 0 320 200" class="wb-font" preserveAspectRatio="xMidYMid slice">
+      <rect width="320" height="200" rx="3" fill="#ecede7"/>
+      <text x="14" y="26" font-size="18" fill="${K}">Heat eq. (1D rod)</text>
+      <path d="M14 31 q60 -3 118 1" fill="none" stroke="${K}" stroke-width="1.3"/>
+      <text x="14" y="53" font-size="16" fill="${B}">uₜ = α uₓₓ ,  0 &lt; x &lt; L</text>
+      <text x="14" y="73" font-size="15" fill="${B}">u(0,t) = u(L,t) = 0</text>
+      <text x="14" y="93" font-size="15" fill="${B}">u(x,0) = sin(πx/L)</text>
+      <text x="14" y="117" font-size="15" fill="${K}">try u = X(x)T(t) → T′/αT = X″/X = −λ</text>
+      <text x="14" y="139" font-size="15" fill="${K}">⇒ λ = (π/L)²</text>
+      <path d="M238 96 h70 M238 96 v-64" fill="none" stroke="${K}" stroke-width="1.2"/>
+      <path d="M238 96 Q273 6 308 96" fill="none" stroke="${B}" stroke-width="1.4"/>
+      <path d="M238 96 Q273 46 308 96" fill="none" stroke="${B}" stroke-width="1.4"/>
+      <path d="M238 96 Q273 76 308 96" fill="none" stroke="${B}" stroke-width="1.4"/>
+      <text x="276" y="44" font-size="11" fill="${K}">t=0</text><text x="290" y="82" font-size="11" fill="${K}">t₂</text>`;
+    s += final
+      ? `<text x="24" y="175" font-size="19" fill="${R}">u(x,t) = e<tspan dy="-8" font-size="12">−α(π/L)² t</tspan><tspan dy="8"> sin(πx/L)</tspan></text>
+         <path d="M15 154 q100 -5 210 1 q5 14 0 31 q-108 5 -210 -1 q-4 -16 0 -31z" fill="none" stroke="${R}" stroke-width="1.7"/>`
+      : `<path d="M30 168 q30 -9 60 0 t60 0 t50 0" fill="none" stroke="#cfd1c8" stroke-width="10" stroke-linecap="round"/>
+         <text x="24" y="175" font-size="19" fill="#8d8f87">u(x,t) = ?</text>`;
+    return s + '</svg>';
+  }
+  const pvNotes = () => `<pre class="bib">## Heat equation, separation
+- uₜ = α uₓₓ with u = 0 at both ends
+- X″ + λX = 0  →  λₙ = (nπ/L)²
+- TODO: apply initial condition
+  (did this on the whiteboard)</pre>`;
+  const tileSvg = (a, b, c) => `<svg viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10" fill="${a}"/><rect y="6" width="10" height="4" fill="${b}"/><circle cx="7" cy="3" r="1.5" fill="${c}"/></svg>`;
+  const PHOTOS = [
+    pvBoard(false), tileSvg('#3c5a73', '#2b3b2a', '#e8d9a8'), tileSvg('#6b4f3a', '#3a2c22', '#d9b38c'), tileSvg('#24303b', '#4a5a4c', '#cfd8dc'),
+    tileSvg('#7a8a99', '#5c6b52', '#f4e3b1'), tileSvg('#2e2a35', '#55405e', '#e6a07a'), tileSvg('#9aa7a0', '#6d7c74', '#ffffff'), tileSvg('#40352b', '#8a7356', '#f0d9b5'),
+    tileSvg('#1f3346', '#2f5266', '#9fc7d9'), tileSvg('#5d6a4b', '#3d4731', '#dfe7c4'), tileSvg('#33363b', '#5a5f66', '#c9ccd1'),
+  ];
+  const PHONE_OPTS = [
+    { v: 'IMG_4182.jpg', file: 'iPhone · Photos', loc: 'Tue 16:42 · whiteboard', ver: 'v1', pv: pvBoard(true), ocr: '<mark>u(x,t) = e^(−α(π/L)²t) sin(πx/L)</mark> · λ = (π/L)²' },
+    { v: 'IMG_4179.jpg', file: 'iPhone · Photos', loc: 'Tue 16:31 · earlier board', ver: 'v1', pv: pvBoard(false), ocr: 'u(x,t) = ? · λ = (π/L)²' },
+    { v: 'derivation.md', file: 'notes/derivation.md', loc: '¶1 · typed notes', ver: 'v2', pv: pvNotes() },
+  ];
+  const phoneWrap = $('#phoneWrap'), phoneStage = $('#phoneStage'), phGrid = $('#phGrid'), phFlash = $('#phFlash'), phBadge = $('#phBadge');
+  const phoneDev = $('#phoneDev'), mailWin = $('#mailWin'), mailBody = $('#mailBody'), mailText = $('#mailText'), mailAtt = $('#mailAtt');
+  const tagPhone = $('#tagPhone'), tagMac = $('#tagMac'), thrPath = $('#phThreadPath'), phLoop = $('#phLoop');
+  let phK = 1;
+  function fitPhone() {
+    const w = phoneWrap.clientWidth, compact = w < 640;
+    phoneStage.classList.toggle('compact', compact);
+    const SW = compact ? 520 : 960, SH = compact ? 820 : 580;
+    phK = w / SW;
+    phoneStage.style.transform = `scale(${phK})`;
+    phoneWrap.style.height = SH * phK + 'px';
+  }
+  fitPhone(); addEventListener('resize', fitPhone);
+  const local = (el) => {
+    const r = el.getBoundingClientRect(), s = phoneStage.getBoundingClientRect();
+    return { x: (r.left - s.left) / phK, y: (r.top - s.top) / phK, w: r.width / phK, h: r.height / phK };
+  };
+  function drawLoop(b) {
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2, rx = b.w / 2 + 9, ry = b.h / 2 + 9;
+    let d = '';
+    for (let i = 0; i <= 56; i++) {
+      const a = -Math.PI * 0.7 + (i / 56) * Math.PI * 2.1, wob = 1 + 0.05 * Math.sin(a * 3);
+      d += (i ? 'L' : 'M') + (cx + Math.cos(a) * rx * wob).toFixed(1) + ' ' + (cy + Math.sin(a) * ry * wob).toFixed(1);
+    }
+    phLoop.setAttribute('d', d);
+    const len = phLoop.getTotalLength();
+    phLoop.style.transition = 'none'; phLoop.style.strokeDasharray = len; phLoop.style.strokeDashoffset = len; phLoop.style.opacity = 1;
+    phLoop.getBoundingClientRect();
+    phLoop.style.transition = ''; phLoop.style.strokeDashoffset = 0;
+  }
+  const phoneGate = gate(phoneWrap, 0.35);
+
+  async function runPhone() {
+    for (;;) {
+      await phoneGate.wait();
+      const compact = phoneStage.classList.contains('compact');
+      phGrid.innerHTML = PHOTOS.map(p => `<div class="ph-tile">${p}</div>`).join('');
+      phBadge.classList.remove('show'); mailAtt.classList.remove('show');
+      mailText.innerHTML = ''; mailBody.querySelectorAll('.popup').forEach(p => p.remove());
+      thrPath.classList.remove('show'); phLoop.style.opacity = 0;
+      phoneDev.classList.remove('dimmed-dev'); mailWin.classList.toggle('dimmed-dev', !compact);
+      tagPhone.classList.add('on'); tagMac.classList.remove('on');
+      let tile = null;
+      if (!compact) {
+        await sleep(900);
+        phFlash.classList.remove('go'); phFlash.getBoundingClientRect(); phFlash.classList.add('go');
+        await sleep(300);
+        tile = document.createElement('div');
+        tile.className = 'ph-tile new';
+        tile.innerHTML = pvBoard(true);
+        phGrid.prepend(tile); phGrid.lastElementChild.remove();
+        await sleep(700);
+        phBadge.classList.add('show');
+        await sleep(2600);
+        phBadge.classList.remove('show');
+        await sleep(400);
+      }
+      phoneDev.classList.add('dimmed-dev'); mailWin.classList.remove('dimmed-dev');
+      tagPhone.classList.remove('on'); tagMac.classList.add('on');
+      await sleep(700);
+      for (const ch of 'Hi Amara, here’s the derivation we worked through on the whiteboard on Tuesday: ') { mailText.append(ch); await sleep(TYPE(18)); }
+      await sleep(300);
+      const caret = local(mailBody.querySelector('.caret')), body = local(mailBody);
+      const pop = document.createElement('div');
+      pop.className = 'popup rich' + (compact ? ' stack' : '');
+      const popW = compact ? 460 : 560;
+      pop.style.left = Math.max(8, Math.min(caret.x - body.x - 8, body.w - popW - 8)) + 'px';
+      pop.style.top = (caret.y - body.y + caret.h + 8) + 'px';
+      pop.innerHTML = richPopup(PHONE_OPTS, 0, 'attach');
+      mailBody.append(pop);
+      if (tile) {
+        const t = local(tile), pv = local(pop.querySelector('.pvpane'));
+        const x1 = t.x + t.w + 4, y1 = t.y + t.h / 2, x2 = pv.x + 4, y2 = pv.y + 40;
+        thrPath.setAttribute('d', `M${x1} ${y1} C ${x1 + 120} ${y1}, ${x2 - 160} ${y2}, ${x2} ${y2}`);
+        thrPath.classList.add('show');
+        drawLoop(t);
+        tile.classList.add('hit');
+      }
+      await sleep(2800);
+      pop.querySelector('.go').classList.add('hit');
+      await sleep(350);
+      pop.remove(); thrPath.classList.remove('show'); phLoop.style.opacity = 0;
+      const chip = document.createElement('span');
+      chip.className = 'linked';
+      chip.innerHTML = 'IMG_4182.jpg<sup>1</sup>';
+      mailText.append(chip);
+      mailAtt.classList.add('show');
+      await sleep(500);
+      for (const ch of ' The boxed result is the one I’d use for the report.\n\nBest,\nSam') { mailText.append(ch); await sleep(TYPE(18)); }
+      await sleep(4200);
+    }
+  }
+  runPhone();
+
+  /* ---------------- share a reference ---------------- */
+  const leaseHTML = () => `<div class="page lease">
+    <span class="stamp ok">EXECUTED · 14 MAR 2025</span>
+    <div class="pt" style="font-size:14px">Lease Agreement · Unit 4</div><div class="pa">lease_unit4_signed.pdf · pp. 3–14</div>
+    <div class="cl"><b>4.1</b>Annual rent of <span class="r r-rent">€ 25,800</span>, payable monthly to <span class="r r-iban">IBAN DE89 3704 0044 0532 0130 00</span>.</div>
+    <div class="cl ref"><b>12.3</b>The Tenant shall give the Landlord not less than six (6) months’ written notice of its intention to renew prior to expiry.</div>
+    <div class="cl"><b>18.1</b>The Landlord’s aggregate liability shall not exceed € 250,000.</div>
+    <div class="cl"><b>Signed</b><span class="r r-sig">S. Carter · M. Haas · 14/03/2025</span></div>
+  </div>`;
+  const SHARE_MODES = [['part', 'Indexed part'], ['whole', 'Whole document'], ['redact', 'Redact']];
+  const shareMeta = (m, n) => m === 'part' ? '§12.3 with nearby context · original file not downloadable'
+    : m === 'whole' ? 'Full document · original file downloadable'
+    : `Redacted copy · ${n} area${n === 1 ? '' : 's'} blacked out`;
+  const composerHTML = () => `<div class="pvpane"><div class="pv-label"><span>Share this reference</span><b>⇧⌘↵</b></div>
+    <div class="seg">${SHARE_MODES.map(([m, l]) => `<span data-m="${m}">${l}</span>`).join('')}</div>
+    <div class="pv-stage">${leaseHTML()}</div>
+    <div class="share-meta"></div>
+    <div class="pop-actions"><span class="btn">Cancel</span><span class="btn go">Create link</span></div></div>`;
+  const SHARE_OPTS = [
+    { v: 'six months', file: 'lease_unit4_signed.pdf', loc: '§12.3 · notice to renew', ver: 'v2', pv: pvContract(true, '12.3') },
+    { v: 'three months', file: 'lease_unit4_draft.pdf', loc: '§12.3 · notice to renew', ver: 'v1', pv: pvContract(false, '12.3') },
+  ];
+
+  const shareWrap = $('#shareWrap'), shareStage = $('#shareStage'), shCompose = $('#shCompose'), shBody = $('#shBody'), shText = $('#shText');
+  const shSend = $('#shSend'), shInbox = $('#shInbox'), shPage = $('#shPage'), shDoc = $('#shDoc'), shDl = $('#shDl');
+  const ibChip = $('#ibChip'), shCursor = $('#shCursor'), tagSam = $('#tagSam'), tagJordan = $('#tagJordan');
+  let shK = 1;
+  function fitShare() {
+    const w = shareWrap.clientWidth, compact = w < 640;
+    shareStage.classList.toggle('compact', compact);
+    const SW = compact ? 520 : 960, SH = compact ? 1010 : 600;
+    shK = w / SW;
+    shareStage.style.transform = `scale(${shK})`;
+    shareWrap.style.height = SH * shK + 'px';
+  }
+  fitShare(); addEventListener('resize', fitShare);
+  const shLocal = (el) => {
+    const r = el.getBoundingClientRect(), s = shareStage.getBoundingClientRect();
+    return { x: (r.left - s.left) / shK, y: (r.top - s.top) / shK, w: r.width / shK, h: r.height / shK };
+  };
+  async function shPoint(el) {
+    const b = shLocal(el);
+    shCursor.style.left = (b.x + b.w * 0.5) + 'px'; shCursor.style.top = (b.y + b.h * 0.55) + 'px';
+    await sleep(950);
+  }
+  async function shClick() { shCursor.classList.add('press'); await sleep(140); shCursor.classList.remove('press'); }
+  const shareGate = gate(shareWrap, 0.35);
+
+  async function runShare() {
+    for (;;) {
+      await shareGate.wait();
+      const compact = shareStage.classList.contains('compact');
+      shText.innerHTML = ''; shBody.querySelectorAll('.popup').forEach(p => p.remove());
+      shInbox.classList.remove('show'); shPage.classList.remove('show'); ibChip.classList.remove('inspecting');
+      shCompose.classList.remove('dimmed-dev'); shSend.classList.remove('done'); shSend.textContent = 'Send';
+      shDl.classList.remove('done'); shDl.textContent = 'Download redacted PDF';
+      tagSam.classList.add('on'); tagJordan.classList.remove('on');
+      shCursor.style.left = (compact ? 300 : 520) + 'px'; shCursor.style.top = (compact ? 560 : 560) + 'px';
+      await sleep(600);
+      for (const ch of 'Hi Jordan,\nThe signed lease requires at least ') { shText.append(ch); await sleep(TYPE(18)); }
+      await sleep(300);
+      // suggestion box, then ⇧⌘↵ turns its preview into the share composer
+      const caret = shLocal(shBody.querySelector('.caret')), body = shLocal(shBody);
+      const pop = document.createElement('div');
+      pop.className = 'popup rich' + (compact ? ' stack' : '');
+      const popW = compact ? 460 : 524;
+      pop.style.left = Math.max(8, Math.min(caret.x - body.x - 8, body.w - popW - 8)) + 'px';
+      pop.style.top = (caret.y - body.y + caret.h + 8) + 'px';
+      pop.innerHTML = richPopup(SHARE_OPTS, 0, 'accept', '<span>⇥ accept</span><span class="go">⇧⌘↵ share</span><span>esc</span>');
+      shBody.append(pop);
+      await sleep(1800);
+      pop.querySelector('.go').classList.add('hit');
+      await sleep(450);
+      pop.querySelector('.pvpane').outerHTML = composerHTML();
+      const pane = pop.querySelector('.pvpane'), lease = pane.querySelector('.lease'), meta = pane.querySelector('.share-meta');
+      let redacted = 0;
+      const setMode = (m) => {
+        pane.querySelectorAll('.seg span').forEach(s => s.classList.toggle('on', s.dataset.m === m));
+        lease.classList.toggle('part', m === 'part');
+        meta.textContent = shareMeta(m, redacted);
+      };
+      setMode('part');
+      await sleep(1500);
+      await shPoint(pane.querySelector('[data-m=whole]')); await shClick(); setMode('whole');
+      await sleep(1100);
+      await shPoint(pane.querySelector('[data-m=redact]')); await shClick(); setMode('redact');
+      await sleep(500);
+      for (const sel of ['.r-rent', '.r-iban', '.r-sig']) {
+        const el = lease.querySelector(sel);
+        await shPoint(el); await shClick();
+        el.classList.add('on'); redacted++; meta.textContent = shareMeta('redact', redacted);
+        await sleep(350);
+      }
+      await sleep(400);
+      const create = pane.querySelector('.go');
+      await shPoint(create); await shClick();
+      create.classList.add('done'); create.textContent = 'Link created ✓';
+      await sleep(800);
+      pop.remove();
+      const chip = document.createElement('span');
+      chip.className = 'linked shared'; chip.innerHTML = 'six months<sup>↗</sup>';
+      shText.append(chip);
+      for (const ch of '’ written notice before expiry. The clause is linked, with the commercial terms redacted.\n\nBest,\nSam') { shText.append(ch); await sleep(TYPE(16)); }
+      await sleep(400);
+      await shPoint(shSend); await shClick();
+      shSend.classList.add('done'); shSend.textContent = 'Sent ✓';
+      await sleep(700);
+      // the recipient's side
+      shCompose.classList.add('dimmed-dev'); tagSam.classList.remove('on'); tagJordan.classList.add('on');
+      shInbox.classList.add('show');
+      await sleep(1300);
+      await shPoint(ibChip); await shClick();
+      ibChip.classList.add('inspecting');
+      shDoc.innerHTML = leaseHTML();
+      shDoc.querySelectorAll('.r').forEach(r => r.classList.add('on'));
+      shPage.classList.add('show');
+      await sleep(1800);
+      await shPoint(shDl); await shClick();
+      shDl.classList.add('done'); shDl.textContent = 'Downloaded ✓';
+      await sleep(4000);
+    }
+  }
+  runShare();
+})();
+</script>
+</body>
+</html>

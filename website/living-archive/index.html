@@ -1,0 +1,1311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lasso — The Living Archive</title>
+<meta name="description" content="Lasso reaches into your files, finds the exact fragment and sets it into the sentence you are writing, with the source pinned underneath.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..700&family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..600&family=IBM+Plex+Mono:wght@400;500&family=Caveat:wght@600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #efeee9;
+    --paper-2: #e5e3dc;
+    --card: #faf9f5;
+    --ink: #141413;
+    --ink-2: #3b3a37;
+    --ink-3: #78766f;
+    --rule: rgba(20, 20, 19, .13);
+    --rule-2: rgba(20, 20, 19, .26);
+    --red: #e03b1f;
+    --red-2: #b92d15;
+    --red-dim: rgba(224, 59, 31, .1);
+    --blue: #2747c4;
+    --night: #161615;
+    --night-2: #1f1f1d;
+    --night-line: rgba(239, 238, 233, .1);
+    --display: "Bodoni Moda", "Didot", "Bodoni 72", Georgia, serif;
+    --serif: "Newsreader", "Iowan Old Style", Georgia, serif;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--serif); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  /* faint paper grain */
+  body::before { content: ""; position: fixed; inset: 0; z-index: 100; pointer-events: none; opacity: .35; mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  a { color: inherit; }
+  ::selection { background: var(--red); color: var(--card); }
+  .mono { font-family: var(--mono); }
+
+  /* ---------- nav ---------- */
+  .nav { position: fixed; inset: 0 0 auto; z-index: 30; display: flex; justify-content: space-between; align-items: center; padding: 12px clamp(16px, 4vw, 40px); background: rgba(239, 238, 233, .92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; transition: background .3s, border-color .3s; border-bottom: 1px solid transparent; }
+  .nav.scrolled { background: rgba(239, 238, 233, .86); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-color: var(--rule); }
+  .brand { display: flex; align-items: center; gap: 9px; text-decoration: none; font-family: var(--display); font-style: italic; font-size: 24px; letter-spacing: 0; text-transform: none; }
+  .brand svg { width: 24px; height: 24px; }
+  .nav-links { display: flex; gap: clamp(12px, 2vw, 26px); }
+  .nav-links a { text-decoration: none; color: var(--ink-2); }
+  .nav-links a:hover { color: var(--red); }
+
+  /* ---------- hero: cabinet + proof sheet ---------- */
+  .hero { position: relative; min-height: 100svh; display: flex; align-items: center; justify-content: center; padding: 84px 14px 48px; overflow: hidden; background: #dedcd5; }
+  #cabinet { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .fly { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+  .sheet { position: relative; z-index: 2; width: min(940px, 100%); padding: clamp(22px, 4vw, 44px) clamp(20px, 4.4vw, 52px) clamp(22px, 3vw, 34px); background: var(--card); box-shadow: 0 1px 0 rgba(255, 255, 255, .7) inset, 0 30px 70px rgba(20, 20, 19, .28), 0 4px 10px rgba(20, 20, 19, .1); }
+  .crop { position: absolute; width: 22px; height: 22px; border-color: var(--ink-3); border-style: solid; border-width: 0; }
+  .crop.tl { left: -30px; top: -30px; border-right-width: 1px; border-bottom-width: 1px; }
+  .crop.tr { right: -30px; top: -30px; border-left-width: 1px; border-bottom-width: 1px; }
+  .crop.bl { left: -30px; bottom: -30px; border-right-width: 1px; border-top-width: 1px; }
+  .crop.br { right: -30px; bottom: -30px; border-left-width: 1px; border-top-width: 1px; }
+  .reg { position: absolute; top: 50%; right: -46px; width: 18px; height: 18px; margin-top: -9px; border: 1px solid var(--ink-3); border-radius: 50%; }
+  .reg::before, .reg::after { content: ""; position: absolute; background: var(--ink-3); }
+  .reg::before { left: 50%; top: -6px; bottom: -6px; width: 1px; }
+  .reg::after { top: 50%; left: -6px; right: -6px; height: 1px; }
+  .masthead { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0 7px; border-top: 3px solid var(--ink); border-bottom: 1px solid var(--ink); font-family: var(--mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; }
+  .masthead b { font-weight: 500; }
+  .masthead .red { color: var(--red); }
+  h1 { margin: 22px 0 12px; font-family: var(--display); font-weight: 500; font-size: clamp(48px, 8.2vw, 100px); line-height: .92; letter-spacing: -.02em; font-optical-sizing: auto; }
+  h1 em { color: var(--red); font-style: italic; }
+  h1 .w { display: inline-block; white-space: nowrap; }
+  h1 .l { display: inline-block; will-change: transform; }
+  .deck { margin: 0 0 18px; max-width: 640px; font-size: clamp(17px, 1.9vw, 20px); line-height: 1.5; color: var(--ink-2); }
+  .stick { position: relative; padding: 14px 0 10px; border-top: 1px solid var(--rule-2); border-bottom: 1px solid var(--rule-2); }
+  .stick-h { display: flex; justify-content: space-between; gap: 10px; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+  .stick-h b { color: var(--ink); font-weight: 500; }
+  .stick-h .ok { color: var(--red); }
+  .line { min-height: 3.2em; margin: 10px 0 8px; font-size: clamp(20px, 2.5vw, 27px); line-height: 1.5; white-space: pre-wrap; transition: transform .55s ease, opacity .55s ease; }
+  .line.out { transform: translateY(-18px); opacity: 0; }
+  .line.pressed { animation: press .5s ease; }
+  @keyframes press { 40% { color: #000; text-shadow: 0 0 .5px #000; } }
+  .ch { display: inline; animation: sortIn .2s ease-out both; }
+  @keyframes sortIn { from { opacity: 0; } }
+  .ch.drop { display: inline-block; animation: drop .42s cubic-bezier(.3, 1.5, .5, 1) both; }
+  @keyframes drop { from { opacity: 0; transform: translateY(-.7em); } }
+  .caret { display: inline-block; width: 2px; height: 1em; margin-left: 1px; vertical-align: -.12em; background: var(--red); animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .slot { display: inline-block; height: 1.05em; vertical-align: -.18em; border-bottom: 1.5px dashed var(--red); background: repeating-linear-gradient(90deg, var(--red-dim) 0 6px, transparent 6px 10px); animation: slotPulse 1s ease-in-out infinite alternate; }
+  @keyframes slotPulse { to { background-color: rgba(224, 59, 31, .06); } }
+  .set { color: var(--red); border-bottom: 1.5px solid var(--red); white-space: nowrap; }
+  .set sup { margin-left: 2px; font-family: var(--mono); font-size: .45em; color: var(--blue); }
+  .notes { list-style: none; margin: 0; padding: 0; min-height: 40px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); transition: opacity .5s; }
+  .notes.out { opacity: 0; }
+  .notes li { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 2px 0; animation: noteIn .4s ease-out; }
+  .notes .n { color: var(--blue); }
+  .notes .f { color: var(--ink); }
+  .notes .ver { color: var(--red); }
+  @keyframes noteIn { from { opacity: 0; transform: translateX(-6px); } }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; align-items: center; }
+  .btn-ink, .btn-line { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; text-decoration: none; padding: 13px 20px; border: 1px solid var(--ink); transition: background .2s, color .2s, transform .2s; }
+  .btn-ink { background: var(--ink); color: var(--card); }
+  .btn-ink:hover { background: var(--red); border-color: var(--red); }
+  .btn-line:hover { background: var(--ink); color: var(--card); }
+  .actions small { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--ink-3); letter-spacing: .08em; text-transform: uppercase; }
+
+  /* flying index card */
+  .fcard { position: absolute; left: 0; top: 0; width: 190px; padding: 9px 12px 14px; background: var(--card) repeating-linear-gradient(transparent 0 17px, rgba(39, 71, 196, .12) 17px 18px); background-position: 0 22px; border: 1px solid var(--rule-2); border-top: 3px solid var(--red); box-shadow: 0 22px 44px rgba(20, 20, 19, .3); font-family: var(--mono); font-size: 9.5px; color: var(--ink-2); }
+  .fcard .t { display: flex; justify-content: space-between; color: var(--ink); }
+  .fcard .t span:last-child { color: var(--red); }
+  .fcard .lc { margin-top: 3px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fcard .v { margin-top: 4px; font-family: var(--display); font-size: 25px; color: var(--red); line-height: 1.1; }
+  .fcard::after { content: ""; position: absolute; left: 50%; bottom: 4px; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: #dedcd5; box-shadow: inset 0 1px 1px rgba(0, 0, 0, .2); }
+
+  /* ---------- sections ---------- */
+  .sec { position: relative; padding: clamp(84px, 11vw, 140px) 16px; }
+  .wide { width: min(1120px, 100%); margin: 0 auto; }
+  .narrow { width: min(760px, 100%); margin: 0 auto; }
+  .kicker { display: flex; align-items: center; gap: 12px; margin: 0 0 18px; font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+  .kicker .no { color: var(--red); }
+  .kicker::after { content: ""; flex: 1; height: 1px; background: var(--rule-2); }
+  h2 { margin: 0 0 18px; font-family: var(--display); font-weight: 500; font-size: clamp(40px, 6.4vw, 78px); line-height: .98; letter-spacing: -.015em; }
+  h2 em { color: var(--red); }
+  .lede { max-width: 640px; margin: 0; font-size: 19px; line-height: 1.55; color: var(--ink-2); }
+  .badge { display: inline-block; padding: 3px 9px; border: 1px solid var(--red); color: var(--red); font-family: var(--mono); font-size: 10px; letter-spacing: .12em; transform: rotate(-2deg); }
+  .note { margin-top: 22px; font-family: var(--mono); font-size: 11.5px; line-height: 1.7; color: var(--ink-3); max-width: 680px; }
+  .reveal { opacity: 0; transform: translateY(16px); transition: opacity .8s ease, transform .8s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+
+  /* front matter with sidenotes */
+  .front { display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 18px 48px; }
+  .front p { margin: 0 0 1.1em; font-size: clamp(19px, 2vw, 22px); line-height: 1.6; color: var(--ink-2); }
+  .front p b { color: var(--ink); font-weight: 500; }
+  .front p:first-child::first-letter { float: left; margin: .06em .08em 0 0; font-family: var(--display); font-size: 4.3em; line-height: .78; color: var(--red); }
+  .front sup { font-family: var(--mono); font-size: .55em; color: var(--red); }
+  .side { font-family: var(--mono); font-size: 11px; line-height: 1.55; color: var(--ink-3); border-left: 1px solid var(--rule-2); padding-left: 14px; }
+  .side div { margin-bottom: 22px; }
+  .side b { color: var(--red); font-weight: 500; margin-right: 6px; }
+  .side .errata { padding: 8px 10px; border: 1px solid var(--rule-2); background: var(--card); color: var(--ink-2); }
+  .side .errata s { color: var(--ink-3); }
+  .side .errata i { font-style: normal; color: var(--red); }
+  .signoff { margin-top: 30px; font-family: var(--display); font-style: italic; font-size: 30px; color: var(--ink); }
+
+  /* the catalog (retrieval) */
+  .catalog { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; margin-top: 48px; align-items: start; }
+  .query { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--card); border: 1px solid var(--rule-2); font-family: var(--mono); font-size: 13px; }
+  .query .lab { padding: 2px 7px; font-size: 9.5px; letter-spacing: .12em; color: var(--card); background: var(--ink); }
+  .query .q { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .drawer { position: relative; height: 470px; margin-top: 18px; padding: 0 18px; background: linear-gradient(#d9d7d0, #cfcdc5); border: 1px solid var(--rule-2); border-top: 0; overflow: hidden; perspective: 900px; }
+  .drawer::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 26px; z-index: 60; background: linear-gradient(rgba(20, 20, 19, .18), transparent); pointer-events: none; }
+  .rod { position: absolute; left: 50%; bottom: 26px; z-index: 59; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: #9c9a93; box-shadow: 0 0 0 3px rgba(20, 20, 19, .12); }
+  .icard { position: absolute; left: 18px; right: 18px; height: 190px; background: var(--card) repeating-linear-gradient(transparent 0 19px, rgba(39, 71, 196, .1) 19px 20px); background-position: 0 40px; border: 1px solid var(--rule-2); border-radius: 3px 3px 0 0; box-shadow: 0 -8px 14px -10px rgba(20, 20, 19, .4); transform-origin: 50% 100%; transition: transform .22s ease, box-shadow .3s; }
+  .icard .tab { position: absolute; top: -15px; height: 16px; padding: 1px 10px 0; background: var(--card); border: 1px solid var(--rule-2); border-bottom: 0; border-radius: 4px 4px 0 0; font-family: var(--mono); font-size: 9.5px; white-space: nowrap; color: var(--ink-2); transition: background .2s, color .2s; }
+  .icard .face { padding: 12px 14px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+  .icard .face b { display: block; font-weight: 500; color: var(--ink); font-size: 12px; border-bottom: 2px solid var(--red); padding-bottom: 4px; margin-bottom: 6px; }
+  .icard.flip { transform: translateY(-9px) rotateX(-12deg); }
+  .icard.flip .tab { background: var(--red-dim); }
+  .icard.cand .tab::after { content: " ●"; color: var(--red); }
+  .icard.pulled { transform: translateY(-120px); z-index: 50 !important; box-shadow: 0 30px 50px rgba(20, 20, 19, .35); }
+  .icard.pulled .tab { background: var(--red); color: var(--card); border-color: var(--red); }
+  .found { min-height: 470px; }
+  .bigcard { position: relative; padding: 18px 22px 30px; background: var(--card) repeating-linear-gradient(transparent 0 25px, rgba(39, 71, 196, .1) 25px 26px); background-position: 0 66px; border: 1px solid var(--rule-2); border-top: 4px solid var(--red); box-shadow: 0 20px 40px rgba(20, 20, 19, .14); font-family: var(--mono); font-size: 12px; color: var(--ink-2); animation: cardIn .5s cubic-bezier(.2, .8, .2, 1); }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(24px) rotate(-1.5deg); } }
+  .bigcard::after { content: ""; position: absolute; left: 50%; bottom: 9px; width: 11px; height: 11px; margin-left: -5.5px; border-radius: 50%; background: var(--paper); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .25); }
+  .bc-h { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+  .bc-h .no { color: var(--red); }
+  .bc-file { margin-top: 18px; font-family: var(--display); font-size: 32px; line-height: 1.05; color: var(--ink); word-break: break-word; }
+  .bc-loc { margin-top: 6px; color: var(--ink-3); }
+  .bc-frag { margin-top: 18px; font-family: var(--serif); font-size: 22px; color: var(--ink); }
+  .bc-frag mark, .slipr mark { background: none; color: var(--red); border-bottom: 1.5px solid var(--red); }
+  .bc-foot { display: flex; justify-content: space-between; margin-top: 20px; font-size: 11px; }
+  .bc-foot .ver { color: var(--blue); }
+  .slips { margin-top: 14px; display: grid; gap: 8px; }
+  .slipr { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 10px 14px; background: var(--card); border: 1px solid var(--rule); font-family: var(--mono); font-size: 11px; color: var(--ink-3); animation: cardIn .5s cubic-bezier(.2, .8, .2, 1) both; }
+  .slipr .f { color: var(--ink); }
+  .slipr .ver { color: var(--blue); text-align: right; }
+  .slipr .flag { color: var(--red); }
+  .found .empty { padding: 30px 0; font-family: var(--mono); font-size: 12px; line-height: 1.7; color: var(--ink-3); }
+  .facts { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 40px; border-top: 1px solid var(--ink); }
+  .facts div { padding: 18px 18px 0 0; font-size: 16px; line-height: 1.5; color: var(--ink-2); }
+  .facts b { display: block; margin-bottom: 6px; font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--ink); }
+
+  /* the composing room (night) */
+  .night { background: var(--night); color: var(--paper); }
+  .night .kicker { color: rgba(239, 238, 233, .5); }
+  .night .kicker::after { background: var(--night-line); }
+  .night .lede { color: rgba(239, 238, 233, .72); }
+  .case-row { display: flex; justify-content: space-between; align-items: end; flex-wrap: wrap; gap: 14px; margin-top: 44px; }
+  .ctabs { display: flex; gap: 0; border: 1px solid rgba(239, 238, 233, .2); overflow-x: auto; scrollbar-width: none; }
+  .ctab { padding: 11px 18px; border: 0; border-right: 1px solid rgba(239, 238, 233, .2); background: none; color: rgba(239, 238, 233, .6); font-family: var(--mono); font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; cursor: pointer; transition: background .2s, color .2s; }
+  .ctab:last-child { border-right: 0; }
+  .ctab .n { margin-right: 8px; font-family: var(--display); font-style: italic; font-size: 14px; letter-spacing: 0; text-transform: none; }
+  .ctab:hover { color: var(--paper); }
+  .ctab[aria-selected="true"] { background: var(--paper); color: var(--ink); }
+  .ctab[aria-selected="true"] .n { color: var(--red); }
+  .case-note { font-family: var(--mono); font-size: 11px; color: rgba(239, 238, 233, .5); }
+  .ms { position: relative; margin-top: 14px; min-height: 560px; padding: 30px clamp(20px, 5vw, 64px) 70px clamp(34px, 7vw, 92px); background: var(--card); color: var(--ink); box-shadow: 0 30px 70px rgba(0, 0, 0, .5); }
+  .ms.tall { min-height: 820px; }
+  .ms::before { content: ""; position: absolute; top: 0; bottom: 0; left: clamp(20px, 5vw, 64px); width: 1px; background: rgba(224, 59, 31, .45); }
+  .ms-h { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 18px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+  .ms-h b { color: var(--ink); font-weight: 500; }
+  .ms-h .st { color: var(--red); }
+  .ms-title { margin: 0 0 12px; font-family: var(--display); font-size: clamp(26px, 3vw, 34px); font-weight: 500; }
+  .ms-text { font-size: clamp(19px, 2.2vw, 24px); line-height: 1.65; white-space: pre-wrap; }
+  .ms .set { cursor: pointer; }
+  .ms .set.inspecting { background: var(--red-dim); }
+  .ms-cursor { position: absolute; z-index: 8; width: 18px; height: 24px; left: 70%; top: 85%; opacity: 0; pointer-events: none; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .35)); transition: left .8s cubic-bezier(.5, 0, .2, 1), top .8s cubic-bezier(.5, 0, .2, 1), opacity .3s, transform .12s; }
+  .ms-cursor.show { opacity: 1; }
+  .ms-cursor.press { transform: scale(.82); }
+  .sorts { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 16px; }
+  .sortkey { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--night-line); font-family: var(--mono); font-size: 11px; line-height: 1.45; color: rgba(239, 238, 233, .55); transition: border-color .2s, background .2s; }
+  .sortkey kbd { align-self: flex-start; min-width: 34px; padding: 6px 9px 7px; font-family: var(--mono); font-size: 12.5px; text-align: center; color: var(--ink); background: var(--paper); box-shadow: inset 0 -3px 0 rgba(20, 20, 19, .25); border-radius: 2px; transition: background .15s, color .15s, transform .12s; }
+  .sortkey.hit { border-color: var(--red); background: rgba(224, 59, 31, .1); }
+  .sortkey.hit kbd { background: var(--red); color: var(--card); transform: translateY(2px); box-shadow: none; }
+
+  /* proof slip: suggestion list + attached preview */
+  .slip { position: absolute; z-index: 6; display: grid; grid-template-columns: 250px minmax(0, 1fr); width: 660px; background: var(--card); border: 1px solid var(--rule-2); border-top: 3px solid var(--red); box-shadow: 0 26px 54px rgba(20, 20, 19, .32); font-family: var(--mono); font-size: 11.5px; line-height: 1.4; color: var(--ink-2); white-space: normal; animation: slipIn .22s ease-out; }
+  @keyframes slipIn { from { opacity: 0; transform: translateY(-6px); } }
+  .slip.stack { grid-template-columns: 1fr; }
+  .slip .list { display: flex; flex-direction: column; padding: 6px; border-right: 1px dashed var(--rule-2); }
+  .slip.stack .list { border-right: 0; border-bottom: 1px dashed var(--rule-2); }
+  .slip .row { display: grid; grid-template-columns: minmax(60px, max-content) minmax(0, 1fr) 20px; gap: 10px; padding: 7px 8px; }
+  .slip .row .v { color: var(--ink); white-space: nowrap; }
+  .slip .row .s { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .slip .row .ver { color: var(--blue); text-align: right; }
+  .slip .row.on { background: var(--red-dim); }
+  .slip .row.on .v { color: var(--red); }
+  .slip .foot { display: flex; gap: 12px; margin-top: auto; padding: 8px 8px 3px; border-top: 1px solid var(--rule); font-size: 10px; color: var(--ink-3); }
+  .slip .foot span { white-space: nowrap; }
+  .slip .foot .go.hit { padding: 0 4px; color: var(--card); background: var(--red); }
+  .pane { min-width: 0; padding: 10px 12px 12px; }
+  .pane .lab { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+  .pane .lab b { color: var(--red); font-weight: 500; }
+  .pane .pv-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 10.5px; color: var(--ink); }
+  .pane .pv-head span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pane .ver { color: var(--blue); }
+  .pane .stage { display: flex; align-items: center; justify-content: center; min-height: 200px; padding: 8px; background: var(--paper); border: 1px solid var(--rule); overflow: hidden; animation: pvIn .3s ease-out; }
+  @keyframes pvIn { from { opacity: 0; } }
+  .pane .stage > svg { width: 100%; height: auto; display: block; }
+  .pane .meta { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-top: 8px; font-size: 10.5px; color: var(--ink-3); }
+  .pane .meta .val { font-family: var(--display); font-size: 22px; color: var(--red); white-space: nowrap; }
+  .pane .meta .loc { text-align: right; }
+  .slip.inspect { width: 390px; grid-template-columns: 1fr; border-top-color: var(--blue); }
+  .slip.inspect .lab b { color: var(--blue); }
+  .insp-ok { margin-top: 8px; font-size: 10.5px; color: var(--ink); }
+  .insp-ok::before { content: "✓ "; color: var(--red); }
+  .insp-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .insp-actions span { padding: 5px 9px; border: 1px solid var(--rule-2); font-size: 10.5px; }
+  .insp-actions span.pri { color: var(--card); background: var(--ink); border-color: var(--ink); }
+  .ocr { margin-top: 6px; padding: 6px 8px; border: 1px solid var(--rule); font-size: 10.5px; color: var(--ink-3); }
+  .ocr mark { background: none; color: var(--red); }
+
+  /* light previews */
+  .sheet-t { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 10.5px; }
+  .sheet-t th { padding: 3px 6px; border: 1px solid var(--rule-2); background: var(--paper-2); color: var(--ink-3); font-weight: 400; }
+  .sheet-t td { padding: 5px 6px; border: 1px solid var(--rule-2); text-align: right; white-space: nowrap; background: var(--card); color: var(--ink-2); }
+  .sheet-t td.rn { text-align: center; background: var(--paper-2); color: var(--ink-3); }
+  .sheet-t td.lab { text-align: left; color: var(--ink); }
+  .sheet-t td.hd { color: var(--ink-3); }
+  .sheet-t td.hl { background: var(--red-dim); color: var(--red); outline: 2px solid var(--red); outline-offset: -2px; }
+  .sheet-wrap { width: 100%; }
+  .sheet-tabs { display: flex; gap: 4px; margin-top: 6px; font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); }
+  .sheet-tabs span { padding: 2px 7px; }
+  .sheet-tabs span.on { background: var(--card); color: var(--ink); border: 1px solid var(--rule-2); }
+  .page { position: relative; width: 100%; padding: 14px 16px 10px; background: #fdfcf8; border: 1px solid var(--rule); box-shadow: 0 6px 14px rgba(20, 20, 19, .08); font-family: var(--serif); color: #29291f; }
+  .page .pt { padding-right: 70px; font-family: var(--display); font-size: 15px; line-height: 1.2; }
+  .page .pa { margin: 3px 0 8px; font-family: var(--mono); font-size: 9px; color: var(--ink-3); }
+  .page .ln { height: 4px; margin: 5px 0; background: #dedbd1; }
+  .page table { width: 100%; margin-top: 8px; border-collapse: collapse; font-family: var(--mono); font-size: 9.5px; }
+  .page caption { padding-bottom: 3px; text-align: left; font-weight: 500; color: #4c4a42; }
+  .page th, .page td { padding: 3px 4px; border-top: 1px solid #d6d2c6; text-align: left; }
+  .page td.hl { color: var(--red); background: var(--red-dim); outline: 1.5px solid var(--red); }
+  .page .pg { margin-top: 6px; font-family: var(--mono); font-size: 8.5px; color: var(--ink-3); text-align: right; }
+  .page .cl { margin: 6px 0; font-size: 12px; line-height: 1.45; color: #3f3e35; transition: filter .4s, opacity .4s; }
+  .page .cl b { margin-right: 6px; font-family: var(--mono); font-size: 9.5px; font-weight: 500; color: var(--ink); }
+  .page .cl.dim { opacity: .4; }
+  .page mark { background: var(--red-dim); color: var(--red); border-bottom: 1.5px solid var(--red); }
+  .page .stamp { position: absolute; top: 12px; right: 10px; padding: 2px 6px; border: 1.5px solid; font-family: var(--mono); font-size: 8px; font-weight: 500; letter-spacing: .1em; transform: rotate(-6deg); }
+  .page .stamp.ok { color: var(--blue); }
+  .page .stamp.draft { color: var(--red); }
+  .bib { width: 100%; margin: 0; font-family: var(--mono); font-size: 10.5px; line-height: 1.7; color: var(--ink-2); white-space: pre-wrap; }
+  .bib b { color: var(--red); font-weight: 500; }
+
+  /* dispatch (share) */
+  .press { display: grid; grid-template-columns: 1fr 1.25fr 1fr; gap: 0; margin-top: 48px; border: 1px solid var(--ink); background: var(--card); }
+  .panel { position: relative; padding: 20px; border-right: 1px solid var(--ink); transition: background .4s; }
+  .panel:last-child { border-right: 0; }
+  .panel.on { background: #fffefb; }
+  .p-num { display: flex; justify-content: space-between; margin-bottom: 16px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); transition: color .3s; }
+  .panel.on .p-num { color: var(--red); }
+  .p-num i { font-style: normal; width: 8px; height: 8px; border-radius: 50%; background: var(--rule-2); transition: background .3s; }
+  .panel.on .p-num i { background: var(--red); box-shadow: 0 0 0 4px var(--red-dim); }
+  .panel.done .p-num i { background: var(--ink); }
+  .mini-mail { border: 1px solid var(--rule-2); background: var(--card); }
+  .mm-head { padding: 8px 12px; border-bottom: 1px solid var(--rule); font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
+  .mm-body { margin: 0; padding: 12px; font-size: 16px; line-height: 1.55; color: var(--ink-2); white-space: pre-wrap; }
+  .mm-body .set { transition: background .3s; }
+  .mm-body .set.glow { background: var(--red-dim); }
+  .mm-body .set.clicked { background: rgba(224, 59, 31, .22); }
+  .sorts-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+  .sorts-row kbd { padding: 6px 10px 7px; font-family: var(--mono); font-size: 13px; color: var(--card); background: var(--ink); box-shadow: inset 0 -3px 0 rgba(255, 255, 255, .15); border-radius: 2px; transition: background .15s, transform .12s; }
+  .sorts-row kbd.hit { background: var(--red); transform: translateY(2px); }
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--ink); font-family: var(--mono); font-size: 10.5px; text-align: center; }
+  .seg span { padding: 7px 4px; border-right: 1px solid var(--ink); color: var(--ink-2); transition: background .2s, color .2s; }
+  .seg span:last-child { border-right: 0; }
+  .seg span.on { background: var(--ink); color: var(--card); }
+  .doc-wrap { margin-top: 12px; }
+  .lease.part .cl:not(.ref) { filter: blur(2.5px); opacity: .35; }
+  .lease .cl.ref { margin-left: -4px; padding: 2px 4px; background: var(--red-dim); }
+  .r { background-image: linear-gradient(var(--ink), var(--ink)); background-size: 0% 100%; background-repeat: no-repeat; transition: background-size .6s cubic-bezier(.6, 0, .3, 1), color .1s .45s; }
+  .r.on { background-size: 100% 100%; color: transparent; }
+  .d-meta { margin-top: 10px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+  .sharecard { position: relative; margin-top: 14px; padding: 14px; border: 1px solid var(--rule-2); background: var(--card); opacity: 0; transform: translateY(10px); transition: opacity .4s, transform .4s; }
+  .sharecard.show { opacity: 1; transform: none; }
+  .sc-h b { display: block; font-family: var(--display); font-size: 19px; font-weight: 500; }
+  .sc-h small { display: block; margin-top: 3px; font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); }
+  .sc-thumb { margin: 12px 0; padding: 10px; background: #fdfcf8; border: 1px solid var(--rule); }
+  .sc-thumb i { display: block; height: 5px; margin: 5px 0; background: #dedbd1; }
+  .sc-thumb i.k { background: var(--ink); }
+  .sc-thumb i.r2 { background: var(--red); opacity: .5; }
+  .dl { display: inline-block; padding: 8px 12px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--card); background: var(--ink); transition: transform .12s, background .2s; }
+  .dl.press { transform: scale(.94); }
+  .dl.done { background: var(--red); }
+  .rubber { position: absolute; right: 10px; bottom: 12px; padding: 4px 8px; border: 2px solid var(--red); color: var(--red); font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: .12em; opacity: 0; transform: rotate(-9deg) scale(1.8); transition: opacity .15s, transform .25s cubic-bezier(.3, 1.6, .5, 1); mix-blend-mode: multiply; }
+  .rubber.show { opacity: .9; transform: rotate(-9deg) scale(1); }
+  .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: 30px; border-top: 1px solid var(--ink); }
+  .modes div { padding: 16px 18px 0 0; font-size: 16px; line-height: 1.5; color: var(--ink-2); }
+  .modes b { display: block; margin-bottom: 4px; font-family: var(--display); font-size: 22px; font-weight: 500; color: var(--ink); }
+
+  /* correspondence (in development) */
+  .corr { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 48px; }
+  .cpanel { position: relative; padding: 20px; background: var(--card); border: 1px solid var(--rule-2); overflow: hidden; min-height: 420px; }
+  .cp-title { display: flex; justify-content: space-between; margin-bottom: 14px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+  .cp-title b { color: var(--ink); font-weight: 500; }
+  .menubar { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 10.5px; }
+  .mb-l { display: grid; place-items: center; width: 22px; height: 18px; color: var(--paper); border-radius: 3px; transition: background .2s; position: relative; }
+  .mb-l svg { width: 14px; height: 14px; }
+  .mb-l.alert { background: var(--red); }
+  .mb-l.alert::after { content: ""; position: absolute; inset: -3px; border: 1.5px solid var(--red); border-radius: 5px; animation: ping 1s ease-out infinite; }
+  @keyframes ping { to { opacity: 0; transform: scale(1.6); } }
+  .transcript { min-height: 130px; padding: 14px 4px; font-size: 17px; line-height: 1.5; color: var(--ink-2); }
+  .transcript p { margin: 0 0 8px; animation: noteIn .3s ease-out; }
+  .transcript .who { margin-right: 6px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+  .transcript mark { background: var(--red-dim); color: var(--red); border-bottom: 1.5px solid var(--red); }
+  .req { position: relative; padding: 14px; border: 1px solid var(--rule-2); border-top: 3px solid var(--red); background: #fffefb; box-shadow: 0 16px 34px rgba(20, 20, 19, .14); font-family: var(--mono); font-size: 11px; color: var(--ink-3); opacity: 0; transform: translateY(-8px); transition: opacity .3s, transform .3s; }
+  .req.show { opacity: 1; transform: none; }
+  .req .who { color: var(--ink); font-size: 12px; }
+  .req .match { display: grid; grid-template-columns: 52px 1fr; gap: 12px; margin: 12px 0; align-items: center; }
+  .req .thumb { height: 42px; padding: 4px; border: 1px solid var(--rule-2); background: var(--card); }
+  .req .thumb i { display: block; height: 3px; margin-bottom: 3px; background: #d6d2c6; }
+  .req .thumb i.a { background: var(--red); opacity: .6; }
+  .req .f { font-size: 12px; color: var(--red); }
+  .req .row2 { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .req .to { color: var(--ink-2); }
+  .req .dl { font-size: 10px; }
+  .req .rubber { right: 14px; top: 12px; bottom: auto; }
+  .phone-row { display: grid; grid-template-columns: 130px 1fr; gap: 18px; align-items: start; }
+  .mphone { position: relative; height: 250px; padding: 22px 7px 7px; border: 1.5px solid var(--ink); border-radius: 22px; background: var(--ink); overflow: hidden; }
+  .mphone .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+  .mphone .tile { aspect-ratio: 1; overflow: hidden; background: #2a2a28; }
+  .mphone .tile svg { display: block; width: 100%; height: 100%; }
+  .mphone .tile.new { animation: drop .5s cubic-bezier(.3, 1.4, .5, 1); }
+  .mphone .tile.hit { outline: 2px solid var(--red); outline-offset: -2px; }
+  .mphone .flash { position: absolute; inset: 0; background: #fff; opacity: 0; border-radius: 22px; }
+  .mphone .flash.go { animation: flash .5s ease-out; }
+  @keyframes flash { from { opacity: .9; } to { opacity: 0; } }
+  .mphone .cap { position: absolute; left: 0; right: 0; top: 5px; text-align: center; font-family: var(--mono); font-size: 8.5px; color: var(--paper); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 0 6px; color: var(--red); border: 1px solid var(--red); background: var(--red-dim); font-family: var(--mono); font-size: .72em; white-space: nowrap; animation: drop .4s cubic-bezier(.3, 1.4, .5, 1); }
+  .flyclone { position: absolute; z-index: 5; pointer-events: none; overflow: hidden; border: 2px solid var(--red); box-shadow: 0 16px 30px rgba(20, 20, 19, .3); }
+  .flyclone svg { display: block; width: 100%; height: 100%; }
+  svg.wb text { font-family: "Caveat", "Bradley Hand", cursive; font-weight: 600; }
+
+  /* specimen */
+  .spec { margin-top: 44px; border-top: 3px solid var(--ink); }
+  .sp-row { display: grid; grid-template-columns: 260px minmax(0, 1fr) 90px; gap: 24px; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--rule-2); transition: padding .25s, background .25s; }
+  .sp-row:hover { padding-left: 12px; background: var(--card); }
+  .sp-ext { font-family: var(--display); font-size: clamp(34px, 4.6vw, 56px); line-height: 1; letter-spacing: -.01em; }
+  .sp-ext span { color: var(--ink-3); font-size: .5em; letter-spacing: 0; }
+  .sp-row:hover .sp-ext { color: var(--red); }
+  .sp-what { font-size: 18px; line-height: 1.45; color: var(--ink-2); }
+  .sp-tag { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); text-align: right; }
+  .sp-tag.dev { color: var(--red); }
+
+  /* run + colophon */
+  .term { position: relative; margin: 34px 0 16px; padding: 22px 24px; background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 13.5px; line-height: 1.9; white-space: pre; overflow-x: auto; }
+  .term .p { color: var(--red); user-select: none; }
+  .term .c { color: rgba(239, 238, 233, .45); }
+  .copy { position: absolute; top: 14px; right: 14px; padding: 5px 10px; font-family: var(--mono); font-size: 10.5px; color: var(--paper); background: none; border: 1px solid rgba(239, 238, 233, .3); cursor: pointer; }
+  .copy:hover { border-color: var(--red); color: var(--red); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .ccard { position: relative; display: block; padding: 16px 16px 30px; text-decoration: none; background: var(--card) repeating-linear-gradient(transparent 0 21px, rgba(39, 71, 196, .1) 21px 22px); background-position: 0 50px; border: 1px solid var(--rule-2); border-top: 3px solid var(--ink); transition: transform .25s, border-color .25s, box-shadow .25s; }
+  .ccard:hover { transform: translateY(-6px) rotate(-.6deg); border-top-color: var(--red); box-shadow: 0 18px 34px rgba(20, 20, 19, .14); }
+  .ccard::after { content: ""; position: absolute; left: 50%; bottom: 9px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--paper); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .25); }
+  .ccard .no { font-family: var(--mono); font-size: 10px; color: var(--red); letter-spacing: .1em; }
+  .ccard .t { display: block; margin: 8px 0 6px; font-family: var(--display); font-size: 22px; line-height: 1.1; }
+  .ccard .d { font-family: var(--mono); font-size: 11px; line-height: 1.6; color: var(--ink-3); }
+  .ccard.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); border-top-color: var(--red); }
+  .ccard.primary .d { color: rgba(239, 238, 233, .6); }
+  .colophon { padding: 40px 16px 60px; border-top: 3px solid var(--ink); }
+  .colophon .wide { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; font-family: var(--mono); font-size: 11px; line-height: 1.7; color: var(--ink-3); }
+  .colophon b { display: block; margin-bottom: 4px; color: var(--ink); font-weight: 500; letter-spacing: .1em; text-transform: uppercase; font-size: 10px; }
+  .colophon .brand { font-size: 30px; color: var(--ink); }
+
+  @media (max-width: 900px) {
+    .front { grid-template-columns: 1fr; }
+    .side { border-left: 0; border-top: 1px solid var(--rule-2); padding: 14px 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+    .catalog, .corr { grid-template-columns: 1fr; }
+    .found { min-height: 0; }
+    .press { grid-template-columns: 1fr; }
+    .panel { border-right: 0; border-bottom: 1px solid var(--ink); }
+    .panel:last-child { border-bottom: 0; }
+    .facts, .modes { grid-template-columns: 1fr; }
+    .sorts { grid-template-columns: repeat(3, 1fr); }
+    .sp-row { grid-template-columns: 1fr; gap: 4px; }
+    .sp-tag { text-align: left; }
+    .colophon .wide { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 640px) {
+    .nav-links a:not(:last-child) { display: none; }
+    .crop, .reg { display: none; }
+    .masthead span:nth-child(2) { display: none; }
+    .actions small { display: none; }
+    .sorts { grid-template-columns: repeat(2, 1fr); }
+    .side { grid-template-columns: 1fr; }
+    .phone-row { grid-template-columns: 1fr; }
+    .mphone { width: 140px; }
+    .drawer { height: 430px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .reveal { opacity: 1; transform: none; transition: none; }
+    .caret, .slot { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav" id="nav">
+  <a class="brand" href="#top" aria-label="Lasso home">
+    <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><ellipse cx="15" cy="12" rx="11" ry="7.5" transform="rotate(-10 15 12)" stroke="#e03b1f" stroke-width="2"/><path d="M19.5 18.6c1.6 3.2 4.6 4.6 7.6 9.4" stroke="#e03b1f" stroke-width="2" stroke-linecap="round"/><circle cx="19.3" cy="18.4" r="2" fill="#e03b1f"/></svg>
+    Lasso
+  </a>
+  <div class="nav-links">
+    <a href="#catalog">Catalog</a>
+    <a href="#composing">Composing</a>
+    <a href="#dispatch">Dispatch</a>
+    <a href="#correspondence">Correspondence</a>
+    <a href="#run">Run</a>
+    <a href="https://github.com/jte700/Lasso">GitHub ↗</a>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <canvas id="cabinet" aria-hidden="true"></canvas>
+  <div class="sheet" id="sheet">
+    <span class="crop tl"></span><span class="crop tr"></span><span class="crop bl"></span><span class="crop br"></span><span class="reg"></span>
+    <div class="masthead"><b>Lasso</b><span>The Living Archive</span><span class="red">Local-first · no API key</span></div>
+    <h1 id="headline">Every sentence has a <em>source.</em></h1>
+    <p class="deck">You write. Lasso reaches into your files, finds the exact fragment (a cell, a clause, a room, a figure) and sets it into your sentence with the source pinned underneath.</p>
+    <div class="stick" aria-live="off">
+      <div class="stick-h"><span>Composing · <b id="stickFile">site-report.md</b></span><span class="ok" id="stickCount">0 fragments set · 0 guessed</span></div>
+      <p class="line" id="line"></p>
+      <ol class="notes" id="notes"></ol>
+    </div>
+    <div class="actions">
+      <a class="btn-ink" href="#run">Run locally</a>
+      <a class="btn-line" href="#catalog">Open the catalog</a>
+      <small>Illustrative project · example data</small>
+    </div>
+  </div>
+  <div class="fly" id="fly"></div>
+</header>
+
+<section class="sec" id="front">
+  <div class="wide">
+    <p class="kicker reveal"><span class="no">Nº 01</span>Front matter</p>
+    <div class="front reveal">
+      <div>
+        <p>Lasso is a <b>local-first source library</b> and writing assistant<sup>1</sup>. It connects what you write to the files it came from, down to the exact cell, passage or IfcSpace.</p>
+        <p>Most of writing is <b>looking things up</b>: which folder, which version, which tab, which page. Lasso does the sifting. Ask for the number, the clause or the figure, and it pulls the fragment from the archive and sets it into your sentence.</p>
+        <p>Every fragment keeps its provenance: <b>source object, location, version</b><sup>2</sup>. When a source changes, Lasso issues an erratum: the old value, the new one, and every sentence that relied on it<sup>3</sup>.</p>
+        <p><b>No language model. No API key.</b> Retrieval, ranking, extraction and provenance run on your machine. Ambiguous measurements aren’t guessed<sup>4</sup>. If the evidence isn’t in the archive, neither is the answer.</p>
+        <p class="signoff">Nothing invented. Everything sourced.</p>
+      </div>
+      <aside class="side">
+        <div><b>1</b>README.md · “A local-first source library and writing assistant with versioned evidence.” Pinned aaff5fc.</div>
+        <div><b>2</b>History uses SQLite and content-addressed file snapshots. Project files stay where they are.</div>
+        <div class="errata"><b>3</b>Erratum · budget.xlsx › C14<br><s>€ 48,210</s> → <i>€ 51,060</i><br>3 sentences relied on this value.</div>
+        <div><b>4</b>docs/design-source-indexing.md · Lasso does not infer missing BIM quantities.</div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="catalog" style="background:var(--paper-2)">
+  <div class="wide">
+    <div class="reveal">
+      <p class="kicker"><span class="no">Nº 02</span>The catalog</p>
+      <h2>Stop sifting. <em>Ask the archive.</em></h2>
+      <p class="lede">Ask for the number, the clause or the figure. Lasso riffles through every indexed document and pulls the card for the exact cell, passage or object, with drafts and superseded versions flagged.</p>
+    </div>
+    <div class="catalog reveal">
+      <div>
+        <div class="query"><span class="lab">Ask</span><span class="q" id="catQ"></span><span class="caret"></span></div>
+        <div class="drawer" id="drawer"><span class="rod"></span></div>
+      </div>
+      <div class="found" id="found"></div>
+    </div>
+    <div class="facts reveal">
+      <div><b>The exact location</b>Cell D12, clause 12.3, IfcSpace Schlafzimmer. Not “somewhere in this PDF”.</div>
+      <div><b>The right version</b>Drafts and superseded files are ranked and labelled so you don’t cite the wrong one.</div>
+      <div><b>No evidence, no answer</b>If nothing in your project supports it, Lasso says so instead of guessing.</div>
+    </div>
+  </div>
+</section>
+
+<section class="sec night" id="composing">
+  <div class="wide">
+    <div class="reveal">
+      <p class="kicker"><span class="no">Nº 03</span>The composing room</p>
+      <h2 style="color:var(--paper)">Proofs before <em>you set.</em></h2>
+      <p class="lede">Suggestions arrive as proof slips: the candidates on the left, the source itself beside them. Check the floor plan, the sheet, the paper or the clause, then press Tab. Click any set fragment later to see its provenance again.</p>
+    </div>
+    <div class="case-row reveal">
+      <div class="ctabs" role="tablist" aria-label="Use cases">
+        <button class="ctab" role="tab" aria-selected="true" data-case="arch"><span class="n">i.</span>Architecture</button>
+        <button class="ctab" role="tab" aria-selected="false" data-case="finance"><span class="n">ii.</span>Finance</button>
+        <button class="ctab" role="tab" aria-selected="false" data-case="research"><span class="n">iii.</span>Research</button>
+        <button class="ctab" role="tab" aria-selected="false" data-case="legal"><span class="n">iv.</span>Legal</button>
+      </div>
+      <span class="case-note" id="caseNote"></span>
+    </div>
+    <div class="ms reveal" id="ms">
+      <div class="ms-h"><span>MS · <b id="msName">site-report.md</b></span><span class="st" id="msStatus">composing</span></div>
+      <h3 class="ms-title" id="msTitle"></h3>
+      <div class="ms-text"><span id="msText"></span><span class="caret"></span></div>
+      <svg class="ms-cursor" id="msCursor" viewBox="0 0 18 24" aria-hidden="true"><path d="M1.5 1.5v18.5l4.8-4.6 3.4 7.3 3-1.4-3.4-7.2h6.6z" fill="#141413" stroke="#faf9f5" stroke-width="1.2" stroke-linejoin="round"/></svg>
+    </div>
+    <div class="sorts reveal">
+      <div class="sortkey" data-key="tab"><kbd>Tab</kbd>Set the fragment</div>
+      <div class="sortkey" data-key="enter"><kbd>⌘↵</kbd>Insert with local tracking</div>
+      <div class="sortkey" data-key="arrows"><kbd>↑↓</kbd>Another source</div>
+      <div class="sortkey" data-key="share"><kbd>⇧⌘↵</kbd>Share the reference</div>
+      <div class="sortkey" data-key="click"><kbd>Click</kbd>Inspect a set fragment</div>
+      <div class="sortkey" data-key="esc"><kbd>Esc</kbd>Dismiss</div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="dispatch">
+  <div class="wide">
+    <div class="reveal">
+      <p class="kicker"><span class="no">Nº 04</span>Dispatch</p>
+      <h2>Cite it. <em>Send it.</em><br>They can open it.</h2>
+      <p class="lede">Press ⇧⌘↵ on a reference and it becomes a link. Share the indexed part, the whole document, or a copy with the sensitive lines inked out. No hunting for the file, no attaching, no redacting by hand. The recipient clicks the highlight and gets the source, pinned to the version you cited.</p>
+    </div>
+    <div class="press reveal" id="press">
+      <div class="panel" data-p="0">
+        <div class="p-num"><span>1 · Cite</span><i></i></div>
+        <div class="mini-mail"><div class="mm-head">To Jordan Ellis · Unit 4 renewal</div><p class="mm-body">The signed lease requires at least <span class="set" id="dSet">six months</span>’ written notice before expiry.</p></div>
+        <div class="sorts-row"><kbd id="dKey">⇧⌘↵</kbd><span>make the reference shareable</span></div>
+      </div>
+      <div class="panel" data-p="1">
+        <div class="p-num"><span>2 · Choose what they see</span><i></i></div>
+        <div class="seg" id="dSeg"><span data-m="part">Indexed part</span><span data-m="whole">Whole document</span><span data-m="redact">Redact</span></div>
+        <div class="doc-wrap"><div class="page lease" id="dLease">
+          <span class="stamp ok">EXECUTED · 14 MAR 2025</span>
+          <div class="pt">Lease Agreement · Unit 4</div><div class="pa">lease_unit4_signed.pdf · pp. 3–14</div>
+          <div class="cl"><b>4.1</b>Annual rent of <span class="r">€ 25,800</span>, payable monthly to <span class="r">IBAN DE89 3704 0044 0532 0130 00</span>.</div>
+          <div class="cl ref"><b>12.3</b>The Tenant shall give the Landlord not less than six (6) months’ written notice of its intention to renew prior to expiry.</div>
+          <div class="cl"><b>18.1</b>The Landlord’s aggregate liability shall not exceed € 250,000.</div>
+          <div class="cl"><b>Signed</b><span class="r">S. Carter · M. Haas · 14/03/2025</span></div>
+        </div></div>
+        <div class="d-meta" id="dMeta">&nbsp;</div>
+      </div>
+      <div class="panel" data-p="2">
+        <div class="p-num"><span>3 · They open it</span><i></i></div>
+        <div class="mini-mail"><div class="mm-head">Inbox · Jordan Ellis</div><p class="mm-body">…requires at least <span class="set" id="dLink">six months ↗</span>’ written notice before expiry.</p></div>
+        <div class="sharecard" id="dCard">
+          <div class="sc-h"><b>Sam shared a source</b><small>lease_unit4_signed.pdf · §12.3 · pinned v2 · redacted</small></div>
+          <div class="sc-thumb"><i class="k" style="width:40%"></i><i class="r2"></i><i style="width:80%"></i><i class="k" style="width:55%"></i></div>
+          <span class="dl" id="dDl">Download redacted PDF</span>
+          <span class="rubber" id="dStamp">PINNED v2 · REVOCABLE</span>
+        </div>
+      </div>
+    </div>
+    <div class="modes reveal">
+      <div><b>Indexed part</b>Only the clause, cell or passage you cited, with enough context to read it.</div>
+      <div><b>Whole document</b>The full file when they need it, with the original available to download.</div>
+      <div><b>Redacted copy</b>Rent, account numbers, names or signatures inked out before anyone sees them.</div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="correspondence" style="background:var(--paper-2)">
+  <div class="wide">
+    <div class="reveal">
+      <p class="kicker"><span class="no">Nº 05</span>Correspondence <span class="badge">In development</span></p>
+      <h2>The archive <em>listens</em><br>and travels.</h2>
+      <p class="lede">Someone in a call asks for “that file”, and the Lasso icon in your menu bar offers it, addressed to exactly the person who asked. A whiteboard you photographed on Tuesday turns up on Thursday’s train, found by what’s written on it.</p>
+    </div>
+    <div class="corr reveal">
+      <div class="cpanel" id="cMeet">
+        <div class="cp-title"><b>Overheard in a meeting</b><span>Weekly site sync</span></div>
+        <div class="menubar"><span>Call · 4 participants</span><span style="display:flex;gap:12px;align-items:center"><span class="mb-l" id="mbL"><svg viewBox="0 0 32 32" fill="none"><ellipse cx="15" cy="12" rx="11" ry="7.5" transform="rotate(-10 15 12)" stroke="currentColor" stroke-width="2.6"/><path d="M19.5 18.6c1.6 3.2 4.6 4.6 7.6 9.4" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg></span>10:42</span></div>
+        <div class="transcript" id="tr"></div>
+        <div class="req" id="req">
+          <div class="who">Priya Raman asked for “the updated budget”</div>
+          <div class="match"><div class="thumb"><i></i><i class="a" style="width:70%"></i><i></i><i style="width:80%"></i></div><div><div class="f">budget_2026.xlsx · v5</div>Summary sheet · updated 2 days ago</div></div>
+          <div class="row2"><span class="to">To Priya Raman · whole file</span><span class="dl" id="reqBtn">Share with Priya</span></div>
+          <span class="rubber" id="reqStamp">SENT · v5</span>
+        </div>
+      </div>
+      <div class="cpanel" id="cPhone">
+        <div class="cp-title"><b>From your phone</b><span id="phWhen">Tue 16:42</span></div>
+        <div class="phone-row">
+          <div class="mphone" id="mphone"><span class="cap">Recents</span><div class="grid" id="mpGrid"></div><div class="flash" id="mpFlash"></div></div>
+          <div>
+            <div class="mini-mail"><div class="mm-head">To Amara Okafor · Thu 08:15 · on the train</div><p class="mm-body" id="pmBody"><span id="pmText"></span><span class="caret"></span></p></div>
+            <div class="ocr" id="pmOcr" style="opacity:0;transition:opacity .4s">Read from photo: <mark>u(x,t) = e^(−α(π/L)²t) sin(πx/L)</mark></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note reveal">Meeting and phone retrieval are in development. These are design previews, not shipping features.</p>
+  </div>
+</section>
+
+<section class="sec" id="specimen">
+  <div class="wide">
+    <div class="reveal">
+      <p class="kicker"><span class="no">Nº 06</span>Specimen of sources</p>
+      <h2>From prose <em>to polylines.</em></h2>
+      <p class="lede">Support varies by format and content. Files stay in history even when structured extraction isn’t available.</p>
+    </div>
+    <div class="spec reveal">
+      <div class="sp-row"><span class="sp-ext">.md <span>.txt</span></span><span class="sp-what">Passages, source-backed continuations and claims</span><span class="sp-tag">Prose</span></div>
+      <div class="sp-row"><span class="sp-ext">.xlsx <span>.csv .tsv</span></span><span class="sp-what">Tables, rows, cells, values and variable definitions</span><span class="sp-tag">Figures</span></div>
+      <div class="sp-row"><span class="sp-ext">.docx <span>.pdf</span></span><span class="sp-what">Extractable text and metadata; explicit drawing annotations in PDFs</span><span class="sp-tag">Documents</span></div>
+      <div class="sp-row"><span class="sp-ext">.ipynb <span>.json</span></span><span class="sp-what">Code locations, structured values and notebook cells</span><span class="sp-tag">Code</span></div>
+      <div class="sp-row"><span class="sp-ext">.bib <span>.ris .nbib</span></span><span class="sp-what">Reference records with author, year, title, DOI and PMID</span><span class="sp-tag">Citations</span></div>
+      <div class="sp-row"><span class="sp-ext">.ifc</span><span class="sp-what">Element quantities and typed properties, with entity identity and units</span><span class="sp-tag">BIM</span></div>
+      <div class="sp-row"><span class="sp-ext">.dxf</span><span class="sp-what">Area and perimeter of supported closed model-space polylines</span><span class="sp-tag">CAD</span></div>
+      <div class="sp-row"><span class="sp-ext">.landxml</span><span class="sp-what">Parcel areas, alignment and pipe lengths, diameters and elevations</span><span class="sp-tag">Civil</span></div>
+      <div class="sp-row"><span class="sp-ext">.jpg <span>.heic</span></span><span class="sp-what">Whiteboards and handwriting, found by what’s written on them</span><span class="sp-tag dev">In development</span></div>
+    </div>
+    <p class="note reveal">Scanned PDFs need OCR first. DWG, RVT and DGN need an export to IFC, DXF or LandXML. Lasso does not infer missing quantities.</p>
+  </div>
+</section>
+
+<section class="sec" id="run" style="background:var(--paper-2)">
+  <div class="narrow">
+    <div class="reveal">
+      <p class="kicker"><span class="no">Nº 07</span>Set the press running</p>
+      <h2>Two commands. <em>No build step.</em></h2>
+      <p class="lede">Requires Node.js 24 or newer. Then open 127.0.0.1:4317, choose “Index a project” and point it at a local folder.</p>
+    </div>
+    <div class="term reveal"><button class="copy" id="copyBtn" type="button">copy</button><span class="p">$ </span>git clone https://github.com/jte700/Lasso.git &amp;&amp; cd Lasso
+<span class="p">$ </span>npm start
+<span class="c"># macOS companion: npm run desktop &amp;&amp; open dist/Lasso.app</span></div>
+    <div class="cards reveal">
+      <a class="ccard primary" href="https://github.com/jte700/Lasso#run-locally"><span class="no">CARD 01</span><span class="t">Run Lasso locally</span><span class="d">Node.js 24+ · opens at 127.0.0.1:4317</span></a>
+      <a class="ccard" href="https://github.com/jte700/Lasso#macos-companion"><span class="no">CARD 02</span><span class="t">macOS companion</span><span class="d">Suggestions in other editors from the menu bar</span></a>
+      <a class="ccard" href="https://github.com/jte700/Lasso/blob/main/docs/design-source-indexing.md"><span class="no">CARD 03</span><span class="t">Design-source indexing</span><span class="d">Exact IFC, DXF and LandXML subsets</span></a>
+      <a class="ccard" href="https://github.com/jte700/Lasso/blob/main/docs/limitations.md"><span class="no">CARD 04</span><span class="t">Current limitations</span><span class="d">Read before planning a hosted deployment</span></a>
+      <a class="ccard" href="https://github.com/jte700/Lasso"><span class="no">CARD 05</span><span class="t">Source on GitHub</span><span class="d">jte700/Lasso</span></a>
+    </div>
+  </div>
+</section>
+
+<footer class="colophon">
+  <div class="wide">
+    <div><span class="brand" style="font-family:var(--display);font-style:italic">Lasso</span><br>The Living Archive · design trial</div>
+    <div><b>Colophon</b>Set in Bodoni Moda, Newsreader and IBM Plex Mono. Index cards ruled in cobalt; corrections in vermilion.</div>
+    <div><b>Imprint</b>Retrieval, ranking, extraction and provenance run locally. <a href="../index.html">See the original design ↗</a></div>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const rng = (a, b) => a + Math.random() * (b - a);
+  const pick = (a) => a[(Math.random() * a.length) | 0];
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const T = (base) => (reduced ? 0 : base + Math.random() * base * 0.8);
+  // resolves while the element is on screen, so demos only advance when someone is watching
+  function gate(el, threshold = 0.25) {
+    let on = false;
+    new IntersectionObserver(([en]) => { on = en.isIntersecting; }, { threshold }).observe(el);
+    const visible = () => on && !document.hidden;
+    return { get on() { return visible(); }, wait: async () => { while (!visible()) await sleep(250); } };
+  }
+
+  const nav = $('#nav');
+  addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 30), { passive: true });
+  const io = new IntersectionObserver(ens => ens.forEach(en => { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } }), { threshold: 0.1 });
+  $$('.reveal').forEach(el => io.observe(el));
+
+  /* ================= hero: the cabinet ================= */
+  const hero = $('#top'), cab = $('#cabinet'), cx = cab.getContext('2d'), sheet = $('#sheet'), fly = $('#fly');
+  const DLABELS = ['Aa–Ak', 'Al–Ar', 'As–Bo', 'IFC 0412', 'IFC 0413', 'BUD 26', 'P&L Q3', '§ 1–6', '§ 7–12', '§ 13–18', 'LAN 02', 'DXF 88', 'IMG 41', 'IMG 42', 'Smi–Sny', 'Lee–Lin', '¶ 101–140', '¶ 141–180', 'CSV 218', 'NB [27]', 'BIB @k', 'MIN 0611', 'MIN 0618', 'TND 04', 'RISK 12', 'ENG D7', 'SCH L2', 'SPC v2', 'INV Q3', 'PAY 25', 'Ob–Oz', 'Pa–Pl', 'Ra–Ri', 'Wa–Wy', 'FAC W204', 'PIPE P17'];
+  let W = 0, H = 0, dpr = 1, CW = 124, CH = 54, drawers = [], stat = null;
+  const live = new Set();
+  const font = (px, w = 400) => `${w} ${px}px "IBM Plex Mono", ui-monospace, monospace`;
+
+  function face(ctx, d, hot) {
+    const x = d.x + 3, y = d.y + 3, w = CW - 6, h = CH - 6;
+    ctx.fillStyle = '#f5f4ef'; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(20,20,19,.16)'; ctx.lineWidth = 1; ctx.strokeRect(x + .5, y + .5, w - 1, h - 1);
+    const lw = Math.min(66, w * 0.6), lh = 14, lx = x + (w - lw) / 2, ly = y + 7;
+    ctx.fillStyle = hot ? 'rgba(224,59,31,.14)' : '#fcfbf8'; ctx.fillRect(lx, ly, lw, lh);
+    ctx.strokeStyle = hot ? '#e03b1f' : 'rgba(20,20,19,.34)'; ctx.strokeRect(lx + .5, ly + .5, lw - 1, lh - 1);
+    ctx.fillStyle = hot ? '#b92d15' : 'rgba(20,20,19,.68)'; ctx.font = font(CW < 110 ? 7 : 8, 500);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(d.label, lx + lw / 2, ly + lh / 2 + .5);
+    ctx.beginPath(); ctx.strokeStyle = 'rgba(20,20,19,.42)'; ctx.lineWidth = 1.4;
+    const hx = x + w / 2, hy = y + h - 13; ctx.moveTo(hx - 9, hy); ctx.quadraticCurveTo(hx, hy + 7, hx + 9, hy); ctx.stroke();
+    ctx.fillStyle = 'rgba(20,20,19,.3)'; ctx.font = font(6.5); ctx.textAlign = 'left'; ctx.fillText(d.code, x + 4, y + h - 5);
+  }
+  function buildCabinet() {
+    const r = hero.getBoundingClientRect();
+    W = r.width; H = r.height; dpr = Math.min(devicePixelRatio || 1, 2);
+    cab.width = Math.round(W * dpr); cab.height = Math.round(H * dpr);
+    CW = W < 640 ? 94 : 124; CH = W < 640 ? 48 : 54;
+    const cols = Math.ceil(W / CW) + 1, rows = Math.ceil(H / CH) + 1;
+    const ox = Math.round((W - cols * CW) / 2), oy = Math.round((H - rows * CH) / 2);
+    drawers = []; live.clear();
+    for (let row = 0; row < rows; row++) for (let col = 0; col < cols; col++) {
+      drawers.push({ x: ox + col * CW, y: oy + row * CH, label: DLABELS[(row * 7 + col * 5) % DLABELS.length],
+        code: String.fromCharCode(65 + row % 26) + '·' + String((col * 37 + row * 11) % 1000).padStart(3, '0'), open: 0, target: 0, scan: 0, hot: 0 });
+    }
+    stat = document.createElement('canvas'); stat.width = cab.width; stat.height = cab.height;
+    const s = stat.getContext('2d'); s.setTransform(dpr, 0, 0, dpr, 0, 0);
+    s.fillStyle = '#d9d7d0'; s.fillRect(0, 0, W, H);
+    drawers.forEach(d => face(s, d, 0));
+    render();
+  }
+  function render() {
+    cx.setTransform(1, 0, 0, 1, 0, 0); cx.drawImage(stat, 0, 0);
+    cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    for (const d of live) {
+      if (d.open > 0.004) {
+        const k = d.open;
+        cx.fillStyle = `rgba(20,20,19,${0.6 * Math.min(1, k * 3)})`; cx.fillRect(d.x + 3, d.y + 3, CW - 6, CH - 6);
+        cx.save();
+        const mx = d.x + CW / 2, my = d.y + CH / 2;
+        cx.translate(mx, my + 5 * k); cx.scale(1 + 0.08 * k, 1 + 0.08 * k); cx.translate(-mx, -my);
+        cx.shadowColor = `rgba(20,20,19,${0.35 * k})`; cx.shadowBlur = 18 * k; cx.shadowOffsetY = 8 * k;
+        cx.fillStyle = '#f5f4ef'; cx.fillRect(d.x + 3, d.y + 3, CW - 6, CH - 6);
+        cx.shadowColor = 'transparent';
+        face(cx, d, d.hot);
+        cx.restore();
+      }
+      if (d.scan > 0.02) { cx.strokeStyle = `rgba(224,59,31,${d.scan})`; cx.lineWidth = 1.5; cx.strokeRect(d.x + 3.5, d.y + 3.5, CW - 7, CH - 7); }
+    }
+  }
+  function tick() {
+    if (live.size) {
+      for (const d of [...live]) {
+        d.open += (d.target - d.open) * 0.16; d.scan *= 0.9;
+        if (d.target === 0 && d.open < 0.004 && d.scan < 0.02) { d.open = 0; d.scan = 0; live.delete(d); }
+      }
+      render();
+    }
+    requestAnimationFrame(tick);
+  }
+  function visibleDrawers() {
+    const hr = hero.getBoundingClientRect(), sr = sheet.getBoundingClientRect();
+    const s = { x0: sr.left - hr.left - 8, y0: sr.top - hr.top - 8, x1: sr.right - hr.left + 8, y1: sr.bottom - hr.top + 8 };
+    return drawers.filter(d => d.x >= 0 && d.x + CW <= W && d.y >= 60 && d.y + CH <= H - 4 &&
+      !(d.x < s.x1 && d.x + CW > s.x0 && d.y < s.y1 && d.y + CH > s.y0));
+  }
+  const heroGate = gate(hero, 0.15);
+  // the archive is alive: drawers ease open a touch and close again
+  setInterval(() => {
+    if (reduced || !heroGate.on) return;
+    const v = visibleDrawers(); if (!v.length) return;
+    const d = pick(v); if (d.target > 0) return;
+    d.target = 0.28; live.add(d); setTimeout(() => { if (!d.hot) d.target = 0; }, 650);
+  }, 520);
+
+  async function flyCard(d, frag, slot) {
+    const hr = hero.getBoundingClientRect(), sr = slot.getBoundingClientRect();
+    const x0 = d.x + CW / 2, y0 = d.y + CH / 2, x1 = sr.left - hr.left + sr.width / 2, y1 = sr.top - hr.top + sr.height / 2;
+    const card = document.createElement('div');
+    card.className = 'fcard';
+    card.innerHTML = `<div class="t"><span>${esc(frag.f)}</span><span>${frag.ver}</span></div><div class="lc">${esc(frag.l)}</div><div class="v">${esc(frag.v)}</div>`;
+    fly.append(card);
+    const rot = rng(-9, 9), mx = (x0 + x1) / 2 + rng(-60, 60), my = Math.min(y0, y1) - rng(60, 140);
+    const end = Math.max(0.2, Math.min(0.9, sr.width / 190));
+    const anim = card.animate([
+      { transform: `translate(${x0}px,${y0}px) translate(-50%,-50%) scale(.2) rotate(0deg)`, opacity: 0 },
+      { transform: `translate(${x0}px,${y0 + 30}px) translate(-50%,-50%) scale(1) rotate(${rot}deg)`, opacity: 1, offset: 0.2 },
+      { transform: `translate(${mx}px,${my}px) translate(-50%,-50%) scale(.95) rotate(${rot / 2}deg)`, opacity: 1, offset: 0.62 },
+      { transform: `translate(${x1}px,${y1}px) translate(-50%,-50%) scale(${end}) rotate(0deg)`, opacity: 0 },
+    ], { duration: 1650, easing: 'cubic-bezier(.45,0,.25,1)', fill: 'forwards' });
+    await anim.finished.catch(() => {});
+    card.remove();
+  }
+  async function retrieve(frag, slot) {
+    const v = visibleDrawers();
+    if (reduced || !v.length) return;
+    // a sweep through the catalog before the right drawer opens
+    for (let i = 0; i < 8; i++) { const d = pick(v); d.scan = 1; live.add(d); await sleep(70); }
+    const d = pick(v);
+    d.hot = 1; d.scan = 1; d.target = 1; live.add(d);
+    await sleep(420);
+    await flyCard(d, frag, slot);
+    d.target = 0; d.hot = 0;
+  }
+
+  const SENTENCES = [
+    { file: 'site-report.md', parts: ['The bedroom on level two measures ', { v: '14.62 m²', f: 'plan_L2.ifc', l: 'IfcSpace · Schlafzimmer · NetFloorArea', ver: 'v3' }, ', and Main Road runs ', { v: '412.6 m', f: 'site.landxml', l: 'Alignment · Main Road · length', ver: 'v2' }, ' between the junctions.'] },
+    { file: 'q3-board-memo.md', parts: ['Revenue for the quarter came to ', { v: '€ 4.82 M', f: 'forecast_2026.xlsx', l: 'P&L!D12 · Q3 actual', ver: 'v5' }, ', with a gross margin of ', { v: '38.4 %', f: 'forecast_2026.xlsx', l: 'P&L!D15 · Q3', ver: 'v5' }, '.'] },
+    { file: 'lit-review.md', parts: ['Adjuvant therapy lowered the risk of recurrence (HR ', { v: '0.72', f: 'smith2023.pdf', l: 'p. 6 · Table 2 · Overall', ver: 'v1' }, ') across ', { v: '4,812', f: 'smith2023.pdf', l: 'p. 6 · Table 2 · n', ver: 'v1' }, ' patients.'] },
+    { file: 'advice-note.md', parts: ['The tenant must give ', { v: 'six months', f: 'lease_unit4_signed.pdf', l: '§12.3 · notice to renew', ver: 'v2' }, '’ notice, and liability is capped at ', { v: '€ 250,000', f: 'lease_unit4_signed.pdf', l: '§18.1 · limitation', ver: 'v2' }, '.'] },
+    { file: 'email · to Amara', parts: ['Here’s the derivation from Tuesday’s whiteboard: ', { v: 'IMG_4182.jpg', f: 'iPhone · Photos', l: 'Tue 16:42 · whiteboard', ver: 'v1' }, '.'] },
+  ];
+  const line = $('#line'), notes = $('#notes'), stickFile = $('#stickFile'), stickCount = $('#stickCount');
+  async function typeChars(parent, before, text, speed) {
+    for (const ch of text) { const s = document.createElement('span'); s.className = 'ch'; s.textContent = ch; parent.insertBefore(s, before); await sleep(T(speed)); }
+  }
+  async function runHero() {
+    for (let si = 0; ; si = (si + 1) % SENTENCES.length) {
+      await heroGate.wait();
+      const S = SENTENCES[si];
+      line.className = 'line'; notes.className = 'notes';
+      line.innerHTML = '<span class="caret"></span>'; notes.innerHTML = '';
+      stickFile.textContent = S.file; stickCount.textContent = '0 fragments set · 0 guessed';
+      const caret = line.querySelector('.caret');
+      let n = 0;
+      for (const p of S.parts) {
+        if (typeof p === 'string') { await typeChars(line, caret, p, 24); continue; }
+        await heroGate.wait();
+        const slot = document.createElement('span');
+        slot.className = 'slot'; slot.style.width = (p.v.length * 0.52 + 0.5) + 'em';
+        line.insertBefore(slot, caret);
+        await sleep(200);
+        await retrieve(p, slot);
+        n++;
+        slot.className = 'set'; slot.style.width = '';
+        [...p.v].forEach((ch, i) => { const s = document.createElement('span'); s.className = 'ch drop'; s.style.animationDelay = (i * 24) + 'ms'; s.textContent = ch === ' ' ? ' ' : ch; slot.append(s); });
+        const sup = document.createElement('sup'); sup.textContent = n; slot.append(sup);
+        const li = document.createElement('li');
+        li.innerHTML = `<span class="n">${n}</span><span class="f">${esc(p.f)}</span><span>${esc(p.l)}</span><span class="ver">${p.ver} · pinned</span>`;
+        notes.append(li);
+        stickCount.textContent = `${n} fragment${n > 1 ? 's' : ''} set · 0 guessed`;
+        await sleep(350);
+      }
+      await sleep(2800);
+      line.classList.add('pressed'); await sleep(500);
+      line.classList.add('out'); notes.classList.add('out'); await sleep(650);
+    }
+  }
+
+  // headline letters arrive like sorts pulled from the archive
+  function kinetic(h) {
+    const walk = (node) => {
+      for (const n of [...node.childNodes]) {
+        if (n.nodeType === 3) {
+          const frag = document.createDocumentFragment();
+          n.textContent.split(/(\s+)/).forEach(part => {
+            if (!part) return;
+            if (/^\s+$/.test(part)) { frag.append(' '); return; }
+            const w = document.createElement('span'); w.className = 'w';
+            for (const ch of part) { const l = document.createElement('span'); l.className = 'l'; l.textContent = ch; w.append(l); }
+            frag.append(w);
+          });
+          n.replaceWith(frag);
+        } else if (n.nodeType === 1) walk(n);
+      }
+    };
+    walk(h);
+    if (reduced) return;
+    const ls = $$('.l', h);
+    ls.forEach(l => {
+      const a = Math.random() * Math.PI * 2, r = rng(320, 760);
+      l.style.transform = `translate(${Math.cos(a) * r}px, ${Math.sin(a) * r * 0.65}px) rotate(${rng(-60, 60)}deg)`;
+      l.style.opacity = '0';
+    });
+    requestAnimationFrame(() => requestAnimationFrame(() => ls.forEach((l, i) => {
+      l.style.transition = `transform 1.15s cubic-bezier(.2,.8,.2,1) ${i * 34}ms, opacity .45s ease ${i * 34}ms`;
+      l.style.transform = ''; l.style.opacity = '';
+    })));
+  }
+
+  let rt;
+  addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(buildCabinet, 150); });
+  const startHero = () => { buildCabinet(); kinetic($('#headline')); requestAnimationFrame(tick); runHero(); };
+  (document.fonts && document.fonts.load) ? Promise.all([document.fonts.load(font(8, 500)), document.fonts.load('500 80px "Bodoni Moda"')]).then(startHero, startHero) : startHero();
+
+  /* ================= light previews ================= */
+  const svgT = (x, y, t, fill, size = 9, anchor = 'middle') => `<text x="${x}" y="${y}" fill="${fill}" font-size="${size}" text-anchor="${anchor}" font-family="IBM Plex Mono, monospace">${esc(t)}</text>`;
+  const ROOMS = [
+    { n: 'Wohnen', x: 10, y: 10, w: 170, h: 112 }, { n: 'Schlafzimmer', x: 180, y: 10, w: 130, h: 112 },
+    { n: 'Küche', x: 10, y: 122, w: 100, h: 88 }, { n: 'Bad', x: 110, y: 122, w: 70, h: 88 }, { n: 'Flur', x: 180, y: 122, w: 130, h: 88 },
+  ];
+  function pvPlan(room, area) {
+    const order = ROOMS.slice().sort((a, b) => (a.n === room) - (b.n === room));
+    let s = '<svg viewBox="0 0 320 236">';
+    for (const r of order) {
+      const on = r.n === room;
+      s += `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="${on ? 'rgba(224,59,31,.12)' : 'none'}" stroke="${on ? '#e03b1f' : '#9a978f'}" stroke-width="${on ? 2 : 1}"/>`;
+      s += svgT(r.x + r.w / 2, r.y + r.h / 2 - (on ? 4 : -3), r.n, on ? '#141413' : '#78766f', 9);
+      if (on) s += svgT(r.x + r.w / 2, r.y + r.h / 2 + 12, area, '#e03b1f', 11);
+    }
+    s += '<rect x="10" y="10" width="300" height="200" fill="none" stroke="#141413" stroke-width="3"/>';
+    s += '<path d="M180 70 a16 16 0 0 0 -16 16 M110 150 a14 14 0 0 1 14 -14 M240 122 a14 14 0 0 0 14 14" fill="none" stroke="#9a978f"/>';
+    s += svgT(12, 228, 'plan_L2.ifc · level 2 · 1:100', '#78766f', 8, 'start') + svgT(308, 228, 'N ↑', '#78766f', 8, 'end');
+    return s + '</svg>';
+  }
+  function pvSite(current) {
+    let s = '<svg viewBox="0 0 320 236">';
+    s += '<path d="M20 20 L150 30 L140 120 L30 110 Z M160 32 L300 24 L305 120 L150 125 Z M30 130 L140 138 L130 215 L25 210 Z M150 140 L300 135 L302 212 L148 214 Z" fill="none" stroke="#cbc8bf"/>';
+    const road = current ? 'M8 190 C 90 178, 150 70, 312 58' : 'M8 200 C 110 196, 160 110, 312 96';
+    const col = current ? '#e03b1f' : '#2747c4';
+    s += `<path d="${road}" fill="none" stroke="${col}" stroke-width="3" ${current ? '' : 'stroke-dasharray="6 5"'}/>`;
+    s += `<circle cx="8" cy="${current ? 190 : 200}" r="4" fill="${col}"/><circle cx="312" cy="${current ? 58 : 96}" r="4" fill="${col}"/>`;
+    s += svgT(10, current ? 178 : 188, '0+000', '#78766f', 8, 'start') + svgT(308, current ? 48 : 86, current ? '0+412.6' : '0+398.0', col, 9, 'end');
+    s += svgT(160, current ? 134 : 162, current ? 'Alignment · Main Road' : 'Main Road · 2022 survey', '#141413', 9);
+    s += svgT(12, 230, current ? 'site.landxml · current' : 'site_2022.landxml · superseded', col, 8, 'start');
+    return s + '</svg>';
+  }
+  const PL = [
+    ['', 'A', 'B', 'C', 'D', 'E'], ['11', '€ M', 'Q1', 'Q2', 'Q3 act.', 'Q3 bud.'], ['12', 'Revenue', '4.31', '4.58', '4.82', '4.95'],
+    ['13', 'COGS', '2.62', '2.70', '2.97', '2.99'], ['14', 'Gross profit', '1.69', '1.88', '1.85', '1.96'], ['15', 'Gross margin', '39.2%', '41.0%', '38.4%', '39.6%'], ['16', 'Opex', '1.12', '1.15', '1.21', '1.18'],
+  ];
+  const PL_DRAFT = PL.map((r, i) => (i === 2 ? ['12', 'Revenue', '4.12', '4.40', '4.61', '4.95'] : r));
+  const ROOMS_CSV = [['', 'A', 'B', 'C'], ['1', 'room', 'area_m2', 'level'], ['13', 'Wohnen', '23.1', 'L2'], ['14', 'Schlafzimmer', '12.9', 'L2'], ['15', 'Küche', '9.4', 'L2'], ['16', 'Bad', '5.2', 'L2']];
+  function pvSheet(rows, hl, tabs) {
+    let s = '<div class="sheet-wrap"><table class="sheet-t">';
+    rows.forEach((row, r) => {
+      s += '<tr>';
+      row.forEach((v, c) => {
+        if (r === 0) { s += `<th>${esc(v)}</th>`; return; }
+        const cls = c === 0 ? 'rn' : (r === 1 ? 'hd' : c === 1 ? 'lab' : '') + (hl && hl[0] === r && hl[1] === c ? ' hl' : '');
+        s += `<td class="${cls}">${esc(v)}</td>`;
+      });
+      s += '</tr>';
+    });
+    return s + `</table><div class="sheet-tabs">${tabs.map((t, i) => `<span class="${i ? '' : 'on'}">${esc(t)}</span>`).join('')}</div></div>`;
+  }
+  const SMITH = { title: 'Adjuvant therapy and five-year recurrence in a multicentre cohort', authors: 'J. Smith, A. Okafor, M. Lindqvist · 2023', caption: 'Table 2. Recurrence by subgroup', rows: [['Overall', '0.72', '0.61–0.85', '4,812'], ['Age < 65', '0.64', '0.51–0.80', '2,906'], ['Age ≥ 65', '0.83', '0.66–1.04', '1,906']], page: 'smith2023.pdf · p. 6' };
+  const LEE = { title: 'Recurrence after adjuvant treatment: a registry study', authors: 'H. Lee, R. Duarte · 2021', caption: 'Table 3. Adjusted hazard ratios', rows: [['All patients', '0.81', '0.70–0.94', '1,377'], ['Stage II', '0.77', '0.61–0.97', '640']], page: 'lee2021.pdf · p. 9' };
+  const pvPaper = (p) => `<div class="page"><div class="pt">${esc(p.title)}</div><div class="pa">${esc(p.authors)}</div>
+    <div class="ln"></div><div class="ln" style="width:92%"></div><div class="ln" style="width:70%"></div>
+    <table><caption>${esc(p.caption)}</caption><tr><th></th><th>HR</th><th>95% CI</th><th>n</th></tr>
+    ${p.rows.map((r, i) => `<tr><td>${esc(r[0])}</td><td class="${i === p.hl ? 'hl' : ''}">${esc(r[1])}</td><td>${esc(r[2])}</td><td>${esc(r[3])}</td></tr>`).join('')}</table>
+    <div class="pg">${esc(p.page)}</div></div>`;
+  const pvBib = (key) => key === 'smith2023'
+    ? `<pre class="bib">@article{<b>smith2023</b>,\n  author  = {<b>Smith</b>, J. and Okafor, A. and\n             Lindqvist, M.},\n  title   = {Adjuvant therapy and five-year\n             recurrence in a multicentre cohort},\n  year    = {<b>2023</b>},\n}</pre>`
+    : `<pre class="bib">@article{<b>smith2019</b>,\n  author  = {<b>Smith</b>, J. and Hale, P.},\n  title   = {Recurrence risk scoring in\n             early-stage disease},\n  year    = {<b>2019</b>},\n}</pre>`;
+  function pvContract(signed, hl) {
+    const cl = (n, html, on) => `<div class="cl${on ? '' : ' dim'}"><b>${n}</b>${on ? html : html.replace(/<\/?mark>/g, '')}</div>`;
+    return `<div class="page"><span class="stamp ${signed ? 'ok' : 'draft'}">${signed ? 'EXECUTED · 14 MAR 2025' : 'DRAFT · NOT EXECUTED'}</span>
+      <div class="pt">Lease Agreement · Unit 4</div><div class="pa">${signed ? 'lease_unit4_signed.pdf · p. 14' : 'lease_unit4_draft.pdf · p. 14'}</div>
+      ${cl('12.2', 'The Tenant may renew this Lease for a further term of five (5) years.', hl === '12.2')}
+      ${cl('12.3', `The Tenant shall give the Landlord not less than <mark>${signed ? 'six (6) months' : 'three (3) months'}</mark>’ written notice of its intention to renew prior to expiry.`, hl === '12.3')}
+      ${cl('18.1', 'The Landlord’s aggregate liability under this Lease shall not exceed <mark>€ 250,000</mark>.', hl === '18.1')}</div>`;
+  }
+  function pvBoard(final) {
+    const B = '#1d3f8f', K = '#25282b', R = '#c23a20';
+    let s = `<svg class="wb" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice"><rect width="320" height="200" fill="#f1f2ee"/>
+      <text x="14" y="26" font-size="18" fill="${K}">Heat eq. (1D rod)</text><path d="M14 31 q60 -3 118 1" fill="none" stroke="${K}" stroke-width="1.3"/>
+      <text x="14" y="53" font-size="16" fill="${B}">uₜ = α uₓₓ ,  0 &lt; x &lt; L</text>
+      <text x="14" y="73" font-size="15" fill="${B}">u(0,t) = u(L,t) = 0</text>
+      <text x="14" y="93" font-size="15" fill="${B}">u(x,0) = sin(πx/L)</text>
+      <text x="14" y="117" font-size="15" fill="${K}">try u = X(x)T(t) → T′/αT = X″/X = −λ</text>
+      <text x="14" y="139" font-size="15" fill="${K}">⇒ λ = (π/L)²</text>
+      <path d="M238 96 h70 M238 96 v-64" fill="none" stroke="${K}" stroke-width="1.2"/>
+      <path d="M238 96 Q273 6 308 96 M238 96 Q273 46 308 96 M238 96 Q273 76 308 96" fill="none" stroke="${B}" stroke-width="1.4"/>`;
+    s += final
+      ? `<text x="24" y="175" font-size="19" fill="${R}">u(x,t) = e<tspan dy="-8" font-size="12">−α(π/L)² t</tspan><tspan dy="8"> sin(πx/L)</tspan></text><path d="M15 154 q100 -5 210 1 q5 14 0 31 q-108 5 -210 -1 q-4 -16 0 -31z" fill="none" stroke="${R}" stroke-width="1.7"/>`
+      : `<text x="24" y="175" font-size="19" fill="#8d8f87">u(x,t) = ?</text>`;
+    return s + '</svg>';
+  }
+
+  /* ================= the catalog ================= */
+  const STACK = ['analysis.ipynb', 'assay.csv', 'board_pack_q2.pdf', 'budget_2026.xlsx', 'cohort.csv', 'contract_v4.docx', 'drainage.dxf', 'forecast_2026.xlsx', 'forecast_draft.xlsx', 'lease_unit4_draft.pdf', 'lease_unit4_signed.pdf', 'lee2021.pdf', 'minutes_0618.md', 'plan_L1.ifc', 'plan_L2.ifc', 'rooms_2019.csv', 'site.landxml', 'smith2023.pdf'];
+  const QUERIES = [
+    { q: 'What is the net floor area of Schlafzimmer?', res: [
+      { f: 'plan_L2.ifc', l: 'IfcSpace · Schlafzimmer · NetFloorArea', s: 'NetFloorArea = <mark>14.62 m²</mark>', v: 'v3' },
+      { f: 'rooms_2019.csv', l: 'row 14 · area_m2', s: 'Schlafzimmer, 12.9', v: 'v1', flag: 'older schedule' },
+      { f: 'plan_L1.ifc', l: 'IfcSpace · Schlafzimmer 2', s: 'NetFloorArea = 11.20 m²', v: 'v2' } ] },
+    { q: 'Notice period to renew the Unit 4 lease', res: [
+      { f: 'lease_unit4_signed.pdf', l: 'p. 14 · §12.3 Renewal', s: 'not less than <mark>six (6) months</mark>’ written notice', v: 'v2' },
+      { f: 'lease_unit4_draft.pdf', l: 'p. 14 · §12.3', s: 'not less than three (3) months’', v: 'v1', flag: 'draft · not executed' },
+      { f: 'minutes_0618.md', l: '¶7', s: '“landlord agreed to extend the notice period”', v: 'v1' } ] },
+    { q: 'Q3 operating revenue', res: [
+      { f: 'forecast_2026.xlsx', l: 'P&L!D12 · Q3 actual', s: 'Revenue <mark>4.82</mark> (€ M)', v: 'v5' },
+      { f: 'forecast_draft.xlsx', l: 'P&L!D12', s: 'Revenue 4.61 (€ M)', v: 'v2', flag: 'superseded' },
+      { f: 'budget_2026.xlsx', l: 'Summary!E12 · Q3 budget', s: 'Revenue 4.95 (€ M)', v: 'v4' } ] },
+    { q: 'Hazard ratio for recurrence in the Smith cohort', res: [
+      { f: 'smith2023.pdf', l: 'p. 6 · Table 2 · Overall', s: 'HR <mark>0.72</mark> (95% CI 0.61–0.85)', v: 'v1' },
+      { f: 'analysis.ipynb', l: 'cell [14]', s: 'hr_overall = 0.718', v: 'v3' },
+      { f: 'lee2021.pdf', l: 'p. 9 · Table 3', s: 'HR 0.81 (0.70–0.94)', v: 'v1', flag: 'different cohort' } ] },
+  ];
+  const drawerEl = $('#drawer'), found = $('#found'), catQ = $('#catQ');
+  const icards = STACK.map((name, i) => {
+    const c = document.createElement('div');
+    c.className = 'icard';
+    c.style.top = (30 + i * 14) + 'px'; c.style.zIndex = i;
+    c.innerHTML = `<span class="tab" style="left:${[4, 36, 66][i % 3]}%">${esc(name)}</span><div class="face"><b>${esc(name)}</b>indexed · ${3 + (i * 7) % 40} objects<br>snapshot v${1 + i % 5}</div>`;
+    drawerEl.append(c);
+    return c;
+  });
+  const catGate = gate(drawerEl, 0.3);
+  async function runCatalog() {
+    for (let qi = 0; ; qi = (qi + 1) % QUERIES.length) {
+      await catGate.wait();
+      const Q = QUERIES[qi];
+      icards.forEach(c => (c.className = 'icard'));
+      found.innerHTML = '<p class="empty">Ask a question or type a value. The catalog returns the exact cell, passage or object, with the version it came from.</p>';
+      catQ.textContent = '';
+      await sleep(400);
+      for (const ch of Q.q) { catQ.textContent += ch; await sleep(T(22)); }
+      await sleep(300);
+      const target = STACK.indexOf(Q.res[0].f);
+      Q.res.slice(1).forEach(r => { const k = STACK.indexOf(r.f); if (k >= 0) icards[k].classList.add('cand'); });
+      // riffle through the drawer, slowing as the right card approaches
+      for (let i = 0; i <= target; i++) {
+        const c = icards[i];
+        c.classList.add('flip');
+        setTimeout(() => c.classList.remove('flip'), 200);
+        await sleep(reduced ? 0 : 45 + Math.max(0, 5 - (target - i)) * 55);
+      }
+      icards[target].classList.add('pulled');
+      await sleep(450);
+      const r0 = Q.res[0];
+      found.innerHTML = `<div class="bigcard"><div class="bc-h"><span class="no">Card № ${String(400 + qi * 37).padStart(4, '0')}</span><span>Rank 1 of ${Q.res.length}</span></div>
+        <div class="bc-file">${esc(r0.f)}</div><div class="bc-loc">${esc(r0.l)}</div>
+        <div class="bc-frag">${r0.s}</div>
+        <div class="bc-foot"><span class="ver">${r0.v} · pinned</span><span>exact location</span></div></div>
+        <div class="slips">${Q.res.slice(1).map((r, i) => `<div class="slipr" style="animation-delay:${200 + i * 140}ms"><span class="f">${esc(r.f)}</span><span class="ver">${r.v}</span><span>${esc(r.l)}${r.flag ? ` · <span class="flag">${esc(r.flag)}</span>` : ''}</span><span></span></div>`).join('')}</div>`;
+      await sleep(5200);
+    }
+  }
+  runCatalog();
+
+  /* ================= the composing room ================= */
+  const CASES = {
+    arch: { doc: 'site-report.md', title: 'Level 2 fit-out', note: 'Indexed: IFC floor plans · LandXML site model · example data', script: [
+      { t: 'The net floor area of the bedroom is ' },
+      { s: [
+        { v: '14.62 m²', file: 'plan_L2.ifc', loc: 'IfcSpace · Schlafzimmer · NetFloorArea', ver: 'v3', pv: pvPlan('Schlafzimmer', '14.62 m²') },
+        { v: '9.85 m²', file: 'plan_L2.ifc', loc: 'IfcSpace · Küche · NetFloorArea', ver: 'v3', pv: pvPlan('Küche', '9.85 m²') },
+        { v: '12.9 m²', file: 'rooms_2019.csv', loc: 'row 14 · area_m2', ver: 'v1', pv: pvSheet(ROOMS_CSV, [3, 2], ['rooms_2019.csv']) } ], choose: 0 },
+      { t: ', and Main Road runs for ' },
+      { s: [
+        { v: '398.0 m', file: 'site_2022.landxml', loc: 'Alignment · Main Road · length', ver: 'v1', pv: pvSite(false) },
+        { v: '412.6 m', file: 'site.landxml', loc: 'Alignment · Main Road · length', ver: 'v2', pv: pvSite(true) } ], choose: 1 },
+      { t: ' between the two junctions.' } ] },
+    finance: { doc: 'q3-board-memo.md', title: 'Q3 board memo', note: 'Indexed: Excel forecasts and budgets · example data', script: [
+      { t: 'Operating revenue for the quarter came to ' },
+      { s: [
+        { v: '€ 4.82 M', file: 'forecast_2026.xlsx', loc: 'P&L!D12 · Q3 actual', ver: 'v5', pv: pvSheet(PL, [2, 4], ['P&L', 'Cash flow', 'Headcount']) },
+        { v: '€ 4.95 M', file: 'forecast_2026.xlsx', loc: 'P&L!E12 · Q3 budget', ver: 'v5', pv: pvSheet(PL, [2, 5], ['P&L', 'Cash flow', 'Headcount']) },
+        { v: '€ 4.61 M', file: 'forecast_draft.xlsx', loc: 'P&L!D12 · superseded', ver: 'v2', pv: pvSheet(PL_DRAFT, [2, 4], ['P&L (draft)']) } ], choose: 0 },
+      { t: ', 2.6 % below budget, with a gross margin of ' },
+      { s: [
+        { v: '38.4 %', file: 'forecast_2026.xlsx', loc: 'P&L!D15 · Q3 gross margin', ver: 'v5', pv: pvSheet(PL, [5, 4], ['P&L', 'Cash flow', 'Headcount']) },
+        { v: '41.0 %', file: 'forecast_2026.xlsx', loc: 'P&L!C15 · Q2 gross margin', ver: 'v5', pv: pvSheet(PL, [5, 3], ['P&L', 'Cash flow', 'Headcount']) } ], choose: 0 },
+      { t: '.' } ] },
+    research: { doc: 'lit-review.md', title: 'Literature review, chapter 2', note: 'Indexed: PDF papers · BibTeX library · example data', script: [
+      { t: 'In the largest cohort to date, adjuvant therapy lowered the risk of recurrence (HR ' },
+      { s: [
+        { v: '0.72', file: 'smith2023.pdf', loc: 'p. 6 · Table 2 · Overall', ver: 'v1', pv: pvPaper({ ...SMITH, hl: 0 }) },
+        { v: '0.64', file: 'smith2023.pdf', loc: 'p. 6 · Table 2 · Age < 65', ver: 'v1', pv: pvPaper({ ...SMITH, hl: 1 }) },
+        { v: '0.81', file: 'lee2021.pdf', loc: 'p. 9 · Table 3', ver: 'v1', pv: pvPaper({ ...LEE, hl: 0 }) } ], choose: 0 },
+      { t: ', 95 % CI 0.61–0.85) ' },
+      { s: [
+        { v: '(Smith et al., 2023)', file: 'refs.bib', loc: '@smith2023', ver: 'v1', pv: pvBib('smith2023') },
+        { v: '(Smith & Hale, 2019)', file: 'refs.bib', loc: '@smith2019', ver: 'v1', pv: pvBib('smith2019') } ], choose: 0 },
+      { t: '.' } ] },
+    legal: { doc: 'advice-note.md', title: 'Advice note: Unit 4 lease renewal', note: 'Indexed: signed and draft leases (PDF) · example data', script: [
+      { t: 'Under the lease, the tenant must give at least ' },
+      { s: [
+        { v: 'three months', file: 'lease_unit4_draft.pdf', loc: '§12.3 · notice to renew', ver: 'v1', pv: pvContract(false, '12.3') },
+        { v: 'six months', file: 'lease_unit4_signed.pdf', loc: '§12.3 · notice to renew', ver: 'v2', pv: pvContract(true, '12.3') } ], choose: 1 },
+      { t: '’ written notice before expiry, and the landlord’s liability is capped at ' },
+      { s: [ { v: '€ 250,000', file: 'lease_unit4_signed.pdf', loc: '§18.1 · limitation of liability', ver: 'v2', pv: pvContract(true, '18.1') } ], choose: 0 },
+      { t: '.' } ] },
+  };
+  const ORDER = ['arch', 'finance', 'research', 'legal'];
+  const ms = $('#ms'), msText = $('#msText'), msName = $('#msName'), msTitle = $('#msTitle'), msStatus = $('#msStatus'), caseNote = $('#caseNote'), msCursor = $('#msCursor');
+  const ctabs = $$('.ctab');
+  const sorts = Object.fromEntries($$('.sortkey').map(k => [k.dataset.key, k]));
+  const msGate = gate(ms, 0.3);
+  const CANCEL = Symbol('cancel');
+  let gen = 0;
+  const nap = (t, g) => new Promise((res, rej) => setTimeout(() => (g === gen ? res() : rej(CANCEL)), t));
+  const watch = async (g) => { while (!msGate.on) await nap(250, g); };
+  const hitKey = async (k, g, t = 260) => { sorts[k].classList.add('hit'); try { await nap(t, g); } finally { sorts[k].classList.remove('hit'); } };
+  const paneHTML = (o, label = 'Proof', right = 'confirm before ⇥') => `<div class="pane"><div class="lab"><span>${label}</span><b>${right}</b></div>
+    <div class="pv-head"><span>${esc(o.file)}</span><span class="ver">${o.ver}</span></div><div class="stage">${o.pv}</div>
+    <div class="meta"><span class="val">${esc(o.v)}</span><span class="loc">${esc(o.loc)}</span></div></div>`;
+  const slipHTML = (opts, sel) => `<div class="list">${opts.map((o, i) => `<div class="row${i === sel ? ' on' : ''}"><span class="v">${esc(o.v)}</span><span class="s">${esc(o.file)}</span><span class="ver">${o.ver}</span></div>`).join('')}
+    <div class="foot"><span class="go">⇥ set</span><span>↑↓ source</span><span>esc</span></div></div>${paneHTML(opts[sel])}`;
+
+  function closeInspect() { $$('.slip.inspect', ms).forEach(p => p.remove()); $$('.set.inspecting', ms).forEach(c => c.classList.remove('inspecting')); }
+  function openInspect(chip) {
+    closeInspect();
+    const mr = ms.getBoundingClientRect(), cr = chip.getBoundingClientRect();
+    const w = Math.min(390, mr.width - 24);
+    const pop = document.createElement('div');
+    pop.className = 'slip inspect';
+    pop.style.width = w + 'px';
+    pop.style.left = Math.max(12, Math.min(cr.left - mr.left, mr.width - w - 12)) + 'px';
+    pop.style.top = (cr.bottom - mr.top + 8) + 'px';
+    pop.innerHTML = paneHTML(chip._src, `Provenance [${chip._n}]`, `pinned ${chip._src.ver}`).replace(/<\/div>$/, '<div class="insp-ok">Source unchanged since you set it</div><div class="insp-actions"><span class="pri">Open source</span><span>Copy citation</span><span>Share ⇧⌘↵</span></div></div>');
+    chip.classList.add('inspecting');
+    ms.append(pop);
+  }
+  ms.addEventListener('click', (e) => {
+    const chip = e.target.closest('.set');
+    if (chip && chip._src) openInspect(chip);
+    else if (!e.target.closest('.slip.inspect')) closeInspect();
+  });
+
+  async function playCase(key, g) {
+    const C = CASES[key];
+    msName.textContent = C.doc; msTitle.textContent = C.title; caseNote.textContent = C.note;
+    msText.innerHTML = ''; msStatus.textContent = 'composing';
+    $$('.slip', ms).forEach(p => p.remove()); msCursor.classList.remove('show');
+    let n = 0;
+    for (const step of C.script) {
+      await watch(g);
+      if (step.t) { for (const ch of step.t) { msText.append(ch); await nap(T(14), g); } continue; }
+      await nap(350, g);
+      const caret = ms.querySelector('.ms-text .caret').getBoundingClientRect(), mr = ms.getBoundingClientRect();
+      const stack = mr.width < 740, w = Math.min(660, mr.width - 24);
+      ms.classList.toggle('tall', stack);
+      const slip = document.createElement('div');
+      slip.className = 'slip' + (stack ? ' stack' : '');
+      slip.style.width = w + 'px';
+      slip.style.left = Math.max(12, Math.min(caret.left - mr.left - 8, mr.width - w - 12)) + 'px';
+      slip.style.top = (caret.bottom - mr.top + 8) + 'px';
+      let sel = 0;
+      const render = () => { slip.innerHTML = slipHTML(step.s, sel); };
+      render(); ms.append(slip);
+      msStatus.textContent = 'proof · confirm before ⇥';
+      try {
+        await nap(1700, g);
+        while (sel < step.choose) { await hitKey('arrows', g); sel++; render(); await nap(1900, g); }
+        await nap(600, g);
+        slip.querySelector('.go').classList.add('hit');
+        await hitKey('tab', g, 300);
+      } finally { slip.remove(); }
+      const o = step.s[step.choose];
+      n++;
+      const span = document.createElement('span');
+      span.className = 'set'; span.innerHTML = `${esc(o.v)}<sup>${n}</sup>`;
+      span._src = o; span._n = n;
+      msText.append(span);
+      msStatus.textContent = `set [${n}] · pinned ${o.ver}`;
+      await nap(600, g);
+    }
+    msStatus.textContent = `${n} fragments set · 0 guessed`;
+    // click a set fragment to check its provenance
+    await nap(800, g);
+    const first = msText.querySelector('.set');
+    const mr = ms.getBoundingClientRect(), fr = first.getBoundingClientRect();
+    msCursor.classList.add('show');
+    await nap(300, g);
+    msCursor.style.left = (fr.left - mr.left + fr.width * 0.5) + 'px';
+    msCursor.style.top = (fr.top - mr.top + fr.height * 0.6) + 'px';
+    await nap(1000, g);
+    msCursor.classList.add('press'); sorts.click.classList.add('hit');
+    await nap(150, g);
+    msCursor.classList.remove('press'); sorts.click.classList.remove('hit');
+    openInspect(first);
+    msStatus.textContent = `inspecting [${first._n}] · pinned ${first._src.ver}`;
+    await nap(4200, g);
+    closeInspect(); msCursor.classList.remove('show');
+    msStatus.textContent = `${n} fragments set · 0 guessed`;
+  }
+  async function runCases(start) {
+    const g = ++gen;
+    try {
+      for (let k = start; ; k = ORDER[(ORDER.indexOf(k) + 1) % ORDER.length]) {
+        ctabs.forEach(t => t.setAttribute('aria-selected', String(t.dataset.case === k)));
+        await playCase(k, g);
+        await nap(3200, g);
+      }
+    } catch (e) { if (e !== CANCEL) throw e; }
+  }
+  ctabs.forEach(t => t.addEventListener('click', () => runCases(t.dataset.case)));
+  runCases('arch');
+
+  /* ================= dispatch ================= */
+  const panels = $$('#press .panel'), dSet = $('#dSet'), dKey = $('#dKey'), dLease = $('#dLease'), dMeta = $('#dMeta');
+  const dLink = $('#dLink'), dCard = $('#dCard'), dDl = $('#dDl'), dStamp = $('#dStamp'), dSegs = $$('#dSeg span'), dRs = $$('.r', dLease);
+  const pressGate = gate($('#press'), 0.35);
+  const setPanel = (n) => panels.forEach((p, i) => { p.classList.toggle('on', i === n); p.classList.toggle('done', i < n); });
+  const setMode = (m, k = 0) => {
+    dSegs.forEach(s => s.classList.toggle('on', s.dataset.m === m));
+    dLease.classList.toggle('part', m === 'part');
+    dMeta.textContent = m === 'part' ? '§12.3 with nearby context · original file not downloadable'
+      : m === 'whole' ? 'Full document · original file downloadable' : `Redacted copy · ${k} area${k === 1 ? '' : 's'} inked out`;
+  };
+  async function runDispatch() {
+    for (;;) {
+      await pressGate.wait();
+      setPanel(-1); dSet.className = 'set'; dLink.className = 'set'; dKey.classList.remove('hit');
+      dSegs.forEach(s => s.classList.remove('on')); dLease.classList.remove('part'); dRs.forEach(r => r.classList.remove('on')); dMeta.innerHTML = '&nbsp;';
+      dCard.classList.remove('show'); dDl.className = 'dl'; dDl.textContent = 'Download redacted PDF'; dStamp.classList.remove('show');
+      await sleep(500);
+      setPanel(0); await sleep(500); dSet.classList.add('glow'); await sleep(1000);
+      dKey.classList.add('hit'); await sleep(450); dKey.classList.remove('hit');
+      setPanel(1); setMode('part'); await sleep(1600);
+      setMode('whole'); await sleep(1400);
+      setMode('redact', 0); await sleep(500);
+      for (let i = 0; i < dRs.length; i++) { dRs[i].classList.add('on'); setMode('redact', i + 1); await sleep(800); }
+      await sleep(600);
+      setPanel(2); await sleep(800);
+      dLink.classList.add('clicked'); await sleep(400);
+      dCard.classList.add('show'); await sleep(1300);
+      dDl.classList.add('press'); await sleep(140); dDl.classList.remove('press');
+      dDl.classList.add('done'); dDl.textContent = 'Downloaded ✓'; await sleep(500);
+      dStamp.classList.add('show');
+      await sleep(3800);
+    }
+  }
+  runDispatch();
+
+  /* ================= correspondence (in development) ================= */
+  const tr = $('#tr'), mbL = $('#mbL'), req = $('#req'), reqBtn = $('#reqBtn'), reqStamp = $('#reqStamp');
+  const meetGate = gate($('#cMeet'), 0.35);
+  async function runMeet() {
+    for (;;) {
+      await meetGate.wait();
+      tr.innerHTML = ''; req.classList.remove('show'); reqStamp.classList.remove('show'); reqBtn.className = 'dl'; reqBtn.textContent = 'Share with Priya';
+      await sleep(500);
+      const lines = [['Lena', 'The drainage plan is next on my list.'], ['Priya', 'Could you send me the updated budget you mentioned?', 'send me the updated budget']];
+      for (const [who, text, hl] of lines) {
+        const p = document.createElement('p');
+        p.innerHTML = `<span class="who">${who}</span><span class="t"></span>`;
+        tr.append(p);
+        const t = p.querySelector('.t');
+        for (const ch of text) { t.textContent += ch; await sleep(T(20)); }
+        if (hl) t.innerHTML = esc(text).replace(hl, `<mark>${hl}</mark>`);
+        await sleep(500);
+      }
+      mbL.classList.add('alert'); await sleep(1200); mbL.classList.remove('alert');
+      req.classList.add('show'); await sleep(2200);
+      reqBtn.classList.add('press'); await sleep(140); reqBtn.classList.remove('press');
+      reqBtn.classList.add('done'); reqBtn.textContent = 'Shared ✓'; await sleep(300);
+      reqStamp.classList.add('show');
+      await sleep(3600);
+    }
+  }
+  runMeet();
+
+  const cPhone = $('#cPhone'), mpGrid = $('#mpGrid'), mpFlash = $('#mpFlash'), pmText = $('#pmText'), pmBody = $('#pmBody'), pmOcr = $('#pmOcr'), phWhen = $('#phWhen');
+  const tileSvg = (a, b, c) => `<svg viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10" fill="${a}"/><rect y="6" width="10" height="4" fill="${b}"/><circle cx="7" cy="3" r="1.5" fill="${c}"/></svg>`;
+  const TILES = [tileSvg('#3c5a73', '#2b3b2a', '#e8d9a8'), tileSvg('#6b4f3a', '#3a2c22', '#d9b38c'), tileSvg('#24303b', '#4a5a4c', '#cfd8dc'), tileSvg('#7a8a99', '#5c6b52', '#f4e3b1'), tileSvg('#2e2a35', '#55405e', '#e6a07a'), tileSvg('#9aa7a0', '#6d7c74', '#ffffff'), tileSvg('#40352b', '#8a7356', '#f0d9b5'), tileSvg('#1f3346', '#2f5266', '#9fc7d9'), tileSvg('#5d6a4b', '#3d4731', '#dfe7c4')];
+  const phoneGate = gate(cPhone, 0.35);
+  async function runPhone() {
+    for (;;) {
+      await phoneGate.wait();
+      mpGrid.innerHTML = TILES.map(t => `<div class="tile">${t}</div>`).join('');
+      pmText.innerHTML = ''; pmOcr.style.opacity = 0; phWhen.textContent = 'Tue 16:42';
+      await sleep(800);
+      mpFlash.classList.remove('go'); mpFlash.getBoundingClientRect(); mpFlash.classList.add('go');
+      await sleep(250);
+      const tile = document.createElement('div');
+      tile.className = 'tile new'; tile.innerHTML = pvBoard(true);
+      mpGrid.prepend(tile); mpGrid.lastElementChild.remove();
+      await sleep(1500);
+      phWhen.textContent = 'Thu 08:15';
+      for (const ch of 'Hi Amara, here’s the derivation from Tuesday’s whiteboard: ') { pmText.append(ch); await sleep(T(18)); }
+      tile.classList.add('hit');
+      await sleep(400);
+      // the photo travels from the phone into the sentence
+      const pr = cPhone.getBoundingClientRect(), tr0 = tile.getBoundingClientRect(), caret = pmBody.querySelector('.caret').getBoundingClientRect();
+      const clone = document.createElement('div');
+      clone.className = 'flyclone'; clone.innerHTML = pvBoard(true);
+      clone.style.left = (tr0.left - pr.left) + 'px'; clone.style.top = (tr0.top - pr.top) + 'px';
+      clone.style.width = tr0.width + 'px'; clone.style.height = tr0.height + 'px';
+      cPhone.append(clone);
+      const dx = caret.left - tr0.left, dy = caret.top - tr0.top;
+      if (!reduced) {
+        await clone.animate([
+          { transform: 'translate(0,0) scale(1)', opacity: 1 },
+          { transform: `translate(${dx * 0.5}px, ${dy * 0.5 - 60}px) scale(2.2) rotate(-4deg)`, opacity: 1, offset: 0.55 },
+          { transform: `translate(${dx}px, ${dy}px) scale(.6)`, opacity: 0 },
+        ], { duration: 1400, easing: 'cubic-bezier(.45,0,.25,1)', fill: 'forwards' }).finished.catch(() => {});
+      }
+      clone.remove();
+      const chip = document.createElement('span');
+      chip.className = 'chip'; chip.textContent = 'IMG_4182.jpg ¹';
+      pmText.append(chip);
+      pmOcr.style.opacity = 1;
+      await sleep(400);
+      for (const ch of ' The boxed result is the one I’d use.') { pmText.append(ch); await sleep(T(18)); }
+      await sleep(4000);
+    }
+  }
+  runPhone();
+
+  /* ================= copy ================= */
+  $('#copyBtn').addEventListener('click', async (ev) => {
+    try { await navigator.clipboard.writeText('git clone https://github.com/jte700/Lasso.git && cd Lasso\nnpm start'); ev.target.textContent = 'copied'; }
+    catch { ev.target.textContent = 'select & copy'; }
+    setTimeout(() => (ev.target.textContent = 'copy'), 1600);
+  });
+})();
+</script>
+</body>
+</html>

@@ -517,6 +517,69 @@ do {
           "a quantitative claim still inserts the source-backed value")
 }
 
+print("source-backed model previews")
+do {
+    let bounds: [String: Any] = ["minX": 10.0, "minY": 20.0, "maxX": 20.0, "maxY": 30.0]
+    let modelJSON: [String: Any] = [
+        "kind": "model-plan", "bounds": bounds, "focusBounds": bounds,
+        "selected": ["id": 42, "guid": "wall-guid", "label": "Exterior Wall", "entityType": "IFCWALLSTANDARDCASE"],
+        "storey": ["label": "Level 1"], "warnings": [],
+        "elements": [[
+            "id": 42, "guid": "wall-guid", "label": "Exterior Wall", "entityType": "IFCWALLSTANDARDCASE",
+            "role": "context", "selected": true,
+            "polygons": [
+                [[10.0, 20.0], [20.0, 20.0], [20.0, 30.0], [10.0, 30.0]],
+                [[12.0, 22.0], [18.0, 22.0], [18.0, 28.0], [12.0, 28.0]],
+            ],
+        ]],
+    ]
+    let response: [String: Any] = [
+        "source": ["filename": "Building.ifc", "location": "Exterior Wall", "objectType": "DRAWING_ANNOTATION"],
+        "path": "Architecture/Building.ifc", "preview": modelJSON,
+    ]
+    let data = try! JSONSerialization.data(withJSONObject: response)
+    let parsed = AssistDocumentPreview.parse(data)!
+    let model = parsed.model!
+    check(model.selectedEntityType == "IFCWALLSTANDARDCASE" && model.elements[0].selected,
+          "selects non-room IFC products by source identity")
+    check(model.elements[0].guid == "wall-guid" && model.elements[0].polygons.count == 2,
+          "preserves selected geometry and opening rings from the source response")
+    check(parsed.path == "Architecture/Building.ifc" && parsed.rows.isEmpty,
+          "routes an IFC preview to model rendering instead of an empty table")
+
+    let transform = AssistModelTransform(bounds: model.focusBounds,
+        viewport: NSRect(x: 5, y: 7, width: 220, height: 120))!
+    check(transform.scale == 10, "fits focused geometry without changing its aspect ratio")
+    check(transform.point(NSPoint(x: 10, y: 30)) == NSPoint(x: 65, y: 17) &&
+          transform.point(NSPoint(x: 20, y: 20)) == NSPoint(x: 165, y: 117),
+          "keeps IFC plan orientation when mapping into a flipped native view")
+    let path = transform.path(for: model.elements[0])
+    check(path.contains(transform.point(NSPoint(x: 11, y: 21))) &&
+          !path.contains(transform.point(NSPoint(x: 15, y: 25))),
+          "renders real wall geometry while leaving its opening unfilled")
+    check(AssistModelTransform(bounds: model.bounds, viewport: .zero) == nil,
+          "rejects an empty drawing viewport")
+    check(AssistModelBounds(json: ["minX": 0, "minY": 0, "maxX": 0, "maxY": 2]) == nil &&
+          AssistModelBounds(json: ["minX": 0, "minY": 0, "maxX": Double.infinity, "maxY": 2]) == nil,
+          "rejects degenerate and non-finite geometry bounds")
+    var invalid = modelJSON
+    invalid["elements"] = [["polygons": [[[Double.nan, 1], [2, 3], [4, 5]]]]]
+    check(AssistModelPreview(json: invalid) == nil,
+          "does not draw fabricated replacement geometry for malformed coordinates")
+
+    var unavailable = response
+    unavailable["preview"] = ["kind": "model-unavailable", "reason": "This element has properties but no geometric representation."]
+    let unavailablePreview = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: unavailable))!
+    check(unavailablePreview.model == nil && unavailablePreview.unavailableReason?.contains("no geometric representation") == true,
+          "explains why an indexed element cannot be drawn")
+
+    var table = response
+    table["preview"] = ["columns": ["B"], "headers": ["Area"], "rows": [["rowNumber": 7, "cells": [["value": "42", "cited": true]]]]]
+    let tablePreview = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: table))!
+    check(tablePreview.model == nil && tablePreview.rows[0].cells[0].cited && tablePreview.rows[0].rowNumber == 7,
+          "preserves exact-cell spreadsheet preview parsing")
+}
+
 print("")
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

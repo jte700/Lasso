@@ -1,5 +1,6 @@
 // Source browsing and evidence review. The command API remains an adapter for
 // existing reports; users work with files, excerpts, and explicit actions.
+import { renderModelPlan, bindModelPlans } from './model-preview.js?v=2';
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const quote = value => String(value).split("'").map(part => `'${part}'`).join(`"'"`);
 const basename = value => String(value ?? '').split('/').pop();
@@ -29,7 +30,7 @@ export function createSourceWorkbench({input, api, getProjectId, getActor, onOpe
  const rows = () => {
   const valuedFiles=new Set(objects.filter(o=>o.objectType==='DATASET_VALUE').map(o=>o.path));
   return objects.filter(o=>!(valuedFiles.has(o.path) && ['DATASET','DATASET_ROW','VARIABLE'].includes(o.objectType)))
-   .filter(o => !query || `${o.label} ${o.path} ${o.valueText ?? ''}`.toLowerCase().includes(query.toLowerCase()));
+   .filter(o => !query || `${o.label} ${o.path} ${o.valueText ?? ''} ${(o.searchAliases ?? []).join(' ')}`.toLowerCase().includes(query.toLowerCase()));
  };
  const title = () => ({library:'Source library',attention:'Needs attention',changes:'Recent changes',shares:'Shared links',names:'Repeated source names',report:'Results'}[mode]);
  function syncNavigation() {
@@ -60,11 +61,14 @@ export function createSourceWorkbench({input, api, getProjectId, getActor, onOpe
    <footer class="wb-status"><span>${mode==='library'?`${paths.length} files · ${matched.length} indexed items`:escape(report?.headline??'')}</span><span>Local workspace${session?.version?` · Version ${session.version}`:''}</span></footer>
   </section>`;
   bind();
+  bindModelPlans(host);
   const inspector=host.querySelector('.wb-inspector');if(inspector)inspector.scrollTop=scroll;
   if(focusFile!==undefined||focusReport!==undefined)[...host.querySelectorAll('.wb-file')].find(b=>focusFile!==undefined?b.dataset.file===focusFile:b.dataset.report===focusReport)?.focus({preventScroll:true});
  }
  function previewHTML() {
   if(!preview) return '<p class="wb-muted">Loading source preview…</p>';
+  if(preview.kind==='model-plan') return renderModelPlan(preview);
+  if(preview.kind==='model-unavailable') return `<p class="wb-prose">${escape(preview.reason ?? 'No displayable geometry was found for this indexed element.')}</p>`;
   if(preview.kind==='table') return `<div class="wb-table-scroll"><table class="wb-evidence-table"><thead><tr><th scope="col" aria-label="Row number"></th>${(preview.headerRow??preview.columns??[]).map((heading,i)=>`<th scope="col"><span>${escape(heading||(preview.columns?.[i]?`Column ${preview.columns[i]}`:'Column'))}</span></th>`).join('')}</tr></thead><tbody>${preview.rows.map(row=>`<tr class="${row.highlighted?'cited':''}"><th>${row.rowNumber}</th>${row.cells.map((cell,i)=>`<td class="${row.highlighted && i===preview.highlightColumn?'cited-cell':''}">${escape(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   if(preview.kind==='text') return `<div class="wb-excerpt">${preview.lines.map(line=>`<div class="${line.highlighted?'cited':''}"><span>${line.lineNumber}</span><p>${escape(line.text)||' '}</p></div>`).join('')}</div>`;
   return `<p class="wb-prose">${escape(preview.reason??preview.value??'A visual preview is unavailable for this source. Open its recorded version to inspect it.')}</p>`;
@@ -97,6 +101,9 @@ export function createSourceWorkbench({input, api, getProjectId, getActor, onOpe
   return empty(query?'No matching evidence':'Add sources to this project',query?'Try a file name, a phrase, or a value from your source.':'Documents and data in your project folder will appear here after indexing.');
  }
  async function selectObject(object,extra={}) {
+  // An explicit selection wins over a search update still in its debounce
+  // window. Otherwise a quick click can be wiped out as the preview arrives.
+  clearTimeout(timer);query=input.value.trim();
   const token=++detailEpoch, project=getProjectId(); selectedObject={...object,...extra}; candidates=null; preview=null;plan=null;render();
   try {
    const [p,r]=await Promise.all([

@@ -74,7 +74,9 @@ test('native model facts flow through graph, source links, revisions, and pinned
   const response = await fetch(`${base}/api/snapshots/${source.snapshotId}/preview?path=rooms.ifc`);
   assert.equal(response.status, 200);
   const { preview: filePreview } = await response.json();
-  assert.equal(filePreview.kind, 'drawing');
+  // This deliberately metadata-only fixture has no representation to draw.
+  assert.equal(filePreview.kind, 'model-unavailable');
+  assert.ok(filePreview.reason);
   const selected = filePreview.items.find((item) => item.anchor.propertyName === 'NetFloorArea');
   assert.equal(selected.value, '20 m²');
   assert.equal(selected.basis, 'model-property');
@@ -193,4 +195,58 @@ test('unsupported native drawing containers remain visible with actionable expor
   const revit = failures.find((failure) => failure.path === 'building.rvt');
   assert.match(revit.reason, /Export IFC.*rooms\/spaces.*quantities/i);
   assert.equal(revit.retryable, false);
+});
+
+test('typing a drawing filename or plan topic finds the whole model and preserves its indexed identity', async (t) => {
+  const state = workspace(t, { 'Duplex_A_20110907.ifc': roomModel(), 'Budget.csv': 'Item,Cost\nSupplies,120\n' });
+  const { app, project } = state;
+  const drawing = app.dependencies.objectsAt(project.id, null, ['DRAWING'])
+    .find(object => object.path === 'Duplex_A_20110907.ifc');
+  assert.ok(drawing);
+  const original = app.db.prepare('SELECT * FROM scientific_object_versions WHERE id=?').get(drawing.versionId);
+  for (const text of ['duplex', 'Dup', 'floor plan', 'floorplan', 'architectural drawing',
+    'I am looking at the duplex', 'Please check the floor plan', '🏠 Look at the duplex']) {
+    const prediction = app.dependencies.predict(project.id, { text, cursor: text.length });
+    const claim = prediction.claims.find(claim => claim.candidates.some(candidate => candidate.id === drawing.id));
+    assert.ok(claim, `typing ${text} should find the whole drawing`);
+    const candidate = claim.candidates.find(candidate => candidate.id === drawing.id);
+    assert.equal(candidate.objectType, 'DRAWING');
+    assert.equal(candidate.versionId, drawing.versionId);
+    assert.equal(candidate.snapshotId, drawing.snapshotId);
+    assert.equal(candidate.anchor.kind, 'cad-model');
+    assert.match(candidate.label, /Duplex/i);
+    assert.equal(candidate.valueText, null, 'a model reference must not insert a random measurement');
+    assert.equal(claim.end, text.length);
+    assert.ok(['duplex', 'Dup', 'floor plan', 'floorplan', 'architectural drawing'].includes(text.slice(claim.start, claim.end)));
+  }
+  const supplies = app.dependencies.objectsAt(project.id).find(object => object.objectType === 'DATASET_ROW' && object.label === 'Supplies');
+  const text = 'Supplies were reviewed. Now look at the duplex';
+  const linked = app.dependencies.predict(project.id, { text, cursor: text.length,
+    pendingDependencies: [{ start: 0, end: 8, sourceObjectId: supplies.id, sourceSnapshotId: supplies.snapshotId }] });
+  assert.ok(linked.claims.some(claim => claim.candidates.some(candidate => candidate.id === drawing.id)),
+    'an earlier linked spreadsheet must not swallow an explicit drawing reference');
+  for (const query of ['duplex', 'floor plan']) {
+    const found = app.dependencies.search(project.id, query);
+    assert.equal(found[0].objectType, 'DRAWING');
+    if (query === 'duplex') assert.equal(found[0].id, drawing.id);
+  }
+  for (const text of ['health plan', 'travel plan', 'duplexer', 'the floor', 'ordinary prose']) {
+    const prediction = app.dependencies.predict(project.id, { text, cursor: text.length });
+    assert.ok(!prediction.claims.flatMap(claim => claim.candidates).some(candidate => candidate.objectType === 'DRAWING'), text);
+  }
+  const property = app.dependencies.predict(project.id, { text: 'Conference 101 Net Floor Area' });
+  assert.ok(property.claims.flatMap(claim => claim.candidates).some(candidate => candidate.objectType === 'DRAWING_ANNOTATION'),
+    'specific properties must remain available');
+  assert.deepEqual(app.db.prepare('SELECT * FROM scientific_object_versions WHERE id=?').get(drawing.versionId), original,
+    'discovery aliases must not rewrite immutable historical source records');
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  const response = await fetch(`http://127.0.0.1:${app.server.address().port}/api/projects/${project.id}/source-library`);
+  const libraryDrawing = (await response.json()).objects.find(object => object.id === drawing.id);
+  assert.ok(libraryDrawing.searchAliases.includes('floor plan'));
+  assert.match(libraryDrawing.label, /Duplex/);
+  app.dependencies.suppressedPathPrefixes = () => ['Duplex_A_20110907.ifc'];
+  assert.ok(!app.dependencies.predict(project.id, { text: 'duplex' }).claims
+    .flatMap(claim => claim.candidates).some(candidate => candidate.id === drawing.id));
+  assert.ok(app.dependencies.search(project.id, 'duplex').some(candidate => candidate.id === drawing.id),
+    'autocomplete exclusion must not hide explicit search');
 });

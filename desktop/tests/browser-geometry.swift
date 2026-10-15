@@ -27,7 +27,13 @@ enum BrowserGeometryRegression {
                     write(response, to: resultURL)
                     return true
                 }
-                if !AXIsProcessTrusted() {
+                if request["command"] as? String == "render-model-preview" {
+                    if let input = request["input"] as? String, let output = request["output"] as? String,
+                       let previewData = try? Data(contentsOf: URL(fileURLWithPath: input)) {
+                        response["rendered"] = GlobalAssistant.regressionRenderPreview(
+                            data: previewData, to: URL(fileURLWithPath: output))
+                    } else { response["error"] = "Model preview JSON or output path is missing." }
+                } else if !AXIsProcessTrusted() {
                     response["error"] = "The signed Lasso app does not have Accessibility permission."
                 } else if request["command"] as? String == "ping" {
                     response["ready"] = true

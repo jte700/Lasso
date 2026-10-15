@@ -1,8 +1,9 @@
 import { caretPointForTextLengths, contextualCompletionCase } from './editor-acceptance.js';
 import { createCommandPalette } from './palette.js';
 import { createDirectorySidebar, createTabBar, createSidebarResize, createSpatialWorkbench, renderSession, shortenPath } from './shell.js?v=4';
-import { createSourceWorkbench } from './source-workbench.js?v=1';
+import { createSourceWorkbench } from './source-workbench.js?v=4';
 import { renderAssistBox } from './assist-box.js?v=2';
+import { renderModelPlan, bindModelPlans } from './model-preview.js?v=2';
 
 const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
 const RECOMMENDATION_SESSION_ID = crypto.randomUUID();
@@ -15,6 +16,8 @@ const state = {
   projects: [],
   project: null,
   preview: null,
+  previewRevision: 0,
+  sourceViewerRevision: 0,
   identity: loadIdentity(),
   proposedExecution: null,
   pollTimer: null,
@@ -155,6 +158,8 @@ async function selectProject(projectId, reconcile = true) {
     dependencyShell.reset();
   }
   state.project = nextProject;
+  state.previewRevision += 1;
+  state.sourceViewerRevision += 1;
   state.preview = null;
   state.selection = null;
   localStorage.setItem('lasso.projectId', projectId);
@@ -240,14 +245,19 @@ function renderEmpty() {
 }
 
 async function showPreview(snapshotId, path, returnEventId = null, focusAnchor = null) {
+  const revision = ++state.previewRevision;
   const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
+  const isCurrent = () => revision === state.previewRevision && usageContext.projectId === state.project?.id;
   try {
-    const { preview } = await api(`/api/snapshots/${snapshotId}/preview?path=${encodeURIComponent(path)}`);
+    const parameters = new URLSearchParams({ path });
+    if (focusAnchor?.elementId) parameters.set('elementId', focusAnchor.elementId);
+    const { preview } = await api(`/api/snapshots/${snapshotId}/preview?${parameters}`);
+    if (!isCurrent()) return;
     state.preview = preview;
     state.selection = null;
     renderPreview(preview, returnEventId, focusAnchor);
     recordRecommendationUsage({ path }, 'open', usageContext);
-  } catch (error) { toast(error.message, 'error'); }
+  } catch (error) { if (isCurrent()) toast(error.message, 'error'); }
 }
 
 function renderPreview(preview, returnEventId, focusAnchor = null) {
@@ -256,12 +266,13 @@ function renderPreview(preview, returnEventId, focusAnchor = null) {
       <div class="preview-title"><strong>${escapeHtml(preview.path)}</strong><span>Version ${preview.version} · ${escapeHtml(preview.fileType)}</span></div>
       <div class="preview-actions">${returnEventId ? `<button class="secondary-button" id="back-to-event">Back to event</button>` : ''}<button class="primary-button" id="request-info" disabled>Request information</button></div>
     </header>
-    <div class="preview-body"><p class="selection-hint">Select a sentence, line, cell, or value below. The selection is anchored to Version ${preview.version}.</p>${previewContent(preview)}<div id="rfi-result"></div></div>
+    <div class="preview-body"><p class="selection-hint">${preview.kind === 'model-plan' ? (preview.selected ? 'The indexed element is highlighted in the preserved model. Drag to pan, or show its surrounding context.' : 'Plan overview of the preserved model. Drag to pan or use the zoom controls.') : `Select a sentence, line, cell, or value below. The selection is anchored to Version ${preview.version}.`}</p>${previewContent(preview)}<div id="rfi-result"></div></div>
   </div>`;
   elements['detail-column'].scrollTop = 0;
   if (returnEventId) document.getElementById('back-to-event').addEventListener('click', () => showEvent(returnEventId));
   document.getElementById('request-info').addEventListener('click', requestInformation);
   bindSelections();
+  bindModelPlans(elements['detail-column']);
   if (focusAnchor) focusPreviewAnchor(focusAnchor);
 }
 
@@ -271,6 +282,8 @@ function focusPreviewAnchor(anchor) {
     const item = JSON.parse(candidate.dataset.anchor);
     return item.kind === anchor.kind
       && (anchor.identifier == null || item.identifier === anchor.identifier)
+      && (anchor.elementId == null || item.elementId === anchor.elementId)
+      && (anchor.propertyName == null || item.propertyName === anchor.propertyName)
       && (anchor.pageNumber == null || item.pageNumber === anchor.pageNumber)
       && (anchor.line == null || item.line === anchor.line)
       && (anchor.cellId == null || item.cellId === anchor.cellId)
@@ -284,6 +297,8 @@ function focusPreviewAnchor(anchor) {
 }
 
 function previewContent(preview) {
+  if (preview.kind === 'model-plan') return renderModelPlan(preview);
+  if (preview.kind === 'model-unavailable') return `<p class="selection-hint">${escapeHtml(preview.reason ?? 'No displayable geometry was found for this indexed element.')}</p>`;
   if (preview.kind === 'drawing') return `${(preview.warnings ?? []).map(warning => `<p class="selection-hint">${escapeHtml(warning)}</p>`).join('')}<div class="json-preview">${preview.items.map(item => `<span class="json-path" title="${escapeHtml(item.location)}">${escapeHtml(item.path)}<small> · ${item.basis === 'geometry' ? 'Boundary geometry' : 'Model property'}</small></span><span class="json-value selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.value)}</span>`).join('')}</div>`;
   if (preview.kind === 'blocks') return preview.items.map((item) => `<div class="preview-block ${item.blockType} selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text)}</div>`).join('');
   if (preview.kind === 'lines') return `<div class="code-preview">${preview.items.map((item) => `<div class="code-line"><span class="number">${item.label}</span><span class="selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text) || ' '}</span></div>`).join('')}</div>`;
@@ -301,6 +316,7 @@ function textOffset(root, target, offset) {
 }
 
 function setWorkspaceView(view) {
+  state.previewRevision += 1;
   state.view = view;
   const window_ = document.getElementById('app-window');
   window_?.classList.toggle('view-editor', view === 'editor');
@@ -2075,7 +2091,9 @@ function sourceViewerTableContent(viewer) {
 function renderDependencySourceViewer(dialog, viewer) {
   const target = dialog.querySelector('#dependency-source-viewer-content');
   const page = Math.max(1, Number(viewer.pageNumber) || 1);
-  const content = viewer.kind === 'pdf'
+  const content = viewer.kind === 'model-plan' ? renderModelPlan(viewer)
+    : viewer.kind === 'model-unavailable' ? `<div class="source-viewer-unavailable"><strong>Model geometry unavailable</strong><p>${escapeHtml(viewer.reason ?? 'No displayable geometry was found for this indexed element.')}</p></div>`
+    : viewer.kind === 'pdf'
     ? `<iframe class="source-viewer-pdf" src="${escapeHtml(`${viewer.fileUrl}#page=${page}&zoom=page-width`)}" title="${escapeHtml(viewer.path)}"></iframe>`
     : viewer.kind === 'table' ? sourceViewerTableContent(viewer)
       : viewer.kind === 'image' ? `<div class="source-viewer-image"><img id="source-viewer-cited-location" src="${escapeHtml(viewer.fileUrl)}" alt="${escapeHtml(viewer.source.label)}"></div>`
@@ -2087,6 +2105,7 @@ function renderDependencySourceViewer(dialog, viewer) {
     <main class="source-viewer-content source-viewer-${escapeHtml(viewer.kind)}">${content}</main>
   </div>`;
   document.getElementById('close-dependency-source-viewer').addEventListener('click', () => dialog.close());
+  bindModelPlans(target);
   target.querySelectorAll('[data-source-viewer-sheet]').forEach((button) => button.addEventListener('click', () => {
     openDependencySourceViewer(viewer.dependencyId, button.dataset.sourceViewerSheet);
   }));
@@ -2094,19 +2113,22 @@ function renderDependencySourceViewer(dialog, viewer) {
 }
 
 async function openDependencySourceViewer(dependencyOrId, sheet = null) {
+  const revision = ++state.sourceViewerRevision;
   const dependencyId = typeof dependencyOrId === 'string' ? dependencyOrId : dependencyOrId.id;
   const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
   const dialog = ensureDependencySourceViewer();
+  const isCurrent = () => revision === state.sourceViewerRevision && dialog.open && usageContext.projectId === state.project?.id;
   const target = dialog.querySelector('#dependency-source-viewer-content');
   target.innerHTML = '<div class="source-viewer-loading"><span></span><strong>Opening indexed source…</strong></div>';
   if (!dialog.open) dialog.showModal();
   try {
     const query = sheet ? `?sheet=${encodeURIComponent(sheet)}` : '';
     const { viewer } = await api(`/api/dependencies/${encodeURIComponent(dependencyId)}/viewer${query}`);
-    if (!dialog.open) return;
+    if (!isCurrent()) return;
     renderDependencySourceViewer(dialog, viewer);
     if (!sheet) recordRecommendationUsage({ dependencyId }, 'open', usageContext);
   } catch (error) {
+    if (!isCurrent()) return;
     target.innerHTML = `<div class="source-viewer-unavailable"><strong>Source viewer unavailable</strong><p>${escapeHtml(error.message)}</p><button id="close-dependency-source-viewer">Close</button></div>`;
     document.getElementById('close-dependency-source-viewer').addEventListener('click', () => dialog.close());
   }
@@ -2119,7 +2141,11 @@ async function loadDependencySourcePreview(dependency) {
     const { preview } = await api(`/api/dependencies/${dependency.id}/preview?contextRadius=1`);
     if (!target.isConnected) return;
     target.innerHTML = renderCitedSourcePreview(preview);
-    target.addEventListener('click', () => openDependencySourceViewer(dependency), { once: true });
+    bindModelPlans(target);
+    target.addEventListener('click', event => {
+      if (event.target.closest('[data-model-plan]')) return;
+      openDependencySourceViewer(dependency);
+    });
   } catch (error) {
     target.innerHTML = `<div class="inspector-preview-error">${escapeHtml(error.message)}</div>`;
   }
@@ -2127,6 +2153,8 @@ async function loadDependencySourcePreview(dependency) {
 
 function renderCitedSourcePreview(preview) {
   const content = preview.content ?? {};
+  if (content.kind === 'model-plan') return `${renderModelPlan(content)}<button class="preview-open-affordance" type="button">Open model context <span>↗</span></button>`;
+  if (content.kind === 'model-unavailable') return `<div class="inspector-preview-empty">${escapeHtml(content.reason ?? 'No displayable geometry was found for this indexed element.')}</div><button class="preview-open-affordance" type="button">Open source context <span>↗</span></button>`;
   if (['table', 'table-context'].includes(content.kind)) {
     const headers = content.headers ?? [];
     const rows = content.rows ?? [];

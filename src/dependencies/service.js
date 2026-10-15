@@ -14,6 +14,8 @@ import {
 import { renderPdfFigurePage } from './figure-preview.js';
 import { RecommendationRanking } from './ranking.js';
 import { drawingDescriptors, drawingContext } from './drawing-objects.js';
+import { buildModelPreview } from './model-preview.js';
+import { drawingReferenceMatch } from './drawing-discovery.js';
 
 const OBJECT_TYPES = new Set([
   'REFERENCE', 'PAPER', 'RESULT', 'VALUE', 'CODE', 'CODE_BLOCK', 'CODE_LINE',
@@ -1474,6 +1476,26 @@ export class PredictiveProvenanceService {
     return context.projectIntent ? { fragment: null, candidates: [], context } : null;
   }
 
+  drawingReference(projectId, input, cursor) {
+    const fragments = progressiveVariableFragments(input.text, cursor);
+    if (!fragments.length) return null;
+    const permitted = this.autocompleteFilter(projectId);
+    const drawings = this.objectsAt(projectId, null, ['DRAWING'])
+      .filter(object => object.path !== input.documentPath && permitted(object));
+    for (const fragment of fragments) {
+      const candidates = drawings.flatMap(object => {
+        const match = drawingReferenceMatch(object, fragment.text);
+        return match ? [this.enrichObject(projectId, {
+          ...object, label: match.label, score: match.score,
+          matchTier: 0, reasons: ['Matching drawing reference'],
+        })] : [];
+      });
+      if (candidates.length) return { ...fragment, type: 'ENTITY', partial: true,
+        value: fragment.text, candidates };
+    }
+    return null;
+  }
+
   workspaceRetrievalObjects(projectId, snapshotId = null) {
     const project = this.timeline.getProject(projectId);
     const target = snapshotId ?? project.currentSnapshotId;
@@ -2064,6 +2086,13 @@ export class PredictiveProvenanceService {
   predictionCandidates(projectId, input) {
     const text = String(input.text ?? '');
     const cursor = Number.isInteger(input.cursor) ? input.cursor : text.length;
+    // An explicit model/file reference starts a new source even after another
+    // source was linked. It must not depend on scientific-writing intent.
+    const drawing = this.drawingReference(projectId, input, cursor);
+    if (drawing) return {
+      claims: [drawing], completion: null, sourceCompletions: [], workspaceCompletions: [],
+      sourceContext: null, deterministic: true, generatedText: false,
+    };
     const linkedDependency = this.linkedDependencyContext(projectId, input, cursor);
     const linkedPaper = this.findingsFromLinkedPaper(projectId, input, cursor, linkedDependency);
     if (linkedPaper) {
@@ -2190,15 +2219,24 @@ export class PredictiveProvenanceService {
     const aliasedKeys = new Set((this.aliasesForProject?.(projectId) ?? [])
       .filter((alias) => wordTokens(alias.name).some((token) => terms.includes(token)))
       .map((alias) => alias.objectKey));
-    const matches = this.objectsAt(projectId, options.snapshotId)
+    const objects = this.objectsAt(projectId, options.snapshotId);
+    const drawingMatches = new Map(objects.flatMap(object => {
+      const match = drawingReferenceMatch(object, normalizedQuery);
+      return match ? [[object.id, match]] : [];
+    }));
+    const drawingPaths = new Set(objects.filter(object => drawingMatches.has(object.id)).map(object => object.path));
+    const matches = objects
       .map((object) => {
+        const drawing = drawingMatches.get(object.id);
         const direct = aliasedKeys.has(object.objectKey) || [object.label, object.path, path.posix.basename(object.path)]
           .some((value) => String(value).toLowerCase() === normalizedQuery);
         const searchable = `${object.searchText} ${object.path}`.toLowerCase();
         return {
           ...object,
-          ...(direct && normalizedQuery ? { matchTier: 0 } : {}),
-          score: direct && normalizedQuery ? 1
+          ...(drawing ? { label: drawing.label } : {}),
+          ...((drawing || direct && normalizedQuery) ? { matchTier: 0 }
+            : drawingPaths.has(object.path) ? { matchTier: 1 } : {}),
+          score: drawing ? drawing.score : direct && normalizedQuery ? 1
             : terms.length ? terms.filter((term) => searchable.includes(term)).length / terms.length : 0.2,
         };
       })
@@ -2827,6 +2865,17 @@ export class PredictiveProvenanceService {
       contentType: mimeTypes[extension] ?? 'application/octet-stream',
       filename: path.posix.basename(file.path),
     };
+  }
+
+  async sourceModelPreview(source) {
+    if (!/\.ifc$/i.test(source?.path ?? '')) return null;
+    const file = this.timeline.snapshotFile(source.snapshotId, source.path);
+    if (!file) return { kind: 'model-unavailable', reason: 'The indexed source version is no longer available.' };
+    return buildModelPreview({ path: file.path, content: this.timeline.blobs.get(file.contentHash) }, source);
+  }
+
+  dependencyModelPreview(dependencyId) {
+    return this.sourceModelPreview(semanticDependencySource(this.getDependency(dependencyId)));
   }
 
   dependencySourceViewer(dependencyId, options = {}) {

@@ -1,5 +1,6 @@
 // Server-rendered pages for externally shared sources. Kept deliberately plain:
 // recipients are outside the workspace and only need the provenance and the file.
+import { renderModelPlan } from '../../public/model-preview.js';
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (character) => (
@@ -198,7 +199,9 @@ export function renderSharePage(resolved, token, preview, document = null) {
 export function renderInspectorPanel(resolved, reference, preview) {
   const { source } = resolved;
   const sourceType = source.filename.split('.').pop()?.toUpperCase().slice(0, 4) || 'SRC';
-  const table = preview?.headers?.length
+  const table = preview?.kind === 'model-plan' ? renderModelPlan(preview, { interactive: false })
+    : preview?.kind === 'model-unavailable' ? `<div class="inspector-preview text-preview"><div class="preview-heading"><span>Model preview</span></div><p>${escapeHtml(preview.reason ?? 'No displayable geometry was found for this indexed element.')}</p></div>`
+    : preview?.headers?.length
     ? `<div class="inspector-preview"><div class="preview-heading"><span>Evidence preview</span><small>Exact cited context</small></div>
        <div class="preview-scroll"><table><thead><tr>${preview.headers.map((header, i) => `<th>${escapeHtml(header || `Column ${preview.columns?.[i] ?? i + 1}`)}</th>`).join('')}</tr></thead>
        <tbody>${preview.rows.map((row) => `<tr>${row.cells.map((cell) => (
