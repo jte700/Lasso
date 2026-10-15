@@ -558,6 +558,19 @@ enum AccessibilityReader {
         }
     }
 
+    static func canPaste(in element: AXUIElement, before: CompletionSnapshot, caret: Int,
+                         expectedPrefix: String, selected: Bool) -> Bool {
+        guard let current = focusedContext(allowSelection: true), CFEqual(current.element, element),
+              CompletionTransaction.canRetry(before: before,
+                current: CompletionSnapshot(documentStart: current.windowStart, text: Array(current.text.utf16)),
+                selectionLength: current.selectionLength, expectedPrefix: expectedPrefix,
+                selectedPrefix: selected) else { return false }
+        if selected {
+            return attribute(element, kAXSelectedTextAttribute as String) as? String == expectedPrefix
+        }
+        return current.absoluteCaret == caret
+    }
+
     static func hyperlinkPresent(_ label: String, url: URL, in context: CaretContext) -> Bool {
         let length = label.utf16.count
         if context.absoluteCaret >= length {
@@ -666,7 +679,6 @@ final class AssistBoxView: NSView {
     var onLocalLink: (() -> Void)?
     var onShare: (() -> Void)?
     var onOpenSource: (() -> Void)?
-    var onChooseSource: (() -> Void)?
     var onAllSources: (() -> Void)?
     var onDismiss: (() -> Void)?
     fileprivate let closeButton = NSButton()
@@ -770,10 +782,6 @@ final class AssistBoxView: NSView {
                      in: NSRect(x: 20, y: bodyTop + 10, width: 130, height: 16),
                      font: .systemFont(ofSize: 11, weight: .medium),
                      color: sourceScoped ? .controlAccentColor : .secondaryLabelColor)
-            drawText("Choose source…",
-                     in: NSRect(x: leftWidth - 140, y: bodyTop + 10, width: 120, height: 16),
-                     font: .systemFont(ofSize: 11, weight: .medium), color: .controlAccentColor,
-                     alignment: .right)
             if suggestions.isEmpty {
                 drawText("No matching indexed source",
                          in: NSRect(x: 22, y: bodyTop + 29,
@@ -1197,8 +1205,7 @@ final class AssistBoxView: NSView {
             }
             guard point.y >= bodyTop else { return }
             if point.y < bodyTop + navigationHeight {
-                if point.x > leftWidth - 150 { onChooseSource?() }
-                else if sourceScoped { onAllSources?() }
+                if sourceScoped { onAllSources?() }
                 return
             }
             let index = Int((point.y - bodyTop - navigationHeight) / suggestionHeight)
@@ -1406,12 +1413,26 @@ final class GlobalAssistant {
         let flags = event.flags
         // Native search controls own their keystrokes while the picker is open.
         if SourceChooserController.shared.isVisible { return Unmanaged.passUnretained(event) }
-        if ShareComposerController.shared.isVisible {
-            if keyCode == 53 {
-                DispatchQueue.main.async { ShareComposerController.shared.cancel() }
-                return nil
+        if ShareComposerController.shared.isVisible,
+           ShareComposerController.shared.isPresented(in: panel) {
+            guard flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty else {
+                return Unmanaged.passUnretained(event)
             }
-            return Unmanaged.passUnretained(event)
+            switch keyCode {
+            case 53:
+                DispatchQueue.main.async { ShareComposerController.shared.cancel() }
+            case 48 where flags.contains(.maskShift):
+                return Unmanaged.passUnretained(event)
+            case 48, 36, 76:
+                DispatchQueue.main.async { ShareComposerController.shared.confirm() }
+            case 123, 126:
+                DispatchQueue.main.async { ShareComposerController.shared.moveScope(-1) }
+            case 124, 125:
+                DispatchQueue.main.async { ShareComposerController.shared.moveScope(1) }
+            default:
+                return Unmanaged.passUnretained(event)
+            }
+            return nil
         }
         // Escape always dismisses IntelliSense, including scoped suggestions
         // and a prediction that has not arrived yet. Source browsing has its
@@ -1506,7 +1527,7 @@ final class GlobalAssistant {
     }
 
     private func scheduleRefresh() {
-        guard view.mode == .suggestions else { return }
+        guard view.mode == .suggestions, !ShareComposerController.shared.isVisible else { return }
         // Invalidate the previous response now, not after the debounce. A late
         // response must not dismiss the next refresh while the user is typing.
         generation += 1
@@ -2115,7 +2136,8 @@ final class GlobalAssistant {
 
     private func reposition(near caret: CGRect?) {
         guard let panel, panel.isVisible else { return }
-        let size = view.boxSize
+        let size = ShareComposerController.shared.isPresented(in: panel)
+            ? ShareComposerController.shared.canvasSize : view.boxSize
         let mainFrame = anchoredFrame(for: caret, size: size)
         panel.setFrame(mainFrame, display: true)
     }
@@ -2189,7 +2211,6 @@ final class GlobalAssistant {
         view.onLocalLink = { [weak self] in self?.acceptPlain() }
         view.onShare = { [weak self] in self?.acceptShared() }
         view.onOpenSource = { [weak self] in self?.openCurrentSource() }
-        view.onChooseSource = { [weak self] in self?.chooseSource(allDocuments: false) }
         view.onAllSources = { [weak self] in self?.chooseSource(allDocuments: true) }
         view.onDismiss = { [weak self] in self?.hide() }
         created.contentView = AssistBubbleContainer(content: view)
@@ -2267,10 +2288,19 @@ final class GlobalAssistant {
         let anchor = panel?.frame ?? NSRect(origin: NSEvent.mouseLocation, size: .zero)
         let savedSelection = view.selected
         let savedScope = view.sourceScoped
-        hide()
+        // Keep the existing nonactivating panel and its host focus throughout
+        // access selection. Late predictions must not replace this content.
+        generation += 1
+        debounce?.invalidate()
+        debounce = nil
+        request?.cancel()
+        request = nil
+        flashTimer?.invalidate()
         ShareComposerController.shared.show(
             objectId: objectId, versionId: suggestion.versionId,
             label: suggestion.label, sourcePath: suggestion.path, near: anchor, serverURL: serverURL, actionTitle: "Insert link",
+            hostPanel: existingPanel(),
+            projectId: suggestion.projectId,
             onCancel: { [weak self] in
                 guard let self else { return }
                 self.view.mode = .suggestions
@@ -2447,30 +2477,43 @@ final class GlobalAssistant {
         }
         isInserting = true
         RichTextInserter.insertLink(label: plan.insertText, url: share.url, replacing: plan.range.count,
-                                    at: caret, in: element, keyboardDeleteCount: plan.expectedPrefix.count) { [weak self] pasted in
+                                   at: caret, in: element, keyboardDeleteCount: plan.expectedPrefix.count,
+                                   validateSelection: { selected in
+            AccessibilityReader.canPaste(in: element, before: before, caret: caret,
+                                         expectedPrefix: plan.expectedPrefix, selected: selected)
+        }) { [weak self] pasted in
             guard let self else { ShareClient.revokeShare(serverURL: serverURL, token: share.token); return }
-            self.isInserting = false
+            guard pasted else {
+                self.isInserting = false
+                ShareClient.revokeShare(serverURL: serverURL, token: share.token)
+                self.flash(["The insertion point changed. Nothing was inserted."])
+                return
+            }
             let fallback = RichTextInserter.plainText(label: plan.insertText, url: share.url)
             var verifiedPlan: CompletionPlan?
-            if pasted, let after = AccessibilityReader.focusedContext(), after.element == element {
+            RichTextInserter.verifyEventually(verify: {
+                guard let after = AccessibilityReader.focusedContext(), CFEqual(after.element, element) else { return false }
                 let snapshot = CompletionSnapshot(documentStart: after.windowStart, text: Array(after.text.utf16))
                 for text in [plan.insertText, fallback] {
                     let candidate = CompletionPlan(range: plan.range, expectedPrefix: plan.expectedPrefix, insertText: text)
                     if case .success = CompletionTransaction.verify(before: before, after: snapshot, plan: candidate),
                        text == fallback || AccessibilityReader.hyperlinkPresent(text, url: share.url, in: after) {
                         verifiedPlan = candidate
-                        break
+                        return true
                     }
                 }
-            }
-            if let verifiedPlan {
-                self.completeInsertion(suggestion, plan: verifiedPlan, before: before, element: element, applied: true)
-                let local = ["localhost", "127.0.0.1", "::1", "[::1]"].contains(share.url.host ?? "")
-                self.flash([verifiedPlan.insertText == fallback ? "Link inserted as text" : "Hyperlink inserted",
-                            local ? "Available only on this Mac" : "Source access is set by your sharing choice"])
-            } else {
-                ShareClient.revokeShare(serverURL: serverURL, token: share.token)
-                self.flash(["The link could not be verified.", "Its access link was revoked."])
+                return false
+            }) { verified in
+                self.isInserting = false
+                if verified, let verifiedPlan {
+                    self.completeInsertion(suggestion, plan: verifiedPlan, before: before, element: element, applied: true)
+                    let local = ["localhost", "127.0.0.1", "::1", "[::1]"].contains(share.url.host ?? "")
+                    self.flash([verifiedPlan.insertText == fallback ? "Link inserted as text" : "Hyperlink inserted",
+                                local ? "Available only on this Mac" : "Source access is set by your sharing choice"])
+                } else {
+                    ShareClient.revokeShare(serverURL: serverURL, token: share.token)
+                    self.flash(["The link could not be verified.", "Its access link was revoked."])
+                }
             }
         }
     }
@@ -2534,6 +2577,7 @@ final class GlobalAssistant {
 
     func hide() {
         generation += 1
+        if ShareComposerController.shared.isPresented(in: panel) { ShareComposerController.shared.hide() }
         stopTrackingHost()
         debounce?.invalidate()
         debounce = nil

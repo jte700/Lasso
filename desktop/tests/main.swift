@@ -69,6 +69,56 @@ func accept(_ before: String, insert: String, caret: Int? = nil)
     }
 }
 
+print("sharing drag selection")
+do {
+    func cell(_ row: Int, _ column: Int, sheet: Int = 0,
+              effect: ShareRedactionEffect = .blur) -> ShareRedaction {
+        ShareRedaction(kind: "CELL", sheet: sheet, row: row,
+                       column: column, block: nil, effect: effect)
+    }
+    let anchor = cell(2, 1)
+    let endpoint = cell(5, 3)
+    let untouched = cell(9, 0, effect: .blank)
+    let prior = [untouched.locationKey: untouched]
+    let forward = ShareRedactionDrag(anchor: anchor, masks: prior)
+    let selected = forward.masks(through: endpoint)
+    check(selected.count == 13 && selected[cell(4, 2).locationKey] != nil,
+          "a fast drag covers the whole inclusive rectangle between events")
+    check(selected[untouched.locationKey] == untouched,
+          "a drag preserves masks outside its selection")
+    let reverse = ShareRedactionDrag(anchor: endpoint, masks: prior)
+    check(reverse.masks(through: anchor) == selected,
+          "reverse drags produce the same complete rectangle")
+    let oppositeDiagonal = ShareRedactionDrag(anchor: cell(5, 1), masks: prior)
+    check(oppositeDiagonal.masks(through: cell(2, 3)) == selected,
+          "row and column directions can be reversed independently")
+    check(forward.masks(through: anchor).count == 2,
+          "shrinking a drag restores cells outside the current rectangle")
+    let remove = ShareRedactionDrag(anchor: anchor, masks: selected)
+    check(remove.masks(through: endpoint) == prior,
+          "a drag beginning on a masked cell clears the whole selected range")
+    let smallerRemoval = remove.masks(through: cell(3, 1))
+    check(smallerRemoval.count == 11 && smallerRemoval[cell(4, 2).locationKey] != nil,
+          "shrinking an erase drag restores the original masks")
+    let click = ShareRedactionDrag(anchor: anchor, masks: [:]).masks(through: anchor)
+    check(click == [anchor.locationKey: anchor]
+          && ShareRedactionDrag(anchor: anchor, masks: click).masks(through: anchor).isEmpty,
+          "single clicks still toggle one cell")
+    let blocked = ShareRedactionDrag(anchor: cell(0, 0, effect: .blank), masks: [:])
+        .masks(through: cell(0, 3))
+    check(blocked.count == 4 && blocked.values.allSatisfy { $0.effect == .blank },
+          "the selected redaction effect applies to every dragged cell")
+    check(forward.masks(through: cell(5, 3, sheet: 1)) == prior,
+          "a range never crosses worksheet boundaries")
+    let firstBlock = ShareRedaction(kind: "BLOCK", sheet: nil, row: nil,
+                                    column: nil, block: 4, effect: .blur)
+    let lastBlock = ShareRedaction(kind: "BLOCK", sheet: nil, row: nil,
+                                   column: nil, block: 1, effect: .blur)
+    let blocks = ShareRedactionDrag(anchor: firstBlock, masks: [:]).masks(through: lastBlock)
+    check(blocks.count == 4 && blocks["block:2"] != nil,
+          "text drags include skipped sections in either direction")
+}
+
 print("sharing preserves clipboard changes")
 do {
     let pasteboard = NSPasteboard.withUniqueName()

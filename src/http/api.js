@@ -4,7 +4,7 @@ import { URL } from 'node:url';
 import { buildPreview } from '../history/preview.js';
 import { HttpError } from '../history/errors.js';
 import { renderSharePage, renderUnavailable, renderInspectorPanel } from '../sharing/share-page.js';
-import { buildFullShareDocument, buildSharePreview } from '../sharing/share-preview.js';
+import { buildFullShareDocument, buildInspectorPreview, buildSharePreview } from '../sharing/share-preview.js';
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -148,9 +148,13 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         let preview = null;
         try {
           const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
-          preview = buildSharePreview(
+          preview = buildInspectorPreview(
             file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null,
-            resolved.source.anchor, resolved.source.metadata);
+            resolved.source.anchor, resolved.source.metadata, resolved.source.label);
+          if (preview && ['pdf', 'image'].includes(preview.kind)) {
+            const query = versionId ? `?version=${encodeURIComponent(versionId)}` : '';
+            preview.fileUrl = `/api/dependency-objects/${encodeURIComponent(objectId)}/source${query}`;
+          }
         } catch { preview = null; }
         return sendHtml(response, 200, renderInspectorPanel(resolved, referenceId, preview));
       }
@@ -221,6 +225,24 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const object = dependencies.objectById(localObjectParameters[0]);
         if (!object) throw new HttpError(404, 'Indexed object not found.');
         return sendJson(response, 200, { object });
+      }
+
+      const localObjectSourceParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/source$/);
+      if (request.method === 'GET' && localObjectSourceParameters && objectShares) {
+        const resolved = objectShares.describe(localObjectSourceParameters[0], url.searchParams.get('version'));
+        if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
+        const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+        const content = file ? timeline.blobs.get(file.contentHash) : null;
+        if (!content) throw new HttpError(404, 'The source file is unavailable.');
+        // Inline viewing is restricted to passive formats. HTML and SVG source
+        // must never acquire the local API's origin through this endpoint.
+        const type = { '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }[path.extname(file.path).toLowerCase()];
+        if (!type) throw new HttpError(415, 'This file format cannot be viewed inline.');
+        return sendBinary(response, 200, content, type, {
+          'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
+          'content-disposition': 'inline',
+        });
       }
 
       const localObjectDocumentParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/document$/);

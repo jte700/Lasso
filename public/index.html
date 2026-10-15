@@ -8,10 +8,7 @@
     <script>
       const appearance = matchMedia('(prefers-color-scheme: dark)');
       function syncAppearance() {
-        let preference = 'system';
-        try { preference = localStorage.getItem('lasso.theme') ?? localStorage.getItem('colab.theme') ?? 'system'; } catch {}
-        document.documentElement.dataset.theme = preference === 'system'
-          ? (appearance.matches ? 'carbon' : 'alabaster') : preference;
+        document.documentElement.dataset.theme = appearance.matches ? 'carbon' : 'alabaster';
       }
       appearance.addEventListener('change', syncAppearance);
       syncAppearance();

@@ -49,11 +49,27 @@ test('public share routes', async (suite) => {
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.source.filename, 'Income-Statement.csv');
+    assert.equal(body.source.absolutePath, fs.realpathSync(path.join(projectRoot, 'Finance', 'Income-Statement.csv')));
     assert.equal(body.path, 'Finance/Income-Statement.csv');
     assert.deepEqual(body.preview.columns, ['A', 'B', 'C']);
     assert.deepEqual(body.preview.headers, ['Account', 'Current Period', 'Prior Period']);
     assert.ok(body.preview.rows.some((row) => row.cells.some((cell) => cell.cited)));
     assert.equal((await fetch(`${base}/api/dependency-objects/not-real/preview`)).status, 404);
+  });
+
+  await suite.test('the private inspector shows the real file location and a source viewport', async () => {
+    const response = await fetch(`${base}/inspect?object=${object.object_id}&version=${object.version_id}`);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.ok(html.includes(path.join(projectRoot, 'Finance', 'Income-Statement.csv')));
+    assert.match(html, /aria-label="Source worksheet"/);
+    assert.match(html, /scope="col">B</);
+    assert.match(html, /scope="row">2</);
+    assert.match(html, />400</);
+    assert.match(html, /Share link <kbd>Tab<\/kbd>/);
+    assert.doesNotMatch(html, /Cited value|Version 1|inspector-topbar|source-type/);
+    assert.equal((await fetch(`${base}/api/dependency-objects/${object.object_id}/source`)).status, 415);
+    assert.equal((await fetch(`${base}/api/dependency-objects/not-real/source`)).status, 404);
   });
 
   await suite.test('select and redact loads the complete source document', async () => {
@@ -127,7 +143,10 @@ test('public share routes', async (suite) => {
       body: JSON.stringify({
         objectId: object.object_id, versionId: object.version_id, actor: maya,
         accessScope: 'REDACTED',
-        redactions: [{ kind: 'CELL', sheet: 0, row: 1, column: 1, effect: 'BLUR' }],
+        redactions: [
+          { kind: 'CELL', sheet: 0, row: 1, column: 0, effect: 'BLUR' },
+          { kind: 'CELL', sheet: 0, row: 1, column: 1, effect: 'BLUR' },
+        ],
       }),
     });
     assert.equal(created.status, 201);
@@ -136,6 +155,8 @@ test('public share routes', async (suite) => {
     const html = await page.text();
     assert.match(html, /Complete document with redactions/);
     assert.match(html, /aria-label="Redacted"/);
+    assert.match(html, /class="redaction blur" role="img"/);
+    assert.doesNotMatch(html, /Office Supplies/);
     assert.match(html, />225</);
     assert.doesNotMatch(html, />400</);
     assert.doesNotMatch(html, /Download original/);
@@ -152,6 +173,7 @@ test('public share routes', async (suite) => {
     const html = await page.text();
     assert.equal(page.status, 200);
     assert.doesNotMatch(html, /Office Supplies/);
+    assert.match(html, /class="redaction blank" role="img"/);
     assert.match(html, /<h1>Income-Statement\.csv<\/h1>/);
     assert.match(html, /Payroll taxes/);
   });

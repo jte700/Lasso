@@ -353,48 +353,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.inspector.show(reference, near: rect, serverURL: url)
         }
         inspector.onUnlink = { reference in DependencyHighlighter.shared.unlink(id: reference.id) }
-        inspector.onOpenSource = { [weak self] reference in
-            guard let url = self?.server.url else { return }
-            var components = URLComponents(url: url.appendingPathComponent("inspect"),
-                                           resolvingAgainstBaseURL: false)
-            components?.queryItems = [
-                URLQueryItem(name: "object", value: reference.objectId),
-                URLQueryItem(name: "version", value: reference.versionId),
-            ]
-            if let target = components?.url, NSWorkspace.shared.open(target) {
-                RecommendationUsageClient.recordResolvedOpen(serverURL: url, objectId: reference.objectId)
-            }
+        inspector.onOpenSource = { [weak self] _ in
+            self?.showError("The source file could not be opened at its recorded location.")
         }
         inspector.onShare = { [weak self] reference in
             guard let self, let url = self.server.url else { return }
-            let anchor = NSRect(origin: NSEvent.mouseLocation, size: .zero)
-            self.inspector.hide()
-            ShareComposerController.shared.show(
-                objectId: reference.objectId, versionId: reference.versionId,
-                label: reference.label, sourcePath: reference.sourcePath,
-                near: anchor, serverURL: url
-            ) { configuration in
+            self.inspector.composeShare(reference, serverURL: url) { configuration, finished in
                 // Persisted highlights may belong to any registered directory.
                 // Resolve the object's owner instead of borrowing a menu selection.
                 RecommendationUsageClient.resolveProject(serverURL: url, objectId: reference.objectId) { projectId in
                     guard let projectId else {
-                        DispatchQueue.main.async { self.showError("The source directory could not be resolved.") }
+                        finished(.failure(NSError(domain: "LassoSharing", code: 1,
+                            userInfo: [NSLocalizedDescriptionKey: "The source directory could not be resolved."])))
                         return
                     }
                     ShareClient.createShare(
                         serverURL: url, projectId: projectId, objectId: reference.objectId,
                         versionId: reference.versionId, configuration: configuration
-                    ) { result in
-                        DispatchQueue.main.async {
-                            switch result {
-                            case .success(let share):
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(share.url.absoluteString, forType: .string)
-                            case .failure(let error):
-                                self.showError(error.localizedDescription)
-                            }
-                        }
-                    }
+                    ) { result in finished(result) }
                 }
             }
         }

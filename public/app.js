@@ -2588,24 +2588,6 @@ async function loadSharedDependency(token) {
 }
 
 
-const THEMES = [
-  { id: 'system', label: 'System', hint: 'Follow macOS appearance' },
-  { id: 'carbon', label: 'Carbon', hint: 'warm near-black · amber' },
-  { id: 'slate', label: 'Slate', hint: 'cool grey · blue' },
-  { id: 'palenight', label: 'Palenight', hint: 'indigo · violet' },
-  { id: 'alabaster', label: 'Alabaster', hint: 'light · warm paper' },
-];
-
-function currentTheme() {
-  try { return localStorage.getItem('lasso.theme') ?? localStorage.getItem('colab.theme') ?? 'system'; } catch { return 'system'; }
-}
-
-function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme === 'system'
-    ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'carbon' : 'alabaster') : theme;
-  try { localStorage.setItem('lasso.theme', theme); } catch { /* presentation only */ }
-}
-
 /// Everything the workspace can do, as one flat list for the palette.
 function paletteCommands() {
   const commands = [];
@@ -2630,11 +2612,6 @@ function paletteCommands() {
       hint: 'workspace sources and suggestions',
       run: () => toggleDirectory(project.id, !project.active),
     });
-  }
-
-  for (const theme of THEMES) {
-    if (theme.id === currentTheme()) continue;
-    commands.push({ title: `theme ${theme.label}`, hint: theme.hint, run: () => applyTheme(theme.id) });
   }
 
   commands.push(
@@ -2741,7 +2718,6 @@ function selectShellTab(id) {
   }
 }
 
-applyTheme(currentTheme());
 shell.sidebar = createDirectorySidebar({
   host: document.getElementById('directory-list'),
   onSelect: (id) => selectProject(id).catch((error) => toast(error.message, 'error')),

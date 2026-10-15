@@ -31,6 +31,9 @@ enum BrowserGeometryRegression {
                     response["error"] = "The signed Lasso app does not have Accessibility permission."
                 } else if request["command"] as? String == "ping" {
                     response["ready"] = true
+                } else if request["command"] as? String == "link-insert" {
+                    do { response.merge(try insertLink(request)) { _, new in new } }
+                    catch { response["error"] = error.localizedDescription }
                 } else if (request["command"] as? String)?.hasPrefix("popup-") == true {
                     do { response.merge(try popup(request)) { _, new in new } }
                     catch { response["error"] = error.localizedDescription }
@@ -116,6 +119,40 @@ enum BrowserGeometryRegression {
         }
         result["frontmostPID"] = Int(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1)
         return result
+    }
+
+    private static func insertLink(_ request: [String: Any]) throws -> [String: Any] {
+        GlobalAssistant.shared.hide()
+        guard let captured = AccessibilityReader.focusedContext(),
+              let label = request["label"] as? String,
+              let rawURL = request["url"] as? String, let url = URL(string: rawURL),
+              case .success(let plan) = CompletionTransaction.plan(document: Array(captured.text.utf16),
+                caret: captured.text.utf16.count, insertText: label) else {
+            throw NSError(domain: "BrowserGeometryRegression", code: 3,
+                          userInfo: [NSLocalizedDescriptionKey: "Cannot capture the fixture insertion point."])
+        }
+        let before = CompletionSnapshot(documentStart: captured.windowStart, text: Array(captured.text.utf16))
+        var result: Bool?
+        RichTextInserter.insertLink(label: label, url: url, replacing: plan.range.count,
+            at: request["keyboardFallback"] as? Bool == true ? -1 : captured.absoluteCaret,
+            in: captured.element, keyboardDeleteCount: plan.expectedPrefix.count,
+            validateSelection: { selected in
+                AccessibilityReader.canPaste(in: captured.element, before: before, caret: captured.absoluteCaret,
+                                             expectedPrefix: plan.expectedPrefix, selected: selected)
+            }) { pasted in
+                guard pasted else { result = false; return }
+                RichTextInserter.verifyEventually(verify: {
+                    guard let after = AccessibilityReader.focusedContext(), CFEqual(after.element, captured.element),
+                          case .success = CompletionTransaction.verify(before: before,
+                            after: CompletionSnapshot(documentStart: after.windowStart, text: Array(after.text.utf16)),
+                            plan: plan) else { return false }
+                    return AccessibilityReader.hyperlinkPresent(label, url: url, in: after)
+                }) { result = $0 }
+            }
+        let deadline = Date().addingTimeInterval(4)
+        while result == nil, Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.025)) }
+        return ["inserted": result ?? false, "prefix": plan.expectedPrefix,
+                "caretBefore": captured.absoluteCaret, "windowBefore": captured.windowStart]
     }
 
     private static func measure(_ request: [String: Any], adapter: AccessibilityTextAdapter) throws -> [String: Any] {

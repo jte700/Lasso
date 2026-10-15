@@ -234,6 +234,24 @@ try {
   await evaluate('fixture.reset()');
   await settle();
 
+  console.log('Native source hyperlink insertion in isolated Chrome');
+  for (const keyboardFallback of [false, true]) {
+    await evaluate("fixture.reset('The total is off'); fixture.selectEnd()");
+    await settle();
+    const destination = 'https://example.test/d/source-regression';
+    const result = await helper('link-insert', {
+      label: 'office supplies', url: destination, keyboardFallback,
+    });
+    assert.equal(result.inserted, true, `Native hyperlink was not verified: ${JSON.stringify(result)}`);
+    assert.equal(result.prefix, 'off', 'Insertion did not replace the intended partial word');
+    const actual = await evaluate(`({text: editor.textContent, links: [...editor.querySelectorAll('a')].map(a => ({label:a.textContent, url:a.href}))})`);
+    assert.equal(actual.text, 'The total is office supplies', 'Hyperlink paste changed surrounding text');
+    assert.deepEqual(actual.links, [{ label: 'office supplies', url: destination }], 'Pasted source is not a real hyperlink');
+    console.log(`  ok ${keyboardFallback ? 'read-only AX selection keyboard fallback' : 'native AX selection'} preserves text and inserts a clickable source`);
+  }
+  await evaluate('fixture.reset()');
+  await settle();
+
   await showPopup();
   await helper('popup-key', { keyCode: 53 });
   await expectHidden('Escape closes source-scoped suggestions');

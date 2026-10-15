@@ -108,28 +108,45 @@ enum RichTextInserter {
     /// Selects the partial word, then pastes `label` as a link to `url`.
     /// Only the label is clickable; no raw URL is shown.
     static func insertLink(label: String, url: URL, replacing length: Int, at caret: Int,
-                           in element: AXUIElement, keyboardDeleteCount: Int, onPasted: @escaping (Bool) -> Void) {
-        if length > 0 {
-            if caret >= 0, caret - length >= 0 {
-                var range = CFRange(location: caret - length, length: length)
-                guard let axRange = AXValueCreate(.cfRange, &range),
-                      AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axRange) == .success else {
-                    onPasted(false); return
-                }
-            } else {
-                // Web content exposes no ranges: erase the partial word first.
-                SyntheticKeyboard.deleteBackwards(keyboardDeleteCount)
+                           in element: AXUIElement, keyboardDeleteCount: Int,
+                           validateSelection: @escaping (Bool) -> Bool,
+                           onPasted: @escaping (Bool) -> Void) {
+        var selectedRange = false
+        if length > 0, caret >= length {
+            var range = CFRange(location: caret - length, length: length)
+            if let axRange = AXValueCreate(.cfRange, &range) {
+                selectedRange = AXUIElementSetAttributeValue(
+                    element, kAXSelectedTextRangeAttribute as CFString, axRange) == .success
             }
         }
 
-        withBorrowedPasteboard {
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            let formats = representations(label: label, url: url)
-            pasteboard.declareTypes(Array(formats.keys), owner: nil)
-            for (type, data) in formats { pasteboard.setData(data, forType: type) }
-            paste()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onPasted(true) }
+        // A readable caret does not imply a writable AX range. Web editors
+        // commonly reject the selection write, so use keyboard replacement
+        // only after proving that the original caret and prefix still match.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            let verifiedSelection = selectedRange && validateSelection(true)
+            guard verifiedSelection || validateSelection(false) else { onPasted(false); return }
+            if !verifiedSelection { SyntheticKeyboard.deleteBackwards(keyboardDeleteCount) }
+            withBorrowedPasteboard {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                let formats = representations(label: label, url: url)
+                pasteboard.declareTypes(Array(formats.keys), owner: nil)
+                for (type, data) in formats { pasteboard.setData(data, forType: type) }
+                paste()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onPasted(true) }
+            }
+        }
+    }
+
+    /// Rich editors update their accessibility trees after the paste finishes.
+    /// Retry read-back only; never paste a second time while waiting for proof.
+    static func verifyEventually(attempts: Int = 8, interval: TimeInterval = 0.12,
+                                 verify: @escaping () -> Bool, completion: @escaping (Bool) -> Void) {
+        if verify() { completion(true); return }
+        guard attempts > 1 else { completion(false); return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + interval) {
+            verifyEventually(attempts: attempts - 1, interval: interval, verify: verify, completion: completion)
         }
     }
 
@@ -188,6 +205,11 @@ struct ShareRedaction: Hashable {
     let block: Int?
     let effect: ShareRedactionEffect
 
+    var locationKey: String {
+        if kind == "CELL" { return "cell:\(sheet ?? 0):\(row ?? -1):\(column ?? -1)" }
+        return "block:\(block ?? -1)"
+    }
+
     var payload: [String: Any] {
         var value: [String: Any] = ["kind": kind, "effect": effect.rawValue]
         if let sheet { value["sheet"] = sheet }
@@ -195,6 +217,50 @@ struct ShareRedaction: Hashable {
         if let column { value["column"] = column }
         if let block { value["block"] = block }
         return value
+    }
+}
+
+/// A drag is one reversible range edit, even when pointer events skip cells.
+struct ShareRedactionDrag {
+    let anchor: ShareRedaction
+    private let originalMasks: [String: ShareRedaction]
+    private let addsMasks: Bool
+
+    init(anchor: ShareRedaction, masks: [String: ShareRedaction]) {
+        self.anchor = anchor
+        originalMasks = masks
+        addsMasks = masks[anchor.locationKey] == nil
+    }
+
+    func masks(through endpoint: ShareRedaction) -> [String: ShareRedaction] {
+        var result = originalMasks
+        for redaction in range(through: endpoint) {
+            if addsMasks { result[redaction.locationKey] = redaction }
+            else { result.removeValue(forKey: redaction.locationKey) }
+        }
+        return result
+    }
+
+    private func range(through endpoint: ShareRedaction) -> [ShareRedaction] {
+        guard anchor.kind == endpoint.kind else { return [] }
+        if anchor.kind == "CELL",
+           (anchor.sheet ?? 0) == (endpoint.sheet ?? 0),
+           let firstRow = anchor.row, let lastRow = endpoint.row,
+           let firstColumn = anchor.column, let lastColumn = endpoint.column {
+            return (min(firstRow, lastRow)...max(firstRow, lastRow)).flatMap { row in
+                (min(firstColumn, lastColumn)...max(firstColumn, lastColumn)).map { column in
+                    ShareRedaction(kind: "CELL", sheet: anchor.sheet, row: row,
+                                   column: column, block: nil, effect: anchor.effect)
+                }
+            }
+        }
+        if anchor.kind == "BLOCK", let first = anchor.block, let last = endpoint.block {
+            return (min(first, last)...max(first, last)).map { block in
+                ShareRedaction(kind: "BLOCK", sheet: nil, row: nil, column: nil,
+                               block: block, effect: anchor.effect)
+            }
+        }
+        return []
     }
 }
 

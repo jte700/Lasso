@@ -131,17 +131,19 @@ export class ObjectShareService {
   describe(objectId, versionId = null) {
     const version = versionId
       ? this.db.prepare(`
-          SELECT v.*, o.object_type, s.version AS snapshot_version
+          SELECT v.*, o.object_type, s.version AS snapshot_version, p.root_path
           FROM scientific_object_versions v
           JOIN scientific_objects o ON o.id = v.object_id
           JOIN snapshots s ON s.id = v.snapshot_id
+          JOIN projects p ON p.id = o.project_id
           WHERE v.id = ? AND v.object_id = ?
         `).get(versionId, objectId)
       : this.db.prepare(`
-          SELECT v.*, o.object_type, s.version AS snapshot_version
+          SELECT v.*, o.object_type, s.version AS snapshot_version, p.root_path
           FROM scientific_object_versions v
           JOIN scientific_objects o ON o.id = v.object_id
           JOIN snapshots s ON s.id = v.snapshot_id
+          JOIN projects p ON p.id = o.project_id
           WHERE v.object_id = ?
           ORDER BY s.version DESC LIMIT 1
         `).get(objectId);
@@ -156,6 +158,7 @@ export class ObjectShareService {
         valueText: version.value_text,
         objectType: version.object_type,
         filename: path.basename(version.path),
+        absolutePath: path.resolve(version.root_path, version.path),
         snapshotVersion: version.snapshot_version,
         location: this.describeLocation(anchor, metadata),
         context: this.describeContext(anchor, metadata),
@@ -228,6 +231,11 @@ export class ObjectShareService {
       const row = `row ${anchor.rowIndex + 1}`;
       return sheet ? `${sheet} · ${row}` : row;
     }
+    if (Number.isInteger(anchor.columnIndex)) {
+      const column = `Column ${columnLetter(anchor.columnIndex)}`;
+      return sheet ? `${sheet} · ${column}` : column;
+    }
+    if (Number.isInteger(anchor.pageNumber)) return `Page ${anchor.pageNumber}`;
     if (Number.isInteger(anchor.lineStart)) {
       return anchor.lineEnd && anchor.lineEnd !== anchor.lineStart
         ? `lines ${anchor.lineStart}–${anchor.lineEnd}`
