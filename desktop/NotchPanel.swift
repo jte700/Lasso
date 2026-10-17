@@ -4,6 +4,14 @@ import Cocoa
 /// above/below the primary screen. No model-name guesses or camera heuristics.
 enum NotchGeometry {
     static let logoWidth: CGFloat = 32
+    static func interpolatedFrame(from: NSRect, to: NSRect, progress: CGFloat) -> NSRect {
+        let p = min(1, max(0, progress))
+        func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * p }
+        let height = mix(from.height, to.height)
+        return NSRect(x: mix(from.minX, to.minX), y: mix(from.maxY, to.maxY) - height,
+                      width: mix(from.width, to.width), height: height)
+    }
+
     static func supported(builtIn: Bool, topInset: CGFloat, left: NSRect?, right: NSRect?) -> Bool {
         guard builtIn, topInset > 0, let left, let right else { return false }
         return left.width > 0 && right.width > 0 && right.minX > left.maxX
@@ -102,6 +110,10 @@ final class NotchPanelController: NSObject {
     private var panel: NotchWindow?
     private var launcherButton: NSButton?
     private var autoCollapseTimer: Timer?
+    private var transitionTimer: Timer?
+    private var presentationTarget = NSRect.zero
+    private var presentedExpanded = false
+    private var reduceMotion = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     private let content = NotchContent()
     private let surface = NotchSurface()
     private var timer: Timer?
@@ -154,6 +166,10 @@ final class NotchPanelController: NSObject {
         enabled = false
         generation += 1; task?.cancel(); task = nil
         timer?.invalidate(); timer = nil
+        transitionTimer?.invalidate(); transitionTimer = nil
+        presentedExpanded = false
+        content.isHidden = true
+        content.alphaValue = 0
         panel?.orderOut(nil)
         autoCollapseTimer?.invalidate(); autoCollapseTimer = nil
         expanded = false
@@ -169,7 +185,9 @@ final class NotchPanelController: NSObject {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        if #available(macOS 13.0, *) { panel.collectionBehavior.insert(.canJoinAllApplications) }
+        panel.animationBehavior = .none
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.title = "Lasso notch"
@@ -277,17 +295,13 @@ final class NotchPanelController: NSObject {
             - (screen.auxiliaryTopLeftArea?.maxX ?? center - 100)
         let frame = NotchGeometry.frame(screen: screen.frame, topInset: screen.safeAreaInsets.top,
                                        centerX: center, expanded: expanded, notchWidth: notchWidth, contentHeight: expandedContentHeight)
-        panel.setFrame(frame, display: true)
-        panel.contentView?.layoutSubtreeIfNeeded()
-        surface.expanded = expanded
-        surface.needsDisplay = true
-        // The logo never moves or gets hidden behind the camera as we expand.
-        launcherButton?.frame = NSRect(x: center - notchWidth / 2 - NotchGeometry.logoWidth - frame.minX,
-                                      y: 0, width: NotchGeometry.logoWidth, height: screen.safeAreaInsets.top)
+        let logoX = center - notchWidth / 2 - NotchGeometry.logoWidth
         launcherButton?.setAccessibilityLabel(expanded ? "Close Lasso notch" : "Open Lasso notch")
         panel.title = expanded ? "Lasso notch" : "Lasso notch control"
-        content.isHidden = !expanded
-        guard expanded else { panel.orderFrontRegardless(); return }
+        guard expanded else {
+            present(frame: frame, logoX: logoX, cameraHeight: screen.safeAreaInsets.top)
+            return
+        }
         content.frame = NSRect(x: 0, y: screen.safeAreaInsets.top, width: frame.width,
                                height: frame.height - screen.safeAreaInsets.top)
         content.subviews.forEach { $0.removeFromSuperview() }
@@ -335,6 +349,74 @@ final class NotchPanelController: NSObject {
         button(activity.stale > 0 || activity.failures > 0 ? "Review sources" : "Open sources",
                frame: NSRect(x: width - 14 - actionWidth, y: footerY, width: actionWidth, height: 28), action: #selector(openWorkspace),
                symbol: "arrow.up.right.square").isEnabled = baseURL != nil
+        present(frame: frame, logoX: logoX, cameraHeight: screen.safeAreaInsets.top)
+    }
+
+    private func applyPresentation(_ frame: NSRect, logoX: CGFloat, cameraHeight: CGFloat, contentX: CGFloat) {
+        guard let panel else { return }
+        panel.setFrame(frame, display: false)
+        let actualFrame = panel.frame // AppKit may round to backing pixels.
+        // Resize only the black silhouette. Text keeps its final size and the
+        // logo keeps its screen position throughout the transition.
+        launcherButton?.frame = NSRect(x: logoX - actualFrame.minX, y: 0,
+                                      width: NotchGeometry.logoWidth, height: cameraHeight)
+        content.setFrameOrigin(NSPoint(x: contentX - actualFrame.minX, y: cameraHeight))
+        surface.needsDisplay = true
+        panel.displayIfNeeded()
+    }
+
+    private func present(frame: NSRect, logoX: CGFloat, cameraHeight: CGFloat) {
+        guard let panel else { return }
+        let changedState = presentedExpanded != expanded
+        if transitionTimer != nil && !changedState && presentationTarget == frame {
+            // A server refresh may rebuild labels during an animation. Keep
+            // their screen origin aligned without restarting the transition.
+            if expanded { content.setFrameOrigin(NSPoint(x: frame.minX - panel.frame.minX, y: cameraHeight)) }
+            return
+        }
+        let animated = panel.isVisible && !reduceMotion() && (changedState || transitionTimer != nil)
+        transitionTimer?.invalidate(); transitionTimer = nil
+        let startFrame = panel.frame
+        let contentX = expanded ? frame.minX : startFrame.minX + content.frame.minX
+        let startAlpha = content.isHidden ? 0 : content.alphaValue
+        presentedExpanded = expanded
+        presentationTarget = frame
+        surface.expanded = animated || expanded
+        if !animated {
+            content.isHidden = !expanded
+            content.alphaValue = expanded ? 1 : 0
+            applyPresentation(frame, logoX: logoX, cameraHeight: cameraHeight, contentX: contentX)
+            panel.orderFrontRegardless()
+            return
+        }
+        let opening = expanded
+        let started = ProcessInfo.processInfo.systemUptime
+        let duration = opening ? 0.18 : 0.14
+        content.isHidden = false
+        content.alphaValue = startAlpha
+        applyPresentation(startFrame, logoX: logoX, cameraHeight: cameraHeight, contentX: contentX)
+        let transition = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            let elapsed = ProcessInfo.processInfo.systemUptime - started
+            let progress = self.reduceMotion() ? 1 : min(1, elapsed / duration)
+            let eased = CGFloat(progress * progress * (3 - 2 * progress))
+            let current = NotchGeometry.interpolatedFrame(from: startFrame, to: frame, progress: eased)
+            if opening {
+                let fade = min(1, max(0, (progress - 0.25) / 0.75))
+                self.content.alphaValue = startAlpha + (1 - startAlpha) * fade
+            } else {
+                self.content.alphaValue = startAlpha * max(0, 1 - progress * 3)
+            }
+            self.surface.expanded = progress < 1 || opening
+            self.applyPresentation(current, logoX: logoX, cameraHeight: cameraHeight, contentX: contentX)
+            if progress >= 1 {
+                timer.invalidate(); self.transitionTimer = nil
+                self.content.isHidden = !opening
+                self.content.alphaValue = opening ? 1 : 0
+            }
+        }
+        transitionTimer = transition
+        RunLoop.main.add(transition, forMode: .common)
         panel.orderFrontRegardless()
     }
 
@@ -372,6 +454,7 @@ final class NotchPanelController: NSObject {
     private static var regressionPanel: NotchPanelController?
     static func regression(outputPath: String?, keepOpen: Bool = false) -> [String: Any] {
         let controller = NotchPanelController()
+        controller.reduceMotion = { true }
         var checks = 0
         func verify(_ condition: Bool) { precondition(condition, "Notch integration check failed (check \(checks + 1))"); checks += 1 }
         func surfaceBitmap() -> NSBitmapImageRep {
@@ -403,6 +486,8 @@ final class NotchPanelController: NSObject {
         verify(compactFrame.minX + logoFrame.maxX == display.auxiliaryTopLeftArea!.maxX)
         verify(compactFrame.maxX > display.auxiliaryTopLeftArea!.maxX)
         verify(controller.panel!.level.rawValue > NSWindow.Level.statusBar.rawValue && !controller.panel!.hasShadow)
+        verify(controller.panel!.collectionBehavior.contains(.stationary))
+        if #available(macOS 13.0, *) { verify(controller.panel!.collectionBehavior.contains(.canJoinAllApplications)) }
         let windowNumber = controller.panel!.windowNumber
         let compactBitmap = surfaceBitmap()
         // The exposed crescent at the old tab/housing seam must be opaque black,
@@ -467,12 +552,38 @@ final class NotchPanelController: NSObject {
             view.cacheDisplay(in: view.bounds, to: bitmap)
             try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: outputPath))
         }
+        controller.collapse()
+        controller.baseURL = nil // Keep animation fixtures independent of the live server.
+        controller.reduceMotion = { false }
+        controller.launcherButton?.performClick(nil)
+        verify(controller.transitionTimer != nil && controller.expanded)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.06))
+        verify(controller.panel!.frame.height > compactFrame.height && controller.panel!.frame.height < controller.presentationTarget.height)
+        verify(controller.panel!.frame.maxY == screen.frame.maxY)
+        verify(abs(controller.panel!.frame.minX + controller.launcherButton!.frame.minX - compactFrame.minX) < 0.01)
+        verify(controller.content.frame.width == controller.presentationTarget.width)
+        // Reverse twice before finishing. No stale callback can leave a tiny
+        // panel behind or hide a newer expanded state.
+        controller.collapse()
+        controller.launcherButton?.performClick(nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.24))
+        verify(controller.expanded && controller.transitionTimer == nil && controller.panel!.frame == controller.presentationTarget)
+        verify(!controller.content.isHidden && controller.content.alphaValue == 1)
+        controller.collapse()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.20))
+        verify(controller.panel!.frame == compactFrame && controller.content.isHidden && controller.transitionTimer == nil)
+        controller.reduceMotion = { true }
+        controller.launcherButton?.performClick(nil)
+        verify(controller.transitionTimer == nil && controller.expanded && controller.panel!.frame == controller.presentationTarget)
         controller.openWorkspace()
         verify(destination == "attention" && !controller.expanded)
         verify(controller.localClick == nil && controller.globalClick == nil)
+        controller.reduceMotion = { false }
+        controller.launcherButton?.performClick(nil)
         controller.configure(enabled: false, serverURL: nil, suggestions: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.22))
         verify(controller.panel?.isVisible == false
-            && controller.timer == nil && controller.task == nil && controller.autoCollapseTimer == nil)
+            && controller.timer == nil && controller.task == nil && controller.autoCollapseTimer == nil && controller.transitionTimer == nil)
         return ["checks": checks, "supported": true]
     }
     #endif
