@@ -5,6 +5,7 @@ import { createSourceWorkbench } from './source-workbench.js?v=5';
 import { renderAssistBox } from './assist-box.js?v=2';
 import { renderModelPlan, bindModelPlans } from './model-preview.js?v=2';
 import { createVisibilityRefresh } from './visibility-refresh.js';
+import { dismissLassoOverlays } from './escape-dismissal.js';
 
 const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
 const RECOMMENDATION_SESSION_ID = crypto.randomUUID();
@@ -322,13 +323,13 @@ function renderPreview(preview, focusAnchor = null) {
       <div class="preview-title"><strong>${escapeHtml(preview.path)}</strong><span>Version ${preview.version} · ${escapeHtml(preview.fileType)}</span></div>
       <div class="preview-actions"><button class="primary-button" id="request-info" disabled>Request information</button></div>
     </header>
-    <div class="preview-body"><p class="selection-hint">${preview.kind === 'model-plan' ? (preview.selected ? 'The indexed element is highlighted in the preserved model. Drag to pan, or show its surrounding context.' : 'Plan overview of the preserved model. Drag to pan or use the zoom controls.') : `Select a sentence, line, cell, or value below. The selection is anchored to Version ${preview.version}.`}</p>${previewContent(preview)}<div id="rfi-result"></div></div>
+    <div class="preview-body"><p class="selection-hint">${preview.kind === 'model-plan' ? (preview.selected ? 'The indexed element is highlighted in the preserved model. Drag to pan, or show its surrounding context.' : 'Plan overview of the preserved model. Drag to pan or use the zoom controls.') : preview.kind === 'pdf' ? `Read the preserved PDF below, or expand its text to select evidence from Version ${preview.version}.` : `Select a sentence, line, cell, or value below. The selection is anchored to Version ${preview.version}.`}</p>${previewContent(preview, focusAnchor)}<div id="rfi-result"></div></div>
   </div>`;
   elements['detail-column'].scrollTop = 0;
   document.getElementById('request-info').addEventListener('click', requestInformation);
   bindSelections();
   bindModelPlans(elements['detail-column']);
-  if (focusAnchor) focusPreviewAnchor(focusAnchor);
+  if (focusAnchor && preview.kind !== 'pdf') focusPreviewAnchor(focusAnchor);
 }
 
 function focusPreviewAnchor(anchor) {
@@ -351,9 +352,14 @@ function focusPreviewAnchor(anchor) {
   node.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-function previewContent(preview) {
+function previewContent(preview, focusAnchor = null) {
   if (preview.kind === 'model-plan') return renderModelPlan(preview);
   if (preview.kind === 'model-unavailable') return `<p class="selection-hint">${escapeHtml(preview.reason ?? 'No displayable geometry was found for this indexed element.')}</p>`;
+  if (preview.kind === 'pdf') {
+    const page = Math.max(1, Math.floor(Number(focusAnchor?.pageNumber ?? focusAnchor?.page ?? preview.pageNumber) || 1));
+    const pages = (preview.pages ?? []).filter(item => item.text?.trim());
+    return `<iframe class="source-viewer-pdf snapshot-pdf" src="${escapeHtml(`${preview.fileUrl}#page=${page}&zoom=page-width`)}" title="${escapeHtml(preview.path)}"></iframe>${(preview.warnings ?? []).map(warning => `<p class="selection-hint">${escapeHtml(warning)}</p>`).join('')}${pages.length ? `<details class="pdf-source-text"><summary>Selectable PDF text</summary>${pages.map(item => `<div class="notebook-cell"><div class="cell-label">Page ${escapeHtml(item.pageNumber)}</div><div class="cell-source selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text)}</div></div>`).join('')}</details>` : ''}`;
+  }
   if (preview.kind === 'drawing') return `${(preview.warnings ?? []).map(warning => `<p class="selection-hint">${escapeHtml(warning)}</p>`).join('')}<div class="json-preview">${preview.items.map(item => `<span class="json-path" title="${escapeHtml(item.location)}">${escapeHtml(item.path)}<small> · ${item.basis === 'geometry' ? 'Boundary geometry' : 'Model property'}</small></span><span class="json-value selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.value)}</span>`).join('')}</div>`;
   if (preview.kind === 'blocks') return preview.items.map((item) => `<div class="preview-block ${item.blockType} selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text)}</div>`).join('');
   if (preview.kind === 'lines') return `<div class="code-preview">${preview.items.map((item) => `<div class="code-line"><span class="number">${item.label}</span><span class="selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text) || ' '}</span></div>`).join('')}</div>`;
@@ -1224,12 +1230,16 @@ async function predictForBlock(block) {
         && claim.candidates.some((candidate) => candidate.completionText);
       const completesReferenceComponent = ['TABLE_REFERENCE', 'FIGURE'].includes(claim.type) && claim.partial
         && claim.candidates.some((candidate) => candidate.componentText);
+      const completesDrawingReference = claim.type === 'ENTITY' && claim.partial
+        && claim.candidates.some((candidate) => candidate.objectType === 'DRAWING' && candidate.label);
       state.editor.prediction = {
-        mode: completesCitation || completesStudyVariable || completesReferenceComponent ? 'COMPLETE_AND_LINK' : 'LINK',
+        mode: completesCitation || completesStudyVariable || completesReferenceComponent || completesDrawingReference
+          ? 'COMPLETE_AND_LINK' : 'LINK',
         completion: completesCitation
           ? { kind: 'CITATION', block, requestedText }
           : completesStudyVariable ? { kind: 'STUDY_VARIABLE', block, requestedText }
-            : completesReferenceComponent ? { kind: 'REFERENCE_COMPONENT', block, requestedText } : null,
+            : completesReferenceComponent ? { kind: 'REFERENCE_COMPONENT', block, requestedText }
+              : completesDrawingReference ? { kind: 'DRAWING_REFERENCE', block, requestedText } : null,
         claim, sourceContext: prediction.sourceContext,
         blockIndex, blockType: block.dataset.blockType, block,
       };
@@ -1276,7 +1286,9 @@ function predictionEdit(prediction, candidate, selectedIndex = 0) {
     const end = suggestion.claimEnd;
     const typed = completion.requestedText.slice(start, end);
     const before = completion.requestedText.slice(0, start);
-    const joiner = start === end && before && !/\s$/.test(before) ? ' ' : '';
+    const joiner = start === end && before && !/\s$/.test(before)
+      && !/^\s/.test(suggestion.replacementText) && !/[([{“"]$/.test(before)
+      && !/^[,.;:!?)}\]]/.test(suggestion.replacementText) ? ' ' : '';
     const labelCompletion = ['Column', 'Row', 'Variable'].includes(suggestion.category);
     const replacement = contextualCompletionCase(
       suggestion.replacementText,
@@ -1296,16 +1308,18 @@ function predictionEdit(prediction, candidate, selectedIndex = 0) {
         ? `${joiner}${replacement.slice(typed.length)}` : '',
     };
   }
-  if (['CITATION', 'STUDY_VARIABLE', 'REFERENCE_COMPONENT'].includes(completion.kind)) {
+  if (['CITATION', 'STUDY_VARIABLE', 'REFERENCE_COMPONENT', 'DRAWING_REFERENCE'].includes(completion.kind)) {
     const typed = completion.requestedText.slice(prediction.claim.start, prediction.claim.end);
     const before = completion.requestedText.slice(0, prediction.claim.start);
     const rawReplacement = completion.kind === 'CITATION' ? candidate?.citationText
-      : completion.kind === 'REFERENCE_COMPONENT' ? candidate?.componentText : candidate?.completionText;
+      : completion.kind === 'REFERENCE_COMPONENT' ? candidate?.componentText
+        : completion.kind === 'DRAWING_REFERENCE' ? candidate?.objectType === 'DRAWING' ? candidate.label : null
+          : candidate?.completionText;
     const replacement = contextualCompletionCase(
       rawReplacement,
       typed,
       before,
-      ['CITATION', 'REFERENCE_COMPONENT'].includes(completion.kind) ? 'proper-name' : 'label',
+      ['CITATION', 'REFERENCE_COMPONENT', 'DRAWING_REFERENCE'].includes(completion.kind) ? 'proper-name' : 'label',
     );
     if (!replacement) return null;
     const sharesPrefix = replacement.toLocaleLowerCase().startsWith(typed.toLocaleLowerCase());
@@ -2785,7 +2799,7 @@ const dependencyShell = createSourceWorkbench({
     } catch (error) { toast(error.message, 'error'); }
   },
 });
-createSpatialWorkbench({
+const spatialWorkbench = createSpatialWorkbench({
   projectTrigger: document.getElementById('project-pill'),
   projectPopover: document.getElementById('project-popover'),
   workspaceButton: document.getElementById('workspace-nav'),
@@ -2806,7 +2820,36 @@ const commandPalette = createCommandPalette({
   getCommands: paletteCommands,
   onStatus: (message) => toast(message, 'error'),
 });
+window.dismissLassoOverlays = () => dismissLassoOverlays({
+  document, palette: commandPalette, closeProjectPicker: () => spatialWorkbench.closeProjectPicker(),
+  cancelPending: () => {
+    clearPrediction();
+    hideDependencyPicker();
+    clearTimeout(state.editor.sourcePeekTimer);
+    state.editor.sourcePeekTimer = null;
+    state.editor.sourcePeekRequest += 1;
+    state.editor.inspectorRequest += 1;
+    state.editor.viewerRequest += 1;
+    state.editor.sharingRequest += 1;
+    state.editor.activeDependencyId = null;
+  },
+});
+// A native overlay can consume Escape's keydown while the workspace browser
+// still has focus. Keyup also dismisses browser overlays, idempotently.
+window.addEventListener('keyup', (event) => {
+  if (event.key === 'Escape' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    window.dismissLassoOverlays();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+}, true);
 window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    window.dismissLassoOverlays();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
   const modifier = event.metaKey || event.ctrlKey;
   if (modifier && !event.shiftKey && /^[1-9]$/.test(event.key)) {
     event.preventDefault();

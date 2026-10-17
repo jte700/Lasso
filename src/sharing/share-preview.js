@@ -5,6 +5,7 @@
 import path from 'node:path';
 import { columnLetter, tableContext } from '../dependencies/table-preview.js';
 import { extractDocxFullText, extractPdfFullText, extractSpreadsheetTables } from '../dependencies/document-extraction.js';
+import { extractDrawingDocument } from '../dependencies/drawing-extraction.js';
 import { tabularLayout } from '../dependencies/service.js';
 import { parseDelimited } from '../history/diff.js';
 
@@ -21,9 +22,19 @@ const FULL_TEXT_EXTENSIONS = new Set([
  * Builds a few rows of context around the cited cell.
  * Returns null for sources that are not tabular.
  */
-export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2) {
+export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, objectType = '') {
   if (!file?.content || !file?.path) return null;
   const extension = path.extname(file.path).toLowerCase();
+  if (extension === '.pdf') {
+    const selectedText = String(anchor.selectedText ?? metadata.rawText
+      ?? (metadata.componentType ? metadata.textExcerpt : '') ?? '').trim();
+    // A whole-document reference has no cited passage. Its private viewport
+    // still shows the page, but a public excerpt must be selected explicitly.
+    if (!selectedText) return null;
+    const pageNumber = Math.max(1, Number(anchor.pageNumber ?? metadata.pageNumber) || 1);
+    return { kind: 'text-context', text: selectedText, citedText: selectedText,
+      selectedText, pageNumber, bbox: anchor.bbox ?? metadata.bbox ?? null };
+  }
   const isSpreadsheet = ['.xlsx', '.xls'].includes(extension);
   const isDelimited = ['.csv', '.tsv'].includes(extension);
   if (!isSpreadsheet && !isDelimited) return null;
@@ -48,11 +59,61 @@ export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2) 
   const layout = tabularLayout(rawRows);
   if (!layout.headers.length) return null;
 
-  return tableContext(selectedTable ?? {rows:rawRows}, anchor, radius, layout.headerRowIndex);
+  const table = selectedTable ?? { rows: rawRows };
+  const context = tableContext(table, anchor, radius, layout.headerRowIndex);
+  if (!context || !objectType) return context;
+
+  // Local suggestions identify the word/value that was inserted. Public shares
+  // retain their original column/data scope and do not pass an object type.
+  const selection = inspectorTableSelection(table, anchor, context, layout, objectType);
+  const rows = [...context.rows];
+  if (selection.kind === 'header' && !rows.some((row) => row.rowNumber === selection.row)) {
+    const source = table.rows[selection.numbers.indexOf(selection.row)] ?? [];
+    rows.unshift({ rowNumber: selection.row, cells: context.columns.map((column) => ({
+      value: String(source[spreadsheetColumnIndex(column)] ?? '').trim(), cited: false,
+    })) });
+  }
+  return { ...context, location: selection.location, columnCitation: selection.kind === 'column',
+    rows: rows.map((row) => ({ ...row, cells: row.cells.map((cell, index) => ({ ...cell,
+      cited: selection.cites(row.rowNumber, spreadsheetColumnIndex(context.columns[index]), cell.value),
+    })) })) };
+}
+
+const spreadsheetColumnIndex = (value) => [...value]
+  .reduce((index, letter) => index * 26 + letter.charCodeAt(0) - 64, 0) - 1;
+
+function inspectorTableSelection(table, anchor, context, layout, objectType) {
+  const numbers = table.rowNumbers ?? table.rows.map((_, index) => index + 1);
+  let row = context.rows.find((entry) => entry.cells.some((cell) => cell.cited))?.rowNumber;
+  let column = Number.isInteger(anchor.columnIndex) ? anchor.columnIndex
+    : layout.headers.findIndex((header) => header === anchor.column);
+  let kind = context.columnCitation ? 'column' : column < 0 ? 'row' : 'cell';
+  if (objectType === 'VARIABLE' && context.columnCitation) {
+    // A variable name is represented by its heading, although its stored anchor
+    // describes the column for profiling and intentional data sharing.
+    row = context.headerRowNumbers.at(-1) ?? numbers[layout.headerRowIndex];
+    kind = 'header';
+  } else if (objectType === 'DATASET_ROW' && anchor.rowKey != null) {
+    const labelColumn = table.rows[numbers.indexOf(row)]?.findIndex((value) =>
+      String(value ?? '').trim() === String(anchor.rowKey).trim()) ?? -1;
+    if (labelColumn >= 0) {
+      column = labelColumn;
+      kind = 'cell';
+    }
+  }
+  const position = kind === 'column' ? `Column ${columnLetter(column)} (all values)`
+    : kind === 'row' ? `Row ${row} (all values)`
+      : row ? `${columnLetter(column)}${row}${kind === 'header' ? ' (column header)' : ''}` : '';
+  return { numbers, row, column, kind,
+    location: [table.name, position].filter(Boolean).join(' · '),
+    cites: (rowNumber, columnIndex, value) => kind === 'column'
+      ? columnIndex === column && Boolean(value)
+      : rowNumber === row && (column < 0 || columnIndex === column),
+  };
 }
 
 /** Local file viewport, preserving source rows, blank columns and line breaks. */
-export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = '') {
+export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = '', objectType = '') {
   if (!file?.content || !file?.path) return null;
   const extension = path.extname(file.path).toLowerCase();
   if (['.xlsx', '.xls', '.csv', '.tsv'].includes(extension)) {
@@ -68,18 +129,15 @@ export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = 
       const layout = tabularLayout(table.rows);
       const context = tableContext(table, anchor, 6, layout.headerRowIndex);
       if (!context?.rows?.length) return null;
-      const numbers = table.rowNumbers ?? table.rows.map((_, index) => index + 1);
-      const citedRow = context.rows.find((row) => row.cells.some((cell) => cell.cited))?.rowNumber;
-      let firstRow = Math.max(context.rows[0].rowNumber, (citedRow ?? 1) - 8);
+      const selection = inspectorTableSelection(table, anchor, context, layout, objectType);
+      const numbers = selection.numbers;
+      let firstRow = Math.max(Math.min(context.rows[0].rowNumber, selection.row ?? Infinity), (selection.row ?? 1) - 8);
       const headerRow = context.headerRowNumbers[0];
       if (headerRow && firstRow - headerRow < 12) firstRow = headerRow;
       // A window is contiguous in the original file, including empty rows.
       const lastRow = Math.min(context.rows.at(-1).rowNumber, firstRow + 80);
-      const columnIndex = (value) => [...value].reduce((index, letter) => index * 26 + letter.charCodeAt(0) - 64, 0) - 1;
-      const firstColumn = columnIndex(context.columns[0]);
-      const lastColumn = columnIndex(context.columns.at(-1));
-      const selectedColumn = Number.isInteger(anchor.columnIndex) ? anchor.columnIndex
-        : layout.headers.findIndex((header) => header === anchor.column);
+      const firstColumn = spreadsheetColumnIndex(context.columns[0]);
+      const lastColumn = spreadsheetColumnIndex(context.columns.at(-1));
       const rows = Array.from({ length: lastRow - firstRow + 1 }, (_, index) => {
         const rowNumber = firstRow + index;
         const sourceIndex = numbers.indexOf(rowNumber);
@@ -92,20 +150,25 @@ export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = 
           const covered = Boolean(merge && (rowNumber !== startRow || column !== startColumn));
           const value = String(merge ? table.rows[numbers.indexOf(merge.firstRow)]?.[merge.firstColumn] ?? ''
             : table.rows[sourceIndex]?.[column] ?? '');
-          const cited = context.columnCitation ? column === selectedColumn && Boolean(value)
-            : rowNumber === citedRow && (selectedColumn < 0 || column === selectedColumn);
+          const cited = selection.cites(rowNumber, column, value);
           return { value, cited, covered,
             rowSpan: merge ? Math.min(lastRow, merge.lastRow) - startRow + 1 : 1,
             colSpan: merge ? Math.min(lastColumn, merge.lastColumn) - startColumn + 1 : 1 };
         }) };
       });
-      const position = context.columnCitation ? `Column ${columnLetter(selectedColumn)}`
-        : citedRow ? `${selectedColumn < 0 ? 'Row ' : columnLetter(selectedColumn)}${citedRow}` : '';
       return { kind: 'table', columns: Array.from({ length: lastColumn - firstColumn + 1 }, (_, index) => columnLetter(firstColumn + index)),
-        rows, sheet: table.name ?? null, location: [table.name, position].filter(Boolean).join(' · ') };
+        rows, sheet: table.name ?? null, location: selection.location };
     } catch { return null; }
   }
-  if (extension === '.pdf') return { kind: 'pdf', page: Math.max(1, Number(anchor.pageNumber ?? metadata.pageNumber) || 1) };
+  if (extension === '.pdf') {
+    const page = Math.max(1, Number(anchor.pageNumber ?? metadata.pageNumber) || 1);
+    const selectedText = String(anchor.selectedText ?? metadata.rawText
+      ?? (metadata.componentType ? metadata.textExcerpt : '') ?? '').trim();
+    const pageText = extractDrawingDocument(file.content).pages.find(entry => entry.pageNumber === page)?.text;
+    const text = selectedText || String(pageText ?? metadata.textExcerpt ?? extractPdfFullText(file.content)).slice(0, 4000);
+    return { kind: 'pdf', page, pageNumber: page, selectedText,
+      hasExcerpt: Boolean(selectedText), bbox: anchor.bbox ?? metadata.bbox ?? null, text };
+  }
   if (['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(extension)) return { kind: 'image' };
   const isText = FULL_TEXT_EXTENSIONS.has(extension)
     || ['dockerfile', 'makefile'].includes(path.basename(file.path).toLowerCase());
@@ -148,7 +211,7 @@ function fullTextBlocks(value) {
  * A complete logical rendering of the pinned source used by selective sharing.
  * Unlike buildSharePreview, this never crops around the indexed object.
  */
-export function buildFullShareDocument(file) {
+export function buildFullShareDocument(file, { visualPdf = false } = {}) {
   if (!file?.content || !file?.path) return null;
   const extension = path.extname(file.path).toLowerCase();
 
@@ -181,6 +244,10 @@ export function buildFullShareDocument(file) {
       text = file.content.toString('utf8');
     }
     const blocks = fullTextBlocks(text);
+    // Full PDF shares and the private composer can display the pinned original.
+    // Redacted shares keep the logical text document so original PDF bytes can
+    // never be included in a selectively disclosed view or download.
+    if (extension === '.pdf' && visualPdf) return { kind: 'pdf', blocks };
     return blocks.length ? { kind: 'text', blocks } : null;
   } catch {
     return null;

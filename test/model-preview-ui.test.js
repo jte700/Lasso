@@ -82,3 +82,34 @@ test('local inspector shows focused geometry without exposing that context in in
     assert.doesNotMatch(shared, /data-model-element|wall-guid|door-guid/);
   }
 });
+
+test('DXF drafting is drawn above measured room highlights, with upright source text and open curves', () => {
+  const html = renderModelPlan({ ...preview, format: 'dxf', drawing: [
+    { id: 'D1/A', type: 'path', layer: 'DOORS', points: [[0, 0], [1, 0], [.7, .7], [0, 1]], closed: false, lineweight: 25 },
+    { id: 'T1', type: 'text', layer: 'LABELS', point: [5, 6], text: 'Kitchen\n01', height: .2, rotation: 90, align: 'middle', verticalAlign: 'top', widthScale: .8 },
+  ] });
+  assert.ok(html.indexOf('data-model-element="door-guid"') < html.indexOf('data-drawing-entity="D1/A"'), 'draft details remain visible above the room fill');
+  assert.match(html, /d="M0,0L1,0L0.7,0.7L0,1"/);
+  assert.match(html, /transform="translate\(5 6\) rotate\(90\) scale\(0.8 -1\)"/);
+  assert.match(html, /font-size="0.2" text-anchor="middle" dominant-baseline="text-before-edge"/);
+  assert.match(html, /<tspan x="0" dy="0">Kitchen<\/tspan>/);
+  assert.match(html, /Source drawing geometry/);
+});
+
+test('line-only DXF drawings have usable view controls and escape all drafting text and identities', () => {
+  const html = renderModelPlan({ ...preview, selected: null, elements: [], format: 'dxf', fileName: 'Office.dxf', drawing: [
+    { id: 'L1', type: 'path', layer: 'WALLS', points: [[0, 0], [5, 0]], closed: false },
+    { id: '" onload="oops', type: 'text', layer: '<script>', point: [1, 1], text: '</text><script>alert(1)</script>', height: 1, rotation: 0 },
+    { id: 'invalid', type: 'path', points: [[0, NaN], [1, 1]] },
+    { id: 'bad-text', type: 'text', point: [0, 0], text: 'Bad', height: Infinity },
+  ] });
+  assert.match(html, /<svg/);
+  assert.match(html, /data-model-action="zoom-in"/);
+  assert.match(html, /data-model-action="context"/);
+  assert.doesNotMatch(html, /data-model-action="selection"|data-model-element|data-drawing-entity="invalid"|bad-text|<script>|" onload="/);
+  assert.match(html, /&lt;\/text&gt;&lt;script&gt;/);
+  for (const accessScope of ['INDEXED', 'REDACTED']) {
+    const shared = renderSharePage({ source: { filename: 'office.dxf' }, share: { accessScope, redactions: [] } }, 'token', { ...preview, drawing: [{ id: 'secret-drawing', type: 'path', points: [[0, 0], [1, 1]] }] });
+    assert.doesNotMatch(shared, /secret-drawing|data-drawing-entity/);
+  }
+});

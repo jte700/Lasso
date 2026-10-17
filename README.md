@@ -38,13 +38,15 @@ security find-identity -v -p codesigning
 
 The build compiles, signs, and verifies a temporary app before replacing `dist/Lasso.app`. If signing fails, the previous app stays intact. `LASSO_SIGN_MODE=adhoc npm run desktop` is available for temporary builds, but their Accessibility approval may stop applying after rebuilding.
 
+Repeated Keychain prompts mean the signing tool has not been granted persistent access to the signing key. Save trusted access for Apple's `/usr/bin/codesign` on the existing Lasso signing key once. In a normal signing prompt, **Always Allow** saves access; **Allow** covers only that attempt. After setup, signing runs automatically while the login keychain is unlocked. Keep the same certificate to preserve Lasso's macOS permissions. See [Apple's Keychain access guidance](https://support.apple.com/en-gb/guide/mac-help/kychn002/26/mac/26).
+
 Enable **Suggest While Typing**, then follow any **Allow Accessibility…** or **Allow Input Monitoring…** action. macOS requires you to approve access in System Settings → Privacy & Security. The setting remembers your choice while approval is pending and starts automatically when access becomes available. After changing from an old ad-hoc build to certificate signing, remove the old Accessibility entry and add the signed app once.
 
 ### Using suggestions
 
-Type near a term or value from an enabled work directory. A source card shows matching entries and a preview. Use `↑`/`↓` to select and `Esc` to dismiss.
+Type near a term or value from an enabled work directory. A source card shows matching entries and a preview. Use `↑`/`↓` to select and scroll through ranked matches, and `Esc` to dismiss. PDF sources show their original pages and support word and excerpt completions, with matched passages highlighted in the preview.
 
-- **Tab:** insert the selected value, field name, citation, or source-backed continuation according to the insertion preference. Field descriptions and sample values stay in the preview.
+- **Tab:** replace the detected keyword or partial phrase with the selected source, value, field name, or citation. Sentence continuations append at the caret. The panel shows **Replace** when typed text will be replaced. Field descriptions and sample values stay in the preview.
 - **⌘Enter:** insert with a local source reference.
 - **Share** or **⇧⌘Enter:** choose the sharing scope, then insert a share link.
 
@@ -57,6 +59,8 @@ Typing predictions use a bounded window before the caret and the local loopback 
 ### Sharing
 
 The privacy composer offers **entire document**, **indexed part only**, and **selectively redacted view**. Only whole-document shares permit downloading the original. Every token pins an immutable source version and can be revoked through the share tools or `POST /api/object-shares/:token/revoke`.
+
+PDFs support **Select text** for words, sentences and paragraphs, and **Mark area** for drawings or other page regions. Excerpt previews and downloads contain only the selected regions. Redacted PDFs keep the page layout and remove hidden content from a newly rendered copy. Existing PDF imports automatically gain sentence and paragraph suggestions without reimporting.
 
 Default share URLs are local to the Mac running Lasso. `SHARE_BASE_URL` changes the URL base for a separately configured reachable service; it does not deploy or expose the local server.
 

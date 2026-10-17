@@ -296,6 +296,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        LassoTransientUI.shared.register(self, priority: 5,
+            isOpen: { NSApp.modalWindow != nil || NSApp.keyWindow?.attachedSheet != nil },
+            dismiss: { [weak self] in
+                self?.statusMenu.cancelTrackingWithoutAnimation()
+                if let sheet = NSApp.keyWindow?.attachedSheet { NSApp.endSheet(sheet, returnCode: NSApplication.ModalResponse.cancel.rawValue) }
+                if NSApp.modalWindow != nil { NSApp.abortModal() }
+            })
+        LassoTransientUI.shared.start()
         if ProcessInfo.processInfo.environment["LASSO_SHARE_FIXTURE"] == "1" {
             ShareComposerController.shared.showFixture()
             return
@@ -378,6 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        LassoTransientUI.shared.stop()
         workspaceTimer?.invalidate()
         assistPermissionTimer?.invalidate()
         workspaceRequest?.cancel()

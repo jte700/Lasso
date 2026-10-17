@@ -67,11 +67,12 @@ export class ObjectShareService {
    * recipient always sees the source as it was at the moment of sharing.
    */
   createShare({ projectId, objectId, versionId, actor, expiresAt = null,
-    accessScope = "DOCUMENT", redactions = [] }) {
+    accessScope = "DOCUMENT", redactions = [], excerpt = null }) {
     if (!projectId) throw new HttpError(400, 'A project is required to share a source.');
     if (!objectId) throw new HttpError(400, 'An indexed object is required to share a source.');
     const normalizedScope = normalizeShareScope(accessScope);
     const normalizedRedactions = normalizeRedactions(redactions, normalizedScope);
+    const normalizedExcerpt = normalizePdfExcerpt(excerpt, normalizedScope);
 
     const version = versionId
       ? this.db.prepare(`
@@ -91,6 +92,21 @@ export class ObjectShareService {
 
     if (!version) throw new HttpError(404, 'That indexed source version was not found.');
     if (version.project_id !== projectId) throw new HttpError(404, 'That indexed source version was not found.');
+    const isDrawing = /\.(?:ifc|dxf)$/i.test(version.path ?? '');
+    const isPdf = /\.pdf$/i.test(version.path ?? '');
+    if ((normalizedExcerpt || normalizedRedactions.some(entry => entry.kind === 'PDF')) && !isPdf) {
+      throw new HttpError(400, 'PDF selections can only be shared from PDF documents.');
+    }
+    if (isPdf && normalizedRedactions.some(entry => entry.kind === 'PDF')
+        && normalizedRedactions.some(entry => entry.kind !== 'PDF')) {
+      throw new HttpError(400, 'PDF region redactions cannot be mixed with text section redactions.');
+    }
+    if (normalizedRedactions.some(entry => entry.kind === 'DRAWING') && !isDrawing) {
+      throw new HttpError(400, 'Drawing regions can only redact DXF or IFC drawing previews.');
+    }
+    if (isDrawing && normalizedScope === 'REDACTED' && normalizedRedactions.some(entry => entry.kind !== 'DRAWING')) {
+      throw new HttpError(400, 'Select drawing regions to redact this source.');
+    }
 
     const normalizedActor = actor?.id ? actor : { id: 'human-self:local', displayName: 'Local user', actorType: 'HUMAN_SELF' };
     this.timeline.upsertActor(normalizedActor);
@@ -105,11 +121,11 @@ export class ObjectShareService {
     this.db.prepare(`
       INSERT INTO object_share_grants(
         id, project_id, object_id, object_version_id, token,
-        created_by_actor_id, created_at, expires_at, revoked_at, access_scope, redactions_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+        created_by_actor_id, created_at, expires_at, revoked_at, access_scope, redactions_json, excerpt_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
     `).run(record.id, projectId, objectId, version.id, token,
       normalizedActor.id, record.createdAt, record.expiresAt, normalizedScope,
-      JSON.stringify(normalizedRedactions));
+      JSON.stringify(normalizedRedactions), normalizedExcerpt ? JSON.stringify(normalizedExcerpt) : null);
 
     return {
       id: record.id,
@@ -121,6 +137,7 @@ export class ObjectShareService {
       expiresAt: record.expiresAt,
       accessScope: normalizedScope,
       redactions: normalizedRedactions,
+      excerpt: normalizedExcerpt,
     };
   }
 
@@ -165,7 +182,7 @@ export class ObjectShareService {
         anchor,
         metadata,
       },
-      internal: { snapshotId: version.snapshot_id, filePath: version.path },
+      internal: { snapshotId: version.snapshot_id, filePath: version.path, versionId: version.id },
     };
   }
 
@@ -202,6 +219,7 @@ export class ObjectShareService {
         expiresAt: grant.expires_at,
         accessScope: grant.access_scope ?? 'DOCUMENT',
         redactions: JSON.parse(grant.redactions_json ?? '[]'),
+        excerpt: grant.excerpt_json ? JSON.parse(grant.excerpt_json) : null,
       },
       source: {
         label: version.label,
@@ -295,7 +313,7 @@ export class ObjectShareService {
 
   listShares(projectId) {
     return this.db.prepare(`
-      SELECT g.id, g.token, g.created_at, g.expires_at, g.revoked_at, g.access_scope, g.redactions_json, v.label, v.value_text
+      SELECT g.id, g.token, g.created_at, g.expires_at, g.revoked_at, g.access_scope, g.redactions_json, g.excerpt_json, v.label, v.value_text
       FROM object_share_grants g
       JOIN scientific_object_versions v ON v.id = g.object_version_id
       WHERE g.project_id = ?
@@ -311,11 +329,12 @@ export class ObjectShareService {
       revokedAt: row.revoked_at,
       accessScope: row.access_scope ?? 'DOCUMENT',
       redactions: JSON.parse(row.redactions_json ?? '[]'),
+      excerpt: row.excerpt_json ? JSON.parse(row.excerpt_json) : null,
     }));
   }
 }
 const SHARE_SCOPES = new Set(['DOCUMENT', 'INDEXED', 'REDACTED']);
-const REDACTION_KINDS = new Set(['CELL', 'BLOCK']);
+const REDACTION_KINDS = new Set(['CELL', 'BLOCK', 'DRAWING', 'PDF']);
 const REDACTION_EFFECTS = new Set(['BLUR', 'BLANK']);
 
 function normalizeShareScope(value) {
@@ -324,7 +343,7 @@ function normalizeShareScope(value) {
   return scope;
 }
 
-function normalizeRedactions(value, scope) {
+export function normalizeRedactions(value, scope) {
   if (scope !== 'REDACTED') return [];
   if (!Array.isArray(value)) throw new HttpError(400, 'Redactions must be a list.');
   if (value.length > 512) throw new HttpError(400, 'Too many redactions.');
@@ -337,7 +356,17 @@ function normalizeRedactions(value, scope) {
       throw new HttpError(400, 'Invalid redaction.');
     }
     let target;
-    if (kind === 'CELL') {
+    if (kind === 'DRAWING' || kind === 'PDF') {
+      const { x, y, width, height } = entry;
+      if (![x, y, width, height].every(coordinate => typeof coordinate === 'number' && Number.isFinite(coordinate))
+          || x < 0 || y < 0 || width <= 0 || height <= 0
+          || x + width > 1 || y + height > 1) {
+        throw new HttpError(400, `Invalid ${kind === 'PDF' ? 'PDF' : 'drawing'} redaction region.`);
+      }
+      const page = Number(entry.page);
+      if (kind === 'PDF' && (!Number.isInteger(page) || page < 1 || page > 1000)) throw new HttpError(400, 'Invalid PDF redaction page.');
+      target = { kind, ...(kind === 'PDF' ? { page } : {}), x, y, width, height, effect };
+    } else if (kind === 'CELL') {
       const sheet = entry.sheet == null ? 0 : Number(entry.sheet);
       const row = Number(entry.row);
       const column = Number(entry.column);
@@ -357,6 +386,31 @@ function normalizeRedactions(value, scope) {
     const key = JSON.stringify(target);
     if (!seen.has(key)) { seen.add(key); normalized.push(target); }
   }
+  if (normalized.filter(entry => entry.kind === 'DRAWING').length > 64) throw new HttpError(400, 'Select no more than 64 drawing regions.');
   if (!normalized.length) throw new HttpError(400, 'Select at least one area to redact.');
   return normalized;
+}
+
+export function normalizePdfExcerpt(value, scope) {
+  if (value == null || scope !== 'INDEXED') return null;
+  if (String(value.kind ?? '').toUpperCase() !== 'PDF') throw new HttpError(400, 'Invalid PDF excerpt.');
+  const text = typeof value.text === 'string' ? value.text.trim() : '';
+  if (text.length > 100_000 || !Array.isArray(value.regions ?? [])) throw new HttpError(400, 'Invalid PDF excerpt.');
+  const regions = value.regions ?? [];
+  if (regions.length > 512) throw new HttpError(400, 'Too many PDF selection regions.');
+  const normalized = regions.map(region => {
+    if (!region || typeof region !== 'object') throw new HttpError(400, 'Invalid PDF selection region.');
+    const { x, y, width, height } = region;
+    const page = Number(region.page);
+    if (!Number.isInteger(page) || page < 1 || page > 1000
+        || ![x, y, width, height].every(coordinate => typeof coordinate === 'number' && Number.isFinite(coordinate))
+        || x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > 1 || y + height > 1) {
+      throw new HttpError(400, 'Invalid PDF selection region.');
+    }
+    return { page, x, y, width, height };
+  });
+  if (!text && !normalized.length) throw new HttpError(400, 'Select text or an area from the PDF before sharing.');
+  const page = value.page == null ? null : Number(value.page);
+  if (page != null && (!Number.isInteger(page) || page < 1 || page > 1000)) throw new HttpError(400, 'Invalid PDF selection page.');
+  return { kind: 'PDF', text, regions: normalized, ...(page ? { page } : {}) };
 }

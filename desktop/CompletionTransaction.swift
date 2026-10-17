@@ -1,10 +1,8 @@
 //  Accepting a completion, as a checked text edit.
 //
-//  A completion may only rewrite the characters the user already typed towards
-//  it. The replaceable length is therefore derived from the insertion itself —
-//  the longest run immediately before the caret that already spells its
-//  beginning — and can never exceed the insertion's own length. A completion
-//  can never delete more text than it adds, whatever range a suggestion claims.
+//  A detected keyword carries the exact fragment from the prediction request.
+//  Replacing it requires matching that text and its caret position again.
+//  Other suggestions infer only a bounded overlap with the insertion's start.
 //
 //  Every stage is pure so it can be tested without a host application.
 
@@ -25,7 +23,44 @@ struct CompletionPlan: Equatable {
     let expectedPrefix: String
     /// What replaces it.
     let insertText: String
+    /// Source content within insertText, excluding spacing kept around the edit.
+    var sourceRange: Range<Int>? = nil
 
+}
+
+struct CompletionReplacement: Equatable {
+    let start: Int
+    let expectedText: String
+    var preservedSuffix: String = ""
+
+    /// Capture a matched fragment or an explicit insertion at the request caret.
+    static func capture(start: Int?, end: Int?, in text: String,
+                        expectedText: String? = nil) -> CompletionReplacement? {
+        let document = Array(text.utf16)
+        guard let start, let end, start >= 0, start <= end, end <= document.count,
+              isScalarBoundary(start, in: document), isScalarBoundary(end, in: document) else { return nil }
+        let fragment = String(decoding: document[start..<end], as: UTF16.self)
+        let suffix = String(decoding: document[end...], as: UTF16.self)
+        guard (start == end || !fragment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
+              expectedText == nil || expectedText == fragment,
+              suffix.unicodeScalars.allSatisfy({ CharacterSet.whitespaces.contains($0) }) else { return nil }
+        return CompletionReplacement(start: start, expectedText: fragment + suffix, preservedSuffix: suffix)
+    }
+
+    static func terminalNumber(in text: String) -> CompletionReplacement? {
+        let trimmed = String(text.reversed().drop(while: { $0.isWhitespace && $0 != "\n" && $0 != "\r" }).reversed())
+        let expression = try! NSRegularExpression(pattern: #"(?:[$€£¥]\s*)?[+−-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:[eE][+-]?\d*)?%?$"#)
+        guard let match = expression.firstMatch(in: trimmed, range: NSRange(location: 0, length: trimmed.utf16.count))
+        else { return nil }
+        return capture(start: match.range.location, end: NSMaxRange(match.range), in: text)
+    }
+
+    fileprivate static func isScalarBoundary(_ offset: Int, in document: [UInt16]) -> Bool {
+        guard offset >= 0, offset <= document.count else { return false }
+        return offset == 0 || offset == document.count
+            || !(0xD800...0xDBFF).contains(document[offset - 1])
+            || !(0xDC00...0xDFFF).contains(document[offset])
+    }
 }
 
 /// A bounded view of a host document. Browser editors such as Gmail expose the
@@ -123,15 +158,39 @@ enum CompletionTransaction {
         return lower(left) == lower(right)
     }
 
-    /// Builds the smallest edit that turns the typed prefix into the insertion.
-    static func plan(document: [UInt16], caret: Int, insertText: String) -> Result<CompletionPlan, CompletionFailure> {
+    /// Prefer the verified keyword; otherwise infer the insertion's prefix overlap.
+    static func plan(document: [UInt16], caret: Int, insertText: String,
+                     replacement: CompletionReplacement? = nil,
+                     separateInsertion: Bool = false) -> Result<CompletionPlan, CompletionFailure> {
         guard caret >= 0, caret <= document.count else { return .failure(.rangeOutOfBounds) }
+        if let replacement {
+            let expected = Array(replacement.expectedText.utf16)
+            guard replacement.start >= 0, replacement.start <= caret,
+                  CompletionReplacement.isScalarBoundary(replacement.start, in: document),
+                  CompletionReplacement.isScalarBoundary(caret, in: document) else {
+                return .failure(.rangeOutOfBounds)
+            }
+            guard expected.count == caret - replacement.start,
+                  Array(document[replacement.start..<caret]) == expected else { return .failure(.prefixMismatch) }
+            let joiner = expected.isEmpty && separateInsertion
+                ? insertionSeparator(before: String(decoding: document[..<caret], as: UTF16.self), text: insertText) : ""
+            return .success(CompletionPlan(range: replacement.start..<caret,
+                expectedPrefix: replacement.expectedText, insertText: joiner + insertText + replacement.preservedSuffix,
+                sourceRange: joiner.utf16.count..<(joiner.utf16.count + insertText.utf16.count)))
+        }
         let insertUnits = Array(insertText.utf16)
         let typed = Array(document[0..<caret])
         let length = replaceableLength(typedBeforeCaret: typed, insertText: insertUnits)
         let range = (caret - length)..<caret
         let expected = String(decoding: document[range], as: UTF16.self)
         return .success(CompletionPlan(range: range, expectedPrefix: expected, insertText: insertText))
+    }
+
+    private static func insertionSeparator(before: String, text: String) -> String {
+        guard let last = before.last, let first = text.first,
+              !last.isWhitespace, !first.isWhitespace,
+              !"([{“\"".contains(last), !",.;:!?)]}".contains(first) else { return "" }
+        return " "
     }
 
     /// Confirms the plan is still valid immediately before the edit is applied.
@@ -216,7 +275,7 @@ enum CompletionTransaction {
             return .failure(.rangeOutOfBounds)
         }
         let finalSnapshotRange = localStart..<localEnd
-        guard Array(after.text[finalSnapshotRange]) == insertUnits else {
+        guard equivalentHostText(Array(after.text[finalSnapshotRange]), insertUnits) else {
             return .failure(.insertionMissing)
         }
 

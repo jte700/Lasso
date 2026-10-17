@@ -5,6 +5,7 @@ import Cocoa
 import ApplicationServices
 
 enum BrowserGeometryRegression {
+    private static let inspector = SourceInspectorPanel()
     static func run(arguments: [String]) -> Bool {
         guard let flag = arguments.firstIndex(of: "--browser-geometry-test") else { return false }
         guard arguments.count > flag + 2 else { return true }
@@ -23,6 +24,7 @@ enum BrowserGeometryRegression {
                 var response: [String: Any] = ["sequence": sequence]
                 if request["command"] as? String == "stop" {
                     GlobalAssistant.shared.hide()
+                    inspector.hide()
                     response["stopped"] = true
                     write(response, to: resultURL)
                     return true
@@ -30,9 +32,69 @@ enum BrowserGeometryRegression {
                 if request["command"] as? String == "render-model-preview" {
                     if let input = request["input"] as? String, let output = request["output"] as? String,
                        let previewData = try? Data(contentsOf: URL(fileURLWithPath: input)) {
+                        let pdfData = (request["pdf"] as? String).flatMap {
+                            try? Data(contentsOf: URL(fileURLWithPath: $0))
+                        }
                         response["rendered"] = GlobalAssistant.regressionRenderPreview(
-                            data: previewData, to: URL(fileURLWithPath: output))
+                            data: previewData, pdfData: pdfData, to: URL(fileURLWithPath: output))
                     } else { response["error"] = "Model preview JSON or output path is missing." }
+                } else if request["command"] as? String == "suggestion-navigation" {
+                    response["checks"] = GlobalAssistant.regressionSuggestionNavigation(
+                        outputPath: request["output"] as? String)
+                } else if request["command"] as? String == "share-preview-fit" {
+                    response["checks"] = ShareComposerView.runPreviewFitRegression(
+                        screenshotPath: request["output"] as? String)
+                } else if request["command"] as? String == "share-pdf-preview" {
+                    if let input = request["input"] as? String, let pdf = request["pdf"] as? String,
+                       let data = try? Data(contentsOf: URL(fileURLWithPath: input)),
+                       let pdfData = try? Data(contentsOf: URL(fileURLWithPath: pdf)) {
+                        response["checks"] = ShareComposerView.runPDFPreviewRegression(
+                            data: data, pdfData: pdfData, screenshotPath: request["output"] as? String)
+                    } else { response["error"] = "PDF document JSON or original PDF path is missing." }
+                } else if request["command"] as? String == "share-pdf-live" {
+                    response.merge(ShareComposerController.shared.regressionPDFComposer(request)) { _, new in new }
+                } else if (request["command"] as? String)?.hasPrefix("inspector-") == true {
+                    do { response.merge(try inspect(request)) { _, new in new } }
+                    catch { response["error"] = error.localizedDescription }
+                } else if request["command"] as? String == "native-click",
+                          let x = request["x"] as? Double, let y = request["y"] as? Double {
+                    let point = CGPoint(x: x, y: y)
+                    let target = window(at: point, owner: Int(ProcessInfo.processInfo.processIdentifier))
+                    // A hit on our own window asks this app's Accessibility
+                    // server to respond. Keep its main thread free to do so.
+                    var hitResult: AXError = .cannotComplete
+                    var hitPID: pid_t = -1
+                    var hitFinished = false
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        var element: AXUIElement?
+                        let status = AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(),
+                                                                     Float(x), Float(y), &element)
+                        var pid: pid_t = -1
+                        if let element { AXUIElementGetPid(element, &pid) }
+                        DispatchQueue.main.async {
+                            hitResult = status; hitPID = pid; hitFinished = true
+                        }
+                    }
+                    let hitDeadline = Date().addingTimeInterval(2)
+                    while !hitFinished, Date() < hitDeadline {
+                        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+                    }
+                    response["targetWindow"] = target
+                    response["hitPID"] = Int(hitPID)
+                    response["hitError"] = Int(hitResult.rawValue)
+                    if hitResult != .success || hitPID != ProcessInfo.processInfo.processIdentifier || target == nil {
+                        response["error"] = "Native click target is outside this test helper's accessible windows."
+                    } else if let expected = request["windowNumber"] as? Int,
+                              target?["number"] as? Int != expected {
+                        response["error"] = "Native click target is not the expected test window."
+                    } else if !CGPreflightPostEventAccess() {
+                        response["error"] = "The signed test helper is not permitted to post native events."
+                    } else {
+                        CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+                        CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+                        response["clicked"] = true
+                        response["allowed"] = CGPreflightPostEventAccess()
+                    }
                 } else if !AXIsProcessTrusted() {
                     response["error"] = "The signed Lasso app does not have Accessibility permission."
                 } else if request["command"] as? String == "ping" {
@@ -55,6 +117,14 @@ enum BrowserGeometryRegression {
                 }
                 write(response, to: resultURL)
             }
+            // NSApplication.run normally dispatches these events. This helper
+            // owns its run loop, so it must also deliver real mouse clicks to
+            // the nonactivating windows under test, not just timers and IPC.
+            while let event = NSApp.nextEvent(matching: .any, until: .distantPast,
+                                             inMode: .default, dequeue: true) {
+                NSApp.sendEvent(event)
+            }
+            NSApp.updateWindows()
             RunLoop.current.run(until: Date().addingTimeInterval(0.025))
         }
         return true
@@ -64,6 +134,66 @@ enum BrowserGeometryRegression {
         if let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) {
             try? data.write(to: url, options: .atomic)
         }
+    }
+
+    private static func windowDescriptions() -> [[String: Any]] {
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []
+        return windows.compactMap { item in
+            guard let bounds = item[kCGWindowBounds as String] as? [String: Any],
+                  let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+                  let pid = item[kCGWindowOwnerPID as String] as? Int,
+                  let number = item[kCGWindowNumber as String] as? Int,
+                  let alpha = item[kCGWindowAlpha as String] as? Double, alpha > 0 else { return nil }
+            return ["pid":pid, "number":number, "x":Double(rect.minX), "y":Double(rect.minY),
+                    "width":Double(rect.width), "height":Double(rect.height), "alpha":alpha,
+                    "layer":item[kCGWindowLayer as String] as? Int ?? 0]
+        }
+    }
+
+    private static func window(at point: CGPoint, owner: Int) -> [String: Any]? {
+        windowDescriptions().first { item in
+            guard item["pid"] as? Int == owner,
+                  let x = item["x"] as? Double, let y = item["y"] as? Double,
+                  let width = item["width"] as? Double, let height = item["height"] as? Double else { return false }
+            return CGRect(x: x, y: y, width: width, height: height).contains(point)
+        }
+    }
+
+    private static func inspect(_ request: [String: Any]) throws -> [String: Any] {
+        switch request["command"] as? String {
+        case "inspector-show":
+            guard let objectId = request["objectId"] as? String,
+                  let rawURL = request["url"] as? String, let url = URL(string: rawURL) else {
+                throw NSError(domain: "BrowserGeometryRegression", code: 4,
+                              userInfo: [NSLocalizedDescriptionKey: "Inspector fixture source is missing."])
+            }
+            let reference = DependencyReference(id: request["referenceId"] as? String ?? "fixture-inspector", objectId: objectId,
+                versionId: request["versionId"] as? String, projectId: request["projectId"] as? String,
+                hostBundleIdentifier: "com.google.Chrome", hostApplication: "Chrome", documentContext: "fixture",
+                anchor: TextAnchor(text: "supplies", prefixContext: "", suffixContext: "", approximateOffset: 0),
+                state: .healthy, label: "Fixture source", valueText: nil,
+                sourcePath: request["path"] as? String ?? "", sourceLocation: "", createdAt: Date(), updatedAt: Date())
+            let near = AccessibilityReader.focusedContext()?.caretRect ?? NSRect(x: 120, y: 420, width: 80, height: 20)
+            inspector.show(reference, near: near, serverURL: url)
+        case "inspector-hide": inspector.hide()
+        case "inspector-focus": inspector.regressionFocus()
+        case "inspector-resize":
+            inspector.regressionResize(NSSize(width: request["width"] as? Double ?? 560,
+                                             height: request["height"] as? Double ?? 540))
+        case "inspector-snapshot":
+            if let output = request["output"] as? String {
+                return ["captured": inspector.regressionSnapshot(to: URL(fileURLWithPath: output))]
+            }
+        default: break
+        }
+        var result = inspector.regressionState()
+        result["primaryTop"] = (NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.screens.first)?.frame.maxY ?? 0
+        result["frontmostPID"] = Int(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1)
+        result["pid"] = Int(ProcessInfo.processInfo.processIdentifier)
+        result["windows"] = windowDescriptions().filter { $0["pid"] as? Int == Int(ProcessInfo.processInfo.processIdentifier) }
+        result["screens"] = NSScreen.screens.map { ["x":$0.frame.minX,"y":$0.frame.minY,"width":$0.frame.width,"height":$0.frame.height] }
+        return result
     }
 
     private static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
@@ -107,6 +237,13 @@ enum BrowserGeometryRegression {
             result["activated"] = app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
         case "popup-show":
             result["shown"] = assistant.regressionShowPopup()
+        case "popup-predict":
+            guard let address = request["url"] as? String, let url = URL(string: address),
+                  let ids = request["projectIds"] as? [String], let revision = request["revision"] as? String else {
+                throw NSError(domain: "BrowserGeometryRegression", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "Prediction fixture workspace is missing."])
+            }
+            assistant.regressionPredictPopup(serverURL: url, projectIds: ids, revision: revision)
         case "popup-state":
             break
         case "popup-key":

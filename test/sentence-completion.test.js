@@ -45,6 +45,7 @@ test('sentence completion uses scientific concept equivalents instead of literal
   });
   assert.equal(completion.insertText, ' folate levels were higher in the supplemented group.');
   assert.equal(completion.matchKind, 'SEMANTIC_SEQUENCE');
+  assert.equal(completion.sourceSentence, 'The analysis showed that placental folate levels were higher in the supplemented group.');
 });
 
 test('linked-paper findings prefer grammatical narrative clauses over flattened PDF table rows', () => {

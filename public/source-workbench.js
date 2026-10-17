@@ -20,7 +20,7 @@ const location = object => {
  if(a.kind==='cad-property') return [object.metadata?.storey, a.layer, a.propertySet, a.propertyName, a.elementId].filter(Boolean).join(' · ');
  if(a.kind==='drawing-sheet'||a.kind==='drawing-annotation') return [a.sheetNumber, a.pageNumber?`Page ${a.pageNumber}`:null].filter(Boolean).join(' · ');
  if(a.kind==='cad-model') return object.metadata?.format ? `${object.metadata.format} model` : 'Design model';
- return a.kind==='table-cell' ? [a.sheet, `Row ${(a.rowIndex??0)+1}`, a.column].filter(Boolean).join(' · ') : a.cellId ? [a.sheet, a.cellId].filter(Boolean).join('!') : a.rowKey ? `Row ${a.rowKey}` : a.page ? `Page ${a.page}` : a.line ? `Line ${a.line}` : a.blockIndex != null ? `Passage ${a.blockIndex + 1}` : object.objectType?.toLowerCase().replaceAll('_',' ') ?? 'Source';
+ return a.kind==='table-cell' ? [a.sheet, `Row ${(a.rowIndex??0)+1}`, a.column].filter(Boolean).join(' · ') : a.cellId ? [a.sheet, a.cellId].filter(Boolean).join('!') : a.rowKey ? `Row ${a.rowKey}` : a.pageNumber||a.page ? `Page ${a.pageNumber??a.page}` : a.line ? `Line ${a.line}` : a.blockIndex != null ? `Passage ${a.blockIndex + 1}` : object.objectType?.toLowerCase().replaceAll('_',' ') ?? 'Source';
 };
 // Keep the server's ranked order while grouping in one pass. Dataset summary
 // rows are redundant in browse mode when the file has individual values.
@@ -108,6 +108,11 @@ export function createSourceWorkbench({input, api, getProjectId, getProjectVersi
   if(!preview) return '<p class="wb-muted">Loading source preview…</p>';
   if(preview.kind==='model-plan') return renderModelPlan(preview);
   if(preview.kind==='model-unavailable') return `<p class="wb-prose">${escape(preview.reason ?? 'No displayable geometry was found for this indexed element.')}</p>`;
+  if(preview.kind==='pdf') {
+   const page=Math.max(1,Math.floor(Number(preview.pageNumber??preview.page)||1));
+   const text=preview.selectedText||preview.text;
+   return `${preview.fileUrl?`<iframe class="wb-pdf" src="${escape(`${preview.fileUrl}#page=${page}&zoom=page-width`)}" title="${escape(selectedObject?.path??'PDF source')}"></iframe>`:'<p class="wb-muted">The PDF page could not be loaded. Open the source to inspect its recorded version.</p>'}${text?`<p class="wb-prose">${escape(text)}</p>`:''}`;
+  }
   if(preview.kind==='table') return `<div class="wb-table-scroll"><table class="wb-evidence-table"><thead><tr><th scope="col" aria-label="Row number"></th>${(preview.headerRow??preview.columns??[]).map((heading,i)=>`<th scope="col"><span>${escape(heading||(preview.columns?.[i]?`Column ${preview.columns[i]}`:'Column'))}</span></th>`).join('')}</tr></thead><tbody>${preview.rows.map(row=>`<tr class="${row.highlighted?'cited':''}"><th>${row.rowNumber}</th>${row.cells.map((cell,i)=>`<td class="${row.highlighted && i===preview.highlightColumn?'cited-cell':''}">${escape(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   if(preview.kind==='text') return `<div class="wb-excerpt">${preview.lines.map(line=>`<div class="${line.highlighted?'cited':''}"><span>${line.lineNumber}</span><p>${escape(line.text)||' '}</p></div>`).join('')}</div>`;
   return `<p class="wb-prose">${escape(preview.reason??preview.value??'A visual preview is unavailable for this source. Open its recorded version to inspect it.')}</p>`;
@@ -146,7 +151,9 @@ export function createSourceWorkbench({input, api, getProjectId, getProjectVersi
   cancelDetails();const token=detailEpoch, project=scope(),controller=new AbortController();detailController=controller; selectedObject={...object,...extra}; candidates=null; preview=null;plan=null;render();
   try {
    const [p,r]=await Promise.all([
-    api(`${base()}/terminal/preview`,{method:'POST',body:JSON.stringify({projectId:object.projectId,ref:{kind:'object',objectId:object.id,projectId:object.projectId}}),signal:controller.signal}),
+    /\.pdf$/i.test(object.path??'')
+     ? api(`/api/dependency-objects/${encodeURIComponent(object.id)}/preview${object.versionId?`?version=${encodeURIComponent(object.versionId)}`:''}`,{signal:controller.signal})
+     : api(`${base()}/terminal/preview`,{method:'POST',body:JSON.stringify({projectId:object.projectId,ref:{kind:'object',objectId:object.id,projectId:object.projectId}}),signal:controller.signal}),
     api(`${base()}/source-review/${encodeURIComponent(object.id)}`,{signal:controller.signal}),
    ]);
    if(token!==detailEpoch || project!==scope())return;
@@ -225,7 +232,7 @@ export function createSourceWorkbench({input, api, getProjectId, getProjectVersi
   host.querySelector('[data-back]')?.addEventListener('click',()=>{cancelDetails();selectedObject=null;candidates=null;render();});
   host.querySelector('[data-open]')?.addEventListener('click',()=>onOpenSource?.(selectedObject,usageContext()));
   host.querySelector('[data-copy]')?.addEventListener('click',async()=>{
-   const o=selectedObject, context=usageContext(), excerpt=preview?.lines?.filter(l=>l.highlighted).map(l=>l.text).join('\n') || preview?.lines?.map(l=>l.text).join('\n');
+   const o=selectedObject, context=usageContext(), excerpt=preview?.lines?.filter(l=>l.highlighted).map(l=>l.text).join('\n') || preview?.lines?.map(l=>l.text).join('\n') || preview?.selectedText || preview?.text;
    const text=`${o.valueText || excerpt || o.label}\nSource: ${[o.projectName,o.path].filter(Boolean).join(' / ')} · ${location(o)}${o.snapshotVersion?` · Version ${o.snapshotVersion}`:''}`;
    try{await navigator.clipboard.writeText(text);onRecommendationUsage?.({objectId:o.id,projectId:o.projectId},'accept',context);onStatus('Copied with source citation.');}catch{onStatus('Could not access the clipboard. Select and copy the displayed value.');}
   });
@@ -254,6 +261,6 @@ export function createSourceWorkbench({input, api, getProjectId, getProjectVersi
   if(event.key==='Enter' && /^(?:ask\s|what\b|which\b|where\b|when\b|how\b|show\s+me\b|give\s+me\b)/i.test(input.value.trim())){
    event.preventDefault();const question=input.value.trim().replace(/^ask\s+/i,'');await run(`ask ${question}`);return;
   }
-if(event.key==='Escape'){clearTimeout(timer);cancelDetails();input.value='';query='';selectedObject=null;candidates=null;preview=null;plan=null;visibleItemCount=400;refresh({refreshSession:false});}if(event.key==='ArrowDown'){event.preventDefault();host?.querySelector('.wb-file')?.focus();}});
+if(event.key==='ArrowDown'){event.preventDefault();host?.querySelector('.wb-file')?.focus();}});
  return {setHost(node){host=node;},mount(){render();},refresh,run,reset(){cancelLibrary();cancelDetails();sessionRequest?.controller.abort();sessionRequest=null;sessionProject=null;sessionVersion=null;clearTimeout(timer);objects=[];query='';input.value='';selectedObject=null;selectedPath='';visibleItemCount=400;candidates=null;report=null;plan=null;preview=null;mode='library';session=null;problem='';busy=false;},focus(){input.focus();},get state(){return {session};}};
 }

@@ -72,6 +72,27 @@ test('public share routes', async (suite) => {
     assert.equal((await fetch(`${base}/api/dependency-objects/not-real/source`)).status, 404);
   });
 
+  await suite.test('a local variable selects its header while its indexed share retains column data', async () => {
+    const variable = application.dependencies.objectsAt(project.id)
+      .find(source => source.objectType === 'VARIABLE' && source.label === 'Current Period');
+    assert.ok(variable);
+    const body = await (await fetch(`${base}/api/dependency-objects/${variable.id}/preview?version=${variable.versionId}`)).json();
+    assert.equal(body.source.objectType, 'VARIABLE');
+    assert.equal(body.source.anchor.kind, 'table-column');
+    assert.equal(body.preview.location, 'B1 (column header)');
+    assert.deepEqual(body.preview.rows.flatMap(row => row.cells.filter(cell => cell.cited).map(cell => cell.value)), ['Current Period']);
+    const html = await (await fetch(`${base}/inspect?object=${variable.id}&version=${variable.versionId}`)).text();
+    assert.match(html, /B1 \(column header\)/);
+    assert.equal((html.match(/class="cited"/g) ?? []).length, 1);
+    assert.match(html, /class="cited"[^>]*>Current Period<\/td>/);
+    const share = application.objectShares.createShare({ projectId: project.id, objectId: variable.id,
+      versionId: variable.versionId, actor: maya, accessScope: 'INDEXED' });
+    const shared = await (await fetch(`${base}/d/${share.token}`)).text();
+    assert.match(shared, /class="cited">400<\/td>/);
+    assert.match(shared, /class="cited">225<\/td>/);
+    assert.doesNotMatch(shared, /class="cited">Current Period<\/td>/);
+  });
+
   await suite.test('select and redact loads the complete source document', async () => {
     const response = await fetch(
       `${base}/api/dependency-objects/${object.object_id}/document?version=${object.version_id}`);

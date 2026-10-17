@@ -57,6 +57,7 @@ html .view-session #dependency-shell { width:100%; height:100%; max-width:none; 
 .wb-actions { display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 28px; }
 .wb-preview { margin-top:24px; border-top:1px solid var(--wb-line); }
 .wb-preview>header { display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 0 12px; }.wb h3 { margin:0; font-size:12px; font-weight:600; color:var(--wb-ink); }.wb-preview small { color:var(--wb-muted);font-size:10px; }
+.wb-pdf { display:block;width:100%;height:min(65vh,700px);min-height:320px;border:0;border-radius:4px;background:var(--wb-ground); }
 .wb-table-scroll { overflow:auto;max-height:380px;border:1px solid var(--wb-line);border-radius:4px; }
 .wb-evidence-table { width:100%;border-collapse:collapse; font-size:12px; }.wb-evidence-table th,.wb-evidence-table td { min-width:60px;padding:10px 12px;text-align:left;border:1px solid var(--wb-line);white-space:pre-wrap; }.wb-evidence-table th { min-width:30px;font-size:10px;color:var(--wb-muted);background:var(--wb-ground);font-weight:400; }.wb .cited { background:color-mix(in srgb,var(--u-blue) 7%,var(--wb-paper)); }.wb-evidence-table .cited-cell { outline:1.5px solid var(--u-blue);outline-offset:-1.5px; }
 .wb-excerpt { padding:12px 0;background:var(--wb-ground);border-radius:4px; }.wb-excerpt>div { display:grid;grid-template-columns:30px 1fr;gap:12px;padding:5px 14px; }.wb-excerpt span { font:10px/1.8 ui-monospace,monospace;color:var(--wb-muted); }.wb-excerpt p { margin:0;white-space:pre-wrap;font-size:13px;line-height:1.7;overflow-wrap:anywhere; }

@@ -50,6 +50,10 @@ final class StatusPopoverController {
     private var width: CGFloat = 296
 
     init() {
+        LassoTransientUI.shared.register(self, priority: 10,
+            isOpen: { [weak self] in self?.popover.isShown == true },
+            dismiss: { [weak self] in self?.popover.performClose(nil) })
+        LassoTransientUI.shared.start()
         content.autoresizesSubviews = false
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true

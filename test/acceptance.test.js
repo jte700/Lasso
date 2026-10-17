@@ -96,6 +96,21 @@ test('approving unchanged text with provenance succeeds without a file-change ev
   assert.equal(link.to_snapshot_id, project.currentSnapshotId);
 });
 
+test('PDF page evidence follows provenance recorded for that exact page', t => {
+  const { app, project } = editFixture(t);
+  const links = [1, 2].map(pageNumber => app.timeline.addProvenanceLink(project.id, {
+    fromSnapshotId: project.currentSnapshotId, fromPath: 'Plan.pdf',
+    fromAnchor: { kind: 'pdf-page', pageNumber }, relation: 'DERIVED_FROM',
+    toSnapshotId: project.currentSnapshotId, toPath: 'note.md', toAnchor: { kind: 'line', line: 1 },
+  }));
+  for (const pageNumber of [1, 2]) {
+    const provenance = app.rfi.traverseProvenance(project.id, project.currentSnapshotId, 'Plan.pdf',
+      { kind: 'pdf-page', pageNumber });
+    assert.deepEqual(provenance.map(link => link.id), [links[pageNumber - 1].id],
+      'evidence from another page must not be attributed to the selected page');
+  }
+});
+
 test('scientific timeline and RFI acceptance workflows', async (suite) => {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-timeline-test-'));
   const projectRoot = path.join(sandbox, 'LungAtlas');

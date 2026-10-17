@@ -99,7 +99,8 @@ function workbenchHarness(t,options={}) {
  const document={activeElement:null,querySelectorAll(){return [];},getElementById(){return null;}};
  Object.defineProperty(globalThis,'document',{configurable:true,value:document});
  let copyFails=false;
- Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{async writeText(){if(copyFails)throw new Error('Denied');}}}});
+ const copied=[];
+ Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{async writeText(value){if(copyFails)throw new Error('Denied');copied.push(value);}}}});
  t.after(()=>{
   if(originalDocument)Object.defineProperty(globalThis,'document',originalDocument);else delete globalThis.document;
   if(originalNavigator)Object.defineProperty(globalThis,'navigator',originalNavigator);else delete globalThis.navigator;
@@ -144,7 +145,7 @@ function workbenchHarness(t,options={}) {
   getWorkspaceId:options.workspace?()=>version:undefined,getDocumentProjectId:options.workspace?()=>project:undefined,
   onRecommendationUsage:(...args)=>usage.push(args),onOpenSource:(...args)=>opened.push(args),onOpenDocument:(...args)=>documentsOpened.push(args),onStatus(){}});
  workbench.setHost(host);
- return {workbench,host,input,listeners,fileList,usage,opened,documentsOpened,requests,libraryObjects,
+ return {workbench,host,input,listeners,fileList,usage,opened,documentsOpened,requests,libraryObjects,copied,
   failCopy(value){copyFails=value;},setProject(value){project=value;},setVersion(value){version=value;}};
 }
 
@@ -177,6 +178,54 @@ test('workbench preserves ranking and selection and counts only successful delib
  assert.equal(usage[0][1],'accept');
  assert.equal(usage[0][2].projectId,'project-one','async reuse remains scoped to its original project');
  assert.equal(usage[0][2].documentPath,'Draft.md');
+});
+
+test('workbench opens the pinned PDF page and preserves its excerpt for copying',async t=>{
+ const object={id:'paper/one',projectId:'project-two',path:'Plans/Concept.PDF',label:'Concept plan',objectType:'PASSAGE',versionId:'version/one',anchor:{kind:'pdf-text',pageNumber:3}};
+ const h=workbenchHarness(t,{workspace:true,api:async url=>{
+  if(url.includes('/source-library'))return {objects:[object]};
+  if(url.endsWith('/terminal/session'))return {session:{files:1}};
+  if(url.includes('/source-review/'))return {plan:{edits:[]}};
+  if(url.startsWith('/api/dependency-objects/'))return {preview:{kind:'pdf',fileUrl:'/api/dependency-objects/paper%2Fone/source?version=version%2Fone',pageNumber:3,selectedText:'Kitchen < 40 m² & dining area'}};
+  throw new Error(`Unexpected URL: ${url}`);
+ }});
+ await h.workbench.refresh();
+ await h.host.querySelector('[data-object]').click();
+ assert.ok(h.requests.some(request=>request.url==='/api/dependency-objects/paper%2Fone/preview?version=version%2Fone'),'the preview must retain the selected source version');
+ assert.ok(!h.requests.some(request=>request.url.endsWith('/terminal/preview')),'PDFs use the source preview endpoint');
+ assert.match(h.host.innerHTML,/class="wb-pdf"/);
+ assert.match(h.host.innerHTML,/source\?version=version%2Fone#page=3&amp;zoom=page-width/);
+ assert.match(h.host.innerHTML,/Page 3/);
+ assert.match(h.host.innerHTML,/Kitchen &lt; 40 m² &amp; dining area/);
+ assert.doesNotMatch(h.host.innerHTML,/A visual preview is unavailable/);
+ await h.host.querySelector('[data-copy]').click();
+ assert.match(h.copied[0],/^Kitchen < 40 m² & dining area\nSource:/);
+ assert.match(h.copied[0],/Page 3/);
+ assert.equal(h.usage[0][2].projectId,'project-two');
+});
+
+test('an obsolete PDF preview cannot replace a newly selected source',async t=>{
+ let finishPdf, pdfSignal;
+ const h=workbenchHarness(t,{api:async(url,args)=>{
+  if(url.includes('/source-library'))return {objects:[
+   {id:'pdf',path:'Concept.pdf',label:'Concept plan',objectType:'PAPER',versionId:'old-version'},
+   {id:'text',path:'Notes.md',label:'Current notes',objectType:'PASSAGE'},
+  ]};
+  if(url.endsWith('/terminal/session'))return {session:{files:2}};
+  if(url.includes('/source-review/'))return {plan:{edits:[]}};
+  if(url.startsWith('/api/dependency-objects/')){pdfSignal=args.signal;return new Promise(resolve=>{finishPdf=resolve;});}
+  if(url.endsWith('/terminal/preview'))return {preview:{kind:'text',lines:[{lineNumber:1,text:'Current source context',highlighted:true}]}};
+  throw new Error(`Unexpected URL: ${url}`);
+ }});
+ await h.workbench.refresh();
+ const pdfSelecting=h.host.querySelector('[data-object]').click();
+ h.host.querySelectorAll('[data-file]')[1].click();
+ await h.host.querySelector('[data-object]').click();
+ assert.equal(pdfSignal.aborted,true);
+ finishPdf({preview:{kind:'pdf',fileUrl:'/obsolete.pdf',page:7,selectedText:'Obsolete PDF evidence'}});
+ await pdfSelecting;
+ assert.match(h.host.innerHTML,/Current source context/);
+ assert.doesNotMatch(h.host.innerHTML,/Obsolete PDF evidence|obsolete\.pdf|class="wb-pdf"/);
 });
 
 test('workbench asks the shared search for queries and ignores obsolete responses',async t=>{

@@ -1,9 +1,11 @@
 import path from 'node:path';
 import { buildIfcPlan } from './ifc-geometry.js';
+import { buildDxfPlan } from './dxf-geometry.js';
 
 /** Render only the supplied, versioned bytes and the indexed element identity. */
 export async function buildModelPreview(file, source = {}) {
-  if (!file?.content || path.extname(file.path ?? '').toLowerCase() !== '.ifc') return null;
+  const extension = path.extname(file?.path ?? '').toLowerCase();
+  if (!file?.content || !['.ifc', '.dxf'].includes(extension)) return null;
   const anchor = source.anchor ?? {};
   const metadata = source.metadata ?? {};
   const elementId = anchor.elementId ?? metadata.globalId ?? metadata.elementId;
@@ -18,11 +20,12 @@ export async function buildModelPreview(file, source = {}) {
     sourceText: metadata.rawText ?? '',
   };
   // An indexed property must never silently open an unrelated overview.
-  if (anchor.kind === 'cad-property' && !elementId && !stepId) {
+  if (anchor.kind === 'cad-property' && !elementId && (extension === '.dxf' || !stepId)) {
     return { ...context, kind: 'model-unavailable', reason: 'This indexed property has no model element identifier.' };
   }
   try {
-    return { ...context, ...await buildIfcPlan(file.content, { elementId, stepId }) };
+    return { ...context, ...await (extension === '.dxf'
+      ? buildDxfPlan(file.content, { elementId }) : buildIfcPlan(file.content, { elementId, stepId })) };
   } catch (error) {
     return { ...context, kind: 'model-unavailable',
       reason: error.message || 'The source model does not provide displayable geometry for this element.' };

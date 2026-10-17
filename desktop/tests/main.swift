@@ -2,6 +2,8 @@
 //  Built and run by `npm run desktop:test` — no framework, no dependencies.
 
 import Cocoa
+import PDFKit
+import CoreText
 
 var failures = 0
 var checks = 0
@@ -51,12 +53,13 @@ func units(_ value: String) -> [UInt16] { Array(value.utf16) }
 func string(_ value: [UInt16]) -> String { String(decoding: value, as: UTF16.self) }
 
 /// Runs the whole transaction against a simulated host and returns the result.
-func accept(_ before: String, insert: String, caret: Int? = nil)
+func accept(_ before: String, insert: String, caret: Int? = nil,
+            replacement: CompletionReplacement? = nil)
     -> (after: String, range: Range<Int>?, failure: CompletionFailure?) {
     let document = units(before)
     let position = caret ?? document.count
     guard case .success(let plan) = CompletionTransaction.plan(
-        document: document, caret: position, insertText: insert) else {
+        document: document, caret: position, insertText: insert, replacement: replacement) else {
         return (before, nil, .rangeOutOfBounds)
     }
     if let failure = CompletionTransaction.validate(plan, against: document) {
@@ -70,6 +73,33 @@ func accept(_ before: String, insert: String, caret: Int? = nil)
 }
 
 print("sharing drag selection")
+do {
+    final class Surface {
+        var visible = true
+        var acceptedLinks = ["accepted-source"]
+        var copiedText = "existing copied link"
+    }
+    let router = LassoTransientUI()
+    let inspector = Surface(), share = Surface(), suggestions = Surface()
+    var order: [String] = []
+    for (owner, priority, name) in [(inspector, 80, "inspector"), (share, 100, "share"), (suggestions, 70, "suggestions")] {
+        router.register(owner, priority: priority, isOpen: { [weak owner] in owner?.visible == true }, dismiss: { [weak owner] in
+            owner?.visible = false
+            order.append(name)
+            check(!router.dismissAll(), "dismissal ignores nested Escape handling")
+        })
+    }
+    check(router.dismissAll(), "Escape dismisses all registered open transient surfaces")
+    check(order == ["share", "inspector", "suggestions"], "sharing detaches before its parent inspector or suggestion panel closes")
+    check(!router.dismissAll(), "Escape after dismissal does not repeat UI actions")
+    check([inspector, share, suggestions].allSatisfy { $0.acceptedLinks == ["accepted-source"] && $0.copiedText == "existing copied link" },
+          "dismissal preserves accepted connections and copied content")
+    var temporary: Surface? = Surface()
+    router.register(temporary!, isOpen: { true }, dismiss: { fatalError("Released UI must not be dismissed") })
+    temporary = nil
+    check(!router.dismissAll(), "released UI owners do not receive dismissal callbacks")
+}
+
 do {
     func cell(_ row: Int, _ column: Int, sheet: Int = 0,
               effect: ShareRedactionEffect = .blur) -> ShareRedaction {
@@ -120,6 +150,55 @@ do {
 }
 
 print("sharing preserves clipboard changes")
+do {
+    let crop = NSRect(x: 30, y: 50, width: 400, height: 800)
+    let selected = NSRect(x: 70, y: 650, width: 120, height: 80)
+    let region = SharePDFRegion(page: 3, rect: selected, crop: crop)!
+    check(abs(region.x - 0.1) < 1e-9 && abs(region.y - 0.15) < 1e-9,
+          "PDF regions account for a crop box offset and top-left page coordinates")
+    check(region.rect(in: crop) == selected, "PDF selection coordinates return to the same source area")
+    let mask = region.redaction(effect: .blank)
+    check(mask.payload["page"] as? Int == 3 && mask.kind == "PDF" && mask.locationKey.hasPrefix("pdf:3:"),
+          "PDF masks keep the exact page through serialization and removal")
+    let excerpt = SharePDFExcerpt(text: "A selected sentence.", regions: [region])
+    check((excerpt.payload["regions"] as? [[String: Any]])?.first?["page"] as? Int == 3,
+          "PDF excerpt payloads preserve the reviewed page region")
+    check(SharePDFRegion(page: 0, rect: selected, crop: crop) == nil
+          && SharePDFRegion(page: 1, rect: NSRect(x: 900, y: 900, width: 20, height: 20), crop: crop) == nil,
+          "PDF selections reject missing pages and areas outside the page")
+}
+do {
+    let model = AssistModelPreview(json: [
+        "kind": "model-plan", "bounds": ["minX": 0, "minY": 0, "maxX": 100, "maxY": 100],
+        "drawing": [["id": "A1", "type": "path", "points": [[0, 0], [100, 100]], "closed": false]],
+    ])!
+    let layout = ShareDrawingLayout(model: model, in: NSRect(x: 0, y: 0, width: 400, height: 300))!
+    let a = NSPoint(x: layout.frame.minX + layout.frame.width * 0.2,
+                    y: layout.frame.minY + layout.frame.height * 0.3)
+    let b = NSPoint(x: layout.frame.minX + layout.frame.width * 0.7,
+                    y: layout.frame.minY + layout.frame.height * 0.8)
+    let mask = layout.redaction(from: a, to: b, effect: .blank)!
+    check(mask.kind == "DRAWING" && abs(mask.x! - 0.2) < 1e-9 && abs(mask.y! - 0.3) < 1e-9
+          && abs(mask.width! - 0.5) < 1e-9 && abs(mask.height! - 0.5) < 1e-9,
+          "drawing drags map fitted source bounds to normalized top-left regions")
+    check(layout.redaction(from: b, to: a, effect: .blank) == mask,
+          "reverse drawing drags select the same source region")
+    let restored = layout.rect(for: mask)!
+    check(abs(restored.minX - a.x) < 1e-8 && abs(restored.maxY - b.y) < 1e-8,
+          "region overlay uses the same fit and letterboxing as the drawing")
+    check(layout.redaction(from: a, to: NSPoint(x: a.x + 1, y: a.y + 1), effect: .blur) == nil,
+          "a click does not accidentally create a microscopic drawing mask")
+    let entire = layout.redaction(from: NSPoint(x: -1000, y: -1000), to: NSPoint(x: 1000, y: 1000), effect: .blur)!
+    check(entire.x == 0 && entire.y == 0 && entire.width == 1 && entire.height == 1,
+          "drawing masks clamp to source bounds when a drag leaves the canvas")
+    check(mask.payload["x"] as? Double == mask.x && mask.payload["kind"] as? String == "DRAWING"
+          && mask.payload["effect"] as? String == "BLANK" && mask.payload["row"] == nil,
+          "drawing masks serialize regions without worksheet coordinates")
+    var invalid = mask
+    invalid.width = .infinity
+    check(layout.rect(for: invalid) == nil, "invalid drawing regions cannot become visible masks")
+}
+
 do {
     let pasteboard = NSPasteboard.withUniqueName()
     defer { pasteboard.releaseGlobally() }
@@ -340,7 +419,87 @@ do {
     check(five.after == "the cost is 400", "inserts when nothing was typed towards it")
 }
 
-print("a completion can never delete more than it inserts")
+print("matched keywords replace only their captured fragment")
+do {
+    let opening = "I was looking at the "
+    let requested = opening + "pro"
+    let label = "AC20 FZK haus · Projekt-FZK-Haus"
+    let keyword = CompletionReplacement.capture(start: opening.utf16.count,
+        end: requested.utf16.count, in: requested, expectedText: "pro")!
+    let replaced = accept(requested, insert: label, replacement: keyword)
+    check(replaced.after == opening + label,
+          "Tab replaces pro even when its source name starts with AC20")
+    check(replaced.range == opening.utf16.count..<(opening.utf16.count + label.utf16.count),
+          "source highlight covers the replacement rather than the old keyword")
+    let middle = accept(requested + " yesterday.", insert: label, caret: requested.utf16.count,
+                        replacement: keyword)
+    check(middle.after == opening + label + " yesterday.",
+          "keyword replacement preserves text before and after the caret")
+    let emojiOpening = "Look at 🏡 the "
+    let alias = emojiOpening + "architectural drawing"
+    let fragment = CompletionReplacement.capture(start: emojiOpening.utf16.count,
+        end: alias.utf16.count, in: alias)!
+    check(accept(alias, insert: "Home", replacement: fragment).after == emojiOpening + "Home",
+          "a verified alias can become a shorter label without damaging Unicode context")
+    check(CompletionReplacement.capture(start: opening.utf16.count, end: requested.utf16.count,
+        in: requested, expectedText: "other") == nil, "rejects a trigger that differs from the request text")
+    check(CompletionReplacement.capture(start: -1, end: requested.utf16.count, in: requested) == nil,
+          "rejects a trigger outside the captured request")
+    check(CompletionReplacement.capture(start: 1, end: 2, in: "🏡") == nil,
+          "rejects a range cutting through an emoji")
+    if case .failure(let failure) = CompletionTransaction.plan(document: units(opening + "pri"),
+        caret: requested.utf16.count, insertText: label, replacement: keyword) {
+        check(failure == .prefixMismatch, "refuses replacement after the typed keyword changes")
+    } else { check(false, "refuses replacement after the typed keyword changes") }
+    let continuation = "We use pro"
+    let append = CompletionReplacement(start: continuation.utf16.count, expectedText: "")
+    check(accept(continuation, insert: "ordinary materials.", replacement: append).after ==
+          continuation + "ordinary materials.",
+          "sentence continuations append even when their first letters overlap the typed suffix")
+}
+
+print("acceptance spacing and retained source boundaries")
+do {
+    let typed = "the marketing rows for our"
+    let append = CompletionReplacement(start: typed.utf16.count, expectedText: "")
+    guard case .success(let spaced) = CompletionTransaction.plan(document: units(typed), caret: typed.utf16.count,
+        insertText: "Department", replacement: append, separateInsertion: true) else { fatalError("spacing plan") }
+    check(string(CompletionTransaction.apply(spaced, to: units(typed))) == typed + " Department",
+          "an insertion after a complete connector separates the source name from existing words")
+    check(spaced.sourceRange == 1..<11, "source range excludes the inserted word separator")
+    let opening = "the marketing rows for our "
+    let request = opening + "dep "
+    let replacement = CompletionReplacement.capture(start: opening.utf16.count, end: request.utf16.count - 1,
+        in: request, expectedText: "dep")!
+    guard case .success(let retained) = CompletionTransaction.plan(document: units(request), caret: request.utf16.count,
+        insertText: "department", replacement: replacement, separateInsertion: true) else { fatalError("retained spacing plan") }
+    check(string(CompletionTransaction.apply(retained, to: units(request))) == opening + "department ",
+          "recognized keyword replacement preserves the user's trailing space")
+    check(retained.sourceRange == 0..<10, "source range excludes a retained trailing space")
+    check(CompletionTransaction.insertionIsAtCaret("department ", in: opening + "department\u{00A0}"),
+          "verifies the complete insertion including a browser-normalized trailing space")
+    let normalized = units(opening + "department\u{00A0}")
+    if case .success = CompletionTransaction.verify(before: CompletionSnapshot(documentStart: 0, text: units(request)),
+        after: CompletionSnapshot(documentStart: 0, text: normalized), plan: retained) {
+        check(true, "source verification accepts equivalent spaces within the insertion")
+    } else { check(false, "source verification accepts equivalent spaces within the insertion") }
+    check(CompletionReplacement.capture(start: 0, end: 3, in: "dep\n", expectedText: "dep") == nil,
+          "replacement never reaches back across a new line")
+    let numeric = "  Our rate increased by 2"
+    let number = CompletionReplacement.terminalNumber(in: numeric)!
+    check(number.expectedText == "2" && number.start == numeric.utf16.count - 1,
+          "numeric replacement preserves predicate words and leading whitespace")
+    let result = accept(numeric, insert: "25%", replacement: number)
+    check(result.after == "  Our rate increased by 25%", "numeric acceptance replaces only the numeric token")
+    let manual = "Please send comments"
+    guard case .success(let chosen) = CompletionTransaction.plan(document: units(manual), caret: manual.utf16.count,
+        insertText: "supplies", replacement: CompletionReplacement(start: manual.utf16.count, expectedText: ""),
+        separateInsertion: true) else { fatalError("manual insertion plan") }
+    check(string(CompletionTransaction.apply(chosen, to: units(manual))) == manual + " supplies",
+          "manually chosen sources do not consume an unrelated matching letter")
+}
+
+print("inferred completion replacement stays bounded by the insertion")
 do {
     // The exact shape of the bug: a claim covering the whole sentence.
     let sentence = "The expected cost of office sup"
@@ -1038,6 +1197,86 @@ do {
     check(AssistModelPreview(json: invalid) == nil,
           "does not draw fabricated replacement geometry for malformed coordinates")
 
+    let doorArc: [String: Any] = [
+        "id": "20/A", "type": "path", "layer": "DOORS", "elevation": 0,
+        "points": [[10.0, 20.0], [17.0710678, 22.9289322], [20.0, 30.0]],
+        "closed": false, "lineweight": 25,
+    ]
+    let roomText: [String: Any] = [
+        "id": "21", "type": "text", "layer": "ROOM-LABELS", "elevation": 0,
+        "point": [15.0, 25.0], "text": "STUDIO\n12 m²", "height": 0.5,
+        "rotation": 450.0, "align": "middle", "verticalAlign": "middle", "widthScale": 1.5,
+    ]
+    var drawingJSON = modelJSON
+    drawingJSON["elements"] = []
+    drawingJSON["selected"] = [:]
+    drawingJSON["drawing"] = [doorArc, roomText]
+    let drawingModel = AssistModelPreview(json: drawingJSON)!
+    check(drawingModel.elements.isEmpty && drawingModel.drawing.count == 2,
+          "opens a line-and-text DXF drawing without inventing a measurable room")
+    if case .path(let drawing) = drawingModel.drawing[0] {
+        let path = transform.path(for: drawing)
+        check(drawing.id == "20/A" && drawing.layer == "DOORS" && drawing.lineweight == 25 &&
+              drawing.points[1] == NSPoint(x: 17.0710678, y: 22.9289322),
+              "keeps source block identity, pen weight and supplied curved path vertices")
+        check(path.elementCount == 3 && path.element(at: 2) == .lineTo &&
+              path.currentPoint == NSPoint(x: 165, y: 17),
+              "projects tessellated curves with the same source scale and leaves door arcs open")
+    } else { check(false, "parses a DXF drafting path") }
+    if case .text(let drawing) = drawingModel.drawing[1] {
+        check(drawing.text == "STUDIO\n12 m²" && drawing.height == 0.5 && drawing.rotation == 90 &&
+              drawing.align == "middle" && drawing.verticalAlign == "middle" && drawing.widthScale == 1.5,
+              "preserves source text, source size, alignment, width factor and rotation")
+        let textTransform = transform.textTransform(for: drawing)
+        let anchor = transform.point(drawing.point)
+        let origin = textTransform.transform(NSPoint.zero)
+        let alongText = textTransform.transform(NSPoint(x: 1, y: 0))
+        let downGlyph = textTransform.transform(NSPoint(x: 0, y: 1))
+        check(origin == anchor && abs(alongText.x - anchor.x) < 0.00001 &&
+              abs(alongText.y - (anchor.y - 1.5)) < 0.00001 &&
+              abs(downGlyph.x - (anchor.x + 1)) < 0.00001 && abs(downGlyph.y - anchor.y) < 0.00001,
+              "rotates DXF text counterclockwise in source space without mirroring its glyphs")
+    } else { check(false, "parses DXF source annotation text") }
+    var closedBoundary = doorArc
+    closedBoundary["closed"] = true
+    var budget = 3
+    if case .path(let drawing)? = AssistModelDrawing.parse(closedBoundary, remainingPoints: &budget) {
+        check(transform.path(for: drawing).element(at: 3) == .closePath && budget == 0,
+              "closes only source paths explicitly marked closed and accounts for their point budget")
+    } else { check(false, "parses an explicitly closed source path") }
+    budget = 2
+    check(AssistModelDrawing.parse(doorArc, remainingPoints: &budget) == nil && budget == 2,
+          "rejects over-budget paths as a whole instead of fabricating a truncated outline")
+    var badDrawingItems: [[String: Any]] = []
+    for (key, value) in [("points", [[Double.nan, 20], [20, 30]] as Any),
+                         ("points", [[true, false], [false, true]] as Any),
+                         ("points", [[1e13, 20], [20, 30]] as Any),
+                         ("elevation", Double.infinity as Any),
+                         ("lineweight", -1 as Any)] {
+        var malformed = doorArc
+        malformed[key] = value
+        badDrawingItems.append(malformed)
+    }
+    for (key, value) in [("height", 0 as Any), ("rotation", Double.nan as Any),
+                         ("widthScale", -1 as Any), ("align", "unknown" as Any),
+                         ("verticalAlign", "unknown" as Any), ("text", String(repeating: "A", count: 16_385) as Any)] {
+        var malformed = roomText
+        malformed[key] = value
+        badDrawingItems.append(malformed)
+    }
+    drawingJSON["drawing"] = badDrawingItems
+    check(AssistModelPreview(json: drawingJSON) == nil,
+          "rejects non-finite, Boolean, oversized and malformed drawing values without replacement geometry")
+    drawingJSON["drawing"] = badDrawingItems + [doorArc]
+    check(AssistModelPreview(json: drawingJSON)?.drawing.count == 1,
+          "keeps valid source drafting when an unrelated malformed item is rejected")
+    var combinedJSON = modelJSON
+    combinedJSON["drawing"] = [doorArc, roomText]
+    let combinedModel = AssistModelPreview(json: combinedJSON)!
+    check(combinedModel.elements[0].polygons == model.elements[0].polygons &&
+          combinedModel.elements[0].selected && combinedModel.drawing.count == 2,
+          "keeps authoritative selected regions separate from decorative lines and text")
+
     var unavailable = response
     unavailable["preview"] = ["kind": "model-unavailable", "reason": "This element has properties but no geometric representation."]
     let unavailablePreview = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: unavailable))!
@@ -1049,6 +1288,74 @@ do {
     let tablePreview = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: table))!
     check(tablePreview.model == nil && tablePreview.rows[0].cells[0].cited && tablePreview.rows[0].rowNumber == 7,
           "preserves exact-cell spreadsheet preview parsing")
+}
+
+print("PDF page previews")
+do {
+    let payload: [String: Any] = [
+        "source": ["filename": "drawing.pdf", "location": "Page 2", "objectType": "DRAWING"],
+        "path": "drawing.pdf",
+        "preview": ["kind": "pdf", "page": 2,
+                    "fileUrl": "/api/dependency-objects/drawing/source?version=pinned",
+                    "selectedText": "Source text"],
+    ]
+    let parsed = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: payload))!
+    let pdf = parsed.pdf!
+    let server = URL(string: "http://127.0.0.1:4319/")!
+    check(pdf.pageNumber == 2 && pdf.selectedText == "Source text" && parsed.model == nil,
+          "parses PDF page and excerpt identity without falling back to an empty document card")
+    check(pdf.sourceURL(serverURL: server)?.absoluteString ==
+          "http://127.0.0.1:4319/api/dependency-objects/drawing/source?version=pinned",
+          "fetches PDF bytes from the pinned local source version")
+    var incomplete = payload
+    incomplete["preview"] = ["kind": "pdf", "page": 2]
+    let unavailable = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: incomplete))!
+    check(unavailable.pdf == nil && unavailable.unavailableReason != nil,
+          "missing PDF addresses remain retryable instead of caching an empty preview")
+    for address in ["https://example.com/source.pdf", "http://127.0.0.1:4320/source.pdf", "file:///tmp/source.pdf"] {
+        let outside = AssistPDFPreview(json: ["kind": "pdf", "fileUrl": address])!
+        check(outside.sourceURL(serverURL: server) == nil, "rejects PDF preview URLs outside the local server")
+    }
+    check(AssistPDFPageImage.render(data: Data("invalid PDF".utf8), preview: pdf) == nil,
+          "reports unreadable PDFs instead of caching a blank page")
+
+    let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("test/fixtures/drawings/ncsu-office-kit.pdf")
+    let data = try! Data(contentsOf: fixture)
+    let document = PDFDocument(data: data)!
+    let pageIndex = (0..<document.pageCount).first { !(document.page(at: $0)?.string ?? "").isEmpty }!
+    let phrase = document.page(at: pageIndex)!.string!.components(separatedBy: .newlines)
+        .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }!
+    let excerpt = AssistPDFPreview(json: ["kind": "pdf", "fileUrl": pdf.fileUrl,
+                                        "pageNumber": pageIndex + 1, "selectedText": phrase])!
+    let rendered = AssistPDFPageImage.render(data: data, preview: excerpt, size: NSSize(width: 720, height: 444))!
+    check(rendered.pageNumber == pageIndex + 1 && rendered.highlighted && rendered.image.size.width > 0,
+          "renders a real drawing PDF page and highlights its matched words")
+    let lastPage = AssistPDFPreview(json: ["kind": "pdf", "fileUrl": pdf.fileUrl, "page": 9999])!
+    check(AssistPDFPageImage.render(data: data, preview: lastPage)?.pageNumber == document.pageCount,
+          "bounds invalid page numbers to an existing PDF page")
+
+    let wrappedData = NSMutableData()
+    var mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792)
+    let consumer = CGDataConsumer(data: wrappedData as CFMutableData)!
+    let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil)!
+    for lines in [["Opening page"], ["The preserved excerpt continues", "across wrapped lines on page two."]] {
+        context.beginPDFPage(nil)
+        for (index, value) in lines.enumerated() {
+            context.textPosition = CGPoint(x: 50, y: 720 - index * 24)
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: value,
+                attributes: [.font: NSFont.systemFont(ofSize: 12)]))
+            CTLineDraw(line, context)
+        }
+        context.endPDFPage()
+    }
+    context.closePDF()
+    let wrapped = AssistPDFPreview(json: ["kind": "pdf", "fileUrl": pdf.fileUrl, "page": 1,
+        "selectedText": "The preserved excerpt continues across wrapped lines on page two."])!
+    let wrappedPage = AssistPDFPageImage.render(data: wrappedData as Data, preview: wrapped)!
+    check(wrappedPage.pageNumber == 2 && wrappedPage.highlighted,
+          "finds and highlights normalized PDF excerpts across line wraps on later pages")
 }
 
 print("")

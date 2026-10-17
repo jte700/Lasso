@@ -2,6 +2,7 @@ import path from 'node:path';
 import { diffInternals, parseDelimited } from './diff.js';
 import { HttpError } from './errors.js';
 import { extractDesignDocument } from '../dependencies/drawing-objects.js';
+import { extractDrawingDocument } from '../dependencies/drawing-extraction.js';
 
 function lineItems(text, language = 'text') {
   return text.replace(/\r\n/g, '\n').split('\n').map((value, index) => ({
@@ -65,6 +66,17 @@ export function buildPreview(snapshot, file, buffer) {
     fileType: file.fileType,
     contentHash: file.contentHash,
   };
+
+  if (file.fileType === 'pdf') {
+    const layout = extractDrawingDocument(buffer);
+    return { ...base, kind: 'pdf',
+      fileUrl: `/api/snapshots/${encodeURIComponent(snapshot.id)}/source?path=${encodeURIComponent(file.path)}`,
+      pageNumber: 1, pageCount: layout.pageCount ?? layout.pages.length,
+      warnings: layout.warnings,
+      pages: layout.pages.map(page => ({ pageNumber: page.pageNumber, text: page.text,
+        anchor: { kind: 'pdf-page', pageNumber: page.pageNumber } })),
+    };
+  }
 
   if (['drawing', 'xml'].includes(file.fileType) || /\.(?:ifc|dxf|dwg|rvt|dgn|landxml|xml)$/i.test(file.path)) {
     const design = extractDesignDocument(file, buffer);
@@ -165,7 +177,9 @@ export function resolveAnchor(file, buffer, anchor, exactSnapshot = false) {
   if (!anchor?.kind) throw new HttpError(400, 'A stable preview anchor is required.');
   const text = buffer.toString('utf8').replace(/\r\n/g, '\n');
   let container = null;
-  if (anchor.kind === 'cad-property') {
+  if (anchor.kind === 'pdf-page' && file.fileType === 'pdf') {
+    container = extractDrawingDocument(buffer).pages.find(page => page.pageNumber === anchor.pageNumber)?.text ?? null;
+  } else if (anchor.kind === 'cad-property') {
     const facts = extractDesignDocument(file, buffer).pages.flatMap((page) => page.annotations);
     container = facts.find((fact) => fact.id === anchor.identifier)?.value ?? null;
   } else if (anchor.kind === 'markdown-block' || anchor.kind === 'manuscript-span') {

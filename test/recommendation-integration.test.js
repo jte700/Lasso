@@ -66,7 +66,7 @@ test('typing uses the shared ranking, preserves match confidence and stays quiet
   app.dependencies.recordRecommendationUsage(project.id, { path: 'beta.csv', kind: 'accept', sessionId: 'typing' });
   const prediction = app.dependencies.predict(project.id, input);
   const candidates = prediction.claims.flatMap((claim) => claim.candidates);
-  assert.ok(candidates.length > 0 && candidates.length <= 5);
+  assert.ok(candidates.length > 0 && candidates.length <= 12);
   assert.equal(candidates[0].path, 'beta.csv');
   assert.equal(candidates[0].ranking.relevanceScore, candidates[0].score);
   assert.ok(candidates[0].ranking.usageBoost > 0);
@@ -93,10 +93,10 @@ test('sentence completions use accepted-source preferences without bypassing exc
   assert.equal(app.dependencies.predict(project.id, input).completion.source.path, 'alpha.md');
 });
 
-test('explicit Lasso allows broader matches and twelve choices while typing caps strong choices at five', (t) => {
+test('typing and explicit Lasso offer scrolling choices while retaining their match thresholds', (t) => {
   const { application: app, project } = fixture(t);
   const strong = { text: 'Supplies were 120.', documentPath: 'draft.md' };
-  assert.equal(app.dependencies.predict(project.id, strong).claims.flatMap((claim) => claim.candidates).length, 5);
+  assert.equal(app.dependencies.predict(project.id, strong).claims.flatMap((claim) => claim.candidates).length, 8);
   assert.equal(app.dependencies.predict(project.id, { ...strong, surface: 'search' })
     .claims.flatMap((claim) => claim.candidates).length, 12);
   const weak = { text: 'Supplies chromatic orbital were 121.', documentPath: 'draft.md' };

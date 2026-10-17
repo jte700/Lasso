@@ -67,3 +67,34 @@ test('closing and reopening the source viewer discards its previous geometry and
   assert.equal(h.rendered.length, 1);
   assert.equal(h.usage.length, 1);
 });
+
+test('opening a PDF source renders its preserved page and selectable text safely', () => {
+  const start = app.indexOf('function previewContent(');
+  const end = app.indexOf('\n}\n', start) + 2;
+  assert.ok(start >= 0 && end > start);
+  const context = vm.createContext({
+    escapeHtml: value => String(value ?? '').replace(/[&<>"']/g, character => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[character])),
+  });
+  vm.runInContext(app.slice(start, end), context);
+  const preview = {
+    kind: 'pdf', path: 'Plans & notes.pdf', pageNumber: 1,
+    fileUrl: '/api/snapshots/old-version/source?path=Plans%20%26%20notes.pdf',
+    pages: [
+      { pageNumber: 1, text: 'The original source text.', anchor: { kind: 'pdf-page', pageNumber: 1 } },
+      { pageNumber: 3, text: 'The room is < 40 m2. <script>text only</script>', anchor: { kind: 'pdf-page', pageNumber: 3 } },
+    ],
+    warnings: ['Only the first 80 pages were extracted.'],
+  };
+  const html = context.previewContent(preview, { kind: 'drawing-sheet', pageNumber: 3 });
+  assert.match(html, /class="source-viewer-pdf snapshot-pdf"/);
+  assert.match(html, /old-version\/source\?path=Plans%20%26%20notes\.pdf#page=3&amp;zoom=page-width/);
+  assert.match(html, /title="Plans &amp; notes\.pdf"/);
+  assert.match(html, /Selectable PDF text/);
+  assert.match(html, /&quot;kind&quot;:&quot;pdf-page&quot;,&quot;pageNumber&quot;:3/);
+  assert.match(html, /The room is &lt; 40 m2\. &lt;script&gt;text only&lt;\/script&gt;/);
+  assert.match(html, /Only the first 80 pages were extracted/);
+  assert.doesNotMatch(html, /<script>|binary-preview|Preview unavailable/);
+  assert.match(context.previewContent(preview), /#page=1&amp;zoom=page-width/);
+});

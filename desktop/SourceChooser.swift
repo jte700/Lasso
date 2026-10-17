@@ -19,6 +19,23 @@ final class SourceChooserController: NSObject, NSTableViewDataSource, NSTableVie
     private var host: NSRunningApplication?
     var isVisible: Bool { panel?.isVisible == true }
 
+    override private init() {
+        super.init()
+        LassoTransientUI.shared.register(self, priority: 90,
+            isOpen: { [weak self] in self?.isVisible == true },
+            dismiss: { [weak self] in self?.dismissForEscape() })
+        LassoTransientUI.shared.start()
+    }
+
+    func dismissForEscape() {
+        generation += 1
+        request?.cancel(); request = nil
+        completion = nil
+        panel?.orderOut(nil)
+        host?.activate(options: [])
+        host = nil
+    }
+
     func show(serverURL: URL, sourceProjectId: String?, sourcePath: String?,
               completion: @escaping ([String: Any]?) -> Void) {
         self.completion = completion
@@ -164,7 +181,9 @@ final class SourceChooserController: NSObject, NSTableViewDataSource, NSTableVie
             return true
         }
         if selector == #selector(NSResponder.insertNewline(_:)) { accept(); return true }
-        if selector == #selector(NSResponder.cancelOperation(_:)) { cancel(); return true }
+        if selector == #selector(NSResponder.cancelOperation(_:)) {
+            LassoTransientUI.shared.dismissAll(); return true
+        }
         return false
     }
     @objc private func accept() {

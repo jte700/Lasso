@@ -23,11 +23,12 @@ enum ShareClient {
             .appendingPathComponent("api/projects/\(projectId)/object-shares"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.timeoutInterval = 5
+        request.timeoutInterval = 30
         var payload: [String: Any] = ["objectId": objectId]
         if let versionId { payload["versionId"] = versionId }
         payload["accessScope"] = configuration.scope.rawValue
         payload["redactions"] = configuration.redactions.map(\.payload)
+        if let excerpt = configuration.excerpt { payload["excerpt"] = excerpt.payload }
         request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
 
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -204,9 +205,20 @@ struct ShareRedaction: Hashable {
     let column: Int?
     let block: Int?
     let effect: ShareRedactionEffect
+    var x: Double? = nil
+    var y: Double? = nil
+    var width: Double? = nil
+    var height: Double? = nil
+    var page: Int? = nil
 
     var locationKey: String {
         if kind == "CELL" { return "cell:\(sheet ?? 0):\(row ?? -1):\(column ?? -1)" }
+        if kind == "DRAWING" {
+            return "drawing:" + [x, y, width, height].map { String(format: "%.8f", $0 ?? -1) }.joined(separator: ":")
+        }
+        if kind == "PDF" {
+            return "pdf:\(page ?? -1):" + [x, y, width, height].map { String(format: "%.8f", $0 ?? -1) }.joined(separator: ":")
+        }
         return "block:\(block ?? -1)"
     }
 
@@ -216,7 +228,93 @@ struct ShareRedaction: Hashable {
         if let row { value["row"] = row }
         if let column { value["column"] = column }
         if let block { value["block"] = block }
+        if let x { value["x"] = x }
+        if let y { value["y"] = y }
+        if let width { value["width"] = width }
+        if let height { value["height"] = height }
+        if let page { value["page"] = page }
         return value
+    }
+}
+
+/// Page coordinates are normalized against the unrotated PDF crop box.
+struct SharePDFRegion: Hashable {
+    let page: Int
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+
+    init?(page: Int, rect: NSRect, crop: NSRect) {
+        let area = rect.intersection(crop)
+        guard page > 0, !area.isNull, area.width > 0, area.height > 0,
+              crop.width > 0, crop.height > 0 else { return nil }
+        self.page = page
+        x = Double((area.minX - crop.minX) / crop.width)
+        y = Double((crop.maxY - area.maxY) / crop.height)
+        width = Double(area.width / crop.width)
+        height = Double(area.height / crop.height)
+    }
+
+    func rect(in crop: NSRect) -> NSRect {
+        NSRect(x: crop.minX + CGFloat(x) * crop.width,
+               y: crop.maxY - CGFloat(y + height) * crop.height,
+               width: CGFloat(width) * crop.width, height: CGFloat(height) * crop.height)
+    }
+
+    func redaction(effect: ShareRedactionEffect) -> ShareRedaction {
+        ShareRedaction(kind: "PDF", sheet: nil, row: nil, column: nil, block: nil,
+                       effect: effect, x: x, y: y, width: width, height: height, page: page)
+    }
+
+    var payload: [String: Any] { ["page": page, "x": x, "y": y, "width": width, "height": height] }
+}
+
+struct SharePDFExcerpt {
+    let text: String
+    let regions: [SharePDFRegion]
+    var payload: [String: Any] { ["kind": "PDF", "text": text, "regions": regions.map(\.payload)] }
+}
+
+/// Normalized top-left drawing coordinates match the server's pinned bounds.
+/// The fitted frame uses the same viewport and padding as AssistModelRenderer.
+struct ShareDrawingLayout {
+    let frame: NSRect
+
+    init?(model: AssistModelPreview, in rect: NSRect) {
+        let viewport = NSRect(x: rect.minX + 1, y: rect.minY + 29,
+                              width: rect.width - 2, height: rect.height - 55)
+        guard let transform = AssistModelTransform(bounds: model.focusBounds, viewport: viewport) else { return nil }
+        let topLeft = transform.point(NSPoint(x: model.bounds.minX, y: model.bounds.maxY))
+        let bottomRight = transform.point(NSPoint(x: model.bounds.maxX, y: model.bounds.minY))
+        let frame = NSRect(x: topLeft.x, y: topLeft.y,
+                           width: bottomRight.x - topLeft.x, height: bottomRight.y - topLeft.y)
+        guard frame.width > 0, frame.height > 0 else { return nil }
+        self.frame = frame
+    }
+
+    func redaction(from start: NSPoint, to end: NSPoint, effect: ShareRedactionEffect) -> ShareRedaction? {
+        func normalized(_ point: NSPoint) -> NSPoint {
+            NSPoint(x: min(1, max(0, (point.x - frame.minX) / frame.width)),
+                    y: min(1, max(0, (point.y - frame.minY) / frame.height)))
+        }
+        let a = normalized(start), b = normalized(end)
+        let x = min(a.x, b.x), y = min(a.y, b.y)
+        let width = min(abs(a.x - b.x), 1 - x), height = min(abs(a.y - b.y), 1 - y)
+        guard width * frame.width >= 3, height * frame.height >= 3 else { return nil }
+        return ShareRedaction(kind: "DRAWING", sheet: nil, row: nil, column: nil, block: nil,
+                              effect: effect, x: Double(x), y: Double(y),
+                              width: Double(width), height: Double(height))
+    }
+
+    func rect(for mask: ShareRedaction) -> NSRect? {
+        guard mask.kind == "DRAWING", let x = mask.x, let y = mask.y,
+              let width = mask.width, let height = mask.height,
+              [x, y, width, height].allSatisfy(\.isFinite),
+              x >= 0, y >= 0, width > 0, height > 0,
+              x + width <= 1.00000001, y + height <= 1.00000001 else { return nil }
+        return NSRect(x: frame.minX + CGFloat(x) * frame.width, y: frame.minY + CGFloat(y) * frame.height,
+                      width: CGFloat(width) * frame.width, height: CGFloat(height) * frame.height)
     }
 }
 
@@ -267,6 +365,7 @@ struct ShareRedactionDrag {
 struct ShareConfiguration {
     let scope: ShareAccessScope
     let redactions: [ShareRedaction]
+    var excerpt: SharePDFExcerpt? = nil
 
     static let entireDocument = ShareConfiguration(scope: .document, redactions: [])
 }

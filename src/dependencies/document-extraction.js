@@ -1,5 +1,6 @@
 import { inflateRawSync, inflateSync } from 'node:zlib';
 import path from 'node:path';
+import { extractDrawingDocument } from './drawing-extraction.js';
 
 const MAX_PDF_METADATA_BYTES = 32_000_000;
 const MAX_PDF_BODY_BYTES = 3_000_000;
@@ -303,7 +304,7 @@ function textFromPdfContent(content, fonts, unicodeByFont) {
   return output.join(' ');
 }
 
-function structuredPdfText(buffer, limit = MAX_TEXT_EXCERPT) {
+function structuredPdfPages(buffer) {
   const objects = pdfObjects(buffer);
   const unicodeByObject = new Map();
   for (const [objectId, object] of objects) {
@@ -312,18 +313,24 @@ function structuredPdfText(buffer, limit = MAX_TEXT_EXCERPT) {
     const unicodeMap = pdfUnicodeMap(objects.get(unicodeReference)?.stream ?? '');
     if (unicodeMap) unicodeByObject.set(objectId, unicodeMap);
   }
-  const output = [];
+  const pages = [];
   for (const [pageId, page] of objects) {
     if (!/\/Type\s*\/Page\b/.test(page.body)) continue;
     const fonts = pageFonts(pageId, objects);
+    const output = [];
     for (const contentId of contentReferences(page.body)) {
       const content = objects.get(contentId)?.stream;
       if (!content) continue;
       const text = textFromPdfContent(content, fonts, unicodeByObject);
       if (text) output.push(text);
     }
+    pages.push({ pageNumber: pages.length + 1, text: output.join(' '), words: [] });
   }
-  return cleanText(output.join(' '), limit);
+  return pages;
+}
+
+function structuredPdfText(buffer, limit = MAX_TEXT_EXCERPT) {
+  return cleanText(structuredPdfPages(buffer).map(page => page.text).join(' '), limit);
 }
 
 function pdfTextFromStreams(buffer, acceptAny = false, limit = MAX_TEXT_EXCERPT) {
@@ -382,7 +389,103 @@ function pdfTextFromStreams(buffer, acceptAny = false, limit = MAX_TEXT_EXCERPT)
 }
 
 export function extractPdfFullText(buffer) {
-  return pdfTextFromStreams(buffer, true, MAX_FULL_DOCUMENT_TEXT);
+  // The local PDF engine understands compressed object streams and font
+  // encodings that cannot be decoded reliably by scanning PDF syntax.
+  const layout = extractDrawingDocument(buffer);
+  const text = layout.pages.map(page => page.text).filter(Boolean).join('\n\n');
+  const fallback = pdfTextFromStreams(buffer, true, MAX_FULL_DOCUMENT_TEXT);
+  // Some PDFs place selectable text outside the crop box. Keep that text when
+  // the syntax decoder can read it, rather than silently dropping sentences.
+  if (usefulPdfExcerpt(fallback) && fallback.length > text.length * 1.3) return fallback;
+  return text.trim() ? text.slice(0, MAX_FULL_DOCUMENT_TEXT) : fallback;
+}
+
+/** Selectable PDF passages retain the page on which their source text occurs. */
+export function extractPdfPassages(buffer) {
+  const layout = extractDrawingDocument(buffer);
+  const fallback = structuredPdfPages(buffer);
+  const pages = layout.pages.some(page => page.text?.trim()) ? layout.pages.map(page => {
+    const syntax = fallback.find(entry => entry.pageNumber === page.pageNumber);
+    return syntax?.text.length > String(page.text ?? '').length * 1.3 ? { ...page, text: syntax.text } : page;
+  }) : fallback;
+  const segmenter = new Intl.Segmenter('en', { granularity: 'sentence' });
+  const passages = [];
+  const maximum = 2000;
+  for (const page of pages) {
+    const text = String(page.text ?? '').replace(/\r\n/g, '\n');
+    const normalized = text.replace(/\s+/g, ' ').trim();
+    if (!normalized) continue;
+    const wordLocations = [];
+    let wordCursor = 0;
+    for (const word of page.words ?? []) {
+      const value = String(word.text ?? '').replace(/\s+/g, ' ').trim();
+      const start = value ? normalized.indexOf(value, wordCursor) : -1;
+      if (start < 0) continue;
+      wordLocations.push({ start, end: start + value.length, bbox: word.bbox });
+      wordCursor = start + value.length;
+    }
+    const add = (value, excerptType, start) => {
+      const selectedText = value.replace(/\s+/g, ' ').trim();
+      if (selectedText.length < 18 || selectedText.length > 1600 || (selectedText.match(/\p{L}+/gu)?.length ?? 0) < 4) return;
+      const end = start + selectedText.length;
+      const boxes = wordLocations.filter(word => word.start < end && word.end > start).map(word => word.bbox).filter(Boolean);
+      const x = boxes.length ? Math.min(...boxes.map(box => box.x)) : 0;
+      const y = boxes.length ? Math.min(...boxes.map(box => box.y)) : 0;
+      const bbox = boxes.length ? { x, y,
+        width: Math.max(...boxes.map(box => box.x + box.width)) - x,
+        height: Math.max(...boxes.map(box => box.y + box.height)) - y } : null;
+      passages.push({ excerptType, pageNumber: page.pageNumber, selectedText, start, end, bbox });
+    };
+    // Blank lines are hard paragraph boundaries. Short standalone headings
+    // also start a new block, while lowercase wrapped continuations stay joined.
+    const blocks = [];
+    let current = [];
+    const flush = () => { if (current.length) blocks.push(current.join(' ')); current = []; };
+    const lines = text.split('\n').map(line => line.trim());
+    let lineCursor = 0;
+    let previousBox = null;
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (!line) { flush(); continue; }
+      const lineStart = normalized.indexOf(line, lineCursor);
+      const lineEnd = lineStart + line.length;
+      const boxes = wordLocations.filter(word => word.start < lineEnd && word.end > lineStart).map(word => word.bbox).filter(Boolean);
+      const lineBox = boxes.length ? { x: Math.min(...boxes.map(box => box.x)), y: Math.min(...boxes.map(box => box.y)),
+        bottom: Math.max(...boxes.map(box => box.y + box.height)), height: Math.max(...boxes.map(box => box.height)) } : null;
+      if (lineStart >= 0) lineCursor = lineEnd;
+      if (previousBox && lineBox && (lineBox.y - previousBox.bottom > Math.max(previousBox.height, lineBox.height) * 0.75
+        || lineBox.y < previousBox.y - previousBox.height * 0.5)) flush();
+      previousBox = lineBox;
+      const next = lines[index + 1] ?? '';
+      const shortHeading = !/[.!?:;]$/.test(line) && !/\b(?:a|an|and|as|at|by|for|from|in|is|of|on|or|the|to|with)$/i.test(line)
+        && (line.split(/\s+/).length <= 5 || /^[^a-z]+$/.test(line)) && /^[A-Z]/.test(next);
+      if (shortHeading) { flush(); blocks.push(line); }
+      else current.push(line);
+    }
+    flush();
+    let blockCursor = 0;
+    for (const block of blocks) {
+      const blockStart = normalized.indexOf(block, blockCursor);
+      if (blockStart < 0) continue;
+      blockCursor = blockStart + block.length;
+      const sentences = [...segmenter.segment(block)].map(part => ({ text: part.segment.trim(), start: blockStart + part.index
+        + (part.segment.match(/^\s*/)?.[0].length ?? 0) }));
+      let paragraph = '';
+      let paragraphStart = blockStart;
+      for (const sentence of sentences) {
+        if (sentence.text.length <= 420) add(sentence.text, 'sentence', sentence.start);
+        if (paragraph && paragraph.length + sentence.text.length > 1400) {
+          add(paragraph, 'paragraph', paragraphStart); paragraph = '';
+        }
+        if (!paragraph) paragraphStart = sentence.start;
+        paragraph += `${paragraph ? ' ' : ''}${sentence.text}`;
+      }
+      // One-sentence paragraphs already have a precise sentence object.
+      if (paragraph && (sentences.length > 1 || paragraph.length > 420)) add(paragraph, 'paragraph', paragraphStart);
+      if (passages.length >= maximum) return passages.slice(0, maximum);
+    }
+  }
+  return passages;
 }
 
 function pdfScanSource(buffer) {
@@ -418,7 +521,7 @@ export function extractPdfDocument(buffer) {
   const title = xmlItems(source, 'dc:title')[0] ?? pdfProperty(source, 'Title');
   const subject = xmlItems(source, 'dc:description')[0] ?? pdfProperty(source, 'Subject');
   const keywords = pdfProperty(source, 'Keywords');
-  const bodyText = pdfTextFromStreams(buffer);
+  const bodyText = extractPdfFullText(buffer);
   const creationDate = pdfProperty(source, 'CreationDate');
   const doi = pdfProperty(source, 'doi') ?? doiFrom(subject, keywords, source.slice(-200_000), bodyText);
   return {

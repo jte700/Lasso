@@ -33,6 +33,91 @@ function appHandlers(names, globals) {
   return context;
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
+
+function drawingCompletionHarness(text, fragment, candidate, claimDetails = {}) {
+  const block = { isConnected: true, textContent: text,
+    dataset: { blockIndex: '0', blockType: 'paragraph' } };
+  const claim = { start: text.lastIndexOf(fragment), end: text.length, text: fragment,
+    type: 'ENTITY', partial: true, candidates: [candidate], ...claimDetails };
+  const state = { workspace: { revision: 1 }, editor: {
+    document: { path: 'Draft.md', projectId: 'one' }, activeBlock: block,
+  } };
+  const links = [], history = [], caret = [], errors = [];
+  const context = appHandlers(['predictForBlock', 'predictionEdit', 'acceptPrediction'], {
+    state, AUTOMATIC_SUGGESTION_LIMIT: 40,
+    document: { querySelectorAll() { return [block]; } },
+    api: async () => ({ prediction: { claims: [claim] } }),
+    caretOffsetWithin: () => block.textContent.length,
+    pendingDependenciesForPrediction: () => [],
+    showPredictionCompletion() {}, editorAssistStatus() {}, contextualCompletionCase,
+    clearPrediction() { state.editor.prediction = null; },
+    recordEditorHistory(...args) { history.push(args); },
+    focusEditorBlock(_, offset) { caret.push(offset); },
+    markEditorDirty() { state.editor.dirty = true; },
+    async linkCandidate(...args) { links.push(args); },
+    toast(message) { errors.push(message); },
+  });
+  return { context, state, block, links, history, caret, errors, candidate };
+}
+
+test('Tab replaces a partial drawing keyword even when it matches inside the source label', async () => {
+  const label = 'AC20 FZK haus · Projekt-FZK-Haus';
+  const h = drawingCompletionHarness('I was looking at the pro', 'pro', {
+    id: 'drawing', objectType: 'DRAWING', label, path: 'AC20-FZK-haus.ifc',
+  });
+  await h.context.predictForBlock(h.block);
+  assert.equal(h.state.editor.prediction.mode, 'COMPLETE_AND_LINK');
+  assert.equal(h.state.editor.prediction.completion.kind, 'DRAWING_REFERENCE');
+  await h.context.acceptPrediction();
+  assert.equal(h.block.textContent, `I was looking at the ${label}`);
+  assert.equal(h.links.length, 1);
+  assert.equal(h.links[0][0].text, label);
+  assert.equal(h.links[0][0].start, 'I was looking at the '.length);
+  assert.equal(h.links[0][0].end, h.block.textContent.length);
+  assert.equal(h.links[0][1].id, 'drawing');
+  assert.deepEqual(h.history, [['prediction', true]]);
+  assert.deepEqual(h.caret, [h.block.textContent.length]);
+  assert.deepEqual(h.errors, []);
+});
+
+test('drawing completion replaces only the matched alias and preserves Unicode sentence text', async () => {
+  const h = drawingCompletionHarness('🏠 Please check the architectural drawing', 'architectural drawing', {
+    id: 'home', objectType: 'DRAWING', label: 'Home', path: 'Home.ifc',
+  });
+  await h.context.predictForBlock(h.block);
+  await h.context.acceptPrediction();
+  assert.equal(h.block.textContent, '🏠 Please check the Home');
+  assert.equal(h.links[0][0].start, '🏠 Please check the '.length);
+  assert.equal(h.links[0][0].text, 'Home');
+});
+
+test('ordinary entity linking keeps the original typed text', async () => {
+  for (const [objectType, partial] of [['MODEL', true], ['DRAWING', false]]) {
+    const h = drawingCompletionHarness('I reviewed AC20', 'AC20', {
+      id: 'source', objectType, label: 'AC20 model', path: 'Building.ifc',
+    }, { partial });
+    await h.context.predictForBlock(h.block);
+    assert.equal(h.state.editor.prediction.mode, 'LINK');
+    await h.context.acceptPrediction();
+    assert.equal(h.block.textContent, 'I reviewed AC20');
+    assert.equal(h.links[0][0].text, 'AC20');
+    assert.equal(h.history.length, 0);
+  }
+});
+
+test('drawing completion refuses to replace text after the user keeps typing', async () => {
+  const h = drawingCompletionHarness('I was looking at the pro', 'pro', {
+    id: 'drawing', objectType: 'DRAWING', label: 'AC20 FZK haus · Projekt-FZK-Haus',
+  });
+  await h.context.predictForBlock(h.block);
+  h.block.textContent += 'gress';
+  await h.context.acceptPrediction();
+  assert.equal(h.block.textContent, 'I was looking at the progress');
+  assert.equal(h.links.length, 0);
+  assert.equal(h.history.length, 0);
+  assert.equal(h.state.editor.prediction, null);
+});
+
 function editorHarness() {
   const requests = [], rendered = [], errors = [];
   const detail = { innerHTML: '' };

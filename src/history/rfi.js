@@ -7,7 +7,7 @@ const UNKNOWN_MESSAGE = 'Lasso cannot determine the origin of this information f
 function anchorsCompatible(requestAnchor, storedAnchor) {
   if (!storedAnchor) return true;
   if (!requestAnchor || requestAnchor.kind !== storedAnchor.kind) return false;
-  const identifyingKeys = ['blockIndex', 'line', 'rowKey', 'column', 'path', 'cellId'];
+  const identifyingKeys = ['blockIndex', 'line', 'rowKey', 'column', 'path', 'cellId', 'pageNumber'];
   return identifyingKeys.every((key) => storedAnchor[key] == null || storedAnchor[key] === requestAnchor[key]);
 }
 

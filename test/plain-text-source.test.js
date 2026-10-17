@@ -27,7 +27,7 @@ test('plain-text notes are searchable sources with preserved content and ownersh
   assert.ok(JSON.stringify(preview).includes('RFI-004 roof drain relocation'));
   assert.equal(app.dependencies.objectsAt(project.id).length, 1, 'warm index does not duplicate the source');
   const versionId = exact[0].versionId;
-  app.db.exec('DELETE FROM schema_migrations WHERE version=18');
+  app.db.exec('ALTER TABLE object_share_grants DROP COLUMN excerpt_json; DELETE FROM schema_migrations WHERE version>=18');
   await app.close();
   app = createApplication(config);
   assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM snapshot_object_indexes WHERE snapshot_id=?')

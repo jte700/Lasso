@@ -6,7 +6,11 @@ import { HttpError } from '../history/errors.js';
 import { renderSharePage, renderUnavailable, renderInspectorPanel } from '../sharing/share-page.js';
 import { buildFullShareDocument, buildInspectorPreview, buildSharePreview } from '../sharing/share-preview.js';
 import { buildModelPreview } from '../dependencies/model-preview.js';
+import { redactModelPlan } from '../sharing/model-redaction.js';
+import { buildShareDownload, downloadDisposition } from '../sharing/share-download.js';
 import { drawingDiscovery } from '../dependencies/drawing-discovery.js';
+import { buildSafePdf, pdfShareRequest } from '../sharing/pdf-share.js';
+import { normalizePdfExcerpt, normalizeRedactions } from '../sharing/object-share.js';
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -103,6 +107,43 @@ function sourceLibraryEntry(source) {
 export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null, workspace = null) {
   const resolvedModelPreview = resolved => dependencies.sourceModelPreview({ ...resolved.source,
     path: resolved.internal.filePath, snapshotId: resolved.internal.snapshotId });
+  const resolvedModelDocument = async resolved => {
+    const model = await resolvedModelPreview(resolved);
+    return model?.kind === 'model-plan' ? { ...model, focusBounds: { ...model.bounds } } : model;
+  };
+  // The public view and exported excerpt resolve the same pinned content and
+  // apply the same disclosure scope before either is rendered.
+  const sharedContent = async resolved => {
+    let preview = null, document = null;
+    try {
+      const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+      const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null;
+      preview = buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata);
+      const pdfRequest = pdfShareRequest(resolved);
+      if (pdfRequest && sourceFile?.content) {
+        const content = await buildSafePdf(sourceFile.content, pdfRequest);
+        const pages = [...new Set(pdfRequest.regions?.map(region => region.page) ?? [])].sort((a, b) => a - b);
+        const excerptLocation = pages.length ? `${pages.length > 1 ? 'Pages' : 'Page'} ${pages.join(', ')}`
+          : pdfRequest.page ? `Page ${pdfRequest.page}` : '';
+        document = { kind: 'pdf', safe: true, redacted: resolved.share.accessScope === 'REDACTED',
+          fileUrl: `/d/${encodeURIComponent(resolved.share.token)}/source`, page: 1, location: excerptLocation, content };
+        return { preview: null, document };
+      }
+      if (resolved.share.accessScope !== 'INDEXED') {
+        document = await resolvedModelDocument(resolved)
+          ?? (resolved.share.accessScope === 'REDACTED' ? buildFullShareDocument(sourceFile) : null);
+        if (resolved.share.accessScope === 'DOCUMENT' && /\.pdf$/i.test(resolved.internal.filePath)) {
+          document = { ...buildFullShareDocument(sourceFile, { visualPdf: true }),
+            fileUrl: `/d/${encodeURIComponent(resolved.share.token)}/source`,
+            page: Math.max(1, Number(resolved.source.anchor?.pageNumber ?? resolved.source.metadata?.pageNumber) || 1) };
+        }
+        if (resolved.share.accessScope === 'REDACTED' && /\.(?:dxf|ifc)$/i.test(resolved.internal.filePath)) {
+          document = redactModelPlan(document, resolved.share.redactions);
+        }
+      }
+    } catch { preview = null; document = null; }
+    return { preview, document };
+  };
   return async function requestHandler(request, response) {
     try {
       const url = new URL(request.url, 'http://localhost');
@@ -118,15 +159,53 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           return sendHtml(response, resolved.status === 'NOT_FOUND' ? 404 : 410,
             renderUnavailable(resolved.status));
         }
-        let preview = null;
-        let document = null;
-        try {
-          const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
-          const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null;
-          preview = buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata);
-          if (resolved.share.accessScope === 'REDACTED') document = buildFullShareDocument(sourceFile);
-        } catch { preview = null; document = null; }
+        const { preview, document } = await sharedContent(resolved);
         return sendHtml(response, 200, renderSharePage(resolved, token, preview, document));
+      }
+
+      shareParameters = match(pathname, /^\/d\/([A-Za-z0-9_-]{16,128})\/excerpt$/);
+      if (request.method === 'GET' && shareParameters && objectShares) {
+        const resolved = objectShares.resolveShare(shareParameters[0]);
+        if (resolved.status !== 'OK') {
+          return sendHtml(response, resolved.status === 'NOT_FOUND' ? 404 : 410, renderUnavailable(resolved.status));
+        }
+        const { preview, document } = await sharedContent(resolved);
+        const excerpt = buildShareDownload(resolved, preview, document);
+        if (!excerpt) return sendHtml(response, 422, renderUnavailable('EXCERPT_UNAVAILABLE'));
+        return sendBinary(response, 200, excerpt.content, excerpt.contentType, {
+          'content-disposition': downloadDisposition(excerpt.filename),
+          'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff',
+        });
+      }
+
+      shareParameters = match(pathname, /^\/d\/([A-Za-z0-9_-]{16,128})\/source$/);
+      if (request.method === 'GET' && shareParameters && objectShares) {
+        const resolved = objectShares.resolveShare(shareParameters[0]);
+        if (resolved.status !== 'OK') return sendHtml(response, resolved.status === 'NOT_FOUND' ? 404 : 410, renderUnavailable(resolved.status));
+        if (resolved.share.accessScope !== 'DOCUMENT') {
+          const { document } = await sharedContent(resolved);
+          if (!document?.safe || !document.content) return sendHtml(response, 403, renderUnavailable('SCOPE_RESTRICTED'));
+          return sendBinary(response, 200, document.content, 'application/pdf', {
+            'content-disposition': downloadDisposition(resolved.source.filename).replace(/^attachment;/, 'inline;'),
+            'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
+          });
+        }
+        // Original bytes remain restricted to DOCUMENT grants. Other grants
+        // above can serve only a newly rendered, disclosure-limited PDF.
+        const file = objectShares.sourceFile(shareParameters[0]);
+        if (file.status !== 'OK') {
+          const status = file.status === 'NOT_FOUND' ? 404 : file.status === 'SCOPE_RESTRICTED' ? 403 : 410;
+          return sendHtml(response, status, renderUnavailable(file.status));
+        }
+        if (file.contentType !== 'application/pdf') {
+          return sendHtml(response, 415, renderUnavailable('EXCERPT_UNAVAILABLE'));
+        }
+        return sendBinary(response, 200, file.content, file.contentType, {
+          'content-disposition': downloadDisposition(file.filename).replace(/^attachment;/, 'inline;'),
+          'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff',
+        });
       }
 
       shareParameters = match(pathname, /^\/d\/([A-Za-z0-9_-]{16,128})\/download$/);
@@ -138,10 +217,10 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         }
         // Only the basename is ever published, and quotes/newlines are stripped
         // so the header cannot be split.
-        const filename = path.basename(String(file.filename)).replace(/["\r\n\\]/g, '_');
         return sendBinary(response, 200, file.content, file.contentType, {
-          'content-disposition': `attachment; filename="${filename}"`,
+          'content-disposition': downloadDisposition(file.filename),
           'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff',
         });
       }
 
@@ -160,9 +239,9 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
           preview = buildInspectorPreview(
             file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null,
-            resolved.source.anchor, resolved.source.metadata, resolved.source.label);
+            resolved.source.anchor, resolved.source.metadata, resolved.source.label, resolved.source.objectType);
           if (preview && ['pdf', 'image'].includes(preview.kind)) {
-            const query = versionId ? `?version=${encodeURIComponent(versionId)}` : '';
+            const query = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
             preview.fileUrl = `/api/dependency-objects/${encodeURIComponent(objectId)}/source${query}`;
           }
         } catch { preview = null; }
@@ -268,12 +347,38 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         try {
           const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
           document = buildFullShareDocument(
-            file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null);
+            file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null, { visualPdf: true });
+          if (document?.kind === 'pdf') {
+            const query = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
+            document.fileUrl = `/api/dependency-objects/${encodeURIComponent(localObjectDocumentParameters[0])}/source${query}`;
+            document.page = Math.max(1, Number(resolved.source.anchor?.pageNumber ?? resolved.source.metadata?.pageNumber) || 1);
+          }
         } catch { document = null; }
-        document = await resolvedModelPreview(resolved) ?? document;
+        document = await resolvedModelDocument(resolved) ?? document;
         return sendJson(response, 200, {
           source: resolved.source, path: resolved.internal.filePath, document,
         });
+      }
+
+      const localPdfPreviewParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/pdf-preview$/);
+      if (request.method === 'POST' && localPdfPreviewParameters && objectShares) {
+        const resolved = objectShares.describe(localPdfPreviewParameters[0], url.searchParams.get('version'));
+        if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
+        if (!/\.pdf$/i.test(resolved.internal.filePath)) throw new HttpError(415, 'Select a PDF document.');
+        const body = await readJson(request);
+        const accessScope = String(body.accessScope ?? 'INDEXED').toUpperCase();
+        if (!['INDEXED', 'REDACTED'].includes(accessScope)) throw new HttpError(400, 'Select an excerpt or redaction preview.');
+        const share = { accessScope, excerpt: normalizePdfExcerpt(body.excerpt, accessScope),
+          redactions: normalizeRedactions(body.redactions ?? [], accessScope) };
+        const pdfRequest = pdfShareRequest({ ...resolved, share });
+        if (!pdfRequest) throw new HttpError(422, 'Select text or an area from the PDF before sharing.');
+        const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+        const content = file ? timeline.blobs.get(file.contentHash) : null;
+        if (!content) throw new HttpError(404, 'The indexed PDF is unavailable.');
+        let pdf;
+        try { pdf = await buildSafePdf(content, pdfRequest); } catch { throw new HttpError(422, 'The selected PDF excerpt could not be rendered. Select the text or area again.'); }
+        return sendBinary(response, 200, pdf, 'application/pdf', { 'content-disposition': 'inline',
+          'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
       }
 
       const localObjectPreviewParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/preview$/);
@@ -284,9 +389,14 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         let preview = null;
         try {
           const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
-          preview = buildSharePreview(
-            file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null,
-            resolved.source.anchor, resolved.source.metadata);
+          const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null;
+          preview = path.extname(file?.path ?? '').toLowerCase() === '.pdf'
+            ? buildInspectorPreview(sourceFile, resolved.source.anchor, resolved.source.metadata, resolved.source.label, resolved.source.objectType)
+            : buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata, 2, resolved.source.objectType);
+          if (preview?.kind === 'pdf') {
+            const query = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
+            preview.fileUrl = `/api/dependency-objects/${encodeURIComponent(localObjectPreviewParameters[0])}/source${query}`;
+          }
         } catch { preview = null; }
         preview = await resolvedModelPreview(resolved) ?? preview;
         return sendJson(response, 200, {
@@ -355,6 +465,16 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         });
         const preview = model ? { ...properties, ...model } : properties;
         return sendJson(response, 200, { preview });
+      }
+      parameters = match(pathname, /^\/api\/snapshots\/([^/]+)\/source$/);
+      if (request.method === 'GET' && parameters) {
+        const snapshot = timeline.getSnapshot(parameters[0]);
+        const file = timeline.snapshotFile(snapshot.id, url.searchParams.get('path'));
+        if (!file) throw new HttpError(404, 'File is not present in this snapshot.');
+        if (path.extname(file.path).toLowerCase() !== '.pdf') throw new HttpError(415, 'This file format cannot be viewed inline.');
+        return sendBinary(response, 200, timeline.blobs.get(file.contentHash), 'application/pdf', {
+          'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'content-disposition': 'inline',
+        });
       }
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/rfi$/);
       if (request.method === 'POST' && parameters) {
@@ -495,6 +615,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
             expiresAt: body.expiresAt ?? null,
             accessScope: body.accessScope ?? 'DOCUMENT',
             redactions: body.redactions ?? [],
+            excerpt: body.excerpt ?? null,
           }),
         });
       }

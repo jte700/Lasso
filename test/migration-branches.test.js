@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import {openDatabase} from '../src/db.js';
+const latestVersion = Math.max(...fs.readdirSync('migrations').map(name => Number(name.split('_')[0])).filter(Number.isFinite));
 for (const branch of ['recommendations', 'share-scopes']) {
  test(`upgrades existing migration 014 from ${branch} without losing data`, () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'lasso-migration-'));
@@ -16,7 +17,7 @@ for (const branch of ['recommendations', 'share-scopes']) {
    db.exec(fs.readFileSync(path.join('migrations',migration),'utf8').replace('VALUES (15,','VALUES (14,'));
    db.exec('CREATE TABLE migration_probe(value TEXT); INSERT INTO migration_probe VALUES (\'preserved\')');
    db.close();db=openDatabase({databasePath});
-   assert.equal(db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version,18);
+   assert.equal(db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version,latestVersion);
    assert.ok(db.prepare('PRAGMA table_info(projects)').all().some(c=>c.name==='workspace_active'));
    assert.ok(db.prepare('PRAGMA table_info(snapshot_object_indexes)').all().some(c=>c.name==='drawing_index_version'));
    assert.ok(db.prepare('PRAGMA table_info(object_share_grants)').all().some(c=>c.name==='access_scope'));
@@ -39,7 +40,7 @@ for (const branch of ['workspace', 'drawings']) {
    db.exec(fs.readFileSync(path.join('migrations',migration),'utf8').replace('VALUES (17,','VALUES (16,'));
    db.exec("CREATE TABLE migration_probe(value TEXT); INSERT INTO migration_probe VALUES ('preserved')");
    db.close();db=openDatabase({databasePath});
-   assert.equal(db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version,18);
+   assert.equal(db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version,latestVersion);
    assert.ok(db.prepare('PRAGMA table_info(projects)').all().some(c=>c.name==='workspace_active'));
    assert.ok(db.prepare('PRAGMA table_info(snapshot_object_indexes)').all().some(c=>c.name==='drawing_index_version'));
    db.close();db=openDatabase({databasePath});

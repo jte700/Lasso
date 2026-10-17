@@ -293,7 +293,7 @@ export class WorkspaceService {
     const scoped = availablePredictions.filter(({ prediction }) => prediction.sourceContext?.source
       && (!linkedContext || prediction.sourceContext.source.id === linkedContext.source.id));
     const pool = scoped.length ? scoped : availablePredictions;
-    const limit = input.surface === 'search' ? 12 : 5;
+    const limit = 12;
     const slots = [];
     for (const { project, prediction } of pool) {
       for (const group of ['sourceCompletions', 'workspaceCompletions']) {

@@ -49,7 +49,7 @@ try {
     return { role: specification.role, objectId: object.id, entityType: object.metadata.entityType };
   }));
   const targets = specifications.map(specification => {
-    const object = objects.find(item => /\.ifc$/i.test(item.path)
+    const object = objects.find(item => /\.(ifc|dxf)$/i.test(item.path)
       && (specification.objectId ? item.id === specification.objectId
         : specification.guid ? item.anchor?.elementId === specification.guid && (!specification.propertyName || item.anchor?.propertyName === specification.propertyName)
           : specification.label ? item.label === specification.label : specification.match.test(item.label)));
@@ -57,7 +57,8 @@ try {
     assert.ok(object.anchor?.elementId, 'Target must have an indexed element GUID');
     return { role: specification.role ?? 'element', objectId: object.id, label: object.label,
       path: object.path, guid: object.anchor.elementId, propertyName: object.anchor.propertyName,
-      expectedEntityType: specification.entityType ?? null };
+      expectedEntityType: specification.entityType ?? null, minDrawingPaths: specification.minDrawingPaths ?? 0,
+      drawingLabels: specification.drawingLabels ?? [] };
   });
   assert.ok(targets.length >= 2, 'Provide multiple indexed elements to verify selection switching');
   assert.equal(new Set(targets.map(target => target.guid)).size, targets.length, 'Every target must identify a different element');
@@ -152,6 +153,8 @@ try {
         selected: [...svg.querySelectorAll('.selected')].map(path => path.dataset.modelElement),
         selectedPaths: [...svg.querySelectorAll('.selected')].map(path => path.getAttribute('d')),
         elements: svg.querySelectorAll('[data-model-element]').length, viewBox: svg.getAttribute('viewBox'),
+        drawingPaths: svg.querySelectorAll('.model-drawing-line').length,
+        drawingLabels: [...svg.querySelectorAll('.model-drawing-text')].map(text => [...text.querySelectorAll('tspan')].map(span => span.textContent).join('\\n')),
         focus: plan.dataset.modelFocus, context: plan.dataset.modelContext,
         width: rect.width, height: rect.height, visible: rect.width > 0 && rect.height > 0 };
     })()`);
@@ -167,6 +170,8 @@ try {
     assert.ok(result.elements > 1, 'Drawing must include surrounding model context');
     assert.equal(result.viewBox, result.focus, 'New selection must start focused on the indexed element');
     if (target.expectedEntityType) assert.ok(result.details.includes(target.expectedEntityType));
+    assert.ok(result.drawingPaths >= target.minDrawingPaths, 'Detailed drawing geometry must remain present around the selected room');
+    for (const label of target.drawingLabels) assert.ok(result.drawingLabels.includes(label), `Missing source drawing label: ${label}`);
     transcript.checks.push({ check: 'selectedGeometry', scope, target: target.role, ...result });
     return result;
   }
@@ -198,6 +203,7 @@ try {
     const context = await drawing();
     assert.equal(context.viewBox, context.context, 'Show context must fit the surrounding model');
     assert.deepEqual(context.selected, [target.guid], 'Changing view must preserve the selected element');
+    if (target.minDrawingPaths) await screenshot(`${String(index + 1).padStart(2, '0')}-${target.role}-context.png`);
     await click('.wb-preview [data-model-action="selection"]');
     assert.equal((await drawing()).viewBox, focused.viewBox, 'Fit selection must restore the indexed extent');
     transcript.checks.push({ check: 'viewControls', target: target.role, passed: true });
