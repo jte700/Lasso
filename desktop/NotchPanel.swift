@@ -8,11 +8,11 @@ enum NotchGeometry {
         return left.width > 0 && right.width > 0 && right.minX > left.maxX
     }
 
-    static func frame(screen: NSRect, topInset: CGFloat, centerX: CGFloat, expanded: Bool) -> NSRect {
-        let width = min(expanded ? 440.0 : 230.0, screen.width - 24)
-        let height = min(expanded ? 272.0 : 32.0, screen.height - topInset - 12)
+    static func frame(screen: NSRect, topInset: CGFloat, centerX: CGFloat, expanded: Bool, notchWidth: CGFloat = 200) -> NSRect {
+        let width = min(max(expanded ? 440.0 : 230.0, notchWidth + 24), screen.width - 24)
+        let height = topInset + min(expanded ? 272.0 : 32.0, screen.height - topInset - 12)
         let x = min(max(centerX - width / 2, screen.minX + 12), screen.maxX - width - 12)
-        return NSRect(x: x, y: screen.maxY - topInset - height, width: width, height: height)
+        return NSRect(x: x, y: screen.maxY - height, width: width, height: height)
     }
 }
 
@@ -39,10 +39,27 @@ struct NotchActivity {
 private final class NotchWindow: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+    // The window includes the camera band. Its controls are laid out below it.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 
 private final class NotchContent: NSView {
     override var isFlipped: Bool { true }
+}
+
+/// Opaque black joins the camera cutout to the controls. Transparent shoulders
+/// preserve the menu-bar areas beside the camera; no vibrancy can tint the black.
+private final class NotchSurface: NSView {
+    override var isFlipped: Bool { true }
+    var cameraHeight: CGFloat = 0
+    var cameraWidth: CGFloat = 200
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.black.setFill()
+        let body = NSRect(x: 0, y: cameraHeight, width: bounds.width, height: bounds.height - cameraHeight)
+        NSBezierPath(roundedRect: body, xRadius: 18, yRadius: 18).fill()
+        NSBezierPath(rect: NSRect(x: (bounds.width - cameraWidth) / 2, y: 0,
+                                 width: cameraWidth, height: cameraHeight + min(18, body.height / 2))).fill()
+    }
 }
 
 final class NotchPanelController: NSObject {
@@ -60,6 +77,7 @@ final class NotchPanelController: NSObject {
     var onOpenWorkspace: ((String) -> Void)?
     private var panel: NotchWindow?
     private let content = NotchContent()
+    private let surface = NotchSurface()
     private var timer: Timer?
     private var task: URLSessionDataTask?
     private var generation = 0
@@ -130,7 +148,9 @@ final class NotchPanelController: NSObject {
         panel.isReleasedWhenClosed = false
         panel.title = "Lasso notch"
         content.frame = NSRect(x: 0, y: 0, width: 440, height: 272)
-        panel.contentView = NativeMaterial.glassContainer(content: content, cornerRadius: 18)
+        panel.appearance = NSAppearance(named: .darkAqua)
+        surface.addSubview(content)
+        panel.contentView = surface
         self.panel = panel
     }
 
@@ -192,11 +212,17 @@ final class NotchPanelController: NSObject {
         guard #available(macOS 12.0, *) else { return }
         let center = ((screen.auxiliaryTopLeftArea?.maxX ?? screen.frame.midX)
             + (screen.auxiliaryTopRightArea?.minX ?? screen.frame.midX)) / 2
+        let notchWidth = (screen.auxiliaryTopRightArea?.minX ?? center + 100)
+            - (screen.auxiliaryTopLeftArea?.maxX ?? center - 100)
         let frame = NotchGeometry.frame(screen: screen.frame, topInset: screen.safeAreaInsets.top,
-                                       centerX: center, expanded: expanded)
+                                       centerX: center, expanded: expanded, notchWidth: notchWidth)
         panel.setFrame(frame, display: true)
         panel.contentView?.layoutSubtreeIfNeeded()
-        content.frame = panel.contentView?.bounds ?? NSRect(origin: .zero, size: frame.size)
+        surface.cameraHeight = screen.safeAreaInsets.top
+        surface.cameraWidth = notchWidth
+        content.frame = NSRect(x: 0, y: surface.cameraHeight, width: frame.width,
+                               height: frame.height - surface.cameraHeight)
+        surface.needsDisplay = true
         content.subviews.forEach { $0.removeFromSuperview() }
         if !expanded {
             let text = issue != nil ? "Lasso · check status" : unread ? "Lasso · new source activity"
@@ -310,10 +336,12 @@ final class NotchPanelController: NSObject {
         controller.expanded = true
         controller.installClickDismissal()
         controller.render()
-        verify(controller.panel?.frame.height == 272 && controller.localClick != nil)
+        verify(controller.content.frame.height == 272 && controller.localClick != nil)
         let screen = Self.supportedScreen!
         verify(screen.frame.contains(controller.panel!.frame))
-        verify(controller.panel!.frame.maxY <= screen.frame.maxY - screen.safeAreaInsets.top)
+        verify(controller.panel!.frame.maxY == screen.frame.maxY)
+        verify(controller.content.frame.minY == screen.safeAreaInsets.top)
+        verify(controller.panel?.appearance?.name == .darkAqua)
         var toggles = 0; var destination = ""
         controller.onToggleSuggestions = { toggles += 1 }
         controller.onOpenWorkspace = { destination = $0 }
@@ -324,7 +352,7 @@ final class NotchPanelController: NSObject {
         controller.previous(); verify(controller.selectedChange == 0)
         controller.panel?.displayIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-        verify(controller.content.bounds.size == controller.panel?.contentView?.bounds.size)
+        verify(controller.content.bounds.width == controller.surface.bounds.width)
         if keepOpen {
             regressionPanel = controller
             controller.timer?.invalidate(); controller.timer = nil
