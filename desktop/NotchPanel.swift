@@ -3,6 +3,7 @@ import Cocoa
 /// Geometry is expressed in AppKit screen coordinates, including displays
 /// above/below the primary screen. No model-name guesses or camera heuristics.
 enum NotchGeometry {
+    static let logoWidth: CGFloat = 32
     static func supported(builtIn: Bool, topInset: CGFloat, left: NSRect?, right: NSRect?) -> Bool {
         guard builtIn, topInset > 0, let left, let right else { return false }
         return left.width > 0 && right.width > 0 && right.minX > left.maxX
@@ -10,10 +11,13 @@ enum NotchGeometry {
 
     static func frame(screen: NSRect, topInset: CGFloat, centerX: CGFloat, expanded: Bool, notchWidth: CGFloat = 200) -> NSRect {
         if !expanded {
-            return NSRect(x: max(screen.minX, centerX - notchWidth / 2 - 32),
-                          y: screen.maxY - topInset, width: 32, height: topInset)
+            // Paint beneath the housing's curved left corner, not just up to
+            // its rectangular safe-area boundary. Keep the logo outside it.
+            let overlap = min(topInset, notchWidth / 2)
+            return NSRect(x: max(screen.minX, centerX - notchWidth / 2 - logoWidth),
+                          y: screen.maxY - topInset, width: logoWidth + overlap, height: topInset)
         }
-        let width = min(max(440.0, notchWidth + 24), screen.width - 24)
+        let width = min(max(440.0, notchWidth + 2 * logoWidth), screen.width - 24)
         let height = topInset + min(272.0, screen.height - topInset - 12)
         let x = min(max(centerX - width / 2, screen.minX + 12), screen.maxX - width - 12)
         return NSRect(x: x, y: screen.maxY - height, width: width, height: height)
@@ -62,30 +66,23 @@ private final class NotchContent: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// Opaque black joins the camera cutout to the controls. Transparent shoulders
-/// preserve the menu-bar areas beside the camera; no vibrancy can tint the black.
+/// A single silhouette joins the display edge to the camera housing. The
+/// compact backing overlaps the housing to fill its exposed rounded corner;
+/// the expanded surface has no transparent shoulders or separate logo tab.
 private final class NotchSurface: NSView {
     override var isFlipped: Bool { true }
-    var cameraHeight: CGFloat = 0
-    var cameraWidth: CGFloat = 200
+    var expanded = false
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.setFill()
-        let body = NSRect(x: 0, y: cameraHeight, width: bounds.width, height: bounds.height - cameraHeight)
-        NSBezierPath(roundedRect: body, xRadius: 18, yRadius: 18).fill()
-        NSBezierPath(rect: NSRect(x: (bounds.width - cameraWidth) / 2, y: 0,
-                                 width: cameraWidth, height: cameraHeight + min(18, body.height / 2))).fill()
-    }
-}
-
-/// A small extension to the left of the camera, contained entirely in the
-/// menu-bar band. Only the logo is visible; nothing hangs below the notch.
-private final class NotchLauncherSurface: NSView {
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.setFill()
-        let path = NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10)
-        path.fill()
-        NSRect(x: bounds.midX, y: 0, width: bounds.width / 2, height: bounds.height).fill()
-        NSRect(x: 0, y: bounds.midY, width: bounds.width, height: bounds.height / 2).fill()
+        let radius: CGFloat = expanded ? 18 : 10
+        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+        // Square off the top corners so black meets the physical screen edge.
+        NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height / 2).fill()
+        if !expanded {
+            // This edge is hidden inside the camera housing, so only the
+            // outer bottom-left corner should be rounded when collapsed.
+            NSRect(x: bounds.midX, y: 0, width: bounds.width / 2, height: bounds.height).fill()
+        }
     }
 }
 
@@ -103,7 +100,6 @@ final class NotchPanelController: NSObject {
     var onToggleSuggestions: (() -> Void)?
     var onOpenWorkspace: ((String) -> Void)?
     private var panel: NotchWindow?
-    private var launcher: NotchWindow?
     private var launcherButton: NSButton?
     private var autoCollapseTimer: Timer?
     private let content = NotchContent()
@@ -159,7 +155,6 @@ final class NotchPanelController: NSObject {
         generation += 1; task?.cancel(); task = nil
         timer?.invalidate(); timer = nil
         panel?.orderOut(nil)
-        launcher?.orderOut(nil)
         autoCollapseTimer?.invalidate(); autoCollapseTimer = nil
         expanded = false
         if let localClick { NSEvent.removeMonitor(localClick) }
@@ -172,8 +167,8 @@ final class NotchPanelController: NSObject {
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.level = .floating
+        panel.hasShadow = false
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
@@ -183,18 +178,6 @@ final class NotchPanelController: NSObject {
         surface.addSubview(content)
         panel.contentView = surface
         self.panel = panel
-        let launcher = NotchWindow(contentRect: .zero,
-            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        launcher.isOpaque = false
-        launcher.backgroundColor = .clear
-        launcher.hasShadow = false
-        launcher.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
-        launcher.collectionBehavior = panel.collectionBehavior
-        launcher.hidesOnDeactivate = false
-        launcher.isReleasedWhenClosed = false
-        launcher.title = "Lasso notch control"
-        launcher.appearance = NSAppearance(named: .darkAqua)
-        let background = NotchLauncherSurface()
         let button = NSButton(title: "", target: self, action: #selector(toggleExpanded))
         button.isBordered = false
         button.imagePosition = .imageOnly
@@ -203,9 +186,7 @@ final class NotchPanelController: NSObject {
         button.contentTintColor = .white
         button.setAccessibilityLabel("Open Lasso notch")
         button.toolTip = "Open Lasso"
-        background.addSubview(button)
-        launcher.contentView = background
-        self.launcher = launcher
+        surface.addSubview(button)
         launcherButton = button
     }
 
@@ -229,8 +210,7 @@ final class NotchPanelController: NSObject {
         autoCollapseTimer?.invalidate()
         autoCollapseTimer = Timer.scheduledTimer(withTimeInterval: 12, repeats: false) { [weak self] _ in
             guard let self, self.expanded else { return }
-            if self.panel?.frame.contains(NSEvent.mouseLocation) == true
-                || self.launcher?.frame.contains(NSEvent.mouseLocation) == true {
+            if self.panel?.frame.contains(NSEvent.mouseLocation) == true {
                 self.scheduleAutoCollapse()
             } else { self.collapse() }
         }
@@ -291,22 +271,21 @@ final class NotchPanelController: NSObject {
             + (screen.auxiliaryTopRightArea?.minX ?? screen.frame.midX)) / 2
         let notchWidth = (screen.auxiliaryTopRightArea?.minX ?? center + 100)
             - (screen.auxiliaryTopLeftArea?.maxX ?? center - 100)
-        let launcherFrame = NotchGeometry.frame(screen: screen.frame, topInset: screen.safeAreaInsets.top,
-            centerX: center, expanded: false, notchWidth: notchWidth)
-        launcher?.setFrame(launcherFrame, display: true)
-        launcherButton?.frame = NSRect(origin: .zero, size: launcherFrame.size)
-        launcherButton?.setAccessibilityLabel(expanded ? "Close Lasso notch" : "Open Lasso notch")
-        launcher?.orderFrontRegardless()
-        guard expanded else { panel.orderOut(nil); return }
         let frame = NotchGeometry.frame(screen: screen.frame, topInset: screen.safeAreaInsets.top,
-                                       centerX: center, expanded: true, notchWidth: notchWidth)
+                                       centerX: center, expanded: expanded, notchWidth: notchWidth)
         panel.setFrame(frame, display: true)
         panel.contentView?.layoutSubtreeIfNeeded()
-        surface.cameraHeight = screen.safeAreaInsets.top
-        surface.cameraWidth = notchWidth
-        content.frame = NSRect(x: 0, y: surface.cameraHeight, width: frame.width,
-                               height: frame.height - surface.cameraHeight)
+        surface.expanded = expanded
         surface.needsDisplay = true
+        // The logo never moves or gets hidden behind the camera as we expand.
+        launcherButton?.frame = NSRect(x: center - notchWidth / 2 - NotchGeometry.logoWidth - frame.minX,
+                                      y: 0, width: NotchGeometry.logoWidth, height: screen.safeAreaInsets.top)
+        launcherButton?.setAccessibilityLabel(expanded ? "Close Lasso notch" : "Open Lasso notch")
+        panel.title = expanded ? "Lasso notch" : "Lasso notch control"
+        content.isHidden = !expanded
+        guard expanded else { panel.orderFrontRegardless(); return }
+        content.frame = NSRect(x: 0, y: screen.safeAreaInsets.top, width: frame.width,
+                               height: frame.height - screen.safeAreaInsets.top)
         content.subviews.forEach { $0.removeFromSuperview() }
         label("Lasso", y: 17, size: 15, bold: true)
         button("", frame: NSRect(x: 394, y: 10, width: 30, height: 28),
@@ -374,7 +353,7 @@ final class NotchPanelController: NSObject {
         removeClickDismissal()
         globalClick = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in self?.collapse() }
         localClick = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            if let self, event.window !== self.panel && event.window !== self.launcher { self.collapse() }
+            if let self, event.window !== self.panel { self.collapse() }
             return event
         }
     }
@@ -390,7 +369,19 @@ final class NotchPanelController: NSObject {
     static func regression(outputPath: String?, keepOpen: Bool = false) -> [String: Any] {
         let controller = NotchPanelController()
         var checks = 0
-        func verify(_ condition: Bool) { precondition(condition, "Notch integration check failed"); checks += 1 }
+        func verify(_ condition: Bool) { precondition(condition, "Notch integration check failed (check \(checks + 1))"); checks += 1 }
+        func surfaceBitmap() -> NSBitmapImageRep {
+            let view = controller.surface
+            view.displayIfNeeded()
+            let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            return bitmap
+        }
+        func isBlack(_ bitmap: NSBitmapImageRep, x: CGFloat, y: CGFloat) -> Bool {
+            let scale = CGFloat(bitmap.pixelsWide) / controller.surface.bounds.width
+            guard let color = bitmap.colorAt(x: Int(x * scale), y: Int(y * scale))?.usingColorSpace(.deviceRGB) else { return false }
+            return color.alphaComponent > 0.99 && max(color.redComponent, color.greenComponent, color.blueComponent) < 0.01
+        }
         controller.configure(enabled: false, serverURL: nil, suggestions: false)
         verify(controller.panel?.isVisible != true && controller.timer == nil)
         guard Self.isAvailable else {
@@ -399,11 +390,21 @@ final class NotchPanelController: NSObject {
             return ["checks": checks, "supported": false]
         }
         controller.configure(enabled: true, serverURL: nil, suggestions: true, requested: true)
-        verify(controller.panel?.isVisible == false && !controller.expanded)
-        verify(controller.launcher?.isVisible == true && controller.launcherButton?.title == "")
+        verify(controller.panel?.isVisible == true && !controller.expanded && controller.content.isHidden)
+        verify(controller.launcherButton?.title == "" && controller.launcherButton?.isHidden == false)
         let display = Self.supportedScreen!
-        verify(controller.launcher!.frame.minY == display.frame.maxY - display.safeAreaInsets.top)
-        verify(controller.launcher!.frame.maxX == display.auxiliaryTopLeftArea!.maxX)
+        let compactFrame = controller.panel!.frame
+        let logoFrame = controller.launcherButton!.frame
+        verify(compactFrame.minY == display.frame.maxY - display.safeAreaInsets.top)
+        verify(compactFrame.minX + logoFrame.maxX == display.auxiliaryTopLeftArea!.maxX)
+        verify(compactFrame.maxX > display.auxiliaryTopLeftArea!.maxX)
+        verify(controller.panel!.level.rawValue > NSWindow.Level.statusBar.rawValue && !controller.panel!.hasShadow)
+        let windowNumber = controller.panel!.windowNumber
+        let compactBitmap = surfaceBitmap()
+        // The exposed crescent at the old tab/housing seam must be opaque black,
+        // including its bottom edge, rather than the desktop showing through.
+        verify(isBlack(compactBitmap, x: logoFrame.maxX + 1, y: compactFrame.height - 1))
+        verify(isBlack(compactBitmap, x: 1, y: 1))
         let baseline = NotchActivity(["changes": [["projectId": "p", "objectId": "value", "toVersion": 1]]])
         controller.receive(baseline); verify(!controller.expanded)
         controller.receive(baseline); verify(!controller.expanded)
@@ -432,8 +433,15 @@ final class NotchPanelController: NSObject {
         let screen = Self.supportedScreen!
         verify(screen.frame.contains(controller.panel!.frame))
         verify(controller.panel!.frame.maxY == screen.frame.maxY)
-        verify(controller.content.frame.minY == screen.safeAreaInsets.top)
+        verify(controller.content.frame.minY == screen.safeAreaInsets.top && !controller.content.isHidden)
+        verify(controller.panel!.frame.minX + controller.launcherButton!.frame.minX == compactFrame.minX + logoFrame.minX)
+        verify(controller.launcherButton!.frame.maxY == screen.safeAreaInsets.top)
         verify(controller.panel?.appearance?.name == .darkAqua)
+        verify(controller.panel!.windowNumber == windowNumber)
+        let expandedBitmap = surfaceBitmap()
+        // Both formerly transparent shoulders now meet the top edge in black.
+        verify(isBlack(expandedBitmap, x: 1, y: 1))
+        verify(isBlack(expandedBitmap, x: controller.surface.bounds.width - 2, y: 1))
         var toggles = 0; var destination = ""
         controller.onToggleSuggestions = { toggles += 1 }
         controller.onOpenWorkspace = { destination = $0 }
@@ -459,7 +467,7 @@ final class NotchPanelController: NSObject {
         verify(destination == "attention" && !controller.expanded)
         verify(controller.localClick == nil && controller.globalClick == nil)
         controller.configure(enabled: false, serverURL: nil, suggestions: false)
-        verify(controller.panel?.isVisible == false && controller.launcher?.isVisible == false
+        verify(controller.panel?.isVisible == false
             && controller.timer == nil && controller.task == nil && controller.autoCollapseTimer == nil)
         return ["checks": checks, "supported": true]
     }
