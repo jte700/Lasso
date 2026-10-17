@@ -38,6 +38,8 @@ enum BrowserGeometryRegression {
                         response["rendered"] = GlobalAssistant.regressionRenderPreview(
                             data: previewData, pdfData: pdfData, to: URL(fileURLWithPath: output))
                     } else { response["error"] = "Model preview JSON or output path is missing." }
+                } else if request["command"] as? String == "notch-panel" {
+                    response.merge(NotchPanelController.regression(outputPath: request["output"] as? String)) { _, new in new }
                 } else if request["command"] as? String == "suggestion-navigation" {
                     response["checks"] = GlobalAssistant.regressionSuggestionNavigation(
                         outputPath: request["output"] as? String)

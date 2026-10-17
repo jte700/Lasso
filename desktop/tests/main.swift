@@ -1359,5 +1359,23 @@ do {
 }
 
 print("")
+print("Notch display eligibility and geometry")
+let notchLeft = NSRect(x: 0, y: 0, width: 650, height: 32)
+let notchRight = NSRect(x: 850, y: 0, width: 650, height: 32)
+check(NotchGeometry.supported(builtIn: true, topInset: 32, left: notchLeft, right: notchRight), "offers notch controls for a built-in camera cutout")
+check(!NotchGeometry.supported(builtIn: false, topInset: 32, left: notchLeft, right: notchRight), "hides notch controls on external displays")
+check(!NotchGeometry.supported(builtIn: true, topInset: 0, left: notchLeft, right: notchRight), "hides notch controls on MacBooks without a cutout")
+check(!NotchGeometry.supported(builtIn: true, topInset: 32, left: nil, right: nil), "safe-area inset alone cannot enable notch controls")
+check(!NotchGeometry.supported(builtIn: true, topInset: 32, left: notchLeft, right: notchLeft), "requires a real gap between auxiliary menu areas")
+let notchScreen = NSRect(x: -1700, y: -1100, width: 1500, height: 1000)
+let notchFrame = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: true)
+check(notchFrame.maxY == notchScreen.maxY - 32, "notch content stays below camera and menu bar")
+check(notchFrame.midX == -950 && notchScreen.contains(notchFrame), "notch follows a secondary display with negative coordinates")
+let notchCompact = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: false)
+check(notchCompact.height == 32 && notchCompact.maxY == notchFrame.maxY, "expansion preserves attachment to the camera cutout")
+let notchActivity = NotchActivity(["directories": -1, "changes": [["projectId": "one", "objectId": "cell", "toVersion": 3]]])
+check(notchActivity.directories == 0 && notchActivity.newestKey == "one:cell:3", "activity uses source identity and clamps invalid counts")
+check(NotchActivity().newestKey == nil, "an empty workspace has no fabricated notification")
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

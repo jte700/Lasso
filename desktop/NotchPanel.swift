@@ -1,0 +1,347 @@
+import Cocoa
+
+/// Geometry is expressed in AppKit screen coordinates, including displays
+/// above/below the primary screen. No model-name guesses or camera heuristics.
+enum NotchGeometry {
+    static func supported(builtIn: Bool, topInset: CGFloat, left: NSRect?, right: NSRect?) -> Bool {
+        guard builtIn, topInset > 0, let left, let right else { return false }
+        return left.width > 0 && right.width > 0 && right.minX > left.maxX
+    }
+
+    static func frame(screen: NSRect, topInset: CGFloat, centerX: CGFloat, expanded: Bool) -> NSRect {
+        let width = min(expanded ? 440.0 : 230.0, screen.width - 24)
+        let height = min(expanded ? 272.0 : 32.0, screen.height - topInset - 12)
+        let x = min(max(centerX - width / 2, screen.minX + 12), screen.maxX - width - 12)
+        return NSRect(x: x, y: screen.maxY - topInset - height, width: width, height: height)
+    }
+}
+
+struct NotchActivity {
+    var directories = 0
+    var files = 0
+    var stale = 0
+    var failures = 0
+    var changes: [[String: Any]] = []
+    init(_ json: [String: Any] = [:]) {
+        directories = max(0, json["directories"] as? Int ?? 0)
+        files = max(0, json["files"] as? Int ?? 0)
+        stale = max(0, json["stale"] as? Int ?? 0)
+        failures = max(0, json["failures"] as? Int ?? 0)
+        changes = Array((json["changes"] as? [[String: Any]] ?? []).prefix(8))
+    }
+    var newestKey: String? {
+        guard let change = changes.first else { return nil }
+        return [change["projectId"], change["objectId"], change["toVersion"]]
+            .map { String(describing: $0 ?? "") }.joined(separator: ":")
+    }
+}
+
+private final class NotchWindow: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
+private final class NotchContent: NSView {
+    override var isFlipped: Bool { true }
+}
+
+final class NotchPanelController: NSObject {
+    static let preferenceKey = "NotchEnabled"
+    static var supportedScreen: NSScreen? {
+        NSScreen.screens.first { screen in
+            guard #available(macOS 12.0, *),
+                  let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
+            return NotchGeometry.supported(builtIn: CGDisplayIsBuiltin(number.uint32Value) != 0,
+                topInset: screen.safeAreaInsets.top, left: screen.auxiliaryTopLeftArea, right: screen.auxiliaryTopRightArea)
+        }
+    }
+    static var isAvailable: Bool { supportedScreen != nil }
+    var onToggleSuggestions: (() -> Void)?
+    var onOpenWorkspace: ((String) -> Void)?
+    private var panel: NotchWindow?
+    private let content = NotchContent()
+    private var timer: Timer?
+    private var task: URLSessionDataTask?
+    private var generation = 0
+    private var baseURL: URL?
+    private var workspaceRevision = ""
+    private var enabled = false
+    private var expanded = false
+    private var suggestions = false
+    private var suggestionsRequested = false
+    private var activity = NotchActivity()
+    private var issue: String?
+    private var initialized = false
+    private var unread = false
+    private var selectedChange = 0
+    private var localClick: Any?
+    private var globalClick: Any?
+
+    override init() {
+        super.init()
+        LassoTransientUI.shared.register(self, priority: 1,
+            isOpen: { [weak self] in self?.expanded == true },
+            dismiss: { [weak self] in self?.collapse() })
+    }
+
+    func configure(enabled: Bool, serverURL: URL?, suggestions: Bool, requested: Bool = false, revision: String = "") {
+        let changedServer = baseURL != serverURL || workspaceRevision != revision
+        workspaceRevision = revision
+        let wasEnabled = self.enabled
+        self.enabled = enabled && Self.isAvailable
+        self.suggestions = suggestions
+        self.suggestionsRequested = requested
+        baseURL = serverURL
+        if changedServer {
+            generation += 1; task?.cancel(); task = nil
+            activity = NotchActivity(); initialized = false; unread = false; selectedChange = 0
+        }
+        if serverURL == nil { issue = "Waiting for the local server…" }
+        guard self.enabled else { stop(); return }
+        if panel == nil { makePanel() }
+        if timer == nil {
+            timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in self?.refresh() }
+            timer?.tolerance = 2
+        }
+        render()
+        if !wasEnabled || changedServer || !initialized { refresh() }
+    }
+
+    func stop() {
+        enabled = false
+        generation += 1; task?.cancel(); task = nil
+        timer?.invalidate(); timer = nil
+        panel?.orderOut(nil)
+        expanded = false
+        if let localClick { NSEvent.removeMonitor(localClick) }
+        if let globalClick { NSEvent.removeMonitor(globalClick) }
+        localClick = nil; globalClick = nil
+    }
+
+    private func makePanel() {
+        let panel = NotchWindow(contentRect: .zero,
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.title = "Lasso notch"
+        content.frame = NSRect(x: 0, y: 0, width: 440, height: 272)
+        panel.contentView = NativeMaterial.glassContainer(content: content, cornerRadius: 18)
+        self.panel = panel
+    }
+
+    private func refresh() {
+        guard enabled, task == nil, let baseURL else { return }
+        let token = generation
+        var request = URLRequest(url: baseURL.appendingPathComponent("api/workspace/activity"))
+        request.timeoutInterval = 10
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self, self.enabled, token == self.generation else { return }
+                self.task = nil
+                if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                   let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let payload = json["activity"] as? [String: Any] {
+                    let next = NotchActivity(payload)
+                    if self.initialized && (next.newestKey != self.activity.newestKey && next.newestKey != nil
+                        || next.failures > self.activity.failures || next.stale > self.activity.stale) {
+                        self.unread = !self.expanded
+                    }
+                    if next.newestKey != self.activity.newestKey { self.selectedChange = 0 }
+                    self.activity = next
+                    self.initialized = true; self.issue = nil
+                } else {
+                    self.issue = "Activity unavailable. Open Lasso to check the server."
+                }
+                self.render()
+            }
+        }
+        task?.resume()
+    }
+
+    private func label(_ text: String, x: CGFloat = 20, y: CGFloat, width: CGFloat = 400,
+                       size: CGFloat = 13, color: NSColor = .labelColor, bold: Bool = false, height: CGFloat = 20) {
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: size, weight: bold ? .semibold : .regular)
+        label.textColor = color
+        label.lineBreakMode = .byTruncatingTail
+        label.frame = NSRect(x: x, y: y, width: width, height: height)
+        label.toolTip = text
+        content.addSubview(label)
+    }
+
+    @discardableResult
+    private func button(_ title: String, frame: NSRect, action: Selector, symbol: String? = nil) -> NSButton {
+        let button = NSButton(title: title, target: self, action: action)
+        button.bezelStyle = .rounded
+        button.font = .systemFont(ofSize: 12, weight: .medium)
+        button.frame = frame
+        if let symbol { button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
+        button.imagePosition = .imageLeading
+        content.addSubview(button)
+        return button
+    }
+
+    private func render() {
+        guard enabled, let panel, let screen = Self.supportedScreen else { return }
+        guard #available(macOS 12.0, *) else { return }
+        let center = ((screen.auxiliaryTopLeftArea?.maxX ?? screen.frame.midX)
+            + (screen.auxiliaryTopRightArea?.minX ?? screen.frame.midX)) / 2
+        let frame = NotchGeometry.frame(screen: screen.frame, topInset: screen.safeAreaInsets.top,
+                                       centerX: center, expanded: expanded)
+        panel.setFrame(frame, display: true)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        content.frame = panel.contentView?.bounds ?? NSRect(origin: .zero, size: frame.size)
+        content.subviews.forEach { $0.removeFromSuperview() }
+        if !expanded {
+            let text = issue != nil ? "Lasso · check status" : unread ? "Lasso · new source activity"
+                : activity.failures > 0 ? "Lasso · indexing issue"
+                : activity.stale > 0 ? "Lasso · \(activity.stale) to review"
+                : suggestions ? "Lasso · suggestions on" : suggestionsRequested ? "Lasso · suggestions need setup" : "Lasso · suggestions paused"
+            let button = button(text, frame: content.bounds.insetBy(dx: 12, dy: 0), action: #selector(toggleExpanded), symbol: "lasso")
+            button.isBordered = false
+            button.contentTintColor = issue != nil || activity.failures > 0 ? .systemOrange : .labelColor
+            button.setAccessibilityLabel(text + ". Open notch panel.")
+        } else {
+            label("Lasso", y: 17, size: 15, bold: true)
+            button("", frame: NSRect(x: 394, y: 10, width: 30, height: 28),
+                   action: #selector(collapse), symbol: "chevron.up").setAccessibilityLabel("Collapse notch")
+            label("\(activity.directories) active directories · \(activity.files) indexed files", y: 43,
+                  color: .secondaryLabelColor)
+            let separator = NSBox(frame: NSRect(x: 20, y: 73, width: 400, height: 1))
+            separator.boxType = .separator; content.addSubview(separator)
+            if let issue {
+                label(issue, y: 88, color: .systemOrange)
+                label("Your recorded sources stay on this Mac.", y: 119, color: .secondaryLabelColor)
+            } else if !activity.changes.isEmpty {
+                selectedChange = min(selectedChange, activity.changes.count - 1)
+                let change = activity.changes[selectedChange]
+                label("Latest changes · \(selectedChange + 1) of \(activity.changes.count)", y: 85, size: 11, color: .secondaryLabelColor)
+                label(change["fileName"] as? String ?? change["name"] as? String ?? "Source changed",
+                      y: 105, width: 330, bold: true)
+                label([change["projectName"], change["locator"]].compactMap { $0 as? String }.joined(separator: " · "),
+                      y: 128, size: 11, color: .secondaryLabelColor)
+                let moved = change["moved"] as? Bool == true
+                let old = (moved ? change["previousPath"] : change["previousValue"]) as? String ?? "Removed"
+                let new = (moved ? change["path"] : change["currentValue"]) as? String ?? "Removed"
+                label("\(old) → \(new)", y: 152, size: 17, color: .systemGreen, bold: true)
+                let count = change["unresolvedReferences"] as? Int ?? 0
+                label("\(count) reference\(count == 1 ? "" : "s") to review · v\(change["fromVersion"] ?? "?") → v\(change["toVersion"] ?? "?")",
+                      y: 181, size: 11, color: .secondaryLabelColor)
+                if activity.changes.count > 1 {
+                    button("", frame: NSRect(x: 352, y: 101, width: 28, height: 27), action: #selector(previous), symbol: "chevron.left").setAccessibilityLabel("Previous change")
+                    button("", frame: NSRect(x: 388, y: 101, width: 28, height: 27), action: #selector(next), symbol: "chevron.right").setAccessibilityLabel("Next change")
+                }
+            } else {
+                label(initialized ? "Your source library is ready" : "Loading source activity…", y: 94, size: 15, bold: true)
+                label(activity.directories == 0 ? "Add or enable a work directory in the Lasso menu."
+                    : "Source changes will appear here as you work.", y: 126, size: 12, color: .secondaryLabelColor)
+            }
+            if activity.failures > 0 {
+                label("\(activity.failures) indexing or directory issue\(activity.failures == 1 ? "" : "s")", y: 203,
+                      size: 11, color: .systemOrange)
+            }
+            button(suggestionsRequested ? "Pause suggestions" : "Resume suggestions",
+                   frame: NSRect(x: 16, y: 232, width: 175, height: 28), action: #selector(toggleSuggestions))
+                .isEnabled = baseURL != nil
+            button(activity.stale > 0 || activity.failures > 0 ? "Review sources" : "Open sources",
+                   frame: NSRect(x: 251, y: 232, width: 173, height: 28), action: #selector(openWorkspace),
+                   symbol: "arrow.up.right.square").isEnabled = baseURL != nil
+        }
+        panel.orderFrontRegardless()
+    }
+
+    @objc private func toggleExpanded() {
+        expanded.toggle(); unread = false
+        if expanded { installClickDismissal(); refresh() } else { removeClickDismissal() }
+        render()
+    }
+    @objc private func collapse() {
+        expanded = false; removeClickDismissal(); render()
+    }
+    private func removeClickDismissal() {
+        if let localClick { NSEvent.removeMonitor(localClick) }
+        if let globalClick { NSEvent.removeMonitor(globalClick) }
+        localClick = nil; globalClick = nil
+    }
+    private func installClickDismissal() {
+        removeClickDismissal()
+        globalClick = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in self?.collapse() }
+        localClick = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            if let self, event.window !== self.panel { self.collapse() }
+            return event
+        }
+    }
+    @objc private func previous() { selectedChange = (selectedChange + activity.changes.count - 1) % max(1, activity.changes.count); render() }
+    @objc private func next() { selectedChange = (selectedChange + 1) % max(1, activity.changes.count); render() }
+    @objc private func toggleSuggestions() { onToggleSuggestions?() }
+    @objc private func openWorkspace() {
+        onOpenWorkspace?(activity.stale > 0 || activity.failures > 0 ? "attention" : activity.changes.isEmpty ? "sources" : "changes")
+        collapse()
+    }
+    #if BROWSER_GEOMETRY_TEST
+    private static var regressionPanel: NotchPanelController?
+    static func regression(outputPath: String?, keepOpen: Bool = false) -> [String: Any] {
+        let controller = NotchPanelController()
+        var checks = 0
+        func verify(_ condition: Bool) { precondition(condition, "Notch integration check failed"); checks += 1 }
+        controller.configure(enabled: false, serverURL: nil, suggestions: false)
+        verify(controller.panel?.isVisible != true && controller.timer == nil)
+        guard Self.isAvailable else {
+            controller.configure(enabled: true, serverURL: nil, suggestions: false)
+            verify(controller.panel?.isVisible != true && controller.timer == nil)
+            return ["checks": checks, "supported": false]
+        }
+        controller.configure(enabled: true, serverURL: nil, suggestions: true, requested: true)
+        verify(controller.panel?.isVisible == true && !controller.expanded)
+        verify(controller.panel?.canBecomeKey == false)
+        controller.baseURL = URL(string: "http://127.0.0.1:4319")
+        controller.activity = NotchActivity(["directories": 6, "files": 125, "stale": 3,
+            "changes": [["fileName": "Budget.xlsx", "projectName": "Finance", "locator": "Sheet1 · C14 · Total budget",
+                         "previousValue": "$48,210", "currentValue": "$51,060", "unresolvedReferences": 3,
+                         "fromVersion": 4, "toVersion": 5],
+                        ["fileName": "Plan.pdf", "previousValue": "12 m²", "currentValue": "14 m²"]]])
+        controller.issue = nil
+        controller.expanded = true
+        controller.installClickDismissal()
+        controller.render()
+        verify(controller.panel?.frame.height == 272 && controller.localClick != nil)
+        let screen = Self.supportedScreen!
+        verify(screen.frame.contains(controller.panel!.frame))
+        verify(controller.panel!.frame.maxY <= screen.frame.maxY - screen.safeAreaInsets.top)
+        var toggles = 0; var destination = ""
+        controller.onToggleSuggestions = { toggles += 1 }
+        controller.onOpenWorkspace = { destination = $0 }
+        let pause = controller.content.subviews.compactMap { $0 as? NSButton }.first { $0.title == "Pause suggestions" }
+        pause?.performClick(nil)
+        verify(toggles == 1)
+        controller.next(); verify(controller.selectedChange == 1)
+        controller.previous(); verify(controller.selectedChange == 0)
+        controller.panel?.displayIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        verify(controller.content.bounds.size == controller.panel?.contentView?.bounds.size)
+        if keepOpen {
+            regressionPanel = controller
+            controller.timer?.invalidate(); controller.timer = nil
+            return ["checks": checks, "supported": true, "windowNumber": controller.panel!.windowNumber]
+        }
+        if let outputPath, let view = controller.panel?.contentView,
+           let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: outputPath))
+        }
+        controller.openWorkspace()
+        verify(destination == "attention" && !controller.expanded)
+        verify(controller.localClick == nil && controller.globalClick == nil)
+        controller.configure(enabled: false, serverURL: nil, suggestions: false)
+        verify(controller.panel?.isVisible == false && controller.timer == nil && controller.task == nil)
+        return ["checks": checks, "supported": true]
+    }
+    #endif
+
+}

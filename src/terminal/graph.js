@@ -708,7 +708,7 @@ export class DependencyGraph {
       ORDER BY version DESC, object_id
     `).all(projectId);
 
-    if (!options.previousSnapshotId) {
+    if (!options.previousSnapshotId && !options.ownSourcesOnly) {
       const foreignIds = this.namedObjects(projectId)
         .filter((object) => object.projectId !== projectId).map((object) => object.id);
       if (foreignIds.length) rows.push(...this.db.prepare(`

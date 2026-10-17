@@ -269,6 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var server: ServerController!
     private let statusMenu = NSMenu()
     private let statusPopover = StatusPopoverController()
+    private let notch = NotchPanelController()
     private let inspector = SourceInspectorPanel()
     private var directories: [WorkDirectory] = []
     private var workspaceRevision = ""
@@ -331,6 +332,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let logs = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/Lasso/server.log")
 
+        notch.onToggleSuggestions = { [weak self] in self?.toggleGlobalAssist() }
+        notch.onOpenWorkspace = { [weak self] view in
+            guard let base = self?.server?.url, var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return }
+            components.queryItems = [URLQueryItem(name: "view", value: view)]
+            if let url = components.url { NSWorkspace.shared.open(url) }
+        }
+        NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil)
         buildStatusItem()
         GlobalAssistant.shared.onStateChange = { [weak self] in
             DispatchQueue.main.async { self?.rebuildMenu() }
@@ -387,6 +396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         LassoTransientUI.shared.stop()
+        notch.stop()
         workspaceTimer?.invalidate()
         assistPermissionTimer?.invalidate()
         workspaceRequest?.cancel()
@@ -481,6 +491,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              enabled: isServerReady)
         assist.state = assistActivation.requested ? .on : .off
         statusMenu.addItem(assist)
+        if NotchPanelController.isAvailable {
+            let notchItem = command("Show Lasso in Notch", action: #selector(toggleNotch))
+            notchItem.state = UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey) ? .on : .off
+            statusMenu.addItem(notchItem)
+        }
         if assistActivation.requested && !GlobalAssistant.shared.isEnabled && isServerReady {
             if !AssistPermission.hasAccessibility {
                 statusMenu.addItem(command("Allow Accessibility…", action: #selector(openAssistSettings)))
@@ -519,6 +534,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusMenu.addItem(tools)
         statusMenu.addItem(command("Quit Lasso", action: #selector(quit), key: "q"))
         statusPopover.update(menu: statusMenu)
+        notch.configure(enabled: UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey),
+                        serverURL: isServerReady ? server?.url : nil,
+                        suggestions: GlobalAssistant.shared.isEnabled, requested: assistActivation.requested,
+                        revision: directories.filter { $0.active && $0.available && ($0.error ?? "").isEmpty }.map(\.id).sorted().joined(separator: "|"))
     }
 
     private func statusTitle(activeCount: Int) -> String {
@@ -662,6 +681,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleDirectoryList() {
         directoryListCollapsed.toggle()
+        rebuildMenu()
+    }
+
+    @objc private func screensChanged() { rebuildMenu() }
+
+    @objc private func toggleNotch() {
+        guard NotchPanelController.isAvailable else { return }
+        let key = NotchPanelController.preferenceKey
+        UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: key), forKey: key)
         rebuildMenu()
     }
 

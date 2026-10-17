@@ -120,6 +120,9 @@ try {
   });
   helperStarted = true;
   await helper('ping');
+  const notch = await helper('notch-panel', {output:'/tmp/lasso-notch-verified.png'});
+  assert.ok(notch.checks >= (notch.supported ? 12 : 2));
+  console.log(`  ok ${notch.checks} notch controls, display eligibility and lifecycle checks (notched display: ${notch.supported})`);
   const suggestionNavigation = await helper('suggestion-navigation');
   for (const [label, passed] of Object.entries(suggestionNavigation.checks)) assert.equal(passed, true, label);
   console.log(`  ok ${Object.keys(suggestionNavigation.checks).length} native suggestion navigation checks`);

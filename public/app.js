@@ -2873,6 +2873,10 @@ else {
   loadProjects()
     .then(() => {
       if (launchParams.get('view') === 'documents' && state.project) return openManuscriptWorkspace();
+      const view = launchParams.get('view');
+      if (['changes', 'attention'].includes(view) && state.project) {
+        return showSession().then(opened => opened && dependencyShell.run(view === 'changes' ? 'changes' : 'stale'));
+      }
       return null;
     })
     .catch((error) => toast(error.message, 'error'));

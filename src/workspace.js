@@ -346,6 +346,29 @@ export class WorkspaceService {
       version: null, commands: this.terminal.registry.names(), projects: sessions };
   }
 
+  // A bounded, read-only summary for the native notch. Only enabled and
+  // available source directories contribute evidence or notifications.
+  activity() {
+    const projects = this.activeProjects();
+    const changes = projects.flatMap(project => this.terminal.graph.valueChanges(project.id, { limit: 8, ownSourcesOnly: true })
+      .map(change => ({ ...change, projectId: project.id, projectName: project.name })));
+    changes.sort((a, b) => String(b.changedAt).localeCompare(String(a.changedAt))
+      || b.toVersion - a.toVersion || a.objectId.localeCompare(b.objectId));
+    const session = this.terminalSession();
+    const references = new Map();
+    for (const project of projects) for (const dependency of this.dependencies.currentDependencies(project.id)) {
+      const counts = references.get(dependency.source.id) ?? { referenceCount: 0, unresolvedReferences: 0 };
+      counts.referenceCount += 1;
+      if (!['LINKED', 'PREDICTED'].includes(dependency.status)) counts.unresolvedReferences += 1;
+      references.set(dependency.source.id, counts);
+    }
+    const unavailable = this.state().directories.filter(directory => directory.active
+      && (!directory.available || directory.error)).length;
+    return { directories: projects.length, files: session.files, stale: session.stale,
+      failures: session.failures + unavailable, changes: changes.slice(0, 8).map(change => ({ ...change,
+        ...(references.get(change.objectId) ?? { referenceCount: 0, unresolvedReferences: 0 }) })) };
+  }
+
   terminalComplete(input, options = {}) {
     const projects = this.activeProjects();
     const completions = projects.map((p) => ({ p, value: this.terminal.executor.complete(p.id, input, options) }));

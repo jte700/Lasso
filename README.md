@@ -1,6 +1,6 @@
 # Lasso
 
-Lasso indexes local work directories and suggests source-backed text while you write. Accepted suggestions keep a link to the exact source version. Directory history, source search, ranking, and provenance run locally without a language model or third-party runtime dependencies.
+Lasso indexes local work directories and suggests source-backed text while you write. Accepted suggestions keep a link to the exact source version. Directory history, source search, ranking, and provenance run locally without a language model or external AI service.
 
 ## Run
 
@@ -25,6 +25,7 @@ The app runs in the menu bar and starts its own local server. Node.js must remai
 - **Work Directories** to collapse the list, toggle folders, and choose their colours with the small circles. Accepted source highlights use the source directory's colour.
 - **Suggest While Typing** to enable suggestions in other apps.
 - **Tools → Open in Browser** for writing, source browsing, and review.
+- **Show Lasso in Notch** on Macs with a built-in camera cutout. Off by default, this remembers your choice and hides itself when the notched display is unavailable. Click the compact panel below the camera to see active directories, indexed files, source value changes and indexing issues. Pause/resume suggestions or open source review from the panel. Escape or clicking elsewhere collapses it without taking focus from your editor. Activity refreshes every 15 seconds while enabled. No source wording changes until you review and apply it in the browser.
 
 Interacting with the directory controls keeps the popover open. Clicking outside dismisses it. You can move the app to `/Applications` and add it to Login Items; keep one canonical copy when granting permissions.
 

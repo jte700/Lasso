@@ -310,3 +310,38 @@ test('workspace HTTP routes expose toggles and predictions without enabling disa
   assert.equal((await post(reviewRoute, { action: 'apply', expectedPlan: reviewed })).status, 200);
   assert.match(fs.readFileSync(path.join(roots[1], 'draft.md'), 'utf8'), /789/);
 });
+
+test('notch activity reports pinned source changes, excludes paused folders and does not rewrite documents', async t => {
+  const { app, projects, roots } = await fixture(t, 2, 1);
+  const first = projects[0];
+  app.dependencies.ensureIndex(first.id);
+  const source = app.dependencies.objectsAt(first.id).find(o => o.objectType === 'DATASET_VALUE' && o.valueText === '120');
+  app.dependencies.getDocument(projects[1].id, 'draft.md');
+  app.dependencies.link(projects[1].id, {
+    documentPath: 'draft.md', sourceObjectId: source.id, sourceSnapshotId: source.snapshotId,
+    spanText: 'Supplies were 120.', anchor: {kind:'manuscript-span', blockIndex:0, start:0, end:18},
+  }, actor);
+  fs.writeFileSync(path.join(roots[0], 'data.csv'), 'Metric,Value\nSupplies 0,450\n');
+  app.timeline.capture(first.id, actor, { source: 'EXPLICIT_CHECKPOINT' });
+  const activity = app.workspace.activity();
+  assert.equal(activity.directories, 2);
+  const change = activity.changes.find(item => item.previousValue === '120' && item.currentValue === '450');
+  assert.ok(change);
+  assert.equal(change.projectId, first.id);
+  assert.equal(change.fileName, 'data.csv');
+  assert.equal(change.referenceCount, 1, 'notch includes references in a different enabled directory');
+  assert.equal(change.unresolvedReferences, 1, 'notch reports the changed cross-directory reference');
+  assert.ok(change.toVersion > change.fromVersion);
+  assert.equal(fs.readFileSync(path.join(roots[0], 'draft.md'), 'utf8'), 'Supplies were 120.\n');
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  const response = await fetch(`http://127.0.0.1:${app.server.address().port}/api/workspace/activity`);
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).activity, activity);
+  await app.workspace.toggle(first.id, false, actor);
+  assert.equal(app.workspace.activity().changes.length, 0, 'disabled sources must not appear in the notch');
+  fs.renameSync(roots[1], roots[1] + '-offline');
+  const unavailable = app.workspace.activity();
+  assert.equal(unavailable.directories, 0);
+  assert.equal(unavailable.failures, 1, 'an unavailable enabled folder remains visible as an issue');
+  assert.deepEqual(unavailable.changes, []);
+});

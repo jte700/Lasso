@@ -253,6 +253,9 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         return sendJson(response, 200, { ok: true, service: 'scientific-version-timeline' });
       }
       if (workspace) {
+        if (request.method === 'GET' && pathname === '/api/workspace/activity') {
+          return sendJson(response, 200, { activity: workspace.activity() });
+        }
         if (request.method === 'GET' && pathname === '/api/workspace') {
           return sendJson(response, 200, workspace.state());
         }
