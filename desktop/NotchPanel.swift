@@ -294,9 +294,7 @@ final class NotchPanelController: NSObject {
         let width = content.bounds.width
         let footerY = content.bounds.height - 38
         label("\(activity.directories) active directories · \(activity.files) indexed files",
-              y: 8, width: width - 56, size: 11, color: .secondaryLabelColor, height: 18)
-        button("", frame: NSRect(x: width - 38, y: 3, width: 24, height: 24),
-               action: #selector(collapse), symbol: "chevron.up").setAccessibilityLabel("Collapse notch")
+              y: 8, size: 11, color: .secondaryLabelColor, height: 18)
         let separator = NSBox(frame: NSRect(x: 14, y: 34, width: width - 28, height: 1))
         separator.boxType = .separator; content.addSubview(separator)
         if let issue {
