@@ -79,18 +79,22 @@ private final class NotchContent: NSView {
 /// the expanded surface has no transparent shoulders or separate logo tab.
 private final class NotchSurface: NSView {
     override var isFlipped: Bool { true }
-    var expanded = false
+    var logoBacking = NSRect.zero
+    var body: NSRect?
+
+    private func fill(_ rect: NSRect, radius: CGFloat, roundRight: Bool) {
+        NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+        // Square top corners keep both shapes flush with the display edge.
+        NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height / 2).fill()
+        if !roundRight {
+            NSRect(x: rect.midX, y: rect.minY, width: rect.width / 2, height: rect.height).fill()
+        }
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.setFill()
-        let radius: CGFloat = expanded ? 14 : 10
-        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
-        // Square off the top corners so black meets the physical screen edge.
-        NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height / 2).fill()
-        if !expanded {
-            // This edge is hidden inside the camera housing, so only the
-            // outer bottom-left corner should be rounded when collapsed.
-            NSRect(x: bounds.midX, y: 0, width: bounds.width / 2, height: bounds.height).fill()
-        }
+        fill(logoBacking, radius: 10, roundRight: false)
+        if let body { fill(body, radius: 14, roundRight: true) }
     }
 }
 
@@ -113,8 +117,10 @@ final class NotchPanelController: NSObject {
     private var transitionTimer: Timer?
     private var presentationTarget = NSRect.zero
     private var presentedExpanded = false
+    private var presentedBody: NSRect?
     private var reduceMotion = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     private let content = NotchContent()
+    private let contentClip = NotchContent()
     private let surface = NotchSurface()
     private var timer: Timer?
     private var task: URLSessionDataTask?
@@ -168,6 +174,7 @@ final class NotchPanelController: NSObject {
         timer?.invalidate(); timer = nil
         transitionTimer?.invalidate(); transitionTimer = nil
         presentedExpanded = false
+        presentedBody = nil
         content.isHidden = true
         content.alphaValue = 0
         panel?.orderOut(nil)
@@ -193,7 +200,9 @@ final class NotchPanelController: NSObject {
         panel.title = "Lasso notch"
         content.frame = NSRect(x: 0, y: 0, width: 360, height: 198)
         panel.appearance = NSAppearance(named: .darkAqua)
-        surface.addSubview(content)
+        contentClip.clipsToBounds = true
+        contentClip.addSubview(content)
+        surface.addSubview(contentClip)
         panel.contentView = surface
         self.panel = panel
         let button = NSButton(title: "", target: self, action: #selector(toggleExpanded))
@@ -295,14 +304,17 @@ final class NotchPanelController: NSObject {
             - (screen.auxiliaryTopLeftArea?.maxX ?? center - 100)
         let frame = NotchGeometry.frame(screen: screen.frame, topInset: screen.safeAreaInsets.top,
                                        centerX: center, expanded: expanded, notchWidth: notchWidth, contentHeight: expandedContentHeight)
-        let logoX = center - notchWidth / 2 - NotchGeometry.logoWidth
+        let compactFrame = NotchGeometry.frame(screen: screen.frame, topInset: screen.safeAreaInsets.top,
+                                               centerX: center, expanded: false, notchWidth: notchWidth)
+        let cameraFrame = NSRect(x: center - notchWidth / 2, y: screen.frame.maxY - screen.safeAreaInsets.top,
+                                 width: notchWidth, height: screen.safeAreaInsets.top)
         launcherButton?.setAccessibilityLabel(expanded ? "Close Lasso notch" : "Open Lasso notch")
         panel.title = expanded ? "Lasso notch" : "Lasso notch control"
         guard expanded else {
-            present(frame: frame, logoX: logoX, cameraHeight: screen.safeAreaInsets.top)
+            present(frame: frame, compactFrame: compactFrame, cameraFrame: cameraFrame)
             return
         }
-        content.frame = NSRect(x: 0, y: screen.safeAreaInsets.top, width: frame.width,
+        content.frame = NSRect(x: 0, y: 0, width: frame.width,
                                height: frame.height - screen.safeAreaInsets.top)
         content.subviews.forEach { $0.removeFromSuperview() }
         let width = content.bounds.width
@@ -349,43 +361,58 @@ final class NotchPanelController: NSObject {
         button(activity.stale > 0 || activity.failures > 0 ? "Review sources" : "Open sources",
                frame: NSRect(x: width - 14 - actionWidth, y: footerY, width: actionWidth, height: 28), action: #selector(openWorkspace),
                symbol: "arrow.up.right.square").isEnabled = baseURL != nil
-        present(frame: frame, logoX: logoX, cameraHeight: screen.safeAreaInsets.top)
+        present(frame: frame, compactFrame: compactFrame, cameraFrame: cameraFrame)
     }
 
-    private func applyPresentation(_ frame: NSRect, logoX: CGFloat, cameraHeight: CGFloat, contentX: CGFloat) {
+    private func applyPresentation(body: NSRect?, compactFrame: NSRect, cameraHeight: CGFloat, contentX: CGFloat) {
         guard let panel else { return }
-        panel.setFrame(frame, display: false)
+        // The logo's backing stays fixed. Only the central body grows from the
+        // camera cutout; the window contains their union throughout the motion.
+        let windowFrame = body.map { compactFrame.union($0) } ?? compactFrame
+        panel.setFrame(windowFrame, display: false)
         let actualFrame = panel.frame // AppKit may round to backing pixels.
-        // Resize only the black silhouette. Text keeps its final size and the
-        // logo keeps its screen position throughout the transition.
-        launcherButton?.frame = NSRect(x: logoX - actualFrame.minX, y: 0,
+        presentedBody = body
+        surface.logoBacking = NSRect(x: compactFrame.minX - actualFrame.minX, y: 0,
+                                     width: compactFrame.width, height: cameraHeight)
+        surface.body = body.map {
+            NSRect(x: $0.minX - actualFrame.minX, y: actualFrame.maxY - $0.maxY,
+                   width: $0.width, height: $0.height)
+        }
+        launcherButton?.frame = NSRect(x: compactFrame.minX - actualFrame.minX, y: 0,
                                       width: NotchGeometry.logoWidth, height: cameraHeight)
-        content.setFrameOrigin(NSPoint(x: contentX - actualFrame.minX, y: cameraHeight))
+        if let body {
+            contentClip.frame = NSRect(x: body.minX - actualFrame.minX, y: cameraHeight,
+                                       width: body.width, height: max(0, body.height - cameraHeight))
+            content.setFrameOrigin(NSPoint(x: contentX - body.minX, y: 0))
+        } else { contentClip.frame = .zero }
         surface.needsDisplay = true
         panel.displayIfNeeded()
     }
 
-    private func present(frame: NSRect, logoX: CGFloat, cameraHeight: CGFloat) {
+    private func present(frame: NSRect, compactFrame: NSRect, cameraFrame: NSRect) {
         guard let panel else { return }
         let changedState = presentedExpanded != expanded
         if transitionTimer != nil && !changedState && presentationTarget == frame {
-            // A server refresh may rebuild labels during an animation. Keep
-            // their screen origin aligned without restarting the transition.
-            if expanded { content.setFrameOrigin(NSPoint(x: frame.minX - panel.frame.minX, y: cameraHeight)) }
+            // A refresh may rebuild labels during an animation. Keep their
+            // origin aligned without restarting the central body's motion.
+            if expanded, let body = presentedBody {
+                content.setFrameOrigin(NSPoint(x: frame.minX - body.minX, y: 0))
+            }
             return
         }
         let animated = panel.isVisible && !reduceMotion() && (changedState || transitionTimer != nil)
         transitionTimer?.invalidate(); transitionTimer = nil
-        let startFrame = panel.frame
-        let contentX = expanded ? frame.minX : startFrame.minX + content.frame.minX
+        let startBody = presentedBody ?? cameraFrame
+        let targetBody = expanded ? frame : cameraFrame
+        let contentX = expanded ? frame.minX : startBody.minX + content.frame.minX
         let startAlpha = content.isHidden ? 0 : content.alphaValue
         presentedExpanded = expanded
         presentationTarget = frame
-        surface.expanded = animated || expanded
         if !animated {
             content.isHidden = !expanded
             content.alphaValue = expanded ? 1 : 0
-            applyPresentation(frame, logoX: logoX, cameraHeight: cameraHeight, contentX: contentX)
+            applyPresentation(body: expanded ? frame : nil, compactFrame: compactFrame,
+                              cameraHeight: cameraFrame.height, contentX: contentX)
             panel.orderFrontRegardless()
             return
         }
@@ -394,21 +421,22 @@ final class NotchPanelController: NSObject {
         let duration = opening ? 0.18 : 0.14
         content.isHidden = false
         content.alphaValue = startAlpha
-        applyPresentation(startFrame, logoX: logoX, cameraHeight: cameraHeight, contentX: contentX)
+        applyPresentation(body: startBody, compactFrame: compactFrame,
+                          cameraHeight: cameraFrame.height, contentX: contentX)
         let transition = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
             guard let self else { timer.invalidate(); return }
             let elapsed = ProcessInfo.processInfo.systemUptime - started
             let progress = self.reduceMotion() ? 1 : min(1, elapsed / duration)
             let eased = CGFloat(progress * progress * (3 - 2 * progress))
-            let current = NotchGeometry.interpolatedFrame(from: startFrame, to: frame, progress: eased)
+            let body = NotchGeometry.interpolatedFrame(from: startBody, to: targetBody, progress: eased)
             if opening {
                 let fade = min(1, max(0, (progress - 0.25) / 0.75))
                 self.content.alphaValue = startAlpha + (1 - startAlpha) * fade
             } else {
                 self.content.alphaValue = startAlpha * max(0, 1 - progress * 3)
             }
-            self.surface.expanded = progress < 1 || opening
-            self.applyPresentation(current, logoX: logoX, cameraHeight: cameraHeight, contentX: contentX)
+            self.applyPresentation(body: progress >= 1 && !opening ? nil : body, compactFrame: compactFrame,
+                                   cameraHeight: cameraFrame.height, contentX: contentX)
             if progress >= 1 {
                 timer.invalidate(); self.transitionTimer = nil
                 self.content.isHidden = !opening
@@ -522,7 +550,7 @@ final class NotchPanelController: NSObject {
         let screen = Self.supportedScreen!
         verify(screen.frame.contains(controller.panel!.frame))
         verify(controller.panel!.frame.maxY == screen.frame.maxY)
-        verify(controller.content.frame.minY == screen.safeAreaInsets.top && !controller.content.isHidden)
+        verify(controller.contentClip.frame.minY == screen.safeAreaInsets.top && controller.content.frame.minY == 0 && !controller.content.isHidden)
         verify(controller.panel!.frame.minX + controller.launcherButton!.frame.minX == compactFrame.minX + logoFrame.minX)
         verify(controller.launcherButton!.frame.maxY == screen.safeAreaInsets.top)
         verify(controller.panel?.appearance?.name == .darkAqua)
@@ -562,6 +590,9 @@ final class NotchPanelController: NSObject {
         verify(controller.panel!.frame.maxY == screen.frame.maxY)
         verify(abs(controller.panel!.frame.minX + controller.launcherButton!.frame.minX - compactFrame.minX) < 0.01)
         verify(controller.content.frame.width == controller.presentationTarget.width)
+        let cameraCenter = (screen.auxiliaryTopLeftArea!.maxX + screen.auxiliaryTopRightArea!.minX) / 2
+        verify(abs(controller.presentedBody!.midX - cameraCenter) < 0.01)
+        verify(controller.contentClip.clipsToBounds && abs(controller.contentClip.frame.width - controller.presentedBody!.width) < 0.01)
         // Reverse twice before finishing. No stale callback can leave a tiny
         // panel behind or hide a newer expanded state.
         controller.collapse()
@@ -571,7 +602,7 @@ final class NotchPanelController: NSObject {
         verify(!controller.content.isHidden && controller.content.alphaValue == 1)
         controller.collapse()
         RunLoop.current.run(until: Date().addingTimeInterval(0.20))
-        verify(controller.panel!.frame == compactFrame && controller.content.isHidden && controller.transitionTimer == nil)
+        verify(controller.panel!.frame == compactFrame && controller.content.isHidden && controller.transitionTimer == nil && controller.presentedBody == nil)
         controller.reduceMotion = { true }
         controller.launcherButton?.performClick(nil)
         verify(controller.transitionTimer == nil && controller.expanded && controller.panel!.frame == controller.presentationTarget)
