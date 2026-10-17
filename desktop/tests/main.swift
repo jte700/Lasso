@@ -1369,7 +1369,7 @@ check(!NotchGeometry.supported(builtIn: true, topInset: 32, left: nil, right: ni
 check(!NotchGeometry.supported(builtIn: true, topInset: 32, left: notchLeft, right: notchLeft), "requires a real gap between auxiliary menu areas")
 let notchScreen = NSRect(x: -1700, y: -1100, width: 1500, height: 1000)
 let notchFrame = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: true)
-check(notchFrame.maxY == notchScreen.maxY && notchFrame.height == 304, "black notch surface reaches the display edge and reserves the camera band")
+check(notchFrame.maxY == notchScreen.maxY && notchFrame.height == 230, "black notch surface reaches the display edge and reserves the camera band")
 check(notchFrame.midX == -950 && notchScreen.contains(notchFrame), "notch follows a secondary display with negative coordinates")
 let notchCompact = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: false)
 check(notchCompact.height == 32 && notchCompact.maxY == notchFrame.maxY, "collapsed logo stays entirely inside the menu bar")

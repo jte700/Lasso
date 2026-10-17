@@ -9,7 +9,7 @@ enum NotchGeometry {
         return left.width > 0 && right.width > 0 && right.minX > left.maxX
     }
 
-    static func frame(screen: NSRect, topInset: CGFloat, centerX: CGFloat, expanded: Bool, notchWidth: CGFloat = 200) -> NSRect {
+    static func frame(screen: NSRect, topInset: CGFloat, centerX: CGFloat, expanded: Bool, notchWidth: CGFloat = 200, contentHeight: CGFloat = 198) -> NSRect {
         if !expanded {
             // Paint beneath the housing's curved left corner, not just up to
             // its rectangular safe-area boundary. Keep the logo outside it.
@@ -17,8 +17,8 @@ enum NotchGeometry {
             return NSRect(x: max(screen.minX, centerX - notchWidth / 2 - logoWidth),
                           y: screen.maxY - topInset, width: logoWidth + overlap, height: topInset)
         }
-        let width = min(max(440.0, notchWidth + 2 * logoWidth), screen.width - 24)
-        let height = topInset + min(272.0, screen.height - topInset - 12)
+        let width = min(max(360.0, notchWidth + 2 * logoWidth), screen.width - 24)
+        let height = topInset + min(contentHeight, screen.height - topInset - 12)
         let x = min(max(centerX - width / 2, screen.minX + 12), screen.maxX - width - 12)
         return NSRect(x: x, y: screen.maxY - height, width: width, height: height)
     }
@@ -74,7 +74,7 @@ private final class NotchSurface: NSView {
     var expanded = false
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.setFill()
-        let radius: CGFloat = expanded ? 18 : 10
+        let radius: CGFloat = expanded ? 14 : 10
         NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
         // Square off the top corners so black meets the physical screen edge.
         NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height / 2).fill()
@@ -173,7 +173,7 @@ final class NotchPanelController: NSObject {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.title = "Lasso notch"
-        content.frame = NSRect(x: 0, y: 0, width: 440, height: 272)
+        content.frame = NSRect(x: 0, y: 0, width: 360, height: 198)
         panel.appearance = NSAppearance(named: .darkAqua)
         surface.addSubview(content)
         panel.contentView = surface
@@ -232,7 +232,7 @@ final class NotchPanelController: NSObject {
                     self.receive(NotchActivity(payload))
                 } else {
                     let newlyUnavailable = self.initialized && self.issue == nil
-                    self.issue = "Activity unavailable. Open Lasso to check the server."
+                    self.issue = "Activity unavailable. Open Lasso to check."
                     if newlyUnavailable { self.presentActivity() }
                 }
                 self.render()
@@ -241,13 +241,17 @@ final class NotchPanelController: NSObject {
         task?.resume()
     }
 
-    private func label(_ text: String, x: CGFloat = 20, y: CGFloat, width: CGFloat = 400,
+    private var expandedContentHeight: CGFloat {
+        (issue == nil && !activity.changes.isEmpty ? 198 : 138) + (activity.failures > 0 ? 20 : 0)
+    }
+
+    private func label(_ text: String, x: CGFloat = 14, y: CGFloat, width: CGFloat? = nil,
                        size: CGFloat = 13, color: NSColor = .labelColor, bold: Bool = false, height: CGFloat = 20) {
         let label = NSTextField(labelWithString: text)
         label.font = .systemFont(ofSize: size, weight: bold ? .semibold : .regular)
         label.textColor = color
         label.lineBreakMode = .byTruncatingTail
-        label.frame = NSRect(x: x, y: y, width: width, height: height)
+        label.frame = NSRect(x: x, y: y, width: width ?? content.bounds.width - x - 14, height: height)
         label.toolTip = text
         content.addSubview(label)
     }
@@ -272,7 +276,7 @@ final class NotchPanelController: NSObject {
         let notchWidth = (screen.auxiliaryTopRightArea?.minX ?? center + 100)
             - (screen.auxiliaryTopLeftArea?.maxX ?? center - 100)
         let frame = NotchGeometry.frame(screen: screen.frame, topInset: screen.safeAreaInsets.top,
-                                       centerX: center, expanded: expanded, notchWidth: notchWidth)
+                                       centerX: center, expanded: expanded, notchWidth: notchWidth, contentHeight: expandedContentHeight)
         panel.setFrame(frame, display: true)
         panel.contentView?.layoutSubtreeIfNeeded()
         surface.expanded = expanded
@@ -287,49 +291,51 @@ final class NotchPanelController: NSObject {
         content.frame = NSRect(x: 0, y: screen.safeAreaInsets.top, width: frame.width,
                                height: frame.height - screen.safeAreaInsets.top)
         content.subviews.forEach { $0.removeFromSuperview() }
-        label("Lasso", y: 17, size: 15, bold: true)
-        button("", frame: NSRect(x: 394, y: 10, width: 30, height: 28),
+        let width = content.bounds.width
+        let footerY = content.bounds.height - 38
+        label("\(activity.directories) active directories · \(activity.files) indexed files",
+              y: 8, width: width - 56, size: 11, color: .secondaryLabelColor, height: 18)
+        button("", frame: NSRect(x: width - 38, y: 3, width: 24, height: 24),
                action: #selector(collapse), symbol: "chevron.up").setAccessibilityLabel("Collapse notch")
-        label("\(activity.directories) active directories · \(activity.files) indexed files", y: 43,
-              color: .secondaryLabelColor)
-        let separator = NSBox(frame: NSRect(x: 20, y: 73, width: 400, height: 1))
+        let separator = NSBox(frame: NSRect(x: 14, y: 34, width: width - 28, height: 1))
         separator.boxType = .separator; content.addSubview(separator)
         if let issue {
-            label(issue, y: 88, color: .systemOrange)
-            label("Your recorded sources stay on this Mac.", y: 119, color: .secondaryLabelColor)
+            label(issue, y: 46, size: 12, color: .systemOrange)
+            label("Your recorded sources stay on this Mac.", y: 70, size: 11, color: .secondaryLabelColor)
         } else if !activity.changes.isEmpty {
             selectedChange = min(selectedChange, activity.changes.count - 1)
             let change = activity.changes[selectedChange]
-            label("Latest changes · \(selectedChange + 1) of \(activity.changes.count)", y: 85, size: 11, color: .secondaryLabelColor)
+            label("Latest changes · \(selectedChange + 1) of \(activity.changes.count)", y: 44, size: 10, color: .secondaryLabelColor, height: 16)
             label(change["fileName"] as? String ?? change["name"] as? String ?? "Source changed",
-                  y: 105, width: 330, bold: true)
+                  y: 64, width: width - (activity.changes.count > 1 ? 86 : 28), size: 12, bold: true, height: 18)
             label([change["projectName"], change["locator"]].compactMap { $0 as? String }.joined(separator: " · "),
-                  y: 128, size: 11, color: .secondaryLabelColor)
+                  y: 85, size: 10, color: .secondaryLabelColor, height: 16)
             let moved = change["moved"] as? Bool == true
             let old = (moved ? change["previousPath"] : change["previousValue"]) as? String ?? "Removed"
             let new = (moved ? change["path"] : change["currentValue"]) as? String ?? "Removed"
-            label("\(old) → \(new)", y: 152, size: 17, color: .systemGreen, bold: true)
+            label("\(old) → \(new)", y: 106, size: 16, color: .systemGreen, bold: true, height: 24)
             let count = change["unresolvedReferences"] as? Int ?? 0
             label("\(count) reference\(count == 1 ? "" : "s") to review · v\(change["fromVersion"] ?? "?") → v\(change["toVersion"] ?? "?")",
-                  y: 181, size: 11, color: .secondaryLabelColor)
+                  y: 134, size: 10, color: .secondaryLabelColor, height: 16)
             if activity.changes.count > 1 {
-                button("", frame: NSRect(x: 352, y: 101, width: 28, height: 27), action: #selector(previous), symbol: "chevron.left").setAccessibilityLabel("Previous change")
-                button("", frame: NSRect(x: 388, y: 101, width: 28, height: 27), action: #selector(next), symbol: "chevron.right").setAccessibilityLabel("Next change")
+                button("", frame: NSRect(x: width - 66, y: 61, width: 24, height: 24), action: #selector(previous), symbol: "chevron.left").setAccessibilityLabel("Previous change")
+                button("", frame: NSRect(x: width - 38, y: 61, width: 24, height: 24), action: #selector(next), symbol: "chevron.right").setAccessibilityLabel("Next change")
             }
         } else {
-            label(initialized ? "Your source library is ready" : "Loading source activity…", y: 94, size: 15, bold: true)
-            label(activity.directories == 0 ? "Add or enable a work directory in the Lasso menu."
-                : "Source changes will appear here as you work.", y: 126, size: 12, color: .secondaryLabelColor)
+            label(initialized ? "Your source library is ready" : "Loading source activity…", y: 46, size: 13, bold: true)
+            label(activity.directories == 0 ? "Enable a directory in the Lasso menu."
+                : "Source changes will appear here as you work.", y: 70, size: 11, color: .secondaryLabelColor)
         }
         if activity.failures > 0 {
-            label("\(activity.failures) indexing or directory issue\(activity.failures == 1 ? "" : "s")", y: 203,
-                  size: 11, color: .systemOrange)
+            label("\(activity.failures) indexing or directory issue\(activity.failures == 1 ? "" : "s")", y: footerY - 22,
+                  size: 10, color: .systemOrange, height: 16)
         }
+        let actionWidth = (width - 36) / 2
         button(suggestionsRequested ? "Pause suggestions" : "Resume suggestions",
-               frame: NSRect(x: 16, y: 232, width: 175, height: 28), action: #selector(toggleSuggestions))
+               frame: NSRect(x: 14, y: footerY, width: actionWidth, height: 28), action: #selector(toggleSuggestions))
             .isEnabled = baseURL != nil
         button(activity.stale > 0 || activity.failures > 0 ? "Review sources" : "Open sources",
-               frame: NSRect(x: 251, y: 232, width: 173, height: 28), action: #selector(openWorkspace),
+               frame: NSRect(x: width - 14 - actionWidth, y: footerY, width: actionWidth, height: 28), action: #selector(openWorkspace),
                symbol: "arrow.up.right.square").isEnabled = baseURL != nil
         panel.orderFrontRegardless()
     }
@@ -429,7 +435,7 @@ final class NotchPanelController: NSObject {
         controller.expanded = true
         controller.installClickDismissal()
         controller.render()
-        verify(controller.content.frame.height == 272 && controller.localClick != nil)
+        verify(controller.content.frame.height == 198 && controller.localClick != nil)
         let screen = Self.supportedScreen!
         verify(screen.frame.contains(controller.panel!.frame))
         verify(controller.panel!.frame.maxY == screen.frame.maxY)
