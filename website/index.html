@@ -593,6 +593,14 @@
     .feature + .feature { margin-top: 90px; }
     .cta { padding: 110px 16px; }
     .posse-bar .hint { margin-left: 0; width: 100%; }
+    .hero .field { opacity: .45; }
+    .hero .cta-row, .cta .cta-row { flex-direction: column; align-items: stretch; gap: 10px; max-width: 300px; margin: 0 auto; }
+    .hero .cta-row .pill.ghost { box-shadow: none; background: none; padding: 6px; font-size: 15px; color: var(--ink-3); text-decoration: underline; text-underline-offset: 4px; }
+    .keys { display: none; }
+    #wTabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 320px; }
+    #wTabs .tab { display: inline-flex; justify-content: center; align-items: center; }
+    footer .wrap { gap: 24px; }
+    footer .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; width: 100%; }
   }
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
