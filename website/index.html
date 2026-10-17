@@ -619,14 +619,13 @@
     .sub { font-size: 17px; }
     .pill.big { font-size: 17px; padding: 13px 20px; }
     .tab { padding: 9px 14px; font-size: 14px; }
-    .hero { height: auto; min-height: 0; }
-    .hero-c { position: relative; left: auto; top: auto; transform: none; margin: 0 auto; padding: 116px 0 76px; }
+    .hero { display: flex; flex-direction: column; justify-content: center; height: auto; min-height: max(100svh, 780px); padding: 96px 16px 110px; }
+    .hero-c { position: relative; left: auto; top: auto; transform: none; width: 100%; margin: 0 auto; }
     .ledger { display: none; }
     .proof { display: none; }
     .feature + .feature { margin-top: 90px; }
     .cta { padding: 110px 16px; }
     .posse-bar .hint { margin-left: 0; width: 100%; }
-    .hero .field { opacity: .45; }
     .hero .cta-row, .cta .cta-row { flex-direction: column; align-items: stretch; gap: 10px; max-width: 300px; margin: 0 auto; }
     .hero .cta-row .pill.ghost { box-shadow: none; background: none; padding: 6px; font-size: 15px; color: var(--ink-3); text-decoration: underline; text-underline-offset: 4px; }
     .keys { display: none; }
@@ -1031,8 +1030,8 @@
     function zones() {
       const hr = host.getBoundingClientRect();
       const box = (el, pad) => { const b = el.getBoundingClientRect(); return { x0: b.left - hr.left - pad, y0: b.top - hr.top - pad, x1: b.right - hr.left + pad, y1: b.bottom - hr.top + pad }; };
-      const z = [box(content, 26), { x0: 0, y0: 0, x1: W, y1: 90 }];
-      if (ledger) z.push(box(ledger.el, 18));
+      const narrow = W < 700, z = [box(content, narrow ? 12 : 26), { x0: 0, y0: 0, x1: W, y1: narrow ? 76 : 90 }];
+      if (ledger && ledger.el.offsetParent) z.push(box(ledger.el, 18));
       return z;
     }
     const overlaps = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
@@ -1043,19 +1042,23 @@
     }
     function spawn(now) {
       const zs = zones(), ex = zs.concat(evs.map(e => e.box), evs.map(e => e.tbox));
-      const popW = 40 * cw, popH = lh * 4.8;
+      const popW = 40 * cw, popH = lh * 4.8, narrow = W < 700;
+      // phones have no room beside the copy, so aim the popup at the open bands above and below it
+      const freeRows = [];
+      if (narrow) for (let r = 4; r * lh + lh * 1.3 + popH + 8 < H - 20; r++) { const y0 = r * lh - 8, y1 = r * lh + lh * 1.3 + popH + 8; if (!zs.some(z => y0 < z.y1 && y1 > z.y0)) freeRows.push(r); }
+      if (narrow && !freeRows.length) return;
       for (let n = 0; n < 40; n++) {
         const tok = pick(tokens); if (!tok) return;
         if (recent.includes(tok.src)) continue;
         const tb = { x0: tok.col * cw - 14, y0: tok.row * lh - 14, x1: (tok.col + tok.len) * cw + 14, y1: (tok.row + 1) * lh + 30 };
         if (tb.x1 > W - 10 || ex.some(z => overlaps(z, tb))) continue;
         const s = tok.src, typeLen = s.q.length + s.val.length + 4;
-        const ccol = (Math.random() * Math.max(1, cols - Math.max(typeLen, 42))) | 0, crow = 4 + ((Math.random() * Math.max(1, rows - 10)) | 0);
+        const ccol = (Math.random() * Math.max(1, cols - Math.max(typeLen, 42))) | 0, crow = narrow ? pick(freeRows) : 4 + ((Math.random() * Math.max(1, rows - 10)) | 0);
         const cx = ccol * cw, cy = crow * lh;
         const cb = { x0: cx - 10, y0: cy - 8, x1: cx + Math.max(typeLen * cw, popW) + 10, y1: cy + lh * 1.3 + popH + 8 };
         if (cb.x1 > W || cb.y1 > H - 20 || ex.some(z => overlaps(z, cb)) || overlaps(cb, tb)) continue;
         const dist = Math.hypot(cx - tok.col * cw, cy - tok.row * lh);
-        if (dist < 160 || dist > 560) continue;
+        if (dist < (narrow ? 110 : 160) || dist > 560) continue;
         if (threadHits(cx + popW, cy + lh * 1.9, tok.col * cw + tok.len * cw / 2, tok.row * lh + lh / 2, zs)) continue;
         recent.push(s); if (recent.length > 6) recent.shift();
         const others = []; while (others.length < 2) { const o = pick(SOURCES); if (o !== s && !others.includes(o)) others.push(o); }
