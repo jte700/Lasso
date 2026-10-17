@@ -185,6 +185,14 @@
   .pcard .au { font-size: 13px; color: var(--ink-3); line-height: 1.5; }
   .pcard .use { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 11px; color: var(--blue); }
   .pcard .use.dev { color: var(--orange); }
+  .sp-chips { display: none; flex-wrap: wrap; justify-content: center; gap: 10px 8px; max-width: 360px; margin: 28px auto 0; }
+  .sp-chip { position: relative; padding: 7px 14px; border: 0; border-radius: 999px; background: #fff; box-shadow: 0 0 0 1px var(--line); font-family: var(--serif); font-size: 16px; font-weight: 600; letter-spacing: -.01em; color: var(--ink-3); cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background .3s, color .3s, box-shadow .3s; }
+  .sp-chip.on { background: var(--c); color: #000; box-shadow: none; }
+  .sp-chip svg { position: absolute; left: -12px; top: -9px; width: calc(100% + 24px); height: calc(100% + 18px); overflow: visible; pointer-events: none; }
+  .sp-chip path { fill: none; stroke: var(--green); stroke-width: 1.8; stroke-linecap: round; vector-effect: non-scaling-stroke; stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 0; }
+  .sp-chip.on path { opacity: 1; animation: spLoop .6s cubic-bezier(.3, .7, .2, 1) forwards; }
+  @keyframes spLoop { to { stroke-dashoffset: 0; } }
+  @keyframes spProg { to { transform: scaleX(1); } }
 
   /* posse */
   .posse-card { background: #fff; border-radius: 28px; box-shadow: 0 0 0 1px var(--line); overflow: hidden; margin-top: 40px; }
@@ -631,6 +639,14 @@
     .keys { display: none; }
     #wTabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 320px; }
     #wTabs .tab { display: inline-flex; justify-content: center; align-items: center; }
+    .sp-chips { display: flex; }
+    .shelf { position: relative; display: grid; grid-template-columns: 1fr; gap: 0; margin: 20px 0 30px; touch-action: pan-y; }
+    .shelf .pcard { grid-area: 1 / 1; opacity: 0; visibility: hidden; transform: translateX(var(--off, 28px)) scale(.97); transition: opacity .35s, transform .45s cubic-bezier(.2, .8, .2, 1), visibility 0s .45s; }
+    .shelf .pcard.on { opacity: 1; visibility: visible; transform: none; transition: opacity .35s, transform .45s cubic-bezier(.2, .8, .2, 1), visibility 0s; }
+    .shelf .pcard:hover { transform: none; }
+    .sp-prog { position: absolute; left: 22px; right: 22px; bottom: -12px; height: 2px; border-radius: 2px; background: var(--line); overflow: hidden; }
+    .sp-prog i { display: block; height: 100%; background: var(--green); transform-origin: left; transform: scaleX(0); }
+    .sp-prog i.run { animation: spProg var(--dur) linear forwards; }
     footer .wrap { gap: 24px; }
     footer .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; width: 100%; }
   }
@@ -2221,6 +2237,44 @@
   /* ================= page ================= */
   const io = new IntersectionObserver(ens => ens.forEach(en => { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } }), { threshold: .12 });
   $$('.reveal').forEach(el => io.observe(el));
+})();
+</script>
+<script>
+/* sources shelf: on phones the cards become a lasso picker — chips above, one card below */
+(() => {
+  const shelf = document.querySelector('.shelf'); if (!shelf) return;
+  const mq = matchMedia('(max-width: 640px)'), reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const cards = [...shelf.querySelectorAll('.pcard')], DUR = 3400;
+  const chips = document.createElement('div'); chips.className = 'sp-chips'; chips.setAttribute('role', 'tablist'); chips.setAttribute('aria-label', 'File types');
+  const LOOP = 'M30 3C60 -1 98 4 99 21C100 37 62 41 38 39C12 37 0 28 2 17C4 7 22 2 44 3';
+  cards.forEach((c, i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'sp-chip'; b.setAttribute('role', 'tab'); b.style.setProperty('--c', c.style.getPropertyValue('--c'));
+    b.innerHTML = `${c.querySelector('.ext').textContent}<svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="${LOOP}"/></svg>`;
+    b.addEventListener('click', () => { stop(); show(i); });
+    chips.append(b);
+  });
+  shelf.before(chips);
+  const prog = document.createElement('div'); prog.className = 'sp-prog'; prog.innerHTML = '<i></i>'; shelf.append(prog);
+  const bar = prog.firstChild; bar.style.setProperty('--dur', DUR + 'ms');
+  let cur = -1, timer = 0, auto = !reduced, inView = false;
+  function show(i) {
+    cur = (i + cards.length) % cards.length;
+    cards.forEach((c, k) => { c.classList.toggle('on', k === cur); c.style.setProperty('--off', (k < cur ? -28 : 28) + 'px'); });
+    [...chips.children].forEach((b, k) => { b.classList.toggle('on', k === cur); b.setAttribute('aria-selected', k === cur); });
+    bar.classList.remove('run'); void bar.offsetWidth;
+    clearTimeout(timer);
+    if (auto && inView && mq.matches) { bar.classList.add('run'); timer = setTimeout(() => show(cur + 1), DUR); }
+  }
+  function stop() { auto = false; clearTimeout(timer); bar.classList.remove('run'); prog.style.visibility = 'hidden'; }
+  // swipe the card to move between formats
+  let x0 = null;
+  shelf.addEventListener('pointerdown', (e) => { if (mq.matches) x0 = e.clientX; });
+  shelf.addEventListener('pointerup', (e) => { if (x0 === null) return; const dx = e.clientX - x0; x0 = null; if (Math.abs(dx) > 40) { stop(); show(cur + (dx < 0 ? 1 : -1)); } });
+  new IntersectionObserver(([en]) => { inView = en.isIntersecting; if (inView && auto) show(cur < 0 ? 0 : cur); else clearTimeout(timer); }, { threshold: .4 }).observe(shelf);
+  const sync = () => { if (mq.matches) show(cur < 0 ? 0 : cur); else { clearTimeout(timer); cards.forEach(c => c.classList.remove('on')); } };
+  mq.addEventListener('change', sync); sync();
+  if (reduced) prog.style.visibility = 'hidden';
 })();
 </script>
 <script>
