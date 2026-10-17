@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Lasso's Windows companion: a tray application that supervises the same
+       local Node server `npm start` runs and shows the workspace in WebView2.
+       No application logic lives here; this is a native shell. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Lasso.Windows</RootNamespace>
+    <AssemblyName>Lasso</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Drawn by build.ps1. A plain `dotnet build` works without it; the
+         window and tray icons are drawn at runtime either way. -->
+    <ApplicationIcon Condition="Exists('Assets\lasso.ico')">Assets\lasso.ico</ApplicationIcon>
+    <!-- Windows 11's Fluent theme, including Mica and the system accent color,
+         so the shell is the platform's own look rather than an imitation. -->
+    <ThemeMode>System</ThemeMode>
+    <!-- WPF0001: the Fluent theme's ThemeMode is still marked experimental in
+         .NET 9. It is the supported way to get Windows 11 styling, and the API
+         is opted into deliberately. -->
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ApplicationDefinition Include="App.xaml" SubType="Designer" Generator="MSBuild:Compile" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3485.44" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Lasso.Core\Lasso.Core.csproj" />
+  </ItemGroup>
+
+</Project>

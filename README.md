@@ -69,6 +69,42 @@ Open a document from **Writing**. The editor offers source-backed suggestions, m
 
 Markdown and plain-text saves update the project file. DOCX and PDF edits are stored as a separate versioned text layer in Lasso; they do not rewrite the original document's bytes or formatting.
 
+## Windows companion
+
+Requires Windows 10 1809 or newer, Node.js 24+, the .NET 9 SDK to build, and the
+Microsoft Edge WebView2 runtime to run.
+
+```powershell
+npm run desktop:windows
+.\dist\windows\Lasso\Lasso.exe
+```
+
+The same application as the macOS companion, sharing the same server, indexing,
+provenance, and sharing rules. It lives in the notification area: clicking the
+icon shows or hides the workspace, and closing the window leaves the local
+server running. The menu holds browser access, server controls, and
+writing-assistance settings. The desktop server prefers loopback port `4319`
+and chooses another available port if needed.
+
+Only the native layer differs. The suggestion panel is a Windows flyout -
+acrylic, rounded, Segoe UI Variable, the system accent colour, and the shell's
+own file-type icons - rather than a translation of the macOS panel. Text is
+read through UI Automation instead of the Accessibility API, so no permission
+prompt is involved; what Windows does enforce is integrity level, and an
+application running as administrator is out of reach of an unelevated Lasso.
+
+| Action | Behavior while suggestions are visible |
+| --- | --- |
+| Tab | Accept using the configured insertion preference; plain text is the default |
+| Ctrl+Enter | Insert as plain text with local source tracking |
+| Ctrl+Shift+Enter | Open the sharing composer before creating a share |
+| Up / Down | Select another suggestion |
+| F4 | Open the selected source |
+| Esc | Dismiss the suggestions |
+
+See [the Windows companion notes](desktop-windows/README.md) for what each
+native piece replaces, how it is verified, and its current limits.
+
 ## Supported sources
 
 Support varies by format and content. Files can be retained in history even when structured extraction is unavailable.

@@ -18,3 +18,11 @@ desktop/BuildConfig.swift
 .DS_Store
 ed.hup
 *.log
+
+# Windows companion build output
+desktop-windows/**/bin/
+desktop-windows/**/obj/
+desktop-windows/artifacts/
+# Produced by desktop-windows/build.ps1
+scripts/extract-drawing-layout.exe
+desktop-windows/src/Lasso.Windows/Assets/lasso.ico

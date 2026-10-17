@@ -15,6 +15,9 @@ let cacheBytes = 0;
 let nativeExecutable;
 let nativeBuildDirectory;
 const bundledHelper = fileURLToPath(new URL('../../scripts/extract-drawing-layout', import.meta.url));
+// The Windows helper is a published executable rather than a compiled-on-demand
+// source file, so indexing a drawing never needs a compiler on the machine.
+const windowsHelper = fileURLToPath(new URL('../../scripts/extract-drawing-layout.exe', import.meta.url));
 const NUMBER = String.raw`(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?`;
 const AREA = new RegExp(String.raw`\b(${NUMBER})\s*(SF\b|S\.?\s*F\.?\b|SQ\.?\s*(?:FT\.?|FEET)\b|SQUARE\s+FEET\b|FT\s*(?:²|\^2|2\b)|M\s*(?:²|\^2|2\b)|SQ\.?\s*M(?:ET(?:ER|RE)S?)?\.?\b)`, 'gi');
 const ROOM = /\b(?:bed\s*room|bedroom|living|dining|kitchen|office|room|bath(?:room)?|restroom|washroom|toilet|WC|closet|storage|store|garage|lobby|vestibule|entry|entrance|corridor|hall(?:way)?|lounge|reception|conference|meeting|classroom|laboratory|lab|utility|laundry|pantry|mechanical|electrical|workshop|studio|suite|den|foyer|porch|deck|patio|balcony|nook|break|janitor|stair(?:s|well)?)\b/i;
@@ -166,6 +169,14 @@ export function parseDrawingPage(page = {}) {
     warnings: text.trim().length < 8 ? ['No usable selectable text; this page may require OCR.'] : [] };
 }
 
+function windowsBinary() {
+  const override = process.env.LASSO_DRAWING_HELPER;
+  for (const candidate of [override, windowsHelper]) {
+    if (candidate && fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 function nativeBinary() {
   if (nativeExecutable) return nativeExecutable;
   // Desktop builds ship the executable so indexing never requires a compiler.
@@ -258,10 +269,23 @@ export function extractDrawingDocument(buffer, { filePath: _filePath } = {}) {
       } catch (error) {
         runtimeWarnings.push(`PDFKit: ${error.message}`);
       }
+    } else if (process.platform === 'win32') {
+      const helper = windowsBinary();
+      if (helper) {
+        try {
+          const result = spawnSync(helper, [input, String(MAX_PAGES)], { encoding: 'utf8', timeout: 30_000, maxBuffer: MAX_OUTPUT });
+          if (result.error) throw result.error;
+          try { layout = JSON.parse(result.stdout); } catch { throw new Error('The layout helper returned invalid data.'); }
+          if (result.status !== 0 || layout.error) throw new Error(layout.error ?? 'The layout helper could not extract this PDF.');
+          method = 'pdf-layout';
+        } catch (error) {
+          runtimeWarnings.push(`PDF layout: ${error.message}`);
+        }
+      }
     }
     if (!layout?.pages) {
       layout = popplerLayout(input);
-      if (layout.unavailable) return remember(key, { ...base, status: runtimeWarnings.length ? 'error' : 'unsupported', warnings: [...runtimeWarnings, 'Layout extraction requires macOS PDFKit with Swift, or the local Poppler pdftotext command.'] });
+      if (layout.unavailable) return remember(key, { ...base, status: runtimeWarnings.length ? 'error' : 'unsupported', warnings: [...runtimeWarnings, 'Layout extraction requires the bundled drawing helper, macOS PDFKit with Swift, or the local Poppler pdftotext command.'] });
       method = 'poppler-layout';
     }
     const pages = layout.pages.map(parseDrawingPage);
