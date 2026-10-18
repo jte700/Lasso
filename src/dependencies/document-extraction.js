@@ -527,12 +527,19 @@ function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null) {
   for (const rowMatch of String(source).matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/gi)) {
     const row = [];
     let fallbackColumn = 0;
-    for (const cell of rowMatch[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/gi)) {
-      const reference = cell[1].match(/\br="([^"]+)"/i)?.[1] ?? '';
+    // A cell that carries formatting but no value is written self-closing:
+    // `<c r="B13" s="19"/>`. Matching only `<c ...>...</c>` would take such a
+    // tag as the opening of a cell and run on to the next `</c>`, giving the
+    // empty cell's column the following cell's value and losing that cell's
+    // own type — so a shared string would surface as its raw index.
+    for (const cell of rowMatch[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/gi)) {
+      const attributes = cell[1];
+      const content = cell[2] ?? '';
+      const reference = attributes.match(/\br="([^"]+)"/i)?.[1] ?? '';
       const column = reference ? spreadsheetColumnIndex(reference) : fallbackColumn;
-      const type = cell[1].match(/\bt="([^"]+)"/i)?.[1] ?? '';
-      const raw = cell[2].match(/<v\b[^>]*>([\s\S]*?)<\/v>/i)?.[1] ?? '';
-      const inline = [...cell[2].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/gi)]
+      const type = attributes.match(/\bt="([^"]+)"/i)?.[1] ?? '';
+      const raw = content.match(/<v\b[^>]*>([\s\S]*?)<\/v>/i)?.[1] ?? '';
+      const inline = [...content.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/gi)]
         .map((match) => decodeXml(match[1])).join('');
       const value = type === 's' ? sharedStrings[Number(raw)] ?? raw
         : type === 'inlineStr' || inline ? inline : decodeXml(raw);

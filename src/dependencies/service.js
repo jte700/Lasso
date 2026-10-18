@@ -706,19 +706,59 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
     });
   }
 
-  const firstValues = data.map((row) => String(row[0] ?? '').trim());
-  const namedFirstValues = firstValues.filter(Boolean);
-  const uniqueFirst = namedFirstValues.length === data.length
-    && new Set(namedFirstValues.map(normalizedRowSearch)).size === namedFirstValues.length;
-  const firstHeader = humanVariable(headers[0]);
-  const firstColumnActsAsRowLabels = namedFirstValues.length >= Math.max(1, Math.ceil(data.length * 0.45))
-    && (uniqueFirst || !firstHeader
-      || /^(?:row|label|name|account|item|category|variable|metric|measure|outcome|parameter|feature|marker|analyte|sample|subject|participant|patient|id)$/i.test(firstHeader));
+  // Which column names the rows. Usually the first, but a statement or
+  // budget template commonly indents its line items behind one or two narrow
+  // spacer columns, leaving column A empty or holding only a stray mark. A
+  // column that does not read as row labels cannot name a row, so the first
+  // one that does is used instead; a sheet whose labels are already in column
+  // A is unaffected, because that column is tested first.
+  const looksNumeric = (value) => /^[-+(]?[$]?[\d][\d.,\s%$]*\)?$/.test(value);
+  // Why a column reads as the one that names the rows, or null if it does not.
+  const columnNamesRows = (column) => {
+    const values = data.map((row) => String(row[column] ?? '').trim());
+    const named = values.filter(Boolean);
+    if (named.length < Math.max(1, Math.ceil(data.length * 0.45))) return null;
+    const unique = named.length === data.length
+      && new Set(named.map(normalizedRowSearch)).size === named.length;
+    const header = humanVariable(headers[column]);
+    if (unique) return 'unique';
+    if (!header) return 'unheaded';
+    if (/^(?:row|label|name|account|item|category|variable|metric|measure|outcome|parameter|feature|marker|analyte|sample|subject|participant|patient|id)$/i.test(header)) {
+      return 'named-heading';
+    }
+    // A column of words with the figures to its right is naming those figures,
+    // whatever its heading says. Statements and budgets rarely head that
+    // column at all, and a heading read off the wrong row should not cost the
+    // sheet its line-item names.
+    const words = named.filter((value) => !looksNumeric(value)).length;
+    const toTheRight = data.flatMap((row) => row.slice(column + 1)
+      .map((cell) => String(cell ?? '').trim()).filter(Boolean));
+    const figures = toTheRight.filter(looksNumeric).length;
+    const namesFigures = words >= Math.ceil(named.length * 0.7)
+      && toTheRight.length > 0 && figures >= Math.ceil(toTheRight.length * 0.6);
+    return namesFigures ? 'words-beside-figures' : null;
+  };
+  const widestRow = data.reduce((widest, row) => Math.max(widest, row.length), 0);
+  const searchLimit = Math.min(widestRow, 4);
+  let labelColumn = 0;
+  let labelReason = null;
+  while (labelColumn < searchLimit) {
+    labelReason = columnNamesRows(labelColumn);
+    if (labelReason) break;
+    labelColumn += 1;
+  }
+  const firstColumnActsAsRowLabels = Boolean(labelReason);
+  if (!firstColumnActsAsRowLabels) labelColumn = 0;
+  const firstHeader = humanVariable(headers[labelColumn]);
   const rowDescribesVariable = firstColumnActsAsRowLabels
-    && (!firstHeader || /^(?:account|item|category|variable|metric|measure|outcome|parameter|feature|marker|analyte)$/i.test(firstHeader));
+    && (!firstHeader
+      || /^(?:account|item|category|variable|metric|measure|outcome|parameter|feature|marker|analyte)$/i.test(firstHeader)
+      // Line items named beside their figures are variables in every sense
+      // that matters here: they are what a writer refers to by name.
+      || labelReason === 'words-beside-figures');
   let indexedCells = 0;
   tableRows: for (const [rowIndex, row] of data.entries()) {
-    const rowLabel = String(row[0] ?? '').trim();
+    const rowLabel = String(row[labelColumn] ?? '').trim();
     const rowKey = firstColumnActsAsRowLabels && rowLabel ? rowLabel : `row:${rowIndex + 1}`;
     const rowIdentity = `${rowIndex + (options.rowOffset ?? 1)}:${normalizedVariable(rowKey) || 'row'}`;
     if (firstColumnActsAsRowLabels && rowLabel) {

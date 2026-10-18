@@ -149,35 +149,95 @@ public static class UiaReader
         var caret = selection[0].Clone();
         caret.MoveEndpointByRange(TextPatternRangeEndpoint.End, caret, TextPatternRangeEndpoint.Start);
 
+        // The editor's own extent. A browser hands back the text pattern of the
+        // whole page for a field inside it, so without this the window would be
+        // a slice of the surrounding page - an inbox list, a sidebar, another
+        // message - with the user's sentence on the end, and the server would
+        // answer about that text instead of what they typed. The macOS reader
+        // never sees this because it asks the focused element for a string in
+        // a range, and the Accessibility API scopes that to the element.
+        var editor = EditorRange(pattern, element);
+
         var window = caret.Clone();
         window.MoveEndpointByUnit(TextPatternRangeEndpoint.Start, TextUnit.Character, -MaxContext);
+        ClampToEditor(window, editor);
         window.MoveEndpointByRange(TextPatternRangeEndpoint.End, caret, TextPatternRangeEndpoint.Start);
         var text = window.GetText(MaxContext) ?? "";
         if (text.Length == 0) return null;
 
-        var absoluteCaret = AbsoluteCaretOffset(caret);
-        var windowStart = absoluteCaret >= 0 ? absoluteCaret - text.Length : -1;
+        var caretOffset = CaretOffsetWithin(editor, caret);
+        var windowStart = caretOffset >= 0 ? caretOffset - text.Length : -1;
 
-        return new Reading(text, windowStart, absoluteCaret, CaretRectangle(caret), "textPattern");
+        return new Reading(text, windowStart, caretOffset, CaretRectangle(caret), "textPattern");
     }
 
-    /// How many characters sit between the start of the document and the caret.
-    ///
-    /// UI Automation exposes no integer offsets, so the distance is measured by
-    /// asking a cloned range to walk its start endpoint back as far as it can:
-    /// the number of units it actually moved is the answer, in one call rather
-    /// than by materializing the whole document.
-    private static int AbsoluteCaretOffset(TextPatternRange caret)
+    /// The range covering the focused editor, or null when the host does not
+    /// say. For a container that is its own text provider this is the whole
+    /// document, which is the same answer as before.
+    private static TextPatternRange? EditorRange(TextPattern pattern, AutomationElement element)
     {
         try
         {
+            return pattern.RangeFromChild(element);
+        }
+        catch (Exception)
+        {
+            // Not a child of the text container, so the container is the editor.
+            try
+            {
+                return pattern.DocumentRange;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+    }
+
+    private static void ClampToEditor(TextPatternRange window, TextPatternRange? editor)
+    {
+        if (editor is null) return;
+        try
+        {
+            if (window.CompareEndpoints(TextPatternRangeEndpoint.Start, editor,
+                    TextPatternRangeEndpoint.Start) < 0)
+            {
+                window.MoveEndpointByRange(TextPatternRangeEndpoint.Start, editor,
+                    TextPatternRangeEndpoint.Start);
+            }
+        }
+        catch (Exception)
+        {
+            // Ranges from different providers cannot be compared; leave it be.
+        }
+    }
+
+    /// How many characters sit between the start of the editor and the caret.
+    ///
+    /// UI Automation exposes no integer offsets, so the distance is measured
+    /// rather than read. Counting from the editor rather than the document
+    /// keeps the number stable: text elsewhere on a page would otherwise shift
+    /// every offset and make a verified insertion look like an unrelated edit.
+    private static int CaretOffsetWithin(TextPatternRange? editor, TextPatternRange caret)
+    {
+        try
+        {
+            if (editor is not null)
+            {
+                var prefix = caret.Clone();
+                prefix.MoveEndpointByRange(TextPatternRangeEndpoint.Start, editor,
+                    TextPatternRangeEndpoint.Start);
+                var text = prefix.GetText(AbsoluteProbe) ?? "";
+                // At the limit the editor holds more than we are willing to
+                // count, so the caret is not addressable and an insertion is
+                // verified against the window alone.
+                return text.Length >= AbsoluteProbe ? -1 : text.Length;
+            }
+
             var probe = caret.Clone();
             var moved = probe.MoveEndpointByUnit(
                 TextPatternRangeEndpoint.Start, TextUnit.Character, -AbsoluteProbe);
             var distance = Math.Abs(moved);
-            // Hitting the limit means the document is larger than we are willing
-            // to count; the caret is then not addressable and an insertion will
-            // be verified against the window alone.
             return distance >= AbsoluteProbe ? -1 : distance;
         }
         catch (Exception)

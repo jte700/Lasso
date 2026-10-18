@@ -12,7 +12,13 @@ public static class AppPaths
     public static string Support { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lasso");
 
-    public static string Data => Path.Combine(Support, "data");
+    /// LASSO_DATA_DIR overrides the history store, as it does for the
+    /// development server. Useful for trying a project against a fresh index
+    /// without disturbing the one in use.
+    public static string Data =>
+        Environment.GetEnvironmentVariable("LASSO_DATA_DIR") is { Length: > 0 } overridden
+            ? overridden
+            : Path.Combine(Support, "data");
     public static string Logs => Path.Combine(Support, "Logs");
     public static string ServerLog => Path.Combine(Logs, "server.log");
     public static string AssistLogFile => Path.Combine(Logs, "assist.log");
