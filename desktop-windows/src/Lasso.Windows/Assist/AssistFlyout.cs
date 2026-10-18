@@ -87,20 +87,20 @@ internal sealed class AssistFlyout : Window
         var scale = MonitorScale(monitor);
         var work = WorkArea(monitor);
 
-        var width = (int)Math.Round(_content.PanelWidth * scale);
-        var height = (int)Math.Round(_content.PanelHeight * scale);
-        var gap = (int)Math.Round(CaretGap * scale);
+        // Below the caret by preference, flipping above or to the leading side
+        // when the work area runs out. The rules are in Lasso.Core so they can
+        // be tested without a window.
+        var placed = FlyoutPlacement.Place(
+            anchor,
+            _content.PanelWidth * scale,
+            _content.PanelHeight * scale,
+            HostRect.FromEdges(work.Left, work.Top, work.Right, work.Bottom),
+            CaretGap * scale);
 
-        // Below the caret by preference, above it when the work area runs out.
-        var x = (int)Math.Round(anchor.MinX) - (int)Math.Round(8 * scale);
-        var y = (int)Math.Round(anchor.MaxY) + gap;
-        if (y + height > work.Bottom)
-        {
-            var above = (int)Math.Round(anchor.MinY) - height - gap;
-            y = above >= work.Top ? above : Math.Max(work.Top, work.Bottom - height);
-        }
-        x = Math.Max(work.Left, Math.Min(x, work.Right - width));
-        y = Math.Max(work.Top, Math.Min(y, work.Bottom - height));
+        var x = (int)Math.Round(placed.MinX);
+        var y = (int)Math.Round(placed.MinY);
+        var width = (int)Math.Round(placed.Width);
+        var height = (int)Math.Round(placed.Height);
 
         var handle = new WindowInteropHelper(this).Handle;
         if (handle == IntPtr.Zero)

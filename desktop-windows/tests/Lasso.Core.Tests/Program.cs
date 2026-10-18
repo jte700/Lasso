@@ -424,6 +424,51 @@ Console.WriteLine("geometry");
           "rejects non-finite geometry");
 }
 
+Console.WriteLine("the panel follows the caret across the whole screen");
+{
+    // A wide display and a wide panel: the case that made the panel look
+    // frozen. Every caret position past (work.Right - width) would clamp to
+    // the same x, so the panel sat still while the caret kept moving.
+    var work = HostRect.FromEdges(0, 0, 3440, 1400);
+    const double width = 824;
+    const double height = 384;
+
+    HostRect PanelAt(double caretX) =>
+        FlyoutPlacement.Place(new HostRect(caretX, 400, 1, 18), width, height, work);
+
+    var nearRight = new[] { 2820.0, 2840, 2860, 2880, 2900 }.Select(PanelAt).ToList();
+    Check(nearRight.Zip(nearRight.Skip(1)).All(pair => pair.Second.MinX > pair.First.MinX),
+          "keeps moving when the caret is too far right for the panel to fit");
+    Check(nearRight.All(panel => panel.MinX >= work.MinX && panel.MaxX <= work.MaxX),
+          "stays on screen while it does so");
+    Check(nearRight[0].MaxX <= 2820 + FlyoutPlacement.DefaultGap + 1,
+          "sits to the leading side of the caret once it has flipped");
+
+    // The ordinary case is unchanged: leading edge just before the caret.
+    var roomy = PanelAt(400);
+    Check(Math.Abs(roomy.MinX - (400 - FlyoutPlacement.DefaultGap)) < 0.001,
+          "leads with its left edge when there is room to the right");
+    Check(Math.Abs(roomy.MinY - (418 + FlyoutPlacement.DefaultGap)) < 0.001,
+          "sits just below the caret");
+
+    // No room below: it flips above rather than covering the line.
+    var low = FlyoutPlacement.Place(new HostRect(400, 1300, 1, 18), width, height, work);
+    Check(low.MaxY <= 1300, "flips above the caret when the work area runs out below");
+
+    // A second monitor left of the primary one has negative coordinates.
+    var left = HostRect.FromEdges(-1920, 0, 0, 1080);
+    var onLeft = FlyoutPlacement.Place(new HostRect(-200, 500, 1, 18), width, height, left);
+    Check(onLeft.MinX >= left.MinX && onLeft.MaxX <= left.MaxX,
+          "respects a monitor whose coordinates are negative");
+
+    // A work area narrower than the panel cannot satisfy both edges; the
+    // leading edge wins so the first rows stay visible.
+    var tiny = HostRect.FromEdges(0, 0, 600, 400);
+    var squeezed = FlyoutPlacement.Place(new HostRect(300, 100, 1, 18), width, height, tiny);
+    Check(Math.Abs(squeezed.MinX - tiny.MinX) < 0.001,
+          "keeps the leading edge on screen when the panel is wider than the display");
+}
+
 Console.WriteLine("browser editor text-run offsets");
 {
     const string phrase = "I was looking at the supplies";

@@ -422,8 +422,15 @@ public sealed class GlobalAssistant
             var caret = await Task.Run(
                 () => UiaReader.CaretRectOf(context.Element, context.WindowHandle)).ConfigureAwait(true);
 
-            // The world may have moved on while the host was answering.
-            if (!ReferenceEquals(_context, context) || !_tracking) return;
+            // The world may have moved on while the host was answering. The
+            // test is the editor, not the context object: a refresh replaces
+            // that object several times a second while the user types, and
+            // comparing identity would throw away most of the measurements.
+            if (!_tracking || _context is not { } current
+                || !current.RuntimeId.AsSpan().SequenceEqual(context.RuntimeId))
+            {
+                return;
+            }
 
             if (caret is not { } rect || !HostGeometryConverter.IsUsable(rect))
             {
