@@ -155,6 +155,43 @@ do {
     check(five.after == "the cost is 400", "inserts when nothing was typed towards it")
 }
 
+print("a completion replaces the word being typed towards it")
+do {
+    // Typing a word that appears later in the suggestion must replace that
+    // word, not sit in front of it: "suppl" towards "office supplies" has to
+    // give "office supplies", never "supploffice supplies".
+    let midWord = accept("I was looking through the suppl", insert: "office supplies")
+    check(midWord.after == "I was looking through the office supplies",
+          "replaces a word the suggestion continues rather than appending to it")
+    check(midWord.range.map { string(Array(units(midWord.after)[$0])) } == "office supplies",
+          "the dependency covers the inserted phrase alone")
+
+    let whole = accept("the cost of supplies", insert: "office supplies")
+    check(whole.after == "the cost of office supplies", "replaces a fully typed word too")
+
+    // The run that spells the start of the suggestion still wins, so finishing
+    // a phrase rewrites the whole phrase rather than only its last word.
+    let phrase = accept("The expected cost of office sup", insert: "office supplies")
+    check(phrase.after == "The expected cost of office supplies",
+          "a phrase already under way is still completed as a phrase")
+
+    // And a word with nothing to do with the suggestion is left alone.
+    let unrelated = accept("the quarterly figure is ", insert: "400")
+    check(unrelated.after == "the quarterly figure is 400",
+          "an insertion after a space replaces nothing")
+    check(CompletionTransaction.replaceableLength(
+        typedBeforeCaret: units("I reviewed the paperwork"), insertText: units("400")) == 0,
+          "an unrelated word is not replaceable")
+
+    // The bound that made the original bug impossible still holds.
+    check(CompletionTransaction.replaceableLength(
+        typedBeforeCaret: units("a very long identifier here"), insertText: units("sup")) <= 3,
+          "never rewrites more characters than the suggestion contains")
+    check(CompletionTransaction.replaceableLength(
+        typedBeforeCaret: units("first second"), insertText: units("second third")) == 6,
+          "reaches back no further than the word being typed")
+}
+
 print("a completion can never delete more than it inserts")
 do {
     // The exact shape of the bug: a claim covering the whole sentence.

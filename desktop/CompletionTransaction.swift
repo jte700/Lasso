@@ -75,26 +75,80 @@ enum CompletionTransaction {
         return equivalentHostText(Array(haystack.suffix(needle.count)), needle)
     }
 
-    /// How many characters immediately before the caret already spell the start
-    /// of `insertText`, compared case-insensitively.
+    /// How many characters immediately before the caret the completion may
+    /// rewrite, compared case-insensitively.
     ///
-    /// "…office sup" + "office supplies" → 10   (rewrites "office sup")
-    /// "The value is 61" + "612"          → 2    (rewrites "61")
-    /// "the cost is " + "400"             → 0    (pure insertion)
+    /// "…office sup" + "office supplies"       → 10  (rewrites "office sup")
+    /// "The value is 61" + "612"                → 2   (rewrites "61")
+    /// "…through the suppl" + "office supplies" → 5   (rewrites "suppl")
+    /// "the cost is " + "400"                   → 0   (pure insertion)
+    ///
+    /// Two things may be rewritten, and nothing else. The run before the caret
+    /// that already spells the start of the insertion, which is the ordinary
+    /// case of finishing a phrase. Or, failing that, the single word being
+    /// typed, when that word begins a word of the insertion — someone typing
+    /// "suppl" towards "Office supplies" means to replace it, not to be left
+    /// with "supploffice supplies".
+    ///
+    /// Both are bounded by what was typed and by the insertion's own length,
+    /// and the second can never reach past the current word. That is the
+    /// point: a completion may only rewrite text the user typed towards it,
+    /// which is what stops a suggestion deleting a sentence it has no
+    /// relation to.
     static func replaceableLength(typedBeforeCaret typed: [UInt16], insertText: [UInt16]) -> Int {
         // Never more than the insertion itself, and never more than was typed.
         let limit = min(typed.count, insertText.count)
-        guard limit > 0 else { return 0 }
-        for length in stride(from: limit, through: 1, by: -1) {
-            var matches = true
-            for offset in 0..<length {
-                let typedUnit = typed[typed.count - length + offset]
-                let insertUnit = insertText[offset]
-                if !equalIgnoringCase(typedUnit, insertUnit) { matches = false; break }
+        if limit > 0 {
+            for length in stride(from: limit, through: 1, by: -1) {
+                var matches = true
+                for offset in 0..<length {
+                    let typedUnit = typed[typed.count - length + offset]
+                    let insertUnit = insertText[offset]
+                    if !equalIgnoringCase(typedUnit, insertUnit) { matches = false; break }
+                }
+                if matches { return length }
             }
-            if matches { return length }
+        }
+        let word = trailingWordLength(typed)
+        if word > 0, word <= insertText.count,
+           beginsAWordOf(insertText, Array(typed.suffix(word))) {
+            return word
         }
         return 0
+    }
+
+    private static func isWordBreak(_ unit: UInt16) -> Bool {
+        canonicalHostUnit(unit) == 32 || unit == 10 || unit == 13 || unit == 9
+            || unit == 0x2028 || unit == 0x2029
+    }
+
+    /// The run of characters being typed right now: back to the nearest space
+    /// or line break, and no further.
+    private static func trailingWordLength(_ typed: [UInt16]) -> Int {
+        var start = typed.count
+        while start > 0, !isWordBreak(typed[start - 1]) { start -= 1 }
+        return typed.count - start
+    }
+
+    /// Whether the typed word starts one of the insertion's words.
+    private static func beginsAWordOf(_ insertText: [UInt16], _ typedWord: [UInt16]) -> Bool {
+        guard !typedWord.isEmpty else { return false }
+        var start = 0
+        for index in 0...insertText.count {
+            if index < insertText.count, !isWordBreak(insertText[index]) { continue }
+            if index - start >= typedWord.count {
+                var matches = true
+                for offset in 0..<typedWord.count {
+                    if !equalIgnoringCase(insertText[start + offset], typedWord[offset]) {
+                        matches = false
+                        break
+                    }
+                }
+                if matches { return true }
+            }
+            start = index + 1
+        }
+        return false
     }
 
     private static func equalIgnoringCase(_ left: UInt16, _ right: UInt16) -> Bool {

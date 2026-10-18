@@ -152,6 +152,50 @@ Console.WriteLine("completion insertion preserves the sentence");
     Check(five.After == "the cost is 400", "inserts when nothing was typed towards it");
 }
 
+Console.WriteLine("a completion replaces the word being typed towards it");
+{
+    // Typing a word that appears later in the suggestion must replace that
+    // word, not sit in front of it: "suppl" towards "office supplies" has to
+    // give "office supplies", never "supploffice supplies".
+    var midWord = Accept("I was looking through the suppl", "office supplies");
+    Check(midWord.After == "I was looking through the office supplies",
+          "replaces a word the suggestion continues rather than appending to it");
+    Check(Text(midWord.After, midWord.Range) == "office supplies",
+          "the dependency covers the inserted phrase alone");
+
+    var whole = Accept("the cost of supplies", "office supplies");
+    Check(whole.After == "the cost of office supplies", "replaces a fully typed word too");
+
+    // The whole path the panel uses: casing is settled against what was
+    // typed, then the edit is planned from the cased text.
+    const string sentence = "I was looking through the suppl";
+    var cased = AssistCasing.MatchCasing(
+        "Office supplies", AssistCasing.TrailingWord(sentence), sentence, sentence.Length);
+    var planned = CompletionTransaction.Plan(sentence, sentence.Length, cased);
+    Check(planned.IsSuccess && CompletionTransaction.Apply(planned.Value, sentence)
+              == "I was looking through the office supplies",
+          "a title-cased label lands lower-cased over the word it replaces");
+    Check(planned.Value.ExpectedPrefix == "suppl", "and it knows it is replacing \"suppl\"");
+
+    // The run that spells the start of the suggestion still wins, so finishing
+    // a phrase rewrites the whole phrase rather than only its last word.
+    var phrase = Accept("The expected cost of office sup", "office supplies");
+    Check(phrase.After == "The expected cost of office supplies",
+          "a phrase already under way is still completed as a phrase");
+
+    // And a word with nothing to do with the suggestion is left alone.
+    var unrelated = Accept("the quarterly figure is ", "400");
+    Check(unrelated.After == "the quarterly figure is 400", "an insertion after a space replaces nothing");
+    Check(CompletionTransaction.ReplaceableLength("I reviewed the paperwork", "400") == 0,
+          "an unrelated word is not replaceable");
+
+    // The bound that made the original bug impossible still holds.
+    Check(CompletionTransaction.ReplaceableLength("a very long identifier here", "sup") <= 3,
+          "never rewrites more characters than the suggestion contains");
+    Check(CompletionTransaction.ReplaceableLength("first second", "second third") == 6,
+          "reaches back no further than the word being typed");
+}
+
 Console.WriteLine("a completion can never delete more than it inserts");
 {
     // The exact shape of the bug: a claim covering the whole sentence.

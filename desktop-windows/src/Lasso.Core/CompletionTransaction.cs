@@ -120,12 +120,25 @@ public static class CompletionTransaction
         return EquivalentHostText(tail, insertion.AsSpan());
     }
 
-    /// How many characters immediately before the caret already spell the start
-    /// of <paramref name="insertText"/>, compared case-insensitively.
+    /// How many characters immediately before the caret the completion may
+    /// rewrite, compared case-insensitively.
     ///
-    /// "…office sup" + "office supplies" → 10   (rewrites "office sup")
-    /// "The value is 61" + "612"          → 2    (rewrites "61")
-    /// "the cost is " + "400"             → 0    (pure insertion)
+    /// "…office sup" + "office supplies"   → 10  (rewrites "office sup")
+    /// "The value is 61" + "612"            → 2   (rewrites "61")
+    /// "…through the suppl" + "office supplies" → 5 (rewrites "suppl")
+    /// "the cost is " + "400"               → 0   (pure insertion)
+    ///
+    /// Two things may be rewritten, and nothing else. The run before the caret
+    /// that already spells the start of the insertion, which is the ordinary
+    /// case of finishing a phrase. Or, failing that, the single word being
+    /// typed, when that word begins a word of the insertion — someone typing
+    /// "suppl" towards "Office supplies" means to replace it, not to be left
+    /// with "supploffice supplies".
+    ///
+    /// Both are bounded by what was typed and by the insertion's own length,
+    /// and the second can never reach past the current word. That is the point:
+    /// a completion may only rewrite text the user typed towards it, which is
+    /// what stops a suggestion deleting a sentence it has no relation to.
     public static int ReplaceableLength(ReadOnlySpan<char> typedBeforeCaret, ReadOnlySpan<char> insertText)
     {
         // Never more than the insertion itself, and never more than was typed.
@@ -146,7 +159,58 @@ public static class CompletionTransaction
             }
             if (matches) return length;
         }
+
+        var word = TrailingWordLength(typedBeforeCaret);
+        if (word > 0 && word <= insertText.Length
+            && BeginsAWordOf(insertText, typedBeforeCaret[^word..]))
+        {
+            return word;
+        }
         return 0;
+    }
+
+    /// The run of characters being typed right now: back to the nearest space
+    /// or line break, and no further.
+    private static int TrailingWordLength(ReadOnlySpan<char> typedBeforeCaret)
+    {
+        var start = typedBeforeCaret.Length;
+        while (start > 0 && !IsWordBreak(typedBeforeCaret[start - 1])) start--;
+        return typedBeforeCaret.Length - start;
+    }
+
+    private const char LineSeparatorUnit = (char)0x2028;
+    private const char ParagraphSeparatorUnit = (char)0x2029;
+
+    private static bool IsWordBreak(char unit) =>
+        CanonicalHostUnit(unit) == ' ' || unit == '\n' || unit == '\r' || unit == '\t'
+        || unit == LineSeparatorUnit || unit == ParagraphSeparatorUnit;
+
+    /// Whether the typed word starts one of the insertion's words.
+    private static bool BeginsAWordOf(ReadOnlySpan<char> insertText, ReadOnlySpan<char> typedWord)
+    {
+        if (typedWord.Length == 0) return false;
+        var start = 0;
+        for (var index = 0; index <= insertText.Length; index++)
+        {
+            var atEnd = index == insertText.Length;
+            if (!atEnd && !IsWordBreak(insertText[index])) continue;
+            var word = insertText[start..index];
+            if (word.Length >= typedWord.Length)
+            {
+                var matches = true;
+                for (var offset = 0; offset < typedWord.Length; offset++)
+                {
+                    if (!EqualIgnoringCase(word[offset], typedWord[offset]))
+                    {
+                        matches = false;
+                        break;
+                    }
+                }
+                if (matches) return true;
+            }
+            start = index + 1;
+        }
+        return false;
     }
 
     /// ASCII-only folding, deliberately: the macOS build compares the same way,
