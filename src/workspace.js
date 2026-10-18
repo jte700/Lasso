@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { setImmediate as yieldTurn } from 'node:timers/promises';
 import { HttpError } from './history/errors.js';
 import { normalizeProjectRootPath } from './history/service.js';
@@ -55,6 +56,7 @@ export class WorkspaceService {
     this.closed = false;
     this.ready = Promise.resolve();
     this.mutations = Promise.resolve();
+    this.renameChecks = new Map();
     timeline.workspace = this;
     dependencies.workspace = this;
   }
@@ -62,7 +64,8 @@ export class WorkspaceService {
   projects() {
     return this.db.prepare(`SELECT p.id, p.name, p.root_path, p.workspace_active,
       p.current_snapshot_id, s.version FROM projects p
-      LEFT JOIN snapshots s ON s.id = p.current_snapshot_id ORDER BY p.created_at, p.id`).all()
+      LEFT JOIN snapshots s ON s.id = p.current_snapshot_id
+      WHERE p.workspace_removed = 0 ORDER BY p.created_at, p.id`).all()
       .map((p) => ({ id: p.id, name: p.name, rootPath: p.root_path,
         active: Boolean(p.workspace_active), currentSnapshotId: p.current_snapshot_id, currentVersion: p.version }));
   }
@@ -80,6 +83,7 @@ export class WorkspaceService {
   }
 
   activeProjects() {
+    this.followRenamedRoots();
     return this.projects().filter((p) => {
       if (!p.active || this.errors.has(p.id)) return false;
       try { return fs.statSync(p.rootPath).isDirectory(); } catch { return false; }
@@ -95,6 +99,7 @@ export class WorkspaceService {
   }
 
   state() {
+    this.followRenamedRoots();
     const counts = new Map(this.timeline.listProjects().map((p) => [p.id, p.fileCount]));
     const directories = this.projects().map((p) => {
       let available = false;
@@ -115,6 +120,72 @@ export class WorkspaceService {
       try { this.activate(p.id, systemActor); }
       catch (error) { this.errors.set(p.id, error.message); }
     }
+  }
+
+  /**
+   * A folder renamed in place keeps its inode, and so do the files inside it.
+   * Find it among its old siblings and move the directory's record there, so
+   * its history, colour and enabled state stay linked. Folders recorded before
+   * root identities existed are recognised by their indexed files' inodes.
+   */
+  followRenamedRoots() {
+    const rows = this.db.prepare(`SELECT id, name, root_path, root_inode, workspace_active, workspace_removed,
+      current_snapshot_id FROM projects`).all();
+    const taken = new Set(rows.map((row) => row.root_path));
+    const inodeOf = (target) => {
+      try {
+        const stat = fs.statSync(target, { bigint: true });
+        return stat.isDirectory() ? stat.ino.toString() : null;
+      } catch { return null; }
+    };
+    for (const row of rows) {
+      if (row.workspace_removed) continue;
+      const inode = inodeOf(row.root_path);
+      if (inode) {
+        if (row.root_inode !== inode) this.db.prepare('UPDATE projects SET root_inode = ? WHERE id = ?').run(inode, row.id);
+        this.renameChecks.delete(row.id);
+        continue;
+      }
+      // A deleted or ejected folder stays missing; do not list its parent on every call.
+      if (Date.now() - (this.renameChecks.get(row.id) ?? 0) < 2_000) continue;
+      this.renameChecks.set(row.id, Date.now());
+      const files = this.db.prepare(`SELECT path, inode FROM snapshot_files
+        WHERE snapshot_id = ? AND inode IS NOT NULL ORDER BY path LIMIT 8`).all(row.current_snapshot_id);
+      const holdsFiles = (candidate) => {
+        // Atomic saves replace some inodes; unrelated folders share none.
+        const matched = files.filter((file) => {
+          try { return String(fs.statSync(path.join(candidate, file.path)).ino) === String(file.inode); }
+          catch { return false; }
+        }).length;
+        return files.length > 0 && matched * 2 >= files.length;
+      };
+      if (!row.root_inode && !files.length) continue;
+      const parent = path.dirname(row.root_path);
+      let entries;
+      try { entries = fs.readdirSync(parent, { withFileTypes: true }); } catch { continue; }
+      const renamed = entries.filter((entry) => entry.isDirectory()).map((entry) => path.join(parent, entry.name))
+        .find((candidate) => !taken.has(candidate)
+          && ((row.root_inode && inodeOf(candidate) === row.root_inode) || holdsFiles(candidate)));
+      if (!renamed) continue;
+      let root;
+      try { root = fs.realpathSync(renamed); } catch { continue; }
+      if (taken.has(root)) continue;
+      taken.delete(row.root_path); taken.add(root);
+      this.relink(row, root);
+    }
+  }
+
+  relink(row, root) {
+    // Keep a custom display name; a name that was just the folder's follows it.
+    const name = row.name === path.basename(row.root_path) ? path.basename(root) : row.name;
+    this.db.prepare('UPDATE projects SET root_path = ?, name = ? WHERE id = ?').run(root, name, row.id);
+    this.timeline.unwatchProject(row.id);
+    this.timeline.scanCaches.delete(row.id);
+    this.errors.delete(row.id);
+    this.renameChecks.delete(row.id);
+    if (!row.workspace_active) return;
+    try { this.activate(row.id, systemActor); }
+    catch (error) { this.errors.set(row.id, error.message); }
   }
 
   activate(projectId, actor) {
@@ -157,7 +228,7 @@ export class WorkspaceService {
         await yieldTurn();
         if (this.closed) throw new HttpError(503, 'Lasso is shutting down.');
         const imported = this.timeline.importProject(root, actor, { watch: false });
-        this.db.prepare('UPDATE projects SET workspace_active = 1 WHERE id = ?').run(imported.project.id);
+        this.db.prepare('UPDATE projects SET workspace_active = 1, workspace_removed = 0 WHERE id = ?').run(imported.project.id);
         try {
           if (imported.imported) {
             this.dependencies.ensureIndex(imported.project.id);
@@ -203,6 +274,22 @@ export class WorkspaceService {
         this.timeline.scanCaches.delete(projectId);
         this.errors.delete(projectId);
       }
+      return this.state();
+    });
+  }
+
+  /**
+   * Takes a folder out of the menu without touching it on disk. Its history
+   * is kept, so choosing the same folder again restores it.
+   */
+  remove(projectId) {
+    return this.enqueue(() => {
+      this.timeline.getProject(projectId);
+      this.db.prepare('UPDATE projects SET workspace_active = 0, workspace_removed = 1 WHERE id = ?').run(projectId);
+      this.timeline.unwatchProject(projectId);
+      this.timeline.scanCaches.delete(projectId);
+      this.errors.delete(projectId);
+      this.renameChecks.delete(projectId);
       return this.state();
     });
   }

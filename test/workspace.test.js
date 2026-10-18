@@ -77,12 +77,74 @@ test('toggles persist, disabled watchers stop, and enabling reconciles offline e
   assert.equal(app.timeline.pendingTimers.has(first.id), false);
 });
 
+test('removing a directory hides it, stops watching, and adding it again restores its history', async (t) => {
+  const state = await fixture(t, 2);
+  const app = await state.restart(true);
+  const [first, second] = state.projects;
+  const history = app.timeline.getProject(first.id).currentSnapshotId;
+  const removed = await app.workspace.remove(first.id);
+  assert.deepEqual(removed.directories.map((d) => d.id), [second.id]);
+  assert.equal(app.timeline.watchers.has(first.id), false);
+  assert.ok(app.workspace.search('Supplies', { limit: 100 }).every((o) => o.projectId !== first.id));
+  assert.ok(fs.existsSync(path.join(state.roots[0], 'data.csv')));
+  const restored = await app.workspace.add([state.roots[0]], actor);
+  const back = restored.directories.find((d) => d.rootPath === state.roots[0]);
+  assert.equal(back.id, first.id);
+  assert.equal(back.active, true);
+  assert.equal(app.timeline.getProject(first.id).currentSnapshotId, history);
+});
+
+test('a directory renamed on disk stays linked under its new name', async (t) => {
+  const state = await fixture(t, 2);
+  const app = await state.restart(true);
+  const [first, second] = state.projects;
+  await app.workspace.toggle(second.id, false, actor);
+  const renamed = path.join(path.dirname(state.roots[0]), 'Renamed Directory');
+  const renamedOff = path.join(path.dirname(state.roots[1]), 'Renamed Paused');
+  fs.renameSync(state.roots[0], renamed);
+  fs.renameSync(state.roots[1], renamedOff);
+  const directories = app.workspace.state().directories;
+  const moved = directories.find((d) => d.id === first.id);
+  assert.equal(moved.rootPath, fs.realpathSync(renamed));
+  assert.equal(moved.name, 'Renamed Directory');
+  assert.equal(moved.available, true);
+  assert.equal(moved.active, true);
+  assert.equal(moved.error, null);
+  assert.equal(app.timeline.watchers.has(first.id), true);
+  const paused = directories.find((d) => d.id === second.id);
+  assert.equal(paused.name, 'Renamed Paused');
+  assert.equal(paused.active, false);
+  assert.ok(app.workspace.search('Supplies', { limit: 100 }).some((o) => o.projectId === first.id));
+  fs.writeFileSync(path.join(renamed, 'data.csv'), 'Metric,Value\nSupplies,4321\n');
+  app.timeline.capture(first.id, actor);
+  assert.ok(app.workspace.search('Supplies', { limit: 100 }).some((o) => o.projectId === first.id && o.valueText === '4321'));
+  fs.rmSync(renamed, { recursive: true });
+  assert.equal(app.workspace.state().directories.find((d) => d.id === first.id).available, false);
+});
+
+test('a directory renamed before its identity was recorded is found by its files', async (t) => {
+  const state = await fixture(t, 2);
+  const app = await state.restart(true);
+  const [first] = state.projects;
+  const renamed = path.join(path.dirname(state.roots[0]), 'Finance');
+  fs.mkdirSync(path.join(path.dirname(state.roots[0]), 'Unrelated'));
+  app.db.prepare('UPDATE projects SET root_inode = NULL').run();
+  fs.renameSync(state.roots[0], renamed);
+  const moved = app.workspace.state().directories.find((d) => d.id === first.id);
+  assert.equal(moved.rootPath, fs.realpathSync(renamed));
+  assert.equal(moved.name, 'Finance');
+  assert.equal(moved.available, true);
+});
+
 test('directory adding is canonical, validates all roots, and tolerates an unavailable enabled folder on restart', async (t) => {
   const state = await fixture(t, 2);
   await state.app.workspace.add([state.roots[0], `${state.roots[0]}/.`], actor);
   assert.equal(state.app.workspace.state().directories.length, 2);
   await assert.rejects(state.app.workspace.add([state.roots[0], path.join(state.roots[0], 'missing')], actor), { status: 400 });
-  fs.renameSync(state.roots[0], `${state.roots[0]}-offline`);
+  // Moved out of its parent, so it is unavailable rather than renamed.
+  const offline = path.join(path.dirname(state.roots[0]), 'offline');
+  fs.mkdirSync(offline);
+  fs.renameSync(state.roots[0], path.join(offline, path.basename(state.roots[0])));
   const app = await state.restart(true);
   const missing = app.workspace.state().directories.find((p) => p.id === state.projects[0].id);
   assert.equal(missing.available, false);
@@ -309,6 +371,13 @@ test('workspace HTTP routes expose toggles and predictions without enabling disa
   const reviewed = (await (await fetch(`${base}${reviewRoute}`)).json()).plan;
   assert.equal((await post(reviewRoute, { action: 'apply', expectedPlan: reviewed })).status, 200);
   assert.match(fs.readFileSync(path.join(roots[1], 'draft.md'), 'utf8'), /789/);
+
+  const remove = (id) => fetch(`${base}/api/workspace/directories/${id}`, { method: 'DELETE' });
+  assert.equal((await remove('missing-project')).status, 404);
+  const removed = await remove(projects[0].id);
+  assert.equal(removed.status, 200);
+  assert.deepEqual((await removed.json()).directories.map((d) => d.id), [projects[1].id]);
+  assert.ok(fs.existsSync(path.join(roots[0], 'data.csv')), 'removing never touches the folder on disk');
 });
 
 test('notch activity reports pinned source changes, excludes paused folders and does not rewrite documents', async t => {
@@ -339,7 +408,8 @@ test('notch activity reports pinned source changes, excludes paused folders and 
   assert.deepEqual((await response.json()).activity, activity);
   await app.workspace.toggle(first.id, false, actor);
   assert.equal(app.workspace.activity().changes.length, 0, 'disabled sources must not appear in the notch');
-  fs.renameSync(roots[1], roots[1] + '-offline');
+  fs.mkdirSync(path.join(path.dirname(roots[1]), 'offline'));
+  fs.renameSync(roots[1], path.join(path.dirname(roots[1]), 'offline', path.basename(roots[1])));
   const unavailable = app.workspace.activity();
   assert.equal(unavailable.directories, 0);
   assert.equal(unavailable.failures, 1, 'an unavailable enabled folder remains visible as an issue');

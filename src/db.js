@@ -56,6 +56,16 @@ export function openDatabase(config) {
     db.exec(fs.readFileSync(path.join(migrationDirectory, migration.name), 'utf8'));
   }
 
+  // Directory identity columns are added idempotently, because maintenance
+  // and upgrade paths replay numbered migrations over an existing schema.
+  // Removing a folder from the menu keeps its history for re-adding; a
+  // folder renamed in place keeps its inode, which follows it to the new name.
+  const projectColumns = new Set(db.prepare('PRAGMA table_info(projects)').all().map((column) => column.name));
+  if (!projectColumns.has('workspace_removed')) {
+    db.exec('ALTER TABLE projects ADD COLUMN workspace_removed INTEGER NOT NULL DEFAULT 0 CHECK (workspace_removed IN (0, 1))');
+  }
+  if (!projectColumns.has('root_inode')) db.exec('ALTER TABLE projects ADD COLUMN root_inode TEXT');
+
   return db;
 }
 

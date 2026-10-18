@@ -242,7 +242,8 @@ test('live directory loss invalidates an in-flight workspace prediction', async 
   const { app, sourceRoot, sourceProject } = fixture(t);
   const prediction = app.workspace.predict({ text: 'Supplies cost 400.' });
   const rejected = assert.rejects(prediction, { status: 409 });
-  fs.renameSync(sourceRoot, `${sourceRoot}-offline`);
+  fs.mkdirSync(path.join(path.dirname(sourceRoot), 'offline'));
+  fs.renameSync(sourceRoot, path.join(path.dirname(sourceRoot), 'offline', path.basename(sourceRoot)));
   await rejected;
   assert.ok(app.workspace.activeProjects().every((project) => project.id !== sourceProject.id));
   assert.throws(() => app.workspace.terminalRun('find Supplies', actor, { projectId: sourceProject.id }), { status: 409 });

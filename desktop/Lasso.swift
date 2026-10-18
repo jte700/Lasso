@@ -279,6 +279,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var workspaceGeneration = 0
     private var workspaceTimer: Timer?
     private var assistPermissionTimer: Timer?
+    /// Folders show red remove badges until Done, Escape or the panel closes.
+    private var isRemovingDirectories = false
     private var assistActivation = AssistActivation(
         requested: UserDefaults.standard.bool(forKey: "AssistEnabled"))
 
@@ -422,6 +424,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         statusMenu.autoenablesItems = false
+        statusPopover.onEscape = { [weak self] in self?.endRemovingDirectories() ?? false }
+        statusPopover.onClose = { [weak self] in _ = self?.endRemovingDirectories() }
         rebuildMenu()
     }
 
@@ -455,15 +459,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusMenu.addItem(.separator())
         statusMenu.addItem(command("Add Work Directories…", action: #selector(addDirectories),
                                    enabled: isServerReady && busyMessage == nil))
+        if directories.isEmpty { isRemovingDirectories = false }
+        if !directories.isEmpty {
+            let remove = command(isRemovingDirectories ? "Done" : "Remove Work Directory",
+                                 action: #selector(toggleRemovingDirectories))
+            remove.toolTip = isRemovingDirectories ? nil
+                : "Click a red badge to remove that folder from Lasso. The folder and its files are not changed."
+            statusMenu.addItem(remove)
+        }
         if directories.isEmpty {
             statusMenu.addItem(label(isServerReady ? "Choose directories to get started" : "Waiting for the server…"))
         } else {
             statusMenu.addItem(.separator())
             let heading = command("Work Directories", action: #selector(toggleDirectoryList))
-            heading.view = NativeMenuDisclosureRow(item: heading, expanded: !directoryListCollapsed,
+            heading.view = NativeMenuDisclosureRow(item: heading, expanded: !directoryListCollapsed || isRemovingDirectories,
                                                   count: directories.count)
             statusMenu.addItem(heading)
-            if !directoryListCollapsed {
+            if !directoryListCollapsed || isRemovingDirectories {
                 for directory in directories {
                     let duplicateName = directories.filter { $0.name == directory.name }.count > 1
                     let title = duplicateName ? directory.rootPath : directory.name
@@ -475,9 +487,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let usage = directory.active ? "On: suggestions include this folder." : "Off: this folder is paused."
                     item.toolTip = [directory.rootPath, directory.error, usage].compactMap { $0 }.joined(separator: "\n")
                     item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
-                    item.view = NativeMenuToggleRow(item: item, color: toggleColor(for: directory.id)) { [weak self] color in
+                    let row = NativeMenuToggleRow(item: item, color: toggleColor(for: directory.id),
+                                                  removing: isRemovingDirectories) { [weak self] color in
                         self?.setToggleColor(color, for: directory.id)
                     }
+                    let id = directory.id
+                    row.onReveal = { [weak self] in self?.revealDirectory(id) }
+                    row.onRemove = { [weak self] in
+                        let remove = NSMenuItem()
+                        remove.representedObject = id
+                        self?.removeDirectory(remove)
+                    }
+                    item.view = row
                     statusMenu.addItem(item)
                 }
             }
@@ -629,7 +650,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
     }
 
-    private func mutateWorkspace(path: String, body: [String: Any], message: String) {
+    private func mutateWorkspace(path: String, method: String = "POST", body: [String: Any]? = nil, message: String) {
         guard isServerReady, busyMessage == nil, let base = server.url else { return }
         workspaceGeneration += 1
         let token = workspaceGeneration
@@ -640,10 +661,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GlobalAssistant.shared.suspendWorkspace()
         rebuildMenu()
         var request = URLRequest(url: base.appendingPathComponent(path))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpMethod = method
         request.timeoutInterval = 120
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "content-type")
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        }
         workspaceRequest = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self, token == self.workspaceGeneration else { return }
@@ -688,6 +711,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mutateWorkspace(path: "api/workspace/directories/" + id,
                         body: WorkspaceAPI.toggleDirectoryBody(active: !directory.active),
                         message: directory.active ? "Pausing directory…" : "Activating and indexing directory…")
+    }
+
+    /// Takes a folder out of Lasso. Nothing on disk changes, and its history
+    /// is kept, so adding the same folder again restores it.
+    @objc private func removeDirectory(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String,
+              let directory = directories.first(where: { $0.id == id }),
+              confirmRemoval(of: directory) else { return }
+        mutateWorkspace(path: "api/workspace/directories/" + id, method: "DELETE",
+                        message: "Removing \(directory.name)…")
+    }
+
+    /// Asks before removing. The menu stays open behind the alert so
+    /// several folders can be removed in one pass.
+    private func confirmRemoval(of directory: WorkDirectory) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Remove \u{201C}\(directory.name)\u{201D} from Lasso?"
+        alert.informativeText = "Lasso will stop indexing this directory and will no longer suggest its contents. "
+            + "The folder and its files will remain on your Mac, and you can add it again at any time."
+        alert.alertStyle = .warning
+        let remove = alert.addButton(withTitle: "Remove")
+        remove.hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        return statusPopover.holdingOpen { alert.runModal() } == .alertFirstButtonReturn
+    }
+
+    private func revealDirectory(_ id: String) {
+        guard let directory = directories.first(where: { $0.id == id }), directory.available else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: directory.rootPath)])
+    }
+
+    @objc private func toggleRemovingDirectories() {
+        isRemovingDirectories.toggle()
+        rebuildMenu()
+    }
+
+    /// Leaves remove mode. Returns false when it was not on.
+    private func endRemovingDirectories() -> Bool {
+        guard isRemovingDirectories else { return false }
+        isRemovingDirectories = false
+        rebuildMenu()
+        return true
     }
 
     @objc private func toggleDirectoryList() {

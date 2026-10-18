@@ -282,6 +282,9 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           const body = await readJson(request);
           return sendJson(response, 200, await workspace.toggle(directory[0], body.active, actorFrom(body)));
         }
+        if (request.method === 'DELETE' && directory) {
+          return sendJson(response, 200, await workspace.remove(directory[0]));
+        }
         if (request.method === 'POST' && pathname === '/api/workspace/dependencies/predict') {
           return sendJson(response, 200, { prediction: await workspace.predict(await readJson(request)) });
         }

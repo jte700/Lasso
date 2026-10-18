@@ -210,11 +210,18 @@ final class StatusPopoverController {
     private var expandedGroups = Set<String>()
     private var width: CGFloat = 296
     private let directoryList = StatusDirectoryList(frame: .zero)
+    /// Escape first ends a mode inside the panel; returns true when it did.
+    var onEscape: (() -> Bool)?
+    var onClose: (() -> Void)?
 
     init() {
         LassoTransientUI.shared.register(self, priority: 10,
-            isOpen: { [weak self] in self?.popover.isShown == true },
-            dismiss: { [weak self] in self?.popover.performClose(nil) })
+            // An alert shown over the panel handles its own Escape.
+            isOpen: { [weak self] in self?.popover.isShown == true && NSApp.modalWindow == nil },
+            dismiss: { [weak self] in
+                guard let self, self.onEscape?() != true else { return }
+                self.popover.performClose(nil)
+            })
         LassoTransientUI.shared.start()
         content.autoresizesSubviews = false
         scroll.drawsBackground = false
@@ -227,6 +234,20 @@ final class StatusPopoverController {
         popover.contentViewController = controller
         popover.behavior = .transient
         popover.animates = false
+        NotificationCenter.default.addObserver(forName: NSPopover.didCloseNotification, object: popover,
+                                               queue: .main) { [weak self] _ in self?.onClose?() }
+    }
+
+    /// Runs a modal step (such as a confirmation alert) without the transient
+    /// panel closing when the alert takes focus, then makes the panel key again.
+    func holdingOpen<Result>(_ body: () -> Result) -> Result {
+        guard popover.isShown else { return body() }
+        popover.behavior = .applicationDefined
+        defer {
+            popover.behavior = .transient
+            controller.view.window?.makeKey()
+        }
+        return body()
     }
 
     func toggle(relativeTo button: NSStatusBarButton) {
@@ -248,6 +269,9 @@ final class StatusPopoverController {
         content.subviews.forEach { $0.removeFromSuperview() }
         width = 296
         append(menu: menu, path: "", inset: 0)
+        // Keep only rows still shown, so removed folders are released.
+        let shown = Set(rows.compactMap { ($0.view as? NativeMenuToggleRow)?.actionItem.representedObject as? String })
+        directoryRows = directoryRows.filter { shown.contains($0.key) }
         layoutRows()
         scroll.contentView.scroll(to: NSPoint(x: 0, y: min(oldOffset.y,
             max(0, content.frame.height - scroll.contentView.bounds.height))))
@@ -273,6 +297,7 @@ final class StatusPopoverController {
                    let id = item.representedObject as? String {
                     if let existing = directoryRows[id] {
                         existing.update(item: item, color: fresh.currentColor)
+                        existing.setRemoving(fresh.isRemoving, animated: true)
                         row = existing
                     } else {
                         directoryRows[id] = fresh

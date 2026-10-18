@@ -736,7 +736,9 @@ export class TimelineService {
               source: 'WATCHER', dirtyPaths: pending.unknown ? null : [...pending.paths],
             });
           } catch (error) {
-            console.error(`Project watcher capture failed for ${projectId}:`, error.message);
+            // A renamed root fails its capture; follow it now rather than at the next poll.
+            if (!fs.existsSync(project.rootPath)) this.workspace?.followRenamedRoots?.();
+            else console.error(`Project watcher capture failed for ${projectId}:`, error.message);
           }
         }, this.config.watchDebounceMs));
       });

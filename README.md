@@ -21,8 +21,8 @@ open dist/Lasso.app
 
 The app runs in the menu bar and starts its own local server. Node.js must remain installed. The menu provides:
 
-- **Add Work Directories…** to choose folders.
-- **Work Directories** to collapse the list and switch folders on or off. Suggestions come only from folders that are switched on. The small circle sets the folder's highlight colour, used for text accepted from it.
+- **Add Work Directories…** to choose folders, and **Remove Work Directory** to take one out of Lasso. Removing never changes the folder or its files.
+- **Work Directories** to collapse the list and switch folders on or off. Suggestions come only from folders that are switched on. The small circle sets the folder's highlight colour, used for text accepted from it. Right-click a folder to show it in Finder or remove it.
 - **Suggest While Typing** to enable suggestions in other apps.
 - **Tools → Open in Browser** for writing, source browsing, and review.
 - **Tools → Tab Inserts** to choose what `Tab` does: **Plain Text** (default), **Ask Each Time**, or **Share Link**.
