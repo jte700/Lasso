@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import PDFKit
 import CoreGraphics
+import CoreImage
 
 // A new PDF containing only rasterized permitted pixels. No original PDF page,
 // text layer, annotations, attachments or document metadata enters the output.
@@ -23,6 +24,45 @@ struct Request: Decodable {
     let regions: [Region]
     let text: String?
     let page: Int?
+}
+
+let blurContext = CIContext(options: [.cacheIntermediates: false])
+
+// A soft texture made only from synthetic marks. Blurring the source itself
+// would still disclose its shapes and colours, so those pixels never enter it.
+// Keep this appearance in sync with SharePDFMaskAnnotation.blurImage.
+func blurImage(size: CGSize) -> CGImage? {
+    let scale = min(2, 1024 / max(size.width, size.height))
+    let width = max(1, Int(ceil(size.width * scale)))
+    let height = max(1, Int(ceil(size.height * scale)))
+    guard let bitmap = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+        bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+    bitmap.setFillColor(CGColor(gray: 1, alpha: 1))
+    bitmap.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    bitmap.scaleBy(x: scale, y: scale)
+    let rows = max(1, Int(ceil(size.height / 17)))
+    let lineHeight = size.height / CGFloat(rows)
+    let strokeHeight = min(6, max(2, lineHeight * 0.4))
+    let wordWidths: [CGFloat] = [1.2, 0.7, 1.65, 1, 0.85, 1.4]
+    bitmap.setFillColor(CGColor(gray: 0.38, alpha: 1))
+    for row in 0..<rows {
+        var x: CGFloat = 3 + CGFloat(row % 2) * 2
+        var word = row
+        let end = size.width - 3 - CGFloat(row % 3) * min(size.width * 0.08, 18)
+        while x < end {
+            let markWidth = min(wordWidths[word % wordWidths.count] * lineHeight, end - x)
+            bitmap.fill(CGRect(x: x, y: CGFloat(row) * lineHeight + (lineHeight - strokeHeight) / 2,
+                width: markWidth, height: strokeHeight))
+            x += markWidth + max(3, lineHeight * 0.3)
+            word += 1
+        }
+    }
+    guard let source = bitmap.makeImage() else { return nil }
+    let input = CIImage(cgImage: source)
+    let radius = max(2, min(4, lineHeight * 0.24)) * scale
+    return blurContext.createCGImage(input.clampedToExtent().applyingGaussianBlur(sigma: radius)
+        .cropped(to: input.extent), from: input.extent)
 }
 
 let args = CommandLine.arguments
@@ -104,17 +144,10 @@ for number in pages {
         for region in selected {
             // Expanding to full raster pixels prevents antialiased edge remnants.
             let area = rect(region).insetBy(dx: -1 / scale, dy: -1 / scale)
-            context.setFillColor(CGColor(gray: region.effect == "BLANK" ? 0.08 : 0.2, alpha: 1))
+            context.setFillColor(CGColor(gray: region.effect == "BLANK" ? 0.08 : 1, alpha: 1))
             context.fill(area)
-            if region.effect != "BLANK" {
-                context.saveGState()
-                context.clip(to: area)
-                let colors = [CGColor(gray: 0.23, alpha: 1), CGColor(gray: 0.36, alpha: 1)] as CFArray
-                if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceGray(), colors: colors, locations: [0, 1]) {
-                    context.drawLinearGradient(gradient, start: CGPoint(x: area.minX, y: area.midY),
-                        end: CGPoint(x: area.maxX, y: area.midY), options: [])
-                }
-                context.restoreGState()
+            if region.effect != "BLANK", let image = blurImage(size: area.size) {
+                context.draw(image, in: area)
             }
         }
     }

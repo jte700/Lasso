@@ -506,13 +506,15 @@ private struct ShareHitTarget {
 private final class SharePDFMaskAnnotation: PDFAnnotation {
     let maskKey: String
     let effect: ShareRedactionEffect
+    private static let blurContext = CIContext(options: [.cacheIntermediates: false])
+    private lazy var blurredImage = Self.blurImage(size: bounds.size)
 
     init(bounds: NSRect, key: String, effect: ShareRedactionEffect) {
         maskKey = key
         self.effect = effect
         super.init(bounds: bounds, forType: .square, withProperties: nil)
         isReadOnly = true
-        let fill = effect == .blank ? NSColor.black : NSColor(calibratedRed: 0.71, green: 0.74, blue: 0.79, alpha: 1)
+        let fill = effect == .blank ? NSColor.black : NSColor.white
         color = fill
         interiorColor = fill
         border = PDFBorder()
@@ -524,21 +526,54 @@ private final class SharePDFMaskAnnotation: PDFAnnotation {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func draw(with box: PDFDisplayBox, in context: CGContext) {
-        Self.drawMask(effect, in: bounds, context: context)
+        drawMask(in: bounds, context: context)
     }
 
-    static func drawMask(_ effect: ShareRedactionEffect, in rect: NSRect, context: CGContext) {
+    func drawMask(in rect: NSRect, context: CGContext) {
         context.saveGState()
         context.clip(to: rect)
-        context.setFillColor(CGColor(gray: effect == .blank ? 0.08 : 0.2, alpha: 1))
+        context.setFillColor(CGColor(gray: effect == .blank ? 0.08 : 1, alpha: 1))
         context.fill(rect)
-        if effect == .blur,
-           let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceGray(),
-                colors: [CGColor(gray: 0.23, alpha: 1), CGColor(gray: 0.36, alpha: 1)] as CFArray, locations: [0, 1]) {
-            context.drawLinearGradient(gradient, start: CGPoint(x: rect.minX, y: rect.midY),
-                                       end: CGPoint(x: rect.maxX, y: rect.midY), options: [])
+        if effect == .blur, let image = blurredImage {
+            context.draw(image, in: rect)
         }
         context.restoreGState()
+    }
+
+    // Match the exported PDF's synthetic blur. Generate it once in page space
+    // so zooming the PDF changes only its scale, never the mask's appearance.
+    private static func blurImage(size: CGSize) -> CGImage? {
+        let scale = min(2, 1024 / max(size.width, size.height))
+        let width = max(1, Int(ceil(size.width * scale)))
+        let height = max(1, Int(ceil(size.height * scale)))
+        guard let bitmap = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+            bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        bitmap.setFillColor(CGColor(gray: 1, alpha: 1))
+        bitmap.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        bitmap.scaleBy(x: scale, y: scale)
+        let rows = max(1, Int(ceil(size.height / 17)))
+        let lineHeight = size.height / CGFloat(rows)
+        let strokeHeight = min(6, max(2, lineHeight * 0.4))
+        let wordWidths: [CGFloat] = [1.2, 0.7, 1.65, 1, 0.85, 1.4]
+        bitmap.setFillColor(CGColor(gray: 0.38, alpha: 1))
+        for row in 0..<rows {
+            var x: CGFloat = 3 + CGFloat(row % 2) * 2
+            var word = row
+            let end = size.width - 3 - CGFloat(row % 3) * min(size.width * 0.08, 18)
+            while x < end {
+                let markWidth = min(wordWidths[word % wordWidths.count] * lineHeight, end - x)
+                bitmap.fill(CGRect(x: x, y: CGFloat(row) * lineHeight + (lineHeight - strokeHeight) / 2,
+                    width: markWidth, height: strokeHeight))
+                x += markWidth + max(3, lineHeight * 0.3)
+                word += 1
+            }
+        }
+        guard let source = bitmap.makeImage() else { return nil }
+        let input = CIImage(cgImage: source)
+        let radius = max(2, min(4, lineHeight * 0.24)) * scale
+        return blurContext.createCGImage(input.clampedToExtent().applyingGaussianBlur(sigma: radius)
+            .cropped(to: input.extent), from: input.extent)
     }
 }
 
@@ -580,7 +615,7 @@ private final class ShareInteractivePDFView: PDFView {
         }
         for page in visiblePages {
             for annotation in page.annotations.compactMap({ $0 as? SharePDFMaskAnnotation }) {
-                SharePDFMaskAnnotation.drawMask(annotation.effect, in: convert(annotation.bounds, from: page), context: context)
+                annotation.drawMask(in: convert(annotation.bounds, from: page), context: context)
             }
         }
         if let draft, let page = start?.page {
