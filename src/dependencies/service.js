@@ -94,6 +94,27 @@ const FRAGMENT_FUNCTION_WORDS = new Set(['a', 'an', 'the', 'of', 'to', 'in', 'on
   'as', 'is', 'are', 'was', 'were', 'be', 'been', 'it', 'its', 'and', 'or', 'but', 'if', 'so', 'than', 'then', 'that',
   'this', 'these', 'those', 'has', 'have', 'had', 'our', 'their', 'we', 'via', 'into', 'onto']);
 
+// Sentence punctuation, optionally inside a closing quote or bracket, then a
+// space; or a line break. A decimal point ("4.8") is not followed by a space,
+// and common abbreviations ("vs.", "e.g.") are removed before testing.
+const SENTENCE_BOUNDARY = /[.!?]["'”’)\]]*\s|\n/;
+const ABBREVIATIONS = /\b(?:e\.g|i\.e|vs|etc|approx|cf|fig|figs|no|nos|eq|ref|al|ca)\./gi;
+const CLAUSE_JOINER = /\b(?:and|or|but|while|whereas|versus|vs\.?)\s+/gi;
+
+function endsSentence(text) {
+  return SENTENCE_BOUNDARY.test(String(text ?? '').replace(ABBREVIATIONS, (match) => match.slice(0, -1)));
+}
+
+// Rows keyed by a code ("CO-001", "S014") are found by typing the code's own
+// terms elsewhere; as typed names they would bury real names on two letters.
+const IDENTIFIER_HEADER = /(?:^|\s)(?:id|code|no|number|ref|reference|sample|subject|participant|patient)$/i;
+const IDENTIFIER_VALUE = /^[A-Za-z]{0,6}[-_]?\d[\w-]*$/;
+
+function isIdentifierRow(object) {
+  const header = humanVariable(object.metadata.columns?.[0] ?? '');
+  return IDENTIFIER_HEADER.test(header) || IDENTIFIER_VALUE.test(String(object.metadata.row ?? object.label).trim());
+}
+
 function progressiveVariableFragments(text, cursor) {
   const source = String(text ?? '');
   if (cursor !== source.length) return [];
@@ -623,7 +644,8 @@ function contextualStoredValue(object, tail) {
       : magnitude.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
     return `${formatted}%`;
   }
-  const units = String(object.metadata.units ?? '').trim();
+  // Units qualify amounts. A word such as a classification ("Income") takes none.
+  const units = numeric ? String(object.metadata.units ?? '').trim() : '';
   return `${raw}${units && !raw.toLowerCase().endsWith(units.toLowerCase()) ? ` ${units}` : ''}`;
 }
 
@@ -1668,10 +1690,15 @@ export class PredictiveProvenanceService {
     const indexed = (workspaceObjects ?? this.objectsAt(projectId, target, dataTypes))
       .filter((object) => dataTypes.has(object.objectType))
       .map((object) => {
+        // A row named in a Department or Supplier column ("Facilities") is not
+        // a variable, but it is still a name the writer types.
+        const namedRow = object.objectType === 'DATASET_ROW' && !object.metadata.variable
+          && !isIdentifierRow(object);
         const variable = String(object.metadata.variable ?? object.metadata.column
-          ?? (object.objectType === 'VARIABLE' ? object.label : '')).trim();
+          ?? (object.objectType === 'VARIABLE' ? object.label : namedRow ? object.metadata.row ?? object.label : '')).trim();
         return {
           ...object,
+          namedRow,
           variable,
           normalizedVariable: normalizedVariable(variable),
           variableWords: variableTokens(humanVariable(variable)),
@@ -1699,18 +1726,20 @@ export class PredictiveProvenanceService {
         const tokenPrefix = queryWords.length && queryWords.every((word) => object.variableWords
           .some((candidateWord) => candidateWord === word || candidateWord.startsWith(word))) ? 1 : 0;
         const variableObject = object.objectType === 'VARIABLE' ? 1 : 0;
-        const rowObject = object.objectType === 'DATASET_ROW' ? 1 : 0;
+        const rowObject = object.objectType === 'DATASET_ROW' && !object.namedRow ? 1 : 0;
+        // Named rows rank below variables and line items that match as well.
+        const namedRow = object.namedRow ? 1 : 0;
         const dictionary = object.metadata.dictionary ? 1 : 0;
         const dataPath = /(^|\/)(?:data|datasets?|results?|outputs?|tables?|metabolomics)(\/|$)/i.test(object.path) ? 1 : 0;
         const base = exact ? 0.91 : prefix ? 0.82 : contains ? 0.74 : tokenPrefix ? 0.68 : 0;
         const profileQuality = object.metadata.range ? 0.025
           : object.metadata.samples?.length ? 0.012 : object.metadata.dictionary ? 0.01 : -0.015;
         const score = Math.min(0.99, base + variableObject * 0.04 + rowObject * 0.065
-          + dictionary * 0.03 + dataPath * 0.02 + profileQuality);
-        const reasons = [exact ? 'Exact variable name'
-          : prefix || tokenPrefix ? 'Matching variable prefix' : 'Matching variable name'];
+          + dictionary * 0.03 + dataPath * 0.02 + profileQuality - namedRow * 0.03);
+        const reasons = namedRow ? [exact ? 'Exact row name' : 'Matching row name']
+          : [exact ? 'Exact variable name' : prefix || tokenPrefix ? 'Matching variable prefix' : 'Matching variable name'];
         if (dictionary) reasons.push('data dictionary definition');
-        else if (rowObject) reasons.push('named dataset row');
+        else if (rowObject || namedRow) reasons.push('named dataset row');
         else if (variableObject) reasons.push('inferred from dataset column');
         return {
           ...object,
@@ -1729,7 +1758,7 @@ export class PredictiveProvenanceService {
         };
       }).filter((object) => object.score >= 0.68)
       .sort((left, right) => right.score - left.score
-        || Number(right.objectType === 'DATASET_ROW') - Number(left.objectType === 'DATASET_ROW')
+        || Number(right.objectType === 'DATASET_ROW' && !right.namedRow) - Number(left.objectType === 'DATASET_ROW' && !left.namedRow)
         || Number(right.objectType === 'VARIABLE') - Number(left.objectType === 'VARIABLE')
         || left.variable.localeCompare(right.variable)
         || left.path.localeCompare(right.path));
@@ -2108,6 +2137,23 @@ export class PredictiveProvenanceService {
     return dependency;
   }
 
+  /**
+   * An accepted data source describes the rest of its own sentence ("Revenue
+   * was ..."). A new sentence, or another source named after a joining word
+   * ("Revenue and gross pr"), is a new subject and gets its own suggestions.
+   * Papers are exempt: "They found that ..." in a later sentence still cites them.
+   */
+  projectLinkInScope(projectId, input, cursor, dependency) {
+    if (!dependency || ['PAPER', 'REFERENCE'].includes(dependency.source.objectType)) return true;
+    const tail = String(input.text ?? '').slice(dependency.anchor.end, cursor);
+    if (endsSentence(tail)) return false;
+    const joiner = [...tail.matchAll(CLAUSE_JOINER)].at(-1);
+    if (!joiner) return true;
+    const subjectStart = dependency.anchor.end + joiner.index + joiner[0].length;
+    const fresh = this.progressiveStudyVariable(projectId, input, cursor);
+    return !(fresh?.fragment && fresh.candidates.length && fresh.fragment.start >= subjectStart);
+  }
+
   linkedPaperContext(projectId, input, cursor) {
     const dependency = this.linkedDependencyContext(projectId, input, cursor);
     return dependency && ['PAPER', 'REFERENCE'].includes(dependency.source.objectType) ? dependency : null;
@@ -2164,7 +2210,18 @@ export class PredictiveProvenanceService {
     const dependencySelectsColumn = source.anchor?.kind === 'table-cell' && sourceColumn
       && normalizedVariable(dependencyText) === normalizedVariable(sourceColumn);
     const workspaceObjects = this.workspaceRetrievalObjects(this.sourceProjectId(source) ?? projectId, source.snapshotId);
+    // A data dictionary's cells describe the variable (its description and
+    // units); they are not values of it, unless that file is the linked source.
+    // Keyed by sheet: a workbook's data sheets beside its dictionary still count.
+    const tableKey = (object) => `${object.path}\u0000${object.metadata.sheet ?? object.anchor?.sheet ?? ''}`;
+    const dictionaryTables = new Set(workspaceObjects
+      .filter((object) => object.objectType === 'VARIABLE' && object.metadata.dictionary
+        && object.anchor?.kind === 'table-cell')
+      .map(tableKey));
+    const describesVariable = (object) => dictionaryTables.has(tableKey(object))
+      && (source.objectType === 'VARIABLE' || tableKey(object) !== tableKey(source));
     const allRelatedObjects = workspaceObjects
+      .filter((object) => !describesVariable(object))
       .filter((object) => (object.id !== source.id || dependencySelectsRow || dependencySelectsColumn)
         && object.objectType !== 'VARIABLE'
         && normalizedVariable(object.metadata.variable ?? object.metadata.column) === variableKey);
@@ -2420,7 +2477,8 @@ export class PredictiveProvenanceService {
         deterministic: true, generatedText: false,
       };
     }
-    const linkedProjectObject = this.valuesFromLinkedProjectObject(projectId, input, cursor, linkedDependency);
+    const linkedProjectObject = this.projectLinkInScope(projectId, input, cursor, linkedDependency)
+      ? this.valuesFromLinkedProjectObject(projectId, input, cursor, linkedDependency) : null;
     if (linkedProjectObject) {
       return {
         claims: [], completion: null, sourceCompletions: [],
@@ -2438,8 +2496,14 @@ export class PredictiveProvenanceService {
       };
     }
     const detected = detectClaimSpans(text);
-    const hasStudyValue = detected.some((claim) => ['QUANTITATIVE', 'SAMPLE_SIZE'].includes(claim.type));
-    const hasReferenceIntent = detected.some((claim) => ['LITERATURE', 'TABLE_REFERENCE', 'FIGURE', 'METHOD', 'DATASET_REFERENCE']
+    // An amount or citation in an earlier sentence or clause says nothing about
+    // the words being typed now ("Revenue was 485000. Gross pr", "... and gross pr").
+    const { sentence, sentenceStart } = writingSourceContext(text, cursor);
+    const joiner = [...sentence.matchAll(CLAUSE_JOINER)].at(-1);
+    const clauseStart = sentenceStart + (joiner ? joiner.index + joiner[0].length : 0);
+    const current = detected.filter((claim) => claim.end > clauseStart);
+    const hasStudyValue = current.some((claim) => ['QUANTITATIVE', 'SAMPLE_SIZE'].includes(claim.type));
+    const hasReferenceIntent = current.some((claim) => ['LITERATURE', 'TABLE_REFERENCE', 'FIGURE', 'METHOD', 'DATASET_REFERENCE']
       .includes(claim.type));
     const studyPrediction = hasStudyValue || hasReferenceIntent
       ? null : this.progressiveStudyVariable(projectId, input, cursor);

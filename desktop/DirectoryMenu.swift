@@ -140,7 +140,7 @@ final class NativeMenuToggleRow: NSView {
     init(item: NSMenuItem, color: DirectoryToggleColor,
          onColorChange: @escaping (DirectoryToggleColor) -> Void) {
         self.item = item
-        colorButton = DirectoryColorButton(color: color, label: "Toggle color for \(item.title)")
+        colorButton = DirectoryColorButton(color: color, label: "Highlight color for \(item.title)")
         self.onColorChange = onColorChange
         titleLabel = NSTextField(labelWithString: item.title)
         let title = titleLabel
@@ -155,7 +155,7 @@ final class NativeMenuToggleRow: NSView {
         toggle.setAccessibilityLabel(item.title)
         toggle.setAccessibilityHelp(item.toolTip)
         colorButton.isEnabled = item.isEnabled
-        colorButton.toolTip = "Change toggle color"
+        colorButton.toolTip = "Highlight color for text inserted from this folder"
 
         let iconWidth: CGFloat = item.image == nil ? 0 : 22
         let width = min(480, max(260, 14 + iconWidth + title.frame.width + 18 + 24 + 8 + 40 + 12))
@@ -205,7 +205,7 @@ final class NativeMenuToggleRow: NSView {
         toggle.setAccessibilityHelp(item.toolTip)
         colorButton.tint = color
         colorButton.isEnabled = item.isEnabled
-        colorButton.setAccessibilityLabel("Toggle color for \(item.title)")
+        colorButton.setAccessibilityLabel("Highlight color for \(item.title)")
         palette?.update(selected: color, isEnabled: item.isEnabled)
         toolTip = item.toolTip
     }

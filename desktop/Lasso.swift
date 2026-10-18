@@ -472,7 +472,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                        enabled: isServerReady && busyMessage == nil)
                     item.state = directory.active ? .on : .off
                     item.representedObject = directory.id
-                    item.toolTip = [directory.rootPath, directory.error].compactMap { $0 }.joined(separator: "\n")
+                    let usage = directory.active ? "On: suggestions include this folder." : "Off: this folder is paused."
+                    item.toolTip = [directory.rootPath, directory.error, usage].compactMap { $0 }.joined(separator: "\n")
                     item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
                     item.view = NativeMenuToggleRow(item: item, color: toggleColor(for: directory.id)) { [weak self] color in
                         self?.setToggleColor(color, for: directory.id)
@@ -511,25 +512,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         toolsMenu.autoenablesItems = false
         toolsMenu.addItem(command("Open in Browser", action: #selector(openInBrowser), key: "b", enabled: isServerReady))
         toolsMenu.addItem(command("Refresh Directory Status", action: #selector(refreshDirectoryStatus), enabled: isServerReady))
-        let insertion = NSMenuItem(title: "Dependency Insertion", action: nil, keyEquivalent: "")
+        let insertion = NSMenuItem(title: "Tab Inserts", action: nil, keyEquivalent: "")
         let insertionMenu = NSMenu()
         insertionMenu.autoenablesItems = false
         for mode in InsertionMode.allCases {
             let item = command(mode.title, action: #selector(chooseInsertionMode(_:)))
             item.representedObject = mode.rawValue
             item.state = InsertionMode.current == mode ? .on : .off
+            item.toolTip = mode.explanation
             insertionMenu.addItem(item)
         }
         insertion.submenu = insertionMenu
         toolsMenu.addItem(insertion)
         toolsMenu.addItem(.separator())
-        toolsMenu.addItem(command("Restart Server", action: #selector(restartServer)))
-        toolsMenu.addItem(command("Probe This App’s Text Support", action: #selector(runHostProbe)))
-        let debug = command("Show Dependency Geometry", action: #selector(toggleDependencyDebug))
+        // Diagnostics stay together so everyday tools are not mixed with them.
+        let troubleshooting = NSMenuItem(title: "Troubleshooting", action: nil, keyEquivalent: "")
+        let troubleshootingMenu = NSMenu()
+        troubleshootingMenu.autoenablesItems = false
+        troubleshootingMenu.addItem(command("Restart Server", action: #selector(restartServer)))
+        let probe = command("Check Text Support in Next App", action: #selector(runHostProbe))
+        probe.toolTip = "Click, then switch to the app you type in. Lasso reports what it can read there."
+        troubleshootingMenu.addItem(probe)
+        let debug = command("Outline Highlight Positions", action: #selector(toggleDependencyDebug))
+        debug.toolTip = "Draws the boxes Lasso uses to place source highlights."
         debug.state = DependencyHighlighter.shared.isDebugging ? .on : .off
-        toolsMenu.addItem(debug)
-        toolsMenu.addItem(command("Reveal Server Log", action: #selector(revealLog)))
-        toolsMenu.addItem(command("Reveal Typing Log", action: #selector(revealAssistLog)))
+        troubleshootingMenu.addItem(debug)
+        troubleshootingMenu.addItem(command("Reveal Server Log", action: #selector(revealLog)))
+        troubleshootingMenu.addItem(command("Reveal Typing Log", action: #selector(revealAssistLog)))
+        troubleshooting.submenu = troubleshootingMenu
+        toolsMenu.addItem(troubleshooting)
         tools.submenu = toolsMenu
         statusMenu.addItem(tools)
         statusMenu.addItem(command("Quit Lasso", action: #selector(quit), key: "q"))
@@ -746,8 +757,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.runModal()
     }
 
+    /// Time to switch from the Lasso menu to the app being checked.
+    private static let hostProbeDelay: TimeInterval = 3
+
     @objc private func runHostProbe() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.hostProbeDelay) {
             let report = HostCapabilityProbe.run()
             AssistLog.enabled = true
             for line in report.split(separator: "\n") { AssistLog.write(String(line)) }

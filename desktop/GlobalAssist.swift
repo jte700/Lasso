@@ -97,9 +97,17 @@ enum InsertionMode: String, CaseIterable {
     }
     var title: String {
         switch self {
-        case .plain: return "Plain text by default"
-        case .ask: return "Ask before sharing"
-        case .share: return "Share link by default"
+        case .plain: return "Plain Text"
+        case .ask: return "Ask Each Time"
+        case .share: return "Share Link"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .plain: return "Tab inserts the source's text. ⇧⌘↩ still offers a share link."
+        case .ask: return "Tab asks whether to insert plain text or a share link."
+        case .share: return "Tab opens the sharing options, then inserts a share link."
         }
     }
 }
@@ -770,7 +778,9 @@ final class AssistBoxView: NSView {
         if mode != .suggestions {
             drawText("Lasso", in: NSRect(x: 14, y: bodyTop + 11, width: 46, height: 17),
                      font: NSFont.systemFont(ofSize: 11.5, weight: .semibold), color: .labelColor)
-            let context = sourceScoped ? title.replacingOccurrences(of: "_", with: " ") : "Project sources"
+            // The share question is the header, so the choices below it read as answers.
+            let context = mode == .confirmShare || sourceScoped
+                ? title.replacingOccurrences(of: "_", with: " ") : "Project sources"
             drawText(context, in: NSRect(x: 64, y: bodyTop + 11, width: leftWidth - 118, height: 17),
                      font: NSFont.systemFont(ofSize: 10.5), color: .secondaryLabelColor)
             drawSeparator(at: bodyTop + headerHeight)
@@ -860,7 +870,7 @@ final class AssistBoxView: NSView {
             drawFooterActions()
             drawDocumentPreview(footerY: footerY)
         } else {
-            drawText("↩  Choose access       ↑↓  Select       Esc  Cancel",
+            drawText("↑↓  Move       ↩  Choose       Esc  Cancel",
                      in: NSRect(x: 18, y: footerY + 24, width: leftWidth - 36, height: 18),
                      font: NSFont.systemFont(ofSize: 11), color: .secondaryLabelColor)
         }
@@ -891,13 +901,44 @@ final class AssistBoxView: NSView {
         outline.stroke()
     }
 
+    private enum FooterCommand { case tab, insertText, share }
+    private struct FooterAction {
+        let symbol: String
+        let symbolWidth: CGFloat
+        let title: String
+        let command: FooterCommand
+    }
+    /// Left edges of the footer slots; a click belongs to the slot it falls in.
+    private let footerSlots: [CGFloat] = [18, 108, 237]
+
+    /// Only shortcuts that do something different are listed. With plain-text
+    /// insertion, Tab and ⌘↩ do the same thing, so ⌘↩ is not shown twice.
+    private var footerActions: [FooterAction] {
+        let suggestion = suggestions.indices.contains(selected) ? suggestions[selected] : nil
+        let insertTitle = suggestion?.replacement?.expectedText.isEmpty == false ? "Replace" : "Insert"
+        let shareable = suggestion?.isShareable == true
+        let mode = shareable ? InsertionMode.current : .plain
+        let tabTitle = mode == .share ? "Share…" : mode == .ask ? "Text or link…" : insertTitle
+        var actions = [FooterAction(symbol: "⇥", symbolWidth: 18, title: tabTitle, command: .tab)]
+        if mode != .plain {
+            actions.append(FooterAction(symbol: "⌘↩", symbolWidth: 29, title: insertTitle, command: .insertText))
+        }
+        if shareable && mode != .share {
+            actions.append(FooterAction(symbol: "⇧⌘↩", symbolWidth: 36, title: "Share…", command: .share))
+        }
+        return actions
+    }
+
     private func drawFooterActions() {
-        let y = footerY + 18
-        let replacesKeyword = suggestions.indices.contains(selected)
-            && suggestions[selected].replacement?.expectedText.isEmpty == false
-        drawShortcut("⇥", title: replacesKeyword ? "Replace" : "Insert", x: 18, y: y, symbolWidth: 18)
-        drawShortcut("⌘↩", title: "Highlight", x: 108, y: y, symbolWidth: 29)
-        drawShortcut("⇧⌘↩", title: "Hyperlink", x: 237, y: y, symbolWidth: 36)
+        for (action, x) in zip(footerActions, footerSlots) {
+            drawShortcut(action.symbol, title: action.title, x: x, y: footerY + 18, symbolWidth: action.symbolWidth)
+        }
+    }
+
+    private func footerCommand(at x: CGFloat) -> FooterCommand? {
+        let actions = footerActions
+        let slot = footerSlots.lastIndex(where: { x >= $0 }) ?? 0
+        return actions.indices.contains(slot) ? actions[slot].command : nil
     }
 
     private func drawShortcut(_ symbol: String, title: String, x: CGFloat, y: CGFloat,
@@ -1029,10 +1070,10 @@ final class AssistBoxView: NSView {
 
         let gap: CGFloat = 8
         let buttonWidth = (rightWidth - 36 - gap) / 2
-        drawActionButton("Open source", symbol: "arrow.up.right.square",
+        drawActionButton("Open file", symbol: "arrow.up.right.square",
                          in: NSRect(x: rightX + 18, y: footerY + 6,
                                    width: buttonWidth, height: 35))
-        drawActionButton("Insert hyperlink", symbol: "link",
+        drawActionButton("Share link…", symbol: "link",
                          in: NSRect(x: rightX + 18 + buttonWidth + gap, y: footerY + 6,
                                    width: buttonWidth, height: 35))
     }
@@ -1252,9 +1293,12 @@ final class AssistBoxView: NSView {
 
         if point.x < leftWidth {
             if point.y >= footerY {
-                if point.x < 109 { onInsert?() }
-                else if point.x < 252 { onLocalLink?() }
-                else { onShare?() }
+                switch footerCommand(at: point.x) {
+                case .tab: onInsert?()
+                case .insertText: onLocalLink?()
+                case .share: onShare?()
+                case nil: break
+                }
                 return
             }
             guard point.y >= bodyTop else { return }
@@ -1365,6 +1409,9 @@ final class GlobalAssistant {
     private var linkedContext: String?
     private var linkedElement: AXUIElement?
     private var flashTimer: Timer?
+    private static let minimumTypedCharacters = 2
+    private static let minimumMessageTime: TimeInterval = 0.8
+    private var messageShownAt = Date.distantPast
     private var lastTrack = Date.distantPast
     private var popupHost: AssistPopupHost?
     private var popupCaret: CGRect?
@@ -1592,7 +1639,23 @@ final class GlobalAssistant {
     }
 
     private func scheduleRefresh() {
-        guard view.mode == .suggestions, !ShareComposerController.shared.isVisible else { return }
+        guard !ShareComposerController.shared.isVisible else { return }
+        // A brief message must not swallow the next words the writer types,
+        // such as the first word of the following sentence. It stays long
+        // enough to be read, then gives way to suggestions for that text.
+        if view.mode == .message {
+            let remaining = Self.minimumMessageTime - Date().timeIntervalSince(messageShownAt)
+            guard remaining <= 0 else {
+                debounce?.invalidate()
+                debounce = Timer.scheduledTimer(withTimeInterval: remaining, repeats: false) { [weak self] _ in
+                    self?.hide()
+                    self?.scheduleRefresh()
+                }
+                return
+            }
+            hide()
+        }
+        guard view.mode == .suggestions else { return }
         feedbackDismissed = false
         // Invalidate the previous response now, not after the debounce. A late
         // response must not dismiss the next refresh while the user is typing.
@@ -1609,7 +1672,10 @@ final class GlobalAssistant {
         guard isEnabled, let serverURL, !projectIds.isEmpty else { hide(); return }
         guard let captured = AccessibilityReader.focusedContext() else { hide(); return }
         let trimmed = captured.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count >= 4 else { hide(); return }
+        // Two characters are enough to ask, so the first word of an empty
+        // field ("Re" → Revenue) is not skipped. The server decides whether
+        // the typed fragment is long enough to match.
+        guard trimmed.count >= Self.minimumTypedCharacters else { hide(); return }
         if let host = popupHost, !CFEqual(host.element, captured.element) { hide() }
         // Linked sources belong to one surface only.
         if linkedContext != captured.diagnosis || linkedElement.map({ !CFEqual($0, captured.element) }) != false {
@@ -2560,8 +2626,8 @@ final class GlobalAssistant {
     private func askBeforeSharing() {
         pendingShare = currentSuggestion
         view.mode = .confirmShare
-        view.title = "share this dependency?"
-        view.confirmChoices = ["insert as plain text", "insert as shared link"]
+        view.title = "Insert as plain text or a share link?"
+        view.confirmChoices = ["Plain text", "Share link…"]
         view.selected = 0
         refreshPanelGeometry()
     }
@@ -2857,6 +2923,7 @@ final class GlobalAssistant {
         guard let context, startTrackingHost(for: context) else { hide(); return }
         let panel = existingPanel()
         view.mode = .message
+        messageShownAt = Date()
         view.title = "lasso"
         view.messageLines = lines
         refreshPanelGeometry()

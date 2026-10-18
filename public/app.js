@@ -2127,7 +2127,7 @@ async function showDependencyInspector(dependencyId, sourceNode = null) {
       ${origin?.path ? `<div><dt>Produced by</dt><dd>${escapeHtml(formatObjectLocation(origin))}</dd></div>` : ''}
     </dl>
     <section class="inspector-evidence">
-      <header><span><strong>Cited source preview</strong><small>Exact evidence and nearby context</small></span><button id="open-dependency-source" type="button">Open source</button></header>
+      <header><span><strong>Cited source preview</strong><small>Exact evidence and nearby context</small></span><button id="open-dependency-source" type="button">Open file</button></header>
       <div id="dependency-source-preview"><div class="inspector-preview-loading"><span></span>Loading indexed context…</div></div>
     </section>
     <footer class="inspector-actions">

@@ -22,9 +22,11 @@ open dist/Lasso.app
 The app runs in the menu bar and starts its own local server. Node.js must remain installed. The menu provides:
 
 - **Add Work Directories…** to choose folders.
-- **Work Directories** to collapse the list, toggle folders, and choose their colours with the small circles. Accepted source highlights use the source directory's colour.
+- **Work Directories** to collapse the list and switch folders on or off. Suggestions come only from folders that are switched on. The small circle sets the folder's highlight colour, used for text accepted from it.
 - **Suggest While Typing** to enable suggestions in other apps.
 - **Tools → Open in Browser** for writing, source browsing, and review.
+- **Tools → Tab Inserts** to choose what `Tab` does: **Plain Text** (default), **Ask Each Time**, or **Share Link**.
+- **Tools → Troubleshooting** for restarting the server, checking another app's text support, outlining highlight positions, and the logs.
 - **Show Lasso in Notch** on Macs with a built-in camera cutout. Off by default, this remembers your choice and hides itself when the notched display is unavailable. Only the Lasso logo appears immediately to the left of the camera cutout, entirely within the menu bar. Its black backing continues beneath the camera’s curved corner so the logo joins the notch without a seam. The expanded panel forms one continuous black surface from the display edge, with its controls below the camera. Click it to see active directories, indexed files, source value changes and indexing issues. New source changes or indexing issues also open the panel automatically after the initial activity check, without repeatedly reopening unchanged alerts. Automatic panels close after 12 seconds unless the pointer is over them. Pause/resume suggestions or open source review from the panel. Escape or clicking elsewhere collapses it without taking focus from your editor. Activity refreshes every 15 seconds while enabled. No source wording changes until you review and apply it in the browser.
 
 Interacting with the directory controls keeps the popover open. Clicking outside dismisses it. You can move the app to `/Applications` and add it to Login Items; keep one canonical copy when granting permissions.
@@ -45,13 +47,14 @@ Enable **Suggest While Typing**, then follow any **Allow Accessibility…** or *
 
 ### Using suggestions
 
-Type near a term or value from an enabled work directory. A source card shows matching entries and a preview. Use `↑`/`↓` to select and scroll through ranked matches, and `Esc` to dismiss. PDF sources show their original pages and support word and excerpt completions, with matched passages highlighted in the preview.
+Type near a term or value from an enabled work directory. Two letters are enough, including the first word in an empty field. A new sentence starts fresh suggestions even right after you accepted a source. A source card shows matching entries and a preview. Use `↑`/`↓` to select and scroll through ranked matches, and `Esc` to dismiss. PDF sources show their original pages and support word and excerpt completions, with matched passages highlighted in the preview.
 
 - **Tab:** replace the detected keyword or partial phrase with the selected source, value, field name, or citation. Sentence continuations append at the caret. The panel shows **Replace** when typed text will be replaced. Field descriptions and sample values stay in the preview.
-- **⌘Enter:** insert with a local source reference.
-- **Share** or **⇧⌘Enter:** choose the sharing scope, then insert a share link.
+- **⌘Enter:** insert plain text. It differs from `Tab` only when **Tab Inserts** is set to **Ask Each Time** or **Share Link**, so the panel lists it only then.
+- **Share link…** or **⇧⌘Enter:** choose the sharing scope, then insert a share link.
+- **Open file** opens the source in its default app.
 
-**Dependency insertion** defaults to plain text. **Ask before sharing** and **Share link by default** still require the privacy composer before creating a public token.
+Every plain-text insertion keeps a local source reference and highlight. **Ask Each Time** and **Share Link** still open the privacy composer before creating a public token.
 
 Plain-text acceptance stores source identity and a contextual text anchor locally. Lasso draws the colour and underline above the host app; these decorations are not part of the message sent to a recipient. Click a highlight to inspect its source. Highlights follow confidently resolved text and disappear when their position becomes ambiguous.
 
