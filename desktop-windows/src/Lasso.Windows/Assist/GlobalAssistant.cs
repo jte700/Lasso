@@ -56,6 +56,16 @@ public sealed class GlobalAssistant
     private CaretContext? _context;
     private HostRect? _popupCaret;
     private bool _tracking;
+    private int _trackingInFlight;
+    private long _lastTrack;
+    private int _caretMisses;
+
+    /// How often the caret is re-measured while the user types, matching the
+    /// macOS build's throttle.
+    private const int TrackIntervalMs = 30;
+    /// How many consecutive unreadable measurements mean the caret is gone,
+    /// rather than the host simply being busy.
+    private const int MaximumCaretMisses = 3;
     private AssistSuggestion? _pendingShare;
     private string? _linkedContext;
 
@@ -83,11 +93,11 @@ public sealed class GlobalAssistant
 
         // Follows the caret between refreshes, so the panel does not lag behind
         // continuous typing or a window the user is dragging.
-        _hostTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
+        _hostTimer = new DispatcherTimer(DispatcherPriority.Normal, _dispatcher)
         {
-            Interval = TimeSpan.FromMilliseconds(120),
+            Interval = TimeSpan.FromMilliseconds(100),
         };
-        _hostTimer.Tick += (_, _) => UpdateHostPosition();
+        _hostTimer.Tick += (_, _) => _ = UpdateHostPositionAsync();
 
         _flashTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher);
         _flashTimer.Tick += (_, _) =>
@@ -107,7 +117,7 @@ public sealed class GlobalAssistant
         panel.OnOpenSource = () => _ = OpenCurrentSourceAsync();
         panel.OnChooseSource = () => _ = BrowseSourcesAsync(allDocuments: false);
         panel.OnAllSources = () => _ = BrowseSourcesAsync(allDocuments: true);
-        panel.OnDismiss = Hide;
+        panel.OnDismiss = () => Hide("dismissed from the panel");
     }
 
     // MARK: - Lifecycle
@@ -144,7 +154,7 @@ public sealed class GlobalAssistant
         // Escape always dismisses, including a prediction that has not arrived.
         if (key.VirtualKey == KeyboardHook.VK_ESCAPE && (visible || _tracking || _debounce.IsEnabled))
         {
-            _dispatcher.BeginInvoke(Hide);
+            _dispatcher.BeginInvoke(() => Hide("Escape"));
             return KeyDisposition.Swallow;
         }
 
@@ -177,7 +187,7 @@ public sealed class GlobalAssistant
         // Other modifier chords are shortcuts, not typing.
         if (key.Control || key.Alt || key.Windows)
         {
-            _dispatcher.BeginInvoke(Hide);
+            _dispatcher.BeginInvoke(() => Hide("a shortcut was pressed"));
             return KeyDisposition.PassThrough;
         }
 
@@ -185,7 +195,7 @@ public sealed class GlobalAssistant
         {
             // The debounce only fires once typing pauses, so the panel is moved
             // here instead; otherwise it lags behind continuous typing.
-            if (visible) UpdateHostPosition();
+            if (visible) TrackCaret();
             ScheduleRefresh();
         });
         return KeyDisposition.PassThrough;
@@ -212,12 +222,12 @@ public sealed class GlobalAssistant
         var captured = await Task.Run(UiaReader.FocusedContext).ConfigureAwait(true);
         if (captured is null)
         {
-            Hide();
+            Hide("no readable caret");
             return;
         }
         if (captured.Text.Trim().Length < 4)
         {
-            Hide();
+            Hide("fewer than four characters typed");
             return;
         }
         if (_context is { } previous && !UiaReader.SameElement(previous.Element, captured.Element)) Hide();
@@ -231,7 +241,7 @@ public sealed class GlobalAssistant
         _context = captured;
         if (!StartTrackingHost(captured))
         {
-            Hide();
+            Hide("host reported no caret rectangle");
             return;
         }
         // Track the caret straight away; waiting for the response would leave
@@ -264,7 +274,7 @@ public sealed class GlobalAssistant
         if (token != _generation) return;
         if (data is null)
         {
-            Hide();
+            Hide("the prediction request did not complete");
             return;
         }
 
@@ -282,7 +292,7 @@ public sealed class GlobalAssistant
         if (token != _generation || !IsEnabled) return;
         if (suggestions.Count == 0)
         {
-            Hide();
+            Hide("no matching indexed source");
             return;
         }
 
@@ -294,7 +304,7 @@ public sealed class GlobalAssistant
             || fresh.AbsoluteCaret != captured.AbsoluteCaret
             || fresh.WindowStart != captured.WindowStart)
         {
-            Hide();
+            Hide("the text moved on before the answer arrived");
             return;
         }
 
@@ -309,9 +319,9 @@ public sealed class GlobalAssistant
     {
         var panel = _flyout.Panel;
         if (panel.Mode != AssistMode.Suggestions) return;
-        if (_context is not { } context || !StartTrackingHost(context) || _popupCaret is not { } live)
+        if (_context is not { } context || !StartTrackingHost(context, caret) || _popupCaret is not { } live)
         {
-            Hide();
+            Hide("no caret to anchor to");
             return;
         }
         panel.Suggestions = suggestions;
@@ -320,8 +330,12 @@ public sealed class GlobalAssistant
         _flyout.Present(live);
     }
 
-    public void Hide()
+    /// Dismisses the panel. The reason is written to the typing log, because
+    /// "it disappeared while I was typing" is otherwise impossible to tell
+    /// apart from "there was nothing to suggest".
+    public void Hide(string? reason = null)
     {
+        if (reason is not null && _flyout.IsVisible) AssistLog.Write($"dismissed: {reason}");
         _generation++;
         StopTrackingHost();
         _debounce.Stop();
@@ -345,12 +359,23 @@ public sealed class GlobalAssistant
     }
 
     // MARK: - Following the caret
+    //
+    // Measuring the caret is a cross-process call, and a busy host - a browser
+    // with a large document, most of all - can take a long time to answer it.
+    // So nothing here blocks the UI thread: that thread also runs the keyboard
+    // hook, and Windows removes a hook whose thread stops servicing it. A
+    // measurement that is still running is never queued behind another, and a
+    // single slow answer never dismisses the panel.
 
-    private bool StartTrackingHost(CaretContext context)
+    /// Begins following a caret that has already been measured. The rectangle
+    /// comes from the read that produced the context, so showing the panel
+    /// costs no extra cross-process call.
+    private bool StartTrackingHost(CaretContext context, HostRect? knownCaret = null)
     {
-        var caret = VisibleCaret(context);
-        if (caret is null) return false;
-        _popupCaret = caret;
+        var caret = knownCaret ?? context.CaretRect;
+        if (caret is not { } rect || !HostGeometryConverter.IsUsable(rect)) return false;
+        _popupCaret = rect;
+        _caretMisses = 0;
         if (!_tracking)
         {
             _tracking = true;
@@ -364,39 +389,72 @@ public sealed class GlobalAssistant
         _hostTimer.Stop();
         _tracking = false;
         _popupCaret = null;
+        _caretMisses = 0;
     }
 
-    private void UpdateHostPosition()
+    /// Throttled to the same interval the macOS build uses, so a burst of
+    /// keystrokes asks the host for its caret once rather than once per key.
+    private void TrackCaret()
+    {
+        if (!_tracking) return;
+        var now = Environment.TickCount64;
+        if (now - _lastTrack < TrackIntervalMs) return;
+        _lastTrack = now;
+        _ = UpdateHostPositionAsync();
+    }
+
+    private async Task UpdateHostPositionAsync()
     {
         if (_context is not { } context) return;
-        var caret = VisibleCaret(context);
-        if (caret is null)
+        // One measurement at a time; a tick that arrives while the host is
+        // still answering is dropped rather than piling up behind it.
+        if (Interlocked.Exchange(ref _trackingInFlight, 1) == 1) return;
+        try
         {
-            Hide();
-            return;
+            // The cheap checks first, so a host that is genuinely gone
+            // dismisses the panel at once without a cross-process call.
+            if (!HostOwnsFocus(context))
+            {
+                Hide("host no longer focused");
+                return;
+            }
+
+            var caret = await Task.Run(
+                () => UiaReader.CaretRectOf(context.Element, context.WindowHandle)).ConfigureAwait(true);
+
+            // The world may have moved on while the host was answering.
+            if (!ReferenceEquals(_context, context) || !_tracking) return;
+
+            if (caret is not { } rect || !HostGeometryConverter.IsUsable(rect))
+            {
+                // A host under load can miss one measurement. Only a run of
+                // them means the caret is really gone; dismissing on the first
+                // would make the panel vanish mid-sentence.
+                if (++_caretMisses >= MaximumCaretMisses) Hide("caret unreadable");
+                return;
+            }
+
+            _caretMisses = 0;
+            _popupCaret = rect;
+            Reposition(rect);
         }
-        _popupCaret = caret;
-        Reposition(caret);
+        finally
+        {
+            Interlocked.Exchange(ref _trackingInFlight, 0);
+        }
     }
 
     /// Geometry alone is not an identity: another window can put a caret at the
-    /// same coordinates. The owning process must still be in front, its window
-    /// must not be minimized, and the caret must land inside the editor.
-    private static HostRect? VisibleCaret(CaretContext context)
+    /// same coordinates. The owning process must still be in front and its
+    /// window must not be minimized. Both are local calls.
+    private static bool HostOwnsFocus(CaretContext context)
     {
         var foreground = Interop.NativeMethods.GetForegroundWindow();
-        if (foreground == IntPtr.Zero) return null;
+        if (foreground == IntPtr.Zero) return false;
         Interop.NativeMethods.GetWindowThreadProcessId(foreground, out var processId);
-        if (processId != context.ProcessId) return null;
-        if (context.WindowHandle != IntPtr.Zero && Interop.NativeMethods.IsIconic(context.WindowHandle))
-        {
-            return null;
-        }
-
-        var caret = UiaReader.CaretRectOf(context.Element, context.WindowHandle);
-        if (caret is not { } rect) return null;
-        if (!HostGeometryConverter.IsUsable(rect)) return null;
-        return rect;
+        if (processId != context.ProcessId) return false;
+        return context.WindowHandle == IntPtr.Zero
+            || !Interop.NativeMethods.IsIconic(context.WindowHandle);
     }
 
     private void Reposition(HostRect? caret)
