@@ -232,10 +232,24 @@ final class NativeMenuToggleRow: NSView {
         trackingAreas.forEach(removeTrackingArea)
         addTrackingArea(NSTrackingArea(rect: NSRect(x: 0, y: 0, width: bounds.width, height: 32),
             options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil))
+        refreshHover()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        refreshHover()
     }
 
     override func mouseEntered(with event: NSEvent) { hovering = item.isEnabled }
     override func mouseExited(with event: NSEvent) { hovering = false }
+
+    /// Rows are reused across popover openings and scroll under a still
+    /// pointer, neither of which sends an exit event. Read where it really is.
+    func refreshHover() {
+        guard let window, window.isVisible, item.isEnabled else { hovering = false; return }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        hovering = NSRect(x: 0, y: 0, width: bounds.width, height: 32).intersection(visibleRect).contains(point)
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         guard hovering else { return }
@@ -344,6 +358,7 @@ final class NativeMenuToggleRow: NSView {
         removeBadge.isEnabled = item.isEnabled
         removeBadge.setAccessibilityLabel("Remove \(item.title)")
         toolTip = item.toolTip
+        refreshHover()
     }
 
     func setPaletteVisible(_ visible: Bool) {

@@ -48,6 +48,14 @@ private final class StatusCommandButton: NSButton {
     override func mouseExited(with event: NSEvent) { hovering = false }
     override var isEnabled: Bool { didSet { if !isEnabled { hovering = false } } }
 
+    /// A closed popover keeps its views, so a row hovered at close would
+    /// reopen highlighted. Read where the pointer really is.
+    func refreshHover() {
+        guard let window, window.isVisible, isEnabled else { hovering = false; return }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        hovering = visibleRect.contains(point)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         if hovering {
             NSColor.labelColor.withAlphaComponent(0.1).setFill()
@@ -107,6 +115,8 @@ private extension NSImage {
 final class StatusDirectoryList: NSView {
     static let visibleRows = 4
     static let rowHeight: CGFloat = 32
+    /// A lane for the overlay scroller, so its knob never sits on the toggles.
+    static let scrollerGutter: CGFloat = 6
     let scroll = NSScrollView()
     private let documentView = StatusContentView()
     private let fade = CAGradientLayer()
@@ -124,6 +134,8 @@ final class StatusDirectoryList: NSView {
         scroll.autohidesScrollers = true
         scroll.borderType = .noBorder
         scroll.verticalScrollElasticity = .allowed
+        scroll.verticalScroller?.controlSize = .small
+        useOverlayScroller()
         scroll.documentView = documentView
         scroll.autoresizingMask = [.width, .height]
         scroll.contentView.postsBoundsChangedNotifications = true
@@ -135,6 +147,19 @@ final class StatusDirectoryList: NSView {
         setAccessibilityLabel("Work directories")
         NotificationCenter.default.addObserver(self, selector: #selector(updateFade),
             name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        NotificationCenter.default.addObserver(self, selector: #selector(preferredScrollerStyleChanged),
+            name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+    }
+
+    /// Menus keep thin overlay scrollers even when System Settings shows
+    /// scroll bars always; a tracked legacy bar looks foreign in this panel.
+    /// AppKit resets the style when that preference changes, so reapply it.
+    private func useOverlayScroller() {
+        scroll.scrollerStyle = .overlay
+    }
+
+    @objc private func preferredScrollerStyleChanged() {
+        DispatchQueue.main.async { [weak self] in self?.useOverlayScroller() }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -151,7 +176,7 @@ final class StatusDirectoryList: NSView {
         }
         var y: CGFloat = 0
         for row in rows {
-            row.frame = NSRect(x: 0, y: y, width: width, height: row.frame.height)
+            row.frame = NSRect(x: 0, y: y, width: width - Self.scrollerGutter, height: row.frame.height)
             if row.superview !== documentView { documentView.addSubview(row) }
             y += row.frame.height
         }
@@ -178,6 +203,8 @@ final class StatusDirectoryList: NSView {
     func flashScrollers() { scroll.flashScrollers() }
 
     @objc private func updateFade() {
+        // Scrolling moves rows under a still pointer without exit events.
+        for case let row as NativeMenuToggleRow in documentView.subviews { row.refreshHover() }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         fade.frame = scroll.bounds
@@ -255,9 +282,11 @@ final class StatusPopoverController {
             popover.performClose(nil)
         } else if button.window != nil {
             layoutRows()
+            refreshHover()
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             controller.view.window?.makeKey()
+            refreshHover()
             if directoryList.superview != nil { directoryList.flashScrollers() }
         }
     }
@@ -340,6 +369,13 @@ final class StatusPopoverController {
                 rows.append((label, isTitle ? inset + 14 : inset + 36))
             }
         }
+    }
+
+    /// Clears highlights left from the last time the popover was open, then
+    /// highlights whichever row is under the pointer now.
+    private func refreshHover() {
+        directoryRows.values.forEach { $0.refreshHover() }
+        for case let button as StatusCommandButton in content.subviews { button.refreshHover() }
     }
 
     private func updateRetainingCustomRows() {

@@ -268,8 +268,13 @@ final class NotchPanelController: NSObject {
         task?.resume()
     }
 
+    // The footer keeps the same 14-point inset from the bottom as from the
+    // sides, and an issue line gets its own row above it rather than a squeeze.
+    private static let footerInset: CGFloat = 14
+    private static let issueRowHeight: CGFloat = 26
+
     private var expandedContentHeight: CGFloat {
-        (issue == nil && !activity.changes.isEmpty ? 198 : 138) + (activity.failures > 0 ? 20 : 0)
+        (issue == nil && !activity.changes.isEmpty ? 208 : 148) + (activity.failures > 0 ? Self.issueRowHeight : 0)
     }
 
     private func label(_ text: String, x: CGFloat = 14, y: CGFloat, width: CGFloat? = nil,
@@ -329,7 +334,7 @@ final class NotchPanelController: NSObject {
                                height: frame.height - screen.safeAreaInsets.top)
         content.subviews.forEach { $0.removeFromSuperview() }
         let width = content.bounds.width
-        let footerY = content.bounds.height - 38
+        let footerY = content.bounds.height - Self.footerInset - 28
         label("\(activity.directories) active director\(activity.directories == 1 ? "y" : "ies") · \(activity.files) indexed file\(activity.files == 1 ? "" : "s")",
               y: 8, size: 11, color: .secondaryLabelColor, height: 18)
         let separator = NSBox(frame: NSRect(x: 14, y: 34, width: width - 28, height: 1))
@@ -362,7 +367,7 @@ final class NotchPanelController: NSObject {
                 : "Source changes will appear here as you work.", y: 70, size: 11, color: .secondaryLabelColor)
         }
         if activity.failures > 0 {
-            label("\(activity.failures) indexing or directory issue\(activity.failures == 1 ? "" : "s")", y: footerY - 22,
+            label("\(activity.failures) indexing or directory issue\(activity.failures == 1 ? "" : "s")", y: footerY - Self.issueRowHeight - 2,
                   size: 10, color: .systemOrange, height: 16)
         }
         let actionWidth = (width - 36) / 2
@@ -557,7 +562,7 @@ final class NotchPanelController: NSObject {
         controller.expanded = true
         controller.installClickDismissal()
         controller.render()
-        verify(controller.content.frame.height == 198 && controller.localClick != nil)
+        verify(controller.content.frame.height == 208 && controller.localClick != nil)
         let screen = Self.supportedScreen!
         verify(screen.frame.contains(controller.panel!.frame))
         verify(controller.panel!.frame.maxY == screen.frame.maxY)
