@@ -140,3 +140,27 @@ test('the longest phrase matched in any directory wins over a shorter one elsewh
   const app = await predictionFixture(t);
   assert.deepEqual(await claimsFor(app, 'The recorded net inc'), [{ text: 'net inc', labels: ['Net income'] }]);
 });
+
+test('library search ranks passages by their own words and lists a named file first', async (t) => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-library-'));
+  const root = path.join(temporary, 'Construction');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'RFI-004-Roof-Drain.txt'),
+    'Approval of cost does not close the design question.\n\nConfirm the roof drain relocation distance from Grid B.\n');
+  fs.writeFileSync(path.join(root, 'Diary.txt'), 'Crew arrived at 07:30.\n\nRFI-004 response still outstanding.\n');
+  const app = createApplication({ dataDir: path.join(temporary, 'history'), watchProjects: false });
+  t.after(async () => { await app.close(); fs.rmSync(temporary, { recursive: true, force: true }); });
+  await app.workspace.add([fs.realpathSync(root)], actor);
+  const search = (query) => app.workspace.search(query, { limit: 10, enrich: false });
+
+  const drain = search('roof drain');
+  assert.match(String(drain[0].valueText), /roof drain/i);
+  const unrelated = drain.findIndex((object) => /^Approval of cost/.test(object.label));
+  assert.ok(unrelated === -1 || unrelated > drain.findIndex((object) => /roof drain relocation/.test(object.label)));
+
+  // A file name is not a word of every sentence inside that file.
+  assert.ok(!/^Approval of cost/.test(search('RFI-004')[0].label));
+
+  const named = search('RFI-004-Roof-Drain.txt');
+  assert.equal(named[0].label, 'RFI-004-Roof-Drain');
+});

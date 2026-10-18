@@ -676,6 +676,17 @@ function anchorForSpan(blockIndex, blockType, blockText, start, end) {
   };
 }
 
+// How strongly a typed term matches text: a whole word (or its plural), the
+// start of a word as it is being typed, or, weakly, a fragment inside a word.
+function queryTermMatcher(term) {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const whole = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:s|es)?(?![\\p{L}\\p{N}])`, 'u');
+  const start = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}`, 'u');
+  return (text) => whole.test(text) ? 1 : start.test(text) ? 0.75 : text.includes(term) ? 0.25 : 0;
+}
+
+const isTextPassage = (object) => ['PDF_EXCERPT', 'TEXT_EXCERPT'].includes(object.metadata?.componentType);
+
 // Words a person could search for: strings and numbers, never JSON syntax,
 // field names, or the literal "true", "false" and "null" of flags.
 function searchableValues(value, output = [], depth = 0) {
@@ -2518,6 +2529,7 @@ export class PredictiveProvenanceService {
   search(projectId, query, options = {}) {
     const normalizedQuery = String(query ?? '').toLowerCase().trim();
     const terms = normalizedQuery.match(/[\p{L}\p{N}_.%-]+/gu) ?? [];
+    const termMatchers = terms.map(queryTermMatcher);
     const contextTerms = wordTokens(options.context);
     // Terminal aliases are names in this workspace, so the editor's source
     // picker finds a source by an alias the same way the terminal does.
@@ -2547,11 +2559,18 @@ export class PredictiveProvenanceService {
         const aliasMatch = aliasedKeys.has(object.objectKey);
         const direct = match.direct || aliasMatch;
         const searchable = `${object.searchText} ${object.path}`.toLowerCase();
+        // A passage is found by its own words. Its file name matches every
+        // passage in the file equally, so it counts for little.
+        const passage = isTextPassage(object);
+        const content = passage ? String(object.valueText ?? '').toLowerCase() : searchable;
+        const filePath = object.path.toLowerCase();
+        const termScore = termMatchers.reduce((sum, matches) => sum
+          + Math.max(matches(content), passage ? matches(filePath) * 0.3 : 0), 0) / Math.max(1, terms.length);
         const contextScore = contextTerms.length
           ? contextTerms.filter((term) => searchable.includes(term)).length / contextTerms.length : 0;
         const aliasScore = aliasContextScores.get(object.objectKey) ?? 0;
         const score = aliasMatch ? 1 : direct && normalizedQuery ? match.score
-          : terms.length ? Math.max(aliasScore, terms.filter((term) => searchable.includes(term)).length / terms.length)
+          : terms.length ? Math.max(aliasScore, termScore)
             : contextScore ? 0.25 + contextScore * 0.35 : 0.2;
         return {
           ...object,
@@ -2572,11 +2591,17 @@ export class PredictiveProvenanceService {
     const sourcePaths = new Set(matches.filter((object) => normalizedQuery
       && [object.path, path.posix.basename(object.path)].some((value) => value.toLowerCase() === normalizedQuery))
       .map((object) => object.path));
-    const ranked = this.ranking.rank(projectId, matches, {
+    let ranked = this.ranking.rank(projectId, matches, {
       query: normalizedQuery || options.context, documentPath: options.documentPath,
       limit: options.limit ?? 30,
       diversify: options.diversify !== false && !options.sourcePath && sourcePaths.size !== 1,
     });
+    // Naming a file asks for that file first, then what it contains.
+    if (sourcePaths.size === 1) {
+      const whole = (object) => ['DRAWING', 'PAPER', 'DATASET'].includes(object.objectType)
+        || (object.objectType === 'DOCUMENT' && !isTextPassage(object));
+      ranked = [...ranked.filter(whole), ...ranked.filter((object) => !whole(object))];
+    }
     return options.enrich === false ? ranked : ranked.map((object) => this.enrichObject(projectId, object));
   }
 

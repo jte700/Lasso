@@ -18,7 +18,10 @@ export function directRecommendationMatch(candidate, input) {
   const candidatePath = normalized(candidate.path ?? source.path);
   const filename = path.posix.basename(candidatePath);
   const stem = filename.slice(0, filename.length - path.posix.extname(filename).length);
-  const names = [candidatePath, filename, stem, candidate.label, candidate.name, source.label]
+  // A sentence or paragraph is named by its own words. Its file's name would
+  // make every passage in the file a direct match for that file.
+  const passage = ['PDF_EXCERPT', 'TEXT_EXCERPT'].includes(source.metadata?.componentType);
+  const names = [...(passage ? [] : [candidatePath, filename, stem]), candidate.label, candidate.name, source.label]
     .map(normalized).filter(Boolean);
   if (names.includes(query)) return { score: 1, direct: true, exact: true, reason: 'Exact name match' };
   const metadata = source.metadata ?? {};
