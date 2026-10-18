@@ -22,8 +22,7 @@ function compare(a, b) {
     || Number(right.relationship ?? false) - Number(left.relationship ?? false)
     || ((right.relevanceScore ?? b.score ?? 0) + (right.usageBoost ?? 0))
       - ((left.relevanceScore ?? a.score ?? 0) + (left.usageBoost ?? 0))
-    || String(a.projectId).localeCompare(String(b.projectId))
-    || String(a.id ?? a.objectId ?? a.insertText ?? '').localeCompare(String(b.id ?? b.objectId ?? b.insertText ?? ''));
+    || String(a.projectId).localeCompare(String(b.projectId));
 }
 
 function tag(value, project, projects = null) {
@@ -37,12 +36,18 @@ function tag(value, project, projects = null) {
 
 function distinctRanked(items, limit) {
   const seen = new Set();
-  return items.sort(compare).filter((item) => {
-    const key = `${item.projectId}:${item.id ?? item.objectId ?? item.dependencyCandidate?.id}:${item.insertText ?? item.text ?? ''}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  }).slice(0, limit);
+  // Full ties keep each directory's own ranked order, which already settles
+  // them by source order (a row's columns left to right). Object ids are
+  // random, so comparing them would shuffle equal suggestions between runs.
+  return items.map((item, order) => ({ item, order }))
+    .sort((left, right) => compare(left.item, right.item) || left.order - right.order)
+    .map(({ item }) => item)
+    .filter((item) => {
+      const key = `${item.projectId}:${item.id ?? item.objectId ?? item.dependencyCandidate?.id}:${item.insertText ?? item.text ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, limit);
 }
 
 /** A live selection over real projects. Snapshots and writes keep their owner. */
