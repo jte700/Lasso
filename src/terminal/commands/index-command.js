@@ -3,7 +3,7 @@
 import { ACTION, blank, dim, failure, fields, group, result, resultItem, text } from '../result.js';
 import { formatRelative, plural } from './shared.js';
 
-const SUBCOMMANDS = ['status', 'add', 'remove', 'include', 'refresh', 'failures', 'excluded', 'retry'];
+const SUBCOMMANDS = ['status', 'add', 'remove', 'include', 'refresh', 'reindex', 'failures', 'excluded', 'retry'];
 
 function statusReport(context) {
   const status = context.indexing.status(context.projectId);
@@ -14,6 +14,7 @@ function statusReport(context) {
       ['Dependencies', status.project.dependencies.toLocaleString('en-US')],
       ['Last scan', formatRelative(status.project.lastScanAt)],
       ['Version', String(status.project.version)],
+      ['Reader', status.freshness.stale ? 'older than this build' : 'current'],
     ]),
     blank(),
     {
@@ -39,6 +40,9 @@ function statusReport(context) {
   }
   if (status.failures.length) {
     blocks.push(blank(), text(`${plural(status.failures.length, 'file')} could not be indexed — \`index failures\``, 'warn'));
+  }
+  if (status.freshness.stale) {
+    blocks.push(blank(), text('These sources were read by an older build — `index reindex` re-reads them.', 'warn'));
   }
 
   return result('index', {
@@ -182,6 +186,45 @@ export function indexCommand(context, command) {
         ],
         hints: target && !scoped.length ? [`No indexed directory starts with ${target}.`] : [],
         data: { capture, status },
+      });
+    }
+
+    case 'reindex': {
+      // Whole-project, like a scan: the reader that produced a version is
+      // recorded against that version, so half of one cannot be re-read.
+      // `index reindex Finance` only narrows what the report shows.
+      const reindexed = context.indexing.reindex(context.projectId, context.actor, {
+        reason: typeof command.flags.reason === 'string' ? command.flags.reason : null,
+      });
+      const status = context.indexing.status(context.projectId);
+      const scoped = target
+        ? status.directories.filter((directory) => directory.name.toLowerCase().startsWith(target.toLowerCase()))
+        : status.directories;
+      const review = reindexed.dependenciesNeedingReview;
+      return result('index', {
+        headline: reindexed.changed
+          ? `Version ${reindexed.snapshot.version} recorded from a new reading`
+          : 'The current reader reads these files exactly as recorded',
+        subhead: reindexed.changed ? reindexed.event?.title ?? null : null,
+        blocks: [
+          fields([
+            ['sources before', String(reindexed.objects.before)],
+            ['sources now', String(reindexed.objects.after)],
+            ['files', String(status.project.files)],
+          ]),
+          blank(),
+          dim(reindexed.changed
+            ? 'The files did not change. Earlier versions keep what the reader produced then, so existing links and shares still resolve.'
+            : 'Nothing was recorded, because nothing about the reading changed.'),
+          ...(review ? [blank(), text(`${plural(review, 'claim')} need review — \`stale\` lists them.`, 'warn')] : []),
+          ...(target ? [blank(), {
+            kind: 'table',
+            columns: ['directory', 'files', 'state'],
+            rows: scoped.map((directory) => [directory.name, String(directory.files), directory.health]),
+          }] : []),
+        ],
+        hints: target && !scoped.length ? [`No indexed directory starts with ${target}.`] : [],
+        data: { reindexed, status },
       });
     }
 

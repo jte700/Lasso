@@ -121,6 +121,50 @@ public static class AssistHttp
         return null;
     }
 
+    /// What a re-read recorded, or that it had nothing to record.
+    public sealed record ReindexOutcome(bool Changed, int Version, int Before, int After, int NeedsReview);
+
+    /// Re-reads a project's files with the current reader. The server records
+    /// the better reading as a new version and leaves earlier ones as they were
+    /// read then, so this never rewrites recorded evidence.
+    public static async Task<ReindexOutcome?> ReindexAsync(Uri server, string projectId,
+        CancellationToken cancellation)
+    {
+        var payload = new Dictionary<string, object>
+        {
+            // The only actor a tray action can mean.
+            ["actor"] = new Dictionary<string, object>
+            {
+                ["id"] = "human-self:local",
+                ["displayName"] = "Local user",
+                ["actorType"] = "HUMAN_SELF",
+            },
+            ["reason"] = "requested from the menu",
+        };
+        var url = new Uri(server, $"api/projects/{Uri.EscapeDataString(projectId)}/reindex");
+        // Reading every file in a project is not a two-second request.
+        var data = await SendAsync(Json(HttpMethod.Post, url, payload),
+            TimeSpan.FromMinutes(5), cancellation).ConfigureAwait(false);
+        if (data is null) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(data);
+            if (JsonReading.Object(document.RootElement, "reindexed") is not { } reindexed) return null;
+            var objects = JsonReading.Object(reindexed, "objects") ?? default;
+            var snapshot = JsonReading.Object(reindexed, "snapshot") ?? default;
+            return new ReindexOutcome(
+                JsonReading.Bool(reindexed, "changed") ?? false,
+                JsonReading.Int(snapshot, "version") ?? 0,
+                JsonReading.Int(objects, "before") ?? 0,
+                JsonReading.Int(objects, "after") ?? 0,
+                JsonReading.Int(reindexed, "dependenciesNeedingReview") ?? 0);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     public static async Task<string?> ProjectRootAsync(Uri server, string projectId,
         CancellationToken cancellation)
     {

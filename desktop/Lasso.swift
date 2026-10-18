@@ -459,6 +459,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         insertion.submenu = insertionMenu
         menu.addItem(insertion)
 
+        let reindex = NSMenuItem(title: "Re-read Sources with the Current Reader",
+                                 action: #selector(reindexSources), keyEquivalent: "")
+        reindex.target = self
+        menu.addItem(reindex)
+
         let restart = NSMenuItem(title: "Restart Server", action: #selector(restartServer), keyEquivalent: "")
         restart.target = self
         menu.addItem(restart)
@@ -673,6 +678,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     GlobalAssistant.shared.lastProblem?.settingsAnchor ?? "Privacy_Accessibility")
             }
         }
+    }
+
+    /// Re-reads the indexed files with the reader this build ships.
+    ///
+    /// Always something the user asks for: it records a new version and may
+    /// leave claims needing review, so it is never done on their behalf when a
+    /// newer reader arrives.
+    @objc private func reindexSources() {
+        guard let serverURL = server.url else { return }
+        firstProjectId { projectId in
+            guard let projectId else {
+                self.report(title: "Re-read sources", message: "No directory is indexed yet.")
+                return
+            }
+            var request = URLRequest(url: serverURL
+                .appendingPathComponent("api/projects/\(projectId)/reindex"))
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "content-type")
+            // Reading every file in a project is not a two-second request.
+            request.timeoutInterval = 300
+            request.httpBody = try? JSONSerialization.data(withJSONObject: [
+                // The only actor a menu bar action can mean.
+                "actor": ["id": "human-self:local", "displayName": "Local user", "actorType": "HUMAN_SELF"],
+                "reason": "requested from the menu",
+            ])
+            URLSession.shared.dataTask(with: request) { data, _, _ in
+                let root = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                guard let reindexed = root?["reindexed"] as? [String: Any] else {
+                    self.report(title: "Re-read sources", message: "The sources could not be re-read.")
+                    return
+                }
+                self.report(title: "Re-read sources", message: Self.reindexSummary(reindexed))
+            }.resume()
+        }
+    }
+
+    /// Says what was recorded, in the same words as the Windows companion.
+    private static func reindexSummary(_ reindexed: [String: Any]) -> String {
+        guard reindexed["changed"] as? Bool == true else {
+            return "The current reader reads these files exactly as recorded. Nothing was changed."
+        }
+        let objects = reindexed["objects"] as? [String: Any] ?? [:]
+        let version = (reindexed["snapshot"] as? [String: Any])?["version"] as? Int ?? 0
+        let before = objects["before"] as? Int ?? 0
+        let after = objects["after"] as? Int ?? 0
+        let review = reindexed["dependenciesNeedingReview"] as? Int ?? 0
+        var message = "Version \(version) records a new reading of the same files: "
+            + "\(before) sources before, \(after) now. "
+            + "Earlier versions are unchanged, so existing links and shares still resolve."
+        if review > 0 {
+            message += "\n\n\(review) claim(s) need review: the new reader identifies their source differently."
+        }
+        return message
+    }
+
+    private func report(title: String, message: String) {
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = title
+            alert.informativeText = message
+            alert.addButton(withTitle: "OK")
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+            self.webView?.reload()
+        }
+    }
+
+    /// The project the assistant adopted, or the first indexed one.
+    private func firstProjectId(_ completion: @escaping (String?) -> Void) {
+        if let adopted = GlobalAssistant.shared.projectId {
+            completion(adopted)
+            return
+        }
+        guard let url = server.url?.appendingPathComponent("api/projects") else {
+            completion(nil)
+            return
+        }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            let root = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            let projects = root?["projects"] as? [[String: Any]]
+            completion(projects?.first?["id"] as? String)
+        }.resume()
     }
 
     /// Falls back to the first indexed project when the window has not reported

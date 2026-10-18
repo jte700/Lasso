@@ -16,7 +16,7 @@ for (const branch of ['recommendations', 'share-scopes']) {
    db.exec(fs.readFileSync(path.join('migrations',migration),'utf8').replace('VALUES (15,','VALUES (14,'));
    db.exec('CREATE TABLE migration_probe(value TEXT); INSERT INTO migration_probe VALUES (\'preserved\')');
    db.close();db=openDatabase({databasePath});
-   assert.equal(db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version,16);
+   assert.equal(db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version,18);
    assert.ok(db.prepare('PRAGMA table_info(snapshot_object_indexes)').all().some(c=>c.name==='drawing_index_version'));
    assert.ok(db.prepare('PRAGMA table_info(object_share_grants)').all().some(c=>c.name==='access_scope'));
    assert.ok(db.prepare('PRAGMA table_info(recommendation_usage)').all().length);

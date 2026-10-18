@@ -25,6 +25,12 @@ const OBJECT_TYPES = new Set([
 const SELECTION_METHODS = new Set(['AUTOCOMPLETE', 'PREDICTED_ACCEPTED', 'MANUAL', 'SYSTEM_LINKED', 'IMPORTED']);
 const STATUS_TYPES = new Set(['PREDICTED', 'LINKED', 'NEEDS_REVIEW', 'STALE', 'BROKEN']);
 const MAX_SNAPSHOT_OBJECTS = 10_000;
+// The reader that turns file bytes into indexed objects. Bumped whenever
+// extraction changes what it reads out of unchanged files, so a project indexed
+// by an older build can be offered a re-read. A snapshot records the version
+// that produced its objects in snapshot_object_indexes.extractor_version; 0
+// there means a build that recorded none.
+const EXTRACTOR_VERSION = 1;
 const MAX_TABLE_CELLS = 1_500;
 const EDITABLE_DOCUMENT_TYPES = new Set(['markdown', 'text', 'document', 'pdf']);
 const STOP_WORDS = new Set([
@@ -1223,20 +1229,20 @@ export class PredictiveProvenanceService {
     return text;
   }
 
-  ensureIndex(projectId, snapshotId = null) {
-    const project = this.timeline.getProject(projectId);
-    const targetSnapshotId = snapshotId ?? project.currentSnapshotId;
-    const snapshot = this.timeline.getSnapshot(targetSnapshotId);
-    if (snapshot.projectId !== projectId) throw new HttpError(400, 'Snapshot does not belong to this project.');
-    const existingIndex = this.db.prepare('SELECT drawing_index_version FROM snapshot_object_indexes WHERE snapshot_id = ?').get(targetSnapshotId);
-    if (existingIndex?.drawing_index_version >= 1) return;
+  /**
+   * Reads a snapshot's files into object descriptors without recording
+   * anything. `incremental` is the lazy drawing upgrade: a snapshot that
+   * already carries an index only re-reads the file types that index did not
+   * cover, and keeps everything else as the build that indexed it read it.
+   */
+  extractDescriptors(snapshot, { incremental = false } = {}) {
     const descriptors = [];
     const files = [...snapshot.files].sort((left, right) => dependencyFilePriority(right) - dependencyFilePriority(left)
       || left.path.localeCompare(right.path));
     for (const file of files) {
       if (descriptors.length >= MAX_SNAPSHOT_OBJECTS) break;
       const design = ['drawing', 'xml'].includes(file.fileType) || /\.(?:ifc|dxf|dwg|rvt|dgn|landxml|xml)$/i.test(file.path);
-      if (existingIndex && file.fileType !== 'pdf' && !design) continue;
+      if (incremental && file.fileType !== 'pdf' && !design) continue;
       if (file.size > 25_000_000 && !design && !['image', 'pdf', 'document'].includes(file.fileType)) continue;
       if (file.size > 5_000_000 && !design && !['image', 'pdf', 'document', 'table', 'spreadsheet'].includes(file.fileType)) continue;
       if (!design && !['table', 'spreadsheet', 'code', 'notebook', 'image', 'json', 'text', 'markdown', 'pdf', 'document'].includes(file.fileType)) continue;
@@ -1252,33 +1258,195 @@ export class PredictiveProvenanceService {
       descriptors.push(...included);
     }
     applyVariableDefinitions(descriptors);
-    transaction(this.db, () => {
-      const insertObject = this.db.prepare(`
-        INSERT INTO scientific_objects(id, project_id, object_key, object_type, created_at)
-        VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, object_key) DO NOTHING
-      `);
-      const getObject = this.db.prepare('SELECT id FROM scientific_objects WHERE project_id = ? AND object_key = ?');
-      const insertVersion = this.db.prepare(`
-        INSERT OR IGNORE INTO scientific_object_versions(
-          id, object_id, snapshot_id, path, anchor_json, label, value_text, search_text, content_hash, metadata_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      for (const descriptor of descriptors) {
-        const objectId = id();
-        insertObject.run(objectId, projectId, descriptor.key, descriptor.type, now());
-        const stableId = getObject.get(projectId, descriptor.key).id;
-        insertVersion.run(
-          id(), stableId, targetSnapshotId, descriptor.path,
-          descriptor.anchor ? JSON.stringify(descriptor.anchor) : null,
-          descriptor.label, descriptor.value, descriptor.searchText, descriptor.contentHash,
-          JSON.stringify(descriptor.metadata), now(),
-        );
-      }
-      const objectCount = this.db.prepare('SELECT COUNT(*) AS count FROM scientific_object_versions WHERE snapshot_id = ?').get(targetSnapshotId).count;
-      this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version) VALUES (?, ?, ?, 1)
-        ON CONFLICT(snapshot_id) DO UPDATE SET drawing_index_version = 1, indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
-        .run(targetSnapshotId, now(), objectCount);
+    return descriptors;
+  }
+
+  /**
+   * Records descriptors as one snapshot's reading. The caller owns the
+   * transaction, so a re-index can write the new snapshot and its reading in
+   * the same one.
+   *
+   * Stable object identities are reused: an object whose key is unchanged keeps
+   * the scientific_objects row every recorded dependency points at.
+   */
+  writeObjectIndex(projectId, snapshotId, descriptors) {
+    const insertObject = this.db.prepare(`
+      INSERT INTO scientific_objects(id, project_id, object_key, object_type, created_at)
+      VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, object_key) DO NOTHING
+    `);
+    const getObject = this.db.prepare('SELECT id FROM scientific_objects WHERE project_id = ? AND object_key = ?');
+    const insertVersion = this.db.prepare(`
+      INSERT OR IGNORE INTO scientific_object_versions(
+        id, object_id, snapshot_id, path, anchor_json, label, value_text, search_text, content_hash, metadata_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const descriptor of descriptors) {
+      const objectId = id();
+      insertObject.run(objectId, projectId, descriptor.key, descriptor.type, now());
+      const stableId = getObject.get(projectId, descriptor.key).id;
+      insertVersion.run(
+        id(), stableId, snapshotId, descriptor.path,
+        descriptor.anchor ? JSON.stringify(descriptor.anchor) : null,
+        descriptor.label, descriptor.value, descriptor.searchText, descriptor.contentHash,
+        JSON.stringify(descriptor.metadata), now(),
+      );
+    }
+    const objectCount = this.db.prepare('SELECT COUNT(*) AS count FROM scientific_object_versions WHERE snapshot_id = ?').get(snapshotId).count;
+    // The conflict path is the incremental drawing upgrade, which leaves
+    // objects an older reader produced in place. The snapshot is then a mix of
+    // readers, so it keeps the extractor version it already carries.
+    this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version, extractor_version)
+      VALUES (?, ?, ?, 1, ?)
+      ON CONFLICT(snapshot_id) DO UPDATE SET drawing_index_version = 1, indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
+      .run(snapshotId, now(), objectCount, EXTRACTOR_VERSION);
+    return objectCount;
+  }
+
+  ensureIndex(projectId, snapshotId = null) {
+    const project = this.timeline.getProject(projectId);
+    const targetSnapshotId = snapshotId ?? project.currentSnapshotId;
+    const snapshot = this.timeline.getSnapshot(targetSnapshotId);
+    if (snapshot.projectId !== projectId) throw new HttpError(400, 'Snapshot does not belong to this project.');
+    const existingIndex = this.db.prepare('SELECT drawing_index_version FROM snapshot_object_indexes WHERE snapshot_id = ?').get(targetSnapshotId);
+    // A snapshot already read by a build that covered drawings keeps that
+    // reading. A better reader is offered through `reindex`, which records a
+    // new snapshot rather than rewriting this one.
+    if (existingIndex?.drawing_index_version >= 1) return;
+    const descriptors = this.extractDescriptors(snapshot, { incremental: Boolean(existingIndex) });
+    transaction(this.db, () => this.writeObjectIndex(projectId, targetSnapshotId, descriptors));
+  }
+
+  /**
+   * Which reader produced the project's current reading, and whether a newer
+   * one exists. Nothing acts on this by itself: re-indexing records a snapshot
+   * and a timeline event, so it stays something the user asks for.
+   */
+  indexFreshness(projectId) {
+    const project = this.timeline.getProject(projectId);
+    const row = this.db.prepare('SELECT extractor_version, indexed_at, object_count FROM snapshot_object_indexes WHERE snapshot_id = ?')
+      .get(project.currentSnapshotId);
+    // An unindexed snapshot is read by the current reader the moment anything
+    // asks it for an object, so it is not behind.
+    const indexedWith = row ? (row.extractor_version ?? 0) : null;
+    return {
+      snapshotId: project.currentSnapshotId,
+      extractorVersion: EXTRACTOR_VERSION,
+      indexedWith,
+      indexedAt: row?.indexed_at ?? null,
+      objectCount: row?.object_count ?? null,
+      stale: indexedWith !== null && indexedWith < EXTRACTOR_VERSION,
+    };
+  }
+
+  /** One snapshot's recorded reading, keyed by object, for comparison. */
+  recordedReading(projectId, snapshotId) {
+    const reading = new Map();
+    for (const row of this.db.prepare(`
+      SELECT o.object_key, o.object_type, v.path, v.anchor_json, v.label, v.value_text,
+        v.search_text, v.content_hash, v.metadata_json
+      FROM scientific_object_versions v JOIN scientific_objects o ON o.id = v.object_id
+      WHERE o.project_id = ? AND v.snapshot_id = ?
+    `).all(projectId, snapshotId)) {
+      reading.set(row.object_key, JSON.stringify([
+        row.object_type, row.path, json(row.anchor_json, null), row.label,
+        row.value_text ?? null, row.search_text, row.content_hash, json(row.metadata_json, {}),
+      ]));
+    }
+    return reading;
+  }
+
+  /** The same shape for a freshly read set of descriptors. */
+  static descriptorReading(descriptors) {
+    const reading = new Map();
+    for (const descriptor of descriptors) {
+      // A snapshot keeps the first version of each object key.
+      if (reading.has(descriptor.key)) continue;
+      reading.set(descriptor.key, JSON.stringify([
+        descriptor.type, descriptor.path, descriptor.anchor ?? null, descriptor.label,
+        descriptor.value ?? null, descriptor.searchText, descriptor.contentHash, descriptor.metadata,
+      ]));
+    }
+    return reading;
+  }
+
+  /**
+   * Re-reads the project's files with the current reader and records the result
+   * as a new snapshot carrying the same files.
+   *
+   * Earlier snapshots keep the objects the build that indexed them produced:
+   * recorded evidence never changes, a share grant pins one of those versions
+   * deliberately, and the content-addressed blobs are shared rather than
+   * copied. What a re-index adds is a newer reading of the same bytes.
+   *
+   * Whole-project, because the extractor version is recorded against a snapshot
+   * and a half-re-read snapshot could not honestly carry one.
+   */
+  reindex(projectId, actorInput, options = {}) {
+    const project = this.timeline.getProject(projectId);
+    if (options.expectedSnapshotId && options.expectedSnapshotId !== project.currentSnapshotId) {
+      throw new VersionConflictError(options.expectedSnapshotId, project.currentSnapshotId);
+    }
+    const previous = this.timeline.getSnapshot(project.currentSnapshotId);
+    // Whatever the recorded index says, the comparison below is against what is
+    // actually recorded, so an unindexed snapshot is read first.
+    this.ensureIndex(projectId, previous.id);
+    const descriptors = this.extractDescriptors(previous);
+    const reading = PredictiveProvenanceService.descriptorReading(descriptors);
+    const recorded = this.recordedReading(projectId, previous.id);
+    const identical = reading.size === recorded.size
+      && [...reading].every(([key, value]) => recorded.get(key) === value);
+    if (identical) {
+      // Nothing to record: the current reader reads these files exactly as the
+      // snapshot already says. Naming the reader that produced an identical
+      // reading is bookkeeping about the index, not a change to the evidence,
+      // so the project stops being offered a re-read it does not need.
+      this.db.prepare('UPDATE snapshot_object_indexes SET extractor_version = ? WHERE snapshot_id = ? AND extractor_version < ?')
+        .run(EXTRACTOR_VERSION, previous.id, EXTRACTOR_VERSION);
+      return {
+        changed: false, reason: 'IDENTICAL_READING', projectId, snapshot: previous, event: null,
+        objects: { before: recorded.size, after: recorded.size }, dependenciesNeedingReview: 0,
+        freshness: this.indexFreshness(projectId),
+      };
+    }
+
+    const fileCount = previous.files.length;
+    const reason = String(options.reason ?? '').trim().slice(0, 120);
+    const title = `Re-read ${fileCount} file${fileCount === 1 ? '' : 's'} with the current reader`
+      + '; the files did not change'
+      + (reason ? ` — ${reason}` : '');
+    let objectCount = 0;
+    const result = this.cloneTransition(projectId, actorInput, {
+      source: 'REINDEX', title, initiatedBy: options.initiatedBy ?? null,
+    }, ({ resultingSnapshotId }) => {
+      objectCount = this.writeObjectIndex(projectId, resultingSnapshotId, descriptors);
     });
+
+    this.completionCorpusCache.clear();
+    this.studyVariableCache.clear();
+    this.workspaceRetrievalCache.clear();
+
+    // A better reader can key an object differently — the row-label fix renames
+    // every indented line item — so a claim whose source is absent from the new
+    // reading needs a person, not a verdict of BROKEN. Its evidence is intact
+    // and still pinned in the snapshot it was linked at.
+    const reconciled = this.reconcileProject(projectId, result.snapshot.id, {
+      missingSource: {
+        status: 'NEEDS_REVIEW',
+        reason: 'The current reader no longer produces this source object. Its recorded evidence is unchanged; re-point the claim at the new reading.',
+      },
+    });
+
+    return {
+      changed: true,
+      projectId,
+      snapshot: result.snapshot,
+      event: result.event,
+      objects: { before: recorded.size, after: objectCount },
+      dependenciesNeedingReview: reconciled.changed
+        ? this.currentDependencies(projectId).filter((dependency) => dependency.status === 'NEEDS_REVIEW').length
+        : 0,
+      freshness: this.indexFreshness(projectId),
+    };
   }
 
   objectsAt(projectId, snapshotId = null, objectTypes = null) {
@@ -3535,7 +3703,7 @@ export class PredictiveProvenanceService {
     this.reconcileProject(capture.projectId, capture.snapshot.id);
   }
 
-  reconcileProject(projectId, sourceSnapshotId = null) {
+  reconcileProject(projectId, sourceSnapshotId = null, options = {}) {
     const project = this.timeline.getProject(projectId);
     const targetSnapshotId = sourceSnapshotId ?? project.currentSnapshotId;
     const dependencies = this.currentDependencies(projectId, { snapshotId: targetSnapshotId });
@@ -3552,8 +3720,13 @@ export class PredictiveProvenanceService {
         WHERE v.object_id = ? AND v.snapshot_id = ?
       `).get(dependency.source.id, targetSnapshotId);
       if (!currentSource) {
-        status = 'BROKEN';
-        details = { ...details, sourceIssue: 'The linked scientific object no longer resolves.' };
+        // A re-index passes its own verdict here: the source object is absent
+        // from the new reading, not gone from the record.
+        status = options.missingSource?.status ?? 'BROKEN';
+        details = {
+          ...details,
+          sourceIssue: options.missingSource?.reason ?? 'The linked scientific object no longer resolves.',
+        };
       } else if (!dependency.statusDetails.pinnedHistoricalVersion
         && (currentSource.content_hash !== dependency.source.contentHash || currentSource.value_text !== dependency.source.valueText)) {
         // A claim whose location is unknown stays under review: there is
@@ -3712,4 +3885,4 @@ export class PredictiveProvenanceService {
   }
 }
 
-export { anchorForSpan, OBJECT_TYPES };
+export { anchorForSpan, OBJECT_TYPES, EXTRACTOR_VERSION };

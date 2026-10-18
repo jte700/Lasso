@@ -199,6 +199,8 @@ public partial class App : Application
         }
         menu.Items.Add(insertion);
 
+        menu.Items.Add(Item("Re-read Sources with the Current Reader", () => _ = ReindexAsync()));
+
         menu.Items.Add(Item("Restart Server", () => _server?.Restart()));
 
         var typingLog = new MenuItem
@@ -314,6 +316,39 @@ public partial class App : Application
                 MessageBoxButton.OK, MessageBoxImage.Information);
         }
         PublishAssistState();
+    }
+
+    /// Re-reads the indexed files with the reader this build ships.
+    ///
+    /// Always something the user asks for: it records a new version and may
+    /// leave claims needing review, so it is never done on their behalf when a
+    /// newer reader arrives.
+    private async Task ReindexAsync()
+    {
+        if (_server?.Url is not { } url) return;
+        var projectId = GlobalAssistant.Shared.ProjectId
+            ?? await Assist.AssistHttp.FirstProjectIdAsync(url, CancellationToken.None).ConfigureAwait(true);
+        if (projectId is null)
+        {
+            MessageBox.Show("No directory is indexed yet.", "Re-read sources",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var outcome = await Assist.AssistHttp.ReindexAsync(url, projectId, CancellationToken.None)
+            .ConfigureAwait(true);
+        var message = outcome is null
+            ? "The sources could not be re-read."
+            : !outcome.Changed
+                ? "The current reader reads these files exactly as recorded. Nothing was changed."
+                : $"Version {outcome.Version} records a new reading of the same files: "
+                    + $"{outcome.Before} sources before, {outcome.After} now. "
+                    + "Earlier versions are unchanged, so existing links and shares still resolve."
+                    + (outcome.NeedsReview > 0
+                        ? $"\n\n{outcome.NeedsReview} claim(s) need review: the new reader identifies their source differently."
+                        : "");
+        MessageBox.Show(message, "Re-read sources", MessageBoxButton.OK, MessageBoxImage.Information);
+        _workspace?.Reload();
     }
 
     /// Falls back to the first indexed project when the workspace has not

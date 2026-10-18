@@ -185,7 +185,9 @@ export class IndexControlService {
     }).sort((a, b) => a.name.localeCompare(b.name));
 
     const workspace = this.timeline.listProjects();
+    const freshness = this.dependencies.indexFreshness(projectId);
     return {
+      freshness,
       project: {
         id: project.id,
         name: project.name,
@@ -193,6 +195,7 @@ export class IndexControlService {
         version: snapshot.version,
         files: snapshot.files.length,
         dependencies: objectCount,
+        readerBehind: freshness.stale,
         indexedAt: this.db.prepare('SELECT indexed_at FROM snapshot_object_indexes WHERE snapshot_id = ?')
           .get(snapshot.id)?.indexed_at ?? null,
         lastScanAt: lastEvent?.occurred_at ?? null,
@@ -226,6 +229,15 @@ export class IndexControlService {
     const project = this.timeline.getProject(projectId);
     this.dependencies.ensureIndex(project.id, project.currentSnapshotId);
     return capture;
+  }
+
+  /**
+   * Re-reads the files with the current reader. `refresh` looks for changed
+   * files and finds none when only the reader improved; this records the better
+   * reading as a new version, leaving every earlier one as it was read then.
+   */
+  reindex(projectId, actor, options = {}) {
+    return this.dependencies.reindex(projectId, actor, options);
   }
 
   /** Retries one previously failed path without rescanning everything else. */

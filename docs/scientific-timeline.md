@@ -125,6 +125,21 @@ Supported provenance relationships are `DEPENDS_ON`, `DERIVED_FROM`, `GENERATED_
 
 The system may still report where the content was first recorded; it does not mislabel that version fact as an upstream scientific source.
 
+## Re-reading sources after the reader improves
+
+When extraction improves, projects already indexed keep the objects the build that indexed them produced: `ensureIndex` reads a snapshot once and never re-reads it, and recorded object versions are immutable.
+
+`POST /api/projects/:id/reindex` (also `index reindex`, and a menu item in both companions) re-reads the same files with the current reader and records the result as Version N+1:
+
+- the new snapshot carries its parent's `snapshot_files` rows verbatim, so file identities, content hashes and blobs are shared rather than copied, and the manifest hash is unchanged;
+- its timeline event has source `REINDEX` and says plainly that the files did not change, with the caller's reason appended;
+- `snapshot_object_indexes.extractor_version` records which reader produced each snapshot's reading. `0` means a build that recorded none, which is what `GET /api/projects/:id/reindex` reports as stale;
+- objects whose key is unchanged keep their `scientific_objects` identity, so recorded usage and document links keep resolving;
+- a claim whose source object is absent from the new reading becomes `NEEDS_REVIEW`, not `BROKEN`: its evidence is intact and still pinned, and only the current reading identifies it differently;
+- an `object_share_grant` pins a version in an earlier snapshot and is untouched, so a published link keeps resolving to the evidence it was given.
+
+Re-indexing is whole-project and always explicit. It is never performed on the user's behalf when a newer reader arrives, because it writes a version and a timeline event into their record. When the current reader reads the files exactly as the snapshot already says, nothing is recorded at all.
+
 ## Collaboration and conflicts
 
 Collaborator actors retain their global identity when supplied by the collaboration/session layer. Each capture performs an optimistic comparison-and-swap against the expected/current parent. A stale collaborator or agent request receives HTTP 409 with both expected and current snapshot IDs. Lasso never rewrites the snapshots into a false sequential history.
@@ -138,6 +153,7 @@ Key routes are:
 - `POST /api/projects/import`
 - `POST /api/projects/:id/open`
 - `POST /api/projects/:id/capture`
+- `GET|POST /api/projects/:id/reindex`
 - `GET /api/projects/:id/events`
 - `GET /api/events/:id`
 - `GET /api/snapshots/:id/preview?path=...`
