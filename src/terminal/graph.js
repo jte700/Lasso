@@ -25,6 +25,22 @@ function tokens(value) {
   return String(value ?? '').toLowerCase().match(/[a-z0-9]+/g) ?? [];
 }
 
+// Sentence and paragraph passages are stored as DOCUMENT objects, but they
+// are the text a person searches for, unlike whole-document containers.
+export function isPassage(object) {
+  return ['PDF_EXCERPT', 'TEXT_EXCERPT'].includes(object?.metadata?.componentType);
+}
+
+// A query term counts when it is a whole word (or its plural) in the source.
+// A longer term may also start a word; a fragment inside a word never counts,
+// so "cap" does not match "capital".
+function termMatcher(term) {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const whole = new RegExp(`(?:^|[^a-z0-9])${escaped}(?:s|es)?(?![a-z0-9])`);
+  const prefix = term.length >= 4 ? new RegExp(`(?:^|[^a-z0-9])${escaped}`) : null;
+  return (haystack) => whole.test(haystack) ? 1 : prefix?.test(haystack) ? 0.5 : 0;
+}
+
 function normalizeQueryName(value) {
   return slug(value);
 }
@@ -186,12 +202,14 @@ export class DependencyGraph {
     const raw = String(query ?? '').trim();
     const wanted = normalizeQueryName(raw);
     const terms = tokens(raw);
+    const matchers = terms.map(termMatcher);
     const contextTerms = tokens(options.context);
     const alias = raw ? this.aliases?.find(projectId, raw) : null;
     const aliasObject = alias ? this.objectByKey(projectId, alias.objectKey, options.snapshotId) : null;
     const pool = options.includeContainers
       ? this.namedObjects(projectId, options.snapshotId)
-      : this.addressableObjects(projectId, options.snapshotId);
+      : this.namedObjects(projectId, options.snapshotId)
+        .filter((object) => object.name && (!CONTAINER_TYPES.has(object.objectType) || isPassage(object)));
     if (aliasObject && !pool.some((object) => object.id === aliasObject.id)) pool.push(aliasObject);
 
     // Naming an indexed file means that file. Scoring its path word by word
@@ -245,7 +263,7 @@ export class DependencyGraph {
       else if (wanted && object.name.includes(wanted)) { score = 0.66; matchKind = 'contains'; }
       if (terms.length) {
         const haystack = String(object.searchText ?? '').toLowerCase();
-        const hits = terms.filter((term) => haystack.includes(term)).length;
+        const hits = matchers.reduce((sum, matches) => sum + matches(haystack), 0);
         const semantic = (hits / terms.length) * 0.6;
         if (semantic > score) { score = semantic; matchKind = matchKind ?? 'relevance'; }
         else if (hits === terms.length && matchKind === null) { score = semantic; matchKind = 'relevance'; }
@@ -266,7 +284,19 @@ export class DependencyGraph {
         score, matchTier, matchKind, reasons: [reason] });
     }
 
-    return this.rankRecommendations(projectId, scored, {
+    // A one-sentence paragraph is indexed as both a sentence and a paragraph.
+    // Offer that passage once, at its better score.
+    const passages = new Map();
+    const unique = scored.filter((entry) => {
+      if (!isPassage(entry.object)) return true;
+      const key = `${entry.path}|${String(entry.object.valueText ?? '').replace(/\s+/g, ' ').trim().toLowerCase()}`;
+      const kept = passages.get(key);
+      if (kept && kept.score >= entry.score) return false;
+      if (kept) kept.duplicate = true;
+      passages.set(key, entry);
+      return true;
+    }).filter((entry) => !entry.duplicate);
+    return this.rankRecommendations(projectId, unique, {
       ...options, query: raw || options.context, limit: options.limit ?? 25,
       diversify: options.diversify !== false, maxPerFile: options.maxPerFile ?? 2,
     });

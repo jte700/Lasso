@@ -3,7 +3,7 @@ import { setImmediate as yieldTurn } from 'node:timers/promises';
 import { HttpError } from './history/errors.js';
 import { normalizeProjectRootPath } from './history/service.js';
 import { parseCommand } from './terminal/parser.js';
-import { failure, result, text, blank } from './terminal/result.js';
+import { failure, result, text, blank, dim } from './terminal/result.js';
 
 const systemActor = { id: 'system:workspace', displayName: 'Lasso', actorType: 'SYSTEM' };
 
@@ -415,8 +415,32 @@ export class WorkspaceService {
     if (mutating && projects.length > 1) return failure(command.name, 'Select a work directory for this change.', {
       hints: ['Choose the destination directory in the browser, or select a result from that directory.'],
     });
-    const answers = projects.map((p) => ({ project: p, answer: this.terminal.executor.run(p.id, input, actor, options) }));
+    let answers = projects.map((p) => ({ project: p, answer: this.terminal.executor.run(p.id, input, actor, options) }));
     if (answers.length === 1) return this.tagTerminal(answers[0].answer, answers[0].project);
+    // A lookup is answered by the directories that found something. Listing
+    // every other directory's "not answerable" first would bury that answer.
+    if (['ask', 'find'].includes(command.name)) {
+      const found = answers.filter(({ answer }) => answer.ok && answer.data?.answered !== false
+        && (command.name === 'ask' || answer.results.length > 0));
+      const others = answers.length - found.length;
+      const note = others ? [dim(`No result in the other ${others} work director${others === 1 ? 'y' : 'ies'}.`)] : [];
+      if (found.length === 1) {
+        const { project, answer } = found[0];
+        const tagged = this.tagTerminal(answer, project);
+        return { ...tagged, subhead: tagged.subhead ?? `${project.name} · ${project.rootPath}`,
+          blocks: [...tagged.blocks, ...(note.length ? [blank(), ...note] : [])],
+          data: { ...answer.data, projects: answers.map(({ project: each, answer: { data } }) => ({ projectId: each.id, ...data })) } };
+      }
+      if (found.length > 1) {
+        answers = found;
+        const merged = this.mergeTerminal(command, answers);
+        return { ...merged, blocks: [...merged.blocks, ...note] };
+      }
+    }
+    return this.mergeTerminal(command, answers);
+  }
+
+  mergeTerminal(command, answers) {
     return { ...result(command.name), ok: answers.some((a) => a.answer.ok),
       headline: `${command.name} · ${answers.length} work directories`,
       blocks: answers.flatMap(({ project, answer }) => [text(`${project.name} · ${project.rootPath}`),
