@@ -58,6 +58,17 @@ test('DXF refuses unsupported arcs, self intersections, transforms and open boun
   }
 });
 
+test('door arcs, blocks and dimensions are noted without marking a measured plan partial', () => {
+  const arc = ['0', 'ARC', '5', 'C1', '8', 'DOORS', '10', '0', '20', '0', '40', '900', '50', '0', '51', '90'];
+  const block = ['0', 'INSERT', '5', 'C2', '8', 'FURNITURE', '2', 'SOFA', '10', '1000', '20', '1000'];
+  const plan = extractDxfDocument(dxf([boundary(), label('OFFICE 101'), arc, block, boundary({ id: 'L1', flags: 0 })]));
+  assert.equal(plan.status, 'ready');
+  assert.match(plan.warnings.join(' '), /ARC, INSERT/);
+  assert.match(plan.warnings.join(' '), /1 open polylines/);
+  const problem = extractDxfDocument(dxf([boundary(), boundary({ id: 'A2', points: [[0, 0], [5, 4], [0, 4], [5, 0]] }), arc]));
+  assert.equal(problem.status, 'partial');
+});
+
 test('multiple labels and nested boundaries do not fabricate a room association', () => {
   const multiple = extractDxfDocument(dxf([boundary(), label('OFFICE'), label('LOBBY', 1000, 1000)]));
   assert.equal(multiple.pages[0].annotations[0].label, 'ROOMS');

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { extractDxfDocument } from './dxf-extraction.js';
+import { extractDxfDocument, isInformationalDxfWarning } from './dxf-extraction.js';
 import { buildDxfDrawing } from './dxf-drawing.js';
 
 // Match the IFC renderer's plan point budget. The shared DXF parser also
@@ -74,7 +74,7 @@ export function buildDxfPlan(buffer, { elementId = null } = {}) {
       throw new Error(`DXF element ${requested || '(empty handle)'} is missing, hidden, or has no supported measured boundary in this source version. Open the original drawing or export visible straight-sided closed LWPOLYLINE boundaries.`);
   }
   if (!elements.length && !draft.primitives.length) throw new Error([...drawing.warnings, ...draft.warnings].join(' ') || 'No supported model-space drawing entities were found. Export a 2D ASCII DXF or open the original drawing.');
-  const warnings = [...new Set([...drawing.warnings.filter(warning => !/^Measurements for these DXF entity types|^\d+ open polylines were not treated/.test(warning)), ...draft.warnings])];
+  const warnings = [...new Set([...drawing.warnings.filter(warning => !isInformationalDxfWarning(warning)), ...draft.warnings])];
   if (elements.length !== geometry.length) warnings.push('Hidden boundaries or boundaries without identifiable planar drawing geometry were omitted from this plan.');
   let elevation = selected?.elevation ?? Infinity;
   if (!selected) {

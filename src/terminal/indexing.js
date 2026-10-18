@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { HttpError } from '../history/errors.js';
 import { normalizeProjectRootPath } from '../history/service.js';
+import { isInformationalDxfWarning } from '../dependencies/dxf-extraction.js';
 
 function now() { return new Date().toISOString(); }
 
@@ -121,8 +122,12 @@ export class IndexControlService {
     const drawingProblems = new Map();
     for (const object of this.dependencies.objectsAt(projectId, project.currentSnapshotId, ['DRAWING'])) {
       if (object.objectType !== 'DRAWING' || !object.metadata.extractionStatus || object.metadata.extractionStatus === 'ready') continue;
+      // Drawings indexed before informational DXF notes stopped marking a
+      // plan partial still carry that status; only real problems count.
+      const own = (object.metadata.warnings ?? []).filter((warning) => !isInformationalDxfWarning(warning));
+      if (object.metadata.extractionStatus === 'partial' && !own.length) continue;
       const previous = drawingProblems.get(object.path);
-      const warnings = [...new Set([...(previous?.warnings ?? []), ...(object.metadata.warnings ?? [])])];
+      const warnings = [...new Set([...(previous?.warnings ?? []), ...own])];
       drawingProblems.set(object.path, {
         id: `drawing:${object.id}`, path: object.path, code: `DRAWING_${object.metadata.extractionStatus.toUpperCase()}`,
         reason: warnings.join(' ') || 'Some drawing measurements could not be indexed.', warnings,

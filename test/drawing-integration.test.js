@@ -198,6 +198,34 @@ test('unsupported native drawing containers remain visible with actionable expor
   assert.equal(revit.retryable, false);
 });
 
+function dxfPlan(...entities) {
+  const square = (id, points) => ['0', 'LWPOLYLINE', '5', id, '8', 'ROOMS', '90', String(points.length), '70', '1',
+    ...points.flatMap(([x, y]) => ['10', String(x), '20', String(y)])];
+  const shapes = { room: square('A1', [[0, 0], [5000, 0], [5000, 4000], [0, 4000]]),
+    crossed: square('A2', [[0, 0], [5, 4], [0, 4], [5, 0]]),
+    door: ['0', 'ARC', '5', 'C1', '8', 'DOORS', '10', '0', '20', '0', '40', '900', '50', '0', '51', '90'] };
+  return ['0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4', '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES',
+    ...entities.flatMap((name) => shapes[name]), '0', 'ENDSEC', '0', 'EOF'].join('\n');
+}
+
+test('door arcs and blocks in a measured DXF plan are not reported as indexing issues', (t) => {
+  const state = workspace(t, { 'plan.dxf': dxfPlan('room', 'door'), 'broken.dxf': dxfPlan('room', 'crossed', 'door') });
+  const { indexing } = state.app.terminal;
+  const failures = () => indexing.failures(state.project.id);
+  assert.equal(failures().some((failure) => failure.path === 'plan.dxf'), false);
+  const broken = failures().find((failure) => failure.path === 'broken.dxf');
+  assert.equal(broken.code, 'DRAWING_PARTIAL');
+  assert.doesNotMatch(broken.reason, /Measurements for these DXF entity types/, 'informational notes stay out of the issue');
+
+  // A plan indexed before this rule still carries 'partial' with only notes.
+  const objectsAt = indexing.dependencies.objectsAt.bind(indexing.dependencies);
+  t.mock.method(indexing.dependencies, 'objectsAt', (...args) => objectsAt(...args).map((object) =>
+    object.path === 'plan.dxf' && object.objectType === 'DRAWING'
+      ? { ...object, metadata: { ...object.metadata, extractionStatus: 'partial' } } : object));
+  assert.equal(failures().some((failure) => failure.path === 'plan.dxf'), false);
+  assert.ok(failures().some((failure) => failure.path === 'broken.dxf'));
+});
+
 test('typing a drawing filename or plan topic finds the whole model and preserves its indexed identity', async (t) => {
   const state = workspace(t, { 'Duplex_A_20110907.ifc': roomModel(), 'Budget.csv': 'Item,Cost\nSupplies,120\n' });
   const { app, project } = state;
