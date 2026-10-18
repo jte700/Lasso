@@ -8,6 +8,13 @@ import { extractDocxFullText, extractPdfFullText, extractSpreadsheetTables } fro
 import { extractDrawingDocument } from '../dependencies/drawing-extraction.js';
 import { tabularLayout } from '../dependencies/service.js';
 import { parseDelimited } from '../history/diff.js';
+import { MARKDOWN_LAYOUT, isMarkdownPath, markdownBlocks, markdownPlainText } from './markdown.js';
+
+/// Legacy paragraph blocks are used when any stored text redaction predates
+/// the Markdown layout; otherwise the structured layout is used.
+export function usesMarkdownLayout(redactions = []) {
+  return !redactions.some((entry) => entry.kind === 'BLOCK' && entry.layout !== MARKDOWN_LAYOUT);
+}
 
 const FULL_TEXT_EXTENSIONS = new Set([
   '.md', '.mdx', '.qmd', '.rmd', '.rst', '.txt', '.tex', '.bib', '.ris', '.enw', '.nbib', '.log',
@@ -113,7 +120,7 @@ function inspectorTableSelection(table, anchor, context, layout, objectType) {
 }
 
 /** Local file viewport, preserving source rows, blank columns and line breaks. */
-export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = '', objectType = '') {
+export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = '', objectType = '', options = {}) {
   if (!file?.content || !file?.path) return null;
   const extension = path.extname(file.path).toLowerCase();
   if (['.xlsx', '.xls', '.csv', '.tsv'].includes(extension)) {
@@ -170,24 +177,108 @@ export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = 
       hasExcerpt: Boolean(selectedText), bbox: anchor.bbox ?? metadata.bbox ?? null, text };
   }
   if (['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(extension)) return { kind: 'image' };
-  const isText = FULL_TEXT_EXTENSIONS.has(extension)
-    || ['dockerfile', 'makefile'].includes(path.basename(file.path).toLowerCase());
-  if (isText || extension === '.docx') {
+  if (isTextPreviewPath(file.path)) {
     const text = extension === '.docx' ? extractDocxFullText(file.content) : file.content.toString('utf8');
     if (!text) return null;
-    const lines = text.replace(/\r\n/g, '\n').split('\n');
-    let selected = Number(anchor.lineStart ?? anchor.line) - 1;
-    if (!Number.isInteger(selected) || selected < 0 || selected >= lines.length) {
-      selected = label ? lines.findIndex((line) => line.toLowerCase().includes(String(label).toLowerCase())) : -1;
-    }
-    const start = Math.max(0, (selected < 0 ? 0 : selected) - 8);
-    const end = Math.min(lines.length, Math.max(start + 24, Number(anchor.lineEnd) + 8 || 0));
-    return { kind: 'text', extracted: extension === '.docx', lines: lines.slice(start, end).map((value, index) => ({
-      value, lineNumber: start + index + 1,
-      cited: selected >= 0 && start + index >= selected && start + index < Math.max(selected + 1, Number(anchor.lineEnd) || 0),
-    })) };
+    return buildTextPreview(file.path, text, anchor, metadata, label, objectType, options);
   }
   return null;
+}
+
+export function isTextPreviewPath(filePath) {
+  const extension = path.extname(String(filePath ?? '')).toLowerCase();
+  return FULL_TEXT_EXTENSIONS.has(extension) || extension === '.docx'
+    || ['dockerfile', 'makefile'].includes(path.basename(String(filePath ?? '')).toLowerCase());
+}
+
+const WHOLE_DOCUMENT_TYPES = new Set(['DOCUMENT', 'PAPER']);
+
+/** Line range [first, last] (1-based) that an indexed object or matched passage cites. */
+function citedLineRange(text, lines, anchor, metadata, label, matchText) {
+  const lineAt = (offset) => text.slice(0, Math.max(0, offset)).split('\n').length;
+  const first = Number(anchor.lineStart ?? anchor.line);
+  if (Number.isInteger(first) && first >= 1 && first <= lines.length) {
+    const last = Number(anchor.lineEnd);
+    return [first, Number.isInteger(last) && last >= first ? Math.min(lines.length, last) : first];
+  }
+  if (Number.isInteger(anchor.start) && anchor.start >= 0 && anchor.start < text.length) {
+    const end = Number.isInteger(anchor.end) && anchor.end > anchor.start ? Math.min(text.length, anchor.end) : anchor.start + 1;
+    return [lineAt(anchor.start), lineAt(end - 1)];
+  }
+  for (const candidate of [matchText, anchor.selectedText]) {
+    const found = findPassage(text, candidate);
+    if (found) return [lineAt(found.start), lineAt(found.end - 1)];
+  }
+  const needle = String(label ?? '').trim().toLowerCase();
+  if (needle) {
+    const index = lines.findIndex((line) => line.toLowerCase().includes(needle));
+    if (index >= 0) return [index + 1, index + 1];
+  }
+  return null;
+}
+
+/** Locates a passage while tolerating Markdown markers and line breaks between its words. */
+export function findPassage(text, passage) {
+  const words = String(passage ?? '').match(/[\p{L}\p{N}]+/gu)?.slice(0, 30) ?? [];
+  if (!words.length || words.join('').length < 3) return null;
+  const pattern = new RegExp(words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('[^\\p{L}\\p{N}]{1,12}'), 'iu');
+  const match = pattern.exec(text);
+  return match ? { start: match.index, end: match.index + match[0].length } : null;
+}
+
+/**
+ * Text viewport for the native assist card, the source inspector and the share
+ * composer. Markdown is returned as structured blocks so every surface renders
+ * headings, lists and emphasis instead of the raw syntax.
+ */
+export function buildTextPreview(filePath, value, anchor = {}, metadata = {}, label = '', objectType = '', { matchText = '' } = {}) {
+  const text = String(value ?? '').replace(/\r\n?/g, '\n');
+  const lines = text.split('\n');
+  const range = citedLineRange(text, lines, anchor ?? {}, metadata ?? {}, label, matchText);
+  const wholeDocument = WHOLE_DOCUMENT_TYPES.has(objectType) && !matchText
+    && !Number.isInteger(anchor?.start) && !Number.isInteger(anchor?.lineStart ?? anchor?.line);
+  const lineLabel = range ? (range[1] > range[0] ? `Lines ${range[0]}–${range[1]}` : `Line ${range[0]}`) : '';
+  const extension = path.extname(filePath).toLowerCase();
+  // An indexed sentence or paragraph is the cited text itself, not its whole block.
+  const excerpt = !matchText && anchor?.kind === 'text-excerpt' ? String(anchor.selectedText ?? '').trim() : '';
+
+  if (isMarkdownPath(filePath)) {
+    const blocks = markdownBlocks(text);
+    const cited = (block) => Boolean(range) && block.lineStart <= range[1] && block.lineEnd >= range[0];
+    const firstCited = blocks.findIndex(cited);
+    let lastCited = firstCited;
+    while (lastCited >= 0 && lastCited + 1 < blocks.length && cited(blocks[lastCited + 1])) lastCited += 1;
+    const start = firstCited < 0 ? 0 : Math.max(0, firstCited - 12);
+    const end = Math.min(blocks.length, (lastCited < 0 ? 0 : lastCited) + 40);
+    const section = firstCited < 0 ? null
+      : blocks.slice(0, firstCited + 1).reverse().find((block) => block.type === 'heading');
+    const citedText = firstCited < 0 ? '' : blocks.slice(firstCited, lastCited + 1)
+      .map((block) => markdownPlainText(block.text)).join('\n');
+    return {
+      kind: 'text', format: 'markdown', extracted: false,
+      location: wholeDocument ? 'Entire document'
+        : [section ? markdownPlainText(section.text) : '', lineLabel].filter(Boolean).join(' · '),
+      text: (excerpt || citedText).slice(0, 1200),
+      firstBlock: start, blockCount: blocks.length,
+      blocks: blocks.slice(start, end).map(({ source, ...block }, index) => ({
+        ...block, cited: firstCited >= 0 && start + index >= firstCited && start + index <= lastCited,
+      })),
+    };
+  }
+
+  const selected = range ? range[0] - 1 : -1;
+  const startLine = Math.max(0, (selected < 0 ? 0 : selected) - 8);
+  const endLine = Math.min(lines.length, Math.max(startLine + 24, (range?.[1] ?? 0) + 8));
+  return {
+    kind: 'text', format: extension === '.docx' ? 'document' : 'plain', extracted: extension === '.docx',
+    location: wholeDocument ? 'Entire document' : lineLabel,
+    text: excerpt ? excerpt.slice(0, 1200) : range ? lines.slice(range[0] - 1, range[1]).join('\n').trim().slice(0, 1200) : '',
+    lines: lines.slice(startLine, endLine).map((line, index) => ({
+      value: line, lineNumber: startLine + index + 1,
+      cited: Boolean(range) && startLine + index + 1 >= range[0] && startLine + index + 1 <= range[1],
+    })),
+  };
 }
 
 function fullTextBlocks(value) {
@@ -211,11 +302,21 @@ function fullTextBlocks(value) {
  * A complete logical rendering of the pinned source used by selective sharing.
  * Unlike buildSharePreview, this never crops around the indexed object.
  */
-export function buildFullShareDocument(file, { visualPdf = false } = {}) {
+export function buildFullShareDocument(file, { visualPdf = false, markdownLayout = true } = {}) {
   if (!file?.content || !file?.path) return null;
   const extension = path.extname(file.path).toLowerCase();
 
   try {
+    // Markdown sections follow the document's own structure. Redacted shares
+    // created before this layout keep the paragraph blocks they were made with.
+    if (markdownLayout && isMarkdownPath(file.path)) {
+      const blocks = markdownBlocks(file.content.toString('utf8'));
+      return blocks.length ? {
+        kind: 'text', format: 'markdown', layout: MARKDOWN_LAYOUT,
+        blocks: blocks.map((block) => block.source),
+        styles: blocks.map(({ source, lineStart, lineEnd, ...style }) => style),
+      } : null;
+    }
     if (['.xlsx', '.xls'].includes(extension)) {
       const sheets = extractSpreadsheetTables(file.content).map((sheet) => ({
         name: sheet.name,

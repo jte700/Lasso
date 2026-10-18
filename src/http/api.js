@@ -4,7 +4,8 @@ import { URL } from 'node:url';
 import { buildPreview } from '../history/preview.js';
 import { HttpError } from '../history/errors.js';
 import { renderSharePage, renderUnavailable, renderInspectorPanel } from '../sharing/share-page.js';
-import { buildFullShareDocument, buildInspectorPreview, buildSharePreview } from '../sharing/share-preview.js';
+import { buildFullShareDocument, buildInspectorPreview, buildSharePreview, isTextPreviewPath, usesMarkdownLayout } from '../sharing/share-preview.js';
+import { isMarkdownPath } from '../sharing/markdown.js';
 import { buildModelPreview } from '../dependencies/model-preview.js';
 import { redactModelPlan } from '../sharing/model-redaction.js';
 import { buildShareDownload, downloadDisposition } from '../sharing/share-download.js';
@@ -131,7 +132,10 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       }
       if (resolved.share.accessScope !== 'INDEXED') {
         document = await resolvedModelDocument(resolved)
-          ?? (resolved.share.accessScope === 'REDACTED' ? buildFullShareDocument(sourceFile) : null);
+          ?? (resolved.share.accessScope === 'REDACTED'
+            ? buildFullShareDocument(sourceFile, { markdownLayout: usesMarkdownLayout(resolved.share.redactions) })
+            // The original is downloadable in this scope, so Markdown can be read in full.
+            : isMarkdownPath(resolved.internal.filePath) ? buildFullShareDocument(sourceFile) : null);
         if (resolved.share.accessScope === 'DOCUMENT' && /\.pdf$/i.test(resolved.internal.filePath)) {
           document = { ...buildFullShareDocument(sourceFile, { visualPdf: true }),
             fileUrl: `/d/${encodeURIComponent(resolved.share.token)}/source`,
@@ -239,7 +243,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
           preview = buildInspectorPreview(
             file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null,
-            resolved.source.anchor, resolved.source.metadata, resolved.source.label, resolved.source.objectType);
+            resolved.source.anchor, resolved.source.metadata, resolved.source.label, resolved.source.objectType,
+            { matchText: url.searchParams.get('text') ?? '' });
           if (preview && ['pdf', 'image'].includes(preview.kind)) {
             const query = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
             preview.fileUrl = `/api/dependency-objects/${encodeURIComponent(objectId)}/source${query}`;
@@ -396,6 +401,11 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           preview = path.extname(file?.path ?? '').toLowerCase() === '.pdf'
             ? buildInspectorPreview(sourceFile, resolved.source.anchor, resolved.source.metadata, resolved.source.label, resolved.source.objectType)
             : buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata, 2, resolved.source.objectType);
+          // Text, Markdown and Word sources show the cited passage in context.
+          if (!preview && isTextPreviewPath(file?.path)) {
+            preview = buildInspectorPreview(sourceFile, resolved.source.anchor, resolved.source.metadata,
+              resolved.source.label, resolved.source.objectType, { matchText: url.searchParams.get('text') ?? '' });
+          }
           if (preview?.kind === 'pdf') {
             const query = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
             preview.fileUrl = `/api/dependency-objects/${encodeURIComponent(localObjectPreviewParameters[0])}/source${query}`;

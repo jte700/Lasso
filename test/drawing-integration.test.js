@@ -172,7 +172,7 @@ test('drawing migration adds facts to an existing snapshot without replacing ear
   assert.equal(preserved.versionId, existing.versionId, 'historical CSV object version is retained');
   assert.equal(preserved.valueText, existing.valueText);
   assert.ok(after.some((object) => object.metadata.globalId === spaceGuid && object.metadata.propertyName === 'NetFloorArea'));
-  assert.equal(state.app.db.prepare('SELECT drawing_index_version AS version FROM snapshot_object_indexes WHERE snapshot_id=?').get(snapshotId).version, 2);
+  assert.equal(state.app.db.prepare('SELECT drawing_index_version AS version FROM snapshot_object_indexes WHERE snapshot_id=?').get(snapshotId).version, 3);
   assert.equal(state.app.timeline.getProject(state.project.id).currentSnapshotId, snapshotId, 'index upgrades do not create timeline edits');
   assert.throws(() => state.app.db.prepare('DELETE FROM scientific_object_versions WHERE id=?').run(existing.versionId), /immutable/);
   const count = after.length;

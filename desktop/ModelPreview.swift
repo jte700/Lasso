@@ -416,6 +416,9 @@ struct AssistDocumentPreview {
     var unavailableReason: String? = nil
     var pdf: AssistPDFPreview? = nil
     var pdfPage: AssistPDFPageImage? = nil
+    /// Markdown blocks or plain text lines around the cited passage.
+    var textBlocks: [AssistTextBlock] = []
+    var isMarkdown = false
 
     static func parse(_ data: Data) -> AssistDocumentPreview? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -441,11 +444,16 @@ struct AssistDocumentPreview {
         } else {
             unavailable = nil
         }
-        return AssistDocumentPreview(
+        // The server reports "—" when an object has no recorded position.
+        let reported = [preview["location"] as? String, source["location"] as? String]
+            .compactMap { $0 }.first { !$0.isEmpty && $0 != "—" } ?? ""
+        let context = [preview["text"] as? String, source["context"] as? String]
+            .compactMap { $0 }.first { !$0.isEmpty && $0 != "—" } ?? ""
+        var result = AssistDocumentPreview(
             filename: source["filename"] as? String ?? "",
             path: root["path"] as? String ?? "",
-            location: preview["location"] as? String ?? source["location"] as? String ?? "",
-            context: preview["text"] as? String ?? source["context"] as? String ?? "",
+            location: reported,
+            context: context,
             valueText: source["valueText"] as? String,
             objectType: source["objectType"] as? String ?? "SOURCE",
             snapshotVersion: (source["snapshotVersion"] as? NSNumber)?.intValue,
@@ -453,5 +461,200 @@ struct AssistDocumentPreview {
             headers: preview["headers"] as? [String] ?? [],
             rows: rows, model: model, unavailableReason: unavailable,
             pdf: pdf)
+        if kind == "text" {
+            result.isMarkdown = preview["format"] as? String == "markdown"
+            result.textBlocks = result.isMarkdown
+                ? (preview["blocks"] as? [[String: Any]] ?? []).map(AssistTextBlock.init(markdown:))
+                : (preview["lines"] as? [[String: Any]] ?? []).map(AssistTextBlock.init(line:))
+        }
+        return result
+    }
+}
+
+/// One rendered unit of a text preview: a Markdown block or a plain text line.
+struct AssistTextBlock: Equatable {
+    var type: String
+    var level = 0
+    var marker: String? = nil
+    var checked: Bool? = nil
+    var text: String
+    var rows: [[String]] = []
+    var cited = false
+    var lineNumber: Int? = nil
+
+    init(type: String, text: String, level: Int = 0, marker: String? = nil, cited: Bool = false) {
+        self.type = type
+        self.text = text
+        self.level = level
+        self.marker = marker
+        self.cited = cited
+    }
+
+    init(markdown json: [String: Any]) {
+        type = json["type"] as? String ?? "paragraph"
+        level = (json["level"] as? NSNumber)?.intValue ?? 0
+        marker = json["marker"] as? String
+        checked = json["checked"] as? Bool
+        text = json["text"] as? String ?? ""
+        rows = (json["rows"] as? [[Any]] ?? []).map { $0.map { String(describing: $0) } }
+        cited = json["cited"] as? Bool ?? false
+    }
+
+    init(line json: [String: Any]) {
+        type = "line"
+        text = json["value"] as? String ?? ""
+        cited = json["cited"] as? Bool ?? false
+        lineNumber = (json["lineNumber"] as? NSNumber)?.intValue
+    }
+}
+
+/// Native Markdown typography. Inline syntax uses Foundation's parser, and the
+/// server supplies block structure so every surface splits sections alike.
+enum AssistMarkdown {
+    static func inline(_ text: String, font: NSFont, color: NSColor) -> NSMutableAttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            allowsExtendedAttributes: false, interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .returnPartiallyParsedIfPossible)
+        let parsed = (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+        let result = NSMutableAttributedString()
+        for run in parsed.runs {
+            var runFont = font
+            var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: color]
+            if let intent = run.inlinePresentationIntent {
+                var traits: NSFontDescriptor.SymbolicTraits = []
+                if intent.contains(.stronglyEmphasized) { traits.insert(.bold) }
+                if intent.contains(.emphasized) { traits.insert(.italic) }
+                if intent.contains(.code) {
+                    runFont = .monospacedSystemFont(ofSize: font.pointSize * 0.92, weight: .regular)
+                    attributes[.backgroundColor] = NSColor.quaternaryLabelColor.withAlphaComponent(0.22)
+                } else if !traits.isEmpty {
+                    let descriptor = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(traits))
+                    runFont = NSFont(descriptor: descriptor, size: font.pointSize) ?? font
+                }
+                if intent.contains(.strikethrough) {
+                    attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+                }
+            }
+            if run.link != nil { attributes[.foregroundColor] = NSColor.linkColor }
+            attributes[.font] = runFont
+            result.append(NSAttributedString(string: String(parsed[run.range].characters), attributes: attributes))
+        }
+        return result
+    }
+
+    static func headingFont(level: Int, base: CGFloat) -> NSFont {
+        switch level {
+        case 1: return .systemFont(ofSize: base + 5, weight: .bold)
+        case 2: return .systemFont(ofSize: base + 3, weight: .semibold)
+        case 3: return .systemFont(ofSize: base + 1.5, weight: .semibold)
+        default: return .systemFont(ofSize: base, weight: .semibold)
+        }
+    }
+
+    /// The attributed text for one block, including list and quote indentation.
+    static func attributed(_ block: AssistTextBlock, baseSize: CGFloat,
+                           color: NSColor = .labelColor) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineSpacing = 1.5
+        let body = NSFont.systemFont(ofSize: baseSize)
+        let result: NSMutableAttributedString
+        switch block.type {
+        case "heading":
+            result = inline(block.text, font: headingFont(level: block.level, base: baseSize), color: color)
+        case "item":
+            let indent = CGFloat(block.level) * 14
+            let markerWidth: CGFloat = block.marker.map { $0.count > 2 ? 22 : 14 } ?? 14
+            paragraph.firstLineHeadIndent = indent
+            paragraph.headIndent = indent + markerWidth
+            paragraph.tabStops = [NSTextTab(textAlignment: .left, location: indent + markerWidth)]
+            let marker = block.checked.map { $0 ? "☑" : "☐" } ?? block.marker ?? "•"
+            result = NSMutableAttributedString(string: "\(marker)\t", attributes: [
+                .font: body, .foregroundColor: NSColor.secondaryLabelColor])
+            result.append(inline(block.text, font: body, color: color))
+        case "quote":
+            paragraph.firstLineHeadIndent = 10
+            paragraph.headIndent = 10
+            result = inline(block.text, font: body, color: .secondaryLabelColor)
+        case "code", "line":
+            result = NSMutableAttributedString(string: block.text.isEmpty ? " " : block.text, attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular), .foregroundColor: color])
+        case "table":
+            result = NSMutableAttributedString()
+            for (index, row) in block.rows.enumerated() {
+                if index > 0 { result.append(NSAttributedString(string: "\n")) }
+                let cells = inline(row.joined(separator: "   │   "),
+                                   font: index == 0 ? .systemFont(ofSize: baseSize, weight: .semibold) : body,
+                                   color: color)
+                result.append(cells)
+            }
+        case "rule":
+            result = NSMutableAttributedString(string: " ", attributes: [.font: NSFont.systemFont(ofSize: 4)])
+        default:
+            result = inline(block.text, font: body, color: color)
+        }
+        result.addAttribute(.paragraphStyle, value: paragraph,
+                            range: NSRange(location: 0, length: result.length))
+        return result
+    }
+
+    static func height(of text: NSAttributedString, width: CGFloat) -> CGFloat {
+        ceil(text.boundingRect(with: NSSize(width: max(1, width), height: .greatestFiniteMagnitude),
+                               options: [.usesLineFragmentOrigin, .usesFontLeading]).height)
+    }
+
+    static func spacing(before block: AssistTextBlock, after previous: AssistTextBlock?) -> CGFloat {
+        guard let previous else { return 0 }
+        if block.type == "line" && previous.type == "line" { return 0 }
+        if block.type == "item" && previous.type == "item" { return 2 }
+        if block.type == "heading" { return 9 }
+        return 6
+    }
+
+    /// Draws a preview so its first cited block is visible, with the
+    /// preceding context that fits above it.
+    static func draw(_ blocks: [AssistTextBlock], in rect: NSRect, accent: NSColor, baseSize: CGFloat = 10.5) {
+        guard !blocks.isEmpty else { return }
+        let width = rect.width - 20
+        let texts = blocks.map { attributed($0, baseSize: baseSize) }
+        let heights = texts.map { height(of: $0, width: width) }
+        let gaps = blocks.indices.map { spacing(before: blocks[$0], after: $0 > 0 ? blocks[$0 - 1] : nil) }
+        var start = blocks.firstIndex { $0.cited } ?? 0
+        var above: CGFloat = 0
+        while start > 0, above + heights[start - 1] + gaps[start] <= rect.height * 0.35 {
+            above += heights[start - 1] + gaps[start]
+            start -= 1
+        }
+        NSGraphicsContext.current?.saveGraphicsState()
+        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).addClip()
+        var y = rect.minY + 9
+        for index in start..<blocks.count {
+            if index > start { y += gaps[index] }
+            guard y < rect.maxY else { break }
+            let block = blocks[index]
+            let frame = NSRect(x: rect.minX + 10, y: y, width: width, height: heights[index])
+            if block.cited {
+                let highlight = frame.insetBy(dx: -5, dy: block.type == "line" ? 0 : -2.5)
+                accent.withAlphaComponent(0.14).setFill()
+                NSBezierPath(roundedRect: highlight, xRadius: 4, yRadius: 4).fill()
+                accent.setFill()
+                NSRect(x: highlight.minX, y: highlight.minY, width: 2.5, height: highlight.height).fill()
+            }
+            switch block.type {
+            case "rule":
+                NSColor.separatorColor.setFill()
+                NSRect(x: frame.minX, y: frame.midY, width: frame.width, height: 1).fill()
+            case "quote":
+                NSColor.tertiaryLabelColor.setFill()
+                NSRect(x: frame.minX, y: frame.minY, width: 2.5, height: frame.height).fill()
+            case "code":
+                NSColor.quaternaryLabelColor.withAlphaComponent(0.18).setFill()
+                NSBezierPath(roundedRect: frame.insetBy(dx: -4, dy: -3), xRadius: 4, yRadius: 4).fill()
+            default: break
+            }
+            texts[index].draw(with: frame, options: [.usesLineFragmentOrigin, .usesFontLeading])
+            y += heights[index]
+        }
+        NSGraphicsContext.current?.restoreGraphicsState()
     }
 }

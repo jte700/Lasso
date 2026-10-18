@@ -1290,6 +1290,41 @@ do {
           "preserves exact-cell spreadsheet preview parsing")
 }
 
+print("Markdown and text previews")
+do {
+    let payload: [String: Any] = [
+        "source": ["filename": "README.md", "location": "—", "context": "—", "objectType": "DOCUMENT"],
+        "path": "README.md",
+        "preview": ["kind": "text", "format": "markdown", "location": "Try Lasso · Line 8",
+                    "text": "Toggle the other folder off.",
+                    "blocks": [["type": "heading", "level": 2, "text": "Try Lasso"],
+                               ["type": "item", "level": 0, "marker": "2.", "text": "Toggle the **other** folder off.", "cited": true]]],
+    ]
+    let parsed = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: payload))!
+    check(parsed.isMarkdown && parsed.textBlocks.count == 2 && parsed.textBlocks[1].cited
+          && parsed.textBlocks[1].marker == "2." && parsed.location == "Try Lasso · Line 8",
+          "parses Markdown blocks, the cited item and its section location")
+    var placeholder = payload
+    placeholder["preview"] = NSNull()
+    let empty = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: placeholder))!
+    check(empty.location.isEmpty && empty.context.isEmpty,
+          "never shows the server's em dash placeholder as a location or excerpt")
+    let item = AssistMarkdown.attributed(parsed.textBlocks[1], baseSize: 11)
+    check(item.string == "2.\tToggle the other folder off.", "renders list markers without Markdown syntax")
+    let bold = (item.string as NSString).range(of: "other")
+    let font = item.attribute(.font, at: bold.location, effectiveRange: nil) as? NSFont
+    check(font?.fontDescriptor.symbolicTraits.contains(.bold) == true, "renders strong emphasis in bold")
+    let heading = AssistMarkdown.attributed(parsed.textBlocks[0], baseSize: 11)
+    check(heading.string == "Try Lasso" && ((heading.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)?.pointSize ?? 0) > 11,
+          "renders headings larger than body text, without hash marks")
+    var lines = payload
+    lines["preview"] = ["kind": "text", "format": "plain",
+                        "lines": [["value": "alpha", "lineNumber": 4], ["value": "beta", "lineNumber": 5, "cited": true]]]
+    let plain = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: lines))!
+    check(!plain.isMarkdown && plain.textBlocks.map(\.type) == ["line", "line"] && plain.textBlocks[1].cited
+          && plain.textBlocks[1].lineNumber == 5, "keeps plain text sources as cited lines")
+}
+
 print("PDF page previews")
 do {
     let payload: [String: Any] = [

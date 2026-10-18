@@ -2,6 +2,7 @@
 import { renderModelPlan } from '../../public/model-preview.js';
 import { renderSharedDrawing } from './shared-drawing.js';
 import { recipientExcerptText, shareDownloadOptions } from './share-download.js';
+import { MARKDOWN_STYLE, isMarkdownPath, markdownBlockHtml, markdownInlineHtml } from './markdown.js';
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (character) => (
@@ -66,6 +67,7 @@ const STYLE = `
   .preview-heading{display:flex;flex:0 0 auto;min-width:0;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--surface)}.preview-heading span{flex:0 0 auto;font-size:11px;font-weight:650}.preview-heading small{min-width:0;max-height:3em;overflow:auto;color:var(--text3);font-size:10px;overflow-wrap:anywhere}
   .preview-scroll{flex:1;min-width:0;min-height:0;width:100%;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}.inspector-preview table{width:max-content;min-width:100%;margin:0;overflow:visible;border:0;border-radius:0;font-size:11px}.inspector-preview th,.inspector-preview td{height:27px;padding:5px 9px;white-space:pre}.inspector-preview thead th{position:sticky;top:0;z-index:2;text-align:center;background:var(--paper);color:var(--text3);font-size:10px;font-weight:500}.inspector-preview .row-number{position:sticky;left:0;z-index:1;min-width:31px;text-align:right;background:var(--paper);color:var(--text3);font-size:10px;font-weight:400;user-select:none}.inspector-preview thead .row-number{z-index:3}
   :is(.preview-scroll,.document-table,.shared-context-table)::-webkit-scrollbar{width:10px;height:10px}:is(.preview-scroll,.document-table,.shared-context-table)::-webkit-scrollbar-track,:is(.preview-scroll,.document-table,.shared-context-table)::-webkit-scrollbar-corner{background:var(--paper)}:is(.preview-scroll,.document-table,.shared-context-table)::-webkit-scrollbar-thumb{min-width:24px;min-height:24px;border:2px solid var(--paper);border-radius:8px;background:var(--text2)}:is(.preview-scroll,.document-table,.shared-context-table)::-webkit-scrollbar-thumb:hover{background:var(--text)}:is(.preview-scroll,.document-table,.shared-context-table):focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  .source-markdown{padding:10px 14px;font-size:12px;line-height:1.55}
   .source-lines{display:table;min-width:100%;margin:0;padding:8px 0;font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}.source-line{display:table-row}.source-line.cited{background:color-mix(in srgb,var(--accent) 12%,var(--paper))}.line-number{display:table-cell;position:sticky;left:0;padding:0 10px;color:var(--text3);background:var(--paper);text-align:right;user-select:none}.line-content{display:table-cell;padding:0 10px;white-space:pre}.source-document-text{padding:16px;font:13px/1.7 Georgia,serif;white-space:pre-wrap;overflow-wrap:anywhere}.source-pdf{display:block;flex:1;width:100%;min-height:0;border:0;background:var(--paper)}.source-image{display:block;max-width:100%;height:auto;margin:auto}.preview-unavailable{padding:18px;color:var(--text2);font-size:12px;line-height:1.6}
   .inspector-spatial .preview-model{display:flex;flex-direction:column}.inspector-spatial .preview-model>.model-plan{display:flex;flex:1 0 auto;min-width:0;min-height:0;flex-direction:column}.inspector-spatial .preview-model .model-plan-head,.inspector-spatial .preview-model .model-plan-foot{flex:0 0 auto}.inspector-spatial .preview-model .model-plan-svg{flex:1 1 80px;height:80px;min-height:80px}.inspector-spatial .preview-image{display:flex}.inspector-spatial .preview-image .source-image{width:100%;height:100%;min-height:0;object-fit:contain}
   .inspector-toolbar{display:flex;min-width:0;min-height:42px;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 12px;border-top:1px solid var(--line);background:color-mix(in srgb,var(--surface) 50%,transparent)}.inspector-toolbar button{display:flex;flex:0 0 auto;height:28px;align-items:center;gap:5px;padding:0 9px;border:1px solid color-mix(in srgb,var(--accent) 20%,transparent);border-radius:6px;background:color-mix(in srgb,var(--accent) 7%,transparent);color:var(--accent-ink);font:500 11px -apple-system,BlinkMacSystemFont,sans-serif;cursor:pointer}.inspector-toolbar button:hover{background:color-mix(in srgb,var(--accent) 16%,transparent)}.inspector-toolbar button span{font-size:13px}.inspector-toolbar kbd{padding:1px 4px;border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);border-radius:3px;color:var(--accent-ink);font:10px -apple-system,BlinkMacSystemFont,sans-serif}.inspector-toolbar .destructive{margin-left:auto}button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -97,6 +99,7 @@ const RECIPIENT_STYLE = `
   .shared-recipient .shared-context-table .row-number{position:sticky;left:0;z-index:1;min-width:37px;width:37px;max-width:37px;padding:8px 9px;text-align:right;background:var(--paper);color:var(--text3);font-size:10px;font-weight:400;white-space:nowrap;user-select:none}.shared-recipient .shared-context-table thead .row-number{z-index:3;background:var(--surface)}
   .shared-recipient td.cited{background:color-mix(in srgb,var(--accent) 12%,var(--paper));box-shadow:inset 0 0 0 2px var(--accent);font-weight:600}.shared-selection-key{display:flex;align-items:center;gap:6px;margin:0;padding:8px 12px;border-top:1px solid var(--line);color:var(--text3);font-size:10px}.shared-selection-key i{width:9px;height:9px;border:1px solid var(--accent);border-radius:2px;background:color-mix(in srgb,var(--accent) 12%,var(--paper))}
   .shared-recipient .full-document{margin:0;padding:12px;min-width:0}.shared-recipient .full-document section+section{margin-top:16px}.shared-recipient .full-document h2{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--text2)}.shared-recipient .full-document .document-table{max-height:560px;margin:0;border-radius:6px}.shared-recipient .full-document table{font-size:12px}.shared-recipient .document-table th{min-width:94px;padding:7px 10px;font-size:10px}.shared-recipient .document-table .row-number{position:sticky;left:0;z-index:1;min-width:37px;max-width:37px;padding:8px;text-align:right;background:var(--paper);font-size:10px;font-weight:400}.shared-recipient .document-table thead .row-number{z-index:3;background:var(--surface)}.shared-recipient .full-document td{padding:8px 10px}.shared-recipient .full-document.document-text{gap:0;padding:18px 20px}.shared-recipient .full-document .document-block{padding:9px 0;border:0;background:transparent;line-height:1.65}.shared-recipient .drawing-document{padding:0}.shared-recipient .drawing-document .model-plan{border:0;border-radius:0}.shared-recipient .drawing-document .model-plan-svg{height:min(65vh,580px);min-height:260px}
+  .shared-recipient .full-document.markdown-document{padding:18px 22px;font-size:13.5px;line-height:1.65}.shared-quote .markdown-document{white-space:normal}.shared-quote .md-paragraph{margin:0}.md-redacted{padding:6px 0}.md-redacted .redaction{width:min(100%,260px)}
   .shared-quote{margin:0;padding:20px;color:var(--text);font-size:14px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}.shared-empty{margin:0;padding:20px;color:var(--text2);font-size:12px;line-height:1.6}
   .shared-pdf{display:block;width:100%;height:720px;height:min(75vh,900px);min-height:320px;border:0;background:var(--surface)}
   .shared-downloads{display:flex;min-width:0;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-top:16px}.shared-downloads p{flex:1;min-width:150px;margin:0;color:var(--text2);font-size:11px}.shared-recipient .actions{gap:8px;margin:0}.shared-recipient a.action{gap:6px;min-height:32px;padding:6px 10px;border-radius:6px;background:var(--surface);font-size:11px;font-weight:550;line-height:1.4}.shared-downloads a.action small{font-size:9px;font-weight:500;opacity:.8}.shared-recipient a.action svg{width:14px;height:14px;flex:0 0 auto}.shared-recipient a.action.primary{border-color:transparent;background:color-mix(in srgb,var(--accent) 84%,#000);color:#fff}.shared-recipient a.action.primary:hover{filter:brightness(1.08)}.shared-recipient a.action:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
@@ -109,7 +112,7 @@ function page(title, body, bodyClass = '') {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(title)}</title><style>${STYLE}${bodyClass === 'shared-recipient' ? RECIPIENT_STYLE : ''}</style></head>
+<title>${escapeHtml(title)}</title><style>${STYLE}${MARKDOWN_STYLE}${bodyClass === 'shared-recipient' ? RECIPIENT_STYLE : ''}</style></head>
 <body class="${escapeHtml(bodyClass)}"><main>${body}</main></body></html>`;
 }
 
@@ -169,6 +172,13 @@ function renderFullDocument(document, redactions, requireRedacted = false) {
          }).join('')}</tr>`)).join('')}</tbody></table></div></section>`
     }).join('')}</div>`;
   }
+  if (document?.kind === 'text' && document.format === 'markdown' && document.styles?.length === document.blocks?.length) {
+    // A masked section keeps only its position. Its type and wording are omitted.
+    return `<div class="full-document markdown-document">${document.styles.map((style, index) => {
+      const mask = findRedaction(redactions, 'BLOCK', { block: index });
+      return mask ? `<div class="md-redacted">${maskedValue('', mask)}</div>` : markdownBlockHtml(style);
+    }).join('')}</div>`;
+  }
   if (document?.kind === 'text' && document.blocks?.length) {
     return `<div class="full-document document-text">${document.blocks.map((block, index) => {
       const mask = findRedaction(redactions, 'BLOCK', { block: index });
@@ -216,7 +226,7 @@ export function renderSharePage(resolved, token, preview, document = null) {
   const redactions = redacted ? share.redactions ?? [] : [];
   const title = (redacted || pdfExcerpt ? source.filename : source.label) || source.filename || 'Shared source';
   const hasTable = !redacted && preview?.headers?.length && preview.rows?.length;
-  const hasDocument = redacted || (scope === 'DOCUMENT' && ['model-plan', 'pdf'].includes(document?.kind))
+  const hasDocument = redacted || (scope === 'DOCUMENT' && (['model-plan', 'pdf'].includes(document?.kind) || document?.format === 'markdown'))
     || (scope === 'INDEXED' && document?.kind === 'pdf' && document.safe === true);
   const table = /\.(?:xlsx?|csv|tsv)$/i.test(source.filename) || hasTable || document?.kind === 'table';
   const drawing = /\.(?:dxf|ifc)$/i.test(source.filename);
@@ -224,7 +234,9 @@ export function renderSharePage(resolved, token, preview, document = null) {
   const excerpt = pdfExcerpt ? '' : recipientExcerptText(source);
   const content = hasTable ? recipientTable(preview)
     : hasDocument ? renderFullDocument(document, redactions, redacted)
-      : excerpt ? `<blockquote class="shared-quote">${escapeHtml(excerpt)}</blockquote>`
+      : excerpt ? isMarkdownPath(source.filename)
+        ? `<blockquote class="shared-quote"><div class="markdown-document"><p class="md-paragraph">${markdownInlineHtml(excerpt)}</p></div></blockquote>`
+        : `<blockquote class="shared-quote">${escapeHtml(excerpt)}</blockquote>`
         : '<p class="shared-empty">An inline excerpt is unavailable for this source. The sharing options below show what you can download.</p>';
   const heading = redacted ? 'Redacted document' : scope === 'INDEXED' ? 'Shared excerpt' : 'Source preview';
   const location = !redacted && document?.safe && document.location ? document.location
@@ -284,6 +296,10 @@ export function renderInspectorPanel(resolved, reference, preview) {
     content = `<iframe class="source-pdf" src="${escapeHtml(preview.fileUrl)}#page=${preview.page}&zoom=page-width" title="${escapeHtml(source.filename)}"></iframe>`;
   } else if (preview?.kind === 'image') {
     content = `<div class="preview-scroll preview-image"><img class="source-image" src="${escapeHtml(preview.fileUrl)}" alt="${escapeHtml(source.filename)}"></div>`;
+  } else if (preview?.kind === 'text' && preview.format === 'markdown') {
+    // Links are shown but not followed: the inspector is a local, private view.
+    content = `<div class="preview-scroll"><div class="markdown-document source-markdown">${preview.blocks.map((block) =>
+      markdownBlockHtml(block, { links: false, className: block.cited ? 'cited' : '' })).join('')}</div></div>`;
   } else if (preview?.kind === 'text') {
     previewLabel = preview.extracted ? 'Document text' : 'Source preview';
     content = preview.extracted

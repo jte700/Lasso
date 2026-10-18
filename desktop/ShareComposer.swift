@@ -36,6 +36,8 @@ struct ShareFullDocument {
     let kind: String
     let sheets: [ShareFullSheet]
     let blocks: [String]
+    /// Markdown structure for each block, when the source is Markdown.
+    var styles: [AssistTextBlock] = []
     var model: AssistModelPreview? = nil
     var pdf: AssistPDFPreview? = nil
     var unavailableReason: String? = nil
@@ -60,6 +62,10 @@ struct ShareFullDocument {
             result.model = AssistModelPreview(json: drawing)
         }
         if kind == "pdf" { result.pdf = AssistPDFPreview(json: document) }
+        if document["format"] as? String == "markdown",
+           let styles = document["styles"] as? [[String: Any]], styles.count == result.blocks.count {
+            result.styles = styles.map(AssistTextBlock.init(markdown:))
+        }
         result.unavailableReason = document["reason"] as? String
         return result
     }
@@ -739,6 +745,8 @@ final class ShareComposerView: NSView {
     private var scrollHeaders: [String]?
     private var scrollCitations = Set<String>()
     private var scrollBlocks: [String] = []
+    private var scrollStyles: [AssistTextBlock] = []
+    private var scrollStyledText: [NSAttributedString] = []
     private var scrollColumnWidths: [CGFloat] = []
     private var scrollRowHeights: [CGFloat] = []
     private var scrollBlockHeights: [CGFloat] = []
@@ -1059,7 +1067,10 @@ final class ShareComposerView: NSView {
                      in: NSRect(x: content.minX + 4, y: content.maxY - 38, width: content.width - 8, height: 34),
                      font: .systemFont(ofSize: 10), color: .secondaryLabelColor, wrap: true)
         } else if let preview {
-            drawTextBlocks(preview.context, in: content)
+            // The indexed scope publishes the object's recorded excerpt, so
+            // that is what the recipient preview shows.
+            let excerpt = preview.valueText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            drawTextBlocks(excerpt.isEmpty ? preview.context : excerpt, in: content)
         } else {
             drawCentered("Preview unavailable", in: content)
         }
@@ -1088,7 +1099,7 @@ final class ShareComposerView: NSView {
             sheetIndex = min(max(0, sheetIndex), document.sheets.count - 1)
             drawFullTable(document.sheets[sheetIndex], sheetCount: document.sheets.count, in: rect)
         } else if document.kind == "text", !document.blocks.isEmpty {
-            drawFullText(document.blocks, in: rect)
+            drawFullText(document.blocks, styles: document.styles, in: rect)
         } else {
             drawCentered(document.unavailableReason ?? "This document has no previewable content", in: rect)
         }
@@ -1329,8 +1340,8 @@ final class ShareComposerView: NSView {
         }
     }
 
-    private func drawFullText(_ blocks: [String], in rect: NSRect) {
-        configureScrollableText(blocks,
+    private func drawFullText(_ blocks: [String], styles: [AssistTextBlock], in rect: NSRect) {
+        configureScrollableText(blocks, styles: styles,
             in: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(30, rect.height - 21)),
             canRedact: true, key: "full-text")
         drawText("\(blocks.count) sections · Scroll to read the complete document",
@@ -1371,8 +1382,14 @@ final class ShareComposerView: NSView {
     }
 
     private func drawTextBlocks(_ value: String, in rect: NSRect) {
-        configureScrollableText([value.isEmpty ? "Indexed source context" : value],
-                                 in: rect, canRedact: false, key: "indexed-text")
+        let text = value.isEmpty ? "Indexed source context" : value
+        configureScrollableText([text],
+                                styles: isMarkdownSource ? [AssistTextBlock(type: "paragraph", text: text)] : [],
+                                in: rect, canRedact: false, key: "indexed-text")
+    }
+
+    private var isMarkdownSource: Bool {
+        ["md", "mdx", "qmd", "rmd"].contains((filename as NSString).pathExtension.lowercased())
     }
 
     private func textHeight(_ text: String, width: CGFloat, font: NSFont? = nil) -> CGFloat {
@@ -1400,6 +1417,8 @@ final class ShareComposerView: NSView {
             redactionDrag = nil
             scrollRows = rows
             scrollColumns = columns
+            scrollStyles = []
+            scrollStyledText = []
             scrollRowNumbers = rowNumbers
             scrollHeaders = headers
             scrollCitations = citations
@@ -1447,7 +1466,8 @@ final class ShareComposerView: NSView {
         previewCanvas.needsDisplay = true
     }
 
-    private func configureScrollableText(_ blocks: [String], in rect: NSRect, canRedact: Bool, key: String) {
+    private func configureScrollableText(_ blocks: [String], styles: [AssistTextBlock] = [],
+                                         in rect: NSRect, canRedact: Bool, key: String) {
         showsScrollablePreview = true
         let scroll = previewScroll
         scroll.isHidden = false
@@ -1462,9 +1482,13 @@ final class ShareComposerView: NSView {
             scrollRows = []
             scrollColumns = []
             scrollBlocks = blocks
+            scrollStyles = styles.count == blocks.count ? styles : []
+            scrollStyledText = scrollStyles.map { AssistMarkdown.attributed($0, baseSize: 11) }
             scrollCanRedact = canRedact
             let viewport = scroll.contentSize
-            scrollBlockHeights = blocks.map { max(40, textHeight($0, width: viewport.width - 28) + 24) }
+            scrollBlockHeights = scrollStyledText.isEmpty
+                ? blocks.map { max(40, textHeight($0, width: viewport.width - 28) + 24) }
+                : scrollStyledText.map { max(28, AssistMarkdown.height(of: $0, width: viewport.width - 28) + 16) }
             previewCanvas.frame = NSRect(origin: .zero, size: NSSize(
                 width: viewport.width,
                 height: max(viewport.height, scrollBlockHeights.reduce(0, +) + CGFloat(max(0, blocks.count - 1)) * 8)))
@@ -1539,8 +1563,21 @@ final class ShareComposerView: NSView {
                 if scrollCanRedact { targets.append(target) }
                 NSColor.controlBackgroundColor.withAlphaComponent(0.25).setFill()
                 NSBezierPath(roundedRect: targetRect, xRadius: 6, yRadius: 6).fill()
+                let styled = index < scrollStyledText.count ? scrollStyledText[index] : nil
                 if scope == .redacted, scrollCanRedact, let mask = masks[target.key] {
-                    drawMask(mask.effect, in: targetRect, value: block)
+                    drawMask(mask.effect, in: targetRect, value: styled?.string ?? block)
+                } else if let styled {
+                    let content = targetRect.insetBy(dx: 14, dy: 8)
+                    if scrollStyles[index].type == "rule" {
+                        NSColor.separatorColor.setFill()
+                        NSRect(x: content.minX, y: content.midY, width: content.width, height: 1).fill()
+                    } else {
+                        if scrollStyles[index].type == "quote" {
+                            NSColor.tertiaryLabelColor.setFill()
+                            NSRect(x: content.minX, y: content.minY, width: 2.5, height: content.height).fill()
+                        }
+                        styled.draw(with: content, options: [.usesLineFragmentOrigin, .usesFontLeading])
+                    }
                 } else {
                     drawText(block, in: targetRect.insetBy(dx: 14, dy: 12), font: scrollFont, color: .labelColor, wrap: true)
                 }

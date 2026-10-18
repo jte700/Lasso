@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { HttpError } from '../history/errors.js';
+import { MARKDOWN_LAYOUT, isMarkdownPath } from './markdown.js';
 
 const MIME_TYPES = {
   '.pdf': 'application/pdf',
@@ -108,6 +109,12 @@ export class ObjectShareService {
       throw new HttpError(400, 'Select drawing regions to redact this source.');
     }
 
+    // Markdown text redactions address structured sections. The layout is
+    // recorded so the stored indexes cannot drift to a different segmentation.
+    const storedRedactions = isMarkdownPath(version.path)
+      ? normalizedRedactions.map(entry => entry.kind === 'BLOCK' ? { ...entry, layout: MARKDOWN_LAYOUT } : entry)
+      : normalizedRedactions;
+
     const normalizedActor = actor?.id ? actor : { id: 'human-self:local', displayName: 'Local user', actorType: 'HUMAN_SELF' };
     this.timeline.upsertActor(normalizedActor);
 
@@ -125,7 +132,7 @@ export class ObjectShareService {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
     `).run(record.id, projectId, objectId, version.id, token,
       normalizedActor.id, record.createdAt, record.expiresAt, normalizedScope,
-      JSON.stringify(normalizedRedactions), normalizedExcerpt ? JSON.stringify(normalizedExcerpt) : null);
+      JSON.stringify(storedRedactions), normalizedExcerpt ? JSON.stringify(normalizedExcerpt) : null);
 
     return {
       id: record.id,
@@ -136,7 +143,7 @@ export class ObjectShareService {
       createdAt: record.createdAt,
       expiresAt: record.expiresAt,
       accessScope: normalizedScope,
-      redactions: normalizedRedactions,
+      redactions: storedRedactions,
       excerpt: normalizedExcerpt,
     };
   }

@@ -963,7 +963,8 @@ final class AssistBoxView: NSView {
                  font: NSFont.systemFont(ofSize: 12.5, weight: .semibold), color: .labelColor)
 
         let location = preview?.pdfPage.map { "Page \($0.pageNumber)" }
-            ?? preview?.location ?? fallback?.location ?? ""
+            ?? [preview?.location, fallback?.location].compactMap { $0 }
+                .first { !$0.isEmpty && $0 != "—" } ?? ""
         let sheet = location.components(separatedBy: "!").first ?? ""
         let parent = ((path as NSString).deletingLastPathComponent as NSString).lastPathComponent
         let subtitle = !sheet.isEmpty ? sheet
@@ -975,7 +976,8 @@ final class AssistBoxView: NSView {
 
         let previewRect = NSRect(x: rightX + 18, y: bodyTop + 72,
                                  width: rightWidth - 36,
-                                 height: preview?.model == nil && preview?.pdf == nil ? 184 : 222)
+                                 height: preview?.model == nil && preview?.pdf == nil
+                                    && preview?.textBlocks.isEmpty != false ? 184 : 222)
         if isPreviewLoading {
             drawText("Loading document preview…",
                      in: NSRect(x: previewRect.minX, y: previewRect.midY - 8,
@@ -988,6 +990,8 @@ final class AssistBoxView: NSView {
             AssistModelRenderer.draw(model, in: previewRect)
         } else if let preview, !preview.rows.isEmpty {
             drawTablePreview(preview, in: previewRect)
+        } else if let preview, !preview.textBlocks.isEmpty {
+            drawTextPreview(preview, in: previewRect)
         } else {
             NSColor.controlBackgroundColor.withAlphaComponent(0.12).setFill()
             NSBezierPath(roundedRect: previewRect, xRadius: 8, yRadius: 8).fill()
@@ -1050,6 +1054,19 @@ final class AssistBoxView: NSView {
         page.image.draw(in: target, from: .zero, operation: .sourceOver,
                         fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
         NSGraphicsContext.current?.restoreGraphicsState()
+        NSColor.separatorColor.withAlphaComponent(0.14).setStroke()
+        outline.stroke()
+    }
+
+    /// Markdown renders as formatted text; other text sources show their lines.
+    /// Either way the cited passage is highlighted in the source's colour.
+    private func drawTextPreview(_ preview: AssistDocumentPreview, in rect: NSRect) {
+        let projectId = suggestions.indices.contains(selected) ? suggestions[selected].projectId : nil
+        let sourceColor = DirectoryColorPreferences.color(for: projectId)?.color ?? .controlAccentColor
+        let outline = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
+        NSColor.textBackgroundColor.withAlphaComponent(0.65).setFill()
+        outline.fill()
+        AssistMarkdown.draw(preview.textBlocks, in: rect, accent: sourceColor)
         NSColor.separatorColor.withAlphaComponent(0.14).setStroke()
         outline.stroke()
     }
@@ -1886,9 +1903,14 @@ final class GlobalAssistant {
                 .appendingPathComponent(objectId)
                 .appendingPathComponent("preview"),
             resolvingAgainstBaseURL: false)
-        if let versionId = suggestion.versionId {
-            components?.queryItems = [URLQueryItem(name: "version", value: versionId)]
+        var query: [URLQueryItem] = []
+        if let versionId = suggestion.versionId { query.append(URLQueryItem(name: "version", value: versionId)) }
+        // Text sources highlight the matched passage, as PDF pages do.
+        if let text = suggestion.previewText, !text.isEmpty,
+           (suggestion.path as NSString).pathExtension.lowercased() != "pdf" {
+            query.append(URLQueryItem(name: "text", value: String(text.prefix(400))))
         }
+        if !query.isEmpty { components?.queryItems = query }
         guard let url = components?.url else {
             view.isPreviewLoading = false
             view.previewError = "The source preview address is unavailable."

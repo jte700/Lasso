@@ -26,7 +26,7 @@ export function shareDownloadOptions(resolved, preview, document) {
     if (document?.kind === 'table' && document.sheets?.length) {
       type = 'sheets'; format = document.sheets.length > 1 ? 'ZIP' : 'CSV';
     } else if (document?.kind === 'text' && document.blocks?.length) {
-      type = 'blocks'; format = 'TXT';
+      type = 'blocks'; format = document.format === 'markdown' ? 'MD' : 'TXT';
     } else if (document?.kind === 'model-plan' && document.redacted === true) {
       type = 'drawing'; format = 'SVG';
     }
@@ -118,13 +118,20 @@ export function buildShareDownload(resolved, preview, document) {
     content = Buffer.from(svg, 'utf8');
   } else {
     const text = options.type === 'blocks'
-      ? document.blocks.map((block, index) => maskFor('BLOCK', { block: index }) ? '[Redacted]' : block).join('\n\n')
+      ? document.blocks.map((block, index) => {
+        const masked = maskFor('BLOCK', { block: index });
+        // Adjacent visible list items stay one Markdown list.
+        const separator = index === 0 ? '' : document.styles?.[index]?.type === 'item'
+          && document.styles[index - 1]?.type === 'item' && !masked
+          && !maskFor('BLOCK', { block: index - 1 }) ? '\n' : '\n\n';
+        return separator + (masked ? '[Redacted]' : block);
+      }).join('')
       : recipientExcerptText(resolved.source);
     content = Buffer.from(`${text}\n`, 'utf8');
   }
   const version = Number.isSafeInteger(resolved.source.snapshotVersion) ? `-v${resolved.source.snapshotVersion}` : '';
   const suffix = resolved.share.accessScope === 'REDACTED' ? 'redacted' : 'excerpt';
-  const contentType = { PDF: 'application/pdf', CSV: 'text/csv; charset=utf-8', ZIP: 'application/zip', TXT: 'text/plain; charset=utf-8', SVG: 'image/svg+xml; charset=utf-8' }[options.format];
+  const contentType = { PDF: 'application/pdf', CSV: 'text/csv; charset=utf-8', ZIP: 'application/zip', TXT: 'text/plain; charset=utf-8', MD: 'text/markdown; charset=utf-8', SVG: 'image/svg+xml; charset=utf-8' }[options.format];
   return { ...options, content, contentType,
     filename: `${safeStem(resolved.source.filename)}-${suffix}${version}.${options.format.toLowerCase()}` };
 }

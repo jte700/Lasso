@@ -12,6 +12,7 @@ import {
   buildSentenceCorpus, completeFromLinkedSource, completeSentence, originalFindingSentence, sourceFindingFragment,
 } from './completion.js';
 import { renderPdfFigurePage } from './figure-preview.js';
+import { markdownBlocks, markdownPassages } from '../sharing/markdown.js';
 import { RecommendationRanking, directRecommendationMatch } from './ranking.js';
 import { BoundedCache } from '../cache.js';
 import { drawingDescriptors, drawingContext } from './drawing-objects.js';
@@ -27,6 +28,7 @@ const OBJECT_TYPES = new Set([
 const SELECTION_METHODS = new Set(['AUTOCOMPLETE', 'PREDICTED_ACCEPTED', 'MANUAL', 'SYSTEM_LINKED', 'IMPORTED']);
 const STATUS_TYPES = new Set(['PREDICTED', 'LINKED', 'NEEDS_REVIEW', 'STALE', 'BROKEN']);
 const MAX_SNAPSHOT_OBJECTS = 10_000;
+const INDEX_VERSION = 3;
 const MAX_TABLE_CELLS = 1_500;
 const EDITABLE_DOCUMENT_TYPES = new Set(['markdown', 'text', 'document', 'pdf']);
 const STOP_WORDS = new Set([
@@ -380,10 +382,18 @@ function contextualCompletionRange(text, cursor, replacementText, options = {}) 
   return { claimStart: floor + last.index, claimEnd: cursor };
 }
 
+// Sentence and paragraph objects indexed from a source's own prose: PDF pages,
+// and Markdown or plain-text files. Each one cites exactly its passage.
+const EXCERPT_COMPONENTS = new Set(['PDF_EXCERPT', 'TEXT_EXCERPT']);
+
+export function isPassageExcerpt(object) {
+  return EXCERPT_COMPONENTS.has(object?.metadata?.componentType);
+}
+
 function workspaceCompletionText(object) {
   const variable = String(object.metadata.variable ?? object.metadata.column ?? '').trim();
   const value = String(object.valueText ?? '').trim();
-  if (object.metadata.componentType === 'PDF_EXCERPT') return value;
+  if (isPassageExcerpt(object)) return value;
   if (object.objectType === 'DRAWING_ANNOTATION') return `${object.label} is ${value}`;
   if (object.metadata.metric === 'row-count' && value) {
     const dataset = String(object.metadata.dataset ?? object.label).replace(/\s*·\s*included rows$/i, '');
@@ -402,7 +412,10 @@ function workspaceCompletionText(object) {
 }
 
 function workspaceSuggestionCategory(object) {
-  if (object.metadata.componentType === 'PDF_EXCERPT') return object.metadata.excerptType === 'paragraph' ? 'PDF paragraph' : 'PDF sentence';
+  if (isPassageExcerpt(object)) {
+    const format = object.metadata.componentType === 'PDF_EXCERPT' ? 'PDF' : object.metadata.format === 'MARKDOWN' ? 'Markdown' : 'Text';
+    return `${format} ${object.metadata.excerptType === 'paragraph' ? 'paragraph' : 'sentence'}`;
+  }
   if (object.objectType === 'DRAWING_ANNOTATION') return 'Drawing measurement';
   if (object.objectType === 'DATASET_ROW') return 'Row';
   if (object.objectType === 'VARIABLE') return 'Variable';
@@ -865,6 +878,13 @@ function applyVariableDefinitions(descriptors) {
   }
 }
 
+// "Figure 2", "Table S1", "Fig. 3b", "Table A" and "Figure IV" name document
+// components. Ordinary prose such as "a figure found only there" does not.
+export function isComponentIdentifier(value) {
+  const identifier = String(value ?? '');
+  return /\d/.test(identifier) || /^[A-Z]$/.test(identifier) || /^[IVXL]{1,6}$/.test(identifier);
+}
+
 function documentComponentDescriptors(file, sourceText, parentMetadata, base) {
   const text = String(sourceText ?? '').replace(/\r\n/g, '\n');
   const descriptors = [];
@@ -872,6 +892,7 @@ function documentComponentDescriptors(file, sourceText, parentMetadata, base) {
   for (const match of text.matchAll(/\b(Table|Figure|Fig\.?)\s+([A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)/gi)) {
     const type = /^table$/i.test(match[1]) ? 'TABLE' : 'FIGURE';
     const identifier = match[2];
+    if (!isComponentIdentifier(identifier)) continue;
     const componentLabel = `${type === 'TABLE' ? 'Table' : 'Figure'} ${identifier}`;
     const key = `${type}:${identifier.toLowerCase()}`;
     if (seen.has(key)) continue;
@@ -930,6 +951,28 @@ function pdfPassageDescriptors(file, buffer, parentMetadata) {
         rawText: passage.selectedText, textExcerpt: passage.selectedText, pageNumber: passage.pageNumber,
         parentTitle: parentMetadata.title ?? null, parentAuthor: parentMetadata.author ?? null,
         parentYear: parentMetadata.year ?? null },
+    });
+  });
+}
+
+function textPassageDescriptors(file, text, parentMetadata) {
+  const markdown = file.fileType === 'markdown';
+  const repeats = new Map();
+  return markdownPassages(text, { plain: !markdown }).map(passage => {
+    const fingerprint = sha(`${passage.excerptType}|${passage.selectedText.toLowerCase()}`).slice(0, 24);
+    const occurrence = repeats.get(fingerprint) ?? 0;
+    repeats.set(fingerprint, occurrence + 1);
+    return objectDescriptor({
+      key: `${file.projectFileId}:text-excerpt:${fingerprint}:${occurrence}`, type: 'DOCUMENT',
+      path: file.path, contentHash: file.contentHash,
+      label: passage.selectedText.length > 110 ? `${passage.selectedText.slice(0, 107)}…` : passage.selectedText,
+      value: passage.selectedText,
+      anchor: { kind: 'text-excerpt', selectedText: passage.selectedText, start: passage.start, end: passage.end,
+        lineStart: passage.lineStart, lineEnd: passage.lineEnd },
+      metadata: { format: parentMetadata.format, componentType: 'TEXT_EXCERPT', excerptType: passage.excerptType,
+        rawText: passage.selectedText, textExcerpt: passage.selectedText,
+        lineStart: passage.lineStart, lineEnd: passage.lineEnd, section: passage.section ?? null,
+        parentTitle: parentMetadata.title ?? null, parentAuthor: null, parentYear: null },
     });
   });
 }
@@ -1064,6 +1107,7 @@ function objectsFromFile(file, buffer) {
       metadata: parentMetadata,
     }));
     objects.push(...documentComponentDescriptors(file, text, parentMetadata, base));
+    objects.push(...textPassageDescriptors(file, text, parentMetadata));
   }
 
   if (path.extname(file.path).toLowerCase() === '.bib') {
@@ -1296,7 +1340,7 @@ export class PredictiveProvenanceService {
   }
 
   sourceText(source) {
-    if (source.metadata.componentType === 'PDF_EXCERPT') return source.metadata.rawText ?? source.valueText ?? '';
+    if (isPassageExcerpt(source)) return source.metadata.rawText ?? source.valueText ?? '';
     const key = `${source.snapshotId}|${source.id}|${source.contentHash}`;
     if (this.sourceTextCache.has(key)) return this.sourceTextCache.get(key);
     let extractedText = '';
@@ -1327,7 +1371,9 @@ export class PredictiveProvenanceService {
     if (indexed.project_id !== projectId) throw new HttpError(400, 'Snapshot does not belong to this project.');
     // Version two adds page-anchored PDF sentences and paragraphs to existing
     // imports without changing any previously linked object or version.
-    if (indexed.indexed && indexed.drawing_index_version >= 2) return;
+    // Version three adds the same passages for Markdown and plain-text files.
+    if (indexed.indexed && indexed.drawing_index_version >= INDEX_VERSION) return;
+    const reindexPdf = indexed.indexed && indexed.drawing_index_version < 2;
     const snapshot = this.timeline.getSnapshot(targetSnapshotId);
     const descriptors = [];
     const files = [...snapshot.files].sort((left, right) => dependencyFilePriority(right) - dependencyFilePriority(left)
@@ -1335,7 +1381,8 @@ export class PredictiveProvenanceService {
     for (const file of files) {
       if (descriptors.length >= MAX_SNAPSHOT_OBJECTS) break;
       const design = ['drawing', 'xml'].includes(file.fileType) || /\.(?:ifc|dxf|dwg|rvt|dgn|landxml|xml)$/i.test(file.path);
-      if (indexed.indexed && file.fileType !== 'pdf' && !design) continue;
+      const prose = file.fileType === 'markdown' || (file.fileType === 'text' && path.extname(file.path).toLowerCase() === '.txt');
+      if (indexed.indexed && !prose && !(reindexPdf && (file.fileType === 'pdf' || design))) continue;
       if (file.size > 25_000_000 && !design && !['image', 'pdf', 'document'].includes(file.fileType)) continue;
       if (file.size > 5_000_000 && !design && !['image', 'pdf', 'document', 'table', 'spreadsheet'].includes(file.fileType)) continue;
       if (!design && !['table', 'spreadsheet', 'code', 'notebook', 'image', 'json', 'text', 'markdown', 'pdf', 'document'].includes(file.fileType)) continue;
@@ -1383,9 +1430,9 @@ export class PredictiveProvenanceService {
         );
       }
       const objectCount = this.db.prepare('SELECT COUNT(*) AS count FROM scientific_object_versions WHERE snapshot_id = ?').get(targetSnapshotId).count;
-      this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version) VALUES (?, ?, ?, 2)
-        ON CONFLICT(snapshot_id) DO UPDATE SET drawing_index_version = 2, indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
-        .run(targetSnapshotId, now(), objectCount);
+      this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version) VALUES (?, ?, ?, ?)
+        ON CONFLICT(snapshot_id) DO UPDATE SET drawing_index_version = excluded.drawing_index_version, indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
+        .run(targetSnapshotId, now(), objectCount, INDEX_VERSION);
     });
     this.objectCache.delete(targetSnapshotId);
     this.completionCorpusCache.delete(targetSnapshotId);
@@ -1414,11 +1461,14 @@ export class PredictiveProvenanceService {
         // the short metadata excerpt. Derived search text stays in memory so
         // immutable object versions and existing links retain their identity.
         if (/\.pdf$/i.test(object.path) && ['PAPER', 'DRAWING', 'DOCUMENT'].includes(object.objectType)
-          && object.metadata.componentType !== 'PDF_EXCERPT') {
+          && !isPassageExcerpt(object)) {
           object.searchText += ` ${this.sourceText(object).toLowerCase()}`;
         }
         return freezeIndexedValue(object);
-      });
+      // Earlier indexes recorded prose such as "figure found" as a component.
+      // Those versions stay resolvable for existing links but are not offered.
+      }).filter((object) => !object.metadata.componentType || !['FIGURE', 'TABLE'].includes(object.metadata.componentType)
+        || isComponentIdentifier(object.metadata.identifier));
       this.objectCache.set(target, objects);
     }
     const types = new Set([...(objectTypes ?? [])].filter((type) => OBJECT_TYPES.has(type)));
@@ -1504,11 +1554,12 @@ export class PredictiveProvenanceService {
     // Sentence objects must precede their parent and paragraph objects because
     // the corpus deduplicates the same sentence within one file.
     objects.sort((left, right) => Number(right.metadata.excerptType === 'sentence') - Number(left.metadata.excerptType === 'sentence')
-      || Number(right.metadata.componentType === 'PDF_EXCERPT') - Number(left.metadata.componentType === 'PDF_EXCERPT'));
-    const excerptPaths = new Set(objects.filter(object => object.metadata.componentType === 'PDF_EXCERPT').map(object => object.path));
+      || Number(isPassageExcerpt(right)) - Number(isPassageExcerpt(left)));
+    const excerptPaths = new Set(objects.filter(isPassageExcerpt).map(object => object.path));
     for (const object of objects) {
-      if (!objectByPath.has(object.path) || ['PAPER', 'REFERENCE'].includes(object.objectType)) objectByPath.set(object.path, object);
-      if (excerptPaths.has(object.path) && object.metadata.componentType !== 'PDF_EXCERPT') continue;
+      if (!isPassageExcerpt(object) && (!objectByPath.has(object.path) || isPassageExcerpt(objectByPath.get(object.path))
+        || ['PAPER', 'REFERENCE'].includes(object.objectType))) objectByPath.set(object.path, object);
+      if (excerptPaths.has(object.path) && !isPassageExcerpt(object)) continue;
       const text = [['PAPER', 'DRAWING'].includes(object.objectType) && /\.pdf$/i.test(object.path) ? this.sourceText(object) : object.metadata.textExcerpt,
         object.metadata.title, object.metadata.subject, object.valueText]
         .filter(Boolean).join('\n');
@@ -1518,8 +1569,13 @@ export class PredictiveProvenanceService {
       const extension = path.extname(file.path).toLowerCase();
       if (file.fileType !== 'markdown' && !(file.fileType === 'text' && ['.txt', '.tex'].includes(extension))) continue;
       if (file.size > 2_000_000) continue;
+      const content = this.timeline.blobs.get(file.contentHash).toString('utf8');
       sources.push({
-        text: this.timeline.blobs.get(file.contentHash).toString('utf8'),
+        // Prose in a passage-indexed file already links to its own sentence or
+        // paragraph above; only headings still complete from the file itself.
+        text: excerptPaths.has(file.path)
+          ? markdownBlocks(content).filter(block => block.type === 'heading').map(block => block.text).join('\n')
+          : content,
         path: file.path,
         snapshotId: target,
         dependencyCandidate: objectByPath.get(file.path) ?? null,
@@ -2043,12 +2099,16 @@ export class PredictiveProvenanceService {
       snapshotId: source.snapshotId,
       dependencyCandidate: source,
     }]);
-    const passages = /\.pdf$/i.test(source.path) ? this.objectsAt(this.sourceProjectId(source) ?? projectId, source.snapshotId, ['DOCUMENT'])
-      .filter(object => object.path === source.path && object.metadata.excerptType === 'sentence') : [];
+    const passages = this.objectsAt(this.sourceProjectId(source) ?? projectId, source.snapshotId, ['DOCUMENT'])
+      .filter(object => object.path === source.path && isPassageExcerpt(object) && object.metadata.excerptType === 'sentence');
+    // Markdown sentences are compared without their inline markers.
+    const comparable = value => String(value ?? '').toLowerCase().replace(/[\W_]+/g, ' ').trim();
     const completions = completeFromLinkedSource(corpus, input, source, {
       sourceEnd: dependency.anchor.end, limit: 12,
     }).map(completion => {
-      const passage = passages.find(object => object.metadata.rawText === completion.sourceSentence);
+      const passage = passages.find(object => object.metadata.rawText === completion.sourceSentence)
+        ?? passages.find(object => object.metadata.componentType === 'TEXT_EXCERPT'
+          && comparable(object.metadata.rawText) === comparable(completion.sourceSentence));
       return passage ? { ...completion, dependencyCandidate: { ...passage,
         score: completion.confidence, reasons: completion.dependencyCandidate.reasons } } : completion;
     });
@@ -3082,6 +3142,10 @@ export class PredictiveProvenanceService {
         bbox: source.anchor?.bbox ?? null, contextRadius: radius,
         ...(sourceSentence ? { sourceSentence } : {}) };
     }
+    // A Markdown or text passage is located by its own recorded offsets.
+    if (source.metadata.componentType === 'TEXT_EXCERPT') text = text.replace(/\r\n?/g, '\n');
+    const excerptStart = source.metadata.componentType === 'TEXT_EXCERPT' && Number.isInteger(source.anchor?.start)
+      && Number.isInteger(source.anchor?.end) && source.anchor.end <= text.length ? source.anchor.start : -1;
     const lower = text.toLowerCase();
     const locate = (value) => {
       const needle = String(value ?? '').trim();
@@ -3093,6 +3157,9 @@ export class PredictiveProvenanceService {
       return match ? { needle: match[0], index: match.index } : null;
     };
     let found = locate(dependency.spanText);
+    if (excerptStart >= 0 && (!found || found.index < excerptStart || found.index >= source.anchor.end)) {
+      found = { needle: text.slice(excerptStart, source.anchor.end), index: excerptStart };
+    }
     let sourceSentence = null;
     if (!found && file.fileType === 'pdf' && (['PAPER', 'REFERENCE'].includes(source.objectType)
       || source.metadata.componentType === 'PDF_EXCERPT')) {
