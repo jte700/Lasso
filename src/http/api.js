@@ -708,6 +708,10 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       if (request.method === 'GET' && serveStatic(config.publicDir, pathname, response)) return;
       sendJson(response, 404, { error: { message: 'Not found.' } });
     } catch (error) {
+      // The client cancelled the request, for example a superseded prediction
+      // while typing. There is nobody to answer and nothing went wrong.
+      // A fully read request is also "destroyed", so check the connection.
+      if (error?.code === 'ECONNRESET' || response.socket?.destroyed) return;
       const status = error.status ?? 500;
       if (status >= 500) console.error(error);
       sendJson(response, status, {
