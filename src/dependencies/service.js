@@ -86,6 +86,13 @@ function hasSpecificCompletionTail(sentence) {
   return !/^(?:we|us|ours?|study|analysis|dataset|data|result|results|cohort|experiment|samples?|model|find|found|show|showed|shows|observe|observed|observes|detect|detected|identify|identified|report|reported|measure|measured|reveal|revealed|indicate|indicated|indicates|demonstrate|demonstrated|estimate|estimated|include|included|includes)$/.test(last);
 }
 
+// A fragment that begins with one of these is part of the sentence, not of a
+// source name. Replacing it would delete the word ("cost of office sup"), and
+// a lone function word ("is", "of") would match unrelated names.
+const FRAGMENT_FUNCTION_WORDS = new Set(['a', 'an', 'the', 'of', 'to', 'in', 'on', 'at', 'by', 'for', 'from', 'with',
+  'as', 'is', 'are', 'was', 'were', 'be', 'been', 'it', 'its', 'and', 'or', 'but', 'if', 'so', 'than', 'then', 'that',
+  'this', 'these', 'those', 'has', 'have', 'had', 'our', 'their', 'we', 'via', 'into', 'onto']);
+
 function progressiveVariableFragments(text, cursor) {
   const source = String(text ?? '');
   if (cursor !== source.length) return [];
@@ -101,7 +108,8 @@ function progressiveVariableFragments(text, cursor) {
     const leading = raw.match(/^\s*/)?.[0].length ?? 0;
     const trailing = raw.match(/\s*$/)?.[0].length ?? 0;
     const fragment = raw.slice(leading, raw.length - trailing);
-    if (normalizedVariable(fragment).length >= 2) {
+    const firstWord = fragment.match(/^[A-Za-z]+/)?.[0].toLowerCase();
+    if (normalizedVariable(fragment).length >= 2 && !FRAGMENT_FUNCTION_WORDS.has(firstWord)) {
       output.push({ text: fragment, start: start + leading, end: cursor - trailing });
     }
   }
@@ -699,6 +707,17 @@ function anchorForSpan(blockIndex, blockType, blockText, start, end) {
   };
 }
 
+// Words a person could search for: strings and numbers, never JSON syntax,
+// field names, or the literal "true", "false" and "null" of flags.
+function searchableValues(value, output = [], depth = 0) {
+  if (typeof value === 'string') output.push(value);
+  else if (typeof value === 'number' && Number.isFinite(value)) output.push(String(value));
+  else if (value && typeof value === 'object' && depth < 4) {
+    for (const item of Array.isArray(value) ? value : Object.values(value)) searchableValues(item, output, depth + 1);
+  }
+  return output;
+}
+
 function objectDescriptor({ key, type, path: filePath, anchor = null, label, value = null, contentHash, metadata = {} }) {
   return {
     key,
@@ -709,7 +728,7 @@ function objectDescriptor({ key, type, path: filePath, anchor = null, label, val
     value: value == null ? null : String(value),
     contentHash,
     metadata,
-    searchText: `${label} ${value ?? ''} ${filePath} ${Object.values(metadata).map((item) => typeof item === 'object' ? JSON.stringify(item) : item).join(' ')}`.toLowerCase(),
+    searchText: `${label} ${value ?? ''} ${filePath} ${searchableValues(metadata).join(' ')}`.toLowerCase(),
   };
 }
 
@@ -1694,7 +1713,9 @@ export class PredictiveProvenanceService {
       .map((object) => {
         const exact = object.normalizedVariable === normalizedQuery ? 1 : 0;
         const prefix = !exact && object.normalizedVariable.startsWith(normalizedQuery) ? 1 : 0;
-        const contains = !prefix && object.normalizedVariable.includes(normalizedQuery) ? 1 : 0;
+        // Only a match that starts a word counts; "is" must not match "Revision".
+        const contains = !prefix && object.variableWords.some((_, index) => object.variableWords
+          .slice(index).join('').startsWith(normalizedQuery)) ? 1 : 0;
         const tokenPrefix = queryWords.length && queryWords.every((word) => object.variableWords
           .some((candidateWord) => candidateWord === word || candidateWord.startsWith(word))) ? 1 : 0;
         const variableObject = object.objectType === 'VARIABLE' ? 1 : 0;

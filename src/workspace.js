@@ -318,6 +318,14 @@ export class WorkspaceService {
       const { group, claim, ...candidate } = item;
       claims.get(key).candidates.push(candidate);
     }
+    // Directories may match different suffixes of the same phrase ("net inc"
+    // and "inc"). The longer match is the one the writer is typing.
+    for (const [key, claim] of claims) {
+      if (claim.type !== 'STUDY_VARIABLE') continue;
+      const nested = [...claims.values()].some((other) => other !== claim && other.type === 'STUDY_VARIABLE'
+        && other.start <= claim.start && other.end >= claim.end && other.end - other.start > claim.end - claim.start);
+      if (nested) claims.delete(key);
+    }
     const strip = ({ group, claim, ...value }) => value;
     const context = pool.find(({ prediction }) => prediction.sourceContext?.source) ?? pool[0];
     return { deterministic: true, generatedText: false, workspaceRevision: revision,

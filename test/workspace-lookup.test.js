@@ -103,3 +103,40 @@ test('organisation authors do not become surnames in labels or citations', async
   assert.ok(labels.includes('Berg'), labels.join(', '));
   assert.ok(!labels.includes('fixtures'));
 });
+
+async function predictionFixture(t) {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-predict-'));
+  const make = (name, file, content) => {
+    const root = path.join(temporary, name);
+    fs.mkdirSync(root);
+    fs.writeFileSync(path.join(root, file), content);
+    return fs.realpathSync(root);
+  };
+  const roots = [
+    make('Accountant', 'Income-Statement.csv',
+      'Account,September Actual CAD,Classification\nRevenue,485000,Income\nNet income,63050,Income\nOffice supplies,1250,Expense\n'),
+    make('Finance', 'Income-Statement.csv',
+      'Account,September Budget CAD,Classification\nRevenue,500000,Income\nOperating income,75100,Income\nRevision,2,Other\n'),
+  ];
+  const app = createApplication({ dataDir: path.join(temporary, 'history'), watchProjects: false });
+  await app.workspace.add(roots, actor);
+  t.after(async () => { await app.close(); fs.rmSync(temporary, { recursive: true, force: true }); });
+  return app;
+}
+
+const claimsFor = async (app, text) => (await app.workspace.predict({ text, cursor: text.length })).claims
+  .map((claim) => ({ text: claim.text, labels: claim.candidates.map((candidate) => candidate.label) }));
+
+test('typing suggestions never replace the words around a source name', async (t) => {
+  const app = await predictionFixture(t);
+  // "of" also begins "office", but replacing it would delete it from the sentence.
+  assert.deepEqual(await claimsFor(app, 'The expected cost of office sup'),
+    [{ text: 'office sup', labels: ['Office supplies'] }]);
+  // A function word alone, or inside a longer name, is not a source name.
+  assert.deepEqual(await claimsFor(app, 'The cap is'), []);
+});
+
+test('the longest phrase matched in any directory wins over a shorter one elsewhere', async (t) => {
+  const app = await predictionFixture(t);
+  assert.deepEqual(await claimsFor(app, 'The recorded net inc'), [{ text: 'net inc', labels: ['Net income'] }]);
+});
