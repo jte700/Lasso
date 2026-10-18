@@ -143,6 +143,8 @@ export function createSourceWorkbench({input, api, getProjectId, getProjectVersi
   if(mode==='shares') return empty('No shared links','Sharing starts from a linked source in your document. You choose exactly what the recipient can see.');
   if(mode==='changes') return empty('No source changes','Changes to indexed values will appear here, with their previous and current values.');
   if(report && mode==='report') return `<div class="wb-detail"><h2>${escape(report.headline)}</h2>${(report.blocks??[]).map(block=>block.kind==='text'?`<p>${escape(block.text)}</p>`:block.kind==='fields'?`<dl>${block.rows.map(r=>`<dt>${escape(r.label)}</dt><dd>${escape(r.value)}</dd>`).join('')}</dl>`:'').join('')}</div>`;
+  if(busy && !objects.length) return empty('Loading sources','Reading the indexed files in your work directories.');
+  if(!query && objects.length) return empty('Choose a source','Select a file to inspect its indexed evidence.');
   return empty(query?'No matching evidence':'Add sources to this project',query?'Try a file name, a phrase, or a value from your source.':'Documents and data in your project folder will appear here after indexing.');
  }
  async function selectObject(object,extra={}) {

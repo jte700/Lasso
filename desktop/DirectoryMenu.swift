@@ -18,21 +18,34 @@ final class DirectoryTintSwitch: NSButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func draw(_ dirtyRect: NSRect) {
-        let track = NSRect(x: (bounds.width - 36) / 2, y: (bounds.height - 16) / 2,
-                           width: 36, height: 16)
+        // Proportions follow the small system switch: a capsule track with a
+        // round white knob that carries a soft shadow and hairline edge.
+        let track = NSRect(x: (bounds.width - 30) / 2, y: (bounds.height - 17) / 2,
+                           width: 30, height: 17)
         let opacity: CGFloat = isEnabled ? 1 : 0.45
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let offColor = NSColor(calibratedWhite: dark ? 0.28 : 0.76, alpha: 1)
-        (state == .on ? tint.color : offColor).withAlphaComponent(opacity).setFill()
-        NSBezierPath(roundedRect: track, xRadius: 8, yRadius: 8).fill()
-        let thumb = NSRect(x: state == .on ? track.maxX - 23.5 : track.minX + 1.5,
-                           y: track.minY + 1.5, width: 22, height: 13)
-        NSColor(srgbRed: 0.91, green: 0.95, blue: 1, alpha: opacity).setFill()
-        NSBezierPath(roundedRect: thumb, xRadius: 6.5, yRadius: 6.5).fill()
+        let offColor = dark ? NSColor(white: 1, alpha: 0.16) : NSColor(white: 0, alpha: 0.1)
+        (state == .on ? tint.color : offColor).withAlphaComponent((state == .on ? 1 : offColor.alphaComponent) * opacity).setFill()
+        NSBezierPath(roundedRect: track, xRadius: track.height / 2, yRadius: track.height / 2).fill()
+        let knob = NSRect(x: state == .on ? track.maxX - 16 : track.minX + 1,
+                          y: track.minY + 1, width: 15, height: 15)
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.25 * opacity)
+        shadow.shadowBlurRadius = 1.5
+        shadow.shadowOffset = NSSize(width: 0, height: -0.5)
+        shadow.set()
+        NSColor.white.withAlphaComponent(dark && state != .on ? 0.85 * opacity : opacity).setFill()
+        NSBezierPath(ovalIn: knob).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        NSColor.black.withAlphaComponent(0.08 * opacity).setStroke()
+        let edge = NSBezierPath(ovalIn: knob.insetBy(dx: 0.25, dy: 0.25))
+        edge.lineWidth = 0.5
+        edge.stroke()
         if window?.firstResponder === self {
             NSColor.keyboardFocusIndicatorColor.setStroke()
-            let ring = NSBezierPath(roundedRect: track.insetBy(dx: -2, dy: -2), xRadius: 10, yRadius: 10)
-            ring.lineWidth = 2
+            let ring = NSBezierPath(roundedRect: track.insetBy(dx: -2.5, dy: -2.5), xRadius: 11, yRadius: 11)
+            ring.lineWidth = 2.5
             ring.stroke()
         }
     }
@@ -103,8 +116,26 @@ final class NativeMenuToggleRow: NSView {
     var currentColor: DirectoryToggleColor { toggle.tint }
     var actionItem: NSMenuItem { item }
     var onSizeChange: (() -> Void)?
+    private var hovering = false { didSet { if hovering != oldValue { needsDisplay = true } } }
 
     override var isFlipped: Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: NSRect(x: 0, y: 0, width: bounds.width, height: 32),
+            options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil))
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovering = item.isEnabled }
+    override func mouseExited(with event: NSEvent) { hovering = false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard hovering else { return }
+        NSColor.labelColor.withAlphaComponent(0.1).setFill()
+        NSBezierPath(roundedRect: NSRect(x: 4, y: 2, width: bounds.width - 8, height: 28),
+                     xRadius: 5, yRadius: 5).fill()
+    }
 
     init(item: NSMenuItem, color: DirectoryToggleColor,
          onColorChange: @escaping (DirectoryToggleColor) -> Void) {
@@ -268,9 +299,11 @@ final class NativeMenuDisclosureRow: NSView {
         button.autoresizingMask = [.width]
         button.isBordered = false
         button.alignment = .left
-        button.font = .systemFont(ofSize: 12, weight: .medium)
+        button.attributedTitle = NSAttributedString(string: item.title, attributes: [
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.secondaryLabelColor])
         button.image = NSImage(systemSymbolName: expanded ? "chevron.down" : "chevron.right",
-                               accessibilityDescription: nil)
+                               accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
         button.imagePosition = .imageLeading
         button.imageHugsTitle = true
         button.contentTintColor = .secondaryLabelColor
@@ -290,10 +323,12 @@ final class NativeMenuDisclosureRow: NSView {
 
     func update(item: NSMenuItem, expanded: Bool, count: Int) {
         self.item = item
-        button.title = item.title
+        button.attributedTitle = NSAttributedString(string: item.title, attributes: [
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.secondaryLabelColor])
         button.isEnabled = item.isEnabled
         button.image = NSImage(systemSymbolName: expanded ? "chevron.down" : "chevron.right",
-                               accessibilityDescription: nil)
+                               accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
         button.setAccessibilityLabel("\(expanded ? "Collapse" : "Expand") \(item.title)")
         total.stringValue = String(count)
     }

@@ -1,7 +1,7 @@
 import { caretPointForTextLengths, contextualCompletionCase } from './editor-acceptance.js';
 import { createCommandPalette } from './palette.js';
 import { createDirectorySidebar, createTabBar, createSpatialWorkbench, renderSession } from './shell.js?v=5';
-import { createSourceWorkbench } from './source-workbench.js?v=5';
+import { createSourceWorkbench } from './source-workbench.js?v=6';
 import { renderAssistBox } from './assist-box.js?v=2';
 import { renderModelPlan, bindModelPlans } from './model-preview.js?v=2';
 import { createVisibilityRefresh } from './visibility-refresh.js';
@@ -602,7 +602,7 @@ function renderDocumentEditor() {
     <header class="editor-header">
       <div class="editor-title-group">
         <div class="editor-history-buttons"><button data-editor-command="undo" title="Undo">↶</button><button data-editor-command="redo" title="Redo">↷</button></div>
-        <div class="editor-document-title"><select id="editor-document-switcher" aria-label="Current document">${documentOptions}</select><small>Version ${documentState.version} · ${escapeHtml(fileLabel)} · source-backed editing</small></div>
+        <div class="editor-document-title"><select id="editor-document-switcher" aria-label="Current document">${documentOptions}</select><small>Version ${documentState.version} · ${escapeHtml(fileLabel)}</small></div>
       </div>
       <div class="editor-header-actions"><span id="editor-save-state">Saved</span><button id="audit-button">Sources</button><button id="save-document" disabled>Save now</button><button class="editor-share-button" id="editor-share-button">Share <span>⌄</span></button></div>
     </header>
@@ -621,7 +621,7 @@ function renderDocumentEditor() {
       <aside id="dependency-inspector" class="dependency-inspector" hidden aria-label="Source inspector"></aside>
       <aside id="source-peek" class="source-peek" hidden aria-label="Source preview"></aside>
     </div>
-    <div class="t-editor-status" aria-hidden="true"><b>EDIT</b><span>[⌘Z] undo · [⌘⇧L] link source · [Tab] accept suggestion · [Esc] dismiss</span></div>
+    <div class="t-editor-status" aria-hidden="true"><span><kbd>⌘Z</kbd> Undo</span><span><kbd>⇧⌘L</kbd> Link source</span><span><kbd>Tab</kbd> Accept suggestion</span><span><kbd>Esc</kbd> Dismiss</span></div>
   </div>`;
   elements['detail-column'].scrollTop = 0;
   bindEditorSurface();

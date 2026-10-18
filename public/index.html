@@ -15,8 +15,8 @@
     </script>
     <link rel="stylesheet" href="/terminal.css?v=29" />
     <link rel="stylesheet" href="/macos.css?v=2" />
-    <link rel="stylesheet" href="/utility.css?v=3" />
-    <link rel="stylesheet" href="/workbench.css?v=1" />
+    <link rel="stylesheet" href="/utility.css?v=4" />
+    <link rel="stylesheet" href="/workbench.css?v=5" />
   </head>
   <body>
     <div class="app-window utility-window view-session" id="app-window">
@@ -72,7 +72,7 @@
               </button>
               <button class="rail-item" type="button" data-workspace-query="changes">
                 <svg viewBox="0 0 20 20"><path d="M4 10a6 6 0 1 0 2-4.5M4 4v4h4"/><path d="M10 7v3l2 2"/></svg>
-                <span>Changes</span><b id="rail-change-count">0</b>
+                <span>Changes</span><b id="rail-change-count"></b>
               </button>
               <button class="rail-item" type="button" data-workspace-query="share list">
                 <svg viewBox="0 0 20 20"><path d="M7.2 12.8 12.8 7.2M6.3 8.9 4.7 10.5a3 3 0 0 0 4.2 4.2l1.6-1.6M13.7 11.1l1.6-1.6a3 3 0 0 0-4.2-4.2L9.5 6.9"/></svg>
@@ -80,7 +80,7 @@
               </button>
               <button class="rail-item" type="button" data-workspace-query="conflicts">
                 <svg viewBox="0 0 20 20"><path d="M10 3.5 16.5 15H3.5Z"/><path d="M10 7v4M10 13.5v.1"/></svg>
-                <span>Review sources</span><b id="rail-review-count">0</b>
+                <span>Review sources</span><b id="rail-review-count"></b>
               </button>
             </nav>
           </div>
@@ -173,6 +173,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=62"></script>
+    <script type="module" src="/app.js?v=64"></script>
   </body>
 </html>

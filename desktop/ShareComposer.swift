@@ -785,7 +785,11 @@ final class ShareComposerView: NSView {
     }()
     private lazy var previewScroll: NSScrollView = {
         let scroll = NSScrollView(frame: .zero)
-        scroll.borderType = .lineBorder
+        scroll.borderType = .noBorder
+        scroll.wantsLayer = true
+        scroll.layer?.cornerRadius = 7
+        scroll.layer?.masksToBounds = true
+        scroll.layer?.borderWidth = 1
         scroll.drawsBackground = true
         scroll.backgroundColor = .textBackgroundColor
         scroll.hasVerticalScroller = true
@@ -972,9 +976,10 @@ final class ShareComposerView: NSView {
     }
 
     private func drawHeader() {
-        drawText(filename, in: NSRect(x: 18, y: 14, width: bounds.width - 65, height: 18),
-                 font: .systemFont(ofSize: 12, weight: .semibold), color: .labelColor)
-        drawSymbol("xmark", in: NSRect(x: bounds.width - 30, y: 16, width: 11, height: 11), fraction: 0.65)
+        drawText(filename, in: NSRect(x: 18, y: 13, width: bounds.width - 65, height: 19),
+                 font: .systemFont(ofSize: 13, weight: .semibold), color: .labelColor)
+        drawSymbol("xmark", in: NSRect(x: bounds.width - 30, y: 16, width: 11, height: 11), fraction: 1,
+                   color: .secondaryLabelColor)
     }
 
     private func drawScopes() {
@@ -996,23 +1001,24 @@ final class ShareComposerView: NSView {
                 sourceColor.setFill()
                 NSBezierPath(ovalIn: radio.insetBy(dx: 4, dy: 4)).fill()
             }
-            drawText(entry.1, in: NSRect(x: row.minX + 31, y: row.minY + 8, width: row.width - 40, height: 17),
-                     font: .systemFont(ofSize: 11, weight: .medium), color: scope == entry.0 ? sourceInkColor : .labelColor)
-            drawText(entry.2, in: NSRect(x: row.minX + 31, y: row.minY + 27, width: row.width - 40, height: 14),
-                     font: .systemFont(ofSize: 9.2), color: .secondaryLabelColor)
+            drawText(entry.1, in: NSRect(x: row.minX + 31, y: row.minY + 7, width: row.width - 40, height: 18),
+                     font: .systemFont(ofSize: 12, weight: .medium), color: scope == entry.0 ? sourceInkColor : .labelColor)
+            drawText(entry.2, in: NSRect(x: row.minX + 31, y: row.minY + 26, width: row.width - 40, height: 15),
+                     font: .systemFont(ofSize: 10.5), color: .secondaryLabelColor)
         }
     }
 
     private func drawPreview() {
+        // Resolved while drawing, so the frame follows light and dark appearance.
+        previewScroll.layer?.borderColor = NSColor.separatorColor.cgColor
         let x: CGFloat = 16
         let isPDF = isPDFSource
-        drawText(scope == .indexed ? (isPDF && isChoosingPDFExcerpt ? "SELECT EXCERPT" : "RECIPIENT PREVIEW") : "COMPLETE DOCUMENT",
-                 in: NSRect(x: x, y: 110, width: 170, height: 14),
-                 font: .systemFont(ofSize: 9, weight: .semibold), color: .tertiaryLabelColor)
+        drawText(scope == .indexed ? (isPDF && isChoosingPDFExcerpt ? "Select excerpt" : "Recipient preview") : "Complete document",
+                 in: NSRect(x: x + 2, y: 108, width: 170, height: 16),
+                 font: .systemFont(ofSize: 11, weight: .semibold), color: .secondaryLabelColor)
 
         if scope == .redacted {
-            drawEffectControl("Blur", effect: .blur, in: NSRect(x: bounds.width - 140, y: 103, width: 54, height: 24))
-            drawEffectControl("Redact", effect: .blank, in: NSRect(x: bounds.width - 80, y: 103, width: 64, height: 24))
+            drawSegmentedControl([("Blur", effect == .blur, blurEffectRect), ("Redact", effect == .blank, redactEffectRect)])
         } else {
             let badge = scope == .document ? "Original available" : "Original protected"
             drawPill(badge, in: NSRect(x: bounds.width - 125, y: 105, width: 109, height: 20))
@@ -1030,15 +1036,15 @@ final class ShareComposerView: NSView {
 
         drawText(label, in: NSRect(x: card.minX + 13, y: card.minY + 12,
                                   width: card.width - 26 - (isPDF && scope == .indexed && pdfExcerpt != nil ? 124 : 0), height: 17),
-                 font: .systemFont(ofSize: 11.5, weight: .semibold), color: .labelColor)
+                 font: .systemFont(ofSize: 12.5, weight: .semibold), color: .labelColor)
         let drawing = fullDocument?.model != nil
         let subtitle = scope == .redacted ? (drawing || isPDF ? "Drag over text or mark an area. Click a mask to remove it." : "Drag across cells or sections to blur or redact.") : scope == .indexed && isPDF
             ? (isChoosingPDFExcerpt ? "Select the words, sentence, paragraph or area to share." : "Only the selected excerpt will be shared.") : scope == .indexed
             ? (preview?.location.isEmpty == false ? preview!.location : filename)
             : "Complete \(filename)"
         drawText(subtitle, in: NSRect(x: card.minX + 13, y: card.minY + 31,
-                                     width: card.width - 26, height: 14),
-                 font: .systemFont(ofSize: 9.3), color: .secondaryLabelColor)
+                                     width: card.width - 26, height: 15),
+                 font: .systemFont(ofSize: 10.5), color: .secondaryLabelColor)
         if isPDF && scope == .indexed && pdfExcerpt != nil {
             drawButton(isChoosingPDFExcerpt ? "Review excerpt" : "Change selection", in: pdfExcerptToggleRect,
                        prominent: false, enabled: !isCopying)
@@ -1104,6 +1110,9 @@ final class ShareComposerView: NSView {
             drawCentered(document.unavailableReason ?? "This document has no previewable content", in: rect)
         }
     }
+
+    private var blurEffectRect: NSRect { NSRect(x: bounds.width - 136, y: 103, width: 60, height: 24) }
+    private var redactEffectRect: NSRect { NSRect(x: bounds.width - 76, y: 103, width: 60, height: 24) }
 
     private var pdfTextModeRect: NSRect { NSRect(x: 200, y: 103, width: 78, height: 24) }
     private var pdfAreaModeRect: NSRect { NSRect(x: 284, y: 103, width: 78, height: 24) }
@@ -1655,7 +1664,7 @@ final class ShareComposerView: NSView {
         drawSymbol("lock.shield", in: NSRect(x: 18, y: centerY - 8, width: 16, height: 16), fraction: 0.8)
         let availability = localOnly ? "Only on this Mac. Email recipients need hosted sharing." : detail
         let message = notice ?? availability
-        let font = NSFont.systemFont(ofSize: 10)
+        let font = NSFont.systemFont(ofSize: 11)
         let textWidth = max(0, cancelButtonRect.minX - 56)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping
@@ -1720,10 +1729,10 @@ final class ShareComposerView: NSView {
             return
         }
         if scope == .redacted {
-            if NSRect(x: bounds.width - 140, y: 103, width: 54, height: 24).contains(point) {
+            if blurEffectRect.contains(point) {
                 effect = .blur; needsDisplay = true; return
             }
-            if NSRect(x: bounds.width - 80, y: 103, width: 64, height: 24).contains(point) {
+            if redactEffectRect.contains(point) {
                 effect = .blank; needsDisplay = true; return
             }
             if let layout = drawingLayout, layout.frame.contains(point) {
@@ -1803,16 +1812,34 @@ final class ShareComposerView: NSView {
         needsDisplay = true
     }
 
-    private func drawEffectControl(_ title: String, effect option: ShareRedactionEffect, in rect: NSRect) {
-        if effect == option {
-            sourceColor.withAlphaComponent(0.12).setFill()
-            NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
+    /// Adjacent segments in one rounded track, like NSSegmentedControl.
+    private func drawSegmentedControl(_ segments: [(title: String, selected: Bool, rect: NSRect)]) {
+        guard let first = segments.first?.rect else { return }
+        let track = segments.dropFirst().reduce(first) { $0.union($1.rect) }
+        NSColor.labelColor.withAlphaComponent(0.06).setFill()
+        NSBezierPath(roundedRect: track, xRadius: 6, yRadius: 6).fill()
+        for (index, segment) in segments.enumerated() {
+            if segment.selected {
+                let knob = segment.rect.insetBy(dx: 2, dy: 2)
+                NSColor.controlBackgroundColor.setFill()
+                NSGraphicsContext.saveGraphicsState()
+                let shadow = NSShadow()
+                shadow.shadowColor = NSColor.black.withAlphaComponent(0.18)
+                shadow.shadowBlurRadius = 1.5
+                shadow.shadowOffset = NSSize(width: 0, height: -0.5)
+                shadow.set()
+                NSBezierPath(roundedRect: knob, xRadius: 4.5, yRadius: 4.5).fill()
+                NSGraphicsContext.restoreGraphicsState()
+            } else if index > 0, !segments[index - 1].selected {
+                NSColor.separatorColor.setStroke()
+                line(from: NSPoint(x: segment.rect.minX, y: segment.rect.minY + 6),
+                     to: NSPoint(x: segment.rect.minX, y: segment.rect.maxY - 6))
+            }
+            drawText(segment.title, in: NSRect(x: segment.rect.minX, y: segment.rect.minY + 4.5,
+                                               width: segment.rect.width, height: 15),
+                     font: .systemFont(ofSize: 11, weight: segment.selected ? .semibold : .regular),
+                     color: segment.selected ? .labelColor : .secondaryLabelColor, alignment: .center)
         }
-        NSColor.separatorColor.withAlphaComponent(0.15).setStroke()
-        NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).stroke()
-        drawText(title, in: NSRect(x: rect.minX, y: rect.minY + 5, width: rect.width, height: 14),
-                 font: .systemFont(ofSize: 9.5, weight: .medium), color: effect == option ? sourceInkColor : .secondaryLabelColor,
-                 alignment: .center)
     }
 
     private func drawPill(_ title: String, in rect: NSRect) {
@@ -1820,7 +1847,7 @@ final class ShareComposerView: NSView {
         NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2).fill()
         drawText(title, in: NSRect(x: rect.minX + 6, y: rect.minY + 4,
                                   width: rect.width - 12, height: 13),
-                 font: .systemFont(ofSize: 8.7, weight: .medium), color: .secondaryLabelColor,
+                 font: .systemFont(ofSize: 10, weight: .medium), color: .secondaryLabelColor,
                  alignment: .center)
     }
 
@@ -1828,15 +1855,16 @@ final class ShareComposerView: NSView {
                             confirmed: Bool = false, showsShortcut: Bool = true) {
         let fill = prominent
             ? (sourceColor.blended(withFraction: confirmed ? 0.45 : 0.35, of: .black) ?? sourceColor).withAlphaComponent(enabled ? 1 : 0.3)
-            : sourceColor.withAlphaComponent(0.08)
+            : NSColor.labelColor.withAlphaComponent(0.07)
         fill.setFill()
-        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+        NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
         if !prominent {
-            sourceColor.withAlphaComponent(0.3).setStroke()
-            NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+            NSColor.separatorColor.setStroke()
+            NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7).stroke()
         }
-        let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        let color = prominent ? NSColor.white.withAlphaComponent(enabled ? 1 : 0.7) : sourceInkColor
+        let font = NSFont.systemFont(ofSize: 12, weight: prominent ? .semibold : .regular)
+        let color = prominent ? NSColor.white.withAlphaComponent(enabled ? 1 : 0.7)
+            : enabled ? NSColor.labelColor : .disabledControlTextColor
         let titleSize = (title as NSString).size(withAttributes: [.font: font])
         let hasSymbol = prominent && showsShortcut
         let groupWidth = titleSize.width + (hasSymbol ? 22 : 0)
@@ -1849,9 +1877,9 @@ final class ShareComposerView: NSView {
         }
     }
 
-    private func drawSymbol(_ name: String, in rect: NSRect, fraction: CGFloat) {
+    private func drawSymbol(_ name: String, in rect: NSRect, fraction: CGFloat, color: NSColor? = nil) {
         guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil),
-              let image = symbol.withSymbolConfiguration(.init(paletteColors: [sourceInkColor])) else { return }
+              let image = symbol.withSymbolConfiguration(.init(paletteColors: [color ?? sourceInkColor])) else { return }
         image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: fraction,
                    respectFlipped: true, hints: nil)
     }

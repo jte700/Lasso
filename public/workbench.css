@@ -88,3 +88,29 @@ html .view-session #dependency-shell { width:100%; height:100%; max-width:none; 
 .wb-evidence-table thead th:first-child { min-width:30px; }
 .wb-evidence-table thead small { display:block;margin-bottom:4px;color:var(--wb-muted);font-size:10px;font-weight:400; }
 .wb-evidence-table thead span { display:block;font-size:12px;line-height:1.4; }
+
+/* macOS sidebar scale: 13pt rows and 11pt bold section headers, as in Finder.
+   Kept last so earlier theme layers cannot shrink navigation text again. */
+.rail-item { height:30px; font-size:13px; }
+.rail-label { font-size:11px; font-weight:600; color:var(--wb-muted); }
+.document-list .tab { height:28px!important; }
+.document-list .tab-label { font-size:13px!important; }
+.open-editor-button, .workspace-summary { font-size:12px; }
+
+/* Native type: the system font for interface text and prose. Monospace stays
+   only where alignment matters: code, line numbers and keyboard shortcuts. */
+*, *::before, *::after { font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif; }
+code, kbd, pre, .manuscript-block.code, .manuscript-block::before { font-family:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace; }
+.t-cap { display:none; }
+/* Fixed gutters: ch units would grow with heading size and misalign text. */
+.manuscript-block { padding-left:64px; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif; font-size:14px; line-height:1.6; margin-bottom:.65em; }
+.manuscript-block.code, .manuscript-block.list { padding-left:64px; }
+.edit-layer-note { padding-left:64px; }
+.manuscript-block.heading { font-size:17px; font-weight:650; }
+.manuscript-block.heading:first-child { font-size:21px; }
+.manuscript-block::before { content:counter(term-line); width:44px; font-size:10.5px; font-weight:400; line-height:inherit; }
+.editor-document-title small { font-size:11px; }
+.editor-rule { font-size:11px; }
+.t-editor-status { gap:18px; min-height:26px; font-size:11px; }
+.t-editor-status kbd { margin-right:4px; padding:0; border:0; background:none; color:var(--mac-text-2); font-size:11px; }
+.document-list .tab.active .tab-label { text-align:left; }

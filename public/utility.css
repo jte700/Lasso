@@ -128,6 +128,10 @@ html.native-app .utility-toolbar { padding-left:78px; }
 .rail-item:hover { background:var(--u-hover);color:var(--u-text); }
 .rail-item.active { background:var(--u-selected);color:var(--u-text);font-weight:580; }
 .rail-item svg { width:16px;height:16px;color:var(--u-text-3); }
+.rail-item span { overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
+.rail-item b:empty { display:none; }
+.document-list .tab + .tab { margin-left:0!important; }
+.document-list { overflow-x:hidden; }
 .rail-item.active svg { color:var(--u-text-2); }
 .rail-item b { min-width:18px;padding:1px 5px;border-radius:8px;background:var(--u-hover);color:var(--u-text-3);font-size:11px;font-weight:600;text-align:center; }
 .rail-documents { min-height:0;margin-top:18px; }
@@ -136,7 +140,10 @@ html.native-app .utility-toolbar { padding-left:78px; }
   display:grid!important;grid-template-columns:17px minmax(0,1fr)!important;align-items:center!important;gap:7px!important;width:100%!important;height:29px!important;padding:0 8px!important;
   border:0!important;border-radius:6px!important;background:transparent!important;color:var(--u-text-3)!important;text-align:left!important;
 }
-.document-list .tab::before { content:"";width:12px;height:15px;border:1px solid currentColor;border-radius:2px;opacity:.75; }
+/* The document glyph must also override the horizontal tab separator rule,
+   which otherwise removes it from the grid and squeezes later labels. */
+.document-list .tab::before, .document-list .tab:not(.active) + .tab:not(.active)::before {
+  content:"";position:static;width:12px;height:15px;border:1px solid currentColor;border-radius:2px;background:none;opacity:.75; }
 .document-list .tab:hover { background:var(--u-hover)!important;color:var(--u-text-2)!important; }
 .document-list .tab.active { background:var(--u-selected)!important;color:var(--u-text)!important; }
 .document-list .tab-label { overflow:hidden!important;font-size:11px!important;text-overflow:ellipsis!important;white-space:nowrap!important; }

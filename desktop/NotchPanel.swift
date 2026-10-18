@@ -286,11 +286,22 @@ final class NotchPanelController: NSObject {
     @discardableResult
     private func button(_ title: String, frame: NSRect, action: Selector, symbol: String? = nil) -> NSButton {
         let button = NSButton(title: title, target: self, action: action)
-        button.bezelStyle = .rounded
-        button.font = .systemFont(ofSize: 12, weight: .medium)
+        if title.isEmpty, let symbol {
+            // Icon-only controls on the black surface are plain glyphs, as in system HUDs.
+            button.isBordered = false
+            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold))
+            button.contentTintColor = .secondaryLabelColor
+            button.imagePosition = .imageOnly
+        } else {
+            // The large push button is the native 28-point control height.
+            button.bezelStyle = .rounded
+            button.controlSize = .large
+            button.font = .systemFont(ofSize: 12, weight: .medium)
+            if let symbol { button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
+            button.imagePosition = .imageLeading
+        }
         button.frame = frame
-        if let symbol { button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
-        button.imagePosition = .imageLeading
         content.addSubview(button)
         return button
     }
@@ -319,7 +330,7 @@ final class NotchPanelController: NSObject {
         content.subviews.forEach { $0.removeFromSuperview() }
         let width = content.bounds.width
         let footerY = content.bounds.height - 38
-        label("\(activity.directories) active directories · \(activity.files) indexed files",
+        label("\(activity.directories) active director\(activity.directories == 1 ? "y" : "ies") · \(activity.files) indexed file\(activity.files == 1 ? "" : "s")",
               y: 8, size: 11, color: .secondaryLabelColor, height: 18)
         let separator = NSBox(frame: NSRect(x: 14, y: 34, width: width - 28, height: 1))
         separator.boxType = .separator; content.addSubview(separator)
