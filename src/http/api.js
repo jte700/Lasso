@@ -4,7 +4,7 @@ import { URL } from 'node:url';
 import { buildPreview } from '../history/preview.js';
 import { HttpError } from '../history/errors.js';
 import { renderSharePage, renderUnavailable, renderInspectorPanel } from '../sharing/share-page.js';
-import { buildFullShareDocument, buildInspectorPreview, buildSharePreview, isTextPreviewPath, usesMarkdownLayout } from '../sharing/share-preview.js';
+import { buildFullShareDocument, buildInspectorPreview, buildSharePreview, isTextPreviewPath, usesMarkdownLayout, detectsCsvDelimiter } from '../sharing/share-preview.js';
 import { isMarkdownPath } from '../sharing/markdown.js';
 import { buildModelPreview } from '../dependencies/model-preview.js';
 import { redactModelPlan } from '../sharing/model-redaction.js';
@@ -48,13 +48,21 @@ function sendJson(response, status, value) {
   response.end(body);
 }
 
-function sendHtml(response, status, html) {
+// Recipient pages run no script and load nothing from elsewhere. If shared
+// text ever escaped its escaping, the browser would still refuse to run it.
+const SHARE_PAGE_HEADERS = {
+  'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  'x-content-type-options': 'nosniff',
+};
+
+function sendHtml(response, status, html, headers = {}) {
   const body = Buffer.from(html, 'utf8');
   response.writeHead(status, {
     'content-type': 'text/html; charset=utf-8',
     'content-length': body.length,
     'cache-control': 'no-store',
     'referrer-policy': 'no-referrer',
+    ...headers,
   });
   response.end(body);
 }
@@ -133,7 +141,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       if (resolved.share.accessScope !== 'INDEXED') {
         document = await resolvedModelDocument(resolved)
           ?? (resolved.share.accessScope === 'REDACTED'
-            ? buildFullShareDocument(sourceFile, { markdownLayout: usesMarkdownLayout(resolved.share.redactions) })
+            ? buildFullShareDocument(sourceFile, { markdownLayout: usesMarkdownLayout(resolved.share.redactions),
+              detectCsvDelimiter: detectsCsvDelimiter(resolved.share.redactions) })
             // The original is downloadable in this scope, so Markdown can be read in full.
             : isMarkdownPath(resolved.internal.filePath) ? buildFullShareDocument(sourceFile) : null);
         if (resolved.share.accessScope === 'DOCUMENT' && /\.pdf$/i.test(resolved.internal.filePath)) {
@@ -161,21 +170,21 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const resolved = objectShares.resolveShare(token);
         if (resolved.status !== 'OK') {
           return sendHtml(response, resolved.status === 'NOT_FOUND' ? 404 : 410,
-            renderUnavailable(resolved.status));
+            renderUnavailable(resolved.status), SHARE_PAGE_HEADERS);
         }
         const { preview, document } = await sharedContent(resolved);
-        return sendHtml(response, 200, renderSharePage(resolved, token, preview, document));
+        return sendHtml(response, 200, renderSharePage(resolved, token, preview, document), SHARE_PAGE_HEADERS);
       }
 
       shareParameters = match(pathname, /^\/d\/([A-Za-z0-9_-]{16,128})\/excerpt$/);
       if (request.method === 'GET' && shareParameters && objectShares) {
         const resolved = objectShares.resolveShare(shareParameters[0]);
         if (resolved.status !== 'OK') {
-          return sendHtml(response, resolved.status === 'NOT_FOUND' ? 404 : 410, renderUnavailable(resolved.status));
+          return sendHtml(response, resolved.status === 'NOT_FOUND' ? 404 : 410, renderUnavailable(resolved.status), SHARE_PAGE_HEADERS);
         }
         const { preview, document } = await sharedContent(resolved);
         const excerpt = buildShareDownload(resolved, preview, document);
-        if (!excerpt) return sendHtml(response, 422, renderUnavailable('EXCERPT_UNAVAILABLE'));
+        if (!excerpt) return sendHtml(response, 422, renderUnavailable('EXCERPT_UNAVAILABLE'), SHARE_PAGE_HEADERS);
         return sendBinary(response, 200, excerpt.content, excerpt.contentType, {
           'content-disposition': downloadDisposition(excerpt.filename),
           'cache-control': 'no-store',
@@ -186,10 +195,10 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       shareParameters = match(pathname, /^\/d\/([A-Za-z0-9_-]{16,128})\/source$/);
       if (request.method === 'GET' && shareParameters && objectShares) {
         const resolved = objectShares.resolveShare(shareParameters[0]);
-        if (resolved.status !== 'OK') return sendHtml(response, resolved.status === 'NOT_FOUND' ? 404 : 410, renderUnavailable(resolved.status));
+        if (resolved.status !== 'OK') return sendHtml(response, resolved.status === 'NOT_FOUND' ? 404 : 410, renderUnavailable(resolved.status), SHARE_PAGE_HEADERS);
         if (resolved.share.accessScope !== 'DOCUMENT') {
           const { document } = await sharedContent(resolved);
-          if (!document?.safe || !document.content) return sendHtml(response, 403, renderUnavailable('SCOPE_RESTRICTED'));
+          if (!document?.safe || !document.content) return sendHtml(response, 403, renderUnavailable('SCOPE_RESTRICTED'), SHARE_PAGE_HEADERS);
           return sendBinary(response, 200, document.content, 'application/pdf', {
             'content-disposition': downloadDisposition(resolved.source.filename).replace(/^attachment;/, 'inline;'),
             'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
@@ -200,10 +209,10 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const file = objectShares.sourceFile(shareParameters[0]);
         if (file.status !== 'OK') {
           const status = file.status === 'NOT_FOUND' ? 404 : file.status === 'SCOPE_RESTRICTED' ? 403 : 410;
-          return sendHtml(response, status, renderUnavailable(file.status));
+          return sendHtml(response, status, renderUnavailable(file.status), SHARE_PAGE_HEADERS);
         }
         if (file.contentType !== 'application/pdf') {
-          return sendHtml(response, 415, renderUnavailable('EXCERPT_UNAVAILABLE'));
+          return sendHtml(response, 415, renderUnavailable('EXCERPT_UNAVAILABLE'), SHARE_PAGE_HEADERS);
         }
         return sendBinary(response, 200, file.content, file.contentType, {
           'content-disposition': downloadDisposition(file.filename).replace(/^attachment;/, 'inline;'),
@@ -217,7 +226,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const file = objectShares.sourceFile(shareParameters[0]);
         if (file.status !== 'OK') {
           const status = file.status === 'NOT_FOUND' ? 404 : file.status === 'SCOPE_RESTRICTED' ? 403 : 410;
-          return sendHtml(response, status, renderUnavailable(file.status));
+          return sendHtml(response, status, renderUnavailable(file.status), SHARE_PAGE_HEADERS);
         }
         // Only the basename is ever published, and quotes/newlines are stripped
         // so the header cannot be split.

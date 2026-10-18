@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { HttpError } from '../history/errors.js';
 import { MARKDOWN_LAYOUT, isMarkdownPath } from './markdown.js';
+import { csvDelimiter } from '../history/diff.js';
+import { correctedDocumentLabel } from '../dependencies/authors.js';
 
 const MIME_TYPES = {
   '.pdf': 'application/pdf',
@@ -111,9 +113,18 @@ export class ObjectShareService {
 
     // Markdown text redactions address structured sections. The layout is
     // recorded so the stored indexes cannot drift to a different segmentation.
-    const storedRedactions = isMarkdownPath(version.path)
+    let storedRedactions = isMarkdownPath(version.path)
       ? normalizedRedactions.map(entry => entry.kind === 'BLOCK' ? { ...entry, layout: MARKDOWN_LAYOUT } : entry)
       : normalizedRedactions;
+    // Cells of a semicolon file are addressed in its semicolon columns.
+    // Unmarked cell redactions keep the comma reading they were made with.
+    if (/\.csv$/i.test(version.path ?? '') && storedRedactions.some(entry => entry.kind === 'CELL')) {
+      const file = this.timeline.snapshotFile(version.snapshot_id, version.path);
+      const content = file ? this.timeline.blobs.get(file.contentHash) : null;
+      if (content && csvDelimiter(content.toString('utf8')) === ';') {
+        storedRedactions = storedRedactions.map(entry => entry.kind === 'CELL' ? { ...entry, delimiter: ';' } : entry);
+      }
+    }
 
     const normalizedActor = actor?.id ? actor : { id: 'human-self:local', displayName: 'Local user', actorType: 'HUMAN_SELF' };
     this.timeline.upsertActor(normalizedActor);
@@ -178,7 +189,7 @@ export class ObjectShareService {
     return {
       status: 'OK',
       source: {
-        label: version.label,
+        label: correctedDocumentLabel(version.object_type, version.label, metadata),
         valueText: version.value_text,
         objectType: version.object_type,
         filename: path.basename(version.path),
@@ -229,7 +240,7 @@ export class ObjectShareService {
         excerpt: grant.excerpt_json ? JSON.parse(grant.excerpt_json) : null,
       },
       source: {
-        label: version.label,
+        label: correctedDocumentLabel(version.object_type, version.label, metadata),
         valueText: version.value_text,
         objectType: version.object_type,
         // Only the file's own name is ever published, never its location.

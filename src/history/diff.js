@@ -125,7 +125,36 @@ function markdownDiff(beforeText, afterText) {
   };
 }
 
-export function parseDelimited(text, delimiter) {
+function unquotedCounts(line) {
+  const counts = { ',': 0, ';': 0 };
+  let quoted = false;
+  for (const character of line) {
+    if (character === '"') quoted = !quoted;
+    else if (!quoted && character in counts) counts[character] += 1;
+  }
+  return counts;
+}
+
+/**
+ * The delimiter of a .csv file. Spreadsheet exports in many locales separate
+ * fields with semicolons; they are recognised only when the header has no
+ * unquoted comma and the sampled rows agree on the semicolon count.
+ */
+export function csvDelimiter(text) {
+  const lines = String(text ?? '').replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => line.trim()).slice(0, 6);
+  if (!lines.length) return ',';
+  const header = unquotedCounts(lines[0]);
+  if (header[','] > 0 || header[';'] === 0) return ',';
+  return lines.every((line) => unquotedCounts(line)[';'] === header[';']) ? ';' : ',';
+}
+
+/**
+ * Rows of a delimited file. A comma delimiter is checked against csvDelimiter
+ * unless `detect` is false, which preserves the original comma reading for
+ * coordinates recorded before semicolon files were recognised.
+ */
+export function parseDelimited(text, delimiter, { detect = true } = {}) {
+  if (delimiter === ',' && detect) delimiter = csvDelimiter(text);
   const rows = [];
   let row = [];
   let cell = '';

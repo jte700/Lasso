@@ -16,6 +16,12 @@ export function usesMarkdownLayout(redactions = []) {
   return !redactions.some((entry) => entry.kind === 'BLOCK' && entry.layout !== MARKDOWN_LAYOUT);
 }
 
+/// Cell redactions made before semicolon files were recognised address the
+/// comma reading of the file, so that reading is kept for them.
+export function detectsCsvDelimiter(redactions = []) {
+  return !redactions.some((entry) => entry.kind === 'CELL' && entry.delimiter !== ';');
+}
+
 const FULL_TEXT_EXTENSIONS = new Set([
   '.md', '.mdx', '.qmd', '.rmd', '.rst', '.txt', '.tex', '.bib', '.ris', '.enw', '.nbib', '.log',
   '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.py', '.r', '.rb', '.go', '.rs', '.java',
@@ -302,7 +308,7 @@ function fullTextBlocks(value) {
  * A complete logical rendering of the pinned source used by selective sharing.
  * Unlike buildSharePreview, this never crops around the indexed object.
  */
-export function buildFullShareDocument(file, { visualPdf = false, markdownLayout = true } = {}) {
+export function buildFullShareDocument(file, { visualPdf = false, markdownLayout = true, detectCsvDelimiter = true } = {}) {
   if (!file?.content || !file?.path) return null;
   const extension = path.extname(file.path).toLowerCase();
 
@@ -331,7 +337,7 @@ export function buildFullShareDocument(file, { visualPdf = false, markdownLayout
         kind: 'table',
         sheets: [{
           name: path.basename(file.path, extension),
-          rows: parseDelimited(file.content.toString('utf8'), delimiter)
+          rows: parseDelimited(file.content.toString('utf8'), delimiter, { detect: detectCsvDelimiter })
             .map((row) => row.map((cell) => String(cell ?? ''))),
         }],
       };
