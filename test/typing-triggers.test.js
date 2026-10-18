@@ -101,6 +101,50 @@ test('named rows such as departments and suppliers are suggested by their names'
   assert.deepEqual(await labels(app, 'Co'), ['Cost of goods sold']);
 });
 
+const completions = async (app, text, pendingDependencies) => {
+  const prediction = await predict(app, text, { pendingDependencies });
+  return { heading: prediction.workspaceHeading, items: prediction.workspaceCompletions.map((item) => item.replacementText) };
+};
+
+test('an accepted named row offers its columns and then its own values', async (t) => {
+  const app = await fixture(t);
+  const { accepted, pendingDependencies } = await accept(app, 'Fac');
+  assert.equal(accepted, 'Facilities');
+  const columns = await completions(app, `${accepted} for the `, pendingDependencies);
+  assert.equal(columns.heading, 'Columns for Facilities');
+  assert.deepEqual(columns.items, ['September Budget CAD', 'September Actual CAD']);
+  assert.equal((await completions(app, `${accepted} in Septem`, pendingDependencies)).heading, 'Columns for Facilities');
+  // A value cue lists that row's values, not other departments' (74000, 6000...).
+  const values = await completions(app, `${accepted} budget was `, pendingDependencies);
+  assert.equal(values.heading, 'Values for Facilities');
+  assert.deepEqual([...values.items].sort(), ['21000', '21100']);
+  // Naming a column narrows to that one cell.
+  const cell = await completions(app, `${accepted} September Budget CAD was `, pendingDependencies);
+  assert.equal(cell.heading, 'Value for Facilities · September Budget CAD');
+  assert.deepEqual(cell.items, ['21000']);
+});
+
+test('an accepted supplier row offers its invoice and outstanding amount', async (t) => {
+  const app = await fixture(t);
+  const { accepted, pendingDependencies } = await accept(app, 'We paid Harbour Off');
+  assert.equal(accepted, 'We paid Harbour Office Furniture');
+  const columns = await completions(app, `${accepted} for `, pendingDependencies);
+  assert.equal(columns.heading, 'Columns for Harbour Office Furniture');
+  assert.deepEqual([...columns.items].sort(), ['Invoice', 'Outstanding CAD']);
+  const values = await completions(app, `${accepted} Outstanding CAD of `, pendingDependencies);
+  assert.deepEqual(values.items, ['18400']);
+});
+
+test('an accepted variable row keeps offering its values across the table', async (t) => {
+  const app = await fixture(t);
+  const { accepted, pendingDependencies } = await accept(app, 'Reven');
+  const columns = await completions(app, `${accepted} for the `, pendingDependencies);
+  assert.equal(columns.heading, 'Columns for Revenue');
+  const values = await completions(app, `${accepted} was `, pendingDependencies);
+  assert.equal(values.heading, 'Values for Revenue');
+  assert.ok(values.items.includes('485000 CAD'), values.items.join(' | '));
+});
+
 test('a partial word inside a drawing name does not claim the typed word', () => {
   const drawing = { id: 'drawing', objectType: 'DRAWING', label: 'Cedar Lane Floor Plan Rev03',
     path: 'Cedar-Lane-Floor-Plan-Rev03.dxf', anchor: { kind: 'cad-model' },

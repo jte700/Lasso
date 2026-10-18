@@ -2196,14 +2196,17 @@ export class PredictiveProvenanceService {
   valuesFromLinkedProjectObject(projectId, input, cursor, dependency) {
     if (!dependency || ['PAPER', 'REFERENCE'].includes(dependency.source.objectType)) return null;
     const source = dependency.source;
+    const sourceRow = String(source.anchor?.rowKey ?? source.metadata.row ?? '').trim();
+    // A named row (a department or supplier, keyed by a name column) has no
+    // variable of its own; its cells are its fields, so it stands in for one.
+    const namedRow = source.objectType === 'DATASET_ROW' && !source.metadata.variable && !source.metadata.column;
     const variable = String(source.metadata.variable ?? source.metadata.column
-      ?? (source.objectType === 'VARIABLE' ? source.label : '')).trim();
+      ?? (source.objectType === 'VARIABLE' ? source.label : namedRow ? sourceRow || source.label : '')).trim();
     if (!variable) return null;
     const variableKey = normalizedVariable(variable);
     const tail = String(input.text ?? '').slice(dependency.anchor.end, cursor);
     const changeIntent = /\b(?:increas|decreas|reduc|higher|lower|rais|rise|drop|declin|change|difference|effect)\w*\b/i.test(tail);
     const requestedRows = rowReferencesInText(tail);
-    const sourceRow = String(source.anchor?.rowKey ?? source.metadata.row ?? '').trim();
     const sourceColumn = String(source.anchor?.column ?? source.metadata.column ?? '').trim();
     const dependencyText = String(input.text ?? '').slice(dependency.anchor.start, dependency.anchor.end);
     const dependencySelectsRow = sourceRow && normalizedRowSearch(dependencyText) === normalizedRowSearch(sourceRow);
@@ -2220,11 +2223,14 @@ export class PredictiveProvenanceService {
       .map(tableKey));
     const describesVariable = (object) => dictionaryTables.has(tableKey(object))
       && (source.objectType === 'VARIABLE' || tableKey(object) !== tableKey(source));
+    const relatesToSource = namedRow
+      ? (object) => tableKey(object) === tableKey(source)
+        && normalizedRowSearch(object.anchor?.rowKey ?? object.metadata.row) === normalizedRowSearch(sourceRow)
+      : (object) => normalizedVariable(object.metadata.variable ?? object.metadata.column) === variableKey;
     const allRelatedObjects = workspaceObjects
       .filter((object) => !describesVariable(object))
       .filter((object) => (object.id !== source.id || dependencySelectsRow || dependencySelectsColumn)
-        && object.objectType !== 'VARIABLE'
-        && normalizedVariable(object.metadata.variable ?? object.metadata.column) === variableKey);
+        && object.objectType !== 'VARIABLE' && relatesToSource(object));
     const sameSourceObjects = source.objectType === 'VARIABLE' ? [] : allRelatedObjects
       .filter((object) => object.path === source.path
         && String(object.metadata.sheet ?? '') === String(source.metadata.sheet ?? ''));
