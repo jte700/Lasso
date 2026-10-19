@@ -1031,7 +1031,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showSettings() {
         settingsLoaded = true
         NSApp.setActivationPolicy(.regular)
-        settings.show()
+        // Activating in the same turn as the policy change can leave the menu
+        // bar without the app in front, so show the window on the next turn.
+        DispatchQueue.main.async { [weak self] in self?.settings.show() }
     }
 
     @objc private func openHelp() { NSWorkspace.shared.open(Self.helpURL) }

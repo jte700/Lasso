@@ -140,7 +140,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     func show() {
         refresh()
-        if window?.isVisible != true { window?.center() }
+        // The first time, center the window; after that, reopen where people left it.
+        if let window, !window.isVisible, !window.setFrameUsingName("LassoSettings") { window.center() }
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
