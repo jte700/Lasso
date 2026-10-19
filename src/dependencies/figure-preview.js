@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { renderPortablePdfFigure } from './pdf-portable.js';
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const locator = path.resolve(moduleDirectory, '../../scripts/locate-pdf-figure-page.js');
@@ -10,7 +11,7 @@ const locator = path.resolve(moduleDirectory, '../../scripts/locate-pdf-figure-p
 export function renderPdfFigurePage(buffer, identifier) {
   if (process.platform !== 'darwin'
     || !fs.existsSync('/usr/bin/osascript') || !fs.existsSync('/usr/bin/sips')) {
-    throw new Error('PDF figure rendering requires macOS PDFKit.');
+    return renderPortablePdfFigure(buffer, identifier);
   }
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-pdf-figure-'));
   const input = path.join(directory, 'source.pdf');

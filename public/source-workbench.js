@@ -21,7 +21,7 @@ const location = object => {
  if(a.kind==='cad-model') return object.metadata?.format ? `${object.metadata.format} model` : 'Design model';
  return a.kind==='table-cell' ? [a.sheet, `Row ${(a.rowIndex??0)+1}`, a.column].filter(Boolean).join(' · ') : a.cellId ? [a.sheet, a.cellId].filter(Boolean).join('!') : a.rowKey ? `Row ${a.rowKey}` : a.page ? `Page ${a.page}` : a.line ? `Line ${a.line}` : a.blockIndex != null ? `Passage ${a.blockIndex + 1}` : object.objectType?.toLowerCase().replaceAll('_',' ') ?? 'Source';
 };
-export function createSourceWorkbench({input, api, getProjectId, getIsOffline = () => false, getActor, onOpenDocument, onOpenSource, onStatus, onSession}) {
+export function createSourceWorkbench({input, api, getProjectId, getIsOffline = () => false, getActor, onOpenDocument, onOpenSource, onShare, onStatus, onSession}) {
  let host, epoch=0, detailEpoch=0, timer, objects=[], mode='library', query='', selectedPath='', selectedObject=null, report=null, preview=null, plan=null, busy=false, problem='', candidates=null;
  let session=null, renderedKey='';
  const base = () => `/api/projects/${encodeURIComponent(getProjectId())}`;
@@ -34,6 +34,7 @@ export function createSourceWorkbench({input, api, getProjectId, getIsOffline = 
  };
  const title = () => ({library:'Source library',attention:'Needs attention',changes:'Recent changes',shares:'Shared links',names:'Repeated source names',report:'Results'}[mode]);
  function syncNavigation() {
+  if(document.querySelector('.app-window.view-editor')) return;
   document.querySelectorAll('.rail-item').forEach(button => {
    const match = mode === 'library' ? button.id === 'workspace-nav' : ({attention:'conflicts',changes:'changes',shares:'share list'}[mode] === button.dataset.workspaceQuery);
    button.classList.toggle('active', match); if(match) button.setAttribute('aria-current','page'); else button.removeAttribute('aria-current');
@@ -84,7 +85,7 @@ export function createSourceWorkbench({input, api, getProjectId, getIsOffline = 
    const o=selectedObject;
    return `<div class="wb-detail"><button class="wb-text-button wb-back" data-back>‹ ${escape(mode==='library'?basename(selectedPath):title())}</button><div class="wb-overline">${escape(o.path?basename(o.path):'Selected source')}</div><h2>${escape(o.label)}</h2><div class="wb-detail-meta">${escape(location(o))}${o.snapshotVersion?` · Version ${o.snapshotVersion}`:''}</div>
    ${o.valueText!=null && o.valueText!==''?`<div class="wb-value">${escape(o.valueText)}</div>`:''}
-   <div class="wb-actions">${o.id?'<button class="wb-button emphasized" data-copy>Copy with citation</button><button class="wb-button" data-open>Open source ↗</button>':''}${o.shareUrl?'<button class="wb-button" data-copy-link>Copy shared link</button>':''}${o.retryPath?`<button class="wb-button emphasized" data-retry ${getIsOffline()?'disabled title="Reconnect the drive to reindex"':''}>Retry indexing</button>`:''}</div>
+   <div class="wb-actions">${o.id?'<button class="wb-button emphasized" data-copy>Copy with citation</button><button class="wb-button" data-open>Open source ↗</button>':''}${o.id && onShare ? '<button class="wb-button" data-share-source>Share…</button>' : ''}${o.shareUrl?'<button class="wb-button" data-copy-link>Copy shared link</button>':''}${o.retryPath?`<button class="wb-button emphasized" data-retry ${getIsOffline()?'disabled title="Reconnect the drive to reindex"':''}>Retry indexing</button>`:''}</div>
    ${o.aliasAddress?`<form class="wb-alias"><label>Name this source<input name="alias" required placeholder="For example, current-period-revenue" /></label><button class="wb-button" type="submit">Save source name</button></form>`:''}
    <section class="wb-preview"><header><h3>Source context</h3><small>${escape(preview?.locator??'Recorded evidence')}</small></header>${previewHTML()}</section>${planHTML()}</div>`;
   }
@@ -168,6 +169,7 @@ export function createSourceWorkbench({input, api, getProjectId, getIsOffline = 
   host.querySelector('[data-retry]')?.addEventListener('click',async()=>{try{const result=await command(`index retry -- ${quote(selectedObject.retryPath)}`);onStatus(result.headline);selectedObject=null;refresh();}catch(error){onStatus(error.message);}});
   host.querySelector('[data-back]')?.addEventListener('click',()=>{++detailEpoch;selectedObject=null;candidates=null;render();});
   host.querySelector('[data-open]')?.addEventListener('click',()=>onOpenSource?.(selectedObject));
+  host.querySelector('[data-share-source]')?.addEventListener('click',()=>onShare?.(selectedObject));
   host.querySelector('[data-copy]')?.addEventListener('click',async()=>{
    const o=selectedObject, excerpt=preview?.lines?.filter(l=>l.highlighted).map(l=>l.text).join('\n') || preview?.lines?.map(l=>l.text).join('\n');
    const text=`${o.valueText || excerpt || o.label}\nSource: ${o.path} · ${location(o)}${o.snapshotVersion?` · Version ${o.snapshotVersion}`:''}`;

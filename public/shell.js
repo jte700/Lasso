@@ -15,7 +15,7 @@ function escapeHtml(value) {
 /// `/Users/x/Documents/research` → `~/Documents/research`
 export function shortenPath(path) {
   if (!path) return '';
-  return path.replace(/^\/Users\/[^/]+/, '~');
+  return path.replace(/^\/Users\/[^/]+/, '~').replace(/^[A-Z]:\\Users\\[^\\]+/i, '~');
 }
 
 // ── DirectorySidebar ────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ export function createTabBar({ host, onSelect }) {
               title="${escapeHtml(tab.title)}">
         ${tab.glyph ? `<span class="tab-glyph" aria-hidden="true">${escapeHtml(tab.glyph)}</span>` : ''}
         <span class="tab-label">${escapeHtml(tab.title)}</span>
-        ${index < 9 ? `<span class="tab-key" aria-hidden="true">⌘${index + 1}</span>` : ''}
+        ${index < 9 ? `<span class="tab-key" aria-hidden="true">${window.lassoPlatform?.shortcut(String(index + 1)) ?? `⌘${index + 1}`}</span>` : ''}
       </button>`).join('');
     host.querySelectorAll('[data-tab]').forEach((button) => {
       button.addEventListener('click', () => onSelect?.(button.dataset.tab));

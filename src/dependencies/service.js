@@ -687,12 +687,37 @@ export function tabularLayout(rawRows) {
   };
 }
 
+// Financial worksheets often indent account labels across several columns and
+// place year headings above values. Preserve physical cell coordinates while
+// treating those labels as rows, not as measured columns.
+export function spreadsheetLayout(sheet) {
+  const yearHeader = sheet.rows.slice(0, 20).findIndex(row =>
+    row.filter(cell => /^(?:19|20)\d{2}$/.test(String(cell ?? '').trim())).length >= 2
+      && row.some(cell => /\b(?:revenue|expenses?|income|account|sales|balance|assets?|liabilit|cash|profit)\b/i.test(String(cell ?? ''))));
+  const base = tabularLayout(sheet.rows);
+  if (yearHeader < 0) return { ...base, rowNumbers: sheet.rowNumbers?.slice(base.headerRowIndex + 1) };
+  const header = sheet.rows[yearHeader];
+  const yearColumns = [...header.keys()].filter(index => /^(?:19|20)\d{2}$/.test(String(header[index] ?? '').trim()));
+  const labelColumns = Array.from({ length: yearColumns[0] }, (_, index) => index);
+  const headers = Array.from({ length: yearColumns.at(-1) + 1 }, (_, index) => yearColumns.includes(index) ? String(header[index]) : '');
+  // The year row can also be a section heading (Revenue, Expenses…).
+  const rows = sheet.rows.slice(yearHeader);
+  return { headers, rows, headerRowIndex: yearHeader - 1, labelColumns,
+    rowNumbers: sheet.rowNumbers?.slice(yearHeader), statement: true };
+}
+
 function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
   const objects = [];
   const sheet = options.sheet ?? null;
-  const keyPrefix = sheet ? `${file.projectFileId}:sheet:${sheet}` : file.projectFileId;
+  const keyPrefix = sheet ? `${file.projectFileId}:xlsx-v2:sheet:${sheet}` : file.projectFileId;
   const labelPrefix = sheet ? `${fileName} · ${sheet}` : fileName;
-  const data = rawRows.filter((row) => row.some((cell) => String(cell ?? '').trim())).slice(0, 1000);
+  const entries = rawRows.map((row, index) => ({ row, number: options.rowNumbers?.[index] ?? index + (options.rowOffset ?? 1) }))
+    .filter(({ row }) => row.some((cell) => String(cell ?? '').trim())).slice(0, 1000);
+  const data = entries.map(entry => entry.row);
+  const rowNumber = index => entries[index].number;
+  const rowLabelFor = row => options.labelColumns
+    ? options.labelColumns.map(index => String(row[index] ?? '').trim()).filter(value => /[A-Za-z]/.test(value)).at(-1) ?? ''
+    : String(row[0] ?? '').trim();
   objects.push(objectDescriptor({
     key: `${keyPrefix}:dataset`, type: 'DATASET', path: file.path, label: labelPrefix,
     contentHash: file.contentHash, metadata: { format: options.format, sheet },
@@ -714,12 +739,12 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
       objects.push(objectDescriptor({
         key: `${keyPrefix}:variable-definition:${normalizedVariable(variable)}`,
         type: 'VARIABLE', path: file.path,
-        anchor: { kind: 'table-cell', rowIndex: rowIndex + (options.rowOffset ?? 1), rowKey: variable, columnIndex: dictionary.descriptionIndex, column: headers[dictionary.descriptionIndex], sheet },
+        anchor: { kind: 'table-cell', rowIndex: rowNumber(rowIndex), rowKey: variable, columnIndex: dictionary.descriptionIndex, column: headers[dictionary.descriptionIndex], sheet },
         label: variable, value: description, contentHash: file.contentHash,
         metadata: { variable, description, units: units || null, dictionary: true, dataset: fileName, sheet },
       }));
     }
-  } else {
+  } else if (!options.statement) {
     headers.slice(0, 80).forEach((column, columnIndex) => {
       if (!String(column ?? '').trim()) return;
       const profile = variableProfile(column, data.map((row) => row[columnIndex]));
@@ -733,40 +758,47 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
     });
   }
 
-  const firstValues = data.map((row) => String(row[0] ?? '').trim());
+  const firstValues = data.map(rowLabelFor);
   const namedFirstValues = firstValues.filter(Boolean);
   const uniqueFirst = namedFirstValues.length === data.length
     && new Set(namedFirstValues.map(normalizedRowSearch)).size === namedFirstValues.length;
   const firstHeader = humanVariable(headers[0]);
-  const firstColumnActsAsRowLabels = namedFirstValues.length >= Math.max(1, Math.ceil(data.length * 0.45))
+  const firstColumnActsAsRowLabels = options.statement || namedFirstValues.length >= Math.max(1, Math.ceil(data.length * 0.45))
     && (uniqueFirst || !firstHeader
       || /^(?:row|label|name|account|item|category|variable|metric|measure|outcome|parameter|feature|marker|analyte|sample|subject|participant|patient|id)$/i.test(firstHeader));
-  const rowDescribesVariable = firstColumnActsAsRowLabels
+  const rowDescribesVariable = options.statement || firstColumnActsAsRowLabels
     && (!firstHeader || /^(?:account|item|category|variable|metric|measure|outcome|parameter|feature|marker|analyte)$/i.test(firstHeader));
   let indexedCells = 0;
+  let section = '';
   tableRows: for (const [rowIndex, row] of data.entries()) {
-    const rowLabel = String(row[0] ?? '').trim();
+    const rowLabel = rowLabelFor(row);
+    if (options.statement && !rowLabel) continue;
+    const sectionRow = options.statement && options.labelColumns.includes(row.findIndex(cell => /[A-Za-z]/.test(String(cell ?? ''))))
+      && !String(row[options.labelColumns.at(-1)] ?? '').trim()
+      && (row === rawRows[0] || !headers.some((header, index) => header && numericDescriptor(row[index])));
+    if (sectionRow) section = rowLabel;
     const rowKey = firstColumnActsAsRowLabels && rowLabel ? rowLabel : `row:${rowIndex + 1}`;
-    const rowIdentity = `${rowIndex + (options.rowOffset ?? 1)}:${normalizedVariable(rowKey) || 'row'}`;
+    const rowIdentity = `${rowNumber(rowIndex)}:${normalizedVariable(rowKey) || 'row'}`;
     if (firstColumnActsAsRowLabels && rowLabel) {
       objects.push(objectDescriptor({
         key: `${keyPrefix}:row:${rowIdentity}`,
         type: 'DATASET_ROW', path: file.path,
-        anchor: { kind: 'table-row', rowKey, rowIndex: rowIndex + (options.rowOffset ?? 1), sheet },
+        anchor: { kind: 'table-row', rowKey, rowIndex: rowNumber(rowIndex), sheet },
         label: rowKey, contentHash: file.contentHash,
         metadata: {
           row: rowKey,
-          rowIndex: rowIndex + (options.rowOffset ?? 1),
+          rowIndex: rowNumber(rowIndex),
           variable: rowDescribesVariable ? rowKey : null,
           columns: headers.slice(0, 80).map((header) => String(header ?? '')).filter(Boolean),
-          orientation: 'ROW',
+          orientation: 'ROW', section, sectionRow,
           dataset: fileName,
           sheet,
         },
       }));
     }
     for (const [columnIndex, column] of headers.slice(0, 80).entries()) {
-      if (firstColumnActsAsRowLabels && columnIndex === 0) continue;
+      if (options.statement && (!column || sectionRow)) continue;
+      if (!options.statement && firstColumnActsAsRowLabels && columnIndex === 0) continue;
       const value = String(row[columnIndex] ?? '').trim();
       if (!value || value.length > 180) continue;
       const numeric = numericDescriptor(value);
@@ -774,15 +806,15 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
       objects.push(objectDescriptor({
         key: `${keyPrefix}:cell:${rowIdentity}:${column || columnIndex}`,
         type, path: file.path,
-        anchor: { kind: 'table-cell', rowKey, rowIndex: rowIndex + (options.rowOffset ?? 1), column: column || `column:${columnIndex + 1}`, columnIndex, sheet },
+        anchor: { kind: 'table-cell', rowKey, rowIndex: rowNumber(rowIndex), column: column || `column:${columnIndex + 1}`, columnIndex, sheet },
         label: `${rowKey} · ${column || `column ${columnIndex + 1}`}`,
         value, contentHash: file.contentHash,
         metadata: {
           row: rowKey,
-          rowIndex: rowIndex + (options.rowOffset ?? 1),
+          rowIndex: rowNumber(rowIndex),
           variable: rowDescribesVariable ? rowKey : column || columnIndex + 1,
           column: column || columnIndex + 1,
-          orientation: rowDescribesVariable ? 'ROW' : 'COLUMN',
+          orientation: rowDescribesVariable ? 'ROW' : 'COLUMN', section,
           dataset: fileName,
           sheet,
         },
@@ -942,10 +974,14 @@ function objectsFromFile(file, buffer) {
     const sheets = extractSpreadsheetTables(buffer);
     if (sheets.length) {
       for (const sheet of sheets) {
-        const layout = tabularLayout(sheet.rows);
+        const layout = spreadsheetLayout(sheet);
         objects.push(...objectsFromTabular(file, fileName, layout.headers, layout.rows, {
-          format, sheet: sheet.name, rowOffset: layout.headerRowIndex + 1,
+          format, sheet: sheet.name, ...layout, rowOffset: layout.headerRowIndex + 1,
         }));
+      }
+      for (const object of objects) {
+        object.metadata.spreadsheetExtractionVersion = 2;
+        if (object.anchor && Number.isInteger(object.anchor.rowIndex)) object.anchor.rowCoordinate = 'worksheet';
       }
     } else {
       objects.push(objectDescriptor({
@@ -1215,17 +1251,18 @@ export class PredictiveProvenanceService {
     const targetSnapshotId = snapshotId ?? project.currentSnapshotId;
     const snapshot = this.timeline.getSnapshot(targetSnapshotId);
     if (snapshot.projectId !== projectId) throw new HttpError(400, 'Snapshot does not belong to this project.');
-    const existingIndex = this.db.prepare('SELECT drawing_index_version FROM snapshot_object_indexes WHERE snapshot_id = ?').get(targetSnapshotId);
-    if (existingIndex?.drawing_index_version >= DRAWING_INDEX_VERSION) return;
+    const existingIndex = this.db.prepare('SELECT drawing_index_version, spreadsheet_index_version FROM snapshot_object_indexes WHERE snapshot_id = ?').get(targetSnapshotId);
+    if (existingIndex?.drawing_index_version >= DRAWING_INDEX_VERSION && existingIndex?.spreadsheet_index_version >= 2) return;
     const descriptors = [];
     const files = [...snapshot.files].sort((left, right) => dependencyFilePriority(right) - dependencyFilePriority(left)
       || left.path.localeCompare(right.path));
     for (const file of files) {
       if (descriptors.length >= MAX_SNAPSHOT_OBJECTS) break;
       const design = isDesignFile(file);
-      if (existingIndex && file.fileType !== 'pdf' && !design) continue;
+      if (existingIndex && file.fileType === 'spreadsheet' && existingIndex.spreadsheet_index_version >= 2) continue;
+      if (existingIndex && file.fileType !== 'pdf' && file.fileType !== 'spreadsheet' && !design) continue;
       // Snapshots indexed before STEP support only need their CAD models read.
-      if (existingIndex?.drawing_index_version >= 1 && !/\.(?:step|stp)$/i.test(file.path)) continue;
+      if (existingIndex?.drawing_index_version >= 1 && file.fileType !== 'spreadsheet' && !/\.(?:step|stp)$/i.test(file.path)) continue;
       if (file.size > 25_000_000 && !design && !['image', 'pdf', 'document'].includes(file.fileType)) continue;
       if (file.size > 5_000_000 && !design && !['image', 'pdf', 'document', 'table', 'spreadsheet'].includes(file.fileType)) continue;
       if (!design && !['table', 'spreadsheet', 'code', 'notebook', 'image', 'json', 'text', 'markdown', 'pdf', 'document'].includes(file.fileType)) continue;
@@ -1264,8 +1301,8 @@ export class PredictiveProvenanceService {
         );
       }
       const objectCount = this.db.prepare('SELECT COUNT(*) AS count FROM scientific_object_versions WHERE snapshot_id = ?').get(targetSnapshotId).count;
-      this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version) VALUES (?, ?, ?, ?)
-        ON CONFLICT(snapshot_id) DO UPDATE SET drawing_index_version = excluded.drawing_index_version, indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
+      this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version, spreadsheet_index_version) VALUES (?, ?, ?, ?, 2)
+        ON CONFLICT(snapshot_id) DO UPDATE SET drawing_index_version = excluded.drawing_index_version, spreadsheet_index_version = 2, indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
         .run(targetSnapshotId, now(), objectCount, DRAWING_INDEX_VERSION);
     });
   }
@@ -1285,7 +1322,8 @@ export class PredictiveProvenanceService {
       JOIN snapshots s ON s.id = v.snapshot_id
       WHERE o.project_id = ? AND v.snapshot_id = ? ${typeClause}
       ORDER BY o.object_type, v.label LIMIT 30000
-    `).all(projectId, target, ...types).map(mapObjectRow);
+    `).all(projectId, target, ...types).map(mapObjectRow)
+      .filter(object => !/\.xlsx?$/i.test(object.path) || object.metadata.binary || object.metadata.spreadsheetExtractionVersion === 2);
   }
 
   objectAt(projectId, snapshotId, objectId) {
@@ -1884,14 +1922,15 @@ export class PredictiveProvenanceService {
     const sourceRow = String(source.anchor?.rowKey ?? source.metadata.row ?? '').trim();
     const sourceColumn = String(source.anchor?.column ?? source.metadata.column ?? '').trim();
     const dependencyText = String(input.text ?? '').slice(dependency.anchor.start, dependency.anchor.end);
-    const dependencySelectsRow = sourceRow && normalizedRowSearch(dependencyText) === normalizedRowSearch(sourceRow);
+    const dependencySelectsRow = !source.metadata.sectionRow && sourceRow && normalizedRowSearch(dependencyText) === normalizedRowSearch(sourceRow);
     const dependencySelectsColumn = source.anchor?.kind === 'table-cell' && sourceColumn
       && normalizedVariable(dependencyText) === normalizedVariable(sourceColumn);
     const workspaceObjects = this.workspaceRetrievalObjects(projectId, source.snapshotId);
     const allRelatedObjects = workspaceObjects
       .filter((object) => (object.id !== source.id || dependencySelectsRow || dependencySelectsColumn)
         && object.objectType !== 'VARIABLE'
-        && normalizedVariable(object.metadata.variable ?? object.metadata.column) === variableKey);
+        && (normalizedVariable(object.metadata.variable ?? object.metadata.column) === variableKey
+          || (source.metadata.sectionRow && normalizedVariable(object.metadata.section) === variableKey)));
     const sameSourceObjects = source.objectType === 'VARIABLE' ? [] : allRelatedObjects
       .filter((object) => object.path === source.path
         && String(object.metadata.sheet ?? '') === String(source.metadata.sheet ?? ''));
@@ -2760,14 +2799,14 @@ export class PredictiveProvenanceService {
         rows: parseDelimited(buffer.toString('utf8'), path.extname(file.path).toLowerCase() === '.tsv' ? '\t' : ','),
       };
     if (!table?.rows?.length) return null;
-    const layout = tabularLayout(table.rows);
+    const layout = file.fileType === 'spreadsheet' ? spreadsheetLayout(table) : tabularLayout(table.rows);
     const headers = layout.headers;
     const data = layout.rows;
     const rowReference = anchor?.kind === 'table-row';
     const selectedColumn = rowReference ? -1 : Number.isInteger(anchor?.columnIndex) ? anchor.columnIndex
       : Math.max(0, headers.findIndex((header) => String(header) === String(anchor?.column)));
     let selectedRow = Number.isInteger(anchor?.rowIndex)
-      ? anchor.rowIndex - layout.headerRowIndex - 1 : -1;
+      ? (layout.rowNumbers && anchor.rowCoordinate === 'worksheet' ? layout.rowNumbers.indexOf(anchor.rowIndex) : anchor.rowIndex - layout.headerRowIndex - 1) : -1;
     if (selectedRow < 0 || selectedRow >= data.length) {
       selectedRow = data.findIndex((row) => String(row[0] ?? '') === String(anchor?.rowKey ?? ''));
     }
@@ -2957,13 +2996,13 @@ export class PredictiveProvenanceService {
       const table = tables.find((candidate) => candidate.name === requestedSheet)
         ?? tables.find((candidate) => candidate.name === source.anchor?.sheet)
         ?? tables[0];
-      const layout = tabularLayout(table.rows);
+      const layout = file.fileType === 'spreadsheet' ? spreadsheetLayout(table) : tabularLayout(table.rows);
       const rowReference = source.anchor?.kind === 'table-row';
       const selectedColumn = rowReference ? -1
         : Number.isInteger(source.anchor?.columnIndex) ? source.anchor.columnIndex
           : layout.headers.findIndex((header) => String(header) === String(source.anchor?.column));
       let selectedRow = Number.isInteger(source.anchor?.rowIndex)
-        ? source.anchor.rowIndex - layout.headerRowIndex - 1 : -1;
+        ? (layout.rowNumbers && source.anchor.rowCoordinate === 'worksheet' ? layout.rowNumbers.indexOf(source.anchor.rowIndex) : source.anchor.rowIndex - layout.headerRowIndex - 1) : -1;
       if (selectedRow < 0 || selectedRow >= layout.rows.length) {
         selectedRow = layout.rows.findIndex((row) => String(row[0] ?? '') === String(source.anchor?.rowKey ?? ''));
       }

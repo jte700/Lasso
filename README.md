@@ -4,7 +4,7 @@
 
 Lasso connects the information you use while writing to the files it came from. Index a local project folder, browse its documents and data, inspect an exact cell or passage, and insert source-backed values into your writing. Accepted links retain the original source version, so you can review what changed when the underlying file is updated.
 
-The app includes a graphical source workspace, an integrated writing editor, and a native macOS menu bar companion for suggestions in supported external editors. Retrieval, ranking, extraction, and provenance run locally. No language model or API key is required.
+The app includes a graphical source workspace, an integrated writing editor, and desktop companions for suggestions in supported external editors. The Windows companion is currently a preview. Retrieval, ranking, extraction, and provenance run locally. No language model or API key is required.
 
 ## What you can do
 
@@ -17,11 +17,12 @@ The app includes a graphical source workspace, an integrated writing editor, and
 
 ## Run locally
 
-Requires **Node.js 24 or newer**. There are no third-party npm runtime dependencies or frontend build steps.
+Requires **Node.js 24 or newer**. Run `npm ci` to install the offline IFC and PDF engines. There is no frontend build step.
 
 ```sh
 git clone https://github.com/jte700/Lasso.git
 cd Lasso
+npm ci
 npm start
 ```
 
@@ -36,6 +37,16 @@ What is the diameter of the Bracket Ø8 hole?
 ```
 
 These answers require matching evidence in the indexed project; this is not a general-purpose chat service.
+
+## Windows companion (preview)
+
+A native Windows desktop host is available with a Fluent workspace, standard Windows controls, system tray, native folder selection, and an opt-in writing assistant. It uses the shared source library, editor, history, model previews, and sharing engine.
+
+```powershell
+pwsh -NoProfile -File desktop/windows/build.ps1
+```
+
+Build on Windows with PowerShell 7 and .NET SDK 8. The output bundles Node and .NET; users need only the Microsoft Edge WebView2 Runtime. Extract the complete ZIP and run `Lasso.exe`. See [Windows setup and validation status](desktop/windows/README.md) before rollout. The Windows assistant supports verified local source highlights, five-choice suggestions, source-scoped follow-ups, and explicit shared-link insertion. Live Windows browser validation is still required; cross-compilation alone does not establish full platform parity.
 
 ## macOS companion
 
@@ -95,7 +106,7 @@ Support varies by format and content. Files can be retained in history even when
 | LandXML | Supported parcel areas, alignment and pipe lengths, diameters, and elevations |
 | STEP (AP203, AP214, AP242) | Named parts and assemblies; overall X/Y/Z extents, hole and cylinder diameters, hole depths, arc radii and arc lengths, and straight-edge lengths measured from the B-rep in the declared unit |
 
-Scanned PDFs require OCR before their text can be indexed. The desktop build includes a PDFKit extraction helper; development drawing-PDF extraction requires Swift on macOS or `pdftotext` on PATH. Native IFC, DXF, LandXML, and STEP readers require only Node.js.
+Scanned PDFs require OCR before their text can be indexed. The desktop build includes a PDFKit extraction helper; Windows and other platforms use the bundled PDF.js engine for drawing layout and figure previews. Native IFC, DXF, LandXML, and STEP readers require only Node.js.
 
 DWG, RVT, and DGN require an export from their authoring application, as do native mechanical CAD files (SolidWorks, Inventor, Fusion, CATIA, Parasolid, IGES, Rhino), which should be exported as STEP. IFC can preserve BIM properties, DXF supports selected CAD boundaries, LandXML preserves supported civil attributes, and STEP preserves exact part geometry. Lasso does not infer missing BIM quantities or reconstruct rooms from arbitrary drawing geometry. See [design-source indexing](docs/design-source-indexing.md) for exact supported subsets and limits.
 
@@ -118,6 +129,7 @@ Restricted shares do not permit original-file downloads. Shares pin their source
 | `.colab-dry-data/` | Existing legacy store used when `.lasso-data/` is absent |
 | `~/Library/Application Support/Lasso/data` | macOS app history store |
 | `~/Library/Logs/Lasso/server.log` | macOS server log |
+| `%LOCALAPPDATA%\\Lasso` | Windows app history, settings, browser profile, and logs |
 | `PORT` | Development server port; defaults to `4317` |
 | `LASSO_WATCH_DEBOUNCE_MS` | Watcher batching interval; defaults to `2500` ms |
 | `SHARE_BASE_URL` | Base URL used to construct shared links |
@@ -156,7 +168,8 @@ Fixture origins, hashes, and expected measurements are recorded in [the sample m
 
 | Directory | Responsibility |
 | --- | --- |
-| `desktop/` | Swift/AppKit wrapper, external-editor integration, native source and share panels |
+| `desktop/` | Swift/AppKit companion and native source/share panels |
+| `desktop/windows/` | Windows WPF/WebView2 host, UI Automation assistant, installer, and packaging |
 | `public/` | Browser and WKWebView interface, source library, and writing workspace |
 | `src/history/` | File snapshots, change detection, previews, and recorded provenance traversal |
 | `src/dependencies/` | Extraction, indexing, matching, ranking, and document-source links |

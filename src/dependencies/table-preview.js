@@ -9,7 +9,7 @@ const text=value=>String(value??'').trim();
 const numeric=value=>text(value)!=='' && /^[-+($€£¥]?\s*\d[\d,.\s%/():-]*$/.test(text(value));
 export function tableContext(table, anchor={}, radius=2, fallbackHeader=-1) {
  const rows=table.rows??[], numbers=table.rowNumbers??rows.map((_,i)=>i+1);
- let target=Number.isInteger(anchor.rowIndex)?anchor.rowIndex:rows.findIndex(r=>r.some(c=>text(c)===text(anchor.rowKey)));
+ let target=Number.isInteger(anchor.rowIndex)?(anchor.rowCoordinate==='worksheet'?numbers.indexOf(anchor.rowIndex):anchor.rowIndex):rows.findIndex(r=>r.some(c=>text(c)===text(anchor.rowKey)));
  if(target<0||target>=rows.length)return null;
  const physical=numbers[target], targetColumn=Number.isInteger(anchor.columnIndex)?anchor.columnIndex:null;
  const region=table.tables?.find(t=>physical>=t.firstRow&&physical<=t.lastRow&&(targetColumn==null||targetColumn>=t.firstColumn&&targetColumn<=t.lastColumn));
@@ -36,8 +36,9 @@ export function tableContext(table, anchor={}, radius=2, fallbackHeader=-1) {
    const datesOnly=present.every(c=>/^\d[\d\s/.,:-]*(?:to|–|—)[\d\s/.,:-]+$/i.test(c));
    const next=rows[i+1]??[];
    const dataBelow=next.some(numeric);
+   const years=present.filter(c=>/^(19|20)\d{2}$/.test(c)).length>=2;
    const known=present.some(c=>/^(account|name|description|date|item|sample|subject|participant|metric|variable|units?|amount)$/i.test(c));
-   if(!datesOnly && present.length>=2 && words.length && (words.length===present.length || known)){
+   if(!datesOnly && present.length>=2 && words.length && (words.length===present.length || known || years)){
     candidates.push({i,dataBelow,score:(i>=first?100:0)+(known?8:0)+(dataBelow?5:0)+Math.min(present.length,6)});
    }
   }

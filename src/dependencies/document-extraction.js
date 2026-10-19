@@ -516,25 +516,26 @@ function spreadsheetColumnIndex(reference = '') {
 }
 
 function spreadsheetStrings(source = '') {
-  return [...String(source).matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/gi)].map((item) => {
-    const pieces = [...item[1].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/gi)].map((match) => decodeXml(match[1]));
+  return [...String(source).matchAll(/<si\b[^>]*?(?:\/>|>([\s\S]*?)<\/si>)/gi)].map((item) => {
+    const pieces = [...(item[1] ?? '').matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/gi)].map((match) => decodeXml(match[1]));
     return pieces.join('');
   });
 }
 
 function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null) {
   const rows = [];
-  for (const rowMatch of String(source).matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/gi)) {
+  for (const rowMatch of String(source).matchAll(/<row\b[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/gi)) {
     const row = [];
     let fallbackColumn = 0;
-    for (const cell of rowMatch[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/gi)) {
+    for (const cell of (rowMatch[1] ?? '').matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/gi)) {
       const reference = cell[1].match(/\br="([^"]+)"/i)?.[1] ?? '';
       const column = reference ? spreadsheetColumnIndex(reference) : fallbackColumn;
       const type = cell[1].match(/\bt="([^"]+)"/i)?.[1] ?? '';
-      const raw = cell[2].match(/<v\b[^>]*>([\s\S]*?)<\/v>/i)?.[1] ?? '';
-      const inline = [...cell[2].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/gi)]
+      const content = cell[2] ?? '';
+      const raw = content.match(/<v\b[^>]*>([\s\S]*?)<\/v>/i)?.[1] ?? '';
+      const inline = [...content.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/gi)]
         .map((match) => decodeXml(match[1])).join('');
-      const value = type === 's' ? sharedStrings[Number(raw)] ?? raw
+      const value = type === 's' ? (raw ? sharedStrings[Number(raw)] ?? '' : '')
         : type === 'inlineStr' || inline ? inline : decodeXml(raw);
       row[column] = cleanText(value, 2_000);
       fallbackColumn = column + 1;

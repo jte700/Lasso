@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { extractPortablePdfLayout } from './pdf-portable.js';
 
 const MAX_BYTES = 80_000_000;
 const MAX_PAGES = 80;
@@ -260,9 +261,15 @@ export function extractDrawingDocument(buffer, { filePath: _filePath } = {}) {
       }
     }
     if (!layout?.pages) {
-      layout = popplerLayout(input);
-      if (layout.unavailable) return remember(key, { ...base, status: runtimeWarnings.length ? 'error' : 'unsupported', warnings: [...runtimeWarnings, 'Layout extraction requires macOS PDFKit with Swift, or the local Poppler pdftotext command.'] });
-      method = 'poppler-layout';
+      try {
+        layout = extractPortablePdfLayout(buffer);
+        method = 'pdfjs-layout';
+      } catch (error) {
+        runtimeWarnings.push(`PDF.js: ${error.message}`);
+        layout = popplerLayout(input);
+        if (layout.unavailable) return remember(key, { ...base, status: 'error', warnings: runtimeWarnings });
+        method = 'poppler-layout';
+      }
     }
     const pages = layout.pages.map(parseDrawingPage);
     if (!pages.length) return remember(key, { ...base, method, status: 'error', warnings: [...runtimeWarnings, 'No readable PDF pages were found.'] });

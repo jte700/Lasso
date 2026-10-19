@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <title>Lasso</title>
+    <script src="/platform.js?v=1"></script>
     <script>
       const appearance = matchMedia('(prefers-color-scheme: dark)');
       function syncAppearance() {
@@ -12,6 +13,7 @@
         try { preference = localStorage.getItem('lasso.theme') ?? localStorage.getItem('colab.theme') ?? 'system'; } catch {}
         document.documentElement.dataset.theme = preference === 'system'
           ? (appearance.matches ? 'carbon' : 'alabaster') : preference;
+        window.lassoPlatform?.postMessage({ action: 'appearance', dark: document.documentElement.dataset.theme !== 'alabaster' });
       }
       appearance.addEventListener('change', syncAppearance);
       syncAppearance();
@@ -20,6 +22,7 @@
     <link rel="stylesheet" href="/macos.css?v=2" />
     <link rel="stylesheet" href="/utility.css?v=3" />
     <link rel="stylesheet" href="/workbench.css?v=1" />
+    <link rel="stylesheet" href="/windows.css?v=1" />
     <link rel="stylesheet" href="/removable-drives.css?v=1" />
   </head>
   <body>
@@ -51,7 +54,7 @@
           <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5"/><path d="m12.3 12.3 4 4"/></svg>
           <input id="terminal-input" type="text" autocomplete="off" spellcheck="false"
                  aria-label="Search sources, or ask a question and press Enter" placeholder="Search sources or ask a question ↵" />
-          <kbd>⌘K</kbd>
+          <kbd id="search-shortcut">⌘K</kbd>
           <div class="dsh-completion" id="dsh-completion" hidden aria-label="Suggestions"></div>
         </label>
 
@@ -104,7 +107,7 @@
           <div class="rail-spacer"></div>
           <section class="writing-assist" aria-label="Suggestions while writing">
             <button id="writing-assist-toggle" type="button" role="switch" aria-checked="false" hidden><span>Writing suggestions</span><i aria-hidden="true"></i></button>
-            <details><summary>Use Lasso in other apps</summary><p>Choose a project here, then enable writing suggestions in the Mac app. While you write in Word or another supported app, press Tab to insert a suggested value with a tracked source.</p></details>
+            <details><summary>Use Lasso in other apps</summary><p id="writing-assist-help">Choose a project here, then enable writing suggestions in the desktop app. While you write in a supported editor, press Tab to insert a suggested value.</p></details>
           </section>
           <div class="workspace-summary">
             <span class="summary-indicator"></span>
@@ -116,6 +119,10 @@
           </button>
           <button id="identity-rail" class="identity-row" type="button" tabindex="-1" aria-hidden="true">
             <span class="identity-copy"><strong id="sidebar-identity-name">Local user</strong><small id="sidebar-identity-role">Local workspace</small></span>
+          </button>
+          <button id="windows-settings" class="rail-item windows-only" type="button" aria-haspopup="dialog">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 2-.5 2-1.5.9-2-.5-2 3 1.5 1.5v2L2 12.5l2 3 2-.5 1.5.9.5 2h4l.5-2 1.5-.9 2 .5 2-3-1.5-1.6V9L18 7.5l-2-3-2 .5-1.5-.9L12 2Z"/><circle cx="10" cy="10" r="2.7"/></svg>
+            <span>Settings</span>
           </button>
         </aside>
 
@@ -151,7 +158,7 @@
           <button class="dialog-close toolbar-icon" type="button" data-close-dialog aria-label="Close">×</button>
         </header>
         <p>Lasso reads the directory in place and keeps its version history separately.</p>
-        <label>Directory path<input name="rootPath" type="text" placeholder="/Users/you/Research" required /></label>
+        <label>Directory path<span class="directory-path-control"><input name="rootPath" type="text" placeholder="/Users/you/Research" required /><button id="choose-folder" class="secondary-button" type="button" hidden>Browse…</button></span></label>
         <label>Project name <span>(optional)</span><input name="name" type="text" placeholder="Research workspace" /></label>
         <div class="dialog-error" data-dialog-error></div>
         <div class="dialog-actions">
@@ -183,6 +190,14 @@
       </form>
     </dialog>
 
+    <dialog id="settings-dialog" class="modal utility-dialog">
+      <form method="dialog">
+        <header class="dialog-heading"><div><h2>Settings</h2></div><button class="dialog-close toolbar-icon" type="button" data-close-dialog aria-label="Close">×</button></header>
+        <label>App theme<select id="windows-theme"><option value="system">Use Windows setting</option><option value="alabaster">Light</option><option value="carbon">Dark</option></select></label>
+        <div class="settings-about"><strong>Lasso for Windows</strong><p>Your sources, writing, and version history stay on this PC. Manage writing suggestions and the local server from the Lasso system tray icon.</p></div>
+        <div class="dialog-actions"><button class="primary-button" value="close">Done</button></div>
+      </form>
+    </dialog>
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
     <script type="module" src="/app.js?v=62"></script>
   </body>

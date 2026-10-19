@@ -1,0 +1,218 @@
+/* Windows desktop workspace. Scoped so the macOS companion stays native. */
+.windows-only { display:none!important; }
+.directory-path-control { display:flex; align-items:center; gap:8px; }
+.directory-path-control input { flex:1; min-width:0; }
+.directory-path-control button { flex:0 0 auto; margin:0!important; }
+html[data-platform="windows"] {
+  --u-font:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  --u-display:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;
+  --u-canvas:#202020; --u-toolbar:#202020; --u-rail:#202020; --u-content:#272727;
+  --u-panel:#2d2d2d; --u-panel-2:#343434; --u-hover:#ffffff0f; --u-selected:#ffffff10;
+  --u-line:#ffffff16; --u-line-soft:#ffffff0c;
+  --u-text:#fff; --u-text-2:#d2d2d2; --u-text-3:#aaa;
+  --u-blue:#60cdff; --u-green:#6ccb5f; --u-orange:#fce100; --u-red:#ff99a4;
+  --win-accent-text:#003e58; --u-radius:4px;
+  --wb-paper:#272727; --wb-ground:#2c2c2c; --wb-rail:#202020;
+  --wb-ink:#fff; --wb-muted:#c5c5c5; --wb-line:#ffffff12; --wb-selection:#ffffff0e;
+  --mac-text:var(--u-text); --mac-text-2:var(--u-text-2); --mac-text-3:var(--u-text-3);
+  --mac-accent:var(--u-blue); --t-text:var(--u-text); --t-muted:var(--u-text-2);
+  --t-accent:var(--u-blue); color-scheme:dark;
+}
+html[data-platform="windows"][data-theme="alabaster"] {
+  --u-canvas:#f3f3f3; --u-toolbar:#f3f3f3; --u-rail:#f3f3f3; --u-content:#fff;
+  --u-panel:#fff; --u-panel-2:#f9f9f9; --u-hover:#00000009; --u-selected:#00000009;
+  --u-line:#00000016; --u-line-soft:#0000000b;
+  --u-text:#1a1a1a; --u-text-2:#424242; --u-text-3:#606060;
+  --u-blue:#0067c0; --u-green:#0f7b0f; --u-orange:#9d5d00; --u-red:#c42b1c;
+  --win-accent-text:#fff;
+  --wb-paper:#fff; --wb-ground:#fafafa; --wb-rail:#f3f3f3;
+  --wb-ink:#1a1a1a; --wb-muted:#606060; --wb-line:#0000000e; --wb-selection:#00000008;
+  color-scheme:light;
+}
+html[data-platform="windows"] .windows-only { display:flex!important; }
+html[data-platform="windows"] :is(body,button,input,select,textarea,.wb,.wb *) { font-family:var(--u-font)!important; }
+html[data-platform="windows"] :is(body,.utility-window) { background:var(--u-canvas)!important; }
+html[data-platform="windows"] .utility-window { grid-template-rows:48px minmax(0,1fr)!important; }
+html[data-platform="windows"] .utility-toolbar {
+  height:48px; padding:0 12px; grid-template-columns:196px minmax(200px,560px) minmax(40px,1fr);
+  gap:16px; background:var(--u-toolbar); border:0; box-shadow:none; backdrop-filter:none;
+}
+html[data-platform="windows"].native-app .utility-toolbar { padding-left:16px; }
+html[data-platform="windows"] .workspace-menu { height:40px; border-radius:4px; }
+html[data-platform="windows"] .workspace-menu strong { font-size:14px; font-weight:600; }
+html[data-platform="windows"] .workspace-symbol { width:28px; color:var(--u-blue); }
+html[data-platform="windows"] .workspace-symbol svg { width:22px; height:22px; }
+html[data-platform="windows"] .provenance-search {
+  height:34px; padding:0 12px; border:1px solid var(--u-line); border-bottom-color:var(--u-text-3);
+  border-radius:4px; background:var(--u-panel); box-shadow:none;
+}
+html[data-platform="windows"] .provenance-search:focus-within { border-color:var(--u-line); border-bottom:2px solid var(--u-blue); box-shadow:none; }
+html[data-platform="windows"] .provenance-search input { font-size:14px!important; }
+html[data-platform="windows"] .provenance-search>kbd { color:var(--u-text-3); font-size:11px; padding:0; }
+html[data-platform="windows"] .toolbar-icon { width:34px; height:34px; border-radius:4px; }
+html[data-platform="windows"] .account-button .avatar-button { width:28px; height:28px; background:var(--u-panel-2); border:1px solid var(--u-line); color:var(--u-text-2); font-size:11px; font-weight:600; }
+html[data-platform="windows"] .utility-layout { grid-template-columns:228px minmax(0,1fr); gap:0; padding-right:0; padding-bottom:0; }
+html[data-platform="windows"] .object-rail { padding:8px 8px 8px 12px; border:0; background:var(--u-rail); backdrop-filter:none; }
+html[data-platform="windows"] .rail-label { padding-left:8px; margin:12px 0 8px; font-size:12px; font-weight:600; color:var(--u-text-2); }
+html[data-platform="windows"] .rail-label-row { margin:0; padding-right:8px; }
+html[data-platform="windows"] .rail-navigation { gap:4px; }
+html[data-platform="windows"] .rail-item {
+  position:relative; min-height:38px; height:auto; gap:14px; padding:9px 12px;
+  border:0; border-radius:4px; background:transparent; color:var(--u-text); font-size:14px; font-weight:400; box-shadow:none;
+}
+html[data-platform="windows"] .rail-item:hover { background:var(--u-hover); }
+html[data-platform="windows"] .rail-item.active { background:var(--u-selected); }
+html[data-platform="windows"] .rail-item.active::before {
+  content:none;
+}
+html[data-platform="windows"] .rail-item svg { width:18px; height:18px; color:var(--u-text-2); stroke-width:1.25; }
+html[data-platform="windows"] .rail-item.active svg { color:var(--u-text); }
+html[data-platform="windows"] .rail-item b { background:var(--u-panel-2); color:var(--u-text-2); border-radius:10px; font-size:11px; }
+html[data-platform="windows"] .rail-documents { margin-top:18px; }
+html[data-platform="windows"] .document-list .tab { min-height:36px!important; padding:8px 12px!important; border-radius:4px!important; }
+html[data-platform="windows"] .document-list .tab-label { font-size:13px!important; }
+html[data-platform="windows"] .document-list .tab.active { background:var(--u-selected)!important; }
+html[data-platform="windows"] .document-list .tab-key { font-size:10px!important; }
+html[data-platform="windows"] .workspace-summary { padding:12px; color:var(--u-text-2); }
+html[data-platform="windows"] .workspace-summary strong { font-size:12px; }
+html[data-platform="windows"] .open-editor-button { padding:9px 12px; min-height:36px; font-size:12px; border-radius:4px; }
+html[data-platform="windows"] #windows-settings { margin-top:8px; }
+html[data-platform="windows"] .writing-assist { margin:8px 12px; }
+html[data-platform="windows"] .writing-assist button { font-size:12px; gap:8px; }
+html[data-platform="windows"] .writing-assist button i { width:36px; height:20px; background:transparent; border:1px solid var(--u-text-3); }
+html[data-platform="windows"] .writing-assist button i::after { width:10px; height:10px; left:4px; top:4px; box-shadow:none; background:var(--u-text-3); }
+html[data-platform="windows"] .writing-assist [aria-checked="true"] i { background:var(--u-blue); border-color:var(--u-blue); }
+html[data-platform="windows"] .writing-assist [aria-checked="true"] i::after { left:20px; background:var(--win-accent-text); }
+html[data-platform="windows"] .writing-assist summary { font-size:11px; }
+html[data-platform="windows"] .utility-content { border:0; border-left:1px solid var(--u-line); border-radius:0; overflow:hidden; }
+html[data-platform="windows"] .wb { font-size:14px; grid-template-rows:auto minmax(0,1fr) 30px; }
+html[data-platform="windows"] .wb-heading { padding:14px 20px; gap:16px; border-bottom:1px solid var(--u-line); background:var(--u-toolbar); }
+html[data-platform="windows"] .wb-heading h1 { font-family:var(--u-display)!important; font-size:20px; font-weight:600; letter-spacing:0; }
+html[data-platform="windows"] .wb-heading p { font-size:12px; margin-top:6px; }
+html[data-platform="windows"] .wb-split { grid-template-columns:244px minmax(0,1fr); }
+html[data-platform="windows"] .wb-browser { background:var(--wb-paper); grid-template-rows:40px minmax(0,1fr) auto; }
+html[data-platform="windows"] .wb-browser>header { padding:0 16px; font-size:12px; background:var(--wb-ground); }
+html[data-platform="windows"] .wb-file-list { padding:6px; }
+html[data-platform="windows"] .wb button.wb-file { min-height:44px; padding:7px 10px; gap:10px; border-radius:0; }
+html[data-platform="windows"] .wb-file strong { font-size:13px; font-weight:400; }
+html[data-platform="windows"] .wb-file small { font-size:11px; }
+html[data-platform="windows"] .wb-file>svg { width:24px; color:var(--u-blue); stroke-width:1.2; }
+html[data-platform="windows"] .wb button.wb-file.selected { background:var(--wb-selection); box-shadow:none; }
+html[data-platform="windows"] .wb-detail { padding:20px 24px 28px; }
+html[data-platform="windows"] .wb-detail h2 { font-size:22px; font-weight:600; letter-spacing:0; }
+html[data-platform="windows"] .wb-source-heading>svg { color:var(--u-blue); stroke-width:1.1; }
+html[data-platform="windows"] .wb-source-heading h2 { font-size:20px; }
+html[data-platform="windows"] .wb-items-heading { font-size:12px; padding-bottom:12px; }
+html[data-platform="windows"] .wb button.wb-item { min-height:44px; padding:8px 10px; }
+html[data-platform="windows"] .wb-item strong,html[data-platform="windows"] .wb-item>span:nth-child(2) { font-size:13px; }
+html[data-platform="windows"] .wb-item small,html[data-platform="windows"] .wb-detail-meta { font-size:11px; }
+html[data-platform="windows"] .wb-value { font-size:24px; font-weight:600; }
+html[data-platform="windows"] .wb h3 { font-size:14px; }
+html[data-platform="windows"] .wb-status { background:var(--wb-ground); font-size:11px; }
+html[data-platform="windows"] .wb-empty { max-width:440px; }
+html[data-platform="windows"] .wb-empty h2 { font-size:20px; font-weight:600; }
+html[data-platform="windows"] .wb-empty p { font-size:14px; }
+html[data-platform="windows"] :is(.primary-button,.secondary-button,.mini-button,.compact-action,.wb button.wb-button) {
+  min-height:32px!important; padding:5px 12px!important; border:1px solid var(--u-line)!important;
+  border-bottom-color:color-mix(in srgb,var(--u-text) 24%,transparent)!important;
+  border-radius:4px!important; background:var(--u-panel)!important; color:var(--u-text)!important;
+  font-size:13px!important; font-weight:400!important; box-shadow:none!important;
+}
+html[data-platform="windows"] :is(.primary-button,.wb button.emphasized) {
+  background:var(--u-blue)!important; color:var(--win-accent-text)!important; border-color:transparent!important;
+  border-bottom-color:color-mix(in srgb,var(--u-blue) 80%,black)!important;
+}
+html[data-platform="windows"] :is(.secondary-button,.mini-button,.wb button.wb-button):hover { filter:brightness(.97); }
+html[data-platform="windows"] :is(.primary-button,.wb button.emphasized):hover { opacity:.9; }
+html[data-platform="windows"] :is(button,a,summary):focus-visible { outline:2px solid var(--u-text)!important; outline-offset:2px; }
+html[data-platform="windows"] .wb button:focus-visible { outline-offset:-3px; }
+html[data-platform="windows"] :is(.utility-popover,.dsh-completion,.dependency-picker,.dependency-inspector,.cmd-box) {
+  border:1px solid var(--u-line); border-radius:4px!important; background:var(--u-panel)!important;
+  box-shadow:0 2px 6px #0002!important; backdrop-filter:none;
+}
+html[data-platform="windows"] .directory-row { min-height:48px!important; border-radius:4px!important; }
+html[data-platform="windows"] .directory-row .dir-name { font-size:13px; }
+html[data-platform="windows"] .utility-dialog { width:min(520px,calc(100vw - 48px)); border:1px solid var(--u-line)!important; border-radius:4px!important; background:var(--u-panel)!important; color:var(--u-text)!important; padding:28px!important; box-shadow:0 12px 48px #0004!important; }
+html[data-platform="windows"] .utility-dialog::backdrop { background:#0006; backdrop-filter:none; }
+html[data-platform="windows"] .utility-dialog h2 { font-size:20px!important; font-weight:600!important; }
+html[data-platform="windows"] .utility-dialog label { font-size:14px!important; }
+html[data-platform="windows"] .utility-dialog :is(input,select) { width:100%; min-height:34px; border-radius:4px!important; border:1px solid var(--u-line)!important; border-bottom-color:var(--u-text-3)!important; padding:6px 10px; background:var(--wb-ground)!important; color:var(--u-text)!important; font-size:14px!important; }
+html[data-platform="windows"] .utility-dialog input:focus { border-bottom:2px solid var(--u-blue)!important; box-shadow:none!important; }
+html[data-platform="windows"] .dialog-actions { padding-top:24px; }
+html[data-platform="windows"] .settings-about { margin-top:28px; padding-top:20px; border-top:1px solid var(--u-line); font-size:14px; }
+html[data-platform="windows"] .settings-about p { font-size:13px; line-height:1.6; }
+html[data-platform="windows"] .empty-project-icon { border-radius:8px; background:var(--u-panel); box-shadow:none; }
+html[data-platform="windows"] .empty-workbench h1 { font-size:28px!important; letter-spacing:0!important; }
+html[data-platform="windows"] .content-toolbar { padding:20px 28px; }
+html[data-platform="windows"] .editor-header-actions button { border-radius:4px!important; }
+html[data-platform="windows"] ::-webkit-scrollbar { width:10px; height:10px; }
+html[data-platform="windows"] ::-webkit-scrollbar-thumb { background:var(--u-text-3); background-clip:padding-box; border:3px solid transparent; border-radius:6px; }
+html[data-platform="windows"] ::-webkit-scrollbar-track { background:transparent; }
+@media(max-width:1000px) {
+  html[data-platform="windows"] .utility-toolbar { grid-template-columns:172px minmax(180px,1fr) 34px; gap:12px; }
+  html[data-platform="windows"] .utility-layout { grid-template-columns:204px minmax(0,1fr); }
+  html[data-platform="windows"] .wb-split { grid-template-columns:200px minmax(0,1fr); }
+  html[data-platform="windows"] .wb-detail { padding:24px; }
+}
+@media(max-width:760px) {
+  html[data-platform="windows"] .utility-layout { grid-template-columns:164px minmax(0,1fr); }
+  html[data-platform="windows"] .rail-item { font-size:12px; gap:8px; padding:9px 8px; }
+  html[data-platform="windows"] .wb-split { grid-template-columns:160px minmax(0,1fr); }
+  html[data-platform="windows"] .wb-heading { padding:20px; }
+  html[data-platform="windows"] .wb-heading h1 { font-size:22px; }
+  html[data-platform="windows"] .wb-detail { padding:20px 16px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  html[data-platform="windows"] *,html[data-platform="windows"] *::before,html[data-platform="windows"] *::after { transition:none!important; animation:none!important; scroll-behavior:auto!important; }
+}
+@media(forced-colors:active) {
+  html[data-platform="windows"] { --u-canvas:Canvas; --u-toolbar:Canvas; --u-rail:Canvas; --u-content:Canvas; --u-panel:Canvas; --u-panel-2:Canvas; --u-text:CanvasText; --u-text-2:CanvasText; --u-text-3:CanvasText; --u-line:CanvasText; --u-line-soft:CanvasText; --u-blue:Highlight; --wb-paper:Canvas; --wb-ground:Canvas; --wb-rail:Canvas; --wb-ink:CanvasText; --wb-muted:CanvasText; --wb-line:CanvasText; --wb-selection:Highlight; --win-accent-text:HighlightText; }
+  html[data-platform="windows"] .rail-item.active,html[data-platform="windows"] .wb button.wb-file.selected { outline:1px solid Highlight; color:HighlightText; background:Highlight; }
+  html[data-platform="windows"] .writing-assist button i { forced-color-adjust:none; }
+}
+
+html[data-platform="windows"] .source-dialog { width:min(800px,calc(100vw - 48px)); max-height:calc(100vh - 48px); overflow:auto; }
+html[data-platform="windows"] .source-dialog-location { overflow-wrap:anywhere; font-size:12px; color:var(--u-text-2); }
+html[data-platform="windows"] .source-dialog-preview { max-height:360px; overflow:auto; margin:20px 0; border:1px solid var(--u-line); border-radius:4px; padding:16px; font-size:14px; }
+html[data-platform="windows"] .source-dialog-preview p { white-space:pre-wrap; }
+html[data-platform="windows"] .source-share-table { overflow:auto; }
+html[data-platform="windows"] .source-share-table table { border-collapse:collapse; min-width:100%; }
+html[data-platform="windows"] .source-share-table :is(th,td) { padding:8px 10px; border:1px solid var(--u-line); font-size:13px; text-align:left; }
+html[data-platform="windows"] .source-share-table button { width:100%; min-height:30px; border:0; background:transparent; color:var(--u-text); text-align:left; }
+html[data-platform="windows"] [data-mask][aria-pressed="true"] { color:var(--u-text-2); background:var(--u-selected); }
+html[data-platform="windows"] .source-share-block { display:block; width:100%; padding:12px; margin:4px 0; border:1px solid var(--u-line); border-radius:4px; background:transparent; text-align:left; line-height:1.5; }
+html[data-platform="windows"] .source-share-controls summary { font-size:16px; font-weight:600; padding:8px 0 20px; }
+html[data-platform="windows"] .source-share-controls p { font-size:13px; line-height:1.5; }
+html[data-platform="windows"] .source-share-local { color:var(--u-text-3); }
+html[data-platform="windows"] .source-share-result button { margin:6px 8px 0 0!important; }
+html[data-platform="windows"] .source-share-error { color:var(--u-red); }
+/* Neutralize old horizontal-tab and terminal editor rules on Windows. */
+html[data-platform="windows"] .document-list .tab::before { position:static!important; inset:auto!important; width:12px!important; height:15px!important; background:transparent!important; }
+html[data-platform="windows"] .document-list .tab-label { text-align:left!important; }
+html[data-platform="windows"] .document-editor-view { grid-template-rows:47px 43px minmax(0,1fr) 28px!important; }
+html[data-platform="windows"] :is(.editor-header,.editor-header-meta,.editor-toolbar,.editor-rule,.t-editor-status) { font-family:var(--u-font)!important; color:var(--u-text-2)!important; }
+html[data-platform="windows"] .editor-scroll { background:var(--wb-ground)!important; }
+html[data-platform="windows"] .manuscript-page { background:var(--u-panel)!important; color:var(--u-text)!important; border-color:var(--u-line)!important; box-shadow:0 2px 8px #0001!important; }
+html[data-platform="windows"] .manuscript-block { font-family:var(--u-font)!important; font-size:15px; line-height:1.65; color:var(--u-text); padding-left:0; margin-bottom:16px; }
+html[data-platform="windows"] .manuscript-block::before { content:none; }
+html[data-platform="windows"] .manuscript-block.heading { font-size:22px; font-weight:600; }
+html[data-platform="windows"] .manuscript-block.heading:first-child { font-size:28px; }
+html[data-platform="windows"] .manuscript-block.list { padding-left:20px; }
+html[data-platform="windows"] .manuscript-block.code { padding:12px; background:var(--u-panel-2); font-family:Consolas,monospace!important; }
+html[data-platform="windows"] .t-editor-status { min-height:28px; height:auto; padding:0 16px; border-top:1px solid var(--u-line); font-size:11px; }
+html[data-platform="windows"] .t-editor-status b { display:none; }
+html[data-platform="windows"] .editor-rule { font-size:11px; }
+html[data-platform="windows"] .source-dialog { width:min(800px,calc(100vw - 48px))!important; }
+html[data-platform="windows"] :is(.source-dialog,#settings-dialog) .dialog-heading { grid-template-columns:minmax(0,1fr) 32px!important; }
+html[data-platform="windows"] .utility-dialog form { padding:0!important; }
+html[data-platform="windows"] .utility-dialog .dialog-heading>div { min-width:0; }
+
+/* Standard desktop density and system accents; keep all existing workflows. */
+html[data-platform="windows"] .rail-item { min-height:32px; padding:6px 10px; border-radius:0; }
+html[data-platform="windows"] .wb-file-list { padding:2px; }
+html[data-platform="windows"] .wb button.wb-file.selected { outline:1px solid var(--u-blue); outline-offset:-1px; }
+html[data-platform="windows"] .rail-item.active { color:var(--u-blue); }
+html[data-platform="windows"] .wb-item:hover { background:var(--u-hover); }
+html[data-platform="windows"] :is(input,select,textarea) { accent-color:var(--u-blue); }
+
+html[data-platform="windows"] .source-cited-cell { background:var(--wb-selection); font-weight:600; outline:1px solid var(--u-blue); outline-offset:-1px; }

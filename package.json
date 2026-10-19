@@ -13,9 +13,14 @@
     "test:watch": "node --disable-warning=ExperimentalWarning --test --watch",
     "desktop": "bash desktop/build.sh",
     "desktop:test:browser": "LASSO_BROWSER_GEOMETRY_TEST=1 npm run desktop && node desktop/tests/browser-geometry.mjs",
-    "desktop:test": "swiftc -O -framework Cocoa -framework WebKit -o /tmp/lasso-anchor-tests desktop/CompletionTransaction.swift desktop/SyntheticKeyboard.swift desktop/ShareInsertion.swift desktop/AssistSourceIdentity.swift desktop/ModelPreview.swift desktop/DependencyReference.swift desktop/HostGeometry.swift desktop/WebText.swift desktop/HostTextAdapter.swift desktop/tests/main.swift && /tmp/lasso-anchor-tests"
+    "desktop:test": "swiftc -O -framework Cocoa -framework WebKit -o /tmp/lasso-anchor-tests desktop/CompletionTransaction.swift desktop/SyntheticKeyboard.swift desktop/ShareInsertion.swift desktop/AssistSourceIdentity.swift desktop/ModelPreview.swift desktop/DependencyReference.swift desktop/HostGeometry.swift desktop/WebText.swift desktop/HostTextAdapter.swift desktop/tests/main.swift && /tmp/lasso-anchor-tests",
+    "desktop:windows": "pwsh -NoProfile -File desktop/windows/build.ps1",
+    "desktop:windows:test": "dotnet run --project desktop/windows/Assist/tests/Lasso.Assist.LogicTests.csproj",
+    "desktop:windows:test:ui": "node scripts/validate-windows-ui.mjs"
   },
   "dependencies": {
+    "@napi-rs/canvas": "1.0.11",
+    "pdfjs-dist": "6.4.299",
     "polygon-clipping": "0.15.7",
     "web-ifc": "0.0.78"
   }

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const ACTOR_TYPES = new Set([
   'HUMAN_SELF',
@@ -30,6 +31,6 @@ export function createConfig(overrides = {}) {
       ?? process.env.COLAB_WATCH_DEBOUNCE_MS ?? 2500),
     watchProjects: overrides.watchProjects ?? true,
     driveToken: overrides.driveToken ?? process.env.LASSO_DRIVE_TOKEN ?? null,
-    publicDir: overrides.publicDir ?? path.resolve('public'),
+    publicDir: overrides.publicDir ?? fileURLToPath(new URL('../public', import.meta.url)),
   };
 }

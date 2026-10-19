@@ -509,6 +509,9 @@ do {
 print("claim-aware suggestion semantics")
 do {
     check(AssistSuggestionSemantics.insertionText(
+        claimType: "STUDY_VARIABLE", label: "Revenue", value: "revenue; inferred numeric variable; examples 41, 5") == "Revenue",
+          "variable acceptance inserts its name, never indexing diagnostics")
+    check(AssistSuggestionSemantics.insertionText(
         claimType: "ENTITY", label: "Bad Debts/Losses and Thefts", value: "25") ==
           "Bad Debts/Losses and Thefts",
           "an entity claim inserts the indexed row name instead of a child cell value")

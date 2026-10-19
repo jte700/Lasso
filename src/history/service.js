@@ -61,9 +61,10 @@ function normalizeProjectRootPath(input) {
   if (value.length >= 2 && (quote === "'" || quote === '"') && value.at(-1) === quote) {
     value = value.slice(1, -1).trim();
   }
-  value = value.replace(/\\ /g, ' ');
+  // Backslash is a directory separator on Windows, including before a space.
+  if (process.platform !== 'win32') value = value.replace(/\\ /g, ' ');
   if (value === '~') value = os.homedir();
-  else if (value.startsWith('~/')) value = path.join(os.homedir(), value.slice(2));
+  else if (value.startsWith('~/') || (process.platform === 'win32' && value.startsWith('~\\'))) value = path.join(os.homedir(), value.slice(2));
   return path.resolve(value);
 }
 

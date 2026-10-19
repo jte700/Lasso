@@ -65,7 +65,7 @@ test('non-PDF input is explicitly unsupported', () => {
   assert.equal(result.pages.length, 0);
 });
 
-test('public NCSU plan extracts Small Conference 180 square feet', { skip: process.platform !== 'darwin' || !fs.existsSync(new URL('./fixtures/drawings/ncsu-office-kit.pdf', import.meta.url)) }, () => {
+test('public NCSU plan extracts Small Conference 180 square feet', { skip: !fs.existsSync(new URL('./fixtures/drawings/ncsu-office-kit.pdf', import.meta.url)) }, () => {
   const buffer = fs.readFileSync(new URL('./fixtures/drawings/ncsu-office-kit.pdf', import.meta.url));
   const result = extractDrawingDocument(buffer);
   assert.ok(['ready', 'partial'].includes(result.status), JSON.stringify(result.warnings));

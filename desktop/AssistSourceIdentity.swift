@@ -94,7 +94,7 @@ enum AssistSourceIdentity {
 /// one the writer is asking for.
 enum AssistSuggestionSemantics {
     static func insertionText(claimType: String?, label: String, value: String?) -> String {
-        let labelFirst = Set(["ENTITY", "DATASET_REFERENCE", "FIGURE", "TABLE_REFERENCE", "METHOD"])
+        let labelFirst = Set(["ENTITY", "DATASET_REFERENCE", "FIGURE", "TABLE_REFERENCE", "METHOD", "STUDY_VARIABLE"])
         if let claimType, labelFirst.contains(claimType), !label.isEmpty { return label }
         return value ?? label
     }

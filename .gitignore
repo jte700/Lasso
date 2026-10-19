@@ -18,3 +18,7 @@ desktop/BuildConfig.swift
 .DS_Store
 ed.hup
 *.log
+
+# Windows compiler intermediates
+desktop/windows/**/bin/
+desktop/windows/**/obj/

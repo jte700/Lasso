@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
 export function openDatabase(config) {
@@ -14,7 +15,7 @@ export function openDatabase(config) {
     ? (db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get()?.version ?? 0)
     : 0;
 
-  const migrationDirectory = path.resolve('migrations');
+  const migrationDirectory = fileURLToPath(new URL('../migrations', import.meta.url));
   // Two development branches shipped different migration 014s. A database
   // carrying the share-scope columns already applied the local UI branch.
   // Install the idempotent ranking schema, then acknowledge its scope schema

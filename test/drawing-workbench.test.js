@@ -30,7 +30,7 @@ test('an explicit source selection survives a pending debounced search', async (
   const host = { isConnected: true, innerHTML: '',
     querySelector: () => null,
     querySelectorAll: selector => selector === '[data-object]' ? [button] : [] };
-  globalThis.document = { activeElement: null, querySelectorAll: () => [], getElementById: () => null };
+  globalThis.document = { activeElement: null, querySelector: () => null, querySelectorAll: () => [], getElementById: () => null };
   try {
     const workbench = createSourceWorkbench({ input, getProjectId: () => 'project', getActor: () => ({ id: 'user' }),
       api: async url => url.endsWith('/source-library') ? { objects: [object] }

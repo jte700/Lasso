@@ -1,10 +1,15 @@
 import { createRemovableDrives } from './removable-drives.js?v=1';
+import { createSourceDialog } from './source-dialog.js?v=1';
 import { caretPointForTextLengths, contextualCompletionCase } from './editor-acceptance.js';
 import { createCommandPalette } from './palette.js';
 import { createDirectorySidebar, createTabBar, createSidebarResize, createSpatialWorkbench, renderSession, shortenPath } from './shell.js?v=4';
 import { createSourceWorkbench } from './source-workbench.js?v=4';
 import { renderAssistBox } from './assist-box.js?v=2';
 import { renderModelPlan, bindModelPlans } from './model-preview.js?v=2';
+
+const desktop = window.lassoPlatform;
+const openSourceDialog = createSourceDialog({ api, getActor: () => state.identity, onStatus: message => toast(message) });
+const shortcut = (key, shift = false) => desktop?.shortcut(key, shift) ?? `⌘${shift ? '⇧' : ''}${key}`;
 
 const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
 const RECOMMENDATION_SESSION_ID = crypto.randomUUID();
@@ -287,8 +292,8 @@ function renderProjectContext() {
   elements['project-path'].title = current.rootPath;
   document.title = `${current.name} — Lasso`;
   refreshShell();
-  // Tell the macOS app which project system-wide suggestions should use.
-  window.webkit?.messageHandlers?.lasso?.postMessage({ activeProjectId: current.id });
+  // Keep the desktop companion scoped to the selected project.
+  desktop?.postMessage({ activeProjectId: current.id });
   elements['window-project-name'].textContent = current.name;
   elements['status-project'].textContent = current.name;
   elements['status-version'].textContent = `Version ${current.currentVersion}`;
@@ -300,7 +305,7 @@ function renderProjectContext() {
 
 function renderEmpty() {
   state.project = null;
-  window.webkit?.messageHandlers?.lasso?.postMessage({ activeProjectId: null });
+  desktop?.postMessage({ activeProjectId: null });
   elements['project-name'].textContent = 'Welcome to Lasso';
   showSession();
   elements['project-path'].textContent = 'Choose a local directory to begin.';
@@ -388,6 +393,9 @@ function textOffset(root, target, offset) {
 function setWorkspaceView(view) {
   state.previewRevision += 1;
   state.view = view;
+  if (desktop?.isWindows && view !== 'session') {
+    document.querySelectorAll('.rail-navigation .rail-item').forEach(button => { button.classList.remove('active'); button.removeAttribute('aria-current'); });
+  }
   const window_ = document.getElementById('app-window');
   window_?.classList.toggle('view-editor', view === 'editor');
   window_?.classList.toggle('view-session', view === 'session');
@@ -591,7 +599,7 @@ function renderDocumentEditor() {
       <aside id="dependency-inspector" class="dependency-inspector" hidden aria-label="Source inspector"></aside>
       <aside id="source-peek" class="source-peek" hidden aria-label="Source preview"></aside>
     </div>
-    <div class="t-editor-status" aria-hidden="true"><b>EDIT</b><span>[⌘Z] undo · [⌘⇧L] link source · [Tab] accept suggestion · [Esc] dismiss</span></div>
+    <div class="t-editor-status" aria-hidden="true"><b>EDIT</b><span>[${shortcut('Z')}] undo · [${shortcut('L', true)}] link source · [Tab] accept suggestion · [Esc] dismiss</span></div>
   </div>`;
   elements['detail-column'].scrollTop = 0;
   bindEditorSurface();
@@ -1361,7 +1369,7 @@ function showPredictionCompletion() {
   const scoped = findingMode || linkedSourceMode || scopedWorkspace;
   const hints = [
     'Tab accept',
-    scoped ? '⌘⏎ end source' : null,
+    scoped ? `${shortcut('Enter')} end source` : null,
     rows.length > 1 ? '↑↓ select' : null,
     'Esc close',
   ].filter(Boolean).join('   ');
@@ -2534,7 +2542,7 @@ async function loadSharedDependency(token) {
 
 
 const THEMES = [
-  { id: 'system', label: 'System', hint: 'Follow macOS appearance' },
+  { id: 'system', label: 'System', hint: 'Follow system appearance' },
   { id: 'carbon', label: 'Carbon', hint: 'warm near-black · amber' },
   { id: 'slate', label: 'Slate', hint: 'cool grey · blue' },
   { id: 'palenight', label: 'Palenight', hint: 'indigo · violet' },
@@ -2549,6 +2557,7 @@ function applyTheme(theme) {
   document.documentElement.dataset.theme = theme === 'system'
     ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'carbon' : 'alabaster') : theme;
   try { localStorage.setItem('lasso.theme', theme); } catch { /* presentation only */ }
+  desktop?.postMessage({ action: 'appearance', dark: document.documentElement.dataset.theme !== 'alabaster' });
 }
 
 /// Everything the workspace can do, as one flat list for the palette.
@@ -2693,6 +2702,7 @@ const dependencyShell = createSourceWorkbench({
   getActor: () => state.identity,
   onRecommendationUsage: recordRecommendationUsage,
   build: UI_BUILD,
+  onShare: desktop?.isWindows ? object => openSourceDialog({ sourceId: object.id, versionId: object.versionId, projectId: state.project.id, openSharing: true }) : null,
   onOpenSource: (object) => {
     if (object.snapshotId) { setWorkspaceView('source'); showPreview(object.snapshotId, object.path, null, object.anchor); }
   },
@@ -2765,7 +2775,7 @@ const removableDrives = new URLSearchParams(window.location.search).get('app') =
 }) : null;
 
 const launchParams = new URLSearchParams(window.location.search);
-// The macOS app supplies its own window chrome, so the simulated titlebar is dropped.
+// Desktop hosts supply their own window chrome.
 if (launchParams.get('app') === '1') document.documentElement.classList.add('native-app');
 const sharedDependencyToken = launchParams.get('share');
 if (sharedDependencyToken) loadSharedDependency(sharedDependencyToken);
@@ -2781,7 +2791,7 @@ else {
 
 // The native shell owns permissions and the actual running state.
 const writingAssist = document.getElementById('writing-assist-toggle');
-if (writingAssist && window.webkit?.messageHandlers?.lasso) {
+if (writingAssist && desktop?.isNative) {
   writingAssist.hidden = false;
   window.addEventListener('lasso-assist-state', event => {
     writingAssist.setAttribute('aria-checked', String(Boolean(event.detail?.enabled)));
@@ -2790,7 +2800,47 @@ if (writingAssist && window.webkit?.messageHandlers?.lasso) {
   writingAssist.addEventListener('click', () => {
     if (!state.project) { openDialog(elements['import-dialog']); return; }
     writingAssist.disabled = true;
-    window.webkit.messageHandlers.lasso.postMessage({action:'toggleSuggestions'});
+    desktop.postMessage({action:'toggleSuggestions'});
   });
-  window.webkit.messageHandlers.lasso.postMessage({action:'suggestionState'});
+  desktop.postMessage({action:'suggestionState'});
 }
+
+// Windows shell affordances use the same workspace, settings, and save paths.
+const folderButton = document.getElementById('choose-folder');
+if (folderButton && desktop?.canChooseFolder) {
+  folderButton.hidden = false;
+  folderButton.addEventListener('click', () => {
+    folderButton.disabled = true;
+    desktop.postMessage({ action: 'chooseFolder' });
+  });
+  window.addEventListener('lasso-folder-selected', event => {
+    folderButton.disabled = false;
+    if (!event.detail.path) return;
+    const input = elements['import-form'].elements.rootPath;
+    input.value = event.detail.path;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+  });
+}
+window.addEventListener('lasso-host-error', event => {
+  if (folderButton) folderButton.disabled = false;
+  if (writingAssist) writingAssist.disabled = false;
+  toast(event.detail.message, 'error');
+});
+if (desktop?.isWindows) {
+  document.getElementById('search-shortcut').textContent = shortcut('K');
+  elements['import-form'].elements.rootPath.placeholder = 'C:\\Users\\you\\Documents\\Research';
+  document.getElementById('writing-assist-help').textContent = desktop.isNative
+    ? 'Enable writing suggestions, then type in an editor that supports Windows UI Automation. Tab accepts and links a source, Ctrl+Enter inserts plain text, ↑ and ↓ select, and Esc dismisses. Password fields are excluded.'
+    : 'Open Lasso for Windows to enable suggestions in supported desktop editors. Your project library and writing workspace are also available here.';
+  const settings = document.getElementById('settings-dialog');
+  const theme = document.getElementById('windows-theme');
+  document.getElementById('windows-settings').addEventListener('click', () => {
+    const current = currentTheme();
+    theme.value = current === 'system' || current === 'alabaster' ? current : 'carbon';
+    settings.showModal();
+  });
+  theme.addEventListener('change', () => applyTheme(theme.value));
+}
+
+window.addEventListener('lasso-open-source', event => openSourceDialog(event.detail));
