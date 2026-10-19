@@ -42,104 +42,6 @@ func claimPreferredPort(_ port: Int) -> Int? {
 /// Let the kernel choose an unused loopback port when the preferred one is busy.
 func findFreePort() -> Int? { claimPreferredPort(0) }
 
-// MARK: - Node discovery
-
-/// The bundled server uses `node:sqlite`, which needs Node.js 24 or newer.
-let minimumNodeMajorVersion = 24
-
-enum NodeResolution {
-    case found(String)
-    case tooOld(path: String, version: String)
-    case missing
-}
-
-/// GUI applications do not inherit a shell PATH, so the Node binary is resolved
-/// explicitly: an env override, the path recorded at build time, the usual
-/// install locations, any nvm install (newest first), and finally a login
-/// shell lookup. Each candidate's version is checked, so an old Node is
-/// reported as such instead of as a server that stopped.
-func resolveNodePath() -> NodeResolution {
-    let fileManager = FileManager.default
-    var candidates: [String] = []
-
-    if let override = ProcessInfo.processInfo.environment["LASSO_NODE"]
-        ?? ProcessInfo.processInfo.environment["COLAB_NODE"] {
-        candidates.append(override)
-    }
-    candidates.append(BuildConfig.nodePath)
-    candidates.append(contentsOf: [
-        "/opt/homebrew/bin/node",
-        "/usr/local/bin/node",
-        "/usr/bin/node",
-    ])
-
-    let nvmRoot = fileManager.homeDirectoryForCurrentUser
-        .appendingPathComponent(".nvm/versions/node", isDirectory: true)
-    if let versions = try? fileManager.contentsOfDirectory(atPath: nvmRoot.path) {
-        // "v24.1.0" must sort above "v9.11.2", so compare numerically.
-        for version in versions.sorted(by: { $0.compare($1, options: .numeric) == .orderedDescending }) {
-            candidates.append(nvmRoot.appendingPathComponent("\(version)/bin/node").path)
-        }
-    }
-
-    var tooOld: (path: String, version: String)?
-    var checked = Set<String>()
-    for candidate in candidates where checked.insert(candidate).inserted
-        && fileManager.isExecutableFile(atPath: candidate) {
-        guard let version = nodeVersion(at: candidate) else { continue }
-        if nodeMajorVersion(version) >= minimumNodeMajorVersion { return .found(candidate) }
-        if tooOld == nil { tooOld = (candidate, version) }
-    }
-    if let shellNode = nodePathFromLoginShell(), checked.insert(shellNode).inserted,
-       let version = nodeVersion(at: shellNode) {
-        if nodeMajorVersion(version) >= minimumNodeMajorVersion { return .found(shellNode) }
-        if tooOld == nil { tooOld = (shellNode, version) }
-    }
-    if let tooOld { return .tooOld(path: tooOld.path, version: tooOld.version) }
-    return .missing
-}
-
-func nodeMajorVersion(_ version: String) -> Int {
-    let digits = version.trimmingCharacters(in: .whitespacesAndNewlines).drop(while: { $0 == "v" })
-    return Int(digits.prefix(while: \.isNumber)) ?? 0
-}
-
-/// Output of a short command, or nil when it fails or takes too long.
-private func commandOutput(_ executable: String, _ arguments: [String], timeout: TimeInterval) -> String? {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: executable)
-    process.arguments = arguments
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = FileHandle.nullDevice
-    do {
-        try process.run()
-    } catch {
-        return nil
-    }
-    // A slow or interactive shell profile must not stall startup.
-    let deadline = DispatchWorkItem { if process.isRunning { process.terminate() } }
-    DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: deadline)
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    process.waitUntilExit()
-    deadline.cancel()
-    guard process.terminationStatus == 0 else { return nil }
-    return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-}
-
-private func nodeVersion(at path: String) -> String? {
-    commandOutput(path, ["--version"], timeout: 5).flatMap { $0.isEmpty ? nil : $0 }
-}
-
-private func nodePathFromLoginShell() -> String? {
-    // An interactive login shell also reads .zshrc, where nvm, fnm and asdf
-    // usually set up PATH.
-    guard let output = commandOutput("/bin/zsh", ["-ilc", "command -v node"], timeout: 5),
-          let path = output.split(separator: "\n").last.map(String.init),
-          FileManager.default.isExecutableFile(atPath: path) else { return nil }
-    return path
-}
-
 // MARK: - Server supervision
 
 enum ServerState {
@@ -170,6 +72,8 @@ final class ServerController {
     private let appDirectory: String
     private let dataDirectory: String
     private let logURL: URL
+    /// The Node.js the server was last started with, shown in About Lasso.
+    private(set) var runtime: NodeRuntime?
 
     var onStateChange: ((ServerState) -> Void)?
 
@@ -186,24 +90,28 @@ final class ServerController {
 
     func start() {
         stop()
+        runtime = nil
         transition(.starting)
         launchAttempt += 1
         let attempt = launchAttempt
         // Finding Node can run a login shell. Keep that off the main thread so
         // the menu stays responsive while Lasso starts.
         DispatchQueue.global(qos: .userInitiated).async {
-            let resolution = resolveNodePath()
+            let resolution = resolveNodeRuntime(
+                bundledNode: Bundle.main.url(forAuxiliaryExecutable: "node")?.path,
+                recordedNode: BuildConfig.nodePath)
             DispatchQueue.main.async { [weak self] in
                 guard let self, attempt == self.launchAttempt, self.process == nil else { return }
                 switch resolution {
-                case .found(let node):
-                    self.launch(node: node)
+                case .found(let runtime):
+                    self.runtime = runtime
+                    self.launch(runtime)
                 case .tooOld(let path, let version):
-                    self.transition(.failed("Lasso needs Node.js \(minimumNodeMajorVersion) or newer, but found \(version) at \(path). "
-                        + "Install a current Node.js, then choose Restart Server."))
+                    self.transition(.failed("Lasso's own Node.js could not start, and the Node.js \(version) at \(path) "
+                        + "is older than \(minimumNodeMajorVersion). Reinstall Lasso, then choose Restart Server."))
                 case .missing:
-                    self.transition(.failed("Node.js \(minimumNodeMajorVersion) or newer was not found. "
-                        + "Install it from nodejs.org or Homebrew, then choose Restart Server."))
+                    self.transition(.failed("Lasso's own Node.js could not start, and no Node.js \(minimumNodeMajorVersion) "
+                        + "or newer was found. Reinstall Lasso, then choose Restart Server."))
                 }
             }
         }
@@ -218,7 +126,7 @@ final class ServerController {
         try? FileManager.default.moveItem(at: logURL, to: previous)
     }
 
-    private func launch(node: String) {
+    private func launch(_ runtime: NodeRuntime) {
         // Share links embed the port, so a stable one is preferred: links sent
         // yesterday still resolve today. Falls back to any free port.
         guard let chosen = claimPreferredPort(4319) ?? findFreePort() else {
@@ -233,7 +141,7 @@ final class ServerController {
         rotateLogIfNeeded()
 
         let child = Process()
-        child.executableURL = URL(fileURLWithPath: node)
+        child.executableURL = URL(fileURLWithPath: runtime.path)
         child.arguments = ["--disable-warning=ExperimentalWarning", "src/server.js"]
         // Config resolves `public/` and `migrations/` from the working directory.
         child.currentDirectoryURL = URL(fileURLWithPath: appDirectory)
@@ -254,6 +162,10 @@ final class ServerController {
         }
         if let handle = try? FileHandle(forWritingTo: logURL) {
             handle.seekToEndOfFile()
+            // Naming the runtime shows in the log when an installed Node stood
+            // in for the bundled one.
+            let started = ISO8601DateFormatter().string(from: Date())
+            try? handle.write(contentsOf: Data("[\(started)] Starting the server with \(runtime.summary)\n".utf8))
             child.standardOutput = handle
             child.standardError = handle
         }
@@ -1069,8 +981,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
+        let credits = ["Source-backed suggestions from your own files. Everything stays on this Mac.",
+                       server.runtime.map { "Server: \($0.summary)" }].compactMap { $0 }
         NSApp.orderFrontStandardAboutPanel(options: [
-            .credits: NSAttributedString(string: "Source-backed suggestions from your own files. Everything stays on this Mac.",
+            .credits: NSAttributedString(string: credits.joined(separator: "\n\n"),
                                          attributes: [.font: NSFont.systemFont(ofSize: 11),
                                                       .foregroundColor: NSColor.secondaryLabelColor]),
         ])

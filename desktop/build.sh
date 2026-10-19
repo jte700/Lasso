@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds Lasso.app — a self-contained macOS menu bar application that
-# bundles the server code and runs it locally on demand.
+# Builds Lasso.app, a self-contained macOS menu bar application that bundles
+# the server code and the Node.js runtime that runs it locally on demand.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -8,10 +8,43 @@ DIST="$ROOT/dist"
 APP="$DIST/Lasso.app"
 SUPPORT="$HOME/Library/Application Support/Lasso"
 PREVIOUS_SUPPORT="$HOME/Library/Application Support/CoLab Dry"
+# The server uses node:sqlite, which needs Node.js 24 or newer.
+MINIMUM_NODE_MAJOR=24
 
+# The app runs its server on a copy of this Node, so it works on Macs without
+# Node installed. LASSO_NODE picks another build to bundle.
 NODE_BIN="${LASSO_NODE:-${COLAB_NODE:-$(command -v node || true)}}"
-if [ -z "$NODE_BIN" ]; then
-  echo "error: node was not found on PATH. Install Node 24+ or set LASSO_NODE." >&2
+if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
+  echo "error: no Node.js to bundle was found. Install Node.js $MINIMUM_NODE_MAJOR+ from nodejs.org or set LASSO_NODE." >&2
+  exit 1
+fi
+# Version managers such as asdf and Volta put a shim on PATH, so Node itself
+# names the binary that actually runs.
+NODE_SOURCE="$("$NODE_BIN" -p 'process.execPath' 2>/dev/null || true)"
+NODE_VERSION=""
+if [ -n "$NODE_SOURCE" ] && [ -x "$NODE_SOURCE" ]; then
+  NODE_VERSION="$("$NODE_SOURCE" --version 2>/dev/null || true)"
+fi
+NODE_MAJOR="${NODE_VERSION#v}"
+NODE_MAJOR="${NODE_MAJOR%%.*}"
+if ! [[ "$NODE_MAJOR" =~ ^[0-9]+$ ]] || [ "$NODE_MAJOR" -lt "$MINIMUM_NODE_MAJOR" ]; then
+  echo "error: Lasso bundles Node.js $MINIMUM_NODE_MAJOR or newer, but $NODE_BIN reports '${NODE_VERSION:-no version}'." >&2
+  echo "Install a current Node.js from nodejs.org or set LASSO_NODE." >&2
+  exit 1
+fi
+NODE_ARCHS="$(lipo -archs "$NODE_SOURCE" 2>/dev/null || true)"
+if [ -z "$NODE_ARCHS" ]; then
+  echo "error: $NODE_SOURCE is not a macOS executable, so it cannot be bundled. Set LASSO_NODE to a Node.js binary." >&2
+  exit 1
+fi
+# Homebrew's Node links Homebrew libraries that other Macs do not have. The
+# nodejs.org and nvm builds link only macOS's own libraries.
+NODE_FOREIGN_LIBRARIES="$(otool -L "$NODE_SOURCE" \
+  | awk '/^\t/ && $1 !~ /^\/(usr\/lib|System\/Library)\// { print "  " $1 }' | sort -u)"
+if [ -n "$NODE_FOREIGN_LIBRARIES" ]; then
+  echo "error: $NODE_SOURCE links libraries outside macOS, so a bundled copy would not run on other Macs:" >&2
+  echo "$NODE_FOREIGN_LIBRARIES" >&2
+  echo "Install Node.js from nodejs.org (or nvm) and set LASSO_NODE to that binary." >&2
   exit 1
 fi
 
@@ -69,7 +102,38 @@ CONTENTS="$BUILD_APP/Contents"
 RESOURCES="$CONTENTS/Resources"
 
 echo "==> Preparing staged build"
-mkdir -p "$CONTENTS/MacOS" "$RESOURCES/app"
+mkdir -p "$CONTENTS/MacOS" "$RESOURCES/app" "$RESOURCES/node"
+
+echo "==> Finding the Node.js $NODE_VERSION license"
+# Tarball, nvm and Homebrew installs keep LICENSE beside bin/. The nodejs.org
+# installer does not, so that release's license is downloaded once and cached.
+NODE_LICENSE_HEADER="Node.js is licensed for use as follows:"
+is_node_license() { [ -f "$1" ] && head -n 1 "$1" | grep -Fq "$NODE_LICENSE_HEADER"; }
+NODE_LICENSE="${LASSO_NODE_LICENSE:-}"
+NODE_PREFIX_LICENSE="$(dirname "$(dirname "$NODE_SOURCE")")/LICENSE"
+if [ -n "$NODE_LICENSE" ]; then
+  if ! is_node_license "$NODE_LICENSE"; then
+    echo "error: LASSO_NODE_LICENSE is not a Node.js LICENSE file: $NODE_LICENSE" >&2
+    exit 1
+  fi
+elif is_node_license "$NODE_PREFIX_LICENSE"; then
+  NODE_LICENSE="$NODE_PREFIX_LICENSE"
+else
+  NODE_LICENSE="$HOME/Library/Caches/Lasso/node-$NODE_VERSION-LICENSE"
+  if ! is_node_license "$NODE_LICENSE"; then
+    NODE_LICENSE_URL="https://raw.githubusercontent.com/nodejs/node/$NODE_VERSION/LICENSE"
+    echo "    downloading $NODE_LICENSE_URL"
+    if ! curl --fail --silent --show-error --location --proto '=https' --max-time 60 \
+        --output "$BUILD_DIR/node-LICENSE" "$NODE_LICENSE_URL" \
+      || ! is_node_license "$BUILD_DIR/node-LICENSE"; then
+      echo "error: the Node.js $NODE_VERSION license could not be downloaded. Save" >&2
+      echo "https://github.com/nodejs/node/blob/$NODE_VERSION/LICENSE and set LASSO_NODE_LICENSE to it." >&2
+      exit 1
+    fi
+    mkdir -p "$(dirname "$NODE_LICENSE")"
+    mv "$BUILD_DIR/node-LICENSE" "$NODE_LICENSE"
+  fi
+fi
 
 echo "==> Recording build configuration (node: $NODE_BIN)"
 cat > "$ROOT/desktop/BuildConfig.swift" <<SWIFT
@@ -89,6 +153,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   -framework Cocoa -framework WebKit -framework PDFKit -framework ServiceManagement \
   -o "$CONTENTS/MacOS/Lasso" \
   "$ROOT/desktop/BuildConfig.swift" \
+  "$ROOT/desktop/NodeRuntime.swift" \
   "$ROOT/desktop/WorkspaceAPI.swift" \
   "$ROOT/desktop/AssistActivation.swift" \
   "$ROOT/desktop/TransientDismissal.swift" \
@@ -116,6 +181,28 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/SourceChooser.swift" \
   "$ROOT/desktop/GlobalAssist.swift" \
   "$ROOT/desktop/Lasso.swift"
+
+echo "==> Bundling Node.js $NODE_VERSION from $NODE_SOURCE"
+# The app finds it as an auxiliary executable beside its own.
+BUNDLED_NODE="$CONTENTS/MacOS/node"
+APP_ARCHS="$(lipo -archs "$CONTENTS/MacOS/Lasso")"
+for arch in $APP_ARCHS; do
+  if [[ " $NODE_ARCHS " != *" $arch "* ]]; then
+    echo "error: $NODE_SOURCE has no $arch build (it has: $NODE_ARCHS). Install Node.js for this Mac or set LASSO_NODE." >&2
+    exit 1
+  fi
+done
+if [ "$NODE_ARCHS" = "$APP_ARCHS" ]; then
+  cp "$NODE_SOURCE" "$BUNDLED_NODE"
+else
+  # The nodejs.org installer's universal Node is twice the size of the slice
+  # this app can run, so only the app's own architectures are kept.
+  NODE_SLICES=()
+  for arch in $APP_ARCHS; do NODE_SLICES+=(-extract "$arch"); done
+  lipo "$NODE_SOURCE" "${NODE_SLICES[@]}" -output "$BUNDLED_NODE"
+fi
+chmod 755 "$BUNDLED_NODE"
+cp "$NODE_LICENSE" "$RESOURCES/node/LICENSE"
 
 echo "==> Bundling the server"
 for item in src public migrations scripts package.json package-lock.json; do
@@ -218,10 +305,15 @@ fi
 
 echo "==> Signing"
 # Keep the certificate-bound designated requirement generated by codesign.
-# Sign inside-out in one process so a one-time Keychain approval covers both
-# the helper and the containing app without a second signing-process prompt.
-codesign --force --sign "$SIGNING_IDENTITY" "$RESOURCES/app/scripts/extract-drawing-layout" "$RESOURCES/app/scripts/render-shared-pdf" "$BUILD_APP"
+# Sign inside-out in one process so a one-time Keychain approval covers the
+# bundled Node, the helpers and the containing app without a second prompt.
+codesign --force --sign "$SIGNING_IDENTITY" "$BUNDLED_NODE" \
+  "$RESOURCES/app/scripts/extract-drawing-layout" "$RESOURCES/app/scripts/render-shared-pdf" "$BUILD_APP"
 codesign --verify --deep --strict "$BUILD_APP"
+if [ "$("$BUNDLED_NODE" --version 2>/dev/null || true)" != "$NODE_VERSION" ]; then
+  echo "error: the signed bundled Node.js does not run. The previous app has been preserved." >&2
+  exit 1
+fi
 
 echo "==> Replacing app with verified build"
 mkdir -p "$DIST"
@@ -236,6 +328,6 @@ fi
 touch "$APP"
 
 echo
-echo "Built: $APP"
+echo "Built: $APP ($(du -sh "$APP" | cut -f1), of which Node.js $NODE_VERSION is $(du -sh "$APP/Contents/MacOS/node" | cut -f1))"
 echo "Run it:      open -a \"$APP\""
 echo "Install it:  cp -R \"$APP\" /Applications/"

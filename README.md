@@ -4,7 +4,7 @@ Lasso indexes local work directories and suggests source-backed text while you w
 
 ## Run
 
-Requires **Node.js 24+**. The macOS app also requires the Xcode Command Line Tools.
+Requires **Node.js 24+**. Building the macOS app also requires the Xcode Command Line Tools. The built app carries its own Node.js, so Macs that only run it need neither.
 
 ```bash
 npm start
@@ -19,7 +19,7 @@ npm run desktop
 open dist/Lasso.app
 ```
 
-The app runs in the menu bar and starts its own local server, restarting it automatically if it stops unexpectedly. Node.js 24 or newer must remain installed; if Lasso finds only an older Node, the menu says which version and where. The first time Lasso runs without any folders, its menu opens so you can add one, and opening the app again while it runs shows the menu. The menu provides:
+The app runs in the menu bar and starts its own local server, restarting it automatically if it stops unexpectedly. The server runs on the Node.js bundled inside the app, so the Mac does not need Node installed. If that copy cannot start, Lasso uses an installed Node.js 24 or newer instead; if it finds only an older one, the menu says which version and where. **About Lasso** and the server log name the Node.js in use. The first time Lasso runs without any folders, its menu opens so you can add one, and opening the app again while it runs shows the menu. The menu provides:
 
 - **Add Work Directories…** to choose folders, and **Remove Work Directory** to take one out of Lasso. Removing never changes the folder or its files.
 - **Work Directories** to collapse the list and switch folders on or off. Suggestions come only from folders that are switched on. The small circle sets the folder's highlight colour, used for text accepted from it. Right-click a folder to show it in Finder or remove it.
@@ -28,10 +28,16 @@ The app runs in the menu bar and starts its own local server, restarting it auto
 - **Tools → Open in Browser** for writing, source browsing, and review.
 - **Tools → Tab Inserts** to choose what `Tab` does: **Plain Text** (default), **Ask Each Time**, or **Share Link**.
 - **Tools → Troubleshooting** for restarting the server, checking another app's text support, outlining highlight positions, and the logs. **Record Typing Log** is off by default; when on, it records which apps Lasso could read and whether insertions landed, never what you typed or inserted. If the server cannot be recovered, **Restart Server** also appears directly under the error.
-- **About Lasso** for the version.
+- **About Lasso** for the version and the Node.js the server runs on.
 - **Show Lasso in Notch** on Macs with a built-in camera cutout. Off by default, this remembers your choice and hides itself when the notched display is unavailable. Only the Lasso logo appears immediately to the left of the camera cutout, entirely within the menu bar. Its black backing continues beneath the camera’s curved corner so the logo joins the notch without a seam. The expanded panel forms one continuous black surface from the display edge, with its controls below the camera. Click it to see active directories, indexed files, source value changes and indexing issues. New source changes or indexing issues also open the panel automatically after the initial activity check, without repeatedly reopening unchanged alerts. Automatic panels close after 12 seconds unless the pointer is over them. Pause/resume suggestions or open source review from the panel. Escape or clicking elsewhere collapses it without taking focus from your editor. Activity refreshes every 15 seconds while enabled. No source wording changes until you review and apply it in the browser.
 
 Interacting with the directory controls keeps the popover open. Clicking outside dismisses it; closing it with `Esc` or the menu bar icon returns focus to the app you were using. A folder that is switched on but could not be read shows **(needs attention)**; clicking it tries again. A folder on a drive that was not mounted when Lasso started is picked up automatically when the drive returns. You can move the app to `/Applications`; keep one canonical copy when granting permissions.
+
+### Bundled Node.js
+
+`npm run desktop` copies the Node.js it builds with (`LASSO_NODE`, or `node` on `PATH`) into `Lasso.app/Contents/MacOS/node`, puts its license in `Contents/Resources/node/LICENSE`, and signs it together with the app. It must be Node.js 24 or newer and link only macOS's own libraries, as the nodejs.org installer and nvm builds do. Homebrew's Node depends on other Homebrew packages, so the build stops and says so. Version manager shims, such as asdf's or Volta's, are followed to the real binary, and a universal Node keeps only the architecture the app is compiled for. The nodejs.org installer does not keep a license file, so the build downloads that release's `LICENSE` from the Node.js repository once and caches it in `~/Library/Caches/Lasso`; set `LASSO_NODE_LICENSE` to build offline.
+
+The runtime brings the app from about 30 MB to 142 MB, and a compressed disk image from about 7 MB to 48 MB.
 
 ### Signing and permissions
 
@@ -41,7 +47,7 @@ Use a valid code-signing certificate to preserve macOS permissions across update
 security find-identity -v -p codesigning
 ```
 
-The build compiles, signs, and verifies a temporary app before replacing `dist/Lasso.app`. If signing fails, the previous app stays intact. `LASSO_SIGN_MODE=adhoc npm run desktop` is available for temporary builds, but their Accessibility approval may stop applying after rebuilding.
+The build compiles, signs, and verifies a temporary app before replacing `dist/Lasso.app`. One `codesign` call signs the bundled Node.js, the PDF helpers and the app, so a single Keychain approval covers them. If signing fails, or the signed Node.js does not run, the previous app stays intact. `LASSO_SIGN_MODE=adhoc npm run desktop` is available for temporary builds, but their Accessibility approval may stop applying after rebuilding.
 
 Repeated Keychain prompts mean the signing tool has not been granted persistent access to the signing key. Save trusted access for Apple's `/usr/bin/codesign` on the existing Lasso signing key once. In a normal signing prompt, **Always Allow** saves access; **Allow** covers only that attempt. After setup, signing runs automatically while the login keychain is unlocked. Keep the same certificate to preserve Lasso's macOS permissions. See [Apple's Keychain access guidance](https://support.apple.com/en-gb/guide/mac-help/kychn002/26/mac/26).
 
@@ -96,7 +102,8 @@ The command layer behind the source tools uses the same dependency graph:
 | `PORT` | CLI server port, `4317`. The macOS app prefers `4319`, then an available loopback port. |
 | `LASSO_WATCH_DEBOUNCE_MS` | Watcher batching delay, `2500` ms. |
 | `LASSO_WATCH_MAX_WAIT_MS` | Longest a file saved over and over can postpone its capture, `15000` ms. |
-| `LASSO_NODE` | Override the Node binary used by the desktop build and app. |
+| `LASSO_NODE` | Node.js binary the desktop build bundles, `node` on `PATH` by default. Set when the app starts, it runs the server instead of the bundled copy. |
+| `LASSO_NODE_LICENSE` | Node.js `LICENSE` file for the build to bundle, for offline builds from the nodejs.org installer, which does not keep one. |
 | `LASSO_SIGN_IDENTITY` | Desktop signing certificate name or SHA-1 fingerprint. |
 | `LASSO_ICON_STYLE` | App icon drawn by `scripts/render-app-icon.swift`: `full-bleed` for macOS 26, which masks icons to its own shape, or `squircle` for earlier versions. Defaults to the building Mac's version. |
 | `SHARE_BASE_URL` | Base URL for generated share links. |

@@ -1432,5 +1432,55 @@ check(accentedChunks.allSatisfy { $0.unicodeScalars.first?.properties.generalCat
       "a chunk never begins with a detached combining accent")
 check("Facilities".chunkedForTyping(16) == ["Facilities"], "short text is typed as one event")
 
+print("node runtime discovery")
+let bundledNode = "/Applications/Lasso.app/Contents/MacOS/node"
+let nodeSearchOrder = nodeCandidates(override: "/custom/node", bundledNode: bundledNode,
+                                     recordedNode: "/usr/local/bin/node", nvmRoot: "/nvm",
+                                     nvmVersions: ["v9.11.2", "v24.1.0", "v22.3.0"])
+check(Array(nodeSearchOrder.prefix(3)) == ["/custom/node", bundledNode, "/usr/local/bin/node"],
+      "LASSO_NODE comes first, then the bundled runtime, then the build machine's Node")
+check(Array(nodeSearchOrder.suffix(3)) == ["/nvm/v24.1.0/bin/node", "/nvm/v22.3.0/bin/node", "/nvm/v9.11.2/bin/node"],
+      "nvm installs are tried newest first")
+/// `installed` maps each existing Node to its version, or nil when it cannot run.
+func resolveNode(_ installed: [String: String?], shellNode: String? = nil) -> (resolution: NodeResolution, askedShell: Bool) {
+    var askedShell = false
+    let resolution = selectNodeRuntime(
+        candidates: nodeSearchOrder, bundledNode: bundledNode,
+        isExecutable: { installed[$0] != nil },
+        version: { installed[$0] ?? nil },
+        loginShellNode: { askedShell = true; return shellNode })
+    return (resolution, askedShell)
+}
+let bundledRuntime = NodeRuntime(path: bundledNode, version: "v24.13.0", isBundled: true)
+let withoutInstalledNode = resolveNode([bundledNode: "v24.13.0"])
+check(withoutInstalledNode.resolution == .found(bundledRuntime) && !withoutInstalledNode.askedShell,
+      "the server starts on a Mac with no Node installed and LASSO_NODE pointing nowhere")
+check(resolveNode([bundledNode: "v24.13.0", "/opt/homebrew/bin/node": "v25.0.0"]).resolution == .found(bundledRuntime),
+      "the bundled runtime is preferred over an installed Node")
+check(resolveNode(["/custom/node": "v25.1.0", bundledNode: "v24.13.0"]).resolution
+      == .found(NodeRuntime(path: "/custom/node", version: "v25.1.0", isBundled: false)),
+      "a working LASSO_NODE overrides the bundled runtime")
+check(resolveNode([bundledNode: nil, "/usr/local/bin/node": "v24.2.0"]).resolution
+      == .found(NodeRuntime(path: "/usr/local/bin/node", version: "v24.2.0", isBundled: false)),
+      "a bundled runtime that cannot run falls back to an installed Node")
+check(resolveNode([bundledNode: "v22.3.0", "/opt/homebrew/bin/node": "v24.0.0"]).resolution
+      == .found(NodeRuntime(path: "/opt/homebrew/bin/node", version: "v24.0.0", isBundled: false)),
+      "a bundled runtime that is too old is passed over")
+let onlyOldNode = resolveNode([bundledNode: nil, "/opt/homebrew/bin/node": "v20.11.0"])
+check(onlyOldNode.resolution == .tooOld(path: "/opt/homebrew/bin/node", version: "v20.11.0") && onlyOldNode.askedShell,
+      "an old Node is reported with its version and path once the login shell finds nothing newer")
+check(resolveNode([:], shellNode: "/fnm/node").resolution == .missing,
+      "a login shell path that does not exist is not used")
+check(resolveNode(["/fnm/node": "v24.0.0"], shellNode: "/fnm/node").resolution
+      == .found(NodeRuntime(path: "/fnm/node", version: "v24.0.0", isBundled: false)),
+      "the login shell finds Node installed by version managers")
+check(resolveNode([:]).resolution == .missing, "no Node at all is reported as missing")
+check(bundledRuntime.summary == "Node.js v24.13.0, bundled with Lasso"
+      && NodeRuntime(path: "/usr/local/bin/node", version: "v24.2.0", isBundled: false).summary
+      == "Node.js v24.2.0 from /usr/local/bin/node",
+      "About Lasso and the server log say which Node runs the server")
+check(nodeMajorVersion("v24.13.0") == 24 && nodeMajorVersion("v9.11.2\n") == 9 && nodeMajorVersion("") == 0,
+      "Node versions compare by major number")
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)
