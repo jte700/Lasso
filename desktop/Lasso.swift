@@ -432,7 +432,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         inspector.onUnlink = { reference in DependencyHighlighter.shared.unlink(id: reference.id) }
         inspector.onOpenSource = { [weak self] _ in
-            self?.showError("The source file could not be opened at its recorded location.")
+            self?.showError("The source file could not be opened at its recorded location.",
+                            title: "The Source Couldn\u{2019}t Be Opened")
         }
         inspector.onShare = { [weak self] reference in
             guard let self, let url = self.server.url else { return }
@@ -791,7 +792,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let message = WorkspaceAPI.errorMessage(data: data, response: response, error: error)
                     self.workspaceError = message
                     self.rebuildMenu()
-                    self.showError(message)
+                    self.showError(message, title: "Work Directories Couldn\u{2019}t Be Updated")
                     self.refreshWorkspace()
                 }
             }
@@ -896,7 +897,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             showError(enable
                 ? "Lasso could not be added to your login items: \(error.localizedDescription)"
-                : "Lasso could not be removed from your login items: \(error.localizedDescription)")
+                : "Lasso could not be removed from your login items: \(error.localizedDescription)",
+                      title: "Open at Login Couldn\u{2019}t Be Changed")
         }
         rebuildMenu()
     }
@@ -933,7 +935,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // that only this message explains.
         if userInitiated, let problem,
            assistant.lastProblem?.stale == true || assistant.lastProblem?.service == "Input Monitoring" {
-            showError(problem)
+            showError(problem, title: "Suggestions Need Permission")
         }
         rebuildMenu()
     }
@@ -952,9 +954,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showError(_ message: String) {
+    /// The title says what happened; macOS already shows Lasso's icon.
+    private func showError(_ message: String, title: String) {
         let alert = NSAlert()
-        alert.messageText = "Lasso"
+        alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
@@ -970,7 +973,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let report = HostCapabilityProbe.run()
             for line in report.split(separator: "\n") { AssistLog.write(String(line), force: true) }
             let alert = NSAlert()
-            alert.messageText = "Host text support"
+            alert.messageText = "Text Support Report"
             alert.informativeText = report + "\n\nAlso written to the typing log."
             alert.addButton(withTitle: "OK")
             NSApp.activate(ignoringOtherApps: true)
