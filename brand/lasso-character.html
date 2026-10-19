@@ -94,6 +94,20 @@
     .hint { margin-left: 0; width: 100%; }
   }
   @media (max-width: 520px) { .poses { grid-template-columns: repeat(2, 1fr); } }
+
+  /* Keyboard focus is always visible (HIG: Accessibility, Keyboards). */
+  :is(a, button, [role="button"], [role="tab"], [tabindex], input, select, textarea, summary):focus-visible {
+    outline: 2px solid #0071e3; outline-offset: 2px;
+  }
+  /* With Reduce Motion on, nothing slides, loops or fades on its own (HIG: Motion). */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+    }
+  }
 </style>
 </head>
 <body data-theme="lime">
