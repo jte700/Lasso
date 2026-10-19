@@ -53,6 +53,17 @@ html body :is(button, [role="button"]):disabled { cursor: default !important; }
 }
 ::selection { background: color-mix(in srgb, var(--u-blue) 28%, transparent); }
 
+/* Motion. With Reduce Motion on, nothing slides, spins or fades on its own
+   (HIG: Motion, Accessibility > Reduce Motion). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* The sidebar's editor button keeps its label on one line. */
 .open-editor-button { justify-content: flex-start; text-align: left; }
 .open-editor-button span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
