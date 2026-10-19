@@ -4,7 +4,7 @@ import { extractStepDocument } from '../src/dependencies/step-extraction.js';
 import { parseStepRecord, readStepModel } from '../src/dependencies/step-model.js';
 import { extractDesignDocument, drawingDescriptors } from '../src/dependencies/drawing-objects.js';
 import { detectFileType } from '../src/history/file-types.js';
-import { BRACKET, bracketPart, fixtureAssembly, pinPart } from './fixtures/step-models.js';
+import { BRACKET, bracketPart, filletedPart, fixtureAssembly, pinPart } from './fixtures/step-models.js';
 
 const facts = text => extractStepDocument(Buffer.from(text)).pages[0].annotations;
 const byLabel = (annotations, label) => annotations.find(annotation => annotation.label === label);
@@ -68,19 +68,19 @@ test('conversion-based inch units are reported in the declared unit with the exa
   assert.equal(byLabel(annotations, 'Bracket Ø8 hole diameter').units, 'in');
 });
 
-test('assemblies place components, keep part identities and omit extents that curved faces could exceed', () => {
+test('assemblies place components, keep part identities and reach domed pins to their sphere poles', () => {
   const result = extractStepDocument(Buffer.from(fixtureAssembly()));
   assert.equal(result.protocol, 'AP242');
   assert.equal(result.partCount, 2);
   assert.equal(result.instanceCount, 3);
-  assert.equal(result.status, 'partial');
+  assert.equal(result.status, 'ready', result.warnings.join('; '));
   const annotations = result.pages[0].annotations;
   assert.equal(byLabel(annotations, 'Fixture assembly overall X extent').value, '100 mm');
   assert.equal(byLabel(annotations, 'Fixture assembly overall Y extent').value, '60 mm');
-  assert.ok(!byLabel(annotations, 'Fixture assembly overall Z extent'), 'the domed pins make the assembly height uncertain');
-  assert.ok(!byLabel(annotations, 'Pin overall Z extent'), 'a hemisphere apex lies beyond every boundary edge');
+  // Pins stand on the 10 mm plate; each dome's pole is 3 above its 24 mm shank.
+  assert.equal(byLabel(annotations, 'Fixture assembly overall Z extent').value, '37 mm');
+  assert.equal(byLabel(annotations, 'Pin overall Z extent').value, '27 mm');
   assert.equal(byLabel(annotations, 'Pin overall X extent').value, '6 mm');
-  assert.ok(result.warnings.some(warning => /Pin Z extent was not indexed: sphere face/.test(warning)));
   const shank = byLabel(annotations, 'Pin Ø6 cylinder diameter');
   assert.equal(shank.instances, 2, 'the pin part is placed twice');
   assert.equal(byLabel(annotations, 'Pin Ø6 cylinder length').value, '24 mm');
@@ -96,10 +96,36 @@ test('a cone limits an extent only when the face actually reaches its apex', () 
   // A 45° chamfer's apex lies 2 mm beyond the tip, outside the frustum face.
   assert.equal(z('chamfer').value, '25 mm');
   assert.equal(z('point'), undefined, 'a pointed tip extends past its only rim edge');
-  assert.equal(z('dome'), undefined);
   assert.equal(byLabel(facts(pinPart({ tip: 'chamfer' })), 'Pin overall X extent').value, '6 mm');
   // NIST CTC-05 and FTC-09 write half frustums with reversed (.F.) bounds.
   assert.equal(z('split-chamfer').value, '25 mm', 'a reversed bound is traversed in reverse edge order');
+});
+
+test('a sphere or torus face reaches past its edges only where it holds the surface extreme', () => {
+  const extents = text => {
+    const result = extractStepDocument(Buffer.from(text));
+    assert.equal(result.status, 'ready', result.warnings.join('; '));
+    const annotations = result.pages[0].annotations.filter(annotation => annotation.featureType === 'extent');
+    return Object.fromEntries(annotations.map(annotation => [annotation.axis, annotation]));
+  };
+  // A hemispherical dome holds its pole, 3 above the 24 mm shank.
+  const dome = extents(pinPart({ tip: 'dome' }));
+  assert.deepEqual([dome.X.value, dome.Y.value, dome.Z.value], ['6 mm', '6 mm', '27 mm']);
+  assert.match(dome.Z.rawText, /bounded exactly by its B-rep edges and the extreme point of its spherical face #\d+\./);
+  assert.match(dome.X.rawText, /bounded exactly by its B-rep edges\./);
+  // A zone of a radius-5 sphere stops 0.2 below the pole at its crown, and its
+  // equator (radius 5) lies below the zone: the edges bound every axis.
+  const zone = extents(pinPart({ tip: 'partial-dome' }));
+  assert.deepEqual([zone.X.value, zone.Y.value, zone.Z.value], ['6 mm', '6 mm', '24.8 mm']);
+  assert.match(zone.Z.rawText, /bounded exactly by its B-rep edges\./);
+  // The inside-corner fillet's torus reaches radius 5, but the face spans radius 3 to 4 on a Ø9 base.
+  const shoulder = extents(filletedPart({ shape: 'shoulder' }));
+  assert.deepEqual([shoulder.X.value, shoulder.Y.value, shoulder.Z.value], ['9 mm', '9 mm', '24 mm']);
+  // A full-round edge holds the torus's outermost circle at radius 10, between edges at radius 9.
+  const disc = extents(filletedPart({ shape: 'bullnose' }));
+  assert.deepEqual([disc.X.value, disc.Y.value, disc.Z.value], ['20 mm', '20 mm', '2 mm']);
+  // The seam edge at +X passes through the outermost circle; along Y the face alone bounds both ends.
+  assert.match(disc.Y.rawText, /bounded exactly by the extreme points of its toroidal face #\d+\./);
 });
 
 test('surface models attached to a solid part are drawn but not measured', () => {

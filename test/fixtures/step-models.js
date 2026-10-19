@@ -35,6 +35,13 @@ class StepWriter {
     const full = Math.abs(b - a) >= 360;
     return this.add(`EDGE_CURVE('',${this.vertex(at(a))},${this.vertex(full ? at(a) : at(b))},${circle},.T.)`);
   }
+  // Arc about any axis, from angle a to b (degrees) measured from ref toward axis × ref.
+  axisArc(center, axis, ref, radius, a, b) {
+    const side = [axis[1] * ref[2] - axis[2] * ref[1], axis[2] * ref[0] - axis[0] * ref[2], axis[0] * ref[1] - axis[1] * ref[0]];
+    const at = (angle) => center.map((value, index) => value + radius * (Math.cos(angle * Math.PI / 180) * ref[index] + Math.sin(angle * Math.PI / 180) * side[index]));
+    const circle = this.add(`CIRCLE('',${this.placement(center, axis, ref)},${real(radius)})`);
+    return this.add(`EDGE_CURVE('',${this.vertex(at(a))},${this.vertex(at(b))},${circle},.T.)`);
+  }
   orient(edge, forward = true) { return this.add(`ORIENTED_EDGE('',*,*,${edge},${forward ? '.T.' : '.F.'})`); }
   loop(edges, outer = true, sense = true) {
     const loop = this.add(`EDGE_LOOP('',(${edges.join(',')}))`);
@@ -131,8 +138,11 @@ function plate(writer, { outline, holes, thickness }) {
 }
 
 /** Cylindrical pin along +Z with a flat, domed, chamfered or pointed tip.
- * A dome or point reaches beyond every boundary edge; a 45° chamfer is a cone
- * frustum whose apex lies beyond the part but outside the face. A split
+ * A hemispherical dome or a point reaches beyond every boundary edge. A partial
+ * dome is a zone of a radius-5 sphere centred 4 below the rim (which it meets at
+ * radius 3); a flat crown at radius 1.4, 0.8 above the rim, stops it 0.2 short
+ * of the pole, and the sphere's equator lies below the zone. A 45° chamfer is a
+ * cone frustum whose apex lies beyond the part but outside the face. A split
  * chamfer is two half frustums whose bounds are written reversed (.F.), the
  * way some exporters emit them. */
 function pin(writer, { radius, length, tip = 'flat' }) {
@@ -163,12 +173,54 @@ function pin(writer, { radius, length, tip = 'flat' }) {
     const chamferSeam = writer.line([radius, 0, length], [radius - 1, 0, length + 1]);
     faces.push(writer.face([writer.loop([writer.orient(topCircle), writer.orient(chamferSeam), writer.orient(rimCircle, false), writer.orient(chamferSeam, false)])], cone(), true));
     faces.push(writer.face([writer.loop([writer.orient(rimCircle)])], writer.add(`PLANE('',${writer.placement([0, 0, length + 1])})`), true));
+  } else if (tip === 'partial-dome') {
+    const crown = writer.arc([0, 0], 1.4, 0, 360, length + 0.8);
+    const sphere = writer.add(`SPHERICAL_SURFACE('',${writer.placement([0, 0, length - 4])},5.)`);
+    faces.push(writer.face([writer.loop([writer.orient(topCircle)]), writer.loop([writer.orient(crown, false)], false)], sphere, true));
+    faces.push(writer.face([writer.loop([writer.orient(crown)])], writer.add(`PLANE('',${writer.placement([0, 0, length + 0.8])})`), true));
   } else {
     const cap = tip === 'dome' ? writer.add(`SPHERICAL_SURFACE('',${writer.placement([0, 0, length])},${real(radius)})`)
       : tip === 'point' ? cone() : writer.add(`PLANE('',${writer.placement([0, 0, length])})`);
     faces.push(writer.face([writer.loop([writer.orient(topCircle)])], cap, true));
   }
   return writer.add(`MANIFOLD_SOLID_BREP('Pin body',${writer.add(`CLOSED_SHELL('',(${faces.join(',')}))`)})`);
+}
+
+/** Fillet faces on circular edges, as toroidal surfaces about +Z with seams at +X.
+ * 'shoulder': a radius-3 pin, 24 tall, on a Ø9 × 2 base with an R1 fillet in
+ * the inside corner. The fillet's torus (major 4, minor 1, centred at z = 3)
+ * reaches radius 5, past the base, but the concave face spans only radius 3 to 4.
+ * 'bullnose': a disc of radius 10, 2 thick, whose edge is one R1 round (major
+ * 9, centred at z = 1); the face holds the torus's outermost circle at radius 10,
+ * between boundary circles at radius 9. */
+function filleted(writer, shape) {
+  const plane = (z) => writer.add(`PLANE('',${writer.placement([0, 0, z])})`);
+  const cylinder = (radius, z) => writer.add(`CYLINDRICAL_SURFACE('',${writer.placement([0, 0, z])},${real(radius)})`);
+  const torus = (major, z) => writer.add(`TOROIDAL_SURFACE('',${writer.placement([0, 0, z])},${real(major)},1.)`);
+  const band = (lower, upper, seam) => writer.loop([writer.orient(lower), writer.orient(seam), writer.orient(upper, false), writer.orient(seam, false)]);
+  const faces = [];
+  if (shape === 'shoulder') {
+    const bottom = writer.arc([0, 0], 4.5, 0, 360, 0), rim = writer.arc([0, 0], 4.5, 0, 360, 2);
+    const foot = writer.arc([0, 0], 4, 0, 360, 2), neck = writer.arc([0, 0], 3, 0, 360, 3), top = writer.arc([0, 0], 3, 0, 360, 24);
+    // The fillet's seam turns about its tube centre (4, 0, 3) from straight below it to straight inside it.
+    const filletSeam = writer.axisArc([4, 0, 3], [0, 1, 0], [0, 0, -1], 1, 0, 90);
+    faces.push(
+      writer.face([writer.loop([writer.orient(bottom, false)])], plane(0), false),
+      writer.face([band(bottom, rim, writer.line([4.5, 0, 0], [4.5, 0, 2]))], cylinder(4.5, 0), true),
+      writer.face([writer.loop([writer.orient(rim)]), writer.loop([writer.orient(foot, false)], false)], plane(2), true),
+      // Concave: out of the material is toward the tube centre, against the torus normal.
+      writer.face([band(foot, neck, filletSeam)], torus(4, 3), false),
+      writer.face([band(neck, top, writer.line([3, 0, 3], [3, 0, 24]))], cylinder(3, 3), true),
+      writer.face([writer.loop([writer.orient(top)])], plane(24), true));
+  } else {
+    const bottom = writer.arc([0, 0], 9, 0, 360, 0), top = writer.arc([0, 0], 9, 0, 360, 2);
+    const seam = writer.axisArc([9, 0, 1], [0, -1, 0], [0, 0, -1], 1, 0, 180);
+    faces.push(
+      writer.face([writer.loop([writer.orient(bottom, false)])], plane(0), false),
+      writer.face([band(bottom, top, seam)], torus(9, 1), true),
+      writer.face([writer.loop([writer.orient(top)])], plane(2), true));
+  }
+  return writer.add(`MANIFOLD_SOLID_BREP('Filleted body',${writer.add(`CLOSED_SHELL('',(${faces.join(',')}))`)})`);
 }
 
 const header = (schema) => `ISO-10303-21;
@@ -262,6 +314,14 @@ export function pinPart({ tip = 'flat' } = {}) {
   const writer = new StepWriter();
   const context = units(writer, 'mm');
   product(writer, context, 'Pin', [pin(writer, { radius: 3, length: 24, tip })]);
+  return `${header('AUTOMOTIVE_DESIGN { 1 0 10303 214 3 1 1 }')}${writer.lines.join('\n')}\nENDSEC;\nEND-ISO-10303-21;\n`;
+}
+
+/** A single part with a toroidal fillet face; see filleted() for the shapes. */
+export function filletedPart({ shape = 'shoulder' } = {}) {
+  const writer = new StepWriter();
+  const context = units(writer, 'mm');
+  product(writer, context, shape === 'shoulder' ? 'Shouldered pin' : 'Disc', [filleted(writer, shape)]);
   return `${header('AUTOMOTIVE_DESIGN { 1 0 10303 214 3 1 1 }')}${writer.lines.join('\n')}\nENDSEC;\nEND-ISO-10303-21;\n`;
 }
 

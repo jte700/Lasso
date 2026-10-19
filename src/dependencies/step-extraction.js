@@ -10,6 +10,15 @@ const cache = new Map();
 
 const hash = (value) => createHash('sha256').update(value).digest('hex').slice(0, 20);
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+/** What bounds an extent: its edges, or a sphere or torus face's own extreme point at either end. */
+function extentBasis({ lowFace, highFace }) {
+  const ends = [lowFace, highFace].filter(Boolean);
+  if (!ends.length) return 'bounded exactly by its B-rep edges';
+  const faces = [...new Map(ends.map((face) => [face.id, face])).values()]
+    .map((face) => `${face.kind === 'sphere' ? 'spherical' : 'toroidal'} face #${face.id}`);
+  const points = `the extreme point${ends.length > 1 ? 's' : ''} of its ${faces.join(' and ')}`;
+  return ends.length > 1 ? `bounded exactly by ${points}` : `bounded exactly by its B-rep edges and ${points}`;
+}
 const SEARCH_TERMS = {
   extent: 'overall size dimension length width height thickness bounding box extent',
   hole: 'hole bore drilled diameter depth',
@@ -40,7 +49,7 @@ function factsForPart(part, model, unitLabel, instances) {
   for (const feature of features) {
     if (feature.type === 'extent') {
       fact(feature, { tier: 0, measure: 'extent', kind: 'length', propertyName: `${feature.axis} extent`, label: feature.name, value: feature.value,
-        evidence: `${part.name} spans ${formatLength(feature.value)} ${unitLabel} along its ${feature.axis} axis (${formatLength(feature.min)} to ${formatLength(feature.max)}), bounded exactly by its B-rep edges.`,
+        evidence: `${part.name} spans ${formatLength(feature.value)} ${unitLabel} along its ${feature.axis} axis (${formatLength(feature.min)} to ${formatLength(feature.max)}), ${extentBasis(feature)}.`,
         recordId: part.bodies.find((body) => !body.reference)?.id, extra: { axis: feature.axis } });
     } else if (feature.type === 'hole' || feature.type === 'cylinder') {
       const what = feature.type === 'hole' ? 'concave cylindrical hole' : 'convex cylindrical face';

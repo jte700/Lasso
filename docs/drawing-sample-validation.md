@@ -52,7 +52,7 @@ The `Alignment` named `Main Road` declares `length="2455.497573251083"` and `sta
 - **Unsupported entities.** No B-rep face or edge in the corpus had an unsupported type: 3,040 plane, 4,642 cylinder, 1,248 cone, 404 torus, 362 sphere and 247 B-spline faces; 12,332 line, 9,211 circle, 1,979 B-spline and 240 ellipse edges. No model warnings were raised.
 - **Structure.** The AS1 files read as 5 parts and 18 instances (12 for Pro/E; see below). FTC-09 AP242 reads as 2 parts; every other file is one part.
 - **Speed and size.** On this Mac (Node 24.13), the slowest file (`nist_ftc_10_asme1_ap242-e2.stp`, 1.8 MB) took 102 ms to read and extract and 170 ms to preview. Preview JSON ranged from 5 KB to 972 KB. Files whose edges are mostly B-splines produce the largest previews; FTC-10 AP242 and FTC-07 AP242 are 972 KB and 459 KB.
-- **Extents.** Of the 183 part axes, 165 got an exact extent. The other 18 were omitted, as designed, because a spherical, toroidal or B-spline face could extend past its boundary edges.
+- **Extents.** Of the 183 part axes, 176 get an exact extent. At first 165 did; the other 18 were omitted because a spherical, toroidal or B-spline face could extend past its boundary edges. An exact test of whether a sphere or torus face holds its extreme point now recovers 11 of them (see the limitations below).
 
 ### Cross-checks against independent values
 
@@ -98,7 +98,12 @@ The validation command checks each file's extents and the hole diameters, counts
 
 ### Known limitations and follow-ups
 
-- **Curved faces block extents.** Spheres, tori and B-spline surfaces still omit 18 of the 183 part extents. One example is the toroidal thread run-out of `screw.step`. An exact test of whether a spherical or toroidal face contains its extreme point would recover most of these.
+- **Curved faces block some extents.** A sphere or torus face whose surface extends past the part's edges is now decided exactly. Above the highest point of the face's boundary, the surface is one connected region that holds the surface's extreme point, so the face holds that point exactly when it lies uphill of its oriented boundary there. If it does, the extent is that point's coordinate; if not, the edges bound it. Undecidable cases are still omitted: a degenerate torus, near-equal boundary tops that disagree, or a boundary that strays from its surface by nearly the peak's height. This recovered **11 of the 18** omitted axes. Each recovered value matches the same model's other export:
+  - FTC-06 Y is 3.85 in (97.79 mm in AP242, and STC-06 Z is 97.79 mm). A hemispherical recess stays inside the part.
+  - FTC-08 Z is 1.9 in in both exports (STC-08: 48.26 mm), and FTC-10 Y is 31 mm in both. Fillet tori reach past the part, but their faces do not; STC-10 Y is 31.00000584 mm, from its edges.
+  - FTC-11 Z is 3 mm in both exports. Rounded rims on tori of major radius 30 and 17.5, minor radius 1.5, hold the tops of their tubes, and its 63 mm width is 2 × 31.5.
+
+  Seven remain omitted. Three are `screw.step` X, Y and Z: its thread run-out is a spindle torus (minor radius 54.87 mm, major 8.25 mm). That surface intersects itself, and the connected-region argument does not cover it. Four are `as1-oc-214` axes bounded by B-spline surfaces. An independent check agreed with every decided case in the corpus: a boundary-integral containment test on sphere faces, and the parameter rectangle of torus fillet faces, both over 20 directions. No bounded cylinder face was ever judged to hold a peak.
 - **B-spline cylinders.** Open CASCADE 6.1 via Datakit (`as1-oc-214`) writes every cylinder as a rational B-spline surface, so it yields no holes and one omitted extent per part.
 - **Tessellated-only parts** are rejected. The message could name tessellation specifically.
 - **Product-level datum targets.** FTC-09 AP242 declares its datum-target areas as a separate unnamed product, which appears as part "Part (2)".

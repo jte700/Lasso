@@ -262,7 +262,8 @@ function refine(evaluate, low, high, score) {
     if (fc > fd) { b = d; d = c; fd = fc; c = b - ratio * (b - a); fc = score(evaluate(c)); }
     else { a = c; c = d; fc = fd; d = a + ratio * (b - a); fd = score(evaluate(d)); }
   }
-  return Math.max(fc, fd, score(evaluate(low)), score(evaluate(high)));
+  return [[c, fc], [d, fd], [low, score(evaluate(low))], [high, score(evaluate(high))]]
+    .reduce((best, [t, value]) => value > best.value ? { t, value } : best, { t: low, value: -Infinity });
 }
 function inArc(angle, start, sweep) { return mod(angle - start, TAU) <= sweep + 1e-12; }
 
@@ -290,11 +291,72 @@ export function edgeRange(edge, d, precise = true) {
       let best = 0;
       edge.samples.forEach((sample, index) => { if (score(sample.point) > score(edge.samples[best].point)) best = index; });
       const low = edge.samples[Math.max(0, best - 1)].t, high = edge.samples[Math.min(edge.samples.length - 1, best + 1)].t;
-      range.push(sign * refine(evaluate, low, high, score));
+      range.push(sign * refine(evaluate, low, high, score).value);
     }
     return range;
   }
   return extremes((edge.points ?? [edge.p0, edge.p1]).map((point) => dot(d, point)));
+}
+
+// Edge parameters run along the curve: angles for conics, knots for B-splines,
+// and from p0 to p1 for lines.
+function edgeEnds(edge) {
+  if (edge.kind === 'circle' || edge.kind === 'ellipse') return [edge.start, edge.start + edge.sweep];
+  if (edge.kind === 'bspline') return [edge.t0, edge.t1];
+  if (edge.kind === 'polyline') return [0, edge.points.length - 1];
+  return [0, 1];
+}
+function edgePoint(edge, parameter) {
+  if (edge.kind === 'circle' || edge.kind === 'ellipse') {
+    const a = edge.kind === 'circle' ? edge.radius : edge.semiAxes[0], b = edge.kind === 'circle' ? edge.radius : edge.semiAxes[1];
+    return along(along(edge.center, edge.xdir, a * Math.cos(parameter)), edge.ydir, b * Math.sin(parameter));
+  }
+  if (edge.kind === 'bspline') return evaluateBSpline(edge.curve, parameter);
+  if (edge.kind === 'polyline') return edge.points[parameter];
+  return parameter ? edge.p1 : edge.p0;
+}
+/** Tangent where the parameter increases; one-sided at a B-spline's ends. */
+function edgeTangent(edge, parameter) {
+  if (edge.kind === 'circle' || edge.kind === 'ellipse') {
+    const a = edge.kind === 'circle' ? edge.radius : edge.semiAxes[0], b = edge.kind === 'circle' ? edge.radius : edge.semiAxes[1];
+    return along(along([0, 0, 0], edge.xdir, -a * Math.sin(parameter)), edge.ydir, b * Math.cos(parameter));
+  }
+  if (edge.kind === 'bspline') {
+    const step = (edge.t1 - edge.t0) * 1e-6;
+    return sub(evaluateBSpline(edge.curve, Math.min(edge.t1, parameter + step)), evaluateBSpline(edge.curve, Math.max(edge.t0, parameter - step)));
+  }
+  if (edge.kind === 'polyline') {
+    const index = Math.min(Math.max(parameter, 1), edge.points.length - 1);
+    return sub(edge.points[index], edge.points[index - 1]);
+  }
+  return sub(edge.p1, edge.p0);
+}
+/** Highest point of an edge along d: its value and parameter, and whether it
+ * lies at the curve's start or end, inside it, or at a polyline corner. */
+function edgePeak(edge, d) {
+  const [first, last] = edgeEnds(edge);
+  const candidates = [first, last];
+  if (edge.kind === 'circle' || edge.kind === 'ellipse') {
+    const a = edge.kind === 'circle' ? edge.radius : edge.semiAxes[0], b = edge.kind === 'circle' ? edge.radius : edge.semiAxes[1];
+    const offset = mod(Math.atan2(b * dot(d, edge.ydir), a * dot(d, edge.xdir)) - edge.start, TAU);
+    if (offset > 1e-9 && offset < edge.sweep - 1e-9) candidates.push(edge.start + offset);
+  } else if (edge.kind === 'bspline') {
+    let best = 0;
+    edge.samples.forEach((sample, index) => { if (dot(d, sample.point) > dot(d, edge.samples[best].point)) best = index; });
+    const low = edge.samples[Math.max(0, best - 1)].t, high = edge.samples[Math.min(edge.samples.length - 1, best + 1)].t;
+    const { t } = refine((value) => evaluateBSpline(edge.curve, value), low, high, (point) => dot(d, point));
+    if (t - first > (last - first) * 1e-9 && last - t > (last - first) * 1e-9) candidates.push(t);
+  } else if (edge.kind === 'polyline') {
+    for (let index = 1; index < last; index++) candidates.push(index);
+  }
+  let peak = null;
+  for (const parameter of candidates) {
+    const value = dot(d, edgePoint(edge, parameter));
+    // An interior candidate wins ties, so a level edge is judged at a smooth point.
+    if (!peak || value > peak.value || (value === peak.value && parameter !== first && parameter !== last)) peak = { value, parameter };
+  }
+  peak.at = peak.parameter === first ? 'start' : peak.parameter === last ? 'end' : edge.kind === 'polyline' ? 'corner' : 'inside';
+  return peak;
 }
 
 /** Points along an edge, with arcs divided at no more than maxStep radians. */
@@ -312,7 +374,8 @@ export function sampleEdge(edge, maxStep = Math.PI / 18) {
   return [edge.p0, edge.p1];
 }
 
-/** Conservative [min, max] of a whole surface along d, or null if unbounded. */
+/** [min, max] of a whole surface along d, or null if unbounded. Exact for
+ * spheres and tori; conservative for cones and B-spline surfaces. */
 function surfaceBound(surface, d) {
   if (surface.kind === 'sphere') { const c = dot(d, surface.center); return [c - surface.radius, c + surface.radius]; }
   if (surface.kind === 'torus') {
@@ -706,9 +769,11 @@ function readModel(bytes) {
       const m = placed(at(values));
       return m ? { kind: 'sphere', id: record.id, center: m.t, radius: values[2] * xf.scale } : { kind: 'other', id: record.id, type: 'SPHERICAL_SURFACE' };
     }
-    if ((values = leaf(record, 'TOROIDAL_SURFACE') ?? leaf(record, 'DEGENERATE_TOROIDAL_SURFACE'))) {
+    const degenerate = leaf(record, 'DEGENERATE_TOROIDAL_SURFACE');
+    if ((values = leaf(record, 'TOROIDAL_SURFACE') ?? degenerate)) {
       const m = placed(at(values));
-      return m ? { kind: 'torus', id: record.id, center: m.t, axis: rotate(m, [0, 0, 1]), major: values[2] * xf.scale, minor: values[3] * xf.scale } : { kind: 'other', id: record.id, type: 'TOROIDAL_SURFACE' };
+      return m ? { kind: 'torus', id: record.id, center: m.t, axis: rotate(m, [0, 0, 1]), major: values[2] * xf.scale, minor: values[3] * xf.scale, degenerate: Boolean(degenerate) }
+        : { kind: 'other', id: record.id, type: 'TOROIDAL_SURFACE' };
     }
     if (leaf(record, 'SURFACE_OF_LINEAR_EXTRUSION')) return { kind: 'extrusion', id: record.id };
     const grid = record?.type && /^(?:B_SPLINE_SURFACE_WITH_KNOTS|UNIFORM_SURFACE|QUASI_UNIFORM_SURFACE|BEZIER_SURFACE)$/.test(record.type) ? args(record)[3]
@@ -752,7 +817,9 @@ function readModel(bytes) {
       // A solid's faces point out of the material once same_sense and shell
       // orientation are applied; surface models carry no inside/outside.
       const outward = solid ? (faceValues[3] !== 'F') !== reversed : null;
-      const entry = { id: face.id, surface, outward, edgeKeys: [], loops: [] };
+      // Each loop has the face on its left, seen from where the surface normal
+      // points when same_sense holds and from the opposite side otherwise.
+      const entry = { id: face.id, surface, outward, sameSense: faceValues[3] !== 'F', edgeKeys: [], loops: [], untraced: false };
       for (const boundRef of faceValues[1] ?? []) {
         const bound = get(boundRef);
         const boundValues = leaf(bound, 'FACE_OUTER_BOUND') ?? leaf(bound, 'FACE_BOUND');
@@ -783,6 +850,8 @@ function readModel(bytes) {
           if (boundValues[2] === 'F') traversal.reverse();
           continue;
         }
+        // A vertex loop marks a point, such as a sphere's pole, and bounds no area.
+        if (!leaf(loop, 'VERTEX_LOOP')) entry.untraced = true;
         const polyLoop = leaf(loop, 'POLY_LOOP');
         if (polyLoop) {
           const points = (polyLoop[1] ?? []).map((ref) => point(ref, xf.scale)).filter(Boolean).map((value) => transformPoint(xf.matrix, value));
@@ -976,8 +1045,9 @@ function readModel(bytes) {
 // ── per-part measurement analysis ───────────────────────────────────────────
 const AXES = [['X', [1, 0, 0]], ['Y', [0, 1, 0]], ['Z', [0, 0, 1]]];
 
-/** Exact [min, max] of a part along d, or null when curved faces could
- * extend beyond their boundary edges or an edge curve is unsupported. */
+/** Exact [min, max] of a part along d. The range is inexact when an edge curve
+ * is unsupported or a curved face could extend beyond its boundary edges by an
+ * amount that cannot be bounded exactly. */
 export function partRange(part, d, precise = true) {
   let min = Infinity, max = -Infinity;
   for (const edge of part.edges.values()) {
@@ -987,15 +1057,161 @@ export function partRange(part, d, precise = true) {
   if (!Number.isFinite(min)) return { min: null, max: null, exact: false, reason: 'no boundary edges' };
   if (part.inexact.size) return { min, max, exact: false, reason: [...part.inexact].join(', ') };
   const tolerance = Math.max(part.tolerance, (max - min) * 1e-9, 1e-12);
+  const rounding = Math.max(Math.abs(min), Math.abs(max), max - min) * 1e-9;
+  // Faces whose surface extreme, rather than an edge, sets each end of the range.
+  let lowFace = null, highFace = null;
   for (const face of part.curvedFaces) {
     face.containsApex ??= face.surface.kind === 'cone' ? windingAboutAxis(face, part) !== 0 : null;
     if (face.containsApex === false) continue;
     const bound = surfaceBound(face.surface, d);
-    if (!bound || bound[0] < min - tolerance || bound[1] > max + tolerance) {
-      return { min, max, exact: false, reason: `${face.surface.type ?? face.surface.kind} face #${face.id}` };
+    if (bound && bound[0] >= min - tolerance && bound[1] <= max + tolerance) continue;
+    // A sphere or ring torus passes the edges only where the face holds the
+    // surface's own extreme, whose coordinate is then the exact extent.
+    if (bound && hasPeaks(face.surface)) {
+      const high = bound[1] > max + tolerance ? holdsPeak(face, part, d, bound[1], rounding) : false;
+      const low = bound[0] < min - tolerance ? holdsPeak(face, part, [-d[0], -d[1], -d[2]], -bound[0], rounding) : false;
+      if (high !== null && low !== null) {
+        if (high) { max = bound[1]; highFace = { id: face.id, kind: face.surface.kind }; }
+        if (low) { min = bound[0]; lowFace = { id: face.id, kind: face.surface.kind }; }
+        continue;
+      }
     }
+    return { min, max, exact: false, reason: `${face.surface.type ?? face.surface.kind} face #${face.id}` };
   }
-  return { min, max, exact: true };
+  return { min, max, exact: true, lowFace, highFace };
+}
+
+// Along any direction, a sphere or a torus whose tube clears its axis has a
+// single highest point (or, for a torus seen along its axis, circle), and the
+// surface above any lower height is one connected region.
+const hasPeaks = (surface) => surface.kind === 'sphere'
+  || (surface.kind === 'torus' && !surface.degenerate && surface.minor > 0 && surface.major > surface.minor);
+
+/** Unit normal of a sphere, torus or cylinder near a point, pointing away from
+ * its centre, tube or axis, and the point's distance from the surface. */
+function surfaceFrame(surface, point) {
+  let offset = sub(point, surface.center), size = surface.radius;
+  if (surface.kind !== 'sphere') {
+    const radial = along(offset, surface.axis, -dot(offset, surface.axis));
+    if (surface.kind === 'cylinder') offset = radial;
+    else if (surface.kind === 'torus') {
+      const toward = normalize(radial);
+      if (!toward) return null;
+      offset = along(offset, toward, -surface.major);
+      size = surface.minor;
+    } else return null;
+  }
+  const normal = normalize(offset);
+  return normal && { normal, gap: Math.abs(Math.hypot(...offset) - size) };
+}
+
+/** A face's boundary as oriented edges. Seams are left out, since an edge used
+ * in both directions has the face on both sides. Null when a bound was not
+ * read as an edge loop or an edge is missing or used the same way twice. */
+function faceBoundary(face, part) {
+  if (face.untraced) return null;
+  const uses = new Map();
+  for (const loop of face.loops) for (const { key, forward } of loop) {
+    if (!uses.has(key)) uses.set(key, []);
+    uses.get(key).push(forward);
+  }
+  const boundary = [];
+  for (const [key, directions] of uses) {
+    const edge = part.edges.get(key);
+    if (!edge) return null;
+    if (directions.length === 2 && directions[0] !== directions[1]) continue;
+    if (directions.length !== 1) return null;
+    if (edge.kind === 'line' && edge.closed) continue;
+    const [forward] = directions;
+    // Conic, B-spline and polyline parameters follow the curve, whose sense
+    // relative to the edge is same_sense; a line's runs from p0 to p1.
+    const alongCurve = (edge.kind === 'line' ? true : edge.sameSense) === forward;
+    const [first, last] = edgeEnds(edge);
+    boundary.push({ edge, alongCurve, start: forward ? edge.p0 : edge.p1, end: forward ? edge.p1 : edge.p0,
+      startParameter: alongCurve ? first : last, endParameter: alongCurve ? last : first });
+  }
+  return boundary;
+}
+
+/** Whether a sphere or ring-torus face holds the surface's highest point along
+ * d, at height peak. Above the highest point B of the face boundary, the surface
+ * is one connected region that holds the peak and meets no boundary, so the face
+ * holds the peak exactly when it lies uphill of its boundary at B. Each local top
+ * of the boundary within the model's tolerance of B's height, or within the
+ * boundary's own distance from the surface, must agree. Null when that cannot
+ * be decided: a missing or untraced edge, a corner shared by several loops, a
+ * boundary that strays from its surface by nearly the peak's height above it,
+ * or one that tops out where d·p is stationary on the surface. */
+function holdsPeak(face, part, d, peak, rounding) {
+  if (face.boundary === undefined) face.boundary = faceBoundary(face, part);
+  const boundary = face.boundary;
+  if (!boundary) return null;
+  // Without boundary edges (only seams or vertex loops), the face is the whole surface.
+  if (!boundary.length) return true;
+  face.boundaryGap ??= extremes(boundary.flatMap(({ edge }) => sampleEdge(edge).map((point) => surfaceFrame(face.surface, point)?.gap ?? Infinity)))[1];
+  const peaks = boundary.map((use) => ({ use, ...edgePeak(use.edge, d) }));
+  const top = extremes(peaks.map((candidate) => candidate.value))[1];
+  if (peak - top <= 2 * face.boundaryGap) return null;
+  const near = Math.max(part.tolerance, rounding);
+  const window = Math.max(near, 2 * face.boundaryGap);
+  const traversal = (use, parameter) => {
+    const tangent = edgeTangent(use.edge, parameter);
+    return use.alongCurve ? tangent : [-tangent[0], -tangent[1], -tangent[2]];
+  };
+  const only = (matches) => matches.length === 1 ? matches[0] : null;
+  let verdict = null;
+  for (const { use, value, parameter, at } of peaks) {
+    if (value < top - window) continue;
+    if (at === 'corner') return null;
+    let point, incoming, outgoing;
+    if (at === 'inside') {
+      point = edgePoint(use.edge, parameter);
+      incoming = outgoing = traversal(use, parameter);
+    } else if (parameter === use.startParameter) {
+      point = use.start;
+      const previous = only(boundary.filter((other) => distance(other.end, point) <= near));
+      if (!previous) return null;
+      incoming = traversal(previous, previous.endParameter);
+      outgoing = traversal(use, parameter);
+    } else {
+      point = use.end;
+      const next = only(boundary.filter((other) => distance(other.start, point) <= near));
+      if (!next) return null;
+      incoming = traversal(use, parameter);
+      outgoing = traversal(next, next.startParameter);
+    }
+    const side = uphillSide(face, point, incoming, outgoing, d, at !== 'inside');
+    // A corner the boundary climbs away from is not a top; the higher point is judged instead.
+    if (side === undefined) continue;
+    if (side === null || (verdict !== null && side !== verdict)) return null;
+    verdict = side;
+  }
+  return verdict;
+}
+
+/** Whether the face lies uphill along d where its boundary passes a point: in
+ * the wedge from the leaving direction counter-clockwise, about the face's
+ * normal, to the reversed arriving direction. Undefined at a corner the
+ * boundary climbs away from, which is not a top of it; null when the uphill
+ * direction is undefined or too close to the wedge's sides to judge. */
+function uphillSide(face, point, incoming, outgoing, d, corner) {
+  const back = [-incoming[0], -incoming[1], -incoming[2]];
+  const forth = normalize(outgoing), returned = normalize(back);
+  if (!forth || !returned) return null;
+  if (corner && (dot(d, forth) > 1e-6 || dot(d, returned) > 1e-6)) return undefined;
+  const normal = surfaceFrame(face.surface, point)?.normal;
+  if (!normal) return null;
+  const slope = along(d, normal, -dot(d, normal));
+  if (Math.hypot(...slope) < 1e-6) return null;
+  const up = normalize(slope);
+  const across = cross(face.sameSense ? normal : [-normal[0], -normal[1], -normal[2]], up);
+  const inPlane = (vector) => normalize(along(vector, normal, -dot(vector, normal)));
+  const leaving = inPlane(outgoing), returning = inPlane(back);
+  if (!leaving || !returning || dot(leaving, up) > 0.5 || dot(returning, up) > 0.5) return null;
+  const angle = (vector) => Math.atan2(dot(vector, across), dot(vector, up));
+  const wedge = mod(angle(returning) - angle(leaving), TAU);
+  if (wedge < 1e-9 || wedge > TAU - 1e-9) return null;
+  return mod(-angle(leaving), TAU) < wedge;
 }
 
 /** Turns a face's oriented boundary makes about its surface axis. A cone face
@@ -1210,7 +1426,8 @@ export function stepFeatures(part, unitLabel) {
   const omitted = {};
   for (const extent of part.extents) {
     if (extent.exact) features.push({ featureId: `extent:${extent.axis}`, type: 'extent', name: `overall ${extent.axis} extent`,
-      axis: extent.axis, value: extent.max - extent.min, min: extent.min, max: extent.max, count: 1, edgeKeys: null, cylinders: null });
+      axis: extent.axis, value: extent.max - extent.min, min: extent.min, max: extent.max, lowFace: extent.lowFace, highFace: extent.highFace,
+      count: 1, edgeKeys: null, cylinders: null });
   }
   for (const kind of ['hole', 'cylinder']) {
     const groups = groupWithin(part.cylinders.filter((cylinder) => cylinder.full && cylinder.kind === kind),
