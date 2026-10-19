@@ -2,17 +2,28 @@ import { extractDrawingDocument } from './drawing-extraction.js';
 import { extractIfcDocument } from './ifc-extraction.js';
 import { extractDxfDocument } from './dxf-extraction.js';
 import { extractLandXmlDocument } from './landxml-extraction.js';
+import { extractStepDocument } from './step-extraction.js';
 import path from 'node:path';
+
+const NATIVE_CAD = ['.sldprt', '.sldasm', '.ipt', '.iam', '.f3d', '.catpart', '.catproduct', '.x_t', '.x_b', '.igs', '.iges', '.3dm'];
+/** Files the design readers inspect; generic .xml is checked for LandXML. */
+export const DESIGN_FILE = new RegExp(`\\.(?:ifc|dxf|dwg|rvt|dgn|landxml|xml|step|stp|${NATIVE_CAD.map((extension) => extension.slice(1)).join('|')})$`, 'i');
+export const isDesignFile = (file) => ['drawing', 'xml'].includes(file.fileType) || DESIGN_FILE.test(file.path);
 
 export function extractDesignDocument(file, buffer) {
   const extension = path.extname(file.path).toLowerCase();
   if (extension === '.pdf') return extractDrawingDocument(buffer, { filePath: file.path });
   if (extension === '.ifc') return extractIfcDocument(buffer);
+  if (extension === '.step' || extension === '.stp') return extractStepDocument(buffer);
   if (extension === '.dxf') return extractDxfDocument(buffer, { filePath: file.path });
   if (extension === '.landxml' || extension === '.xml' && /<(?:[\w.-]+:)?LandXML\b/i.test(buffer.subarray(0, 8192).toString())) {
     const extracted = extractLandXmlDocument(buffer);
     return extension === '.landxml' ? { ...extracted, isDrawing: true } : extracted;
   }
+  if (NATIVE_CAD.includes(extension)) return {
+    isDrawing: true, format: extension.slice(1).toUpperCase(), method: null, status: 'unsupported', pages: [],
+    warnings: ['Export a STEP AP242 or AP214 file (solid bodies) from the CAD application to index part dimensions, holes and arcs.'],
+  };
   if (['.dwg', '.rvt', '.dgn'].includes(extension)) return {
     isDrawing: true, format: extension.slice(1).toUpperCase(), method: null, status: 'unsupported', pages: [],
     warnings: [extension === '.rvt' ? 'Export IFC with rooms/spaces and base quantities from Revit to index model properties.'
@@ -57,11 +68,11 @@ export function drawingDescriptors(file, buffer) {
         anchor: { kind: pdf ? 'drawing-annotation' : 'cad-property', pageNumber: pdf ? page.pageNumber : null,
           sheetNumber: page.sheetNumber, identifier: annotation.id, label, bbox: annotation.bbox,
           elementId: annotation.elementId, propertyName: annotation.propertyName, propertySet: annotation.propertySet,
-          layer: annotation.layer, stepId: annotation.stepId, propertyStepId: annotation.propertyStepId },
+          layer: annotation.layer, stepId: annotation.stepId, propertyStepId: annotation.propertyStepId, featureId: annotation.featureId },
         metadata: { ...common, ...annotation, variable: label,
           pageNumber: pdf ? page.pageNumber : null,
           measurementBasis: annotation.measurementBasis ?? 'explicit', textExcerpt: annotation.rawText,
-          description: `${label}. ${annotation.measurementBasis ?? 'explicit'}; ${/area/.test(annotation.kind) ? 'area square footage square feet square metres' : annotation.kind.replaceAll('_', ' ')}.` },
+          description: `${label}. ${annotation.measurementBasis ?? 'explicit'}; ${/area/.test(annotation.kind) ? 'area square footage square feet square metres' : annotation.kind.replaceAll('_', ' ')}${annotation.searchTerms ? ` ${annotation.searchTerms}` : ''}.` },
       });
     }
   }

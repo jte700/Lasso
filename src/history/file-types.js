@@ -15,7 +15,9 @@ const NOTEBOOK = new Set(['.ipynb']);
 const DOCUMENT = new Set(['.docx']);
 const IMAGE = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.tif', '.tiff', '.svg']);
 const PDF = new Set(['.pdf']);
-const DRAWING = new Set(['.ifc', '.dxf', '.dwg', '.rvt', '.dgn', '.landxml']);
+const DRAWING = new Set(['.ifc', '.dxf', '.dwg', '.rvt', '.dgn', '.landxml', '.step', '.stp',
+  // Native CAD formats are retained with export guidance rather than parsed.
+  '.sldprt', '.sldasm', '.ipt', '.iam', '.f3d', '.catpart', '.catproduct', '.x_t', '.x_b', '.igs', '.iges', '.3dm']);
 
 export function detectFileType(filePath) {
   const name = path.basename(filePath).toLowerCase();

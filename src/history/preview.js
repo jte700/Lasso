@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { diffInternals, parseDelimited } from './diff.js';
 import { HttpError } from './errors.js';
-import { extractDesignDocument } from '../dependencies/drawing-objects.js';
+import { extractDesignDocument, isDesignFile } from '../dependencies/drawing-objects.js';
 
 function lineItems(text, language = 'text') {
   return text.replace(/\r\n/g, '\n').split('\n').map((value, index) => ({
@@ -66,14 +66,14 @@ export function buildPreview(snapshot, file, buffer) {
     contentHash: file.contentHash,
   };
 
-  if (['drawing', 'xml'].includes(file.fileType) || /\.(?:ifc|dxf|dwg|rvt|dgn|landxml|xml)$/i.test(file.path)) {
+  if (isDesignFile(file)) {
     const design = extractDesignDocument(file, buffer);
     if (design.isDrawing) return { ...base, kind: 'drawing', warnings: design.warnings,
       items: design.pages.flatMap((page) => page.annotations.map((fact) => ({
         path: [fact.storey, fact.label, fact.propertyName && !fact.label.toLowerCase().includes(fact.propertyName.toLowerCase()) ? fact.propertyName : null].filter(Boolean).join(' · '),
         value: fact.value, basis: fact.measurementBasis,
         location: [fact.elementId, fact.propertySet, fact.propertyName].filter(Boolean).join(' · '),
-        anchor: { kind: 'cad-property', identifier: fact.id, elementId: fact.elementId, propertyName: fact.propertyName },
+        anchor: { kind: 'cad-property', identifier: fact.id, elementId: fact.elementId, propertyName: fact.propertyName, featureId: fact.featureId },
       }))) };
   }
 

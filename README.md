@@ -13,7 +13,7 @@ The app includes a graphical source workspace, an integrated writing editor, and
 - **Use Lasso in other apps.** The macOS companion displays a source picker and preview beside your text cursor, inserts a selected value, and keeps a local source reference where the host editor supports it.
 - **Review changes.** Inspect previous and current values, affected document references, and indexing failures. Review proposed wording updates before applying them, or keep a historical source version.
 - **Share selected evidence.** Choose a whole document, an indexed part, or a selectively redacted view. Share records pin the source version and can be revoked.
-- **Query design measurements.** Find supported quantities from IFC, DXF, LandXML, and explicit PDF annotations, with source locations and units. Ambiguous or missing measurements are not guessed.
+- **Query design measurements.** Find supported quantities from IFC, DXF, LandXML, STEP CAD models, and explicit PDF annotations, with source locations and units. Ambiguous or missing measurements are not guessed.
 
 ## Run locally
 
@@ -32,6 +32,7 @@ The workspace has **All sources**, **Changes**, **Shared links**, and **Review s
 ```text
 What is the net floor area of Schlafzimmer?
 What is the length of Main Road?
+What is the diameter of the Bracket Ø8 hole?
 ```
 
 These answers require matching evidence in the indexed project; this is not a general-purpose chat service.
@@ -92,10 +93,11 @@ Support varies by format and content. Files can be retained in history even when
 | IFC | Supported element quantities and typed properties, with entity identity and units |
 | ASCII DXF | Area and perimeter of supported closed model-space polylines with declared units |
 | LandXML | Supported parcel areas, alignment and pipe lengths, diameters, and elevations |
+| STEP (AP203, AP214, AP242) | Named parts and assemblies; overall X/Y/Z extents, hole and cylinder diameters, hole depths, arc radii and arc lengths, and straight-edge lengths measured from the B-rep in the declared unit |
 
-Scanned PDFs require OCR before their text can be indexed. The desktop build includes a PDFKit extraction helper; development drawing-PDF extraction requires Swift on macOS or `pdftotext` on PATH. Native IFC, DXF, and LandXML readers require only Node.js.
+Scanned PDFs require OCR before their text can be indexed. The desktop build includes a PDFKit extraction helper; development drawing-PDF extraction requires Swift on macOS or `pdftotext` on PATH. Native IFC, DXF, LandXML, and STEP readers require only Node.js.
 
-DWG, RVT, and DGN require an export from their authoring application. IFC can preserve BIM properties, DXF supports selected CAD boundaries, and LandXML preserves supported civil attributes. Lasso does not infer missing BIM quantities or reconstruct rooms from arbitrary drawing geometry. See [design-source indexing](docs/design-source-indexing.md) for exact supported subsets and limits.
+DWG, RVT, and DGN require an export from their authoring application, as do native mechanical CAD files (SolidWorks, Inventor, Fusion, CATIA, Parasolid, IGES, Rhino), which should be exported as STEP. IFC can preserve BIM properties, DXF supports selected CAD boundaries, LandXML preserves supported civil attributes, and STEP preserves exact part geometry. Lasso does not infer missing BIM quantities or reconstruct rooms from arbitrary drawing geometry. See [design-source indexing](docs/design-source-indexing.md) for exact supported subsets and limits.
 
 ## Sharing and storage
 

@@ -42,6 +42,8 @@ struct AssistModelElement {
     let selected: Bool
     /// Actual projected IFC silhouette rings; even-odd fill preserves holes.
     let polygons: [[NSPoint]]
+    /// Open CAD edge polylines (STEP isometric wireframes); never filled.
+    var lines: [[NSPoint]] = []
 }
 
 struct AssistModelPreview {
@@ -51,6 +53,7 @@ struct AssistModelPreview {
     let selectedLabel: String
     let selectedEntityType: String
     let storeyLabel: String
+    let viewLabel: String
     let warnings: [String]
 
     init?(json: [String: Any]) {
@@ -62,7 +65,12 @@ struct AssistModelPreview {
                       ring.allSatisfy({ $0.count == 2 && $0.allSatisfy { $0.doubleValue.isFinite } }) else { return nil }
                 return ring.map { NSPoint(x: $0[0].doubleValue, y: $0[1].doubleValue) }
             }
-            guard !polygons.isEmpty else { return nil }
+            let lines = (item["lines"] as? [[[NSNumber]]] ?? []).compactMap { line -> [NSPoint]? in
+                guard line.count >= 2,
+                      line.allSatisfy({ $0.count == 2 && $0.allSatisfy { $0.doubleValue.isFinite } }) else { return nil }
+                return line.map { NSPoint(x: $0[0].doubleValue, y: $0[1].doubleValue) }
+            }
+            guard !polygons.isEmpty || !lines.isEmpty else { return nil }
             return AssistModelElement(
                 id: (item["id"] as? NSNumber)?.intValue ?? 0,
                 guid: item["guid"] as? String ?? "",
@@ -70,7 +78,8 @@ struct AssistModelPreview {
                 entityType: item["entityType"] as? String ?? "",
                 role: item["role"] as? String ?? "context",
                 selected: item["selected"] as? Bool ?? false,
-                polygons: polygons)
+                polygons: polygons,
+                lines: lines)
         }
         guard !elements.isEmpty else { return nil }
         self.bounds = bounds
@@ -80,6 +89,7 @@ struct AssistModelPreview {
         self.selectedLabel = selected["label"] as? String ?? ""
         self.selectedEntityType = selected["entityType"] as? String ?? ""
         self.storeyLabel = (json["storey"] as? [String: Any])?["label"] as? String ?? ""
+        self.viewLabel = json["view"] as? String ?? "Plan view"
         self.warnings = json["warnings"] as? [String] ?? []
     }
 }
@@ -118,6 +128,16 @@ struct AssistModelTransform {
         }
         return path
     }
+
+    func linePath(for element: AssistModelElement) -> NSBezierPath {
+        let path = NSBezierPath()
+        for line in element.lines {
+            guard let first = line.first else { continue }
+            path.move(to: point(first))
+            for vertex in line.dropFirst() { path.line(to: point(vertex)) }
+        }
+        return path
+    }
 }
 
 enum AssistModelRenderer {
@@ -128,7 +148,7 @@ enum AssistModelRenderer {
         NSGraphicsContext.current?.saveGraphicsState()
         outline.addClip()
 
-        let title = model.selectedLabel.isEmpty ? "Model plan" : model.selectedLabel
+        let title = model.selectedLabel.isEmpty ? "Design model" : model.selectedLabel
         label(title, in: NSRect(x: rect.minX + 11, y: rect.minY + 8, width: rect.width - 22, height: 16),
               font: .systemFont(ofSize: 10.5, weight: .semibold), color: .labelColor)
 
@@ -137,7 +157,8 @@ enum AssistModelRenderer {
         if let transform = AssistModelTransform(bounds: model.focusBounds, viewport: viewport) {
             NSGraphicsContext.current?.saveGraphicsState()
             NSBezierPath(rect: viewport).addClip()
-            // Draw context first, then the exact selected IFC product on top.
+            // Draw context first, then the exact selected product or CAD
+            // feature on top. Wireframe edges are stroked, never filled.
             for selected in [false, true] {
                 for element in model.elements where element.selected == selected {
                     let path = transform.path(for: element)
@@ -149,12 +170,18 @@ enum AssistModelRenderer {
                     path.lineWidth = selected ? 1.7 : 0.65
                     path.lineJoinStyle = .round
                     path.stroke()
+                    let wire = transform.linePath(for: element)
+                    stroke.withAlphaComponent(selected ? 0.95 : 0.45).setStroke()
+                    wire.lineWidth = selected ? 1.6 : 0.6
+                    wire.lineJoinStyle = .round
+                    wire.lineCapStyle = .round
+                    wire.stroke()
                 }
             }
             NSGraphicsContext.current?.restoreGraphicsState()
         }
 
-        let caption = model.warnings.first ?? [model.storeyLabel, "Plan view"].filter { !$0.isEmpty }.joined(separator: " · ")
+        let caption = model.warnings.first ?? [model.storeyLabel, model.viewLabel].filter { !$0.isEmpty }.joined(separator: " · ")
         label(caption, in: NSRect(x: rect.minX + 11, y: rect.maxY - 20, width: rect.width - 22, height: 15),
               font: .systemFont(ofSize: 9.5), color: .secondaryLabelColor)
         NSGraphicsContext.current?.restoreGraphicsState()

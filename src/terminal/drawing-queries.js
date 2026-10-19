@@ -5,9 +5,14 @@ import path from 'node:path';
 import { dependencyName, sourceLocator } from './names.js';
 import { ACTION, blank, dim, result, resultItem, text } from './result.js';
 
+// Compound measures precede plain length so "arc length of X" is not a length.
 const METRICS = [
+  ['arc_length', 'arc\\s+length'],
+  ['edge_length', '(?:straight\\s+)?edge\\s+length'],
   ['area', '(?:(?:net|gross)\\s+)?(?:square\\s+(?:footage|feet|foot|metres?|meters?)|sq\\.?\\s*(?:ft|m)\\.?|ft(?:²|\\^2|2)|m(?:²|\\^2|2)|floor\\s+area|room\\s+area|area)'],
-  ['diameter', '(?:pipe\\s+)?diameter'],
+  ['diameter', '(?:pipe\\s+|hole\\s+)?diameter'],
+  ['radius', '(?:arc\\s+|fillet\\s+)?radius'],
+  ['depth', '(?:hole\\s+)?depth'],
   ['length', '(?:pipe\\s+)?length'],
   ['perimeter', '(?:boundary\\s+)?perimeter'],
   ['slope', 'slope|gradient'],
@@ -28,7 +33,7 @@ function stripScope(subject) {
     }).replace(/\s+(?:on|in|from)\s+(?:the\s+)?page\s+(\d+)$/i, (_, page) => {
       scope.pageNumber = Number(page);
       return '';
-    }).replace(/\s+(?:in|from)\s+["']?([^"']+\.(?:pdf|ifc|dxf|xml|landxml))["']?$/i, (_, file) => {
+    }).replace(/\s+(?:in|from)\s+["']?([^"']+\.(?:pdf|ifc|dxf|xml|landxml|step|stp))["']?$/i, (_, file) => {
       scope.file = file.trim();
       return '';
     });

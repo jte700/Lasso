@@ -567,6 +567,20 @@ do {
     check(AssistModelPreview(json: invalid) == nil,
           "does not draw fabricated replacement geometry for malformed coordinates")
 
+    let wireframe: [String: Any] = [
+        "kind": "model-plan", "view": "Isometric view", "bounds": bounds, "focusBounds": bounds,
+        "selected": ["guid": "Bracket", "label": "Bracket · Ø8 hole", "entityType": "Ø8 hole"], "warnings": [],
+        "elements": [[
+            "guid": "Bracket", "role": "context", "selected": true, "polygons": [] as [Any],
+            "lines": [[[10.0, 20.0], [20.0, 30.0]], [[Double.nan, 1.0], [2.0, 3.0]]],
+        ]],
+    ]
+    let cad = AssistModelPreview(json: wireframe)!
+    check(cad.viewLabel == "Isometric view" && cad.elements[0].lines.count == 1 && cad.elements[0].polygons.isEmpty,
+          "keeps finite STEP wireframe edges and the server's view label")
+    check(transform.path(for: cad.elements[0]).isEmpty && transform.linePath(for: cad.elements[0]).elementCount == 2,
+          "strokes open CAD edges without inventing a filled outline")
+
     var unavailable = response
     unavailable["preview"] = ["kind": "model-unavailable", "reason": "This element has properties but no geometric representation."]
     let unavailablePreview = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: unavailable))!

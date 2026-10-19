@@ -6,7 +6,7 @@ const words = value => String(value ?? '').normalize('NFKC')
 const normalized = value => words(value).join(' ');
 const humanStem = filename => filename.replace(/\.[^.]+$/, '').replace(/([a-z\d])([A-Z])/g, '$1 $2')
   .replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
-const genericTitle = value => !value || /^(?:\d+|(?:ifc|cad|bim)?\s*model|drawing(?:\s*[·:-]?\s*page\s*\d+)?)$/i.test(value.trim());
+const genericTitle = value => !value || /^(?:\d+|(?:ifc|cad|bim|step)?\s*model|drawing(?:\s*[·:-]?\s*page\s*\d+)?)$/i.test(value.trim());
 const ambiguousSingleAlias = new Set(['floor', 'plan', 'building', 'model', 'architectural', 'civil', 'engineering', 'cad', 'bim']);
 
 /** Human-facing names and conservative aliases for a whole indexed drawing. */
@@ -32,6 +32,7 @@ export function drawingDiscovery(object) {
   if (format === 'IFC' && ifcEvidence) aliases.push('floor plan', 'floorplan', 'architectural drawing', 'building model', 'BIM model', 'IFC model');
   else if (format === 'DXF' && !unavailable) aliases.push('CAD drawing', 'CAD plan');
   else if (format === 'LANDXML' && !unavailable) aliases.push('civil drawing', 'civil engineering plan', 'civil model', 'LandXML model');
+  else if (['STEP', 'STP'].includes(format) && !unavailable) aliases.push('CAD model', '3D model', 'STEP model', 'solid model');
   return { label, aliases, filename, format,
     searchText: [...new Set([label, filename, stem, explicitTitle, ...aliases].filter(Boolean))].join(' ') };
 }

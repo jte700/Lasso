@@ -13,7 +13,7 @@ import {
 } from './completion.js';
 import { renderPdfFigurePage } from './figure-preview.js';
 import { RecommendationRanking } from './ranking.js';
-import { drawingDescriptors, drawingContext } from './drawing-objects.js';
+import { drawingDescriptors, drawingContext, isDesignFile } from './drawing-objects.js';
 import { buildModelPreview } from './model-preview.js';
 import { drawingReferenceMatch } from './drawing-discovery.js';
 
@@ -25,6 +25,8 @@ const OBJECT_TYPES = new Set([
 const SELECTION_METHODS = new Set(['AUTOCOMPLETE', 'PREDICTED_ACCEPTED', 'MANUAL', 'SYSTEM_LINKED', 'IMPORTED']);
 const STATUS_TYPES = new Set(['PREDICTED', 'LINKED', 'NEEDS_REVIEW', 'STALE', 'BROKEN']);
 const MAX_SNAPSHOT_OBJECTS = 10_000;
+// 1: IFC, DXF, LandXML and PDF drawings; 2: STEP CAD models.
+const DRAWING_INDEX_VERSION = 2;
 const MAX_TABLE_CELLS = 1_500;
 const EDITABLE_DOCUMENT_TYPES = new Set(['markdown', 'text', 'document', 'pdf']);
 const STOP_WORDS = new Set([
@@ -111,10 +113,35 @@ function numericDescriptor(value) {
   return { number: Number(match[1]), percent: Boolean(match[2]) };
 }
 
+const MEASUREMENT_UNITS = { mm: 'mm', cm: 'cm', m: 'm', km: 'km', 'µm': 'µm', mil: 'mil', in: 'in', ft: 'ft', yd: 'yd',
+  'm²': 'm²', m2: 'm²', 'ft²': 'ft²', ft2: 'ft²', 'm³': 'm³', m3: 'm³', 'ft³': 'ft³', ft3: 'ft³', '°': '°', deg: '°' };
+
+// Drawing and CAD values carry physical units. They match a written value only
+// within the same unit; other values keep numericDescriptor's plain parsing.
+function measurementDescriptor(value) {
+  const plain = numericDescriptor(value);
+  if (plain) return { ...plain, unit: null };
+  const match = String(value ?? '').trim().toLowerCase().replaceAll(',', '')
+    .match(/^([+-]?\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*(mm|cm|km|µm|mil|m²|m2|m³|m3|m|in|ft²|ft2|ft³|ft3|ft|yd|°|deg)$/);
+  return match ? { number: Number(match[1]), percent: false, unit: MEASUREMENT_UNITS[match[2]] } : null;
+}
+
+// Claim values arrive without their unit; read one written right after the
+// number. "in" is inches only when no word follows ("8 in diameter" is not).
+function claimUnit(claim) {
+  const text = String(claim.text ?? '').toLowerCase(), value = String(claim.value ?? '').toLowerCase();
+  const at = value ? text.lastIndexOf(value) : -1;
+  const match = at < 0 ? null : text.slice(at + value.length)
+    .match(/^\s*(mm|cm|km|µm|mil|m²|m2|m³|m3|m|in(?!\s*[a-z])|ft²|ft2|ft³|ft3|ft|yd|°|deg)(?![a-z0-9²³])/);
+  return match ? MEASUREMENT_UNITS[match[1]] : null;
+}
+
 function valueMatch(claim, candidate) {
-  const claimNumber = numericDescriptor(claim.value);
-  const candidateNumber = numericDescriptor(candidate.valueText);
+  const claimNumber = measurementDescriptor(claim.value);
+  const candidateNumber = measurementDescriptor(candidate.valueText);
   if (!claimNumber || !candidateNumber) return { score: 0, displayValue: null };
+  const writtenUnit = claimNumber.unit ?? claimUnit(claim);
+  if (writtenUnit && candidateNumber.unit && writtenUnit !== candidateNumber.unit) return { score: 0, displayValue: null };
   const direction = /\b(decreas|reduc|lower|declin|drop)/i.test(claim.text) ? -1
     : /\b(increas|rais|higher|grew|rise)/i.test(claim.text) ? 1 : 0;
   const expected = direction ? Math.abs(claimNumber.number) * direction : claimNumber.number;
@@ -843,7 +870,7 @@ function objectsFromFile(file, buffer) {
   const fileName = path.posix.basename(file.path, path.posix.extname(file.path));
   const text = buffer.subarray(0, 5_000_000).toString('utf8').replace(/\r\n/g, '\n');
 
-  if (['pdf', 'drawing', 'xml'].includes(file.fileType) || /\.(?:ifc|dxf|dwg|rvt|dgn|landxml|xml)$/i.test(file.path)) {
+  if (file.fileType === 'pdf' || isDesignFile(file)) {
     const { drawing, descriptors } = drawingDescriptors(file, buffer);
     if (drawing.isDrawing) return descriptors.map(objectDescriptor);
   }
@@ -1189,14 +1216,16 @@ export class PredictiveProvenanceService {
     const snapshot = this.timeline.getSnapshot(targetSnapshotId);
     if (snapshot.projectId !== projectId) throw new HttpError(400, 'Snapshot does not belong to this project.');
     const existingIndex = this.db.prepare('SELECT drawing_index_version FROM snapshot_object_indexes WHERE snapshot_id = ?').get(targetSnapshotId);
-    if (existingIndex?.drawing_index_version >= 1) return;
+    if (existingIndex?.drawing_index_version >= DRAWING_INDEX_VERSION) return;
     const descriptors = [];
     const files = [...snapshot.files].sort((left, right) => dependencyFilePriority(right) - dependencyFilePriority(left)
       || left.path.localeCompare(right.path));
     for (const file of files) {
       if (descriptors.length >= MAX_SNAPSHOT_OBJECTS) break;
-      const design = ['drawing', 'xml'].includes(file.fileType) || /\.(?:ifc|dxf|dwg|rvt|dgn|landxml|xml)$/i.test(file.path);
+      const design = isDesignFile(file);
       if (existingIndex && file.fileType !== 'pdf' && !design) continue;
+      // Snapshots indexed before STEP support only need their CAD models read.
+      if (existingIndex?.drawing_index_version >= 1 && !/\.(?:step|stp)$/i.test(file.path)) continue;
       if (file.size > 25_000_000 && !design && !['image', 'pdf', 'document'].includes(file.fileType)) continue;
       if (file.size > 5_000_000 && !design && !['image', 'pdf', 'document', 'table', 'spreadsheet'].includes(file.fileType)) continue;
       if (!design && !['table', 'spreadsheet', 'code', 'notebook', 'image', 'json', 'text', 'markdown', 'pdf', 'document'].includes(file.fileType)) continue;
@@ -1235,9 +1264,9 @@ export class PredictiveProvenanceService {
         );
       }
       const objectCount = this.db.prepare('SELECT COUNT(*) AS count FROM scientific_object_versions WHERE snapshot_id = ?').get(targetSnapshotId).count;
-      this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version) VALUES (?, ?, ?, 1)
-        ON CONFLICT(snapshot_id) DO UPDATE SET drawing_index_version = 1, indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
-        .run(targetSnapshotId, now(), objectCount);
+      this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version) VALUES (?, ?, ?, ?)
+        ON CONFLICT(snapshot_id) DO UPDATE SET drawing_index_version = excluded.drawing_index_version, indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
+        .run(targetSnapshotId, now(), objectCount, DRAWING_INDEX_VERSION);
     });
   }
 
@@ -2869,7 +2898,7 @@ export class PredictiveProvenanceService {
   }
 
   async sourceModelPreview(source) {
-    if (!/\.ifc$/i.test(source?.path ?? '')) return null;
+    if (!/\.(?:ifc|step|stp)$/i.test(source?.path ?? '')) return null;
     const file = this.timeline.snapshotFile(source.snapshotId, source.path);
     if (!file) return { kind: 'model-unavailable', reason: 'The indexed source version is no longer available.' };
     return buildModelPreview({ path: file.path, content: this.timeline.blobs.get(file.contentHash) }, source);

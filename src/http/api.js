@@ -306,7 +306,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const content = timeline.blobs.get(file.contentHash);
         const properties = buildPreview(snapshot, file, content);
         const model = await buildModelPreview({ path: file.path, content }, {
-          anchor: { elementId: url.searchParams.get('elementId') || undefined },
+          anchor: { elementId: url.searchParams.get('elementId') || undefined, featureId: url.searchParams.get('featureId') || undefined },
         });
         const preview = model ? { ...properties, ...model } : properties;
         return sendJson(response, 200, { preview });
