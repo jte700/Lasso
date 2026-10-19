@@ -64,6 +64,6 @@ html body :is(button, [role="button"]):disabled { cursor: default !important; }
   }
 }
 
-/* The sidebar's editor button keeps its label on one line. */
+/* The sidebar's editor button reads from the leading edge, like other sidebar
+   items, and wraps rather than truncating in a narrow sidebar. */
 .open-editor-button { justify-content: flex-start; text-align: left; }
-.open-editor-button span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
