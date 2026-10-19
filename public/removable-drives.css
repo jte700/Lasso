@@ -1,0 +1,55 @@
+/* External storage is opt-in; notifications never take focus from writing. */
+.drive-toolbar-button { position:relative; }
+.drive-toolbar-button [data-drive-count] { position:absolute;right:-3px;top:-3px;display:grid;place-items:center;min-width:14px;height:14px;padding:0 3px;border-radius:8px;background:var(--u-blue);color:white;font-size:9px;font-weight:700; }
+.drive-toolbar-button.has-pending-drive svg { animation:drive-pulse 2.4s ease-in-out infinite; }
+@keyframes drive-pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+@media (prefers-reduced-motion:reduce) { .drive-toolbar-button.has-pending-drive svg { animation:none; } }
+.drive-notification { position:fixed;top:66px;right:16px;z-index:150;display:flex;align-items:center;gap:15px;width:min(430px,calc(100vw - 32px));padding:14px 16px;border:1px solid var(--u-line);border-radius:12px;background:var(--u-panel);box-shadow:0 8px 30px #0004;color:var(--u-text); }
+.drive-notification strong { display:block;font-size:12px;line-height:1.5;font-weight:500; }
+.drive-notification small { display:block;margin-top:4px;font-size:11px;color:var(--u-text-2); }
+.drive-notification button { flex-shrink:0; }
+.drive-dialog { width:min(620px,calc(100vw - 40px))!important;max-height:85vh;overflow:auto; }
+.drive-dialog h3 { margin:0;font-size:15px; }
+.drive-dialog p { line-height:1.55; }
+.drive-list { display:flex;gap:8px;overflow:auto;padding:0 0 14px; }
+.drive-list>button { display:grid;gap:4px;min-width:125px;max-width:220px;flex-shrink:0;padding:10px 12px;border:1px solid var(--u-line);border-radius:8px;background:var(--u-panel-2);text-align:left;cursor:pointer; }
+.drive-list>button[aria-pressed="true"] { border-color:var(--u-blue);background:var(--u-selected); }
+.drive-list span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px; }
+.drive-list small { font-size:10px;color:var(--u-text-2); }
+.drive-detail { border-top:1px solid var(--u-line);padding-top:16px; }
+.drive-detail-heading { display:flex;align-items:center;justify-content:space-between;gap:16px; }
+.drive-availability { font-size:11px;color:var(--u-green); }
+.drive-availability.offline,.drive-offline-label { color:var(--u-orange); }
+.drive-root { margin:6px 0!important;overflow-wrap:anywhere;color:var(--u-text-3)!important;font-size:11px!important; }
+.drive-actions { display:flex;flex-wrap:wrap;gap:8px;margin-top:20px; }
+.drive-project-count,.drive-help,.drive-retention { font-size:12px!important;color:var(--u-text-2)!important; }
+.drive-breadcrumb { display:flex;align-items:center;gap:10px;margin:18px 0 8px; }
+.drive-breadcrumb strong { flex:1;overflow-wrap:anywhere;font-size:12px; }
+.drive-folders { max-height:210px;overflow:auto;border:1px solid var(--u-line);border-radius:8px;padding:4px 10px; }
+.drive-folder-row { display:flex;gap:12px;align-items:center;justify-content:space-between;padding:7px 0; }
+.drive-folder-row + .drive-folder-row { border-top:1px solid var(--u-line-soft); }
+.drive-folder-row label { display:flex!important;flex:1;align-items:center;gap:8px;margin:0!important;min-width:0; }
+.drive-folder-row label span { overflow-wrap:anywhere; }
+.drive-folder-row input { width:15px!important;height:15px!important;min-height:0!important;margin:0!important;flex:0 0 15px;accent-color:var(--u-blue); }
+.drive-folder-row button { font-size:11px!important; }
+.drive-selection { display:flex;flex-wrap:wrap;gap:6px;margin-top:12px; }
+.drive-selection strong { width:100%;font-size:11px;font-weight:500;color:var(--u-text-2); }
+.drive-selection button { padding:5px 8px;border:1px solid var(--u-line);border-radius:6px;background:var(--u-panel-2);font-size:11px;overflow-wrap:anywhere;cursor:pointer; }
+.drive-remove-confirm { margin-top:18px;padding:14px;border:1px solid color-mix(in srgb,var(--u-red) 40%,var(--u-line));border-radius:8px; }
+.drive-remove-confirm p { font-size:12px!important; }
+.drive-danger { background:var(--u-red)!important; }
+.drive-busy { color:var(--u-blue)!important; }
+.drive-dialog button:disabled { opacity:.5;cursor:default; }
+.dir-dot.offline { background:var(--u-orange)!important; }
+.drive-offline-label { font-size:10px;font-weight:500; }
+.project-offline-note { margin:0;color:var(--u-orange);font-size:11px; }
+.drive-dialog { padding:20px!important; }
+.drive-dialog .dialog-heading { grid-template-columns:minmax(0,1fr) 30px!important;margin:0 0 18px!important; }
+.drive-dialog .dialog-close { position:static; }
+.drive-dialog .eyebrow { display:block; }
+.drive-dialog p { margin:12px 0;font-size:12px;color:var(--u-text-2); }
+.drive-dialog [data-drive-error]:empty { display:none; }
+.drive-dialog [data-drive-error] { margin:14px 0 0;color:var(--u-red); }
+.drive-dialog .secondary-button,.drive-notification .secondary-button { min-height:30px;padding:5px 10px;border:1px solid var(--u-line);border-radius:7px;background:var(--u-panel);font-size:12px;cursor:pointer; }
+.drive-dialog .secondary-button:hover,.drive-notification .secondary-button:hover { background:var(--u-hover); }
+.drive-notification,.drive-notification * { font-family:var(--u-font); }

@@ -29,6 +29,7 @@ export function createConfig(overrides = {}) {
     watchDebounceMs: Number(overrides.watchDebounceMs ?? process.env.LASSO_WATCH_DEBOUNCE_MS
       ?? process.env.COLAB_WATCH_DEBOUNCE_MS ?? 2500),
     watchProjects: overrides.watchProjects ?? true,
+    driveToken: overrides.driveToken ?? process.env.LASSO_DRIVE_TOKEN ?? null,
     publicDir: overrides.publicDir ?? path.resolve('public'),
   };
 }

@@ -2366,6 +2366,7 @@ export class PredictiveProvenanceService {
   }
 
   saveDocument(projectId, input, actorInput) {
+    this.timeline.drives?.assertOnline(projectId);
     const project = this.timeline.getProject(projectId);
     const baseSnapshotId = input.baseSnapshotId ?? project.currentSnapshotId;
     if (baseSnapshotId !== project.currentSnapshotId) throw new VersionConflictError(baseSnapshotId, project.currentSnapshotId);

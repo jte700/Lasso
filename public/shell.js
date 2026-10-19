@@ -31,12 +31,12 @@ export function createDirectorySidebar({ host, onSelect }) {
   function render() {
     host.innerHTML = directories.map((directory) => {
       const selected = directory.id === activeId;
-      const status = selected ? 'active' : directory.status ?? 'available';
-      const meta = directory.gitBranch || shortenPath(directory.path);
+      const status = directory.availability === 'offline' ? 'offline' : selected ? 'active' : directory.status ?? 'available';
+      const meta = directory.availability === 'offline' ? `${directory.driveName || 'External drive'} · Offline` : directory.gitBranch || shortenPath(directory.path);
       return `<button class="directory-row ${selected ? 'selected' : ''}" role="option"
                 aria-selected="${selected}" data-directory="${escapeHtml(directory.id)}">
         <span class="dir-dot ${status}" aria-hidden="true"></span>
-        <span class="dir-name">${escapeHtml(directory.name)}</span>
+        <span class="dir-name">${escapeHtml(directory.name)}${directory.availability === 'offline' ? ' <small class="drive-offline-label">Cached</small>' : ''}</span>
         <span class="dir-meta">${escapeHtml(meta)}</span>
       </button>`;
     }).join('') || '<p class="add-directory" style="cursor:default">no directories yet</p>';

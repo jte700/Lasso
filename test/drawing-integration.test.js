@@ -161,7 +161,10 @@ test('drawing migration adds facts to an existing snapshot without replacing ear
     (SELECT id FROM scientific_objects WHERE object_type IN ('DRAWING','DRAWING_ANNOTATION'));
     DELETE FROM scientific_objects WHERE object_type IN ('DRAWING','DRAWING_ANNOTATION');
     ALTER TABLE snapshot_object_indexes DROP COLUMN drawing_index_version;
-    DELETE FROM schema_migrations WHERE version=16;`);
+    ALTER TABLE snapshot_object_indexes DROP COLUMN spreadsheet_index_version;
+    DELETE FROM schema_migrations WHERE version>=16;
+    DROP TABLE drive_projects;
+    DROP TABLE removable_drives;`);
   legacy.exec(deleteGuard);
   legacy.close();
   state.app = createApplication(state.config);

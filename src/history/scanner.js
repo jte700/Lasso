@@ -22,6 +22,9 @@ export function describeScanError(error) {
     case 'EACCES':
     case 'EPERM': return { code: 'PERMISSION_DENIED', reason: 'permission denied' };
     case 'ENOENT': return { code: 'DISAPPEARED', reason: 'file changed during indexing' };
+    case 'EIO':
+    case 'ENODEV':
+    case 'ENXIO': return { code: 'DEVICE_UNAVAILABLE', reason: 'storage device became unavailable' };
     case 'EISDIR': return { code: 'NOT_A_FILE', reason: 'path is not a regular file' };
     case 'EBUSY': return { code: 'BUSY', reason: 'file is locked by another process' };
     case 'EMFILE':

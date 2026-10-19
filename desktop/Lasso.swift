@@ -132,6 +132,7 @@ final class ServerController {
     private let appDirectory: String
     private let dataDirectory: String
     private let logURL: URL
+    let driveToken = UUID().uuidString + UUID().uuidString
 
     var onStateChange: ((ServerState) -> Void)?
 
@@ -174,6 +175,7 @@ final class ServerController {
         var environment = ProcessInfo.processInfo.environment
         environment["PORT"] = String(port)
         environment["LASSO_DATA_DIR"] = dataDirectory
+        environment["LASSO_DRIVE_TOKEN"] = driveToken
         // Isolated here so shares can later be served from a hosted origin.
         environment["SHARE_BASE_URL"] = ProcessInfo.processInfo.environment["SHARE_BASE_URL"]
             ?? "http://localhost:\(port)"
@@ -273,6 +275,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var server: ServerController!
     private var hasLoaded = false
     private var hasPresented = false
+    private let driveMonitor = ExternalDriveMonitor()
+    private var hasUnreadDriveChange = false
+    private var pendingDriveDialog = false
+    private var driveNotice: ExternalDriveNoticePanel?
+    private var driveNoticeDismissal: DispatchWorkItem?
+    private var drivePulseTimer: Timer?
 
     private let inspector = SourceInspectorPanel()
     private let background = NSColor(srgbRed: 0x14 / 255.0, green: 0x17 / 255.0, blue: 0x1a / 255.0, alpha: 1)
@@ -317,6 +325,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             appDirectory: resources.path,
             dataDirectory: data.path,
             logURL: logs)
+        driveMonitor.onInventorySynced = { [weak self] change in
+            guard let self else { return }
+            self.publishDriveChange()
+            if let notice = change.notice { self.announceDriveChange(notice) }
+        }
         server.onStateChange = { [weak self] state in self?.render(state) }
         server.start()
         startHighlighting()
@@ -391,6 +404,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        driveMonitor.stop()
+        drivePulseTimer?.invalidate()
+        dismissDriveNotice()
         GlobalAssistant.shared.disable()
         server?.stop()
     }
@@ -416,6 +432,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc private func statusItemClicked(_ sender: Any?) {
         if NSApp.currentEvent?.type == .rightMouseUp {
             showMenu()
+        } else if hasUnreadDriveChange {
+            openDrives()
         } else {
             toggleWindow()
         }
@@ -431,6 +449,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let open = NSMenuItem(title: "Open Lasso", action: #selector(openWindow), keyEquivalent: "o")
         open.target = self
         menu.addItem(open)
+
+        let drives = NSMenuItem(title: "External Drives…", action: #selector(openDrives), keyEquivalent: "")
+        drives.target = self
+        menu.addItem(drives)
 
         let browser = NSMenuItem(title: "Open in Browser", action: #selector(openInBrowser), keyEquivalent: "b")
         browser.target = self
@@ -553,6 +575,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 URLQueryItem(name: "app", value: "1"),
                 URLQueryItem(name: "view", value: "documents"),
             ]
+            driveMonitor.start(serverURL: url, token: server.driveToken)
             GlobalAssistant.shared.serverURL = server.url
             DependencyHighlighter.shared.serverURL = server.url
             if let target = components.url {
@@ -566,11 +589,138 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 hasLoaded = true
             }
         case .failed(let message):
+            driveMonitor.stop()
             let escaped = message.replacingOccurrences(of: "<", with: "&lt;")
             webView.loadHTMLString(errorPage(escaped), baseURL: nil)
         case .starting:
+            driveMonitor.stop()
             if !hasLoaded { webView.loadHTMLString(errorPage("Starting the local Lasso server…"), baseURL: nil) }
         }
+    }
+
+    // MARK: External drive attention
+
+    private var isWorkspacePage: Bool {
+        guard let current = webView?.url, let local = server?.url else { return false }
+        return current.scheme == local.scheme && current.host == local.host && current.port == local.port
+            && (current.path == "/" || current.path == "/index.html")
+    }
+
+    private func publishDriveChange() {
+        guard isWorkspacePage else { return }
+        webView.evaluateJavaScript("window.dispatchEvent(new CustomEvent('lasso-drives-changed'))", completionHandler: nil)
+    }
+
+    @objc private func openDrives() {
+        hasUnreadDriveChange = false
+        drivePulseTimer?.invalidate()
+        drivePulseTimer = nil
+        statusItem.button?.alphaValue = 1
+        statusItem.button?.title = ""
+        statusItem.button?.toolTip = "Lasso"
+        statusItem.button?.setAccessibilityLabel("Lasso")
+        dismissDriveNotice()
+        pendingDriveDialog = true
+        if case .ready = server.state, !isWorkspacePage, let url = server.url,
+           var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            components.queryItems = [URLQueryItem(name: "app", value: "1"),
+                                     URLQueryItem(name: "view", value: "documents")]
+            if let target = components.url { webView.load(URLRequest(url: target)) }
+        }
+        openWindow()
+        publishOpenDrives()
+    }
+
+    private func publishOpenDrives() {
+        guard pendingDriveDialog, isWorkspacePage, !webView.isLoading else { return }
+        pendingDriveDialog = false
+        webView.evaluateJavaScript("window.dispatchEvent(new CustomEvent('lasso-open-drives'))", completionHandler: nil)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        publishDriveChange()
+        publishOpenDrives()
+    }
+
+    private func announceDriveChange(_ message: String) {
+        hasUnreadDriveChange = true
+        guard let button = statusItem.button else { return }
+        button.title = " •"
+        button.imagePosition = .imageLeading
+        button.toolTip = "Lasso — " + message
+        button.setAccessibilityLabel("Lasso. " + message)
+        drivePulseTimer?.invalidate()
+        button.alphaValue = 1
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            var ticks = 0
+            drivePulseTimer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: true) { [weak self] timer in
+                ticks += 1
+                self?.statusItem.button?.alphaValue = ticks.isMultiple(of: 2) ? 1 : 0.45
+                if ticks >= 6 {
+                    timer.invalidate()
+                    self?.drivePulseTimer = nil
+                    self?.statusItem.button?.alphaValue = 1
+                }
+            }
+        }
+        showDriveNotice(message)
+    }
+
+    private func showDriveNotice(_ message: String) {
+        dismissDriveNotice()
+        guard let button = statusItem.button, let host = button.window else { return }
+        let anchor = host.convertToScreen(button.convert(button.bounds, to: nil))
+        let panel = ExternalDriveNoticePanel(contentRect: NSRect(x: 0, y: 0, width: 336, height: 146),
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.isFloatingPanel = true
+        panel.level = .statusBar
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        let content = NSVisualEffectView(frame: panel.contentView!.bounds)
+        content.material = .popover
+        content.blendingMode = .behindWindow
+        content.state = .active
+        content.wantsLayer = true
+        content.layer?.cornerRadius = 12
+        content.layer?.masksToBounds = true
+        let title = NSTextField(labelWithString: "External drive update")
+        title.font = .systemFont(ofSize: 13, weight: .semibold)
+        title.frame = NSRect(x: 16, y: 111, width: 270, height: 20)
+        content.addSubview(title)
+        let detail = NSTextField(wrappingLabelWithString: message)
+        detail.font = .systemFont(ofSize: 12)
+        detail.textColor = .secondaryLabelColor
+        detail.frame = NSRect(x: 16, y: 46, width: 304, height: 60)
+        content.addSubview(detail)
+        let open = NSButton(title: "Open Lasso", target: self, action: #selector(openDrives))
+        open.bezelStyle = .rounded
+        open.frame = NSRect(x: 214, y: 12, width: 106, height: 28)
+        content.addSubview(open)
+        let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Dismiss")!,
+            target: self, action: #selector(dismissDriveNotice))
+        close.isBordered = false
+        close.frame = NSRect(x: 300, y: 111, width: 20, height: 20)
+        content.addSubview(close)
+        panel.contentView = content
+        let screen = host.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? anchor
+        let x = max(screen.minX + 8, min(anchor.maxX - 336, screen.maxX - 344))
+        panel.setFrameOrigin(NSPoint(x: x, y: anchor.minY - 152))
+        driveNotice = panel
+        panel.orderFrontRegardless()
+        let dismissal = DispatchWorkItem { [weak self] in self?.dismissDriveNotice() }
+        driveNoticeDismissal = dismissal
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: dismissal)
+    }
+
+    @objc private func dismissDriveNotice() {
+        driveNoticeDismissal?.cancel()
+        driveNoticeDismissal = nil
+        driveNotice?.orderOut(nil)
+        driveNotice = nil
     }
 
     private func errorPage(_ message: String) -> String {
@@ -628,6 +778,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     @objc private func quit() {
+        driveMonitor.stop()
         server?.stop()
         NSApp.terminate(nil)
     }

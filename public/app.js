@@ -1,3 +1,4 @@
+import { createRemovableDrives } from './removable-drives.js?v=1';
 import { caretPointForTextLengths, contextualCompletionCase } from './editor-acceptance.js';
 import { createCommandPalette } from './palette.js';
 import { createDirectorySidebar, createTabBar, createSidebarResize, createSpatialWorkbench, renderSession, shortenPath } from './shell.js?v=4';
@@ -127,12 +128,78 @@ function formatDateTime(value) {
 async function loadProjects(preferredId = null) {
   const { projects } = await api('/api/projects');
   state.projects = projects;
-  elements['project-select'].innerHTML = '<option value="">No project selected</option>' + projects
-    .map((project) => `<option value="${project.id}">${escapeHtml(project.name)} · V${project.currentVersion}</option>`).join('');
+  renderProjectOptions();
   const saved = preferredId ?? localStorage.getItem('lasso.projectId') ?? localStorage.getItem('colab.projectId');
   const project = projects.find((candidate) => candidate.id === saved) ?? projects[0] ?? null;
   if (project) await selectProject(project.id, true);
   else renderEmpty();
+}
+
+function renderProjectOptions() {
+  elements['project-select'].innerHTML = '<option value="">No project selected</option>' + state.projects
+    .map(project => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)} · V${project.currentVersion}${project.availability === 'offline' ? ' · Offline (cached)' : ''}</option>`).join('');
+  elements['project-select'].value = state.project?.id ?? '';
+}
+
+function projectIsOffline() {
+  return (state.projects.find(project => project.id === state.project?.id) ?? state.project)?.availability === 'offline';
+}
+
+function hasUnsavedEditorChanges() {
+  return Boolean(state.editor.dirty || state.editor.pendingLinks.length || state.editor.savePromise);
+}
+
+function syncOfflineEditor() {
+  const offline = projectIsOffline();
+  const sourceStatus = document.querySelector('.wb-status > span:last-child');
+  if (sourceStatus) sourceStatus.textContent = `${offline ? 'Offline · saved copies' : 'Local workspace'}${state.project?.currentVersion ? ` · Version ${state.project.currentVersion}` : ''}`;
+  const body = document.getElementById('document-body');
+  if (body) {
+    body.contentEditable = String(!offline);
+    body.setAttribute('aria-readonly', String(offline));
+  }
+  document.querySelectorAll('.editor-toolbar button,.editor-toolbar select,.editor-history-buttons button,[data-retry]').forEach(button => { button.disabled = offline; });
+  const save = document.getElementById('save-document');
+  if (save) save.disabled = offline || !hasUnsavedEditorChanges();
+  const status = document.getElementById('editor-save-state');
+  if (offline) {
+    clearTimeout(state.editor.autosaveTimer);
+    state.editor.autosaveTimer = null;
+    clearPrediction();
+    if (status) status.textContent = hasUnsavedEditorChanges() ? 'Offline · reconnect to save your changes' : 'Offline · saved copy';
+  } else if (status?.textContent.startsWith('Offline')) {
+    status.textContent = hasUnsavedEditorChanges() ? 'Autosave pending' : 'Saved';
+    if (hasUnsavedEditorChanges()) scheduleEditorAutosave();
+  }
+}
+
+// Device changes update metadata without reopening a document or replacing its
+// unsaved contents. A new index becomes active only when it is safe to switch.
+async function refreshDriveProjects({ preferredId = null, removedProjectIds = [] } = {}) {
+  const { projects } = await api('/api/projects');
+  state.projects = projects;
+  renderProjectOptions();
+  if (removedProjectIds.includes(state.project?.id)) {
+    ++state.projectSwitchRevision;
+    clearInterval(state.pollTimer);
+    resetEditorProjectState();
+    dependencyShell.reset();
+    state.project = null;
+    localStorage.removeItem('lasso.projectId');
+    localStorage.removeItem('colab.projectId');
+    renderEmpty();
+  }
+  const current = projects.find(project => project.id === state.project?.id);
+  if (current) state.project = { ...state.project, ...current };
+  if (preferredId && preferredId !== state.project?.id && !hasUnsavedEditorChanges()) {
+    await selectProject(preferredId);
+  } else if (!state.project && projects.length) {
+    await selectProject(projects[0].id);
+  } else if (state.project) {
+    renderProjectContext();
+  } else {
+    refreshShell();
+  }
 }
 
 async function selectProject(projectId, reconcile = true) {
@@ -216,7 +283,7 @@ function renderProjectContext() {
   if (!state.project) return;
   const current = state.projects.find((project) => project.id === state.project.id) ?? state.project;
   elements['project-name'].textContent = current.name;
-  elements['project-path'].textContent = current.rootPath;
+  elements['project-path'].textContent = `${current.rootPath}${current.availability === 'offline' ? ' · Offline — browsing saved copies' : ''}`;
   elements['project-path'].title = current.rootPath;
   document.title = `${current.name} — Lasso`;
   refreshShell();
@@ -227,11 +294,13 @@ function renderProjectContext() {
   elements['status-version'].textContent = `Version ${current.currentVersion}`;
   elements['status-files'].textContent = `${current.fileCount ?? state.project.fileCount ?? 0} files`;
   const selectedOption = elements['project-select'].querySelector(`option[value="${current.id}"]`);
-  if (selectedOption) selectedOption.textContent = `${current.name} · V${current.currentVersion}`;
+  if (selectedOption) selectedOption.textContent = `${current.name} · V${current.currentVersion}${current.availability === 'offline' ? ' · Offline (cached)' : ''}`;
+  syncOfflineEditor();
 }
 
 function renderEmpty() {
   state.project = null;
+  window.webkit?.messageHandlers?.lasso?.postMessage({ activeProjectId: null });
   elements['project-name'].textContent = 'Welcome to Lasso';
   showSession();
   elements['project-path'].textContent = 'Choose a local directory to begin.';
@@ -356,7 +425,7 @@ async function openManuscriptWorkspace(preferredPath = null, options = {}) {
   if (!projectId || state.project?.id !== projectId) return;
   setWorkspaceView('editor');
   const column = document.querySelector('.files-column');
-  column.innerHTML = '<div class="column-header"><div><span class="eyebrow">Project files</span><h2>Documents</h2></div><span class="editor-live-pill">Sources</span></div><div class="manuscript-browser" id="manuscript-browser"><p class="browser-loading">Finding editable documents…</p></div>';
+  if (column) column.innerHTML = '<div class="column-header"><div><span class="eyebrow">Project files</span><h2>Documents</h2></div><span class="editor-live-pill">Sources</span></div><div class="manuscript-browser" id="manuscript-browser"><p class="browser-loading">Finding editable documents…</p></div>';
   try {
     const { documents } = await api(`/api/projects/${projectId}/documents`);
     if (state.project?.id !== projectId
@@ -393,6 +462,7 @@ function renderManuscriptBrowser() {
 
 async function openDocument(filePath, requestedProjectId = state.project?.id) {
   if (!requestedProjectId || state.project?.id !== requestedProjectId) return;
+  setWorkspaceView('editor');
   shell.activeTab = `doc:${filePath}`;
   refreshShell();
   clearPrediction();
@@ -560,6 +630,7 @@ function renderDocumentEditor() {
     runEditorCommand(button.dataset.editorCommand);
   }));
   document.getElementById('manuscript-page').addEventListener('keydown', handleEditorShortcuts);
+  syncOfflineEditor();
 }
 
 function renderEditableBlock(block, blockIndex, dependencies) {
@@ -993,6 +1064,7 @@ function markEditorDirty() {
 }
 
 function scheduleEditorAutosave() {
+  if (projectIsOffline()) return;
   if (state.editor.autosaveTimer || state.editor.savePromise) return;
   state.editor.autosaveTimer = setTimeout(() => {
     state.editor.autosaveTimer = null;
@@ -1512,6 +1584,11 @@ function updateEditorVersion(snapshot) {
 }
 
 async function saveDocument(options = {}) {
+  if (projectIsOffline()) {
+    syncOfflineEditor();
+    if (!options.automatic && hasUnsavedEditorChanges()) toast('Reconnect the drive to save. Your unsaved changes are still open.', 'error');
+    return state.editor.document;
+  }
   if (state.editor.savePromise) return state.editor.savePromise;
   if (!state.editor.document || (!state.editor.dirty && !state.editor.pendingLinks.length)) return state.editor.document;
   clearTimeout(state.editor.autosaveTimer);
@@ -1782,6 +1859,7 @@ function focusDocumentEnd() {
 }
 
 function handleEditorShortcuts(event) {
+  if (projectIsOffline()) return;
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
     event.preventDefault();
     if (event.shiftKey) redoEditor(); else undoEditor();
@@ -2489,7 +2567,7 @@ function paletteCommands() {
     if (project.id === state.project?.id) continue;
     commands.push({
       title: `switch to ${project.name}`,
-      hint: `project · V${project.currentVersion}`,
+      hint: `project · V${project.currentVersion}${project.availability === 'offline' ? ' · Offline (cached)' : ''}`,
       run: () => selectProject(project.id),
     });
   }
@@ -2507,10 +2585,10 @@ function paletteCommands() {
       form.elements.actorType.value = state.identity.actorType;
       openDialog(elements['identity-dialog']);
     } },
-    { title: 'reload sources', hint: 'reindex the current project', run: () => refreshProject() },
+    ...(!projectIsOffline() ? [{ title: 'reload sources', hint: 'refresh the current project', run: () => refreshProject() }] : []),
   );
 
-  if (state.editor.document) {
+  if (state.editor.document && !projectIsOffline()) {
     commands.push({ title: 'save document now', hint: state.editor.document.path, run: () => saveDocument() });
   }
   return commands;
@@ -2533,6 +2611,8 @@ function directoriesFromProjects() {
     name: project.name,
     path: project.rootPath,
     status: project.id === state.project?.id ? 'active' : 'available',
+    availability: project.availability,
+    driveName: project.driveName,
   }));
 }
 
@@ -2607,6 +2687,7 @@ const dependencyShell = createSourceWorkbench({
   input: terminalInput,
   api,
   getProjectId: () => state.project?.id ?? null,
+  getIsOffline: projectIsOffline,
   getDocumentPath: () => state.editor.document?.path ?? null,
   getActor: () => state.identity,
   onRecommendationUsage: recordRecommendationUsage,
@@ -2668,6 +2749,20 @@ window.addEventListener('keydown', (event) => {
   }
 }, true);
 
+const removableDrives = new URLSearchParams(window.location.search).get('app') === '1' && window.webkit?.messageHandlers?.lasso ? createRemovableDrives({
+  api,
+  getActor: () => state.identity,
+  onProjectsChanged: refreshDriveProjects,
+  beforeRemove: drive => {
+    if (drive.projects?.some(project => project.id === state.project?.id) && hasUnsavedEditorChanges()) {
+      toast('This drive has unsaved changes open. Reconnect it and save before removing its saved data.', 'error');
+      return false;
+    }
+    return true;
+  },
+  onStatus: message => toast(message),
+}) : null;
+
 const launchParams = new URLSearchParams(window.location.search);
 // The macOS app supplies its own window chrome, so the simulated titlebar is dropped.
 if (launchParams.get('app') === '1') document.documentElement.classList.add('native-app');
@@ -2676,6 +2771,7 @@ if (sharedDependencyToken) loadSharedDependency(sharedDependencyToken);
 else {
   loadProjects()
     .then(() => {
+      removableDrives?.start();
       if (launchParams.get('view') === 'documents' && state.project) return openManuscriptWorkspace();
       return null;
     })

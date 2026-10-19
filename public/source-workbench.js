@@ -21,7 +21,7 @@ const location = object => {
  if(a.kind==='cad-model') return object.metadata?.format ? `${object.metadata.format} model` : 'Design model';
  return a.kind==='table-cell' ? [a.sheet, `Row ${(a.rowIndex??0)+1}`, a.column].filter(Boolean).join(' · ') : a.cellId ? [a.sheet, a.cellId].filter(Boolean).join('!') : a.rowKey ? `Row ${a.rowKey}` : a.page ? `Page ${a.page}` : a.line ? `Line ${a.line}` : a.blockIndex != null ? `Passage ${a.blockIndex + 1}` : object.objectType?.toLowerCase().replaceAll('_',' ') ?? 'Source';
 };
-export function createSourceWorkbench({input, api, getProjectId, getActor, onOpenDocument, onOpenSource, onStatus, onSession}) {
+export function createSourceWorkbench({input, api, getProjectId, getIsOffline = () => false, getActor, onOpenDocument, onOpenSource, onStatus, onSession}) {
  let host, epoch=0, detailEpoch=0, timer, objects=[], mode='library', query='', selectedPath='', selectedObject=null, report=null, preview=null, plan=null, busy=false, problem='', candidates=null;
  let session=null, renderedKey='';
  const base = () => `/api/projects/${encodeURIComponent(getProjectId())}`;
@@ -58,7 +58,7 @@ export function createSourceWorkbench({input, api, getProjectId, getActor, onOpe
    ${problem?`<div class="wb-error" role="alert">${escape(problem)} <button class="wb-button" data-refresh>Try again</button></div>`:''}
    <div class="wb-split"><section class="wb-browser" aria-label="Sources"><header><span>${mode==='library'?(query?'Matching files':'Files'):'Items'}</span><small>${busy?'Loading…':mode==='library'?paths.length:report?.results?.length??0}</small></header><div class="wb-file-list">${list || `<p class="wb-list-empty">${busy?'Loading sources…':query?'No matching sources':'Nothing here yet'}</p>`}</div><footer>${mode==='library'?'Files stay in their original folder.':'Select an item to inspect it.'}</footer></section>
    <section class="wb-inspector" aria-label="Source evidence" aria-busy="${busy}">${detail(matched)}</section></div>
-   <footer class="wb-status"><span>${mode==='library'?`${paths.length} files · ${matched.length} indexed items`:escape(report?.headline??'')}</span><span>Local workspace${session?.version?` · Version ${session.version}`:''}</span></footer>
+   <footer class="wb-status"><span>${mode==='library'?`${paths.length} files · ${matched.length} indexed items`:escape(report?.headline??'')}</span><span>${getIsOffline()?'Offline · saved copies':'Local workspace'}${session?.version?` · Version ${session.version}`:''}</span></footer>
   </section>`;
   bind();
   bindModelPlans(host);
@@ -84,7 +84,7 @@ export function createSourceWorkbench({input, api, getProjectId, getActor, onOpe
    const o=selectedObject;
    return `<div class="wb-detail"><button class="wb-text-button wb-back" data-back>‹ ${escape(mode==='library'?basename(selectedPath):title())}</button><div class="wb-overline">${escape(o.path?basename(o.path):'Selected source')}</div><h2>${escape(o.label)}</h2><div class="wb-detail-meta">${escape(location(o))}${o.snapshotVersion?` · Version ${o.snapshotVersion}`:''}</div>
    ${o.valueText!=null && o.valueText!==''?`<div class="wb-value">${escape(o.valueText)}</div>`:''}
-   <div class="wb-actions">${o.id?'<button class="wb-button emphasized" data-copy>Copy with citation</button><button class="wb-button" data-open>Open source ↗</button>':''}${o.shareUrl?'<button class="wb-button" data-copy-link>Copy shared link</button>':''}${o.retryPath?'<button class="wb-button emphasized" data-retry>Retry indexing</button>':''}</div>
+   <div class="wb-actions">${o.id?'<button class="wb-button emphasized" data-copy>Copy with citation</button><button class="wb-button" data-open>Open source ↗</button>':''}${o.shareUrl?'<button class="wb-button" data-copy-link>Copy shared link</button>':''}${o.retryPath?`<button class="wb-button emphasized" data-retry ${getIsOffline()?'disabled title="Reconnect the drive to reindex"':''}>Retry indexing</button>`:''}</div>
    ${o.aliasAddress?`<form class="wb-alias"><label>Name this source<input name="alias" required placeholder="For example, current-period-revenue" /></label><button class="wb-button" type="submit">Save source name</button></form>`:''}
    <section class="wb-preview"><header><h3>Source context</h3><small>${escape(preview?.locator??'Recorded evidence')}</small></header>${previewHTML()}</section>${planHTML()}</div>`;
   }

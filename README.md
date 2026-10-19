@@ -49,6 +49,14 @@ The build creates and locally signs `dist/Lasso.app`. It bundles the server and 
 
 The app lives in the menu bar. Click its icon to show or hide the workspace; closing the window leaves the local server running. The menu includes browser access, server controls, and writing-assistance settings. The desktop server prefers loopback port `4319` and chooses another available port if needed.
 
+### External drives (macOS)
+
+Connecting a mounted external storage drive adds a menu-bar badge and a brief notice without interrupting typing. Open **External Drives…** to index the entire drive or choose one or more folders, including nested folders. Indexing starts only after that choice; each selected folder becomes a working directory. Lasso uses the drive's persistent volume identity, so retained directories follow it when its mount path changes.
+
+On disconnection, choose **Keep saved index** to browse and search cached file copies and their history offline, or **Remove saved data…** to delete those directories, indexes, local copies, and history from Lasso. Removal leaves the original drive files untouched, preserves blobs still used by another project, and refuses to delete sources referenced by another project. Offline directories are marked in the sidebar; editing and reindexing resume after reconnection. Previously selected folders reconcile changes when the drive returns.
+
+Detection works with mounted external storage, including USB-A and USB-C drives, while the Mac app is running. Internal disks, network shares, disk images, locked/unmounted volumes, and volumes without a unique persistent identity are excluded. macOS may request permission to read removable volumes. This flow is currently available only in the Mac companion.
+
 ### Writing in other applications
 
 Select a project in Lasso, then enable **Suggest While Typing Anywhere** from the menu bar. macOS Accessibility and Input Monitoring permissions are required. Suggestions use the active project's index and nearby text from the focused editor.

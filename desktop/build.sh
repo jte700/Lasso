@@ -35,7 +35,7 @@ if [ "${LASSO_BROWSER_GEOMETRY_TEST:-0}" = "1" ]; then
   SWIFT_OPTIONS+=(-D BROWSER_GEOMETRY_TEST "$ROOT/desktop/tests/browser-geometry.swift")
 fi
 swiftc "${SWIFT_OPTIONS[@]}" \
-  -framework Cocoa -framework WebKit \
+  -framework Cocoa -framework WebKit -framework DiskArbitration \
   -o "$CONTENTS/MacOS/Lasso" \
   "$ROOT/desktop/BuildConfig.swift" \
   "$ROOT/desktop/NativeMaterial.swift" \
@@ -56,6 +56,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/ShareComposer.swift" \
   "$ROOT/desktop/SourceChooser.swift" \
   "$ROOT/desktop/GlobalAssist.swift" \
+  "$ROOT/desktop/ExternalDrives.swift" \
   "$ROOT/desktop/Lasso.swift"
 
 echo "==> Bundling the server"
@@ -98,6 +99,8 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>
   <!-- System-wide suggestions read the text around the caret and watch for
        keystrokes. Both are opt-in from the menu bar. -->
+  <key>NSRemovableVolumesUsageDescription</key>
+  <string>Lasso reads files on external drives you choose to index and keeps searchable copies on this Mac.</string>
   <key>NSInputMonitoringUsageDescription</key>
   <string>Lasso watches for typing so it can suggest sources from your indexed project.</string>
   <key>NSAccessibilityUsageDescription</key>

@@ -86,9 +86,14 @@ export class TimelineService {
    * real failures rather than an empty list.
    */
   scanProject(project) {
+    this.drives?.assertOnline(project.id);
     const failures = [];
     const exclude = this.scanPolicy?.exclusionFilter?.(project.id) ?? null;
     const files = scanDirectory(project.rootPath, this.blobs, { exclude, failures });
+    this.drives?.assertOnline(project.id);
+    if (this.drives?.projectState(project.id).removableDriveId && failures.some(failure => ['DISAPPEARED', 'DEVICE_UNAVAILABLE'].includes(failure.code) || failure.path === '.')) {
+      throw new HttpError(409, 'The drive changed or became unreadable during indexing. Its last complete snapshot was kept.');
+    }
     this.scanPolicy?.recordFailures?.(project.id, failures);
     return files;
   }
@@ -144,6 +149,7 @@ export class TimelineService {
       currentSnapshotId: row.current_snapshot_id,
       currentVersion: row.current_version,
       watcherEnabled: Boolean(row.watcher_enabled),
+      ...this.drives?.projectState(row.id),
     };
   }
 
@@ -161,6 +167,7 @@ export class TimelineService {
       currentSnapshotId: row.current_snapshot_id,
       currentVersion: row.current_version,
       fileCount: row.file_count,
+      ...this.drives?.projectState(row.id),
     }));
   }
 
@@ -176,7 +183,13 @@ export class TimelineService {
     if (existing) return { project: this.getProject(existing.id), imported: false };
 
     const actor = normalizeActor(actorInput);
-    const scanned = scanDirectory(realRoot, this.blobs);
+    const failures = [];
+    if (options.driveId) this.drives.assertDrive(options.driveId);
+    const scanned = scanDirectory(realRoot, this.blobs, { failures });
+    if (options.driveId) {
+      this.drives.assertDrive(options.driveId);
+      if (failures.some(failure => ['DISAPPEARED', 'DEVICE_UNAVAILABLE'].includes(failure.code) || failure.path === '.')) throw new HttpError(409, 'The drive became unavailable during indexing. Reconnect it and try again.');
+    }
     const projectId = id();
     const snapshotId = id();
     const eventId = id();
@@ -220,6 +233,7 @@ export class TimelineService {
       }
     });
 
+    if (options.driveId) this.scanPolicy?.recordFailures?.(projectId, failures);
     if (options.watch !== false && this.config.watchProjects) this.watchProject(projectId, actor);
     const result = { project: this.getProject(projectId), imported: true, event: this.getEvent(eventId) };
     this.notifyCapture({ changed: true, projectId, snapshot: this.getSnapshot(snapshotId), event: result.event });
@@ -483,6 +497,7 @@ export class TimelineService {
   }
 
   resolveProjectPath(project, relativePath) {
+    this.drives?.assertOnline(project.id);
     if (!relativePath || path.isAbsolute(relativePath)) throw new HttpError(400, 'A relative project file path is required.');
     const root = path.resolve(project.rootPath);
     const destination = path.resolve(root, relativePath);
@@ -642,6 +657,7 @@ export class TimelineService {
     const project = this.getProject(projectId);
     const actor = normalizeActor(actorInput);
     this.unwatchProject(projectId);
+    if (project.availability === 'offline' || !project.watcherEnabled) return;
     let watcher;
     try {
       watcher = fs.watch(project.rootPath, { recursive: true }, () => {

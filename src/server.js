@@ -7,6 +7,7 @@ import { RfiService } from './history/rfi.js';
 import { PredictiveProvenanceService } from './dependencies/service.js';
 import { createRequestHandler } from './http/api.js';
 import { ObjectShareService } from './sharing/object-share.js';
+import { RemovableDriveService } from './drives/service.js';
 import { createTerminal } from './terminal/service.js';
 
 export function createApplication(overrides = {}) {
@@ -19,6 +20,7 @@ export function createApplication(overrides = {}) {
   rfi.dependencies = dependencies;
   const objectShares = new ObjectShareService(db, timeline, config);
   const terminal = createTerminal({ timeline, dependencies, objectShares });
+  const drives = new RemovableDriveService(timeline, dependencies, config);
   const server = http.createServer(createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal));
   return {
     config,
@@ -28,6 +30,7 @@ export function createApplication(overrides = {}) {
     dependencies,
     objectShares,
     terminal,
+    drives,
     server,
     close() {
       timeline.close();
