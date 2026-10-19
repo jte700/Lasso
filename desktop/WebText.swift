@@ -200,8 +200,11 @@ enum WebTextReader {
     }
 
     /// The selection lives on the focused node in Blink and on the web area in
-    /// some WebKit builds, so both are tried.
-    private static func selection(for element: AXUIElement) -> (AXUIElement, AXUIElement?, CFTypeRef)? {
+    /// some WebKit builds, so both are tried. Finding the web area walks up to
+    /// 25 parents, which a caret-only read skips when the node answers itself.
+    private static func selection(for element: AXUIElement,
+                                  needsArea: Bool = true) -> (AXUIElement, AXUIElement?, CFTypeRef)? {
+        if !needsArea, let selection = attribute(element, selectedRange) { return (element, nil, selection) }
         let area = webArea(from: element)
         // The application element answers in some Chromium builds even when the
         // focused node does not.
@@ -227,7 +230,7 @@ enum WebTextReader {
     /// Caret rectangle only. Cheap enough to run on every keystroke, which is
     /// what keeps the box pinned to the caret while typing.
     static func caretRect(from element: AXUIElement) -> CGRect? {
-        guard let (holder, _, selected) = selection(for: element) else { return nil }
+        guard let (holder, _, selected) = selection(for: element, needsArea: false) else { return nil }
         return rect(from: holder, selection: selected)
     }
 
@@ -643,23 +646,26 @@ enum WebTextReader {
         return nil
     }
 
-    /// Returns whatever the browser is willing to answer: the text just before
-    /// the caret, the caret rectangle, or both.
+    /// True when the browser's selection markers span any text.
     static func hasNonemptySelection(from element: AXUIElement) -> Bool {
-        guard let (_, _, selected) = selection(for: element),
+        guard let (_, _, selected) = selection(for: element, needsArea: false),
               CFGetTypeID(selected) == AXTextMarkerRangeGetTypeID() else { return false }
         let range = selected as! AXTextMarkerRange
         return !CFEqual(AXTextMarkerRangeCopyStartMarker(range), AXTextMarkerRangeCopyEndMarker(range))
     }
 
-    static func read(from element: AXUIElement, limit: Int = 1200) -> Reading? {
-        guard let (holder, area, selection) = selection(for: element) else { return nil }
+    /// Returns whatever the browser is willing to answer: the text just before
+    /// the caret, the caret rectangle, or both. `includeText` is false when the
+    /// caller already has the text and needs only the caret rectangle: the text
+    /// is fetched from the start of the document, the expensive part of a read.
+    static func read(from element: AXUIElement, limit: Int = 1200, includeText: Bool = true) -> Reading? {
+        guard let (holder, area, selection) = selection(for: element, needsArea: includeText) else { return nil }
         let caretRect = rect(from: holder, selection: selection)
 
         // Text from the start of the document up to the caret.
         var text: String?
         var windowStart: Int?
-        if let caretMarker = parameterized(holder, startOfRange, selection),
+        if includeText, let caretMarker = parameterized(holder, startOfRange, selection),
            let documentStart = attribute(area ?? holder, startMarker) {
             let pair = [documentStart, caretMarker] as CFArray
             if let range = parameterized(holder, rangeForMarkers, pair),

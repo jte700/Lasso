@@ -1482,5 +1482,232 @@ check(bundledRuntime.summary == "Node.js v24.13.0, bundled with Lasso"
 check(nodeMajorVersion("v24.13.0") == 24 && nodeMajorVersion("v9.11.2\n") == 9 && nodeMajorVersion("") == 0,
       "Node versions compare by major number")
 
+print("keystrokes are routed from a published snapshot")
+do {
+    func route(_ keyCode: Int64, _ state: KeyRoutingState) -> KeyDecision {
+        KeyRouter.decide(keyCode: keyCode, flags: [], synthetic: false, state: state)
+    }
+    func chord(_ keyCode: Int64, _ flags: CGEventFlags, _ state: KeyRoutingState) -> KeyDecision {
+        KeyRouter.decide(keyCode: keyCode, flags: flags, synthetic: false, state: state)
+    }
+    let idle = KeyRoutingState()
+    check(route(0, idle) == .pass(.followTyping(trackCaret: false)),
+          "typing with nothing open passes the key and schedules a suggestion")
+    check(KeyRouter.decide(keyCode: 0, flags: [], synthetic: true, state: KeyRoutingState(popup: .suggestions)) == .pass(nil),
+          "Lasso's own synthesized keys pass untouched")
+    check(route(48, KeyRoutingState(isInserting: true, popup: .suggestions)) == .pass(nil),
+          "every key passes while an insertion is typing")
+    check(route(53, idle) == .pass(.escapePassed), "Escape with nothing open reaches the host, as vim needs")
+    check(chord(8, .maskCommand, idle) == .pass(.hide), "shortcuts reach the host and close any pending box")
+
+    let open = KeyRoutingState(popup: .suggestions)
+    check(route(48, open) == .swallow(.activate), "Tab accepts a visible suggestion")
+    check(chord(48, .maskShift, open) == .pass(.hide), "Shift+Tab leaves the field and closes the box")
+    check(chord(48, .maskControl, open) == .pass(.hide), "Control+Tab switches tabs and closes the box")
+    check(route(126, open) == .swallow(.move(-1)) && route(125, open) == .swallow(.move(1)),
+          "bare arrows move through suggestions")
+    check(chord(125, .maskAlternate, open) == .pass(.hide), "Option+Down selects text instead")
+    check(chord(36, .maskCommand, open) == .swallow(.acceptPlain), "Command+Return inserts plain text")
+    check(chord(76, [.maskCommand, .maskShift], open) == .swallow(.acceptShared), "Shift+Command+Enter shares")
+    check(route(36, open) == .pass(.followTyping(trackCaret: true)), "Return alone belongs to the host")
+    check(route(0, open) == .pass(.followTyping(trackCaret: true)), "typing keeps the open box on the caret")
+
+    let confirming = KeyRoutingState(popup: .confirmShare)
+    check(route(36, confirming) == .swallow(.resolveConfirmation), "Return answers the share question")
+    check(route(48, confirming) == .swallow(.activate), "Tab answers the share question")
+    let message = KeyRoutingState(popup: .message)
+    check(route(48, message) == .pass(.followTyping(trackCaret: true)), "a message never takes Tab")
+
+    let dismissible = KeyRoutingState(transientOpen: true, popup: .suggestions)
+    check(route(53, dismissible) == .swallow(.dismissTransient), "Escape closes an open Lasso surface")
+    check(chord(53, .maskShift, dismissible) == .swallow(.dismissTransient), "Shift+Escape still closes it")
+    check(chord(53, .maskCommand, dismissible) == .pass(.escapePassed), "Command+Escape belongs to the host")
+
+    let choosing = KeyRoutingState(transientOpen: true, sourceChooserVisible: true, popup: .suggestions)
+    check(route(48, choosing) == .pass(nil) && route(0, choosing) == .pass(nil),
+          "the source chooser's search field owns its keys")
+    let sharing = KeyRoutingState(transientOpen: true, shareComposerInPopup: true, popup: .suggestions)
+    check(route(48, sharing) == .swallow(.shareConfirm) && route(36, sharing) == .swallow(.shareConfirm),
+          "Tab and Return confirm the share options")
+    check(chord(48, .maskShift, sharing) == .pass(nil), "Shift+Tab passes while sharing")
+    check(route(123, sharing) == .swallow(.shareScope(-1)) && route(125, sharing) == .swallow(.shareScope(1)),
+          "arrows change the share scope")
+    check(chord(36, .maskCommand, sharing) == .pass(nil) && route(0, sharing) == .pass(nil),
+          "modified keys and typing reach the host while sharing")
+
+    let box = KeyRoutingStateBox()
+    box.value = open
+    var seen: KeyRoutingState?
+    let read = DispatchSemaphore(value: 0)
+    Thread { seen = box.value; read.signal() }.start()
+    read.wait()
+    check(seen == open, "the tap thread reads the state the main thread published")
+
+    check(KeyEventLatency.milliseconds(eventTimestamp: 1_000_000_000, now: 1_250_000_000) == 250,
+          "keystroke delay is measured from the event's own timestamp")
+    check(KeyEventLatency.milliseconds(eventTimestamp: 0, now: 5_000_000) == nil,
+          "events without a timestamp are not measured")
+    check(KeyEventLatency.milliseconds(eventTimestamp: 9_000_000, now: 5_000_000) == nil,
+          "a timestamp from the future is ignored")
+    check(KeyEventLatency.milliseconds(eventTimestamp: 1, now: 60_000_000_000) == nil,
+          "an implausibly old timestamp from a different clock is ignored")
+}
+
+print("slow hosts cost one outstanding Accessibility read")
+do {
+    var gate = CoalescingGate()
+    check(gate.begin(), "the first read starts")
+    check(!gate.begin() && !gate.begin() && !gate.begin(), "reads requested while one runs wait")
+    check(gate.end(), "a single follow-up runs after the slow read, however many were requested")
+    check(gate.begin() && !gate.end(), "the follow-up leaves nothing pending")
+    check(gate.begin(), "an idle gate starts the next read")
+    _ = gate.end()
+    _ = gate.begin()
+    _ = gate.begin()
+    gate.dropPending()
+    check(!gate.end(), "dismissing the box drops a follow-up that would reopen it")
+}
+
+print("host accessibility mode")
+do {
+    check(!HostAccessibilityMode.needsEnhancedInterface(manualAccepted: true, chromiumBased: true),
+          "an app that accepts AXManualAccessibility never gets the enhanced flag")
+    check(HostAccessibilityMode.needsEnhancedInterface(manualAccepted: false, chromiumBased: true),
+          "a Chromium build that ignores AXManualAccessibility keeps the enhanced flag")
+    check(!HostAccessibilityMode.needsEnhancedInterface(manualAccepted: false, chromiumBased: false),
+          "native apps get neither flag")
+
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("lasso-chromium-\(UUID().uuidString)", isDirectory: true)
+    func bundle(_ name: String, framework: String, resource: String, versioned: Bool = false) -> URL {
+        let app = root.appendingPathComponent(name + ".app", isDirectory: true)
+        let frameworkURL = app.appendingPathComponent("Contents/Frameworks/\(framework).framework", isDirectory: true)
+        let resources = versioned
+            ? frameworkURL.appendingPathComponent("Versions/A/Resources", isDirectory: true)
+            : frameworkURL.appendingPathComponent("Resources", isDirectory: true)
+        try? FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: resources.appendingPathComponent(resource).path, contents: Data())
+        return app
+    }
+    let browser = bundle("Browser", framework: "Browser Framework", resource: "chrome_100_percent.pak")
+    let versioned = bundle("Versioned", framework: "Versioned Framework", resource: "chrome_100_percent.pak",
+                           versioned: true)
+    let native = bundle("Native", framework: "Sparkle", resource: "Info.plist")
+    check(HostAccessibilityMode.isChromiumBased(bundleURL: browser), "detects a Chromium framework bundle")
+    check(HostAccessibilityMode.isChromiumBased(bundleURL: versioned), "detects a versioned framework layout")
+    check(!HostAccessibilityMode.isChromiumBased(bundleURL: native), "a native app is not Chromium")
+    check(!HostAccessibilityMode.isChromiumBased(bundleURL: nil), "an app without a bundle is not Chromium")
+    try? FileManager.default.removeItem(at: root)
+
+    var writes: [(pid: pid_t, attribute: String, value: Bool)] = []
+    var manualResult = AXError.attributeUnsupported
+    var enhancedAlreadyOn = false
+    var chromium: Set<pid_t> = []
+    let suite = "lasso-tests-accessibility-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    func makeMode() -> HostAccessibilityMode {
+        HostAccessibilityMode(
+            setFlag: { element, attribute, value in
+                var pid: pid_t = 0
+                AXUIElementGetPid(element, &pid)
+                writes.append((pid, attribute, value))
+                return attribute == HostAccessibilityMode.manualAttribute ? manualResult : .success
+            },
+            readFlag: { _, _ in enhancedAlreadyOn },
+            chromiumBased: { chromium.contains($0) },
+            bundleIdentifier: { "com.example.app\($0)" },
+            defaults: defaults)
+    }
+    let mode = makeMode()
+    func enhancedWrites(_ pid: pid_t, _ value: Bool) -> Int {
+        writes.filter { $0.pid == pid && $0.attribute == HostAccessibilityMode.enhancedAttribute && $0.value == value }.count
+    }
+
+    _ = mode.prime(pid: 101, application: AXUIElementCreateApplication(101))
+    check(writes.count == 1 && writes[0].attribute == HostAccessibilityMode.manualAttribute,
+          "a native app is only asked for AXManualAccessibility")
+    check(mode.prime(pid: 101, application: AXUIElementCreateApplication(101)) == nil && writes.count == 1,
+          "an app is primed once")
+
+    manualResult = .success
+    chromium = [202, 303, 404]
+    _ = mode.prime(pid: 202, application: AXUIElementCreateApplication(202))
+    check(enhancedWrites(202, true) == 0, "an Electron app that accepts the manual flag is left alone")
+
+    manualResult = .attributeUnsupported
+    _ = mode.prime(pid: 303, application: AXUIElementCreateApplication(303))
+    check(enhancedWrites(303, true) == 1, "Chromium that needs it gets AXEnhancedUserInterface")
+    enhancedAlreadyOn = true
+    _ = mode.prime(pid: 404, application: AXUIElementCreateApplication(404))
+    check(enhancedWrites(404, true) == 0, "an enhanced flag set by VoiceOver or another tool is not taken over")
+
+    check(mode.restoreAll() == 1 && enhancedWrites(303, false) == 1 && enhancedWrites(404, false) == 0,
+          "turning suggestions off reverts only the flag Lasso set")
+    check(mode.restoreAll() == 0 && enhancedWrites(303, false) == 1, "reverting twice writes nothing more")
+    enhancedAlreadyOn = false
+    _ = mode.prime(pid: 303, application: AXUIElementCreateApplication(303))
+    check(enhancedWrites(303, true) == 2, "the next enable primes the app again")
+    mode.forget(pid: 303)
+    check(mode.restoreAll() == 0, "a quit app is not written to")
+
+    // Lasso quits or crashes before it can turn the flag off again.
+    enhancedAlreadyOn = false
+    chromium = [505]
+    _ = makeMode().prime(pid: 505, application: AXUIElementCreateApplication(505))
+    enhancedAlreadyOn = true
+    let relaunched = makeMode()
+    _ = relaunched.prime(pid: 505, application: AXUIElementCreateApplication(505))
+    check(relaunched.restoreAll() == 1 && enhancedWrites(505, false) == 1,
+          "a flag a previous run of Lasso set and never reverted is still Lasso's to revert")
+    _ = makeMode().prime(pid: 505, application: AXUIElementCreateApplication(505))
+    check(makeMode().restoreAll() == 0, "once reverted, a flag found on again belongs to someone else")
+    defaults.removePersistentDomain(forName: suite)
+}
+
+print("highlight geometry is reused while text, frame and caret are unchanged")
+do {
+    let element = AXUIElementCreateApplication(getpid())
+    let frame = CGRect(x: 100, y: 200, width: 400, height: 300)
+    let window = CGRect(x: 80, y: 120, width: 600, height: 500)
+    let caret = CGRect(x: 180, y: 220, width: 1, height: 16)
+    func snapshot(text: String = "Office supplies cost $400", element: AXUIElement = element,
+                  frame: CGRect? = frame, caret: CGRect? = caret) -> HighlightGeometrySnapshot {
+        HighlightGeometrySnapshot(element: element, text: text, elementFrame: frame, windowFrame: window, caret: caret)
+    }
+    var cache = HighlightGeometryCache()
+    var measured = 0
+    func measure(_ range: Range<Int>) -> [CGRect] {
+        measured += 1
+        return [CGRect(x: CGFloat(100 + range.lowerBound * 7), y: 220, width: CGFloat(range.count * 7), height: 16)]
+    }
+    let first = cache.rects(for: 0..<6, in: snapshot(), measure: measure)
+    let again = cache.rects(for: 0..<6, in: snapshot(), measure: measure)
+    check(measured == 1 && first == again, "an unchanged layout is measured once")
+    _ = cache.rects(for: 7..<15, in: snapshot(), measure: measure)
+    check(measured == 2, "each reference is measured once per layout")
+    _ = cache.rects(for: 0..<6, in: snapshot(caret: caret.offsetBy(dx: 0, dy: -40)), measure: measure)
+    check(measured == 3, "a moved caret (scrolling) measures again")
+    _ = cache.rects(for: 0..<6, in: snapshot(text: "Office supplies cost $450"), measure: measure)
+    check(measured == 4, "an edit measures again")
+    _ = cache.rects(for: 0..<6, in: snapshot(frame: frame.offsetBy(dx: 20, dy: 0)), measure: measure)
+    check(measured == 5, "a moved or resized editor measures again")
+    _ = cache.rects(for: 0..<6, in: snapshot(element: AXUIElementCreateApplication(1)), measure: measure)
+    check(measured == 6, "another editor measures again")
+    _ = cache.rects(for: 0..<6, in: snapshot(caret: nil), measure: measure)
+    _ = cache.rects(for: 0..<6, in: snapshot(caret: nil), measure: measure)
+    check(measured == 8, "without a caret to detect scrolling nothing is reused")
+    var failing = 0
+    _ = cache.rects(for: 2..<4, in: snapshot()) { _ in failing += 1; return [] }
+    _ = cache.rects(for: 2..<4, in: snapshot()) { _ in failing += 1; return [] }
+    check(failing == 2, "missing geometry is retried rather than remembered")
+    var slow = 0
+    let slowFirst = cache.rects(for: 9..<14, in: snapshot()) { _ in slow += 1; return nil }
+    let slowSecond = cache.rects(for: 9..<14, in: snapshot()) { _ in slow += 1; return nil }
+    check(slow == 1 && slowFirst.isEmpty && slowSecond.isEmpty,
+          "a phrase too slow to measure is not walked again for the same layout")
+    _ = cache.rects(for: 9..<14, in: snapshot(caret: caret.offsetBy(dx: 7, dy: 0))) { _ in slow += 1; return nil }
+    check(slow == 2, "a new layout tries the slow phrase again")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

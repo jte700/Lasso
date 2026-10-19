@@ -221,12 +221,11 @@ enum AssistLog {
     }
 }
 
+/// Reads run on `AccessibilityWork.queue`, except the one-off checks made while
+/// inserting an accepted suggestion, which still run on the main thread.
 enum AccessibilityReader {
     private static let excludedRoles: Set<String> = ["AXSecureTextField"]
     private static let maxContext = 1200
-    /// Electron and other Chromium shells only publish an accessibility tree
-    /// once a client asks for it.
-    private static var primedApplications = Set<pid_t>()
 
     private static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
         var value: CFTypeRef?
@@ -241,11 +240,9 @@ enum AccessibilityReader {
             let pid = front.processIdentifier
             let application = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(application, 0.4)
-            if !primedApplications.contains(pid) {
-                primedApplications.insert(pid)
-                // Electron shells respond to the first, Chromium to the second.
-                AXUIElementSetAttributeValue(application, "AXManualAccessibility" as CFString, kCFBooleanTrue)
-                AXUIElementSetAttributeValue(application, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+            // Electron and Chromium publish their tree only once a client asks.
+            if let mode = HostAccessibilityMode.shared.prime(pid: pid, application: application) {
+                AssistLog.write("\(front.localizedName ?? "?"): \(mode)")
             }
             if let focused = attribute(application, kAXFocusedUIElementAttribute as String),
                CFGetTypeID(focused) == AXUIElementGetTypeID() {
@@ -334,9 +331,10 @@ enum AccessibilityReader {
         var route = rect == nil ? "range?" : "range"
 
         // Markers answer for web content, and often give a caret rectangle even
-        // where the character-range path already produced text.
+        // where the character-range path already produced text. Text is only
+        // fetched through markers when the range path had none.
         if window == nil || rect == nil {
-            if let reading = WebTextReader.read(from: field) {
+            if let reading = WebTextReader.read(from: field, includeText: window == nil) {
                 if window == nil, let markerText = reading.textBeforeCaret {
                     window = markerText
                     windowStart = reading.textWindowStart ?? -1
@@ -434,10 +432,13 @@ enum AccessibilityReader {
     /// Logged once per app+role: exactly which attributes the focused element
     /// offers. This is what turns "it does not work here" into a fix.
     private static var described = Set<String>()
+    private static let describedLock = NSLock()
     private static func describeUnreadable(_ element: AXUIElement, app: String, role: String) {
         let key = "\(app)/\(role)"
-        guard !described.contains(key) else { return }
-        described.insert(key)
+        describedLock.lock()
+        let first = described.insert(key).inserted
+        describedLock.unlock()
+        guard first else { return }
 
         var names: CFArray?
         var parameterized: CFArray?
@@ -1451,8 +1452,10 @@ final class GlobalAssistant {
         projectIds = []
     }
 
-    private var tap: CFMachPort?
-    private var runLoopSource: CFRunLoopSource?
+    private var keyTap: KeyEventTap?
+    /// Publishes the routing snapshot whenever the main thread goes idle.
+    private var routingObserver: CFRunLoopObserver?
+    private var terminationObserver: NSObjectProtocol?
     private var panel: NSPanel?
     private var view = AssistBoxView()
     private var debounce: Timer?
@@ -1469,7 +1472,9 @@ final class GlobalAssistant {
     /// The tap exists but no key has arrived for a while. With Input
     /// Monitoring also missing, that means macOS is withholding keystrokes.
     private(set) var isAwaitingInput = false
-    private var isInserting = false
+    private var isInserting = false {
+        didSet { publishKeyRouting() }
+    }
     private var pendingShare: AssistSuggestion?
     /// Sources linked in the current surface, newest last. Reported to the
     /// server so it can offer their values instead of matching the same phrase.
@@ -1485,12 +1490,20 @@ final class GlobalAssistant {
     private var flashTimer: Timer?
     private static let minimumTypedCharacters = 2
     private static let minimumMessageTime: TimeInterval = 0.8
+    private static let restoreWait: TimeInterval = 1
     private var messageShownAt = Date.distantPast
     private var lastTrack = Date.distantPast
     private var popupHost: AssistPopupHost?
     private var popupCaret: CGRect?
+    /// Changes whenever the tracked editor changes or tracking stops, so a
+    /// caret read for an earlier editor is never applied.
+    private var hostGeneration = 0
     private var hostTimer: Timer?
     private var hostObservers: [NSObjectProtocol] = []
+    private var contextReads = CoalescingGate()
+    private var hostReads = CoalescingGate()
+    /// The generation a box or message is being measured for, until it shows.
+    private var measuringFor: Int?
 
     var onStateChange: (() -> Void)?
     var onWorkspaceChange: (() -> Void)?
@@ -1527,18 +1540,13 @@ final class GlobalAssistant {
         // with Accessibility alone. Ask for it only if the tap actually fails.
         lastProblem = nil
 
-        let mask = (1 << CGEventType.keyDown.rawValue)
-        guard let created = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: CGEventMask(mask),
-            callback: { _, type, event, refcon in
-                guard let refcon else { return Unmanaged.passUnretained(event) }
-                let assistant = Unmanaged<GlobalAssistant>.fromOpaque(refcon).takeUnretainedValue()
-                return assistant.handle(type: type, event: event)
-            },
-            userInfo: Unmanaged.passUnretained(self).toOpaque()) else {
+        let created = KeyEventTap(
+            perform: { [weak self] action in self?.perform(action) },
+            onFirstKey: { [weak self] in self?.firstKeyArrived() },
+            onLateKey: { milliseconds in
+                AssistLog.write("keystroke reached Lasso \(Int(milliseconds)) ms after it was typed")
+            })
+        guard created.start() else {
             AssistLog.write("tap creation failed (accessibility=\(accessibility) inputMonitoring=\(input))")
             if !input && requestPermissions { AssistPermission.requestInputMonitoring() }
             lastProblem = PermissionProblem(service: "Input Monitoring",
@@ -1547,13 +1555,17 @@ final class GlobalAssistant {
             return "The keyboard tap could not be created.\n\nTurn on Lasso under Privacy & Security → Input Monitoring. Approval for an earlier ad-hoc build may no longer apply. If needed, remove the old entry with “−” and add the current app with “+”."
         }
 
-        tap = created
-        runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, created, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
-        CGEvent.tapEnable(tap: created, enable: true)
+        keyTap = created
+        observeMainThreadIdle()
+        terminationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { note in
+                guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+                HostAccessibilityMode.shared.forget(pid: app.processIdentifier)
+            }
         AssistPermission.rememberTrusted()
         isEnabled = true
         sawEvent = false
+        publishKeyRouting()
         AssistLog.write("tap created and listening")
         // If nothing arrives the tap exists but is not receiving; that is the
         // real signal that Input Monitoring is required.
@@ -1569,10 +1581,23 @@ final class GlobalAssistant {
 
     func disable() {
         hide()
-        if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
-        if let runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes) }
-        tap = nil
-        runLoopSource = nil
+        keyTap?.stop()
+        keyTap = nil
+        if let routingObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), routingObserver, .commonModes) }
+        routingObserver = nil
+        if let terminationObserver { NSWorkspace.shared.notificationCenter.removeObserver(terminationObserver) }
+        terminationObserver = nil
+        // Queued behind any read still running, so that read cannot prime an
+        // app again afterwards. Waited for because this also runs as Lasso
+        // quits, but never longer than a hung host could make quitting take.
+        let restored = DispatchSemaphore(value: 0)
+        AccessibilityWork.queue.async {
+            HostAccessibilityMode.shared.restoreAll()
+            restored.signal()
+        }
+        if restored.wait(timeout: .now() + Self.restoreWait) == .timedOut {
+            AssistLog.write("accessibility mode: still restoring after \(Self.restoreWait)s")
+        }
         isEnabled = false
         isAwaitingInput = false
         onStateChange?()
@@ -1580,114 +1605,82 @@ final class GlobalAssistant {
 
     // MARK: Event handling
 
-    private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
-            return Unmanaged.passUnretained(event)
-        }
-        guard type == .keyDown else { return Unmanaged.passUnretained(event) }
-        if !sawEvent {
-            sawEvent = true
-            AssistLog.write("first key event received")
-            if isAwaitingInput {
-                isAwaitingInput = false
-                DispatchQueue.main.async { self.onStateChange?() }
+    /// Keys are routed on the tap's own thread from this snapshot, so it is
+    /// republished after every change the main thread makes. A run loop
+    /// observer covers the surfaces this class does not own.
+    private func observeMainThreadIdle() {
+        guard routingObserver == nil else { return }
+        let observer = CFRunLoopObserverCreateWithHandler(
+            kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, 0) { [weak self] _, _ in
+                self?.publishKeyRouting()
+            }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        routingObserver = observer
+    }
+
+    private func currentKeyRouting() -> KeyRoutingState {
+        let popup: KeyRoutingState.Popup
+        if panel?.isVisible != true {
+            popup = .hidden
+        } else {
+            switch view.mode {
+            case .suggestions: popup = .suggestions
+            case .confirmShare: popup = .confirmShare
+            case .message: popup = .message
             }
         }
+        let composer = ShareComposerController.shared
+        return KeyRoutingState(
+            isInserting: isInserting,
+            transientOpen: LassoTransientUI.shared.hasOpenSurface,
+            sourceChooserVisible: SourceChooserController.shared.isVisible,
+            shareComposerInPopup: composer.isVisible && composer.isPresented(in: panel),
+            popup: popup)
+    }
 
-        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        let visible = panel?.isVisible == true
+    private func publishKeyRouting() {
+        keyTap?.state.value = currentKeyRouting()
+    }
 
-        // Our own synthesized keys are not the user typing.
-        if isInserting
-            || event.getIntegerValueField(.eventSourceUserData) == SyntheticKeyboard.marker {
-            return Unmanaged.passUnretained(event)
-        }
+    private func firstKeyArrived() {
+        sawEvent = true
+        AssistLog.write("first key event received")
+        guard isAwaitingInput else { return }
+        isAwaitingInput = false
+        onStateChange?()
+    }
 
-        let flags = event.flags
-        if keyCode == 53, flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty,
-           LassoTransientUI.shared.dismissAll() {
-            return nil
+    /// What a key asked of Lasso, run on the main thread after the tap has
+    /// already passed or swallowed it.
+    private func perform(_ action: KeyAction) {
+        switch action {
+        case .dismissTransient:
+            LassoTransientUI.shared.dismissAll()
+        case .escapePassed:
+            // A prediction or presentation already pending is dropped, so it
+            // cannot reopen the menu the user just dismissed.
+            if debounce != nil || request != nil || popupHost != nil || measuringFor == generation { hide() }
+        case .hide:
+            hide()
+        case .followTyping(let trackCaret):
+            if trackCaret { self.trackCaret() }
+            scheduleRefresh()
+        case .activate:
+            if view.mode == .confirmShare { resolveConfirmation() } else { activateSelection() }
+        case .acceptPlain:
+            acceptPlain()
+        case .acceptShared:
+            acceptShared()
+        case .resolveConfirmation:
+            resolveConfirmation()
+        case .move(let delta):
+            move(delta)
+        case .shareConfirm:
+            ShareComposerController.shared.confirm()
+        case .shareScope(let delta):
+            ShareComposerController.shared.moveScope(delta)
         }
-        // Native search controls own their keystrokes while the picker is open.
-        if SourceChooserController.shared.isVisible { return Unmanaged.passUnretained(event) }
-        if ShareComposerController.shared.isVisible,
-           ShareComposerController.shared.isPresented(in: panel) {
-            guard flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty else {
-                return Unmanaged.passUnretained(event)
-            }
-            switch keyCode {
-            case 48 where flags.contains(.maskShift):
-                return Unmanaged.passUnretained(event)
-            case 48, 36, 76:
-                DispatchQueue.main.async { ShareComposerController.shared.confirm() }
-            case 123, 126:
-                DispatchQueue.main.async { ShareComposerController.shared.moveScope(-1) }
-            case 124, 125:
-                DispatchQueue.main.async { ShareComposerController.shared.moveScope(1) }
-            default:
-                return Unmanaged.passUnretained(event)
-            }
-            return nil
-        }
-        // Escape with nothing open belongs to the host, and must not schedule
-        // a new prediction that would reopen the just-dismissed menu. A
-        // prediction already pending is dropped for the same reason.
-        if keyCode == 53 {
-            if debounce != nil || request != nil || popupHost != nil { hide() }
-            return Unmanaged.passUnretained(event)
-        }
-        // Shift+Tab leaves the field, Control+Tab switches tabs, and modified
-        // arrows move or select text. Only the bare keys belong to the box.
-        let chord = !flags.intersection([.maskShift, .maskCommand, .maskControl, .maskAlternate]).isEmpty
-        if visible && view.mode != .message {
-            switch keyCode {
-            case 48 where chord, 125 where chord, 126 where chord:
-                DispatchQueue.main.async { self.hide() }
-                return Unmanaged.passUnretained(event)
-            case 48:                                    // Tab
-                DispatchQueue.main.async {
-                    if self.view.mode == .confirmShare { self.resolveConfirmation() }
-                    else { self.activateSelection() }
-                }
-                return nil                              // swallow: do not insert a tab
-            case 36, 76:                                // Return / Enter
-                if flags.contains(.maskCommand) {
-                    if flags.contains(.maskShift) {
-                        DispatchQueue.main.async { self.acceptShared() }
-                    } else {
-                        DispatchQueue.main.async { self.acceptPlain() }
-                    }
-                    return nil
-                }
-                if view.mode == .confirmShare {
-                    DispatchQueue.main.async { self.resolveConfirmation() }
-                    return nil
-                }
-            case 126:                                   // Up
-                DispatchQueue.main.async { self.move(-1) }
-                return nil
-            case 125:                                   // Down
-                DispatchQueue.main.async { self.move(1) }
-                return nil
-            default:
-                break
-            }
-        }
-
-        // Other modifier chords are shortcuts, not typing.
-        if flags.contains(.maskCommand) || flags.contains(.maskControl) {
-            DispatchQueue.main.async { self.hide() }
-            return Unmanaged.passUnretained(event)
-        }
-
-        DispatchQueue.main.async {
-            // The debounce below only fires once typing pauses, so the box is
-            // moved here instead — otherwise it lags behind continuous typing.
-            if visible { self.trackCaret() }
-            self.scheduleRefresh()
-        }
-        return Unmanaged.passUnretained(event)
+        publishKeyRouting()
     }
 
     // MARK: Suggestion flow
@@ -1710,7 +1703,7 @@ final class GlobalAssistant {
                   self.projectIds.contains(projectId) else {
                 self.view.selected = previousSelection
                 self.view.sourceScoped = previousScope
-                self.show(previous, near: savedContext.caretRect)
+                self.showMeasuringHost(previous)
                 return
             }
             let label = object["label"] as? String ?? "Source"
@@ -1725,7 +1718,7 @@ final class GlobalAssistant {
                 projectId: projectId, rankingReason: nil)
             self.view.selected = 0
             self.view.sourceScoped = true
-            self.show([suggestion], near: savedContext.caretRect)
+            self.showMeasuringHost([suggestion])
         }
     }
 
@@ -1759,14 +1752,63 @@ final class GlobalAssistant {
         }
     }
 
+    /// The focused editor, read off the main thread. `host` and `caret` are
+    /// only measured once enough has been typed to ask for suggestions.
+    private struct HostReading {
+        let context: CaretContext?
+        let host: AssistPopupHost?
+        let caret: CGRect?
+    }
+
+    private static func trimmedLength(_ context: CaretContext) -> Int {
+        context.text.trimmingCharacters(in: .whitespacesAndNewlines).count
+    }
+
+    /// Accessibility queue only.
+    private static func readHost(reusing previous: AssistPopupHost?) -> HostReading {
+        guard let context = AccessibilityReader.focusedContext() else {
+            return HostReading(context: nil, host: nil, caret: nil)
+        }
+        guard trimmedLength(context) >= minimumTypedCharacters else {
+            return HostReading(context: context, host: nil, caret: nil)
+        }
+        let host = popupHost(for: context.element, reusing: previous)
+        // The caret was measured with the context a moment ago.
+        let caret = host?.visibleCaret(using: { _ in context.caretRect })
+        return HostReading(context: context, host: host, caret: caret)
+    }
+
+    /// Accessibility queue only.
+    private static func popupHost(for element: AXUIElement, reusing previous: AssistPopupHost?) -> AssistPopupHost? {
+        if let previous, CFEqual(previous.element, element) { return previous }
+        return AssistPopupHost(element: element)
+    }
+
     private func refresh() {
-        guard isEnabled, let serverURL, !projectIds.isEmpty else { hide(); return }
-        guard let captured = AccessibilityReader.focusedContext() else { hide(); return }
-        let trimmed = captured.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isEnabled, serverURL != nil, !projectIds.isEmpty else { hide(); return }
+        // One read at a time: a slow host must not pile up reads behind it.
+        guard contextReads.begin() else { return }
+        let token = generation
+        let previous = popupHost
+        AccessibilityWork.queue.async { [weak self] in
+            let reading = Self.readHost(reusing: previous)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let again = self.contextReads.end()
+                // Typing, Escape or a hide since the read began make it stale.
+                if token == self.generation { self.didReadHost(reading) }
+                if again { self.refresh() }
+            }
+        }
+    }
+
+    private func didReadHost(_ reading: HostReading) {
+        guard isEnabled, let serverURL, !projectIds.isEmpty,
+              let captured = reading.context else { hide(); return }
         // Two characters are enough to ask, so the first word of an empty
         // field ("Re" → Revenue) is not skipped. The server decides whether
         // the typed fragment is long enough to match.
-        guard trimmed.count >= Self.minimumTypedCharacters else { hide(); return }
+        guard Self.trimmedLength(captured) >= Self.minimumTypedCharacters else { hide(); return }
         if let host = popupHost, !CFEqual(host.element, captured.element) { hide() }
         // Linked sources belong to one surface only.
         if linkedContext != captured.diagnosis || linkedElement.map({ !CFEqual($0, captured.element) }) != false {
@@ -1775,11 +1817,15 @@ final class GlobalAssistant {
             linkedSources.removeAll()
         }
         context = captured
-        guard startTrackingHost(for: captured) else { hide(); return }
+        guard let host = reading.host, let caret = reading.caret else { hide(); return }
+        adoptHost(host, caret: caret)
         // Track the caret straight away. Waiting for the response would leave
         // the box behind whenever fast typing cancels requests.
         if panel?.isVisible == true, view.mode == .suggestions { reposition(near: popupCaret) }
+        requestPrediction(for: captured, serverURL: serverURL)
+    }
 
+    private func requestPrediction(for captured: CaretContext, serverURL: URL) {
         generation += 1
         let token = generation
         request?.cancel()
@@ -1854,19 +1900,30 @@ final class GlobalAssistant {
 
     /// A response may arrive after Escape, an edit, or a window closing. Only
     /// deliver to the same still-current editor, using its current caret bounds.
+    /// The editor is checked off the main thread; typing meanwhile drops it.
     private func deliverPrediction(_ suggestions: [AssistSuggestion], heading: String?, sourceScoped: Bool,
                                    captured: CaretContext, token: Int) {
         guard token == generation, isEnabled else { return }
         request = nil
-        guard popupHost?.isCurrent == true,
-              let fresh = AccessibilityReader.focusedContext(), CFEqual(fresh.element, captured.element),
-              fresh.text == captured.text, fresh.absoluteCaret == captured.absoluteCaret,
-              fresh.windowStart == captured.windowStart else { hide(); return }
-        guard !suggestions.isEmpty else { hide(); return }
-        context = fresh
-        view.sourceScoped = sourceScoped
-        view.title = heading ?? "dependency"
-        show(suggestions, near: fresh.caretRect)
+        guard !suggestions.isEmpty, let host = popupHost else { hide(); return }
+        AccessibilityWork.queue.async { [weak self] in
+            var current: (context: CaretContext, caret: CGRect)?
+            if host.isCurrent, let fresh = AccessibilityReader.focusedContext(),
+               CFEqual(fresh.element, captured.element), fresh.text == captured.text,
+               fresh.absoluteCaret == captured.absoluteCaret, fresh.windowStart == captured.windowStart,
+               let caret = host.caretIfVisible(fresh.caretRect) {
+                current = (fresh, caret)
+            }
+            DispatchQueue.main.async {
+                guard let self, token == self.generation, self.isEnabled else { return }
+                guard let current else { self.hide(); return }
+                self.context = current.context
+                self.adoptHost(host, caret: current.caret)
+                self.view.sourceScoped = sourceScoped
+                self.view.title = heading ?? "dependency"
+                self.show(suggestions)
+            }
+        }
     }
 
     /// What the server is offering: "Values for Office Supplies" once a source
@@ -2399,7 +2456,8 @@ final class GlobalAssistant {
         isEnabled = true
         context = captured
         view.sourceScoped = true
-        show([regressionSuggestion], near: captured.caretRect)
+        guard regressionMeasureHost(for: captured) else { return false }
+        show([regressionSuggestion])
         panel?.contentView?.layoutSubtreeIfNeeded()
         return panel?.isVisible == true
     }
@@ -2437,8 +2495,23 @@ final class GlobalAssistant {
     }
 
     func regressionKey(_ keyCode: Int) {
-        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(keyCode), keyDown: true) else { return }
-        _ = handle(type: .keyDown, event: event)
+        switch KeyRouter.decide(keyCode: Int64(keyCode), flags: [], synthetic: false, state: currentKeyRouting()) {
+        case .pass(let action): if let action { perform(action) }
+        case .swallow(let action): perform(action)
+        }
+    }
+
+    /// The test harness expects the popup at once, so it waits for the read.
+    private func regressionMeasureHost(for context: CaretContext) -> Bool {
+        let previous = popupHost
+        let measured = AccessibilityWork.queue.sync { () -> (AssistPopupHost, CGRect)? in
+            guard let host = Self.popupHost(for: context.element, reusing: previous),
+                  let caret = host.visibleCaret(using: AccessibilityReader.caretRect(of:)) else { return nil }
+            return (host, caret)
+        }
+        guard let measured else { return false }
+        adoptHost(measured.0, caret: measured.1)
+        return true
     }
 
     func regressionClosePopup() { view.closeButton.performClick(nil) }
@@ -2448,7 +2521,7 @@ final class GlobalAssistant {
         guard let captured = AccessibilityReader.focusedContext() else { return }
         isEnabled = true
         context = captured
-        guard startTrackingHost(for: captured) else { return }
+        guard regressionMeasureHost(for: captured) else { return }
         let token = generation
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
             guard let self else { return }
@@ -2531,10 +2604,12 @@ final class GlobalAssistant {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    private func show(_ suggestions: [AssistSuggestion], near caret: CGRect?) {
+    /// Shows suggestions for the host whose caret was last measured. Never
+    /// reads the host itself.
+    private func show(_ suggestions: [AssistSuggestion]) {
         feedbackDismissed = false
         guard view.mode == .suggestions else { return }
-        guard let context, startTrackingHost(for: context), let liveCaret = popupCaret else { hide(); return }
+        guard context != nil, popupHost != nil, let liveCaret = popupCaret else { hide(); return }
         let panel = existingPanel()
         view.suggestions = suggestions
         view.selected = min(view.selected, max(0, suggestions.count - 1))
@@ -2546,6 +2621,32 @@ final class GlobalAssistant {
         let mainFrame = anchoredFrame(for: liveCaret, size: size)
         panel.setFrame(mainFrame, display: true)
         panel.orderFrontRegardless()
+        publishKeyRouting()
+    }
+
+    private func showMeasuringHost(_ suggestions: [AssistSuggestion]) {
+        guard let context else { hide(); return }
+        measureHost(for: context) { [weak self] in self?.show(suggestions) }
+    }
+
+    /// Measures the editor's caret off the main thread, then presents on the
+    /// main thread unless anything newer happened meanwhile.
+    private func measureHost(for context: CaretContext, then present: @escaping () -> Void) {
+        let token = generation
+        let previous = popupHost
+        measuringFor = token
+        AccessibilityWork.queue.async { [weak self] in
+            let host = Self.popupHost(for: context.element, reusing: previous)
+            let caret = host?.visibleCaret(using: AccessibilityReader.caretRect(of:))
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if self.measuringFor == token { self.measuringFor = nil }
+                guard token == self.generation else { return }
+                guard let host, let caret else { self.hide(); return }
+                self.adoptHost(host, caret: caret)
+                present()
+            }
+        }
     }
 
     /// Moves an already-visible box to follow the caret.
@@ -2559,13 +2660,11 @@ final class GlobalAssistant {
         updateHostPosition()
     }
 
-    @discardableResult
-    private func startTrackingHost(for context: CaretContext) -> Bool {
-        if popupHost == nil || !CFEqual(popupHost!.element, context.element) {
-            popupHost = AssistPopupHost(element: context.element)
-        }
-        guard let rect = popupHost?.visibleCaret(using: AccessibilityReader.caretRect(of:)) else { return false }
-        popupCaret = rect
+    /// Follows an editor measured off the main thread.
+    private func adoptHost(_ host: AssistPopupHost, caret: CGRect) {
+        if popupHost.map({ !CFEqual($0.element, host.element) }) ?? true { hostGeneration += 1 }
+        popupHost = host
+        popupCaret = caret
         if hostTimer == nil {
             let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.updateHostPosition() }
             timer.tolerance = 0.02
@@ -2580,18 +2679,34 @@ final class GlobalAssistant {
                 })
             }
         }
-        return true
     }
 
+    /// Reads the caret off the main thread. While a slow host is still
+    /// answering, later ticks wait for it instead of queueing behind it.
     private func updateHostPosition() {
-        guard let host = popupHost else { return }
-        guard let rect = host.visibleCaret(using: AccessibilityReader.caretRect(of:)) else { hide(); return }
+        guard let host = popupHost, hostReads.begin() else { return }
+        let token = hostGeneration
+        AccessibilityWork.queue.async { [weak self] in
+            let rect = host.visibleCaret(using: AccessibilityReader.caretRect(of:))
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let again = self.hostReads.end()
+                if token == self.hostGeneration { self.followHost(to: rect) }
+                if again { self.updateHostPosition() }
+            }
+        }
+    }
+
+    private func followHost(to rect: CGRect?) {
+        guard let rect else { hide(); return }
         guard rect != popupCaret else { return }
         popupCaret = rect
         reposition(near: rect)
     }
 
     private func stopTrackingHost() {
+        hostGeneration += 1
+        hostReads.dropPending()
         hostTimer?.invalidate()
         hostTimer = nil
         let center = NSWorkspace.shared.notificationCenter
@@ -2736,6 +2851,7 @@ final class GlobalAssistant {
         view.confirmChoices = ["Plain text", "Share link…"]
         view.selected = 0
         refreshPanelGeometry()
+        publishKeyRouting()
     }
 
     private func resolveConfirmation() {
@@ -2787,7 +2903,7 @@ final class GlobalAssistant {
                 self.view.mode = .suggestions
                 self.view.selected = savedSelection
                 self.view.sourceScoped = savedScope
-                self.show(self.view.suggestions, near: self.context?.caretRect)
+                self.showMeasuringHost(self.view.suggestions)
             }
         ) { [weak self] configuration in
             self?.insertShared(suggestion, configuration: configuration, context: savedContext, serverURL: serverURL)
@@ -2919,7 +3035,7 @@ final class GlobalAssistant {
                 label: suggestion.label, valueText: suggestion.detail,
                 sourcePath: suggestion.path, sourceLocation: suggestion.detail,
                 document: afterUnits, range: sourceRange,
-                documentOffset: after.windowStart)
+                documentOffset: after.windowStart, element: element)
         }
     }
 
@@ -3027,10 +3143,17 @@ final class GlobalAssistant {
 
     // MARK: Feedback
 
-    /// Brief, non-modal confirmation drawn in the same terminal box.
+    /// Brief, non-modal confirmation drawn in the same terminal box, once the
+    /// editor's caret has been measured. Supersedes any pending suggestion.
     private func flash(_ lines: [String], seconds: TimeInterval = 2.2) {
         guard !feedbackDismissed else { return }
-        guard let context, startTrackingHost(for: context) else { hide(); return }
+        guard let context else { hide(); return }
+        generation += 1
+        measureHost(for: context) { [weak self] in self?.showMessage(lines, seconds: seconds) }
+    }
+
+    private func showMessage(_ lines: [String], seconds: TimeInterval) {
+        guard !feedbackDismissed else { return }
         let panel = existingPanel()
         view.mode = .message
         messageShownAt = Date()
@@ -3042,6 +3165,7 @@ final class GlobalAssistant {
         flashTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
             self?.hide()
         }
+        publishKeyRouting()
     }
 
     private func refreshPanelGeometry() {
@@ -3084,6 +3208,7 @@ final class GlobalAssistant {
 
     func hide() {
         generation += 1
+        contextReads.dropPending()
         if ShareComposerController.shared.isPresented(in: panel) { ShareComposerController.shared.hide() }
         stopTrackingHost()
         debounce?.invalidate()
@@ -3103,5 +3228,6 @@ final class GlobalAssistant {
         view.sourceScoped = false
         pendingShare = nil
         panel?.orderOut(nil)
+        publishKeyRouting()
     }
 }
