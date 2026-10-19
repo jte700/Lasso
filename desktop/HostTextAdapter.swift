@@ -29,6 +29,59 @@ struct HostContext: Equatable {
     }
 }
 
+/// Everything a measured highlight rectangle depends on. Scrolling moves the
+/// caret with the text, so an unchanged caret rectangle means an unchanged view.
+struct HighlightGeometrySnapshot: Equatable {
+    let element: AXUIElement
+    let text: String
+    let elementFrame: CGRect?
+    let windowFrame: CGRect?
+    let caret: CGRect?
+
+    static func == (left: HighlightGeometrySnapshot, right: HighlightGeometrySnapshot) -> Bool {
+        CFEqual(left.element, right.element) && left.text == right.text
+            && left.elementFrame == right.elementFrame && left.windowFrame == right.windowFrame
+            && left.caret == right.caret
+    }
+}
+
+/// Measured highlight rectangles for one layout of one editor. Measuring a
+/// wrapped phrase can take hundreds of Accessibility calls, so each reference
+/// is measured once per layout instead of on every refresh.
+struct HighlightGeometryCache {
+    private var snapshot: HighlightGeometrySnapshot?
+    private var measured: [Range<Int>: [CGRect]] = [:]
+
+    /// `measure` returns nil when the host was too slow to measure the phrase
+    /// in time. That is remembered for this layout, so a slow host is not
+    /// walked again on every refresh; an empty result is retried.
+    mutating func rects(for range: Range<Int>, in snapshot: HighlightGeometrySnapshot,
+                        measure: (Range<Int>) -> [CGRect]?) -> [CGRect] {
+        // Without a caret or frame, a scroll cannot be told apart from no change.
+        guard snapshot.caret != nil, snapshot.elementFrame != nil else {
+            clear()
+            return measure(range) ?? []
+        }
+        if self.snapshot != snapshot {
+            self.snapshot = snapshot
+            measured = [:]
+        }
+        if let cached = measured[range] { return cached }
+        guard let rects = measure(range) else {
+            measured[range] = []
+            return []
+        }
+        // A host can miss a measurement under load; try again next time.
+        if !rects.isEmpty { measured[range] = rects }
+        return rects
+    }
+
+    mutating func clear() {
+        snapshot = nil
+        measured = [:]
+    }
+}
+
 protocol HostTextAdapter {
     /// The focused text surface, or nil when nothing is being edited.
     func focusedContext() -> HostContext?
@@ -42,6 +95,11 @@ protocol HostTextAdapter {
 /// The general implementation, built on the same Accessibility reads the typing
 /// assistant already uses.
 final class AccessibilityTextAdapter: HostTextAdapter {
+    static let messagingTimeout: Float = 0.4
+    /// A wrapped phrase is split into lines one character at a time. A slow
+    /// host gets this long before the phrase is left unmeasured for this layout.
+    private static let characterWalkBudget: TimeInterval = 1
+
     // Each refresh reads one host snapshot and shares its expensive fallback
     // layout across every dependency. Never retain layouts across host changes.
     private var cachedElement: AXUIElement?
@@ -81,10 +139,11 @@ final class AccessibilityTextAdapter: HostTextAdapter {
         guard let application = NSWorkspace.shared.frontmostApplication,
               let bundle = application.bundleIdentifier else { return nil }
         let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
-        AXUIElementSetMessagingTimeout(applicationElement, 0.4)
+        AXUIElementSetMessagingTimeout(applicationElement, Self.messagingTimeout)
         guard let focused = attribute(applicationElement, kAXFocusedUIElementAttribute as String),
               CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
         let element = focused as! AXUIElement
+        AXUIElementSetMessagingTimeout(element, Self.messagingTimeout)
         let role = attribute(element, kAXRoleAttribute as String) as? String
         let subrole = attribute(element, kAXSubroleAttribute as String) as? String
         guard !HostTextSafety.isSecure(role: role, subrole: subrole) else { return nil }
@@ -125,6 +184,11 @@ final class AccessibilityTextAdapter: HostTextAdapter {
     }
 
     func rects(for range: Range<Int>, in context: HostContext) -> [CGRect] {
+        measuredRects(for: range, in: context) ?? []
+    }
+
+    /// Nil when the host answered too slowly to split a wrapped phrase into lines.
+    func measuredRects(for range: Range<Int>, in context: HostContext) -> [CGRect]? {
         // AXValue defines element index space. Chrome's Gmail AXTextArea exposes
         // that text but refuses AXBoundsForRange, so direct geometry is followed
         // by a calibrated TextKit layout using the live caret rectangle.
@@ -135,7 +199,8 @@ final class AccessibilityTextAdapter: HostTextAdapter {
             for textRange in visible {
                 guard let whole = boundsForRange(context.element, textRange),
                       HostGeometryConverter.isUsable(whole) else { direct.removeAll(); break }
-                let fragments = splitByLine(context.element, range: textRange, whole: whole)
+                // Out of time: draw nothing rather than one box across lines.
+                guard let fragments = splitByLine(context.element, range: textRange, whole: whole) else { return nil }
                 direct.append(contentsOf: fragments.isEmpty ? [whole] : fragments)
             }
             if !direct.isEmpty {
@@ -171,6 +236,30 @@ final class AccessibilityTextAdapter: HostTextAdapter {
             return [whole]
         }
         return []
+    }
+
+    /// What decides whether earlier measurements still hold: the editor, its
+    /// text, where it and its window are, and where the caret sits on screen.
+    func geometrySnapshot(_ context: HostContext, text: String) -> HighlightGeometrySnapshot {
+        HighlightGeometrySnapshot(element: context.element, text: text,
+                                  elementFrame: elementFrame(context.element),
+                                  windowFrame: context.windowFrame,
+                                  caret: caretRect(context.element))
+    }
+
+    /// The caret rectangle alone, from character ranges or from the browser's
+    /// selection markers, without reading any text.
+    private func caretRect(_ element: AXUIElement) -> CGRect? {
+        // A collapsed caret is often zero points wide; it only has to be stable.
+        func isCaret(_ rect: CGRect) -> Bool {
+            rect.origin.x.isFinite && rect.origin.y.isFinite && rect.height > 0 && rect.height < 400
+        }
+        if let selection = selectedTextRange(element), selection.location >= 0 {
+            let caret = selection.location + selection.length
+            if let rect = boundsForRange(element, caret..<caret), isCaret(rect) { return rect }
+            if caret > 0, let rect = boundsForRange(element, (caret - 1)..<caret), isCaret(rect) { return rect }
+        }
+        return WebTextReader.caretRect(from: element)
     }
 
     private func matchesSnapshot(_ text: String, element: AXUIElement) -> Bool {
@@ -237,7 +326,9 @@ final class AccessibilityTextAdapter: HostTextAdapter {
 
     /// Walks the range a character at a time, grouping by line. Only used for
     /// short phrases, and only when the whole-range rectangle looks wrapped.
-    private func splitByLine(_ element: AXUIElement, range: Range<Int>, whole: CGRect) -> [CGRect] {
+    /// Empty means the whole rectangle is right; nil means the host was too
+    /// slow to tell.
+    private func splitByLine(_ element: AXUIElement, range: Range<Int>, whole: CGRect) -> [CGRect]? {
         guard whole.height > 0, range.count <= 240 else { return [] }
         if range.count <= 1 { return [] }
         let first = boundsForRange(element, range.lowerBound..<(range.lowerBound + 1))
@@ -245,8 +336,10 @@ final class AccessibilityTextAdapter: HostTextAdapter {
         if let first, let last, HostGeometryConverter.isSingleLine(whole: whole, first: first, last: last) {
             return []
         }
+        let deadline = ProcessInfo.processInfo.systemUptime + Self.characterWalkBudget
         var perCharacter: [CGRect] = []
         for offset in range {
+            guard ProcessInfo.processInfo.systemUptime < deadline else { return nil }
             if let rect = boundsForRange(element, offset..<(offset + 1)),
                HostGeometryConverter.isUsable(rect) {
                 perCharacter.append(rect)

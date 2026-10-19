@@ -48,6 +48,11 @@ final class LassoTransientUI {
         localMonitor = nil; globalMonitor = nil
     }
 
+    /// Whether Escape would close anything, without closing it. Main thread.
+    var hasOpenSurface: Bool {
+        entries.contains { $0.owner != nil && $0.isOpen() }
+    }
+
     @discardableResult
     func dismissAll() -> Bool {
         guard !dismissing else { return false }

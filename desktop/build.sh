@@ -99,11 +99,14 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/StatusPopover.swift" \
   "$ROOT/desktop/NotchPanel.swift" \
   "$ROOT/desktop/SyntheticKeyboard.swift" \
+  "$ROOT/desktop/KeyRouting.swift" \
   "$ROOT/desktop/CompletionTransaction.swift" \
   "$ROOT/desktop/AssistSourceIdentity.swift" \
   "$ROOT/desktop/AssistPopupHost.swift" \
   "$ROOT/desktop/DependencyReference.swift" \
   "$ROOT/desktop/HostGeometry.swift" \
+  "$ROOT/desktop/AccessibilityWork.swift" \
+  "$ROOT/desktop/HostAccessibilityMode.swift" \
   "$ROOT/desktop/HostTextAdapter.swift" \
   "$ROOT/desktop/HostCapabilityProbe.swift" \
   "$ROOT/desktop/DependencyOverlay.swift" \
