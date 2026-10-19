@@ -30,6 +30,10 @@ const OBJECT_TYPES = new Set([
 const SELECTION_METHODS = new Set(['AUTOCOMPLETE', 'PREDICTED_ACCEPTED', 'MANUAL', 'SYSTEM_LINKED', 'IMPORTED']);
 const STATUS_TYPES = new Set(['PREDICTED', 'LINKED', 'NEEDS_REVIEW', 'STALE', 'BROKEN']);
 const MAX_SNAPSHOT_OBJECTS = 10_000;
+// The most objects one snapshot's object list returns.
+const MAX_RESOLVED_OBJECTS = 30_000;
+// Up to this many new objects are looked up one by one; more read the folder's objects at once.
+const INDIVIDUAL_OBJECT_LOOKUPS = 200;
 const INDEX_VERSION = 3;
 const MAX_TABLE_CELLS = 1_500;
 const MAX_INDEXED_TABLE_ROWS = 1_000;
@@ -913,10 +917,25 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
   return objects;
 }
 
-function applyVariableDefinitions(descriptors) {
+function isDictionaryVariable(descriptor) {
+  return descriptor.type === 'VARIABLE' && Boolean(descriptor.metadata.dictionary);
+}
+
+/** What a later index needs to carry these files' objects forward. */
+function indexSummary(counts, problems, definitions, truncated) {
+  const problemsByPath = new Map();
+  for (const problem of problems) problemsByPath.set(problem.path, [...(problemsByPath.get(problem.path) ?? []), problem]);
+  return {
+    truncated, counts, definitions, problems: problemsByPath,
+    dictionaryPaths: new Set(definitions.map((definition) => definition.path)),
+  };
+}
+
+/** `sources` are the dictionary variables in index order, from every indexed file. */
+function applyVariableDefinitions(descriptors, sources = descriptors) {
   const definitions = new Map();
-  for (const descriptor of descriptors) {
-    if (descriptor.type !== 'VARIABLE' || !descriptor.metadata.dictionary) continue;
+  for (const descriptor of sources) {
+    if (!isDictionaryVariable(descriptor)) continue;
     const key = normalizedVariable(descriptor.metadata.variable);
     if (key && !definitions.has(key)) definitions.set(key, descriptor);
   }
@@ -1357,7 +1376,8 @@ export function studyVariableFragment(text, cursor = String(text ?? '').length) 
   return progressiveVariableFragments(text, cursor).at(-1) ?? null;
 }
 
-function mapObjectRow(row) {
+/** `at` is the snapshot the row was read at, when the row does not carry it. */
+function mapObjectRow(row, at = { snapshotId: row.snapshot_id, version: row.snapshot_version }) {
   const metadata = json(row.metadata_json, {});
   return {
     id: row.object_id,
@@ -1365,8 +1385,8 @@ function mapObjectRow(row) {
     versionId: row.version_id,
     objectKey: row.object_key,
     objectType: row.object_type,
-    snapshotId: row.snapshot_id,
-    snapshotVersion: row.snapshot_version,
+    snapshotId: at.snapshotId,
+    snapshotVersion: at.version,
     path: row.path,
     anchor: json(row.anchor_json, null),
     label: correctedDocumentLabel(row.object_type, row.label, metadata),
@@ -1407,6 +1427,8 @@ export class PredictiveProvenanceService {
     this.figurePreviewCache = new BoundedCache({ maxEntries: 12, maxWeight: 24 * 1024 * 1024,
       weight: (preview) => preview.image.length });
     this.reconcilingProjects = new Set();
+    // Full indexes built by this process, which later indexes may carry forward from.
+    this.indexedHere = new BoundedCache({ maxEntries: 64 });
     this.unsubscribe = timeline.onCapture((capture) => {
       // Snapshot keys are immutable. A change in one directory must leave the
       // other enabled directories warm while releasing the superseded head.
@@ -1424,7 +1446,7 @@ export class PredictiveProvenanceService {
     this.unsubscribe?.();
     this.ranking.close();
     for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache,
-      this.objectCache, this.extractionCache, this.sourceTextCache, this.figurePreviewCache]) cache.clear();
+      this.objectCache, this.extractionCache, this.sourceTextCache, this.figurePreviewCache, this.indexedHere]) cache.clear();
   }
 
   sourceText(source) {
@@ -1468,36 +1490,87 @@ export class PredictiveProvenanceService {
     // imports without changing any previously linked object or version.
     // Version three adds the same passages for Markdown and plain-text files.
     if (indexed.indexed && indexed.drawing_index_version >= INDEX_VERSION) return;
+    const files = this.indexableFiles(this.timeline.getSnapshot(targetSnapshotId), indexed);
+    const versions = this.timeline.objectVersions;
+    // An index row cleared to force a re-index still leaves the snapshot's
+    // records in place; like an upgrade pass, that only adds missing objects.
+    const existing = Boolean(indexed.indexed) || versions.hasRecords(targetSnapshotId);
+    const carry = existing ? null : this.carryPlan(projectId, targetSnapshotId, files);
+    const index = carry ? this.carriedDescriptors(files, carry) : this.indexDescriptors(files);
+    try {
+      transaction(this.db, () => {
+        versions.record(projectId, targetSnapshotId, this.indexEntries(projectId, index.descriptors),
+          { existing, carriedPaths: carry?.carriedPaths });
+        this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version) VALUES (?, ?, ?, ?)
+          ON CONFLICT(snapshot_id) DO UPDATE SET drawing_index_version = excluded.drawing_index_version, indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
+          .run(targetSnapshotId, now(), versions.count(targetSnapshotId), INDEX_VERSION);
+      });
+    } catch (error) {
+      // The index was read into memory as it was written; drop it with the rollback.
+      versions.forget(targetSnapshotId);
+      throw error;
+    }
+    // An upgrade pass reads only some files and keeps what was there, so later
+    // indexes cannot carry objects forward from it without reading them again.
+    if (existing) this.indexedHere.delete(targetSnapshotId);
+    else this.indexedHere.set(targetSnapshotId, index.summary);
+    this.objectCache.delete(targetSnapshotId);
+    this.completionCorpusCache.delete(targetSnapshotId);
+    this.workspaceRetrievalCache.delete(targetSnapshotId);
+    this.ranking.invalidateSnapshot(targetSnapshotId);
+    // An upgrade pass re-reads only some files, so only a full index of the
+    // current version can say which files are now fine.
+    if (!indexed.indexed && targetSnapshotId === project.currentSnapshotId) this.onIndexProblems?.(projectId, index.problems);
+  }
+
+  /** The files an index pass reads, in the order their objects are indexed. */
+  indexableFiles(snapshot, indexed) {
     const reindexPdf = indexed.indexed && indexed.drawing_index_version < 2;
-    const snapshot = this.timeline.getSnapshot(targetSnapshotId);
-    const descriptors = [];
-    const problems = [];
-    const files = [...snapshot.files].sort((left, right) => dependencyFilePriority(right) - dependencyFilePriority(left)
-      || left.path.localeCompare(right.path));
-    for (const file of files) {
+    return [...snapshot.files].sort((left, right) => dependencyFilePriority(right) - dependencyFilePriority(left)
+      || left.path.localeCompare(right.path)).filter((file) => {
       const design = ['drawing', 'xml'].includes(file.fileType) || /\.(?:ifc|dxf|dwg|rvt|dgn|landxml|xml)$/i.test(file.path);
       const prose = file.fileType === 'markdown' || (file.fileType === 'text' && path.extname(file.path).toLowerCase() === '.txt');
-      if (indexed.indexed && !prose && !(reindexPdf && (file.fileType === 'pdf' || design))) continue;
-      if (file.size > 25_000_000 && !design && !['image', 'pdf', 'document'].includes(file.fileType)) continue;
-      if (file.size > 5_000_000 && !design && !['image', 'pdf', 'document', 'table', 'spreadsheet'].includes(file.fileType)) continue;
-      if (!design && !['table', 'spreadsheet', 'code', 'notebook', 'image', 'json', 'text', 'markdown', 'pdf', 'document'].includes(file.fileType)) continue;
-      if (file.fileType === 'text' && !['.txt', '.bib', '.ris', '.enw', '.nbib'].includes(path.extname(file.path).toLowerCase())) continue;
+      if (indexed.indexed && !prose && !(reindexPdf && (file.fileType === 'pdf' || design))) return false;
+      if (file.size > 25_000_000 && !design && !['image', 'pdf', 'document'].includes(file.fileType)) return false;
+      if (file.size > 5_000_000 && !design && !['image', 'pdf', 'document', 'table', 'spreadsheet'].includes(file.fileType)) return false;
+      if (!design && !['table', 'spreadsheet', 'code', 'notebook', 'image', 'json', 'text', 'markdown', 'pdf', 'document'].includes(file.fileType)) return false;
+      return !(file.fileType === 'text' && !['.txt', '.bib', '.ris', '.enw', '.nbib'].includes(path.extname(file.path).toLowerCase()));
+    });
+  }
+
+  extractedObjects(file) {
+    const key = JSON.stringify([file.projectFileId, file.path, file.fileType, file.contentHash]);
+    let extracted = this.extractionCache.get(key);
+    if (!extracted) {
+      let problem = null;
+      const objects = objectsFromFile(file, this.timeline.blobs.get(file.contentHash), (code, reason) => {
+        problem ??= { code, reason };
+      });
+      extracted = { objects, problem, bytes: JSON.stringify(objects).length * 2 };
+      this.extractionCache.set(key, extracted);
+    }
+    return extracted;
+  }
+
+  /**
+   * Every object of the files, as a full index records them, with what a
+   * later index needs to carry them forward without reading them again.
+   */
+  indexDescriptors(files) {
+    const descriptors = [];
+    const problems = [];
+    const counts = new Map();
+    let truncated = false;
+    for (const file of files) {
       const available = MAX_SNAPSHOT_OBJECTS - descriptors.length;
       if (available <= 0) {
+        truncated = true;
         problems.push({ path: file.path, code: 'NOT_INDEXED_LIMIT',
           reason: `Not indexed: this folder reached Lasso's limit of ${MAX_SNAPSHOT_OBJECTS.toLocaleString('en-US')} indexed items. Split it into smaller work directories to include this file.` });
         continue;
       }
-      const key = JSON.stringify([file.projectFileId, file.path, file.fileType, file.contentHash]);
-      let extracted = this.extractionCache.get(key);
-      if (!extracted) {
-        let problem = null;
-        const objects = objectsFromFile(file, this.timeline.blobs.get(file.contentHash), (code, reason) => {
-          problem ??= { code, reason };
-        });
-        extracted = { objects, problem, bytes: JSON.stringify(objects).length * 2 };
-        this.extractionCache.set(key, extracted);
-      }
+      const extracted = this.extractedObjects(file);
+      counts.set(file.path, extracted.objects.length);
       if (extracted.problem) problems.push({ path: file.path, ...extracted.problem });
       else if (extracted.objects.length > available) {
         problems.push({ path: file.path, code: 'PARTIALLY_INDEXED',
@@ -1506,49 +1579,101 @@ export class PredictiveProvenanceService {
       const included = extracted.objects.slice(0, available).map((descriptor) => ({
         ...descriptor, metadata: { ...descriptor.metadata },
       }));
-      if (extracted.objects.length > available) for (const descriptor of included) {
-        if (descriptor.type !== 'DRAWING') continue;
-        descriptor.metadata.extractionStatus = 'partial';
-        descriptor.metadata.warnings = [...(descriptor.metadata.warnings ?? []), 'The workspace object limit was reached; some measurements were not indexed.'];
+      if (extracted.objects.length > available) {
+        truncated = true;
+        for (const descriptor of included) {
+          if (descriptor.type !== 'DRAWING') continue;
+          descriptor.metadata.extractionStatus = 'partial';
+          descriptor.metadata.warnings = [...(descriptor.metadata.warnings ?? []), 'The workspace object limit was reached; some measurements were not indexed.'];
+        }
       }
       descriptors.push(...included);
-
     }
-    applyVariableDefinitions(descriptors);
-    transaction(this.db, () => {
-      const insertObject = this.db.prepare(`
-        INSERT INTO scientific_objects(id, project_id, object_key, object_type, created_at)
-        VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, object_key) DO NOTHING
-      `);
-      const getObject = this.db.prepare('SELECT id FROM scientific_objects WHERE project_id = ? AND object_key = ?');
-      const insertVersion = this.db.prepare(`
-        INSERT OR IGNORE INTO scientific_object_versions(
-          id, object_id, snapshot_id, path, anchor_json, label, value_text, search_text, content_hash, metadata_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      for (const descriptor of descriptors) {
-        const objectId = id();
-        insertObject.run(objectId, projectId, descriptor.key, descriptor.type, now());
-        const stableId = getObject.get(projectId, descriptor.key).id;
-        insertVersion.run(
-          id(), stableId, targetSnapshotId, descriptor.path,
-          descriptor.anchor ? JSON.stringify(descriptor.anchor) : null,
-          descriptor.label, descriptor.value, descriptor.searchText, descriptor.contentHash,
-          JSON.stringify(descriptor.metadata), now(),
-        );
+    const definitions = descriptors.filter(isDictionaryVariable);
+    applyVariableDefinitions(descriptors, definitions);
+    return { descriptors, problems, summary: indexSummary(counts, problems, definitions, truncated) };
+  }
+
+  /**
+   * Whether a new index can carry an unchanged file's objects forward from
+   * its base instead of rebuilding them. It can when this process indexed the
+   * base in full, nothing was cut off by the object limit, and no file that
+   * changed defines variables for other files.
+   */
+  carryPlan(projectId, snapshotId, files) {
+    const base = this.timeline.objectVersions.baseFor(projectId, snapshotId);
+    const known = base ? this.indexedHere.get(base) : null;
+    if (!known || known.truncated) return null;
+    const before = this.timeline.files.manifest(base).byPath;
+    const unchanged = (file) => {
+      const previous = before.get(file.path);
+      return previous?.project_file_id === file.projectFileId && previous.content_hash === file.contentHash
+        && previous.file_type === file.fileType && known.counts.has(file.path);
+    };
+    const carriedPaths = new Set(files.filter(unchanged).map((file) => file.path));
+    if ([...known.dictionaryPaths].some((filePath) => !carriedPaths.has(filePath))) return null;
+    let total = 0;
+    for (const file of files) {
+      if (carriedPaths.has(file.path)) {
+        total += known.counts.get(file.path);
+      } else {
+        const { objects } = this.extractedObjects(file);
+        if (objects.some(isDictionaryVariable)) return null;
+        total += objects.length;
       }
-      const objectCount = this.db.prepare('SELECT COUNT(*) AS count FROM scientific_object_versions WHERE snapshot_id = ?').get(targetSnapshotId).count;
-      this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version) VALUES (?, ?, ?, ?)
-        ON CONFLICT(snapshot_id) DO UPDATE SET drawing_index_version = excluded.drawing_index_version, indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
-        .run(targetSnapshotId, now(), objectCount, INDEX_VERSION);
-    });
-    this.objectCache.delete(targetSnapshotId);
-    this.completionCorpusCache.delete(targetSnapshotId);
-    this.workspaceRetrievalCache.delete(targetSnapshotId);
-    this.ranking.invalidateSnapshot(targetSnapshotId);
-    // An upgrade pass re-reads only some files, so only a full index of the
-    // current version can say which files are now fine.
-    if (!indexed.indexed && targetSnapshotId === project.currentSnapshotId) this.onIndexProblems?.(projectId, problems);
+      if (total > MAX_SNAPSHOT_OBJECTS) return null;
+    }
+    return { base, known, carriedPaths };
+  }
+
+  /** The objects of the files that changed since the base; the others are carried forward. */
+  carriedDescriptors(files, { known, carriedPaths }) {
+    const descriptors = [];
+    const problems = [];
+    const counts = new Map();
+    for (const file of files) {
+      if (carriedPaths.has(file.path)) {
+        counts.set(file.path, known.counts.get(file.path));
+        problems.push(...(known.problems.get(file.path) ?? []));
+        continue;
+      }
+      const extracted = this.extractedObjects(file);
+      counts.set(file.path, extracted.objects.length);
+      if (extracted.problem) problems.push({ path: file.path, ...extracted.problem });
+      descriptors.push(...extracted.objects.map((descriptor) => ({ ...descriptor, metadata: { ...descriptor.metadata } })));
+    }
+    applyVariableDefinitions(descriptors, known.definitions);
+    return { descriptors, problems, summary: indexSummary(counts, problems, known.definitions, false) };
+  }
+
+  /** Each descriptor with its object row, creating objects first seen here. */
+  indexEntries(projectId, descriptors) {
+    const getObject = this.db.prepare(`SELECT rowid, id, object_key, object_type FROM scientific_objects
+      WHERE project_id = ? AND object_key = ?`);
+    const insertObject = this.db.prepare(`
+      INSERT INTO scientific_objects(id, project_id, object_key, object_type, created_at)
+      VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, object_key) DO NOTHING
+    `);
+    // A full index reads the folder's objects at once instead of one by one.
+    const objects = descriptors.length > INDIVIDUAL_OBJECT_LOOKUPS
+      ? new Map(this.db.prepare('SELECT rowid, id, object_key, object_type FROM scientific_objects WHERE project_id = ?')
+        .all(projectId).map((row) => [row.object_key, row]))
+      : new Map();
+    const entries = [];
+    const seen = new Set();
+    for (const descriptor of descriptors) {
+      let object = objects.get(descriptor.key) ?? getObject.get(projectId, descriptor.key);
+      if (!object) {
+        insertObject.run(id(), projectId, descriptor.key, descriptor.type, now());
+        object = getObject.get(projectId, descriptor.key);
+      }
+      objects.set(descriptor.key, object);
+      // The first descriptor for an object wins, as INSERT OR IGNORE did.
+      if (seen.has(object.id)) continue;
+      seen.add(object.id);
+      entries.push({ object, descriptor });
+    }
+    return entries;
   }
 
   objectsAt(projectId, snapshotId = null, objectTypes = null) {
@@ -1557,17 +1682,9 @@ export class PredictiveProvenanceService {
     this.ensureIndex(projectId, target);
     let objects = this.objectCache.get(target);
     if (!objects) {
-      objects = this.db.prepare(`
-      SELECT o.id AS object_id, o.project_id, o.object_key, o.object_type,
-        v.id AS version_id, v.snapshot_id, v.path, v.anchor_json, v.label, v.value_text,
-        v.search_text, v.content_hash, v.metadata_json, s.version AS snapshot_version
-      FROM scientific_object_versions v
-      JOIN scientific_objects o ON o.id = v.object_id
-      JOIN snapshots s ON s.id = v.snapshot_id
-      WHERE o.project_id = ? AND v.snapshot_id = ?
-      ORDER BY o.object_type, v.label LIMIT 30000
-      `).all(projectId, target).map((row) => {
-        const object = mapObjectRow(row);
+      const resolved = this.timeline.objectVersions.resolved(target);
+      objects = resolved.rows.filter((row) => row.project_id === projectId).slice(0, MAX_RESOLVED_OBJECTS).map((row) => {
+        const object = mapObjectRow(row, resolved);
         // Search existing PDF versions through their preserved bytes as well as
         // the short metadata excerpt. Derived search text stays in memory so
         // immutable object versions and existing links retain their identity.
@@ -1589,17 +1706,8 @@ export class PredictiveProvenanceService {
 
   objectAt(projectId, snapshotId, objectId) {
     this.ensureIndex(projectId, snapshotId);
-    const row = this.db.prepare(`
-      SELECT o.id AS object_id, o.project_id, o.object_key, o.object_type,
-        v.id AS version_id, v.snapshot_id, v.path, v.anchor_json, v.label, v.value_text,
-        v.search_text, v.content_hash, v.metadata_json, s.version AS snapshot_version
-      FROM scientific_object_versions v
-      JOIN scientific_objects o ON o.id = v.object_id
-      JOIN snapshots s ON s.id = v.snapshot_id
-      WHERE o.project_id = ? AND v.snapshot_id = ? AND o.id = ?
-      LIMIT 1
-    `).get(projectId, snapshotId, objectId);
-    return row ? mapObjectRow(row) : null;
+    const row = this.timeline.objectVersions.at(snapshotId, objectId);
+    return row?.project_id === projectId ? mapObjectRow(row) : null;
   }
 
   /** Resolve a source in its own directory without weakening objectsAt's
@@ -1617,13 +1725,7 @@ export class PredictiveProvenanceService {
     const snapshot = this.db.prepare('SELECT project_id FROM snapshots WHERE id = ?').get(target);
     if (!snapshot || snapshot.project_id !== project.id) return null;
     this.ensureIndex(project.id, target);
-    return this.db.prepare(`
-      SELECT o.id AS object_id, o.project_id, o.object_type, o.object_key,
-        v.*, v.id AS version_id, s.version AS snapshot_version
-      FROM scientific_objects o JOIN scientific_object_versions v ON v.object_id = o.id
-      JOIN snapshots s ON s.id = v.snapshot_id
-      WHERE o.id = ? AND v.snapshot_id = ?
-    `).get(objectId, target) ?? null;
+    return this.timeline.objectVersions.at(target, objectId);
   }
 
   sourceProjectId(object) {
@@ -1634,16 +1736,7 @@ export class PredictiveProvenanceService {
   /// Latest indexed version by globally unique object id. Used only by the
   /// local native overlay to migrate pre-source-identity references.
   objectById(objectId) {
-    const row = this.db.prepare(`
-      SELECT o.id AS object_id, o.object_key, o.object_type, o.project_id,
-        v.id AS version_id, v.snapshot_id, v.path, v.anchor_json, v.label, v.value_text,
-        v.search_text, v.content_hash, v.metadata_json, s.version AS snapshot_version
-      FROM scientific_object_versions v
-      JOIN scientific_objects o ON o.id = v.object_id
-      JOIN snapshots s ON s.id = v.snapshot_id
-      WHERE o.id = ?
-      ORDER BY s.version DESC LIMIT 1
-    `).get(objectId);
+    const row = this.timeline.objectVersions.latest(objectId);
     return row ? { ...mapObjectRow(row), projectId: row.project_id } : null;
   }
 
@@ -1698,19 +1791,18 @@ export class PredictiveProvenanceService {
   }
 
   lineageForObject(projectId, object, limit = 8) {
-    const versions = this.db.prepare(`
-      SELECT v.snapshot_id, v.path, s.version
-      FROM scientific_object_versions v JOIN snapshots s ON s.id = v.snapshot_id
-      WHERE v.object_id = ? ORDER BY s.version DESC
-    `).all(object.id).map((row) => ({ snapshotId: row.snapshot_id, path: row.path, version: row.version, depth: 0 }));
-    const queue = versions.length ? versions : [{ snapshotId: object.snapshotId, path: object.path, depth: 0 }];
-    // This runs for every suggestion while typing, and an object has a version
-    // per snapshot. Most versions have no outgoing links: find the ones that
-    // do in one query rather than asking once per version.
-    const paths = [...new Set(queue.map((node) => node.path))];
-    const linked = new Set(this.db.prepare(`SELECT DISTINCT from_snapshot_id, from_path FROM provenance_links
-      WHERE project_id = ? AND relation <> 'DEPENDS_ON' AND from_path IN (${paths.map(() => '?').join(', ')})`)
-      .all(projectId, ...paths).map((row) => `${row.from_snapshot_id}|${row.from_path}`));
+    // This runs for every suggestion while typing. Most snapshots have no
+    // outgoing links: find the ones that do for the object's paths in one
+    // query, then keep those where the object was indexed at that path.
+    const paths = [...new Set([object.path, ...this.db.prepare(
+      'SELECT DISTINCT path FROM scientific_object_versions WHERE object_id = ?').all(object.id).map((row) => row.path)])];
+    const versions = this.timeline.objectVersions;
+    const queue = this.db.prepare(`SELECT DISTINCT p.from_snapshot_id, p.from_path, s.version FROM provenance_links p
+      JOIN snapshots s ON s.id = p.from_snapshot_id
+      WHERE p.project_id = ? AND p.relation <> 'DEPENDS_ON' AND p.from_path IN (${paths.map(() => '?').join(', ')})
+      ORDER BY s.version DESC`).all(projectId, ...paths)
+      .filter((row) => versions.at(row.from_snapshot_id, object.id)?.path === row.from_path)
+      .map((row) => ({ snapshotId: row.from_snapshot_id, path: row.from_path, version: row.version, depth: 0 }));
     this.lineageLinks ??= this.db.prepare(`
       SELECT p.*, s.version AS to_version
       FROM provenance_links p LEFT JOIN snapshots s ON s.id = p.to_snapshot_id
@@ -1725,7 +1817,6 @@ export class PredictiveProvenanceService {
       const key = `${node.snapshotId}|${node.path}`;
       if (visited.has(key) || node.depth > 4) continue;
       visited.add(key);
-      if (node.depth === 0 && !linked.has(key)) continue;
       const links = this.lineageLinks.all(projectId, node.snapshotId, node.path);
       for (const link of links) {
         if (seenLinks.has(link.id) || link.relation === 'DEPENDS_ON') continue;
@@ -2124,12 +2215,9 @@ export class PredictiveProvenanceService {
     if (!objectIds.length) return [];
     const project = this.timeline.getProject(projectId);
     this.ensureIndex(projectId, project.currentSnapshotId);
-    return this.db.prepare(`
-      SELECT DISTINCT v.path FROM scientific_object_versions v
-      JOIN scientific_objects o ON o.id = v.object_id
-      WHERE o.project_id = ? AND v.snapshot_id = ?
-        AND o.id IN (${objectIds.map(() => '?').join(',')})
-    `).all(projectId, project.currentSnapshotId, ...objectIds).map((row) => row.path);
+    const current = this.timeline.objectVersions.resolved(project.currentSnapshotId).byObject;
+    return [...new Set(objectIds.map((objectId) => current.get(objectId))
+      .filter((row) => row?.project_id === projectId).map((row) => row.path))];
   }
 
   rankCompletions(projectId, completions, input, options = {}) {
@@ -2790,15 +2878,10 @@ export class PredictiveProvenanceService {
     if (objectId) {
       if (typeof objectId !== 'string') throw new HttpError(400, 'An indexed source identity is required.');
       // Resolve through file identity so an accepted older object follows a rename.
-      const source = this.db.prepare(`
-        SELECT current_file.path FROM scientific_objects o
-        JOIN scientific_object_versions v ON v.object_id = o.id
-        JOIN snapshots s ON s.id = v.snapshot_id
-        JOIN snapshot_files original ON original.snapshot_id = v.snapshot_id AND original.path = v.path
-        JOIN snapshot_files current_file ON current_file.project_file_id = original.project_file_id
-          AND current_file.snapshot_id = ?
-        WHERE o.project_id = ? AND o.id = ? ORDER BY s.version DESC LIMIT 1
-      `).get(project.currentSnapshotId, project.id, objectId);
+      const latest = this.timeline.objectVersions.latest(objectId);
+      const original = latest?.project_id === project.id
+        ? this.timeline.snapshotFile(latest.snapshot_id, latest.path) : null;
+      const source = original ? this.timeline.snapshotFileById(project.currentSnapshotId, original.projectFileId) : null;
       if (!source && allowMissingSource) return { recorded: false };
       if (!source) throw new HttpError(404, 'Indexed source not found in this project.');
       sourcePath = source.path;
@@ -2810,7 +2893,7 @@ export class PredictiveProvenanceService {
   }
 
   documentEditLayer(projectId, projectFileId, snapshotId) {
-    const maximumVersion = this.timeline.getSnapshot(snapshotId).version;
+    const maximumVersion = this.timeline.snapshotRecord(snapshotId).version;
     return this.db.prepare(`
       SELECT layer.*, snapshot.version AS snapshot_version
       FROM document_edit_layer_versions layer
@@ -2948,7 +3031,7 @@ export class PredictiveProvenanceService {
     const file = this.timeline.snapshotFile(snapshotId, filePath);
     if (!file || !EDITABLE_DOCUMENT_TYPES.has(file.fileType)) throw new HttpError(400, 'Dependency anchors require an editable document version.');
     if (anchor?.kind !== 'manuscript-span' || !Number.isInteger(anchor.blockIndex)) throw new HttpError(400, 'A stable manuscript span anchor is required.');
-    const projectId = this.timeline.getSnapshot(snapshotId).projectId;
+    const projectId = this.timeline.snapshotRecord(snapshotId).projectId;
     const blocks = this.editableDocumentModel(projectId, file, snapshotId).blocks;
     const block = blocks[anchor.blockIndex];
     if (!block) throw new HttpError(400, 'The anchored paragraph is not present in this document version.');
@@ -2964,21 +3047,19 @@ export class PredictiveProvenanceService {
     const resultingSnapshotId = id();
     const eventId = id();
     const timestamp = now();
-    transaction(this.db, () => {
+    this.timeline.files.transaction(resultingSnapshotId, () => {
       const current = this.db.prepare('SELECT current_snapshot_id FROM projects WHERE id = ?').get(projectId);
       if (current.current_snapshot_id !== previous.id) throw new VersionConflictError(previous.id, current.current_snapshot_id);
       this.timeline.upsertActor(actor);
       let initiator = null;
       if (initiatedBy) { initiator = normalizeActor(initiatedBy); this.timeline.upsertActor(initiator); }
+      // The files are unchanged, so the new version carries all of them forward.
+      const filesBase = this.timeline.files.baseFor(previous.id);
       this.db.prepare(`
-        INSERT INTO snapshots(id, project_id, version, parent_snapshot_id, manifest_hash, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(resultingSnapshotId, projectId, previous.version + 1, previous.id, previous.manifestHash, timestamp);
-      this.db.prepare(`
-        INSERT INTO snapshot_files(snapshot_id, project_file_id, path, content_hash, size, mtime_ms, file_type, device, inode, metadata_json, ctime_ms)
-        SELECT ?, project_file_id, path, content_hash, size, mtime_ms, file_type, device, inode, metadata_json, ctime_ms
-        FROM snapshot_files WHERE snapshot_id = ?
-      `).run(resultingSnapshotId, previous.id);
+        INSERT INTO snapshots(id, project_id, version, parent_snapshot_id, manifest_hash, created_at, files_base_snapshot_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(resultingSnapshotId, projectId, previous.version + 1, previous.id, previous.manifestHash, timestamp, filesBase);
+      this.timeline.files.write(resultingSnapshotId, previous.files, filesBase);
       this.db.prepare(`
         INSERT INTO timeline_events(id, project_id, previous_snapshot_id, resulting_snapshot_id, actor_id, initiated_by_actor_id, occurred_at, source, title)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -3119,13 +3200,11 @@ export class PredictiveProvenanceService {
   }
 
   latestVersionRow(dependencyId, maximumProjectVersion = null) {
-    return this.db.prepare(`
+    const versions = this.db.prepare(`
       SELECT v.*, s.version AS project_version, a.display_name AS actor_name, a.actor_type,
         origin_v.created_by_actor_id AS linked_by_actor_id,
         origin_a.display_name AS linked_by_actor_name, origin_a.actor_type AS linked_by_actor_type,
-        o.object_type, o.object_key, o.project_id AS source_project_id,
-        ov.path AS source_path, ov.anchor_json AS source_anchor_json, ov.label AS source_label,
-        ov.metadata_json AS source_metadata_json, ov.content_hash AS source_content_hash
+        o.object_type, o.object_key, o.project_id AS source_project_id
       FROM claim_dependency_versions v
       JOIN snapshots s ON s.id = v.snapshot_id
       JOIN actors a ON a.id = v.created_by_actor_id
@@ -3136,10 +3215,19 @@ export class PredictiveProvenanceService {
       )
       JOIN actors origin_a ON origin_a.id = origin_v.created_by_actor_id
       JOIN scientific_objects o ON o.id = v.source_object_id
-      JOIN scientific_object_versions ov ON ov.object_id = v.source_object_id AND ov.snapshot_id = v.source_snapshot_id
       WHERE v.dependency_id = ? AND (? IS NULL OR s.version <= ?)
-      ORDER BY s.version DESC LIMIT 1
-    `).get(dependencyId, maximumProjectVersion, maximumProjectVersion);
+      ORDER BY s.version DESC
+    `).iterate(dependencyId, maximumProjectVersion, maximumProjectVersion);
+    // The newest version whose source resolves at the snapshot it was linked from.
+    for (const row of versions) {
+      const source = this.timeline.objectVersions.at(row.source_snapshot_id, row.source_object_id);
+      if (!source) continue;
+      return {
+        ...row, source_path: source.path, source_anchor_json: source.anchor_json, source_label: source.label,
+        source_metadata_json: source.metadata_json, source_content_hash: source.content_hash,
+      };
+    }
+    return null;
   }
 
   mapDependency(row) {
@@ -3462,7 +3550,7 @@ export class PredictiveProvenanceService {
       source,
       path: file.path,
       fileType: file.fileType,
-      version: this.timeline.getSnapshot(source.snapshotId)?.version ?? null,
+      version: this.timeline.snapshotRecord(source.snapshotId)?.version ?? null,
       fileUrl,
     };
 
@@ -4052,8 +4140,8 @@ export class PredictiveProvenanceService {
   }
 
   migrateAnchor(dependency, snapshotId) {
-    const file = this.db.prepare('SELECT * FROM snapshot_files WHERE snapshot_id = ? AND project_file_id = ?')
-      .get(snapshotId, this.db.prepare('SELECT document_project_file_id FROM claim_dependencies WHERE id = ?').get(dependency.id).document_project_file_id);
+    const file = this.timeline.snapshotFileRow(snapshotId,
+      this.db.prepare('SELECT document_project_file_id FROM claim_dependencies WHERE id = ?').get(dependency.id).document_project_file_id);
     if (!file) return { status: 'NEEDS_REVIEW', anchor: dependency.anchor, reason: 'Document no longer exists.' };
     // Already evaluated against this document version: nothing new can be
     // learned, so whatever was recorded then still stands. Returning no reason
@@ -4213,8 +4301,7 @@ export class PredictiveProvenanceService {
     const detectedClaims = [];
     if (options.projectFileId) {
       const project = this.timeline.getProject(projectId);
-      const file = this.db.prepare('SELECT * FROM snapshot_files WHERE snapshot_id = ? AND project_file_id = ?')
-        .get(project.currentSnapshotId, options.projectFileId);
+      const file = this.timeline.snapshotFileRow(project.currentSnapshotId, options.projectFileId);
       if (file) {
         const blocks = this.editableDocumentModel(projectId, {
           ...file,

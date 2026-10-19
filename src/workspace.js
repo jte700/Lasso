@@ -170,8 +170,8 @@ export class WorkspaceService {
       // A deleted or ejected folder stays missing; do not list its parent on every call.
       if (Date.now() - (this.renameChecks.get(row.id) ?? 0) < 2_000) continue;
       this.renameChecks.set(row.id, Date.now());
-      const files = this.db.prepare(`SELECT path, inode FROM snapshot_files
-        WHERE snapshot_id = ? AND inode IS NOT NULL ORDER BY path LIMIT 8`).all(row.current_snapshot_id);
+      const files = this.timeline.snapshotFiles(row.current_snapshot_id)
+        .filter((file) => file.inode != null).slice(0, 8);
       const holdsFiles = (candidate) => {
         // Atomic saves replace some inodes; unrelated folders share none.
         const matched = files.filter((file) => {

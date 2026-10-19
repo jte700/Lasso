@@ -324,6 +324,81 @@ export function createStructuredDiff({ fileType, filePath, beforeBuffer, afterBu
   return { format: 'binary', message: 'File changed. Structured comparison unavailable.' };
 }
 
+// Line and block comparisons are stored as runs that point into the two
+// compared versions, whose bytes the blob store keeps. A one-line edit to a
+// long file then stores a few runs instead of every line of both versions.
+const RUN_FORMATS = new Set(['text', 'code', 'markdown']);
+
+function continuesRun(run, operation) {
+  if (run.kind !== operation.kind) return false;
+  const nextBefore = run.beforeLine === undefined || operation.beforeLine === run.beforeLine + run.count;
+  const nextAfter = run.afterLine === undefined || operation.afterLine === run.afterLine + run.count;
+  return nextBefore && nextAfter;
+}
+
+/** The form of a structured diff that is written to history. */
+export function compactStructuredDiff(diff) {
+  if (!RUN_FORMATS.has(diff?.format) || !Array.isArray(diff.operations)) return diff;
+  const runs = [];
+  for (const operation of diff.operations) {
+    const last = runs.at(-1);
+    if (last && continuesRun(last, operation)) {
+      runs[runs.length - 1] = { ...last, count: last.count + 1 };
+      continue;
+    }
+    runs.push({
+      kind: operation.kind,
+      ...(operation.beforeLine === undefined ? {} : { beforeLine: operation.beforeLine }),
+      ...(operation.afterLine === undefined ? {} : { afterLine: operation.afterLine }),
+      count: 1,
+    });
+  }
+  const { operations, ...rest } = diff;
+  return { ...rest, operationRuns: runs };
+}
+
+function comparedUnits(format, buffer) {
+  const text = decode(buffer);
+  return format === 'markdown' ? markdownBlocks(text) : text.split('\n');
+}
+
+function operationAt(format, run, offset, before, after) {
+  const beforeLine = run.beforeLine === undefined ? undefined : run.beforeLine + offset;
+  const afterLine = run.afterLine === undefined ? undefined : run.afterLine + offset;
+  const unit = run.kind === 'add' ? after[afterLine - 1] : before[beforeLine - 1];
+  const text = format === 'markdown' ? unit?.text : unit;
+  return {
+    kind: run.kind,
+    text,
+    ...(beforeLine === undefined ? {} : { beforeLine }),
+    ...(afterLine === undefined ? {} : { afterLine }),
+    ...(format === 'markdown' ? { blockType: unit?.type } : {}),
+  };
+}
+
+/**
+ * The structured diff as it was computed, from its stored form.
+ * `loadVersions` returns the compared versions' bytes: { before, after }.
+ * Diffs stored before runs existed are returned unchanged.
+ */
+export function expandStructuredDiff(stored, loadVersions) {
+  if (!Array.isArray(stored?.operationRuns)) return stored;
+  let versions;
+  try {
+    versions = loadVersions();
+  } catch {
+    return stored;
+  }
+  if (!versions?.before && stored.operationRuns.some((run) => run.kind !== 'add')) return stored;
+  if (!versions?.after && stored.operationRuns.some((run) => run.kind === 'add')) return stored;
+  const before = comparedUnits(stored.format, versions.before);
+  const after = comparedUnits(stored.format, versions.after);
+  const operations = stored.operationRuns.flatMap((run) => Array.from({ length: run.count },
+    (_, offset) => operationAt(stored.format, run, offset, before, after)));
+  const { operationRuns, ...rest } = stored;
+  return { ...rest, operations };
+}
+
 export function deterministicEventTitle(changes) {
   if (!changes.length) return 'No file changes';
   if (changes.length > 1) return `${changes.length} files changed`;

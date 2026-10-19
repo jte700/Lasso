@@ -401,11 +401,9 @@ test('terminal command layer', async (suite) => {
     assert.deepEqual(Object.keys(directories).sort(), ['Analytics', 'Archive', 'Client-A', 'Finance', 'manuscript']);
     assert.equal(directories.Finance.files, 2);
     assert.equal(directories.Finance.health, 'healthy');
-    assert.equal(status.project.dependencies, application.db
-      .prepare(`SELECT COUNT(*) AS count FROM scientific_object_versions v
-        JOIN scientific_objects o ON o.id = v.object_id
-        WHERE o.project_id = ? AND v.snapshot_id = ?`)
-      .get(project.id, snapshot.id).count);
+    // Unchanged objects are carried forward rather than stored per snapshot.
+    assert.equal(status.project.dependencies, application.timeline.objectVersions.resolved(snapshot.id).rows
+      .filter((row) => row.project_id === project.id).length);
   });
 
   await suite.test('index remove excludes a directory from the next scan', () => {

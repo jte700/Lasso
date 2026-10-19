@@ -77,15 +77,13 @@ export class RecommendationRanking {
       FROM snapshots s LEFT JOIN snapshot_object_indexes i ON i.snapshot_id = s.id
       WHERE s.id = ? AND s.project_id = ?`).get(snapshotId, projectId);
     if (!row) return null;
-    const files = this.db.prepare('SELECT path, project_file_id FROM snapshot_files WHERE snapshot_id = ?')
-      .all(snapshotId);
-    const versions = this.db.prepare(`SELECT v.object_id, v.path FROM scientific_object_versions v
-      JOIN scientific_objects o ON o.id = v.object_id WHERE v.snapshot_id = ? AND o.project_id = ?`)
-      .all(snapshotId, projectId);
+    const files = this.timeline.snapshotFiles(snapshotId);
+    const versions = this.timeline.objectVersions.resolved(snapshotId).rows
+      .filter((version) => version.project_id === projectId);
     const snapshot = {
       projectId,
-      files: new Map(files.map((file) => [file.path, file])),
-      pathsById: new Map(files.map((file) => [file.project_file_id, file.path])),
+      files: new Map(files.map((file) => [file.path, { path: file.path, project_file_id: file.projectFileId }])),
+      pathsById: new Map(files.map((file) => [file.projectFileId, file.path])),
       objects: new Set(versions.map((version) => `${version.object_id}\u0000${version.path}`)),
     };
     // A partially built index can acquire objects later. Cache only completed,
@@ -138,13 +136,13 @@ export class RecommendationRanking {
 
   usageForProject(project) {
     const time = this.now();
+    const current = project.currentSnapshotId ? this.timeline.files.manifest(project.currentSnapshotId).byId : new Map();
     const rows = this.db.prepare(`
-      SELECT u.*, sf.path
-      FROM recommendation_usage u
-      JOIN snapshot_files sf ON sf.project_file_id = u.project_file_id AND sf.snapshot_id = ?
+      SELECT u.* FROM recommendation_usage u
       WHERE u.project_id = ?
       ORDER BY u.last_used_at_ms DESC, u.project_file_id, u.kind, u.session_id
-    `).all(project.currentSnapshotId, project.id);
+    `).all(project.id).filter((row) => current.has(row.project_file_id))
+      .map((row) => ({ ...row, path: current.get(row.project_file_id).path }));
     const documentsByFile = new Map();
     for (const row of this.db.prepare(`SELECT DISTINCT project_file_id, document_project_file_id
       FROM recommendation_document_usage WHERE project_id = ?
@@ -195,14 +193,16 @@ export class RecommendationRanking {
         JOIN snapshots s ON s.id = v.snapshot_id
         WHERE d.project_id = ? AND d.document_project_file_id = ? AND s.version <= ?
       )
-      SELECT current_file.path
+      SELECT v.source_object_id, v.source_snapshot_id
       FROM latest v
-      JOIN scientific_object_versions ov ON ov.object_id = v.source_object_id AND ov.snapshot_id = v.source_snapshot_id
-      JOIN snapshot_files origin_file ON origin_file.snapshot_id = ov.snapshot_id AND origin_file.path = ov.path
-      JOIN snapshot_files current_file ON current_file.snapshot_id = ? AND current_file.project_file_id = origin_file.project_file_id
       WHERE v.position = 1 AND v.is_removed = 0 AND v.status != 'BROKEN'
-    `).all(project.id, document.projectFileId, project.currentVersion, project.currentSnapshotId);
-    for (const row of rows) related.add(row.path);
+    `).all(project.id, document.projectFileId, project.currentVersion);
+    for (const row of rows) {
+      const source = this.timeline.objectVersions.at(row.source_snapshot_id, row.source_object_id);
+      const origin = source ? this.timeline.snapshotFile(row.source_snapshot_id, source.path) : null;
+      const current = origin ? this.timeline.snapshotFileById(project.currentSnapshotId, origin.projectFileId) : null;
+      if (current) related.add(current.path);
+    }
     return related;
   }
 
