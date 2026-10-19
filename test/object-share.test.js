@@ -86,8 +86,11 @@ test('externally shared dependencies', async (suite) => {
   await suite.test('an expired token cannot reach the source', () => {
     const share = shares.createShare({
       projectId: project.id, objectId: object.object_id, versionId: object.version_id,
-      actor: maya, expiresAt: new Date(Date.now() - 1000).toISOString(),
+      actor: maya, expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
+    // The link lapses: its stored expiry passes.
+    shares.db.prepare('UPDATE object_share_grants SET expires_at = ? WHERE token = ?')
+      .run(new Date(Date.now() - 1000).toISOString(), share.token);
     assert.equal(shares.resolveShare(share.token).status, 'EXPIRED');
     assert.equal(shares.sourceFile(share.token).status, 'EXPIRED');
   });

@@ -4,6 +4,16 @@ import { HttpError } from './errors.js';
 import { extractDesignDocument } from '../dependencies/drawing-objects.js';
 import { extractDrawingDocument } from '../dependencies/drawing-extraction.js';
 
+// A preview renders one element per line, cell or value. Past these limits a
+// browser tab stalls, so the preview shows the start of the file and says how
+// much there is. Anchors still resolve against the whole file.
+const PREVIEW_ROWS = 2000;
+const PREVIEW_ITEMS = 5000;
+
+function cappedItems(items) {
+  return { items: items.slice(0, PREVIEW_ITEMS), totalItems: items.length };
+}
+
 function lineItems(text, language = 'text') {
   return text.replace(/\r\n/g, '\n').split('\n').map((value, index) => ({
     anchor: { kind: 'line', line: index + 1 },
@@ -101,21 +111,24 @@ export function buildPreview(snapshot, file, buffer) {
     };
   }
   if (file.fileType === 'code' || file.fileType === 'text' || file.fileType === 'yaml') {
-    return { ...base, kind: 'lines', items: lineItems(text, file.fileType) };
+    return { ...base, kind: 'lines', ...cappedItems(lineItems(text, file.fileType)) };
   }
-  if (file.fileType === 'table') return { ...base, ...tablePreview(text, file.path) };
+  if (file.fileType === 'table') {
+    const table = tablePreview(text, file.path);
+    return { ...base, ...table, rows: table.rows.slice(0, PREVIEW_ROWS), totalRows: table.rows.length };
+  }
   if (file.fileType === 'json') {
     try {
       return {
         ...base,
         kind: 'json',
-        items: jsonLeaves(JSON.parse(text)).map((item) => ({
+        ...cappedItems(jsonLeaves(JSON.parse(text)).map((item) => ({
           ...item,
           anchor: { kind: 'json-path', path: item.path },
-        })),
+        }))),
       };
     } catch {
-      return { ...base, kind: 'lines', items: lineItems(text) };
+      return { ...base, kind: 'lines', ...cappedItems(lineItems(text)) };
     }
   }
   if (file.fileType === 'notebook') {
@@ -129,7 +142,7 @@ export function buildPreview(snapshot, file, buffer) {
         })),
       };
     } catch {
-      return { ...base, kind: 'lines', items: lineItems(text) };
+      return { ...base, kind: 'lines', ...cappedItems(lineItems(text)) };
     }
   }
   return {

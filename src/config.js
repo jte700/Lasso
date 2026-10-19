@@ -28,6 +28,8 @@ export function createConfig(overrides = {}) {
     shareBaseUrl: overrides.shareBaseUrl ?? process.env.SHARE_BASE_URL ?? null,
     watchDebounceMs: Number(overrides.watchDebounceMs ?? process.env.LASSO_WATCH_DEBOUNCE_MS
       ?? process.env.COLAB_WATCH_DEBOUNCE_MS ?? 2500),
+    // Saves that keep arriving cannot postpone a capture longer than this.
+    watchMaxWaitMs: Number(overrides.watchMaxWaitMs ?? process.env.LASSO_WATCH_MAX_WAIT_MS ?? 15000),
     watchProjects: overrides.watchProjects ?? true,
     publicDir: overrides.publicDir ?? path.resolve('public'),
   };

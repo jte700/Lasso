@@ -44,10 +44,21 @@ func findFreePort() -> Int? { claimPreferredPort(0) }
 
 // MARK: - Node discovery
 
+/// The bundled server uses `node:sqlite`, which needs Node.js 24 or newer.
+let minimumNodeMajorVersion = 24
+
+enum NodeResolution {
+    case found(String)
+    case tooOld(path: String, version: String)
+    case missing
+}
+
 /// GUI applications do not inherit a shell PATH, so the Node binary is resolved
 /// explicitly: an env override, the path recorded at build time, the usual
-/// install locations, any nvm install, and finally a login shell lookup.
-func resolveNodePath() -> String? {
+/// install locations, any nvm install (newest first), and finally a login
+/// shell lookup. Each candidate's version is checked, so an old Node is
+/// reported as such instead of as a server that stopped.
+func resolveNodePath() -> NodeResolution {
     let fileManager = FileManager.default
     var candidates: [String] = []
 
@@ -65,21 +76,39 @@ func resolveNodePath() -> String? {
     let nvmRoot = fileManager.homeDirectoryForCurrentUser
         .appendingPathComponent(".nvm/versions/node", isDirectory: true)
     if let versions = try? fileManager.contentsOfDirectory(atPath: nvmRoot.path) {
-        for version in versions.sorted(by: >) {
+        // "v24.1.0" must sort above "v9.11.2", so compare numerically.
+        for version in versions.sorted(by: { $0.compare($1, options: .numeric) == .orderedDescending }) {
             candidates.append(nvmRoot.appendingPathComponent("\(version)/bin/node").path)
         }
     }
 
-    for candidate in candidates where fileManager.isExecutableFile(atPath: candidate) {
-        return candidate
+    var tooOld: (path: String, version: String)?
+    var checked = Set<String>()
+    for candidate in candidates where checked.insert(candidate).inserted
+        && fileManager.isExecutableFile(atPath: candidate) {
+        guard let version = nodeVersion(at: candidate) else { continue }
+        if nodeMajorVersion(version) >= minimumNodeMajorVersion { return .found(candidate) }
+        if tooOld == nil { tooOld = (candidate, version) }
     }
-    return nodePathFromLoginShell()
+    if let shellNode = nodePathFromLoginShell(), checked.insert(shellNode).inserted,
+       let version = nodeVersion(at: shellNode) {
+        if nodeMajorVersion(version) >= minimumNodeMajorVersion { return .found(shellNode) }
+        if tooOld == nil { tooOld = (shellNode, version) }
+    }
+    if let tooOld { return .tooOld(path: tooOld.path, version: tooOld.version) }
+    return .missing
 }
 
-private func nodePathFromLoginShell() -> String? {
+func nodeMajorVersion(_ version: String) -> Int {
+    let digits = version.trimmingCharacters(in: .whitespacesAndNewlines).drop(while: { $0 == "v" })
+    return Int(digits.prefix(while: \.isNumber)) ?? 0
+}
+
+/// Output of a short command, or nil when it fails or takes too long.
+private func commandOutput(_ executable: String, _ arguments: [String], timeout: TimeInterval) -> String? {
     let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-    process.arguments = ["-lc", "command -v node"]
+    process.executableURL = URL(fileURLWithPath: executable)
+    process.arguments = arguments
     let pipe = Pipe()
     process.standardOutput = pipe
     process.standardError = FileHandle.nullDevice
@@ -88,10 +117,26 @@ private func nodePathFromLoginShell() -> String? {
     } catch {
         return nil
     }
+    // A slow or interactive shell profile must not stall startup.
+    let deadline = DispatchWorkItem { if process.isRunning { process.terminate() } }
+    DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: deadline)
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
-    let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard let path, !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) else { return nil }
+    deadline.cancel()
+    guard process.terminationStatus == 0 else { return nil }
+    return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+private func nodeVersion(at path: String) -> String? {
+    commandOutput(path, ["--version"], timeout: 5).flatMap { $0.isEmpty ? nil : $0 }
+}
+
+private func nodePathFromLoginShell() -> String? {
+    // An interactive login shell also reads .zshrc, where nvm, fnm and asdf
+    // usually set up PATH.
+    guard let output = commandOutput("/bin/zsh", ["-ilc", "command -v node"], timeout: 5),
+          let path = output.split(separator: "\n").last.map(String.init),
+          FileManager.default.isExecutableFile(atPath: path) else { return nil }
     return path
 }
 
@@ -109,6 +154,19 @@ final class ServerController {
     private(set) var state: ServerState = .starting
     private var process: Process?
     private var healthCheck: URLSessionDataTask?
+    /// Recent unexpected exits. A crash restarts the server on its own, but a
+    /// server that keeps failing stops retrying and asks the user to look.
+    private var unexpectedExits: [Date] = []
+    private static let restartWindow: TimeInterval = 120
+    private static let maximumAutomaticRestarts = 3
+    private static let maximumLogBytes: UInt64 = 5_000_000
+    /// Polls that go unanswered for this long slow down, because the server
+    /// is busy reading large folders rather than failing.
+    private static let patientPollingAfter: TimeInterval = 25
+    /// A server that is running but has not answered at all for this long is
+    /// stuck rather than busy, so the menu offers to restart it.
+    private static let unresponsiveAfter: TimeInterval = 5 * 60
+    private var launchAttempt = 0
     private let appDirectory: String
     private let dataDirectory: String
     private let logURL: URL
@@ -129,11 +187,38 @@ final class ServerController {
     func start() {
         stop()
         transition(.starting)
-
-        guard let node = resolveNodePath() else {
-            transition(.failed("Node.js 24+ was not found. Install Node, or set LASSO_NODE to its path."))
-            return
+        launchAttempt += 1
+        let attempt = launchAttempt
+        // Finding Node can run a login shell. Keep that off the main thread so
+        // the menu stays responsive while Lasso starts.
+        DispatchQueue.global(qos: .userInitiated).async {
+            let resolution = resolveNodePath()
+            DispatchQueue.main.async { [weak self] in
+                guard let self, attempt == self.launchAttempt, self.process == nil else { return }
+                switch resolution {
+                case .found(let node):
+                    self.launch(node: node)
+                case .tooOld(let path, let version):
+                    self.transition(.failed("Lasso needs Node.js \(minimumNodeMajorVersion) or newer, but found \(version) at \(path). "
+                        + "Install a current Node.js, then choose Restart Server."))
+                case .missing:
+                    self.transition(.failed("Node.js \(minimumNodeMajorVersion) or newer was not found. "
+                        + "Install it from nodejs.org or Homebrew, then choose Restart Server."))
+                }
+            }
         }
+    }
+
+    /// Keeps the server log from growing without bound across launches.
+    private func rotateLogIfNeeded() {
+        let size = (try? FileManager.default.attributesOfItem(atPath: logURL.path)[.size] as? NSNumber)?.uint64Value ?? 0
+        guard size > Self.maximumLogBytes else { return }
+        let previous = logURL.appendingPathExtension("1")
+        try? FileManager.default.removeItem(at: previous)
+        try? FileManager.default.moveItem(at: logURL, to: previous)
+    }
+
+    private func launch(node: String) {
         // Share links embed the port, so a stable one is preferred: links sent
         // yesterday still resolve today. Falls back to any free port.
         guard let chosen = claimPreferredPort(4319) ?? findFreePort() else {
@@ -145,6 +230,7 @@ final class ServerController {
         try? FileManager.default.createDirectory(atPath: dataDirectory, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(
             at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        rotateLogIfNeeded()
 
         let child = Process()
         child.executableURL = URL(fileURLWithPath: node)
@@ -155,6 +241,9 @@ final class ServerController {
         var environment = ProcessInfo.processInfo.environment
         environment["PORT"] = String(port)
         environment["LASSO_DATA_DIR"] = dataDirectory
+        // The server stops itself if this app crashes or is force-quit, so an
+        // orphan cannot keep the preferred port and database from the next launch.
+        environment["LASSO_PARENT_PID"] = String(getpid())
         // Isolated here so shares can later be served from a hosted origin.
         environment["SHARE_BASE_URL"] = ProcessInfo.processInfo.environment["SHARE_BASE_URL"]
             ?? "http://localhost:\(port)"
@@ -175,7 +264,7 @@ final class ServerController {
                 self.healthCheck?.cancel()
                 self.healthCheck = nil
                 self.process = nil
-                self.transition(.failed("The Lasso server stopped. Use Restart Server to bring it back."))
+                self.recoverFromUnexpectedExit()
             }
         }
 
@@ -186,16 +275,15 @@ final class ServerController {
             return
         }
         process = child
-        waitUntilHealthy(child, deadline: Date().addingTimeInterval(25))
+        waitUntilHealthy(child, startedAt: Date())
     }
 
-    /// Polls the local server before enabling directory controls.
-    private func waitUntilHealthy(_ child: Process, deadline: Date) {
-        guard process === child, child.isRunning, let url else { return }
-        guard Date() < deadline else {
-            transition(.failed("The server did not become ready. See the log for details."))
-            return
-        }
+    /// Polls the local server before enabling directory controls. A server
+    /// reading large folders at startup can take a while to answer; that is
+    /// not a failure. Only the process exiting is, and that restarts it.
+    private func waitUntilHealthy(_ child: Process, startedAt: Date) {
+        guard process === child, child.isRunning,
+              let url = url?.appendingPathComponent("api/health") else { return }
         var request = URLRequest(url: url)
         request.timeoutInterval = 2
         request.cachePolicy = .reloadIgnoringLocalCacheData
@@ -207,15 +295,39 @@ final class ServerController {
                     self.transition(.ready)
                     return
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                    self?.waitUntilHealthy(child, deadline: deadline)
+                let waited = Date().timeIntervalSince(startedAt)
+                if waited > Self.unresponsiveAfter {
+                    self.transition(.failed("The Lasso server has not answered for 5 minutes. Check the server log, then choose Restart Server."))
+                    return
+                }
+                let patient = waited > Self.patientPollingAfter
+                DispatchQueue.main.asyncAfter(deadline: .now() + (patient ? 1 : 0.25)) { [weak self] in
+                    self?.waitUntilHealthy(child, startedAt: startedAt)
                 }
             }
         }
         healthCheck?.resume()
     }
 
+    /// Suggestions depend on the server, so a crash should not leave them off
+    /// until someone notices. Retries back off and give up after repeated exits.
+    private func recoverFromUnexpectedExit() {
+        let now = Date()
+        unexpectedExits = unexpectedExits.filter { now.timeIntervalSince($0) < Self.restartWindow } + [now]
+        guard unexpectedExits.count <= Self.maximumAutomaticRestarts else {
+            transition(.failed("The Lasso server stopped repeatedly. Check the server log, then use Restart Server."))
+            return
+        }
+        transition(.starting)
+        let delay = pow(2, Double(unexpectedExits.count - 1))
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, self.process == nil, case .starting = self.state else { return }
+            self.start()
+        }
+    }
+
     func restart() {
+        unexpectedExits = []
         start()
     }
 
@@ -262,6 +374,9 @@ private struct WorkDirectory {
         self.available = object["available"] as? Bool ?? true
         self.error = object["error"] as? String
     }
+
+    /// Switched on and present, but not usable for suggestions.
+    var needsAttention: Bool { active && available && !(error ?? "").isEmpty }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -468,7 +583,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusMenu.addItem(remove)
         }
         if directories.isEmpty {
-            statusMenu.addItem(label(isServerReady ? "Choose directories to get started" : "Waiting for the server…"))
+            if isServerReady {
+                statusMenu.addItem(label("Add a folder of your work files to get source suggestions."))
+            } else if case .starting = server?.state {
+                statusMenu.addItem(label("Waiting for the server…"))
+            }
         } else {
             statusMenu.addItem(.separator())
             let heading = command("Work Directories", action: #selector(toggleDirectoryList))
@@ -479,12 +598,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 for directory in directories {
                     let duplicateName = directories.filter { $0.name == directory.name }.count > 1
                     let title = duplicateName ? directory.rootPath : directory.name
-                    let item = command(title + (directory.available ? "" : " (unavailable)"),
-                                       action: #selector(toggleDirectory(_:)),
+                    let note = !directory.available ? " (unavailable)"
+                        : directory.needsAttention ? " (needs attention)" : ""
+                    let item = command(title + note, action: #selector(toggleDirectory(_:)),
                                        enabled: isServerReady && busyMessage == nil)
                     item.state = directory.active ? .on : .off
                     item.representedObject = directory.id
-                    let usage = directory.active ? "On: suggestions include this folder." : "Off: this folder is paused."
+                    let usage = directory.needsAttention ? "Click to try this folder again."
+                        : directory.active ? "On: suggestions include this folder." : "Off: this folder is paused."
                     item.toolTip = [directory.rootPath, directory.error, usage].compactMap { $0 }.joined(separator: "\n")
                     item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
                     let row = NativeMenuToggleRow(item: item, color: toggleColor(for: directory.id),
@@ -508,17 +629,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item.toolTip = workspaceError
             statusMenu.addItem(item)
         }
+        // Recovery belongs next to the problem, not three levels down.
+        if case .failed = server?.state {
+            statusMenu.addItem(command("Restart Server", action: #selector(restartServer)))
+        }
         statusMenu.addItem(.separator())
         let assist = command("Suggest While Typing", action: #selector(toggleGlobalAssist),
                              enabled: isServerReady)
         assist.state = assistActivation.requested ? .on : .off
         statusMenu.addItem(assist)
+        if assistActivation.requested, isServerReady, activeCount == 0, !directories.isEmpty, busyMessage == nil {
+            statusMenu.addItem(label("Switch on a work directory to get suggestions."))
+        }
         if NotchPanelController.isAvailable {
             let notchItem = command("Show Lasso in Notch", action: #selector(toggleNotch))
             notchItem.state = UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey) ? .on : .off
             statusMenu.addItem(notchItem)
         }
-        if assistActivation.requested && !GlobalAssistant.shared.isEnabled && isServerReady {
+        let login = command("Open at Login", action: #selector(toggleLoginItem))
+        login.state = LoginItem.isEnabled || LoginItem.needsApproval ? .on : .off
+        login.toolTip = LoginItem.needsApproval
+            ? "Waiting for approval in System Settings → General → Login Items."
+            : "Start Lasso when you log in, so suggestions are ready without opening it."
+        statusMenu.addItem(login)
+        if LoginItem.needsApproval {
+            statusMenu.addItem(command("Allow Open at Login…", action: #selector(openLoginItemSettings)))
+        }
+        if assistActivation.requested && GlobalAssistant.shared.isEnabled && isServerReady
+            && GlobalAssistant.shared.isAwaitingInput && !AssistPermission.hasInputMonitoring {
+            statusMenu.addItem(command("Allow Input Monitoring…", action: #selector(openAssistSettings)))
+        } else if assistActivation.requested && !GlobalAssistant.shared.isEnabled && isServerReady {
             if !AssistPermission.hasAccessibility {
                 statusMenu.addItem(command("Allow Accessibility…", action: #selector(openAssistSettings)))
             } else if !AssistPermission.hasInputMonitoring {
@@ -558,12 +698,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         debug.toolTip = "Draws the boxes Lasso uses to place source highlights."
         debug.state = DependencyHighlighter.shared.isDebugging ? .on : .off
         troubleshootingMenu.addItem(debug)
+        let typingLog = command("Record Typing Log", action: #selector(toggleTypingLog))
+        typingLog.state = AssistLog.enabled ? .on : .off
+        typingLog.toolTip = "Records which apps Lasso could read and whether insertions landed. Never what you type."
+        troubleshootingMenu.addItem(typingLog)
         troubleshootingMenu.addItem(command("Reveal Server Log", action: #selector(revealLog)))
         troubleshootingMenu.addItem(command("Reveal Typing Log", action: #selector(revealAssistLog)))
         troubleshooting.submenu = troubleshootingMenu
         toolsMenu.addItem(troubleshooting)
         tools.submenu = toolsMenu
         statusMenu.addItem(tools)
+        statusMenu.addItem(command("About Lasso", action: #selector(showAbout)))
         statusMenu.addItem(command("Quit Lasso", action: #selector(quit), key: "q"))
         statusPopover.update(menu: statusMenu)
         notch.configure(enabled: UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey),
@@ -636,6 +781,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return state
     }
 
+    /// A menu bar app has no window, so a new user could miss it entirely.
+    /// The first time Lasso runs with no folders, open the menu once.
+    private static let welcomedKey = "WelcomedOnce"
+
+    private func welcomeIfNeeded() {
+        guard directories.isEmpty, !UserDefaults.standard.bool(forKey: Self.welcomedKey),
+              let button = statusItem.button else { return }
+        UserDefaults.standard.set(true, forKey: Self.welcomedKey)
+        statusPopover.show(relativeTo: button)
+    }
+
+    /// Opening Lasso again while it runs shows its menu instead of nothing.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if let button = statusItem.button { statusPopover.show(relativeTo: button) }
+        return true
+    }
+
     private func applyWorkspace(_ state: [String: Any]) {
         directories = (state["directories"] as? [[String: Any]] ?? []).compactMap(WorkDirectory.init)
         if let revision = state["revision"] as? String {
@@ -648,7 +810,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? directories.filter { $0.active && $0.available && ($0.error ?? "").isEmpty }.map(\.id)
         GlobalAssistant.shared.updateWorkspace(projectIds: activeIds, revision: workspaceRevision)
         rebuildMenu()
+        welcomeIfNeeded()
     }
+
+    /// Adding a large folder reads and indexes every file before answering.
+    private static let indexingRequestTimeout: TimeInterval = 30 * 60
 
     private func mutateWorkspace(path: String, method: String = "POST", body: [String: Any]? = nil, message: String) {
         guard isServerReady, busyMessage == nil, let base = server.url else { return }
@@ -662,7 +828,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
         var request = URLRequest(url: base.appendingPathComponent(path))
         request.httpMethod = method
-        request.timeoutInterval = 120
+        request.timeoutInterval = method == "DELETE" ? 120 : Self.indexingRequestTimeout
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "content-type")
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -708,9 +874,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleDirectory(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String,
               let directory = directories.first(where: { $0.id == id }) else { return }
+        // A folder that is on but failed to start is retried, not paused:
+        // pausing it would take a second click to get it working.
+        let activate = !directory.active || directory.needsAttention
         mutateWorkspace(path: "api/workspace/directories/" + id,
-                        body: WorkspaceAPI.toggleDirectoryBody(active: !directory.active),
-                        message: directory.active ? "Pausing directory…" : "Activating and indexing directory…")
+                        body: WorkspaceAPI.toggleDirectoryBody(active: activate),
+                        message: activate ? "Activating and indexing directory…" : "Pausing directory…")
     }
 
     /// Takes a folder out of Lasso. Nothing on disk changes, and its history
@@ -772,6 +941,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func refreshDirectoryStatus() { refreshWorkspace() }
 
+    @objc private func toggleLoginItem() {
+        let enable = !(LoginItem.isEnabled || LoginItem.needsApproval)
+        do {
+            try LoginItem.setEnabled(enable)
+            if enable && LoginItem.needsApproval { LoginItem.openSettings() }
+        } catch {
+            showError(enable
+                ? "Lasso could not be added to your login items: \(error.localizedDescription)"
+                : "Lasso could not be removed from your login items: \(error.localizedDescription)")
+        }
+        rebuildMenu()
+    }
+
+    @objc private func openLoginItemSettings() { LoginItem.openSettings() }
+
     @objc private func toggleGlobalAssist() {
         let assistant = GlobalAssistant.shared
         assistActivation.setRequested(!assistActivation.requested)
@@ -796,7 +980,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             inputMonitoring: AssistPermission.hasInputMonitoring,
             running: assistant.isEnabled, userInitiated: userInitiated) else { return }
         assistant.serverURL = server?.url
-        _ = assistant.enable(requestPermissions: userInitiated)
+        let problem = assistant.enable(requestPermissions: userInitiated)
+        // macOS shows its own prompt for a first request. A stale approval from
+        // an earlier build, or a missing Input Monitoring grant, needs steps
+        // that only this message explains.
+        if userInitiated, let problem,
+           assistant.lastProblem?.stale == true || assistant.lastProblem?.service == "Input Monitoring" {
+            showError(problem)
+        }
         rebuildMenu()
     }
 
@@ -808,8 +999,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !AssistPermission.hasAccessibility {
             AssistPermission.openSettings("Privacy_Accessibility")
         } else {
-            AssistPermission.requestInputMonitoring()
-            AssistPermission.openSettings("Privacy_ListenEvent")
+            // One path at a time: the system prompt while macOS can still show
+            // it, otherwise Settings. Both at once ask for the same thing twice.
+            AssistPermission.askForInputMonitoring()
         }
     }
 
@@ -829,8 +1021,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func runHostProbe() {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.hostProbeDelay) {
             let report = HostCapabilityProbe.run()
-            AssistLog.enabled = true
-            for line in report.split(separator: "\n") { AssistLog.write(String(line)) }
+            for line in report.split(separator: "\n") { AssistLog.write(String(line), force: true) }
             let alert = NSAlert()
             alert.messageText = "Host text support"
             alert.informativeText = report + "\n\nAlso written to the typing log."
@@ -838,6 +1029,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.activate(ignoringOtherApps: true)
             alert.runModal()
         }
+    }
+
+    @objc private func toggleTypingLog() {
+        AssistLog.enabled.toggle()
+        rebuildMenu()
     }
 
     @objc private func toggleDependencyDebug() {
@@ -869,6 +1065,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let log = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/Lasso/assist.log")
         NSWorkspace.shared.activateFileViewerSelecting([log])
+    }
+
+    @objc private func showAbout() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .credits: NSAttributedString(string: "Source-backed suggestions from your own files. Everything stays on this Mac.",
+                                         attributes: [.font: NSFont.systemFont(ofSize: 11),
+                                                      .foregroundColor: NSColor.secondaryLabelColor]),
+        ])
     }
 
     @objc private func quit() { NSApp.terminate(nil) }

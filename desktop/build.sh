@@ -86,13 +86,14 @@ if [ "${LASSO_BROWSER_GEOMETRY_TEST:-0}" = "1" ]; then
 fi
 swiftc "${SWIFT_OPTIONS[@]}" \
   -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" \
-  -framework Cocoa -framework WebKit -framework PDFKit \
+  -framework Cocoa -framework WebKit -framework PDFKit -framework ServiceManagement \
   -o "$CONTENTS/MacOS/Lasso" \
   "$ROOT/desktop/BuildConfig.swift" \
   "$ROOT/desktop/WorkspaceAPI.swift" \
   "$ROOT/desktop/AssistActivation.swift" \
   "$ROOT/desktop/TransientDismissal.swift" \
   "$ROOT/desktop/DirectoryColors.swift" \
+  "$ROOT/desktop/LoginItem.swift" \
   "$ROOT/desktop/NativeMaterial.swift" \
   "$ROOT/desktop/DirectoryMenu.swift" \
   "$ROOT/desktop/StatusPopover.swift" \
@@ -139,6 +140,34 @@ echo "==> Compiling safe PDF sharing renderer"
 swiftc -O -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework PDFKit -framework AppKit -o "$RESOURCES/app/scripts/render-shared-pdf" \
   "$ROOT/scripts/render-shared-pdf.swift"
 
+echo "==> Drawing the app icon"
+# The icon is drawn from scripts/render-app-icon.swift and cached by that
+# script's hash, so ordinary rebuilds reuse it instead of redrawing.
+# macOS 26 masks a full-bleed icon to its own shape and puts any other legacy
+# icon on a grey plate; earlier versions need the squircle drawn in. The icon
+# matches the macOS this build runs on (LASSO_ICON_STYLE=full-bleed|squircle).
+ICON_STYLE="${LASSO_ICON_STYLE:-}"
+if [ -z "$ICON_STYLE" ]; then
+  if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ]; then ICON_STYLE="full-bleed"; else ICON_STYLE="squircle"; fi
+fi
+case "$ICON_STYLE" in
+  full-bleed) ICON_FLAGS=(--full-bleed) ;;
+  squircle) ICON_FLAGS=() ;;
+  *) echo "error: LASSO_ICON_STYLE must be full-bleed or squircle." >&2; exit 1 ;;
+esac
+ICON_CACHE="${LASSO_ICON_CACHE:-${TMPDIR:-/tmp}/lasso-app-icon}"
+ICON_HASH="$(shasum -a 256 "$ROOT/scripts/render-app-icon.swift" | awk '{ print $1 }')"
+ICON_FILE="$ICON_CACHE/AppIcon-$ICON_STYLE-$ICON_HASH.icns"
+if [ ! -f "$ICON_FILE" ]; then
+  mkdir -p "$ICON_CACHE"
+  swiftc -O -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework AppKit \
+    -o "$BUILD_DIR/render-app-icon" "$ROOT/scripts/render-app-icon.swift"
+  "$BUILD_DIR/render-app-icon" "$BUILD_DIR/AppIcon.iconset" ${ICON_FLAGS[@]+"${ICON_FLAGS[@]}"}
+  iconutil -c icns -o "$BUILD_DIR/AppIcon.icns" "$BUILD_DIR/AppIcon.iconset"
+  mv "$BUILD_DIR/AppIcon.icns" "$ICON_FILE"
+fi
+cp "$ICON_FILE" "$RESOURCES/AppIcon.icns"
+
 echo "==> Writing Info.plist"
 cat > "$CONTENTS/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -151,6 +180,7 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <key>CFBundleVersion</key><string>1.0.0</string>
   <key>CFBundleShortVersionString</key><string>1.0.0</string>
   <key>CFBundleExecutable</key><string>Lasso</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
@@ -197,6 +227,13 @@ echo "==> Replacing app with verified build"
 mkdir -p "$DIST"
 rm -rf "$APP"
 mv "$BUILD_APP" "$APP"
+# Finder, alerts and Privacy & Security settings cache app icons. Re-register
+# so the new icon replaces a cached one without logging out.
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [ -x "$LSREGISTER" ]; then
+  "$LSREGISTER" -f "$APP" >/dev/null 2>&1 || true
+fi
+touch "$APP"
 
 echo
 echo "Built: $APP"

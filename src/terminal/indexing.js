@@ -13,6 +13,10 @@ import { isInformationalDxfWarning } from '../dependencies/dxf-extraction.js';
 
 function now() { return new Date().toISOString(); }
 
+// Found while reading files into the index, not while scanning the folder.
+// Each full index replaces this set; a scan never resolves it.
+const INDEX_PROBLEM_CODES = new Set(['UNREADABLE_CONTENT', 'PARTIALLY_INDEXED', 'NOT_INDEXED_LIMIT']);
+
 export class IndexControlService {
   constructor(db, timeline, dependencies) {
     this.db = db;
@@ -23,6 +27,7 @@ export class IndexControlService {
       exclusionFilter: (projectId) => this.exclusionFilter(projectId),
       recordFailures: (projectId, failures) => this.recordFailures(projectId, failures),
     };
+    dependencies.onIndexProblems = (projectId, problems) => this.recordIndexProblems(projectId, problems);
   }
 
   // ── exclusions ───────────────────────────────────────────────────────────
@@ -78,20 +83,37 @@ export class IndexControlService {
    * that works is visible.
    */
   recordFailures(projectId, failures) {
+    this.replaceFailures(projectId, failures, false);
+  }
+
+  /** Files the latest full index could not read, or read only in part. */
+  recordIndexProblems(projectId, problems) {
+    this.replaceFailures(projectId, problems, true);
+  }
+
+  /**
+   * Upserts `failures`, then resolves open rows of the same kind that no
+   * longer occur. A path holds one row, so an open row of the other kind is
+   * left alone: a file briefly locked must not hide that it cannot be read.
+   */
+  replaceFailures(projectId, failures, indexProblems) {
+    const ownsCode = (code) => INDEX_PROBLEM_CODES.has(code) === indexProblems;
     const timestamp = now();
     const seen = new Set(failures.map((failure) => failure.path));
+    const codes = [...INDEX_PROBLEM_CODES].map((code) => `'${code}'`).join(', ');
     const insert = this.db.prepare(`
       INSERT INTO index_failures(id, project_id, path, code, reason, detected_at, resolved_at)
       VALUES (?, ?, ?, ?, ?, ?, NULL)
       ON CONFLICT(project_id, path) DO UPDATE SET code = excluded.code, reason = excluded.reason, resolved_at = NULL
+      WHERE index_failures.resolved_at IS NOT NULL OR index_failures.code ${indexProblems ? 'IN' : 'NOT IN'} (${codes})
     `);
     for (const failure of failures) {
       insert.run(crypto.randomUUID(), projectId, failure.path, failure.code, failure.reason, timestamp);
     }
-    const open = this.db.prepare('SELECT id, path FROM index_failures WHERE project_id = ? AND resolved_at IS NULL').all(projectId);
+    const open = this.db.prepare('SELECT id, path, code FROM index_failures WHERE project_id = ? AND resolved_at IS NULL').all(projectId);
     const resolve = this.db.prepare('UPDATE index_failures SET resolved_at = ? WHERE id = ?');
     for (const row of open) {
-      if (!seen.has(row.path)) resolve.run(timestamp, row.id);
+      if (ownsCode(row.code) && !seen.has(row.path)) resolve.run(timestamp, row.id);
     }
   }
 
@@ -116,7 +138,8 @@ export class IndexControlService {
         reason: row.reason,
         detectedAt: row.detected_at,
         resolvedAt: row.resolved_at,
-        retryable: row.code !== 'UNSUPPORTED_FORMAT',
+        // Index problems clear when the file changes, not on a retry.
+        retryable: row.code !== 'UNSUPPORTED_FORMAT' && !INDEX_PROBLEM_CODES.has(row.code),
       }));
     const project = this.timeline.getProject(projectId);
     const drawingProblems = new Map();

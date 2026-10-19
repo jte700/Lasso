@@ -3,12 +3,15 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { BlobStore, hashBuffer } from './blob-store.js';
-import { isIgnoredScanPath, scanDirectory } from './scanner.js';
+import { isIgnoredScanPath, scanDirectory, scannedFile } from './scanner.js';
 import { isTrackedFile } from './file-types.js';
 import { createStructuredDiff, deterministicEventTitle } from './diff.js';
 import { ACTOR_TYPES } from '../config.js';
 import { json, transaction } from '../db.js';
 import { HttpError, VersionConflictError } from './errors.js';
+
+// A watcher capture that fails, for example on a locked database, is retried this many times.
+const MAX_WATCHER_RETRIES = 3;
 
 function now() {
   return new Date().toISOString();
@@ -45,6 +48,7 @@ function rowToSnapshotFile(row) {
     contentHash: row.content_hash,
     size: row.size,
     mtimeMs: row.mtime_ms,
+    ctimeMs: row.ctime_ms ?? null,
     fileType: row.file_type,
     device: row.device,
     inode: row.inode,
@@ -99,10 +103,18 @@ export class TimelineService {
     const failures = [];
     const exclude = this.scanExclusion(project.rootPath, project.id);
     if (!this.scanCaches.has(project.id)) this.scanCaches.set(project.id, new Map());
+    const cache = this.scanCaches.get(project.id);
+    // After a restart the cache is empty. Seed it from the last snapshot, so
+    // reopening a folder reads only files whose recorded stat values changed.
+    if (!cache.size && options.previousFiles) {
+      for (const file of options.previousFiles) cache.set(file.path, { file: scannedFile(file) });
+    }
     const files = scanDirectory(project.rootPath, this.blobs, {
-      exclude, failures, fileCache: this.scanCaches.get(project.id),
-      reuseUnchanged: options.source === 'WATCHER' && Array.isArray(options.dirtyPaths),
+      exclude, failures, fileCache: cache,
+      reuseUnchanged: (options.source === 'WATCHER' && Array.isArray(options.dirtyPaths))
+        || options.source === 'OPEN_RECONCILE',
       dirtyPaths: options.dirtyPaths,
+      previousFiles: options.previousFiles,
     });
     this.scanPolicy?.recordFailures?.(project.id, failures);
     return files;
@@ -227,8 +239,8 @@ export class TimelineService {
 
       const insertProjectFile = this.db.prepare('INSERT INTO project_files(id, project_id, created_at) VALUES (?, ?, ?)');
       const insertSnapshotFile = this.db.prepare(`
-        INSERT INTO snapshot_files(snapshot_id, project_file_id, path, content_hash, size, mtime_ms, file_type, device, inode, metadata_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO snapshot_files(snapshot_id, project_file_id, path, content_hash, size, mtime_ms, file_type, device, inode, metadata_json, ctime_ms)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const assigned = [];
       for (const file of scanned) {
@@ -236,7 +248,7 @@ export class TimelineService {
         insertProjectFile.run(projectFileId, projectId, timestamp);
         insertSnapshotFile.run(
           snapshotId, projectFileId, file.path, file.contentHash, file.size, file.mtimeMs,
-          file.fileType, file.device, file.inode, JSON.stringify(file.metadata),
+          file.fileType, file.device, file.inode, JSON.stringify(file.metadata), file.ctimeMs ?? null,
         );
         assigned.push({ ...file, projectFileId });
       }
@@ -350,7 +362,7 @@ export class TimelineService {
       throw new VersionConflictError(options.expectedSnapshotId, project.currentSnapshotId);
     }
     const previous = this.getSnapshot(project.currentSnapshotId);
-    const scanned = this.scanProject(project, options);
+    const scanned = this.scanProject(project, { ...options, previousFiles: previous.files });
     const comparison = this.compareScan(previous.files, scanned);
     if (!comparison.changes.length) return { changed: false, snapshot: previous, event: null };
 
@@ -379,16 +391,18 @@ export class TimelineService {
       `).run(snapshotId, projectId, version, previous.id, manifestHash(comparison.assigned), timestamp);
       const insertProjectFile = this.db.prepare('INSERT INTO project_files(id, project_id, created_at) VALUES (?, ?, ?)');
       const insertSnapshotFile = this.db.prepare(`
-        INSERT INTO snapshot_files(snapshot_id, project_file_id, path, content_hash, size, mtime_ms, file_type, device, inode, metadata_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO snapshot_files(snapshot_id, project_file_id, path, content_hash, size, mtime_ms, file_type, device, inode, metadata_json, ctime_ms)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
+      // A set, not a scan of every change per file: moving a large folder
+      // otherwise costs time proportional to the square of its file count.
+      const newIdentities = new Set(comparison.changes
+        .filter((change) => change.isNewIdentity).map((change) => change.after.projectFileId));
       for (const file of comparison.assigned) {
-        if (comparison.changes.some((change) => change.isNewIdentity && change.after.projectFileId === file.projectFileId)) {
-          insertProjectFile.run(file.projectFileId, projectId, timestamp);
-        }
+        if (newIdentities.has(file.projectFileId)) insertProjectFile.run(file.projectFileId, projectId, timestamp);
         insertSnapshotFile.run(
           snapshotId, file.projectFileId, file.path, file.contentHash, file.size, file.mtimeMs,
-          file.fileType, file.device, file.inode, JSON.stringify(file.metadata),
+          file.fileType, file.device, file.inode, JSON.stringify(file.metadata), file.ctimeMs ?? null,
         );
       }
       this.db.prepare(`
@@ -723,31 +737,66 @@ export class TimelineService {
             .some((filePath) => filePath.startsWith(`${knownPath}/`));
           if (!isDirectory && !hadChildren) return;
         }
-        const pending = this.pendingPaths.get(projectId) ?? { paths: new Set(), unknown: false };
-        if (knownPath) pending.paths.add(knownPath);
-        else pending.unknown = true;
-        this.pendingPaths.set(projectId, pending);
-        clearTimeout(this.pendingTimers.get(projectId));
-        this.pendingTimers.set(projectId, setTimeout(() => {
-          this.pendingTimers.delete(projectId);
-          this.pendingPaths.delete(projectId);
-          try {
-            this.capture(projectId, actor, {
-              source: 'WATCHER', dirtyPaths: pending.unknown ? null : [...pending.paths],
-            });
-          } catch (error) {
-            // A renamed root fails its capture; follow it now rather than at the next poll.
-            if (!fs.existsSync(project.rootPath)) this.workspace?.followRenamedRoots?.();
-            else console.error(`Project watcher capture failed for ${projectId}:`, error.message);
-          }
-        }, this.config.watchDebounceMs));
+        this.queueWatcherCapture(projectId, actor, knownPath);
       });
     } catch (error) {
       console.warn(`Project watcher unavailable for ${project.rootPath}: ${error.message}`);
       return;
     }
-    watcher.on('error', (error) => console.error(`Project watcher error for ${projectId}:`, error.message));
+    watcher.on('error', (error) => {
+      console.error(`Project watcher error for ${projectId}:`, error.message);
+      // A failed watcher reports nothing more. Start a new one and rescan the
+      // whole folder, so edits made in between are not missed.
+      setTimeout(() => {
+        if (this.watchers.get(projectId) !== watcher) return;
+        this.watchProject(projectId, actorInput);
+        if (this.watchers.has(projectId)) this.queueWatcherCapture(projectId, actor, null);
+      }, this.config.watchDebounceMs).unref?.();
+    });
     this.watchers.set(projectId, watcher);
+  }
+
+  /**
+   * Batches watcher events into one capture. Each event restarts the debounce,
+   * but saves that keep arriving cannot postpone it past the maximum wait.
+   * A null path means the event did not say what changed: rescan everything.
+   */
+  queueWatcherCapture(projectId, actor, changedPath) {
+    const pending = this.pendingPaths.get(projectId)
+      ?? { paths: new Set(), unknown: false, since: Date.now(), retries: 0 };
+    if (changedPath) pending.paths.add(changedPath);
+    else pending.unknown = true;
+    this.pendingPaths.set(projectId, pending);
+    clearTimeout(this.pendingTimers.get(projectId));
+    const untilDeadline = Math.max(0, pending.since + this.config.watchMaxWaitMs - Date.now());
+    this.pendingTimers.set(projectId, setTimeout(() => this.runWatcherCapture(projectId, actor),
+      Math.min(this.config.watchDebounceMs, untilDeadline)));
+  }
+
+  runWatcherCapture(projectId, actor) {
+    const pending = this.pendingPaths.get(projectId);
+    this.pendingTimers.delete(projectId);
+    this.pendingPaths.delete(projectId);
+    if (!pending) return;
+    const project = this.getProject(projectId);
+    try {
+      this.capture(projectId, actor, {
+        source: 'WATCHER', dirtyPaths: pending.unknown ? null : [...pending.paths],
+      });
+    } catch (error) {
+      // A renamed root fails its capture; follow it now rather than at the next poll.
+      if (!fs.existsSync(project.rootPath)) {
+        this.workspace?.followRenamedRoots?.();
+        return;
+      }
+      console.error(`Project watcher capture failed for ${projectId}:`, error.message);
+      // A locked database or busy file usually clears quickly. Keep the
+      // changed paths and try again rather than dropping them.
+      if (pending.retries >= MAX_WATCHER_RETRIES || this.pendingPaths.has(projectId)) return;
+      this.pendingPaths.set(projectId, { ...pending, since: Date.now(), retries: pending.retries + 1 });
+      this.pendingTimers.set(projectId, setTimeout(() => this.runWatcherCapture(projectId, actor),
+        this.config.watchDebounceMs));
+    }
   }
 
   unwatchProject(projectId) {

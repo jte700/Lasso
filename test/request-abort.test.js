@@ -23,3 +23,36 @@ test('a request the client cancels mid-upload is not logged as a server error', 
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.deepEqual(logged, []);
 });
+
+test('a malformed percent-encoded path is a client error, not a logged server failure', async (t) => {
+  // Arrange
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-uri-'));
+  const app = createApplication({ dataDir: path.join(sandbox, 'data'), watchProjects: false, port: 0 });
+  const logged = [];
+  const original = console.error;
+  console.error = (...values) => logged.push(values);
+  t.after(async () => { console.error = original; await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+
+  // Act
+  const response = await fetch(`http://127.0.0.1:${app.server.address().port}/api/projects/%E0%A4%A`);
+
+  // Assert
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error.message, /not a valid address/i);
+  assert.deepEqual(logged, []);
+});
+
+test('a JSON body that is not an object is a client error', async (t) => {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-body-'));
+  const app = createApplication({ dataDir: path.join(sandbox, 'data'), watchProjects: false, port: 0 });
+  const logged = [];
+  const original = console.error;
+  console.error = (...values) => logged.push(values);
+  t.after(async () => { console.error = original; await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const response = await fetch(`http://127.0.0.1:${app.server.address().port}/api/workspace/directories`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: 'null' });
+  assert.equal(response.status, 400);
+  assert.deepEqual(logged, []);
+});

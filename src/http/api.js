@@ -12,6 +12,8 @@ import { buildShareDownload, downloadDisposition } from '../sharing/share-downlo
 import { drawingDiscovery } from '../dependencies/drawing-discovery.js';
 import { buildSafePdf, pdfShareRequest } from '../sharing/pdf-share.js';
 import { normalizePdfExcerpt, normalizeRedactions } from '../sharing/object-share.js';
+import { refusalReason, WORKSPACE_PAGE_HEADERS } from './request-guard.js';
+import { passiveInlineType } from './passive-types.js';
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -31,11 +33,17 @@ async function readJson(request, limit = 25 * 1024 * 1024) {
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
+  let value;
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
   } catch {
     throw new HttpError(400, 'Request body must be valid JSON.');
   }
+  // Every route reads named fields, so null, strings and arrays are client errors.
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new HttpError(400, 'Request body must be a JSON object.');
+  }
+  return value;
 }
 
 function sendJson(response, status, value) {
@@ -85,9 +93,17 @@ function actorFrom(body) {
   };
 }
 
+function decodePathSegment(segment) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    throw new HttpError(400, 'This is not a valid address.');
+  }
+}
+
 function match(pathname, pattern) {
   const result = pathname.match(pattern);
-  return result ? result.slice(1).map(decodeURIComponent) : null;
+  return result ? result.slice(1).map(decodePathSegment) : null;
 }
 
 function serveStatic(publicDir, pathname, response) {
@@ -102,6 +118,7 @@ function serveStatic(publicDir, pathname, response) {
     'content-type': MIME_TYPES[extension] ?? 'application/octet-stream',
     'content-length': content.length,
     'cache-control': 'no-store',
+    ...WORKSPACE_PAGE_HEADERS,
   });
   response.end(content);
   return true;
@@ -161,6 +178,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
     try {
       const url = new URL(request.url, 'http://localhost');
       const { pathname } = url;
+      const refusal = refusalReason(request, pathname);
+      if (refusal) return sendJson(response, 403, { error: { message: refusal } });
 
       // Public share links. Deliberately ahead of the API and static routes,
       // and reachable without any session.
@@ -349,8 +368,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         if (!content) throw new HttpError(404, 'The source file is unavailable.');
         // Inline viewing is restricted to passive formats. HTML and SVG source
         // must never acquire the local API's origin through this endpoint.
-        const type = { '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg',
-          '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }[path.extname(file.path).toLowerCase()];
+        const type = passiveInlineType(file.path);
         if (!type) throw new HttpError(415, 'This file format cannot be viewed inline.');
         return sendBinary(response, 200, content, type, {
           'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
@@ -662,8 +680,12 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       if (request.method === 'GET' && parameters) {
         const sourceFile = dependencies.dependencySourceFile(parameters[0]);
         const filename = String(sourceFile.filename).replace(/["\r\n]/g, '_');
-        return sendBinary(response, 200, sourceFile.content, sourceFile.contentType, {
-          'content-disposition': `inline; filename="${filename}"`,
+        // "Open separately" shows passive formats in a tab and downloads the
+        // rest, so an SVG or HTML source cannot run script as this origin.
+        const inline = passiveInlineType(sourceFile.filename);
+        return sendBinary(response, 200, sourceFile.content, inline ?? 'application/octet-stream', {
+          'content-disposition': `${inline ? 'inline' : 'attachment'}; filename="${filename}"`,
+          'x-content-type-options': 'nosniff',
         });
       }
       parameters = match(pathname, /^\/api\/dependencies\/([^/]+)\/viewer$/);

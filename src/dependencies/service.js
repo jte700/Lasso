@@ -13,6 +13,7 @@ import {
 } from './completion.js';
 import { renderPdfFigurePage } from './figure-preview.js';
 import { markdownBlocks, markdownPassages } from '../sharing/markdown.js';
+import { shareExpiry } from '../sharing/expiry.js';
 import { RecommendationRanking, directRecommendationMatch } from './ranking.js';
 import { correctedDocumentLabel, firstAuthorFamily } from './authors.js';
 import { BoundedCache } from '../cache.js';
@@ -31,6 +32,7 @@ const STATUS_TYPES = new Set(['PREDICTED', 'LINKED', 'NEEDS_REVIEW', 'STALE', 'B
 const MAX_SNAPSHOT_OBJECTS = 10_000;
 const INDEX_VERSION = 3;
 const MAX_TABLE_CELLS = 1_500;
+const MAX_INDEXED_TABLE_ROWS = 1_000;
 const EDITABLE_DOCUMENT_TYPES = new Set(['markdown', 'text', 'document', 'pdf']);
 const STOP_WORDS = new Set([
   'about', 'after', 'before', 'between', 'from', 'have', 'into', 'levels', 'prior', 'shown',
@@ -661,9 +663,14 @@ function titleFromFileName(fileName) {
     .replace(/\s+/g, ' ').trim().replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+// A file name names an author only in citation form: "Johnson_2023" or
+// "smith-et-al-2019-title". "Orchard-Services-Agreement" must not become a
+// citation written by "Orchard".
+const CITATION_FILE_NAME = /^([A-Za-z][A-Za-z'’]+)(?:[_ -]+et[_ -]?al\.?)?[_ -]+(?:19|20)\d{2}(?!\d)/i;
+
 function paperMetadata(fileName) {
   const year = fileName.match(/\b(?:19|20)\d{2}[a-z]?\b/i)?.[0] ?? null;
-  const authorToken = fileName.split(/[_-]/)[0]?.replace(/[^A-Za-z'’-]/g, '') ?? '';
+  const authorToken = fileName.match(CITATION_FILE_NAME)?.[1] ?? '';
   const author = authorToken ? authorToken[0].toUpperCase() + authorToken.slice(1) : '';
   const title = titleFromFileName(fileName) || fileName;
   return {
@@ -800,7 +807,10 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
   const sheet = options.sheet ?? null;
   const keyPrefix = sheet ? `${file.projectFileId}:sheet:${sheet}` : file.projectFileId;
   const labelPrefix = sheet ? `${fileName} · ${sheet}` : fileName;
-  const data = rawRows.filter((row) => row.some((cell) => String(cell ?? '').trim())).slice(0, 1000);
+  // Only the first rows are indexed, but the row count reports the table as
+  // it is: inserting "n = 1000" for a larger table would state a false fact.
+  const filledRows = rawRows.filter((row) => row.some((cell) => String(cell ?? '').trim()));
+  const data = filledRows.slice(0, MAX_INDEXED_TABLE_ROWS);
   objects.push(objectDescriptor({
     key: `${keyPrefix}:dataset`, type: 'DATASET', path: file.path, label: labelPrefix,
     contentHash: file.contentHash, metadata: { format: options.format, sheet },
@@ -808,8 +818,9 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
   objects.push(objectDescriptor({
     key: `${keyPrefix}:row-count`, type: 'RESULT', path: file.path,
     anchor: { kind: 'table-summary', metric: 'row-count', sheet },
-    label: `${labelPrefix} · included rows`, value: `n = ${data.length}`,
-    contentHash: file.contentHash, metadata: { dataset: fileName, sheet, metric: 'row-count', rows: data.length },
+    label: `${labelPrefix} · included rows`, value: `n = ${filledRows.length}`,
+    contentHash: file.contentHash, metadata: { dataset: fileName, sheet, metric: 'row-count', rows: filledRows.length,
+      indexedRows: data.length },
   }));
 
   const dictionary = dictionaryColumns(file.path, headers);
@@ -1023,7 +1034,12 @@ function textPassageDescriptors(file, text, parentMetadata) {
   });
 }
 
-function objectsFromFile(file, buffer) {
+/**
+ * @param {(code: string, reason: string) => void} report receives a problem
+ *   that keeps some or all of the file out of suggestions, so it can be shown
+ *   in the indexing issues instead of disappearing silently
+ */
+function objectsFromFile(file, buffer, report = () => {}) {
   const objects = [];
   const base = file.projectFileId;
   const fileName = path.posix.basename(file.path, path.posix.extname(file.path));
@@ -1075,7 +1091,10 @@ function objectsFromFile(file, buffer) {
           contentHash: file.contentHash, metadata: { cellId: cell.id, cellType: cell.type },
         }));
       }
-    } catch { /* malformed notebooks are preserved but not indexed */ }
+    } catch {
+      // Malformed notebooks are preserved in history but not indexed.
+      report('UNREADABLE_CONTENT', 'This notebook could not be parsed, so its cells are not suggested.');
+    }
   } else if (file.fileType === 'image') {
     objects.push(objectDescriptor({
       key: `${base}:figure`, type: 'FIGURE', path: file.path, label: fileName,
@@ -1098,10 +1117,23 @@ function objectsFromFile(file, buffer) {
           },
         }));
       }
-    } catch { /* line diff remains available */ }
+    } catch {
+      // The line diff remains available in history.
+      report('UNREADABLE_CONTENT', 'This JSON file could not be parsed, so its values are not suggested.');
+    }
   } else if (file.fileType === 'spreadsheet') {
     const format = path.extname(file.path).slice(1).toUpperCase();
     const sheets = extractSpreadsheetTables(buffer);
+    // A readable workbook lists the sheets it had to skip; a failed one does not.
+    const readable = Array.isArray(sheets.skipped);
+    if (sheets.skipped?.length) {
+      report('PARTIALLY_INDEXED', `${sheets.skipped.length === 1 ? 'Sheet' : 'Sheets'} ${sheets.skipped.map((name) => `“${name}”`).join(', ')} could not be read (too large or damaged). The other sheets are indexed.`);
+    }
+    if (!sheets.length && format === 'ODS') {
+      report('UNREADABLE_CONTENT', 'OpenDocument spreadsheets are not indexed yet. Save a copy as .xlsx or .csv to use its values.');
+    } else if (!sheets.length && (!readable || sheets.skipped.length)) {
+      report('UNREADABLE_CONTENT', 'This workbook could not be read. It may be password-protected, damaged or too large.');
+    }
     if (sheets.length) {
       for (const sheet of sheets) {
         const layout = tabularLayout(sheet.rows);
@@ -1122,6 +1154,11 @@ function objectsFromFile(file, buffer) {
   } else if (file.fileType === 'pdf' || file.fileType === 'document') {
     const fallback = paperMetadata(fileName);
     const extracted = file.fileType === 'pdf' ? extractPdfDocument(buffer) : extractDocxDocument(buffer);
+    if (extracted.extraction === 'DOCX_UNREADABLE') {
+      report('UNREADABLE_CONTENT', 'This document could not be opened. It may be password-protected or damaged.');
+    } else if (extracted.extraction === 'PDF_METADATA') {
+      report('UNREADABLE_CONTENT', 'No text could be read from this PDF. It may be a scan without a text layer, password-protected or damaged.');
+    }
     const author = extracted.author || fallback.author;
     const family = firstAuthorFamily(author);
     const year = extracted.year || fallback.year;
@@ -1361,6 +1398,10 @@ export class PredictiveProvenanceService {
     // dictionary must still update unchanged source files in the next snapshot.
     this.extractionCache = new BoundedCache({ maxEntries: 256, maxWeight: 24 * 1024 * 1024,
       weight: (entry) => entry.bytes });
+    // Extracted file text depends only on the file's bytes, so an unchanged
+    // PDF is not parsed again after every capture of its folder.
+    this.extractedTextCache = new BoundedCache({ maxEntries: 64, maxWeight: 16 * 1024 * 1024,
+      weight: (text) => text.length * 2 });
     this.sourceTextCache = new BoundedCache({ maxEntries: 64, maxWeight: 8 * 1024 * 1024,
       weight: (text) => text.length * 2 });
     this.figurePreviewCache = new BoundedCache({ maxEntries: 12, maxWeight: 24 * 1024 * 1024,
@@ -1393,13 +1434,20 @@ export class PredictiveProvenanceService {
     let extractedText = '';
     const file = this.timeline.snapshotFile(source.snapshotId, source.path);
     if (file) {
-      const buffer = this.timeline.blobs.get(file.contentHash);
-      if (file.fileType === 'pdf') {
-        extractedText = source.objectType === 'DRAWING'
-          ? extractDrawingDocument(buffer).pages.find(page => page.pageNumber === source.anchor?.pageNumber)?.text ?? ''
-          : extractPdfFullText(buffer);
-      } else if (file.fileType === 'document') extractedText = extractDocxDocument(buffer).textExcerpt;
-      else if (['markdown', 'text'].includes(file.fileType)) extractedText = buffer.toString('utf8');
+      const page = file.fileType === 'pdf' && source.objectType === 'DRAWING' ? source.anchor?.pageNumber ?? '' : '';
+      const extractedKey = `${file.contentHash}|${file.fileType}|${source.objectType === 'DRAWING' ? `page:${page}` : 'all'}`;
+      extractedText = this.extractedTextCache.get(extractedKey);
+      if (extractedText === undefined) {
+        const buffer = this.timeline.blobs.get(file.contentHash);
+        extractedText = '';
+        if (file.fileType === 'pdf') {
+          extractedText = source.objectType === 'DRAWING'
+            ? extractDrawingDocument(buffer).pages.find(item => item.pageNumber === source.anchor?.pageNumber)?.text ?? ''
+            : extractPdfFullText(buffer);
+        } else if (file.fileType === 'document') extractedText = extractDocxDocument(buffer).textExcerpt;
+        else if (['markdown', 'text'].includes(file.fileType)) extractedText = buffer.toString('utf8');
+        this.extractedTextCache.set(extractedKey, extractedText);
+      }
     }
     const text = [extractedText, source.metadata.textExcerpt, source.metadata.subject,
       source.metadata.title, source.valueText].filter(Boolean).join('\n');
@@ -1423,10 +1471,10 @@ export class PredictiveProvenanceService {
     const reindexPdf = indexed.indexed && indexed.drawing_index_version < 2;
     const snapshot = this.timeline.getSnapshot(targetSnapshotId);
     const descriptors = [];
+    const problems = [];
     const files = [...snapshot.files].sort((left, right) => dependencyFilePriority(right) - dependencyFilePriority(left)
       || left.path.localeCompare(right.path));
     for (const file of files) {
-      if (descriptors.length >= MAX_SNAPSHOT_OBJECTS) break;
       const design = ['drawing', 'xml'].includes(file.fileType) || /\.(?:ifc|dxf|dwg|rvt|dgn|landxml|xml)$/i.test(file.path);
       const prose = file.fileType === 'markdown' || (file.fileType === 'text' && path.extname(file.path).toLowerCase() === '.txt');
       if (indexed.indexed && !prose && !(reindexPdf && (file.fileType === 'pdf' || design))) continue;
@@ -1435,12 +1483,25 @@ export class PredictiveProvenanceService {
       if (!design && !['table', 'spreadsheet', 'code', 'notebook', 'image', 'json', 'text', 'markdown', 'pdf', 'document'].includes(file.fileType)) continue;
       if (file.fileType === 'text' && !['.txt', '.bib', '.ris', '.enw', '.nbib'].includes(path.extname(file.path).toLowerCase())) continue;
       const available = MAX_SNAPSHOT_OBJECTS - descriptors.length;
+      if (available <= 0) {
+        problems.push({ path: file.path, code: 'NOT_INDEXED_LIMIT',
+          reason: `Not indexed: this folder reached Lasso's limit of ${MAX_SNAPSHOT_OBJECTS.toLocaleString('en-US')} indexed items. Split it into smaller work directories to include this file.` });
+        continue;
+      }
       const key = JSON.stringify([file.projectFileId, file.path, file.fileType, file.contentHash]);
       let extracted = this.extractionCache.get(key);
       if (!extracted) {
-        const objects = objectsFromFile(file, this.timeline.blobs.get(file.contentHash));
-        extracted = { objects, bytes: JSON.stringify(objects).length * 2 };
+        let problem = null;
+        const objects = objectsFromFile(file, this.timeline.blobs.get(file.contentHash), (code, reason) => {
+          problem ??= { code, reason };
+        });
+        extracted = { objects, problem, bytes: JSON.stringify(objects).length * 2 };
         this.extractionCache.set(key, extracted);
+      }
+      if (extracted.problem) problems.push({ path: file.path, ...extracted.problem });
+      else if (extracted.objects.length > available) {
+        problems.push({ path: file.path, code: 'PARTIALLY_INDEXED',
+          reason: `Only ${available.toLocaleString('en-US')} of ${extracted.objects.length.toLocaleString('en-US')} items were indexed: this folder reached Lasso's limit of ${MAX_SNAPSHOT_OBJECTS.toLocaleString('en-US')} indexed items.` });
       }
       const included = extracted.objects.slice(0, available).map((descriptor) => ({
         ...descriptor, metadata: { ...descriptor.metadata },
@@ -1485,6 +1546,9 @@ export class PredictiveProvenanceService {
     this.completionCorpusCache.delete(targetSnapshotId);
     this.workspaceRetrievalCache.delete(targetSnapshotId);
     this.ranking.invalidateSnapshot(targetSnapshotId);
+    // An upgrade pass re-reads only some files, so only a full index of the
+    // current version can say which files are now fine.
+    if (!indexed.indexed && targetSnapshotId === project.currentSnapshotId) this.onIndexProblems?.(projectId, problems);
   }
 
   objectsAt(projectId, snapshotId = null, objectTypes = null) {
@@ -1640,6 +1704,19 @@ export class PredictiveProvenanceService {
       WHERE v.object_id = ? ORDER BY s.version DESC
     `).all(object.id).map((row) => ({ snapshotId: row.snapshot_id, path: row.path, version: row.version, depth: 0 }));
     const queue = versions.length ? versions : [{ snapshotId: object.snapshotId, path: object.path, depth: 0 }];
+    // This runs for every suggestion while typing, and an object has a version
+    // per snapshot. Most versions have no outgoing links: find the ones that
+    // do in one query rather than asking once per version.
+    const paths = [...new Set(queue.map((node) => node.path))];
+    const linked = new Set(this.db.prepare(`SELECT DISTINCT from_snapshot_id, from_path FROM provenance_links
+      WHERE project_id = ? AND relation <> 'DEPENDS_ON' AND from_path IN (${paths.map(() => '?').join(', ')})`)
+      .all(projectId, ...paths).map((row) => `${row.from_snapshot_id}|${row.from_path}`));
+    this.lineageLinks ??= this.db.prepare(`
+      SELECT p.*, s.version AS to_version
+      FROM provenance_links p LEFT JOIN snapshots s ON s.id = p.to_snapshot_id
+      WHERE p.project_id = ? AND p.from_snapshot_id = ? AND p.from_path = ?
+      ORDER BY p.created_at DESC
+    `);
     const visited = new Set();
     const seenLinks = new Set();
     const lineage = [];
@@ -1648,12 +1725,8 @@ export class PredictiveProvenanceService {
       const key = `${node.snapshotId}|${node.path}`;
       if (visited.has(key) || node.depth > 4) continue;
       visited.add(key);
-      const links = this.db.prepare(`
-        SELECT p.*, s.version AS to_version
-        FROM provenance_links p LEFT JOIN snapshots s ON s.id = p.to_snapshot_id
-        WHERE p.project_id = ? AND p.from_snapshot_id = ? AND p.from_path = ?
-        ORDER BY p.created_at DESC
-      `).all(projectId, node.snapshotId, node.path);
+      if (node.depth === 0 && !linked.has(key)) continue;
+      const links = this.lineageLinks.all(projectId, node.snapshotId, node.path);
       for (const link of links) {
         if (seenLinks.has(link.id) || link.relation === 'DEPENDS_ON') continue;
         seenLinks.add(link.id);
@@ -2816,12 +2889,32 @@ export class PredictiveProvenanceService {
     };
   }
 
+  /**
+   * Whether a document is exactly as it was when the editor opened `openedAt`.
+   * Other files in the folder may change meanwhile; that must not block a save.
+   */
+  documentUnchangedSince(project, openedAt, relativePath) {
+    const opened = this.timeline.snapshotFile(openedAt, relativePath);
+    const current = this.timeline.snapshotFile(project.currentSnapshotId, relativePath);
+    if (!opened || !current || opened.contentHash !== current.contentHash) return false;
+    // DOCX and PDF edits live in a layer; a newer layer is a newer document.
+    const openedVersion = this.db.prepare('SELECT version FROM snapshots WHERE id = ? AND project_id = ?')
+      .get(openedAt, project.id)?.version;
+    if (openedVersion == null) return false;
+    const newerLayer = this.db.prepare(`SELECT 1 FROM document_edit_layer_versions v JOIN snapshots s ON s.id = v.snapshot_id
+      WHERE v.project_file_id = ? AND s.version > ? LIMIT 1`).get(current.projectFileId, openedVersion);
+    return !newerLayer;
+  }
+
   saveDocument(projectId, input, actorInput) {
     const actor = this.timeline.validateActor(actorInput);
     const project = this.timeline.getProject(projectId);
-    const baseSnapshotId = input.baseSnapshotId ?? project.currentSnapshotId;
-    if (baseSnapshotId !== project.currentSnapshotId) throw new VersionConflictError(baseSnapshotId, project.currentSnapshotId);
     const relativePath = posixPath(input.path);
+    const requestedBase = input.baseSnapshotId ?? project.currentSnapshotId;
+    if (requestedBase !== project.currentSnapshotId && !this.documentUnchangedSince(project, requestedBase, relativePath)) {
+      throw new VersionConflictError(requestedBase, project.currentSnapshotId);
+    }
+    const baseSnapshotId = project.currentSnapshotId;
     const existing = this.timeline.snapshotFile(baseSnapshotId, relativePath);
     if (!existing || !EDITABLE_DOCUMENT_TYPES.has(existing.fileType)) throw new HttpError(400, 'This tracked file is not editable here.');
     const destination = this.timeline.assertWorkingFileUnchanged(project, relativePath, existing.contentHash);
@@ -2882,8 +2975,8 @@ export class PredictiveProvenanceService {
         VALUES (?, ?, ?, ?, ?, ?)
       `).run(resultingSnapshotId, projectId, previous.version + 1, previous.id, previous.manifestHash, timestamp);
       this.db.prepare(`
-        INSERT INTO snapshot_files(snapshot_id, project_file_id, path, content_hash, size, mtime_ms, file_type, device, inode, metadata_json)
-        SELECT ?, project_file_id, path, content_hash, size, mtime_ms, file_type, device, inode, metadata_json
+        INSERT INTO snapshot_files(snapshot_id, project_file_id, path, content_hash, size, mtime_ms, file_type, device, inode, metadata_json, ctime_ms)
+        SELECT ?, project_file_id, path, content_hash, size, mtime_ms, file_type, device, inode, metadata_json, ctime_ms
         FROM snapshot_files WHERE snapshot_id = ?
       `).run(resultingSnapshotId, previous.id);
       this.db.prepare(`
@@ -3149,7 +3242,7 @@ export class PredictiveProvenanceService {
     const contextRadius = Number.isFinite(parsedRadius)
       ? Math.max(0, Math.min(5, parsedRadius))
       : 1;
-    const expiresAt = input.expiresAt ? new Date(input.expiresAt).toISOString() : null;
+    const expiresAt = shareExpiry(input.expiresAt);
     this.db.prepare(`
       INSERT INTO dependency_share_grants(
         id, dependency_id, token, access_scope, recipient_label, context_radius,
@@ -3498,13 +3591,15 @@ export class PredictiveProvenanceService {
     `).get(token, now());
     if (!grant) throw new HttpError(404, 'This source-sharing link is unavailable or has expired.');
     const dependency = this.getDependency(grant.dependency_id);
+    if (dependency.removed) throw new HttpError(404, 'This source-sharing link is unavailable or has expired.');
     const source = semanticDependencySource(dependency);
+    // Like object shares, publish file names only. Folder names can identify
+    // a client or matter, and the owner's manuscript path is private.
     return {
       claim: dependency.spanText,
-      documentPath: dependency.documentPath,
       source: {
         label: source.label,
-        path: source.path,
+        path: path.posix.basename(source.path),
         objectType: source.objectType,
         valueText: source.valueText,
         metadata: {
@@ -3616,6 +3711,12 @@ export class PredictiveProvenanceService {
         INSERT INTO dependency_changes(id, event_id, dependency_id, before_version_id, after_version_id, change_type, details_json)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(id(), eventId, dependencyId, currentDependency.versionId, versionId, changeType, JSON.stringify({ previousSource: currentDependency.source.label, source: nextSource.label }));
+      // A removed claim no longer appears in the share tools, so its links
+      // must close with it rather than stay public with no way to revoke them.
+      if (removed) {
+        this.db.prepare('UPDATE dependency_share_grants SET revoked_at = ? WHERE dependency_id = ? AND revoked_at IS NULL')
+          .run(timestamp, dependencyId);
+      }
       if (!removed) {
         this.db.prepare(`
           INSERT INTO provenance_links(id, project_id, from_snapshot_id, from_path, from_anchor_json, relation,

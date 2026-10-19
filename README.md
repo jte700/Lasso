@@ -19,17 +19,19 @@ npm run desktop
 open dist/Lasso.app
 ```
 
-The app runs in the menu bar and starts its own local server. Node.js must remain installed. The menu provides:
+The app runs in the menu bar and starts its own local server, restarting it automatically if it stops unexpectedly. Node.js 24 or newer must remain installed; if Lasso finds only an older Node, the menu says which version and where. The first time Lasso runs without any folders, its menu opens so you can add one, and opening the app again while it runs shows the menu. The menu provides:
 
 - **Add Work Directories…** to choose folders, and **Remove Work Directory** to take one out of Lasso. Removing never changes the folder or its files.
 - **Work Directories** to collapse the list and switch folders on or off. Suggestions come only from folders that are switched on. The small circle sets the folder's highlight colour, used for text accepted from it. Right-click a folder to show it in Finder or remove it.
 - **Suggest While Typing** to enable suggestions in other apps.
+- **Open at Login** to start Lasso when you log in, so suggestions are ready without opening it. If macOS holds the request for approval, **Allow Open at Login…** opens System Settings → General → Login Items.
 - **Tools → Open in Browser** for writing, source browsing, and review.
 - **Tools → Tab Inserts** to choose what `Tab` does: **Plain Text** (default), **Ask Each Time**, or **Share Link**.
-- **Tools → Troubleshooting** for restarting the server, checking another app's text support, outlining highlight positions, and the logs.
+- **Tools → Troubleshooting** for restarting the server, checking another app's text support, outlining highlight positions, and the logs. **Record Typing Log** is off by default; when on, it records which apps Lasso could read and whether insertions landed, never what you typed or inserted. If the server cannot be recovered, **Restart Server** also appears directly under the error.
+- **About Lasso** for the version.
 - **Show Lasso in Notch** on Macs with a built-in camera cutout. Off by default, this remembers your choice and hides itself when the notched display is unavailable. Only the Lasso logo appears immediately to the left of the camera cutout, entirely within the menu bar. Its black backing continues beneath the camera’s curved corner so the logo joins the notch without a seam. The expanded panel forms one continuous black surface from the display edge, with its controls below the camera. Click it to see active directories, indexed files, source value changes and indexing issues. New source changes or indexing issues also open the panel automatically after the initial activity check, without repeatedly reopening unchanged alerts. Automatic panels close after 12 seconds unless the pointer is over them. Pause/resume suggestions or open source review from the panel. Escape or clicking elsewhere collapses it without taking focus from your editor. Activity refreshes every 15 seconds while enabled. No source wording changes until you review and apply it in the browser.
 
-Interacting with the directory controls keeps the popover open. Clicking outside dismisses it. You can move the app to `/Applications` and add it to Login Items; keep one canonical copy when granting permissions.
+Interacting with the directory controls keeps the popover open. Clicking outside dismisses it; closing it with `Esc` or the menu bar icon returns focus to the app you were using. A folder that is switched on but could not be read shows **(needs attention)**; clicking it tries again. A folder on a drive that was not mounted when Lasso started is picked up automatically when the drive returns. You can move the app to `/Applications`; keep one canonical copy when granting permissions.
 
 ### Signing and permissions
 
@@ -47,7 +49,7 @@ Enable **Suggest While Typing**, then follow any **Allow Accessibility…** or *
 
 ### Using suggestions
 
-Type near a term or value from an enabled work directory. Two letters are enough, including the first word in an empty field. A new sentence starts fresh suggestions even right after you accepted a source. A source card shows matching entries and a preview. Use `↑`/`↓` to select and scroll through ranked matches, and `Esc` to dismiss. PDF sources show their original pages and support word and excerpt completions, with matched passages highlighted in the preview.
+Type near a term or value from an enabled work directory. Two letters are enough, including the first word in an empty field. A new sentence starts fresh suggestions even right after you accepted a source. A source card shows matching entries and a preview. Use `↑`/`↓` to select and scroll through ranked matches, and `Esc` to dismiss. With no card on screen, `Esc` always reaches your app. Modified keys such as `⇧Tab`, `⌃Tab` and `⇧↑` close the card and keep their usual meaning. PDF sources show their original pages and support word and excerpt completions, with matched passages highlighted in the preview.
 
 - **Tab:** replace the detected keyword or partial phrase with the selected source, value, field name, or citation. Sentence continuations append at the caret. The panel shows **Replace** when typed text will be replaced. Field descriptions and sample values stay in the preview.
 - **⌘Enter:** insert plain text. It differs from `Tab` only when **Tab Inserts** is set to **Ask Each Time** or **Share Link**, so the panel lists it only then.
@@ -66,7 +68,7 @@ The privacy composer offers **entire document**, **indexed part only**, and **se
 
 PDFs support **Select text** for words, sentences and paragraphs, and **Mark area** for drawings or other page regions. Excerpt previews and downloads contain only the selected regions. Redacted PDFs keep the page layout and remove hidden content from a newly rendered copy. Existing PDF imports automatically gain sentence and paragraph suggestions without reimporting.
 
-Default share URLs are local to the Mac running Lasso. `SHARE_BASE_URL` changes the URL base for a separately configured reachable service; it does not deploy or expose the local server.
+Default share URLs are local to the Mac running Lasso. `SHARE_BASE_URL` changes the URL base for a separately configured reachable service; it does not deploy or expose the local server. Only public share pages (`/d/…`) answer requests addressed to another host name; the rest of the local API answers only `127.0.0.1` and `localhost`, and refuses changes requested by other websites. Removing a source link also closes its share links. Share pages name source files without their folders.
 
 ## Browser tools
 
@@ -93,11 +95,15 @@ The command layer behind the source tools uses the same dependency graph:
 | `LASSO_DATA_DIR` | CLI history uses `.lasso-data`; an existing `.colab-dry-data` is reused when the new location is absent. |
 | `PORT` | CLI server port, `4317`. The macOS app prefers `4319`, then an available loopback port. |
 | `LASSO_WATCH_DEBOUNCE_MS` | Watcher batching delay, `2500` ms. |
+| `LASSO_WATCH_MAX_WAIT_MS` | Longest a file saved over and over can postpone its capture, `15000` ms. |
 | `LASSO_NODE` | Override the Node binary used by the desktop build and app. |
 | `LASSO_SIGN_IDENTITY` | Desktop signing certificate name or SHA-1 fingerprint. |
+| `LASSO_ICON_STYLE` | App icon drawn by `scripts/render-app-icon.swift`: `full-bleed` for macOS 26, which masks icons to its own shape, or `squircle` for earlier versions. Defaults to the building Mac's version. |
 | `SHARE_BASE_URL` | Base URL for generated share links. |
 
-The macOS app stores history in `~/Library/Application Support/Lasso/data` and logs in `~/Library/Logs/Lasso`. Its build migrates the former CoLab Dry data location when needed. Enabled directories resume watching after startup; unavailable folders do not prevent other directories from loading. History is stored separately from selected directories unless you explicitly choose otherwise.
+The macOS app stores history in `~/Library/Application Support/Lasso/data` and logs in `~/Library/Logs/Lasso`. Its build migrates the former CoLab Dry data location when needed. Enabled directories resume watching after startup, rereading only files whose size, modification or change time differs from the last recorded version; unavailable folders do not prevent other directories from loading. History is stored separately from selected directories unless you explicitly choose otherwise. The server log is rotated at 5 MB.
+
+Office lock and owner files (`~$Budget.xlsx`, `.~lock.*#`), partial downloads (`.crdownload`, `.part`, `.download`), `.tmp` files and system files such as AppleDouble `._*`, `Thumbs.db` and `desktop.ini` are not tracked. A file that exists but cannot be read for a moment keeps its last recorded version rather than being recorded as deleted. Files that cannot be indexed, or are indexed only in part, are listed by `index failures` and the notch's indexing issues: damaged or password-protected documents, PDFs without a text layer, workbook sheets too large to read, and files beyond the 10,000-item limit per folder. Excel dates and percentages are indexed as the sheet shows them, with dates written as `YYYY-MM-DD`.
 
 The browser's identity selector provides attribution, not authentication. Remote synchronization, production authentication, and automatic history garbage collection are not implemented.
 

@@ -127,7 +127,10 @@ test('public excerpt routes respect pinned versions, grants, and original-file r
     app.objectShares.revokeShare(share.token);
     assert.equal((await fetch(`${url}/excerpt`)).status, 410);
   }
-  const expired = app.objectShares.createShare({ projectId: project.id, ...object, actor, accessScope: 'INDEXED', expiresAt: '2000-01-01T00:00:00Z' });
+  const expired = app.objectShares.createShare({ projectId: project.id, ...object, actor, accessScope: 'INDEXED',
+    expiresAt: new Date(Date.now() + 60_000).toISOString() });
+  // The link lapses: its stored expiry passes.
+  app.db.prepare('UPDATE object_share_grants SET expires_at = ? WHERE token = ?').run('2000-01-01T00:00:00.000Z', expired.token);
   assert.equal((await fetch(`${base}/d/${expired.token}/excerpt`)).status, 410);
   assert.equal((await fetch(`${base}/d/${'z'.repeat(32)}/excerpt`)).status, 404);
 });

@@ -7,9 +7,20 @@ import { parseCommand } from './terminal/parser.js';
 import { failure, result, text, blank, dim } from './terminal/result.js';
 
 const systemActor = { id: 'system:workspace', displayName: 'Lasso', actorType: 'SYSTEM' };
+// An enabled folder that failed to start, for example on a drive that was not
+// mounted yet, is retried when it reappears, at most this often.
+const ACTIVATION_RETRY_MS = 30_000;
+const UNAVAILABLE_MESSAGE = 'The folder is not available. Lasso will use it again when it reappears.';
+
+function activationError(error) {
+  return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? UNAVAILABLE_MESSAGE : error.message;
+}
 
 // Relevance is calculated by the existing per-project ranker. Merge those
 // scores without treating identical relative paths in different roots as one.
+// Exact ties keep the order each project produced (the sort is stable), such
+// as a row's columns in sheet order. Object ids are random, so ordering ties
+// by id made suggestions swap places between keystrokes.
 function compare(a, b) {
   const left = a.ranking ?? {};
   const right = b.ranking ?? {};
@@ -22,8 +33,7 @@ function compare(a, b) {
     || Number(right.relationship ?? false) - Number(left.relationship ?? false)
     || ((right.relevanceScore ?? b.score ?? 0) + (right.usageBoost ?? 0))
       - ((left.relevanceScore ?? a.score ?? 0) + (left.usageBoost ?? 0))
-    || String(a.projectId).localeCompare(String(b.projectId))
-    || String(a.id ?? a.objectId ?? a.insertText ?? '').localeCompare(String(b.id ?? b.objectId ?? b.insertText ?? ''));
+    || String(a.projectId).localeCompare(String(b.projectId));
 }
 
 function tag(value, project, projects = null) {
@@ -57,6 +67,7 @@ export class WorkspaceService {
     this.ready = Promise.resolve();
     this.mutations = Promise.resolve();
     this.renameChecks = new Map();
+    this.activationRetries = new Map();
     timeline.workspace = this;
     dependencies.workspace = this;
   }
@@ -118,8 +129,17 @@ export class WorkspaceService {
       await yieldTurn();
       if (this.closed) return;
       try { this.activate(p.id, systemActor); }
-      catch (error) { this.errors.set(p.id, error.message); }
+      catch (error) { this.errors.set(p.id, activationError(error)); }
     }
+  }
+
+  /** Starts an enabled folder that failed earlier and is present again. */
+  retryActivation(row) {
+    if (this.closed || !row.workspace_active || !this.errors.has(row.id)) return;
+    if (Date.now() - (this.activationRetries.get(row.id) ?? 0) < ACTIVATION_RETRY_MS) return;
+    this.activationRetries.set(row.id, Date.now());
+    try { this.activate(row.id, systemActor); }
+    catch (error) { this.errors.set(row.id, activationError(error)); }
   }
 
   /**
@@ -144,6 +164,7 @@ export class WorkspaceService {
       if (inode) {
         if (row.root_inode !== inode) this.db.prepare('UPDATE projects SET root_inode = ? WHERE id = ?').run(inode, row.id);
         this.renameChecks.delete(row.id);
+        this.retryActivation(row);
         continue;
       }
       // A deleted or ejected folder stays missing; do not list its parent on every call.
@@ -185,7 +206,7 @@ export class WorkspaceService {
     this.renameChecks.delete(row.id);
     if (!row.workspace_active) return;
     try { this.activate(row.id, systemActor); }
-    catch (error) { this.errors.set(row.id, error.message); }
+    catch (error) { this.errors.set(row.id, activationError(error)); }
   }
 
   activate(projectId, actor) {
@@ -195,6 +216,7 @@ export class WorkspaceService {
     this.dependencies.ensureIndex(projectId);
     this.dependencies.warmPredictionCaches(projectId);
     this.errors.delete(projectId);
+    this.activationRetries.delete(projectId);
     this.timeline.watchProject(projectId, actor);
     if (this.timeline.config.watchProjects && !this.timeline.watchers.has(projectId)) {
       throw new HttpError(400, 'The work directory could not be watched.');
@@ -243,8 +265,8 @@ export class WorkspaceService {
           this.db.prepare('UPDATE projects SET workspace_active = 0 WHERE id = ?').run(imported.project.id);
           this.timeline.unwatchProject(imported.project.id);
           this.timeline.scanCaches.delete(imported.project.id);
-          this.errors.set(imported.project.id, error.message);
-          throw new HttpError(400, `Could not add the work directory: ${error.message}`);
+          this.errors.set(imported.project.id, activationError(error));
+          throw new HttpError(400, `Could not add the work directory: ${activationError(error)}`);
         }
       }
       return this.state();
@@ -264,8 +286,8 @@ export class WorkspaceService {
           catch (error) {
             this.db.prepare('UPDATE projects SET workspace_active = 0 WHERE id = ?').run(projectId);
             this.timeline.unwatchProject(projectId);
-            this.errors.set(projectId, error.message);
-            throw new HttpError(400, `Could not enable the work directory: ${error.message}`);
+            this.errors.set(projectId, activationError(error));
+            throw new HttpError(400, `Could not enable the work directory: ${activationError(error)}`);
           }
         }
       } else {
@@ -443,7 +465,22 @@ export class WorkspaceService {
 
   // A bounded, read-only summary for the native notch. Only enabled and
   // available source directories contribute evidence or notifications.
+  /**
+   * The notch polls this every few seconds, and building it walks every
+   * active folder. Reuse it until a folder's version, state or open indexing
+   * issues change, so a poll cannot hold up suggestions while typing.
+   */
   activity() {
+    this.followRenamedRoots();
+    const openIssues = this.db.prepare('SELECT COUNT(*) AS count FROM index_failures WHERE resolved_at IS NULL').get().count;
+    const key = `${this.revision()}#${openIssues}`;
+    if (this.activityCache?.key === key) return this.activityCache.value;
+    const value = this.computeActivity();
+    this.activityCache = { key, value };
+    return value;
+  }
+
+  computeActivity() {
     const projects = this.activeProjects();
     const changes = projects.flatMap(project => this.terminal.graph.valueChanges(project.id, { limit: 8, ownSourcesOnly: true })
       .map(change => ({ ...change, projectId: project.id, projectName: project.name })));

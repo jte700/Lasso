@@ -238,6 +238,7 @@ test('source reviews reject changes that arrive while an apply request body is u
     assert.equal(expectedPlan.rewrites, 1);
     const request = new PassThrough();
     request.method = 'POST';
+    request.headers = { host: '127.0.0.1' };
     request.url = scope === 'workspace' ? `/api/workspace/source-review/${source.id}`
       : `/api/projects/${project.id}/source-review/${source.id}`;
     const response = { writeHead(status) { this.status = status; }, end(body) { this.body = body; } };
@@ -414,4 +415,42 @@ test('notch activity reports pinned source changes, excludes paused folders and 
   assert.equal(unavailable.directories, 0);
   assert.equal(unavailable.failures, 1, 'an unavailable enabled folder remains visible as an issue');
   assert.deepEqual(unavailable.changes, []);
+});
+
+test('a folder that was unavailable at startup comes back on its own when it reappears', async (t) => {
+  // Arrange: the folder is away (an unmounted drive) when Lasso starts.
+  const state = await fixture(t, 1);
+  const [root] = state.roots;
+  const away = path.join(path.dirname(path.dirname(root)), `away-${path.basename(root)}-${process.pid}`);
+  fs.renameSync(root, away);
+  t.after(() => fs.rmSync(away, { recursive: true, force: true }));
+  const app = await state.restart(false);
+  await app.workspace.restore();
+  assert.equal(app.workspace.state().activeProjectIds.length, 0);
+
+  // Act: the drive is mounted again.
+  fs.renameSync(away, root);
+  const recovered = app.workspace.state();
+
+  // Assert
+  assert.equal(recovered.directories[0].error, null);
+  assert.deepEqual(recovered.activeProjectIds, [state.projects[0].id]);
+});
+
+test('notch activity is reused until the workspace or its indexing issues change', async (t) => {
+  // Arrange
+  const state = await fixture(t, 1);
+  const app = state.app;
+  const first = app.workspace.activity();
+  const sessions = t.mock.method(app.workspace, 'terminalSession');
+
+  // Act
+  const repeated = app.workspace.activity();
+  fs.writeFileSync(path.join(state.roots[0], 'draft.md'), 'Supplies were 121.\n');
+  app.timeline.capture(state.projects[0].id, actor);
+  app.workspace.activity();
+
+  // Assert
+  assert.deepEqual(repeated, first);
+  assert.equal(sessions.mock.callCount(), 1, 'recomputed only after the folder changed');
 });

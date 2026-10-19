@@ -24,6 +24,7 @@ export function createTerminal({ timeline, dependencies, objectShares }) {
 
   // Rules are evaluated where changes are recorded, not where they are read,
   // so the editor sees a flag as soon as the terminal would.
+  let closed = false;
   const unsubscribe = timeline.onCapture((capture) => {
     if (!capture?.changed || !capture.projectId) return;
     try {
@@ -34,6 +35,17 @@ export function createTerminal({ timeline, dependencies, objectShares }) {
     } catch (error) {
       console.error('Rule evaluation failed:', error.message);
     }
+    // Build the new version's suggestion caches now, right after the capture,
+    // instead of on the writer's next keystroke.
+    setImmediate(() => {
+      if (closed) return;
+      try {
+        dependencies.warmPredictionCaches(capture.projectId);
+        dependencies.completionCorpus(capture.projectId);
+      } catch (error) {
+        console.error('Preparing suggestions failed:', error.message);
+      }
+    });
   });
 
   // The editor's suggestion ranking consults these, so an `exclude from
@@ -49,6 +61,7 @@ export function createTerminal({ timeline, dependencies, objectShares }) {
     registry,
     executor,
     close() {
+      closed = true;
       unsubscribe();
       graph.close();
     },

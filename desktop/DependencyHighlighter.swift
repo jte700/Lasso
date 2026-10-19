@@ -31,6 +31,18 @@ final class DependencyHighlighter {
     private var systemSleeping = false
     private var displaySleeping = false
     private var lastRefresh = Date.distantPast
+    /// Text goes missing briefly during an undo or a re-render, and a second
+    /// editor in the same window shares this document's identity. A reference
+    /// is deleted only when its text stays missing from the editor where it
+    /// last resolved.
+    private var lastResolvedElement: [String: AXUIElement] = [:]
+    private var missingSince: [String: Date] = [:]
+    private static let deletionGrace: TimeInterval = 2
+
+    private static func elementExists(_ element: AXUIElement) -> Bool {
+        var role: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success
+    }
     private var observer: AXObserver?
     private var observedPID: pid_t?
     private var observedElements: [AXUIElement] = []
@@ -195,7 +207,7 @@ final class DependencyHighlighter {
             sourceColorSlot: colorSlot,
             createdAt: Date(), updatedAt: Date())
         store.add(reference)
-        AssistLog.write("  ✓ dependency reference stored [\(reference.id)] → “\(anchor.text)”")
+        AssistLog.write("  ✓ dependency reference stored [\(reference.id)] · \(anchor.text.count) char(s)")
         let documentRange = (documentOffset + range.lowerBound)..<(documentOffset + range.upperBound)
         reportGeometry(for: reference, in: context, range: documentRange)
         scheduleRefresh()
@@ -215,6 +227,8 @@ final class DependencyHighlighter {
 
     func unlink(id: String) {
         store.remove(id: id)
+        lastResolvedElement[id] = nil
+        missingSince[id] = nil
         scheduleRefresh()
     }
 
@@ -370,12 +384,25 @@ final class DependencyHighlighter {
                 case .unresolved(let reason):
                     // The phrase is gone or cannot be told apart: never draw a guess.
                     if reason == .textMissing {
+                        // Another editor that still exists keeps its own copy;
+                        // one that was closed no longer holds the text anywhere.
+                        if let resolvedIn = lastResolvedElement[reference.id], !CFEqual(resolvedIn, context.element) {
+                            if Self.elementExists(resolvedIn) { continue }
+                            lastResolvedElement[reference.id] = nil
+                        }
+                        let since = missingSince[reference.id] ?? Date()
+                        missingSince[reference.id] = since
+                        guard Date().timeIntervalSince(since) >= Self.deletionGrace else { continue }
                         store.remove(id: reference.id)   // no ghost highlights
+                        lastResolvedElement[reference.id] = nil
+                        missingSince[reference.id] = nil
                         AssistLog.write("highlight: \(reference.id) text deleted; reference dropped")
                     } else if reference.state != .unresolved {
                         store.update(id: reference.id) { $0.state = .unresolved }
                     }
                 case .resolved(let range):
+                    lastResolvedElement[reference.id] = context.element
+                    missingSince[reference.id] = nil
                     if reference.state == .unresolved {
                         store.update(id: reference.id) { $0.state = .healthy }
                     }

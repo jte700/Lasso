@@ -40,8 +40,16 @@ export function isTextualType(type) {
   return new Set(['notebook', 'markdown', 'table', 'json', 'yaml', 'code', 'text']).has(type);
 }
 
+// Files that appear while another app works and vanish again: Office owner
+// files (~$Budget.xlsx), LibreOffice locks, partial downloads, and system
+// metadata such as AppleDouble (._) files on external drives. Tracking them
+// recorded "Added" and "Removed" history each time a document was opened.
+const UNTRACKED_NAMES = new Set(['.DS_Store', 'Thumbs.db', 'desktop.ini', 'Icon\r']);
+const UNTRACKED_PREFIXES = ['.~', '~$', '._'];
+const UNTRACKED_EXTENSIONS = new Set(['.tmp', '.crdownload', '.part', '.download']);
+
 export function isTrackedFile(filePath) {
   const base = path.basename(filePath);
-  if (base === '.DS_Store' || base.startsWith('.~')) return false;
-  return true;
+  if (UNTRACKED_NAMES.has(base) || UNTRACKED_PREFIXES.some((prefix) => base.startsWith(prefix))) return false;
+  return !UNTRACKED_EXTENSIONS.has(path.extname(base).toLowerCase());
 }

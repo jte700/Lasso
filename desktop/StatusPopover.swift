@@ -240,6 +240,10 @@ final class StatusPopoverController {
     /// Escape first ends a mode inside the panel; returns true when it did.
     var onEscape: (() -> Bool)?
     var onClose: (() -> Void)?
+    /// The app the user was in when the panel opened. Opening the panel makes
+    /// Lasso active; closing it with Escape or the menu bar icon gives focus
+    /// back, so the next keystrokes reach the user's document.
+    private var previousApplication: NSRunningApplication?
 
     init() {
         LassoTransientUI.shared.register(self, priority: 10,
@@ -247,7 +251,7 @@ final class StatusPopoverController {
             isOpen: { [weak self] in self?.popover.isShown == true && NSApp.modalWindow == nil },
             dismiss: { [weak self] in
                 guard let self, self.onEscape?() != true else { return }
-                self.popover.performClose(nil)
+                self.closeReturningFocus()
             })
         LassoTransientUI.shared.start()
         content.autoresizesSubviews = false
@@ -279,16 +283,31 @@ final class StatusPopoverController {
 
     func toggle(relativeTo button: NSStatusBarButton) {
         if popover.isShown {
-            popover.performClose(nil)
-        } else if button.window != nil {
+            closeReturningFocus()
+        } else {
+            show(relativeTo: button)
+        }
+    }
+
+    func show(relativeTo button: NSStatusBarButton) {
+        if !popover.isShown, button.window != nil {
             layoutRows()
             refreshHover()
+            let frontmost = NSWorkspace.shared.frontmostApplication
+            previousApplication = frontmost?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : frontmost
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             controller.view.window?.makeKey()
             refreshHover()
             if directoryList.superview != nil { directoryList.flashScrollers() }
         }
+    }
+
+    private func closeReturningFocus() {
+        popover.performClose(nil)
+        guard let previous = previousApplication, !previous.isTerminated, NSApp.modalWindow == nil else { return }
+        previousApplication = nil
+        previous.activate(options: [])
     }
 
     func update(menu: NSMenu) {
@@ -365,7 +384,7 @@ final class StatusPopoverController {
                 label.font = isTitle ? .systemFont(ofSize: 13, weight: .semibold) : .systemFont(ofSize: 12)
                 label.textColor = isTitle ? .labelColor : .secondaryLabelColor
                 label.toolTip = item.toolTip
-                label.frame.size.height = isTitle ? 24 : item.title.count > 65 ? 42 : 24
+                label.frame.size.height = 24
                 rows.append((label, isTitle ? inset + 14 : inset + 36))
             }
         }
@@ -411,7 +430,13 @@ final class StatusPopoverController {
                 index = end
                 continue
             }
-            let height = row.view.frame.height
+            var height = row.view.frame.height
+            // Status notes wrap. Measure them at their real width so a long
+            // message, such as how to recover the server, is never clipped.
+            if let note = row.view as? NSTextField, let cell = note.cell, cell.wraps {
+                let bounds = NSRect(x: 0, y: 0, width: width - 16 - row.inset, height: .greatestFiniteMagnitude)
+                height = max(24, ceil(cell.cellSize(forBounds: bounds).height) + 6)
+            }
             row.view.frame = NSRect(x: 8 + row.inset, y: y,
                                     width: width - 16 - row.inset, height: height)
             if row.view.superview !== content { content.addSubview(row.view) }

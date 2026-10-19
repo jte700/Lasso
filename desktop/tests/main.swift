@@ -1423,5 +1423,14 @@ check(NotchActivity(["failures": 1]).hasNewActivity(comparedTo: NotchActivity())
 check(!NotchActivity().hasNewActivity(comparedTo: NotchActivity(["failures": 1])), "resolved issues do not trigger an interruption")
 check(NotchActivity(["changes": [["projectId": "one", "objectId": "cell", "toVersion": 4]]]).hasNewActivity(comparedTo: notchActivity), "a new pinned source version triggers the notch")
 
+print("synthetic typing chunks")
+let accented = String(repeating: "e\u{301}", count: 12) + "👩‍🔬 Café"
+let accentedChunks = accented.chunkedForTyping(16)
+check(accentedChunks.allSatisfy { $0.utf16.count <= 16 }, "every typing chunk fits the per-event UTF-16 limit")
+check(accentedChunks.joined() == accented, "chunking keeps decomposed accents and emoji intact")
+check(accentedChunks.allSatisfy { $0.unicodeScalars.first?.properties.generalCategory != .nonspacingMark },
+      "a chunk never begins with a detached combining accent")
+check("Facilities".chunkedForTyping(16) == ["Facilities"], "short text is typed as one event")
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

@@ -294,6 +294,26 @@ test('XLSX extraction exposes worksheet rows for data-dictionary indexing', () =
   }]);
 });
 
+test('XLSX dates and percentages read as the sheet shows them', () => {
+  // Arrange: style 1 is a custom date format, style 2 the built-in 0.00%.
+  const workbook = storedZip({
+    'xl/workbook.xml': '<workbook><workbookPr/><sheets><sheet name="Close" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    'xl/styles.xml': '<styleSheet><numFmts count="1"><numFmt numFmtId="164" formatCode="mmm d, yyyy"/></numFmts>'
+      + '<cellStyleXfs count="1"><xf numFmtId="0"/></cellStyleXfs>'
+      + '<cellXfs count="3"><xf numFmtId="0"/><xf numFmtId="164" applyNumberFormat="1"/><xf numFmtId="10"/></cellXfs></styleSheet>',
+    'xl/worksheets/sheet1.xml': '<worksheet><sheetData>'
+      + '<row r="1"><c r="A1" t="inlineStr"><is><t>Closed</t></is></c><c r="B1" t="inlineStr"><is><t>Margin</t></is></c><c r="C1" t="inlineStr"><is><t>Units</t></is></c></row>'
+      + '<row r="2"><c r="A2" s="1"><v>45352</v></c><c r="B2" s="2"><v>0.1534</v></c><c r="C2"><v>1200</v></c></row>'
+      + '</sheetData></worksheet>',
+  });
+
+  // Act
+  const [sheet] = extractSpreadsheetTables(workbook);
+
+  // Assert
+  assert.deepEqual(sheet.rows[1], ['2024-03-01', '15.34%', '1200']);
+});
+
 test('legacy XLS extraction exposes named rows and their cell values', () => {
   const sheets = extractSpreadsheetTables(sampleLegacyXls());
   assert.deepEqual(sheets, [{

@@ -132,6 +132,11 @@ function recordRecommendationUsage(source, kind, context = {}) {
   }).catch(() => { /* Ranking history must never interrupt the requested action. */ });
 }
 
+/** For actions started from a click: show a failure instead of doing nothing. */
+function reportError(error) {
+  toast(error?.message || 'Something went wrong. Try again.', 'error');
+}
+
 function toast(message, type = '') {
   const node = document.createElement('div');
   node.className = `toast ${type}`;
@@ -352,6 +357,12 @@ function focusPreviewAnchor(anchor) {
   node.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+/** Large files preview their start only; say so rather than look complete. */
+function previewLimitNote(shown, total, unit) {
+  if (!total || total <= shown) return '';
+  return `<p class="source-viewer-truncated">Showing the first ${shown.toLocaleString()} of ${total.toLocaleString()} ${unit}. Open the file to see the rest.</p>`;
+}
+
 function previewContent(preview, focusAnchor = null) {
   if (preview.kind === 'model-plan') return renderModelPlan(preview);
   if (preview.kind === 'model-unavailable') return `<p class="selection-hint">${escapeHtml(preview.reason ?? 'No displayable geometry was found for this indexed element.')}</p>`;
@@ -362,9 +373,9 @@ function previewContent(preview, focusAnchor = null) {
   }
   if (preview.kind === 'drawing') return `${(preview.warnings ?? []).map(warning => `<p class="selection-hint">${escapeHtml(warning)}</p>`).join('')}<div class="json-preview">${preview.items.map(item => `<span class="json-path" title="${escapeHtml(item.location)}">${escapeHtml(item.path)}<small> · ${item.basis === 'geometry' ? 'Boundary geometry' : 'Model property'}</small></span><span class="json-value selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.value)}</span>`).join('')}</div>`;
   if (preview.kind === 'blocks') return preview.items.map((item) => `<div class="preview-block ${item.blockType} selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text)}</div>`).join('');
-  if (preview.kind === 'lines') return `<div class="code-preview">${preview.items.map((item) => `<div class="code-line"><span class="number">${item.label}</span><span class="selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text) || ' '}</span></div>`).join('')}</div>`;
-  if (preview.kind === 'table') return `<div style="overflow:auto"><table class="data-preview"><thead><tr>${preview.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>${preview.rows.map((row) => `<tr>${row.cells.map((cell) => `<td class="selectable" data-anchor='${escapeHtml(JSON.stringify(cell.anchor))}'>${escapeHtml(cell.value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-  if (preview.kind === 'json') return `<div class="json-preview">${preview.items.map((item) => `<span class="json-path">${escapeHtml(item.path)}</span><span class="json-value selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.value)}</span>`).join('')}</div>`;
+  if (preview.kind === 'lines') return `<div class="code-preview">${preview.items.map((item) => `<div class="code-line"><span class="number">${item.label}</span><span class="selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text) || ' '}</span></div>`).join('')}</div>${previewLimitNote(preview.items.length, preview.totalItems, 'lines')}`;
+  if (preview.kind === 'table') return `<div style="overflow:auto"><table class="data-preview"><thead><tr>${preview.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>${preview.rows.map((row) => `<tr>${row.cells.map((cell) => `<td class="selectable" data-anchor='${escapeHtml(JSON.stringify(cell.anchor))}'>${escapeHtml(cell.value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>${previewLimitNote(preview.rows.length, preview.totalRows, 'rows')}`;
+  if (preview.kind === 'json') return `<div class="json-preview">${preview.items.map((item) => `<span class="json-path">${escapeHtml(item.path)}</span><span class="json-value selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.value)}</span>`).join('')}</div>${previewLimitNote(preview.items.length, preview.totalItems, 'values')}`;
   if (preview.kind === 'notebook') return preview.cells.map((cell) => `<div class="notebook-cell"><div class="cell-label">${escapeHtml(cell.type)} · ${escapeHtml(cell.id)}</div><div class="cell-source selectable" data-anchor='${escapeHtml(JSON.stringify(cell.anchor))}'>${escapeHtml(cell.source)}</div></div>`).join('');
   return `<div class="binary-preview"><p>${escapeHtml(preview.message)}</p><span>${preview.size.toLocaleString()} bytes</span><span class="binary-hash">SHA-256 ${preview.contentHash}</span></div>`;
 }
@@ -520,7 +531,17 @@ async function openDocument(filePath, requestedProjectId = state.project?.id) {
     renderManuscriptBrowser();
     renderDocumentEditor();
   } catch (error) {
-    if (isCurrent()) toast(error.message, 'error');
+    if (!isCurrent()) return;
+    toast(error.message, 'error');
+    // Never leave the "Opening…" placeholder behind: return to the document
+    // that was open, or say why nothing could be opened.
+    if (state.editor.document) {
+      shell.activeTab = `doc:${state.editor.document.path}`;
+      refreshShell();
+      renderDocumentEditor();
+    } else {
+      elements['detail-column'].innerHTML = `<div class="detail-placeholder"><p>${escapeHtml(error.message)}</p></div>`;
+    }
   }
 }
 
@@ -849,7 +870,7 @@ async function showSourcePeek(dependencyId, sourceNode) {
     peek.querySelector('header button').addEventListener('click', () => scheduleSourcePeekClose(0));
     peek.querySelector('.source-peek-open').addEventListener('click', () => {
       scheduleSourcePeekClose(0);
-      showDependencyInspector(dependencyId, sourceNode);
+      showDependencyInspector(dependencyId, sourceNode).catch(reportError);
     });
   } catch {
     if (peek) peek.hidden = true;
@@ -865,7 +886,7 @@ function bindLinkedClaimNode(node) {
     }
     if (node.dataset.dependencyId) {
       scheduleSourcePeekClose(0);
-      showDependencyInspector(node.dataset.dependencyId, node);
+      showDependencyInspector(node.dataset.dependencyId, node).catch(reportError);
     }
   });
   if (node.dataset.dependencyId) {
@@ -1586,11 +1607,19 @@ function serializeManuscript() {
   const blocks = [...document.querySelectorAll('.manuscript-block')];
   let content = '';
   blocks.forEach((block, index) => {
+    const code = block.dataset.blockType === 'code';
+    // Blank lines inside a code block are its content and are kept. Between
+    // other blocks, runs of blank lines collapse to one, and empty blocks
+    // add nothing.
+    const stored = storedTextForEditorBlock(block);
+    const text = code ? stored : stored.replace(/^\n+|\n+$/g, '').replace(/\n{3,}/g, '\n\n');
+    if (!text && !code) return;
     const previous = blocks[index - 1];
-    const separator = index && previous?.dataset.blockType === 'list' && block.dataset.blockType === 'list' ? '\n' : index ? '\n\n' : '';
-    content += `${separator}${storedTextForEditorBlock(block)}`;
+    const separator = !content ? ''
+      : previous?.dataset.blockType === 'list' && block.dataset.blockType === 'list' ? '\n' : '\n\n';
+    content += `${separator}${text}`;
   });
-  return `${content.replace(/\n{3,}/g, '\n\n')}\n`;
+  return `${content}\n`;
 }
 
 function editorOffsetToStored(block, offset) {
@@ -2158,7 +2187,7 @@ async function showDependencyInspector(dependencyId, sourceNode = null) {
   };
   document.getElementById('close-inspector')?.addEventListener('click', close);
   inspector.querySelector('.inspector-drag')?.addEventListener('dblclick', close);
-  document.getElementById('dependency-rfi')?.addEventListener('click', () => requestDependencyRfi(dependency));
+  document.getElementById('dependency-rfi')?.addEventListener('click', () => requestDependencyRfi(dependency).catch(reportError));
   document.getElementById('open-dependency-source')?.addEventListener('click', () => openDependencySourceViewer(dependency));
   document.getElementById('share-dependency')?.addEventListener('click', async () => {
     await openDependencySharing(dependency, true);
@@ -2166,8 +2195,8 @@ async function showDependencyInspector(dependencyId, sourceNode = null) {
   });
   document.getElementById('open-dependency-origin')?.addEventListener('click', () => showPreview(origin.snapshotId, origin.path, origin.anchor));
   document.getElementById('change-dependency')?.addEventListener('click', () => showDependencyPicker({ ...dependency.anchor, text: dependency.spanText }, 'change', dependency));
-  document.getElementById('remove-dependency')?.addEventListener('click', () => reviseDependency(dependency, { action: 'REMOVE' }));
-  document.getElementById('keep-historical')?.addEventListener('click', () => reviseDependency(dependency, { action: 'KEEP_HISTORICAL' }));
+  document.getElementById('remove-dependency')?.addEventListener('click', () => reviseDependency(dependency, { action: 'REMOVE' }).catch(reportError));
+  document.getElementById('keep-historical')?.addEventListener('click', () => reviseDependency(dependency, { action: 'KEEP_HISTORICAL' }).catch(reportError));
   await loadDependencySourcePreview(dependency);
 }
 
@@ -2466,7 +2495,7 @@ async function reviseDependency(dependency, revision) {
 function focusDependency(dependencyId) {
   const node = document.querySelector(`[data-dependency-id="${dependencyId}"]`);
   node?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  if (node) showDependencyInspector(dependencyId, node);
+  if (node) showDependencyInspector(dependencyId, node).catch(reportError);
 }
 
 function formatActiveBlock(format) {
@@ -2590,8 +2619,19 @@ function renderSharedTable(content) {
   return `<div class="shared-table-wrap"><table class="shared-table"><thead><tr>${headers.map((header, columnIndex) => `<th class="${columnIndex === content.selectedColumn ? 'cited-column' : ''}">${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>${rows.map((row, rowIndex) => `<tr class="${rowIndex === content.selectedRow ? 'cited-row' : ''}">${row.map((cell, columnIndex) => `<td class="${rowIndex === content.selectedRow && columnIndex === content.selectedColumn ? 'cited-cell' : ''}">${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 
+// A recipient sees only the shared source, never the owner's workspace.
+function sharedViewRoot() {
+  let root = document.querySelector('.shared-dependency-page');
+  if (!root) {
+    root = document.createElement('div');
+    root.className = 'shared-dependency-page';
+    document.body.replaceChildren(root);
+  }
+  return root;
+}
+
 function renderSharedDependency(shared) {
-  const shell = document.querySelector('.app-shell');
+  const shell = sharedViewRoot();
   const contextOnly = shared.access.scope === 'CONTEXT';
   const content = ['table', 'table-context'].includes(shared.content.kind)
     ? renderSharedTable(shared.content)
@@ -2614,7 +2654,7 @@ async function loadSharedDependency(token) {
     const { shared } = await api(`/api/shared-dependencies/${encodeURIComponent(token)}`);
     renderSharedDependency(shared);
   } catch (error) {
-    const shell = document.querySelector('.app-shell');
+    const shell = sharedViewRoot();
     shell.innerHTML = `<main class="shared-source-view"><section class="shared-source-card shared-unavailable"><span class="brand-mark">L</span><h1>Source link unavailable</h1><p>${escapeHtml(error.message)}</p><a href="/">Return to Lasso</a></section></main>`;
   }
 }

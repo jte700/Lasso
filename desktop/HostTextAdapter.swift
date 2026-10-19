@@ -139,7 +139,7 @@ final class AccessibilityTextAdapter: HostTextAdapter {
                 direct.append(contentsOf: fragments.isEmpty ? [whole] : fragments)
             }
             if !direct.isEmpty {
-                return matchesSnapshot(text, element: context.element) ? direct : []
+                return matchesSnapshot(text, element: context.element) ? clipped(direct, in: context) : []
             }
             let descendantRects = WebTextReader.rects(forElementRange: range, text: text, from: context.element)
             if !descendantRects.isEmpty, let frame = elementFrame(context.element),
@@ -392,6 +392,16 @@ final class AccessibilityTextAdapter: HostTextAdapter {
         }
         return fragments
     }
+    /// Text scrolled out of view still reports bounds. Keep highlights inside
+    /// the editor and its window, so they never cover a toolbar or another app.
+    private func clipped(_ rects: [CGRect], in context: HostContext) -> [CGRect] {
+        // Frames are taller than any text line, so they get their own check.
+        let bounds = [elementFrame(context.element), context.windowFrame].compactMap { $0 }
+            .filter { $0.width.isFinite && $0.height.isFinite && $0.width > 0 && $0.height > 0 }
+        return rects.map { rect in bounds.reduce(rect) { $0.intersection($1) } }
+            .filter(HostGeometryConverter.isUsable)
+    }
+
     private func elementFrame(_ element: AXUIElement) -> CGRect? {
         guard let positionValue = attribute(element, kAXPositionAttribute as String),
               let sizeValue = attribute(element, kAXSizeAttribute as String),

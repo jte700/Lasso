@@ -226,8 +226,11 @@ test('public share routes', async (suite) => {
   await suite.test('expired shares are refused by both routes', async () => {
     const share = application.objectShares.createShare({
       projectId: project.id, objectId: object.object_id, versionId: object.version_id,
-      actor: maya, expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      actor: maya, expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
+    // The link lapses: its stored expiry passes.
+    application.db.prepare('UPDATE object_share_grants SET expires_at = ? WHERE token = ?')
+      .run(new Date(Date.now() - 60_000).toISOString(), share.token);
     assert.equal((await fetch(`${base}/d/${share.token}`)).status, 410);
     assert.equal((await fetch(`${base}/d/${share.token}/download`)).status, 410);
   });

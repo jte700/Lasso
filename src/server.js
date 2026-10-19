@@ -9,6 +9,11 @@ import { createRequestHandler } from './http/api.js';
 import { ObjectShareService } from './sharing/object-share.js';
 import { createTerminal } from './terminal/service.js';
 import { WorkspaceService } from './workspace.js';
+import { watchParent } from './parent-watchdog.js';
+
+const FORCE_CLOSE_AFTER_MS = 1000;
+// The desktop app force-quits a server that has not exited after 3 seconds.
+const SHUTDOWN_DEADLINE_MS = 2500;
 
 export function createApplication(overrides = {}) {
   const config = createConfig(overrides);
@@ -51,6 +56,11 @@ export function createApplication(overrides = {}) {
           if (error) reject(error);
           else resolve();
         });
+        // close() waits for every open connection. Drop idle keep-alive
+        // sockets now and any request still open shortly after, so a stalled
+        // client cannot hold the database open until the app force-quits it.
+        server.closeIdleConnections();
+        setTimeout(() => server.closeAllConnections(), FORCE_CLOSE_AFTER_MS).unref();
       });
       return closing;
     },
@@ -64,7 +74,17 @@ if (isEntryPoint) {
     console.log(`Lasso is running at http://127.0.0.1:${application.config.port}`);
     console.log(`History data: ${application.config.dataDir}`);
   });
-  const shutdown = () => application.close().finally(() => process.exit(0));
+  const shutdown = () => {
+    setTimeout(() => process.exit(0), SHUTDOWN_DEADLINE_MS).unref();
+    application.close().finally(() => process.exit(0));
+  };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  watchParent({
+    expectedParentPid: Number(process.env.LASSO_PARENT_PID),
+    onOrphaned: () => {
+      console.log('Lasso app is no longer running; stopping its server.');
+      shutdown();
+    },
+  });
 }

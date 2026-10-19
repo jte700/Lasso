@@ -182,7 +182,9 @@ test('public complete PDF shares render the pinned original inline without openi
     versionId: text.versionId, actor: writer, accessScope: 'DOCUMENT' });
   assert.equal((await fetch(`${base}/d/${nonPdf.token}/source`)).status, 415);
   const expired = app.objectShares.createShare({ projectId: project.id, objectId: drawing.id,
-    versionId: drawing.versionId, actor: writer, accessScope: 'DOCUMENT', expiresAt: '2000-01-01T00:00:00Z' });
+    versionId: drawing.versionId, actor: writer, accessScope: 'DOCUMENT', expiresAt: new Date(Date.now() + 60_000).toISOString() });
+  // The link lapses: its stored expiry passes.
+  app.db.prepare('UPDATE object_share_grants SET expires_at = ? WHERE token = ?').run('2000-01-01T00:00:00.000Z', expired.token);
   assert.equal((await fetch(`${base}/d/${expired.token}/source`)).status, 410);
   app.objectShares.revokeShare(complete.token);
   assert.equal((await fetch(`${sharedUrl}/source`)).status, 410);

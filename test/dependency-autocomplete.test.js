@@ -830,6 +830,26 @@ test('dependency autocomplete acceptance workflows', async (suite) => {
     assert.throws(() => application.dependencies.sharedDependency(fullGrant.token), /unavailable|expired/i);
   });
 
+  await suite.test('M: a shared link publishes only file names and closes when its dependency is removed', () => {
+    // Arrange
+    const settings = application.dependencies.configureDependencyShare(tableShareDependencyId, {
+      scope: 'FULL', recipientLabel: 'Auditor',
+    }, ada);
+    const token = settings.grants.find((grant) => grant.scope === 'FULL').token;
+    const shared = application.dependencies.sharedDependency(token);
+    assert.equal(shared.documentPath, undefined, 'the private manuscript path is not published');
+    assert.ok(!shared.source.path.includes('/'), `only the file name is published: ${shared.source.path}`);
+
+    // Act
+    application.dependencies.revise(tableShareDependencyId, ada, { action: 'REMOVE' });
+
+    // Assert
+    assert.throws(() => application.dependencies.sharedDependency(token), /unavailable|expired/i);
+    const open = application.db.prepare(`SELECT COUNT(*) AS count FROM dependency_share_grants
+      WHERE dependency_id = ? AND revoked_at IS NULL`).get(tableShareDependencyId).count;
+    assert.equal(open, 0);
+  });
+
   await application.close();
   fs.rmSync(sandbox, { recursive: true, force: true });
 });

@@ -221,7 +221,7 @@ final class NotchPanelController: NSObject {
         let shouldPresent = initialized && next.hasNewActivity(comparedTo: activity)
         if next.newestKey != activity.newestKey { selectedChange = 0 }
         activity = next
-        initialized = true; issue = nil
+        initialized = true; issue = nil; failedPolls = 0
         if shouldPresent { presentActivity() }
         render()
     }
@@ -243,6 +243,9 @@ final class NotchPanelController: NSObject {
         }
     }
 
+    private var failedPolls = 0
+    private static let failedPollsBeforeAlert = 2
+
     private func refresh() {
         guard enabled, task == nil, let baseURL else { return }
         let token = generation
@@ -258,8 +261,14 @@ final class NotchPanelController: NSObject {
                    let payload = json["activity"] as? [String: Any] {
                     self.receive(NotchActivity(payload))
                 } else {
+                    // One missed poll usually means the server is busy reading
+                    // a large folder. Interrupt the user only if it persists.
+                    self.failedPolls += 1
                     let newlyUnavailable = self.initialized && self.issue == nil
-                    self.issue = "Activity unavailable. Open Lasso to check."
+                        && self.failedPolls >= Self.failedPollsBeforeAlert
+                    if self.failedPolls >= Self.failedPollsBeforeAlert {
+                        self.issue = "Activity unavailable. Open Lasso to check."
+                    }
                     if newlyUnavailable { self.presentActivity() }
                 }
                 self.render()

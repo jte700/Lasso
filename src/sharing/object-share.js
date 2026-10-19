@@ -4,6 +4,7 @@ import { HttpError } from '../history/errors.js';
 import { MARKDOWN_LAYOUT, isMarkdownPath } from './markdown.js';
 import { csvDelimiter } from '../history/diff.js';
 import { correctedDocumentLabel } from '../dependencies/authors.js';
+import { shareExpiry } from './expiry.js';
 
 const MIME_TYPES = {
   '.pdf': 'application/pdf',
@@ -134,7 +135,7 @@ export class ObjectShareService {
       id: crypto.randomUUID(),
       token,
       createdAt: now(),
-      expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+      expiresAt: shareExpiry(expiresAt),
     };
     this.db.prepare(`
       INSERT INTO object_share_grants(

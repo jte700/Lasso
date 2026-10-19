@@ -12,6 +12,26 @@ function statFingerprint(stat) {
   return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
 }
 
+/** A recorded snapshot file in the shape a scan produces. */
+export function scannedFile(file) {
+  return { path: file.path, contentHash: file.contentHash, size: file.size, mtimeMs: file.mtimeMs,
+    ctimeMs: file.ctimeMs ?? null, fileType: file.fileType, device: file.device, inode: file.inode, metadata: file.metadata };
+}
+
+/**
+ * Whether a file still matches its cached entry. A live entry holds the exact
+ * fingerprint. An entry seeded from the last snapshot after a restart holds
+ * the recorded stat values; without a recorded change time it is not trusted.
+ */
+function matchesCache(cached, fingerprint, stat) {
+  if (!cached) return false;
+  if (cached.fingerprint) return cached.fingerprint === fingerprint;
+  const recorded = cached.file;
+  return recorded.ctimeMs != null && String(stat.dev) === String(recorded.device)
+    && String(stat.ino) === String(recorded.inode) && Number(stat.size) === recorded.size
+    && Number(stat.mtimeNs) / 1_000_000 === recorded.mtimeMs && Number(stat.ctimeNs) / 1_000_000 === recorded.ctimeMs;
+}
+
 function isDirty(relativePath, dirtyPaths) {
   for (let current = relativePath; current !== '.'; current = path.posix.dirname(current)) {
     if (dirtyPaths.has(current)) return true;
@@ -65,6 +85,23 @@ export function scanDirectory(rootPath, blobStore, options = {}) {
   const files = [];
   const nextCache = new Map();
   const dirtyPaths = new Set(options.dirtyPaths ?? []);
+  // A path that exists but cannot be read right now (locked, busy, or denied
+  // by a privacy prompt) keeps its last recorded version. Recording it as
+  // deleted would give it a new identity when it returns and break its links.
+  const previousFiles = options.previousFiles ?? [];
+  let previousByPath = null;
+  const carryForward = (error, failedPath, isDirectory) => {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return;
+    if (!isDirectory) {
+      previousByPath ??= new Map(previousFiles.map((file) => [file.path, file]));
+      const previous = previousByPath.get(failedPath);
+      if (previous) files.push(scannedFile(previous));
+      return;
+    }
+    for (const file of previousFiles) {
+      if (!failedPath || file.path.startsWith(`${failedPath}/`)) files.push(scannedFile(file));
+    }
+  };
 
   const relative = (absolutePath) => path.relative(root, absolutePath).split(path.sep).join('/');
 
@@ -73,7 +110,9 @@ export function scanDirectory(rootPath, blobStore, options = {}) {
     try {
       entries = fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
     } catch (error) {
-      failures.push({ path: relative(directory) || '.', ...describeScanError(error) });
+      const prefix = relative(directory);
+      failures.push({ path: prefix || '.', ...describeScanError(error) });
+      carryForward(error, prefix, true);
       return;
     }
     for (const entry of entries) {
@@ -95,15 +134,15 @@ export function scanDirectory(rootPath, blobStore, options = {}) {
         stat = fs.statSync(absolutePath, { bigint: true });
         fingerprint = statFingerprint(stat);
         const cached = options.fileCache?.get(relativePath);
-        if (options.reuseUnchanged && !isDirty(relativePath, dirtyPaths)
-          && cached?.fingerprint === fingerprint) {
+        if (options.reuseUnchanged && !isDirty(relativePath, dirtyPaths) && matchesCache(cached, fingerprint, stat)) {
           files.push(cached.file);
-          nextCache.set(relativePath, cached);
+          nextCache.set(relativePath, { fingerprint, file: cached.file });
           continue;
         }
         buffer = fs.readFileSync(absolutePath);
       } catch (error) {
         failures.push({ path: relativePath, ...describeScanError(error) });
+        carryForward(error, relativePath, false);
         continue;
       }
       const contentHash = blobStore.put(buffer);
@@ -113,6 +152,7 @@ export function scanDirectory(rootPath, blobStore, options = {}) {
         contentHash,
         size: Number(stat.size),
         mtimeMs: Number(stat.mtimeNs) / 1_000_000,
+        ctimeMs: Number(stat.ctimeNs) / 1_000_000,
         fileType,
         device: String(stat.dev),
         inode: String(stat.ino),

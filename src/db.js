@@ -2,10 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
+const BUSY_TIMEOUT_MS = 5000;
+
 export function openDatabase(config) {
   fs.mkdirSync(path.dirname(config.databasePath), { recursive: true });
   const db = new DatabaseSync(config.databasePath);
-  db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
+  // Wait briefly for a lock instead of failing at once if another connection
+  // (such as a server that has not finished shutting down) is still writing.
+  db.exec(`PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;
+    PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`);
 
   const hasMigrations = db
     .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'")
@@ -52,8 +57,19 @@ export function openDatabase(config) {
     .map((name) => ({ name, version: Number(name.split('_')[0]) }))
     .filter((migration) => migration.version > currentVersion)
     .sort((a, b) => a.version - b.version);
+  // Each migration applies completely or not at all, so an interrupted upgrade
+  // cannot leave a half-built schema that fails on every later start.
   for (const migration of migrations) {
-    db.exec(fs.readFileSync(path.join(migrationDirectory, migration.name), 'utf8'));
+    const sql = fs.readFileSync(path.join(migrationDirectory, migration.name), 'utf8');
+    // A table rebuild turns foreign keys off, which SQLite ignores inside a
+    // transaction. Switch them around the transaction instead.
+    const rebuildsTables = /PRAGMA\s+foreign_keys\s*=\s*OFF/i.test(sql);
+    if (rebuildsTables) db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      transaction(db, () => db.exec(sql));
+    } finally {
+      if (rebuildsTables) db.exec('PRAGMA foreign_keys = ON');
+    }
   }
 
   // Directory identity columns are added idempotently, because maintenance
@@ -65,6 +81,11 @@ export function openDatabase(config) {
     db.exec('ALTER TABLE projects ADD COLUMN workspace_removed INTEGER NOT NULL DEFAULT 0 CHECK (workspace_removed IN (0, 1))');
   }
   if (!projectColumns.has('root_inode')) db.exec('ALTER TABLE projects ADD COLUMN root_inode TEXT');
+  // A file's change time moves on every write, even one that restores its
+  // modification time. With it, reopening a folder after a restart reuses
+  // unchanged files' recorded hashes instead of reading every file again.
+  const snapshotFileColumns = new Set(db.prepare('PRAGMA table_info(snapshot_files)').all().map((column) => column.name));
+  if (!snapshotFileColumns.has('ctime_ms')) db.exec('ALTER TABLE snapshot_files ADD COLUMN ctime_ms REAL');
 
   return db;
 }

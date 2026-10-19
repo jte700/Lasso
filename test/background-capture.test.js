@@ -246,3 +246,79 @@ test('historical terminal object browsing evicts derived snapshots without chang
   assert.deepEqual(app.terminal.graph.namedObjects(project.id, snapshots[0]), first);
   assert.equal(app.terminal.graph.namedObjectCache.size, 3);
 });
+
+function fakeWatcher(t) {
+  const watcher = { listener: null, errorHandler: null, starts: 0 };
+  t.mock.method(fs, 'watch', (_root, _options, listener) => {
+    watcher.listener = listener;
+    watcher.starts += 1;
+    return { close() {}, on(event, handler) { if (event === 'error') watcher.errorHandler = handler; } };
+  });
+  return watcher;
+}
+
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test('a file saved continuously is still captured within the maximum wait', async (t) => {
+  // Arrange
+  const watcher = fakeWatcher(t);
+  const { app } = fixture(t, { watchProjects: true, watchDebounceMs: 60, watchMaxWaitMs: 150 });
+  const captures = [];
+  t.mock.method(app.timeline, 'capture', (...args) => captures.push(args));
+
+  // Act: a save every 25 ms keeps resetting the debounce.
+  for (let index = 0; index < 16; index += 1) {
+    watcher.listener('change', 'note.md');
+    await pause(25);
+  }
+
+  // Assert
+  assert.ok(captures.length >= 1, 'a capture ran while saves were still arriving');
+});
+
+test('a failed watcher capture keeps its changed paths and tries again', async (t) => {
+  const watcher = fakeWatcher(t);
+  const { app } = fixture(t, { watchProjects: true, watchDebounceMs: 5 });
+  const captures = [];
+  const errors = [];
+  t.mock.method(console, 'error', (...values) => errors.push(values));
+  t.mock.method(app.timeline, 'capture', (...args) => {
+    captures.push(args);
+    if (captures.length === 1) throw new Error('database is locked');
+  });
+  watcher.listener('change', 'data.csv');
+  await pause(60);
+  assert.equal(captures.length, 2);
+  assert.deepEqual(captures[1][2].dirtyPaths, ['data.csv']);
+});
+
+test('a watcher that fails is restarted and the folder rescanned', async (t) => {
+  const watcher = fakeWatcher(t);
+  const { app } = fixture(t, { watchProjects: true, watchDebounceMs: 5 });
+  const captures = [];
+  t.mock.method(console, 'error', () => {});
+  t.mock.method(app.timeline, 'capture', (...args) => captures.push(args));
+  assert.equal(watcher.starts, 1);
+  watcher.errorHandler(new Error('EMFILE: too many open files, watch'));
+  await pause(60);
+  assert.equal(watcher.starts, 2);
+  assert.equal(captures.at(-1)[2].dirtyPaths, null, 'changes made while unwatched are found by a full rescan');
+});
+
+test('reopening a folder after a restart reads only the files that changed', async (t) => {
+  // Arrange: Lasso restarts, and one file changed while it was closed.
+  const { sandbox, root, app, project } = fixture(t);
+  await app.close();
+  const reopened = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
+  t.after(() => reopened.close());
+  fs.writeFileSync(path.join(root, 'data.csv'), 'metric,value\nrevenue,250\n');
+  const reads = trackProjectReads(t, root);
+
+  // Act
+  const result = reopened.timeline.capture(project.id, actor, { source: 'OPEN_RECONCILE' });
+
+  // Assert
+  assert.deepEqual(reads, ['data.csv'], 'the unchanged note is not read and hashed again');
+  assert.equal(result.changed, true);
+  assert.ok(result.snapshot.files.some((file) => file.path === 'note.md'), 'unchanged files stay in the snapshot');
+});

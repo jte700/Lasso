@@ -142,6 +142,16 @@ enum AssistPermission {
         IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
     }
 
+    /// macOS prompts only while Input Monitoring is undetermined. Once it was
+    /// denied, the request does nothing, so Settings is the only way forward.
+    static func askForInputMonitoring() {
+        if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeUnknown {
+            requestInputMonitoring()
+        } else {
+            openSettings("Privacy_ListenEvent")
+        }
+    }
+
     static func openSettings(_ anchor: String) {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")!
         NSWorkspace.shared.open(url)
@@ -167,16 +177,21 @@ struct CaretContext {
 enum AssistLog {
     private static let url = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/Lasso/assist.log")
-    /// On by default while the feature settles; turn it off with
-    /// `defaults write dry.lasso.desktop AssistDebug -bool false`.
-    static var enabled = UserDefaults.standard.object(forKey: "AssistDebug") as? Bool ?? true
+    /// Off unless the user turns on Tools → Troubleshooting → Record Typing
+    /// Log (`defaults write com.jte700.lasso AssistDebug -bool true`). Entries
+    /// describe apps, roles and lengths, never what was typed or inserted.
+    static var enabled = UserDefaults.standard.object(forKey: "AssistDebug") as? Bool ?? false {
+        didSet { UserDefaults.standard.set(enabled, forKey: "AssistDebug") }
+    }
     private static let queue = DispatchQueue(label: "lasso.assist-log", qos: .utility)
     private static let formatter = ISO8601DateFormatter()
     private static var bytesWritten: UInt64?
     private static let maximumBytes: UInt64 = 1_048_576
 
-    static func write(_ line: String) {
-        guard enabled else { return }
+    /// `force` writes one report the user asked for, such as a text support
+    /// check, without turning on logging for everything typed afterwards.
+    static func write(_ line: String, force: Bool = false) {
+        guard enabled || force else { return }
         let timestamp = Date()
         queue.async { append(line, at: timestamp) }
     }
@@ -483,6 +498,49 @@ enum AccessibilityReader {
     /// disturb the user's clipboard or key state, but several applications
     /// report success while changing nothing. The result is therefore read back
     /// and typed instead when it did not land.
+    /// Apps that accept an Accessibility text write but change nothing, such
+    /// as Chromium web fields. Lasso types straight away there, so the partial
+    /// word is never left selected while it waits to see whether a write landed:
+    /// a keystroke in that window would replace the selection.
+    /// One miss can be the user typing during the check, so an app is skipped
+    /// only after two misses. It is tried again after a month, and a write that
+    /// lands clears its record.
+    private enum IgnoredTextWrites {
+        private static let key = "AccessibilityWriteFailures"
+        private static let strikes = 2
+        private static let retryAfter: TimeInterval = 30 * 24 * 60 * 60
+        private static var records: [String: [Double]] {
+            UserDefaults.standard.dictionary(forKey: key) as? [String: [Double]] ?? [:]
+        }
+
+        static func contains(_ bundle: String?) -> Bool {
+            guard let bundle, let record = records[bundle], record.count == 2 else { return false }
+            return Int(record[0]) >= strikes && Date().timeIntervalSince1970 - record[1] < retryAfter
+        }
+
+        static func remember(_ bundle: String?) {
+            guard let bundle else { return }
+            var all = records
+            let now = Date().timeIntervalSince1970
+            let previous = all[bundle].flatMap { $0.count == 2 && now - $0[1] < retryAfter ? $0[0] : nil } ?? 0
+            all[bundle] = [previous + 1, now]
+            UserDefaults.standard.set(all, forKey: key)
+        }
+
+        static func forget(_ bundle: String?) {
+            guard let bundle, records[bundle] != nil else { return }
+            var all = records
+            all[bundle] = nil
+            UserDefaults.standard.set(all, forKey: key)
+        }
+    }
+
+    private static func bundleIdentifier(of element: AXUIElement) -> String? {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success else { return nil }
+        return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+    }
+
     static func replace(length: Int, at caret: Int, with text: String, in element: AXUIElement,
                         expected: CaretContext, expectedPrefix: String,
                         completion: ((Bool) -> Void)? = nil) {
@@ -495,8 +553,9 @@ enum AccessibilityReader {
         let originalValue = attribute(element, kAXValueAttribute as String) as? String
         var selectedRange = false
         var wroteText = false
+        let bundle = bundleIdentifier(of: element)
 
-        if caret >= 0 {
+        if caret >= 0, !IgnoredTextWrites.contains(bundle) {
             if length > 0, caret - length >= 0 {
                 var range = CFRange(location: caret - length, length: length)
                 if let axRange = AXValueCreate(.cfRange, &range) {
@@ -513,11 +572,15 @@ enum AccessibilityReader {
         // Let the application apply the change before judging it.
         DispatchQueue.main.asyncAfter(deadline: .now() + (wroteText ? 0.12 : 0.05)) {
             if wroteText, landed(text, in: element) {
+                IgnoredTextWrites.forget(bundle)
                 AssistLog.write("insert: accessibility write landed")
                 completion?(true)
                 return
             }
-            if wroteText { AssistLog.write("insert: accessibility reported success but nothing changed; typing") }
+            if wroteText {
+                IgnoredTextWrites.remember(bundle)
+                AssistLog.write("insert: accessibility reported success but nothing changed; typing")
+            }
             else { AssistLog.write("insert: typing (selectedRange=\(selectedRange) caret=\(caret))") }
             guard let current = focusedContext(allowSelection: true), CFEqual(current.element, element),
                   CompletionTransaction.canRetry(before: before,
@@ -710,11 +773,19 @@ final class AssistBoxView: NSView {
     fileprivate let pointerHeight: CGFloat = 12
     fileprivate let pointerWidth: CGFloat = 21
     fileprivate let bubbleCornerRadius: CGFloat = 18
+    // The host tracker reassigns these ten times a second while the box is
+    // open. Only a real change may relayout and redraw the panel.
     fileprivate var pointerX: CGFloat = 84 {
-        didSet { superview?.needsLayout = true; needsDisplay = true }
+        didSet {
+            guard pointerX != oldValue else { return }
+            superview?.needsLayout = true; needsDisplay = true
+        }
     }
     fileprivate var pointerAtTop = true {
-        didSet { superview?.needsLayout = true; needsLayout = true; needsDisplay = true }
+        didSet {
+            guard pointerAtTop != oldValue else { return }
+            superview?.needsLayout = true; needsLayout = true; needsDisplay = true
+        }
     }
     private let suggestionBodyHeight: CGFloat = 384
     private let navigationHeight: CGFloat = 32
@@ -1350,11 +1421,11 @@ final class GlobalAssistant {
 
     private init() {
         LassoTransientUI.shared.register(self, priority: 70,
-            isOpen: { [weak self] in
-                guard let self else { return false }
-                return self.panel?.isVisible == true || self.popupHost != nil
-                    || self.debounce?.isValid == true || self.request != nil
-            }, dismiss: { [weak self] in self?.dismissForEscape() })
+            // Only a box on screen counts. A pending prediction, or a host being
+            // tracked for one, is not open: claiming it would swallow Escape in
+            // vim, dialogs and search fields.
+            isOpen: { [weak self] in self?.panel?.isVisible == true },
+            dismiss: { [weak self] in self?.dismissForEscape() })
         LassoTransientUI.shared.start()
     }
 
@@ -1395,6 +1466,9 @@ final class GlobalAssistant {
     private var generation = 0
     private var feedbackDismissed = false
     private var sawEvent = false
+    /// The tap exists but no key has arrived for a while. With Input
+    /// Monitoring also missing, that means macOS is withholding keystrokes.
+    private(set) var isAwaitingInput = false
     private var isInserting = false
     private var pendingShare: AssistSuggestion?
     /// Sources linked in the current surface, newest last. Reported to the
@@ -1486,6 +1560,8 @@ final class GlobalAssistant {
         DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
             guard let self, self.isEnabled, !self.sawEvent else { return }
             AssistLog.write("no key events after 20s — tap is not receiving input")
+            self.isAwaitingInput = true
+            self.onStateChange?()
         }
         onStateChange?()
         return nil
@@ -1498,6 +1574,7 @@ final class GlobalAssistant {
         tap = nil
         runLoopSource = nil
         isEnabled = false
+        isAwaitingInput = false
         onStateChange?()
     }
 
@@ -1512,6 +1589,10 @@ final class GlobalAssistant {
         if !sawEvent {
             sawEvent = true
             AssistLog.write("first key event received")
+            if isAwaitingInput {
+                isAwaitingInput = false
+                DispatchQueue.main.async { self.onStateChange?() }
+            }
         }
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
@@ -1550,10 +1631,20 @@ final class GlobalAssistant {
             return nil
         }
         // Escape with nothing open belongs to the host, and must not schedule
-        // a new prediction that would reopen the just-dismissed menu.
-        if keyCode == 53 { return Unmanaged.passUnretained(event) }
+        // a new prediction that would reopen the just-dismissed menu. A
+        // prediction already pending is dropped for the same reason.
+        if keyCode == 53 {
+            if debounce != nil || request != nil || popupHost != nil { hide() }
+            return Unmanaged.passUnretained(event)
+        }
+        // Shift+Tab leaves the field, Control+Tab switches tabs, and modified
+        // arrows move or select text. Only the bare keys belong to the box.
+        let chord = !flags.intersection([.maskShift, .maskCommand, .maskControl, .maskAlternate]).isEmpty
         if visible && view.mode != .message {
             switch keyCode {
+            case 48 where chord, 125 where chord, 126 where chord:
+                DispatchQueue.main.async { self.hide() }
+                return Unmanaged.passUnretained(event)
             case 48:                                    // Tab
                 DispatchQueue.main.async {
                     if self.view.mode == .confirmShare { self.resolveConfirmation() }
@@ -2495,6 +2586,7 @@ final class GlobalAssistant {
     private func updateHostPosition() {
         guard let host = popupHost else { return }
         guard let rect = host.visibleCaret(using: AccessibilityReader.caretRect(of:)) else { hide(); return }
+        guard rect != popupCaret else { return }
         popupCaret = rect
         reposition(near: rect)
     }
@@ -2514,7 +2606,22 @@ final class GlobalAssistant {
         let size = ShareComposerController.shared.isPresented(in: panel)
             ? ShareComposerController.shared.canvasSize : view.boxSize
         let mainFrame = anchoredFrame(for: caret, size: size)
+        guard panel.frame != mainFrame else { return }
         panel.setFrame(mainFrame, display: true)
+    }
+
+    /// The display showing most of the caret. A caret on the last line of a
+    /// display can end just past its edge, which must not send the box to the
+    /// primary display.
+    private func screen(showing caret: NSRect) -> NSScreen? {
+        func area(_ rect: NSRect) -> CGFloat { rect.isNull ? 0 : rect.width * rect.height }
+        func overlap(_ screen: NSScreen) -> CGFloat { area(screen.frame.intersection(caret)) }
+        if let best = NSScreen.screens.max(by: { overlap($0) < overlap($1) }), overlap(best) > 0 { return best }
+        let center = NSPoint(x: caret.midX, y: caret.midY)
+        func distance(_ screen: NSScreen) -> CGFloat {
+            hypot(screen.frame.midX - center.x, screen.frame.midY - center.y)
+        }
+        return NSScreen.screens.min(by: { distance($0) < distance($1) })
     }
 
     /// Accessibility reports rectangles with the origin at the top-left of the
@@ -2548,9 +2655,8 @@ final class GlobalAssistant {
         var y = caretBottom - size.height - 2
         var pointerAtTop = true
 
-        let point = NSPoint(x: caretX, y: caretBottom)
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(point) })
-            ?? primary ?? NSScreen.main
+        let caretOnScreen = NSRect(x: caret.minX, y: caretBottom, width: max(1, caret.width), height: max(1, caret.height))
+        let screen = self.screen(showing: caretOnScreen) ?? primary ?? NSScreen.main
         if let visible = screen?.visibleFrame {
             if y < visible.minY {
                 y = caretTop + 2
@@ -2740,7 +2846,7 @@ final class GlobalAssistant {
             hide()
             return
         }
-        AssistLog.write("  ✓ plan: replace \(plan.range.count) char(s) “\(plan.expectedPrefix)” with “\(plan.insertText)”")
+        AssistLog.write("  ✓ plan: replace \(plan.range.count) char(s) with \(plan.insertText.count) char(s)")
 
         hide()
         AccessibilityReader.replace(length: plan.range.count, at: context.absoluteCaret,
@@ -2795,9 +2901,13 @@ final class GlobalAssistant {
                 linkedSources.append(LinkedSource(projectId: suggestion.projectId, objectId: objectId, snapshotId: snapshotId,
                                                   text: sourceText))
                 if linkedSources.count > 8 { linkedSources.removeFirst() }
-                AssistLog.write("  · source context: \(suggestion.label)")
+                AssistLog.write("  · source context recorded")
             }
-            guard let objectId = suggestion.objectId else {
+            // A sentence continuation carries its source object as the usage
+            // id. It is linked and highlighted like any other inserted source.
+            let continuationSource = suggestion.sentenceContinuation
+                && suggestion.usageObjectId != "completion-source" ? suggestion.usageObjectId : nil
+            guard let objectId = suggestion.objectId ?? continuationSource else {
                 AssistLog.write("  · no linkable source; nothing to record")
                 return
             }

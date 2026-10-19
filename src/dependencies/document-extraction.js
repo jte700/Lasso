@@ -1,6 +1,7 @@
 import { inflateRawSync, inflateSync } from 'node:zlib';
 import path from 'node:path';
 import { extractDrawingDocument } from './drawing-extraction.js';
+import { builtInNumberFormat, formatSpreadsheetNumber } from './spreadsheet-number-format.js';
 
 const MAX_PDF_METADATA_BYTES = 32_000_000;
 const MAX_PDF_BODY_BYTES = 3_000_000;
@@ -577,6 +578,8 @@ function coreProperty(source, name) {
 export function extractDocxDocument(buffer) {
   try {
     const documentXml = zipEntry(buffer, 'word/document.xml')?.toString('utf8') ?? '';
+    // A password-protected or damaged .docx has no readable document part.
+    if (!documentXml) throw new Error('The document part is missing.');
     const coreXml = zipEntry(buffer, 'docProps/core.xml')?.toString('utf8') ?? '';
     const structured = documentXml.replace(/<w:tab\b[^>]*\/>/gi, '\t')
       .replace(/<w:br\b[^>]*\/>/gi, '\n').replace(/<\/w:p>/gi, '\n');
@@ -636,7 +639,21 @@ function spreadsheetStrings(source = '') {
     .map(part => decodeXml(part.content)).join(''));
 }
 
-function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null) {
+/** Each cell style's number format, and whether dates count from 1904. */
+function spreadsheetNumberFormats(stylesXml = '', workbookXml = '') {
+  const custom = new Map(spreadsheetElements(stylesXml, 'numFmt').map(({ attributes }) =>
+    [Number(spreadsheetAttribute(attributes, 'numFmtId')), spreadsheetAttribute(attributes, 'formatCode')]));
+  // Cell styles are the <xf> entries of <cellXfs>, not of <cellStyleXfs>.
+  const cellXfs = String(stylesXml).match(/<(?:\w+:)?cellXfs\b[^>]*>([\s\S]*?)<\/(?:\w+:)?cellXfs>/i)?.[1] ?? '';
+  const styles = spreadsheetElements(cellXfs, 'xf').map(({ attributes }) => {
+    const id = Number(spreadsheetAttribute(attributes, 'numFmtId') || 0);
+    return custom.get(id) ?? builtInNumberFormat(id);
+  });
+  const date1904 = /<(?:\w+:)?workbookPr\b[^>]*\bdate1904\s*=\s*["'](?:1|true)["']/i.test(workbookXml);
+  return { styles, date1904 };
+}
+
+function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null, formats = null) {
   const rows = [];
   let fallbackRow = 1;
   for (const rowElement of spreadsheetElements(source, 'row')) {
@@ -650,8 +667,12 @@ function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null) {
       const type = spreadsheetAttribute(cell.attributes, 't');
       const raw = spreadsheetElements(cell.content, 'v')[0]?.content ?? '';
       const inline = spreadsheetElements(cell.content, 't').map(part => decodeXml(part.content)).join('');
+      const numeric = !type || type === 'n';
+      const formatted = numeric && formats
+        ? formatSpreadsheetNumber(decodeXml(raw), formats.styles[Number(spreadsheetAttribute(cell.attributes, 's') || 0)], formats)
+        : null;
       const value = type === 's' && raw.trim() ? sharedStrings[Number(raw)] ?? raw
-        : type === 'inlineStr' || inline ? inline : decodeXml(raw);
+        : type === 'inlineStr' || inline ? inline : formatted ?? decodeXml(raw);
       row[column] = cleanText(value, 2_000);
       fallbackColumn = column + 1;
     }
@@ -924,10 +945,36 @@ function spreadsheetRange(reference) {
   return {firstRow:Number(match[2]),lastRow:Number(match[4] ?? match[2]),firstColumn:spreadsheetColumnIndex(match[1]),lastColumn:spreadsheetColumnIndex(match[3] ?? match[1])};
 }
 
+function spreadsheetSheet(buffer, descriptor, shared, relationships, formats) {
+  const attribute = spreadsheetAttribute;
+  const source = zipEntry(buffer, descriptor.entry)?.toString('utf8');
+  if (!source) return null;
+  const rowNumbers = [];
+  const rows = spreadsheetRows(source, shared, rowNumbers, formats);
+  const merges = spreadsheetElements(source, 'mergeCell')
+    .map(({ attributes }) => spreadsheetRange(attribute(attributes, 'ref'))).filter(Boolean);
+  const directory = path.posix.dirname(descriptor.entry);
+  const rels = relationships(zipEntry(buffer, `${directory}/_rels/${path.posix.basename(descriptor.entry)}.rels`)?.toString('utf8') ?? '');
+  const tables = spreadsheetElements(source, 'tablePart').flatMap(({ attributes }) => {
+    const target = rels.find(r => r.id === attribute(attributes, 'r:id'))?.target;
+    if (!target) return [];
+    const entry = path.posix.normalize(target.startsWith('/') ? target.slice(1) : `${directory}/${target}`);
+    const xml = zipEntry(buffer, entry)?.toString('utf8') ?? '';
+    const tag = spreadsheetElements(xml, 'table')[0]?.attributes ?? '';
+    const range = spreadsheetRange(attribute(tag, 'ref'));
+    if (!range) return [];
+    return [{...range, headerRowCount:Number(attribute(tag, 'headerRowCount') || 1), headers:spreadsheetElements(xml, 'tableColumn').map(c => attribute(c.attributes, 'name'))}];
+  });
+  return rows.length ? { name:descriptor.name, rows, rowNumbers, merges, tables } : null;
+}
+
 export function extractSpreadsheetTables(buffer) {
   try {
     if (buffer.subarray(0, 8).equals(COMPOUND_SIGNATURE)) return extractBiffSpreadsheetTables(buffer);
     const workbook = zipEntry(buffer, 'xl/workbook.xml')?.toString('utf8') ?? '';
+    // Without a workbook part this is not a readable .xlsx. The result then
+    // carries no `skipped` list, which tells the indexer it failed.
+    if (!workbook) return [];
     const attribute = spreadsheetAttribute;
     const relationships = (xml) => spreadsheetElements(xml, 'Relationship')
       .map(({ attributes }) => ({ id: attribute(attributes, 'Id'), target: attribute(attributes, 'Target') }));
@@ -937,28 +984,23 @@ export function extractSpreadsheetTables(buffer) {
       return { name: attribute(attributes, 'name') || `Sheet ${index+1}`, entry: target ? path.posix.normalize(target.startsWith('/') ? target.slice(1) : `xl/${target}`) : `xl/worksheets/sheet${index+1}.xml` };
     });
     const shared = spreadsheetStrings(zipEntry(buffer, 'xl/sharedStrings.xml')?.toString('utf8') ?? '');
+    let formats = null;
+    try {
+      formats = spreadsheetNumberFormats(zipEntry(buffer, 'xl/styles.xml')?.toString('utf8') ?? '', workbook);
+    } catch { /* unreadable styles leave stored numbers as they are */ }
     const sheets = [];
+    // One sheet that is too large or damaged is skipped on its own, so the
+    // workbook's other sheets stay searchable. Skipped names are reported.
+    const skipped = [];
     for (const descriptor of descriptors.slice(0, 40)) {
-      const source = zipEntry(buffer, descriptor.entry)?.toString('utf8');
-      if (!source) continue;
-      const rowNumbers = [];
-      const rows = spreadsheetRows(source, shared, rowNumbers);
-      const merges = spreadsheetElements(source, 'mergeCell')
-        .map(({ attributes }) => spreadsheetRange(attribute(attributes, 'ref'))).filter(Boolean);
-      const directory = path.posix.dirname(descriptor.entry);
-      const rels = relationships(zipEntry(buffer, `${directory}/_rels/${path.posix.basename(descriptor.entry)}.rels`)?.toString('utf8') ?? '');
-      const tables = spreadsheetElements(source, 'tablePart').flatMap(({ attributes }) => {
-        const target = rels.find(r => r.id === attribute(attributes, 'r:id'))?.target;
-        if (!target) return [];
-        const entry = path.posix.normalize(target.startsWith('/') ? target.slice(1) : `${directory}/${target}`);
-        const xml = zipEntry(buffer, entry)?.toString('utf8') ?? '';
-        const tag = spreadsheetElements(xml, 'table')[0]?.attributes ?? '';
-        const range = spreadsheetRange(attribute(tag, 'ref'));
-        if (!range) return [];
-        return [{...range, headerRowCount:Number(attribute(tag, 'headerRowCount') || 1), headers:spreadsheetElements(xml, 'tableColumn').map(c => attribute(c.attributes, 'name'))}];
-      });
-      if (rows.length) sheets.push({ name:descriptor.name, rows, rowNumbers, merges, tables });
+      try {
+        const sheet = spreadsheetSheet(buffer, descriptor, shared, relationships, formats);
+        if (sheet) sheets.push(sheet);
+      } catch {
+        skipped.push(descriptor.name);
+      }
     }
+    Object.defineProperty(sheets, 'skipped', { value: skipped });
     return sheets;
   } catch {
     return [];
