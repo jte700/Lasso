@@ -3,32 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lasso — Brand Character</title>
-<meta name="description" content="Lasso's anthropomorphic brand character: it bounces, twirls its rope and catches the exact fragment.">
+<title>Lasso — The Posse</title>
+<meta name="description" content="Lasso's brand characters: a cowboy and a cowgirl who bounce, twirl their ropes and catch the exact fragment.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
 <style>
-  :root, [data-theme="lime"] {
+  :root, [data-theme="ink"] {
     --bg: #0b0c0b; --panel: #111311; --line: rgba(232, 236, 226, .1); --text: #e8ece2; --text-2: #a7ad9f; --text-3: #6c7266;
-    --body: #d4f75c; --eye: #f7f6ef; --pupil: #0b0c0b; --rope: #efe4c6;
+    --rope: #efe4c6; --eye: #f7f6ef; --pupil: #0b0c0b;
     --item: #f3f1e8; --item-line: rgba(20, 20, 19, .22); --item-ink: #141413; --item-stroke: transparent; --item-acc: #d4f75c; --item-acc-ink: #141413;
     --badge: #d4f75c; --badge-ink: #141413; --puff: rgba(232, 236, 226, .5); --shadow: rgba(0, 0, 0, .55); --ground: rgba(232, 236, 226, .12); --label: rgba(232, 236, 226, .45);
-    --accent: #d4f75c;
+    --accent: #d4f75c; --accent-ink: #141413;
   }
   [data-theme="paper"] {
     --bg: #efeee9; --panel: #f8f7f3; --line: rgba(20, 20, 19, .12); --text: #141413; --text-2: #3b3a37; --text-3: #78766f;
-    --body: #e03b1f; --eye: #ffffff; --pupil: #141413; --rope: #141413;
+    --rope: #141413; --eye: #ffffff; --pupil: #141413;
     --item: #fdfcf8; --item-line: rgba(20, 20, 19, .2); --item-ink: #141413; --item-stroke: rgba(20, 20, 19, .25); --item-acc: rgba(224, 59, 31, .22); --item-acc-ink: #b92d15;
     --badge: #141413; --badge-ink: #efeee9; --puff: rgba(20, 20, 19, .28); --shadow: rgba(20, 20, 19, .2); --ground: rgba(20, 20, 19, .16); --label: rgba(20, 20, 19, .5);
-    --accent: #e03b1f;
-  }
-  [data-theme="ink"] {
-    --bg: #d4f75c; --panel: #ccef55; --line: rgba(20, 26, 4, .16); --text: #141a04; --text-2: #2f3a10; --text-3: #56632a;
-    --body: #141413; --eye: #f7f6ef; --pupil: #141413; --rope: #141413;
-    --item: #faf9f3; --item-line: rgba(20, 20, 19, .2); --item-ink: #141413; --item-stroke: rgba(20, 20, 19, .3); --item-acc: #d4f75c; --item-acc-ink: #141413;
-    --badge: #141413; --badge-ink: #d4f75c; --puff: rgba(20, 26, 4, .35); --shadow: rgba(20, 26, 4, .25); --ground: rgba(20, 26, 4, .2); --label: rgba(20, 26, 4, .55);
-    --accent: #141413;
+    --accent: #e03b1f; --accent-ink: #ffffff;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: "Geist", -apple-system, sans-serif; -webkit-font-smoothing: antialiased; transition: background .4s, color .4s; }
@@ -36,23 +29,27 @@
   header { display: flex; justify-content: space-between; align-items: end; gap: 24px; flex-wrap: wrap; padding: 56px 0 26px; }
   .eyebrow { margin: 0 0 12px; font-family: "Geist Mono", monospace; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--text-3); }
   h1 { margin: 0; font-family: "Instrument Serif", serif; font-weight: 400; font-size: clamp(56px, 9vw, 112px); line-height: .9; letter-spacing: -.02em; }
-  h1 em { color: var(--accent); }
+  h1 em, h2 em { color: var(--accent); }
   .intro { max-width: 420px; margin: 0; font-family: "Geist Mono", monospace; font-size: 13px; line-height: 1.7; color: var(--text-2); }
   .stage-wrap { position: relative; border: 1px solid var(--line); border-radius: 18px; overflow: hidden; background: var(--panel); transition: background .4s; }
   #stage { display: block; width: 100%; height: auto; cursor: crosshair; touch-action: manipulation; }
   .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
   .btn { padding: 10px 16px; border: 1px solid var(--line); border-radius: 999px; background: none; color: var(--text); font-family: "Geist Mono", monospace; font-size: 12px; cursor: pointer; transition: border-color .2s, background .2s, color .2s; }
   .btn:hover { border-color: var(--accent); }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
-  [data-theme="ink"] .btn.primary { color: #d4f75c; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .seg { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; }
+  .seg button { padding: 7px 13px; border: 0; border-radius: 999px; background: none; color: var(--text-2); font-family: "Geist Mono", monospace; font-size: 11.5px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--line); color: var(--text); }
   .hint { margin-left: auto; font-family: "Geist Mono", monospace; font-size: 11px; color: var(--text-3); }
-  .swatches { display: flex; gap: 6px; padding: 4px; border: 1px solid var(--line); border-radius: 999px; }
-  .sw { display: flex; align-items: center; gap: 7px; padding: 6px 12px 6px 6px; border: 0; border-radius: 999px; background: none; color: var(--text-2); font-family: "Geist Mono", monospace; font-size: 11px; cursor: pointer; }
-  .sw i { width: 18px; height: 18px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(127, 127, 127, .35); }
-  .sw[aria-pressed="true"] { background: var(--line); color: var(--text); }
   section { padding: 70px 0 0; }
   h2 { margin: 0 0 22px; font-family: "Instrument Serif", serif; font-weight: 400; font-size: clamp(34px, 5vw, 54px); line-height: 1; }
-  h2 em { color: var(--accent); }
+  .posse { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; }
+  .member { padding: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--panel); color: inherit; text-align: left; cursor: pointer; transition: border-color .2s, transform .2s, background .4s; }
+  .member:hover { transform: translateY(-3px); }
+  .member[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .member svg { display: block; width: 100%; height: auto; }
+  .member span { display: block; padding: 8px 10px 10px; border-top: 1px solid var(--line); font-family: "Geist Mono", monospace; font-size: 10.5px; color: var(--text-3); }
+  .member span b { display: block; font-family: "Geist", sans-serif; font-size: 13px; font-weight: 500; color: var(--text); }
   .poses { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
   .pose { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--panel); transition: background .4s; }
   .pose svg { display: block; width: 100%; height: auto; }
@@ -65,12 +62,11 @@
   .rules li { display: grid; grid-template-columns: 24px 1fr; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 15px; line-height: 1.5; color: var(--text-2); }
   .rules li span { font-family: "Geist Mono", monospace; font-size: 11px; color: var(--accent); padding-top: 3px; }
   footer { padding: 60px 0 50px; font-family: "Geist Mono", monospace; font-size: 11px; color: var(--text-3); }
-  /* character + props, themed through CSS variables */
-  .b { fill: var(--body); transition: fill .4s; }
-  .arm { fill: none; stroke: var(--body); stroke-width: 15; stroke-linecap: round; transition: stroke .4s; }
+  /* shared props (character colours come from each palette) */
   .ey { fill: var(--eye); }
   .pu { fill: var(--pupil); }
   .lid { fill: none; stroke: var(--pupil); stroke-width: 4; stroke-linecap: round; }
+  .lash { fill: none; stroke: var(--pupil); stroke-width: 2.6; stroke-linecap: round; }
   .rp { fill: none; stroke: var(--rope); stroke-width: 3.6; stroke-linecap: round; stroke-linejoin: round; }
   .rp.back { opacity: .45; }
   .knot { fill: var(--rope); }
@@ -88,43 +84,58 @@
   .fl { font: 500 13px "Geist Mono", monospace; fill: var(--accent); }
   .wb1 { fill: none; stroke: #2a4fb8; stroke-width: 2; stroke-linecap: round; }
   .wb2 { fill: none; stroke: #d0432a; stroke-width: 2; stroke-linecap: round; }
-  @media (max-width: 900px) {
+  @media (max-width: 980px) {
+    .posse { grid-template-columns: repeat(4, 1fr); }
     .poses { grid-template-columns: repeat(3, 1fr); }
     .traits, .rules { grid-template-columns: 1fr; }
     .hint { margin-left: 0; width: 100%; }
   }
-  @media (max-width: 520px) { .poses { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 520px) { .poses, .posse { grid-template-columns: repeat(2, 1fr); } }
 </style>
 </head>
-<body data-theme="lime">
+<body data-theme="ink">
 <div class="wrap">
   <header>
     <div>
-      <p class="eyebrow">Lasso · brand character</p>
-      <h1>Meet <em>Lasso.</em></h1>
+      <p class="eyebrow">Lasso · brand characters</p>
+      <h1>Meet the <em>posse.</em></h1>
     </div>
-    <p class="intro">A small, curious wrangler with one job: catch the exact fragment you need and bring it back with its source attached. It only catches what is really there.</p>
+    <p class="intro">Two small wranglers with one job: catch the exact fragment you need and bring it back with its source attached. They only catch what is really there.</p>
   </header>
 
   <div class="stage-wrap">
-    <svg id="stage" viewBox="0 0 1200 560" role="img" aria-label="Animated Lasso character bouncing around and lassoing floating documents">
+    <svg id="stage" viewBox="0 0 1200 560" role="img" aria-label="Animated Lasso cowboy and cowgirl characters bouncing around and lassoing floating documents">
       <g id="scene"></g>
     </svg>
   </div>
   <div class="controls">
-    <button class="btn primary" id="toss" type="button">Toss it something</button>
-    <button class="btn" id="pause" type="button">Pause</button>
-    <div class="swatches" role="group" aria-label="Colour variant">
-      <button class="sw" type="button" data-t="lime" aria-pressed="true"><i style="background:#d4f75c"></i>Lime on ink</button>
-      <button class="sw" type="button" data-t="paper" aria-pressed="false"><i style="background:#e03b1f"></i>Vermilion on paper</button>
-      <button class="sw" type="button" data-t="ink" aria-pressed="false"><i style="background:#141413"></i>Ink on lime</button>
+    <div class="seg" role="group" aria-label="Who is on stage">
+      <button type="button" data-mode="cowboy" aria-pressed="false">Cowboy</button>
+      <button type="button" data-mode="cowgirl" aria-pressed="false">Cowgirl</button>
+      <button type="button" data-mode="both" aria-pressed="true">Both</button>
     </div>
-    <span class="hint">Click anywhere on the stage to throw it something to catch.</span>
+    <div class="seg" role="group" aria-label="Neckwear">
+      <button type="button" data-neck="on" aria-pressed="true">Neckwear</button>
+      <button type="button" data-neck="off" aria-pressed="false">None</button>
+    </div>
+    <div class="seg" role="group" aria-label="Backdrop">
+      <button type="button" data-backdrop="ink" aria-pressed="true">Ink</button>
+      <button type="button" data-backdrop="paper" aria-pressed="false">Paper</button>
+    </div>
+    <button class="btn primary" id="toss" type="button">Toss them something</button>
+    <button class="btn" id="pause" type="button">Pause</button>
+    <span class="hint">Click the stage to throw something to catch. Pick colours from the posse below.</span>
   </div>
 
   <section>
+    <p class="eyebrow">The posse · pick a palette</p>
+    <h2>Eight riders, <em>one job.</em></h2>
+    <div class="posse" id="posse"></div>
+  </section>
+
+  <section>
     <p class="eyebrow">Pose sheet</p>
-    <h2>Six moves, <em>one job.</em></h2>
+    <h2 id="poseTitle">Six moves.</h2>
     <div class="poses" id="poses"></div>
   </section>
 
@@ -132,26 +143,26 @@
     <p class="eyebrow">Personality</p>
     <h2>Curious, quick, <em>honest.</em></h2>
     <div class="traits">
-      <div class="trait"><b>Curious</b>Its eyes are always on what you’re writing, and on whatever drifts past that might belong in it.</div>
-      <div class="trait"><b>Precise</b>It lassos the exact fragment (a cell, a clause, a room), never the whole drawer.</div>
-      <div class="trait"><b>Honest</b>No source, no catch. If the evidence isn’t there, it comes back empty-handed and says so.</div>
+      <div class="trait"><b>Curious</b>Their eyes are always on what you’re writing, and on whatever drifts past that might belong in it.</div>
+      <div class="trait"><b>Precise</b>They rope the exact fragment (a cell, a clause, a room), never the whole drawer.</div>
+      <div class="trait"><b>Honest</b>No source, no catch. If the evidence isn’t there, they ride back empty-handed and say so.</div>
     </div>
   </section>
 
   <section>
     <p class="eyebrow">Construction</p>
-    <h2>How it’s <em>drawn.</em></h2>
+    <h2>How they’re <em>drawn.</em></h2>
     <ul class="rules">
-      <li><span>01</span>One flat colour for the body. No outlines, gradients or shading.</li>
+      <li><span>01</span>A lopsided pebble of flat colour on two little feet. No outlines, gradients or shading.</li>
       <li><span>02</span>Hand-cut edges that “boil”: the silhouette is redrawn about nine times a second.</li>
-      <li><span>03</span>The rope is always in the off-colour: cream on ink, ink on paper and lime.</li>
-      <li><span>04</span>Two oval eyes, no nose. A mouth only appears for surprise or delight.</li>
-      <li><span>05</span>Squash on every landing, stretch on every jump. Nothing moves stiffly.</li>
-      <li><span>06</span>Whatever it catches gets a source tag. Lasso never holds anything unlabelled.</li>
+      <li><span>03</span>The hat is part of the character. It floats on every jump and tips when they land a catch.</li>
+      <li><span>04</span>Cowboy: creased hat, optional polka-dot bandana. Cowgirl: upturned hat with a star, braids, optional bow.</li>
+      <li><span>05</span>The rope is always in the off-colour: cream on ink, ink on paper.</li>
+      <li><span>06</span>Whatever they catch gets a source tag. Nothing is ever held unlabelled.</li>
     </ul>
   </section>
 
-  <footer>Lasso brand character · design exploration</footer>
+  <footer>Lasso brand characters · design exploration · <a href="lasso-character-v1.html" style="color:inherit">first version</a></footer>
 </div>
 
 <script>
@@ -164,53 +175,113 @@
   const rng = (a, b) => a + Math.random() * (b - a);
   const easeOut = (t) => 1 - Math.pow(1 - t, 3);
   const easeInOut = (t) => (t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
-  const f1 = (n) => n.toFixed(1);
+  const f1 = (n) => (+n).toFixed(1);
   function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
+  /* ---------------- palettes ---------------- */
+  const PALS = {
+    cowboy: [
+      { name: 'Prairie', body: '#d4f75c', hat: '#a06d43', band: '#3a2618', scarf: '#e03b1f', dots: '#fff4e6' },
+      { name: 'Desert', body: '#f2b84b', hat: '#f3ead2', band: '#7a5232', scarf: '#2f6fdd', dots: '#f3ead2' },
+      { name: 'Bluegrass', body: '#7b93ff', hat: '#f3ead2', band: '#2b3a8f', scarf: '#d4f75c', dots: '#2b3a8f' },
+      { name: 'Sagebrush', body: '#9fcca7', hat: '#c08b5c', band: '#3b2a1c', scarf: '#c2473b', dots: '#f3ead2' },
+    ],
+    cowgirl: [
+      { name: 'Rodeo', body: '#ff94b6', hat: '#f7f1e3', band: '#e03b1f', star: '#ffc83d', bow: '#e03b1f', hair: '#9a6a42' },
+      { name: 'Lime Light', body: '#d4f75c', hat: '#e03b1f', band: '#3a1410', star: '#f7f1e3', bow: '#e03b1f', hair: '#c98a4b' },
+      { name: 'Dusk', body: '#bcaaff', hat: '#6a56b8', band: '#ffc83d', star: '#ffc83d', bow: '#ff8a5c', hair: '#e8c14a' },
+      { name: 'Clay', body: '#e8875c', hat: '#f3ead2', band: '#2a9d8f', star: '#2a9d8f', bow: '#2a9d8f', hair: '#a06d43' },
+    ],
+  };
+  const sel = { cowboy: 0, cowgirl: 0 };
+  let mode = 'both', showNeck = true;
+
   /* ---------------- drawing ---------------- */
-  // body silhouette, feet at y = 0; the notch between the two legs sits at the bottom
-  const BODY = [[-50, -104], [-8, -113], [12, -106], [48, -109], [61, -88], [63, -46], [58, 0], [21, 0], [19, -15], [-14, -15], [-16, 0], [-56, 0], [-63, -44], [-59, -87]];
-  const HAND = { idle: { x: 68, y: -36 }, up: { x: 34, y: -142 }, throw: { x: 98, y: -86 }, pull: { x: 72, y: -58 }, hold: { x: 6, y: -134 } };
+  const HAND = { idle: { x: 68, y: -34 }, up: { x: 40, y: -150 }, throw: { x: 98, y: -84 }, pull: { x: 72, y: -56 }, hold: { x: 44, y: -152 } };
+  const EYE_Y = -66;
 
   function rounded(pts, r) {
     const n = pts.length; let d = '';
     for (let i = 0; i < n; i++) {
       const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n];
       const d1 = Math.hypot(p0[0] - p1[0], p0[1] - p1[1]), d2 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
-      const rr = Math.min(r, d1 / 2, d2 / 2);
+      const rr = Math.min(p1[2] ?? r, d1 / 2, d2 / 2);
       const a = [p1[0] + (p0[0] - p1[0]) / d1 * rr, p1[1] + (p0[1] - p1[1]) / d1 * rr];
       const b = [p1[0] + (p2[0] - p1[0]) / d2 * rr, p1[1] + (p2[1] - p1[1]) / d2 * rr];
       d += `${i ? 'L' : 'M'}${f1(a[0])} ${f1(a[1])}Q${f1(p1[0])} ${f1(p1[1])} ${f1(b[0])} ${f1(b[1])}`;
     }
     return d + 'Z';
   }
+  // a lopsided pebble: the left shoulder sits higher so the top slopes to the right,
+  // with soft corners on the left and a crisper cut at the bottom right (x, y, corner radius)
+  const BODY = [[-48, -20, 22], [-58, -60, 30], [-44, -101, 24], [-12, -115, 18], [24, -104, 20], [54, -86, 13], [60, -44, 22], [52, -15, 7], [0, -11, 34]];
   function bodyPath(seed) {
     const r = mulberry(seed * 7919 + 13);
-    return rounded(BODY.map(([x, y]) => [x + (r() - .5) * 3.4, y + (r() - .5) * 3.4]), 9);
+    return rounded(BODY.map(([x, y, c]) => [x + (r() - .5) * 3.4, y + (r() - .5) * 3.4, c]), 24);
   }
   function toWorld(P, px, py) {
     const k = P.k || 1, x = px * k * P.sx * P.face, y = py * k * P.sy, a = P.rot * PI / 180;
     return { x: P.x + x * Math.cos(a) - y * Math.sin(a), y: P.y - P.lift + x * Math.sin(a) + y * Math.cos(a) };
   }
+  const foot = (cx, c) => `<ellipse fill="${c}" cx="${cx}" cy="-8" rx="14" ry="8.5"/>`;
+  const star = (cx, cy, r, c) => {
+    let d = '';
+    for (let i = 0; i < 10; i++) { const a = -PI / 2 + i * PI / 5, rr = i % 2 ? r * .45 : r; d += (i ? 'L' : 'M') + f1(cx + rr * Math.cos(a)) + ' ' + f1(cy + rr * Math.sin(a)); }
+    return `<path fill="${c}" d="${d}Z"/>`;
+  };
+  function hatSVG(P) {
+    const p = P.pal, y = -106 + (P.hatOff || 0), tilt = 8 + (P.hatTilt || 0);
+    if (P.kind === 'cowgirl') {
+      return `<g transform="translate(3 ${f1(y)}) rotate(${f1(tilt)})">`
+        + `<path fill="${p.hat}" d="M-24 2L-21 -26Q-12 -41 0 -30Q12 -41 21 -26L24 2Z"/>`
+        + `<path fill="${p.band}" d="M-23.4 -8H23.4L24 0H-24Z"/>${star(0, -4.5, 6, p.star)}`
+        + `<path fill="${p.hat}" d="M-60 -10Q-53 8 -28 8Q0 11 28 8Q53 8 60 -10Q66 2 57 12Q38 21 0 21Q-38 21 -57 12Q-66 2 -60 -10Z"/></g>`;
+    }
+    return `<g transform="translate(3 ${f1(y)}) rotate(${f1(tilt)})">`
+      + `<path fill="${p.hat}" d="M-26 2L-22 -30Q-12 -38 0 -31Q12 -38 22 -30L26 2Z"/>`
+      + `<path fill="${p.band}" d="M-25.4 -8H25.4L26 0H-26Z"/>`
+      + `<path fill="${p.hat}" d="M-62 -3Q-56 8 -30 9Q0 12 30 9Q56 8 62 -3Q64 4 58 11Q40 20 0 20Q-40 20 -58 11Q-64 4 -62 -3Z"/></g>`;
+  }
   function eyesSVG(P) {
     let s = '';
     const lx = clamp(P.look.x, -1, 1) * P.face, ly = clamp(P.look.y, -1, 1);
     for (const ex of [-20, 20]) {
-      const ey = -72;
+      const ey = EYE_Y;
       if (P.mood === 'happy') { s += `<path class="lid" d="M${ex - 8} ${ey + 3}Q${ex} ${ey - 9} ${ex + 8} ${ey + 3}"/>`; continue; }
       const rx = P.mood === 'wide' ? 10.5 : 9;
-      const ry = Math.max(.9, (P.mood === 'squint' ? 5.5 : P.mood === 'wide' ? 13.5 : 12) * P.eyeOpen);
+      const ry = Math.max(.9, (P.mood === 'squint' ? 5.5 : P.mood === 'wide' ? 13 : 11.5) * P.eyeOpen);
       s += `<ellipse class="ey" cx="${ex}" cy="${ey}" rx="${rx}" ry="${f1(ry)}"/>`;
       if (P.eyeOpen > .35) {
         const pr = P.mood === 'wide' ? 4 : P.mood === 'squint' ? 3.6 : 5;
         s += `<circle class="pu" cx="${f1(ex + lx * (rx - pr - 1.5))}" cy="${f1(ey + ly * Math.max(0, ry - pr - 1.5))}" r="${pr}"/>`;
+      }
+      if (P.kind === 'cowgirl' && P.eyeOpen > .5) {
+        const o = Math.sign(ex);
+        s += `<path class="lash" d="M${ex + o * 6} ${f1(ey - ry + 2)}l${o * 5} -4M${ex + o * 9} ${f1(ey - ry + 5)}l${o * 5} -2"/>`;
       }
     }
     if (P.mood === 'wide') s += '<ellipse class="pu" cx="0" cy="-45" rx="4.5" ry="5.5"/>';
     if (P.mood === 'happy') s += '<path class="lid" d="M-9 -49Q0 -39 9 -49"/>';
     return s;
   }
-  // rope carried in the hand: a hanging coil, or the spinning loop overhead
+  function neckSVG(P) {
+    const p = P.pal;
+    if (!showNeck) return '';
+    if (P.kind === 'cowgirl') {
+      return `<path fill="${p.bow}" d="M0 -32L-15 -41L-14 -23Z M0 -32L15 -41L14 -23Z"/><circle fill="${p.bow}" cx="0" cy="-32" r="4.6"/>`;
+    }
+    return `<path fill="${p.scarf}" d="M-30 -40Q0 -33 30 -40L5 -15Q0 -11 -5 -15Z"/>`
+      + `<circle fill="${p.dots}" cx="-13" cy="-33" r="2"/><circle fill="${p.dots}" cx="9" cy="-32" r="2"/><circle fill="${p.dots}" cx="-1" cy="-23" r="2"/>`;
+  }
+  function braidsSVG(P) {
+    if (P.kind !== 'cowgirl') return '';
+    const p = P.pal; let s = '';
+    for (const o of [-1, 1]) {
+      s += `<ellipse fill="${p.hair}" cx="${o * 52}" cy="-86" rx="7" ry="8"/><ellipse fill="${p.hair}" cx="${o * 55}" cy="-74" rx="6.5" ry="7.5"/><ellipse fill="${p.hair}" cx="${o * 57}" cy="-63" rx="6" ry="7"/>`;
+      s += `<path fill="${p.bow}" d="M${o * 57} -55l-7 -5v10zM${o * 57} -55l7 -5v10z"/>`;
+    }
+    return s;
+  }
   function localRopeSVG(P, t) {
     const H = P.hand;
     if (P.rope === 'coil') {
@@ -228,25 +299,27 @@
     return '';
   }
   function charSVG(P, t) {
-    const S = { x: 46, y: -62 }, H = P.hand;
-    const k = P.k || 1;
+    const S = { x: 46, y: -62 }, H = P.hand, p = P.pal, k = P.k || 1;
     return `<g transform="translate(${f1(P.x)} ${f1(P.y - P.lift)}) rotate(${f1(P.rot)}) scale(${f1(k * P.face * P.sx * 100) / 100} ${f1(k * P.sy * 100) / 100})">`
-      + `<path class="b" d="${bodyPath(P.seed)}"/>`
-      + `<path class="arm" d="M${S.x} ${S.y}Q${f1((S.x + H.x) / 2 + 8)} ${f1((S.y + H.y) / 2 + 8)} ${f1(H.x)} ${f1(H.y)}"/>`
-      + `<circle class="b" cx="${f1(H.x)}" cy="${f1(H.y)}" r="9.5"/>`
-      + eyesSVG(P) + localRopeSVG(P, t) + '</g>';
+      + braidsSVG(P)
+      + foot(-21, p.body) + foot(23, p.body)
+      + `<path fill="${p.body}" d="${bodyPath(P.seed)}"/>`
+      + neckSVG(P)
+      + `<path fill="none" stroke="${p.body}" stroke-width="15" stroke-linecap="round" d="M${S.x} ${S.y}Q${f1((S.x + H.x) / 2 + 8)} ${f1((S.y + H.y) / 2 + 8)} ${f1(H.x)} ${f1(H.y)}"/>`
+      + `<circle fill="${p.body}" cx="${f1(H.x)}" cy="${f1(H.y)}" r="9.5"/>`
+      + eyesSVG(P) + hatSVG(P) + localRopeSVG(P, t) + '</g>';
   }
-  // the thrown loop and the line back to the hand, split so the loop can wrap around what it catches
   function worldRopeSVG(P, R) {
     const H = toWorld(P, P.hand.x, P.hand.y), L = R.L;
     const a = Math.atan2(H.y - L.y, H.x - L.x);
     const K = { x: L.x + R.rx * Math.cos(a), y: L.y + R.ry * Math.sin(a) };
     const sag = (1 - R.tension) * 90;
-    const back = `<path class="rp" d="M${f1(L.x - R.rx)} ${f1(L.y)}A${f1(R.rx)} ${f1(R.ry)} 0 0 1 ${f1(L.x + R.rx)} ${f1(L.y)}"/>`;
-    const front = `<path class="rp" d="M${f1(L.x - R.rx)} ${f1(L.y)}A${f1(R.rx)} ${f1(R.ry)} 0 0 0 ${f1(L.x + R.rx)} ${f1(L.y)}"/>`
-      + `<path class="rp" d="M${f1(H.x)} ${f1(H.y)}Q${f1((H.x + K.x) / 2)} ${f1((H.y + K.y) / 2 + sag)} ${f1(K.x)} ${f1(K.y)}"/>`
-      + `<circle class="knot" cx="${f1(K.x)}" cy="${f1(K.y)}" r="4"/>`;
-    return { back, front };
+    return {
+      back: `<path class="rp" d="M${f1(L.x - R.rx)} ${f1(L.y)}A${f1(R.rx)} ${f1(R.ry)} 0 0 1 ${f1(L.x + R.rx)} ${f1(L.y)}"/>`,
+      front: `<path class="rp" d="M${f1(L.x - R.rx)} ${f1(L.y)}A${f1(R.rx)} ${f1(R.ry)} 0 0 0 ${f1(L.x + R.rx)} ${f1(L.y)}"/>`
+        + `<path class="rp" d="M${f1(H.x)} ${f1(H.y)}Q${f1((H.x + K.x) / 2)} ${f1((H.y + K.y) / 2 + sag)} ${f1(K.x)} ${f1(K.y)}"/>`
+        + `<circle class="knot" cx="${f1(K.x)}" cy="${f1(K.y)}" r="4"/>`,
+    };
   }
   function itemSVG(it) {
     let s = '';
@@ -256,15 +329,12 @@
         + `<rect class="ita" x="-26" y="-7" width="52" height="17" rx="3"/><text class="itxa" x="0" y="5.5" text-anchor="middle">${it.val}</text>`
         + `<rect class="itl" x="-23" y="18" width="46" height="4" rx="2"/><rect class="itl" x="-23" y="28" width="30" height="4" rx="2"/>`;
     } else if (it.type === 'tag') {
-      const w = it.w;
-      s = `<rect class="it" x="${-w / 2}" y="-20" width="${w}" height="40" rx="20"/><circle class="itl" cx="${-w / 2 + 16}" cy="0" r="4.5"/>`
-        + `<text class="itx" x="8" y="5" text-anchor="middle">${it.val}</text>`;
+      s = `<rect class="it" x="${-it.w / 2}" y="-20" width="${it.w}" height="40" rx="20"/><circle class="itl" cx="${-it.w / 2 + 16}" cy="0" r="4.5"/><text class="itx" x="8" y="5" text-anchor="middle">${it.val}</text>`;
     } else if (it.type === 'photo') {
       s = `<rect class="it" x="-44" y="-34" width="88" height="68" rx="3"/><rect class="itl" x="-38" y="-28" width="76" height="46" rx="1" style="opacity:.35"/>`
         + `<path class="wb1" d="M-32 -18h18M-32 -9q6 -4 12 0t12 0M-32 0h24"/><path class="wb2" d="M-30 10q20 -3 40 0"/><path class="wb1" d="M8 2q10 -22 22 0"/>`;
     } else if (it.type === 'cell') {
-      s = `<rect class="it" x="-43" y="-30" width="86" height="60" rx="3"/>`
-        + `<path class="itl" d="M-43 -10h86v1.5h-86zM-43 10h86v1.5h-86zM-14 -30h1.5v60h-1.5zM14 -30h1.5v60h-1.5z"/>`
+      s = `<rect class="it" x="-43" y="-30" width="86" height="60" rx="3"/><path class="itl" d="M-43 -10h86v1.5h-86zM-43 10h86v1.5h-86zM-14 -30h1.5v60h-1.5zM14 -30h1.5v60h-1.5z"/>`
         + `<rect class="ita" x="15.5" y="-8.5" width="27.5" height="18.5"/><path d="M15.5 -8.5h27.5v18.5h-27.5z" fill="none" stroke="var(--item-acc-ink)" stroke-width="2"/>`;
     }
     const label = it.label ? `<text class="lbl" x="0" y="${-it.h / 2 - 9}" text-anchor="middle">${it.label}</text>` : '';
@@ -275,18 +345,16 @@
     return `<g transform="translate(${f1(x)} ${f1(y)}) scale(${f1(k * 100) / 100})"><rect class="bdg" x="${-w / 2}" y="-14" width="${w}" height="28" rx="14"/><text class="bdt" x="0" y="4" text-anchor="middle">${text}</text></g>`;
   }
   function baseChar(over) {
-    return Object.assign({ x: 300, y: GROUND, lift: 0, sx: 1, sy: 1, rot: 0, face: 1, hand: { ...HAND.idle }, rope: 'coil', twirlA: 0, eyeOpen: 1, mood: 'normal', look: { x: 0, y: 0 }, seed: 1 }, over);
+    return Object.assign({ kind: 'cowboy', pal: PALS.cowboy[0], x: 300, y: GROUND, lift: 0, sx: 1, sy: 1, rot: 0, face: 1, hand: { ...HAND.idle }, rope: 'coil', twirlA: 0, eyeOpen: 1, mood: 'normal', look: { x: 0, y: 0 }, seed: 1, hatOff: 0, hatTilt: 0 }, over);
   }
 
   /* ---------------- stage state ---------------- */
   const scene = document.getElementById('scene'), stage = document.getElementById('stage');
   let clock = 0, last = performance.now(), paused = reduced;
-  const C = baseChar({ x: 260, k: 1.3 });
-  const R = { active: false, L: { x: 0, y: 0 }, rx: 56, ry: 15, tension: 0, wrap: null };
+  let actors = [];
   const items = [], queue = [], puffs = [], floats = [];
   const tweens = new Set();
   const mouse = { x: 600, y: 300, at: -1e9 };
-  let blinkAt = 1500, blinkStart = -1e9;
 
   function anim(dur, step) { return new Promise(res => tweens.add({ start: clock, dur, step, res })); }
   const wait = (ms) => anim(ms, () => {});
@@ -300,100 +368,115 @@
     { type: 'doc', w: 66, h: 84, label: 'smith2023.pdf', val: 'HR 0.72', badge: '✓ Table 2 · v1' },
   ];
   let kindIdx = 0;
-  function spawn(x, y) {
+  function spawn(x, y, A) {
     const k = KINDS[kindIdx++ % KINDS.length];
     if (x == null) {
-      do { x = rng(160, 1040); } while (Math.abs(x - C.x) < 260);
-      y = rng(120, 290);
+      const [lo, hi] = A ? A.range : [160, 1040];
+      let tries = 0;
+      do { x = rng(lo + 70, hi - 70); tries++; } while (tries < 30 && actors.some(a => Math.abs(x - a.x) < 230));
+      y = rng(120, 280);
     }
-    const it = { ...k, x, y: clamp(y, 80, GROUND - 150), rot: 0, k: 0, alpha: 1, phase: rng(0, 6), state: 'float', badgeK: 0 };
+    const it = { ...k, x, y: clamp(y, 80, GROUND - 180), rot: 0, k: 0, alpha: 1, phase: rng(0, 6), state: 'float', badgeK: 0, owner: null };
     items.push(it);
     anim(320, t => { it.k = easeOut(t) * (1 + .15 * Math.sin(PI * t)); });
     return it;
   }
-  function puff(x, y, n = 5) {
-    for (let i = 0; i < n; i++) puffs.push({ x: x + rng(-40, 40), y: y - rng(0, 6), r: rng(3, 7), vx: rng(-.06, .06), life: 1 });
+  function puff(x, y, n = 5) { for (let i = 0; i < n; i++) puffs.push({ x: x + rng(-40, 40), y: y - rng(0, 6), r: rng(3, 7), vx: rng(-.06, .06), life: 1 }); }
+
+  function makeActor(kind, x, range) {
+    return baseChar({ kind, pal: PALS[kind][sel[kind]], x, k: 1.3, range, dead: false, target: null,
+      R: { active: false, L: { x: 0, y: 0 }, rx: 56, ry: 15, tension: 0, wrap: null }, blinkAt: clock + rng(400, 3000), blinkStart: -1e9 });
   }
+  const DEAD = Symbol('dead');
+  const alive = (A) => { if (A.dead) throw DEAD; };
 
   /* ---------------- moves ---------------- */
-  async function hop(toX, h = 110, dur = 420) {
-    const fromX = C.x, moving = toX !== fromX;
-    await anim(110, t => { C.sx = 1 + .16 * t; C.sy = 1 - .18 * t; });
+  async function hop(A, toX, h = 110, dur = 420) {
+    const fromX = A.x, moving = toX !== fromX;
+    await anim(110, t => { A.sx = 1 + .16 * t; A.sy = 1 - .18 * t; }); alive(A);
     await anim(dur, t => {
-      C.x = lerp(fromX, toX, t); C.lift = h * 4 * t * (1 - t);
-      C.sx = 1 - .1 * Math.sin(PI * t); C.sy = 1 + .14 * Math.sin(PI * t);
-      C.rot = moving ? C.face * 8 * (1 - 2 * t) : 0;
-    });
-    C.lift = 0; C.rot = 0; puff(C.x, GROUND);
-    await anim(280, t => { const k = (1 - t) * Math.cos(t * PI * 1.5); C.sx = 1 + .22 * k; C.sy = 1 - .22 * k; });
-    C.sx = C.sy = 1;
+      A.x = lerp(fromX, toX, t); A.lift = h * 4 * t * (1 - t);
+      A.sx = 1 - .1 * Math.sin(PI * t); A.sy = 1 + .14 * Math.sin(PI * t);
+      A.rot = moving ? A.face * 8 * (1 - 2 * t) : 0;
+      A.hatOff = -9 * Math.sin(PI * Math.min(1, t * 1.2));
+    }); alive(A);
+    A.lift = 0; A.rot = 0; puff(A.x, GROUND);
+    await anim(280, t => { const k = (1 - t) * Math.cos(t * PI * 1.5); A.sx = 1 + .22 * k; A.sy = 1 - .22 * k; A.hatOff = 4 * k; }); alive(A);
+    A.sx = A.sy = 1; A.hatOff = 0;
   }
-  async function hopTo(x) {
-    x = clamp(x, 90, 1110);
-    if (Math.abs(x - C.x) < 8) return;
-    C.face = x >= C.x ? 1 : -1;
-    const n = Math.max(1, Math.ceil(Math.abs(x - C.x) / 180));
-    for (let i = 0; i < n; i++) await hop(C.x + (x - C.x) / (n - i), rng(90, 130));
+  async function hopTo(A, x) {
+    x = clamp(x, A.range[0], A.range[1]);
+    if (Math.abs(x - A.x) < 8) return;
+    A.face = x >= A.x ? 1 : -1;
+    const n = Math.max(1, Math.ceil(Math.abs(x - A.x) / 180));
+    for (let i = 0; i < n; i++) await hop(A, A.x + (x - A.x) / (n - i), rng(90, 130));
   }
-  async function lasso(it) {
-    C.face = it.x >= C.x ? 1 : -1;
-    C.mood = 'wide'; await wait(520); C.mood = 'normal';
-    await anim(260, t => { C.hand = lerpP(HAND.idle, HAND.up, easeOut(t)); });
-    C.rope = 'twirl'; C.mood = 'squint';
-    await anim(1300, () => { C.twirlA = clock * .017; C.sy = 1 + .03 * Math.sin(clock / 55); });
-    C.sy = 1;
-    // throw
-    const tc = toWorld(C, C.hand.x - 4, C.hand.y - 26);
-    C.rope = 'none'; C.mood = 'normal';
+  async function lasso(A, it) {
+    const R = A.R;
+    A.face = it.x >= A.x ? 1 : -1;
+    A.mood = 'wide'; await wait(520); alive(A); A.mood = 'normal';
+    await anim(260, t => { A.hand = lerpP(HAND.idle, HAND.up, easeOut(t)); }); alive(A);
+    A.rope = 'twirl'; A.mood = 'squint';
+    await anim(1300, () => { A.twirlA = clock * .017; A.sy = 1 + .03 * Math.sin(clock / 55); }); alive(A);
+    A.sy = 1;
+    const tc = toWorld(A, A.hand.x - 4, A.hand.y - 26);
+    A.rope = 'none'; A.mood = 'normal';
     Object.assign(R, { active: true, L: { ...tc }, rx: 56, ry: 15, tension: 0, wrap: null });
-    const end = { x: it.x, y: it.y }, ctrl = { x: (tc.x + end.x) / 2, y: Math.min(tc.y, end.y) - 150 };
-    anim(170, t => { C.hand = lerpP(HAND.up, HAND.throw, easeOut(t)); });
+    const ctrl = { x: (tc.x + it.x) / 2, y: Math.min(tc.y, it.y) - 150 };
+    anim(170, t => { A.hand = lerpP(HAND.up, HAND.throw, easeOut(t)); });
     await anim(640, t => {
       const e = easeOut(t), u = 1 - e;
       R.L = { x: u * u * tc.x + 2 * u * e * ctrl.x + e * e * it.x, y: u * u * tc.y + 2 * u * e * ctrl.y + e * e * it.y };
       R.rx = lerp(56, it.w / 2 + 26, e); R.ry = lerp(15, it.h / 2 + 22, e); R.tension = e * .45;
-    });
-    // cinch
+    }); alive(A);
     R.wrap = it; it.state = 'caught';
-    await anim(200, t => { R.rx = lerp(it.w / 2 + 26, it.w / 2 + 8, t); R.ry = lerp(it.h / 2 + 22, it.h / 2 + 6, t); R.tension = .45 + .55 * t; R.L = { x: it.x, y: it.y }; });
-    // reel it in
-    C.mood = 'squint';
+    await anim(200, t => { R.rx = lerp(it.w / 2 + 26, it.w / 2 + 8, t); R.ry = lerp(it.h / 2 + 22, it.h / 2 + 6, t); R.tension = .45 + .55 * t; R.L = { x: it.x, y: it.y }; }); alive(A);
+    A.mood = 'squint';
     const s0 = { x: it.x, y: it.y };
     await anim(1000, t => {
-      C.hand = lerpP(HAND.throw, HAND.pull, easeOut(Math.min(1, t * 2.5)));
-      C.rot = -C.face * 11 * Math.sin(PI * Math.min(1, t * 1.15));
-      C.x += -C.face * .25 * (t < .5 ? 1 : 0);
-      const H = toWorld(C, C.hand.x, C.hand.y), e = easeInOut(t);
-      it.x = lerp(s0.x, H.x + C.face * 24, e); it.y = lerp(s0.y, H.y - 18, e) - Math.sin(PI * t) * 70;
+      A.hand = lerpP(HAND.throw, HAND.pull, easeOut(Math.min(1, t * 2.5)));
+      A.rot = -A.face * 11 * Math.sin(PI * Math.min(1, t * 1.15));
+      if (t < .5) A.x += -A.face * .25;
+      const H = toWorld(A, A.hand.x, A.hand.y), e = easeInOut(t);
+      it.x = lerp(s0.x, H.x + A.face * 24, e); it.y = lerp(s0.y, H.y - 18, e) - Math.sin(PI * t) * 70;
       it.rot = Math.sin(t * PI * 3) * 8;
       R.L = { x: it.x, y: it.y };
-    });
-    C.rot = 0; R.active = false; R.wrap = null;
-    // got it
-    C.rope = 'none'; it.state = 'carried'; it.rot = 0; C.mood = 'happy';
-    await anim(260, t => { C.hand = lerpP(HAND.pull, HAND.hold, easeOut(t)); });
+    }); alive(A);
+    A.rot = 0; R.active = false; R.wrap = null;
+    A.rope = 'none'; it.state = 'carried'; it.carrier = A; it.rot = 0; A.mood = 'happy';
+    await anim(260, t => { A.hand = lerpP(HAND.pull, HAND.hold, easeOut(t)); A.hatTilt = -14 * easeOut(t); }); alive(A);
     anim(260, t => { it.badgeK = easeOut(t) * (1 + .2 * Math.sin(PI * t)); });
-    await hop(C.x, 70, 340); await hop(C.x, 46, 300);
-    await wait(500);
+    await hop(A, A.x, 70, 340); await hop(A, A.x, 46, 300);
+    await wait(500); alive(A);
     it.state = 'leaving';
     floats.push({ x: it.x, y: it.y - 70, text: '+1 fragment set', life: 1 });
-    await anim(260, t => { C.hand = lerpP(HAND.hold, HAND.idle, easeOut(t)); });
-    C.rope = 'coil'; C.mood = 'normal';
+    await anim(300, t => { A.hand = lerpP(HAND.hold, HAND.idle, easeOut(t)); A.hatTilt = -14 * (1 - easeOut(t)); }); alive(A);
+    A.rope = 'coil'; A.mood = 'normal'; A.target = null;
   }
-
-  async function director() {
-    await wait(700);
-    for (;;) {
-      const it = queue.shift() || spawn();
-      if (it.state !== 'float') continue;
-      if (Math.random() < .55) await hopTo(C.x + rng(-280, 280));
-      const side = C.x < it.x ? -1 : 1;
-      let stand = clamp(it.x + side * rng(240, 330), 100, 1100);
-      if (Math.abs(stand - it.x) < 200) stand = clamp(it.x - side * 300, 100, 1100);
-      await hopTo(stand);
-      await lasso(it);
-      await wait(rng(500, 1100));
-    }
+  async function director(A) {
+    try {
+      await wait(500 + rng(0, 900)); alive(A);
+      for (;;) {
+        let it = queue.find(q => q.state === 'float' && !q.owner && q.x >= A.range[0] - 120 && q.x <= A.range[1] + 120);
+        if (it) queue.splice(queue.indexOf(it), 1); else it = spawn(null, null, A);
+        it.owner = A; A.target = it;
+        if (Math.random() < .5) await hopTo(A, A.x + rng(-240, 240));
+        const side = A.x < it.x ? -1 : 1;
+        let stand = clamp(it.x + side * rng(230, 320), A.range[0], A.range[1]);
+        if (Math.abs(stand - it.x) < 190) stand = clamp(it.x - side * 290, A.range[0], A.range[1]);
+        await hopTo(A, stand);
+        await lasso(A, it);
+        await wait(rng(500, 1200)); alive(A);
+      }
+    } catch (e) { if (e !== DEAD) throw e; }
+  }
+  function cast() {
+    actors.forEach(a => (a.dead = true));
+    items.length = 0; queue.length = 0; puffs.length = 0; floats.length = 0;
+    actors = mode === 'both'
+      ? [makeActor('cowboy', 220, [90, 660]), makeActor('cowgirl', 980, [540, 1110])]
+      : [makeActor(mode, 300, [90, 1110])];
+    actors.forEach(director);
   }
 
   /* ---------------- frame ---------------- */
@@ -403,24 +486,24 @@
       tw.step(t);
       if (t >= 1) { tweens.delete(tw); tw.res(); }
     }
-    // blink
-    if (clock > blinkAt) { blinkStart = clock; blinkAt = clock + rng(1800, 4800); }
-    const b = clock - blinkStart;
-    C.eyeOpen = b < 150 ? Math.abs(1 - b / 75) : 1;
-    // where to look
-    const eye = toWorld(C, 0, -72);
-    let tx = null;
-    if (R.active) tx = R.L;
-    else if (items.some(i => i.state === 'carried')) tx = { x: eye.x + C.face * 20, y: eye.y - 200 };
-    else if (clock - mouse.at < 2500) tx = mouse;
-    else { const f = items.find(i => i.state === 'float'); tx = f || { x: eye.x + C.face * 200, y: eye.y + Math.sin(clock / 900) * 60 }; }
-    const dx = tx.x - eye.x, dy = tx.y - eye.y, dl = Math.hypot(dx, dy) || 1;
-    C.look.x += (dx / dl - C.look.x) * .15; C.look.y += (dy / dl - C.look.y) * .15;
-    C.seed = Math.floor(clock / 110);
-    // props
+    for (const A of actors) {
+      if (clock > A.blinkAt) { A.blinkStart = clock; A.blinkAt = clock + rng(1800, 4800); }
+      const b = clock - A.blinkStart;
+      A.eyeOpen = b < 150 ? Math.abs(1 - b / 75) : 1;
+      const eye = toWorld(A, 0, EYE_Y);
+      let tx;
+      if (A.R.active) tx = A.R.L;
+      else if (A.mood === 'happy') tx = { x: eye.x + A.face * 20, y: eye.y - 200 };
+      else if (clock - mouse.at < 2500) tx = mouse;
+      else if (A.target) tx = A.target;
+      else tx = { x: eye.x + A.face * 200, y: eye.y + Math.sin(clock / 900) * 60 };
+      const dx = tx.x - eye.x, dy = tx.y - eye.y, dl = Math.hypot(dx, dy) || 1;
+      A.look.x += (dx / dl - A.look.x) * .15; A.look.y += (dy / dl - A.look.y) * .15;
+      A.seed = Math.floor(clock / 110) + (A.kind === 'cowgirl' ? 50 : 0);
+    }
     for (const it of items) {
       if (it.state === 'float') { it.y += Math.sin(clock / 520 + it.phase) * .09 * dt / 16; it.rot = Math.sin(clock / 700 + it.phase) * 4; }
-      if (it.state === 'carried') { const p = toWorld(C, C.hand.x, C.hand.y - 6); it.x = p.x; it.y = p.y - it.h / 2 - 8; }
+      if (it.state === 'carried') { const A = it.carrier, p = toWorld(A, A.hand.x, A.hand.y - 6); it.x = p.x; it.y = p.y - it.h / 2 - 8; }
       if (it.state === 'leaving') { it.y -= .05 * dt; it.alpha -= .0011 * dt; it.badgeK = Math.max(0, it.badgeK - .002 * dt); }
     }
     for (let i = items.length - 1; i >= 0; i--) if (items[i].alpha <= 0) items.splice(i, 1);
@@ -431,15 +514,20 @@
   }
   function render() {
     let s = `<line class="gr" x1="40" y1="${GROUND + 2}" x2="1160" y2="${GROUND + 2}"/>`;
-    s += `<ellipse class="sh" cx="${f1(C.x)}" cy="${GROUND + 4}" rx="${f1(58 * C.k * (1 - C.lift / 320) * C.sx)}" ry="7"/>`;
-    const breathing = C.lift === 0 && Math.abs(C.sx - 1) < .001 && Math.abs(C.sy - 1) < .001 ? Math.sin(clock / 240) * .025 : 0;
-    const P = { ...C, sx: C.sx - breathing, sy: C.sy + breathing };
-    const rope = R.active ? worldRopeSVG(P, R) : null;
-    for (const it of items) if (it.state !== 'carried' && it !== R.wrap) s += itemSVG(it);
-    if (rope) s += rope.back;
-    if (R.wrap) s += itemSVG(R.wrap);
-    if (rope) s += rope.front;
-    s += charSVG(P, clock);
+    const wrapped = new Set(actors.map(a => a.R.wrap).filter(Boolean));
+    const Ps = actors.map(A => {
+      const breathe = A.lift === 0 && Math.abs(A.sx - 1) < .001 && Math.abs(A.sy - 1) < .001 ? Math.sin(clock / 240 + (A.kind === 'cowgirl' ? 1.7 : 0)) * .025 : 0;
+      s += `<ellipse class="sh" cx="${f1(A.x)}" cy="${GROUND + 4}" rx="${f1(58 * A.k * (1 - A.lift / 320) * A.sx)}" ry="7"/>`;
+      return { ...A, sx: A.sx - breathe, sy: A.sy + breathe };
+    });
+    for (const it of items) if (it.state !== 'carried' && !wrapped.has(it)) s += itemSVG(it);
+    Ps.forEach((P, i) => {
+      const R = actors[i].R;
+      if (!R.active) return;
+      const r = worldRopeSVG(P, R);
+      s += r.back + (R.wrap ? itemSVG(R.wrap) : '') + r.front;
+    });
+    Ps.forEach(P => { s += charSVG(P, clock); });
     for (const it of items) {
       if (it.state === 'carried') s += itemSVG(it);
       if (it.badgeK > .01) s += badgeSVG(it.x, it.y - it.h / 2 - 26, it.badge, it.badgeK);
@@ -455,58 +543,98 @@
     requestAnimationFrame(frame);
   }
 
+  /* ---------------- posse + poses ---------------- */
+  const posseEl = document.getElementById('posse');
+  const members = [];
+  for (const kind of ['cowboy', 'cowgirl']) {
+    PALS[kind].forEach((pal, i) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'member';
+      b.innerHTML = `<svg viewBox="0 0 200 240"></svg><span><b>${pal.name}</b>${kind}</span>`;
+      b.addEventListener('click', () => {
+        sel[kind] = i;
+        const wasOnStage = actors.some(a => a.kind === kind);
+        if (mode !== 'both') mode = kind;
+        if (wasOnStage) actors.forEach(a => { if (a.kind === kind) a.pal = pal; });
+        else cast();
+        syncUI(); renderPoses();
+      });
+      posseEl.append(b);
+      members.push({ b, kind, i, pal, svg: b.querySelector('svg'), phase: rng(0, 6) });
+    });
+  }
+  function renderPosse() {
+    const now = performance.now(), tick = Math.floor(now / 110);
+    for (const m of members) {
+      const br = reduced ? 0 : Math.sin(now / 260 + m.phase) * .03;
+      const P = baseChar({ kind: m.kind, pal: m.pal, x: 100, y: 212, sx: 1 - br, sy: 1 + br, seed: reduced ? m.i + 3 : tick + m.i * 17, look: { x: Math.sin(m.phase) * .6, y: -.1 } });
+      m.svg.innerHTML = `<ellipse class="sh" cx="100" cy="216" rx="52" ry="6"/>` + charSVG(P, reduced ? 0 : now + m.phase * 400);
+    }
+  }
+  const poseCard = (title, note, body) => `<div class="pose"><svg viewBox="0 -40 260 290">${body}</svg><p><b>${title}</b>${note}</p></div>`;
+  function renderPoses() {
+    const kind = mode === 'cowgirl' ? 'cowgirl' : 'cowboy';
+    const pal = PALS[kind][sel[kind]];
+    document.getElementById('poseTitle').innerHTML = `Six moves, <em>${pal.name} ${kind}.</em>`;
+    const G2 = 214, base = (o) => baseChar(Object.assign({ kind, pal }, o));
+    const shadow = (x, k = 1) => `<ellipse class="sh" cx="${x}" cy="${G2 + 4}" rx="${50 * k}" ry="6"/>`;
+    let html = '';
+    html += poseCard('Idle', 'Breathing, rope coiled', shadow(120) + charSVG(base({ x: 120, y: G2, seed: 3, look: { x: .6, y: -.2 } }), 0));
+    html += poseCard('Hop', 'Stretch up, hat floats', shadow(130, .6) + `<circle class="puff" cx="95" cy="${G2 - 2}" r="5" opacity=".6"/><circle class="puff" cx="168" cy="${G2 - 4}" r="4" opacity=".5"/>`
+      + charSVG(base({ x: 130, y: G2, lift: 30, sx: .9, sy: 1.14, rot: 6, seed: 5, hatOff: -9, look: { x: .8, y: -.4 } }), 900));
+    html += poseCard('Twirl', 'Eyes on the target', shadow(110) + charSVG(base({ x: 110, y: G2 + 4, hand: { ...HAND.up }, rope: 'twirl', twirlA: 1.1, mood: 'squint', seed: 7, look: { x: 1, y: -.2 } }), 0));
+    {
+      const P = base({ x: 80, y: G2, hand: { ...HAND.throw }, rope: 'none', seed: 9, look: { x: 1, y: -.5 }, mood: 'wide' });
+      const r = worldRopeSVG(P, { L: { x: 214, y: 50 }, rx: 30, ry: 20, tension: .3 });
+      html += poseCard('Throw', 'Arm out, loop flying', shadow(80) + r.back + r.front + charSVG(P, 0));
+    }
+    {
+      const P = base({ x: 82, y: G2, hand: { ...HAND.pull }, rope: 'none', rot: -11, seed: 11, mood: 'squint', look: { x: 1, y: -.3 } });
+      const it = { type: 'doc', w: 66, h: 84, val: '14.62 m²', x: 212, y: 100, rot: 6 };
+      const r = worldRopeSVG(P, { L: { x: 212, y: 100 }, rx: 40, ry: 48, tension: 1 });
+      html += poseCard('Reel in', 'Lean back, rope taut', shadow(82) + r.back + itemSVG(it) + r.front + charSVG(P, 0));
+    }
+    {
+      const P = base({ x: 118, y: G2, hand: { ...HAND.hold }, rope: 'none', mood: 'happy', seed: 13, hatTilt: -14 });
+      const h = toWorld(P, HAND.hold.x, HAND.hold.y - 6);
+      const it = { type: 'tag', w: 120, h: 40, val: '€ 4.82 M', x: h.x, y: h.y - 28 };
+      html += poseCard('Got it', 'Hat tipped, source tagged', shadow(118) + charSVG(P, 0) + itemSVG(it) + badgeSVG(h.x, h.y - 68, '✓ P&L!D12 · v5', .9));
+    }
+    document.getElementById('poses').innerHTML = html;
+  }
+
   /* ---------------- controls ---------------- */
+  function syncUI() {
+    document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+    for (const m of members) m.b.setAttribute('aria-pressed', String(sel[m.kind] === m.i && (mode === 'both' || mode === m.kind)));
+  }
   function svgPoint(e) {
     const p = stage.createSVGPoint(); p.x = e.clientX; p.y = e.clientY;
     return p.matrixTransform(stage.getScreenCTM().inverse());
   }
   stage.addEventListener('pointermove', e => { const p = svgPoint(e); mouse.x = p.x; mouse.y = p.y; mouse.at = clock; });
   stage.addEventListener('click', e => {
-    if (paused || queue.length > 2) return;
+    if (paused || queue.length > 3) return;
     const p = svgPoint(e);
     queue.push(spawn(clamp(p.x, 80, 1120), p.y));
   });
-  document.getElementById('toss').addEventListener('click', () => { if (!paused && queue.length < 3) queue.push(spawn()); });
+  document.getElementById('toss').addEventListener('click', () => { if (!paused && queue.length < 4) queue.push(spawn()); });
   const pauseBtn = document.getElementById('pause');
   pauseBtn.textContent = paused ? 'Play' : 'Pause';
   pauseBtn.addEventListener('click', () => { paused = !paused; pauseBtn.textContent = paused ? 'Play' : 'Pause'; });
-  document.querySelectorAll('.sw').forEach(b => b.addEventListener('click', () => {
-    document.body.dataset.theme = b.dataset.t;
-    document.querySelectorAll('.sw').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { mode = b.dataset.mode; cast(); syncUI(); renderPoses(); }));
+  document.querySelectorAll('[data-neck]').forEach(b => b.addEventListener('click', () => {
+    showNeck = b.dataset.neck === 'on';
+    document.querySelectorAll('[data-neck]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    renderPoses();
+  }));
+  document.querySelectorAll('[data-backdrop]').forEach(b => b.addEventListener('click', () => {
+    document.body.dataset.theme = b.dataset.backdrop;
+    document.querySelectorAll('[data-backdrop]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
   }));
 
-  /* ---------------- pose sheet ---------------- */
-  function poseCard(title, note, build) {
-    const el = document.createElement('div');
-    el.className = 'pose';
-    el.innerHTML = `<svg viewBox="0 -26 260 276">${build()}</svg><p><b>${title}</b>${note}</p>`;
-    document.getElementById('poses').append(el);
-  }
-  const G2 = 214;
-  const shadow = (x, k = 1) => `<ellipse class="sh" cx="${x}" cy="${G2 + 4}" rx="${50 * k}" ry="6"/>`;
-  poseCard('Idle', 'Breathing, rope coiled', () => shadow(120) + charSVG(baseChar({ x: 120, y: G2, seed: 3, look: { x: .6, y: -.2 } }), 0));
-  poseCard('Hop', 'Stretch up, tuck the coil', () => shadow(130, .6) + `<circle class="puff" cx="95" cy="${G2 - 2}" r="5" opacity=".6"/><circle class="puff" cx="168" cy="${G2 - 4}" r="4" opacity=".5"/>`
-    + charSVG(baseChar({ x: 130, y: G2, lift: 34, sx: .9, sy: 1.14, rot: 6, seed: 5, look: { x: .8, y: -.4 } }), 900));
-  poseCard('Twirl', 'Eyes on the target', () => shadow(110) + charSVG(baseChar({ x: 110, y: G2 + 4, hand: { ...HAND.up }, rope: 'twirl', twirlA: 1.1, mood: 'squint', seed: 7, look: { x: 1, y: -.2 } }), 0));
-  poseCard('Throw', 'Arm out, loop flying', () => {
-    const P = baseChar({ x: 80, y: G2, hand: { ...HAND.throw }, rope: 'none', seed: 9, look: { x: 1, y: -.5 }, mood: 'wide' });
-    const r = worldRopeSVG(P, { L: { x: 214, y: 68 }, rx: 30, ry: 20, tension: .3 });
-    return shadow(80) + r.back + r.front + charSVG(P, 0);
-  });
-  poseCard('Reel in', 'Lean back, rope taut', () => {
-    const P = baseChar({ x: 82, y: G2, hand: { ...HAND.pull }, rope: 'none', rot: -11, seed: 11, mood: 'squint', look: { x: 1, y: -.3 } });
-    const it = { type: 'doc', w: 66, h: 84, val: '14.62 m²', x: 210, y: 112, rot: 6 };
-    const r = worldRopeSVG(P, { L: { x: 210, y: 112 }, rx: 40, ry: 48, tension: 1 });
-    return shadow(82) + r.back + itemSVG(it) + r.front + charSVG(P, 0);
-  });
-  poseCard('Got it', 'Held high, source tagged', () => {
-    const P = baseChar({ x: 130, y: G2, hand: { ...HAND.hold }, rope: 'none', mood: 'happy', seed: 13 });
-    const h = toWorld(P, HAND.hold.x, HAND.hold.y - 6);
-    const it = { type: 'tag', w: 120, h: 40, val: '€ 4.82 M', x: h.x, y: h.y - 28 };
-    return shadow(130) + charSVG(P, 0) + itemSVG(it) + badgeSVG(h.x, h.y - 70, '✓ P&L!D12 · v5', .9);
-  });
-
-  director();
+  cast(); syncUI(); renderPoses(); renderPosse();
+  if (!reduced) setInterval(renderPosse, 110);
   requestAnimationFrame(frame);
 })();
 </script>

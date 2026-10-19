@@ -1,0 +1,20 @@
+{
+  "name": "lasso-trailer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "sfx": "node scripts/make-audio.mjs",
+    "music": "node scripts/make-music.mjs",
+    "render": "remotion render src/index.ts LassoTrailer out/lasso-trailer.mp4 --concurrency=4 --crf=16",
+    "render:v1": "remotion render src/index.ts LassoTrailerV1 out/lasso-trailer-v1.mp4",
+    "render:v2": "remotion render src/index.ts LassoTrailerV2 out/lasso-trailer-v2.mp4 --concurrency=4 --crf=16"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.535",
+    "@remotion/google-fonts": "4.0.535",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "remotion": "4.0.535"
+  }
+}
