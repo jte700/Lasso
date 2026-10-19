@@ -260,8 +260,9 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         content.addSubview(web)
         let close = InspectorCloseButton(frame: NSRect(x: size.width - 39, y: size.height - 39,
                                                        width: 23, height: 23))
-        close.title = "×"
-        close.font = .systemFont(ofSize: 22)
+        close.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .semibold))
+        close.imagePosition = .imageOnly
         close.isBordered = false
         close.bezelStyle = .regularSquare
         close.target = self
