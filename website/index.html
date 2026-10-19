@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Caveat:wght@600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #ffffff;
@@ -36,9 +36,9 @@
     --p-green: #ecf3e8;
     --p-blue: #e9effb;
     --p-lav: #f0ecf8;
-    --serif: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, "Inter Tight", sans-serif;
-    --sans: "Inter Tight", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
-    --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --serif: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, Roboto, sans-serif;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
     --shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 12px 32px rgba(0, 0, 0, .07);
     --surface: #ffffff;
     --contrast: #000000;
@@ -1109,7 +1109,7 @@
     let evs = [], nextSpawn = 0, idxSeq = 400, lastFrame = 0;
     const recent = [];
     const FS = () => (innerWidth < 640 ? 10.5 : 12);
-    const font = (s = 1, w = 400) => `${w} ${FS() * s}px "JetBrains Mono", ui-monospace, Menlo, monospace`;
+    const font = (s = 1, w = 400) => `${w} ${FS() * s}px ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace`;
     const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
     const SCR = '·:;+=*<>/\\|{}[]01#%abcdefxyz';
 
@@ -1351,7 +1351,8 @@
     createField($('#heroField'), { host: $('#top'), content: $('#heroC'), ledger, theme: () => (DARK_MQ.matches ? HERO_DARK : LIGHT), events: true });
     createField($('#ctaField'), { host: $('#run'), content: $('#ctaIn'), ledger: null, theme: DARK, events: false });
   };
-  (document.fonts && document.fonts.load) ? document.fonts.load('400 12px "JetBrains Mono"').then(startFields, startFields) : startFields();
+  // The fields draw in the system monospaced font, which is always installed.
+  startFields();
 
   /* ================= the characters ================= */
   const PALS = {
@@ -1728,7 +1729,7 @@
   const rest = (cur, x = 720, y = 540) => { cur.style.left = x + 'px'; cur.style.top = y + 'px'; };
 
   /* ================= previews (used inside the suggestion box) ================= */
-  const svgT = (x, y, t, fill, size = 9, anchor = 'middle', w = 400) => `<text x="${x}" y="${y}" fill="${fill}" font-size="${size}" font-weight="${w}" text-anchor="${anchor}" font-family="Inter Tight, sans-serif">${esc(t)}</text>`;
+  const svgT = (x, y, t, fill, size = 9, anchor = 'middle', w = 400) => `<text x="${x}" y="${y}" fill="${fill}" font-size="${size}" font-weight="${w}" text-anchor="${anchor}" font-family="-apple-system, BlinkMacSystemFont, system-ui, sans-serif">${esc(t)}</text>`;
   const ROOMS = [{ n: 'Wohnen', x: 10, y: 10, w: 170, h: 112 }, { n: 'Schlafzimmer', x: 180, y: 10, w: 130, h: 112 }, { n: 'Küche', x: 10, y: 122, w: 100, h: 88 }, { n: 'Bad', x: 110, y: 122, w: 70, h: 88 }, { n: 'Flur', x: 180, y: 122, w: 130, h: 88 }];
   function pvPlan(room, area) {
     const order = ROOMS.slice().sort((a, b) => (a.n === room) - (b.n === room));
