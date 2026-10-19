@@ -1,0 +1,31 @@
+/* Lasso · macOS conventions for the workspace.
+   Loaded last, so these rules settle what the older layers disagree on:
+   pointers, selectable text, minimum text size, motion and system colors.
+   See docs/hig-audit.md for the Human Interface Guidelines behind each rule. */
+
+/* Pointers. macOS uses the arrow for buttons and other controls and keeps the
+   pointing hand for links (HIG: Pointing devices > Pointers). */
+html body :is(button, [role="button"], [role="tab"], [role="switch"], [role="option"], [role="menuitem"],
+              select, summary, label, input[type="checkbox"], input[type="radio"]),
+html body :is(button, [role="button"], [role="tab"], summary) * {
+  cursor: default !important;
+}
+html body :is(a[href], a[href] *) { cursor: pointer; }
+html body :is(button, [role="button"]):disabled { cursor: default !important; }
+
+/* Selection. Window chrome is not text; content, values and paths stay
+   selectable so they can be copied (HIG: Designing for macOS). */
+:is(.utility-toolbar, .object-rail, .content-toolbar, .rail-label, .rail-label-row, .utility-popover > header,
+    .utility-popover > footer, .utility-dialog .dialog-heading, .inspector-actions, .editor-toolbar,
+    .wb-heading, button, [role="button"], [role="tab"], summary, label, kbd) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+:is(.content-title p, .directory-row .dir-meta, input, textarea, [contenteditable="true"]) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* The sidebar's editor button keeps its label on one line. */
+.open-editor-button { justify-content: flex-start; text-align: left; }
+.open-editor-button span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
