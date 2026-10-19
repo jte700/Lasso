@@ -43,7 +43,9 @@ const INDEX_VERSION = 3;
 // that produced its objects in snapshot_object_indexes.extractor_version; 0
 // there means a build that recorded none.
 // 2: notes written below a table are read as text, not as rows of the table.
-const EXTRACTOR_VERSION = 2;
+// 3: a row label outside column A is no longer also read as a cell of its
+//    own row.
+const EXTRACTOR_VERSION = 3;
 const MAX_TABLE_CELLS = 1_500;
 const MAX_INDEXED_TABLE_ROWS = 1_000;
 const EDITABLE_DOCUMENT_TYPES = new Set(['markdown', 'text', 'document', 'pdf']);
@@ -984,7 +986,10 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
       }));
     }
     for (const [columnIndex, column] of headers.slice(0, 80).entries()) {
-      if (firstColumnActsAsRowLabels && columnIndex === 0) continue;
+      // The label names the row; as a cell it would only repeat that name.
+      // Column A stays unread as before when the labels sit further right, so
+      // a stray mark there does not become a value of its row.
+      if (firstColumnActsAsRowLabels && (columnIndex === labelColumn || columnIndex === 0)) continue;
       const value = String(row[columnIndex] ?? '').trim();
       if (!value || value.length > 180) continue;
       const numeric = numericDescriptor(value);
