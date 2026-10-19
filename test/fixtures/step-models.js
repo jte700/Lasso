@@ -17,7 +17,8 @@ class StepWriter {
     return this.add(`AXIS2_PLACEMENT_3D('',${this.point(origin)},${this.direction(z)},${this.direction(x)})`);
   }
   vertex(p) {
-    const key = p.map((value) => value.toFixed(9)).join(',');
+    // sin(2π) is not exactly zero; arcs ending at 360° share the 0° vertex.
+    const key = p.map((value) => (Math.abs(value) < 5e-10 ? 0 : value).toFixed(9)).join(',');
     if (!this.vertices.has(key)) this.vertices.set(key, this.add(`VERTEX_POINT('',${this.point(p)})`));
     return this.vertices.get(key);
   }
@@ -35,12 +36,21 @@ class StepWriter {
     return this.add(`EDGE_CURVE('',${this.vertex(at(a))},${this.vertex(full ? at(a) : at(b))},${circle},.T.)`);
   }
   orient(edge, forward = true) { return this.add(`ORIENTED_EDGE('',*,*,${edge},${forward ? '.T.' : '.F.'})`); }
-  loop(edges, outer = true) {
+  loop(edges, outer = true, sense = true) {
     const loop = this.add(`EDGE_LOOP('',(${edges.join(',')}))`);
-    return this.add(`${outer ? 'FACE_OUTER_BOUND' : 'FACE_BOUND'}('',${loop},.T.)`);
+    return this.add(`${outer ? 'FACE_OUTER_BOUND' : 'FACE_BOUND'}('',${loop},${sense ? '.T.' : '.F.'})`);
   }
   face(bounds, surface, sameSense = true) {
     return this.add(`ADVANCED_FACE('',(${bounds.join(',')}),${surface},${sameSense ? '.T.' : '.F.'})`);
+  }
+  // Counter-clockwise rectangle in the plane z, from corner (x0, y0) to (x1, y1).
+  rectangle([x0, y0], [x1, y1], z) {
+    const corners = [[x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z]];
+    const loop = this.loop(corners.map((corner, index) => this.orient(this.line(corner, corners[(index + 1) % 4]))));
+    return this.face([loop], this.add(`PLANE('',${this.placement([x0, y0, z])})`));
+  }
+  surfaceModel(name, faces) {
+    return this.add(`SHELL_BASED_SURFACE_MODEL('${name}',(${this.add(`OPEN_SHELL('',(${faces.join(',')}))`)}))`);
   }
 }
 
@@ -122,19 +132,33 @@ function plate(writer, { outline, holes, thickness }) {
 
 /** Cylindrical pin along +Z with a flat, domed, chamfered or pointed tip.
  * A dome or point reaches beyond every boundary edge; a 45° chamfer is a cone
- * frustum whose apex lies beyond the part but outside the face. */
+ * frustum whose apex lies beyond the part but outside the face. A split
+ * chamfer is two half frustums whose bounds are written reversed (.F.), the
+ * way some exporters emit them. */
 function pin(writer, { radius, length, tip = 'flat' }) {
+  const halves = tip === 'split-chamfer' ? [[0, 180], [180, 360]] : [[0, 360]];
   const bottomCircle = writer.arc([0, 0], radius, 0, 360, 0);
-  const topCircle = writer.arc([0, 0], radius, 0, 360, length);
+  const topArcs = halves.map(([from, to]) => writer.arc([0, 0], radius, from, to, length));
+  const topCircle = topArcs[0];
   const seam = writer.line([radius, 0, 0], [radius, 0, length]);
   const cylinder = writer.add(`CYLINDRICAL_SURFACE('',${writer.placement([0, 0, 0])},${real(radius)})`);
   const faces = [
-    writer.face([writer.loop([writer.orient(bottomCircle), writer.orient(seam), writer.orient(topCircle, false), writer.orient(seam, false)])], cylinder, true),
+    writer.face([writer.loop([writer.orient(bottomCircle), writer.orient(seam), ...[...topArcs].reverse().map((arc) => writer.orient(arc, false)), writer.orient(seam, false)])], cylinder, true),
     writer.face([writer.loop([writer.orient(bottomCircle, false)])], writer.add(`PLANE('',${writer.placement([0, 0, 0])})`), false),
   ];
   // The cone narrows by 1 per unit of height toward +Z: semi-angle π/4 about -Z.
   const cone = () => writer.add(`CONICAL_SURFACE('',${writer.placement([0, 0, length], [0, 0, -1])},${real(radius)},${real(Math.PI / 4)})`);
-  if (tip === 'chamfer') {
+  if (tip === 'split-chamfer') {
+    const rimArcs = halves.map(([from, to]) => writer.arc([0, 0], radius - 1, from, to, length + 1));
+    const at = (r, angle, z) => [r * Math.cos(angle * Math.PI / 180), r * Math.sin(angle * Math.PI / 180), z];
+    const seams = [0, 180].map((angle) => writer.line(at(radius, angle, length), at(radius - 1, angle, length + 1)));
+    const surface = cone();
+    // Each half's forward loop is top arc, far seam up, rim arc back, near
+    // seam down; it is written in reverse order with every edge flipped.
+    halves.forEach((_, index) => faces.push(writer.face([writer.loop([writer.orient(seams[index]), writer.orient(rimArcs[index]),
+      writer.orient(seams[(index + 1) % 2], false), writer.orient(topArcs[index], false)], true, false)], surface, true)));
+    faces.push(writer.face([writer.loop(rimArcs.map((arc) => writer.orient(arc)))], writer.add(`PLANE('',${writer.placement([0, 0, length + 1])})`), true));
+  } else if (tip === 'chamfer') {
     const rimCircle = writer.arc([0, 0], radius - 1, 0, 360, length + 1);
     const chamferSeam = writer.line([radius, 0, length], [radius - 1, 0, length + 1]);
     faces.push(writer.face([writer.loop([writer.orient(topCircle), writer.orient(chamferSeam), writer.orient(rimCircle, false), writer.orient(chamferSeam, false)])], cone(), true));
@@ -198,12 +222,38 @@ function place(writer, parent, child, name, origin, z = [0, 0, 1], x = [1, 0, 0]
   writer.add(`CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(${relation},${writer.add(`PRODUCT_DEFINITION_SHAPE('','',${usage})`)})`);
 }
 
+/** PMI datum-target areas, as NIST's CATIA exports write them: surface models
+ * in a representation related to the part's shape. One is a 90° patch on the
+ * Ø8 hole at (20, 15) between z = 2 and 8; the other a 10 × 10 area 5 mm
+ * above the top face, outside the solid. */
+function datumTargets(writer, context, shape) {
+  const lower = writer.arc([20, 15], 4, 0, 90, 2), upper = writer.arc([20, 15], 4, 0, 90, 8);
+  const sides = [0, 90].map((angle) => {
+    const [x, y] = [20 + 4 * Math.cos(angle * Math.PI / 180), 15 + 4 * Math.sin(angle * Math.PI / 180)];
+    return writer.line([x, y, 2], [x, y, 8]);
+  });
+  const bore = writer.add(`CYLINDRICAL_SURFACE('',${writer.placement([20, 15, 0])},4.)`);
+  const patch = writer.face([writer.loop([writer.orient(lower), writer.orient(sides[1]), writer.orient(upper, false), writer.orient(sides[0], false)])], bore);
+  const area = writer.rectangle([40, 5], [50, 15], BRACKET.thickness + 5);
+  const targets = writer.add(`MANIFOLD_SURFACE_SHAPE_REPRESENTATION('',(${writer.surfaceModel('Fill.1', [patch])},${writer.surfaceModel('Fill.2', [area])}),${context})`);
+  writer.add(`SHAPE_REPRESENTATION_RELATIONSHIP('','',${targets},${shape})`);
+}
+
+/** Supplemental construction geometry: a 200 × 200 plane through the plate. */
+function construction(writer, context, shape) {
+  const plane = writer.rectangle([-50, -70], [150, 130], 5);
+  const geometry = writer.add(`CONSTRUCTIVE_GEOMETRY_REPRESENTATION('supplemental geometry',(${writer.surfaceModel('NONE', [plane])}),${context})`);
+  writer.add(`CONSTRUCTIVE_GEOMETRY_REPRESENTATION_RELATIONSHIP('supplemental geometry','',${shape},${geometry})`);
+}
+
 /** One plate part. Options scale its geometry or replace its holes so tests
- * can author revisions with known values. */
-export function bracketPart({ unit = 'mm', holes = BRACKET.holes, schema = 'AUTOMOTIVE_DESIGN { 1 0 10303 214 3 1 1 }' } = {}) {
+ * can author revisions with known values, or add non-material geometry. */
+export function bracketPart({ unit = 'mm', holes = BRACKET.holes, schema = 'AUTOMOTIVE_DESIGN { 1 0 10303 214 3 1 1 }', targets = false, supplemental = false } = {}) {
   const writer = new StepWriter();
   const context = units(writer, unit);
-  product(writer, context, 'Bracket', [plate(writer, { ...BRACKET, holes })]);
+  const { shape } = product(writer, context, 'Bracket', [plate(writer, { ...BRACKET, holes })]);
+  if (targets) datumTargets(writer, context, shape);
+  if (supplemental) construction(writer, context, shape);
   return `${header(schema)}${writer.lines.join('\n')}\nENDSEC;\nEND-ISO-10303-21;\n`;
 }
 

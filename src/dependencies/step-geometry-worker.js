@@ -17,7 +17,8 @@ export function buildStepScene(bytes) {
   let points = 0;
   const parts = model.parts.map(part => {
     const edges = {};
-    for (const [key, edge] of part.edges) {
+    // Reference surfaces (datum-target areas) are drawn though not measured.
+    for (const [key, edge] of [...part.edges, ...part.referenceEdges]) {
       if (points > MAX_SCENE_POINTS) break;
       const radius = edge.radius ?? (edge.semiAxes ? Math.max(edge.semiAxes[0], edge.semiAxes[1]) : null);
       const sampled = sampleEdge(edge, radius ? arcStep(radius) : undefined).map(point => point.map(round));

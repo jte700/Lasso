@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { buildStepView } from '../src/dependencies/step-geometry.js';
 import { buildModelPreview } from '../src/dependencies/model-preview.js';
 import { renderModelPlan } from '../public/model-preview.js';
-import { BRACKET, fixtureAssembly } from './fixtures/step-models.js';
+import { BRACKET, bracketPart, fixtureAssembly } from './fixtures/step-models.js';
 
 const bytes = Buffer.from(fixtureAssembly());
 const selectedLines = view => view.elements.filter(element => element.selected).flatMap(element => element.lines);
@@ -24,6 +24,14 @@ test('STEP preview highlights only the cited feature of the cited part in an iso
   assert.ok(view.elements.every(element => element.polygons.length === 0 && element.lines.every(line => line.length >= 2)));
   const width = box => box.maxX - box.minX;
   assert.ok(width(view.focusBounds) < width(view.bounds), 'the view focuses on the selected holes');
+});
+
+test('unmeasured datum-target surfaces remain visible in the preview', async () => {
+  const plain = await buildStepView(Buffer.from(bracketPart()));
+  const view = await buildStepView(Buffer.from(bracketPart({ targets: true })));
+  const lineCount = preview => preview.elements.reduce((total, element) => total + element.lines.length, 0);
+  // The bore patch adds two arcs and two sides; the raised area four sides.
+  assert.equal(lineCount(view), lineCount(plain) + 8);
 });
 
 test('isometric projection keeps model Z vertical on screen', async () => {

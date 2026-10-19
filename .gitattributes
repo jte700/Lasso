@@ -3,3 +3,4 @@
 test/fixtures/drawings/*.ifc -text -diff
 test/fixtures/drawings/*.xml -text -diff
 test/fixtures/drawings/*.pdf -text -diff
+test/fixtures/drawings/*.stp -text -diff

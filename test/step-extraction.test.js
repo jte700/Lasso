@@ -98,6 +98,33 @@ test('a cone limits an extent only when the face actually reaches its apex', () 
   assert.equal(z('point'), undefined, 'a pointed tip extends past its only rim edge');
   assert.equal(z('dome'), undefined);
   assert.equal(byLabel(facts(pinPart({ tip: 'chamfer' })), 'Pin overall X extent').value, '6 mm');
+  // NIST CTC-05 and FTC-09 write half frustums with reversed (.F.) bounds.
+  assert.equal(z('split-chamfer').value, '25 mm', 'a reversed bound is traversed in reverse edge order');
+});
+
+test('surface models attached to a solid part are drawn but not measured', () => {
+  const result = extractStepDocument(Buffer.from(bracketPart({ targets: true })));
+  assert.equal(result.status, 'ready', result.warnings.join('; '));
+  const annotations = result.pages[0].annotations;
+  // A datum-target area 5 mm above the plate must not stretch its height.
+  assert.equal(byLabel(annotations, 'Bracket overall Z extent').value, '10 mm');
+  assert.equal(byLabel(annotations, 'Bracket overall X extent').value, '100 mm');
+  assert.match(byLabel(annotations, 'Bracket overall Z extent').rawText, /MANIFOLD_SOLID_BREP\('Plate body'/, 'extents cite the solid, not a surface patch');
+  assert.equal(byLabel(annotations, 'Bracket Ø8 hole diameter').count, 4, 'a patch on a bore leaves the hole a hole');
+  assert.ok(!annotations.some(annotation => /\bR4\b/.test(annotation.label)), 'patch rims are not arcs of the part');
+  const edges = annotations.filter(annotation => annotation.kind === 'edge_length').map(annotation => [annotation.numericValue, annotation.count]);
+  assert.deepEqual(edges, [[95, 4], [60, 2], [50, 2], [10, 6]]);
+  const [part] = readStepModel(Buffer.from(bracketPart({ targets: true }))).parts;
+  assert.deepEqual(part.bodies.map(body => [body.type, body.reference]),
+    [['SHELL_BASED_SURFACE_MODEL', true], ['SHELL_BASED_SURFACE_MODEL', true], ['MANIFOLD_SOLID_BREP', false]]);
+});
+
+test('supplemental construction geometry is not reported as a part', () => {
+  const result = extractStepDocument(Buffer.from(bracketPart({ supplemental: true })));
+  assert.equal(result.status, 'ready', result.warnings.join('; '));
+  assert.equal(result.partCount, 1);
+  assert.equal(result.instanceCount, 1);
+  assert.deepEqual(result.pages[0].annotations.map(annotation => annotation.label), facts(bracketPart()).map(annotation => annotation.label));
 });
 
 test('STEP files join the design index with export guidance for native CAD formats', () => {

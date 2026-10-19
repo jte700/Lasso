@@ -41,7 +41,7 @@ function factsForPart(part, model, unitLabel, instances) {
     if (feature.type === 'extent') {
       fact(feature, { tier: 0, measure: 'extent', kind: 'length', propertyName: `${feature.axis} extent`, label: feature.name, value: feature.value,
         evidence: `${part.name} spans ${formatLength(feature.value)} ${unitLabel} along its ${feature.axis} axis (${formatLength(feature.min)} to ${formatLength(feature.max)}), bounded exactly by its B-rep edges.`,
-        recordId: part.bodies[0]?.id, extra: { axis: feature.axis } });
+        recordId: part.bodies.find((body) => !body.reference)?.id, extra: { axis: feature.axis } });
     } else if (feature.type === 'hole' || feature.type === 'cylinder') {
       const what = feature.type === 'hole' ? 'concave cylindrical hole' : 'convex cylindrical face';
       const evidence = `${plural(feature.count, what)} on ${part.name}: Ø${formatLength(feature.diameter)} ${unitLabel} (radius ${formatLength(feature.diameter / 2)} ${unitLabel}), ${formatLength(feature.length)} ${unitLabel} along the axis.`;

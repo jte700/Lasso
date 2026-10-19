@@ -720,7 +720,8 @@ function readModel(bytes) {
     return { kind: 'other', id: record?.id ?? null, type: record?.type ?? 'COMPLEX' };
   }
 
-  function readBody(bodyId, xf, part, instance) {
+  /** Reference bodies are drawn but kept out of the part's measured edges and faces. */
+  function readBody(bodyId, xf, part, instance, reference = false) {
     const record = get(bodyId);
     const type = record.type;
     const values = args(record);
@@ -730,7 +731,8 @@ function readModel(bytes) {
     const context = contextOf(xf.context);
     const tolerance = Math.max(part.tolerance, 1e-9);
     const bodyName = typeof values[0] === 'string' ? values[0].trim() : '';
-    part.bodies.push({ id: bodyId, type, name: bodyName, solid });
+    const edges = reference ? part.referenceEdges : part.edges;
+    part.bodies.push({ id: bodyId, type, name: bodyName, solid, reference });
     const visitShell = (ref, reversed, depth = 0) => {
       const shell = get(ref);
       if (!shell || depth > 4) return;
@@ -765,18 +767,20 @@ function readModel(bytes) {
             if (!edgeRef) continue;
             traversal.push({ key: `${instance}:${edgeRef}`, forward: (orientedEdge[4] !== 'F') === (boundValues[2] !== 'F') });
             const key = `${instance}:${edgeRef}`;
-            if (!part.edges.has(key)) {
+            if (!edges.has(key)) {
               if (++edgeTotal > MAX_EDGES) throw new StepReadError('STEP exceeds the 400,000 edge limit.', 'unsupported');
               const edge = readEdge(edgeRef, xf, tolerance);
               if (!edge) { warnings.add(`Edge #${edgeRef} has no readable vertices or curve and was skipped.`); continue; }
               edge.key = key;
               edge.faces = [];
-              part.edges.set(key, edge);
-              if (edge.kind === 'unsupported') part.inexact.add(`${edge.curveType || 'unsupported'} edges`);
+              edges.set(key, edge);
+              if (edge.kind === 'unsupported' && !reference) part.inexact.add(`${edge.curveType || 'unsupported'} edges`);
             }
-            part.edges.get(key).faces.push(face.id);
+            edges.get(key).faces.push(face.id);
             entry.edgeKeys.push(key);
           }
+          // A reversed bound runs the loop backwards: last edge first.
+          if (boundValues[2] === 'F') traversal.reverse();
           continue;
         }
         const polyLoop = leaf(loop, 'POLY_LOOP');
@@ -788,12 +792,13 @@ function readModel(bytes) {
             // Faceted loops share no edge entities; key by unordered endpoints.
             const [a, b] = [p0, p1].map((value) => value.map((coordinate) => Math.round(coordinate / tolerance)).join(',')).sort();
             const key = `${instance}:poly:${a}:${b}`;
-            if (!part.edges.has(key)) part.edges.set(key, { key, id: loop.id, kind: 'line', p0, p1, closed: false, curveType: 'POLY_LOOP', faces: [] });
-            part.edges.get(key).faces.push(face.id);
+            if (!edges.has(key)) edges.set(key, { key, id: loop.id, kind: 'line', p0, p1, closed: false, curveType: 'POLY_LOOP', faces: [] });
+            edges.get(key).faces.push(face.id);
             entry.edgeKeys.push(key);
           });
         }
       }
+      if (reference) return;
       if (!RULED.has(surface.kind)) part.curvedFaces.push(entry);
       part.faces.push(entry);
     };
@@ -893,26 +898,33 @@ function readModel(bytes) {
     return count === 1 ? base : `${base} (${count})`;
   };
   function makePart(name, productId, definition, bodies, fallbackName) {
-    const tolerances = bodies.map((body) => contextOf(body.xf.context).uncertaintyMm).filter((value) => value > 0);
-    const part = { key: '', name: name || fallbackName, productId, definition, bodies: [], edges: new Map(), faces: [], curvedFaces: [],
-      inexact: new Set(), unitKnown: bodies.every((body) => body.unitKnown),
+    // Surface models beside a solid are reference geometry, such as PMI
+    // datum-target areas or split surfaces: drawn, but not measured as material.
+    const surfaceOnly = (body) => get(body.id).type === 'SHELL_BASED_SURFACE_MODEL';
+    const hasSolid = !bodies.every(surfaceOnly);
+    const measured = bodies.filter((body) => !(hasSolid && surfaceOnly(body)));
+    const bodyName = measured.map((body) => args(get(body.id))[0]).find((value) => typeof value === 'string' && value.trim());
+    const tolerances = measured.map((body) => contextOf(body.xf.context).uncertaintyMm).filter((value) => value > 0);
+    const part = { key: '', name: name || bodyName?.trim() || fallbackName, productId, definition, bodies: [], edges: new Map(), referenceEdges: new Map(),
+      faces: [], curvedFaces: [], inexact: new Set(), unitKnown: measured.every((body) => body.unitKnown),
       tolerance: tolerances.length && outputMm ? extremes(tolerances)[1] / outputMm : 0 };
     part.key = partKey(part.name);
-    bodies.forEach((body, instance) => readBody(body.id, body.xf, part, instance));
+    bodies.forEach((body, instance) => readBody(body.id, body.xf, part, instance, !measured.includes(body)));
     return part;
   }
   const partByDefinition = new Map();
   for (const [definition, bodies] of [...bodiesOf].sort((a, b) => a[0] - b[0])) {
     const info = definitions.get(definition);
-    const bodyName = bodies.map((body) => args(get(body.id))[0]).find((value) => typeof value === 'string' && value.trim());
-    const part = makePart(info.name, info.productId, definition, bodies, bodyName?.trim() || 'Part');
+    const part = makePart(info.name, info.productId, definition, bodies, 'Part');
     parts.push(part);
     partByDefinition.set(definition, part);
   }
-  // Exchange files without product structure still describe solids.
+  // Exchange files without product structure still describe solids;
+  // supplemental construction geometry belongs to no product's shape.
+  const supplemental = new Set(ids('CONSTRUCTIVE_GEOMETRY_REPRESENTATION').flatMap((id) => representation(id)?.items ?? []));
   const orphanParts = [];
   for (const type of BODY_TYPES) for (const id of ids(type)) {
-    if (reachedBodies.has(id)) continue;
+    if (reachedBodies.has(id) || supplemental.has(id)) continue;
     const owner = (ids('ADVANCED_BREP_SHAPE_REPRESENTATION').concat(ids('SHAPE_REPRESENTATION'), ids('MANIFOLD_SURFACE_SHAPE_REPRESENTATION'), ids('FACETED_BREP_SHAPE_REPRESENTATION')))
       .map(representation).find((rep) => rep?.items.includes(id));
     const name = args(get(id))[0];
@@ -988,27 +1000,26 @@ export function partRange(part, d, precise = true) {
 
 /** Turns a face's oriented boundary makes about its surface axis. A cone face
  * reaches its apex only when the boundary encircles the axis (a frustum's two
- * rims cancel); otherwise every ruling ends on the boundary. */
+ * rims cancel); otherwise every ruling ends on the boundary. Each edge adds its
+ * own sweep, so a skipped edge cannot leave a gap that counts as a turn. */
 function windingAboutAxis(face, part) {
   const { center, axis, xdir, ydir } = face.surface;
   let total = 0;
-  for (const loop of face.loops) {
+  for (const loop of face.loops) for (const { key, forward } of loop) {
+    const edge = part.edges.get(key);
+    if (!edge) continue;
+    // Curve samples follow the curve's parameter; lines follow the edge.
+    const alongSamples = ['circle', 'ellipse', 'bspline', 'polyline'].includes(edge.kind) ? edge.sameSense : true;
+    const points = sampleEdge(edge, Math.PI / 36);
+    if (alongSamples !== forward) points.reverse();
     let previous = null;
-    for (const { key, forward } of loop) {
-      const edge = part.edges.get(key);
-      if (!edge) continue;
-      // Curve samples follow the curve's parameter; lines follow the edge.
-      const alongSamples = ['circle', 'ellipse', 'bspline', 'polyline'].includes(edge.kind) ? edge.sameSense : true;
-      const points = sampleEdge(edge, Math.PI / 36);
-      if (alongSamples !== forward) points.reverse();
-      for (const point of points) {
-        const offset = sub(point, center);
-        const radial = along(offset, axis, -dot(offset, axis));
-        if (Math.hypot(...radial) <= Math.max(part.tolerance, 1e-12)) continue;
-        const angle = Math.atan2(dot(radial, ydir), dot(radial, xdir));
-        if (previous != null) total += mod(angle - previous + Math.PI, TAU) - Math.PI;
-        previous = angle;
-      }
+    for (const point of points) {
+      const offset = sub(point, center);
+      const radial = along(offset, axis, -dot(offset, axis));
+      if (Math.hypot(...radial) <= Math.max(part.tolerance, 1e-12)) continue;
+      const angle = Math.atan2(dot(radial, ydir), dot(radial, xdir));
+      if (previous != null) total += mod(angle - previous + Math.PI, TAU) - Math.PI;
+      previous = angle;
     }
   }
   return Math.round(total / TAU);
