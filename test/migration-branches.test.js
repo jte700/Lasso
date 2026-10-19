@@ -48,3 +48,33 @@ for (const branch of ['workspace', 'drawings']) {
   } finally {db.close();fs.rmSync(root,{recursive:true,force:true});}
  });
 }
+
+test('upgrades a Windows companion store whose migration 018 added the reader column', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'lasso-migration-'));
+  const databasePath=path.join(root,'test.sqlite');
+  let db=new DatabaseSync(databasePath);
+  try {
+   // That branch applied 001-015, its drawing index as 016, and the reader column as 018.
+   for (const name of fs.readdirSync('migrations').sort().filter(name=>Number(name.split('_')[0])<16)) db.exec(fs.readFileSync(path.join('migrations',name),'utf8'));
+   db.exec(fs.readFileSync(path.join('migrations','017_drawing_index.sql'),'utf8').replace('VALUES (17,','VALUES (16,'));
+   db.exec(`ALTER TABLE snapshot_object_indexes ADD COLUMN extractor_version INTEGER NOT NULL DEFAULT 0;
+     INSERT INTO schema_migrations(version, applied_at) VALUES (18, '2026-10-18T00:00:00Z');
+     CREATE TABLE migration_probe(value TEXT); INSERT INTO migration_probe VALUES ('preserved');`);
+   db.close();db=openDatabase({databasePath});
+   assert.equal(db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version,latestVersion);
+   assert.ok(db.prepare('PRAGMA table_info(projects)').all().some(c=>c.name==='workspace_active'), 'the folder toggle column is added');
+   assert.ok(db.prepare('PRAGMA table_info(snapshot_object_indexes)').all().some(c=>c.name==='extractor_version'));
+   assert.ok(db.prepare('PRAGMA table_info(object_share_grants)').all().some(c=>c.name==='excerpt_json'), 'later migrations still apply');
+   assert.equal(db.prepare('SELECT value FROM migration_probe').get().value,'preserved');
+   db.close();db=openDatabase({databasePath});
+   assert.equal(db.prepare('SELECT value FROM migration_probe').get().value,'preserved');
+  } finally {db.close();fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('a store from either branch ends with the reader column', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'lasso-migration-'));
+  const db=openDatabase({databasePath:path.join(root,'fresh.sqlite')});
+  try {
+   assert.ok(db.prepare('PRAGMA table_info(snapshot_object_indexes)').all().some(c=>c.name==='extractor_version'));
+  } finally {db.close();fs.rmSync(root,{recursive:true,force:true});}
+});

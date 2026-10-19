@@ -26,6 +26,8 @@ The app runs in the menu bar and starts its own local server, restarting it auto
 - **Suggest While Typing** to enable suggestions in other apps.
 - **Open at Login** to start Lasso when you log in, so suggestions are ready without opening it. If macOS holds the request for approval, **Allow Open at Login…** opens System Settings → General → Login Items.
 - **Tools → Open in Browser** for writing, source browsing, and review.
+- **Tools → Re-read Sources with Current Reader** after updating Lasso, when a newer reader extracts more from your files (for example, spreadsheet rows named by an indented label column). It records the new reading as a new version of each active folder; earlier versions, links and shares are unchanged. `index reindex` in the workspace does the same for one folder.
+- **Settings…** (`⌘,`) for Suggest While Typing, Tab Inserts, Show Lasso in Notch and Open at Login.
 - **Tools → Tab Inserts** to choose what `Tab` does: **Plain Text** (default), **Ask Each Time**, or **Share Link**.
 - **Tools → Troubleshooting** for restarting the server, checking another app's text support, outlining highlight positions, and the logs. **Record Typing Log** is off by default; when on, it records which apps Lasso could read and whether insertions landed, never what you typed or inserted. If the server cannot be recovered, **Restart Server** also appears directly under the error.
 - **About Lasso** for the version and the Node.js the server runs on.
@@ -81,6 +83,42 @@ The privacy composer offers **entire document**, **indexed part only**, and **se
 PDFs support **Select text** for words, sentences and paragraphs, and **Mark area** for drawings or other page regions. Excerpt previews and downloads contain only the selected regions. Redacted PDFs keep the page layout and remove hidden content from a newly rendered copy. Existing PDF imports automatically gain sentence and paragraph suggestions without reimporting.
 
 Default share URLs are local to the Mac running Lasso. `SHARE_BASE_URL` changes the URL base for a separately configured reachable service; it does not deploy or expose the local server. Only public share pages (`/d/…`) answer requests addressed to another host name; the rest of the local API answers only `127.0.0.1` and `localhost`, and refuses changes requested by other websites. Removing a source link also closes its share links. Share pages name source files without their folders.
+
+## Windows companion
+
+Requires Windows 10 1809 or newer, Node.js 24+, the .NET 9 SDK to build, and the
+Microsoft Edge WebView2 runtime to run.
+
+```powershell
+npm run desktop:windows
+.\dist\windows\Lasso\Lasso.exe
+```
+
+The same application as the macOS companion, sharing the same server, indexing,
+provenance, and sharing rules. It lives in the notification area: clicking the
+icon shows or hides the workspace, and closing the window leaves the local
+server running. The menu holds browser access, server controls, and
+writing-assistance settings. The desktop server prefers loopback port `4319`
+and chooses another available port if needed.
+
+Only the native layer differs. The suggestion panel is a Windows flyout -
+acrylic, rounded, Segoe UI Variable, the system accent colour, and the shell's
+own file-type icons - rather than a translation of the macOS panel. Text is
+read through UI Automation instead of the Accessibility API, so no permission
+prompt is involved; what Windows does enforce is integrity level, and an
+application running as administrator is out of reach of an unelevated Lasso.
+
+| Action | Behavior while suggestions are visible |
+| --- | --- |
+| Tab | Accept using the configured insertion preference; plain text is the default |
+| Ctrl+Enter | Insert as plain text with local source tracking |
+| Ctrl+Shift+Enter | Open the sharing composer before creating a share |
+| Up / Down | Select another suggestion |
+| F4 | Open the selected source |
+| Esc | Dismiss the suggestions |
+
+See [the Windows companion notes](desktop-windows/README.md) for what each
+native piece replaces, how it is verified, and its current limits.
 
 ## Browser tools
 

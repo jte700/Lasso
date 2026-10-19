@@ -14,7 +14,9 @@
     "desktop": "bash desktop/build.sh",
     "desktop:test:browser": "LASSO_BROWSER_GEOMETRY_TEST=1 npm run desktop && node desktop/tests/browser-geometry.mjs",
     "desktop:test": "swiftc -O -module-cache-path /tmp/lasso-swift-module-cache -framework Cocoa -framework WebKit -framework PDFKit -o /tmp/lasso-anchor-tests desktop/ShareInsertion.swift desktop/SyntheticKeyboard.swift desktop/WorkspaceAPI.swift desktop/NativeMaterial.swift desktop/NotchPanel.swift desktop/AssistActivation.swift desktop/TransientDismissal.swift desktop/DirectoryColors.swift desktop/CompletionTransaction.swift desktop/AssistSourceIdentity.swift desktop/ModelPreview.swift desktop/DependencyReference.swift desktop/DependencyOverlay.swift desktop/HostGeometry.swift desktop/WebText.swift desktop/HostTextAdapter.swift desktop/NodeRuntime.swift desktop/KeyRouting.swift desktop/AccessibilityWork.swift desktop/HostAccessibilityMode.swift desktop/MainMenu.swift desktop/tests/main.swift && /tmp/lasso-anchor-tests",
-    "desktop:slow-host": "swiftc -O -module-cache-path /tmp/lasso-swift-module-cache -framework Cocoa -o /tmp/lasso-slow-host desktop/tests/slow-host.swift && /tmp/lasso-slow-host"
+    "desktop:slow-host": "swiftc -O -module-cache-path /tmp/lasso-swift-module-cache -framework Cocoa -o /tmp/lasso-slow-host desktop/tests/slow-host.swift && /tmp/lasso-slow-host",
+    "desktop:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File desktop-windows/build.ps1",
+    "desktop:windows:test": "dotnet run --project desktop-windows/tests/Lasso.Core.Tests/Lasso.Core.Tests.csproj"
   },
   "dependencies": {
     "polygon-clipping": "0.15.7",

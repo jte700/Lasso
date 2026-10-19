@@ -17,6 +17,7 @@ import { shareExpiry } from '../sharing/expiry.js';
 import { RecommendationRanking, directRecommendationMatch } from './ranking.js';
 import { correctedDocumentLabel, firstAuthorFamily } from './authors.js';
 import { BoundedCache } from '../cache.js';
+import { storedFields } from '../history/object-versions.js';
 import { drawingDescriptors, drawingContext } from './drawing-objects.js';
 import { extractDrawingDocument } from './drawing-extraction.js';
 import { buildModelPreview } from './model-preview.js';
@@ -35,6 +36,12 @@ const MAX_RESOLVED_OBJECTS = 30_000;
 // Up to this many new objects are looked up one by one; more read the folder's objects at once.
 const INDIVIDUAL_OBJECT_LOOKUPS = 200;
 const INDEX_VERSION = 3;
+// The reader that turns file bytes into indexed objects. Bumped whenever
+// extraction changes what it reads out of unchanged files, so a project indexed
+// by an older build can be offered a re-read. A snapshot records the version
+// that produced its objects in snapshot_object_indexes.extractor_version; 0
+// there means a build that recorded none.
+const EXTRACTOR_VERSION = 1;
 const MAX_TABLE_CELLS = 1_500;
 const MAX_INDEXED_TABLE_ROWS = 1_000;
 const EDITABLE_DOCUMENT_TYPES = new Set(['markdown', 'text', 'document', 'pdf']);
@@ -856,19 +863,59 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
     });
   }
 
-  const firstValues = data.map((row) => String(row[0] ?? '').trim());
-  const namedFirstValues = firstValues.filter(Boolean);
-  const uniqueFirst = namedFirstValues.length === data.length
-    && new Set(namedFirstValues.map(normalizedRowSearch)).size === namedFirstValues.length;
-  const firstHeader = humanVariable(headers[0]);
-  const firstColumnActsAsRowLabels = namedFirstValues.length >= Math.max(1, Math.ceil(data.length * 0.45))
-    && (uniqueFirst || !firstHeader
-      || /^(?:row|label|name|account|item|category|variable|metric|measure|outcome|parameter|feature|marker|analyte|sample|subject|participant|patient|id)$/i.test(firstHeader));
+  // Which column names the rows. Usually the first, but a statement or
+  // budget template commonly indents its line items behind one or two narrow
+  // spacer columns, leaving column A empty or holding only a stray mark. A
+  // column that does not read as row labels cannot name a row, so the first
+  // one that does is used instead; a sheet whose labels are already in column
+  // A is unaffected, because that column is tested first.
+  const looksNumeric = (value) => /^[-+(]?[$]?[\d][\d.,\s%$]*\)?$/.test(value);
+  // Why a column reads as the one that names the rows, or null if it does not.
+  const columnNamesRows = (column) => {
+    const values = data.map((row) => String(row[column] ?? '').trim());
+    const named = values.filter(Boolean);
+    if (named.length < Math.max(1, Math.ceil(data.length * 0.45))) return null;
+    const unique = named.length === data.length
+      && new Set(named.map(normalizedRowSearch)).size === named.length;
+    const header = humanVariable(headers[column]);
+    if (unique) return 'unique';
+    if (!header) return 'unheaded';
+    if (/^(?:row|label|name|account|item|category|variable|metric|measure|outcome|parameter|feature|marker|analyte|sample|subject|participant|patient|id)$/i.test(header)) {
+      return 'named-heading';
+    }
+    // A column of words with the figures to its right is naming those figures,
+    // whatever its heading says. Statements and budgets rarely head that
+    // column at all, and a heading read off the wrong row should not cost the
+    // sheet its line-item names.
+    const words = named.filter((value) => !looksNumeric(value)).length;
+    const toTheRight = data.flatMap((row) => row.slice(column + 1)
+      .map((cell) => String(cell ?? '').trim()).filter(Boolean));
+    const figures = toTheRight.filter(looksNumeric).length;
+    const namesFigures = words >= Math.ceil(named.length * 0.7)
+      && toTheRight.length > 0 && figures >= Math.ceil(toTheRight.length * 0.6);
+    return namesFigures ? 'words-beside-figures' : null;
+  };
+  const widestRow = data.reduce((widest, row) => Math.max(widest, row.length), 0);
+  const searchLimit = Math.min(widestRow, 4);
+  let labelColumn = 0;
+  let labelReason = null;
+  while (labelColumn < searchLimit) {
+    labelReason = columnNamesRows(labelColumn);
+    if (labelReason) break;
+    labelColumn += 1;
+  }
+  const firstColumnActsAsRowLabels = Boolean(labelReason);
+  if (!firstColumnActsAsRowLabels) labelColumn = 0;
+  const firstHeader = humanVariable(headers[labelColumn]);
   const rowDescribesVariable = firstColumnActsAsRowLabels
-    && (!firstHeader || /^(?:account|item|category|variable|metric|measure|outcome|parameter|feature|marker|analyte)$/i.test(firstHeader));
+    && (!firstHeader
+      || /^(?:account|item|category|variable|metric|measure|outcome|parameter|feature|marker|analyte)$/i.test(firstHeader)
+      // Line items named beside their figures are variables in every sense
+      // that matters here: they are what a writer refers to by name.
+      || labelReason === 'words-beside-figures');
   let indexedCells = 0;
   tableRows: for (const [rowIndex, row] of data.entries()) {
-    const rowLabel = String(row[0] ?? '').trim();
+    const rowLabel = String(row[labelColumn] ?? '').trim();
     const rowKey = firstColumnActsAsRowLabels && rowLabel ? rowLabel : `row:${rowIndex + 1}`;
     const rowIdentity = `${rowIndex + (options.rowOffset ?? 1)}:${normalizedVariable(rowKey) || 'row'}`;
     if (firstColumnActsAsRowLabels && rowLabel) {
@@ -1501,9 +1548,13 @@ export class PredictiveProvenanceService {
       transaction(this.db, () => {
         versions.record(projectId, targetSnapshotId, this.indexEntries(projectId, index.descriptors),
           { existing, carriedPaths: carry?.carriedPaths });
-        this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version) VALUES (?, ?, ?, ?)
+        // A full index names the reader that produced it. An upgrade pass adds
+        // to an older reading, so the snapshot keeps the reader it had, and a
+        // cleared index row over older records cannot vouch for one (0).
+        this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version, extractor_version)
+          VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(snapshot_id) DO UPDATE SET drawing_index_version = excluded.drawing_index_version, indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
-          .run(targetSnapshotId, now(), versions.count(targetSnapshotId), INDEX_VERSION);
+          .run(targetSnapshotId, now(), versions.count(targetSnapshotId), INDEX_VERSION, existing ? 0 : EXTRACTOR_VERSION);
       });
     } catch (error) {
       // The index was read into memory as it was written; drop it with the rollback.
@@ -1521,6 +1572,165 @@ export class PredictiveProvenanceService {
     // An upgrade pass re-reads only some files, so only a full index of the
     // current version can say which files are now fine.
     if (!indexed.indexed && targetSnapshotId === project.currentSnapshotId) this.onIndexProblems?.(projectId, index.problems);
+  }
+
+  /** Every object the current reader reads out of a snapshot's files, recording nothing. */
+  extractDescriptors(snapshot) {
+    return this.indexDescriptors(this.indexableFiles(snapshot, { indexed: null })).descriptors;
+  }
+
+  /**
+   * Records descriptors as one snapshot's reading by the current reader, inside
+   * the caller's transaction. A snapshot without records stores them like a
+   * full index; one that already has records only gains the objects it lacks.
+   * Returns the snapshot's object count.
+   */
+  writeObjectIndex(projectId, snapshotId, descriptors) {
+    const versions = this.timeline.objectVersions;
+    const existing = versions.hasRecords(snapshotId);
+    versions.record(projectId, snapshotId, this.indexEntries(projectId, descriptors), { existing });
+    const objectCount = versions.count(snapshotId);
+    this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version, extractor_version)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(snapshot_id) DO UPDATE SET indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
+      .run(snapshotId, now(), objectCount, INDEX_VERSION, existing ? 0 : EXTRACTOR_VERSION);
+    this.objectCache.delete(snapshotId);
+    return objectCount;
+  }
+
+  /**
+   * Which reader produced the project's current reading, and whether a newer
+   * one exists. Nothing acts on this by itself: re-indexing records a snapshot
+   * and a timeline event, so it stays something the user asks for.
+   */
+  indexFreshness(projectId) {
+    const project = this.timeline.getProject(projectId);
+    const row = this.db.prepare('SELECT extractor_version, indexed_at, object_count FROM snapshot_object_indexes WHERE snapshot_id = ?')
+      .get(project.currentSnapshotId);
+    // An unindexed snapshot is read by the current reader the moment anything
+    // asks it for an object, so it is not behind.
+    const indexedWith = row ? (row.extractor_version ?? 0) : null;
+    return {
+      snapshotId: project.currentSnapshotId,
+      extractorVersion: EXTRACTOR_VERSION,
+      indexedWith,
+      indexedAt: row?.indexed_at ?? null,
+      objectCount: row?.object_count ?? null,
+      stale: indexedWith !== null && indexedWith < EXTRACTOR_VERSION,
+    };
+  }
+
+  /** One snapshot's recorded reading, keyed by object, as its version rows store it. */
+  recordedReading(snapshotId) {
+    const reading = new Map();
+    for (const row of this.timeline.objectVersions.resolved(snapshotId, { fresh: true }).rows) {
+      reading.set(row.object_key, JSON.stringify([row.object_type, row.path, row.anchor_json, row.label,
+        row.value_text ?? null, row.search_text, row.content_hash, row.metadata_json]));
+    }
+    return reading;
+  }
+
+  /** The same shape for a freshly read set of descriptors. */
+  static descriptorReading(descriptors) {
+    const reading = new Map();
+    for (const descriptor of descriptors) {
+      // A snapshot keeps the first version of each object key.
+      if (reading.has(descriptor.key)) continue;
+      reading.set(descriptor.key, JSON.stringify([descriptor.type, ...storedFields(descriptor)]));
+    }
+    return reading;
+  }
+
+  /**
+   * Re-reads the project's files with the current reader and records the result
+   * as a new snapshot carrying the same files.
+   *
+   * Earlier snapshots keep the objects the build that indexed them produced:
+   * recorded evidence never changes, a share grant pins one of those versions
+   * deliberately, and the content-addressed blobs are shared rather than
+   * copied. What a re-index adds is a newer reading of the same bytes, stored
+   * like any index as the differences from the snapshot before it.
+   *
+   * Whole-project, because the extractor version is recorded against a snapshot
+   * and a half-re-read snapshot could not honestly carry one.
+   */
+  reindex(projectId, actorInput, options = {}) {
+    const project = this.timeline.getProject(projectId);
+    if (options.expectedSnapshotId && options.expectedSnapshotId !== project.currentSnapshotId) {
+      throw new VersionConflictError(options.expectedSnapshotId, project.currentSnapshotId);
+    }
+    const previous = this.timeline.getSnapshot(project.currentSnapshotId);
+    // The comparison below is against what is actually recorded, so an
+    // unindexed snapshot is read first.
+    this.ensureIndex(projectId, previous.id);
+    const index = this.indexDescriptors(this.indexableFiles(previous, { indexed: null }));
+    const reading = PredictiveProvenanceService.descriptorReading(index.descriptors);
+    const recorded = this.recordedReading(previous.id);
+    const identical = reading.size === recorded.size
+      && [...reading].every(([key, value]) => recorded.get(key) === value);
+    if (identical) {
+      // The current reader reads these files exactly as the snapshot already
+      // says. Naming the reader that produced an identical reading is
+      // bookkeeping about the index, not a change to the evidence, so the
+      // project stops being offered a re-read it does not need.
+      this.db.prepare('UPDATE snapshot_object_indexes SET extractor_version = ? WHERE snapshot_id = ? AND extractor_version < ?')
+        .run(EXTRACTOR_VERSION, previous.id, EXTRACTOR_VERSION);
+      return {
+        changed: false, reason: 'IDENTICAL_READING', projectId, snapshot: previous, event: null,
+        objects: { before: recorded.size, after: recorded.size }, dependenciesNeedingReview: 0,
+        freshness: this.indexFreshness(projectId),
+      };
+    }
+
+    const fileCount = previous.files.length;
+    const reason = String(options.reason ?? '').trim().slice(0, 120);
+    const title = `Re-read ${fileCount} file${fileCount === 1 ? '' : 's'} with the current reader`
+      + '; the files did not change' + (reason ? ` (${reason})` : '');
+    const versions = this.timeline.objectVersions;
+    let objectCount = 0;
+    let newSnapshotId = null;
+    let result;
+    try {
+      result = this.cloneTransition(projectId, actorInput, {
+        source: 'REINDEX', title, initiatedBy: options.initiatedBy ?? null,
+      }, ({ resultingSnapshotId }) => {
+        newSnapshotId = resultingSnapshotId;
+        objectCount = this.writeObjectIndex(projectId, resultingSnapshotId, index.descriptors);
+      });
+    } catch (error) {
+      // The index was read into memory as it was written; drop it with the rollback.
+      if (newSnapshotId) versions.forget(newSnapshotId);
+      throw error;
+    }
+    this.indexedHere.set(result.snapshot.id, index.summary);
+    for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache, this.objectCache]) {
+      cache.delete(previous.id);
+    }
+    this.ranking.invalidateSnapshot(previous.id);
+    this.onIndexProblems?.(projectId, index.problems);
+
+    // A better reader can key an object differently (the row-label fix renames
+    // every indented line item), so a claim whose source is absent from the new
+    // reading needs a person, not a verdict of BROKEN. Its evidence is intact
+    // and still pinned in the snapshot it was linked at.
+    const reconciled = this.reconcileProject(projectId, result.snapshot.id, {
+      missingSource: {
+        status: 'NEEDS_REVIEW',
+        reason: 'The current reader no longer produces this source object. Its recorded evidence is unchanged; re-point the claim at the new reading.',
+      },
+    });
+
+    return {
+      changed: true,
+      projectId,
+      snapshot: result.snapshot,
+      event: result.event,
+      objects: { before: recorded.size, after: objectCount },
+      dependenciesNeedingReview: reconciled?.changed
+        ? this.currentDependencies(projectId).filter((dependency) => dependency.status === 'NEEDS_REVIEW').length
+        : 0,
+      freshness: this.indexFreshness(projectId),
+    };
   }
 
   /** The files an index pass reads, in the order their objects are indexed. */
@@ -4197,7 +4407,7 @@ export class PredictiveProvenanceService {
     }
   }
 
-  reconcileProject(projectId, sourceSnapshotId = null) {
+  reconcileProject(projectId, sourceSnapshotId = null, options = {}) {
     const project = this.timeline.getProject(projectId);
     const targetSnapshotId = sourceSnapshotId ?? project.currentSnapshotId;
     const dependencies = this.currentDependencies(projectId, { snapshotId: targetSnapshotId });
@@ -4212,8 +4422,13 @@ export class PredictiveProvenanceService {
       const currentSource = this.sourceVersion(dependency.source.id,
         ownerId === projectId ? targetSnapshotId : null);
       if (!currentSource) {
-        status = 'BROKEN';
-        details = { ...details, sourceIssue: 'The linked scientific object no longer resolves.' };
+        // A re-index passes its own verdict here: the source object is absent
+        // from the new reading, not gone from the record.
+        status = options.missingSource?.status ?? 'BROKEN';
+        details = {
+          ...details,
+          sourceIssue: options.missingSource?.reason ?? 'The linked scientific object no longer resolves.',
+        };
       } else if (!dependency.statusDetails.pinnedHistoricalVersion
         && (currentSource.content_hash !== dependency.source.contentHash || currentSource.value_text !== dependency.source.valueText)) {
         // A claim whose location is unknown stays under review: there is
@@ -4371,4 +4586,4 @@ export class PredictiveProvenanceService {
   }
 }
 
-export { anchorForSpan, OBJECT_TYPES };
+export { anchorForSpan, OBJECT_TYPES, EXTRACTOR_VERSION };

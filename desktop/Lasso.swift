@@ -618,6 +618,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         toolsMenu.autoenablesItems = false
         toolsMenu.addItem(command("Open in Browser", action: #selector(openInBrowser), key: "b", enabled: isServerReady))
         toolsMenu.addItem(command("Refresh Directory Status", action: #selector(refreshDirectoryStatus), enabled: isServerReady))
+        let reindex = command("Re-read Sources with Current Reader", action: #selector(reindexSources),
+                              enabled: isServerReady && busyMessage == nil && activeCount > 0)
+        reindex.toolTip = "Reads every active folder again with this version of Lasso and records the result as a new version. Earlier versions stay as they were."
+        toolsMenu.addItem(reindex)
         let insertion = NSMenuItem(title: "Tab Inserts", action: nil, keyEquivalent: "")
         let insertionMenu = NSMenu()
         insertionMenu.autoenablesItems = false
@@ -889,6 +893,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func refreshDirectoryStatus() { refreshWorkspace() }
 
+    /// Re-reads every active folder with the reader this build ships. Always
+    /// something the user asks for: each re-read records a new version and may
+    /// leave claims needing review, so Lasso never does it on its own.
+    @objc private func reindexSources() {
+        guard isServerReady, busyMessage == nil, let base = server.url else { return }
+        let targets = directories.filter { $0.active && $0.available && ($0.error ?? "").isEmpty }
+        guard !targets.isEmpty else { return }
+        busyMessage = "Re-reading sources\u{2026}"
+        rebuildMenu()
+        reindex(targets, base: base, summaries: [])
+    }
+
+    /// Re-reads one folder at a time, so a large folder never competes with the next.
+    private func reindex(_ remaining: [WorkDirectory], base: URL, summaries: [String]) {
+        guard let directory = remaining.first else {
+            busyMessage = nil
+            rebuildMenu()
+            refreshWorkspace()
+            showReport(summaries.joined(separator: "\n\n"), title: "Sources Re-read")
+            return
+        }
+        var request = URLRequest(url: base.appendingPathComponent("api/projects/\(directory.id)/reindex"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.indexingRequestTimeout
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: WorkspaceAPI.reindexBody())
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let root = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                let summary = (root?["reindexed"] as? [String: Any]).map(WorkspaceAPI.reindexSummary)
+                    ?? WorkspaceAPI.errorMessage(data: data, response: response, error: error)
+                self.reindex(Array(remaining.dropFirst()), base: base,
+                             summaries: summaries + ["\(directory.name): \(summary)"])
+            }
+        }.resume()
+    }
+
     @objc private func toggleLoginItem() {
         let enable = !(LoginItem.isEnabled || LoginItem.needsApproval)
         do {
@@ -952,6 +994,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // it, otherwise Settings. Both at once ask for the same thing twice.
             AssistPermission.askForInputMonitoring()
         }
+    }
+
+    /// An informational result, such as what a re-read recorded.
+    private func showReport(_ message: String, title: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 
     /// The title says what happened; macOS already shows Lasso's icon.

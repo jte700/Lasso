@@ -1,0 +1,7 @@
+<Application x:Class="Lasso.Windows.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+  <!-- ThemeMode is set by the project file, which applies the Windows 11
+       Fluent theme and follows the user's light or dark app mode. -->
+</Application>
