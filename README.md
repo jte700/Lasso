@@ -4,7 +4,7 @@ Lasso indexes local work directories and suggests source-backed text while you w
 
 ## Run
 
-Requires **Node.js 24+**. Building the macOS app also requires the Xcode Command Line Tools. The built app carries its own Node.js, so Macs that only run it need neither.
+Requires **Node.js 24+**. Building the macOS app also requires the Xcode Command Line Tools. The built app runs on **macOS 13.5 or later** and carries its own Node.js, so Macs that only run it need neither.
 
 ```bash
 npm start
@@ -38,6 +38,12 @@ Interacting with the directory controls keeps the popover open. Clicking outside
 `npm run desktop` copies the Node.js it builds with (`LASSO_NODE`, or `node` on `PATH`) into `Lasso.app/Contents/MacOS/node`, puts its license in `Contents/Resources/node/LICENSE`, and signs it together with the app. It must be Node.js 24 or newer and link only macOS's own libraries, as the nodejs.org installer and nvm builds do. Homebrew's Node depends on other Homebrew packages, so the build stops and says so. Version manager shims, such as asdf's or Volta's, are followed to the real binary, and a universal Node keeps only the architecture the app is compiled for. The nodejs.org installer does not keep a license file, so the build downloads that release's `LICENSE` from the Node.js repository once and caches it in `~/Library/Caches/Lasso`; set `LASSO_NODE_LICENSE` to build offline.
 
 The runtime brings the app from about 30 MB to 142 MB, and a compressed disk image from about 7 MB to 48 MB.
+
+### Supported macOS
+
+The app runs on macOS 13.5 or later, set once by `MACOS_MINIMUM` in `desktop/build.sh`. The build compiles the app and its PDF helpers for that version and writes it into `Info.plist` as `LSMinimumSystemVersion`. The Swift code itself needs macOS 13, for login items; the nodejs.org build of Node.js 24 needs 13.5. The build reads the bundled Node.js's minimum with `vtool -show-build` and stops if it is later. The app is built for the processor of the Mac that builds it, Apple silicon or Intel.
+
+On macOS 26 the app's surfaces use Liquid Glass; earlier versions use the standard translucent material. The app icon follows the macOS of the building Mac (see `LASSO_ICON_STYLE`), so a build made on macOS 26 shows its icon without rounded corners on earlier versions.
 
 ### Signing and permissions
 

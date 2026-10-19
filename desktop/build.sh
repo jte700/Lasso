@@ -10,6 +10,24 @@ SUPPORT="$HOME/Library/Application Support/Lasso"
 PREVIOUS_SUPPORT="$HOME/Library/Application Support/CoLab Dry"
 # The server uses node:sqlite, which needs Node.js 24 or newer.
 MINIMUM_NODE_MAJOR=24
+# The oldest macOS the app runs on, declared in Info.plist and compiled into
+# every shipped Swift binary. The Swift code needs macOS 13 (SMAppService login
+# items) and the nodejs.org build of Node.js 24 needs macOS 13.5.
+MACOS_MINIMUM="13.5"
+# Without a target, swiftc builds for the macOS it runs on. The architecture
+# stays this Mac's, like the slice of Node.js that is bundled.
+SWIFT_TARGET="$(uname -m)-apple-macos$MACOS_MINIMUM"
+
+# Succeeds when macOS version $1 is later than $2, part by part (13.5 > 13.0.1).
+macos_is_later() {
+  local IFS=.
+  local first=($1) second=($2) part
+  for part in 0 1 2; do
+    if [ "${first[part]:-0}" -gt "${second[part]:-0}" ]; then return 0; fi
+    if [ "${first[part]:-0}" -lt "${second[part]:-0}" ]; then return 1; fi
+  done
+  return 1
+}
 
 # The app runs its server on a copy of this Node, so it works on Macs without
 # Node installed. LASSO_NODE picks another build to bundle.
@@ -144,7 +162,7 @@ enum BuildConfig {
 SWIFT
 
 echo "==> Compiling the menu bar app"
-SWIFT_OPTIONS=(-O)
+SWIFT_OPTIONS=(-O -target "$SWIFT_TARGET")
 if [ "${LASSO_BROWSER_GEOMETRY_TEST:-0}" = "1" ]; then
   SWIFT_OPTIONS+=(-D BROWSER_GEOMETRY_TEST "$ROOT/desktop/tests/browser-geometry.swift")
 fi
@@ -202,6 +220,19 @@ else
   lipo "$NODE_SOURCE" "${NODE_SLICES[@]}" -output "$BUNDLED_NODE"
 fi
 chmod 755 "$BUNDLED_NODE"
+# The app declares one minimum macOS, so the Node.js it runs on must not need
+# a later one. Each bundled architecture records its own minimum.
+NODE_MACOS="$(vtool -show-build "$BUNDLED_NODE" 2>/dev/null \
+  | awk '$1 == "minos" { print $2 }' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 || true)"
+if ! [[ "$NODE_MACOS" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+  echo "error: vtool -show-build could not read which macOS $NODE_SOURCE needs." >&2
+  exit 1
+fi
+if macos_is_later "$NODE_MACOS" "$MACOS_MINIMUM"; then
+  echo "error: Node.js $NODE_VERSION from $NODE_SOURCE needs macOS $NODE_MACOS, but Lasso runs on macOS $MACOS_MINIMUM." >&2
+  echo "Set LASSO_NODE to a Node.js built for macOS $MACOS_MINIMUM or earlier, or raise MACOS_MINIMUM in desktop/build.sh." >&2
+  exit 1
+fi
 cp "$NODE_LICENSE" "$RESOURCES/node/LICENSE"
 
 echo "==> Bundling the server"
@@ -220,11 +251,11 @@ for dependency in web-ifc polygon-clipping robust-predicates splaytree; do
 done
 
 echo "==> Compiling local PDF drawing reader"
-swiftc -O -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework PDFKit -o "$RESOURCES/app/scripts/extract-drawing-layout" \
+swiftc -O -target "$SWIFT_TARGET" -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework PDFKit -o "$RESOURCES/app/scripts/extract-drawing-layout" \
   "$ROOT/scripts/extract-drawing-layout.swift"
 
 echo "==> Compiling safe PDF sharing renderer"
-swiftc -O -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework PDFKit -framework AppKit -o "$RESOURCES/app/scripts/render-shared-pdf" \
+swiftc -O -target "$SWIFT_TARGET" -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework PDFKit -framework AppKit -o "$RESOURCES/app/scripts/render-shared-pdf" \
   "$ROOT/scripts/render-shared-pdf.swift"
 
 echo "==> Drawing the app icon"
@@ -247,6 +278,8 @@ ICON_HASH="$(shasum -a 256 "$ROOT/scripts/render-app-icon.swift" | awk '{ print 
 ICON_FILE="$ICON_CACHE/AppIcon-$ICON_STYLE-$ICON_HASH.icns"
 if [ ! -f "$ICON_FILE" ]; then
   mkdir -p "$ICON_CACHE"
+  # The icon renderer runs only here and is not shipped, so it keeps this
+  # Mac's default target.
   swiftc -O -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework AppKit \
     -o "$BUILD_DIR/render-app-icon" "$ROOT/scripts/render-app-icon.swift"
   "$BUILD_DIR/render-app-icon" "$BUILD_DIR/AppIcon.iconset" ${ICON_FLAGS[@]+"${ICON_FLAGS[@]}"}
@@ -256,7 +289,7 @@ fi
 cp "$ICON_FILE" "$RESOURCES/AppIcon.icns"
 
 echo "==> Writing Info.plist"
-cat > "$CONTENTS/Info.plist" <<'PLIST'
+cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -269,7 +302,7 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key><string>Lasso</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSMinimumSystemVersion</key><string>$MACOS_MINIMUM</string>
   <key>NSHighResolutionCapable</key><true/>
   <!-- Status bar only: no Dock icon, keeps running in the background. -->
   <key>LSUIElement</key><true/>
