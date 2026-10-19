@@ -47,12 +47,18 @@ function tag(value, project, projects = null) {
 
 function distinctRanked(items, limit) {
   const seen = new Set();
-  return items.sort(compare).filter((item) => {
-    const key = `${item.projectId}:${item.id ?? item.objectId ?? item.dependencyCandidate?.id}:${item.insertText ?? item.text ?? ''}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  }).slice(0, limit);
+  // Full ties keep each directory's own ranked order, which already settles
+  // them by source order (a row's columns left to right). Object ids are
+  // random, so comparing them would shuffle equal suggestions between runs.
+  return items.map((item, order) => ({ item, order }))
+    .sort((left, right) => compare(left.item, right.item) || left.order - right.order)
+    .map(({ item }) => item)
+    .filter((item) => {
+      const key = `${item.projectId}:${item.id ?? item.objectId ?? item.dependencyCandidate?.id}:${item.insertText ?? item.text ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, limit);
 }
 
 /** A live selection over real projects. Snapshots and writes keep their owner. */
