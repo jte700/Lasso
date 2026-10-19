@@ -1192,7 +1192,7 @@ final class ShareComposerView: NSView {
             : scope == .redacted ? "\(masks.count) area\(masks.count == 1 ? "" : "s") hidden · Scroll for more pages" : "Original PDF layout · Scroll to read"
         drawText("\(document.pageCount) \(document.pageCount == 1 ? "page" : "pages") · \(detail)",
                  in: NSRect(x: rect.minX + 2, y: rect.maxY - 15, width: rect.width - 4, height: 14),
-                 font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
+                 font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
     }
 
     func initializePDFExcerpt() {
@@ -1347,7 +1347,7 @@ final class ShareComposerView: NSView {
             key: "full:\(sheetIndex)")
         drawText("\(sheet.rows.count) rows · \(columns) columns · Scroll to review every cell",
                  in: NSRect(x: rect.minX + 2, y: rect.maxY - 16, width: rect.width - 4, height: 14),
-                 font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
+                 font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
     }
 
     private func drawSheetTabs(_ sheets: [ShareFullSheet], in rect: NSRect) {
@@ -1390,7 +1390,7 @@ final class ShareComposerView: NSView {
             canRedact: true, key: "full-text")
         drawText("\(blocks.count) sections · Scroll to read the complete document",
                  in: NSRect(x: rect.minX + 2, y: rect.maxY - 16, width: rect.width - 4, height: 14),
-                 font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
+                 font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
     }
 
     private func spreadsheetColumn(_ index: Int) -> String {
@@ -1422,7 +1422,7 @@ final class ShareComposerView: NSView {
             key: "indexed-table")
         drawText("\(preview.rows.count) context rows · \(columnCount) columns · Scroll to review every cell",
                  in: NSRect(x: rect.minX + 2, y: rect.maxY - 16, width: rect.width - 4, height: 14),
-                 font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
+                 font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
     }
 
     private func drawTextBlocks(_ value: String, in rect: NSRect) {
