@@ -78,21 +78,7 @@ export class ObjectShareService {
     const normalizedRedactions = normalizeRedactions(redactions, normalizedScope);
     const normalizedExcerpt = normalizePdfExcerpt(excerpt, normalizedScope);
 
-    const version = versionId
-      ? this.db.prepare(`
-          SELECT v.*, o.project_id, o.object_type
-          FROM scientific_object_versions v
-          JOIN scientific_objects o ON o.id = v.object_id
-          WHERE v.id = ? AND v.object_id = ?
-        `).get(versionId, objectId)
-      : this.db.prepare(`
-          SELECT v.*, o.project_id, o.object_type
-          FROM scientific_object_versions v
-          JOIN scientific_objects o ON o.id = v.object_id
-          JOIN snapshots s ON s.id = v.snapshot_id
-          WHERE v.object_id = ?
-          ORDER BY s.version DESC LIMIT 1
-        `).get(objectId);
+    const version = this.pinnedVersion(objectId, versionId);
 
     if (!version) throw new HttpError(404, 'That indexed source version was not found.');
     if (version.project_id !== projectId) throw new HttpError(404, 'That indexed source version was not found.');
@@ -140,11 +126,11 @@ export class ObjectShareService {
     this.db.prepare(`
       INSERT INTO object_share_grants(
         id, project_id, object_id, object_version_id, token,
-        created_by_actor_id, created_at, expires_at, revoked_at, access_scope, redactions_json, excerpt_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+        created_by_actor_id, created_at, expires_at, revoked_at, access_scope, redactions_json, excerpt_json, snapshot_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
     `).run(record.id, projectId, objectId, version.id, token,
       normalizedActor.id, record.createdAt, record.expiresAt, normalizedScope,
-      JSON.stringify(storedRedactions), normalizedExcerpt ? JSON.stringify(normalizedExcerpt) : null);
+      JSON.stringify(storedRedactions), normalizedExcerpt ? JSON.stringify(normalizedExcerpt) : null, version.snapshot_id);
 
     return {
       id: record.id,
@@ -161,29 +147,27 @@ export class ObjectShareService {
   }
 
   /**
+   * The version a share or the inspector shows, with the snapshot it is shown
+   * at: a pinned version at the folder's current snapshot while it is still
+   * current there, or else where it was recorded; with no pin, the latest.
+   */
+  pinnedVersion(objectId, versionId) {
+    const versions = this.timeline.objectVersions;
+    if (!versionId) return versions.latest(objectId);
+    const version = versions.versionById(versionId);
+    if (!version || version.object_id !== objectId) return null;
+    const snapshotId = versions.currentSnapshotOf(version);
+    return { ...version, snapshot_id: snapshotId, snapshot_version: versions.snapshotVersion(snapshotId) };
+  }
+
+  /**
    * Describes one indexed object version directly, with no share involved.
    * Used by the local source inspector, which is not a published surface.
    */
   describe(objectId, versionId = null) {
-    const version = versionId
-      ? this.db.prepare(`
-          SELECT v.*, o.object_type, s.version AS snapshot_version, p.root_path
-          FROM scientific_object_versions v
-          JOIN scientific_objects o ON o.id = v.object_id
-          JOIN snapshots s ON s.id = v.snapshot_id
-          JOIN projects p ON p.id = o.project_id
-          WHERE v.id = ? AND v.object_id = ?
-        `).get(versionId, objectId)
-      : this.db.prepare(`
-          SELECT v.*, o.object_type, s.version AS snapshot_version, p.root_path
-          FROM scientific_object_versions v
-          JOIN scientific_objects o ON o.id = v.object_id
-          JOIN snapshots s ON s.id = v.snapshot_id
-          JOIN projects p ON p.id = o.project_id
-          WHERE v.object_id = ?
-          ORDER BY s.version DESC LIMIT 1
-        `).get(objectId);
+    const version = this.pinnedVersion(objectId, versionId);
     if (!version) return { status: 'NOT_FOUND' };
+    const rootPath = this.db.prepare('SELECT root_path FROM projects WHERE id = ?').get(version.project_id).root_path;
 
     const anchor = version.anchor_json ? JSON.parse(version.anchor_json) : {};
     const metadata = version.metadata_json ? JSON.parse(version.metadata_json) : {};
@@ -194,7 +178,7 @@ export class ObjectShareService {
         valueText: version.value_text,
         objectType: version.object_type,
         filename: path.basename(version.path),
-        absolutePath: path.resolve(version.root_path, version.path),
+        absolutePath: path.resolve(rootPath, version.path),
         snapshotVersion: version.snapshot_version,
         location: this.describeLocation(anchor, metadata),
         context: this.describeContext(anchor, metadata),
@@ -217,13 +201,15 @@ export class ObjectShareService {
     if (grant.revoked_at) return { status: 'REVOKED' };
     if (grant.expires_at && new Date(grant.expires_at).getTime() <= Date.now()) return { status: 'EXPIRED' };
 
+    // A share stays at the snapshot it was made from. Shares made before
+    // versions were carried forward use the snapshot their version recorded.
     const version = this.db.prepare(`
-      SELECT v.*, o.object_type, s.version AS snapshot_version
+      SELECT v.*, o.object_type, s.id AS shared_snapshot_id, s.version AS snapshot_version
       FROM scientific_object_versions v
       JOIN scientific_objects o ON o.id = v.object_id
-      JOIN snapshots s ON s.id = v.snapshot_id
+      JOIN snapshots s ON s.id = COALESCE(?, v.snapshot_id)
       WHERE v.id = ?
-    `).get(grant.object_version_id);
+    `).get(grant.snapshot_id, grant.object_version_id);
     if (!version) return { status: 'NOT_FOUND' };
 
     const anchor = version.anchor_json ? JSON.parse(version.anchor_json) : {};
@@ -253,7 +239,7 @@ export class ObjectShareService {
         metadata,
       },
       // Internal only: never serialized to the client.
-      internal: { snapshotId: version.snapshot_id, filePath: version.path },
+      internal: { snapshotId: version.shared_snapshot_id, filePath: version.path },
     };
   }
 

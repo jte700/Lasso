@@ -3,6 +3,7 @@ import path from 'node:path';
 import { URL } from 'node:url';
 import { buildPreview } from '../history/preview.js';
 import { HttpError } from '../history/errors.js';
+import { DEFAULT_EVENT_PAGE } from '../history/service.js';
 import { renderSharePage, renderUnavailable, renderInspectorPanel } from '../sharing/share-page.js';
 import { buildFullShareDocument, buildInspectorPreview, buildSharePreview, isTextPreviewPath, usesMarkdownLayout, detectsCsvDelimiter } from '../sharing/share-preview.js';
 import { isMarkdownPath } from '../sharing/markdown.js';
@@ -485,7 +486,12 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       }
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/events$/);
       if (request.method === 'GET' && parameters) {
-        return sendJson(response, 200, { events: timeline.listEvents(parameters[0]) });
+        // Newest first, one page at a time; `nextBefore` reads the next page.
+        const page = Object.fromEntries(['limit', 'before'].filter((name) => url.searchParams.has(name))
+          .map((name) => [name, Number(url.searchParams.get(name))]));
+        const events = timeline.listEvents(parameters[0], page);
+        const full = events.length === (page.limit ?? DEFAULT_EVENT_PAGE);
+        return sendJson(response, 200, { events, nextBefore: full ? events.at(-1).resultingVersion : null });
       }
       parameters = match(pathname, /^\/api\/events\/([^/]+)$/);
       if (request.method === 'GET' && parameters) {

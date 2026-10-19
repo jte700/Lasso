@@ -5,13 +5,18 @@ import crypto from 'node:crypto';
 import { BlobStore, hashBuffer } from './blob-store.js';
 import { isIgnoredScanPath, scanDirectory, scannedFile } from './scanner.js';
 import { isTrackedFile } from './file-types.js';
-import { createStructuredDiff, deterministicEventTitle } from './diff.js';
+import { compactStructuredDiff, createStructuredDiff, deterministicEventTitle, expandStructuredDiff } from './diff.js';
+import { SnapshotFileStore } from './snapshot-store.js';
+import { ObjectVersionStore } from './object-versions.js';
 import { ACTOR_TYPES } from '../config.js';
 import { json, transaction } from '../db.js';
 import { HttpError, VersionConflictError } from './errors.js';
 
 // A watcher capture that fails, for example on a locked database, is retried this many times.
 const MAX_WATCHER_RETRIES = 3;
+// Events are listed a page at a time, newest first.
+export const DEFAULT_EVENT_PAGE = 100;
+const MAX_EVENT_PAGE = 500;
 
 function now() {
   return new Date().toISOString();
@@ -40,20 +45,16 @@ function normalizeActor(actor, fallbackType = 'HUMAN_SELF') {
   };
 }
 
-function rowToSnapshotFile(row) {
-  return {
-    snapshotId: row.snapshot_id,
-    projectFileId: row.project_file_id,
-    path: row.path,
-    contentHash: row.content_hash,
-    size: row.size,
-    mtimeMs: row.mtime_ms,
-    ctimeMs: row.ctime_ms ?? null,
-    fileType: row.file_type,
-    device: row.device,
-    inode: row.inode,
-    metadata: json(row.metadata_json, {}),
-  };
+function eventPage(options) {
+  const limit = options.limit ?? DEFAULT_EVENT_PAGE;
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_EVENT_PAGE) {
+    throw new HttpError(400, `Event limit must be a whole number from 1 to ${MAX_EVENT_PAGE}.`);
+  }
+  const before = options.before ?? null;
+  if (before !== null && (!Number.isInteger(before) || before < 1)) {
+    throw new HttpError(400, 'Event cursor "before" must be a version number.');
+  }
+  return { limit, before };
 }
 
 function classifyPathChange(beforePath, afterPath) {
@@ -77,6 +78,8 @@ export class TimelineService {
     this.db = db;
     this.config = config;
     this.blobs = new BlobStore(config.blobDir);
+    this.files = new SnapshotFileStore(db);
+    this.objectVersions = new ObjectVersionStore(db);
     this.storagePaths = [config.dataDir, config.databasePath, config.blobDir,
       `${config.databasePath}-wal`, `${config.databasePath}-shm`, `${config.databasePath}-journal`].map((storage) => {
       try { return fs.realpathSync(storage); } catch {
@@ -151,6 +154,8 @@ export class TimelineService {
     this.pendingTimers.clear();
     this.pendingPaths.clear();
     this.scanCaches.clear();
+    this.files.clear();
+    this.objectVersions.clear();
   }
 
   validateActor(actor) {
@@ -193,8 +198,7 @@ export class TimelineService {
 
   listProjects() {
     return this.db.prepare(`
-      SELECT p.id, p.name, p.root_path, p.created_at, p.current_snapshot_id, p.workspace_active, s.version AS current_version,
-        (SELECT COUNT(*) FROM snapshot_files sf WHERE sf.snapshot_id = p.current_snapshot_id) AS file_count
+      SELECT p.id, p.name, p.root_path, p.created_at, p.current_snapshot_id, p.workspace_active, s.version AS current_version
       FROM projects p LEFT JOIN snapshots s ON s.id = p.current_snapshot_id
       ORDER BY p.created_at DESC
     `).all().map((row) => ({
@@ -204,7 +208,7 @@ export class TimelineService {
       createdAt: row.created_at,
       currentSnapshotId: row.current_snapshot_id,
       currentVersion: row.current_version,
-      fileCount: row.file_count,
+      fileCount: row.current_snapshot_id ? this.files.count(row.current_snapshot_id) : 0,
       active: Boolean(row.workspace_active),
     }));
   }
@@ -228,7 +232,7 @@ export class TimelineService {
     const eventId = id();
     const timestamp = now();
 
-    transaction(this.db, () => {
+    this.files.transaction(snapshotId, () => {
       this.upsertActor(actor);
       this.db.prepare(`INSERT INTO projects(id, name, root_path, created_at, watcher_enabled) VALUES (?, ?, ?, ?, ?)`)
         .run(projectId, options.name?.trim() || path.basename(realRoot), realRoot, timestamp, options.watch === false ? 0 : 1);
@@ -238,20 +242,9 @@ export class TimelineService {
       `).run(snapshotId, projectId, manifestHash(scanned), timestamp);
 
       const insertProjectFile = this.db.prepare('INSERT INTO project_files(id, project_id, created_at) VALUES (?, ?, ?)');
-      const insertSnapshotFile = this.db.prepare(`
-        INSERT INTO snapshot_files(snapshot_id, project_file_id, path, content_hash, size, mtime_ms, file_type, device, inode, metadata_json, ctime_ms)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      const assigned = [];
-      for (const file of scanned) {
-        const projectFileId = id();
-        insertProjectFile.run(projectFileId, projectId, timestamp);
-        insertSnapshotFile.run(
-          snapshotId, projectFileId, file.path, file.contentHash, file.size, file.mtimeMs,
-          file.fileType, file.device, file.inode, JSON.stringify(file.metadata), file.ctimeMs ?? null,
-        );
-        assigned.push({ ...file, projectFileId });
-      }
+      const assigned = scanned.map((file) => ({ ...file, projectFileId: id() }));
+      for (const file of assigned) insertProjectFile.run(file.projectFileId, projectId, timestamp);
+      this.files.write(snapshotId, assigned);
       this.db.prepare('UPDATE projects SET current_snapshot_id = ? WHERE id = ?').run(snapshotId, projectId);
       this.db.prepare(`
         INSERT INTO timeline_events(id, project_id, previous_snapshot_id, resulting_snapshot_id, actor_id, initiated_by_actor_id, occurred_at, source, title)
@@ -274,10 +267,11 @@ export class TimelineService {
   }
 
   snapshotFiles(snapshotId) {
-    return this.db.prepare('SELECT * FROM snapshot_files WHERE snapshot_id = ? ORDER BY path').all(snapshotId).map(rowToSnapshotFile);
+    return this.files.files(snapshotId);
   }
 
-  getSnapshot(snapshotId) {
+  /** A snapshot's own record, without resolving its files. */
+  snapshotRecord(snapshotId) {
     const row = this.db.prepare('SELECT * FROM snapshots WHERE id = ?').get(snapshotId);
     if (!row) throw new HttpError(404, 'Snapshot not found.');
     return {
@@ -287,13 +281,25 @@ export class TimelineService {
       parentSnapshotId: row.parent_snapshot_id,
       manifestHash: row.manifest_hash,
       createdAt: row.created_at,
-      files: this.snapshotFiles(snapshotId),
     };
   }
 
+  getSnapshot(snapshotId) {
+    return { ...this.snapshotRecord(snapshotId), files: this.snapshotFiles(snapshotId) };
+  }
+
   snapshotFile(snapshotId, filePath) {
-    const row = this.db.prepare('SELECT * FROM snapshot_files WHERE snapshot_id = ? AND path = ?').get(snapshotId, filePath);
-    return row ? rowToSnapshotFile(row) : null;
+    return this.files.fileAtPath(snapshotId, filePath);
+  }
+
+  /** A file by its stable identity as of a snapshot, or null when it is absent there. */
+  snapshotFileById(snapshotId, projectFileId) {
+    return this.files.fileById(snapshotId, projectFileId);
+  }
+
+  /** The same, shaped like a snapshot_files row resolved at that snapshot. */
+  snapshotFileRow(snapshotId, projectFileId) {
+    return this.files.rowById(snapshotId, projectFileId);
   }
 
   compareScan(previousFiles, scannedFiles) {
@@ -376,7 +382,7 @@ export class TimelineService {
       pathAfter: change.after?.path,
     })));
 
-    transaction(this.db, () => {
+    this.files.transaction(snapshotId, () => {
       const current = this.db.prepare('SELECT current_snapshot_id FROM projects WHERE id = ?').get(projectId);
       if (current.current_snapshot_id !== previous.id) throw new VersionConflictError(previous.id, current.current_snapshot_id);
       this.upsertActor(actor);
@@ -385,26 +391,17 @@ export class TimelineService {
         initiatedBy = normalizeActor(options.initiatedBy);
         this.upsertActor(initiatedBy);
       }
+      const filesBase = this.files.baseFor(previous.id);
       this.db.prepare(`
-        INSERT INTO snapshots(id, project_id, version, parent_snapshot_id, manifest_hash, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(snapshotId, projectId, version, previous.id, manifestHash(comparison.assigned), timestamp);
+        INSERT INTO snapshots(id, project_id, version, parent_snapshot_id, manifest_hash, created_at, files_base_snapshot_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(snapshotId, projectId, version, previous.id, manifestHash(comparison.assigned), timestamp, filesBase);
       const insertProjectFile = this.db.prepare('INSERT INTO project_files(id, project_id, created_at) VALUES (?, ?, ?)');
-      const insertSnapshotFile = this.db.prepare(`
-        INSERT INTO snapshot_files(snapshot_id, project_file_id, path, content_hash, size, mtime_ms, file_type, device, inode, metadata_json, ctime_ms)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      // A set, not a scan of every change per file: moving a large folder
-      // otherwise costs time proportional to the square of its file count.
-      const newIdentities = new Set(comparison.changes
-        .filter((change) => change.isNewIdentity).map((change) => change.after.projectFileId));
-      for (const file of comparison.assigned) {
-        if (newIdentities.has(file.projectFileId)) insertProjectFile.run(file.projectFileId, projectId, timestamp);
-        insertSnapshotFile.run(
-          snapshotId, file.projectFileId, file.path, file.contentHash, file.size, file.mtimeMs,
-          file.fileType, file.device, file.inode, JSON.stringify(file.metadata), file.ctimeMs ?? null,
-        );
+      for (const change of comparison.changes) {
+        if (change.isNewIdentity) insertProjectFile.run(change.after.projectFileId, projectId, timestamp);
       }
+      // Files that did not change are carried forward from the previous version.
+      this.files.write(snapshotId, comparison.assigned, filesBase);
       this.db.prepare(`
         INSERT INTO timeline_events(id, project_id, previous_snapshot_id, resulting_snapshot_id, actor_id, initiated_by_actor_id, occurred_at, source, title, agent_execution_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -430,7 +427,8 @@ export class TimelineService {
         insertChange.run(
           id(), eventId, change.after?.projectFileId ?? change.before.projectFileId,
           change.before?.path ?? null, change.after?.path ?? null, change.changeType,
-          change.before?.contentHash ?? null, change.after?.contentHash ?? null, JSON.stringify(structuredDiff),
+          change.before?.contentHash ?? null, change.after?.contentHash ?? null,
+          JSON.stringify(compactStructuredDiff(structuredDiff)),
         );
       }
       this.db.prepare('UPDATE projects SET current_snapshot_id = ? WHERE id = ?').run(snapshotId, projectId);
@@ -441,8 +439,13 @@ export class TimelineService {
     return result;
   }
 
-  listEvents(projectId) {
+  /**
+   * A project's events, newest first, one page at a time. Pass the oldest
+   * listed event's resultingVersion as `before` to read the next page.
+   */
+  listEvents(projectId, options = {}) {
     this.getProject(projectId);
+    const { limit, before } = eventPage(options);
     return this.db.prepare(`
       SELECT e.*, a.display_name AS actor_name, a.actor_type,
         i.display_name AS initiator_name, i.actor_type AS initiator_type,
@@ -454,9 +457,10 @@ export class TimelineService {
       LEFT JOIN actors i ON i.id = e.initiated_by_actor_id
       LEFT JOIN snapshots ps ON ps.id = e.previous_snapshot_id
       JOIN snapshots rs ON rs.id = e.resulting_snapshot_id
-      WHERE e.project_id = ?
+      WHERE e.project_id = ? AND (? IS NULL OR rs.version < ?)
       ORDER BY rs.version DESC
-    `).all(projectId).map((row) => this.mapEventRow(row));
+      LIMIT ?
+    `).all(projectId, before, before, limit).map((row) => this.mapEventRow(row));
   }
 
   mapEventRow(row) {
@@ -505,7 +509,10 @@ export class TimelineService {
         changeType: change.change_type,
         contentHashBefore: change.content_hash_before,
         contentHashAfter: change.content_hash_after,
-        structuredDiff: json(change.structured_diff_json, {}),
+        structuredDiff: expandStructuredDiff(json(change.structured_diff_json, {}), () => ({
+          before: change.content_hash_before ? this.blobs.get(change.content_hash_before) : null,
+          after: change.content_hash_after ? this.blobs.get(change.content_hash_after) : null,
+        })),
       }));
     event.dependencyChanges = this.db.prepare(`
       SELECT dc.*, before_v.span_text AS before_span, before_v.status AS before_status,

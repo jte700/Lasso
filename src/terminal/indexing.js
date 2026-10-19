@@ -154,7 +154,7 @@ export class IndexControlService {
       drawingProblems.set(object.path, {
         id: `drawing:${object.id}`, path: object.path, code: `DRAWING_${object.metadata.extractionStatus.toUpperCase()}`,
         reason: warnings.join(' ') || 'Some drawing measurements could not be indexed.', warnings,
-        detectedAt: this.timeline.getSnapshot(project.currentSnapshotId).createdAt, resolvedAt: null,
+        detectedAt: this.timeline.snapshotRecord(project.currentSnapshotId).createdAt, resolvedAt: null,
         retryable: false,
       });
     }
@@ -169,11 +169,8 @@ export class IndexControlService {
     const snapshot = this.timeline.getSnapshot(project.currentSnapshotId);
     this.dependencies.ensureIndex(projectId, snapshot.id);
 
-    const objectCount = this.db.prepare(`
-      SELECT COUNT(*) AS count FROM scientific_object_versions v
-      JOIN scientific_objects o ON o.id = v.object_id
-      WHERE o.project_id = ? AND v.snapshot_id = ?
-    `).get(projectId, snapshot.id).count;
+    const objectCount = this.timeline.objectVersions.resolved(snapshot.id).rows
+      .filter((row) => row.project_id === projectId).length;
 
     const lastEvent = this.db.prepare(`
       SELECT occurred_at, source, title FROM timeline_events

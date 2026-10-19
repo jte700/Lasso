@@ -64,13 +64,14 @@ test('an existing version 18 workspace gains PDF excerpts without changing pinne
   const object = app.dependencies.objectsAt(project.id).find(value => value.objectType === 'DATASET_ROW');
   const grant = app.objectShares.createShare({ projectId: project.id, objectId: object.id,
     versionId: object.versionId, actor, accessScope: 'INDEXED' });
-  app.db.exec('ALTER TABLE object_share_grants DROP COLUMN excerpt_json; DELETE FROM schema_migrations WHERE version=19;');
+  app.db.exec('ALTER TABLE object_share_grants DROP COLUMN excerpt_json; DELETE FROM schema_migrations WHERE version>=19;');
   await app.close();
   app = createApplication(options);
   assert.ok(app.db.prepare('PRAGMA table_info(object_share_grants)').all().some(column => column.name === 'excerpt_json'));
   assert.equal(app.objectShares.resolveShare(grant.token).status, 'OK');
   assert.equal(app.objectShares.resolveShare(grant.token).share.excerpt, null);
-  assert.equal(app.db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version, 19);
+  const latest = Math.max(...fs.readdirSync('migrations').map(name => Number(name.split('_')[0])).filter(Number.isFinite));
+  assert.equal(app.db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version, latest);
 });
 
 test('visual PDF copies remove the original text layer and limit excerpts to selected pages', { skip: !native }, async t => {

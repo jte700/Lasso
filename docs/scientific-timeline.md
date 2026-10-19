@@ -17,18 +17,20 @@ This avoids duplicate watcher/internal events: after an authoritative agent capt
 
 - `projects`: directory root and current snapshot pointer.
 - `project_files`: stable identity across snapshots and detectable path changes.
-- `snapshots`: immutable project version, parent pointer, manifest hash, timestamp.
-- `snapshot_files`: immutable path/hash/type/metadata references for one snapshot.
+- `snapshots`: immutable project version, parent pointer, manifest hash, timestamp, and the snapshot its files build on.
+- `snapshot_files` / `snapshot_file_removals`: immutable path/hash/type/metadata references for the files a snapshot added or changed, and the files it removed.
 - `timeline_events`: immutable transition from `previous_snapshot_id` to `resulting_snapshot_id` with actor, initiator, source, and deterministic title.
-- `file_changes`: immutable added/deleted/renamed/moved/modified records and deterministic structured diff JSON.
+- `file_changes`: immutable added/deleted/renamed/moved/modified records and deterministic structured diff JSON. Line and block diffs are stored as runs that point into the two compared versions, and are expanded back to every line when read.
 - `actors`: execution identities and one of the four actor types.
 - `agent_executions`: proposal, base version, request, agent, human initiator, and approval status.
 - `provenance_links`: typed Scientific State Graph edges between versioned paths/anchors, including manuscript `DEPENDS_ON` relationships.
-- `scientific_objects` / `scientific_object_versions`: stable project-object identities and their immutable snapshot representations.
+- `scientific_objects` / `scientific_object_versions` / `scientific_object_removals` / `object_index_bases`: stable project-object identities, their immutable versions, the objects an index removed, and the index each one builds on.
 - `claim_dependencies` / `claim_dependency_versions`: accepted manuscript-span links and versioned status/anchor/source state.
 - `dependency_changes`: structured dependency transitions attached to ordinary timeline events.
 
 SQLite triggers reject updates/deletes to snapshots, snapshot files, timeline events, and file changes. A new capture always creates Version N+1. The migration is [migrations/001_initial.sql](../migrations/001_initial.sql).
+
+Unchanged files and objects are carried forward rather than copied into every version ([migrations/020_carry_forward_history.sql](../migrations/020_carry_forward_history.sql)). A snapshot stores a file row only for a file that is new or whose recorded values changed, and a removal for each file that is gone; its full file list is its parent's with those rows applied. An object index likewise stores a version only when an object's content, value, label or location changes. Each version keeps the snapshot that first recorded it, and because it records its file's content hash, that file has the same bytes at every snapshot the version spans. After 2,000 such steps the next version is stored in full, which keeps reading any one version fast. The removal and base tables are immutable too, so every recorded version resolves the same way forever. Databases written before carry-forward keep their full copies, which resolve on their own, and continue with carried-forward versions from the next capture.
 
 ## Snapshot model
 
@@ -138,7 +140,7 @@ Key routes are:
 - `POST /api/projects/import`
 - `POST /api/projects/:id/open`
 - `POST /api/projects/:id/capture`
-- `GET /api/projects/:id/events`
+- `GET /api/projects/:id/events?limit=100&before=N` (newest first; pass the response's `nextBefore` as `before` for the next page)
 - `GET /api/events/:id`
 - `GET /api/snapshots/:id/preview?path=...`
 - `POST /api/projects/:id/agent-edits`

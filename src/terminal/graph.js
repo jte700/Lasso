@@ -50,6 +50,28 @@ function namedObject(object) {
     directory: sourceDirectory(object.path), fileName: sourceFileName(object.path) };
 }
 
+function compareIds(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/** The later of two snapshots, each { version, at }; either may be missing. */
+function laterSnapshot(first, second) {
+  if (first?.version == null) return second;
+  if (second?.version == null) return first;
+  return second.version > first.version ? second : first;
+}
+
+function changeRow(row, at, previous, previousAt) {
+  return {
+    object_id: row.object_id, source_project_id: row.source_project_id ?? row.project_id,
+    snapshot_id: row.snapshot_id, value_text: row.value_text, content_hash: row.content_hash, path: row.path,
+    anchor_json: row.anchor_json, metadata_json: row.metadata_json, label: row.label,
+    version: at.version, created_at: at.at,
+    previous_value: previous.value_text, previous_path: previous.path,
+    previous_version: previousAt?.version ?? null, previous_at: previousAt?.at ?? null,
+  };
+}
+
 export class DependencyGraph {
   constructor({ timeline, dependencies, objectShares = null, aliases = null }) {
     this.timeline = timeline;
@@ -550,9 +572,8 @@ export class DependencyGraph {
 
   /** When the file behind an object was last written, from the snapshot record. */
   sourceUpdatedAt(projectId, object) {
-    const row = this.db.prepare('SELECT mtime_ms FROM snapshot_files WHERE snapshot_id = ? AND path = ?')
-      .get(object.snapshotId, object.path);
-    return row ? new Date(row.mtime_ms).toISOString() : null;
+    const file = this.timeline.snapshotFile(object.snapshotId, object.path);
+    return file ? new Date(file.mtimeMs).toISOString() : null;
   }
 
   indexedAt(snapshotId) {
@@ -562,7 +583,7 @@ export class DependencyGraph {
 
   /** Everything `trace` reports about one object. */
   trace(projectId, object) {
-    const snapshot = this.timeline.getSnapshot(object.snapshotId);
+    const snapshot = this.timeline.snapshotRecord(object.snapshotId);
     const references = this.referencesTo(projectId, object.id);
     const shares = this.sharesForObject(projectId, object.id);
     const enriched = this.dependencies.enrichObject(projectId, object);
@@ -585,7 +606,7 @@ export class DependencyGraph {
 
   /** Live claim-dependency versions pointing at an object, newest state only. */
   dependenciesForObject(projectId, objectId) {
-    const maximum = this.timeline.getSnapshot(this.currentSnapshotId(projectId)).version;
+    const maximum = this.timeline.snapshotRecord(this.currentSnapshotId(projectId)).version;
     const ids = this.db.prepare(`
       SELECT DISTINCT v.dependency_id AS id
       FROM claim_dependency_versions v
@@ -704,60 +725,17 @@ export class DependencyGraph {
     if (options.previousSnapshotId) this.dependencies.ensureIndex(projectId, options.previousSnapshotId);
     // Automatic rules compare only the capture they are handling. Interactive
     // history queries retain their complete historical view below.
-    const rows = options.snapshotId && options.previousSnapshotId ? this.db.prepare(`
-      SELECT v.object_id, o.project_id AS source_project_id, v.snapshot_id, v.value_text, v.content_hash, v.path, v.anchor_json,
-        v.metadata_json, v.label, s.version, s.created_at,
-        previous.value_text AS previous_value, previous.path AS previous_path,
-        previous_snapshot.version AS previous_version, previous_snapshot.created_at AS previous_at
-      FROM scientific_object_versions v
-      JOIN scientific_objects o ON o.id = v.object_id
-      JOIN snapshots s ON s.id = v.snapshot_id
-      JOIN scientific_object_versions previous ON previous.object_id = v.object_id AND previous.snapshot_id = ?
-      JOIN snapshots previous_snapshot ON previous_snapshot.id = previous.snapshot_id
-      WHERE v.snapshot_id = ? AND o.project_id = ?
-        AND (v.value_text IS NOT previous.value_text OR v.path IS NOT previous.path)
-      ORDER BY v.object_id
-    `).all(options.previousSnapshotId, options.snapshotId, projectId) : this.db.prepare(`
-      WITH ordered AS (
-        SELECT
-          v.object_id, o.project_id AS source_project_id, v.snapshot_id, v.value_text, v.content_hash, v.path, v.anchor_json,
-          v.metadata_json, v.label, s.version, s.created_at,
-          LAG(v.value_text) OVER window_by_object AS previous_value,
-          LAG(v.path) OVER window_by_object AS previous_path,
-          LAG(s.version) OVER window_by_object AS previous_version,
-          LAG(s.created_at) OVER window_by_object AS previous_at
-        FROM scientific_object_versions v
-        JOIN scientific_objects o ON o.id = v.object_id
-        JOIN snapshots s ON s.id = v.snapshot_id
-        WHERE o.project_id = ?
-        WINDOW window_by_object AS (PARTITION BY v.object_id ORDER BY s.version)
-      )
-      SELECT * FROM ordered
-      WHERE previous_version IS NOT NULL
-        AND (value_text IS NOT previous_value OR path IS NOT previous_path)
-      ORDER BY version DESC, object_id
-    `).all(projectId);
+    const rows = options.snapshotId && options.previousSnapshotId
+      ? this.changesBetween(projectId, options.previousSnapshotId, options.snapshotId)
+      : this.recordedChanges('o.project_id = ?', [projectId])
+        .sort((left, right) => right.version - left.version || compareIds(left.object_id, right.object_id));
 
     if (!options.previousSnapshotId && !options.ownSourcesOnly) {
       const foreignIds = this.namedObjects(projectId)
         .filter((object) => object.projectId !== projectId).map((object) => object.id);
-      if (foreignIds.length) rows.push(...this.db.prepare(`
-        WITH ordered AS (
-          SELECT v.object_id, o.project_id AS source_project_id, v.snapshot_id, v.value_text,
-            v.content_hash, v.path, v.anchor_json, v.metadata_json, v.label, s.version, s.created_at,
-            LAG(v.value_text) OVER window_by_object AS previous_value,
-            LAG(v.path) OVER window_by_object AS previous_path,
-            LAG(s.version) OVER window_by_object AS previous_version,
-            LAG(s.created_at) OVER window_by_object AS previous_at
-          FROM scientific_object_versions v JOIN scientific_objects o ON o.id = v.object_id
-          JOIN snapshots s ON s.id = v.snapshot_id
-          WHERE o.id IN (${foreignIds.map(() => '?').join(',')})
-          WINDOW window_by_object AS (PARTITION BY v.object_id ORDER BY s.version)
-        ) SELECT * FROM ordered WHERE previous_version IS NOT NULL
-          AND (value_text IS NOT previous_value OR path IS NOT previous_path)
-      `).all(...foreignIds));
+      if (foreignIds.length) rows.push(...this.recordedChanges(`o.id IN (${foreignIds.map(() => '?').join(',')})`, foreignIds));
       rows.sort((left, right) => String(right.created_at).localeCompare(String(left.created_at))
-        || right.version - left.version || left.object_id.localeCompare(right.object_id));
+        || right.version - left.version || compareIds(left.object_id, right.object_id));
     }
     const seen = new Set();
     const changes = [];
@@ -810,6 +788,68 @@ export class DependencyGraph {
         unresolvedReferences: unresolved,
       });
       if (changes.length >= (options.limit ?? 200)) break;
+    }
+    return changes;
+  }
+
+  /** Objects present at both snapshots whose value or location differs. */
+  changesBetween(projectId, previousSnapshotId, snapshotId) {
+    const versions = this.timeline.objectVersions;
+    const previous = versions.resolved(previousSnapshotId).byObject;
+    const before = this.timeline.snapshotRecord(previousSnapshotId);
+    const after = this.timeline.snapshotRecord(snapshotId);
+    return versions.resolved(snapshotId).rows
+      .filter((row) => row.project_id === projectId && previous.has(row.object_id))
+      .filter((row) => row.value_text !== previous.get(row.object_id).value_text
+        || row.path !== previous.get(row.object_id).path)
+      .map((row) => changeRow({ ...row, snapshot_id: snapshotId }, { version: after.version, at: after.createdAt },
+        previous.get(row.object_id), { version: before.version, at: before.createdAt }))
+      .sort((left, right) => compareIds(left.object_id, right.object_id));
+  }
+
+  /**
+   * Every recorded change of value or location for the matching objects. An
+   * object stores a version only when it changes, so the version it changed
+   * from was last seen at the snapshot the changing index was built on (or
+   * just before a removal), as a full copy per indexed snapshot would show.
+   */
+  recordedChanges(filter, parameters) {
+    const columns = `o.project_id AS source_project_id, s.version, s.created_at,
+      base.version AS base_version, base.created_at AS base_at`;
+    const joins = `JOIN scientific_objects o ON o.id = x.object_id
+      JOIN snapshots s ON s.id = x.snapshot_id
+      LEFT JOIN object_index_bases b ON b.snapshot_id = x.snapshot_id
+      LEFT JOIN snapshots base ON base.id = b.base_snapshot_id`;
+    const events = [
+      ...this.db.prepare(`SELECT x.object_id, x.snapshot_id, x.value_text, x.content_hash, x.path, x.anchor_json,
+        x.metadata_json, x.label, 0 AS removed, ${columns}
+        FROM scientific_object_versions x ${joins} WHERE ${filter}`).all(...parameters),
+      ...this.db.prepare(`SELECT x.object_id, x.snapshot_id, 1 AS removed, ${columns}
+        FROM scientific_object_removals x ${joins} WHERE ${filter}`).all(...parameters),
+    ];
+    const byObject = new Map();
+    for (const event of events) {
+      if (!byObject.has(event.object_id)) byObject.set(event.object_id, []);
+      byObject.get(event.object_id).push(event);
+    }
+    const changes = [];
+    for (const objectEvents of byObject.values()) {
+      objectEvents.sort((left, right) => left.version - right.version);
+      let last = null;
+      let lastSeen = null;
+      for (const event of objectEvents) {
+        const seenUntil = laterSnapshot({ version: last?.version, at: last?.created_at },
+          event.base_version == null ? null : { version: event.base_version, at: event.base_at });
+        if (event.removed) {
+          if (last && !lastSeen) lastSeen = seenUntil;
+          continue;
+        }
+        if (last && (event.value_text !== last.value_text || event.path !== last.path)) {
+          changes.push(changeRow(event, { version: event.version, at: event.created_at }, last, lastSeen ?? seenUntil));
+        }
+        last = event;
+        lastSeen = null;
+      }
     }
     return changes;
   }
@@ -878,8 +918,7 @@ export class DependencyGraph {
   history(projectId, objectId, options = {}) {
     const rows = this.db.prepare(`
       SELECT v.id AS version_id, v.snapshot_id, v.path, v.anchor_json, v.metadata_json, v.label,
-        v.value_text, v.content_hash, s.version, s.created_at,
-        (SELECT mtime_ms FROM snapshot_files f WHERE f.snapshot_id = v.snapshot_id AND f.path = v.path) AS mtime_ms
+        v.value_text, v.content_hash, s.version, s.created_at
       FROM scientific_object_versions v
       JOIN snapshots s ON s.id = v.snapshot_id
       WHERE v.object_id = ?
@@ -897,6 +936,7 @@ export class DependencyGraph {
     });
 
     return distinct.map((row) => {
+      const mtimeMs = this.timeline.snapshotFile(row.snapshot_id, row.path)?.mtimeMs ?? null;
       const shape = {
         path: row.path, anchor: json(row.anchor_json, null), metadata: json(row.metadata_json, {}), label: row.label,
       };
@@ -909,7 +949,7 @@ export class DependencyGraph {
         fileName: sourceFileName(row.path),
         locator: sourceLocator(shape),
         recordedAt: row.created_at,
-        sourceUpdatedAt: row.mtime_ms == null ? null : new Date(row.mtime_ms).toISOString(),
+        sourceUpdatedAt: mtimeMs == null ? null : new Date(mtimeMs).toISOString(),
         referenceCount: this.dependencies.sourceProjectId({ id: objectId }) === projectId
           ? this.referencesAtVersion(projectId, objectId, row.version)
           : this.referencesAtTime(projectId, objectId, row.created_at),
@@ -1002,7 +1042,7 @@ export class DependencyGraph {
       FROM object_share_grants g
       JOIN actors a ON a.id = g.created_by_actor_id
       JOIN scientific_object_versions v ON v.id = g.object_version_id
-      JOIN snapshots s ON s.id = v.snapshot_id
+      JOIN snapshots s ON s.id = COALESCE(g.snapshot_id, v.snapshot_id)
       WHERE g.project_id = ?
       ORDER BY g.created_at DESC
     `).all(projectId);

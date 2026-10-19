@@ -30,8 +30,7 @@ export class RfiService {
 
     const chain = this.snapshotChain(selectedSnapshot);
     const observations = chain.map((snapshot) => {
-      const file = this.db.prepare('SELECT * FROM snapshot_files WHERE snapshot_id = ? AND project_file_id = ?')
-        .get(snapshot.id, selectedFile.projectFileId);
+      const file = this.timeline.snapshotFileRow(snapshot.id, selectedFile.projectFileId);
       if (!file) return { snapshot, file: null, value: null, event: this.eventForSnapshot(snapshot.id) };
       const normalized = {
         snapshotId: file.snapshot_id,
@@ -117,7 +116,7 @@ export class RfiService {
     let cursor = snapshot;
     while (cursor) {
       chain.push(cursor);
-      cursor = cursor.parentSnapshotId ? this.timeline.getSnapshot(cursor.parentSnapshotId) : null;
+      cursor = cursor.parentSnapshotId ? this.timeline.snapshotRecord(cursor.parentSnapshotId) : null;
     }
     return chain.reverse();
   }

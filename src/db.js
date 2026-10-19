@@ -86,6 +86,20 @@ export function openDatabase(config) {
   // unchanged files' recorded hashes instead of reading every file again.
   const snapshotFileColumns = new Set(db.prepare('PRAGMA table_info(snapshot_files)').all().map((column) => column.name));
   if (!snapshotFileColumns.has('ctime_ms')) db.exec('ALTER TABLE snapshot_files ADD COLUMN ctime_ms REAL');
+  // A snapshot with a file base stores only the files that changed since that
+  // base (see migration 020). Existing snapshots read NULL: they hold every file.
+  const snapshotColumns = new Set(db.prepare('PRAGMA table_info(snapshots)').all().map((column) => column.name));
+  if (!snapshotColumns.has('files_base_snapshot_id')) {
+    db.exec('ALTER TABLE snapshots ADD COLUMN files_base_snapshot_id TEXT REFERENCES snapshots(id)');
+  }
+  // A carried-forward object version spans many snapshots, so a share records
+  // the one it was made from. Existing shares read NULL and use their version's.
+  const shareColumns = new Set(db.prepare('PRAGMA table_info(object_share_grants)').all().map((column) => column.name));
+  if (!shareColumns.has('snapshot_id')) db.exec('ALTER TABLE object_share_grants ADD COLUMN snapshot_id TEXT REFERENCES snapshots(id)');
+  // The first duplicates UNIQUE(snapshot_id, path); search text is matched in
+  // memory, never in SQL, so its index only stored the text a second time.
+  // Dropped here rather than in a migration, which replaying 001 would undo.
+  db.exec('DROP INDEX IF EXISTS snapshot_files_path_idx; DROP INDEX IF EXISTS scientific_object_search_idx;');
 
   return db;
 }
