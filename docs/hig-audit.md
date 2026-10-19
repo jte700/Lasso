@@ -33,7 +33,7 @@ Before and after screenshots live in [`docs/hig-audit/before`](hig-audit/before)
 | A2 | **No Settings window or Command-Comma.** App-level options (Suggest While Typing, Show Lasso in Notch, Open at Login, Tab Inserts) live only in the status panel and its Tools submenu. | `desktop/Lasso.swift` | settings (macOS: "Include a settings item in the App menu", Command-Comma, "App Name Settings" title); the-menu-bar (Settings…) | Fixed |
 | A3 | **Pointing-hand cursor on buttons in the workspace and inspector.** About 34 rules set `cursor: pointer` on buttons, rows, tabs and cards. A later `button { cursor: default }` loses to every class selector. macOS reserves the pointing hand for links. | `public/terminal.css`, `public/macos.css`, `public/utility.css`, inspector styles in `src/sharing/share-page.js` | pointing-devices (macOS Pointers: Arrow vs Pointing hand) | Fixed |
 | A4 | **Workspace colors ignore the user's accent and semantic colors.** Blue is hard-coded as `#0a84ff`/`#007aff`; labels, separators and backgrounds are fixed RGBA values. A Mac set to a graphite or purple accent still sees blue selection and buttons. | `public/utility.css`, `public/macos.css` | color (System colors, "Avoid hard-coding system color values"; App accent colors); dark-mode (Dark Mode colors) | Fixed (accent, status colors and label colors follow WebKit's `-apple-system-*` colors, with the old values as fallbacks in other browsers) |
-| A5 | **Text below the macOS minimum.** Several workspace rules render 7 to 9 point text (shortcut key caps, object type badges, completion descriptions). The share composer draws 9 point captions. | `public/utility.css`, `public/terminal.css`, `desktop/ShareComposer.swift` | typography (macOS default 13 pt, minimum 10 pt); accessibility (Vision) | Fixed for rendered text (no visible text under 10 points) |
+| A5 | **Text below the macOS minimum.** Several workspace rules render 7 to 9 point text (shortcut key caps, object type badges, completion descriptions). The share composer draws 9 point captions and the model preview a 9.5 point caption. | `public/utility.css`, `public/terminal.css`, `desktop/ShareComposer.swift`, `desktop/ModelPreview.swift` | typography (macOS default 13 pt, minimum 10 pt); accessibility (Vision) | Fixed. A script walked every rendered element in the library and editor views: no visible text is under 10 points (the only smaller text is in a screen-reader-only region). |
 | A6 | **App chrome text is selectable.** Dragging across the sidebar, toolbar labels, section headers and buttons selects text like a web page. | `public/utility.css` | designing-for-macos; layout | Fixed (chrome is unselectable; content, values, paths and editor text stay selectable) |
 | A7 | **Reduce Motion is only partly respected in the workspace.** The loading spinner, hover transitions and popover animations in `utility.css` keep animating. | `public/utility.css` | motion ("Make motion optional"); accessibility (Cognitive: Reduce Motion) | Fixed |
 | A8 | **Sentence case on buttons, menu items, window and panel titles.** Examples: "Choose a source", "Preview source", "All documents", "Pause suggestions", "Open sources", "Open source", "Share link", "Add directories", "Review changes". Alerts are titled "Lasso" or "Host text support". | `desktop/SourceChooser.swift`, `desktop/NotchPanel.swift`, `desktop/Lasso.swift`, `src/sharing/share-page.js`, `public/index.html` | menus (Labels: title-style capitalization); buttons (Content); writing (capitalization, consistent style); alerts (title describes the situation) | Fixed for native surfaces, the inspector and the workspace toolbar, sidebar and dialogs; see "Left for later" for generated workspace content |
@@ -64,11 +64,11 @@ Before and after screenshots live in [`docs/hig-audit/before`](hig-audit/before)
 
 | # | Finding | Where | HIG | Status |
 | --- | --- | --- | --- | --- |
-| W1 | **Em dashes in page titles and demo copy.** "Lasso — writing with evidence", "Lasso — The Living Archive", "Lasso — Brand Character" and demo window titles such as "Inbox — Jordan Ellis". | `website/index.html`, `website/living-archive/index.html`, `brand/lasso-character.html` | writing; project rule | Fixed |
+| W1 | **Em dashes in page titles and demo copy.** The home page, Living Archive and Brand Character titles joined "Lasso" and the page name with an em dash, as did demo window titles such as "Inbox" and "Jordan Ellis". | `website/index.html`, `website/living-archive/index.html`, `brand/lasso-character.html` | writing; project rule | Fixed (a middle dot, as in the share page and app titles) |
 | W2 | **Web fonts for interface text.** The home page loads Inter Tight for all body text and JetBrains Mono for data text, and downloads Source Serif 4 although no rule uses it any more. Apple's design language sets interface text in the system font (SF Pro, SF Mono). | `website/index.html` | typography (Using system fonts; "Minimize the number of typefaces") | Fixed (body uses the system font stack, data text uses SF Mono with fallbacks, and the unused Source Serif 4 and Inter Tight downloads are gone; Caveat stays for the hand-drawn annotations) |
 | W3 | **CSS animations ignore Reduce Motion.** The scripted hero and demos check `prefers-reduced-motion`, but CSS keyframe animations (ledger rows, scan lists, popups, links) and smooth scrolling do not. | `website/index.html`, `brand/lasso-character.html` | motion; accessibility (Reduce Motion) | Fixed |
 | W4 | **No visible keyboard focus.** Links, tabs, chips and buttons have no focus ring. | `website/index.html`, `website/living-archive/index.html`, `brand/lasso-character.html` | accessibility (keyboard-only use); keyboards (Full Keyboard Access) | Fixed (accent-colored `:focus-visible` rings) |
-| W5 | **Font stacks without a system fallback** on the brand and Living Archive pages (`"Geist", -apple-system, sans-serif`). | `brand/lasso-character.html`, `website/living-archive/index.html` | typography | Fixed (fallbacks added) |
+| W5 | **Font stacks without a system fallback** on the brand character page (`"Geist Mono", monospace`, `"Instrument Serif", serif`). | `brand/lasso-character.html` | typography | Fixed (falls back to SF Mono, New York and SF Pro, then Consolas, Segoe UI and Roboto). The Living Archive already had fallbacks. |
 | W6 | **The Living Archive and brand character pages use editorial web fonts** (Bodoni Moda, Newsreader, IBM Plex Mono, Geist, Instrument Serif). | `website/living-archive/index.html`, `brand/lasso-character.html` | typography | Kept. Both are standalone art-directed pieces that are not linked from the home page; their typefaces are the concept. |
 | W7 | **Dark mode.** The home page has a complete dark palette and keeps the app demos light like screenshots. | `website/index.html` | dark-mode | Kept (already correct) |
 
@@ -81,4 +81,41 @@ Before and after screenshots live in [`docs/hig-audit/before`](hig-audit/before)
 - **A16** System colors for changed, stale and missing highlights.
 - **A8 (rest)** Title case in strings generated by `public/app.js` and `public/source-workbench.js` (for example "Copy with citation", "Retry indexing"), which many tests and snapshots depend on.
 - **A4 (rest)** Background and surface colors in the workspace still use Lasso's own neutral palette rather than `-apple-system-window-background`, because the workspace runs in any browser and must look the same in Chrome.
-- The legacy `public/terminal.css` (about 2,400 lines) is still loaded underneath `utility.css`, which overrides it with `!important`. Removing it requires checking every view the old layer still styles.
+- The legacy `public/terminal.css` (about 2,300 lines) is still loaded underneath `utility.css`, which overrides it with `!important`. This branch removed its dead fake title bar, traffic lights and tab strip (56 selectors across it and `macos.css`, with byte-identical renders before and after); removing the rest requires checking every view the old layer still styles.
+- **S3 (rest)** The server's internal "no location" value is still an em dash (`src/sharing/object-share.js`), which the Swift host and tests compare against. The share page and inspector hide it, but it can appear in the workspace's metadata rows. Changing it needs the server, host and tests updated together.
+
+## Main menu added in this pass
+
+Lasso is a menu bar extra, so the bar shows only while Settings is open; the shortcuts work whenever a Lasso window is active.
+
+| Menu | Items |
+| --- | --- |
+| Lasso | About Lasso · Settings… (⌘,) · Services · Hide Lasso (⌘H) · Hide Others (⌥⌘H) · Show All · Quit Lasso (⌘Q) |
+| File | Add Work Directories… · Open Workspace in Browser (⌘B) · Close (⌘W) |
+| Edit | Undo (⌘Z) · Redo (⇧⌘Z) · Cut · Copy · Paste · Paste and Match Style (⌥⇧⌘V) · Delete · Select All · Find (Find…, Find Next, Find Previous, Use Selection for Find); macOS adds Start Dictation and Emoji & Symbols |
+| View | Enter Full Screen (⌃⌘F) |
+| Window | Minimize (⌘M) · Zoom · Bring All to Front |
+| Help | Lasso Help (⌘?) |
+
+## Verification
+
+- `npm test`: 507 of 507 pass (507 before the branch).
+- `npm run desktop:test`: 382 checks pass (370 before; 12 new main menu checks).
+- `swiftc -typecheck` of the full source list in `desktop/build.sh`: passes (34 files, including the new `MainMenu.swift` and `SettingsWindow.swift`).
+- `npm run desktop`: builds and signs `dist/Lasso.app`.
+- `scripts/validate-inspector-layout.mjs`: 10 inspector layouts pass. `scripts/validate-share-recipient-ui.mjs`: 24 recipient layouts and 6 real downloads pass.
+- Screenshots were taken against a copy of the data folder served on port 4417, never the live library.
+
+## Screenshots
+
+Each name exists in both `before/` and `after/` unless noted.
+
+| Surface | Files |
+| --- | --- |
+| Workspace | `app-workspace-{light,dark}.png`, `app-workspace-changes-{light,dark}.png` |
+| Source inspector page | `app-inspector-{light,dark}.png` |
+| Status panel | `native-status-panel-{light,dark}.png` (rendered offscreen with sample folders) |
+| Source chooser | `native-source-chooser-{light,dark}.png` |
+| Settings window | `native-settings-{light,dark}.png` (after only; new) |
+| Share page | `share-{indexed,document,redacted,unavailable}-{light,dark}.png`, `share-indexed-375-{light,dark}.png` |
+| Website | `website-{375,768,1440}-{light,dark}.png`, `living-archive-{375,768,1440}-{light,dark}.png`, `brand-character-{light,dark}.png` |
