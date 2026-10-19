@@ -26,6 +26,33 @@ html body :is(button, [role="button"]):disabled { cursor: default !important; }
   user-select: text;
 }
 
+/* Minimum text size. macOS body text is 13 points and nothing goes below 10
+   (HIG: Typography > Ensuring legibility). */
+.provenance-search > kbd,
+.inspector-actions kbd,
+.picker-result .object-type { font-size: 10px !important; }
+.inspector-actions kbd { min-width: 18px; height: 16px; }
+
+/* System colors. In Safari and the app's web views the workspace follows the
+   accent color, label colors and status colors people chose in System
+   Settings. Other browsers keep Lasso's own palette (HIG: Color > System
+   colors, App accent colors). */
+@supports (color: -apple-system-control-accent) {
+  :root, html[data-theme] {
+    --u-blue: -apple-system-control-accent;
+    --u-green: -apple-system-green;
+    --u-orange: -apple-system-orange;
+    --u-red: -apple-system-red;
+    --u-text: -apple-system-label;
+    --u-text-2: -apple-system-secondary-label;
+    --u-line: -apple-system-separator;
+    --u-selected: color-mix(in srgb, var(--u-blue) 18%, transparent);
+    --wb-ink: -apple-system-label;
+    --wb-selection: color-mix(in srgb, var(--u-blue) 18%, var(--wb-paper));
+  }
+}
+::selection { background: color-mix(in srgb, var(--u-blue) 28%, transparent); }
+
 /* The sidebar's editor button keeps its label on one line. */
 .open-editor-button { justify-content: flex-start; text-align: left; }
 .open-editor-button span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
