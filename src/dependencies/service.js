@@ -12,6 +12,7 @@ import {
   buildSentenceCorpus, completeFromLinkedSource, completeSentence, originalFindingSentence, sourceFindingFragment,
 } from './completion.js';
 import { renderPdfFigurePage } from './figure-preview.js';
+import { columnLetter } from './table-preview.js';
 import { markdownBlocks, markdownPassages } from '../sharing/markdown.js';
 import { shareExpiry } from '../sharing/expiry.js';
 import { RecommendationRanking, directRecommendationMatch } from './ranking.js';
@@ -41,7 +42,8 @@ const INDEX_VERSION = 3;
 // by an older build can be offered a re-read. A snapshot records the version
 // that produced its objects in snapshot_object_indexes.extractor_version; 0
 // there means a build that recorded none.
-const EXTRACTOR_VERSION = 1;
+// 2: notes written below a table are read as text, not as rows of the table.
+const EXTRACTOR_VERSION = 2;
 const MAX_TABLE_CELLS = 1_500;
 const MAX_INDEXED_TABLE_ROWS = 1_000;
 const EDITABLE_DOCUMENT_TYPES = new Set(['markdown', 'text', 'document', 'pdf']);
@@ -449,6 +451,7 @@ function workspaceCompletionText(object) {
 
 function workspaceSuggestionCategory(object) {
   if (isPassageExcerpt(object)) {
+    if (object.metadata.excerptType === 'note') return 'Sheet note';
     const format = object.metadata.componentType === 'PDF_EXCERPT' ? 'PDF' : object.metadata.format === 'MARKDOWN' ? 'Markdown' : 'Text';
     return `${format} ${object.metadata.excerptType === 'paragraph' ? 'paragraph' : 'sentence'}`;
   }
@@ -813,15 +816,57 @@ export function tabularLayout(rawRows) {
   };
 }
 
+const filledColumns = (row) => [...row.keys()].filter((column) => String(row[column] ?? '').trim());
+// A sentence, or a line that introduces one ("Source: ...", "Blue values = inputs").
+// Labels such as "Rent" or "Cost of goods sold" read as neither.
+const readsAsProse = (text) => /[.!?]["')\]]?$|:\s|\s=\s/.test(text);
+
+/**
+ * Notes written under a table ("Source: Budget-vs-Actual.csv", "Blue values =
+ * inputs") follow its last row of figures after at least one blank row, one
+ * line of text per row, and at least one of those lines is prose. They
+ * describe the table rather than belong to it. Returns them by their index in
+ * `filled`, or none when anything after that blank row is not such a line.
+ * Rows directly under the table, section headings that rows of figures still
+ * follow ("Expenses" after a blank row), and line items whose figures are not
+ * filled in yet are never notes, so they stay rows of the table.
+ *
+ * @param {{ row: unknown[], number: number }[]} filled the table's non-blank
+ *   rows with the sheet row each came from, so blank rows show as gaps
+ */
+function trailingTableNotes(filled) {
+  const lastTableRow = filled.findLastIndex(({ row }) => filledColumns(row).length > 1);
+  if (lastTableRow < 0) return new Map();
+  const first = filled.findIndex((entry, index) => index > lastTableRow && entry.number - filled[index - 1].number > 1);
+  if (first < 0) return new Map();
+  const notes = new Map();
+  for (const [index, { row }] of filled.entries()) {
+    if (index < first) continue;
+    const columns = filledColumns(row);
+    const text = String(row[columns[0]] ?? '').trim();
+    if (columns.length !== 1 || !/\p{L}/u.test(text)) return new Map();
+    notes.set(index, { column: columns[0], text });
+  }
+  return [...notes.values()].some((note) => readsAsProse(note.text)) ? notes : new Map();
+}
+
 function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
   const objects = [];
   const sheet = options.sheet ?? null;
   const keyPrefix = sheet ? `${file.projectFileId}:sheet:${sheet}` : file.projectFileId;
   const labelPrefix = sheet ? `${fileName} · ${sheet}` : fileName;
+  const rowOffset = options.rowOffset ?? 1;
+  // A worksheet's rows leave its blank rows out, and `rowNumbers` says which
+  // sheet row each one is; a delimited file keeps its blank lines as rows.
+  const filled = rawRows.flatMap((row, index) => row.some((cell) => String(cell ?? '').trim())
+    ? [{ row, index, number: options.rowNumbers?.[index] ?? rowOffset + index + 1 }] : []);
+  const notes = trailingTableNotes(filled);
   // Only the first rows are indexed, but the row count reports the table as
   // it is: inserting "n = 1000" for a larger table would state a false fact.
-  const filledRows = rawRows.filter((row) => row.some((cell) => String(cell ?? '').trim()));
+  const filledRows = filled.map((entry) => entry.row);
   const data = filledRows.slice(0, MAX_INDEXED_TABLE_ROWS);
+  const bodyRows = data.filter((_, rowIndex) => !notes.has(rowIndex));
+  const rowCount = filledRows.length - notes.size;
   objects.push(objectDescriptor({
     key: `${keyPrefix}:dataset`, type: 'DATASET', path: file.path, label: labelPrefix,
     contentHash: file.contentHash, metadata: { format: options.format, sheet },
@@ -829,9 +874,9 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
   objects.push(objectDescriptor({
     key: `${keyPrefix}:row-count`, type: 'RESULT', path: file.path,
     anchor: { kind: 'table-summary', metric: 'row-count', sheet },
-    label: `${labelPrefix} · included rows`, value: `n = ${filledRows.length}`,
-    contentHash: file.contentHash, metadata: { dataset: fileName, sheet, metric: 'row-count', rows: filledRows.length,
-      indexedRows: data.length },
+    label: `${labelPrefix} · included rows`, value: `n = ${rowCount}`,
+    contentHash: file.contentHash, metadata: { dataset: fileName, sheet, metric: 'row-count', rows: rowCount,
+      indexedRows: bodyRows.length },
   }));
 
   const dictionary = dictionaryColumns(file.path, headers);
@@ -839,7 +884,7 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
     for (const [rowIndex, row] of data.entries()) {
       const variable = String(row[dictionary.variableIndex] ?? '').trim();
       const description = String(row[dictionary.descriptionIndex] ?? '').trim();
-      if (!variable || !description) continue;
+      if (!variable || !description || notes.has(rowIndex)) continue;
       const units = dictionary.unitIndex >= 0 ? String(row[dictionary.unitIndex] ?? '').trim() : '';
       objects.push(objectDescriptor({
         key: `${keyPrefix}:variable-definition:${normalizedVariable(variable)}`,
@@ -852,7 +897,7 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
   } else {
     headers.slice(0, 80).forEach((column, columnIndex) => {
       if (!String(column ?? '').trim()) return;
-      const profile = variableProfile(column, data.map((row) => row[columnIndex]));
+      const profile = variableProfile(column, bodyRows.map((row) => row[columnIndex]));
       objects.push(objectDescriptor({
         key: `${keyPrefix}:variable:${columnIndex}:${normalizedVariable(column)}`,
         type: 'VARIABLE', path: file.path,
@@ -868,7 +913,9 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
   // spacer columns, leaving column A empty or holding only a stray mark. A
   // column that does not read as row labels cannot name a row, so the first
   // one that does is used instead; a sheet whose labels are already in column
-  // A is unaffected, because that column is tested first.
+  // A is unaffected, because that column is tested first. Notes under the
+  // table still count here, as they did when the rows' keys were first made:
+  // leaving them out could move the label column and rename every row.
   const looksNumeric = (value) => /^[-+(]?[$]?[\d][\d.,\s%$]*\)?$/.test(value);
   // Why a column reads as the one that names the rows, or null if it does not.
   const columnNamesRows = (column) => {
@@ -915,6 +962,7 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
       || labelReason === 'words-beside-figures');
   let indexedCells = 0;
   tableRows: for (const [rowIndex, row] of data.entries()) {
+    if (notes.has(rowIndex)) continue;
     const rowLabel = String(row[labelColumn] ?? '').trim();
     const rowKey = firstColumnActsAsRowLabels && rowLabel ? rowLabel : `row:${rowIndex + 1}`;
     const rowIdentity = `${rowIndex + (options.rowOffset ?? 1)}:${normalizedVariable(rowKey) || 'row'}`;
@@ -960,6 +1008,26 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
       indexedCells += 1;
       if (indexedCells >= MAX_TABLE_CELLS) break tableRows;
     }
+  }
+  // A note is read as a passage of text at its own cell, so it is found by its
+  // words without claiming the table's headings or passing for one of its rows.
+  for (const [rowIndex, note] of notes) {
+    if (rowIndex >= data.length) break;
+    const { index, number } = filled[rowIndex];
+    const cellId = `${columnLetter(note.column)}${number}`;
+    // Its row index counts blank rows of a delimited file too, as previews do
+    // when they look a row up; in a worksheet the two are the same.
+    objects.push(objectDescriptor({
+      key: `${keyPrefix}:note:${rowOffset + index}:${note.column}`, type: 'DOCUMENT',
+      path: file.path, contentHash: file.contentHash,
+      label: note.text.length > 110 ? `${note.text.slice(0, 107)}…` : note.text,
+      value: note.text,
+      anchor: { kind: 'sheet-note', sheet, cellId, rowIndex: rowOffset + index, columnIndex: note.column,
+        selectedText: note.text },
+      metadata: { format: options.format, componentType: 'TEXT_EXCERPT', excerptType: 'note',
+        rawText: note.text, textExcerpt: note.text, sheet, cell: cellId,
+        parentTitle: labelPrefix, parentAuthor: null, parentYear: null },
+    }));
   }
   return objects;
 }
@@ -1205,6 +1273,7 @@ function objectsFromFile(file, buffer, report = () => {}) {
         const layout = tabularLayout(sheet.rows);
         objects.push(...objectsFromTabular(file, fileName, layout.headers, layout.rows, {
           format, sheet: sheet.name, rowOffset: layout.headerRowIndex + 1,
+          rowNumbers: sheet.rowNumbers?.slice(layout.headerRowIndex + 1),
         }));
       }
     } else {
