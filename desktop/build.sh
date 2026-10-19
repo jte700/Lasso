@@ -201,6 +201,8 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/ShareComposer.swift" \
   "$ROOT/desktop/SourceChooser.swift" \
   "$ROOT/desktop/GlobalAssist.swift" \
+  "$ROOT/desktop/MainMenu.swift" \
+  "$ROOT/desktop/SettingsWindow.swift" \
   "$ROOT/desktop/Lasso.swift"
 
 echo "==> Bundling Node.js $NODE_VERSION from $NODE_SOURCE"
