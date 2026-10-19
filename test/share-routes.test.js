@@ -66,7 +66,7 @@ test('public share routes', async (suite) => {
     assert.match(html, /scope="col">B</);
     assert.match(html, /scope="row">2</);
     assert.match(html, />400</);
-    assert.match(html, /Share link <kbd>Tab<\/kbd>/);
+    assert.match(html, /Share Link <kbd>Tab<\/kbd>/);
     assert.doesNotMatch(html, /Cited value|Version 1|inspector-topbar|source-type/);
     assert.equal((await fetch(`${base}/api/dependency-objects/${object.object_id}/source`)).status, 415);
     assert.equal((await fetch(`${base}/api/dependency-objects/not-real/source`)).status, 404);

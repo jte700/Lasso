@@ -310,6 +310,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isRemovingDirectories = false
     private var assistActivation = AssistActivation(
         requested: UserDefaults.standard.bool(forKey: "AssistEnabled"))
+    private lazy var settings: SettingsWindowController = {
+        let controller = SettingsWindowController(actions: SettingsActions(
+            suggestWhileTyping: { [weak self] in self?.assistActivation.requested ?? false },
+            setSuggestWhileTyping: { [weak self] on in
+                guard let self, on != self.assistActivation.requested else { return }
+                self.toggleGlobalAssist()
+            },
+            showInNotch: { UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey) },
+            setShowInNotch: { [weak self] on in
+                guard on != UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey) else { return }
+                self?.toggleNotch()
+            },
+            notchAvailable: { NotchPanelController.isAvailable },
+            openAtLogin: { LoginItem.isEnabled || LoginItem.needsApproval },
+            setOpenAtLogin: { [weak self] on in
+                guard on != (LoginItem.isEnabled || LoginItem.needsApproval) else { return }
+                self?.toggleLoginItem()
+            },
+            didChange: { [weak self] in self?.rebuildMenu() }))
+        // The menu bar and Dock icon show only while Settings is open, as a
+        // regular app window. Closing it returns Lasso to the menu bar.
+        controller.onClose = { NSApp.setActivationPolicy(.accessory) }
+        return controller
+    }()
+    private var settingsLoaded = false
+
+    /// Lasso's online guide, opened from Help > Lasso Help.
+    private static let helpURL = URL(string: "https://github.com/jte700/Lasso#readme")!
 
     private var directoryListCollapsed: Bool {
         get { UserDefaults.standard.bool(forKey: "WorkDirectoriesCollapsed") }
@@ -326,6 +354,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        MainMenu.install(MainMenu.Commands(
+            target: self, about: #selector(showAbout), settings: #selector(showSettings),
+            addDirectories: #selector(addDirectories), openWorkspace: #selector(openInBrowser),
+            help: #selector(openHelp)))
         LassoTransientUI.shared.register(self, priority: 5,
             isOpen: { NSApp.modalWindow != nil || NSApp.keyWindow?.attachedSheet != nil },
             dismiss: { [weak self] in
@@ -400,7 +432,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         inspector.onUnlink = { reference in DependencyHighlighter.shared.unlink(id: reference.id) }
         inspector.onOpenSource = { [weak self] _ in
-            self?.showError("The source file could not be opened at its recorded location.")
+            self?.showError("The source file could not be opened at its recorded location.",
+                            title: "The Source Couldn\u{2019}t Be Opened")
         }
         inspector.onShare = { [weak self] reference in
             guard let self, let url = self.server.url else { return }
@@ -620,9 +653,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         toolsMenu.addItem(troubleshooting)
         tools.submenu = toolsMenu
         statusMenu.addItem(tools)
+        statusMenu.addItem(.separator())
+        statusMenu.addItem(command("Settings…", action: #selector(showSettings), key: ","))
         statusMenu.addItem(command("About Lasso", action: #selector(showAbout)))
         statusMenu.addItem(command("Quit Lasso", action: #selector(quit), key: "q"))
         statusPopover.update(menu: statusMenu)
+        if settingsLoaded { settings.refresh() }
         notch.configure(enabled: UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey),
                         serverURL: isServerReady ? server?.url : nil,
                         suggestions: GlobalAssistant.shared.isEnabled, requested: assistActivation.requested,
@@ -756,7 +792,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let message = WorkspaceAPI.errorMessage(data: data, response: response, error: error)
                     self.workspaceError = message
                     self.rebuildMenu()
-                    self.showError(message)
+                    self.showError(message, title: "Work Directories Couldn\u{2019}t Be Updated")
                     self.refreshWorkspace()
                 }
             }
@@ -861,7 +897,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             showError(enable
                 ? "Lasso could not be added to your login items: \(error.localizedDescription)"
-                : "Lasso could not be removed from your login items: \(error.localizedDescription)")
+                : "Lasso could not be removed from your login items: \(error.localizedDescription)",
+                      title: "Open at Login Couldn\u{2019}t Be Changed")
         }
         rebuildMenu()
     }
@@ -898,7 +935,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // that only this message explains.
         if userInitiated, let problem,
            assistant.lastProblem?.stale == true || assistant.lastProblem?.service == "Input Monitoring" {
-            showError(problem)
+            showError(problem, title: "Suggestions Need Permission")
         }
         rebuildMenu()
     }
@@ -917,9 +954,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showError(_ message: String) {
+    /// The title says what happened; macOS already shows Lasso's icon.
+    private func showError(_ message: String, title: String) {
         let alert = NSAlert()
-        alert.messageText = "Lasso"
+        alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
@@ -935,7 +973,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let report = HostCapabilityProbe.run()
             for line in report.split(separator: "\n") { AssistLog.write(String(line), force: true) }
             let alert = NSAlert()
-            alert.messageText = "Host text support"
+            alert.messageText = "Text Support Report"
             alert.informativeText = report + "\n\nAlso written to the typing log."
             alert.addButton(withTitle: "OK")
             NSApp.activate(ignoringOtherApps: true)
@@ -989,6 +1027,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                       .foregroundColor: NSColor.secondaryLabelColor]),
         ])
     }
+
+    @objc private func showSettings() {
+        settingsLoaded = true
+        NSApp.setActivationPolicy(.regular)
+        // Activating in the same turn as the policy change can leave the menu
+        // bar without the app in front, so show the window on the next turn.
+        DispatchQueue.main.async { [weak self] in self?.settings.show() }
+    }
+
+    @objc private func openHelp() { NSWorkspace.shared.open(Self.helpURL) }
 
     @objc private func quit() { NSApp.terminate(nil) }
 }

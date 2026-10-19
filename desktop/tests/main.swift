@@ -1709,5 +1709,57 @@ do {
     check(slow == 2, "a new layout tries the slow phrase again")
 }
 
+
+// ── Main menu ──────────────────────────────────────────────────────────────
+// A menu bar app still needs the standard menus: AppKit routes Command-key
+// shortcuts through them, so without one Copy and Paste do nothing.
+do {
+    print("\nMain menu")
+    final class MenuTarget: NSObject {
+        @objc func about() {}
+        @objc func settings() {}
+        @objc func add() {}
+        @objc func workspace() {}
+        @objc func help() {}
+    }
+    let menuTarget = MenuTarget()
+    _ = NSApplication.shared
+    MainMenu.install(MainMenu.Commands(target: menuTarget, about: #selector(MenuTarget.about),
+        settings: #selector(MenuTarget.settings), addDirectories: #selector(MenuTarget.add),
+        openWorkspace: #selector(MenuTarget.workspace), help: #selector(MenuTarget.help)))
+    let bar = NSApp.mainMenu
+    check(bar?.items.map(\.title) == ["Lasso", "File", "Edit", "View", "Window", "Help"],
+          "menu bar lists Lasso, File, Edit, View, Window and Help in order")
+    func shortcut(_ menu: String, _ key: String, _ modifiers: NSEvent.ModifierFlags = .command) -> NSMenuItem? {
+        func search(_ items: [NSMenuItem]) -> NSMenuItem? {
+            for item in items {
+                if item.keyEquivalent == key && item.keyEquivalentModifierMask == modifiers { return item }
+                if let found = item.submenu.flatMap({ search($0.items) }) { return found }
+            }
+            return nil
+        }
+        return bar?.items.first { $0.title == menu }?.submenu.flatMap { search($0.items) }
+    }
+    check(shortcut("Lasso", ",")?.action == #selector(MenuTarget.settings) && shortcut("Lasso", ",")?.title == "Settings…",
+          "Command-Comma opens Settings…")
+    check(shortcut("Lasso", "q")?.action == #selector(NSApplication.terminate(_:)), "Command-Q quits")
+    check(shortcut("Lasso", "h")?.action == #selector(NSApplication.hide(_:)), "Command-H hides Lasso")
+    check(shortcut("File", "w")?.action == #selector(NSWindow.performClose(_:)), "Command-W closes the window")
+    check(shortcut("Edit", "c")?.action == #selector(NSText.copy(_:))
+          && shortcut("Edit", "v")?.action == #selector(NSText.paste(_:))
+          && shortcut("Edit", "x")?.action == #selector(NSText.cut(_:))
+          && shortcut("Edit", "a")?.action == #selector(NSText.selectAll(_:)),
+          "Cut, Copy, Paste and Select All use their standard shortcuts")
+    check(shortcut("Edit", "z")?.action == Selector(("undo:")) && shortcut("Edit", "z", [.command, .shift])?.action == Selector(("redo:")),
+          "Undo and Redo use Command-Z and Shift-Command-Z")
+    check(shortcut("Edit", "f")?.tag == Int(NSFindPanelAction.showFindPanel.rawValue), "Command-F opens Find")
+    check(shortcut("Window", "m")?.action == #selector(NSWindow.performMiniaturize(_:)), "Command-M minimizes")
+    check(shortcut("Help", "?")?.action == #selector(MenuTarget.help), "Command-? opens Lasso Help")
+    check(NSApp.windowsMenu?.title == "Window" && NSApp.helpMenu?.title == "Help",
+          "Window and Help menus are registered with AppKit")
+    let titles = (bar?.items ?? []).flatMap { $0.submenu?.items ?? [] }.map(\.title).filter { !$0.isEmpty }
+    check(titles.allSatisfy { !$0.contains("\u{2014}") }, "menu titles contain no em dashes")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

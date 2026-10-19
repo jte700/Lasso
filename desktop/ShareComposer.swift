@@ -1192,7 +1192,7 @@ final class ShareComposerView: NSView {
             : scope == .redacted ? "\(masks.count) area\(masks.count == 1 ? "" : "s") hidden · Scroll for more pages" : "Original PDF layout · Scroll to read"
         drawText("\(document.pageCount) \(document.pageCount == 1 ? "page" : "pages") · \(detail)",
                  in: NSRect(x: rect.minX + 2, y: rect.maxY - 15, width: rect.width - 4, height: 14),
-                 font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
+                 font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
     }
 
     func initializePDFExcerpt() {
@@ -1347,7 +1347,7 @@ final class ShareComposerView: NSView {
             key: "full:\(sheetIndex)")
         drawText("\(sheet.rows.count) rows · \(columns) columns · Scroll to review every cell",
                  in: NSRect(x: rect.minX + 2, y: rect.maxY - 16, width: rect.width - 4, height: 14),
-                 font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
+                 font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
     }
 
     private func drawSheetTabs(_ sheets: [ShareFullSheet], in rect: NSRect) {
@@ -1360,10 +1360,8 @@ final class ShareComposerView: NSView {
         if arrowWidth > 0 {
             let previous = NSRect(x: rect.minX, y: rect.minY, width: arrowWidth, height: rect.height)
             let next = NSRect(x: rect.maxX - arrowWidth, y: rect.minY, width: arrowWidth, height: rect.height)
-            drawText("‹", in: previous.offsetBy(dx: 0, dy: 3), font: .systemFont(ofSize: 13),
-                     color: sourceInkColor, alignment: .center)
-            drawText("›", in: next.offsetBy(dx: 0, dy: 3), font: .systemFont(ofSize: 13),
-                     color: sourceInkColor, alignment: .center)
+            drawSymbol("chevron.left", in: previous, color: sourceInkColor)
+            drawSymbol("chevron.right", in: next, color: sourceInkColor)
             sheetTabTargets.append((previous, max(0, sheetIndex - 1)))
             sheetTabTargets.append((next, min(sheets.count - 1, sheetIndex + 1)))
         }
@@ -1390,7 +1388,7 @@ final class ShareComposerView: NSView {
             canRedact: true, key: "full-text")
         drawText("\(blocks.count) sections · Scroll to read the complete document",
                  in: NSRect(x: rect.minX + 2, y: rect.maxY - 16, width: rect.width - 4, height: 14),
-                 font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
+                 font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
     }
 
     private func spreadsheetColumn(_ index: Int) -> String {
@@ -1422,7 +1420,7 @@ final class ShareComposerView: NSView {
             key: "indexed-table")
         drawText("\(preview.rows.count) context rows · \(columnCount) columns · Scroll to review every cell",
                  in: NSRect(x: rect.minX + 2, y: rect.maxY - 16, width: rect.width - 4, height: 14),
-                 font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
+                 font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
     }
 
     private func drawTextBlocks(_ value: String, in rect: NSRect) {
@@ -1925,6 +1923,18 @@ final class ShareComposerView: NSView {
         path.move(to: from)
         path.line(to: to)
         path.stroke()
+    }
+
+    /// Draws an SF Symbol centered in `rect`, in the given color.
+    private func drawSymbol(_ name: String, in rect: NSRect, color: NSColor) {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+            .applying(.init(paletteColors: [color]))
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration) else { return }
+        let size = image.size
+        image.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2,
+                              width: size.width, height: size.height),
+                   from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
     }
 
     private func drawText(_ value: String, in rect: NSRect, font: NSFont, color: NSColor,

@@ -1,0 +1,69 @@
+/* Lasso · macOS conventions for the workspace.
+   Loaded last, so these rules settle what the older layers disagree on:
+   pointers, selectable text, minimum text size, motion and system colors.
+   See docs/hig-audit.md for the Human Interface Guidelines behind each rule. */
+
+/* Pointers. macOS uses the arrow for buttons and other controls and keeps the
+   pointing hand for links (HIG: Pointing devices > Pointers). */
+html body :is(button, [role="button"], [role="tab"], [role="switch"], [role="option"], [role="menuitem"],
+              select, summary, label, input[type="checkbox"], input[type="radio"]),
+html body :is(button, [role="button"], [role="tab"], summary) * {
+  cursor: default !important;
+}
+html body :is(a[href], a[href] *) { cursor: pointer; }
+html body :is(button, [role="button"]):disabled { cursor: default !important; }
+
+/* Selection. Window chrome is not text; content, values and paths stay
+   selectable so they can be copied (HIG: Designing for macOS). */
+:is(.utility-toolbar, .object-rail, .content-toolbar, .rail-label, .rail-label-row, .utility-popover > header,
+    .utility-popover > footer, .utility-dialog .dialog-heading, .inspector-actions, .editor-toolbar,
+    .wb-heading, button, [role="button"], [role="tab"], summary, label, kbd) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+:is(.content-title p, .directory-row .dir-meta, input, textarea, [contenteditable="true"]) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Minimum text size. macOS body text is 13 points and nothing goes below 10
+   (HIG: Typography > Ensuring legibility). */
+.provenance-search > kbd,
+.inspector-actions kbd,
+.picker-result .object-type { font-size: 10px !important; }
+.inspector-actions kbd { min-width: 18px; height: 16px; }
+
+/* System colors. In Safari and the app's web views the workspace follows the
+   accent color, label colors and status colors people chose in System
+   Settings. Other browsers keep Lasso's own palette (HIG: Color > System
+   colors, App accent colors). */
+@supports (color: -apple-system-control-accent) {
+  :root, html[data-theme] {
+    --u-blue: -apple-system-control-accent;
+    --u-green: -apple-system-green;
+    --u-orange: -apple-system-orange;
+    --u-red: -apple-system-red;
+    --u-text: -apple-system-label;
+    --u-text-2: -apple-system-secondary-label;
+    --u-line: -apple-system-separator;
+    --u-selected: color-mix(in srgb, var(--u-blue) 18%, transparent);
+    --wb-ink: -apple-system-label;
+    --wb-selection: color-mix(in srgb, var(--u-blue) 18%, var(--wb-paper));
+  }
+}
+::selection { background: color-mix(in srgb, var(--u-blue) 28%, transparent); }
+
+/* Motion. With Reduce Motion on, nothing slides, spins or fades on its own
+   (HIG: Motion, Accessibility > Reduce Motion). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* The sidebar's editor button keeps its label on one line. */
+.open-editor-button { justify-content: flex-start; text-align: left; }
+.open-editor-button span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

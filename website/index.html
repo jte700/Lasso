@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lasso — writing with evidence</title>
+<title>Lasso · Writing with evidence</title>
 <meta name="description" content="Lasso is a local-first source library and writing assistant. It retrieves the exact document, cell or passage you need and ties every value you write back to it.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Caveat:wght@600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #ffffff;
@@ -36,9 +36,9 @@
     --p-green: #ecf3e8;
     --p-blue: #e9effb;
     --p-lav: #f0ecf8;
-    --serif: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, "Inter Tight", sans-serif;
-    --sans: "Inter Tight", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
-    --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --serif: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, Roboto, sans-serif;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
     --shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 12px 32px rgba(0, 0, 0, .07);
     --surface: #ffffff;
     --contrast: #000000;
@@ -773,6 +773,20 @@
     html { scroll-behavior: auto; }
     .reveal { opacity: 1; transform: none; transition: none; }
   }
+
+  /* Keyboard focus is always visible (HIG: Accessibility, Keyboards). */
+  :is(a, button, [role="button"], [role="tab"], [tabindex], input, select, textarea, summary):focus-visible {
+    outline: 2px solid var(--blue); outline-offset: 2px;
+  }
+  /* With Reduce Motion on, nothing slides, loops or fades on its own (HIG: Motion). */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+    }
+  }
 </style>
 </head>
 <body>
@@ -1109,7 +1123,7 @@
     let evs = [], nextSpawn = 0, idxSeq = 400, lastFrame = 0;
     const recent = [];
     const FS = () => (innerWidth < 640 ? 10.5 : 12);
-    const font = (s = 1, w = 400) => `${w} ${FS() * s}px "JetBrains Mono", ui-monospace, Menlo, monospace`;
+    const font = (s = 1, w = 400) => `${w} ${FS() * s}px ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace`;
     const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
     const SCR = '·:;+=*<>/\\|{}[]01#%abcdefxyz';
 
@@ -1351,7 +1365,8 @@
     createField($('#heroField'), { host: $('#top'), content: $('#heroC'), ledger, theme: () => (DARK_MQ.matches ? HERO_DARK : LIGHT), events: true });
     createField($('#ctaField'), { host: $('#run'), content: $('#ctaIn'), ledger: null, theme: DARK, events: false });
   };
-  (document.fonts && document.fonts.load) ? document.fonts.load('400 12px "JetBrains Mono"').then(startFields, startFields) : startFields();
+  // The fields draw in the system monospaced font, which is always installed.
+  startFields();
 
   /* ================= the characters ================= */
   const PALS = {
@@ -1728,7 +1743,7 @@
   const rest = (cur, x = 720, y = 540) => { cur.style.left = x + 'px'; cur.style.top = y + 'px'; };
 
   /* ================= previews (used inside the suggestion box) ================= */
-  const svgT = (x, y, t, fill, size = 9, anchor = 'middle', w = 400) => `<text x="${x}" y="${y}" fill="${fill}" font-size="${size}" font-weight="${w}" text-anchor="${anchor}" font-family="Inter Tight, sans-serif">${esc(t)}</text>`;
+  const svgT = (x, y, t, fill, size = 9, anchor = 'middle', w = 400) => `<text x="${x}" y="${y}" fill="${fill}" font-size="${size}" font-weight="${w}" text-anchor="${anchor}" font-family="-apple-system, BlinkMacSystemFont, system-ui, sans-serif">${esc(t)}</text>`;
   const ROOMS = [{ n: 'Wohnen', x: 10, y: 10, w: 170, h: 112 }, { n: 'Schlafzimmer', x: 180, y: 10, w: 130, h: 112 }, { n: 'Küche', x: 10, y: 122, w: 100, h: 88 }, { n: 'Bad', x: 110, y: 122, w: 70, h: 88 }, { n: 'Flur', x: 180, y: 122, w: 130, h: 88 }];
   function pvPlan(room, area) {
     const order = ROOMS.slice().sort((a, b) => (a.n === room) - (b.n === room));
@@ -1793,7 +1808,7 @@
   /* ================= demo: retrieval ================= */
   (() => {
     const os = $('#osFind'), ui = buildOS(os, { app: 'Lasso', menus: ['File', 'Edit', 'View', 'Search', 'Window'], active: ['lasso'] });
-    const w = win(os, { x: 64, y: 50, w: 872, h: 478, title: 'Lasso — tower-b project' });
+    const w = win(os, { x: 64, y: 50, w: 872, h: 478, title: 'Lasso · tower-b project' });
     w.insertAdjacentHTML('beforeend', '<div class="f-search"><svg viewBox="0 0 32 32" style="color:#29cc57"><use href="#lassoMark"/></svg><span class="q"></span><span class="caret"></span><span class="stat"></span></div><div class="f-body"><div class="wall"></div><div class="results"></div></div>');
     ui.cur.style.opacity = 0;
     const FILES = [['▤', 'lease_unit4_signed.pdf'], ['▦', 'forecast_2026.xlsx'], ['◫', 'plan_L2.ifc'], ['¶', 'minutes_0611.md'], ['▤', 'smith2023.pdf'], ['▦', 'invoices_q3.csv'], ['▤', 'lease_unit4_draft.pdf'], ['◫', 'plan_L1.ifc'], ['{}', 'analysis.ipynb'], ['▤', 'board_pack_q2.pdf'], ['▦', 'rooms_2019.csv'], ['¶', 'site_sync_0702.md'], ['▤', 'msa_v4.docx'], ['◇', 'site.landxml'], ['@', 'refs.bib'], ['▦', 'forecast_draft.xlsx'], ['▤', 'lee2021.pdf'], ['▦', 'payroll_2025.xlsx'], ['◫', 'facade.ifc'], ['▤', 'specs_v2.docx'], ['¶', 'minutes_0618.md'], ['◇', 'drainage.dxf'], ['▦', 'cohort.csv'], ['▤', 'nda_template.docx'], ['▦', 'budget_2026.xlsx'], ['▤', 'sections.pdf'], ['¶', 'interview_03.md'], ['▦', 'schedule.xlsx'], ['▤', 'contract_v3.docx'], ['◇', 'site_2022.landxml'], ['▦', 'risk_register.xlsx'], ['▤', 'stormwater_review.pdf'], ['¶', 'notes_lab.md'], ['▦', 'assay.csv'], ['{}', 'config.json'], ['▤', 'contract_v4.docx'], ['▦', 'photo_log.csv'], ['¶', 'README.md'], ['▤', 'insurance_cert.pdf'], ['▦', 'energy.xlsx'], ['▤', 'hale2019.pdf'], ['▦', 'loads.xlsx']];
@@ -1960,7 +1975,7 @@
     const os = $('#osShare'), ui = buildOS(os, { app: 'Mail', menus: ['File', 'Edit', 'View', 'Message', 'Format'], active: ['mail', 'lasso'] }), cur = ui.cur;
     const compose = win(os, { x: 36, y: 44, w: 600, h: 500, title: 'Unit 4 renewal: notice period', right: '<span class="send">Send</span>' });
     compose.insertAdjacentHTML('beforeend', '<div class="mail-f"><span>To</span>Jordan Ellis</div><div class="mail-f"><span>Subject</span>Unit 4 renewal: notice period</div><div class="mail-b"><span class="txt"></span><span class="caret"></span></div>');
-    const inbox = win(os, { x: 640, y: 58, w: 330, h: 190, title: 'Inbox — Jordan Ellis', cls: 'hide' });
+    const inbox = win(os, { x: 640, y: 58, w: 330, h: 190, title: 'Inbox · Jordan Ellis', cls: 'hide' });
     inbox.insertAdjacentHTML('beforeend', '<div class="ib-from">Sam Carter<small>Unit 4 renewal: notice period · now</small></div><div class="ib-body">The signed lease requires at least <span class="linked shared" id="ibChip">six months<sup>↗</sup></span>’ written notice before expiry.</div>');
     const browser = win(os, { x: 300, y: 128, w: 650, h: 336, title: '', right: '', cls: 'hide' });
     $('.win-bar', browser).insertAdjacentHTML('beforeend', '<span class="url">lasso · shared link · §12.3</span>');
@@ -2007,7 +2022,7 @@
         for (const ch of '’ written notice before expiry. The clause is linked, with the commercial terms redacted.\n\nBest,\nSam') { txt.append(ch); await sleep(TYPE(14)); }
         await sleep(300); await point(os, cur, send); await click(cur); send.classList.add('done'); send.textContent = 'Sent ✓';
         await sleep(700);
-        compose.classList.add('dim'); inbox.classList.remove('hide'); ui.app.textContent = 'Mail — Jordan';
+        compose.classList.add('dim'); inbox.classList.remove('hide'); ui.app.textContent = 'Mail · Jordan';
         await sleep(1100); await point(os, cur, ibChip); await click(cur); ibChip.classList.add('inspecting');
         spDoc.innerHTML = leaseHTML(); $$('.r', spDoc).forEach(r => r.classList.add('on'));
         browser.classList.remove('hide'); ui.app.textContent = 'Browser';
@@ -2532,7 +2547,7 @@
 })();
 </script>
 <script>
-/* sources shelf: a lasso picker — format chips above, one card below */
+/* sources shelf: a lasso picker, with format chips above and one card below */
 (() => {
   const shelf = document.querySelector('.shelf'); if (!shelf) return;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;

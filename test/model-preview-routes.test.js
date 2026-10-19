@@ -72,7 +72,7 @@ test('real IFC preview routes focus different indexed products and preserve sour
   assert.match(inspectorHtml, /data-model-plan/);
   assert.ok(inspectorHtml.includes(`data-model-element="${room.anchor.elementId}"`));
   assert.ok(inspectorHtml.includes(path.join(root, 'House.ifc')));
-  assert.match(inspectorHtml, /Share link <kbd>Tab<\/kbd>/);
+  assert.match(inspectorHtml, /Share Link <kbd>Tab<\/kbd>/);
   const document = await get(`/api/dependency-objects/${room.id}/document?version=${room.versionId}`);
   assert.equal(document.document.selected.guid, room.anchor.elementId);
 
