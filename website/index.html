@@ -76,7 +76,7 @@
       color-scheme: dark;
     }
     /* the app demos stay light, like screenshots of the app */
-    .card, .mac-screen, .isl, .phone, #kb {
+    .card, .mac-screen, .isl, .phone, #kb, .usb {
       --bg: #ffffff; --sand: #f5f3f1; --sand-2: #ebe8e4; --ink: #000000; --ink-2: rgba(0, 0, 0, .62); --ink-3: rgba(0, 0, 0, .42);
       --line: #e7e4e0; --line-2: #d9d5d0; --green-d: #1f9d55; --green-bg: #eafaf0; --blue: #3b6cf6; --blue-bg: #eef3ff;
       --orange: #e8590c; --orange-bg: #fff1e8; --pink-d: #c2255c; --pink-bg: #fdeef3; --surface: #ffffff;
@@ -371,6 +371,58 @@
   .krow.on { background: var(--surface); box-shadow: 0 0 0 1px var(--line), var(--shadow); }
   .krow.on kbd { background: var(--green); color: #fff; box-shadow: none; }
   .krow.star b::after { content: "most used"; margin-left: 8px; padding: 2px 7px; border-radius: 999px; background: var(--green-bg); color: var(--green-d); font-size: 11px; font-weight: 700; vertical-align: 1px; }
+
+  /* ---------- removable drives ---------- */
+  .usb { position: relative; width: 100%; max-width: 560px; aspect-ratio: 640 / 480; overflow: hidden; border-radius: 22px; }
+  .usb-stage { position: absolute; left: 0; top: 0; width: 640px; height: 480px; transform-origin: 0 0; }
+  .usb-world, .usb-top { position: absolute; left: 0; top: 0; width: 1280px; height: 960px; transform-origin: 0 0; }
+  .usb-world > svg, .usb-top > svg { position: absolute; left: 0; top: 0; width: 1280px; height: 960px; overflow: visible; }
+  .usb-screen { position: absolute; left: 300px; top: 180px; width: 680px; height: 440px; overflow: hidden; border-radius: 12px; font-family: var(--sans); color: #111; background: radial-gradient(80% 90% at 10% 0%, #fde3cc 0%, transparent 60%), radial-gradient(70% 80% at 100% 100%, #d8e4ff 0%, transparent 62%), #f1ece6; }
+  .usb-bar { display: flex; justify-content: space-between; align-items: center; height: 30px; padding: 0 14px; background: rgba(255, 255, 255, .6); font-size: 13px; font-weight: 500; }
+  .usb-bar .l, .usb-bar .r { display: flex; gap: 12px; align-items: center; }
+  .usb-bar .l b { font-weight: 700; }
+  .usb-bar .logo { width: 12px; height: 12px; border-radius: 4px; background: #000; }
+  .usb-bar .r > svg { width: 15px; height: 15px; display: block; }
+  .usb-ico { position: relative; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; transition: background .25s, color .25s; }
+  .usb-ico svg { width: 17px; height: 17px; display: block; }
+  .usb-ico i { position: absolute; inset: -5px; border-radius: 9px; box-shadow: 0 0 0 2px var(--green); opacity: 0; }
+  .usb-ico.lit { background: var(--green); color: #fff; }
+  .usb-drive { position: absolute; right: 26px; bottom: 26px; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; text-shadow: 0 1px 2px rgba(255, 255, 255, .8); transform-origin: 50% 70%; }
+  .usb-drive .dr { width: 54px; height: 40px; border-radius: 9px; background: linear-gradient(#fafafa, #dcdcdf); box-shadow: inset 0 -6px 0 #c3c3c7, 0 6px 14px rgba(0, 0, 0, .14); position: relative; }
+  .usb-drive .dr::after { content: ""; position: absolute; right: 9px; bottom: 11px; width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  .usb-card { position: absolute; right: 12px; top: 40px; width: 330px; height: 0; overflow: hidden; border-radius: 16px; background: rgba(255, 255, 255, .95); box-shadow: 0 0 0 1px rgba(0, 0, 0, .06), 0 18px 44px rgba(0, 0, 0, .2); transform-origin: 92% 0; opacity: 0; transform: translateY(-10px) scale(.94); transition: height .5s cubic-bezier(.3, 1.08, .4, 1), opacity .3s, transform .5s cubic-bezier(.3, 1.2, .4, 1); }
+  .usb-card.show { opacity: 1; transform: none; }
+  .usb-card .st { position: absolute; left: 0; right: 0; top: 0; padding: 14px 16px 16px; opacity: 0; transform: translateY(6px); transition: opacity .25s, transform .35s; pointer-events: none; }
+  .usb-card .st.on { opacity: 1; transform: none; transition: opacity .35s .12s, transform .45s .12s; }
+  .usb-card .uh { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: rgba(0, 0, 0, .55); }
+  .usb-card .uh svg { width: 16px; height: 16px; color: var(--green); }
+  .usb-card .uh small { margin-left: auto; font-size: 11px; font-weight: 500; color: rgba(0, 0, 0, .38); }
+  .usb-card .ut { display: block; margin-top: 8px; font-size: 15.5px; font-weight: 700; letter-spacing: -.01em; }
+  .usb-card .us { margin-top: 3px; font-size: 12.5px; color: rgba(0, 0, 0, .5); }
+  .usb-card .up { margin: 8px 0 0; font-size: 13px; line-height: 1.45; color: rgba(0, 0, 0, .7); }
+  .usb-card .ubt { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .ub { padding: 7px 13px; border-radius: 999px; background: rgba(0, 0, 0, .06); font-size: 12.5px; font-weight: 600; white-space: nowrap; transition: transform .12s, background .2s, opacity .2s; }
+  .ub.go { background: var(--green); color: #04210f; }
+  .ub.press { transform: scale(.92); }
+  .ub.off { opacity: .45; }
+  .ufl { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
+  .uf { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 9px; font-size: 13px; font-weight: 500; transition: background .25s; }
+  .uf small { margin-left: auto; font-size: 11.5px; color: rgba(0, 0, 0, .4); }
+  .uf .cb { width: 16px; height: 16px; flex: none; border-radius: 5px; box-shadow: inset 0 0 0 1.5px rgba(0, 0, 0, .22); background: #fff center/12px no-repeat; transition: background-color .2s, box-shadow .2s; }
+  .uf .fo { width: 18px; height: 14px; flex: none; border-radius: 3px; background: #5aa9f5; box-shadow: inset 0 3px 0 #7cc0ff; }
+  .uf.on { background: var(--green-bg); }
+  .uf.on .cb { background-color: var(--green); box-shadow: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.4l2.6 2.6L12 5.4' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+  .ubar { height: 8px; margin-top: 12px; border-radius: 4px; background: rgba(0, 0, 0, .08); overflow: hidden; }
+  .ubar i { display: block; height: 100%; width: 0; border-radius: 4px; background: var(--green); }
+  .uwd { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
+  .uwd div { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 9px; font-size: 13px; font-weight: 500; }
+  .uwd div .fo { width: 18px; height: 14px; border-radius: 3px; background: #5aa9f5; box-shadow: inset 0 3px 0 #7cc0ff; }
+  .uwd div .hd { width: 18px; height: 14px; border-radius: 4px; background: linear-gradient(#fafafa, #d6d6da); box-shadow: inset 0 -3px 0 #bdbdc2; }
+  .uwd .new { background: var(--green-bg); }
+  .uwd .new b { margin-left: auto; font-size: 11px; color: var(--green-d); }
+  .usb-card .st.on .uwd .new { animation: lin .5s cubic-bezier(.3, 1.2, .4, 1) both; }
+  .usb-card .st.on .uwd .new + .new { animation-delay: .15s; }
+  .usb-cursor { position: absolute; left: 0; top: 0; width: 18px; height: 24px; z-index: 9; transform-origin: 2px 2px; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .3)); pointer-events: none; }
   @media (max-width: 1020px) { .kb-grid { grid-template-columns: 1fr; } }
   /* ---------- MacBook + mock OS ---------- */
   .lasso-scene { position: relative; }
@@ -860,6 +912,19 @@
         </div>
       </div>
       <div class="panel lav reveal" style="padding:28px"><svg class="kb-svg" id="kb" viewBox="0 0 800 560" role="img" aria-label="Overhead view of a keyboard with a translucent hand pressing the Lasso shortcuts"></svg></div>
+    </div>
+    <div class="feature" id="drives">
+      <div class="f-text reveal">
+        <span class="kicker dev">In development · USB drives</span>
+        <h2>Plug in a drive. Lasso asks first.</h2>
+        <p class="lead">Connect any USB drive and the Lasso icon in your menu bar lights up. <b>Index the whole drive or only the folders you choose</b>, and it joins your working directories. When you unplug it, Lasso asks whether to keep the index or remove it.</p>
+        <ul class="bullets">
+          <li>Works with any USB storage, USB-A or USB-C</li>
+          <li>Index everything, or pick specific folders</li>
+          <li>Unplugged drives keep their index only if you say so</li>
+        </ul>
+      </div>
+      <div class="panel green reveal" style="padding:28px"><div class="usb" id="usb" role="img" aria-label="Animation: a hand plugs a USB drive into a laptop, Lasso offers to index it, and asks what to do with the index when the drive is removed"><div class="usb-stage"></div></div></div>
     </div>
   </div>
 </section>
@@ -2218,6 +2283,164 @@
       fx.innerHTML = ripples.map(r => { const p = (now - r.t) / 700; return `<circle cx="${r.x}" cy="${r.y}" r="${f1(14 + 34 * p)}" fill="none" stroke="#29cc57" stroke-width="2" opacity="${f1((1 - p) * 100) / 100}"/>`; }).join('');
     });
     play(0);
+  })();
+
+  /* ================= removable drives: plug in, choose folders, index, unplug ================= */
+  (() => {
+    const box = $('#usb'); if (!box) return;
+    const stage = $('.usb-stage', box);
+    new ResizeObserver(() => { stage.style.transform = `scale(${box.clientWidth / 640})`; }).observe(box);
+    const PORT = { x: 240, y: 470 }; // halfway back along the left side, seen from above
+    // the laptop, front on, in world units; only its screen is shown, close up
+    let lap = '<defs><filter id="usbBlur" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="9"/></filter>'
+      + '<linearGradient id="usbDeck" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f3f2ef"/><stop offset="1" stop-color="#dedcd7"/></linearGradient>'
+      + '<linearGradient id="usbBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a3d42"/><stop offset=".5" stop-color="#25282c"/><stop offset="1" stop-color="#16181b"/></linearGradient></defs>';
+    lap += '<ellipse cx="640" cy="812" rx="480" ry="22" fill="rgba(0,0,0,.16)" filter="url(#usbBlur)"/>';
+    lap += '<rect x="280" y="160" width="720" height="480" rx="30" fill="#1b1b1d"/><rect x="281.5" y="161.5" width="717" height="477" rx="28.5" fill="none" stroke="#3b3b3e" stroke-width="3"/><circle cx="640" cy="170" r="3" fill="#333"/>';
+    lap += '<path d="M280 640H1000L1090 770H190Z" fill="url(#usbDeck)"/><path d="M286 642H994" stroke="rgba(0,0,0,.12)" stroke-width="3"/>';
+    for (let r = 0; r < 5; r++) {
+      const y = 654 + r * 19, u = (y - 640) / 130, x0 = lerp(280, 190, u) + 64, x1 = lerp(1000, 1090, u) - 64, n = 14, kw = (x1 - x0) / n;
+      for (let k = 0; k < n; k++) lap += `<rect x="${f1(x0 + k * kw + 2)}" y="${y}" width="${f1(kw - 4)}" height="14" rx="3" fill="#fbfbfa" stroke="rgba(0,0,0,.08)"/>`;
+    }
+    lap += '<rect x="545" y="749" width="190" height="16" rx="5" fill="#e9e7e3" stroke="rgba(0,0,0,.08)"/>';
+    lap += '<rect x="190" y="770" width="900" height="28" rx="9" fill="#d3d1cc"/><rect x="600" y="770" width="80" height="6" rx="3" fill="#bdbbb6"/>';
+    // the left side of the base, receding into the scene, with the port halfway along it
+    lap += '<path d="M280 640L190 770L190 797Q190 798 191 797L280 663Z" fill="#c4c2bd"/><path d="M280 640L190 770" stroke="rgba(255,255,255,.55)" stroke-width="2"/>';
+    lap += '<path d="M242 696.5L224 722.5L224 731.5L242 705.5Z" fill="#2e2e30"/><path d="M241 698L226 720" stroke="rgba(255,255,255,.18)" stroke-width="1.5"/>';
+    // the same laptop from directly overhead: the open lid is a thin band at the back, the drive goes in on the left
+    let topA = '<rect x="254" y="268" width="800" height="540" rx="42" fill="rgba(0,0,0,.18)" filter="url(#usbBlur)"/>'
+      + '<rect x="250" y="146" width="780" height="96" rx="26" fill="#1b1b1d"/><rect x="266" y="160" width="748" height="66" rx="12" fill="url(#usbLid)"/>'
+      + '<rect x="300" y="238" width="680" height="16" rx="7" fill="#b9b7b2"/>';
+    let topB = '<rect x="240" y="250" width="800" height="540" rx="42" fill="url(#usbTop)"/><rect x="241.5" y="251.5" width="797" height="537" rx="40.5" fill="none" stroke="rgba(0,0,0,.08)" stroke-width="3"/>'
+      + '<rect x="296" y="288" width="688" height="296" rx="18" fill="#e3e1dc"/>';
+    for (let r = 0; r < 6; r++) {
+      const y = 300 + r * 46, h = r ? 38 : 26;
+      const units = r === 5 ? [1, 1, 1, 1.3, 5.4, 1.3, 1, 1, 1] : Array(14).fill(1), tot = units.reduce((a, b) => a + b, 0), U = 664 / tot;
+      let x = 308;
+      for (const w of units) { topB += `<rect x="${f1(x + 2)}" y="${y + 2}" width="${f1(w * U - 6)}" height="${h}" rx="7" fill="rgba(0,0,0,.1)"/><rect x="${f1(x + 2)}" y="${y}" width="${f1(w * U - 6)}" height="${h}" rx="7" fill="#fdfdfc"/>`; x += w * U; }
+    }
+    topB += '<rect x="520" y="604" width="240" height="160" rx="18" fill="#eceae6" stroke="rgba(0,0,0,.07)" stroke-width="2"/>';
+    topB += `<rect x="${PORT.x - 3}" y="${PORT.y - 17}" width="7" height="34" rx="3" fill="#2e2e30"/>`;
+    lap = lap.replace('</defs>', '<linearGradient id="usbTop" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f4f3f0"/><stop offset="1" stop-color="#e2e0db"/></linearGradient>'
+      + '<linearGradient id="usbLid" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e9e3da"/><stop offset="1" stop-color="#f5efe7"/></linearGradient>'
+      + '<linearGradient id="usbBodyTop" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3d4045"/><stop offset=".55" stop-color="#26292d"/><stop offset="1" stop-color="#17191c"/></linearGradient></defs>');
+    stage.innerHTML = `<div class="usb-top"><svg viewBox="0 0 1280 960">${topA}<g class="usb-stick"></g>${topB}<g class="usb-hand"></g><g class="usb-rip"></g></svg></div>
+      <div class="usb-world"><svg viewBox="0 0 1280 960">${lap}</svg>
+      <div class="usb-screen">
+        <div class="usb-bar"><div class="l"><span class="logo"></span><b>Finder</b><span>File</span><span>Edit</span><span>View</span></div><div class="r"><span class="usb-ico"><i></i><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg></span>${WIFI}<span>10:42</span></div></div>
+        <div class="usb-drive"><span class="dr"></span>ARCHIVE</div>
+        <div class="usb-card">
+          <div class="st" data-st="conn"><div class="uh"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>Lasso<small>now</small></div><b class="ut">USB drive connected</b><div class="us">ARCHIVE · 64 GB · 1,204 files</div><p class="up">Index it so Lasso can find what’s inside?</p><div class="ubt"><span class="ub" data-b="choose">Choose folders</span><span class="ub go">Index all</span></div></div>
+          <div class="st" data-st="pick"><div class="uh"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>ARCHIVE<small>64 GB</small></div><b class="ut">Choose folders to index</b><div class="ufl"><div class="uf" data-f="q4"><i class="cb"></i><span class="fo"></span>Q4 Campaign<small>214 files</small></div><div class="uf" data-f="ct"><i class="cb"></i><span class="fo"></span>Contracts<small>86 files</small></div><div class="uf"><i class="cb"></i><span class="fo"></span>Photos<small>702 files</small></div><div class="uf"><i class="cb"></i><span class="fo"></span>Old backups<small>202 files</small></div></div><div class="ubt"><span class="ub">Cancel</span><span class="ub go off" data-b="index">Index folders</span></div></div>
+          <div class="st" data-st="prog"><div class="uh"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>ARCHIVE<small>indexing</small></div><b class="ut">Indexing 2 folders</b><div class="ubar"><i></i></div><div class="us"><span class="n">0</span> of 300 files · read on this Mac</div></div>
+          <div class="st" data-st="done"><div class="uh"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>Lasso<small>done</small></div><b class="ut">Added to your working directories</b><div class="uwd"><div><span class="fo"></span>Documents</div><div><span class="fo"></span>Desktop</div><div class="new"><span class="hd"></span>ARCHIVE / Q4 Campaign<b>new</b></div><div class="new"><span class="hd"></span>ARCHIVE / Contracts<b>new</b></div></div></div>
+          <div class="st" data-st="gone"><div class="uh"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>Lasso<small>now</small></div><b class="ut">ARCHIVE was removed</b><p class="up">Keep its index? You can still search it, and files open again when you plug it back in.</p><div class="ubt"><span class="ub">Remove index</span><span class="ub go" data-b="keep">Keep index</span></div></div>
+          <div class="st" data-st="kept"><div class="uh"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>Lasso<small>now</small></div><b class="ut">Index kept</b><div class="us">ARCHIVE · 2 folders · offline until reconnected</div></div>
+        </div>
+        <svg class="usb-cursor" viewBox="0 0 18 24"><path d="M2 2v17l4.4-4.2 3.2 6.9 2.9-1.3-3.2-6.8H15z" fill="#111" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      </div>
+    </div>`;
+    const top = $('.usb-top', stage), world = $('.usb-world', stage), screen = $('.usb-screen', stage), card = $('.usb-card', stage), ico = $('.usb-ico', stage), ring = $('.usb-ico i', stage);
+    const drive = $('.usb-drive', stage), cursor = $('.usb-cursor', stage), stickG = $('.usb-stick', stage), handG = $('.usb-hand', stage), ripG = $('.usb-rip', stage);
+    const blocks = Object.fromEntries($$('.st', card).map(b => [b.dataset.st, b]));
+    const bar = $('[data-st="prog"] .ubar i', card), num = $('[data-st="prog"] .n', card), idxBtn = $('[data-b="index"]', card);
+    const rows = { q4: $('[data-f="q4"]', card), ct: $('[data-f="ct"]', card) };
+    // where an element sits on the screen (offsets ignore the zoom transform)
+    const at = (el) => { let x = el.offsetWidth / 2, y = el.offsetHeight / 2; while (el && el !== screen) { x += el.offsetLeft; y += el.offsetTop; el = el.offsetParent; } return { x, y }; };
+    const ramp = (t, a, b) => clamp((t - a) / (b - a), 0, 1);
+
+    // a translucent hand holding the drive from the left, drawn the same way as the hand on the keyboard
+    const handShapes = (A, add, fill) => {
+      const a = add / 2, st = (x1, y1, x2, y2, w) => `<path d="M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}" stroke="${fill}" stroke-width="${w + add}" stroke-linecap="round"/>`;
+      return `<rect x="${f1(A.x - 176 - a)}" y="${f1(A.y + 4 - a)}" width="${150 + add}" height="${124 + add}" rx="${54 + a}" fill="${fill}"/>`
+        + st(A.x - 120, A.y + 92, A.x - 340, A.y + 250, 112) + st(A.x - 126, A.y + 8, A.x + 6, A.y - 24, 30) + st(A.x - 116, A.y + 52, A.x - 8, A.y + 24, 32)
+        + st(A.x - 136, A.y + 74, A.x - 40, A.y + 64, 31) + st(A.x - 146, A.y + 100, A.x - 72, A.y + 96, 29);
+    };
+    const handSvg = (A, o) => `<g opacity="${f1(o * 100) / 100}"><g transform="translate(14 18)" filter="url(#usbBlur)" opacity=".14">${handShapes(A, 0, '#000')}</g><g opacity=".2">${handShapes(A, 3, '#2f343b')}</g><g opacity=".55">${handShapes(A, 0, '#f8f9fb')}</g>`
+      + `<g opacity=".55"><ellipse cx="${f1(A.x - 2)}" cy="${f1(A.y - 21)}" rx="8" ry="10" transform="rotate(-76 ${f1(A.x - 2)} ${f1(A.y - 21)})" fill="#fff"/><ellipse cx="${f1(A.x - 16)}" cy="${f1(A.y + 25)}" rx="8" ry="10" transform="rotate(-70 ${f1(A.x - 16)} ${f1(A.y + 25)})" fill="#fff"/></g></g>`;
+    const stickSvg = (x, y, led) => `<rect x="${f1(x - 44)}" y="${f1(y - 12)}" width="46" height="24" rx="3" fill="#c9ccd1" stroke="#9ea2a8" stroke-width="1.5"/><rect x="${f1(x - 206)}" y="${f1(y - 28)}" width="166" height="56" rx="17" fill="url(#usbBodyTop)"/>`
+      + `<rect x="${f1(x - 194)}" y="${f1(y - 21)}" width="140" height="6" rx="3" fill="rgba(255,255,255,.16)"/><circle cx="${f1(x - 186)}" cy="${f1(y + 8)}" r="5" fill="${led ? '#29cc57' : '#4a4d52'}"/>`
+      + (led ? `<circle cx="${f1(x - 186)}" cy="${f1(y + 8)}" r="12" fill="#29cc57" opacity=".25"/>` : '');
+
+    // one 17-second loop, computed from time so it scrubs smoothly
+    const L = 17000;
+    // overhead camera: the whole laptop, a push in on the port as the drive goes in, then a glide toward the lid
+    // while the view dissolves into the screen; the same in reverse to unplug
+    const LAPTOP = [.5, 640, 500], PORTV = [.86, 380, 470], LID = [1.7, 640, 200], SCREEN = [.941, 640, 400];
+    const CAM = [[0, ...LAPTOP], [600, ...LAPTOP], [1800, ...PORTV], [2700, ...PORTV], [3700, ...LID], [10500, ...LID], [11250, ...PORTV], [12700, ...PORTV], [13700, ...LID], [17000, ...LID]];
+    const STATES = [[4300, 'conn'], [5950, 'pick'], [7500, 'prog'], [8900, 'done'], [10300, null], [13400, 'gone'], [15300, 'kept'], [16200, null]];
+    const CLICKS = [5800, 6450, 6850, 7350, 15100];
+    let cur = 'x';
+    function setState(s) {
+      if (s === cur) return; cur = s;
+      Object.entries(blocks).forEach(([k, b]) => b.classList.toggle('on', k === s));
+      card.classList.toggle('show', !!s);
+      if (s) card.style.height = blocks[s].offsetHeight + 'px';
+    }
+    function render(t) {
+      // camera: overview of the laptop, into the screen, back out to unplug, and in again
+      let k = 0; while (k < CAM.length - 2 && CAM[k + 1][0] <= t) k++;
+      const [ta, sa, xa, ya] = CAM[k], [tb, sb, xb, yb] = CAM[k + 1], u = easeInOut(ramp(t, ta, tb));
+      const s = Math.exp(lerp(Math.log(sa), Math.log(sb), u)), cx = lerp(xa, xb, u), cy = lerp(ya, yb, u);
+      top.style.transform = `translate(${f1(320 - s * cx)}px, ${f1(240 - s * cy)}px) scale(${s.toFixed(4)})`;
+      // the two views hand over with a focus pull: overhead blurs out as the screen sharpens in, and back
+      const scr = clamp(easeInOut(ramp(t, 3050, 3800)) - easeInOut(ramp(t, 10500, 11050)) + easeInOut(ramp(t, 13050, 13800)), 0, 1);
+      const ov = clamp(1 - easeInOut(ramp(t, 2900, 3500)) + easeInOut(ramp(t, 10380, 10880)) - easeInOut(ramp(t, 12900, 13500)), 0, 1);
+      top.style.opacity = f1(Math.min(1, ov * 2) * 100) / 100; top.style.filter = ov < .99 ? `blur(${f1((1 - ov) * 14)}px)` : '';
+      const ks = lerp(1.07, 1, scr), ss = SCREEN[0] * ks;
+      world.style.transform = `translate(${f1(320 - ss * SCREEN[1])}px, ${f1(240 - ss * SCREEN[2])}px) scale(${ss.toFixed(4)})`;
+      world.style.opacity = f1(Math.min(1, scr * 2.2) * 100) / 100; world.style.filter = scr < .99 ? `blur(${f1((1 - scr) * 14)}px)` : '';
+      stage.style.opacity = f1(Math.min(ramp(t, 0, 400), 1 - ramp(t, 16400, 17000)) * 100) / 100;
+      // the drive: slides in, clicks home, stays, comes out
+      const IN = PORT.x + 44, NEAR = PORT.x + 6, OFF = -380; // tip positions: fully home, just touching, out of view
+      const tin = easeOut(ramp(t, 400, 2000)), push = easeInOut(ramp(t, 2000, 2300)), out1 = easeInOut(ramp(t, 11700, 11950)), out2 = easeInOut(ramp(t, 11950, 12800));
+      let sx = t < 11700 ? lerp(lerp(OFF, NEAR, tin), IN, push) : lerp(lerp(IN, NEAR, out1), OFF, out2);
+      const plugged = t >= 2300 && t < 11760;
+      stickG.innerHTML = sx > OFF + 20 ? stickSvg(sx, PORT.y, plugged) : '';
+      // the hand: carries it in, lets go, comes back for it
+      const A = { x: sx - 120, y: PORT.y };
+      let ho = 0, hx = A.x, hy = A.y;
+      if (t > 400 && t < 2900) { ho = Math.min(1, ramp(t, 400, 800)) * (1 - ramp(t, 2450, 2900)); const r = easeInOut(ramp(t, 2400, 2900)); hx -= 260 * r; hy += 80 * r; }
+      if (t > 11100 && t < 13000) { const c = easeOut(ramp(t, 11100, 11650)); ho = Math.min(1, ramp(t, 11100, 11400)) * (1 - ramp(t, 12600, 13000)); hx -= 260 * (1 - c); hy += 80 * (1 - c); }
+      handG.innerHTML = ho > .01 ? handSvg({ x: hx, y: hy }, ho) : '';
+      // a ripple where it connects and disconnects
+      ripG.innerHTML = [2300, 11720].map(r0 => { const p = ramp(t, r0, r0 + 700); return p > 0 && p < 1 ? `<circle cx="${PORT.x}" cy="${PORT.y}" r="${f1(16 + 60 * p)}" fill="none" stroke="#29cc57" stroke-width="4" opacity="${f1((1 - p) * 100) / 100}"/>` : ''; }).join('');
+      // the screen: the drive appears on the desktop, the menu bar icon blinks
+      const dv = clamp(ramp(t, 2350, 2700) * (1 - ramp(t, 11760, 12000)), 0, 1);
+      drive.style.opacity = dv; drive.style.transform = `scale(${f1((.6 + .4 * easeOut(dv)) * 100) / 100})`;
+      const blinking = (t > 2400 && t < 4400) || (t > 11800 && t < 13500);
+      ico.classList.toggle('lit', blinking && Math.floor(t / 260) % 2 === 0);
+      const rp = (t % 900) / 900; ring.style.opacity = blinking ? f1((1 - rp) * 90) / 100 : 0; ring.style.transform = `scale(${f1((1 + rp * .8) * 100) / 100})`;
+      // the notification
+      let st = null; for (const [a, k] of STATES) if (t >= a) st = k;
+      setState(st);
+      rows.q4.classList.toggle('on', t >= 6450); rows.ct.classList.toggle('on', t >= 6850);
+      const n = (t >= 6450) + (t >= 6850);
+      idxBtn.textContent = n ? `Index ${n} folder${n > 1 ? 's' : ''}` : 'Index folders'; idxBtn.classList.toggle('off', !n);
+      const pg = easeInOut(ramp(t, 7600, 8800)); bar.style.width = (pg * 100).toFixed(1) + '%'; num.textContent = Math.round(pg * 300);
+      $$('.ub', card).forEach(b => b.classList.remove('press'));
+      const pressed = CLICKS.find(c => t >= c && t < c + 160);
+      if (pressed) { const key = { 5800: 'choose', 7350: 'index', 15100: 'keep' }[pressed]; if (key) $(`[data-b="${key}"]`, card).classList.add('press'); }
+      // the cursor glides between targets measured from the card itself
+      const P = [[5000, { x: 590, y: 400 }], [5700, at($('[data-b="choose"]', card))], [6380, at(rows.q4)], [6780, at(rows.ct)], [7260, at(idxBtn)], [8100, { x: 560, y: 390 }],
+        [14000, { x: 600, y: 420 }], [15000, at($('[data-b="keep"]', card))], [15900, { x: 580, y: 400 }]];
+      const show = (t > 4900 && t < 10300) || (t > 13900 && t < 16300);
+      cursor.style.opacity = show ? 1 : 0;
+      if (show) {
+        let i = 0; while (i < P.length - 2 && P[i + 1][0] <= t) i++;
+        const [ta, a] = P[i], [tb, b] = P[i + 1], u = easeInOut(ramp(t, ta, Math.max(ta + 1, tb - 100)));
+        const press = CLICKS.some(c => t >= c - 40 && t < c + 120) ? .82 : 1;
+        cursor.style.transform = `translate(${f1(lerp(a.x, b.x, u) - 2)}px, ${f1(lerp(a.y, b.y, u) - 2)}px) scale(${press})`;
+      }
+    }
+    if (reduced) { render(9400); return; }
+    let vis = false, acc = 0, last = 0;
+    new IntersectionObserver(([en]) => { vis = en.isIntersecting; }, { rootMargin: '100px 0px' }).observe(box);
+    ticks.add((now) => {
+      if (!vis || document.hidden) { last = now; return; }
+      acc += Math.min(50, now - (last || now)); last = now;
+      render(acc % L);
+    });
   })();
 
   /* ================= lasso-in: a character drags a demo card into view ================= */
