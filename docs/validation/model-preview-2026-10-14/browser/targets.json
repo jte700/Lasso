@@ -1,6 +1,0 @@
-[
-  {"role":"room","objectId":"ef247915-38e4-4e37-ac5e-01731aee5e32","entityType":"IFCSPACE"},
-  {"role":"door","objectId":"6bb60c63-981c-486e-806a-e50795aef1c4","entityType":"IFCDOOR"},
-  {"role":"wall","objectId":"4661ccd2-2eb7-4929-8103-ea64b29f7f7d","entityType":"IFCWALLSTANDARDCASE"},
-  {"role":"window","objectId":"72a9de20-94f5-4944-a130-eff2f8dda61c","entityType":"IFCWINDOW"}
-]
