@@ -2478,12 +2478,6 @@ async function openDependencySharing(dependency, alternativesOpen = false) {
   }
 }
 
-function shareExpiryValue(value) {
-  if (value === 'never') return null;
-  const days = Number(value) || 7;
-  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-}
-
 function absoluteShareUrl(grant) {
   return new URL(grant.url, window.location.origin).href;
 }
@@ -2505,7 +2499,7 @@ function renderDependencySharing(dependency, sharing, selectedScope = 'CONTEXT',
     <button class="share-choice selected" data-current-share-scope="${selectedScope}"><span><b>${escapeHtml(selected.label)}</b><small>${escapeHtml(selected.description)}</small></span><em>${escapeHtml(selected.badge)}</em></button>
     <button class="share-alternatives-toggle" id="share-alternatives-toggle" aria-expanded="${alternativesOpen}"><span>${alternativesOpen ? 'Hide' : 'Show'} other access options</span><i>${alternativesOpen ? '⌃' : '⌄'}</i></button>
     <div class="share-alternatives" ${alternativesOpen ? '' : 'hidden'}>${alternatives.map(([scope, choice]) => `<button class="share-choice" data-share-scope="${scope}"><span><b>${escapeHtml(choice.label)}</b><small>${escapeHtml(choice.description)}</small></span><em>${escapeHtml(choice.badge)}</em></button>`).join('')}</div>
-    ${selectedScope === 'PRIVATE' ? '' : `<div class="share-fields"><label>Recipient or group <input id="share-recipient" placeholder="Optional, for example Review team"></label><label>Link expires <select id="share-expiry"><option value="7">In 7 days</option><option value="30">In 30 days</option><option value="never">Never</option></select></label></div>`}
+    ${selectedScope === 'PRIVATE' ? '' : `<div class="share-fields"><label>Recipient or group <input id="share-recipient" placeholder="Optional, for example Review team"></label><label>Link expires <output id="share-expiry">In 48 hours</output></label></div>`}
     <div class="share-privacy-note"><strong>${selectedScope === 'FULL' ? 'Full-source disclosure' : selectedScope === 'PRIVATE' ? 'Private by default' : 'Minimum necessary context'}</strong><span>${selectedScope === 'FULL' ? 'This can reveal unrelated rows or passages in the indexed source.' : selectedScope === 'PRIVATE' ? 'No source content is available through a recipient link.' : 'Only the cited evidence and enough surrounding context to interpret it are disclosed.'}</span></div>
     <button class="share-primary" id="apply-share-scope">${selectedScope === 'PRIVATE' ? 'Revoke source access' : `Create ${selectedScope === 'CONTEXT' ? 'context' : 'full-source'} link`}</button>
     ${sharing.grants.length ? `<div class="share-grants"><span class="eyebrow">Active links</span>${sharing.grants.map(renderShareGrant).join('')}</div>` : '<p class="no-share-grants">No active source links. The dependency is private.</p>'}
@@ -2522,7 +2516,6 @@ function renderDependencySharing(dependency, sharing, selectedScope = 'CONTEXT',
           scope: selectedScope,
           recipientLabel: document.getElementById('share-recipient')?.value ?? '',
           contextRadius: 1,
-          expiresAt: shareExpiryValue(document.getElementById('share-expiry')?.value),
           actor: state.identity,
         }),
       });

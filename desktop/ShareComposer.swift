@@ -856,6 +856,8 @@ final class ShareComposerView: NSView {
 
     private let headerHeight: CGFloat = 42
     private let footerHeight: CGFloat = 68
+    // The server ends every share link 48 hours after it is created.
+    private static let linkLifetimeNote = "Link expires in 48 hours."
     private static let blurContext = CIContext(options: [.cacheIntermediates: false])
     private var blurredMasks: [String: NSImage] = [:]
 
@@ -1720,11 +1722,15 @@ final class ShareComposerView: NSView {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .paragraphStyle: paragraph]
-        let height = min(44, ceil((message as NSString).boundingRect(
-            with: NSSize(width: textWidth, height: 44), options: [.usesLineFragmentOrigin, .usesFontLeading],
+        let height = min(30, ceil((message as NSString).boundingRect(
+            with: NSSize(width: textWidth, height: 30), options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: attributes).height))
-        drawText(message, in: NSRect(x: 42, y: centerY - height / 2, width: textWidth, height: height),
+        let noteHeight: CGFloat = 14
+        let top = centerY - (height + 2 + noteHeight) / 2
+        drawText(message, in: NSRect(x: 42, y: top, width: textWidth, height: height),
                  font: font, color: notice == nil ? .secondaryLabelColor : .systemRed, wrap: true)
+        drawText(Self.linkLifetimeNote, in: NSRect(x: 42, y: top + height + 2, width: textWidth, height: noteHeight),
+                 font: .systemFont(ofSize: 10.5), color: .secondaryLabelColor)
 
         drawButton(copyState == .copied ? "Done" : "Cancel", in: cancelButtonRect, prominent: false, enabled: true)
         let enabled = canSubmit

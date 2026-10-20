@@ -197,7 +197,7 @@ kbd{ padding: 1px 3px; border: 1px solid #bbb; border-bottom-width: 2px; backgro
 .share-fields{ display: grid; grid-template-columns: 1fr 102px; gap: 7px; padding: 9px 10px 0; }
 .share-fields label{ color: #555; font-size: 7px; font-weight: 650; }
 .share-fields input,
-.share-fields select{ width: 100%; height: 27px; margin-top: 3px; padding: 0 6px; border: 1px solid #aaa; background: white; font-size: 7px; }
+.share-fields output{ display: flex; align-items: center; width: 100%; height: 27px; margin-top: 3px; padding: 0 6px; border: 1px solid #aaa; background: white; font-size: 7px; }
 .share-privacy-note{ margin: 9px 10px; padding: 7px 8px; border-left: 3px solid #6f8980; background: #f3f5f4; }
 .share-privacy-note strong,
 .share-privacy-note span{ display: block; }
@@ -1327,7 +1327,7 @@ b){ color: var(--t-cyan); }
 .share-alternatives-toggle{ padding: 0 1ch; background: transparent; color: var(--t-muted); }
 .share-fields label{ color: var(--t-faint); }
 .share-fields input,
-.share-fields select{ background: #0f1215; color: var(--t-text); font-size: 13px; }
+.share-fields output{ background: #0f1215; color: var(--t-text); font-size: 13px; }
 .share-privacy-note{ padding-left: 2ch; background: transparent; }
 .share-privacy-note strong{ color: var(--t-green); }
 .share-privacy-note span{ color: var(--t-muted); }

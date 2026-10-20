@@ -3738,7 +3738,7 @@ export class PredictiveProvenanceService {
     const contextRadius = Number.isFinite(parsedRadius)
       ? Math.max(0, Math.min(5, parsedRadius))
       : 1;
-    const expiresAt = shareExpiry(input.expiresAt);
+    const expiresAt = shareExpiry(input.expiresAt, new Date(timestamp));
     this.db.prepare(`
       INSERT INTO dependency_share_grants(
         id, dependency_id, token, access_scope, recipient_label, context_radius,

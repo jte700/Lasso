@@ -83,6 +83,13 @@ test('externally shared dependencies', async (suite) => {
     assert.ok(application.db.prepare('SELECT revoked_at FROM object_share_grants WHERE token = ?').get(share.token).revoked_at);
   });
 
+  await suite.test('a new link stops working 48 hours after it is made', () => {
+    const share = shares.createShare({ projectId: project.id, objectId: object.object_id, versionId: object.version_id, actor: maya });
+    const grant = application.db.prepare('SELECT created_at, expires_at FROM object_share_grants WHERE token = ?').get(share.token);
+    assert.equal(Date.parse(grant.expires_at) - Date.parse(grant.created_at), 48 * 60 * 60 * 1000);
+    assert.equal(share.expiresAt, grant.expires_at);
+  });
+
   await suite.test('an expired token cannot reach the source', () => {
     const share = shares.createShare({
       projectId: project.id, objectId: object.object_id, versionId: object.version_id,

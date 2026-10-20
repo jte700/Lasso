@@ -18,6 +18,9 @@ namespace Lasso.Windows.Assist;
 
 internal sealed class ShareComposerWindow : Window
 {
+    // The server ends every share link 48 hours after it is created.
+    private const string LinkLifetimeNote = "Link expires in 48 hours.";
+
     private readonly TextBlock _subtitle = new();
     private readonly TextBlock _badge = new();
     private readonly TextBlock _reach = new();
@@ -161,12 +164,23 @@ internal sealed class ShareComposerWindow : Window
         layout.Children.Add(_previewHost);
 
         // Footer
-        var footer = new StackPanel
+        var footer = new Grid { Margin = new Thickness(0, 14, 0, 0) };
+        footer.ColumnDefinitions.Add(new ColumnDefinition());
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var lifetime = new TextBlock
         {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 14, 0, 0),
+            Text = LinkLifetimeNote,
+            FontSize = 12,
+            Opacity = 0.72,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 12, 0),
         };
+        Grid.SetColumn(lifetime, 0);
+        footer.Children.Add(lifetime);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal };
+        Grid.SetColumn(buttons, 1);
+        footer.Children.Add(buttons);
         var cancel = new Button
         {
             Content = "Cancel",
@@ -184,8 +198,8 @@ internal sealed class ShareComposerWindow : Window
             _result = new ShareConfiguration(_scope, _masks.Values.ToList());
             Close();
         };
-        footer.Children.Add(cancel);
-        footer.Children.Add(_action);
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(_action);
         Grid.SetRow(footer, 4);
         layout.Children.Add(footer);
 

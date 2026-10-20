@@ -88,7 +88,7 @@ Typing predictions use a bounded window before the caret and the local loopback 
 
 ### Sharing
 
-The privacy composer offers **entire document**, **indexed part only**, and **selectively redacted view**. Only whole-document shares permit downloading the original. Every token pins an immutable source version and can be revoked through the share tools or `POST /api/object-shares/:token/revoke`.
+The privacy composer offers **entire document**, **indexed part only**, and **selectively redacted view**. Only whole-document shares permit downloading the original. Every token pins an immutable source version and can be revoked through the share tools or `POST /api/object-shares/:token/revoke`. Every share link stops working 48 hours after it is created; a request may choose an earlier `expiresAt`, never a later one.
 
 PDFs support **Select text** for words, sentences and paragraphs, and **Mark area** for drawings or other page regions. Excerpt previews and downloads contain only the selected regions. Redacted PDFs keep the page layout and remove hidden content from a newly rendered copy. Existing PDF imports automatically gain sentence and paragraph suggestions without reimporting.
 

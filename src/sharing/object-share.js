@@ -118,11 +118,12 @@ export class ObjectShareService {
     this.timeline.upsertActor(normalizedActor);
 
     const token = ObjectShareService.generateToken();
+    const createdAt = now();
     const record = {
       id: crypto.randomUUID(),
       token,
-      createdAt: now(),
-      expiresAt: shareExpiry(expiresAt),
+      createdAt,
+      expiresAt: shareExpiry(expiresAt, new Date(createdAt)),
     };
     this.db.prepare(`
       INSERT INTO object_share_grants(
