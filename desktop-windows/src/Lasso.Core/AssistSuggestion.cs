@@ -225,6 +225,13 @@ public static class PredictionParser
             (anchor is { } a ? JsonReading.Int(a, key) : null)
             ?? (metadata is { } m ? JsonReading.Int(m, key) : null);
 
+        // Equal CAD values ("10 mm") are told apart by the feature they measure.
+        if (anchor is { } cad && JsonReading.String(cad, "kind") == "cad-property"
+            && (JsonReading.String(cad, "label") ?? JsonReading.String(element, "label")) is { } label)
+        {
+            return CadFeature(label, FromEither("entityName"));
+        }
+
         var sheet = FromEither("sheet") ?? "";
         var row = anchor is { } anchorRow ? JsonReading.Int(anchorRow, "rowIndex") : null;
         var column = anchor is { } anchorColumn ? JsonReading.Int(anchorColumn, "columnIndex") : null;
@@ -240,6 +247,13 @@ public static class PredictionParser
         }
         return sheet;
     }
+
+    /// A CAD measurement is placed by the feature it measures: its label after
+    /// the part name ("Bracket Ø8 hole depth" → "Ø8 hole depth").
+    public static string CadFeature(string label, string? part) =>
+        part is { Length: > 0 } && label.StartsWith(part + " ", StringComparison.Ordinal)
+            ? label[(part.Length + 1)..]
+            : label;
 
     /// Spreadsheet column letters: 0 → A, 25 → Z, 26 → AA.
     public static string SpreadsheetColumn(int index)

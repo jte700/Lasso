@@ -105,6 +105,16 @@ enum AssistSourceIdentity {
     }
 }
 
+/// The location line of a suggestion, for sources a sheet, cell or page does not place.
+enum AssistSourceLocation {
+    /// A CAD measurement is placed by the feature it measures: its label after
+    /// the part name ("Bracket Ø8 hole depth" → "Ø8 hole depth").
+    static func cadFeature(label: String, part: String?) -> String {
+        guard let part, !part.isEmpty, label.hasPrefix(part + " ") else { return label }
+        return String(label.dropFirst(part.count + 1))
+    }
+}
+
 /// Chooses what accepting a source candidate should type. A candidate can
 /// carry both a semantic name and a child value; the claim type decides which
 /// one the writer is asking for.

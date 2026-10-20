@@ -17,7 +17,7 @@ async function fixture(t) {
       + 'Gross profit,193000,Subtotal\nSalaries and wages,76000,Expense\nMarketing,14000,Expense\n'
       + 'Cost of goods sold,292000,Expense\n',
     'Department-Budget.csv': 'Department,September Budget CAD,September Actual CAD\n'
-      + 'People,74000,76000\nFacilities,21000,21100\nTechnology,6000,6500\n',
+      + 'People,74000,76000\nFacilities,21000,21100\nTechnology,6000,6500\nSecurity,9000,9000\n',
     'Accounts-Payable.csv': 'Supplier,Invoice,Outstanding CAD\nMaple Paper Distribution,BILL-1160,22000\n'
       + 'Harbour Office Furniture,BILL-1174,18400\n',
     'Change-Register.csv': 'Change ID,Description,Amount CAD\nCO-001,Roof curb repair,4800\nCO-002,Additional bollards,2200\n',
@@ -122,6 +122,16 @@ test('an accepted named row offers its columns and then its own values', async (
   const cell = await completions(app, `${accepted} September Budget CAD was `, pendingDependencies);
   assert.equal(cell.heading, 'Value for Facilities · September Budget CAD');
   assert.deepEqual(cell.items, ['21000']);
+});
+
+test('equal values in one table row show once after an accepted name', async (t) => {
+  const app = await fixture(t);
+  const { accepted, pendingDependencies } = await accept(app, 'Secur');
+  assert.equal(accepted, 'Security');
+  const values = await completions(app, `${accepted} was `, pendingDependencies);
+  assert.equal(values.heading, 'Values for Security');
+  // Its budget and actual are both 9000. Only CAD measurements keep a row per feature.
+  assert.deepEqual(values.items, ['9000']);
 });
 
 test('an accepted supplier row offers its invoice and outstanding amount', async (t) => {

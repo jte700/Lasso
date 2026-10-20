@@ -1104,6 +1104,16 @@ do {
           "a quantitative claim still inserts the source-backed value")
 }
 
+print("CAD measurement locations")
+do {
+    check(AssistSourceLocation.cadFeature(label: "Bracket Ø8 hole depth", part: "Bracket") == "Ø8 hole depth",
+          "a CAD measurement is located by the feature it measures")
+    check(AssistSourceLocation.cadFeature(label: "Kitchen Area", part: nil) == "Kitchen Area"
+            && AssistSourceLocation.cadFeature(label: "Bracketry Ø8 hole depth", part: "Bracket")
+                == "Bracketry Ø8 hole depth",
+          "a measurement label that does not start with its part is kept whole")
+}
+
 print("native workspace requests and errors")
 do {
     let bodies = [WorkspaceAPI.addDirectoriesBody(["/tmp/Work"]),

@@ -191,16 +191,25 @@ test('an accepted CAD part name offers its measurements, ranked by the words aft
   assert.equal(accepted, 'The Bracket');
 
   // With nothing more to go on, overall sizes come first, then holes and arcs.
+  // Equal values of different features each keep a row: the card names the feature.
   const plain = await typed(app, `${accepted} is`, { pendingDependencies });
   assert.equal(plain.workspaceHeading, 'Values for Bracket');
-  assert.deepEqual(offered(plain).slice(0, 6), [
+  assert.deepEqual(offered(plain), [
     { text: '100 mm', label: 'Bracket overall X extent' },
     { text: '60 mm', label: 'Bracket overall Y extent' },
     { text: '10 mm', label: 'Bracket overall Z extent' },
     { text: '12 mm', label: 'Bracket Ø12 hole diameter' },
     { text: '8 mm', label: 'Bracket Ø8 hole diameter' },
+    { text: '10 mm', label: 'Bracket Ø12 hole depth' },
+    { text: '10 mm', label: 'Bracket Ø8 hole depth' },
     { text: '5 mm', label: 'Bracket R5 90° arc radius' },
   ]);
+  // The card's feature line ("Ø8 hole depth") is the label after the part name.
+  for (const { dependencyCandidate: candidate } of plain.workspaceCompletions) {
+    assert.equal(candidate.anchor.kind, 'cad-property');
+    assert.equal(candidate.metadata.entityName, 'Bracket');
+    assert.ok(candidate.anchor.label.startsWith('Bracket '), candidate.anchor.label);
+  }
 
   // "four holes" names the four Ø8 holes, and "diameter" their diameter.
   const diameter = await typed(app, `${accepted} has four holes with a diameter of`, { pendingDependencies });
@@ -210,7 +219,10 @@ test('an accepted CAD part name offers its measurements, ranked by the words aft
     { text: '12 mm', label: 'Bracket Ø12 hole diameter' },
   ]);
   const depth = await typed(app, `${accepted} has four holes with a depth of `, { pendingDependencies });
-  assert.deepEqual(offered(depth)[0], { text: '10 mm', label: 'Bracket Ø8 hole depth' });
+  assert.deepEqual(offered(depth).slice(0, 2), [
+    { text: '10 mm', label: 'Bracket Ø8 hole depth' },
+    { text: '10 mm', label: 'Bracket Ø12 hole depth' },
+  ]);
   // "R5" names a feature here, not a spreadsheet row.
   const radius = await typed(app, `${accepted}'s R5 corners have a radius of`, { pendingDependencies });
   assert.deepEqual(offered(radius)[0], { text: '5 mm', label: 'Bracket R5 90° arc radius' });

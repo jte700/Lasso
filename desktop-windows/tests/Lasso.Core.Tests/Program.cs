@@ -666,6 +666,25 @@ Console.WriteLine("prediction responses become insertable rows");
           "spreadsheet columns carry past Z");
 }
 
+Console.WriteLine("CAD measurement locations");
+{
+    var payload = """
+    {"prediction":{"workspaceCompletions":[
+      {"replacementText":"10 mm","dependencyCandidate":{"id":"z","path":"Models/Bracket.step","valueText":"10 mm",
+        "anchor":{"kind":"cad-property","pageNumber":null,"label":"Bracket overall Z extent"},
+        "metadata":{"entityName":"Bracket"}}},
+      {"replacementText":"10 mm","dependencyCandidate":{"id":"hole","path":"Models/Bracket.step","valueText":"10 mm",
+        "anchor":{"kind":"cad-property","pageNumber":null,"label":"Bracket Ø8 hole depth"},
+        "metadata":{"entityName":"Bracket"}}}]}}
+    """;
+    var rows = PredictionParser.Parse(System.Text.Encoding.UTF8.GetBytes(payload), windowLength: 15, projectId: "models");
+    Check(rows.Count == 2 && rows[0].Location == "overall Z extent" && rows[1].Location == "Ø8 hole depth",
+          "a CAD measurement is located by the feature it measures");
+    Check(PredictionParser.CadFeature("Kitchen Area", null) == "Kitchen Area"
+              && PredictionParser.CadFeature("Bracketry Ø8 hole depth", "Bracket") == "Bracketry Ø8 hole depth",
+          "a measurement label that does not start with its part is kept whole");
+}
+
 Console.WriteLine("source-backed model previews");
 {
     const string bounds = """{"minX":10.0,"minY":20.0,"maxX":20.0,"maxY":30.0}""";

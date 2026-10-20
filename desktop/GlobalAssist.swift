@@ -1950,6 +1950,11 @@ final class GlobalAssistant {
     private static func sourceLocation(_ candidate: [String: Any]) -> String {
         let anchor = candidate["anchor"] as? [String: Any] ?? [:]
         let metadata = candidate["metadata"] as? [String: Any] ?? [:]
+        // Equal CAD values ("10 mm") are told apart by the feature they measure.
+        if anchor["kind"] as? String == "cad-property",
+           let label = (anchor["label"] as? String) ?? (candidate["label"] as? String) {
+            return AssistSourceLocation.cadFeature(label: label, part: metadata["entityName"] as? String)
+        }
         let sheet = (anchor["sheet"] as? String) ?? (metadata["sheet"] as? String) ?? ""
         let row = (anchor["rowIndex"] as? NSNumber)?.intValue
         let column = (anchor["columnIndex"] as? NSNumber)?.intValue

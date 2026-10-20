@@ -2921,7 +2921,10 @@ export class PredictiveProvenanceService {
     const suggestions = [];
     const seen = new Set();
     for (const object of objects) {
-      const fingerprint = `${object.contextualText.toLowerCase()}|${object.path}|${object.metadata.sheet ?? ''}`;
+      // The card names a CAD measurement's feature ("Ø8 hole depth"), so equal
+      // values of different features stay apart; other equal values show once.
+      const feature = object.anchor?.kind === 'cad-property' ? object.label : '';
+      const fingerprint = `${object.contextualText.toLowerCase()}|${object.path}|${object.metadata.sheet ?? ''}|${feature}`;
       if (seen.has(fingerprint)) continue;
       seen.add(fingerprint);
       suggestions.push({
