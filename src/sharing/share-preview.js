@@ -9,11 +9,12 @@ import { extractDrawingDocument } from '../dependencies/drawing-extraction.js';
 import { tabularLayout } from '../dependencies/service.js';
 import { parseDelimited } from '../history/diff.js';
 import { MARKDOWN_LAYOUT, isMarkdownPath, markdownBlocks, markdownPlainText } from './markdown.js';
+import { LINE_LAYOUT, fullTextLayout } from './text-layout.js';
 
 /// Legacy paragraph blocks are used when any stored text redaction predates
-/// the Markdown layout; otherwise the structured layout is used.
-export function usesMarkdownLayout(redactions = []) {
-  return !redactions.some((entry) => entry.kind === 'BLOCK' && entry.layout !== MARKDOWN_LAYOUT);
+/// the file's structured layout; otherwise the structured layout is used.
+export function usesStructuredLayout(redactions = [], layout = null) {
+  return !redactions.some((entry) => entry.kind === 'BLOCK' && entry.layout !== layout);
 }
 
 /// Cell redactions made before semicolon files were recognised address the
@@ -373,20 +374,26 @@ function fullTextBlocks(value) {
  * A complete logical rendering of the pinned source used by selective sharing.
  * Unlike buildSharePreview, this never crops around the indexed object.
  */
-export function buildFullShareDocument(file, { visualPdf = false, markdownLayout = true, detectCsvDelimiter = true } = {}) {
+export function buildFullShareDocument(file, { visualPdf = false, structuredLayout = true, detectCsvDelimiter = true } = {}) {
   if (!file?.content || !file?.path) return null;
   const extension = path.extname(file.path).toLowerCase();
+  const layout = structuredLayout ? fullTextLayout(file.path) : null;
 
   try {
-    // Markdown sections follow the document's own structure. Redacted shares
-    // created before this layout keep the paragraph blocks they were made with.
-    if (markdownLayout && isMarkdownPath(file.path)) {
+    // Markdown and XML sections follow the document's own structure. Redacted
+    // shares created before these layouts keep the paragraph blocks they were made with.
+    if (layout === MARKDOWN_LAYOUT) {
       const blocks = markdownBlocks(file.content.toString('utf8'));
       return blocks.length ? {
         kind: 'text', format: 'markdown', layout: MARKDOWN_LAYOUT,
         blocks: blocks.map((block) => block.source),
         styles: blocks.map(({ source, lineStart, lineEnd, ...style }) => style),
       } : null;
+    }
+    if (layout === LINE_LAYOUT) {
+      const blocks = file.content.toString('utf8').split(/\r\n?|\n/)
+        .map((line) => line.trimEnd()).filter(Boolean);
+      return blocks.length ? { kind: 'text', format: 'lines', layout: LINE_LAYOUT, blocks } : null;
     }
     if (['.xlsx', '.xls'].includes(extension)) {
       const sheets = extractSpreadsheetTables(file.content).map((sheet) => ({
@@ -411,10 +418,7 @@ export function buildFullShareDocument(file, { visualPdf = false, markdownLayout
     let text = '';
     if (extension === '.pdf') text = extractPdfFullText(file.content);
     else if (extension === '.docx') text = extractDocxFullText(file.content);
-    else if (FULL_TEXT_EXTENSIONS.has(extension)
-      || ['dockerfile', 'makefile'].includes(path.basename(file.path).toLowerCase())) {
-      text = file.content.toString('utf8');
-    }
+    else if (isTextPreviewPath(file.path)) text = file.content.toString('utf8');
     const blocks = fullTextBlocks(text);
     // Full PDF shares and the private composer can display the pinned original.
     // Redacted shares keep the logical text document so original PDF bytes can

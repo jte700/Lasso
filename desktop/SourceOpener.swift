@@ -7,19 +7,40 @@
 
 import Cocoa
 import ApplicationServices
+import UniformTypeIdentifiers
 
 enum AssistSourceOpener {
+    /// How much of a file is read to tell text from binary data.
+    private static let textSniffLength = 4096
+
     /// Opens `fileURL` and starts the jump to `target`. False only when macOS
     /// could not open the file itself.
     static func open(_ fileURL: URL, at target: AssistOpenTarget?) -> Bool {
         let workspace = NSWorkspace.shared
-        let appBundleID = workspace.urlForApplication(toOpen: fileURL).flatMap { Bundle(url: $0)?.bundleIdentifier }
+        // A text source no app claims, such as LandXML or STEP on a Mac without
+        // CAD software, opens in the Mac's text editor instead of failing.
+        let textEditor = workspace.urlForApplication(toOpen: fileURL) == nil && isText(fileURL)
+            ? workspace.urlForApplication(toOpen: .plainText) : nil
+        let appURL = textEditor ?? workspace.urlForApplication(toOpen: fileURL)
+        let appBundleID = appURL.flatMap { Bundle(url: $0)?.bundleIdentifier }
         let plan = AssistOpenPlanner.plan(fileURL: fileURL, target: target, appBundleID: appBundleID)
         return AssistSourceOpening.perform(plan, fileURL: fileURL, actions: AssistOpenActions(
-            openFile: { workspace.open($0) },
+            openFile: { url in
+                guard let textEditor else { return workspace.open(url) }
+                workspace.open([url], withApplicationAt: textEditor, configuration: NSWorkspace.OpenConfiguration())
+                return true
+            },
             openURL: { workspace.open($0) },
             runScript: { AssistOpenScriptRunner.run($0, arguments: $1) },
             goToPreviewPage: { PreviewPageNavigator.start(page: $0, documentURL: $1) }))
+    }
+
+    /// True when the start of the file holds no NUL bytes, as text never does.
+    private static func isText(_ fileURL: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return false }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: textSniffLength), !head.isEmpty else { return false }
+        return !head.contains(0)
     }
 }
 

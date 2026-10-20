@@ -310,7 +310,9 @@ export function createStructuredDiff({ fileType, filePath, beforeBuffer, afterBu
     return { format: 'file', message: changeType === 'MOVED' ? 'File moved.' : 'File renamed.' };
   }
   if (!beforeBuffer || !afterBuffer) return { format: 'binary', message: 'File changed. Structured comparison unavailable.' };
-  if (!isTextualType(fileType)) return { format: 'binary', message: 'File changed. Structured comparison unavailable.' };
+  // XML, including LandXML civil data, is text and compares line by line like code.
+  const xml = fileType === 'xml' || /\.landxml$/i.test(filePath ?? '');
+  if (!isTextualType(fileType) && !xml) return { format: 'binary', message: 'File changed. Structured comparison unavailable.' };
 
   const beforeText = decode(beforeBuffer);
   const afterText = decode(afterBuffer);
@@ -318,8 +320,8 @@ export function createStructuredDiff({ fileType, filePath, beforeBuffer, afterBu
   if (fileType === 'table') return tableDiff(beforeText, afterText, filePath);
   if (fileType === 'json') return jsonDiff(beforeText, afterText);
   if (fileType === 'notebook') return notebookDiff(beforeText, afterText);
-  if (fileType === 'code' || fileType === 'text' || fileType === 'yaml') {
-    return lineDiff(beforeText, afterText, fileType === 'code' ? 'code' : 'text');
+  if (fileType === 'code' || fileType === 'text' || fileType === 'yaml' || xml) {
+    return lineDiff(beforeText, afterText, fileType === 'code' || xml ? 'code' : 'text');
   }
   return { format: 'binary', message: 'File changed. Structured comparison unavailable.' };
 }

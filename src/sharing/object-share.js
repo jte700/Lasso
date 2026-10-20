@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { HttpError } from '../history/errors.js';
-import { MARKDOWN_LAYOUT, isMarkdownPath } from './markdown.js';
+import { fullTextLayout } from './text-layout.js';
 import { csvDelimiter } from '../history/diff.js';
 import { correctedDocumentLabel } from '../dependencies/authors.js';
 import { shareExpiry } from './expiry.js';
@@ -98,10 +98,11 @@ export class ObjectShareService {
       throw new HttpError(400, 'Select drawing regions to redact this source.');
     }
 
-    // Markdown text redactions address structured sections. The layout is
-    // recorded so the stored indexes cannot drift to a different segmentation.
-    let storedRedactions = isMarkdownPath(version.path)
-      ? normalizedRedactions.map(entry => entry.kind === 'BLOCK' ? { ...entry, layout: MARKDOWN_LAYOUT } : entry)
+    // Markdown and XML text redactions address structured sections. The layout
+    // is recorded so the stored indexes cannot drift to a different segmentation.
+    const layout = fullTextLayout(version.path);
+    let storedRedactions = layout
+      ? normalizedRedactions.map(entry => entry.kind === 'BLOCK' ? { ...entry, layout } : entry)
       : normalizedRedactions;
     // Cells of a semicolon file are addressed in its semicolon columns.
     // Unmarked cell redactions keep the comma reading they were made with.
@@ -384,8 +385,9 @@ export function normalizeRedactions(value, scope) {
       }
       target = { kind, sheet, row, column, effect };
     } else {
+      // XML sections are single lines, so a long LandXML export has many of them.
       const block = Number(entry.block);
-      if (!Number.isInteger(block) || block < 0 || block > 9999) {
+      if (!Number.isInteger(block) || block < 0 || block > 999999) {
         throw new HttpError(400, 'Invalid text redaction.');
       }
       target = { kind, block, effect };

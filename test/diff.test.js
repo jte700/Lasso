@@ -51,3 +51,20 @@ test('binary changes do not decode either buffer as text', () => {
   });
   assert.equal(diff.format, 'binary');
 });
+
+test('LandXML and other XML changes compare line by line', () => {
+  const before = '<LandXML>\n <Parcels><Parcel name="Lot" area="1850.5"/></Parcels>\n</LandXML>\n';
+  const after = '<LandXML>\n <Parcels><Parcel name="Lot" area="1900"/></Parcels>\n</LandXML>\n';
+  for (const [fileType, filePath] of [['drawing', 'Site.landxml'], ['xml', 'Civil-Export.xml']]) {
+    const diff = createStructuredDiff({ fileType, filePath, beforeBuffer: Buffer.from(before),
+      afterBuffer: Buffer.from(after), changeType: 'MODIFIED' });
+    assert.equal(diff.format, 'code', filePath);
+    assert.equal(diff.added, 1);
+    assert.equal(diff.removed, 1);
+    assert.match(diff.operations.find((operation) => operation.kind === 'add').text, /area="1900"/);
+  }
+  // Binary CAD formats that share the drawing type are still never explained.
+  const dwg = createStructuredDiff({ fileType: 'drawing', filePath: 'Site.dwg', beforeBuffer: Buffer.from([1]),
+    afterBuffer: Buffer.from([2]), changeType: 'MODIFIED' });
+  assert.equal(dwg.format, 'binary');
+});

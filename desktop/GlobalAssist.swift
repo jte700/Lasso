@@ -1507,6 +1507,8 @@ final class GlobalAssistant {
 
     var onStateChange: (() -> Void)?
     var onWorkspaceChange: (() -> Void)?
+    /// The source inspector, whose Share Link takes Tab while it is open.
+    weak var inspector: SourceInspectorPanel?
 
     // MARK: Lifecycle
 
@@ -1634,7 +1636,8 @@ final class GlobalAssistant {
             isInserting: isInserting,
             transientOpen: LassoTransientUI.shared.hasOpenSurface,
             sourceChooserVisible: SourceChooserController.shared.isVisible,
-            shareComposerInPopup: composer.isVisible && composer.isPresented(in: panel),
+            shareComposerOpen: composer.isVisible,
+            inspectorCanShare: inspector?.canShareFromKeyboard == true,
             popup: popup)
     }
 
@@ -1679,6 +1682,8 @@ final class GlobalAssistant {
             ShareComposerController.shared.confirm()
         case .shareScope(let delta):
             ShareComposerController.shared.moveScope(delta)
+        case .inspectorShare:
+            inspector?.shareFromKeyboard()
         }
         publishKeyRouting()
     }

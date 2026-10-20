@@ -17,8 +17,10 @@ struct KeyRoutingState: Equatable {
     /// A Lasso surface that Escape closes is open.
     var transientOpen = false
     var sourceChooserVisible = false
-    /// The share options are drawn inside the suggestion popup.
-    var shareComposerInPopup = false
+    /// The share options are open, in the suggestion popup or the source inspector.
+    var shareComposerOpen = false
+    /// The source inspector shows a source its Share Link can share.
+    var inspectorCanShare = false
     var popup: Popup = .hidden
 }
 
@@ -35,6 +37,7 @@ enum KeyAction: Equatable {
     case move(Int)
     case shareConfirm
     case shareScope(Int)
+    case inspectorShare
 }
 
 enum KeyDecision: Equatable {
@@ -54,7 +57,8 @@ enum KeyRouter {
         if keyCode == escape, !commandLike, state.transientOpen { return .swallow(.dismissTransient) }
         // Native search controls own their keystrokes while the picker is open.
         if state.sourceChooserVisible { return .pass(nil) }
-        if state.shareComposerInPopup { return shareDecision(keyCode, flags: flags, commandLike: commandLike) }
+        // The share options take their keys from whichever app has focus.
+        if state.shareComposerOpen { return shareDecision(keyCode, flags: flags, commandLike: commandLike) }
         // Escape with nothing open belongs to the host, and must not schedule
         // a new prediction that would reopen the just-dismissed menu.
         if keyCode == escape { return .pass(.escapePassed) }
@@ -81,6 +85,8 @@ enum KeyRouter {
                 break
             }
         }
+        // Tab is the inspector's Share Link, wherever the person was typing.
+        if state.inspectorCanShare, keyCode == tab, !chord { return .swallow(.inspectorShare) }
         // Other modifier chords are shortcuts, not typing.
         if flags.contains(.maskCommand) || flags.contains(.maskControl) { return .pass(.hide) }
         // The debounce only fires once typing pauses, so an open box is moved

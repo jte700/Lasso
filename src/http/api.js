@@ -6,7 +6,8 @@ import { buildPreview } from '../history/preview.js';
 import { HttpError } from '../history/errors.js';
 import { DEFAULT_EVENT_PAGE } from '../history/service.js';
 import { renderSharePage, renderUnavailable, renderInspectorPanel } from '../sharing/share-page.js';
-import { buildFullShareDocument, buildInspectorPreview, buildSharePreview, isTextPreviewPath, usesMarkdownLayout, detectsCsvDelimiter } from '../sharing/share-preview.js';
+import { buildFullShareDocument, buildInspectorPreview, buildSharePreview, isTextPreviewPath, usesStructuredLayout, detectsCsvDelimiter } from '../sharing/share-preview.js';
+import { fullTextLayout } from '../sharing/text-layout.js';
 import { isMarkdownPath } from '../sharing/markdown.js';
 import { buildModelPreview } from '../dependencies/model-preview.js';
 import { redactModelPlan } from '../sharing/model-redaction.js';
@@ -164,7 +165,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       if (resolved.share.accessScope !== 'INDEXED') {
         document = await resolvedModelDocument(resolved)
           ?? (resolved.share.accessScope === 'REDACTED'
-            ? buildFullShareDocument(sourceFile, { markdownLayout: usesMarkdownLayout(resolved.share.redactions),
+            ? buildFullShareDocument(sourceFile, {
+              structuredLayout: usesStructuredLayout(resolved.share.redactions, fullTextLayout(resolved.internal.filePath)),
               detectCsvDelimiter: detectsCsvDelimiter(resolved.share.redactions) })
             // The original is downloadable in this scope, so Markdown can be read in full.
             : isMarkdownPath(resolved.internal.filePath) ? buildFullShareDocument(sourceFile) : null);

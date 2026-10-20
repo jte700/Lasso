@@ -6,6 +6,7 @@ import ApplicationServices
 
 enum BrowserGeometryRegression {
     private static let inspector = SourceInspectorPanel()
+    private static var inspectorServerURL: URL?
     static func run(arguments: [String]) -> Bool {
         guard let flag = arguments.firstIndex(of: "--browser-geometry-test") else { return false }
         guard arguments.count > flag + 2 else { return true }
@@ -177,7 +178,20 @@ enum BrowserGeometryRegression {
                 state: .healthy, label: "Fixture source", valueText: nil,
                 sourcePath: request["path"] as? String ?? "", sourceLocation: "", createdAt: Date(), updatedAt: Date())
             let near = AccessibilityReader.focusedContext()?.caretRect ?? NSRect(x: 120, y: 420, width: 80, height: 20)
+            inspectorServerURL = url
             inspector.show(reference, near: near, serverURL: url)
+        case "inspector-key":
+            // A bare key as the keyboard tap routes it, with this inspector
+            // open beside whichever app has focus. Fixture shares are never created.
+            GlobalAssistant.shared.inspector = inspector
+            inspector.onShare = { reference in
+                guard let url = inspectorServerURL else { return }
+                inspector.composeShare(reference, serverURL: url) { _, finished in
+                    finished(.failure(NSError(domain: "BrowserGeometryRegression", code: 5,
+                        userInfo: [NSLocalizedDescriptionKey: "Fixture shares are not created."])))
+                }
+            }
+            GlobalAssistant.shared.regressionKey(request["keyCode"] as? Int ?? 48)
         case "inspector-hide": inspector.hide()
         case "inspector-focus": inspector.regressionFocus()
         case "inspector-resize":

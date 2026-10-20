@@ -445,6 +445,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self, let url = self.server.url else { return }
             self.inspector.show(reference, near: rect, serverURL: url)
         }
+        GlobalAssistant.shared.inspector = inspector
         inspector.onUnlink = { reference in DependencyHighlighter.shared.unlink(id: reference.id) }
         inspector.onOpenSource = { [weak self] _ in
             self?.showError("The source file could not be opened at its recorded location.",

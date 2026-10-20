@@ -41,6 +41,8 @@ struct ShareFullDocument {
     var model: AssistModelPreview? = nil
     var pdf: AssistPDFPreview? = nil
     var unavailableReason: String? = nil
+    /// XML reads as one section per source line, drawn like code.
+    var lineLayout = false
 
     static func parse(_ data: Data) -> ShareFullDocument? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -67,6 +69,7 @@ struct ShareFullDocument {
             result.styles = styles.map(AssistTextBlock.init(markdown:))
         }
         result.unavailableReason = document["reason"] as? String
+        result.lineLayout = document["format"] as? String == "lines"
         return result
     }
 }
@@ -81,6 +84,8 @@ final class ShareComposerController: NSObject {
     private var previousContent: NSView?
     private weak var previousResponder: NSResponder?
     private var previousFrame: NSRect?
+    private var previousLevel: NSWindow.Level?
+    private static let sharingLevel = NSWindow.Level.popUpMenu
     private var active = false
     private var requests: [URLSessionDataTask] = []
     private var generation = 0
@@ -230,6 +235,9 @@ final class ShareComposerController: NSObject {
             previousContent = hostPanel.contentView
             previousResponder = hostPanel.firstResponder
             previousFrame = hostPanel.frame
+            // Sharing sits above every other Lasso surface, such as suggestions.
+            previousLevel = hostPanel.level
+            if hostPanel.level.rawValue < Self.sharingLevel.rawValue { hostPanel.level = Self.sharingLevel }
             hostPanel.contentView = ShareComposerSurface(content: view)
             panel = hostPanel
         } else {
@@ -405,6 +413,7 @@ final class ShareComposerController: NSObject {
             hostPanel.contentView = previousContent
             if hostPanel.isKeyWindow, let previousResponder { hostPanel.makeFirstResponder(previousResponder) }
             if let previousFrame { hostPanel.setFrame(previousFrame, display: true) }
+            if let previousLevel { hostPanel.level = previousLevel }
             hostPanel.contentView?.layoutSubtreeIfNeeded()
             hostPanel.invalidateShadow()
         } else {
@@ -414,6 +423,7 @@ final class ShareComposerController: NSObject {
         previousContent = nil
         previousResponder = nil
         previousFrame = nil
+        previousLevel = nil
     }
 
     private func existingPanel() -> NSPanel {
@@ -421,7 +431,7 @@ final class ShareComposerController: NSObject {
         let created = NSPanel(contentRect: NSRect(origin: .zero, size: canvasSize),
                               styleMask: [.borderless, .nonactivatingPanel],
                               backing: .buffered, defer: false)
-        created.level = .popUpMenu
+        created.level = Self.sharingLevel
         created.isOpaque = false
         created.backgroundColor = .clear
         created.hasShadow = true
@@ -785,6 +795,8 @@ final class ShareComposerView: NSView {
     private var scrollColumnWidths: [CGFloat] = []
     private var scrollRowHeights: [CGFloat] = []
     private var scrollBlockHeights: [CGFloat] = []
+    private var scrollLines = false
+    private var scrollBlockGap: CGFloat { scrollLines ? 2 : 8 }
     private var scrollRedactionSheet: Int?
     private var scrollCanRedact = false
     private var showsScrollablePreview = false
@@ -813,6 +825,7 @@ final class ShareComposerView: NSView {
         return view
     }()
     private let scrollFont = NSFont.systemFont(ofSize: 11)
+    private let scrollLineFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
     private lazy var previewCanvas: SharePreviewCanvas = {
         let canvas = SharePreviewCanvas(frame: .zero)
         canvas.composer = self
@@ -1140,7 +1153,7 @@ final class ShareComposerView: NSView {
             sheetIndex = min(max(0, sheetIndex), document.sheets.count - 1)
             drawFullTable(document.sheets[sheetIndex], sheetCount: document.sheets.count, in: rect)
         } else if document.kind == "text", !document.blocks.isEmpty {
-            drawFullText(document.blocks, styles: document.styles, in: rect)
+            drawFullText(document.blocks, styles: document.styles, lines: document.lineLayout, in: rect)
         } else {
             drawCentered(document.unavailableReason ?? "This document has no previewable content", in: rect)
         }
@@ -1382,11 +1395,11 @@ final class ShareComposerView: NSView {
         }
     }
 
-    private func drawFullText(_ blocks: [String], styles: [AssistTextBlock], in rect: NSRect) {
+    private func drawFullText(_ blocks: [String], styles: [AssistTextBlock], lines: Bool, in rect: NSRect) {
         configureScrollableText(blocks, styles: styles,
             in: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(30, rect.height - 21)),
-            canRedact: true, key: "full-text")
-        drawText("\(blocks.count) sections · Scroll to read the complete document",
+            canRedact: true, key: "full-text", lines: lines)
+        drawText("\(blocks.count) \(lines ? "lines" : "sections") · Scroll to read the complete document",
                  in: NSRect(x: rect.minX + 2, y: rect.maxY - 16, width: rect.width - 4, height: 14),
                  font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
     }
@@ -1509,7 +1522,7 @@ final class ShareComposerView: NSView {
     }
 
     private func configureScrollableText(_ blocks: [String], styles: [AssistTextBlock] = [],
-                                         in rect: NSRect, canRedact: Bool, key: String) {
+                                         in rect: NSRect, canRedact: Bool, key: String, lines: Bool = false) {
         showsScrollablePreview = true
         let scroll = previewScroll
         scroll.isHidden = false
@@ -1527,13 +1540,16 @@ final class ShareComposerView: NSView {
             scrollStyles = styles.count == blocks.count ? styles : []
             scrollStyledText = scrollStyles.map { AssistMarkdown.attributed($0, baseSize: 11) }
             scrollCanRedact = canRedact
+            scrollLines = lines
             let viewport = scroll.contentSize
-            scrollBlockHeights = scrollStyledText.isEmpty
+            scrollBlockHeights = lines
+                ? blocks.map { max(22, textHeight($0, width: viewport.width - 28, font: scrollLineFont) + 8) }
+                : scrollStyledText.isEmpty
                 ? blocks.map { max(40, textHeight($0, width: viewport.width - 28) + 24) }
                 : scrollStyledText.map { max(28, AssistMarkdown.height(of: $0, width: viewport.width - 28) + 16) }
             previewCanvas.frame = NSRect(origin: .zero, size: NSSize(
                 width: viewport.width,
-                height: max(viewport.height, scrollBlockHeights.reduce(0, +) + CGFloat(max(0, blocks.count - 1)) * 8)))
+                height: max(viewport.height, scrollBlockHeights.reduce(0, +) + CGFloat(max(0, blocks.count - 1)) * scrollBlockGap)))
             scroll.contentView.scroll(to: .zero)
             scroll.reflectScrolledClipView(scroll.contentView)
         }
@@ -1599,7 +1615,7 @@ final class ShareComposerView: NSView {
             var y: CGFloat = 0
             for (index, block) in scrollBlocks.enumerated() {
                 let targetRect = NSRect(x: 0, y: y, width: previewCanvas.bounds.width, height: scrollBlockHeights[index])
-                y += scrollBlockHeights[index] + 8
+                y += scrollBlockHeights[index] + scrollBlockGap
                 guard targetRect.intersects(visible) else { continue }
                 let target = ShareHitTarget(rect: targetRect, kind: "BLOCK", sheet: nil, row: nil, column: nil, block: index)
                 if scrollCanRedact { targets.append(target) }
@@ -1620,6 +1636,8 @@ final class ShareComposerView: NSView {
                         }
                         styled.draw(with: content, options: [.usesLineFragmentOrigin, .usesFontLeading])
                     }
+                } else if scrollLines {
+                    drawText(block, in: targetRect.insetBy(dx: 14, dy: 4), font: scrollLineFont, color: .labelColor, wrap: true)
                 } else {
                     drawText(block, in: targetRect.insetBy(dx: 14, dy: 12), font: scrollFont, color: .labelColor, wrap: true)
                 }

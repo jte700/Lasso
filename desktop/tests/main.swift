@@ -1707,7 +1707,7 @@ do {
     let choosing = KeyRoutingState(transientOpen: true, sourceChooserVisible: true, popup: .suggestions)
     check(route(48, choosing) == .pass(nil) && route(0, choosing) == .pass(nil),
           "the source chooser's search field owns its keys")
-    let sharing = KeyRoutingState(transientOpen: true, shareComposerInPopup: true, popup: .suggestions)
+    let sharing = KeyRoutingState(transientOpen: true, shareComposerOpen: true, popup: .suggestions)
     check(route(48, sharing) == .swallow(.shareConfirm) && route(36, sharing) == .swallow(.shareConfirm),
           "Tab and Return confirm the share options")
     check(chord(48, .maskShift, sharing) == .pass(nil), "Shift+Tab passes while sharing")
@@ -1715,6 +1715,23 @@ do {
           "arrows change the share scope")
     check(chord(36, .maskCommand, sharing) == .pass(nil) && route(0, sharing) == .pass(nil),
           "modified keys and typing reach the host while sharing")
+    let inspectorSharing = KeyRoutingState(transientOpen: true, shareComposerOpen: true, inspectorCanShare: true)
+    check(route(48, inspectorSharing) == .swallow(.shareConfirm) && route(124, inspectorSharing) == .swallow(.shareScope(1)),
+          "share options opened from the inspector take Tab, Return and arrows from the focused app")
+    check(route(53, inspectorSharing) == .swallow(.dismissTransient), "Escape closes share options opened from the inspector")
+
+    let inspecting = KeyRoutingState(transientOpen: true, inspectorCanShare: true)
+    check(route(48, inspecting) == .swallow(.inspectorShare), "Tab opens the inspector's Share Link, not a Tab in the host")
+    check(chord(48, .maskShift, inspecting) != .swallow(.inspectorShare)
+          && chord(48, .maskControl, inspecting) == .pass(.hide),
+          "Shift+Tab and Control+Tab still belong to the host while inspecting")
+    check(route(0, inspecting) == .pass(.followTyping(trackCaret: false)), "typing still reaches the host while inspecting")
+    check(route(48, KeyRoutingState(transientOpen: true, inspectorCanShare: true, popup: .suggestions)) == .swallow(.activate),
+          "a suggestion shown while inspecting keeps Tab")
+    check(route(48, KeyRoutingState(transientOpen: true, inspectorCanShare: true, popup: .message)) == .swallow(.inspectorShare),
+          "a message beside the inspector does not take its Tab")
+    check(route(48, KeyRoutingState(transientOpen: true)) == .pass(.followTyping(trackCaret: false)),
+          "an inspector still loading or showing an error leaves Tab to the host")
 
     let box = KeyRoutingStateBox()
     box.value = open

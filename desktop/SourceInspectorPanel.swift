@@ -131,12 +131,30 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
 
     var isVisible: Bool { panel?.isVisible == true }
 
+    /// A loaded source is shown and no share options cover it, so Tab can share it.
+    var canShareFromKeyboard: Bool {
+        isVisible && reference != nil && resolvedSuccessfully && pendingNavigation == nil
+            && !ShareComposerController.shared.isPresented(in: panel)
+    }
+
+    /// Tab's Share Link, from whichever app has keyboard focus.
+    func shareFromKeyboard() {
+        guard canShareFromKeyboard, let reference else { return }
+        #if BROWSER_GEOMETRY_TEST
+        regressionActions.append("share")
+        #endif
+        onShare?(reference)
+    }
+
     #if BROWSER_GEOMETRY_TEST
     /// Observe the actual hosted page and button position for native click
     /// regressions. Tests post real mouse events instead of invoking actions.
     func regressionState() -> [String: Any] {
         var result: [String: Any] = ["visible": isVisible, "key": panel?.isKeyWindow == true,
-                                    "loading": pendingNavigation != nil, "actions": regressionActions]
+                                    "loading": pendingNavigation != nil, "actions": regressionActions,
+                                    "composing": ShareComposerController.shared.isPresented(in: panel),
+                                    "canShareFromKeyboard": canShareFromKeyboard,
+                                    "level": panel?.level.rawValue ?? 0]
         if let panel {
             result["windowNumber"] = panel.windowNumber
             result["panelFrame"] = ["x": panel.frame.minX, "y": panel.frame.minY,

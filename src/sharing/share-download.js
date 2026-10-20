@@ -120,9 +120,9 @@ export function buildShareDownload(resolved, preview, document) {
     const text = options.type === 'blocks'
       ? document.blocks.map((block, index) => {
         const masked = maskFor('BLOCK', { block: index });
-        // Adjacent visible list items stay one Markdown list.
-        const separator = index === 0 ? '' : document.styles?.[index]?.type === 'item'
-          && document.styles[index - 1]?.type === 'item' && !masked
+        // Adjacent visible list items stay one Markdown list. XML sections are its lines.
+        const separator = index === 0 ? '' : document.format === 'lines' ? '\n'
+          : document.styles?.[index]?.type === 'item' && document.styles[index - 1]?.type === 'item' && !masked
           && !maskFor('BLOCK', { block: index - 1 }) ? '\n' : '\n\n';
         return separator + (masked ? '[Redacted]' : block);
       }).join('')
