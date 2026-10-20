@@ -184,7 +184,7 @@ export class WorkspaceService {
       const holdsFiles = (candidate) => {
         // Atomic saves replace some inodes; unrelated folders share none.
         const matched = files.filter((file) => {
-          try { return String(fs.statSync(path.join(candidate, file.path)).ino) === String(file.inode); }
+          try { return String(fs.statSync(path.join(candidate, file.path), { bigint: true }).ino) === String(file.inode); }
           catch { return false; }
         }).length;
         return files.length > 0 && matched * 2 >= files.length;

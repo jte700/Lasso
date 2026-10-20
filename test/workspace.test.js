@@ -136,6 +136,27 @@ test('a directory renamed before its identity was recorded is found by its files
   assert.equal(moved.available, true);
 });
 
+test('folder recovery preserves file IDs larger than JavaScript safe integers', async (t) => {
+  const originalStat = fs.statSync;
+  t.mock.method(fs, 'statSync', function (target, options) {
+    const stat = originalStat.call(this, target, options);
+    if (stat.isFile()) {
+      const exact = originalStat.call(this, target, { bigint: true }).ino + (1n << 60n);
+      stat.ino = options?.bigint ? exact : Number(exact);
+    }
+    return stat;
+  });
+  const state = await fixture(t, 1);
+  const app = await state.restart(true);
+  const [first] = state.projects;
+  const renamed = path.join(path.dirname(state.roots[0]), 'Finance');
+  app.db.prepare('UPDATE projects SET root_inode = NULL').run();
+  fs.renameSync(state.roots[0], renamed);
+  const moved = app.workspace.state().directories.find((directory) => directory.id === first.id);
+  assert.equal(moved.rootPath, fs.realpathSync(renamed));
+  assert.equal(moved.available, true);
+});
+
 test('directory adding is canonical, validates all roots, and tolerates an unavailable enabled folder on restart', async (t) => {
   const state = await fixture(t, 2);
   await state.app.workspace.add([state.roots[0], `${state.roots[0]}/.`], actor);
