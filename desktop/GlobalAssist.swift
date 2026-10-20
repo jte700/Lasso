@@ -729,6 +729,8 @@ final class AssistBoxView: NSView {
     var confirmChoices: [String] = []
     var messageLines: [String] = []
     var sourceScoped = false
+    /// Shift+Right can take an unfocused card back to the latest focus.
+    var canReturnToFocus = false
     var preview: AssistDocumentPreview?
     var isPreviewLoading = false
     var previewError: String?
@@ -861,7 +863,7 @@ final class AssistBoxView: NSView {
         var y = bodyTop + (mode == .suggestions ? 0 : headerHeight)
         switch mode {
         case .suggestions:
-            drawText(sourceScoped ? "‹ All sources" : "All sources",
+            drawText(sourceScoped ? "‹ All sources  ⇧←" : canReturnToFocus ? "All sources  ⇧→" : "All sources",
                      in: NSRect(x: 20, y: bodyTop + 10, width: 130, height: 16),
                      font: .systemFont(ofSize: 11, weight: .medium),
                      color: sourceScoped ? .controlAccentColor : .secondaryLabelColor)
@@ -1442,7 +1444,7 @@ final class GlobalAssistant {
         hide()
         self.projectIds = updated
         workspaceRevision = revision
-        linkedSources.removeAll { !updated.contains($0.projectId) }
+        linkedSources.keep(projectIds: updated)
         if isEnabled, !updated.isEmpty { scheduleRefresh() }
     }
 
@@ -1476,15 +1478,11 @@ final class GlobalAssistant {
         didSet { publishKeyRouting() }
     }
     private var pendingShare: AssistSuggestion?
-    /// Sources linked in the current surface, newest last. Reported to the
-    /// server so it can offer their values instead of matching the same phrase.
-    private struct LinkedSource {
-        let projectId: String
-        let objectId: String
-        let snapshotId: String
-        let text: String
-    }
-    private var linkedSources: [LinkedSource] = []
+    /// Sources linked in the current surface. Reported to the server so it
+    /// can offer their values instead of matching the same phrase.
+    private var linkedSources = LinkedSourceMemory()
+    /// The source the card on screen is focused on, as the server reported it.
+    private var focusedSource: LinkedSourceMemory.Source?
     private var linkedContext: String?
     private var linkedElement: AXUIElement?
     private var flashTimer: Timer?
@@ -1638,7 +1636,9 @@ final class GlobalAssistant {
             sourceChooserVisible: SourceChooserController.shared.isVisible,
             shareComposerOpen: composer.isVisible,
             inspectorCanShare: inspector?.canShareFromKeyboard == true,
-            popup: popup)
+            popup: popup,
+            canFocusOut: popup == .suggestions && focusedSource != nil,
+            canFocusIn: popup == .suggestions && linkedSources.canMoveIn(focusedOn: focusedSource, selected: selectedSource))
     }
 
     private func publishKeyRouting() {
@@ -1684,6 +1684,14 @@ final class GlobalAssistant {
             ShareComposerController.shared.moveScope(delta)
         case .inspectorShare:
             inspector?.shareFromKeyboard()
+        case .focusOut:
+            linkedSources.moveOut(from: focusedSource)
+            AssistLog.write("  · Shift+Left: suggestions from every directory")
+            refresh()
+        case .focusIn:
+            linkedSources.moveIn(focusedOn: focusedSource, selected: selectedSource)
+            AssistLog.write("  · Shift+Right: focused on \(linkedSources.chosen?.text ?? "nothing")")
+            refresh()
         }
         publishKeyRouting()
     }
@@ -1819,7 +1827,7 @@ final class GlobalAssistant {
         if linkedContext != captured.diagnosis || linkedElement.map({ !CFEqual($0, captured.element) }) != false {
             linkedElement = captured.element
             linkedContext = captured.diagnosis
-            linkedSources.removeAll()
+            linkedSources.forget()
         }
         context = captured
         guard let host = reading.host, let caret = reading.caret else { hide(); return }
@@ -1845,23 +1853,9 @@ final class GlobalAssistant {
             "cursor": captured.cursor,
             "blockIndex": 0,
         ]
-        // Locate each linked phrase inside the window actually being sent, so
-        // the offsets the server receives match the text it is given.
-        let window = Array(captured.text.utf16)
-        let pending = linkedSources.compactMap { link -> [String: Any]? in
-            let needle = Array(link.text.utf16)
-            guard let start = TextAnchorResolver.indices(of: needle, in: window).last else { return nil }
-            return [
-                "projectId": link.projectId,
-                "blockIndex": 0,
-                "start": start,
-                "end": start + needle.count,
-                "sourceObjectId": link.objectId,
-                "sourceSnapshotId": link.snapshotId,
-            ]
-        }
-        if !pending.isEmpty { body["pendingDependencies"] = pending }
-        let sourceScoped = !pending.isEmpty
+        // Accepted phrases are located inside the window actually being sent,
+        // so the offsets the server receives match the text it is given.
+        body.merge(linkedSources.requestFields(in: captured.text)) { _, focus in focus }
         let activeProjectIds = Set(projectIds)
         let expectedRevision = workspaceRevision
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -1877,6 +1871,7 @@ final class GlobalAssistant {
             }
             let parsed = Self.parse(data, requestedText: captured.text, activeProjectIds: activeProjectIds)
             let heading = Self.heading(data)
+            let focus = Self.focusedSource(data)
             let returnedRevision = Self.predictionRevision(data)
             DispatchQueue.main.async {
                 guard token == self.generation, self.isEnabled,
@@ -1888,12 +1883,34 @@ final class GlobalAssistant {
                     self.onWorkspaceChange?()
                     return
                 }
-                self.deliverPrediction(parsed, heading: heading, sourceScoped: sourceScoped,
+                self.deliverPrediction(parsed, heading: heading, sourceScoped: focus != nil, focus: focus,
                                        captured: captured, token: token)
             }
         }
         self.request = task
         task.resume()
+    }
+
+    /// The source the server focused the card on, which Shift+Left leaves and
+    /// Shift+Right returns to. A list scoped to project data names no source.
+    private static func focusedSource(_ data: Data) -> LinkedSourceMemory.Source? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let prediction = root["prediction"] as? [String: Any],
+              let context = prediction["sourceContext"] as? [String: Any],
+              let source = context["source"] as? [String: Any],
+              let objectId = source["id"] as? String,
+              let snapshotId = source["snapshotId"] as? String,
+              let projectId = source["projectId"] as? String else { return nil }
+        return .init(projectId: projectId, objectId: objectId, snapshotId: snapshotId,
+                     text: source["label"] as? String ?? "")
+    }
+
+    /// The highlighted row as a source Shift+Right can focus on.
+    private var selectedSource: LinkedSourceMemory.Source? {
+        guard let suggestion = currentSuggestion, let objectId = suggestion.objectId,
+              let snapshotId = suggestion.snapshotId else { return nil }
+        return .init(projectId: suggestion.projectId, objectId: objectId, snapshotId: snapshotId,
+                     text: suggestion.label)
     }
 
     private static func predictionRevision(_ data: Data) -> String? {
@@ -1907,7 +1924,7 @@ final class GlobalAssistant {
     /// deliver to the same still-current editor, using its current caret bounds.
     /// The editor is checked off the main thread; typing meanwhile drops it.
     private func deliverPrediction(_ suggestions: [AssistSuggestion], heading: String?, sourceScoped: Bool,
-                                   captured: CaretContext, token: Int) {
+                                   focus: LinkedSourceMemory.Source? = nil, captured: CaretContext, token: Int) {
         guard token == generation, isEnabled else { return }
         request = nil
         guard !suggestions.isEmpty, let host = popupHost else { hide(); return }
@@ -1925,8 +1942,11 @@ final class GlobalAssistant {
                 self.context = current.context
                 self.adoptHost(host, caret: current.caret)
                 self.view.sourceScoped = sourceScoped
+                self.focusedSource = focus
+                self.view.canReturnToFocus = focus == nil && self.linkedSources.canMoveIn(focusedOn: nil, selected: nil)
                 self.view.title = heading ?? "dependency"
                 self.show(suggestions)
+                self.publishKeyRouting()
             }
         }
     }
@@ -2481,7 +2501,7 @@ final class GlobalAssistant {
         self.serverURL = serverURL
         self.projectIds = projectIds
         workspaceRevision = revision
-        linkedSources.removeAll()
+        linkedSources.forget()
         linkedContext = nil
         linkedElement = nil
         isEnabled = true
@@ -2814,7 +2834,8 @@ final class GlobalAssistant {
         created.ignoresMouseEvents = false
         created.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         view.frame = NSRect(origin: .zero, size: size)
-        view.onSelectRow = { [weak self] index in self?.selectRow(index) }
+        // The selected row decides whether Shift+Right has a row to move into.
+        view.onSelectRow = { [weak self] index in self?.selectRow(index); self?.publishKeyRouting() }
         view.onInsert = { [weak self] in self?.activateSelection() }
         view.onLocalLink = { [weak self] in self?.acceptPlain() }
         view.onShare = { [weak self] in self?.acceptShared() }
@@ -3026,9 +3047,8 @@ final class GlobalAssistant {
             // The next suggestion should offer this source's values, not the
             // same phrase again.
             if let objectId = suggestion.objectId, let snapshotId = suggestion.snapshotId {
-                linkedSources.append(LinkedSource(projectId: suggestion.projectId, objectId: objectId, snapshotId: snapshotId,
-                                                  text: sourceText))
-                if linkedSources.count > 8 { linkedSources.removeFirst() }
+                linkedSources.record(.init(projectId: suggestion.projectId, objectId: objectId, snapshotId: snapshotId,
+                                           text: sourceText))
                 AssistLog.write("  · source context recorded")
             }
             // A sentence continuation carries its source object as the usage
@@ -3238,6 +3258,8 @@ final class GlobalAssistant {
         view.previewError = nil
         view.isPreviewLoading = false
         view.sourceScoped = false
+        view.canReturnToFocus = false
+        focusedSource = nil
         pendingShare = nil
         panel?.orderOut(nil)
         publishKeyRouting()

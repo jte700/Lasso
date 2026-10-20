@@ -125,6 +125,13 @@ function endsSentence(text) {
   return SENTENCE_BOUNDARY.test(String(text ?? '').replace(ABBREVIATIONS, (match) => match.slice(0, -1)));
 }
 
+/** Where the clause being written starts: after its sentence's last joining word, if any. */
+export function currentClauseStart(text, cursor) {
+  const { sentence, sentenceStart } = writingSourceContext(text, cursor);
+  const joiner = [...sentence.matchAll(CLAUSE_JOINER)].at(-1);
+  return sentenceStart + (joiner ? joiner.index + joiner[0].length : 0);
+}
+
 // Rows keyed by a code ("CO-001", "S014") are found by typing the code's own
 // terms elsewhere; as typed names they would bury real names on two letters.
 const IDENTIFIER_HEADER = /(?:^|\s)(?:id|code|no|number|ref|reference|sample|subject|participant|patient)$/i;
@@ -2685,11 +2692,25 @@ export class PredictiveProvenanceService {
     if (!dependency || ['PAPER', 'REFERENCE'].includes(dependency.source.objectType)) return true;
     const tail = String(input.text ?? '').slice(dependency.anchor.end, cursor);
     if (endsSentence(tail)) return false;
+    return !this.namesSubjectAfterJoiner(projectId, input, cursor, dependency);
+  }
+
+  /**
+   * Whether this directory names something after the last joining word that
+   * follows an accepted data source: a variable or row ("and gross pr") or a
+   * drawing or model ("and the brack"). Asked of every directory, since the
+   * new subject need not live beside the accepted source.
+   */
+  namesSubjectAfterJoiner(projectId, input, cursor, dependency) {
+    if (['PAPER', 'REFERENCE'].includes(dependency.source.objectType)) return false;
+    const tail = String(input.text ?? '').slice(dependency.anchor.end, cursor);
     const joiner = [...tail.matchAll(CLAUSE_JOINER)].at(-1);
-    if (!joiner) return true;
+    if (!joiner) return false;
     const subjectStart = dependency.anchor.end + joiner.index + joiner[0].length;
     const fresh = this.progressiveStudyVariable(projectId, input, cursor);
-    return !(fresh?.fragment && fresh.candidates.length && fresh.fragment.start >= subjectStart);
+    if (fresh?.fragment && fresh.candidates.length && fresh.fragment.start >= subjectStart) return true;
+    const drawing = this.drawingReference(projectId, input, cursor);
+    return Boolean(drawing && drawing.start >= subjectStart);
   }
 
   linkedPaperContext(projectId, input, cursor) {
@@ -3072,9 +3093,7 @@ export class PredictiveProvenanceService {
     const detected = detectClaimSpans(text);
     // An amount or citation in an earlier sentence or clause says nothing about
     // the words being typed now ("Revenue was 485000. Gross pr", "... and gross pr").
-    const { sentence, sentenceStart } = writingSourceContext(text, cursor);
-    const joiner = [...sentence.matchAll(CLAUSE_JOINER)].at(-1);
-    const clauseStart = sentenceStart + (joiner ? joiner.index + joiner[0].length : 0);
+    const clauseStart = currentClauseStart(text, cursor);
     const current = detected.filter((claim) => claim.end > clauseStart);
     const hasStudyValue = current.some((claim) => ['QUANTITATIVE', 'SAMPLE_SIZE'].includes(claim.type));
     const hasReferenceIntent = current.some((claim) => ['LITERATURE', 'TABLE_REFERENCE', 'FIGURE', 'METHOD', 'DATASET_REFERENCE']

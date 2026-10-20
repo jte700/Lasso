@@ -20,6 +20,19 @@ enum WorkspaceAPI {
         ["projectIds": projectIds, "actor": actor]
     }
 
+    static func fixDirectoryPath(_ id: String) -> String {
+        "api/workspace/directories/" + id + "/fix"
+    }
+
+    static func fixDirectoryBody() -> [String: Any] {
+        ["actor": actor]
+    }
+
+    /// Directories that are on come first, each group keeping the server's order.
+    static func switchedOnFirst<Directory>(_ directories: [Directory], isOn: (Directory) -> Bool) -> [Directory] {
+        directories.filter(isOn) + directories.filter { !isOn($0) }
+    }
+
     /// Folders named in a removal alert before the rest are only counted.
     private static let namedRemovalLimit = 5
 
@@ -130,5 +143,19 @@ struct DirectorySelection: Equatable {
 
     func ordered(_ order: [String]) -> [String] {
         order.filter(ids.contains)
+    }
+}
+
+/// What a work directory's issue badge says, as the server describes it. A fix
+/// label is present only when the problem is Lasso's own to repair.
+struct DirectoryIssue: Equatable {
+    let message: String
+    let fixLabel: String?
+
+    init?(_ value: Any?) {
+        guard let issue = value as? [String: Any],
+              let message = issue["message"] as? String, !message.isEmpty else { return nil }
+        self.message = message
+        fixLabel = (issue["fix"] as? [String: Any])?["label"] as? String
     }
 }

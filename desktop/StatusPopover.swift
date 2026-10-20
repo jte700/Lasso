@@ -225,6 +225,71 @@ final class StatusDirectoryList: NSView {
 
 /// An interactive status panel. Controls update in the same popover; AppKit
 /// handles dismissal when the user clicks outside it.
+/// The card a directory's issue badge opens: what is wrong, and a button when
+/// Lasso can fix it. It is drawn inside the panel's own window, so clicking
+/// its button never reads as a click outside the panel.
+final class DirectoryIssueCard: NSView {
+    static let width: CGFloat = 232
+    private static let padding: CGFloat = 10
+    private let message = NSTextField(wrappingLabelWithString: "")
+    private let fixButton = NSButton(title: "", target: nil, action: nil)
+    var onFix: (() -> Void)?
+
+    override var isFlipped: Bool { true }
+
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 40))
+        message.font = .systemFont(ofSize: 12)
+        message.textColor = .labelColor
+        message.isSelectable = false
+        addSubview(message)
+        fixButton.bezelStyle = .rounded
+        fixButton.controlSize = .small
+        fixButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        fixButton.target = self
+        fixButton.action = #selector(fix)
+        addSubview(fixButton)
+        wantsLayer = true
+        shadow = NSShadow()
+        layer?.shadowOpacity = 0.18
+        layer?.shadowRadius = 6
+        layer?.shadowOffset = NSSize(width: 0, height: -2)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func show(_ issue: DirectoryIssue) {
+        let textWidth = Self.width - Self.padding * 2
+        message.stringValue = issue.message
+        let textHeight = ceil(message.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: textWidth,
+            height: .greatestFiniteMagnitude)).height ?? 16)
+        message.frame = NSRect(x: Self.padding, y: Self.padding, width: textWidth, height: textHeight)
+        var height = Self.padding + textHeight + Self.padding
+        fixButton.isHidden = issue.fixLabel == nil
+        if let label = issue.fixLabel {
+            fixButton.title = label
+            fixButton.sizeToFit()
+            fixButton.setFrameOrigin(NSPoint(x: Self.padding - 4, y: height - 2))
+            height += fixButton.frame.height + 4
+        }
+        setFrameSize(NSSize(width: Self.width, height: height))
+        setAccessibilityLabel(issue.message)
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        NSColor.windowBackgroundColor.setFill()
+        shape.fill()
+        NSColor.separatorColor.setStroke()
+        shape.stroke()
+    }
+
+    @objc private func fix() { onFix?() }
+}
+
 final class StatusPopoverController {
     let popover = NSPopover()
     private let controller = NSViewController()
@@ -237,6 +302,15 @@ final class StatusPopoverController {
     private var expandedGroups = Set<String>()
     private var width: CGFloat = 296
     private let directoryList = StatusDirectoryList(frame: .zero)
+    private let issueCard = DirectoryIssueCard()
+    private weak var issueRow: NativeMenuToggleRow?
+    /// Checks where the pointer is while a card is open. Hover events alone
+    /// miss a pointer that was already inside a view added under it.
+    private var issueWatch: Timer?
+    private var issueAwayTicks = 0
+    private static let issueWatchInterval: TimeInterval = 0.15
+    /// Two checks away, long enough to move the pointer from a badge onto its card.
+    private static let issueAwayLimit = 2
     /// Escape first ends a mode inside the panel; returns true when it did.
     var onEscape: (() -> Bool)?
     var onClose: (() -> Void)?
@@ -266,7 +340,64 @@ final class StatusPopoverController {
         popover.behavior = .transient
         popover.animates = false
         NotificationCenter.default.addObserver(forName: NSPopover.didCloseNotification, object: popover,
-                                               queue: .main) { [weak self] _ in self?.onClose?() }
+                                               queue: .main) { [weak self] _ in
+            self?.hideIssue()
+            self?.onClose?()
+        }
+        issueCard.onFix = { [weak self] in
+            guard let self else { return }
+            let row = self.issueRow
+            self.hideIssue()
+            row?.onFix?()
+        }
+        // Rows scroll under a still pointer without an exit event; the card
+        // would stay behind, pointing at another folder.
+        for clip in [scroll.contentView, directoryList.scroll.contentView] {
+            clip.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clip,
+                                                   queue: .main) { [weak self] _ in self?.hideIssue() }
+        }
+    }
+
+    /// Whether the pointer is over a view right now, as a refresh sends no hover events.
+    private func pointerIsOver(_ view: NSView, margin: CGFloat = 0) -> Bool {
+        guard let window = view.window, window.isVisible else { return false }
+        let point = view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        return view.bounds.insetBy(dx: -margin, dy: -margin).contains(point)
+    }
+
+    /// Leaving the badge is left to the watch, which allows for the move onto the card.
+    private func issueHover(_ row: NativeMenuToggleRow, inside: Bool) {
+        guard inside, let issue = row.issue else { return }
+        issueRow = row
+        issueAwayTicks = 0
+        issueCard.show(issue)
+        // Below the badge, or above it when the panel has no room below.
+        let anchor = row.issueAnchor.convert(row.issueAnchor.bounds, to: root)
+        let size = issueCard.frame.size
+        let x = min(max(4, anchor.minX - 6), root.bounds.width - size.width - 4)
+        let below = anchor.minY - 4 - size.height
+        let y = below >= 4 ? below : min(anchor.maxY + 4, root.bounds.height - size.height - 4)
+        issueCard.setFrameOrigin(NSPoint(x: x, y: y))
+        if issueCard.superview !== root { root.addSubview(issueCard, positioned: .above, relativeTo: nil) }
+        guard issueWatch == nil else { return }
+        issueWatch = Timer.scheduledTimer(withTimeInterval: Self.issueWatchInterval, repeats: true) { [weak self] _ in
+            self?.checkIssuePointer()
+        }
+    }
+
+    private func checkIssuePointer() {
+        guard let row = issueRow else { hideIssue(); return }
+        let near = pointerIsOver(row.issueAnchor, margin: 3) || pointerIsOver(issueCard)
+        issueAwayTicks = near ? 0 : issueAwayTicks + 1
+        if issueAwayTicks >= Self.issueAwayLimit { hideIssue() }
+    }
+
+    private func hideIssue() {
+        issueWatch?.invalidate()
+        issueWatch = nil
+        issueCard.removeFromSuperview()
+        issueRow = nil
     }
 
     /// Runs a modal step (such as a confirmation alert) without the transient
@@ -312,6 +443,17 @@ final class StatusPopoverController {
 
     func update(menu: NSMenu) {
         self.menu = menu
+        // Rows may move or change; a card left open could point at the wrong
+        // one. It comes back below if the pointer is still on the same badge.
+        let explained = issueRow?.actionItem.representedObject as? String
+        let readingCard = issueCard.superview != nil && pointerIsOver(issueCard)
+        hideIssue()
+        defer {
+            if let explained, let row = directoryRows[explained],
+               readingCard || pointerIsOver(row.issueAnchor, margin: 3) {
+                issueHover(row, inside: true)
+            }
+        }
         let oldOffset = scroll.contentView.bounds.origin
         rows.removeAll()
         content.subviews.forEach { $0.removeFromSuperview() }
@@ -346,9 +488,14 @@ final class StatusPopoverController {
                     if let existing = directoryRows[id] {
                         existing.update(item: item, color: fresh.currentColor)
                         existing.setSelecting(fresh.isSelecting, selected: fresh.isSelected, animated: true)
+                        existing.issue = fresh.issue
+                        existing.onFix = fresh.onFix
                         row = existing
                     } else {
                         directoryRows[id] = fresh
+                    }
+                    (row as? NativeMenuToggleRow)?.onIssueHover = { [weak self] row, inside in
+                        self?.issueHover(row, inside: inside)
                     }
                     (row as? NativeMenuToggleRow)?.onSizeChange = { [weak self, weak row] in
                         self?.layoutRows()

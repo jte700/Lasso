@@ -308,6 +308,11 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           const body = await readJson(request);
           return sendJson(response, 200, await workspace.removeMany(body.projectIds));
         }
+        const fix = match(pathname, /^\/api\/workspace\/directories\/([^/]+)\/fix$/);
+        if (request.method === 'POST' && fix) {
+          const body = await readJson(request);
+          return sendJson(response, 200, await workspace.fixIssue(fix[0], actorFrom(body)));
+        }
         const directory = match(pathname, /^\/api\/workspace\/directories\/([^/]+)$/);
         if (request.method === 'POST' && directory) {
           const body = await readJson(request);

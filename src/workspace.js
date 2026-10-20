@@ -4,6 +4,8 @@ import { setImmediate as yieldTurn } from 'node:timers/promises';
 import { transaction } from './db.js';
 import { HttpError } from './history/errors.js';
 import { normalizeProjectRootPath } from './history/service.js';
+import { currentClauseStart } from './dependencies/service.js';
+import { directoryIssue } from './directory-issues.js';
 import { parseCommand } from './terminal/parser.js';
 import { failure, result, text, blank, dim } from './terminal/result.js';
 
@@ -13,8 +15,21 @@ const systemActor = { id: 'system:workspace', displayName: 'Lasso', actorType: '
 const ACTIVATION_RETRY_MS = 30_000;
 const UNAVAILABLE_MESSAGE = 'The folder is not available. Lasso will use it again when it reappears.';
 
+// The code is kept so a permission macOS withheld can be told from a failure of Lasso's own.
 function activationError(error) {
-  return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? UNAVAILABLE_MESSAGE : error.message;
+  const missing = error?.code === 'ENOENT' || error?.code === 'ENOTDIR';
+  return { message: missing ? UNAVAILABLE_MESSAGE : error.message, code: error?.code ?? null };
+}
+
+// A source the writer focused with Shift+Right need not be in the text. It is
+// anchored where the clause being written starts, so the sentence never ends
+// its scope; Shift+Left or another accepted source does.
+function focusedDependency(focusSource, text, cursor) {
+  if (!focusSource || typeof focusSource !== 'object') return null;
+  const { projectId, sourceObjectId, sourceSnapshotId } = focusSource;
+  if (![projectId, sourceObjectId, sourceSnapshotId].every((value) => typeof value === 'string' && value)) return null;
+  const start = currentClauseStart(text, cursor);
+  return { projectId, blockIndex: 0, start, end: start, sourceObjectId, sourceSnapshotId };
 }
 
 // Relevance is calculated by the existing per-project ranker. Merge those
@@ -112,7 +127,7 @@ export class WorkspaceService {
     return this.projects().map((p) => {
       let available = false;
       try { available = fs.statSync(p.rootPath).isDirectory(); } catch { /* disconnected or removed */ }
-      return `${p.id}:${Number(p.active)}:${Number(available)}:${p.currentSnapshotId}:${this.errors.get(p.id) ?? ''}`;
+      return `${p.id}:${Number(p.active)}:${Number(available)}:${p.currentSnapshotId}:${this.errors.get(p.id)?.message ?? ''}`;
     }).join('|');
   }
 
@@ -122,14 +137,48 @@ export class WorkspaceService {
     const directories = this.projects().map((p) => {
       const drive = this.timeline.drives?.projectState(p.id) ?? {};
       // A disconnected drive kept by the user stays searchable from its saved index.
-      if (drive.availability === 'offline') return { ...p, ...drive, fileCount: counts.get(p.id) ?? 0, available: true, error: null };
+      if (drive.availability === 'offline') {
+        return { ...p, ...drive, fileCount: counts.get(p.id) ?? 0, available: true, error: null, issue: null };
+      }
       let available = false;
       try { available = fs.statSync(p.rootPath).isDirectory(); } catch { /* disconnected or removed */ }
+      const failure = this.errors.get(p.id) ?? null;
       return { ...p, ...drive, fileCount: counts.get(p.id) ?? 0, available,
-        error: this.errors.get(p.id) ?? (available ? null : 'Directory is unavailable.') };
+        error: failure?.message ?? (available ? null : 'Directory is unavailable.'),
+        issue: this.issueFor(p, available, failure) };
     });
     return { directories, revision: this.revision(),
       activeProjectIds: directories.filter((p) => p.active && p.available && !p.error).map((p) => p.id) };
+  }
+
+  /**
+   * Indexing problems are read only for a folder in use: a paused one is not
+   * indexed again until it is switched on, which reports them afresh.
+   */
+  issueFor(project, available, activationFailure) {
+    const inUse = project.active && available && !activationFailure;
+    return directoryIssue({
+      available,
+      activationError: activationFailure,
+      readerBehind: inUse && this.dependencies.indexFreshness(project.id).stale,
+      failures: inUse ? this.terminal.indexing.failures(project.id) : [],
+    });
+  }
+
+  /** Applies the fix the folder's issue offers. Only Lasso's own problems have one. */
+  async fixIssue(projectId, actor = systemActor) {
+    const directory = this.state().directories.find((entry) => entry.id === projectId);
+    if (!directory) throw new HttpError(404, 'Work directory not found.');
+    if (!directory.issue?.fix) throw new HttpError(409, 'There is nothing for Lasso to fix in this folder.');
+    if (directory.issue.kind === 'ACTIVATION') return this.toggle(projectId, true, actor);
+    return this.enqueue(() => {
+      if (directory.issue.kind === 'READER') {
+        this.dependencies.reindex(projectId, actor, { reason: 'fixed from the work directory list' });
+      } else {
+        this.terminal.indexing.refresh(projectId, actor);
+      }
+      return this.state();
+    });
   }
 
   async restore() {
@@ -282,7 +331,7 @@ export class WorkspaceService {
           this.timeline.unwatchProject(imported.project.id);
           this.timeline.scanCaches.delete(imported.project.id);
           this.errors.set(imported.project.id, activationError(error));
-          throw new HttpError(400, `Could not add the work directory: ${activationError(error)}`);
+          throw new HttpError(400, `Could not add the work directory: ${activationError(error).message}`);
         }
       }
       return this.state();
@@ -303,7 +352,7 @@ export class WorkspaceService {
             this.db.prepare('UPDATE projects SET workspace_active = 0 WHERE id = ?').run(projectId);
             this.timeline.unwatchProject(projectId);
             this.errors.set(projectId, activationError(error));
-            throw new HttpError(400, `Could not enable the work directory: ${activationError(error)}`);
+            throw new HttpError(400, `Could not enable the work directory: ${activationError(error).message}`);
           }
         }
       } else {
@@ -396,7 +445,10 @@ export class WorkspaceService {
     const projects = this.activeProjects();
     const projectsById = new Map(projects.map((p) => [p.id, p]));
     const owners = new Map();
-    const pending = (Array.isArray(input.pendingDependencies) ? input.pendingDependencies.slice(0, 50) : [])
+    const cursor = Number.isInteger(input.cursor) ? input.cursor : String(input.text ?? '').length;
+    // A focus chosen with Shift+Right stands in for the accepted sources while it lasts.
+    const focus = focusedDependency(input.focusSource, input.text, cursor);
+    const pending = focus ? [focus] : (Array.isArray(input.pendingDependencies) ? input.pendingDependencies.slice(0, 50) : [])
       .filter((link) => link && typeof link.sourceObjectId === 'string');
     for (const link of pending) {
       const owner = this.db.prepare('SELECT project_id FROM scientific_objects WHERE id = ?').get(link.sourceObjectId);
@@ -407,13 +459,23 @@ export class WorkspaceService {
     // as current and one paragraph receives several conflicting source scopes.
     const documentProject = projectsById.get(input.documentProjectId);
     const contextProject = documentProject ?? projects[0];
-    const cursor = Number.isInteger(input.cursor) ? input.cursor : String(input.text ?? '').length;
     const availablePending = pending.filter((link) => projectsById.has(owners.get(link.sourceObjectId)));
     let linkedContext = contextProject ? this.dependencies.linkedDependencyContext(contextProject.id, {
       ...input, documentPath: documentProject ? input.documentPath : null,
       pendingDependencies: availablePending,
     }, cursor) : null;
     if (linkedContext && !projectsById.has(this.dependencies.sourceProjectId(linkedContext.source))) linkedContext = null;
+    // A subject named after a joining word ends the accepted source's scope
+    // whichever directory holds it ("Revenue was 485000 and the brack"). The
+    // source's own directory checks this itself, so only the others are asked.
+    const linkedOwner = linkedContext && this.dependencies.sourceProjectId(linkedContext.source);
+    const namedElsewhere = linkedContext && projects.some((project) => project.id !== linkedOwner
+      && this.dependencies.namesSubjectAfterJoiner(project.id, {
+        ...input, documentPath: input.documentProjectId === project.id ? input.documentPath : null,
+      }, cursor, linkedContext));
+    // Every link ends at or before the newest, so one boundary releases them all.
+    const predictionInput = namedElsewhere ? { ...input, sourceScopeBoundary: linkedContext.anchor.end } : input;
+    if (namedElsewhere) linkedContext = null;
     const currentPending = linkedContext
       ? availablePending.filter((link) => link.sourceObjectId === linkedContext.source.id) : availablePending;
     const predictions = [];
@@ -421,7 +483,7 @@ export class WorkspaceService {
       await yieldTurn();
       if (this.closed || revision !== this.revision()) throw new HttpError(409, 'Work directories changed. Request fresh suggestions.');
       const ownDocument = input.documentProjectId === project.id;
-      const scopedInput = { ...input, documentPath: ownDocument ? input.documentPath : null,
+      const scopedInput = { ...predictionInput, documentPath: ownDocument ? input.documentPath : null,
         pendingDependencies: ownDocument ? currentPending : currentPending.filter((s) => owners.get(s.sourceObjectId) === project.id) };
       predictions.push({ project, prediction: this.dependencies.predict(project.id, scopedInput) });
     }
@@ -448,7 +510,14 @@ export class WorkspaceService {
           score: completion.dependencyCandidate?.score ?? completion.score, group: 'completion' });
       }
     }
-    const selected = distinctRanked(slots, limit);
+    // Directories can read different words as the subject: in "Revenue was
+    // 485000. The brack" one offers the earlier value and another the part
+    // being named. A claim in the clause being written wins over earlier ones.
+    const clauseStart = currentClauseStart(input.text, cursor);
+    const writingClaim = slots.some((slot) => slot.group === 'claim' && slot.claim.end > clauseStart);
+    const current = writingClaim
+      ? slots.filter((slot) => slot.group !== 'claim' || slot.claim.end > clauseStart) : slots;
+    const selected = distinctRanked(current, limit);
     const claims = new Map();
     for (const item of selected.filter((s) => s.group === 'claim')) {
       const key = `${item.claim.start}:${item.claim.end}:${item.claim.type}`;

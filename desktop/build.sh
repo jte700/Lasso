@@ -189,6 +189,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/SourceOpener.swift" \
   "$ROOT/desktop/AssistPopupHost.swift" \
   "$ROOT/desktop/DependencyReference.swift" \
+  "$ROOT/desktop/LinkedSourceMemory.swift" \
   "$ROOT/desktop/HostGeometry.swift" \
   "$ROOT/desktop/AccessibilityWork.swift" \
   "$ROOT/desktop/HostAccessibilityMode.swift" \

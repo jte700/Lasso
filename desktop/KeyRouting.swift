@@ -22,6 +22,10 @@ struct KeyRoutingState: Equatable {
     /// The source inspector shows a source its Share Link can share.
     var inspectorCanShare = false
     var popup: Popup = .hidden
+    /// The card is focused on a source, so Shift+Left can show every directory.
+    var canFocusOut = false
+    /// Shift+Right has a focus to move into: the last one, or the selected row.
+    var canFocusIn = false
 }
 
 /// Work a keystroke asks of the main thread.
@@ -38,6 +42,8 @@ enum KeyAction: Equatable {
     case shareConfirm
     case shareScope(Int)
     case inspectorShare
+    case focusOut
+    case focusIn
 }
 
 enum KeyDecision: Equatable {
@@ -66,6 +72,12 @@ enum KeyRouter {
         // Shift+Tab leaves the field, Control+Tab switches tabs, and modified
         // arrows move or select text. Only the bare keys belong to the box.
         let chord = !flags.intersection([.maskShift, .maskCommand, .maskControl, .maskAlternate]).isEmpty
+        // Shift+Left and Shift+Right move the card's focus out to every
+        // directory and back in. With nowhere to move they select text as usual.
+        if state.popup == .suggestions, flags.contains(.maskShift), !commandLike {
+            if keyCode == left, state.canFocusOut { return .swallow(.focusOut) }
+            if keyCode == right, state.canFocusIn { return .swallow(.focusIn) }
+        }
         if state.popup == .suggestions || state.popup == .confirmShare {
             switch keyCode {
             case tab where chord, down where chord, up where chord:

@@ -1186,6 +1186,26 @@ do {
                    (name: "Legal", path: "/Work/Legal")]
     check(WorkspaceAPI.distinctNames(folders) == ["/Work/Notes", "/Home/Notes", "Legal"],
           "folders sharing a name are told apart by their path, as in the list")
+
+    let listed = [(id: "legal", on: false), (id: "finance", on: true), (id: "health", on: false), (id: "cad", on: true)]
+    check(WorkspaceAPI.switchedOnFirst(listed, isOn: \.on).map(\.id) == ["finance", "cad", "legal", "health"],
+          "directories that are on are listed above those that are off, each group in its usual order")
+    check(WorkspaceAPI.fixDirectoryPath("abc") == "api/workspace/directories/abc/fix"
+          && WorkspaceAPI.fixDirectoryBody()["actor"] != nil,
+          "the Fix button asks the server to fix that folder")
+}
+
+print("a directory's issue badge reads the server's description")
+do {
+    let fixable = DirectoryIssue(["kind": "READER", "message": "Lasso's file reader has improved.",
+                                  "fix": ["label": "Re-read Files"]])
+    check(fixable?.message == "Lasso's file reader has improved." && fixable?.fixLabel == "Re-read Files",
+          "an issue Lasso caused carries its fix")
+    let described = DirectoryIssue(["kind": "UNAVAILABLE", "message": "Lasso can't find this folder.", "fix": NSNull()])
+    check(described?.fixLabel == nil && described?.message == "Lasso can't find this folder.",
+          "an issue Lasso did not cause has no fix")
+    check(DirectoryIssue(nil) == nil && DirectoryIssue(NSNull()) == nil && DirectoryIssue(["message": ""]) == nil,
+          "a healthy folder shows no badge")
 }
 
 print("spreadsheet previews in the suggestion card read like the sheet")
@@ -1701,6 +1721,21 @@ do {
     check(chord(36, .maskCommand, open) == .swallow(.acceptPlain), "Command+Return inserts plain text")
     check(chord(76, [.maskCommand, .maskShift], open) == .swallow(.acceptShared), "Shift+Command+Enter shares")
     check(route(36, open) == .pass(.followTyping(trackCaret: true)), "Return alone belongs to the host")
+    let focusable = KeyRoutingState(popup: .suggestions, canFocusOut: true, canFocusIn: true)
+    check(chord(123, .maskShift, focusable) == .swallow(.focusOut), "Shift+Left moves a focused card out to all directories")
+    check(chord(124, .maskShift, focusable) == .swallow(.focusIn), "Shift+Right moves the card's focus in")
+    check(chord(123, [.maskShift, .maskNumericPad, .maskSecondaryFn], focusable) == .swallow(.focusOut),
+          "the flags macOS adds to arrow keys do not stop Shift+Left")
+    check(chord(123, .maskShift, open) == .pass(.followTyping(trackCaret: true))
+          && chord(124, .maskShift, open) == .pass(.followTyping(trackCaret: true)),
+          "with nowhere to move, Shift+arrows select text in the host as usual")
+    check(chord(123, [.maskShift, .maskAlternate], focusable) == .pass(.followTyping(trackCaret: true)),
+          "Shift+Option+Left still selects a word")
+    check(chord(123, .maskShift, KeyRoutingState(popup: .hidden, canFocusOut: true, canFocusIn: true))
+          == .pass(.followTyping(trackCaret: false)),
+          "with no card on screen, Shift+arrows belong to the host")
+    check(route(53, KeyRoutingState(transientOpen: true, popup: .suggestions, canFocusOut: true)) == .swallow(.dismissTransient),
+          "Escape still only closes the card")
     check(route(0, open) == .pass(.followTyping(trackCaret: true)), "typing keeps the open box on the caret")
 
     let confirming = KeyRoutingState(popup: .confirmShare)
@@ -1759,6 +1794,68 @@ do {
           "a timestamp from the future is ignored")
     check(KeyEventLatency.milliseconds(eventTimestamp: 1, now: 60_000_000_000) == nil,
           "an implausibly old timestamp from a different clock is ignored")
+}
+
+print("Shift+Left and Shift+Right move the card's focus out and in")
+do {
+    func source(_ id: String, _ text: String, project: String = "cad") -> LinkedSourceMemory.Source {
+        LinkedSourceMemory.Source(projectId: project, objectId: id, snapshotId: "snap-\(id)", text: text)
+    }
+    func focusId(_ fields: [String: Any]) -> String? {
+        (fields["focusSource"] as? [String: Any])?["sourceObjectId"] as? String
+    }
+    let bracket = source("bracket", "Bracket"), hole = source("hole", "Bracket Ø8 hole diameter")
+    var memory = LinkedSourceMemory()
+    check(!memory.canMoveIn(focusedOn: nil, selected: nil), "with nothing used yet, Shift+Right has nowhere to go")
+    memory.record(bracket)
+    let pending = memory.pendingDependencies(in: "The Bracket beside the Bracket is")
+    check(pending.count == 1 && pending[0]["start"] as? Int == 23 && pending[0]["end"] as? Int == 30
+          && pending[0]["sourceObjectId"] as? String == "bracket" && pending[0]["sourceSnapshotId"] as? String == "snap-bracket",
+          "an accepted source is sent at its last occurrence in the text")
+    check(memory.pendingDependencies(in: "The plate is").isEmpty, "a source whose text was deleted is not sent")
+    check(memory.pendingDependencies(in: "📐 Bracket")[0]["start"] as? Int == 3,
+          "offsets count UTF-16 units, as the host's text does")
+    let accepted = memory.requestFields(in: "The Bracket is")
+    check(accepted["pendingDependencies"] != nil && accepted["focusSource"] == nil,
+          "an accepted source is sent for the server to keep while its sentence goes on")
+
+    memory.moveOut(from: bracket)
+    check(memory.requestFields(in: "The Bracket is").isEmpty,
+          "Shift+Left sends no source, so every directory answers the next words")
+    check(memory.canMoveIn(focusedOn: nil, selected: source("revenue", "Revenue")),
+          "from all directories Shift+Right can return to the last focus")
+    memory.moveIn(focusedOn: nil, selected: source("revenue", "Revenue"))
+    let back = memory.requestFields(in: "The plate is")
+    check(focusId(back) == "bracket" && back["pendingDependencies"] == nil
+          && (back["focusSource"] as? [String: Any])?["sourceSnapshotId"] as? String == "snap-bracket",
+          "Shift+Right from all directories returns to the last focus, not the selected row")
+
+    check(!memory.canMoveIn(focusedOn: bracket, selected: bracket) && !memory.canMoveIn(focusedOn: bracket, selected: nil),
+          "a focused card has nowhere further to go without another row selected")
+    memory.moveIn(focusedOn: bracket, selected: hole)
+    check(focusId(memory.requestFields(in: "The Bracket is")) == "hole" && memory.recent == hole,
+          "Shift+Right on a focused card narrows it to the selected row")
+    memory.moveOut(from: hole)
+    memory.moveIn(focusedOn: nil, selected: nil)
+    check(focusId(memory.requestFields(in: "")) == "hole", "Shift+Left then Shift+Right returns to the narrowed focus")
+
+    memory.record(source("revenue", "Revenue", project: "finance"))
+    check(focusId(memory.requestFields(in: "Revenue was")) == nil
+          && memory.requestFields(in: "Revenue was")["pendingDependencies"] != nil,
+          "a source accepted with Tab replaces a focus chosen with Shift+Right")
+    memory.moveIn(focusedOn: nil, selected: nil)
+    memory.forget()
+    check(memory.sources.isEmpty && memory.requestFields(in: "Revenue was").isEmpty
+          && memory.canMoveIn(focusedOn: nil, selected: nil),
+          "a new field starts with nothing focused, but Shift+Right still knows the last source")
+
+    for index in 0..<10 { memory.record(source("part-\(index)", "Part \(index)")) }
+    check(memory.sources.count == 8 && memory.sources.first?.objectId == "part-2",
+          "only the eight newest accepted sources are kept")
+    memory.record(source("revenue", "Revenue", project: "finance"))
+    memory.keep(projectIds: ["cad"])
+    check(memory.sources.count == 7 && memory.recent == nil && !memory.canMoveIn(focusedOn: nil, selected: nil),
+          "sources in a directory that was removed are dropped, along with Shift+Right's way back to them")
 }
 
 print("slow hosts cost one outstanding Accessibility read")

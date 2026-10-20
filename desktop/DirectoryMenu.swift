@@ -224,6 +224,48 @@ private func dispatchMenuAction(_ item: NSMenuItem) {
     NSApp.sendAction(action, to: item.target, from: item)
 }
 
+/// The small exclamation mark left of a folder icon when the folder has an
+/// issue. Hovering it, or clicking it, asks for the card that explains it.
+final class DirectoryIssueBadge: NSView {
+    static let size: CGFloat = 12
+    var issue: DirectoryIssue? {
+        didSet {
+            isHidden = issue == nil
+            setAccessibilityLabel(issue.map { "Issue: " + $0.message })
+        }
+    }
+    var onHover: ((Bool) -> Void)?
+    private let image = NSImageView()
+
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: Self.size, height: Self.size))
+        image.frame = bounds
+        image.image = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: Self.size - 1, weight: .semibold))
+        image.contentTintColor = .systemOrange
+        image.setAccessibilityElement(false)
+        addSubview(image)
+        isHidden = true
+        setAccessibilityElement(true)
+        setAccessibilityRole(.image)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        // A little wider than the glyph, so a pointer passing near it still counts.
+        addTrackingArea(NSTrackingArea(rect: bounds.insetBy(dx: -3, dy: -3),
+            options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil))
+    }
+
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
+    // A click explains the issue instead of switching the folder on or off.
+    override func mouseDown(with event: NSEvent) { onHover?(true) }
+}
+
 final class NativeMenuToggleRow: NSView {
     private var item: NSMenuItem
     private let titleLabel: NSTextField
@@ -238,6 +280,16 @@ final class NativeMenuToggleRow: NSView {
     var onSizeChange: (() -> Void)?
     var onReveal: (() -> Void)?
     var onRemove: (() -> Void)?
+    private let issueBadge = DirectoryIssueBadge()
+    var issue: DirectoryIssue? {
+        get { issueBadge.issue }
+        set { issueBadge.issue = newValue }
+    }
+    /// Shown as the issue badge's hover card, when the issue is Lasso's to fix.
+    var onFix: (() -> Void)?
+    /// The pointer moved onto (true) or off (false) the issue badge.
+    var onIssueHover: ((NativeMenuToggleRow, Bool) -> Void)?
+    var issueAnchor: NSView { issueBadge }
     /// Selection mode: called with true when Shift extends a range.
     var onSelect: ((Bool) -> Void)?
     private let selectionMark: DirectorySelectionMark
@@ -340,6 +392,13 @@ final class NativeMenuToggleRow: NSView {
         selectionMark.isHidden = true
         selectionMark.onToggle = { [weak self] in self?.select() }
         addSubview(selectionMark)
+        // Left of the folder icon, centred on the same line.
+        issueBadge.setFrameOrigin(NSPoint(x: 1, y: 16 - DirectoryIssueBadge.size / 2))
+        issueBadge.onHover = { [weak self] inside in
+            guard let self else { return }
+            self.onIssueHover?(self, inside)
+        }
+        addSubview(issueBadge)
         setSelecting(selecting, selected: selected, animated: false)
     }
 
@@ -419,6 +478,7 @@ final class NativeMenuToggleRow: NSView {
         // While selecting, a click anywhere on the row selects it, so a stray
         // click cannot also switch the folder off or change its colour.
         if isSelecting { return hit === selectionMark ? hit : self }
+        if hit === issueBadge || hit.isDescendant(of: issueBadge) { return issueBadge }
         if hit === toggle || hit.isDescendant(of: toggle)
             || hit === colorButton || hit.isDescendant(of: colorButton) { return hit }
         if let palette, hit === palette || hit.isDescendant(of: palette) { return hit }

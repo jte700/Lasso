@@ -1,0 +1,140 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createApplication } from '../src/server.js';
+import { bracketPart } from './fixtures/step-models.js';
+
+const actor = { id: 'human:scope-writer', displayName: 'Scope writer', actorType: 'HUMAN_SELF' };
+
+// Two work directories, added the way a writer adds them: CAD models and a finance folder.
+async function twoDirectories(t) {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-cross-directory-scope-'));
+  const models = path.join(sandbox, 'Models');
+  const finance = path.join(sandbox, 'Finance');
+  fs.mkdirSync(models);
+  fs.mkdirSync(finance);
+  fs.writeFileSync(path.join(models, 'Bracket.step'), bracketPart());
+  fs.writeFileSync(path.join(finance, 'Income-Statement.csv'),
+    'Account,Actual\nRevenue,485000\nGross profit,212000\nNet income,48000\n');
+  const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
+  await app.workspace.add([fs.realpathSync(models), fs.realpathSync(finance)], actor);
+  t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  return app;
+}
+
+const typed = (app, text, pendingDependencies = []) => app.workspace.predict({
+  text, cursor: text.length, blockIndex: 0, ...(pendingDependencies.length ? { pendingDependencies } : {}),
+});
+
+// Tab on a suggestion, as the native card does it: the name is inserted and
+// the next requests carry it as a pending dependency.
+async function accept(app, text, label, filePath) {
+  const chosen = candidate => candidate.label === label && candidate.path === filePath;
+  const claim = (await typed(app, text)).claims.find(item => item.candidates.some(chosen));
+  assert.ok(claim, `${text} suggests ${label} from ${filePath}`);
+  const source = claim.candidates.find(chosen);
+  const accepted = `${text.slice(0, claim.start)}${source.completionText ?? source.label}`;
+  return { accepted, link: { projectId: source.projectId, blockIndex: 0, start: claim.start, end: accepted.length,
+    sourceObjectId: source.id, sourceSnapshotId: source.snapshotId } };
+}
+
+const named = prediction => prediction.claims.flatMap(claim => claim.candidates.map(candidate => candidate.label));
+
+test('a name from another directory after a joining word ends the accepted source focus', async t => {
+  const app = await twoDirectories(t);
+  const bracket = await accept(app, 'The brack', 'Bracket', 'Bracket.step');
+  assert.equal((await typed(app, `${bracket.accepted} is`, [bracket.link])).workspaceHeading, 'Values for Bracket');
+  const revenueAfterPart = await typed(app, `${bracket.accepted} is 100 mm wide and reven`, [bracket.link]);
+  assert.equal(revenueAfterPart.workspaceHeading, undefined);
+  assert.equal(named(revenueAfterPart)[0], 'Revenue');
+
+  const revenue = await accept(app, 'Reven', 'Revenue', 'Income-Statement.csv');
+  assert.equal((await typed(app, `${revenue.accepted} was`, [revenue.link])).workspaceHeading, 'Values for Revenue');
+  const partAfterRevenue = await typed(app, `${revenue.accepted} was 485000 and the brack`, [revenue.link]);
+  assert.equal(partAfterRevenue.workspaceHeading, undefined);
+  assert.equal(named(partAfterRevenue)[0], 'Bracket');
+  // A name from the source's own directory already ended it, and still does.
+  const sameDirectory = await typed(app, `${revenue.accepted} was 485000 and gross pr`, [revenue.link]);
+  assert.equal(sameDirectory.workspaceHeading, undefined);
+  assert.equal(named(sameDirectory)[0], 'Gross profit');
+});
+
+test('a name typed in a new sentence outranks a value from the sentence before it', async t => {
+  const app = await twoDirectories(t);
+  const revenue = await accept(app, 'Reven', 'Revenue', 'Income-Statement.csv');
+  const text = `${revenue.accepted} was 485000. The brack`;
+  const sentenceStart = text.indexOf('The brack');
+  for (const links of [[revenue.link], []]) {
+    const prediction = await typed(app, text, links);
+    assert.equal(named(prediction)[0], 'Bracket', `with ${links.length} accepted source`);
+    assert.ok(prediction.claims.every(claim => claim.end > sentenceStart),
+      prediction.claims.map(claim => `${claim.type} "${claim.text}"`).join(', '));
+  }
+});
+
+test('the accepted source keeps its clause until the writer leaves it', async t => {
+  const app = await twoDirectories(t);
+  const bracket = await accept(app, 'The brack', 'Bracket', 'Bracket.step');
+  const text = `${bracket.accepted} is shown next to the reven`;
+  // With no joining word or sentence end the clause is still about the part.
+  assert.equal((await typed(app, text, [bracket.link])).workspaceHeading, 'Values for Bracket');
+  // Shift+Left on the card forgets the source, so the request carries no link
+  // and every directory answers the same words.
+  const released = await typed(app, text);
+  assert.equal(released.workspaceHeading, undefined);
+  assert.equal(named(released)[0], 'Revenue');
+});
+
+// Shift+Right focuses a source that need not be in the text.
+const focusOn = source => ({ projectId: source.projectId, sourceObjectId: source.id, sourceSnapshotId: source.snapshotId });
+const focused = (app, text, focusSource, extra = {}) => app.workspace.predict({
+  text, cursor: text.length, blockIndex: 0, focusSource, ...extra,
+});
+const offered = prediction => prediction.workspaceCompletions.map(item => item.replacementText);
+
+test('Shift+Right focuses the last source again, and it holds until Shift+Left', async t => {
+  const app = await twoDirectories(t);
+  const bracket = await accept(app, 'The brack', 'Bracket', 'Bracket.step');
+  const part = app.dependencies.objectsAt(bracket.link.projectId).find(object => object.id === bracket.link.sourceObjectId);
+  const back = await focused(app, 'The plate is', focusOn(part));
+  assert.equal(back.workspaceHeading, 'Values for Bracket');
+  assert.equal(back.sourceContext.source.id, part.id);
+  assert.equal(offered(back)[0], '100 mm');
+  // Chosen with a key, the focus is not ended by the sentence the way an accepted name's is.
+  for (const text of ['The plate is 100 mm. Its holes are', 'The plate is 100 mm and reven']) {
+    assert.equal((await focused(app, text, focusOn(part))).workspaceHeading, 'Values for Bracket', text);
+  }
+  // It wins over a name accepted earlier in the field.
+  const revenue = await accept(app, 'Reven', 'Revenue', 'Income-Statement.csv');
+  const over = await focused(app, `${revenue.accepted} was`, focusOn(part), { pendingDependencies: [revenue.link] });
+  assert.equal(over.workspaceHeading, 'Values for Bracket');
+});
+
+test('Shift+Right on a focused card narrows it to the selected row', async t => {
+  const app = await twoDirectories(t);
+  const bracket = await accept(app, 'The brack', 'Bracket', 'Bracket.step');
+  const values = await typed(app, `${bracket.accepted} is`, [bracket.link]);
+  const hole = values.workspaceCompletions.map(item => item.dependencyCandidate)
+    .find(candidate => candidate.label === 'Bracket Ø8 hole diameter');
+  assert.ok(hole);
+  const narrowed = await focused(app, `${bracket.accepted} is`, focusOn(hole), { pendingDependencies: [bracket.link] });
+  assert.equal(narrowed.workspaceHeading, 'Values for Bracket Ø8 hole diameter');
+  assert.deepEqual(offered(narrowed), ['8 mm']);
+});
+
+test('a focus that cannot be used leaves every directory to answer', async t => {
+  const app = await twoDirectories(t);
+  const bracket = await accept(app, 'The brack', 'Bracket', 'Bracket.step');
+  const part = { projectId: bracket.link.projectId, sourceObjectId: bracket.link.sourceObjectId,
+    sourceSnapshotId: bracket.link.sourceSnapshotId };
+  for (const focusSource of [{ ...part, sourceObjectId: 'missing' }, { sourceObjectId: 42 }, 'Bracket']) {
+    const prediction = await focused(app, 'Reven', focusSource);
+    assert.equal(prediction.workspaceHeading, undefined, JSON.stringify(focusSource));
+    assert.equal(named(prediction)[0], 'Revenue');
+  }
+  await app.workspace.toggle(part.projectId, false, actor);
+  const paused = await focused(app, 'Reven', part);
+  assert.equal(paused.workspaceHeading, undefined);
+});

@@ -277,6 +277,7 @@ private struct WorkDirectory {
     let active: Bool
     let available: Bool
     let error: String?
+    let issue: DirectoryIssue?
 
     init?(_ object: [String: Any]) {
         guard let id = object["id"] as? String,
@@ -287,6 +288,7 @@ private struct WorkDirectory {
         self.active = object["active"] as? Bool ?? false
         self.available = object["available"] as? Bool ?? true
         self.error = object["error"] as? String
+        self.issue = DirectoryIssue(object["issue"])
     }
 
     /// Switched on and present, but not usable for suggestions.
@@ -580,6 +582,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                   selected: removalSelection.ids.contains(id)) { [weak self] color in
                         self?.setToggleColor(color, for: directory.id)
                     }
+                    row.issue = directory.issue
+                    row.onFix = { [weak self] in self?.fixDirectory(id) }
                     row.onSelect = { [weak self] extend in self?.toggleRemovalSelection(id, extendingRange: extend) }
                     row.onReveal = { [weak self] in self?.revealDirectory(id) }
                     row.onRemove = { [weak self] in
@@ -877,7 +881,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyWorkspace(_ state: [String: Any]) {
-        directories = (state["directories"] as? [[String: Any]] ?? []).compactMap(WorkDirectory.init)
+        directories = WorkspaceAPI.switchedOnFirst(
+            (state["directories"] as? [[String: Any]] ?? []).compactMap(WorkDirectory.init), isOn: \.active)
         removalSelection = removalSelection.pruned(to: directories.map(\.id))
         if let revision = state["revision"] as? String {
             workspaceRevision = revision
@@ -959,6 +964,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mutateWorkspace(path: "api/workspace/directories/" + id,
                         body: WorkspaceAPI.toggleDirectoryBody(active: activate),
                         message: activate ? "Activating and indexing directory…" : "Pausing directory…")
+    }
+
+    /// Applies the fix Lasso offers for a folder's issue, such as re-reading its files.
+    private func fixDirectory(_ id: String) {
+        guard let directory = directories.first(where: { $0.id == id }),
+              let fix = directory.issue?.fixLabel else { return }
+        mutateWorkspace(path: WorkspaceAPI.fixDirectoryPath(id), body: WorkspaceAPI.fixDirectoryBody(),
+                        message: "\(fix): \(directory.name)…")
     }
 
     /// Takes a folder out of Lasso. Nothing on disk changes, and its history
