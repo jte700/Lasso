@@ -176,6 +176,7 @@
   .lv2 { background: #e6edff; color: #2f5fe0; }
   .lv3 { background: #ffeee2; color: #c24a08; }
   .lv4 { background: #efe8fd; color: #6b3fd6; }
+  .lv5 { background: #def4f1; color: #0d7f73; }
   .tab[aria-selected="true"] .lv { background: rgba(128, 128, 128, .28); color: var(--on-contrast); }
   .note { margin-top: 18px; text-align: center; font-size: 13.5px; color: var(--ink-3); }
   .reveal { opacity: 0; transform: translateY(24px); transition: opacity .8s ease, transform .8s ease; }
@@ -874,10 +875,11 @@
       <div class="center reveal">
         <span class="kicker">Write with evidence</span>
         <h2>Autocomplete that shows its work</h2>
-        <p class="lead">Suggestions come from your own project, not from a model. Right inside the suggestion box, Lasso previews the source (the floor plan, the sheet, the paper, the clause) so you can <b>confirm it before you press Tab</b>. Click any highlight later to check it again.</p>
+        <p class="lead">Suggestions come from your own project, not from a model. Right inside the suggestion box, Lasso previews the source (the floor plan, the part, the sheet, the paper, the clause) so you can <b>confirm it before you press Tab</b>. Click any highlight later to check it again.</p>
       </div>
       <div class="tabs reveal" role="tablist" id="wTabs" aria-label="Use cases">
         <button class="tab" role="tab" aria-selected="true" data-case="arch"><span class="lv lv1">IFC</span>Architecture</button>
+        <button class="tab" role="tab" aria-selected="false" data-case="cad"><span class="lv lv5">STEP</span>3D models</button>
         <button class="tab" role="tab" aria-selected="false" data-case="finance"><span class="lv lv2">Excel</span>Finance</button>
         <button class="tab" role="tab" aria-selected="false" data-case="research"><span class="lv lv3">PDF</span>Research</button>
         <button class="tab" role="tab" aria-selected="false" data-case="legal"><span class="lv lv4">Lease</span>Legal</button>
@@ -1765,6 +1767,43 @@
       + svgT(160, cur ? 134 : 164, cur ? 'Alignment · Main Road' : 'Main Road · 2022 survey', '#000', 9.5, 'middle', 600)
       + svgT(12, 230, cur ? 'site.landxml · current' : 'site_2022.landxml · superseded', cur ? 'rgba(0,0,0,.42)' : '#c2255c', 8.5, 'start') + '</svg>';
   }
+  // a STEP part (an L-shaped motor mount) drawn as an isometric wireframe; feat: 'hole' | 'z' | 'x'
+  function pvCad(feat, rev = 'C') {
+    const k = 1.25, ox = 127, oy = 92, cs = .866 * k, sn = .5 * k;
+    const P = (x, y, z) => [ox + (x - y) * cs, oy + (x + y) * sn - z * k];
+    const pts = (a) => a.map(p => P(...p).map(v => v.toFixed(1)).join(',')).join(' ');
+    const face = (a, fill) => `<polygon points="${pts(a)}" fill="${fill}" stroke="#8d877f" stroke-width="1" stroke-linejoin="round"/>`;
+    const G = '#29cc57', old = rev !== 'C', dia = old ? 8 : 8.5, hl = old ? '#e5487a' : G;
+    let s = '<svg viewBox="0 0 320 236">';
+    // base plate 120 × 60 × 10, upright 120 × 10 × 54 standing on its back edge
+    s += face([[0, 60, 0], [120, 60, 0], [120, 60, 10], [0, 60, 10]], '#f3f1ed') + face([[120, 0, 0], [120, 60, 0], [120, 60, 10], [120, 0, 10]], '#e9e6e1')
+      + face([[0, 0, 10], [120, 0, 10], [120, 60, 10], [0, 60, 10]], '#fbfaf8');
+    s += face([[0, 10, 10], [120, 10, 10], [120, 10, 64], [0, 10, 64]], '#f3f1ed') + face([[120, 0, 10], [120, 10, 10], [120, 10, 64], [120, 0, 64]], '#e9e6e1')
+      + face([[0, 0, 64], [120, 0, 64], [120, 10, 64], [0, 10, 64]], '#fbfaf8');
+    // four through-holes on the base plate: circles in the top face draw as ellipses
+    for (const [hx, hy] of [[25, 28], [95, 28], [25, 48], [95, 48]]) {
+      const [cx, cy] = P(hx, hy, 10), r = dia / 2 * 1.9, on = feat === 'hole';
+      s += `<ellipse cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" rx="${(r * 1.22).toFixed(1)}" ry="${(r * .7).toFixed(1)}" fill="${on ? (old ? '#fdeef3' : '#eafaf0') : '#e4e0da'}" stroke="${on ? hl : '#8d877f'}" stroke-width="${on ? 2 : 1}"/>`;
+    }
+    if (feat === 'hole') {
+      const [ax, ay] = P(95, 48, 10);
+      s += `<path d="M${(ax + 9).toFixed(1)} ${(ay + 4).toFixed(1)} L${(ax + 34).toFixed(1)} ${(ay + 22).toFixed(1)} H${(ax + 52).toFixed(1)}" fill="none" stroke="${hl}" stroke-width="1.4"/>`
+        + svgT(ax + 54, ay + 25, `Ø ${dia.toFixed(1)} × 4`, old ? '#c2255c' : '#1f9d55', 11, 'start', 700);
+    }
+    if (feat === 'z') {
+      const [a1, b1] = P(132, 10, 0), [a2, b2] = P(132, 10, 64);
+      s += `<path d="M${a1.toFixed(1)} ${b1.toFixed(1)} L${a2.toFixed(1)} ${b2.toFixed(1)} M${(a1 - 5).toFixed(1)} ${b1.toFixed(1)} h10 M${(a2 - 5).toFixed(1)} ${b2.toFixed(1)} h10" stroke="${G}" stroke-width="2"/>`
+        + svgT(a1 + 8, (b1 + b2) / 2 + 4, '64.0', '#1f9d55', 11, 'start', 700);
+    }
+    if (feat === 'x') {
+      const [a1, b1] = P(0, 72, 0), [a2, b2] = P(120, 72, 0);
+      s += `<path d="M${a1.toFixed(1)} ${b1.toFixed(1)} L${a2.toFixed(1)} ${b2.toFixed(1)}" stroke="${G}" stroke-width="2"/>`
+        + svgT((a1 + a2) / 2 - 10, (b1 + b2) / 2 + 16, '120.0', '#1f9d55', 11, 'middle', 700);
+    }
+    s += svgT(10, 228, old ? 'motor_mount_revB.step · superseded' : `motor_mount_revC.step · BRACKET-01 · mm`, old ? '#c2255c' : 'rgba(0,0,0,.42)', 8.5, 'start')
+      + svgT(310, 228, 'AP242 · isometric', 'rgba(0,0,0,.42)', 8.5, 'end');
+    return s + '</svg>';
+  }
   const PL = [['', 'A', 'B', 'C', 'D', 'E'], ['11', '€ M', 'Q1', 'Q2', 'Q3 act.', 'Q3 bud.'], ['12', 'Revenue', '4.31', '4.58', '4.82', '4.95'], ['13', 'COGS', '2.62', '2.70', '2.97', '2.99'], ['14', 'Gross profit', '1.69', '1.88', '1.85', '1.96'], ['15', 'Gross margin', '39.2%', '41.0%', '38.4%', '39.6%'], ['16', 'Opex', '1.12', '1.15', '1.21', '1.18']];
   const PL_DRAFT = PL.map((r, i) => (i === 2 ? ['12', 'Revenue', '4.12', '4.40', '4.61', '4.95'] : r));
   const ROOMS_CSV = [['', 'A', 'B', 'C'], ['1', 'room', 'area_m2', 'level'], ['13', 'Wohnen', '23.1', 'L2'], ['14', 'Schlafzimmer', '12.9', 'L2'], ['15', 'Küche', '9.4', 'L2'], ['16', 'Bad', '5.2', 'L2']];
@@ -1889,6 +1928,12 @@
         { t: ', and Main Road runs for ' },
         { s: [{ v: '398.0 m', file: 'site_2022.landxml', loc: 'Alignment · Main Road · length', ver: 'v1', pv: pvSite(false) }, { v: '412.6 m', file: 'site.landxml', loc: 'Alignment · Main Road · length', ver: 'v2', pv: pvSite(true) }], choose: 1 },
         { t: ' between the two junctions.' }] },
+      cad: { doc: 'bracket-spec.md', head: 'Motor mount bracket · machining notes', note: 'Indexed: STEP CAD models (AP242)', script: [
+        { t: 'Drill the base plate with four ' },
+        { s: [{ v: 'Ø 8.5 mm', file: 'motor_mount_revC.step', loc: 'BRACKET-01 · 4 holes · diameter', ver: 'v3', pv: pvCad('hole', 'C') }, { v: 'Ø 8.0 mm', file: 'motor_mount_revB.step', loc: 'BRACKET-01 · 4 holes · diameter', ver: 'v2', pv: pvCad('hole', 'B') }], choose: 0 },
+        { t: ' holes; the finished bracket stands ' },
+        { s: [{ v: '64.0 mm', file: 'motor_mount_revC.step', loc: 'BRACKET-01 · overall Z extent', ver: 'v3', pv: pvCad('z') }, { v: '120.0 mm', file: 'motor_mount_revC.step', loc: 'BRACKET-01 · overall X extent', ver: 'v3', pv: pvCad('x') }], choose: 0 },
+        { t: ' tall.' }] },
       finance: { doc: 'q3-board-memo.md', head: 'Q3 board memo', note: 'Indexed: Excel forecasts and budgets', script: [
         { t: 'Operating revenue for the quarter came to ' },
         { s: [{ v: '€ 4.82 M', file: 'forecast_2026.xlsx', loc: 'P&L!D12 · Q3 actual', ver: 'v5', pv: pvSheet(PL, [2, 4], ['P&L', 'Cash flow', 'Headcount']) }, { v: '€ 4.95 M', file: 'forecast_2026.xlsx', loc: 'P&L!E12 · Q3 budget', ver: 'v5', pv: pvSheet(PL, [2, 5], ['P&L', 'Cash flow', 'Headcount']) }, { v: '€ 4.61 M', file: 'forecast_draft.xlsx', loc: 'P&L!D12 · superseded', ver: 'v2', pv: pvSheet(PL_DRAFT, [2, 4], ['P&L (draft)']) }], choose: 0 },
@@ -1908,7 +1953,7 @@
         { s: [{ v: '€ 250,000', file: 'lease_unit4_signed.pdf', loc: '§18.1 · limitation of liability', ver: 'v2', pv: pvContract(true, '18.1') }], choose: 0 },
         { t: '.' }] },
     };
-    const ORDER = ['arch', 'finance', 'research', 'legal'];
+    const ORDER = ['arch', 'cad', 'finance', 'research', 'legal'];
     const g = gate($('#macWrite'), .3), CANCEL = Symbol('cancel');
     let gen = 0;
     const nap = (t, gg) => new Promise((res, rej) => setTimeout(() => (gg === gen ? res() : rej(CANCEL)), t));
