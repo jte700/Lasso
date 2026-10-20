@@ -2,7 +2,7 @@ import { extractDrawingDocument } from './drawing-extraction.js';
 import { extractIfcDocument } from './ifc-extraction.js';
 import { extractDxfDocument } from './dxf-extraction.js';
 import { extractLandXmlDocument } from './landxml-extraction.js';
-import { extractStepDocument } from './step-extraction.js';
+import { extractStepDocument, FEATURE_TIER } from './step-extraction.js';
 import path from 'node:path';
 
 const NATIVE_CAD = ['.sldprt', '.sldasm', '.ipt', '.iam', '.f3d', '.catpart', '.catproduct', '.x_t', '.x_b', '.igs', '.iges', '.3dm'];
@@ -91,4 +91,43 @@ export function drawingContext(source) {
     pageNumber: source.anchor?.pageNumber, bbox: source.anchor?.bbox ?? null,
     measurementBasis: metadata.measurementBasis ?? null,
   };
+}
+
+// A feature's size (a diameter or radius) comes before its depth or length.
+const FOLLOWING_MEASURES = new Set(['depth', 'length', 'arc_length']);
+
+/** A part's natural order: overall sizes, holes, arcs, then edges. Other facts are unordered. */
+export function measurementOrder(object) {
+  const tier = FEATURE_TIER[object.metadata?.featureType];
+  if (tier === undefined) return Number.MAX_SAFE_INTEGER;
+  return tier + (FOLLOWING_MEASURES.has(object.metadata.kind) ? 0.5 : 0);
+}
+
+const COUNT_WORDS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+const writtenWords = (value) => String(value ?? '').toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+const sameWord = (word, written) => [word, `${word}s`, `${word}es`].includes(written);
+
+/**
+ * How closely the words written after a drawing or part name describe one of
+ * its measurements. Words of the measurement's name count most ("holes with a
+ * diameter of"), its search terms less ("bore"); a written count ("four holes")
+ * or the start of a value being typed picks out the matching feature.
+ */
+export function measurementRelevance(object, tail) {
+  const written = writtenWords(tail);
+  const mentioned = (word) => written.some((item) => sameWord(word, item));
+  // Sizes and units in a name ("10 mm straight edge") are not words to match.
+  const named = [...new Set(writtenWords(object.label))]
+    .filter((word) => !/^\d/.test(word) && word !== String(object.metadata?.units ?? '').toLowerCase());
+  const related = [...new Set(writtenWords(object.metadata?.searchTerms))].filter((word) => !named.includes(word));
+  const counted = written.some((word, index) => {
+    const count = COUNT_WORDS.indexOf(word) + 1 || Number(word);
+    return count > 0 && count === object.metadata?.count && named.some((name) => sameWord(name, written[index + 1]));
+  });
+  // A value being typed, with or without its unit ("6", "60 m"), is completed rather than replaced.
+  const compact = (value) => String(value ?? '').toLowerCase().replace(/\s+/g, '');
+  const typing = String(tail ?? '').match(/(?:^|\s)(\d+(?:\.\d*)?(?:\s*\p{L}+)?)$/u)?.[1];
+  const typedValue = Boolean(typing) && compact(object.valueText).startsWith(compact(typing));
+  return Math.min(0.5, 0.12 * named.filter(mentioned).length + 0.04 * related.filter(mentioned).length
+    + (counted ? 0.06 : 0) + (typedValue ? 0.3 : 0));
 }
