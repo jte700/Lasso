@@ -1,8 +1,8 @@
 //  What the suggestion card is focused on in the field being typed in.
 //
 //  Tab accepts a source, and each request names it so the server offers its
-//  values while its sentence goes on. Shift+Left moves out to every work
-//  directory; Shift+Right moves back in to the last focus or, on a card
+//  values while its sentence goes on. fn+Left moves out to every work
+//  directory; fn+Right moves back in to the last focus or, on a card
 //  already focused, into the selected row.
 
 import Foundation
@@ -19,9 +19,9 @@ struct LinkedSourceMemory {
     private static let limit = 8
     /// Sources accepted with Tab in this field, newest last.
     private(set) var sources: [Source] = []
-    /// A focus chosen with Shift+Right. The server keeps it until Shift+Left.
+    /// A focus chosen with fn+Right. The server keeps it until fn+Left.
     private(set) var chosen: Source?
-    /// Where Shift+Right returns from every directory: the latest focus in any field.
+    /// Where fn+Right returns from every directory: the latest focus in any field.
     private(set) var recent: Source?
 
     mutating func record(_ source: Source) {
@@ -43,15 +43,15 @@ struct LinkedSourceMemory {
         if let recent, !projectIds.contains(recent.projectId) { self.recent = nil }
     }
 
-    /// Shift+Left: every directory answers the next words. The source the card
-    /// was focused on is where Shift+Right comes back to.
+    /// fn+Left: every directory answers the next words. The source the card
+    /// was focused on is where fn+Right comes back to.
     mutating func moveOut(from focused: Source?) {
         if let focused { recent = focused }
         sources.removeAll()
         chosen = nil
     }
 
-    /// Shift+Right from every directory returns to the latest focus; on a
+    /// fn+Right from every directory returns to the latest focus; on a
     /// focused card it moves into the selected row, unless that row is the focus.
     func canMoveIn(focusedOn current: Source?, selected: Source?) -> Bool {
         target(focusedOn: current, selected: selected) != nil

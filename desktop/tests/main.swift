@@ -1721,19 +1721,22 @@ do {
     check(chord(36, .maskCommand, open) == .swallow(.acceptPlain), "Command+Return inserts plain text")
     check(chord(76, [.maskCommand, .maskShift], open) == .swallow(.acceptShared), "Shift+Command+Enter shares")
     check(route(36, open) == .pass(.followTyping(trackCaret: true)), "Return alone belongs to the host")
+    // macOS delivers fn+← as Home (115) and fn+→ as End (119), with the fn flag.
+    let fnArrow: CGEventFlags = [.maskSecondaryFn]
     let focusable = KeyRoutingState(popup: .suggestions, canFocusOut: true, canFocusIn: true)
-    check(chord(123, .maskShift, focusable) == .swallow(.focusOut), "Shift+Left moves a focused card out to all directories")
-    check(chord(124, .maskShift, focusable) == .swallow(.focusIn), "Shift+Right moves the card's focus in")
-    check(chord(123, [.maskShift, .maskNumericPad, .maskSecondaryFn], focusable) == .swallow(.focusOut),
-          "the flags macOS adds to arrow keys do not stop Shift+Left")
-    check(chord(123, .maskShift, open) == .pass(.followTyping(trackCaret: true))
-          && chord(124, .maskShift, open) == .pass(.followTyping(trackCaret: true)),
-          "with nowhere to move, Shift+arrows select text in the host as usual")
-    check(chord(123, [.maskShift, .maskAlternate], focusable) == .pass(.followTyping(trackCaret: true)),
-          "Shift+Option+Left still selects a word")
-    check(chord(123, .maskShift, KeyRoutingState(popup: .hidden, canFocusOut: true, canFocusIn: true))
+    check(chord(115, fnArrow, focusable) == .swallow(.focusOut), "fn+Left moves a focused card out to all directories")
+    check(chord(119, fnArrow, focusable) == .swallow(.focusIn), "fn+Right moves the card's focus in")
+    check(chord(123, [.maskShift, .maskNumericPad, .maskSecondaryFn], focusable) == .pass(.followTyping(trackCaret: true))
+          && chord(124, [.maskShift, .maskNumericPad, .maskSecondaryFn], focusable) == .pass(.followTyping(trackCaret: true)),
+          "Shift+arrows select text even while the card could move")
+    check(chord(115, fnArrow, open) == .pass(.followTyping(trackCaret: true))
+          && chord(119, fnArrow, open) == .pass(.followTyping(trackCaret: true)),
+          "with nowhere to move, fn+arrows keep their usual meaning in the host")
+    check(chord(115, [.maskSecondaryFn, .maskShift], focusable) == .pass(.followTyping(trackCaret: true)),
+          "Shift+fn+Left still selects to the start")
+    check(chord(115, fnArrow, KeyRoutingState(popup: .hidden, canFocusOut: true, canFocusIn: true))
           == .pass(.followTyping(trackCaret: false)),
-          "with no card on screen, Shift+arrows belong to the host")
+          "with no card on screen, fn+arrows belong to the host")
     check(route(53, KeyRoutingState(transientOpen: true, popup: .suggestions, canFocusOut: true)) == .swallow(.dismissTransient),
           "Escape still only closes the card")
     check(route(0, open) == .pass(.followTyping(trackCaret: true)), "typing keeps the open box on the caret")
@@ -1796,7 +1799,7 @@ do {
           "an implausibly old timestamp from a different clock is ignored")
 }
 
-print("Shift+Left and Shift+Right move the card's focus out and in")
+print("fn+Left and fn+Right move the card's focus out and in")
 do {
     func source(_ id: String, _ text: String, project: String = "cad") -> LinkedSourceMemory.Source {
         LinkedSourceMemory.Source(projectId: project, objectId: id, snapshotId: "snap-\(id)", text: text)
@@ -1806,7 +1809,7 @@ do {
     }
     let bracket = source("bracket", "Bracket"), hole = source("hole", "Bracket Ø8 hole diameter")
     var memory = LinkedSourceMemory()
-    check(!memory.canMoveIn(focusedOn: nil, selected: nil), "with nothing used yet, Shift+Right has nowhere to go")
+    check(!memory.canMoveIn(focusedOn: nil, selected: nil), "with nothing used yet, fn+Right has nowhere to go")
     memory.record(bracket)
     let pending = memory.pendingDependencies(in: "The Bracket beside the Bracket is")
     check(pending.count == 1 && pending[0]["start"] as? Int == 23 && pending[0]["end"] as? Int == 30
@@ -1821,33 +1824,33 @@ do {
 
     memory.moveOut(from: bracket)
     check(memory.requestFields(in: "The Bracket is").isEmpty,
-          "Shift+Left sends no source, so every directory answers the next words")
+          "fn+Left sends no source, so every directory answers the next words")
     check(memory.canMoveIn(focusedOn: nil, selected: source("revenue", "Revenue")),
-          "from all directories Shift+Right can return to the last focus")
+          "from all directories fn+Right can return to the last focus")
     memory.moveIn(focusedOn: nil, selected: source("revenue", "Revenue"))
     let back = memory.requestFields(in: "The plate is")
     check(focusId(back) == "bracket" && back["pendingDependencies"] == nil
           && (back["focusSource"] as? [String: Any])?["sourceSnapshotId"] as? String == "snap-bracket",
-          "Shift+Right from all directories returns to the last focus, not the selected row")
+          "fn+Right from all directories returns to the last focus, not the selected row")
 
     check(!memory.canMoveIn(focusedOn: bracket, selected: bracket) && !memory.canMoveIn(focusedOn: bracket, selected: nil),
           "a focused card has nowhere further to go without another row selected")
     memory.moveIn(focusedOn: bracket, selected: hole)
     check(focusId(memory.requestFields(in: "The Bracket is")) == "hole" && memory.recent == hole,
-          "Shift+Right on a focused card narrows it to the selected row")
+          "fn+Right on a focused card narrows it to the selected row")
     memory.moveOut(from: hole)
     memory.moveIn(focusedOn: nil, selected: nil)
-    check(focusId(memory.requestFields(in: "")) == "hole", "Shift+Left then Shift+Right returns to the narrowed focus")
+    check(focusId(memory.requestFields(in: "")) == "hole", "fn+Left then fn+Right returns to the narrowed focus")
 
     memory.record(source("revenue", "Revenue", project: "finance"))
     check(focusId(memory.requestFields(in: "Revenue was")) == nil
           && memory.requestFields(in: "Revenue was")["pendingDependencies"] != nil,
-          "a source accepted with Tab replaces a focus chosen with Shift+Right")
+          "a source accepted with Tab replaces a focus chosen with fn+Right")
     memory.moveIn(focusedOn: nil, selected: nil)
     memory.forget()
     check(memory.sources.isEmpty && memory.requestFields(in: "Revenue was").isEmpty
           && memory.canMoveIn(focusedOn: nil, selected: nil),
-          "a new field starts with nothing focused, but Shift+Right still knows the last source")
+          "a new field starts with nothing focused, but fn+Right still knows the last source")
 
     for index in 0..<10 { memory.record(source("part-\(index)", "Part \(index)")) }
     check(memory.sources.count == 8 && memory.sources.first?.objectId == "part-2",
@@ -1855,7 +1858,7 @@ do {
     memory.record(source("revenue", "Revenue", project: "finance"))
     memory.keep(projectIds: ["cad"])
     check(memory.sources.count == 7 && memory.recent == nil && !memory.canMoveIn(focusedOn: nil, selected: nil),
-          "sources in a directory that was removed are dropped, along with Shift+Right's way back to them")
+          "sources in a directory that was removed are dropped, along with fn+Right's way back to them")
 }
 
 print("slow hosts cost one outstanding Accessibility read")

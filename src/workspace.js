@@ -21,9 +21,9 @@ function activationError(error) {
   return { message: missing ? UNAVAILABLE_MESSAGE : error.message, code: error?.code ?? null };
 }
 
-// A source the writer focused with Shift+Right need not be in the text. It is
+// A source the writer focused with fn+Right need not be in the text. It is
 // anchored where the clause being written starts, so the sentence never ends
-// its scope; Shift+Left or another accepted source does.
+// its scope; fn+Left or another accepted source does.
 function focusedDependency(focusSource, text, cursor) {
   if (!focusSource || typeof focusSource !== 'object') return null;
   const { projectId, sourceObjectId, sourceSnapshotId } = focusSource;
@@ -446,7 +446,7 @@ export class WorkspaceService {
     const projectsById = new Map(projects.map((p) => [p.id, p]));
     const owners = new Map();
     const cursor = Number.isInteger(input.cursor) ? input.cursor : String(input.text ?? '').length;
-    // A focus chosen with Shift+Right stands in for the accepted sources while it lasts.
+    // A focus chosen with fn+Right stands in for the accepted sources while it lasts.
     const focus = focusedDependency(input.focusSource, input.text, cursor);
     const pending = focus ? [focus] : (Array.isArray(input.pendingDependencies) ? input.pendingDependencies.slice(0, 50) : [])
       .filter((link) => link && typeof link.sourceObjectId === 'string');

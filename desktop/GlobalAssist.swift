@@ -729,7 +729,7 @@ final class AssistBoxView: NSView {
     var confirmChoices: [String] = []
     var messageLines: [String] = []
     var sourceScoped = false
-    /// Shift+Right can take an unfocused card back to the latest focus.
+    /// fn+Right can take an unfocused card back to the latest focus.
     var canReturnToFocus = false
     var preview: AssistDocumentPreview?
     var isPreviewLoading = false
@@ -863,7 +863,7 @@ final class AssistBoxView: NSView {
         var y = bodyTop + (mode == .suggestions ? 0 : headerHeight)
         switch mode {
         case .suggestions:
-            drawText(sourceScoped ? "‹ All sources  ⇧←" : canReturnToFocus ? "All sources  ⇧→" : "All sources",
+            drawText(sourceScoped ? "‹ All sources  fn ←" : canReturnToFocus ? "All sources  fn →" : "All sources",
                      in: NSRect(x: 20, y: bodyTop + 10, width: 130, height: 16),
                      font: .systemFont(ofSize: 11, weight: .medium),
                      color: sourceScoped ? .controlAccentColor : .secondaryLabelColor)
@@ -1686,11 +1686,11 @@ final class GlobalAssistant {
             inspector?.shareFromKeyboard()
         case .focusOut:
             linkedSources.moveOut(from: focusedSource)
-            AssistLog.write("  · Shift+Left: suggestions from every directory")
+            AssistLog.write("  · fn+Left: suggestions from every directory")
             refresh()
         case .focusIn:
             linkedSources.moveIn(focusedOn: focusedSource, selected: selectedSource)
-            AssistLog.write("  · Shift+Right: focused on \(linkedSources.chosen?.text ?? "nothing")")
+            AssistLog.write("  · fn+Right: focused on \(linkedSources.chosen?.text ?? "nothing")")
             refresh()
         }
         publishKeyRouting()
@@ -1891,8 +1891,8 @@ final class GlobalAssistant {
         task.resume()
     }
 
-    /// The source the server focused the card on, which Shift+Left leaves and
-    /// Shift+Right returns to. A list scoped to project data names no source.
+    /// The source the server focused the card on, which fn+Left leaves and
+    /// fn+Right returns to. A list scoped to project data names no source.
     private static func focusedSource(_ data: Data) -> LinkedSourceMemory.Source? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let prediction = root["prediction"] as? [String: Any],
@@ -1905,7 +1905,7 @@ final class GlobalAssistant {
                      text: source["label"] as? String ?? "")
     }
 
-    /// The highlighted row as a source Shift+Right can focus on.
+    /// The highlighted row as a source fn+Right can focus on.
     private var selectedSource: LinkedSourceMemory.Source? {
         guard let suggestion = currentSuggestion, let objectId = suggestion.objectId,
               let snapshotId = suggestion.snapshotId else { return nil }
@@ -2834,7 +2834,7 @@ final class GlobalAssistant {
         created.ignoresMouseEvents = false
         created.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         view.frame = NSRect(origin: .zero, size: size)
-        // The selected row decides whether Shift+Right has a row to move into.
+        // The selected row decides whether fn+Right has a row to move into.
         view.onSelectRow = { [weak self] index in self?.selectRow(index); self?.publishKeyRouting() }
         view.onInsert = { [weak self] in self?.activateSelection() }
         view.onLocalLink = { [weak self] in self?.acceptPlain() }

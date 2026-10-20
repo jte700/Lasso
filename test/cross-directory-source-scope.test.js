@@ -80,21 +80,21 @@ test('the accepted source keeps its clause until the writer leaves it', async t 
   const text = `${bracket.accepted} is shown next to the reven`;
   // With no joining word or sentence end the clause is still about the part.
   assert.equal((await typed(app, text, [bracket.link])).workspaceHeading, 'Values for Bracket');
-  // Shift+Left on the card forgets the source, so the request carries no link
+  // fn+Left on the card forgets the source, so the request carries no link
   // and every directory answers the same words.
   const released = await typed(app, text);
   assert.equal(released.workspaceHeading, undefined);
   assert.equal(named(released)[0], 'Revenue');
 });
 
-// Shift+Right focuses a source that need not be in the text.
+// fn+Right focuses a source that need not be in the text.
 const focusOn = source => ({ projectId: source.projectId, sourceObjectId: source.id, sourceSnapshotId: source.snapshotId });
 const focused = (app, text, focusSource, extra = {}) => app.workspace.predict({
   text, cursor: text.length, blockIndex: 0, focusSource, ...extra,
 });
 const offered = prediction => prediction.workspaceCompletions.map(item => item.replacementText);
 
-test('Shift+Right focuses the last source again, and it holds until Shift+Left', async t => {
+test('fn+Right focuses the last source again, and it holds until fn+Left', async t => {
   const app = await twoDirectories(t);
   const bracket = await accept(app, 'The brack', 'Bracket', 'Bracket.step');
   const part = app.dependencies.objectsAt(bracket.link.projectId).find(object => object.id === bracket.link.sourceObjectId);
@@ -112,7 +112,7 @@ test('Shift+Right focuses the last source again, and it holds until Shift+Left',
   assert.equal(over.workspaceHeading, 'Values for Bracket');
 });
 
-test('Shift+Right on a focused card narrows it to the selected row', async t => {
+test('fn+Right on a focused card narrows it to the selected row', async t => {
   const app = await twoDirectories(t);
   const bracket = await accept(app, 'The brack', 'Bracket', 'Bracket.step');
   const values = await typed(app, `${bracket.accepted} is`, [bracket.link]);

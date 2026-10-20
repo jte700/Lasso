@@ -22,9 +22,9 @@ struct KeyRoutingState: Equatable {
     /// The source inspector shows a source its Share Link can share.
     var inspectorCanShare = false
     var popup: Popup = .hidden
-    /// The card is focused on a source, so Shift+Left can show every directory.
+    /// The card is focused on a source, so fn+Left can show every directory.
     var canFocusOut = false
-    /// Shift+Right has a focus to move into: the last one, or the selected row.
+    /// fn+Right has a focus to move into: the last one, or the selected row.
     var canFocusIn = false
 }
 
@@ -54,6 +54,8 @@ enum KeyDecision: Equatable {
 enum KeyRouter {
     private static let tab: Int64 = 48, returnKey: Int64 = 36, enter: Int64 = 76, escape: Int64 = 53
     private static let left: Int64 = 123, right: Int64 = 124, down: Int64 = 125, up: Int64 = 126
+    /// What macOS sends for fn+← and fn+→ (and a full keyboard's own Home and End keys).
+    private static let home: Int64 = 115, end: Int64 = 119
 
     static func decide(keyCode: Int64, flags: CGEventFlags, synthetic: Bool,
                        state: KeyRoutingState) -> KeyDecision {
@@ -72,11 +74,11 @@ enum KeyRouter {
         // Shift+Tab leaves the field, Control+Tab switches tabs, and modified
         // arrows move or select text. Only the bare keys belong to the box.
         let chord = !flags.intersection([.maskShift, .maskCommand, .maskControl, .maskAlternate]).isEmpty
-        // Shift+Left and Shift+Right move the card's focus out to every
-        // directory and back in. With nowhere to move they select text as usual.
-        if state.popup == .suggestions, flags.contains(.maskShift), !commandLike {
-            if keyCode == left, state.canFocusOut { return .swallow(.focusOut) }
-            if keyCode == right, state.canFocusIn { return .swallow(.focusIn) }
+        // fn+Left and fn+Right move the card's focus out to every directory
+        // and back in. With nowhere to move they keep their meaning in the host.
+        if state.popup == .suggestions, !chord {
+            if keyCode == home, state.canFocusOut { return .swallow(.focusOut) }
+            if keyCode == end, state.canFocusIn { return .swallow(.focusIn) }
         }
         if state.popup == .suggestions || state.popup == .confirmShare {
             switch keyCode {
