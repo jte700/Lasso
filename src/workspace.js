@@ -465,6 +465,10 @@ export class WorkspaceService {
       pendingDependencies: availablePending,
     }, cursor) : null;
     if (linkedContext && !projectsById.has(this.dependencies.sourceProjectId(linkedContext.source))) linkedContext = null;
+    // A value is as deep as a source goes. Once the newest accepted source is
+    // one ("The Bracket is 100 mm"), every directory answers the words after it.
+    const settledAt = this.dependencies.settledValueEnd(input, linkedContext);
+    if (settledAt >= 0) linkedContext = null;
     // A subject named after a joining word ends the accepted source's scope
     // whichever directory holds it ("Revenue was 485000 and the brack"). The
     // source's own directory checks this itself, so only the others are asked.
@@ -474,7 +478,8 @@ export class WorkspaceService {
         ...input, documentPath: input.documentProjectId === project.id ? input.documentPath : null,
       }, cursor, linkedContext));
     // Every link ends at or before the newest, so one boundary releases them all.
-    const predictionInput = namedElsewhere ? { ...input, sourceScopeBoundary: linkedContext.anchor.end } : input;
+    const predictionInput = namedElsewhere ? { ...input, sourceScopeBoundary: linkedContext.anchor.end }
+      : settledAt >= 0 ? { ...input, sourceScopeBoundary: settledAt, settledValueEnd: settledAt } : input;
     if (namedElsewhere) linkedContext = null;
     const currentPending = linkedContext
       ? availablePending.filter((link) => link.sourceObjectId === linkedContext.source.id) : availablePending;

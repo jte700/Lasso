@@ -87,6 +87,46 @@ test('the accepted source keeps its clause until the writer leaves it', async t 
   assert.equal(named(released)[0], 'Revenue');
 });
 
+// Tab on a value the focused card offers, as the native card does it.
+function acceptValue(prediction, text, replacementText) {
+  const value = prediction.workspaceCompletions.find(item => item.replacementText === replacementText);
+  assert.ok(value, `${text} offers ${replacementText}`);
+  const accepted = `${text.slice(0, value.claimStart)}${value.replacementText}`;
+  return { accepted, link: { projectId: value.projectId, blockIndex: 0, start: value.claimStart, end: accepted.length,
+    sourceObjectId: value.dependencyCandidate.id, sourceSnapshotId: value.dependencyCandidate.snapshotId } };
+}
+
+test('a value tabbed at the end of a source gives the next words back to every directory', async t => {
+  const app = await twoDirectories(t);
+  const bracket = await accept(app, 'The brack', 'Bracket', 'Bracket.step');
+  const width = acceptValue(await typed(app, `${bracket.accepted} is `, [bracket.link]), `${bracket.accepted} is `, '100 mm');
+  const links = [bracket.link, width.link];
+  // A measurement is as deep as the part goes. The card leaves the part, and
+  // the value just tabbed is not offered again for the text it fills.
+  for (const tail of ['', ' ', ' wide']) {
+    const after = await typed(app, `${width.accepted}${tail}`, links);
+    assert.equal(after.workspaceHeading, undefined, JSON.stringify(tail));
+    assert.equal(after.sourceContext?.source, undefined, JSON.stringify(tail));
+    assert.deepEqual(after.claims.filter(claim => claim.end <= width.accepted.length), [], JSON.stringify(tail));
+  }
+  // With no joining word or new sentence, the other directory names what comes next.
+  assert.equal(named(await typed(app, `${width.accepted} next to the reven`, links))[0], 'Revenue');
+
+  const revenue = await accept(app, 'Reven', 'Revenue', 'Income-Statement.csv');
+  const amount = acceptValue(await typed(app, `${revenue.accepted} was `, [revenue.link]), `${revenue.accepted} was `, '485000');
+  const partAfterAmount = await typed(app, `${amount.accepted} in the quarter the brack`, [revenue.link, amount.link]);
+  assert.equal(partAfterAmount.workspaceHeading, undefined);
+  assert.equal(named(partAfterAmount)[0], 'Bracket');
+
+  // A source accepted earlier in another directory does not take the card back.
+  const part = await accept(app, `${revenue.accepted} matched the brack`, 'Bracket', 'Bracket.step');
+  const partLinks = [revenue.link, part.link];
+  const length = acceptValue(await typed(app, `${part.accepted} at `, partLinks), `${part.accepted} at `, '100 mm');
+  const afterLength = await typed(app, `${length.accepted} `, [...partLinks, length.link]);
+  assert.equal(afterLength.workspaceHeading, undefined);
+  assert.equal(afterLength.sourceContext?.source, undefined);
+});
+
 // fn+Right focuses a source that need not be in the text.
 const focusOn = source => ({ projectId: source.projectId, sourceObjectId: source.id, sourceSnapshotId: source.snapshotId });
 const focused = (app, text, focusSource, extra = {}) => app.workspace.predict({

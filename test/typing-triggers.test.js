@@ -124,6 +124,37 @@ test('an accepted named row offers its columns and then its own values', async (
   assert.deepEqual(cell.items, ['21000']);
 });
 
+test('a cell tabbed after its row and column ends the source focus', async (t) => {
+  const app = await fixture(t);
+  const { accepted, pendingDependencies } = await accept(app, 'Fac');
+  const columns = await predict(app, `${accepted} for the `, { pendingDependencies });
+  const column = columns.workspaceCompletions.find((item) => item.replacementText === 'September Budget CAD');
+  const named = `${accepted} for the ${column.replacementText}`;
+  const link = (item, text) => ({ projectId: item.projectId, blockIndex: 0, start: item.claimStart, end: text.length,
+    sourceObjectId: item.dependencyCandidate.id, sourceSnapshotId: item.dependencyCandidate.snapshotId });
+  const links = [...pendingDependencies, link(column, named)];
+  const cell = (await predict(app, `${named} was `, { pendingDependencies: links })).workspaceCompletions[0];
+  assert.equal(cell.replacementText, '21000');
+  const text = `${named} was ${cell.replacementText}`;
+  const after = [...links, link(cell, text)];
+  // The cell is the end of Facilities: its column's other cells are not offered next.
+  for (const tail of ['', ' ', ' and ']) {
+    const prediction = await predict(app, `${text}${tail}`, { pendingDependencies: after });
+    assert.equal(prediction.workspaceHeading, undefined, JSON.stringify(tail));
+    assert.deepEqual(prediction.workspaceCompletions, [], JSON.stringify(tail));
+  }
+  // Any source can follow, joined or not.
+  assert.equal((await labels(app, `${text} with Mark`, { pendingDependencies: after }))[0], 'Marketing');
+  // Text in a classification column is a value too ("Income").
+  const revenue = await accept(app, 'Reven');
+  const kinds = await predict(app, `${revenue.accepted} is classed as `, { pendingDependencies: revenue.pendingDependencies });
+  const kind = kinds.workspaceCompletions.find((item) => item.replacementText === 'Income');
+  assert.ok(kind, kinds.workspaceCompletions.map((item) => item.replacementText).join(' | '));
+  const classed = `${revenue.accepted} is classed as Income`;
+  const released = await predict(app, `${classed} `, { pendingDependencies: [...revenue.pendingDependencies, link(kind, classed)] });
+  assert.equal(released.workspaceHeading, undefined);
+});
+
 test('equal values in one table row show once after an accepted name', async (t) => {
   const app = await fixture(t);
   const { accepted, pendingDependencies } = await accept(app, 'Secur');

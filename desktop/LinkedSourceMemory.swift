@@ -1,7 +1,9 @@
 //  What the suggestion card is focused on in the field being typed in.
 //
 //  Tab accepts a source, and each request names it so the server offers its
-//  values while its sentence goes on. fn+Left moves out to every work
+//  values while its sentence goes on. A value is as deep as a source goes:
+//  once one is tabbed, the server offers the next words from every work
+//  directory again. fn+Left moves out to every work
 //  directory; fn+Right moves back in to the last focus or, on a card
 //  already focused, into the selected row.
 
@@ -28,6 +30,12 @@ struct LinkedSourceMemory {
         sources.append(source)
         if sources.count > Self.limit { sources.removeFirst() }
         chosen = nil
+    }
+
+    /// The card is showing this source's suggestions. A value tabbed there
+    /// ends the focus on the server, so fn+Right returns to this source, not
+    /// to the value.
+    mutating func noteFocus(_ source: Source) {
         recent = source
     }
 

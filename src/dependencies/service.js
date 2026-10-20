@@ -142,7 +142,9 @@ function isIdentifierRow(object) {
   return IDENTIFIER_HEADER.test(header) || IDENTIFIER_VALUE.test(String(object.metadata.row ?? object.label).trim());
 }
 
-function progressiveVariableFragments(text, cursor) {
+/** Name fragments ending at the cursor, longest first. None starts at or before
+ * `after`, the end of a value already accepted ("100 mm" is not "mm"). */
+function progressiveVariableFragments(text, cursor, after = -1) {
   const source = String(text ?? '');
   if (cursor !== source.length) return [];
   const context = writingSourceContext(source, cursor);
@@ -158,7 +160,7 @@ function progressiveVariableFragments(text, cursor) {
     const trailing = raw.match(/\s*$/)?.[0].length ?? 0;
     const fragment = raw.slice(leading, raw.length - trailing);
     const firstWord = fragment.match(/^[A-Za-z]+/)?.[0].toLowerCase();
-    if (normalizedVariable(fragment).length >= 2 && !FRAGMENT_FUNCTION_WORDS.has(firstWord)) {
+    if (start + leading > after && normalizedVariable(fragment).length >= 2 && !FRAGMENT_FUNCTION_WORDS.has(firstWord)) {
       output.push({ text: fragment, start: start + leading, end: cursor - trailing });
     }
   }
@@ -703,6 +705,17 @@ function contextualStoredValue(object, tail) {
   // Units qualify amounts. A word such as a classification ("Income") takes none.
   const units = numeric ? String(object.metadata.units ?? '').trim() : '';
   return `${raw}${units && !raw.toLowerCase().endsWith(units.toLowerCase()) ? ` ${units}` : ''}`;
+}
+
+/** Whether a source was accepted as its own value ("100 mm", "485000 CAD",
+ * "Income") rather than by a name that leads on to values. */
+function acceptedAsValue(dependency, text) {
+  const { source, anchor } = dependency;
+  if (['PAPER', 'REFERENCE'].includes(source.objectType)) return false;
+  const accepted = normalizedVariable(String(text ?? '').slice(anchor.start, anchor.end));
+  if (!accepted) return false;
+  return [source.valueText, contextualStoredValue(source, String(text ?? '').slice(0, anchor.start))]
+    .some((value) => value && normalizedVariable(value) === accepted);
 }
 
 const comparableNumber = (value) => String(value ?? '').replace(/[\s,]/g, '').replace(/^[^\d.]+/, '');
@@ -2325,11 +2338,12 @@ export class PredictiveProvenanceService {
     return output;
   }
 
-  progressiveStudyVariable(projectId, input, cursor) {
+  /** Words after `settledAt`, a value already accepted, are the only ones read. */
+  progressiveStudyVariable(projectId, input, cursor, settledAt = -1) {
     if (cursor !== String(input.text ?? '').length) return null;
     const context = writingSourceContext(input.text, cursor, input.section);
     if (context.literatureIntent) return null;
-    for (const fragment of progressiveVariableFragments(input.text, cursor)) {
+    for (const fragment of progressiveVariableFragments(input.text, cursor, settledAt)) {
       const candidates = this.candidatesForStudyVariable(projectId, fragment, {
         documentPath: input.documentPath,
         relatedPaths: this.relatedSourcePaths(projectId, input),
@@ -2340,8 +2354,8 @@ export class PredictiveProvenanceService {
     return context.projectIntent ? { fragment: null, candidates: [], context } : null;
   }
 
-  drawingReference(projectId, input, cursor) {
-    const fragments = progressiveVariableFragments(input.text, cursor);
+  drawingReference(projectId, input, cursor, settledAt = -1) {
+    const fragments = progressiveVariableFragments(input.text, cursor, settledAt);
     if (!fragments.length) return null;
     const permitted = this.autocompleteFilter(projectId);
     const drawings = this.objectsAt(projectId, null, ['DRAWING'])
@@ -2680,6 +2694,16 @@ export class PredictiveProvenanceService {
       .sort((left, right) => right.anchor.end - left.anchor.end)[0] ?? null;
     if (!dependency || cursor - dependency.anchor.end > 420) return null;
     return dependency;
+  }
+
+  /**
+   * Where the newest accepted source was settled by its own value, or -1. A
+   * value is as deep as a source goes: every directory answers the words
+   * after it, and nothing is offered again for the text it fills.
+   */
+  settledValueEnd(input, dependency) {
+    if (Number.isInteger(input.settledValueEnd)) return input.settledValueEnd;
+    return dependency && acceptedAsValue(dependency, input.text) ? dependency.anchor.end : -1;
   }
 
   /**
@@ -3052,8 +3076,10 @@ export class PredictiveProvenanceService {
     // An explicit model/file reference starts a new source even after another
     // source was linked. It must not depend on scientific-writing intent.
     // The name just accepted ("The Bracket ") is not a new reference to it.
-    const linkedDependency = this.linkedDependencyContext(projectId, input, cursor);
-    const drawing = this.drawingReference(projectId, input, cursor);
+    const newestDependency = this.linkedDependencyContext(projectId, input, cursor);
+    const settledAt = this.settledValueEnd(input, newestDependency);
+    const linkedDependency = newestDependency?.anchor.end > settledAt ? newestDependency : null;
+    const drawing = this.drawingReference(projectId, input, cursor, settledAt);
     if (drawing && !(linkedDependency && drawing.end <= linkedDependency.anchor.end)) return {
       claims: [drawing], completion: null, sourceCompletions: [], workspaceCompletions: [],
       sourceContext: null, deterministic: true, generatedText: false,
@@ -3090,7 +3116,8 @@ export class PredictiveProvenanceService {
         deterministic: true, generatedText: false,
       };
     }
-    const detected = detectClaimSpans(text);
+    // A value just accepted already fills its claim ("The Bracket is 100 mm").
+    const detected = detectClaimSpans(text).filter((claim) => claim.end > settledAt);
     // An amount or citation in an earlier sentence or clause says nothing about
     // the words being typed now ("Revenue was 485000. Gross pr", "... and gross pr").
     const clauseStart = currentClauseStart(text, cursor);
@@ -3099,7 +3126,7 @@ export class PredictiveProvenanceService {
     const hasReferenceIntent = current.some((claim) => ['LITERATURE', 'TABLE_REFERENCE', 'FIGURE', 'METHOD', 'DATASET_REFERENCE']
       .includes(claim.type));
     const studyPrediction = hasStudyValue || hasReferenceIntent
-      ? null : this.progressiveStudyVariable(projectId, input, cursor);
+      ? null : this.progressiveStudyVariable(projectId, input, cursor, settledAt);
     if (studyPrediction) {
       const { fragment, candidates } = studyPrediction;
       const hasVariableChoices = Boolean(fragment && candidates.length);

@@ -1851,11 +1851,21 @@ do {
     check(memory.sources.isEmpty && memory.requestFields(in: "Revenue was").isEmpty
           && memory.canMoveIn(focusedOn: nil, selected: nil),
           "a new field starts with nothing focused, but fn+Right still knows the last source")
+    let width = source("width", "100 mm"), budget = source("budget", "September Budget CAD", project: "finance")
+    memory.noteFocus(bracket)
+    memory.record(width)
+    check(memory.sources.last == width && memory.recent == bracket,
+          "a value tabbed on a focused card is sent, and fn+Right returns to the card's focus, not the value")
+    memory.record(budget)
+    memory.noteFocus(budget)
+    check(memory.recent == budget, "a deeper focus the card then shows becomes fn+Right's way back")
 
     for index in 0..<10 { memory.record(source("part-\(index)", "Part \(index)")) }
     check(memory.sources.count == 8 && memory.sources.first?.objectId == "part-2",
           "only the eight newest accepted sources are kept")
-    memory.record(source("revenue", "Revenue", project: "finance"))
+    let revenue = source("revenue", "Revenue", project: "finance")
+    memory.record(revenue)
+    memory.noteFocus(revenue)
     memory.keep(projectIds: ["cad"])
     check(memory.sources.count == 7 && memory.recent == nil && !memory.canMoveIn(focusedOn: nil, selected: nil),
           "sources in a directory that was removed are dropped, along with fn+Right's way back to them")
