@@ -69,7 +69,8 @@ function compareResolved(left, right) {
     || left.object_rowid - right.object_rowid;
 }
 
-function storedFields(descriptor) {
+/** A descriptor as its version row stores it. */
+export function storedFields(descriptor) {
   return [descriptor.path, descriptor.anchor ? JSON.stringify(descriptor.anchor) : null, descriptor.label,
     descriptor.value ?? null, descriptor.searchText, descriptor.contentHash, JSON.stringify(descriptor.metadata ?? {})];
 }

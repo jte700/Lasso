@@ -315,7 +315,7 @@ enum AssistModelRenderer {
 
         let caption = model.warnings.first ?? [model.storeyLabel, model.viewLabel].filter { !$0.isEmpty }.joined(separator: " · ")
         label(caption, in: NSRect(x: rect.minX + 11, y: rect.maxY - 20, width: rect.width - 22, height: 15),
-              font: .systemFont(ofSize: 9.5), color: .secondaryLabelColor)
+              font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
         NSGraphicsContext.current?.restoreGraphicsState()
         NSColor.separatorColor.withAlphaComponent(0.18).setStroke()
         outline.lineWidth = 0.65

@@ -1620,34 +1620,13 @@ body {
 }
 
 /* ── WindowChrome ─────────────────────────────────────────────────────── */
-.window-chrome {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 13px;
-  background: var(--chrome-bg);
-  border-bottom: 1px solid var(--hair-soft);
-  border-radius: 10px 10px 0 0;
-}
-.traffic-lights { display: flex; gap: 8px; }
-.traffic-lights i { width: 12px; height: 12px; border-radius: 50%; background: #3d3f47; }
+
 .tl-close { background: #ec6a5e !important; }
 .tl-min { background: #f4bf4f !important; }
 .tl-max { background: #61c454 !important; }
-.chrome-title { display: flex; align-items: center; gap: 7px; margin-left: 6px; color: var(--ink-2); font-size: 13px; }
-.chrome-icon { color: var(--a-blue); font-size: 12px; }
-.chrome-title strong { font-weight: 500; color: var(--ink-2); }
 
 /* ── TabBar ───────────────────────────────────────────────────────────── */
-.tab-strip {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  padding: 0 8px 0 10px;
-  background: var(--chrome-bg);
-  border-bottom: 1px solid var(--hair);
-}
+
 .tab-scroll {
   display: flex;
   align-items: center;
@@ -1814,13 +1793,7 @@ body {
   min-height: 0;
   background: var(--term-bg);
 }
-.pane-strip {
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
-  padding: 0 0 0 6px;
-  background: var(--chrome-bg);
-}
+
 .pane-tab {
   min-width: 34px;
   border: 0;
@@ -1864,7 +1837,7 @@ body {
 @media (prefers-reduced-motion: reduce) { .input-cursor { animation: none; } }
 
 /* ── TerminalStatusBar ────────────────────────────────────────────────── */
-.terminal-status { padding: 6px 18px 10px; background: var(--term-bg); font-size: 13px; }
+
 .status-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .status-line + .status-line { margin-top: 2px; }
 .s-model { color: var(--a-cyan); }
@@ -1918,9 +1891,8 @@ body {
 
 /* Inside the macOS app the real window draws the chrome. */
 html.native-app .app-window { border: 0; border-radius: 0; box-shadow: none; height: 100vh; }
-html.native-app .window-chrome { display: none; }
+
 html.native-app .app-window { grid-template-rows: var(--tabs-h) minmax(0, 1fr); }
-html.native-app .tab-strip { padding-left: 82px; border-radius: 0; }
 
 /* The sidebar owns these controls now; the old statusline pinning is dropped. */
 #import-button.add-directory {
@@ -1939,11 +1911,6 @@ html.native-app .tab-strip { padding-left: 82px; border-radius: 0; }
 .sidebar .identity-card { position: static; max-width: none; height: auto; }
 
 /* The status line is the shell's own now, so its fields are visible again. */
-.terminal-status #status-project,
-.terminal-status #status-version,
-.terminal-status #status-files,
-.terminal-status #status-identity { display: inline; }
-.terminal-status #status-message::after { content: none; }
 
 /* Block caret sits with the prompt, and yields to the real caret on focus. */
 .terminal-input { position: relative; }
@@ -2062,37 +2029,9 @@ html.native-app .tab-strip { padding-left: 82px; border-radius: 0; }
 }
 
 /* ── Title strip ──────────────────────────────────────────────────────── */
-.window-chrome {
-  gap: 9px;
-  padding: 0 12px;
-  background: var(--nav-chrome);
-  border-bottom: 0;
-}
-.traffic-lights { gap: 8px; }
-.traffic-lights i { width: 11px; height: 11px; }
-.chrome-title { margin-left: 10px; gap: 6px; }
-.chrome-icon { color: #6f9ad1; font-size: 12px; }
-.chrome-title strong { color: #b9bac2; font-size: 13px; font-weight: 500; }
 
 /* ── Tab rail ─────────────────────────────────────────────────────────── */
-.tab-strip {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  height: var(--tabs-h);
-  padding: 0 10px 0 12px;
-  background: var(--nav-chrome);
-  border-bottom: 0;
-}
-.tab-rail {
-  min-width: 0;
-  height: var(--rail-h);
-  padding: 0 3px;
-  background: var(--nav-rail);
-  border-radius: 8px;
-  overflow: hidden;
-}
+
 .tab-scroll { height: 100%; align-items: center; }
 
 .tab {
@@ -2202,13 +2141,10 @@ html.native-app .tab-strip { padding-left: 82px; border-radius: 0; }
   --nav-chrome: #1e1f25;
   --nav-rail: #2e2f38;
 }
-.tab-strip { padding-left: 10px; }
-.tab-rail { padding: 0 2px; border-radius: 7px; }
+
 .tab { height: 18px; font-size: 12px; }
 .tab.active { width: 164px; }
 .tab-key { font-size: 11px; }
-.chrome-title strong { font-size: 12.5px; }
-.traffic-lights i { width: 10.5px; height: 10.5px; }
 
 .sidebar-head { padding: 13px 14px 8px; }
 .sidebar-head-label { font-size: 14px; }
@@ -2272,17 +2208,8 @@ html.native-app .tab-strip { padding-left: 82px; border-radius: 0; }
 
 /* One ground; the strips above it are transparent. */
 .app-window { background: var(--ground); border-color: rgba(255, 255, 255, .07); }
-.window-chrome,
-.tab-strip { background: transparent; }
 
 /* Layer 2 — the rail, lifted off the ground. */
-.tab-rail {
-  background: var(--layer-rail);
-  border: 1px solid rgba(255, 255, 255, .028);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
-  backdrop-filter: blur(10px) saturate(118%) brightness(1.06);
-  -webkit-backdrop-filter: blur(10px) saturate(118%) brightness(1.06);
-}
 
 /* Layer 3 — the selected tab, lifted off the rail. */
 .tab.active {
@@ -2316,8 +2243,7 @@ html.native-app .tab-strip { padding-left: 82px; border-radius: 0; }
 /* The workspace keeps its own slightly lighter surface so the sidebar reads
    as the quieter of the two. */
 .terminal-workspace { background: #272931; }
-.terminal-scroll, .terminal-status { background: transparent; }
-.pane-strip { background: rgba(0, 0, 0, .16); }
+.terminal-scroll { background: transparent; }
 
 /* Selection sits deeper and more navy than a mid purple: over the sidebar wash
    this composites to roughly #2f2e41, matching the reference's dark row. */

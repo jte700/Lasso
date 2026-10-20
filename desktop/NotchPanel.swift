@@ -380,10 +380,10 @@ final class NotchPanelController: NSObject {
                   size: 10, color: .systemOrange, height: 16)
         }
         let actionWidth = (width - 36) / 2
-        button(suggestionsRequested ? "Pause suggestions" : "Resume suggestions",
+        button(suggestionsRequested ? "Pause Suggestions" : "Resume Suggestions",
                frame: NSRect(x: 14, y: footerY, width: actionWidth, height: 28), action: #selector(toggleSuggestions))
             .isEnabled = baseURL != nil
-        button(activity.stale > 0 || activity.failures > 0 ? "Review sources" : "Open sources",
+        button(activity.stale > 0 || activity.failures > 0 ? "Review Sources" : "Open Sources",
                frame: NSRect(x: width - 14 - actionWidth, y: footerY, width: actionWidth, height: 28), action: #selector(openWorkspace),
                symbol: "arrow.up.right.square").isEnabled = baseURL != nil
         present(frame: frame, compactFrame: compactFrame, cameraFrame: cameraFrame)
@@ -587,7 +587,7 @@ final class NotchPanelController: NSObject {
         var toggles = 0; var destination = ""
         controller.onToggleSuggestions = { toggles += 1 }
         controller.onOpenWorkspace = { destination = $0 }
-        let pause = controller.content.subviews.compactMap { $0 as? NSButton }.first { $0.title == "Pause suggestions" }
+        let pause = controller.content.subviews.compactMap { $0 as? NSButton }.first { $0.title == "Pause Suggestions" }
         pause?.performClick(nil)
         verify(toggles == 1)
         controller.next(); verify(controller.selectedChange == 1)

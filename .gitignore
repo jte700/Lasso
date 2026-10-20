@@ -22,3 +22,10 @@ ed.hup
 # Windows compiler intermediates
 desktop/windows/**/bin/
 desktop/windows/**/obj/
+# Windows companion build output
+desktop-windows/**/bin/
+desktop-windows/**/obj/
+desktop-windows/artifacts/
+# Produced by desktop-windows/build.ps1
+scripts/extract-drawing-layout.exe
+desktop-windows/src/Lasso.Windows/Assets/lasso.ico

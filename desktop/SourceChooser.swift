@@ -10,7 +10,7 @@ final class SourceChooserController: NSObject, NSTableViewDataSource, NSTableVie
     private let documents = NSPopUpButton()
     private let table = NSTableView()
     private let status = NSTextField(labelWithString: "")
-    private let choose = NSButton(title: "Preview source", target: nil, action: nil)
+    private let choose = NSButton(title: "Preview Source", target: nil, action: nil)
     private var objects: [[String: Any]] = []
     private var matches: [[String: Any]] = []
     private var request: URLSessionDataTask?
@@ -44,7 +44,7 @@ final class SourceChooserController: NSObject, NSTableViewDataSource, NSTableVie
         search.stringValue = ""
         objects = []; matches = []; table.reloadData()
         choose.isEnabled = false
-        documents.removeAllItems(); documents.addItem(withTitle: "All documents")
+        documents.removeAllItems(); documents.addItem(withTitle: "All Documents")
         status.stringValue = "Loading sources…"
         panel.center()
         NSApp.activate(ignoringOtherApps: true)
@@ -89,7 +89,7 @@ final class SourceChooserController: NSObject, NSTableViewDataSource, NSTableVie
         if let panel { return panel }
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 590, height: 430),
                             styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        panel.title = "Choose a source"
+        panel.title = "Choose a Source"
         panel.level = .floating
         panel.isReleasedWhenClosed = false
         panel.delegate = self

@@ -1,3 +1,8 @@
+# The repository's own text is stored and checked out with LF on every
+# platform, so a Windows clone is byte-identical to a macOS one. Tests that
+# parse these files, and hashes taken over them, therefore agree everywhere.
+* text=auto eol=lf
+
 # Public source fixtures are hash-checked against their original bytes.
 # Preserve line endings and keep large model exports out of source-code diffs.
 test/fixtures/drawings/*.ifc -text -diff

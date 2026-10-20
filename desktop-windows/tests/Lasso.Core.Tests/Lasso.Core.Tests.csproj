@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Pure-logic tests for dependency anchoring, completion, and geometry.
+       Run by build.ps1 — no framework, no dependencies, mirroring the macOS
+       build's desktop/tests/main.swift so both platforms assert the same
+       behaviour in the same words. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>Lasso.Core.Tests</RootNamespace>
+    <AssemblyName>Lasso.Core.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Lasso.Core\Lasso.Core.csproj" />
+  </ItemGroup>
+
+</Project>

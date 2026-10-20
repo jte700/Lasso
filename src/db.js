@@ -79,6 +79,25 @@ export function openDatabase(config) {
     22: () => hasTable('removable_drives'),
   };
 
+  // Two branches shipped different migration 018s. A store from the Windows
+  // companion's branch is at 18 with a reader column (extractor_version) but
+  // without Alpha's 016 folder toggle or 018 text and spreadsheet re-index.
+  // Apply both here; 019 onwards then upgrade it like any other store, and
+  // the reader column is added idempotently below for everyone else.
+  if (currentVersion === 18) {
+    const indexColumns = db.prepare('PRAGMA table_info(snapshot_object_indexes)').all();
+    if (indexColumns.some(column => column.name === 'extractor_version')) {
+      transaction(db, () => {
+        const projectColumns = db.prepare('PRAGMA table_info(projects)').all();
+        if (!projectColumns.some(column => column.name === 'workspace_active')) {
+          db.exec('ALTER TABLE projects ADD COLUMN workspace_active INTEGER NOT NULL DEFAULT 1 CHECK (workspace_active IN (0, 1))');
+        }
+        db.exec(fs.readFileSync(path.join(migrationDirectory, '018_text_spreadsheet_reindex.sql'), 'utf8')
+          .replace(/INSERT INTO schema_migrations[\s\S]*$/, ''));
+      });
+    }
+  }
+
   const migrations = fs.readdirSync(migrationDirectory)
     .filter((name) => /^\d+_.*\.sql$/.test(name))
     .map((name) => ({ name, version: Number(name.split('_')[0]) }))
@@ -112,6 +131,13 @@ export function openDatabase(config) {
     db.exec('ALTER TABLE projects ADD COLUMN workspace_removed INTEGER NOT NULL DEFAULT 0 CHECK (workspace_removed IN (0, 1))');
   }
   if (!projectColumns.has('root_inode')) db.exec('ALTER TABLE projects ADD COLUMN root_inode TEXT');
+  // Which reader produced a snapshot's indexed objects; 0 is a build that did
+  // not record one. `index reindex` re-reads the files into a new snapshot
+  // rather than rewriting this one, so recorded evidence never changes.
+  const objectIndexColumns = new Set(db.prepare('PRAGMA table_info(snapshot_object_indexes)').all().map((column) => column.name));
+  if (!objectIndexColumns.has('extractor_version')) {
+    db.exec('ALTER TABLE snapshot_object_indexes ADD COLUMN extractor_version INTEGER NOT NULL DEFAULT 0');
+  }
   // A file's change time moves on every write, even one that restores its
   // modification time. With it, reopening a folder after a restart reuses
   // unchanged files' recorded hashes instead of reading every file again.

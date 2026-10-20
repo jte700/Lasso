@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lasso — The Posse</title>
+<title>Lasso · The Posse</title>
 <meta name="description" content="Lasso's brand characters: a cowboy and a cowgirl who bounce, twirl their ropes and catch the exact fragment.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,44 +24,44 @@
     --accent: #e03b1f; --accent-ink: #ffffff;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font-family: "Geist", -apple-system, sans-serif; -webkit-font-smoothing: antialiased; transition: background .4s, color .4s; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: "Geist", -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; transition: background .4s, color .4s; }
   .wrap { width: min(1160px, calc(100% - 32px)); margin: 0 auto; }
   header { display: flex; justify-content: space-between; align-items: end; gap: 24px; flex-wrap: wrap; padding: 56px 0 26px; }
-  .eyebrow { margin: 0 0 12px; font-family: "Geist Mono", monospace; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--text-3); }
-  h1 { margin: 0; font-family: "Instrument Serif", serif; font-weight: 400; font-size: clamp(56px, 9vw, 112px); line-height: .9; letter-spacing: -.02em; }
+  .eyebrow { margin: 0 0 12px; font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--text-3); }
+  h1 { margin: 0; font-family: "Instrument Serif", "New York", ui-serif, Georgia, serif; font-weight: 400; font-size: clamp(56px, 9vw, 112px); line-height: .9; letter-spacing: -.02em; }
   h1 em, h2 em { color: var(--accent); }
-  .intro { max-width: 420px; margin: 0; font-family: "Geist Mono", monospace; font-size: 13px; line-height: 1.7; color: var(--text-2); }
+  .intro { max-width: 420px; margin: 0; font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; line-height: 1.7; color: var(--text-2); }
   .stage-wrap { position: relative; border: 1px solid var(--line); border-radius: 18px; overflow: hidden; background: var(--panel); transition: background .4s; }
   #stage { display: block; width: 100%; height: auto; cursor: crosshair; touch-action: manipulation; }
   .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
-  .btn { padding: 10px 16px; border: 1px solid var(--line); border-radius: 999px; background: none; color: var(--text); font-family: "Geist Mono", monospace; font-size: 12px; cursor: pointer; transition: border-color .2s, background .2s, color .2s; }
+  .btn { padding: 10px 16px; border: 1px solid var(--line); border-radius: 999px; background: none; color: var(--text); font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; cursor: pointer; transition: border-color .2s, background .2s, color .2s; }
   .btn:hover { border-color: var(--accent); }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
   .seg { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; }
-  .seg button { padding: 7px 13px; border: 0; border-radius: 999px; background: none; color: var(--text-2); font-family: "Geist Mono", monospace; font-size: 11.5px; cursor: pointer; }
+  .seg button { padding: 7px 13px; border: 0; border-radius: 999px; background: none; color: var(--text-2); font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11.5px; cursor: pointer; }
   .seg button[aria-pressed="true"] { background: var(--line); color: var(--text); }
-  .hint { margin-left: auto; font-family: "Geist Mono", monospace; font-size: 11px; color: var(--text-3); }
+  .hint { margin-left: auto; font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; color: var(--text-3); }
   section { padding: 70px 0 0; }
-  h2 { margin: 0 0 22px; font-family: "Instrument Serif", serif; font-weight: 400; font-size: clamp(34px, 5vw, 54px); line-height: 1; }
+  h2 { margin: 0 0 22px; font-family: "Instrument Serif", "New York", ui-serif, Georgia, serif; font-weight: 400; font-size: clamp(34px, 5vw, 54px); line-height: 1; }
   .posse { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; }
   .member { padding: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--panel); color: inherit; text-align: left; cursor: pointer; transition: border-color .2s, transform .2s, background .4s; }
   .member:hover { transform: translateY(-3px); }
   .member[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .member svg { display: block; width: 100%; height: auto; }
-  .member span { display: block; padding: 8px 10px 10px; border-top: 1px solid var(--line); font-family: "Geist Mono", monospace; font-size: 10.5px; color: var(--text-3); }
-  .member span b { display: block; font-family: "Geist", sans-serif; font-size: 13px; font-weight: 500; color: var(--text); }
+  .member span { display: block; padding: 8px 10px 10px; border-top: 1px solid var(--line); font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 10.5px; color: var(--text-3); }
+  .member span b { display: block; font-family: "Geist", -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, sans-serif; font-size: 13px; font-weight: 500; color: var(--text); }
   .poses { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
   .pose { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--panel); transition: background .4s; }
   .pose svg { display: block; width: 100%; height: auto; }
-  .pose p { margin: 0; padding: 10px 12px 12px; border-top: 1px solid var(--line); font-family: "Geist Mono", monospace; font-size: 11px; color: var(--text-3); }
-  .pose p b { display: block; margin-bottom: 2px; font-family: "Geist", sans-serif; font-size: 13.5px; font-weight: 500; color: var(--text); }
+  .pose p { margin: 0; padding: 10px 12px 12px; border-top: 1px solid var(--line); font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; color: var(--text-3); }
+  .pose p b { display: block; margin-bottom: 2px; font-family: "Geist", -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, sans-serif; font-size: 13.5px; font-weight: 500; color: var(--text); }
   .traits { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .trait { padding: 20px; border: 1px solid var(--line); border-radius: 14px; font-family: "Geist Mono", monospace; font-size: 12px; line-height: 1.7; color: var(--text-2); }
-  .trait b { display: block; margin-bottom: 6px; font-family: "Instrument Serif", serif; font-size: 28px; font-weight: 400; color: var(--text); }
+  .trait { padding: 20px; border: 1px solid var(--line); border-radius: 14px; font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; line-height: 1.7; color: var(--text-2); }
+  .trait b { display: block; margin-bottom: 6px; font-family: "Instrument Serif", "New York", ui-serif, Georgia, serif; font-size: 28px; font-weight: 400; color: var(--text); }
   .rules { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 40px; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
   .rules li { display: grid; grid-template-columns: 24px 1fr; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 15px; line-height: 1.5; color: var(--text-2); }
-  .rules li span { font-family: "Geist Mono", monospace; font-size: 11px; color: var(--accent); padding-top: 3px; }
-  footer { padding: 60px 0 50px; font-family: "Geist Mono", monospace; font-size: 11px; color: var(--text-3); }
+  .rules li span { font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; color: var(--accent); padding-top: 3px; }
+  footer { padding: 60px 0 50px; font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; color: var(--text-3); }
   /* shared props (character colours come from each palette) */
   .ey { fill: var(--eye); }
   .pu { fill: var(--pupil); }
@@ -75,13 +75,13 @@
   .it { fill: var(--item); stroke: var(--item-stroke); stroke-width: 1.5; }
   .itl { fill: var(--item-line); }
   .ita { fill: var(--item-acc); }
-  .itx { font: 600 14px "Geist Mono", monospace; fill: var(--item-ink); }
-  .itxa { font: 600 9px "Geist Mono", monospace; fill: var(--item-acc-ink); }
-  .lbl { font: 400 10px "Geist Mono", monospace; fill: var(--label); }
+  .itx { font: 600 14px "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; fill: var(--item-ink); }
+  .itxa { font: 600 9px "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; fill: var(--item-acc-ink); }
+  .lbl { font: 400 10px "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; fill: var(--label); }
   .bdg { fill: var(--badge); }
-  .bdt { font: 600 11.5px "Geist Mono", monospace; fill: var(--badge-ink); }
+  .bdt { font: 600 11.5px "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; fill: var(--badge-ink); }
   .puff { fill: var(--puff); }
-  .fl { font: 500 13px "Geist Mono", monospace; fill: var(--accent); }
+  .fl { font: 500 13px "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; fill: var(--accent); }
   .wb1 { fill: none; stroke: #2a4fb8; stroke-width: 2; stroke-linecap: round; }
   .wb2 { fill: none; stroke: #d0432a; stroke-width: 2; stroke-linecap: round; }
   @media (max-width: 980px) {
@@ -91,6 +91,20 @@
     .hint { margin-left: 0; width: 100%; }
   }
   @media (max-width: 520px) { .poses, .posse { grid-template-columns: repeat(2, 1fr); } }
+
+  /* Keyboard focus is always visible (HIG: Accessibility, Keyboards). */
+  :is(a, button, [role="button"], [role="tab"], [tabindex], input, select, textarea, summary):focus-visible {
+    outline: 2px solid #0071e3; outline-offset: 2px;
+  }
+  /* With Reduce Motion on, nothing slides, loops or fades on its own (HIG: Motion). */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+    }
+  }
 </style>
 </head>
 <body data-theme="ink">

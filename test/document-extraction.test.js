@@ -726,6 +726,75 @@ for (const prefix of ['', 'x:']) {
   });
 }
 
+test('line items indented behind spacer columns are still named rows', async () => {
+  // A statement template puts its line items in column C, leaving A and B
+  // empty apart from a stray mark, and heads the figures with the years.
+  // Reading row labels from column A would name every row after its number,
+  // and nothing in the sheet could then be referred to by name.
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-spacer-test-'));
+  const root = path.join(sandbox, 'Statements');
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, 'statement.xlsx'), storedZip({
+    'xl/workbook.xml': '<workbook><sheets><sheet name="SingleStep" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/sharedStrings.xml': '<sst>'
+      + '<si><t>Expenses</t></si><si><t>Advertising</t></si><si><t>Bad debt</t></si>'
+      + '<si><t>Commissions</t></si><si><t>Depreciation</t></si><si><t>Utilities</t></si>'
+      + '</sst>',
+    'xl/worksheets/sheet1.xml': '<worksheet><sheetData>'
+      + '<row r="1"><c r="B1" s="9" t="s"><v>0</v></c><c r="D1"><v>2020</v></c><c r="E1"><v>2019</v></c></row>'
+      + '<row r="2"><c r="B2" s="9"/><c r="C2" t="s"><v>1</v></c><c r="D2"><v>1000</v></c><c r="E2"><v>900</v></c></row>'
+      + '<row r="3"><c r="B3" s="9"/><c r="C3" t="s"><v>2</v></c><c r="D3"><v>250</v></c><c r="E3"><v>240</v></c></row>'
+      + '<row r="4"><c r="B4" s="9"/><c r="C4" t="s"><v>3</v></c><c r="D4"><v>700</v></c><c r="E4"><v>650</v></c></row>'
+      + '<row r="5"><c r="B5" s="9"/><c r="C5" t="s"><v>4</v></c><c r="D5"><v>612</v></c><c r="E5"><v>612</v></c></row>'
+      + '<row r="6"><c r="B6" s="9"/><c r="C6" t="s"><v>5</v></c><c r="D6"><v>180</v></c><c r="E6"><v>175</v></c></row>'
+      + '</sheetData></worksheet>',
+  }));
+  const application = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
+  try {
+    const project = application.timeline.importProject(root, researcher, { watch: false }).project;
+    const objects = application.dependencies.objectsAt(project.id);
+    const rows = objects.filter((object) => object.objectType === 'DATASET_ROW').map((object) => object.label);
+    assert.ok(rows.includes('Advertising'), `named rows were ${JSON.stringify(rows)}`);
+    assert.ok(rows.includes('Commissions'));
+    assert.ok(!rows.some((label) => /^row:\d+$/.test(label)), 'no row is named after its position');
+
+    // And the name is what a writer can reach for mid-sentence.
+    const prediction = application.dependencies.predict(project.id, {
+      text: 'I was looking at the advertisi', cursor: 30,
+    });
+    const candidate = prediction.claims[0].candidates[0];
+    assert.equal(candidate.label, 'Advertising');
+    assert.equal(candidate.objectType, 'DATASET_ROW');
+  } finally {
+    await application.close();
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+test('a formatted empty cell does not swallow the cell after it', () => {
+  // Excel writes a cell that carries formatting but no value as a
+  // self-closing tag. Treating it as the opening of a cell runs on to the
+  // next closing tag, which hands the empty cell's column the following
+  // cell's value and drops that cell's own type - so a shared string
+  // surfaces as its raw index, and a row of line items reads as numbers.
+  const workbook = storedZip({
+    'xl/workbook.xml': '<workbook><sheets><sheet name="Sheet1" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/sharedStrings.xml': '<sst><si><t>Expenses</t></si><si><t>Advertising</t></si></sst>',
+    'xl/worksheets/sheet1.xml':
+      '<worksheet><sheetData>'
+      + '<row r="1"><c r="B1" s="25" t="s"><v>0</v></c></row>'
+      + '<row r="2"><c r="B2" s="19"/><c r="C2" s="20" t="s"><v>1</v></c><c r="D2"><v>1000</v></c></row>'
+      + '</sheetData></worksheet>',
+  });
+  const [sheet] = extractSpreadsheetTables(workbook);
+  assert.equal(sheet.rows[0][1], 'Expenses');
+  assert.equal(sheet.rows[1][2], 'Advertising', 'the shared string resolves instead of leaking its index');
+  assert.equal(sheet.rows[1][3], '1000', 'the value stays in its own column');
+  assert.ok(!sheet.rows[1].includes('1'), 'no raw shared-string index reaches the grid');
+});
+
 test('legacy Excel previews retain distant period headings and the physical cited row', () => {
   const preview = buildSharePreview({path:'statement.xls',content:sampleLegacyXls(7,23)}, {rowIndex:1,columnIndex:2,sheet:'Accounting'});
   assert.deepEqual(preview.headers, ['Account','Current Period','Prior Period']);

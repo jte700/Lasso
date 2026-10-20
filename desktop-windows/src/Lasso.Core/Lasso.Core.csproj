@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Host-independent logic: completion planning and verification, anchoring,
+       source identity, geometry, and preview parsing. Deliberately free of any
+       Windows reference so it can be tested without a host application, exactly
+       as the macOS build tests the same logic without AppKit. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>Lasso.Core</RootNamespace>
+    <AssemblyName>Lasso.Core</AssemblyName>
+  </PropertyGroup>
+
+</Project>

@@ -42,7 +42,7 @@ enum HostCapabilityProbe {
         AXUIElementSetMessagingTimeout(appElement, 0.6)
         guard let focused = attribute(appElement, kAXFocusedUIElementAttribute as String),
               CFGetTypeID(focused) == AXUIElementGetTypeID() else {
-            report.append("  ✗ no focused element — put the caret in a text field first")
+            report.append("  ✗ no focused element: put the caret in a text field first")
             return report.joined(separator: "\n")
         }
         let element = focused as! AXUIElement
@@ -105,7 +105,7 @@ enum HostCapabilityProbe {
         let usable = elementRects || !browserRects.isEmpty
         let verdict = usable
             ? "✓ VERDICT: persistent highlighting supported here"
-            : "✗ VERDICT: no committed-range geometry — this host needs a browser content bridge"
+            : "✗ VERDICT: no committed-range geometry; this host needs a browser content bridge"
         report.append("  " + verdict)
         return report.joined(separator: "\n")
     }

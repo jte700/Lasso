@@ -419,6 +419,45 @@ do {
     check(five.after == "the cost is 400", "inserts when nothing was typed towards it")
 }
 
+print("a completion replaces the word being typed towards it")
+do {
+    // Typing a word that appears later in the suggestion must replace that
+    // word, not sit in front of it: "suppl" towards "office supplies" has to
+    // give "office supplies", never "supploffice supplies".
+    let midWord = accept("I was looking through the suppl", insert: "office supplies")
+    check(midWord.after == "I was looking through the office supplies",
+          "replaces a word the suggestion continues rather than appending to it")
+    check(midWord.range.map { string(Array(units(midWord.after)[$0])) } == "office supplies",
+          "the dependency covers the inserted phrase alone")
+
+    let whole = accept("the cost of supplies", insert: "office supplies")
+    check(whole.after == "the cost of office supplies", "replaces a fully typed word too")
+
+    // The run that spells the start of the suggestion still wins, so finishing
+    // a phrase rewrites the whole phrase rather than only its last word.
+    let phrase = accept("The expected cost of office sup", insert: "office supplies")
+    check(phrase.after == "The expected cost of office supplies",
+          "a phrase already under way is still completed as a phrase")
+
+    // And a word with nothing to do with the suggestion is left alone.
+    let unrelated = accept("the quarterly figure is ", insert: "400")
+    check(unrelated.after == "the quarterly figure is 400",
+          "an insertion after a space replaces nothing")
+    check(CompletionTransaction.replaceableLength(
+        typedBeforeCaret: units("I reviewed the paperwork"), insertText: units("400")) == 0,
+          "an unrelated word is not replaceable")
+
+    // The bound that made the original bug impossible still holds.
+    check(CompletionTransaction.replaceableLength(
+        typedBeforeCaret: units("a very long identifier here"), insertText: units("sup")) <= 3,
+          "never rewrites more characters than the suggestion contains")
+    check(CompletionTransaction.replaceableLength(
+        typedBeforeCaret: units("first second"), insertText: units("second third")) == 6,
+          "reaches back no further than the word being typed")
+}
+
+print("a completion can never delete more than it inserts")
+
 print("matched keywords replace only their captured fragment")
 do {
     let opening = "I was looking at the "
@@ -1724,6 +1763,74 @@ do {
           "a phrase too slow to measure is not walked again for the same layout")
     _ = cache.rects(for: 9..<14, in: snapshot(caret: caret.offsetBy(dx: 7, dy: 0))) { _ in slow += 1; return nil }
     check(slow == 2, "a new layout tries the slow phrase again")
+}
+
+
+// ── Main menu ──────────────────────────────────────────────────────────────
+// A menu bar app still needs the standard menus: AppKit routes Command-key
+// shortcuts through them, so without one Copy and Paste do nothing.
+do {
+    print("\nMain menu")
+    final class MenuTarget: NSObject {
+        @objc func about() {}
+        @objc func settings() {}
+        @objc func add() {}
+        @objc func workspace() {}
+        @objc func help() {}
+    }
+    let menuTarget = MenuTarget()
+    _ = NSApplication.shared
+    MainMenu.install(MainMenu.Commands(target: menuTarget, about: #selector(MenuTarget.about),
+        settings: #selector(MenuTarget.settings), addDirectories: #selector(MenuTarget.add),
+        openWorkspace: #selector(MenuTarget.workspace), help: #selector(MenuTarget.help)))
+    let bar = NSApp.mainMenu
+    check(bar?.items.map(\.title) == ["Lasso", "File", "Edit", "View", "Window", "Help"],
+          "menu bar lists Lasso, File, Edit, View, Window and Help in order")
+    func shortcut(_ menu: String, _ key: String, _ modifiers: NSEvent.ModifierFlags = .command) -> NSMenuItem? {
+        func search(_ items: [NSMenuItem]) -> NSMenuItem? {
+            for item in items {
+                if item.keyEquivalent == key && item.keyEquivalentModifierMask == modifiers { return item }
+                if let found = item.submenu.flatMap({ search($0.items) }) { return found }
+            }
+            return nil
+        }
+        return bar?.items.first { $0.title == menu }?.submenu.flatMap { search($0.items) }
+    }
+    check(shortcut("Lasso", ",")?.action == #selector(MenuTarget.settings) && shortcut("Lasso", ",")?.title == "Settings…",
+          "Command-Comma opens Settings…")
+    check(shortcut("Lasso", "q")?.action == #selector(NSApplication.terminate(_:)), "Command-Q quits")
+    check(shortcut("Lasso", "h")?.action == #selector(NSApplication.hide(_:)), "Command-H hides Lasso")
+    check(shortcut("File", "w")?.action == #selector(NSWindow.performClose(_:)), "Command-W closes the window")
+    check(shortcut("Edit", "c")?.action == #selector(NSText.copy(_:))
+          && shortcut("Edit", "v")?.action == #selector(NSText.paste(_:))
+          && shortcut("Edit", "x")?.action == #selector(NSText.cut(_:))
+          && shortcut("Edit", "a")?.action == #selector(NSText.selectAll(_:)),
+          "Cut, Copy, Paste and Select All use their standard shortcuts")
+    check(shortcut("Edit", "z")?.action == Selector(("undo:")) && shortcut("Edit", "z", [.command, .shift])?.action == Selector(("redo:")),
+          "Undo and Redo use Command-Z and Shift-Command-Z")
+    check(shortcut("Edit", "f")?.tag == Int(NSFindPanelAction.showFindPanel.rawValue), "Command-F opens Find")
+    check(shortcut("Window", "m")?.action == #selector(NSWindow.performMiniaturize(_:)), "Command-M minimizes")
+    check(shortcut("Help", "?")?.action == #selector(MenuTarget.help), "Command-? opens Lasso Help")
+    check(NSApp.windowsMenu?.title == "Window" && NSApp.helpMenu?.title == "Help",
+          "Window and Help menus are registered with AppKit")
+    let titles = (bar?.items ?? []).flatMap { $0.submenu?.items ?? [] }.map(\.title).filter { !$0.isEmpty }
+    check(titles.allSatisfy { !$0.contains("\u{2014}") }, "menu titles contain no em dashes")
+}
+
+
+// ── Re-reading sources ─────────────────────────────────────────────────────
+do {
+    print("\nRe-reading sources from the menu")
+    let body = WorkspaceAPI.reindexBody()
+    check((body["actor"] as? [String: String])?["actorType"] == "HUMAN_SELF" && body["reason"] != nil,
+          "a menu re-read names the desktop user as its actor")
+    check(WorkspaceAPI.reindexSummary(["changed": false]).contains("Nothing was changed"),
+          "an identical reading reports that nothing was recorded")
+    let changed = WorkspaceAPI.reindexSummary(["changed": true, "snapshot": ["version": 7],
+        "objects": ["before": 10, "after": 12], "dependenciesNeedingReview": 1])
+    check(changed.contains("Version 7") && changed.contains("10 sources before, 12 now")
+          && changed.contains("1 claim needs review"), "a new reading reports its version, counts and review")
+    check(!changed.contains("\u{2014}"), "the report contains no em dashes")
 }
 
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")

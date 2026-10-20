@@ -114,13 +114,13 @@ const COMMANDS = [
   },
   {
     name: 'index',
-    summary: 'operate the index: status, add, remove, refresh, failures, excluded',
-    usage: 'index status | add <path> | remove <path> | include <path> | refresh [dir] | failures | retry <path> | excluded',
+    summary: 'operate the index: status, add, remove, refresh, reindex, failures, excluded',
+    usage: 'index status | add <path> | remove <path> | include <path> | refresh [dir] | reindex [dir] | failures | retry <path> | excluded',
     question: QUESTIONS.MANAGE,
     flags: { name: null, reason: null, all: null },
     arguments: ['subcommand', 'path'],
-    subcommands: ['status', 'add', 'remove', 'include', 'refresh', 'failures', 'retry', 'excluded'],
-    examples: ['index status', 'index add ~/Documents/Finance', 'index failures'],
+    subcommands: ['status', 'add', 'remove', 'include', 'refresh', 'reindex', 'failures', 'retry', 'excluded'],
+    examples: ['index status', 'index add ~/Documents/Finance', 'index reindex', 'index failures'],
     run: indexCommand,
   },
   {

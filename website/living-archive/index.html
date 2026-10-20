@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lasso — The Living Archive</title>
+<title>Lasso · The Living Archive</title>
 <meta name="description" content="Lasso reaches into your files, finds the exact fragment and sets it into the sentence you are writing, with the source pinned underneath.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -429,6 +429,20 @@
     html { scroll-behavior: auto; }
     .reveal { opacity: 1; transform: none; transition: none; }
     .caret, .slot { animation: none; }
+  }
+
+  /* Keyboard focus is always visible (HIG: Accessibility, Keyboards). */
+  :is(a, button, [role="button"], [role="tab"], [tabindex], input, select, textarea, summary):focus-visible {
+    outline: 2px solid #0071e3; outline-offset: 2px;
+  }
+  /* With Reduce Motion on, nothing slides, loops or fades on its own (HIG: Motion). */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+    }
   }
 </style>
 </head>

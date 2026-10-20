@@ -523,6 +523,22 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         });
         return sendJson(response, capture.changed ? 201 : 200, capture);
       }
+      // Re-read the files with the current reader. A capture finds nothing when
+      // only the reader improved, so this records the better reading as its own
+      // version and leaves every earlier one as it was read then.
+      parameters = match(pathname, /^\/api\/projects\/([^/]+)\/reindex$/);
+      if (parameters && ['GET', 'POST'].includes(request.method)) {
+        if (request.method === 'GET') {
+          return sendJson(response, 200, { freshness: dependencies.indexFreshness(parameters[0]) });
+        }
+        const body = await readJson(request);
+        const reindexed = dependencies.reindex(parameters[0], actorFrom(body), {
+          expectedSnapshotId: body.expectedSnapshotId,
+          reason: body.reason,
+          initiatedBy: body.initiatedBy,
+        });
+        return sendJson(response, reindexed.changed ? 201 : 200, { reindexed });
+      }
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/events$/);
       if (request.method === 'GET' && parameters) {
         // Newest first, one page at a time; `nextBefore` reads the next page.

@@ -28,6 +28,7 @@
     <link rel="stylesheet" href="/workbench.css?v=5" />
     <link rel="stylesheet" href="/windows.css?v=1" />
     <link rel="stylesheet" href="/removable-drives.css?v=1" />
+    <link rel="stylesheet" href="/platform.css?v=2" />
   </head>
   <body>
     <div class="app-window utility-window view-session" id="app-window">
@@ -44,7 +45,7 @@
 
           <div class="project-popover utility-popover" id="project-popover" hidden>
             <header>
-              <div><small>Include folders with the checkboxes</small><strong>Work directories</strong></div>
+              <div><small>Include folders with the checkboxes</small><strong>Work Directories</strong></div>
               <button class="toolbar-icon" id="sidebar-add" type="button" title="Add work directories" aria-label="Add work directories">
                 <svg viewBox="0 0 20 20"><path d="M10 4v12M4 10h12"/></svg>
               </button>
@@ -83,7 +84,7 @@
             <nav class="rail-navigation">
               <button class="rail-item active" id="workspace-nav" type="button">
                 <svg viewBox="0 0 20 20"><path d="M3.5 4.5h5v5h-5Zm8 0h5v5h-5Zm-8 7h5v5h-5Zm8 0h5v5h-5Z"/></svg>
-                <span>All sources</span>
+                <span>All Sources</span>
               </button>
               <button class="rail-item" type="button" data-workspace-query="changes">
                 <svg viewBox="0 0 20 20"><path d="M4 10a6 6 0 1 0 2-4.5M4 4v4h4"/><path d="M10 7v3l2 2"/></svg>
@@ -91,11 +92,11 @@
               </button>
               <button class="rail-item" type="button" data-workspace-query="share list">
                 <svg viewBox="0 0 20 20"><path d="M7.2 12.8 12.8 7.2M6.3 8.9 4.7 10.5a3 3 0 0 0 4.2 4.2l1.6-1.6M13.7 11.1l1.6-1.6a3 3 0 0 0-4.2-4.2L9.5 6.9"/></svg>
-                <span>Shared links</span>
+                <span>Shared Links</span>
               </button>
               <button class="rail-item" type="button" data-workspace-query="conflicts">
                 <svg viewBox="0 0 20 20"><path d="M10 3.5 16.5 15H3.5Z"/><path d="M10 7v4M10 13.5v.1"/></svg>
-                <span>Review sources</span><b id="rail-review-count"></b>
+                <span>Review Sources</span><b id="rail-review-count"></b>
               </button>
             </nav>
           </div>
@@ -109,8 +110,8 @@
 
           <div class="rail-spacer"></div>
           <section class="writing-assist" aria-label="Suggestions while writing">
-            <button id="writing-assist-toggle" type="button" role="switch" aria-checked="false" hidden><span>Writing suggestions</span><i aria-hidden="true"></i></button>
-            <details><summary>Use Lasso in other apps</summary><p id="writing-assist-help">Include work directories from the Mac menu bar, then enable writing suggestions. While you write in Word or another supported app, press Tab to insert a suggested value with a tracked source. Suggestions combine all included directories.</p></details>
+            <button id="writing-assist-toggle" type="button" role="switch" aria-checked="false" hidden><span>Writing Suggestions</span><i aria-hidden="true"></i></button>
+            <details><summary>Use Lasso in Other Apps</summary><p id="writing-assist-help">Include work directories from the Mac menu bar, then enable writing suggestions. While you write in Word or another supported app, press Tab to insert a suggested value with a tracked source. Suggestions combine all included directories.</p></details>
           </section>
           <div class="workspace-summary">
             <span class="summary-indicator"></span>
@@ -118,7 +119,7 @@
           </div>
           <button id="editor-nav" class="open-editor-button" type="button" disabled>
             <svg viewBox="0 0 20 20"><path d="M4 3.5h8l4 4v9H4Z"/><path d="M12 3.5v4h4M7 11h6M7 14h5"/></svg>
-            <span>Open writing workspace</span>
+            <span>Open Writing Workspace</span>
           </button>
           <button id="identity-rail" class="identity-row" type="button" tabindex="-1" aria-hidden="true">
             <span class="identity-copy"><strong id="sidebar-identity-name">Local user</strong><small id="sidebar-identity-role">Local workspace</small></span>
@@ -137,8 +138,8 @@
               <p id="project-path">Choose a local directory to begin.</p>
             </div>
             <div class="content-actions">
-              <button class="secondary-button compact-action" type="button" data-workspace-query="changes">Review changes</button>
-              <button class="primary-button compact-action" type="button" data-library-view="documents">Open document</button>
+              <button class="secondary-button compact-action" type="button" data-workspace-query="changes">Review Changes</button>
+              <button class="primary-button compact-action" type="button" data-library-view="documents">Open Document</button>
             </div>
           </header>
           <div class="content-scroll" id="detail-column" aria-live="polite"></div>
@@ -156,7 +157,7 @@
       <form method="dialog" id="import-form">
         <header class="dialog-heading">
           <span class="dialog-icon"><svg viewBox="0 0 22 22"><path d="M3.5 7h6l1.5 2h7.5v9H3.5Z"/><path d="M11 11v5M8.5 13.5h5"/></svg></span>
-          <div><span class="eyebrow">Local workspace</span><h2>Add work directories</h2></div>
+          <div><span class="eyebrow">Local workspace</span><h2>Add Work Directories</h2></div>
           <button class="dialog-close toolbar-icon" type="button" data-close-dialog aria-label="Close">×</button>
         </header>
         <p>Enter one absolute directory path per line. All added directories are included in suggestions and search. Files stay in place and their histories remain separate.</p>
@@ -164,7 +165,7 @@
         <div class="dialog-error" data-dialog-error></div>
         <div class="dialog-actions">
           <button class="secondary-button" type="button" data-close-dialog>Cancel</button>
-          <button class="primary-button" type="submit" value="default">Add directories</button>
+          <button class="primary-button" type="submit" value="default">Add Directories</button>
         </div>
       </form>
     </dialog>
@@ -186,7 +187,7 @@
         </label>
         <div class="dialog-actions">
           <button class="secondary-button" type="button" data-close-dialog>Cancel</button>
-          <button class="primary-button" type="submit" value="default">Use identity</button>
+          <button class="primary-button" type="submit" value="default">Use Identity</button>
         </div>
       </form>
     </dialog>

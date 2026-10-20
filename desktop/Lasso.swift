@@ -319,6 +319,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isRemovingDirectories = false
     private var assistActivation = AssistActivation(
         requested: UserDefaults.standard.bool(forKey: "AssistEnabled"))
+    private lazy var settings: SettingsWindowController = {
+        let controller = SettingsWindowController(actions: SettingsActions(
+            suggestWhileTyping: { [weak self] in self?.assistActivation.requested ?? false },
+            setSuggestWhileTyping: { [weak self] on in
+                guard let self, on != self.assistActivation.requested else { return }
+                self.toggleGlobalAssist()
+            },
+            showInNotch: { UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey) },
+            setShowInNotch: { [weak self] on in
+                guard on != UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey) else { return }
+                self?.toggleNotch()
+            },
+            notchAvailable: { NotchPanelController.isAvailable },
+            openAtLogin: { LoginItem.isEnabled || LoginItem.needsApproval },
+            setOpenAtLogin: { [weak self] on in
+                guard on != (LoginItem.isEnabled || LoginItem.needsApproval) else { return }
+                self?.toggleLoginItem()
+            },
+            didChange: { [weak self] in self?.rebuildMenu() }))
+        // The menu bar and Dock icon show only while Settings is open, as a
+        // regular app window. Closing it returns Lasso to the menu bar.
+        controller.onClose = { NSApp.setActivationPolicy(.accessory) }
+        return controller
+    }()
+    private var settingsLoaded = false
+
+    /// Lasso's online guide, opened from Help > Lasso Help.
+    private static let helpURL = URL(string: "https://github.com/jte700/Lasso#readme")!
 
     private var directoryListCollapsed: Bool {
         get { UserDefaults.standard.bool(forKey: "WorkDirectoriesCollapsed") }
@@ -335,6 +363,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        MainMenu.install(MainMenu.Commands(
+            target: self, about: #selector(showAbout), settings: #selector(showSettings),
+            addDirectories: #selector(addDirectories), openWorkspace: #selector(openInBrowser),
+            help: #selector(openHelp)))
         LassoTransientUI.shared.register(self, priority: 5,
             isOpen: { NSApp.modalWindow != nil || NSApp.keyWindow?.attachedSheet != nil },
             dismiss: { [weak self] in
@@ -413,7 +445,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         inspector.onUnlink = { reference in DependencyHighlighter.shared.unlink(id: reference.id) }
         inspector.onOpenSource = { [weak self] _ in
-            self?.showError("The source file could not be opened at its recorded location.")
+            self?.showError("The source file could not be opened at its recorded location.",
+                            title: "The Source Couldn\u{2019}t Be Opened")
         }
         inspector.onShare = { [weak self] reference in
             guard let self, let url = self.server.url else { return }
@@ -604,6 +637,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         toolsMenu.autoenablesItems = false
         toolsMenu.addItem(command("Open in Browser", action: #selector(openInBrowser), key: "b", enabled: isServerReady))
         toolsMenu.addItem(command("Refresh Directory Status", action: #selector(refreshDirectoryStatus), enabled: isServerReady))
+        let reindex = command("Re-read Sources with Current Reader", action: #selector(reindexSources),
+                              enabled: isServerReady && busyMessage == nil && activeCount > 0)
+        reindex.toolTip = "Reads every active folder again with this version of Lasso and records the result as a new version. Earlier versions stay as they were."
+        toolsMenu.addItem(reindex)
         let insertion = NSMenuItem(title: "Tab Inserts", action: nil, keyEquivalent: "")
         let insertionMenu = NSMenu()
         insertionMenu.autoenablesItems = false
@@ -639,9 +676,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         toolsMenu.addItem(troubleshooting)
         tools.submenu = toolsMenu
         statusMenu.addItem(tools)
+        statusMenu.addItem(.separator())
+        statusMenu.addItem(command("Settings…", action: #selector(showSettings), key: ","))
         statusMenu.addItem(command("About Lasso", action: #selector(showAbout)))
         statusMenu.addItem(command("Quit Lasso", action: #selector(quit), key: "q"))
         statusPopover.update(menu: statusMenu)
+        if settingsLoaded { settings.refresh() }
         notch.configure(enabled: UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey),
                         serverURL: isServerReady ? server?.url : nil,
                         suggestions: GlobalAssistant.shared.isEnabled, requested: assistActivation.requested,
@@ -878,7 +918,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let message = WorkspaceAPI.errorMessage(data: data, response: response, error: error)
                     self.workspaceError = message
                     self.rebuildMenu()
-                    self.showError(message)
+                    self.showError(message, title: "Work Directories Couldn\u{2019}t Be Updated")
                     self.refreshWorkspace()
                 }
             }
@@ -975,6 +1015,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func refreshDirectoryStatus() { refreshWorkspace() }
 
+    /// Re-reads every active folder with the reader this build ships. Always
+    /// something the user asks for: each re-read records a new version and may
+    /// leave claims needing review, so Lasso never does it on its own.
+    @objc private func reindexSources() {
+        guard isServerReady, busyMessage == nil, let base = server.url else { return }
+        let targets = directories.filter { $0.active && $0.available && ($0.error ?? "").isEmpty }
+        guard !targets.isEmpty else { return }
+        busyMessage = "Re-reading sources\u{2026}"
+        rebuildMenu()
+        reindex(targets, base: base, summaries: [])
+    }
+
+    /// Re-reads one folder at a time, so a large folder never competes with the next.
+    private func reindex(_ remaining: [WorkDirectory], base: URL, summaries: [String]) {
+        guard let directory = remaining.first else {
+            busyMessage = nil
+            rebuildMenu()
+            refreshWorkspace()
+            showReport(summaries.joined(separator: "\n\n"), title: "Sources Re-read")
+            return
+        }
+        var request = URLRequest(url: base.appendingPathComponent("api/projects/\(directory.id)/reindex"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.indexingRequestTimeout
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: WorkspaceAPI.reindexBody())
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let root = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                let summary = (root?["reindexed"] as? [String: Any]).map(WorkspaceAPI.reindexSummary)
+                    ?? WorkspaceAPI.errorMessage(data: data, response: response, error: error)
+                self.reindex(Array(remaining.dropFirst()), base: base,
+                             summaries: summaries + ["\(directory.name): \(summary)"])
+            }
+        }.resume()
+    }
+
     @objc private func toggleLoginItem() {
         let enable = !(LoginItem.isEnabled || LoginItem.needsApproval)
         do {
@@ -983,7 +1061,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             showError(enable
                 ? "Lasso could not be added to your login items: \(error.localizedDescription)"
-                : "Lasso could not be removed from your login items: \(error.localizedDescription)")
+                : "Lasso could not be removed from your login items: \(error.localizedDescription)",
+                      title: "Open at Login Couldn\u{2019}t Be Changed")
         }
         rebuildMenu()
     }
@@ -1020,7 +1099,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // that only this message explains.
         if userInitiated, let problem,
            assistant.lastProblem?.stale == true || assistant.lastProblem?.service == "Input Monitoring" {
-            showError(problem)
+            showError(problem, title: "Suggestions Need Permission")
         }
         rebuildMenu()
     }
@@ -1039,9 +1118,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showError(_ message: String) {
+    /// An informational result, such as what a re-read recorded.
+    private func showReport(_ message: String, title: String) {
         let alert = NSAlert()
-        alert.messageText = "Lasso"
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    /// The title says what happened; macOS already shows Lasso's icon.
+    private func showError(_ message: String, title: String) {
+        let alert = NSAlert()
+        alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
@@ -1057,7 +1148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let report = HostCapabilityProbe.run()
             for line in report.split(separator: "\n") { AssistLog.write(String(line), force: true) }
             let alert = NSAlert()
-            alert.messageText = "Host text support"
+            alert.messageText = "Text Support Report"
             alert.informativeText = report + "\n\nAlso written to the typing log."
             alert.addButton(withTitle: "OK")
             NSApp.activate(ignoringOtherApps: true)
@@ -1111,6 +1202,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                       .foregroundColor: NSColor.secondaryLabelColor]),
         ])
     }
+
+    @objc private func showSettings() {
+        settingsLoaded = true
+        NSApp.setActivationPolicy(.regular)
+        // Activating in the same turn as the policy change can leave the menu
+        // bar without the app in front, so show the window on the next turn.
+        DispatchQueue.main.async { [weak self] in self?.settings.show() }
+    }
+
+    @objc private func openHelp() { NSWorkspace.shared.open(Self.helpURL) }
 
     @objc private func quit() { NSApp.terminate(nil) }
 }
