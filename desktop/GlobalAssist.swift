@@ -731,9 +731,14 @@ final class AssistBoxView: NSView {
     var sourceScoped = false
     /// fn+Right can take an unfocused card back to the latest focus.
     var canReturnToFocus = false
-    var preview: AssistDocumentPreview?
+    var preview: AssistDocumentPreview? {
+        didSet { modelView = AssistModelView(); modelDrag = nil }
+    }
     var isPreviewLoading = false
     var previewError: String?
+    /// How a rotatable model preview is turned and zoomed; each new preview starts as sent.
+    private(set) var modelView = AssistModelView()
+    private var modelDrag: (start: NSPoint, view: AssistModelView)?
     var onSelectRow: ((Int) -> Void)?
     var onInsert: (() -> Void)?
     var onLocalLink: (() -> Void)?
@@ -1047,6 +1052,32 @@ final class AssistBoxView: NSView {
     }
 
 
+    fileprivate var documentPreviewRect: NSRect {
+        // A spreadsheet excerpt uses the room down to the matched-cell line,
+        // so the rows around a cited cell are shown, not only the cell.
+        let isTable = preview.map { $0.model == nil && $0.pdf == nil && !$0.rows.isEmpty } ?? false
+        let previewTop = bodyTop + 72
+        return NSRect(x: leftWidth + 18, y: previewTop,
+                      width: bounds.width - leftWidth - 36,
+                      height: isTable ? max(184, footerY - 30 - previewTop)
+                         : preview?.model == nil && preview?.pdf == nil
+                         && preview?.textBlocks.isEmpty != false ? 184 : 222)
+    }
+
+    /// The shown STEP model under `point`, if it can be turned there.
+    private func rotatableModel(at point: NSPoint) -> AssistModelPreview? {
+        guard mode == .suggestions, !isPreviewLoading, preview?.pdfPage == nil,
+              let model = preview?.model, model.orbit != nil, documentPreviewRect.contains(point) else { return nil }
+        return model
+    }
+
+    private func zoomModel(by factor: CGFloat, at point: NSPoint) -> Bool {
+        guard let model = rotatableModel(at: point) else { return false }
+        modelView = modelView.zoomed(by: factor, within: AssistModelRenderer.zoomRange(for: model, in: documentPreviewRect))
+        needsDisplay = true
+        return true
+    }
+
     private func drawDocumentPreview(footerY: CGFloat) {
         let rightX = leftWidth
         let rightWidth = bounds.width - rightX
@@ -1089,15 +1120,7 @@ final class AssistBoxView: NSView {
                             width: rightWidth - 121, height: 15),
                  font: NSFont.systemFont(ofSize: 10), color: .secondaryLabelColor)
 
-        // A spreadsheet excerpt uses the room down to the matched-cell line,
-        // so the rows around a cited cell are shown, not only the cell.
-        let isTable = preview.map { $0.model == nil && $0.pdf == nil && !$0.rows.isEmpty } ?? false
-        let previewTop = bodyTop + 72
-        let previewRect = NSRect(x: rightX + 18, y: previewTop,
-                                 width: rightWidth - 36,
-                                 height: isTable ? max(184, footerY - 30 - previewTop)
-                                    : preview?.model == nil && preview?.pdf == nil
-                                    && preview?.textBlocks.isEmpty != false ? 184 : 222)
+        let previewRect = documentPreviewRect
         if isPreviewLoading {
             drawText("Loading document preview…",
                      in: NSRect(x: previewRect.minX, y: previewRect.midY - 8,
@@ -1107,7 +1130,7 @@ final class AssistBoxView: NSView {
         } else if let pdfPage = preview?.pdfPage {
             drawPDFPreview(pdfPage, in: previewRect)
         } else if let model = preview?.model {
-            AssistModelRenderer.draw(model, in: previewRect)
+            AssistModelRenderer.draw(model, in: previewRect, view: model.orbit == nil ? nil : modelView)
         } else if let preview, !preview.rows.isEmpty {
             drawTablePreview(preview, in: previewRect)
         } else if let preview, !preview.textBlocks.isEmpty {
@@ -1364,6 +1387,16 @@ final class AssistBoxView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard mode == .suggestions else { return }
         let point = convert(event.locationInWindow, from: nil)
+        // Dragging a STEP preview turns it; a double-click puts it back.
+        if rotatableModel(at: point) != nil {
+            if event.clickCount >= 2 {
+                modelView = AssistModelView()
+                needsDisplay = true
+            } else {
+                modelDrag = (point, modelView)
+            }
+            return
+        }
 
         if point.x < leftWidth {
             if point.y >= footerY {
@@ -1389,6 +1422,27 @@ final class AssistBoxView: NSView {
         guard point.y >= footerY + 6, point.y <= footerY + 41 else { return }
         if point.x < leftWidth + (bounds.width - leftWidth) / 2 { onOpenSource?() }
         else { onShare?() }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let drag = modelDrag, let sent = preview?.model?.orbit?.camera else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        modelView = drag.view.dragged(by: CGSize(width: point.x - drag.start.x, height: point.y - drag.start.y), from: sent)
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) { modelDrag = nil }
+
+    override func scrollWheel(with event: NSEvent) {
+        // Rolling a wheel away, or pushing two fingers away, zooms in, whatever
+        // the scrolling direction setting.
+        let away = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
+        let speed: CGFloat = event.hasPreciseScrollingDeltas ? 0.01 : 0.1
+        if !zoomModel(by: exp(away * speed), at: convert(event.locationInWindow, from: nil)) { super.scrollWheel(with: event) }
+    }
+
+    override func magnify(with event: NSEvent) {
+        if !zoomModel(by: 1 + event.magnification, at: convert(event.locationInWindow, from: nil)) { super.magnify(with: event) }
     }
 
 
@@ -2451,6 +2505,10 @@ final class GlobalAssistant {
             guard let pdfData, let page = AssistPDFPageImage.render(data: pdfData, preview: pdf) else { return false }
             preview.pdfPage = page
         }
+        return writePNG(of: regressionCard(showing: preview), to: output)
+    }
+
+    private static func regressionCard(showing preview: AssistDocumentPreview) -> AssistBoxView {
         let renderView = AssistBoxView()
         let label = preview.model?.selectedLabel.isEmpty == false
             ? preview.model!.selectedLabel : preview.location
@@ -2465,11 +2523,75 @@ final class GlobalAssistant {
         renderView.frame = NSRect(origin: .zero, size: renderView.boxSize)
         renderView.appearance = NSAppearance(named: .aqua)
         renderView.layoutSubtreeIfNeeded()
+        return renderView
+    }
+
+    private static func writePNG(of renderView: AssistBoxView, to output: URL) -> Bool {
         guard let bitmap = renderView.bitmapImageRepForCachingDisplay(in: renderView.bounds) else { return false }
         renderView.cacheDisplay(in: renderView.bounds, to: bitmap)
         guard let png = bitmap.representation(using: .png, properties: [:]) else { return false }
         do { try png.write(to: output, options: .atomic); return true }
         catch { return false }
+    }
+
+    /// Turns, zooms and resets a real API response's STEP preview in the card
+    /// with real mouse and scroll events. Writes before and after PNGs when
+    /// `outputDirectory` is given.
+    static func regressionModelOrbit(data: Data, outputDirectory: String? = nil) -> [String: Bool] {
+        guard let preview = parsePreview(data), let model = preview.model, let orbit = model.orbit else {
+            return ["the preview is a rotatable STEP model": false]
+        }
+        let card = regressionCard(showing: preview)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: card.frame.size),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = card
+        defer { window.contentView = nil }
+        let center = NSPoint(x: card.documentPreviewRect.midX, y: card.documentPreviewRect.midY)
+        func mouse(_ type: NSEvent.EventType, at point: NSPoint, clicks: Int = 1) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: card.convert(point, to: nil), modifierFlags: [],
+                               timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                               eventNumber: 0, clickCount: clicks, pressure: 1)!
+        }
+        func scroll(_ pixels: Int32) -> NSEvent? {
+            // The window sits at the screen origin, so screen and window points agree.
+            let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
+                                wheel1: pixels, wheel2: 0, wheel3: 0)
+            let screen = card.convert(center, to: nil)
+            event?.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
+            return event.flatMap(NSEvent.init(cgEvent:))
+        }
+        let save = { (name: String) in
+            outputDirectory.map { writePNG(of: card, to: URL(fileURLWithPath: $0).appendingPathComponent(name)) } ?? true
+        }
+        var checks = ["writes the untouched card": save("model-orbit-sent.png")]
+        card.mouseDown(with: mouse(.leftMouseDown, at: center))
+        card.mouseDragged(with: mouse(.leftMouseDragged, at: NSPoint(x: center.x + 90, y: center.y + 30)))
+        card.mouseUp(with: mouse(.leftMouseUp, at: NSPoint(x: center.x + 90, y: center.y + 30)))
+        checks["dragging the drawing turns the model"] = card.modelView.isTurned(from: orbit.camera)
+        checks["writes the turned card"] = save("model-orbit-turned.png")
+        let turned = card.modelView
+        card.mouseDragged(with: mouse(.leftMouseDragged, at: NSPoint(x: center.x + 300, y: center.y)))
+        checks["moving after the button is released does nothing"] = card.modelView == turned
+        let range = AssistModelRenderer.zoomRange(for: model, in: card.documentPreviewRect)
+        if let event = scroll(40) { card.scrollWheel(with: event) }
+        checks["scrolling over the drawing zooms it"] = card.modelView.zoom != 1 && card.modelView.camera == turned.camera
+        for _ in 0..<200 { if let event = scroll(400) { card.scrollWheel(with: event) } }
+        let limit = card.modelView.zoom
+        checks["zoom stops at a limit"] = limit == range.upperBound || limit == range.lowerBound
+        checks["writes the zoomed card"] = save("model-orbit-zoomed.png")
+        card.mouseDown(with: mouse(.leftMouseDown, at: center, clicks: 2))
+        checks["a double-click resets the view"] = card.modelView == AssistModelView()
+        card.mouseDown(with: mouse(.leftMouseDown, at: center))
+        card.mouseDragged(with: mouse(.leftMouseDragged, at: NSPoint(x: center.x - 50, y: center.y)))
+        card.mouseUp(with: mouse(.leftMouseUp, at: NSPoint(x: center.x - 50, y: center.y)))
+        card.preview = preview
+        checks["a new preview starts as sent"] = card.modelView == AssistModelView()
+        let outside = NSPoint(x: card.documentPreviewRect.midX, y: card.documentPreviewRect.maxY + 4)
+        card.mouseDown(with: mouse(.leftMouseDown, at: outside))
+        card.mouseDragged(with: mouse(.leftMouseDragged, at: NSPoint(x: outside.x + 90, y: outside.y)))
+        card.mouseUp(with: mouse(.leftMouseUp, at: outside))
+        checks["dragging outside the drawing does not turn it"] = card.modelView == AssistModelView()
+        return checks
     }
 
     // The signed integration build exercises the production popup, keyboard

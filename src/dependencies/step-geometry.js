@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
-import { inverseRotate, rotate, transformPoint } from './step-model.js';
+import { rotate, transformPoint } from './step-model.js';
 import { ASSEMBLY_ELEMENT } from './step-extraction.js';
+import { ISOMETRIC_CAMERA, cameraAxes, projectWireframe } from '../../public/model-orbit.js';
 
 const MAX_BYTES = 64_000_000;
 const MAX_CACHE_ENTRIES = 3;
@@ -10,12 +11,8 @@ const MAX_PREVIEW_POINTS = 120_000;
 const cache = new Map();
 let pending = 0, queue = Promise.resolve();
 
-// Isometric projection looking down (1, 1, 1) with +Z up on screen.
-const RIGHT = [-Math.SQRT1_2, Math.SQRT1_2, 0];
-const UP = [-1 / Math.sqrt(6), -1 / Math.sqrt(6), 2 / Math.sqrt(6)];
-const TOWARD = [1 / Math.sqrt(3), 1 / Math.sqrt(3), 1 / Math.sqrt(3)];
-const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const project = point => [dot(point, RIGHT), dot(point, UP)];
+// The default view the lines are projected in. Clients rotate the 3D edges.
+const ISOMETRIC = cameraAxes(ISOMETRIC_CAMERA);
 
 function runWorker(bytes) {
   return new Promise((resolve, reject) => {
@@ -48,23 +45,35 @@ function sceneFor(bytes, sourceHash) {
   return promise;
 }
 
-function silhouettes(cylinder, matrix) {
-  // Generators where the surface turns away from the viewer; a wireframe
-  // would otherwise show a shaft as two unconnected circles.
-  const worldAxis = rotate(matrix, cylinder.axis);
-  const normal = [worldAxis[1] * TOWARD[2] - worldAxis[2] * TOWARD[1], worldAxis[2] * TOWARD[0] - worldAxis[0] * TOWARD[2], worldAxis[0] * TOWARD[1] - worldAxis[1] * TOWARD[0]];
-  const size = Math.hypot(...normal);
-  if (size < 1e-6) return [];
-  const local = inverseRotate(matrix, normal.map(value => value / size));
-  const lines = [];
-  for (const sign of [1, -1]) {
-    const direction = local.map(value => value * sign);
-    const angle = Math.atan2(dot(direction, cylinder.ydir), dot(direction, cylinder.xdir));
-    if (cylinder.coverage && ((angle - cylinder.coverage.start) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) > cylinder.coverage.sweep) continue;
-    const at = height => cylinder.center.map((value, index) => value + direction[index] * cylinder.radius + cylinder.axis[index] * height);
-    lines.push([at(cylinder.h0), at(cylinder.h1)].map(point => project(transformPoint(matrix, point))));
+// Silhouettes depend on the view, so cylinders travel as surfaces in model
+// space and each client draws their outline for its own camera.
+const placeCylinder = (cylinder, matrix) => ({ ...cylinder, center: transformPoint(matrix, cylinder.center),
+  axis: rotate(matrix, cylinder.axis), xdir: rotate(matrix, cylinder.xdir), ydir: rotate(matrix, cylinder.ydir) });
+
+/** One component instance in assembly space, split into its context and its
+ * cited geometry (a chosen part, narrowed to the cited feature if any). */
+function placeWires(source, matrix, chosen, featureEdges, featureCylinders) {
+  const context = { edges: [], cylinders: [] }, cited = { edges: [], cylinders: [] };
+  for (const [key, line] of Object.entries(source.edges)) {
+    (chosen && (!featureEdges || featureEdges.has(key)) ? cited : context).edges.push(line.map(point => transformPoint(matrix, point)));
   }
-  return lines;
+  source.cylinders.forEach((cylinder, index) => {
+    (chosen && (!featureCylinders || featureCylinders.has(index)) ? cited : context).cylinders.push(placeCylinder(cylinder, matrix));
+  });
+  return [{ ...context, selected: false }, { ...cited, selected: true }];
+}
+
+// Coordinates keep a fixed number of decimals; directions keep nine.
+function rounding(decimals) {
+  const round = value => Number(value.toFixed(decimals));
+  const unit = vector => vector.map(value => Number(value.toFixed(9)));
+  return {
+    round,
+    lines: lines => lines.map(line => line.map(point => point.map(round))),
+    cylinder: ({ center, radius, h0, h1, axis, xdir, ydir, coverage }) => ({
+      center: center.map(round), radius: round(radius), h0: round(h0), h1: round(h1), axis: unit(axis), xdir: unit(xdir), ydir: unit(ydir),
+      ...(coverage ? { coverage: { start: coverage.start, sweep: coverage.sweep } } : {}) }),
+  };
 }
 
 const emptyBounds = () => ({ minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
@@ -75,6 +84,14 @@ function include(bounds, lines) {
   }
   return bounds;
 }
+// The middle of the cited geometry (or the whole model) is the orbit pivot.
+function centerOf(wires) {
+  const low = [Infinity, Infinity, Infinity], high = [-Infinity, -Infinity, -Infinity];
+  for (const wire of wires) for (const point of [...wire.edges.flat(), ...wire.cylinders.map(cylinder => cylinder.center)]) {
+    point.forEach((value, axis) => { low[axis] = Math.min(low[axis], value); high[axis] = Math.max(high[axis], value); });
+  }
+  return low.map((value, axis) => (value + high[axis]) / 2);
+}
 function padded(bounds, fraction = 0.12) {
   const margin = Math.max((bounds.maxX - bounds.minX) * fraction, (bounds.maxY - bounds.minY) * fraction, 1e-6);
   return { minX: bounds.minX - margin, minY: bounds.minY - margin, maxX: bounds.maxX + margin, maxY: bounds.maxY + margin };
@@ -82,7 +99,9 @@ function padded(bounds, fraction = 0.12) {
 
 /** Isometric wireframe of the preserved STEP version. The cited part (and
  * feature) is selected by its indexed identity; a missing identity is an
- * error rather than a fallback to another part. Coordinates are model units. */
+ * error rather than a fallback to another part. Coordinates are model units.
+ * Each element also carries its edges and cylinders in 3D, so a client can
+ * turn the view around `orbit.pivot`. */
 export async function buildStepView(buffer, { elementId = null, featureId = null } = {}) {
   const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
   if (!bytes.length || bytes.length > MAX_BYTES) throw new Error('STEP visual preview requires a nonempty file under 64 MB.');
@@ -105,8 +124,8 @@ export async function buildStepView(buffer, { elementId = null, featureId = null
   }
   // Six significant digits of the model's size keep previews compact.
   const decimals = Math.min(9, Math.max(0, 6 - Math.floor(Math.log10(span))));
-  const tidy = lines => lines.map(line => line.map(point => point.map(value => Number(value.toFixed(decimals)))));
-  const elements = [], warnings = [...scene.warnings];
+  const tidy = rounding(decimals);
+  const elements = [], warnings = [...scene.warnings], wires = [];
   let points = 0, skipped = 0;
   for (const { occurrence, index } of order) {
     const source = scene.parts[occurrence.part];
@@ -114,18 +133,14 @@ export async function buildStepView(buffer, { elementId = null, featureId = null
     const size = Object.values(source.edges).reduce((total, line) => total + line.length, 0);
     if (!chosen && points + size > MAX_PREVIEW_POINTS) { skipped++; continue; }
     points += size;
-    const context = [], highlight = [];
-    for (const [key, line] of Object.entries(source.edges)) {
-      const projected = line.map(point => project(transformPoint(occurrence.matrix, point)));
-      (chosen && (!featureEdges || featureEdges.has(key)) ? highlight : context).push(projected);
-    }
-    source.cylinders.forEach((cylinder, cylinderIndex) => {
-      const lines = silhouettes(cylinder, occurrence.matrix);
-      (chosen && (!featureCylinders || featureCylinders.has(cylinderIndex)) ? highlight : context).push(...lines);
-    });
     const identity = { id: index, guid: source.key, label: occurrence.label, entityType: 'PART', role: 'context', polygons: [] };
-    if (context.length) elements.push({ ...identity, selected: false, lines: tidy(context) });
-    if (highlight.length) elements.push({ ...identity, selected: true, lines: tidy(highlight) });
+    for (const wire of placeWires(source, occurrence.matrix, chosen, featureEdges, featureCylinders)) {
+      const lines = projectWireframe(wire, ISOMETRIC);
+      if (!lines.length) continue;
+      wires.push(wire);
+      elements.push({ ...identity, selected: wire.selected, lines: tidy.lines(lines), edges: tidy.lines(wire.edges),
+        cylinders: wire.cylinders.map(tidy.cylinder) });
+    }
   }
   if (skipped) warnings.push(`${skipped} component instance${skipped === 1 ? ' is' : 's are'} omitted from this preview to keep it responsive.`);
   if (!elements.length) throw new Error('This STEP file contains no drawable edges.');
@@ -135,6 +150,8 @@ export async function buildStepView(buffer, { elementId = null, featureId = null
   const selected = assembly ? { id: null, guid: ASSEMBLY_ELEMENT, label: scene.rootName || 'Assembly', entityType: 'Assembly' }
     : part ? { id: selectedPart, guid: part.key, label: feature ? `${part.name} · ${feature.name}` : part.name,
       entityType: feature ? feature.name : featureId ? `Overall ${String(featureId).slice(7)} extent` : 'Part' } : null;
+  const cited = wires.filter(wire => wire.selected);
+  const orbit = { ...ISOMETRIC_CAMERA, pivot: centerOf(cited.length ? cited : wires).map(tidy.round) };
   return { kind: 'model-plan', format: 'step', sourceHash, units: scene.units || 'model units', projection: 'isometric', view: 'Isometric view',
-    fillRule: 'evenodd', elements, bounds, focusBounds, selected, storey: null, warnings };
+    fillRule: 'evenodd', elements, bounds, focusBounds, selected, storey: null, orbit, warnings };
 }

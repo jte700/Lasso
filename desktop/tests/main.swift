@@ -1483,6 +1483,99 @@ do {
     let tablePreview = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: table))!
     check(tablePreview.model == nil && tablePreview.rows[0].cells[0].cited && tablePreview.rows[0].rowNumber == 7,
           "preserves exact-cell spreadsheet preview parsing")
+    check(model.orbit == nil, "keeps IFC plans flat")
+}
+
+print("rotating and zooming 3D model previews")
+do {
+    func near(_ a: NSPoint, _ b: NSPoint, _ tolerance: CGFloat = 1e-6) -> Bool {
+        abs(a.x - b.x) < tolerance && abs(a.y - b.y) < tolerance
+    }
+    func nearLines(_ a: [[NSPoint]], _ b: [[NSPoint]]) -> Bool {
+        a.count == b.count && zip(a, b).allSatisfy { $0.count == $1.count && zip($0, $1).allSatisfy { near($0, $1) } }
+    }
+    let root2 = 2.0.squareRoot(), root3 = 3.0.squareRoot(), root6 = 6.0.squareRoot()
+    // A block's X and Z edges and a cited vertical Ø4 bore, projected
+    // isometrically by the server, with the 3D source of every line.
+    let block: [String: Any] = [
+        "guid": "Block", "role": "context", "selected": false, "polygons": [] as [Any],
+        "lines": [[[0.0, 0.0], [-10 / root2, -10 / root6]], [[0.0, 0.0], [0.0, 20 / root6]]],
+        "edges": [[[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]], [[0.0, 0.0, 0.0], [0.0, 0.0, 10.0]]],
+        "cylinders": [] as [Any],
+    ]
+    let bore: [String: Any] = [
+        "guid": "Block", "role": "context", "selected": true, "polygons": [] as [Any],
+        "lines": [[[2.0, -10 / root6], [2.0, 10 / root6]], [[-2.0, -10 / root6], [-2.0, 10 / root6]]],
+        "edges": [] as [Any],
+        "cylinders": [["center": [5.0, 5.0, 0.0], "axis": [0.0, 0.0, 1.0], "xdir": [1.0, 0.0, 0.0],
+                       "ydir": [0.0, 1.0, 0.0], "radius": 2.0, "h0": 0.0, "h1": 10.0]],
+    ]
+    let solidJSON: [String: Any] = [
+        "kind": "model-plan", "view": "Isometric view", "warnings": [] as [Any],
+        "bounds": ["minX": -8.0, "minY": -5.0, "maxX": 3.0, "maxY": 9.0],
+        "focusBounds": ["minX": -3.0, "minY": -5.0, "maxX": 3.0, "maxY": 5.0],
+        "selected": ["guid": "Block", "label": "Block · Ø4 hole", "entityType": "Ø4 hole"],
+        "orbit": ["azimuth": Double.pi / 4, "elevation": atan(0.5.squareRoot()), "pivot": [5.0, 5.0, 5.0]],
+        "elements": [block, bore],
+    ]
+    let iso = AssistModelCamera.isometric.axes
+    check(abs(iso.toward.x - 1 / root3) < 1e-12 && abs(iso.toward.z - 1 / root3) < 1e-12 &&
+          abs(iso.right.x + 1 / root2) < 1e-12 && abs(iso.up.z - 2 / root6) < 1e-12,
+          "the default camera is the server's isometric view")
+    let solid = AssistModelPreview(json: solidJSON)!
+    check(solid.orbit?.pivot == SIMD3(5, 5, 5) && solid.orbit?.camera == .isometric,
+          "reads the camera and pivot a STEP preview was sent in")
+    check(solid.elements.allSatisfy { nearLines($0.wire!.lines(iso), $0.lines) },
+          "the default camera redraws exactly the lines the server sent, bore silhouettes included")
+
+    let sent = solid.orbit!.camera
+    let turned = AssistModelView().dragged(by: CGSize(width: 90, height: 0), from: sent)
+    let azimuth = turned.camera!.azimuth
+    check(min(azimuth, 2 * .pi - azimuth) < 1e-12 && turned.camera!.elevation == sent.elevation && turned.isTurned(from: sent),
+          "dragging 90 points to the right turns the model a quarter of the way round")
+    check(turned.dragged(by: .zero, from: sent) == turned &&
+          AssistModelView().dragged(by: .zero, from: sent).isTurned(from: sent) == false,
+          "a drag that ends where it started leaves the view as it was")
+    let overTop = AssistModelView().dragged(by: CGSize(width: 0, height: 100_000), from: sent).camera!
+    check(overTop.elevation < .pi / 2 && overTop.axes.up.z > 0,
+          "tilting stops short of the top view instead of flipping the model over")
+
+    let rect = NSRect(x: 20, y: 30, width: 344, height: 222)
+    let viewport = AssistModelRenderer.viewport(in: rect)
+    let fitted = AssistModelTransform(bounds: solid.focusBounds, viewport: viewport)!
+    let flat = AssistModelRenderer.layout(solid, viewport: viewport, view: AssistModelView())!
+    check(flat.elements[0].lines == solid.elements[0].lines && flat.transform.scale == fitted.scale &&
+          flat.transform.point(NSPoint(x: 1, y: 2)) == fitted.point(NSPoint(x: 1, y: 2)),
+          "an untouched preview draws as before")
+    let rotated = AssistModelRenderer.layout(solid, viewport: viewport, view: turned)!
+    check(!nearLines(rotated.elements[1].lines, solid.elements[1].lines) &&
+          near(rotated.transform.point(turned.camera!.axes.project(SIMD3(5, 5, 5))),
+               NSPoint(x: viewport.midX, y: viewport.midY)),
+          "a turned view redraws from 3D and orbits around the cited feature")
+
+    let range = AssistModelRenderer.zoomRange(for: solid, in: rect)
+    check(range.contains(1) && abs(range.upperBound - 10) < 1e-9 && range.lowerBound < 1,
+          "zoom reaches a tenth of the selection and twice the whole model")
+    let closest = AssistModelView().zoomed(by: 1_000, within: range)
+    let farthest = AssistModelView().zoomed(by: 0.000_1, within: range)
+    check(closest.zoom == range.upperBound && farthest.zoom == range.lowerBound,
+          "zoom stops at its limits")
+    let zoomed = AssistModelRenderer.layout(solid, viewport: viewport, view: closest)!
+    check(abs(zoomed.transform.scale - fitted.scale * closest.zoom) < 1e-9 && zoomed.elements[0].lines == solid.elements[0].lines,
+          "zooming scales the sent drawing about the selection")
+    check(AssistModelRenderer.caption(for: solid, view: AssistModelView()) == "Isometric view · Drag to rotate, scroll to zoom" &&
+          AssistModelRenderer.caption(for: solid, view: turned) == "Rotated view · Double-click to reset" &&
+          AssistModelRenderer.caption(for: solid, view: nil) == "Isometric view",
+          "the caption says how to turn the model and how to get back")
+
+    var partial = solidJSON
+    partial["elements"] = [block, bore.filter { $0.key != "edges" }]
+    let flatOnly = AssistModelPreview(json: partial)
+    check(flatOnly != nil && flatOnly?.orbit == nil,
+          "a preview missing any element's 3D source still draws, but does not rotate")
+    var badPivot = solidJSON
+    badPivot["orbit"] = ["azimuth": 0.0, "elevation": 0.0, "pivot": [0.0, Double.nan, 0.0]]
+    check(AssistModelPreview(json: badPivot)?.orbit == nil, "rejects a non-finite orbit pivot")
 }
 
 print("Markdown and text previews")

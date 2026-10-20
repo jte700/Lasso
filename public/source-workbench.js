@@ -1,6 +1,6 @@
 // Source browsing and evidence review. The command API remains an adapter for
 // existing reports; users work with files, excerpts, and explicit actions.
-import { renderModelPlan, bindModelPlans } from './model-preview.js?v=2';
+import { renderModelPlan, bindModelPlans } from './model-preview.js?v=3';
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const quote = value => String(value).split("'").map(part => `'${part}'`).join(`"'"`);
 const basename = value => String(value ?? '').split('/').pop();

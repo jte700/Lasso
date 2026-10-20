@@ -198,6 +198,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/DependencyOverlay.swift" \
   "$ROOT/desktop/DependencyHighlighter.swift" \
   "$ROOT/desktop/ModelPreview.swift" \
+  "$ROOT/desktop/ModelOrbit.swift" \
   "$ROOT/desktop/AssistTableLayout.swift" \
   "$ROOT/desktop/SourceInspectorPanel.swift" \
   "$ROOT/desktop/WebText.swift" \

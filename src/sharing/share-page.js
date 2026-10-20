@@ -289,7 +289,8 @@ export function renderInspectorPanel(resolved, reference, preview) {
   let previewLabel = 'Source preview';
   if (preview?.kind === 'model-plan') {
     previewLabel = 'Model preview';
-    content = `<div class="preview-scroll preview-model">${renderModelPlan(preview, { interactive: false })}</div>`;
+    // The drawing zooms, pans and (for 3D models) rotates in the inspector.
+    content = `<div class="preview-scroll preview-model">${renderModelPlan(preview)}</div>`;
   } else if (preview?.kind === 'model-unavailable') {
     previewLabel = 'Model preview';
     content = `<div class="preview-unavailable">${escapeHtml(preview.reason ?? 'No displayable geometry was found for this indexed element.')}</div>`;
@@ -364,5 +365,6 @@ export function renderInspectorPanel(resolved, reference, preview) {
           - Math.max(0, (viewport.clientHeight - columnHeader - target.height) / 2);
       });
     </script>
+    ${preview?.kind === 'model-plan' ? `<script type="module">import { bindModelPlans } from '/model-preview.js?v=3'; bindModelPlans(document);</script>` : ''}
   `, 'inspector inspector-spatial');
 }

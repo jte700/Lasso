@@ -5,7 +5,7 @@ import { createCommandPalette } from './palette.js';
 import { createDirectorySidebar, createTabBar, createSpatialWorkbench, renderSession } from './shell.js?v=5';
 import { createSourceWorkbench } from './source-workbench.js?v=6';
 import { renderAssistBox } from './assist-box.js?v=2';
-import { renderModelPlan, bindModelPlans } from './model-preview.js?v=2';
+import { renderModelPlan, bindModelPlans } from './model-preview.js?v=3';
 import { createVisibilityRefresh } from './visibility-refresh.js';
 import { dismissLassoOverlays } from './escape-dismissal.js';
 

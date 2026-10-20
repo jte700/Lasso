@@ -147,6 +147,17 @@ highlighting something else. Edges are sampled in a worker thread with a
 per file and 120,000 drawn points per view (cited instances are always drawn).
 Spherical and other doubly curved faces show only their boundary edges.
 
+Local views can turn the model. Each element carries its edges and cylinders in
+3D next to the isometric lines, with an orbit pivot at the middle of the cited
+geometry, and `public/model-orbit.js` (mirrored in `desktop/ModelOrbit.swift`)
+reprojects them with a turntable camera that keeps +Z up and stops short of a
+straight top or bottom view. Silhouettes are recomputed for each camera. In the
+browser and the source inspector, dragging rotates, shift or middle dragging
+pans, and a pinch or + / − zooms; in the suggestion card, dragging rotates,
+scrolling or pinching zooms and a double-click resets. Zoom stops at a tenth of
+the smaller of the selection and the whole model, and at twice the larger.
+Shared pages stay flat: the 3D data is only embedded in interactive local views.
+
 ## Export guidance and bounds
 
 DWG, RVT and DGN are retained as source files with an unsupported status and

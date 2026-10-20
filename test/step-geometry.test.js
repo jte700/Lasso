@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { buildStepView } from '../src/dependencies/step-geometry.js';
 import { buildModelPreview } from '../src/dependencies/model-preview.js';
 import { renderModelPlan } from '../public/model-preview.js';
+import { ISOMETRIC_CAMERA, cameraAxes, orbitOf, projectPoint, projectWireframe } from '../public/model-orbit.js';
 import { BRACKET, bracketPart, fixtureAssembly } from './fixtures/step-models.js';
 
 const bytes = Buffer.from(fixtureAssembly());
@@ -46,6 +47,27 @@ test('isometric projection keeps model Z vertical on screen', async () => {
   }
 });
 
+test('STEP previews carry the 3D wireframe behind their isometric lines so clients can rotate it', async () => {
+  const view = await buildStepView(bytes, { elementId: 'Bracket', featureId: 'hole:8:10' });
+  const orbit = orbitOf(view);
+  assert.ok(orbit, 'the view is orbitable');
+  assert.deepEqual([orbit.azimuth, orbit.elevation], [ISOMETRIC_CAMERA.azimuth, ISOMETRIC_CAMERA.elevation]);
+  const axes = cameraAxes(orbit);
+  for (const element of view.elements) {
+    const lines = projectWireframe(element, axes);
+    assert.equal(lines.length, element.lines.length, `${element.guid} keeps one 3D source per line`);
+    lines.flat().forEach((point, index) => {
+      const sent = element.lines.flat()[index];
+      assert.ok(Math.hypot(point[0] - sent[0], point[1] - sent[1]) < 1e-3, 'the default camera redraws the sent lines');
+    });
+  }
+  const selected = view.elements.filter(element => element.selected);
+  assert.ok(selected.every(element => element.cylinders.length > 0), 'hole bores rotate with live silhouettes');
+  const [minX, maxX] = [view.focusBounds.minX, view.focusBounds.maxX];
+  const [pivotX] = projectPoint(orbit.pivot, axes);
+  assert.ok(pivotX > minX && pivotX < maxX, 'the view orbits around the cited feature');
+});
+
 test('extents select the whole part, assembly facts select every component, and unknown identities are refused', async () => {
   const pin = await buildStepView(bytes, { elementId: 'Pin', featureId: 'extent:X' });
   assert.equal(pin.selected.entityType, 'Overall X extent');
@@ -78,8 +100,8 @@ test('model previews route STEP anchors by part and feature without falling back
 
   const html = renderModelPlan(preview);
   assert.match(html, /Bracket · R5 90° arc/);
-  assert.match(html, /R5 90° arc · Isometric view/);
-  assert.match(html, /class="model-plan-element line context selected" data-model-element="Bracket" d="M[^"]+"/);
+  assert.match(html, /R5 90° arc · <span data-model-view>Isometric view<\/span>/);
+  assert.match(html, /class="model-plan-element line context selected" data-model-element="Bracket" data-model-wire="\d+" d="M[^"]+"/);
   assert.doesNotMatch(html, /fill-rule="evenodd"/, 'wireframes contain no filled polygon paths');
   assert.match(html, /Source model geometry · mm/);
 });
