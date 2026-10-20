@@ -9,7 +9,8 @@ import { getDocument, Util } from 'pdfjs-dist/legacy/build/pdf.mjs';
 const MAX_PAGES = 80;
 const MAX_TEXT = 1_500_000;
 const packageRoot = path.dirname(fileURLToPath(import.meta.resolve('pdfjs-dist/package.json')));
-const asset = name => path.join(packageRoot, name) + path.sep;
+// pdf.js requires a trailing "/"; Node's fs also accepts "/" in Windows paths.
+const asset = name => `${path.join(packageRoot, name).split(path.sep).join('/')}/`;
 const round = value => Math.round(value * 1e6) / 1e6;
 
 function textBox(item, style, viewport) {

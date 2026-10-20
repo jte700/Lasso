@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 // Exercise the production handlers with deliberately reordered network results.
-const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+// A Windows checkout may use CRLF line endings; handlers are found by LF.
+const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 function handler(name) {
   const start = app.indexOf(`async function ${name}(`);
   const end = app.indexOf('\n}\n', start) + 2;

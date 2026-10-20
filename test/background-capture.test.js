@@ -28,7 +28,8 @@ function trackProjectReads(t, root) {
   const reads = [];
   const original = fs.readFileSync;
   t.mock.method(fs, 'readFileSync', function (file, ...args) {
-    if (typeof file === 'string' && file.startsWith(`${root}/`)) reads.push(path.relative(root, file));
+    // Recorded as project-relative POSIX paths on every platform.
+    if (typeof file === 'string' && file.startsWith(`${root}${path.sep}`)) reads.push(path.relative(root, file).split(path.sep).join('/'));
     return original.call(this, file, ...args);
   });
   return reads;
