@@ -134,3 +134,99 @@ test('snapshots indexed before STEP support gain CAD facts lazily without creati
   assert.equal(app.db.prepare('SELECT drawing_index_version FROM snapshot_object_indexes WHERE snapshot_id = ?').get(snapshotId).drawing_index_version, 4);
   assert.equal(app.timeline.getProject(project.id).currentSnapshotId, snapshotId);
 });
+
+async function typingWorkspace(t) {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-step-typing-'));
+  const root = path.join(sandbox, 'Models');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'Bracket.step'), bracketPart());
+  // A native CAD file is indexed as a model with no measurements.
+  fs.writeFileSync(path.join(root, 'Bracket.SLDPRT'), 'Native part stand-in.\n');
+  const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
+  await app.workspace.add([fs.realpathSync(root)], actor);
+  t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  return app;
+}
+
+const typed = (app, text, extra = {}) => app.workspace.predict({ text, cursor: text.length, blockIndex: 0, ...extra });
+
+// Accepts a suggestion the way the native card does: Tab inserts the name and
+// the next request carries the link as a pending dependency.
+async function acceptName(app, text, label, filePath = 'Bracket.step') {
+  const chosen = candidate => candidate.label === label && candidate.path === filePath;
+  const claim = (await typed(app, text)).claims.find(item => item.candidates.some(chosen));
+  assert.ok(claim, `${text} suggests ${label} from ${filePath}`);
+  const source = claim.candidates.find(chosen);
+  const accepted = `${text.slice(0, claim.start)}${source.completionText ?? source.label}`;
+  return { source, accepted, pendingDependencies: [{ projectId: source.projectId, blockIndex: 0, start: claim.start,
+    end: accepted.length, sourceObjectId: source.id, sourceSnapshotId: source.snapshotId }] };
+}
+
+const offered = prediction => prediction.workspaceCompletions.map(item => ({
+  text: item.replacementText, label: item.dependencyCandidate.label,
+}));
+
+test('an accepted CAD feature name offers its measured value', async t => {
+  const app = await typingWorkspace(t);
+  const { source, accepted, pendingDependencies } = await acceptName(app, 'The Bracket Ø8 hole diam', 'Bracket Ø8 hole diameter');
+  assert.equal(source.objectType, 'DRAWING_ANNOTATION');
+  assert.equal(accepted, 'The Bracket Ø8 hole diameter');
+  const prediction = await typed(app, `${accepted} is`, { pendingDependencies });
+  assert.equal(prediction.workspaceHeading, 'Values for Bracket Ø8 hole diameter');
+  assert.ok(!prediction.notice, prediction.notice);
+  assert.deepEqual(offered(prediction), [{ text: '8 mm', label: 'Bracket Ø8 hole diameter' }]);
+  assert.equal(prediction.workspaceCompletions[0].dependencyCandidate.id, source.id);
+  // Once the value itself is the linked text, it is not offered again.
+  const value = `${accepted} is 8 mm`;
+  const stated = await typed(app, `${value} and `, { pendingDependencies: [{ ...pendingDependencies[0],
+    start: value.length - 4, end: value.length }] });
+  assert.deepEqual(offered(stated), []);
+});
+
+test('an accepted CAD part name offers its measurements, ranked by the words after it', async t => {
+  const app = await typingWorkspace(t);
+  const { source, accepted, pendingDependencies } = await acceptName(app, 'The brack', 'Bracket');
+  assert.equal(source.objectType, 'DRAWING');
+  assert.equal(source.anchor.kind, 'cad-model');
+  assert.equal(accepted, 'The Bracket');
+
+  // With nothing more to go on, overall sizes come first, then holes and arcs.
+  const plain = await typed(app, `${accepted} is`, { pendingDependencies });
+  assert.equal(plain.workspaceHeading, 'Values for Bracket');
+  assert.deepEqual(offered(plain).slice(0, 6), [
+    { text: '100 mm', label: 'Bracket overall X extent' },
+    { text: '60 mm', label: 'Bracket overall Y extent' },
+    { text: '10 mm', label: 'Bracket overall Z extent' },
+    { text: '12 mm', label: 'Bracket Ø12 hole diameter' },
+    { text: '8 mm', label: 'Bracket Ø8 hole diameter' },
+    { text: '5 mm', label: 'Bracket R5 90° arc radius' },
+  ]);
+
+  // "four holes" names the four Ø8 holes, and "diameter" their diameter.
+  const diameter = await typed(app, `${accepted} has four holes with a diameter of`, { pendingDependencies });
+  assert.equal(diameter.workspaceHeading, 'Values for Bracket');
+  assert.deepEqual(offered(diameter).slice(0, 2), [
+    { text: '8 mm', label: 'Bracket Ø8 hole diameter' },
+    { text: '12 mm', label: 'Bracket Ø12 hole diameter' },
+  ]);
+  const depth = await typed(app, `${accepted} has four holes with a depth of `, { pendingDependencies });
+  assert.deepEqual(offered(depth)[0], { text: '10 mm', label: 'Bracket Ø8 hole depth' });
+  // "R5" names a feature here, not a spreadsheet row.
+  const radius = await typed(app, `${accepted}'s R5 corners have a radius of`, { pendingDependencies });
+  assert.deepEqual(offered(radius)[0], { text: '5 mm', label: 'Bracket R5 90° arc radius' });
+  // A value being typed, with or without its unit, is completed by Tab rather than replaced.
+  for (const tail of [' is 6', ' is 60 m', ' is 60 mm']) {
+    const value = await typed(app, `${accepted}${tail}`, { pendingDependencies });
+    assert.deepEqual(offered(value)[0], { text: '60 mm', label: 'Bracket overall Y extent' }, tail);
+  }
+
+  // A new sentence is a new subject, as it is after a spreadsheet source.
+  const next = await typed(app, `${accepted} is 100 mm long. The`, { pendingDependencies });
+  assert.equal(next.workspaceHeading, undefined);
+
+  // A model with nothing measured leaves the sentence to the other suggestions.
+  const native = await acceptName(app, 'The brack', 'Bracket', 'Bracket.SLDPRT');
+  const unmeasured = await typed(app, `${native.accepted} has a Ø8 hole diam`, { pendingDependencies: native.pendingDependencies });
+  assert.equal(unmeasured.workspaceHeading, undefined);
+  assert.ok(unmeasured.claims.some(claim => claim.candidates.some(candidate => candidate.label === 'Bracket Ø8 hole diameter')));
+});

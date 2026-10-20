@@ -18,7 +18,7 @@ import { shareExpiry } from '../sharing/expiry.js';
 import { RecommendationRanking, directRecommendationMatch } from './ranking.js';
 import { correctedDocumentLabel, firstAuthorFamily } from './authors.js';
 import { BoundedCache } from '../cache.js';
-import { drawingDescriptors, drawingContext, isDesignFile } from './drawing-objects.js';
+import { drawingDescriptors, drawingContext, isDesignFile, measurementOrder, measurementRelevance } from './drawing-objects.js';
 import { storedFields } from '../history/object-versions.js';
 import { extractDrawingDocument } from './drawing-extraction.js';
 import { buildModelPreview } from './model-preview.js';
@@ -2717,18 +2717,26 @@ export class PredictiveProvenanceService {
     // A named row (a department or supplier, keyed by a name column) has no
     // variable of its own; its cells are its fields, so it stands in for one.
     const namedRow = source.objectType === 'DATASET_ROW' && !source.metadata.variable && !source.metadata.column;
+    // A whole drawing or CAD part ("Bracket") is the same: its measurements are its values.
+    const wholeDrawing = source.objectType === 'DRAWING';
     const variable = String(source.metadata.variable ?? source.metadata.column
-      ?? (source.objectType === 'VARIABLE' ? source.label : namedRow ? sourceRow || source.label : '')).trim();
+      ?? (source.objectType === 'VARIABLE' || wholeDrawing ? source.label : namedRow ? sourceRow || source.label : '')).trim();
     if (!variable) return null;
     const variableKey = normalizedVariable(variable);
     const tail = String(input.text ?? '').slice(dependency.anchor.end, cursor);
     const changeIntent = /\b(?:increas|decreas|reduc|higher|lower|rais|rise|drop|declin|change|difference|effect)\w*\b/i.test(tail);
-    const requestedRows = rowReferencesInText(tail);
+    // Drawings have no rows; "R5 arc" or "is 100" names a feature or a value.
+    const drawingSource = wholeDrawing || source.objectType === 'DRAWING_ANNOTATION';
+    const requestedRows = drawingSource ? new Set() : rowReferencesInText(tail);
     const sourceColumn = String(source.anchor?.column ?? source.metadata.column ?? '').trim();
     const dependencyText = String(input.text ?? '').slice(dependency.anchor.start, dependency.anchor.end);
     const dependencySelectsRow = !source.metadata.sectionRow && sourceRow && normalizedRowSearch(dependencyText) === normalizedRowSearch(sourceRow);
     const dependencySelectsColumn = source.anchor?.kind === 'table-cell' && sourceColumn
       && normalizedVariable(dependencyText) === normalizedVariable(sourceColumn);
+    // A measurement accepted by its name ("Bracket Ø8 hole diameter") still
+    // has its own value to state, unless that value is the linked text.
+    const dependencyNamesMeasurement = source.objectType === 'DRAWING_ANNOTATION'
+      && normalizedVariable(dependencyText) !== normalizedVariable(source.valueText);
     const workspaceObjects = this.workspaceRetrievalObjects(this.sourceProjectId(source) ?? projectId, source.snapshotId);
     // A data dictionary's cells describe the variable (its description and
     // units); they are not values of it, unless that file is the linked source.
@@ -2740,15 +2748,20 @@ export class PredictiveProvenanceService {
       .map(tableKey));
     const describesVariable = (object) => dictionaryTables.has(tableKey(object))
       && (source.objectType === 'VARIABLE' || tableKey(object) !== tableKey(source));
-    const relatesToSource = namedRow
-      ? (object) => tableKey(object) === tableKey(source)
-        && normalizedRowSearch(object.anchor?.rowKey ?? object.metadata.row) === normalizedRowSearch(sourceRow)
-      : (object) => normalizedVariable(object.metadata.variable ?? object.metadata.column) === variableKey
-        || (source.metadata.sectionRow && normalizedVariable(object.metadata.section) === variableKey);
+    const relatesToSource = wholeDrawing
+      ? (object) => object.objectType === 'DRAWING_ANNOTATION' && object.path === source.path
+        && (object.anchor?.pageNumber ?? null) === (source.anchor?.pageNumber ?? null)
+      : namedRow
+        ? (object) => tableKey(object) === tableKey(source)
+          && normalizedRowSearch(object.anchor?.rowKey ?? object.metadata.row) === normalizedRowSearch(sourceRow)
+        : (object) => normalizedVariable(object.metadata.variable ?? object.metadata.column) === variableKey
+          || (source.metadata.sectionRow && normalizedVariable(object.metadata.section) === variableKey);
     const allRelatedObjects = workspaceObjects
       .filter((object) => !describesVariable(object))
-      .filter((object) => (object.id !== source.id || dependencySelectsRow || dependencySelectsColumn)
-        && object.objectType !== 'VARIABLE' && relatesToSource(object));
+      .filter((object) => (object.id !== source.id || dependencySelectsRow || dependencySelectsColumn
+        || dependencyNamesMeasurement) && object.objectType !== 'VARIABLE' && relatesToSource(object));
+    // A model with nothing measured (a native CAD file) leaves the sentence to other suggestions.
+    if (wholeDrawing && !allRelatedObjects.length) return null;
     const sameSourceObjects = source.objectType === 'VARIABLE' ? [] : allRelatedObjects
       .filter((object) => object.path === source.path
         && String(object.metadata.sheet ?? '') === String(source.metadata.sheet ?? ''));
@@ -2896,11 +2909,13 @@ export class PredictiveProvenanceService {
         if (derivedField) score += 0.2;
         if (numeric) score += 0.08;
         if (requestedRows.size || dependencySelectsRow) score += 0.5;
+        if (object.objectType === 'DRAWING_ANNOTATION') score += measurementRelevance(object, tail);
         if (missingMeasurement(object.valueText)) score -= 0.16;
         return { ...object, contextualText, score: Number(Math.min(0.99, score).toFixed(3)) };
       }).filter(Boolean)
       .sort((left, right) => right.score - left.score
         || Number(right.objectType === 'RESULT') - Number(left.objectType === 'RESULT')
+        || measurementOrder(left) - measurementOrder(right)
         || left.path.localeCompare(right.path)
         || String(left.anchor?.rowKey ?? '').localeCompare(String(right.anchor?.rowKey ?? '')));
     const suggestions = [];
