@@ -70,8 +70,10 @@ export function buildSentenceCorpus(sources) {
   const seen = new Set();
   for (const source of sources) {
     for (const sentence of sourceSentences(source.text)) {
-      // Keep identical passages from different files available to the ranker.
-      const fingerprint = `${source.path}\u0000${sentence.toLowerCase().replace(/\W+/g, ' ').trim()}`;
+      // Bibliography entries are independently citable even in one file.
+      const sourceKey = source.dependencyCandidate?.objectType === 'REFERENCE'
+        ? source.dependencyCandidate.id : source.path;
+      const fingerprint = `${sourceKey}\u0000${sentence.toLowerCase().replace(/\W+/g, ' ').trim()}`;
       if (seen.has(fingerprint)) continue;
       seen.add(fingerprint);
       corpus.push({
@@ -135,6 +137,15 @@ function findingClause(sentence) {
     .replace(/\b(\d+) of these were found in lower concentrations\b/i, '$1 were present at lower concentrations');
   if (/^[A-Z][a-z]/.test(value)) value = `${value[0].toLowerCase()}${value.slice(1)}`;
   return value;
+}
+
+// Accepted findings may be grammatical clauses rather than literal source
+// substrings. Resolve them with the same deterministic transformation, using
+// only text from the pinned source version instead of a client-supplied quote.
+export function originalFindingSentence(text, finding) {
+  const expected = cleanLine(finding).toLowerCase();
+  if (!expected) return null;
+  return sourceSentences(text).find(sentence => findingClause(sentence).toLowerCase() === expected) ?? null;
 }
 
 function findingQuality(sentence, clause) {
@@ -224,6 +235,7 @@ export function completeSentence(corpus, input, options = {}) {
     if (!match || match.score < 0.54 || match.insertText.length > 260) continue;
     const candidate = {
       insertText: match.insertText,
+      sourceSentence: entry.sentence,
       claimStart: trailingSentenceStart(text, cursor),
       completedText: `${fragment}${match.insertText}`,
       confidence: Number(Math.min(0.99, match.score).toFixed(3)),

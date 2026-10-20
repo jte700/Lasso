@@ -11,6 +11,12 @@ import { createRequestHandler } from './http/api.js';
 import { ObjectShareService } from './sharing/object-share.js';
 import { RemovableDriveService } from './drives/service.js';
 import { createTerminal } from './terminal/service.js';
+import { WorkspaceService } from './workspace.js';
+import { watchParent } from './parent-watchdog.js';
+
+const FORCE_CLOSE_AFTER_MS = 1000;
+// The desktop app force-quits a server that has not exited after 3 seconds.
+const SHUTDOWN_DEADLINE_MS = 2500;
 
 export function createApplication(overrides = {}) {
   const config = createConfig(overrides);
@@ -23,9 +29,12 @@ export function createApplication(overrides = {}) {
   const objectShares = new ObjectShareService(db, timeline, config);
   const terminal = createTerminal({ timeline, dependencies, objectShares });
   const drives = new RemovableDriveService(timeline, dependencies, config);
-  const server = http.createServer(createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal));
+  const workspace = new WorkspaceService({ timeline, dependencies, terminal });
+  if (config.watchProjects) workspace.ready = workspace.restore();
+  const server = http.createServer(createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal, workspace));
   // Resolve ephemeral desktop ports before any share links are generated.
   server.on('listening', () => { config.port = server.address().port; });
+  let closing;
   return {
     config,
     db,
@@ -35,12 +44,15 @@ export function createApplication(overrides = {}) {
     objectShares,
     terminal,
     drives,
+    workspace,
     server,
     close() {
+      if (closing) return closing;
+      workspace.close();
       timeline.close();
       dependencies.close();
       terminal.close();
-      return new Promise((resolve, reject) => {
+      closing = new Promise((resolve, reject) => {
         if (!server.listening) {
           db.close();
           resolve();
@@ -51,7 +63,13 @@ export function createApplication(overrides = {}) {
           if (error) reject(error);
           else resolve();
         });
+        // close() waits for every open connection. Drop idle keep-alive
+        // sockets now and any request still open shortly after, so a stalled
+        // client cannot hold the database open until the app force-quits it.
+        server.closeIdleConnections();
+        setTimeout(() => server.closeAllConnections(), FORCE_CLOSE_AFTER_MS).unref();
       });
+      return closing;
     },
   };
 }
@@ -85,6 +103,7 @@ if (isEntryPoint) {
   const shutdown = () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    setTimeout(() => process.exit(0), SHUTDOWN_DEADLINE_MS).unref();
     application.close().finally(() => process.exit(0));
   };
   if (process.env.LASSO_DESKTOP_NONCE) {
@@ -98,4 +117,11 @@ if (isEntryPoint) {
   }
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  watchParent({
+    expectedParentPid: Number(process.env.LASSO_PARENT_PID),
+    onOrphaned: () => {
+      console.log('Lasso app is no longer running; stopping its server.');
+      shutdown();
+    },
+  });
 }

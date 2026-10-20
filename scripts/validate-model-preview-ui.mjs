@@ -15,7 +15,7 @@ const url = new URL('/', baseUrl).href;
 const output = path.resolve(outputDir);
 await mkdir(output, { recursive: true });
 const profile = await mkdtemp('/tmp/lasso-model-preview-chrome-');
-const transcript = { url, projectId, startedAt: new Date().toISOString(), interactions: [], checks: [], screens: [], browserErrors: [], previewRequests: [] };
+const transcript = { url, projectId, startedAt: new Date().toISOString(), interactions: [], checks: [], screens: [], browserErrors: [], previewRequests: [], libraryRequests: [] };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(fn, label, timeout = 45000) {
   const deadline = Date.now() + timeout;
@@ -49,7 +49,7 @@ try {
     return { role: specification.role, objectId: object.id, entityType: object.metadata.entityType };
   }));
   const targets = specifications.map(specification => {
-    const object = objects.find(item => /\.ifc$/i.test(item.path)
+    const object = objects.find(item => /\.(ifc|dxf)$/i.test(item.path)
       && (specification.objectId ? item.id === specification.objectId
         : specification.guid ? item.anchor?.elementId === specification.guid && (!specification.propertyName || item.anchor?.propertyName === specification.propertyName)
           : specification.label ? item.label === specification.label : specification.match.test(item.label)));
@@ -57,7 +57,8 @@ try {
     assert.ok(object.anchor?.elementId, 'Target must have an indexed element GUID');
     return { role: specification.role ?? 'element', objectId: object.id, label: object.label,
       path: object.path, guid: object.anchor.elementId, propertyName: object.anchor.propertyName,
-      expectedEntityType: specification.entityType ?? null };
+      expectedEntityType: specification.entityType ?? null, minDrawingPaths: specification.minDrawingPaths ?? 0,
+      drawingLabels: specification.drawingLabels ?? [] };
   });
   assert.ok(targets.length >= 2, 'Provide multiple indexed elements to verify selection switching');
   assert.equal(new Set(targets.map(target => target.guid)).size, targets.length, 'Every target must identify a different element');
@@ -78,6 +79,9 @@ try {
   socket.addEventListener('message', event => {
     const message = JSON.parse(event.data);
     if (message.method === 'Runtime.exceptionThrown') transcript.browserErrors.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text);
+    if (message.method === 'Network.responseReceived' && /\/source-library(?:\?|$)/.test(message.params.response.url)) {
+      transcript.libraryRequests.push(message.params.response.url);
+    }
     if (message.method === 'Network.responseReceived' && /\/preview(?:\?|$)/.test(message.params.response.url)) {
       const { url: requestUrl, status } = message.params.response;
       transcript.previewRequests.push({ url: requestUrl, status });
@@ -117,8 +121,9 @@ try {
     transcript.interactions.push({ type: 'click', selector });
   }
   async function search(text, waitForResults = true) {
+    const previousRequests = transcript.libraryRequests.length;
     await click('#terminal-input');
-    await call('Input.dispatchKeyEvent', { type: 'keyDown', modifiers: 4, key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65 });
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', modifiers: 4, key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, commands: ['selectAll'] });
     await call('Input.dispatchKeyEvent', { type: 'keyUp', modifiers: 4, key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65 });
     await call('Input.insertText', { text });
     assert.equal(await evaluate('document.querySelector("#terminal-input").value'), text, 'Keyboard search must replace the prior query');
@@ -126,7 +131,18 @@ try {
     // The unfiltered library may already contain the next target. Wait for the
     // visible debounced search result before clicking it; otherwise its pending
     // input handler legitimately clears the prematurely chosen selection.
-    if (waitForResults) await until(() => evaluate('document.querySelector(".wb-browser > header > span")?.textContent === "Matching files" && document.querySelector(".wb-inspector")?.getAttribute("aria-busy") === "false"'), 'Search results did not finish updating');
+    if (waitForResults) {
+      await until(() => transcript.libraryRequests.slice(previousRequests).some(request => new URL(request).searchParams.get('query') === text), 'Search request did not finish');
+      await until(() => evaluate('document.querySelector(".wb-browser > header > span")?.textContent === "Matching files" && document.querySelector(".wb-inspector")?.getAttribute("aria-busy") === "false"'), 'Search results did not finish updating');
+    }
+  }
+  async function chooseFile(target) {
+    // A workspace keeps several directories active and may preserve the last
+    // selected file. Choose the target's owner before looking for its items.
+    const key = `directory:${encodeURIComponent(projectId)}:${encodeURIComponent(target.path)}`;
+    const selector = `[data-file=${JSON.stringify(key)}], [data-file=${JSON.stringify(target.path)}]`;
+    await until(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(selector)}))`), 'Target source file missing');
+    await click(selector);
   }
   async function drawing(scope = '.wb-preview') {
     return evaluate(`(() => {
@@ -137,6 +153,8 @@ try {
         selected: [...svg.querySelectorAll('.selected')].map(path => path.dataset.modelElement),
         selectedPaths: [...svg.querySelectorAll('.selected')].map(path => path.getAttribute('d')),
         elements: svg.querySelectorAll('[data-model-element]').length, viewBox: svg.getAttribute('viewBox'),
+        drawingPaths: svg.querySelectorAll('.model-drawing-line').length,
+        drawingLabels: [...svg.querySelectorAll('.model-drawing-text')].map(text => [...text.querySelectorAll('tspan')].map(span => span.textContent).join('\\n')),
         focus: plan.dataset.modelFocus, context: plan.dataset.modelContext,
         width: rect.width, height: rect.height, visible: rect.width > 0 && rect.height > 0 };
     })()`);
@@ -152,6 +170,8 @@ try {
     assert.ok(result.elements > 1, 'Drawing must include surrounding model context');
     assert.equal(result.viewBox, result.focus, 'New selection must start focused on the indexed element');
     if (target.expectedEntityType) assert.ok(result.details.includes(target.expectedEntityType));
+    assert.ok(result.drawingPaths >= target.minDrawingPaths, 'Detailed drawing geometry must remain present around the selected room');
+    for (const label of target.drawingLabels) assert.ok(result.drawingLabels.includes(label), `Missing source drawing label: ${label}`);
     transcript.checks.push({ check: 'selectedGeometry', scope, target: target.role, ...result });
     return result;
   }
@@ -166,9 +186,11 @@ try {
       await click('#workspace-nav');
       await until(() => evaluate('document.querySelector(".wb-inspector")?.getAttribute("aria-busy") === "false"'), 'Library did not finish loading');
     }
-    // The wall is already visible in this model's first library rows. Exercise
-    // immediate selection as well as the ordinary debounced search workflow.
-    await search(target.label, target.role !== 'wall');
+    await search(target.label);
+    await chooseFile(target);
+    // Re-enter a query whose item is visible, then select immediately to prove
+    // a pending debounce cannot clear that explicit source selection.
+    if (target.role === 'wall') await search(target.label, false);
     await until(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(`[data-object="${target.objectId}"]`)}))`), `Search did not display ${target.label}`);
     await click(`[data-object="${target.objectId}"]`);
     const focused = await verifySelected(target);
@@ -181,6 +203,7 @@ try {
     const context = await drawing();
     assert.equal(context.viewBox, context.context, 'Show context must fit the surrounding model');
     assert.deepEqual(context.selected, [target.guid], 'Changing view must preserve the selected element');
+    if (target.minDrawingPaths) await screenshot(`${String(index + 1).padStart(2, '0')}-${target.role}-context.png`);
     await click('.wb-preview [data-model-action="selection"]');
     assert.equal((await drawing()).viewBox, focused.viewBox, 'Fit selection must restore the indexed extent');
     transcript.checks.push({ check: 'viewControls', target: target.role, passed: true });
@@ -197,6 +220,7 @@ try {
   await click('#workspace-nav');
   await until(() => evaluate('document.querySelector(".wb-inspector")?.getAttribute("aria-busy") === "false"'), 'Library did not finish loading on revisit');
   await search(first.label);
+  await chooseFile(first);
   await until(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(`[data-object="${first.objectId}"]`)}))`), 'First target missing on revisit');
   await click(`[data-object="${first.objectId}"]`); await verifySelected(first);
   transcript.checks.push({ check: 'selectionRevisit', target: first.role, passed: true });

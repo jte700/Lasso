@@ -514,6 +514,8 @@ button{ border-radius: 7px; }
 .source-viewer-location small{ grid-column: 2; color: #6f7d8f; font-size: 8px; }
 .source-viewer-content{ min-height: 0; overflow: auto; background: #e9ebee; }
 .source-viewer-pdf{ display: block; width: 100%; height: 100%; border: 0; background: #525659; }
+.source-viewer-pdf.snapshot-pdf{ height:min(70vh,800px);min-height:360px; }
+.pdf-source-text{ margin-top:16px; }.pdf-source-text>summary{ cursor:pointer;margin-bottom:12px; }
 .source-viewer-image{ display: grid; place-items: start center; min-height: 100%; padding: 34px; }
 .source-viewer-image img{ max-width: 100%; height: auto; border: 1px solid #d5d8dd; background: #fff; box-shadow: 0 8px 26px rgba(28,34,43,.14); }
 .source-viewer-sheet-tabs{ position: sticky; top: 0; z-index: 3; display: flex; gap: 2px; min-height: 40px; padding: 6px 14px 0; border-bottom: 1px solid #d8dce2; background: #f7f8fa; }
@@ -1804,15 +1806,6 @@ body {
 .sidebar .identity-card strong { display: block; color: var(--ink-2); font-size: 13px; font-weight: 400; }
 .sidebar .identity-card small { display: block; color: var(--ink-3); font-size: 12px; }
 
-/* ── SidebarResizeHandle ──────────────────────────────────────────────── */
-.resize-handle {
-  position: relative;
-  background: var(--hair);
-  cursor: col-resize;
-}
-.resize-handle::after { content: ""; position: absolute; inset: 0 -3px; }
-.resize-handle:hover, .resize-handle.dragging { background: var(--hair-strong); }
-
 /* ── TerminalWorkspace ────────────────────────────────────────────────── */
 .terminal-workspace {
   display: grid;
@@ -2195,10 +2188,6 @@ html.native-app .tab-strip { padding-left: 82px; border-radius: 0; }
 .directory-row.selected { background: var(--nav-selected); }
 .directory-row.selected .dir-name { color: var(--nav-name-selected); font-weight: 600; }
 .directory-row.selected .dir-meta { color: var(--nav-second-selected); }
-
-/* ── Divider and sidebar scrollbar ────────────────────────────────────── */
-.resize-handle { background: rgba(0, 0, 0, .35); }
-.resize-handle:hover, .resize-handle.dragging { background: rgba(255, 255, 255, .12); }
 .directory-list { scrollbar-width: thin; scrollbar-color: #3d3f4a transparent; }
 .directory-list::-webkit-scrollbar { width: 3px; }
 .directory-list::-webkit-scrollbar-track { background: transparent; }
@@ -2324,10 +2313,6 @@ html.native-app .tab-strip { padding-left: 82px; border-radius: 0; }
 .directory-row.selected { background: var(--tint-select); }
 .directory-row:hover:not(.selected) { background: rgba(255, 255, 255, .022); }
 
-/* Hairlines: present, but only just. */
-.resize-handle { background: rgba(0, 0, 0, .3); }
-.resize-handle:hover, .resize-handle.dragging { background: rgba(255, 255, 255, .1); }
-
 /* The workspace keeps its own slightly lighter surface so the sidebar reads
    as the quieter of the two. */
 .terminal-workspace { background: #272931; }
@@ -2345,189 +2330,9 @@ html.native-app .tab-strip { padding-left: 82px; border-radius: 0; }
 
 .dsh { display: grid; gap: 16px; max-width: 132ch; padding-bottom: 8px; }
 
-.dsh-banner { display: grid; gap: 1px; padding-bottom: 4px; border-bottom: 1px solid var(--hair-soft); }
-.dsh-banner-title { color: var(--ink); font-weight: 500; }
-.dsh-build { color: #55565e; font-weight: 400; }
-.dsh-banner-line { color: var(--ink-3); }
-.dsh-banner-line.warn { color: var(--a-yellow); }
-.dsh-banner-line.dim { color: #55565e; }
-
-.dsh-entry { display: grid; gap: 1px; }
-.dsh-entry + .dsh-entry { margin-top: 15px; padding-top: 14px; border-top: 1px solid var(--hair-soft); }
-.dsh-echo { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 6px; margin-bottom: 4px; }
-.dsh-echo > i { color: var(--ink-3); font-style: normal; }
-.dsh-echo > span { color: var(--ink); }
-
-.dsh-headline { margin-bottom: 3px; color: var(--ink); font-weight: 500; }
-.dsh-headline.failed { color: var(--a-red); }
-.dsh-subhead { margin-bottom: 5px; color: var(--ink-3); }
-
-.dsh-blank { height: 9px; }
-.dsh-line { color: var(--ink-2); white-space: pre-wrap; }
-.dsh-line.t-dim { color: var(--ink-3); }
-.dsh-line.t-warn { color: var(--a-yellow); }
-.dsh-line.t-ok { color: var(--a-green); }
-
-/* Label/value pairs: the label column is fixed so values line up down the
-   page the way they would in a real terminal. */
-.dsh-fields { display: grid; gap: 0; margin: 0; }
-.dsh-fields > div { display: grid; grid-template-columns: 18ch minmax(0, 1fr); gap: 8px; }
-.dsh-fields dt { margin: 0; color: var(--ink-3); }
-.dsh-fields dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
-.dsh-fields > div.t-warn dd { color: var(--a-yellow); }
-.dsh-fields > div.t-dim dd { color: var(--ink-3); }
-
-.dsh-group { margin: 5px 0; }
-.dsh-group-head { display: flex; gap: 2ch; align-items: baseline; color: var(--ink); }
-.dsh-row { display: flex; gap: 2ch; align-items: baseline; padding-left: 2ch; color: var(--ink-2); }
-.dsh-row > span:first-child { overflow-wrap: anywhere; }
-.dsh-row.t-dim { color: var(--ink-3); }
-.dsh-row.t-warn { color: var(--a-yellow); }
-.dsh-row.t-ok { color: var(--a-green); }
-.dsh-meta { flex: none; margin-left: auto; color: var(--ink-3); }
-
-.dsh-table-wrap { overflow-x: auto; margin: 4px 0; }
-.dsh-table { border-collapse: collapse; }
-.dsh-table th,
-.dsh-table td { padding: 0 2ch 0 0; color: var(--ink-2); text-align: left; white-space: nowrap; }
-.dsh-table th { color: var(--ink-3); font-weight: 400; }
-.dsh-table tbody tr:hover td { color: var(--ink); }
-
-/* Results are the navigable part of the transcript. */
-.dsh-results { display: grid; gap: 1px; margin: 8px 0 2px; }
-.dsh-result {
-  display: grid;
-  grid-template-columns: 3ch minmax(0, 1fr) auto;
-  max-width: 132ch;
-  gap: 0 2ch;
-  align-items: start;
-  padding: 3px 6px 4px;
-  border: 0;
-  border-left: 2px solid transparent;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.dsh-result:hover { background: rgba(255, 255, 255, .03); }
-.dsh-result.selected { border-left-color: var(--a-yellow); background: var(--row-selected); }
-.dsh-index { color: var(--ink-3); }
-.dsh-body { display: grid; gap: 0; min-width: 0; }
-.dsh-title { color: var(--ink); overflow-wrap: break-word; }
-.dsh-result.t-warn .dsh-title { color: var(--a-yellow); }
-.dsh-sub { color: var(--ink-3); overflow-wrap: break-word; }
-/* A value is normally a number. When a source's value is a whole sentence —
-   an inferred column description, say — it is clipped rather than allowed to
-   crush the provenance beside it. The full text stays in the title attribute. */
-.dsh-value {
-  max-width: 32ch;
-  overflow: hidden;
-  color: var(--a-green);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.dsh-result.t-warn .dsh-value { color: var(--a-yellow); }
-.dsh-badge {
-  margin-left: 1ch;
-  color: var(--ink-3);
-  font-size: 12px;
-  font-style: normal;
-}
-
-.dsh-actions { display: flex; flex-wrap: wrap; gap: 2ch; margin-top: 5px; color: var(--ink-3); }
-.dsh-actions kbd {
-  margin-right: .6ch;
-  padding: 0 .5ch;
-  border: 1px solid var(--hair-strong);
-  border-radius: 2px;
-  color: var(--ink-2);
-  font: inherit;
-  font-size: 12px;
-}
-.dsh-hints { display: grid; gap: 0; margin-top: 6px; color: #55565e; }
-
-/* The preview answers "is this the right source?" without opening the file.
-   It sits with the result it describes rather than docked somewhere else. */
-.dsh-preview {
-  margin: 8px 0 2px 3ch;
-  padding: 7px 10px 8px;
-  border: 1px solid var(--hair);
-  background: rgba(255, 255, 255, .02);
-}
-.dsh-preview-head { display: flex; gap: 2ch; align-items: baseline; margin-bottom: 5px; }
-.dsh-preview-head strong { color: var(--ink); font-weight: 500; }
-.dsh-preview-head span { color: var(--ink-3); }
-.dsh-preview .dsh-table td { padding-right: 2ch; color: var(--ink-3); }
-.dsh-preview .dsh-table tr.hit td { color: var(--ink); }
-.dsh-preview .dsh-table td.hit-cell { color: var(--a-yellow); }
-.dsh-gutter { color: #4a4b53 !important; }
-.dsh-preview-code { margin: 0; color: var(--ink-3); font: inherit; white-space: pre; }
-.dsh-preview-code span { display: block; }
-.dsh-preview-code span.hit { color: var(--ink); }
-.dsh-preview-code i { margin-right: 2ch; color: #4a4b53; font-style: normal; }
-
-/* The completion box sits above the prompt and is drawn with characters, the
-   same way the writing overlay is: a frame, a marked row, and the keys that
-   act on it. */
-.dsh-completion {
-  display: grid;
-  gap: 0;
-  padding: 0 18px 3px;
-  background: var(--term-bg);
-}
-.dsh-completion[hidden] { display: none; }
-.dsh-completion .t-cap { color: #4a4b53; }
-.dsh-completion .t-cap > span:first-child { color: var(--ink-3); }
-
-.dsh-completion-list { max-height: calc(17px * 9); overflow-y: auto; }
-.dsh-completion-row {
-  display: grid;
-  grid-template-columns: 2ch minmax(14ch, 30ch) minmax(0, 10ch) minmax(0, 1fr);
-  gap: 0 2ch;
-  width: 100%;
-  align-items: baseline;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--ink-3);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.dsh-completion-row.selected .dsh-completion-value { color: var(--a-yellow); }
-.dsh-completion-row.selected .dsh-completion-mark { color: var(--a-yellow); }
-.dsh-completion-row:hover .dsh-completion-value { color: var(--ink); }
-.dsh-completion-mark { color: transparent; }
-.dsh-completion-value {
-  overflow: hidden;
-  color: var(--ink-2);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.dsh-completion-preview {
-  overflow: hidden;
-  color: var(--a-green);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.dsh-completion-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dsh-completion-actions { display: flex; gap: 2ch; align-items: baseline; color: #55565e; }
-.dsh-completion-actions kbd {
-  margin-right: .6ch;
-  padding: 0 .5ch;
-  border: 1px solid var(--hair-strong);
-  border-radius: 2px;
-  color: var(--ink-3);
-  font: inherit;
-  font-size: 12px;
-}
-.dsh-completion-note { margin-left: auto; color: var(--a-yellow); }
-
 .terminal-input .input-field { display: flex; flex: 1; min-width: 0; }
 .terminal-input .input-field input { width: 100%; }
 .terminal-input input::placeholder { color: #4a4b53; }
-
 
 /* ── The completion box ───────────────────────────────────────────────────
    A port of AssistBoxView in desktop/GlobalAssist.swift, which draws the

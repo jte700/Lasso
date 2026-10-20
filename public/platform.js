@@ -18,7 +18,7 @@
     isNative: Boolean(bridge),
     canChooseFolder: Boolean(windowsBridge),
     shortcut: (key, shift = false) => platform === 'windows'
-      ? `Ctrl+${shift ? 'Shift+' : ''}${key}` : `⌘${shift ? '⇧' : ''}${key}`,
+      ? `Ctrl+${shift ? 'Shift+' : ''}${key}` : `${shift ? '⇧' : ''}⌘${key}`,
     postMessage(payload) {
       if (!bridge) return false;
       bridge.postMessage(payload);

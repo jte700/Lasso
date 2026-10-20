@@ -58,6 +58,21 @@ test('real IFC preview routes focus different indexed products and preserve sour
     body: JSON.stringify({ ref: { kind: 'object', objectId: room.id } }),
   });
   assert.equal((await terminal.json()).preview.selected.guid, room.anchor.elementId);
+  await app.workspace.toggle(project.id, true, actor);
+  const workspaceTerminal = await fetch(`${base}/api/workspace/terminal/preview`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ref: { kind: 'object', objectId: room.id, projectId: project.id } }),
+  });
+  assert.equal(workspaceTerminal.status, 200);
+  assert.equal((await workspaceTerminal.json()).preview.selected.guid, room.anchor.elementId);
+  const inspector = await fetch(`${base}/inspect?object=${room.id}&version=${room.versionId}`);
+  assert.equal(inspector.status, 200);
+  const inspectorHtml = await inspector.text();
+  assert.match(inspectorHtml, /Model preview/);
+  assert.match(inspectorHtml, /data-model-plan/);
+  assert.ok(inspectorHtml.includes(`data-model-element="${room.anchor.elementId}"`));
+  assert.ok(inspectorHtml.includes(path.join(root, 'House.ifc')));
+  assert.match(inspectorHtml, /Share link <kbd>Tab<\/kbd>/);
   const document = await get(`/api/dependency-objects/${room.id}/document?version=${room.versionId}`);
   assert.equal(document.document.selected.guid, room.anchor.elementId);
 

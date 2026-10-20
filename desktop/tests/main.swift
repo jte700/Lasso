@@ -1,10 +1,22 @@
-//  Pure-logic tests for dependency anchoring and geometry.
+//  Native regression tests for insertion, dependency anchoring, and geometry.
 //  Built and run by `npm run desktop:test` — no framework, no dependencies.
 
 import Cocoa
+import PDFKit
+import CoreText
 
 var failures = 0
 var checks = 0
+
+final class MemoryDirectoryDefaults: UserDefaults {
+    var values: [String: Any] = [:]
+    override func dictionary(forKey defaultName: String) -> [String: Any]? {
+        values[defaultName] as? [String: Any]
+    }
+    override func set(_ value: Any?, forKey defaultName: String) {
+        values[defaultName] = value
+    }
+}
 
 func check(_ condition: Bool, _ what: String) {
     checks += 1
@@ -41,12 +53,13 @@ func units(_ value: String) -> [UInt16] { Array(value.utf16) }
 func string(_ value: [UInt16]) -> String { String(decoding: value, as: UTF16.self) }
 
 /// Runs the whole transaction against a simulated host and returns the result.
-func accept(_ before: String, insert: String, caret: Int? = nil)
+func accept(_ before: String, insert: String, caret: Int? = nil,
+            replacement: CompletionReplacement? = nil)
     -> (after: String, range: Range<Int>?, failure: CompletionFailure?) {
     let document = units(before)
     let position = caret ?? document.count
     guard case .success(let plan) = CompletionTransaction.plan(
-        document: document, caret: position, insertText: insert) else {
+        document: document, caret: position, insertText: insert, replacement: replacement) else {
         return (before, nil, .rangeOutOfBounds)
     }
     if let failure = CompletionTransaction.validate(plan, against: document) {
@@ -57,6 +70,203 @@ func accept(_ before: String, insert: String, caret: Int? = nil)
     case .success(let range): return (string(after), range, nil)
     case .failure(let failure): return (string(after), nil, failure)
     }
+}
+
+print("sharing drag selection")
+do {
+    final class Surface {
+        var visible = true
+        var acceptedLinks = ["accepted-source"]
+        var copiedText = "existing copied link"
+    }
+    let router = LassoTransientUI()
+    let inspector = Surface(), share = Surface(), suggestions = Surface()
+    var order: [String] = []
+    for (owner, priority, name) in [(inspector, 80, "inspector"), (share, 100, "share"), (suggestions, 70, "suggestions")] {
+        router.register(owner, priority: priority, isOpen: { [weak owner] in owner?.visible == true }, dismiss: { [weak owner] in
+            owner?.visible = false
+            order.append(name)
+            check(!router.dismissAll(), "dismissal ignores nested Escape handling")
+        })
+    }
+    check(router.dismissAll(), "Escape dismisses all registered open transient surfaces")
+    check(order == ["share", "inspector", "suggestions"], "sharing detaches before its parent inspector or suggestion panel closes")
+    check(!router.dismissAll(), "Escape after dismissal does not repeat UI actions")
+    check([inspector, share, suggestions].allSatisfy { $0.acceptedLinks == ["accepted-source"] && $0.copiedText == "existing copied link" },
+          "dismissal preserves accepted connections and copied content")
+    var temporary: Surface? = Surface()
+    router.register(temporary!, isOpen: { true }, dismiss: { fatalError("Released UI must not be dismissed") })
+    temporary = nil
+    check(!router.dismissAll(), "released UI owners do not receive dismissal callbacks")
+}
+
+do {
+    func cell(_ row: Int, _ column: Int, sheet: Int = 0,
+              effect: ShareRedactionEffect = .blur) -> ShareRedaction {
+        ShareRedaction(kind: "CELL", sheet: sheet, row: row,
+                       column: column, block: nil, effect: effect)
+    }
+    let anchor = cell(2, 1)
+    let endpoint = cell(5, 3)
+    let untouched = cell(9, 0, effect: .blank)
+    let prior = [untouched.locationKey: untouched]
+    let forward = ShareRedactionDrag(anchor: anchor, masks: prior)
+    let selected = forward.masks(through: endpoint)
+    check(selected.count == 13 && selected[cell(4, 2).locationKey] != nil,
+          "a fast drag covers the whole inclusive rectangle between events")
+    check(selected[untouched.locationKey] == untouched,
+          "a drag preserves masks outside its selection")
+    let reverse = ShareRedactionDrag(anchor: endpoint, masks: prior)
+    check(reverse.masks(through: anchor) == selected,
+          "reverse drags produce the same complete rectangle")
+    let oppositeDiagonal = ShareRedactionDrag(anchor: cell(5, 1), masks: prior)
+    check(oppositeDiagonal.masks(through: cell(2, 3)) == selected,
+          "row and column directions can be reversed independently")
+    check(forward.masks(through: anchor).count == 2,
+          "shrinking a drag restores cells outside the current rectangle")
+    let remove = ShareRedactionDrag(anchor: anchor, masks: selected)
+    check(remove.masks(through: endpoint) == prior,
+          "a drag beginning on a masked cell clears the whole selected range")
+    let smallerRemoval = remove.masks(through: cell(3, 1))
+    check(smallerRemoval.count == 11 && smallerRemoval[cell(4, 2).locationKey] != nil,
+          "shrinking an erase drag restores the original masks")
+    let click = ShareRedactionDrag(anchor: anchor, masks: [:]).masks(through: anchor)
+    check(click == [anchor.locationKey: anchor]
+          && ShareRedactionDrag(anchor: anchor, masks: click).masks(through: anchor).isEmpty,
+          "single clicks still toggle one cell")
+    let blocked = ShareRedactionDrag(anchor: cell(0, 0, effect: .blank), masks: [:])
+        .masks(through: cell(0, 3))
+    check(blocked.count == 4 && blocked.values.allSatisfy { $0.effect == .blank },
+          "the selected redaction effect applies to every dragged cell")
+    check(forward.masks(through: cell(5, 3, sheet: 1)) == prior,
+          "a range never crosses worksheet boundaries")
+    let firstBlock = ShareRedaction(kind: "BLOCK", sheet: nil, row: nil,
+                                    column: nil, block: 4, effect: .blur)
+    let lastBlock = ShareRedaction(kind: "BLOCK", sheet: nil, row: nil,
+                                   column: nil, block: 1, effect: .blur)
+    let blocks = ShareRedactionDrag(anchor: firstBlock, masks: [:]).masks(through: lastBlock)
+    check(blocks.count == 4 && blocks["block:2"] != nil,
+          "text drags include skipped sections in either direction")
+}
+
+print("sharing preserves clipboard changes")
+do {
+    let crop = NSRect(x: 30, y: 50, width: 400, height: 800)
+    let selected = NSRect(x: 70, y: 650, width: 120, height: 80)
+    let region = SharePDFRegion(page: 3, rect: selected, crop: crop)!
+    check(abs(region.x - 0.1) < 1e-9 && abs(region.y - 0.15) < 1e-9,
+          "PDF regions account for a crop box offset and top-left page coordinates")
+    check(region.rect(in: crop) == selected, "PDF selection coordinates return to the same source area")
+    let mask = region.redaction(effect: .blank)
+    check(mask.payload["page"] as? Int == 3 && mask.kind == "PDF" && mask.locationKey.hasPrefix("pdf:3:"),
+          "PDF masks keep the exact page through serialization and removal")
+    let excerpt = SharePDFExcerpt(text: "A selected sentence.", regions: [region])
+    check((excerpt.payload["regions"] as? [[String: Any]])?.first?["page"] as? Int == 3,
+          "PDF excerpt payloads preserve the reviewed page region")
+    check(SharePDFRegion(page: 0, rect: selected, crop: crop) == nil
+          && SharePDFRegion(page: 1, rect: NSRect(x: 900, y: 900, width: 20, height: 20), crop: crop) == nil,
+          "PDF selections reject missing pages and areas outside the page")
+}
+do {
+    let model = AssistModelPreview(json: [
+        "kind": "model-plan", "bounds": ["minX": 0, "minY": 0, "maxX": 100, "maxY": 100],
+        "drawing": [["id": "A1", "type": "path", "points": [[0, 0], [100, 100]], "closed": false]],
+    ])!
+    let layout = ShareDrawingLayout(model: model, in: NSRect(x: 0, y: 0, width: 400, height: 300))!
+    let a = NSPoint(x: layout.frame.minX + layout.frame.width * 0.2,
+                    y: layout.frame.minY + layout.frame.height * 0.3)
+    let b = NSPoint(x: layout.frame.minX + layout.frame.width * 0.7,
+                    y: layout.frame.minY + layout.frame.height * 0.8)
+    let mask = layout.redaction(from: a, to: b, effect: .blank)!
+    check(mask.kind == "DRAWING" && abs(mask.x! - 0.2) < 1e-9 && abs(mask.y! - 0.3) < 1e-9
+          && abs(mask.width! - 0.5) < 1e-9 && abs(mask.height! - 0.5) < 1e-9,
+          "drawing drags map fitted source bounds to normalized top-left regions")
+    check(layout.redaction(from: b, to: a, effect: .blank) == mask,
+          "reverse drawing drags select the same source region")
+    let restored = layout.rect(for: mask)!
+    check(abs(restored.minX - a.x) < 1e-8 && abs(restored.maxY - b.y) < 1e-8,
+          "region overlay uses the same fit and letterboxing as the drawing")
+    check(layout.redaction(from: a, to: NSPoint(x: a.x + 1, y: a.y + 1), effect: .blur) == nil,
+          "a click does not accidentally create a microscopic drawing mask")
+    let entire = layout.redaction(from: NSPoint(x: -1000, y: -1000), to: NSPoint(x: 1000, y: 1000), effect: .blur)!
+    check(entire.x == 0 && entire.y == 0 && entire.width == 1 && entire.height == 1,
+          "drawing masks clamp to source bounds when a drag leaves the canvas")
+    check(mask.payload["x"] as? Double == mask.x && mask.payload["kind"] as? String == "DRAWING"
+          && mask.payload["effect"] as? String == "BLANK" && mask.payload["row"] == nil,
+          "drawing masks serialize regions without worksheet coordinates")
+    var invalid = mask
+    invalid.width = .infinity
+    check(layout.rect(for: invalid) == nil, "invalid drawing regions cannot become visible masks")
+}
+
+do {
+    let pasteboard = NSPasteboard.withUniqueName()
+    defer { pasteboard.releaseGlobally() }
+    func copy(_ text: String) {
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+    func finishPaste() { RunLoop.current.run(until: Date().addingTimeInterval(0.7)) }
+    copy("Original clipboard")
+    RichTextInserter.withBorrowedPasteboard(pasteboard) { copy("First link") }
+    finishPaste()
+    check(pasteboard.string(forType: .string) == "Original clipboard",
+          "sharing restores the original clipboard after the paste")
+    RichTextInserter.withBorrowedPasteboard(pasteboard) { copy("Second link") }
+    copy("Newly copied text")
+    finishPaste()
+    check(pasteboard.string(forType: .string) == "Newly copied text",
+          "a copy made during sharing is never overwritten")
+    RichTextInserter.withBorrowedPasteboard(pasteboard) { copy("Third link") }
+    RichTextInserter.withBorrowedPasteboard(pasteboard) { copy("Fourth link") }
+    finishPaste()
+    check(pasteboard.string(forType: .string) == "Newly copied text",
+          "consecutive shares restore the user's original clipboard")
+}
+
+print("suggestion activation across permission changes")
+do {
+    var activation = AssistActivation(requested: false)
+    activation.setRequested(true)
+    check(activation.shouldAttempt(serverReady: true, accessibility: false,
+                                   inputMonitoring: false, running: false,
+                                   userInitiated: true),
+          "first enable requests the missing permission")
+    check(activation.requested, "missing permission keeps the user's enable choice")
+    check(!activation.shouldAttempt(serverReady: true, accessibility: false,
+                                    inputMonitoring: false, running: false),
+          "waiting for Accessibility does not repeat permission requests")
+    check(activation.shouldAttempt(serverReady: true, accessibility: true,
+                                   inputMonitoring: false, running: false),
+          "granting Accessibility resumes suggestions automatically")
+    check(!activation.shouldAttempt(serverReady: true, accessibility: true,
+                                    inputMonitoring: false, running: false),
+          "failed tap creation does not retry on every timer tick")
+    check(activation.shouldAttempt(serverReady: true, accessibility: true,
+                                   inputMonitoring: true, running: false),
+          "granting Input Monitoring retries the pending activation")
+    check(!activation.shouldAttempt(serverReady: true, accessibility: true,
+                                    inputMonitoring: true, running: true),
+          "active suggestions do not create another keyboard tap")
+    activation.setRequested(false)
+    check(!activation.shouldAttempt(serverReady: true, accessibility: true,
+                                    inputMonitoring: true, running: false),
+          "turning suggestions off prevents later automatic activation")
+    activation.setRequested(true)
+    check(!activation.shouldAttempt(serverReady: false, accessibility: true,
+                                    inputMonitoring: true, running: false),
+          "pending activation waits for its server")
+    check(activation.shouldAttempt(serverReady: true, accessibility: true,
+                                   inputMonitoring: true, running: false),
+          "server recovery resumes the requested activation")
+    var restored = AssistActivation(requested: true)
+    check(restored.shouldAttempt(serverReady: true, accessibility: true,
+                                 inputMonitoring: true, running: false),
+          "a remembered enable choice resumes after app restart")
+    check(restored.shouldAttempt(serverReady: true, accessibility: true,
+                                 inputMonitoring: true, running: false,
+                                 userInitiated: true),
+          "explicit retry works after an unsuccessful automatic attempt")
 }
 
 print("email hyperlink formats")
@@ -71,6 +281,30 @@ do {
     let rtf = try! NSAttributedString(data: formats[.rtf]!, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
     check(rtf.string == "Supplies & <cost>", "native rich-text paste preserves the label")
     check(rtf.attribute(.link, at: 0, effectiveRange: nil) != nil, "native rich-text paste retains a clickable link")
+    check(RichTextInserter.containsLink(rtf, to: url), "read-back rich text proves the expected share destination")
+    check(!RichTextInserter.containsLink(NSAttributedString(string: rtf.string), to: url),
+          "a matching label without a hyperlink cannot confirm a share")
+    check(!RichTextInserter.containsLink(rtf, to: URL(string: "https://example.test/wrong")!),
+          "a hyperlink to another destination cannot confirm a share")
+}
+
+print("delayed insertion guards")
+do {
+    let before = CompletionSnapshot(documentStart: 100, text: units("hello sup"))
+    check(CompletionTransaction.canRetry(before: before, current: before, selectionLength: 0,
+          expectedPrefix: "sup", selectedPrefix: false), "unchanged caret permits keyboard fallback")
+    check(!CompletionTransaction.canRetry(before: before,
+          current: CompletionSnapshot(documentStart: 200, text: before.text), selectionLength: 0,
+          expectedPrefix: "sup", selectedPrefix: false), "identical text at a moved caret is rejected")
+    check(!CompletionTransaction.canRetry(before: before, current: before, selectionLength: 4,
+          expectedPrefix: "sup", selectedPrefix: false), "a newly selected range cannot be overwritten")
+    let selected = CompletionSnapshot(documentStart: 100, text: units("hello "))
+    check(CompletionTransaction.canRetry(before: before, current: selected, selectionLength: 3,
+          expectedPrefix: "sup", selectedPrefix: true), "exact prepared prefix selection permits retry")
+    check(!CompletionTransaction.canRetry(before: before, current: selected, selectionLength: 2,
+          expectedPrefix: "sup", selectedPrefix: true), "a changed prefix selection is rejected")
+    check(HostTextSafety.isSecure(role: "AXTextField", subrole: "AXSecureTextField"),
+          "secure text subroles are excluded before text reads")
 }
 
 print("canonical source identity")
@@ -131,6 +365,36 @@ do {
           "does not ask macOS to open a missing file")
 }
 
+print("intentional source opening")
+do {
+    let root = "/tmp/Lasso Source Project"
+    var opens = 0
+    var recorded = 0
+    let exists: (String) -> Bool = { $0.hasSuffix("/Source.csv") }
+    let open: (URL) -> Bool = { _ in opens += 1; return true }
+    let record: () -> Void = { recorded += 1 }
+    let succeeded = AssistSourceIdentity.openLocalFile(
+        projectRoot: root, sourcePath: "Source.csv", fileExists: exists,
+        open: open, onOpened: record)
+    check(succeeded == .opened && opens == 1 && recorded == 1,
+          "records usage after a deliberate local source successfully opens")
+    let failed = AssistSourceIdentity.openLocalFile(
+        projectRoot: root, sourcePath: "Source.csv", fileExists: exists,
+        open: { _ in opens += 1; return false }, onOpened: record)
+    check(failed == .failed && opens == 2 && recorded == 1,
+          "failed macOS source opens do not count as use")
+    let missing = AssistSourceIdentity.openLocalFile(
+        projectRoot: root, sourcePath: "Missing.csv", fileExists: exists,
+        open: open, onOpened: record)
+    let outside = AssistSourceIdentity.openLocalFile(
+        projectRoot: root, sourcePath: "../Outside.csv", fileExists: { _ in true },
+        open: open, onOpened: record)
+    check(missing == .unavailable && outside == .unavailable && opens == 2 && recorded == 1,
+          "missing and out-of-project sources are never opened or counted")
+    _ = AssistSourceIdentity.localFileURL(projectRoot: root, sourcePath: "Source.csv", fileExists: exists)
+    check(recorded == 1, "passive source resolution does not count as usage")
+}
+
 print("completion insertion preserves the sentence")
 do {
     let one = accept("The expected cost of office sup", insert: "office supplies")
@@ -155,7 +419,87 @@ do {
     check(five.after == "the cost is 400", "inserts when nothing was typed towards it")
 }
 
-print("a completion can never delete more than it inserts")
+print("matched keywords replace only their captured fragment")
+do {
+    let opening = "I was looking at the "
+    let requested = opening + "pro"
+    let label = "AC20 FZK haus · Projekt-FZK-Haus"
+    let keyword = CompletionReplacement.capture(start: opening.utf16.count,
+        end: requested.utf16.count, in: requested, expectedText: "pro")!
+    let replaced = accept(requested, insert: label, replacement: keyword)
+    check(replaced.after == opening + label,
+          "Tab replaces pro even when its source name starts with AC20")
+    check(replaced.range == opening.utf16.count..<(opening.utf16.count + label.utf16.count),
+          "source highlight covers the replacement rather than the old keyword")
+    let middle = accept(requested + " yesterday.", insert: label, caret: requested.utf16.count,
+                        replacement: keyword)
+    check(middle.after == opening + label + " yesterday.",
+          "keyword replacement preserves text before and after the caret")
+    let emojiOpening = "Look at 🏡 the "
+    let alias = emojiOpening + "architectural drawing"
+    let fragment = CompletionReplacement.capture(start: emojiOpening.utf16.count,
+        end: alias.utf16.count, in: alias)!
+    check(accept(alias, insert: "Home", replacement: fragment).after == emojiOpening + "Home",
+          "a verified alias can become a shorter label without damaging Unicode context")
+    check(CompletionReplacement.capture(start: opening.utf16.count, end: requested.utf16.count,
+        in: requested, expectedText: "other") == nil, "rejects a trigger that differs from the request text")
+    check(CompletionReplacement.capture(start: -1, end: requested.utf16.count, in: requested) == nil,
+          "rejects a trigger outside the captured request")
+    check(CompletionReplacement.capture(start: 1, end: 2, in: "🏡") == nil,
+          "rejects a range cutting through an emoji")
+    if case .failure(let failure) = CompletionTransaction.plan(document: units(opening + "pri"),
+        caret: requested.utf16.count, insertText: label, replacement: keyword) {
+        check(failure == .prefixMismatch, "refuses replacement after the typed keyword changes")
+    } else { check(false, "refuses replacement after the typed keyword changes") }
+    let continuation = "We use pro"
+    let append = CompletionReplacement(start: continuation.utf16.count, expectedText: "")
+    check(accept(continuation, insert: "ordinary materials.", replacement: append).after ==
+          continuation + "ordinary materials.",
+          "sentence continuations append even when their first letters overlap the typed suffix")
+}
+
+print("acceptance spacing and retained source boundaries")
+do {
+    let typed = "the marketing rows for our"
+    let append = CompletionReplacement(start: typed.utf16.count, expectedText: "")
+    guard case .success(let spaced) = CompletionTransaction.plan(document: units(typed), caret: typed.utf16.count,
+        insertText: "Department", replacement: append, separateInsertion: true) else { fatalError("spacing plan") }
+    check(string(CompletionTransaction.apply(spaced, to: units(typed))) == typed + " Department",
+          "an insertion after a complete connector separates the source name from existing words")
+    check(spaced.sourceRange == 1..<11, "source range excludes the inserted word separator")
+    let opening = "the marketing rows for our "
+    let request = opening + "dep "
+    let replacement = CompletionReplacement.capture(start: opening.utf16.count, end: request.utf16.count - 1,
+        in: request, expectedText: "dep")!
+    guard case .success(let retained) = CompletionTransaction.plan(document: units(request), caret: request.utf16.count,
+        insertText: "department", replacement: replacement, separateInsertion: true) else { fatalError("retained spacing plan") }
+    check(string(CompletionTransaction.apply(retained, to: units(request))) == opening + "department ",
+          "recognized keyword replacement preserves the user's trailing space")
+    check(retained.sourceRange == 0..<10, "source range excludes a retained trailing space")
+    check(CompletionTransaction.insertionIsAtCaret("department ", in: opening + "department\u{00A0}"),
+          "verifies the complete insertion including a browser-normalized trailing space")
+    let normalized = units(opening + "department\u{00A0}")
+    if case .success = CompletionTransaction.verify(before: CompletionSnapshot(documentStart: 0, text: units(request)),
+        after: CompletionSnapshot(documentStart: 0, text: normalized), plan: retained) {
+        check(true, "source verification accepts equivalent spaces within the insertion")
+    } else { check(false, "source verification accepts equivalent spaces within the insertion") }
+    check(CompletionReplacement.capture(start: 0, end: 3, in: "dep\n", expectedText: "dep") == nil,
+          "replacement never reaches back across a new line")
+    let numeric = "  Our rate increased by 2"
+    let number = CompletionReplacement.terminalNumber(in: numeric)!
+    check(number.expectedText == "2" && number.start == numeric.utf16.count - 1,
+          "numeric replacement preserves predicate words and leading whitespace")
+    let result = accept(numeric, insert: "25%", replacement: number)
+    check(result.after == "  Our rate increased by 25%", "numeric acceptance replaces only the numeric token")
+    let manual = "Please send comments"
+    guard case .success(let chosen) = CompletionTransaction.plan(document: units(manual), caret: manual.utf16.count,
+        insertText: "supplies", replacement: CompletionReplacement(start: manual.utf16.count, expectedText: ""),
+        separateInsertion: true) else { fatalError("manual insertion plan") }
+    check(string(CompletionTransaction.apply(chosen, to: units(manual))) == manual + " supplies",
+          "manually chosen sources do not consume an unrelated matching letter")
+}
+
+print("inferred completion replacement stays bounded by the insertion")
 do {
     // The exact shape of the bug: a claim covering the whole sentence.
     let sentence = "The expected cost of office sup"
@@ -452,6 +796,103 @@ do {
           "does not skip missing visible text between runs")
 }
 
+print("highlights remain attached across newlines and caret movement")
+do {
+    let font = NSFont.systemFont(ofSize: 14)
+    let base = "forecast for facilities was 48000."
+    let prefix = "forecast for facilities was "
+    let start = prefix.utf16.count
+    let target = start..<(start + 5)
+    let frame = CGRect(x: 100, y: 300, width: 500, height: 300)
+    let adapter = AccessibilityTextAdapter()
+    func width(_ value: String) -> CGFloat {
+        NSAttributedString(string: value, attributes: [.font: font]).size().width
+    }
+    func measure(_ value: String, range: Range<Int>, caret: Int, x: CGFloat, y: CGFloat,
+                 style: NSParagraphStyle? = nil) -> [CGRect] {
+        var attributes: [NSAttributedString.Key: Any] = [.font: font]
+        if let style { attributes[.paragraphStyle] = style }
+        return adapter.layoutRects(
+            attributedText: NSAttributedString(string: value, attributes: attributes),
+            range: range, elementFrame: frame, caret: caret,
+            actualCaret: CGRect(x: frame.minX + 5 + x, y: frame.minY + 2 + y, width: 1, height: 17))
+    }
+    func same(_ left: [CGRect], _ right: [CGRect]) -> Bool {
+        left.count == right.count && zip(left, right).allSatisfy {
+            abs($0.minX - $1.minX) < 0.1 && abs($0.minY - $1.minY) < 0.1
+                && abs($0.width - $1.width) < 0.1 && abs($0.height - $1.height) < 0.1
+        }
+    }
+    let original = measure(base, range: target, caret: base.utf16.count, x: width(base), y: 0)
+    check(original.count == 1, "measures the accepted 48000 value on its text line")
+    for (ending, lines, name) in [("\n", 1, "LF"), ("\n\n", 2, "blank paragraph"),
+                                 ("\r\n", 1, "CRLF"), ("\u{2028}", 1, "line separator"),
+                                 ("\u{2029}", 1, "paragraph separator")] {
+        let value = base + ending
+        let measured = measure(value, range: target, caret: value.utf16.count,
+                               x: 0, y: CGFloat(lines) * 17)
+        check(!measured.isEmpty && same(original, measured),
+              "adding \(name) does not move the earlier highlight")
+    }
+    let ending = "All the best."
+    let paragraphs = base + "\n\n" + ending
+    for (caret, x, y) in [(0, CGFloat(0), CGFloat(0)),
+                          (base.utf16.count + 1, 0, 17),
+                          (base.utf16.count + 2, 0, 34),
+                          (paragraphs.utf16.count, width(ending), 34)] {
+        let measured = measure(paragraphs, range: target, caret: caret, x: x, y: y)
+        check(!measured.isEmpty && same(original, measured),
+              "moving the caret to offset \(caret) preserves the earlier highlight")
+    }
+    let blankLines = base + "\n\n"
+    let all = measure(blankLines, range: 0..<blankLines.utf16.count,
+                      caret: blankLines.utf16.count, x: 0, y: 34)
+    check(all.count == 1 && (all.first?.width ?? frame.width) < frame.width * 0.75,
+          "a range containing newlines draws text without container-wide blue strips")
+    check(measure(blankLines, range: base.utf16.count..<blankLines.utf16.count,
+                  caret: blankLines.utf16.count, x: 0, y: 34).isEmpty,
+          "blank paragraphs alone have no highlight geometry")
+
+    let style = NSMutableParagraphStyle()
+    style.firstLineHeadIndent = 24
+    style.paragraphSpacingBefore = 4
+    style.lineSpacing = 3
+    let styledOriginal = measure(base, range: target, caret: base.utf16.count,
+                                  x: 24 + width(base), y: 0, style: style)
+    let styledNewline = measure(base + "\n", range: target, caret: base.utf16.count + 1,
+                                 x: 24, y: 24, style: style)
+    check(!styledNewline.isEmpty && same(styledOriginal, styledNewline),
+          "new paragraph caret retains indentation and paragraph spacing")
+}
+
+print("browser geometry respects line breaks and font metadata")
+do {
+    let units = Array("\na\r\nb\u{2028}c\u{2029}".utf16)
+    check(WebTextReader.visibleGeometryRanges(forRange: 0..<units.count, inUTF16: units)
+          == [1..<2, 4..<5, 6..<7], "browser ranges exclude every hard line break without shifting offsets")
+    let emoji = Array("48000\n🙂".utf16)
+    check(WebTextReader.visibleGeometryRanges(forRange: 0..<emoji.count, inUTF16: emoji)
+          == [0..<5, 6..<8], "browser range splitting preserves UTF-16 offsets for emoji")
+    check(WebTextReader.visibleGeometryRanges(forRange: -1..<2, inUTF16: units).isEmpty,
+          "invalid negative browser offsets are refused")
+    check(WebTextReader.visibleGeometryRanges(forRange: 0..<(units.count + 1), inUTF16: units).isEmpty,
+          "browser offsets outside the text snapshot are refused")
+
+    let value = "Forecast 48000"
+    let font = NSFont.systemFont(ofSize: 32)
+    let attributes: [NSAttributedString.Key: Any] = [
+        NSAttributedString.Key("AXFont"): ["AXFontSize": 32],
+    ]
+    let expected = NSAttributedString(string: value, attributes: [.font: font])
+    let rects = AccessibilityTextAdapter().layoutRects(
+        attributedText: NSAttributedString(string: value, attributes: attributes),
+        range: 9..<value.utf16.count, elementFrame: CGRect(x: 100, y: 300, width: 900, height: 100),
+        caret: value.utf16.count, actualCaret: CGRect(x: 105 + expected.size().width, y: 302, width: 1, height: 39))
+    let expectedWidth = NSAttributedString(string: "48000", attributes: [.font: font]).size().width
+    check(rects.count == 1 && abs((rects.first?.width ?? 0) - expectedWidth) < 1.5,
+          "Chromium AXFont size is used instead of a guessed capped font")
+}
+
 print("multi-line fragments")
 do {
     // A wrapped phrase is several rectangles that must group into one hit target.
@@ -465,6 +906,32 @@ do {
     check(hit.contains(CGPoint(x: 50, y: 130)), "hits the second line")
     check(!hit.contains(CGPoint(x: 400, y: 108)), "misses outside every fragment")
     check(hit.bounds.height >= 40, "bounds span both lines")
+
+    let first = CGRect(x: 10, y: 100, width: 8, height: 18)
+    let last = CGRect(x: 130, y: 100, width: 8, height: 18)
+    check(HostGeometryConverter.isSingleLine(
+        whole: first.union(last), first: first, last: last),
+          "single-line geometry can skip per-character Accessibility reads")
+    check(!HostGeometryConverter.isSingleLine(
+        whole: hit.bounds, first: first,
+        last: CGRect(x: 80, y: 122, width: 8, height: 18)),
+          "wrapped endpoints still require line fragments")
+    check(!HostGeometryConverter.isSingleLine(
+        whole: CGRect(x: 10, y: 100, width: 128, height: 60), first: first, last: last),
+          "matching endpoints do not hide multiline or column-spanning bounds")
+    check(!HostGeometryConverter.isSingleLine(whole: .zero, first: first, last: last),
+          "invalid host geometry never takes the single-line shortcut")
+
+    let paragraph = NSAttributedString(
+        string: "Office supplies and travel costs are shared across the entire department.",
+        attributes: [.font: NSFont.systemFont(ofSize: 14)])
+    let wrapped = AccessibilityTextAdapter().layoutRects(
+        attributedText: paragraph, range: 0..<paragraph.length,
+        elementFrame: CGRect(x: 50, y: 100, width: 150, height: 300),
+        caret: 0, actualCaret: CGRect(x: 54, y: 104, width: 1, height: 18))
+    check(wrapped.count >= 3, "shared TextKit preparation preserves every wrapped line")
+    check(Set(wrapped.map(\.minY)).count == wrapped.count,
+          "wrapped fallback fragments retain their separate vertical positions")
 }
 
 print("reference store")
@@ -472,7 +939,7 @@ do {
     let url = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("lasso-refs-\(UUID().uuidString).json")
     let store = DependencyReferenceStore(url: url)
-    let reference = DependencyReference(
+    var reference = DependencyReference(
         id: "ref_1", objectId: "obj_1", versionId: "v1",
         hostBundleIdentifier: "com.google.Chrome", hostApplication: "Google Chrome",
         documentContext: "compose-1",
@@ -482,9 +949,14 @@ do {
         sourcePath: "Income-Statement.xlsx", sourceLocation: "Accounting!B21",
         sourceColorSlot: 2,
         createdAt: Date(), updatedAt: Date())
+    reference.projectId = "directory-finance"
 
     store.add(reference)
     check(store.references.count == 1, "stores a reference")
+    check(store.hasReferences(bundleIdentifier: "com.google.Chrome"),
+          "enables host observation only for applications with references")
+    check(!store.hasReferences(bundleIdentifier: "com.apple.Safari"),
+          "unrelated applications require no background Accessibility polling")
     check(store.references(forContext: "compose-1", bundleIdentifier: "com.google.Chrome").count == 1,
           "finds it by host document")
     check(store.references(forContext: "compose-2", bundleIdentifier: "com.google.Chrome").isEmpty,
@@ -496,18 +968,91 @@ do {
     check(reloaded.references.count == 1, "survives a restart")
     check(reloaded.reference(id: "ref_1")?.sourceColorSlot == 2,
           "persists the source color identity")
+    check(reloaded.reference(id: "ref_1")?.projectId == "directory-finance",
+          "persists the source's owning directory across restart")
+    var legacy = try! JSONSerialization.jsonObject(with: JSONEncoder().encode(reference)) as! [String: Any]
+    legacy.removeValue(forKey: "projectId")
+    let oldReference = try! JSONDecoder().decode(DependencyReference.self,
+        from: JSONSerialization.data(withJSONObject: legacy))
+    check(oldReference.projectId == nil && oldReference.sourceColorSlot == 2,
+          "legacy references without an owner still decode with their old color")
+    check(reloaded.hasReferences(bundleIdentifier: "com.google.Chrome"),
+          "restores host observation eligibility after restart")
 
     store.update(id: "ref_1") { $0.state = .changed }
     check(store.reference(id: "ref_1")?.state == .changed, "records a state change")
 
+    store.update(id: "ref_1") { $0.state = .unresolved }
+    let unresolvedRevision = store.revision
+    let unresolvedTimestamp = store.reference(id: "ref_1")?.updatedAt
+    let unresolvedData = try? Data(contentsOf: url)
+    for _ in 0..<100 { store.update(id: "ref_1") { $0.state = .unresolved } }
+    check(store.revision == unresolvedRevision, "repeated ambiguous refreshes do not mutate the store")
+    check(store.reference(id: "ref_1")?.updatedAt == unresolvedTimestamp,
+          "an unchanged unresolved state retains its timestamp")
+    check((try? Data(contentsOf: url)) == unresolvedData,
+          "an idle ambiguous reference does not rewrite persisted content")
+    store.batchUpdates {
+        store.update(id: "ref_1") { $0.state = .healthy }
+        store.update(id: "ref_1") { $0.sourceColorSlot = 3 }
+        check((try? Data(contentsOf: url)) == unresolvedData,
+              "multiple changes defer persistence until the refresh is complete")
+    }
+    let batchReload = DependencyReferenceStore(url: url)
+    check(batchReload.reference(id: "ref_1")?.state == .healthy
+          && batchReload.reference(id: "ref_1")?.sourceColorSlot == 3,
+          "batched updates persist the complete final reference")
+
+    let cache = TextAnchorResolutionCache()
+    let original = "The cost of office supplies is 400."
+    let firstMatch = cache.resolve([reference], in: original)[reference.id]
+    check(firstMatch == .resolved(12..<27), "anchor cache resolves the original document")
+    let shifted = "Today: " + original
+    check(cache.resolve([reference], in: shifted)[reference.id] == .resolved(19..<34),
+          "editing a document invalidates cached offsets")
+    var renamed = reference
+    renamed.anchor = anchor(for: "cost", in: shifted)
+    check(cache.resolve([renamed], in: shifted)[reference.id] == .resolved(11..<15),
+          "changing an anchor invalidates a cache with unchanged document text")
+    check(cache.resolve([], in: shifted).isEmpty, "unlinking removes cached matches")
+    cache.clear()
+    check(cache.resolve([reference], in: original)[reference.id] == firstMatch,
+          "a new host snapshot resolves correctly after clearing cached text")
+
     store.remove(id: "ref_1")
     check(store.references.isEmpty, "removes on unlink")
+    check(!store.hasReferences(bundleIdentifier: "com.google.Chrome"),
+          "unlinking the last reference stops polling that host")
     check(DependencyReferenceStore(url: url).references.isEmpty, "removal persists")
     try? FileManager.default.removeItem(at: url)
 }
 
 print("claim-aware suggestion semantics")
 do {
+    let journalProfile = "journal id; inferred categorical variable; examples JE-0901, JE-0902, JE-0903, JE-0904, JE-0905, JE-0906"
+    check(AssistSuggestionSemantics.insertionText(
+        claimType: "STUDY_VARIABLE", label: "Journal ID", value: journalProfile,
+        completionText: "journal_id") == "journal_id",
+          "Tab inserts the explicit field name instead of its inferred profile and examples")
+    check(AssistSuggestionSemantics.insertionText(
+        claimType: "STUDY_VARIABLE", label: "Journal ID", value: journalProfile) == "Journal ID",
+          "legacy variable candidates fall back to their name without inserting preview metadata")
+    check(AssistSuggestionSemantics.insertionText(
+        claimType: "STUDY_VARIABLE", label: "Journal ID", value: journalProfile,
+        completionText: " \n ") == "Journal ID",
+          "blank variable completions fall back to the name")
+    check(AssistSuggestionSemantics.insertionText(
+        claimType: "STUDY_VARIABLE", label: "", value: journalProfile,
+        completionText: "") == "",
+          "a malformed nameless variable is skipped rather than inserting its profile")
+    check(AssistSuggestionSemantics.insertionText(
+        claimType: "STUDY_VARIABLE", label: "Revenue", value: "Total sales before deductions.",
+        completionText: "revenue") == "revenue",
+          "data dictionary definitions remain preview details when accepting a variable name")
+    check(AssistSuggestionSemantics.insertionText(
+        claimType: "QUANTITATIVE", label: "October forecast CAD", value: "190000",
+        completionText: "october_forecast_cad") == "190000",
+          "numeric claims still insert the value when a field completion is also present")
     check(AssistSuggestionSemantics.insertionText(
         claimType: "STUDY_VARIABLE", label: "Revenue", value: "revenue; inferred numeric variable; examples 41, 5") == "Revenue",
           "variable acceptance inserts its name, never indexing diagnostics")
@@ -518,6 +1063,91 @@ do {
     check(AssistSuggestionSemantics.insertionText(
         claimType: "QUANTITATIVE", label: "Bad Debts/Losses and Thefts · Current Period", value: "25") == "25",
           "a quantitative claim still inserts the source-backed value")
+}
+
+print("native workspace requests and errors")
+do {
+    let bodies = [WorkspaceAPI.addDirectoriesBody(["/tmp/Work"]),
+                  WorkspaceAPI.toggleDirectoryBody(active: true),
+                  WorkspaceAPI.toggleDirectoryBody(active: false)]
+    for body in bodies {
+        let data = try! JSONSerialization.data(withJSONObject: body)
+        let decoded = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let actor = decoded["actor"] as? [String: String]
+        check(actor?["displayName"] == "Desktop" && actor?["actorType"] == "HUMAN_SELF"
+              && actor?["id"] == "human:desktop",
+              "directory actions send a valid human actor through JSON")
+    }
+    let url = URL(string: "http://127.0.0.1:4319/api/workspace")!
+    let badRequest = HTTPURLResponse(url: url, statusCode: 400, httpVersion: nil, headerFields: nil)!
+    let nested = Data(#"{"error":{"message":"Actor displayName is required."}}"#.utf8)
+    check(WorkspaceAPI.errorMessage(data: nested, response: badRequest, error: nil)
+          == "Actor displayName is required.", "the actual API error is shown")
+    let legacy = Data(#"{"error":"Directory unavailable."}"#.utf8)
+    check(WorkspaceAPI.errorMessage(data: legacy, response: badRequest, error: nil)
+          == "Directory unavailable.", "plain-string server errors are still shown")
+    check(WorkspaceAPI.errorMessage(data: Data("not JSON".utf8), response: badRequest, error: nil)
+          == "The directory request failed (HTTP 400).", "invalid error bodies retain the HTTP status")
+    let transport = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost,
+                            userInfo: [NSLocalizedDescriptionKey: "Cannot connect to Lasso."])
+    check(WorkspaceAPI.errorMessage(data: nil, response: nil, error: transport)
+          == "Cannot connect to Lasso.", "connection failures retain their explanation")
+}
+
+print("directory colors follow accepted source references")
+do {
+    let defaults = MemoryDirectoryDefaults(suiteName: nil)!
+    check(DirectoryColorPreferences.color(for: "finance", defaults: defaults) == .blue,
+          "an uncustomized directory matches the menu's default blue")
+    check(DirectoryColorPreferences.color(for: nil, defaults: defaults) == nil,
+          "an unresolved legacy owner retains its file-color fallback")
+    DirectoryColorPreferences.set(.orange, for: "finance", defaults: defaults)
+    DirectoryColorPreferences.set(.green, for: "research", defaults: defaults)
+
+    func reference(_ id: String, owner: String, path: String, slot: Int) -> DependencyReference {
+        var result = DependencyReference(
+            id: id, objectId: "object-" + id, versionId: "v1",
+            hostBundleIdentifier: "com.google.Chrome", hostApplication: "Google Chrome",
+            documentContext: "draft", anchor: anchor(for: "120", in: "Supplies were 120."),
+            state: .healthy, label: "Supplies", valueText: "120",
+            sourcePath: path, sourceLocation: "B2", sourceColorSlot: slot,
+            createdAt: Date(), updatedAt: Date())
+        result.projectId = owner
+        return result
+    }
+    func matches(_ left: NSColor, _ right: NSColor) -> Bool {
+        let a = left.usingColorSpace(.sRGB)!, b = right.usingColorSpace(.sRGB)!
+        return abs(a.redComponent - b.redComponent) < 0.00001
+            && abs(a.greenComponent - b.greenComponent) < 0.00001
+            && abs(a.blueComponent - b.blueComponent) < 0.00001
+    }
+    func stroke(_ reference: DependencyReference) -> NSColor {
+        DependencyStyle.stroke(for: reference.state, sourceSlot: reference.sourceColorSlot ?? 0,
+            directoryColor: DirectoryColorPreferences.color(for: reference.projectId, defaults: defaults), hovered: true)
+    }
+    let first = reference("first", owner: "finance", path: "Budget.xlsx", slot: 1)
+    let second = reference("second", owner: "finance", path: "Expenses.csv", slot: 6)
+    let duplicate = reference("duplicate", owner: "research", path: "Budget.xlsx", slot: 1)
+    check(matches(stroke(first), DirectoryToggleColor.orange.color)
+          && matches(stroke(second), DirectoryToggleColor.orange.color),
+          "different files inside a directory use its selected color")
+    check(matches(stroke(duplicate), DirectoryToggleColor.green.color),
+          "identical file paths in different directories keep their owner's color")
+    DirectoryColorPreferences.set(.orange, for: "research", defaults: defaults)
+    check(matches(stroke(first), stroke(duplicate)),
+          "intentionally matching directory colors are not reassigned")
+    DirectoryColorPreferences.set(.purple, for: "finance", defaults: defaults)
+    check(matches(stroke(first), DirectoryToggleColor.purple.color)
+          && matches(stroke(second), DirectoryToggleColor.purple.color),
+          "changing a directory recolors references already accepted with Tab")
+    let reloaded = MemoryDirectoryDefaults(suiteName: nil)!
+    reloaded.values = defaults.values
+    check(DirectoryColorPreferences.color(for: first.projectId, defaults: reloaded) == .purple,
+          "saved directory choices are read consistently after preferences reload")
+    check(matches(
+        DependencyStyle.stroke(for: .stale, sourceSlot: 1, directoryColor: .orange, hovered: true),
+        DependencyStyle.stroke(for: .stale, sourceSlot: 1, directoryColor: .green, hovered: true)),
+          "source warning states keep their distinct styling")
 }
 
 print("source-backed model previews")
@@ -584,6 +1214,86 @@ do {
     check(transform.path(for: cad.elements[0]).isEmpty && transform.linePath(for: cad.elements[0]).elementCount == 2,
           "strokes open CAD edges without inventing a filled outline")
 
+    let doorArc: [String: Any] = [
+        "id": "20/A", "type": "path", "layer": "DOORS", "elevation": 0,
+        "points": [[10.0, 20.0], [17.0710678, 22.9289322], [20.0, 30.0]],
+        "closed": false, "lineweight": 25,
+    ]
+    let roomText: [String: Any] = [
+        "id": "21", "type": "text", "layer": "ROOM-LABELS", "elevation": 0,
+        "point": [15.0, 25.0], "text": "STUDIO\n12 m²", "height": 0.5,
+        "rotation": 450.0, "align": "middle", "verticalAlign": "middle", "widthScale": 1.5,
+    ]
+    var drawingJSON = modelJSON
+    drawingJSON["elements"] = []
+    drawingJSON["selected"] = [:]
+    drawingJSON["drawing"] = [doorArc, roomText]
+    let drawingModel = AssistModelPreview(json: drawingJSON)!
+    check(drawingModel.elements.isEmpty && drawingModel.drawing.count == 2,
+          "opens a line-and-text DXF drawing without inventing a measurable room")
+    if case .path(let drawing) = drawingModel.drawing[0] {
+        let path = transform.path(for: drawing)
+        check(drawing.id == "20/A" && drawing.layer == "DOORS" && drawing.lineweight == 25 &&
+              drawing.points[1] == NSPoint(x: 17.0710678, y: 22.9289322),
+              "keeps source block identity, pen weight and supplied curved path vertices")
+        check(path.elementCount == 3 && path.element(at: 2) == .lineTo &&
+              path.currentPoint == NSPoint(x: 165, y: 17),
+              "projects tessellated curves with the same source scale and leaves door arcs open")
+    } else { check(false, "parses a DXF drafting path") }
+    if case .text(let drawing) = drawingModel.drawing[1] {
+        check(drawing.text == "STUDIO\n12 m²" && drawing.height == 0.5 && drawing.rotation == 90 &&
+              drawing.align == "middle" && drawing.verticalAlign == "middle" && drawing.widthScale == 1.5,
+              "preserves source text, source size, alignment, width factor and rotation")
+        let textTransform = transform.textTransform(for: drawing)
+        let anchor = transform.point(drawing.point)
+        let origin = textTransform.transform(NSPoint.zero)
+        let alongText = textTransform.transform(NSPoint(x: 1, y: 0))
+        let downGlyph = textTransform.transform(NSPoint(x: 0, y: 1))
+        check(origin == anchor && abs(alongText.x - anchor.x) < 0.00001 &&
+              abs(alongText.y - (anchor.y - 1.5)) < 0.00001 &&
+              abs(downGlyph.x - (anchor.x + 1)) < 0.00001 && abs(downGlyph.y - anchor.y) < 0.00001,
+              "rotates DXF text counterclockwise in source space without mirroring its glyphs")
+    } else { check(false, "parses DXF source annotation text") }
+    var closedBoundary = doorArc
+    closedBoundary["closed"] = true
+    var budget = 3
+    if case .path(let drawing)? = AssistModelDrawing.parse(closedBoundary, remainingPoints: &budget) {
+        check(transform.path(for: drawing).element(at: 3) == .closePath && budget == 0,
+              "closes only source paths explicitly marked closed and accounts for their point budget")
+    } else { check(false, "parses an explicitly closed source path") }
+    budget = 2
+    check(AssistModelDrawing.parse(doorArc, remainingPoints: &budget) == nil && budget == 2,
+          "rejects over-budget paths as a whole instead of fabricating a truncated outline")
+    var badDrawingItems: [[String: Any]] = []
+    for (key, value) in [("points", [[Double.nan, 20], [20, 30]] as Any),
+                         ("points", [[true, false], [false, true]] as Any),
+                         ("points", [[1e13, 20], [20, 30]] as Any),
+                         ("elevation", Double.infinity as Any),
+                         ("lineweight", -1 as Any)] {
+        var malformed = doorArc
+        malformed[key] = value
+        badDrawingItems.append(malformed)
+    }
+    for (key, value) in [("height", 0 as Any), ("rotation", Double.nan as Any),
+                         ("widthScale", -1 as Any), ("align", "unknown" as Any),
+                         ("verticalAlign", "unknown" as Any), ("text", String(repeating: "A", count: 16_385) as Any)] {
+        var malformed = roomText
+        malformed[key] = value
+        badDrawingItems.append(malformed)
+    }
+    drawingJSON["drawing"] = badDrawingItems
+    check(AssistModelPreview(json: drawingJSON) == nil,
+          "rejects non-finite, Boolean, oversized and malformed drawing values without replacement geometry")
+    drawingJSON["drawing"] = badDrawingItems + [doorArc]
+    check(AssistModelPreview(json: drawingJSON)?.drawing.count == 1,
+          "keeps valid source drafting when an unrelated malformed item is rejected")
+    var combinedJSON = modelJSON
+    combinedJSON["drawing"] = [doorArc, roomText]
+    let combinedModel = AssistModelPreview(json: combinedJSON)!
+    check(combinedModel.elements[0].polygons == model.elements[0].polygons &&
+          combinedModel.elements[0].selected && combinedModel.drawing.count == 2,
+          "keeps authoritative selected regions separate from decorative lines and text")
+
     var unavailable = response
     unavailable["preview"] = ["kind": "model-unavailable", "reason": "This element has properties but no geometric representation."]
     let unavailablePreview = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: unavailable))!
@@ -597,6 +1307,424 @@ do {
           "preserves exact-cell spreadsheet preview parsing")
 }
 
+print("Markdown and text previews")
+do {
+    let payload: [String: Any] = [
+        "source": ["filename": "README.md", "location": "—", "context": "—", "objectType": "DOCUMENT"],
+        "path": "README.md",
+        "preview": ["kind": "text", "format": "markdown", "location": "Try Lasso · Line 8",
+                    "text": "Toggle the other folder off.",
+                    "blocks": [["type": "heading", "level": 2, "text": "Try Lasso"],
+                               ["type": "item", "level": 0, "marker": "2.", "text": "Toggle the **other** folder off.", "cited": true]]],
+    ]
+    let parsed = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: payload))!
+    check(parsed.isMarkdown && parsed.textBlocks.count == 2 && parsed.textBlocks[1].cited
+          && parsed.textBlocks[1].marker == "2." && parsed.location == "Try Lasso · Line 8",
+          "parses Markdown blocks, the cited item and its section location")
+    var placeholder = payload
+    placeholder["preview"] = NSNull()
+    let empty = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: placeholder))!
+    check(empty.location.isEmpty && empty.context.isEmpty,
+          "never shows the server's em dash placeholder as a location or excerpt")
+    let item = AssistMarkdown.attributed(parsed.textBlocks[1], baseSize: 11)
+    check(item.string == "2.\tToggle the other folder off.", "renders list markers without Markdown syntax")
+    let bold = (item.string as NSString).range(of: "other")
+    let font = item.attribute(.font, at: bold.location, effectiveRange: nil) as? NSFont
+    check(font?.fontDescriptor.symbolicTraits.contains(.bold) == true, "renders strong emphasis in bold")
+    let heading = AssistMarkdown.attributed(parsed.textBlocks[0], baseSize: 11)
+    check(heading.string == "Try Lasso" && ((heading.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)?.pointSize ?? 0) > 11,
+          "renders headings larger than body text, without hash marks")
+    var lines = payload
+    lines["preview"] = ["kind": "text", "format": "plain",
+                        "lines": [["value": "alpha", "lineNumber": 4], ["value": "beta", "lineNumber": 5, "cited": true]]]
+    let plain = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: lines))!
+    check(!plain.isMarkdown && plain.textBlocks.map(\.type) == ["line", "line"] && plain.textBlocks[1].cited
+          && plain.textBlocks[1].lineNumber == 5, "keeps plain text sources as cited lines")
+}
+
+print("PDF page previews")
+do {
+    let payload: [String: Any] = [
+        "source": ["filename": "drawing.pdf", "location": "Page 2", "objectType": "DRAWING"],
+        "path": "drawing.pdf",
+        "preview": ["kind": "pdf", "page": 2,
+                    "fileUrl": "/api/dependency-objects/drawing/source?version=pinned",
+                    "selectedText": "Source text"],
+    ]
+    let parsed = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: payload))!
+    let pdf = parsed.pdf!
+    let server = URL(string: "http://127.0.0.1:4319/")!
+    check(pdf.pageNumber == 2 && pdf.selectedText == "Source text" && parsed.model == nil,
+          "parses PDF page and excerpt identity without falling back to an empty document card")
+    check(pdf.sourceURL(serverURL: server)?.absoluteString ==
+          "http://127.0.0.1:4319/api/dependency-objects/drawing/source?version=pinned",
+          "fetches PDF bytes from the pinned local source version")
+    var incomplete = payload
+    incomplete["preview"] = ["kind": "pdf", "page": 2]
+    let unavailable = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: incomplete))!
+    check(unavailable.pdf == nil && unavailable.unavailableReason != nil,
+          "missing PDF addresses remain retryable instead of caching an empty preview")
+    for address in ["https://example.com/source.pdf", "http://127.0.0.1:4320/source.pdf", "file:///tmp/source.pdf"] {
+        let outside = AssistPDFPreview(json: ["kind": "pdf", "fileUrl": address])!
+        check(outside.sourceURL(serverURL: server) == nil, "rejects PDF preview URLs outside the local server")
+    }
+    check(AssistPDFPageImage.render(data: Data("invalid PDF".utf8), preview: pdf) == nil,
+          "reports unreadable PDFs instead of caching a blank page")
+
+    let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("test/fixtures/drawings/ncsu-office-kit.pdf")
+    let data = try! Data(contentsOf: fixture)
+    let document = PDFDocument(data: data)!
+    let pageIndex = (0..<document.pageCount).first { !(document.page(at: $0)?.string ?? "").isEmpty }!
+    let phrase = document.page(at: pageIndex)!.string!.components(separatedBy: .newlines)
+        .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }!
+    let excerpt = AssistPDFPreview(json: ["kind": "pdf", "fileUrl": pdf.fileUrl,
+                                        "pageNumber": pageIndex + 1, "selectedText": phrase])!
+    let rendered = AssistPDFPageImage.render(data: data, preview: excerpt, size: NSSize(width: 720, height: 444))!
+    check(rendered.pageNumber == pageIndex + 1 && rendered.highlighted && rendered.image.size.width > 0,
+          "renders a real drawing PDF page and highlights its matched words")
+    let lastPage = AssistPDFPreview(json: ["kind": "pdf", "fileUrl": pdf.fileUrl, "page": 9999])!
+    check(AssistPDFPageImage.render(data: data, preview: lastPage)?.pageNumber == document.pageCount,
+          "bounds invalid page numbers to an existing PDF page")
+
+    let wrappedData = NSMutableData()
+    var mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792)
+    let consumer = CGDataConsumer(data: wrappedData as CFMutableData)!
+    let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil)!
+    for lines in [["Opening page"], ["The preserved excerpt continues", "across wrapped lines on page two."]] {
+        context.beginPDFPage(nil)
+        for (index, value) in lines.enumerated() {
+            context.textPosition = CGPoint(x: 50, y: 720 - index * 24)
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: value,
+                attributes: [.font: NSFont.systemFont(ofSize: 12)]))
+            CTLineDraw(line, context)
+        }
+        context.endPDFPage()
+    }
+    context.closePDF()
+    let wrapped = AssistPDFPreview(json: ["kind": "pdf", "fileUrl": pdf.fileUrl, "page": 1,
+        "selectedText": "The preserved excerpt continues across wrapped lines on page two."])!
+    let wrappedPage = AssistPDFPageImage.render(data: wrappedData as Data, preview: wrapped)!
+    check(wrappedPage.pageNumber == 2 && wrappedPage.highlighted,
+          "finds and highlights normalized PDF excerpts across line wraps on later pages")
+}
+
 print("")
+print("Notch display eligibility and geometry")
+let notchLeft = NSRect(x: 0, y: 0, width: 650, height: 32)
+let notchRight = NSRect(x: 850, y: 0, width: 650, height: 32)
+check(NotchGeometry.supported(builtIn: true, topInset: 32, left: notchLeft, right: notchRight), "offers notch controls for a built-in camera cutout")
+check(!NotchGeometry.supported(builtIn: false, topInset: 32, left: notchLeft, right: notchRight), "hides notch controls on external displays")
+check(!NotchGeometry.supported(builtIn: true, topInset: 0, left: notchLeft, right: notchRight), "hides notch controls on MacBooks without a cutout")
+check(!NotchGeometry.supported(builtIn: true, topInset: 32, left: nil, right: nil), "safe-area inset alone cannot enable notch controls")
+check(!NotchGeometry.supported(builtIn: true, topInset: 32, left: notchLeft, right: notchLeft), "requires a real gap between auxiliary menu areas")
+let notchScreen = NSRect(x: -1700, y: -1100, width: 1500, height: 1000)
+let notchFrame = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: true)
+check(notchFrame.maxY == notchScreen.maxY && notchFrame.height == 230, "black notch surface reaches the display edge and reserves the camera band")
+check(notchFrame.midX == -950 && notchScreen.contains(notchFrame), "notch follows a secondary display with negative coordinates")
+let notchCompact = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: false)
+check(notchCompact.height == 32 && notchCompact.maxY == notchFrame.maxY, "collapsed logo stays entirely inside the menu bar")
+let wideNotch = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: false, notchWidth: 250)
+check(wideNotch.minX + NotchGeometry.logoWidth == -1075, "logo sits immediately left of the physical notch")
+check(wideNotch.maxX == -1075 + 32, "compact black backing fills the rounded housing corner")
+check(wideNotch.maxX < -950 && notchScreen.contains(wideNotch), "compact overlap stays beneath the housing without extending beyond the screen")
+let wideExpandedNotch = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: true, notchWidth: 500)
+let wideCompactNotch = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: false, notchWidth: 500)
+check(wideExpandedNotch.minX <= wideCompactNotch.minX && wideExpandedNotch.maxX > -700, "expanded panel keeps the logo visible beside unusually wide camera cutouts")
+let notchActivity = NotchActivity(["directories": -1, "changes": [["projectId": "one", "objectId": "cell", "toVersion": 3]]])
+check(notchActivity.directories == 0 && notchActivity.newestKey == "one:cell:3", "activity uses source identity and clamps invalid counts")
+check(NotchActivity().newestKey == nil, "an empty workspace has no fabricated notification")
+check(!notchActivity.hasNewActivity(comparedTo: notchActivity), "unchanged source history cannot reopen the notch")
+check(NotchActivity(["failures": 1]).hasNewActivity(comparedTo: NotchActivity()), "new indexing failures trigger the notch")
+check(!NotchActivity().hasNewActivity(comparedTo: NotchActivity(["failures": 1])), "resolved issues do not trigger an interruption")
+check(NotchActivity(["changes": [["projectId": "one", "objectId": "cell", "toVersion": 4]]]).hasNewActivity(comparedTo: notchActivity), "a new pinned source version triggers the notch")
+
+print("synthetic typing chunks")
+let accented = String(repeating: "e\u{301}", count: 12) + "👩‍🔬 Café"
+let accentedChunks = accented.chunkedForTyping(16)
+check(accentedChunks.allSatisfy { $0.utf16.count <= 16 }, "every typing chunk fits the per-event UTF-16 limit")
+check(accentedChunks.joined() == accented, "chunking keeps decomposed accents and emoji intact")
+check(accentedChunks.allSatisfy { $0.unicodeScalars.first?.properties.generalCategory != .nonspacingMark },
+      "a chunk never begins with a detached combining accent")
+check("Facilities".chunkedForTyping(16) == ["Facilities"], "short text is typed as one event")
+
+print("node runtime discovery")
+let bundledNode = "/Applications/Lasso.app/Contents/MacOS/node"
+let nodeSearchOrder = nodeCandidates(override: "/custom/node", bundledNode: bundledNode,
+                                     recordedNode: "/usr/local/bin/node", nvmRoot: "/nvm",
+                                     nvmVersions: ["v9.11.2", "v24.1.0", "v22.3.0"])
+check(Array(nodeSearchOrder.prefix(3)) == ["/custom/node", bundledNode, "/usr/local/bin/node"],
+      "LASSO_NODE comes first, then the bundled runtime, then the build machine's Node")
+check(Array(nodeSearchOrder.suffix(3)) == ["/nvm/v24.1.0/bin/node", "/nvm/v22.3.0/bin/node", "/nvm/v9.11.2/bin/node"],
+      "nvm installs are tried newest first")
+/// `installed` maps each existing Node to its version, or nil when it cannot run.
+func resolveNode(_ installed: [String: String?], shellNode: String? = nil) -> (resolution: NodeResolution, askedShell: Bool) {
+    var askedShell = false
+    let resolution = selectNodeRuntime(
+        candidates: nodeSearchOrder, bundledNode: bundledNode,
+        isExecutable: { installed[$0] != nil },
+        version: { installed[$0] ?? nil },
+        loginShellNode: { askedShell = true; return shellNode })
+    return (resolution, askedShell)
+}
+let bundledRuntime = NodeRuntime(path: bundledNode, version: "v24.13.0", isBundled: true)
+let withoutInstalledNode = resolveNode([bundledNode: "v24.13.0"])
+check(withoutInstalledNode.resolution == .found(bundledRuntime) && !withoutInstalledNode.askedShell,
+      "the server starts on a Mac with no Node installed and LASSO_NODE pointing nowhere")
+check(resolveNode([bundledNode: "v24.13.0", "/opt/homebrew/bin/node": "v25.0.0"]).resolution == .found(bundledRuntime),
+      "the bundled runtime is preferred over an installed Node")
+check(resolveNode(["/custom/node": "v25.1.0", bundledNode: "v24.13.0"]).resolution
+      == .found(NodeRuntime(path: "/custom/node", version: "v25.1.0", isBundled: false)),
+      "a working LASSO_NODE overrides the bundled runtime")
+check(resolveNode([bundledNode: nil, "/usr/local/bin/node": "v24.2.0"]).resolution
+      == .found(NodeRuntime(path: "/usr/local/bin/node", version: "v24.2.0", isBundled: false)),
+      "a bundled runtime that cannot run falls back to an installed Node")
+check(resolveNode([bundledNode: "v22.3.0", "/opt/homebrew/bin/node": "v24.0.0"]).resolution
+      == .found(NodeRuntime(path: "/opt/homebrew/bin/node", version: "v24.0.0", isBundled: false)),
+      "a bundled runtime that is too old is passed over")
+let onlyOldNode = resolveNode([bundledNode: nil, "/opt/homebrew/bin/node": "v20.11.0"])
+check(onlyOldNode.resolution == .tooOld(path: "/opt/homebrew/bin/node", version: "v20.11.0") && onlyOldNode.askedShell,
+      "an old Node is reported with its version and path once the login shell finds nothing newer")
+check(resolveNode([:], shellNode: "/fnm/node").resolution == .missing,
+      "a login shell path that does not exist is not used")
+check(resolveNode(["/fnm/node": "v24.0.0"], shellNode: "/fnm/node").resolution
+      == .found(NodeRuntime(path: "/fnm/node", version: "v24.0.0", isBundled: false)),
+      "the login shell finds Node installed by version managers")
+check(resolveNode([:]).resolution == .missing, "no Node at all is reported as missing")
+check(bundledRuntime.summary == "Node.js v24.13.0, bundled with Lasso"
+      && NodeRuntime(path: "/usr/local/bin/node", version: "v24.2.0", isBundled: false).summary
+      == "Node.js v24.2.0 from /usr/local/bin/node",
+      "About Lasso and the server log say which Node runs the server")
+check(nodeMajorVersion("v24.13.0") == 24 && nodeMajorVersion("v9.11.2\n") == 9 && nodeMajorVersion("") == 0,
+      "Node versions compare by major number")
+
+print("keystrokes are routed from a published snapshot")
+do {
+    func route(_ keyCode: Int64, _ state: KeyRoutingState) -> KeyDecision {
+        KeyRouter.decide(keyCode: keyCode, flags: [], synthetic: false, state: state)
+    }
+    func chord(_ keyCode: Int64, _ flags: CGEventFlags, _ state: KeyRoutingState) -> KeyDecision {
+        KeyRouter.decide(keyCode: keyCode, flags: flags, synthetic: false, state: state)
+    }
+    let idle = KeyRoutingState()
+    check(route(0, idle) == .pass(.followTyping(trackCaret: false)),
+          "typing with nothing open passes the key and schedules a suggestion")
+    check(KeyRouter.decide(keyCode: 0, flags: [], synthetic: true, state: KeyRoutingState(popup: .suggestions)) == .pass(nil),
+          "Lasso's own synthesized keys pass untouched")
+    check(route(48, KeyRoutingState(isInserting: true, popup: .suggestions)) == .pass(nil),
+          "every key passes while an insertion is typing")
+    check(route(53, idle) == .pass(.escapePassed), "Escape with nothing open reaches the host, as vim needs")
+    check(chord(8, .maskCommand, idle) == .pass(.hide), "shortcuts reach the host and close any pending box")
+
+    let open = KeyRoutingState(popup: .suggestions)
+    check(route(48, open) == .swallow(.activate), "Tab accepts a visible suggestion")
+    check(chord(48, .maskShift, open) == .pass(.hide), "Shift+Tab leaves the field and closes the box")
+    check(chord(48, .maskControl, open) == .pass(.hide), "Control+Tab switches tabs and closes the box")
+    check(route(126, open) == .swallow(.move(-1)) && route(125, open) == .swallow(.move(1)),
+          "bare arrows move through suggestions")
+    check(chord(125, .maskAlternate, open) == .pass(.hide), "Option+Down selects text instead")
+    check(chord(36, .maskCommand, open) == .swallow(.acceptPlain), "Command+Return inserts plain text")
+    check(chord(76, [.maskCommand, .maskShift], open) == .swallow(.acceptShared), "Shift+Command+Enter shares")
+    check(route(36, open) == .pass(.followTyping(trackCaret: true)), "Return alone belongs to the host")
+    check(route(0, open) == .pass(.followTyping(trackCaret: true)), "typing keeps the open box on the caret")
+
+    let confirming = KeyRoutingState(popup: .confirmShare)
+    check(route(36, confirming) == .swallow(.resolveConfirmation), "Return answers the share question")
+    check(route(48, confirming) == .swallow(.activate), "Tab answers the share question")
+    let message = KeyRoutingState(popup: .message)
+    check(route(48, message) == .pass(.followTyping(trackCaret: true)), "a message never takes Tab")
+
+    let dismissible = KeyRoutingState(transientOpen: true, popup: .suggestions)
+    check(route(53, dismissible) == .swallow(.dismissTransient), "Escape closes an open Lasso surface")
+    check(chord(53, .maskShift, dismissible) == .swallow(.dismissTransient), "Shift+Escape still closes it")
+    check(chord(53, .maskCommand, dismissible) == .pass(.escapePassed), "Command+Escape belongs to the host")
+
+    let choosing = KeyRoutingState(transientOpen: true, sourceChooserVisible: true, popup: .suggestions)
+    check(route(48, choosing) == .pass(nil) && route(0, choosing) == .pass(nil),
+          "the source chooser's search field owns its keys")
+    let sharing = KeyRoutingState(transientOpen: true, shareComposerInPopup: true, popup: .suggestions)
+    check(route(48, sharing) == .swallow(.shareConfirm) && route(36, sharing) == .swallow(.shareConfirm),
+          "Tab and Return confirm the share options")
+    check(chord(48, .maskShift, sharing) == .pass(nil), "Shift+Tab passes while sharing")
+    check(route(123, sharing) == .swallow(.shareScope(-1)) && route(125, sharing) == .swallow(.shareScope(1)),
+          "arrows change the share scope")
+    check(chord(36, .maskCommand, sharing) == .pass(nil) && route(0, sharing) == .pass(nil),
+          "modified keys and typing reach the host while sharing")
+
+    let box = KeyRoutingStateBox()
+    box.value = open
+    var seen: KeyRoutingState?
+    let read = DispatchSemaphore(value: 0)
+    Thread { seen = box.value; read.signal() }.start()
+    read.wait()
+    check(seen == open, "the tap thread reads the state the main thread published")
+
+    check(KeyEventLatency.milliseconds(eventTimestamp: 1_000_000_000, now: 1_250_000_000) == 250,
+          "keystroke delay is measured from the event's own timestamp")
+    check(KeyEventLatency.milliseconds(eventTimestamp: 0, now: 5_000_000) == nil,
+          "events without a timestamp are not measured")
+    check(KeyEventLatency.milliseconds(eventTimestamp: 9_000_000, now: 5_000_000) == nil,
+          "a timestamp from the future is ignored")
+    check(KeyEventLatency.milliseconds(eventTimestamp: 1, now: 60_000_000_000) == nil,
+          "an implausibly old timestamp from a different clock is ignored")
+}
+
+print("slow hosts cost one outstanding Accessibility read")
+do {
+    var gate = CoalescingGate()
+    check(gate.begin(), "the first read starts")
+    check(!gate.begin() && !gate.begin() && !gate.begin(), "reads requested while one runs wait")
+    check(gate.end(), "a single follow-up runs after the slow read, however many were requested")
+    check(gate.begin() && !gate.end(), "the follow-up leaves nothing pending")
+    check(gate.begin(), "an idle gate starts the next read")
+    _ = gate.end()
+    _ = gate.begin()
+    _ = gate.begin()
+    gate.dropPending()
+    check(!gate.end(), "dismissing the box drops a follow-up that would reopen it")
+}
+
+print("host accessibility mode")
+do {
+    check(!HostAccessibilityMode.needsEnhancedInterface(manualAccepted: true, chromiumBased: true),
+          "an app that accepts AXManualAccessibility never gets the enhanced flag")
+    check(HostAccessibilityMode.needsEnhancedInterface(manualAccepted: false, chromiumBased: true),
+          "a Chromium build that ignores AXManualAccessibility keeps the enhanced flag")
+    check(!HostAccessibilityMode.needsEnhancedInterface(manualAccepted: false, chromiumBased: false),
+          "native apps get neither flag")
+
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("lasso-chromium-\(UUID().uuidString)", isDirectory: true)
+    func bundle(_ name: String, framework: String, resource: String, versioned: Bool = false) -> URL {
+        let app = root.appendingPathComponent(name + ".app", isDirectory: true)
+        let frameworkURL = app.appendingPathComponent("Contents/Frameworks/\(framework).framework", isDirectory: true)
+        let resources = versioned
+            ? frameworkURL.appendingPathComponent("Versions/A/Resources", isDirectory: true)
+            : frameworkURL.appendingPathComponent("Resources", isDirectory: true)
+        try? FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: resources.appendingPathComponent(resource).path, contents: Data())
+        return app
+    }
+    let browser = bundle("Browser", framework: "Browser Framework", resource: "chrome_100_percent.pak")
+    let versioned = bundle("Versioned", framework: "Versioned Framework", resource: "chrome_100_percent.pak",
+                           versioned: true)
+    let native = bundle("Native", framework: "Sparkle", resource: "Info.plist")
+    check(HostAccessibilityMode.isChromiumBased(bundleURL: browser), "detects a Chromium framework bundle")
+    check(HostAccessibilityMode.isChromiumBased(bundleURL: versioned), "detects a versioned framework layout")
+    check(!HostAccessibilityMode.isChromiumBased(bundleURL: native), "a native app is not Chromium")
+    check(!HostAccessibilityMode.isChromiumBased(bundleURL: nil), "an app without a bundle is not Chromium")
+    try? FileManager.default.removeItem(at: root)
+
+    var writes: [(pid: pid_t, attribute: String, value: Bool)] = []
+    var manualResult = AXError.attributeUnsupported
+    var enhancedAlreadyOn = false
+    var chromium: Set<pid_t> = []
+    let suite = "lasso-tests-accessibility-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    func makeMode() -> HostAccessibilityMode {
+        HostAccessibilityMode(
+            setFlag: { element, attribute, value in
+                var pid: pid_t = 0
+                AXUIElementGetPid(element, &pid)
+                writes.append((pid, attribute, value))
+                return attribute == HostAccessibilityMode.manualAttribute ? manualResult : .success
+            },
+            readFlag: { _, _ in enhancedAlreadyOn },
+            chromiumBased: { chromium.contains($0) },
+            bundleIdentifier: { "com.example.app\($0)" },
+            defaults: defaults)
+    }
+    let mode = makeMode()
+    func enhancedWrites(_ pid: pid_t, _ value: Bool) -> Int {
+        writes.filter { $0.pid == pid && $0.attribute == HostAccessibilityMode.enhancedAttribute && $0.value == value }.count
+    }
+
+    _ = mode.prime(pid: 101, application: AXUIElementCreateApplication(101))
+    check(writes.count == 1 && writes[0].attribute == HostAccessibilityMode.manualAttribute,
+          "a native app is only asked for AXManualAccessibility")
+    check(mode.prime(pid: 101, application: AXUIElementCreateApplication(101)) == nil && writes.count == 1,
+          "an app is primed once")
+
+    manualResult = .success
+    chromium = [202, 303, 404]
+    _ = mode.prime(pid: 202, application: AXUIElementCreateApplication(202))
+    check(enhancedWrites(202, true) == 0, "an Electron app that accepts the manual flag is left alone")
+
+    manualResult = .attributeUnsupported
+    _ = mode.prime(pid: 303, application: AXUIElementCreateApplication(303))
+    check(enhancedWrites(303, true) == 1, "Chromium that needs it gets AXEnhancedUserInterface")
+    enhancedAlreadyOn = true
+    _ = mode.prime(pid: 404, application: AXUIElementCreateApplication(404))
+    check(enhancedWrites(404, true) == 0, "an enhanced flag set by VoiceOver or another tool is not taken over")
+
+    check(mode.restoreAll() == 1 && enhancedWrites(303, false) == 1 && enhancedWrites(404, false) == 0,
+          "turning suggestions off reverts only the flag Lasso set")
+    check(mode.restoreAll() == 0 && enhancedWrites(303, false) == 1, "reverting twice writes nothing more")
+    enhancedAlreadyOn = false
+    _ = mode.prime(pid: 303, application: AXUIElementCreateApplication(303))
+    check(enhancedWrites(303, true) == 2, "the next enable primes the app again")
+    mode.forget(pid: 303)
+    check(mode.restoreAll() == 0, "a quit app is not written to")
+
+    // Lasso quits or crashes before it can turn the flag off again.
+    enhancedAlreadyOn = false
+    chromium = [505]
+    _ = makeMode().prime(pid: 505, application: AXUIElementCreateApplication(505))
+    enhancedAlreadyOn = true
+    let relaunched = makeMode()
+    _ = relaunched.prime(pid: 505, application: AXUIElementCreateApplication(505))
+    check(relaunched.restoreAll() == 1 && enhancedWrites(505, false) == 1,
+          "a flag a previous run of Lasso set and never reverted is still Lasso's to revert")
+    _ = makeMode().prime(pid: 505, application: AXUIElementCreateApplication(505))
+    check(makeMode().restoreAll() == 0, "once reverted, a flag found on again belongs to someone else")
+    defaults.removePersistentDomain(forName: suite)
+}
+
+print("highlight geometry is reused while text, frame and caret are unchanged")
+do {
+    let element = AXUIElementCreateApplication(getpid())
+    let frame = CGRect(x: 100, y: 200, width: 400, height: 300)
+    let window = CGRect(x: 80, y: 120, width: 600, height: 500)
+    let caret = CGRect(x: 180, y: 220, width: 1, height: 16)
+    func snapshot(text: String = "Office supplies cost $400", element: AXUIElement = element,
+                  frame: CGRect? = frame, caret: CGRect? = caret) -> HighlightGeometrySnapshot {
+        HighlightGeometrySnapshot(element: element, text: text, elementFrame: frame, windowFrame: window, caret: caret)
+    }
+    var cache = HighlightGeometryCache()
+    var measured = 0
+    func measure(_ range: Range<Int>) -> [CGRect] {
+        measured += 1
+        return [CGRect(x: CGFloat(100 + range.lowerBound * 7), y: 220, width: CGFloat(range.count * 7), height: 16)]
+    }
+    let first = cache.rects(for: 0..<6, in: snapshot(), measure: measure)
+    let again = cache.rects(for: 0..<6, in: snapshot(), measure: measure)
+    check(measured == 1 && first == again, "an unchanged layout is measured once")
+    _ = cache.rects(for: 7..<15, in: snapshot(), measure: measure)
+    check(measured == 2, "each reference is measured once per layout")
+    _ = cache.rects(for: 0..<6, in: snapshot(caret: caret.offsetBy(dx: 0, dy: -40)), measure: measure)
+    check(measured == 3, "a moved caret (scrolling) measures again")
+    _ = cache.rects(for: 0..<6, in: snapshot(text: "Office supplies cost $450"), measure: measure)
+    check(measured == 4, "an edit measures again")
+    _ = cache.rects(for: 0..<6, in: snapshot(frame: frame.offsetBy(dx: 20, dy: 0)), measure: measure)
+    check(measured == 5, "a moved or resized editor measures again")
+    _ = cache.rects(for: 0..<6, in: snapshot(element: AXUIElementCreateApplication(1)), measure: measure)
+    check(measured == 6, "another editor measures again")
+    _ = cache.rects(for: 0..<6, in: snapshot(caret: nil), measure: measure)
+    _ = cache.rects(for: 0..<6, in: snapshot(caret: nil), measure: measure)
+    check(measured == 8, "without a caret to detect scrolling nothing is reused")
+    var failing = 0
+    _ = cache.rects(for: 2..<4, in: snapshot()) { _ in failing += 1; return [] }
+    _ = cache.rects(for: 2..<4, in: snapshot()) { _ in failing += 1; return [] }
+    check(failing == 2, "missing geometry is retried rather than remembered")
+    var slow = 0
+    let slowFirst = cache.rects(for: 9..<14, in: snapshot()) { _ in slow += 1; return nil }
+    let slowSecond = cache.rects(for: 9..<14, in: snapshot()) { _ in slow += 1; return nil }
+    check(slow == 1 && slowFirst.isEmpty && slowSecond.isEmpty,
+          "a phrase too slow to measure is not walked again for the same layout")
+    _ = cache.rects(for: 9..<14, in: snapshot(caret: caret.offsetBy(dx: 7, dy: 0))) { _ in slow += 1; return nil }
+    check(slow == 2, "a new layout tries the slow phrase again")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

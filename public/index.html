@@ -9,8 +9,12 @@
     <script>
       const appearance = matchMedia('(prefers-color-scheme: dark)');
       function syncAppearance() {
+        // macOS follows the system appearance; Windows keeps the theme chosen
+        // in its settings.
         let preference = 'system';
-        try { preference = localStorage.getItem('lasso.theme') ?? localStorage.getItem('colab.theme') ?? 'system'; } catch {}
+        if (window.lassoPlatform?.isWindows) {
+          try { preference = localStorage.getItem('lasso.theme') ?? localStorage.getItem('colab.theme') ?? 'system'; } catch {}
+        }
         document.documentElement.dataset.theme = preference === 'system'
           ? (appearance.matches ? 'carbon' : 'alabaster') : preference;
         window.lassoPlatform?.postMessage({ action: 'appearance', dark: document.documentElement.dataset.theme !== 'alabaster' });
@@ -20,8 +24,8 @@
     </script>
     <link rel="stylesheet" href="/terminal.css?v=29" />
     <link rel="stylesheet" href="/macos.css?v=2" />
-    <link rel="stylesheet" href="/utility.css?v=3" />
-    <link rel="stylesheet" href="/workbench.css?v=1" />
+    <link rel="stylesheet" href="/utility.css?v=4" />
+    <link rel="stylesheet" href="/workbench.css?v=5" />
     <link rel="stylesheet" href="/windows.css?v=1" />
     <link rel="stylesheet" href="/removable-drives.css?v=1" />
   </head>
@@ -34,18 +38,18 @@
             <span class="workspace-symbol" aria-hidden="true">
               <svg viewBox="0 0 20 20"><path d="M3.5 6.5h5l1.7 2H16.5v7H3.5Z"/></svg>
             </span>
-            <span><small>Workspace</small><strong id="window-project-name">Choose project</strong></span>
+            <span><small>Workspace</small><strong id="window-project-name">Choose work directories</strong></span>
             <svg class="disclosure" viewBox="0 0 12 8" aria-hidden="true"><path d="M1.5 1.5 6 6l4.5-4.5"/></svg>
           </button>
 
           <div class="project-popover utility-popover" id="project-popover" hidden>
             <header>
-              <div><small>Local workspaces</small><strong>Projects</strong></div>
-              <button class="toolbar-icon" id="sidebar-add" type="button" title="Index a project" aria-label="Index a project">
+              <div><small>Include folders with the checkboxes</small><strong>Work directories</strong></div>
+              <button class="toolbar-icon" id="sidebar-add" type="button" title="Add work directories" aria-label="Add work directories">
                 <svg viewBox="0 0 20 20"><path d="M10 4v12M4 10h12"/></svg>
               </button>
             </header>
-            <div class="directory-list" id="directory-list" role="listbox" aria-label="Projects"></div>
+            <div class="directory-list" id="directory-list" role="group" aria-label="Work directories"></div>
             <footer><span id="status-version">No index yet</span><span id="status-identity">Local user</span></footer>
           </div>
         </div>
@@ -55,7 +59,6 @@
           <input id="terminal-input" type="text" autocomplete="off" spellcheck="false"
                  aria-label="Search sources, or ask a question and press Enter" placeholder="Search sources or ask a question ↵" />
           <kbd id="search-shortcut">⌘K</kbd>
-          <div class="dsh-completion" id="dsh-completion" hidden aria-label="Suggestions"></div>
         </label>
 
         <div class="toolbar-actions">
@@ -84,7 +87,7 @@
               </button>
               <button class="rail-item" type="button" data-workspace-query="changes">
                 <svg viewBox="0 0 20 20"><path d="M4 10a6 6 0 1 0 2-4.5M4 4v4h4"/><path d="M10 7v3l2 2"/></svg>
-                <span>Changes</span><b id="rail-change-count">0</b>
+                <span>Changes</span><b id="rail-change-count"></b>
               </button>
               <button class="rail-item" type="button" data-workspace-query="share list">
                 <svg viewBox="0 0 20 20"><path d="M7.2 12.8 12.8 7.2M6.3 8.9 4.7 10.5a3 3 0 0 0 4.2 4.2l1.6-1.6M13.7 11.1l1.6-1.6a3 3 0 0 0-4.2-4.2L9.5 6.9"/></svg>
@@ -92,7 +95,7 @@
               </button>
               <button class="rail-item" type="button" data-workspace-query="conflicts">
                 <svg viewBox="0 0 20 20"><path d="M10 3.5 16.5 15H3.5Z"/><path d="M10 7v4M10 13.5v.1"/></svg>
-                <span>Review sources</span><b id="rail-review-count">0</b>
+                <span>Review sources</span><b id="rail-review-count"></b>
               </button>
             </nav>
           </div>
@@ -107,7 +110,7 @@
           <div class="rail-spacer"></div>
           <section class="writing-assist" aria-label="Suggestions while writing">
             <button id="writing-assist-toggle" type="button" role="switch" aria-checked="false" hidden><span>Writing suggestions</span><i aria-hidden="true"></i></button>
-            <details><summary>Use Lasso in other apps</summary><p id="writing-assist-help">Choose a project here, then enable writing suggestions in the desktop app. While you write in a supported editor, press Tab to insert a suggested value.</p></details>
+            <details><summary>Use Lasso in other apps</summary><p id="writing-assist-help">Include work directories from the Mac menu bar, then enable writing suggestions. While you write in Word or another supported app, press Tab to insert a suggested value with a tracked source. Suggestions combine all included directories.</p></details>
           </section>
           <div class="workspace-summary">
             <span class="summary-indicator"></span>
@@ -143,7 +146,6 @@
       </div>
     </div>
 
-    <div id="resize-handle" hidden></div>
     <label class="sr-only" for="project-select">Project</label>
     <select id="project-select" class="sr-only"><option value="">No project selected</option></select>
     <button id="ribbon-editor" class="sr-only" disabled>Documents</button>
@@ -154,16 +156,15 @@
       <form method="dialog" id="import-form">
         <header class="dialog-heading">
           <span class="dialog-icon"><svg viewBox="0 0 22 22"><path d="M3.5 7h6l1.5 2h7.5v9H3.5Z"/><path d="M11 11v5M8.5 13.5h5"/></svg></span>
-          <div><span class="eyebrow">Local workspace</span><h2>Index a project</h2></div>
+          <div><span class="eyebrow">Local workspace</span><h2>Add work directories</h2></div>
           <button class="dialog-close toolbar-icon" type="button" data-close-dialog aria-label="Close">×</button>
         </header>
-        <p>Lasso reads the directory in place and keeps its version history separately.</p>
-        <label>Directory path<span class="directory-path-control"><input name="rootPath" type="text" placeholder="/Users/you/Research" required /><button id="choose-folder" class="secondary-button" type="button" hidden>Browse…</button></span></label>
-        <label>Project name <span>(optional)</span><input name="name" type="text" placeholder="Research workspace" /></label>
+        <p>Enter one absolute directory path per line. All added directories are included in suggestions and search. Files stay in place and their histories remain separate.</p>
+        <label>Directory paths<span class="directory-path-control"><textarea name="rootPaths" rows="3" placeholder="/Users/you/Research&#10;/Users/you/Finance" required></textarea><button id="choose-folder" class="secondary-button" type="button" hidden>Browse…</button></span></label>
         <div class="dialog-error" data-dialog-error></div>
         <div class="dialog-actions">
           <button class="secondary-button" type="button" data-close-dialog>Cancel</button>
-          <button class="primary-button" type="submit" value="default">Index project</button>
+          <button class="primary-button" type="submit" value="default">Add directories</button>
         </div>
       </form>
     </dialog>
@@ -199,6 +200,6 @@
       </form>
     </dialog>
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=62"></script>
+    <script type="module" src="/app.js?v=65"></script>
   </body>
 </html>

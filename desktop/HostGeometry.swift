@@ -43,11 +43,23 @@ enum HostGeometryConverter {
             && rect.origin.x.isFinite && rect.origin.y.isFinite
             && rect.width > 0 && rect.height > 0 && rect.height < 400
     }
+
+    /// Endpoints plus the whole range must agree before skipping line splitting.
+    /// The whole bounds check also handles selections that cross columns and
+    /// return to the starting vertical position.
+    static func isSingleLine(whole: CGRect, first: CGRect, last: CGRect) -> Bool {
+        guard isUsable(whole), isUsable(first), isUsable(last) else { return false }
+        let tolerance = max(1, min(first.height, last.height) * 0.15)
+        return abs(first.minY - last.minY) <= tolerance
+            && abs(first.maxY - last.maxY) <= tolerance
+            && whole.minY >= min(first.minY, last.minY) - tolerance
+            && whole.maxY <= max(first.maxY, last.maxY) + tolerance
+    }
 }
 
 /// One dependency's drawn geometry. A wrapped phrase is several rectangles that
 /// still resolve to a single reference when clicked.
-struct DependencyGeometry {
+struct DependencyGeometry: Equatable {
     let referenceId: String
     let fragments: [CGRect]
 

@@ -9,6 +9,8 @@
 import Foundation
 
 enum AssistSourceIdentity {
+    enum OpenResult { case unavailable, failed, opened }
+
     static func canonicalPath(candidatePath: String?, provenanceLabel: String?) -> String {
         let candidate = candidatePath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !candidate.isEmpty { return candidate }
@@ -60,6 +62,20 @@ enum AssistSourceIdentity {
         return resolved
     }
 
+    /// Only a completed, deliberate open may influence recommendations. The
+    /// injected operations keep failed opens and rejected source paths testable.
+    static func openLocalFile(
+        projectRoot: String, sourcePath: String,
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
+        open: (URL) -> Bool, onOpened: () -> Void
+    ) -> OpenResult {
+        guard let url = localFileURL(projectRoot: projectRoot, sourcePath: sourcePath,
+                                     fileExists: fileExists) else { return .unavailable }
+        guard open(url) else { return .failed }
+        onOpened()
+        return .opened
+    }
+
     /// Keeps one palette slot per owning source, repairs old collisions, and
     /// preserves the first usable persisted preference for each source.
     static func colorAssignments(
@@ -93,8 +109,17 @@ enum AssistSourceIdentity {
 /// carry both a semantic name and a child value; the claim type decides which
 /// one the writer is asking for.
 enum AssistSuggestionSemantics {
-    static func insertionText(claimType: String?, label: String, value: String?) -> String {
-        let labelFirst = Set(["ENTITY", "DATASET_REFERENCE", "FIGURE", "TABLE_REFERENCE", "METHOD", "STUDY_VARIABLE"])
+    static func insertionText(claimType: String?, label: String, value: String?,
+                              completionText: String? = nil) -> String {
+        if claimType == "STUDY_VARIABLE" {
+            // The value describes the column for the preview. Acceptance types
+            // its name, matching the server's explicit completion and web UI.
+            if let completionText, !completionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return completionText
+            }
+            return label
+        }
+        let labelFirst = Set(["ENTITY", "DATASET_REFERENCE", "FIGURE", "TABLE_REFERENCE", "METHOD"])
         if let claimType, labelFirst.contains(claimType), !label.isEmpty { return label }
         return value ?? label
     }

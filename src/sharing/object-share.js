@@ -1,6 +1,10 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { HttpError } from '../history/errors.js';
+import { MARKDOWN_LAYOUT, isMarkdownPath } from './markdown.js';
+import { csvDelimiter } from '../history/diff.js';
+import { correctedDocumentLabel } from '../dependencies/authors.js';
+import { shareExpiry } from './expiry.js';
 
 const MIME_TYPES = {
   '.pdf': 'application/pdf',
@@ -67,30 +71,47 @@ export class ObjectShareService {
    * recipient always sees the source as it was at the moment of sharing.
    */
   createShare({ projectId, objectId, versionId, actor, expiresAt = null,
-    accessScope = "DOCUMENT", redactions = [] }) {
+    accessScope = "DOCUMENT", redactions = [], excerpt = null }) {
     if (!projectId) throw new HttpError(400, 'A project is required to share a source.');
     if (!objectId) throw new HttpError(400, 'An indexed object is required to share a source.');
     const normalizedScope = normalizeShareScope(accessScope);
     const normalizedRedactions = normalizeRedactions(redactions, normalizedScope);
+    const normalizedExcerpt = normalizePdfExcerpt(excerpt, normalizedScope);
 
-    const version = versionId
-      ? this.db.prepare(`
-          SELECT v.*, o.project_id, o.object_type
-          FROM scientific_object_versions v
-          JOIN scientific_objects o ON o.id = v.object_id
-          WHERE v.id = ? AND v.object_id = ?
-        `).get(versionId, objectId)
-      : this.db.prepare(`
-          SELECT v.*, o.project_id, o.object_type
-          FROM scientific_object_versions v
-          JOIN scientific_objects o ON o.id = v.object_id
-          JOIN snapshots s ON s.id = v.snapshot_id
-          WHERE v.object_id = ?
-          ORDER BY s.version DESC LIMIT 1
-        `).get(objectId);
+    const version = this.pinnedVersion(objectId, versionId);
 
     if (!version) throw new HttpError(404, 'That indexed source version was not found.');
     if (version.project_id !== projectId) throw new HttpError(404, 'That indexed source version was not found.');
+    const isDrawing = /\.(?:ifc|dxf)$/i.test(version.path ?? '');
+    const isPdf = /\.pdf$/i.test(version.path ?? '');
+    if ((normalizedExcerpt || normalizedRedactions.some(entry => entry.kind === 'PDF')) && !isPdf) {
+      throw new HttpError(400, 'PDF selections can only be shared from PDF documents.');
+    }
+    if (isPdf && normalizedRedactions.some(entry => entry.kind === 'PDF')
+        && normalizedRedactions.some(entry => entry.kind !== 'PDF')) {
+      throw new HttpError(400, 'PDF region redactions cannot be mixed with text section redactions.');
+    }
+    if (normalizedRedactions.some(entry => entry.kind === 'DRAWING') && !isDrawing) {
+      throw new HttpError(400, 'Drawing regions can only redact DXF or IFC drawing previews.');
+    }
+    if (isDrawing && normalizedScope === 'REDACTED' && normalizedRedactions.some(entry => entry.kind !== 'DRAWING')) {
+      throw new HttpError(400, 'Select drawing regions to redact this source.');
+    }
+
+    // Markdown text redactions address structured sections. The layout is
+    // recorded so the stored indexes cannot drift to a different segmentation.
+    let storedRedactions = isMarkdownPath(version.path)
+      ? normalizedRedactions.map(entry => entry.kind === 'BLOCK' ? { ...entry, layout: MARKDOWN_LAYOUT } : entry)
+      : normalizedRedactions;
+    // Cells of a semicolon file are addressed in its semicolon columns.
+    // Unmarked cell redactions keep the comma reading they were made with.
+    if (/\.csv$/i.test(version.path ?? '') && storedRedactions.some(entry => entry.kind === 'CELL')) {
+      const file = this.timeline.snapshotFile(version.snapshot_id, version.path);
+      const content = file ? this.timeline.blobs.get(file.contentHash) : null;
+      if (content && csvDelimiter(content.toString('utf8')) === ';') {
+        storedRedactions = storedRedactions.map(entry => entry.kind === 'CELL' ? { ...entry, delimiter: ';' } : entry);
+      }
+    }
 
     const normalizedActor = actor?.id ? actor : { id: 'human-self:local', displayName: 'Local user', actorType: 'HUMAN_SELF' };
     this.timeline.upsertActor(normalizedActor);
@@ -100,16 +121,16 @@ export class ObjectShareService {
       id: crypto.randomUUID(),
       token,
       createdAt: now(),
-      expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+      expiresAt: shareExpiry(expiresAt),
     };
     this.db.prepare(`
       INSERT INTO object_share_grants(
         id, project_id, object_id, object_version_id, token,
-        created_by_actor_id, created_at, expires_at, revoked_at, access_scope, redactions_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+        created_by_actor_id, created_at, expires_at, revoked_at, access_scope, redactions_json, excerpt_json, snapshot_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
     `).run(record.id, projectId, objectId, version.id, token,
       normalizedActor.id, record.createdAt, record.expiresAt, normalizedScope,
-      JSON.stringify(normalizedRedactions));
+      JSON.stringify(storedRedactions), normalizedExcerpt ? JSON.stringify(normalizedExcerpt) : null, version.snapshot_id);
 
     return {
       id: record.id,
@@ -120,8 +141,23 @@ export class ObjectShareService {
       createdAt: record.createdAt,
       expiresAt: record.expiresAt,
       accessScope: normalizedScope,
-      redactions: normalizedRedactions,
+      redactions: storedRedactions,
+      excerpt: normalizedExcerpt,
     };
+  }
+
+  /**
+   * The version a share or the inspector shows, with the snapshot it is shown
+   * at: a pinned version at the folder's current snapshot while it is still
+   * current there, or else where it was recorded; with no pin, the latest.
+   */
+  pinnedVersion(objectId, versionId) {
+    const versions = this.timeline.objectVersions;
+    if (!versionId) return versions.latest(objectId);
+    const version = versions.versionById(versionId);
+    if (!version || version.object_id !== objectId) return null;
+    const snapshotId = versions.currentSnapshotOf(version);
+    return { ...version, snapshot_id: snapshotId, snapshot_version: versions.snapshotVersion(snapshotId) };
   }
 
   /**
@@ -129,40 +165,27 @@ export class ObjectShareService {
    * Used by the local source inspector, which is not a published surface.
    */
   describe(objectId, versionId = null) {
-    const version = versionId
-      ? this.db.prepare(`
-          SELECT v.*, o.object_type, s.version AS snapshot_version
-          FROM scientific_object_versions v
-          JOIN scientific_objects o ON o.id = v.object_id
-          JOIN snapshots s ON s.id = v.snapshot_id
-          WHERE v.id = ? AND v.object_id = ?
-        `).get(versionId, objectId)
-      : this.db.prepare(`
-          SELECT v.*, o.object_type, s.version AS snapshot_version
-          FROM scientific_object_versions v
-          JOIN scientific_objects o ON o.id = v.object_id
-          JOIN snapshots s ON s.id = v.snapshot_id
-          WHERE v.object_id = ?
-          ORDER BY s.version DESC LIMIT 1
-        `).get(objectId);
+    const version = this.pinnedVersion(objectId, versionId);
     if (!version) return { status: 'NOT_FOUND' };
+    const rootPath = this.db.prepare('SELECT root_path FROM projects WHERE id = ?').get(version.project_id).root_path;
 
     const anchor = version.anchor_json ? JSON.parse(version.anchor_json) : {};
     const metadata = version.metadata_json ? JSON.parse(version.metadata_json) : {};
     return {
       status: 'OK',
       source: {
-        label: version.label,
+        label: correctedDocumentLabel(version.object_type, version.label, metadata),
         valueText: version.value_text,
         objectType: version.object_type,
         filename: path.basename(version.path),
+        absolutePath: path.resolve(rootPath, version.path),
         snapshotVersion: version.snapshot_version,
         location: this.describeLocation(anchor, metadata),
         context: this.describeContext(anchor, metadata),
         anchor,
         metadata,
       },
-      internal: { snapshotId: version.snapshot_id, filePath: version.path },
+      internal: { snapshotId: version.snapshot_id, filePath: version.path, versionId: version.id },
     };
   }
 
@@ -178,13 +201,15 @@ export class ObjectShareService {
     if (grant.revoked_at) return { status: 'REVOKED' };
     if (grant.expires_at && new Date(grant.expires_at).getTime() <= Date.now()) return { status: 'EXPIRED' };
 
+    // A share stays at the snapshot it was made from. Shares made before
+    // versions were carried forward use the snapshot their version recorded.
     const version = this.db.prepare(`
-      SELECT v.*, o.object_type, s.version AS snapshot_version
+      SELECT v.*, o.object_type, s.id AS shared_snapshot_id, s.version AS snapshot_version
       FROM scientific_object_versions v
       JOIN scientific_objects o ON o.id = v.object_id
-      JOIN snapshots s ON s.id = v.snapshot_id
+      JOIN snapshots s ON s.id = COALESCE(?, v.snapshot_id)
       WHERE v.id = ?
-    `).get(grant.object_version_id);
+    `).get(grant.snapshot_id, grant.object_version_id);
     if (!version) return { status: 'NOT_FOUND' };
 
     const anchor = version.anchor_json ? JSON.parse(version.anchor_json) : {};
@@ -199,9 +224,10 @@ export class ObjectShareService {
         expiresAt: grant.expires_at,
         accessScope: grant.access_scope ?? 'DOCUMENT',
         redactions: JSON.parse(grant.redactions_json ?? '[]'),
+        excerpt: grant.excerpt_json ? JSON.parse(grant.excerpt_json) : null,
       },
       source: {
-        label: version.label,
+        label: correctedDocumentLabel(version.object_type, version.label, metadata),
         valueText: version.value_text,
         objectType: version.object_type,
         // Only the file's own name is ever published, never its location.
@@ -213,7 +239,7 @@ export class ObjectShareService {
         metadata,
       },
       // Internal only: never serialized to the client.
-      internal: { snapshotId: version.snapshot_id, filePath: version.path },
+      internal: { snapshotId: version.shared_snapshot_id, filePath: version.path },
     };
   }
 
@@ -234,6 +260,11 @@ export class ObjectShareService {
       const row = `row ${anchor.rowIndex + 1}`;
       return sheet ? `${sheet} · ${row}` : row;
     }
+    if (Number.isInteger(anchor.columnIndex)) {
+      const column = `Column ${columnLetter(anchor.columnIndex)}`;
+      return sheet ? `${sheet} · ${column}` : column;
+    }
+    if (Number.isInteger(anchor.pageNumber)) return `Page ${anchor.pageNumber}`;
     if (Number.isInteger(anchor.lineStart)) {
       return anchor.lineEnd && anchor.lineEnd !== anchor.lineStart
         ? `lines ${anchor.lineStart}–${anchor.lineEnd}`
@@ -287,7 +318,7 @@ export class ObjectShareService {
 
   listShares(projectId) {
     return this.db.prepare(`
-      SELECT g.id, g.token, g.created_at, g.expires_at, g.revoked_at, g.access_scope, g.redactions_json, v.label, v.value_text, v.object_id, v.id AS version_id
+      SELECT g.id, g.token, g.created_at, g.expires_at, g.revoked_at, g.access_scope, g.redactions_json, g.excerpt_json, v.label, v.value_text, v.object_id, v.id AS version_id
       FROM object_share_grants g
       JOIN scientific_object_versions v ON v.id = g.object_version_id
       WHERE g.project_id = ?
@@ -305,11 +336,12 @@ export class ObjectShareService {
       revokedAt: row.revoked_at,
       accessScope: row.access_scope ?? 'DOCUMENT',
       redactions: JSON.parse(row.redactions_json ?? '[]'),
+      excerpt: row.excerpt_json ? JSON.parse(row.excerpt_json) : null,
     }));
   }
 }
 const SHARE_SCOPES = new Set(['DOCUMENT', 'INDEXED', 'REDACTED']);
-const REDACTION_KINDS = new Set(['CELL', 'BLOCK']);
+const REDACTION_KINDS = new Set(['CELL', 'BLOCK', 'DRAWING', 'PDF']);
 const REDACTION_EFFECTS = new Set(['BLUR', 'BLANK']);
 
 function normalizeShareScope(value) {
@@ -318,7 +350,7 @@ function normalizeShareScope(value) {
   return scope;
 }
 
-function normalizeRedactions(value, scope) {
+export function normalizeRedactions(value, scope) {
   if (scope !== 'REDACTED') return [];
   if (!Array.isArray(value)) throw new HttpError(400, 'Redactions must be a list.');
   if (value.length > 512) throw new HttpError(400, 'Too many redactions.');
@@ -331,7 +363,17 @@ function normalizeRedactions(value, scope) {
       throw new HttpError(400, 'Invalid redaction.');
     }
     let target;
-    if (kind === 'CELL') {
+    if (kind === 'DRAWING' || kind === 'PDF') {
+      const { x, y, width, height } = entry;
+      if (![x, y, width, height].every(coordinate => typeof coordinate === 'number' && Number.isFinite(coordinate))
+          || x < 0 || y < 0 || width <= 0 || height <= 0
+          || x + width > 1 || y + height > 1) {
+        throw new HttpError(400, `Invalid ${kind === 'PDF' ? 'PDF' : 'drawing'} redaction region.`);
+      }
+      const page = Number(entry.page);
+      if (kind === 'PDF' && (!Number.isInteger(page) || page < 1 || page > 1000)) throw new HttpError(400, 'Invalid PDF redaction page.');
+      target = { kind, ...(kind === 'PDF' ? { page } : {}), x, y, width, height, effect };
+    } else if (kind === 'CELL') {
       const sheet = entry.sheet == null ? 0 : Number(entry.sheet);
       const row = Number(entry.row);
       const column = Number(entry.column);
@@ -351,6 +393,31 @@ function normalizeRedactions(value, scope) {
     const key = JSON.stringify(target);
     if (!seen.has(key)) { seen.add(key); normalized.push(target); }
   }
+  if (normalized.filter(entry => entry.kind === 'DRAWING').length > 64) throw new HttpError(400, 'Select no more than 64 drawing regions.');
   if (!normalized.length) throw new HttpError(400, 'Select at least one area to redact.');
   return normalized;
+}
+
+export function normalizePdfExcerpt(value, scope) {
+  if (value == null || scope !== 'INDEXED') return null;
+  if (String(value.kind ?? '').toUpperCase() !== 'PDF') throw new HttpError(400, 'Invalid PDF excerpt.');
+  const text = typeof value.text === 'string' ? value.text.trim() : '';
+  if (text.length > 100_000 || !Array.isArray(value.regions ?? [])) throw new HttpError(400, 'Invalid PDF excerpt.');
+  const regions = value.regions ?? [];
+  if (regions.length > 512) throw new HttpError(400, 'Too many PDF selection regions.');
+  const normalized = regions.map(region => {
+    if (!region || typeof region !== 'object') throw new HttpError(400, 'Invalid PDF selection region.');
+    const { x, y, width, height } = region;
+    const page = Number(region.page);
+    if (!Number.isInteger(page) || page < 1 || page > 1000
+        || ![x, y, width, height].every(coordinate => typeof coordinate === 'number' && Number.isFinite(coordinate))
+        || x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > 1 || y + height > 1) {
+      throw new HttpError(400, 'Invalid PDF selection region.');
+    }
+    return { page, x, y, width, height };
+  });
+  if (!text && !normalized.length) throw new HttpError(400, 'Select text or an area from the PDF before sharing.');
+  const page = value.page == null ? null : Number(value.page);
+  if (page != null && (!Number.isInteger(page) || page < 1 || page > 1000)) throw new HttpError(400, 'Invalid PDF selection page.');
+  return { kind: 'PDF', text, regions: normalized, ...(page ? { page } : {}) };
 }

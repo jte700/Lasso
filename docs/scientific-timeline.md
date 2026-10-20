@@ -2,7 +2,7 @@
 
 ## Architecture
 
-The selected directory is the project boundary and remains the live source. Import and reconciliation read it in place. Saving Markdown or plain text in the writing workspace and approving an agent edit can write a tracked project file. DOCX and PDF edits are stored as separate versioned text layers; the original files are preserved. Historical state lives separately in a SQLite event store and content-addressed blob store.
+Each selected directory is a project boundary and remains the live source. Import and reconciliation read its files. Explicit document saves, accepted source updates, and approved agent edits can write tracked files. Historical state lives separately in a SQLite event store and content-addressed blob store.
 
 All change producers use one capture path:
 
@@ -17,28 +17,30 @@ This avoids duplicate watcher/internal events: after an authoritative agent capt
 
 - `projects`: directory root and current snapshot pointer.
 - `project_files`: stable identity across snapshots and detectable path changes.
-- `snapshots`: immutable project version, parent pointer, manifest hash, timestamp.
-- `snapshot_files`: immutable path/hash/type/metadata references for one snapshot.
+- `snapshots`: immutable project version, parent pointer, manifest hash, timestamp, and the snapshot its files build on.
+- `snapshot_files` / `snapshot_file_removals`: immutable path/hash/type/metadata references for the files a snapshot added or changed, and the files it removed.
 - `timeline_events`: immutable transition from `previous_snapshot_id` to `resulting_snapshot_id` with actor, initiator, source, and deterministic title.
-- `file_changes`: immutable added/deleted/renamed/moved/modified records and deterministic structured diff JSON.
+- `file_changes`: immutable added/deleted/renamed/moved/modified records and deterministic structured diff JSON. Line and block diffs are stored as runs that point into the two compared versions, and are expanded back to every line when read.
 - `actors`: execution identities and one of the four actor types.
 - `agent_executions`: proposal, base version, request, agent, human initiator, and approval status.
 - `provenance_links`: typed Scientific State Graph edges between versioned paths/anchors, including manuscript `DEPENDS_ON` relationships.
-- `scientific_objects` / `scientific_object_versions`: stable project-object identities and their immutable snapshot representations.
+- `scientific_objects` / `scientific_object_versions` / `scientific_object_removals` / `object_index_bases`: stable project-object identities, their immutable versions, the objects an index removed, and the index each one builds on.
 - `claim_dependencies` / `claim_dependency_versions`: accepted manuscript-span links and versioned status/anchor/source state.
 - `dependency_changes`: structured dependency transitions attached to ordinary timeline events.
 
 SQLite triggers reject updates/deletes to snapshots, snapshot files, timeline events, and file changes. A new capture always creates Version N+1. The migration is [migrations/001_initial.sql](../migrations/001_initial.sql).
 
+Unchanged files and objects are carried forward rather than copied into every version ([migrations/020_carry_forward_history.sql](../migrations/020_carry_forward_history.sql)). A snapshot stores a file row only for a file that is new or whose recorded values changed, and a removal for each file that is gone; its full file list is its parent's with those rows applied. An object index likewise stores a version only when an object's content, value, label or location changes. Each version keeps the snapshot that first recorded it, and because it records its file's content hash, that file has the same bytes at every snapshot the version spans. After 2,000 such steps the next version is stored in full, which keeps reading any one version fast. The removal and base tables are immutable too, so every recorded version resolves the same way forever. Databases written before carry-forward keep their full copies, which resolve on their own, and continue with carried-forward versions from the next capture.
+
 ## Snapshot model
 
 The initial import recursively enumerates regular files, excluding version-control internals, dependency trees, `.lasso-data`, symlinks, editor temporaries, and `.DS_Store`. Each file is SHA-256 hashed and its bytes are written once to `blobs/<prefix>/<hash>`. Snapshots reference the content hash, so unchanged and repeated content consumes no additional blob bytes.
 
-The manifest hash covers sorted `(path, content hash, size, file type)` tuples. Version 1 has no parent and its event is always `Project imported`, attributed to the local/session actor supplied by the caller. This attribution is not authentication. No prior history is inferred.
+The manifest hash covers sorted `(path, content hash, size, file type)` tuples. Version 1 has no parent and its event is always `Project imported`, attributed to the actor supplied by the caller. Local actor selection is attribution, not authentication. No prior history is inferred.
 
 ## Capture and batching
 
-Opening a project reconciles the directory before starting its watcher. While open, file notifications reset a project-level 2.5-second timer. Continuous saves are grouped until the directory is idle. Explicit checkpoints, project open, and approved agent edits capture immediately. Changing session identity restarts the watcher with the new execution identity.
+Enabled directories reconcile and resume watching at startup with `SYSTEM` attribution. Adding or enabling a directory reconciles it with the requesting actor; pausing stops its watcher without deleting history. File notifications reset a project-level 2.5-second timer. Continuous saves are grouped until the directory is idle. Explicit checkpoints, opening an enabled project, and approved edits capture immediately.
 
 The batching interval is configurable with `LASSO_WATCH_DEBOUNCE_MS`. Because capture compares content hashes, noisy notifications and an internal edit plus watcher notification do not create duplicate events.
 
@@ -138,7 +140,7 @@ Key routes are:
 - `POST /api/projects/import`
 - `POST /api/projects/:id/open`
 - `POST /api/projects/:id/capture`
-- `GET /api/projects/:id/events`
+- `GET /api/projects/:id/events?limit=100&before=N` (newest first; pass the response's `nextBefore` as `before` for the next page)
 - `GET /api/events/:id`
 - `GET /api/snapshots/:id/preview?path=...`
 - `POST /api/projects/:id/agent-edits`
@@ -158,13 +160,13 @@ Production adapters should source actors from authenticated server-side context,
 
 ## Limitations
 
-- DOCX text and metadata are extracted for search, source linking, and the writing workspace. Historical comparisons of the original DOCX bytes remain hash/metadata comparisons; structured OOXML paragraph/table diffs and round-trip editing are not implemented.
+- DOCX and PDF originals are preserved. Indexing extracts available text, while binary timeline diffs compare content hashes and metadata. Editing their extracted text layer does not rewrite the original binary.
 - YAML is currently line-compared rather than parsed semantically.
 - Source code is line-based; AST-aware adapters can be added without changing event semantics.
 - Notebook metadata outside cell type/source/output is not currently surfaced.
-- Project registration currently uses an absolute directory path in both the browser interface and its macOS wrapper.
-- Remote synchronization, merge transport, and production authentication are not implemented.
-- Automatic blob garbage collection and project-history deletion are not implemented.
-- Node.js 24 or later is required. Launch commands suppress the built-in SQLite experimental warning.
+- The browser accepts absolute directory paths; the macOS app provides a native folder picker.
+- Remote synchronization, production authentication, and concurrent rich-text editing are not implemented.
+- Blob garbage collection and project deletion policy are intentionally unset because immutable-history retention is a product decision.
+- Node 24's built-in SQLite module is currently marked experimental by Node; the app suppresses that warning but documents the runtime requirement.
 
 See [current limitations](limitations.md) for deployment, native-host, and format boundaries.

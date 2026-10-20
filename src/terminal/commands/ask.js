@@ -7,6 +7,7 @@
 
 import { parseSince } from '../parser.js';
 import { answerDrawingQuestion } from '../drawing-queries.js';
+import { isPassage } from '../graph.js';
 import { blank, dim, fields, group, result, text } from '../result.js';
 import { formatMoment, plural } from './shared.js';
 
@@ -61,7 +62,7 @@ function cannotVerify(question, reason, hints = []) {
 }
 
 /** Resolves the subject of a question, or explains why it could not. */
-function subjectOf(context, subject) {
+function subjectOf(context, subject, kind = null) {
   if (!subject) return { error: 'The question does not name a dependency or source.' };
   const resolution = context.graph.resolve(context.projectId, subject);
   if (resolution.status === 'RESOLVED') return { object: resolution.object };
@@ -73,17 +74,65 @@ function subjectOf(context, subject) {
   }
   // A question may describe a value rather than name it. One clearly best
   // search hit is accepted; a tie is not.
-  const matches = context.graph.search(context.projectId, subject, { limit: 4 });
+  let matches = context.graph.search(context.projectId, subject, { limit: 12, maxPerFile: 4 });
+  // A whole document is not the value of anything. Its passages may be.
+  if (kind === 'VALUE_OF') {
+    matches = matches.filter(({ object }) => !['PAPER', 'DOCUMENT'].includes(object.objectType) || isPassage(object));
+  }
+  const passages = quotablePassages(matches);
   if (matches.length === 1 || (matches.length > 1 && matches[0].score - matches[1].score >= 0.2)) {
-    return { object: matches[0].object, inferred: true };
+    return { object: matches[0].object, inferred: true, passages };
   }
   if (matches.length > 1) {
     return {
       error: `Several indexed sources match "${subject}" equally well, so no single source supports an answer.`,
       hints: [`\`find ${subject}\` lists them.`],
+      passages,
     };
   }
   return { error: `Nothing indexed in this workspace matches "${subject}".`, hints: [`\`find ${subject}\` searches more broadly.`] };
+}
+
+// Words that shape a question but never identify what it is about.
+const QUESTION_WORDS = new Set(['what', 'which', 'who', 'whom', 'whose', 'when', 'where', 'why', 'how', 'many', 'much',
+  'is', 'are', 'was', 'were', 'be', 'been', 'do', 'does', 'did', 'has', 'have', 'had', 'can', 'could', 'should', 'would',
+  'will', 'the', 'a', 'an', 'of', 'to', 'for', 'in', 'on', 'at', 'by', 'from', 'with', 'as', 'and', 'or', 'there', 'this',
+  'that', 'it', 'its', 'our', 'my', 'we', 'any', 'currently', 'current', 'latest',
+  // Timing verbs frame a question; sources phrase them many ways.
+  'due', 'end', 'ends', 'start', 'starts', 'begin', 'begins', 'happen', 'occur']);
+
+/**
+ * Passages that mention every word of the subject, at most three. A paragraph
+ * is dropped when a sentence inside it is already quoted.
+ */
+function quotablePassages(matches) {
+  const chosen = [];
+  for (const match of matches) {
+    // Every term must appear: whole words, or a longer word they begin.
+    if (!isPassage(match.object) || match.score < 0.5) continue;
+    const text = String(match.object.valueText ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const overlaps = chosen.some(({ object, normalized }) => object.path === match.object.path
+      && (normalized.includes(text) || text.includes(normalized)));
+    if (!overlaps) chosen.push({ ...match, normalized: text });
+    if (chosen.length === 3) break;
+  }
+  return chosen;
+}
+
+/** Quotes the passages that mention the subject. Nothing is composed or inferred. */
+function passageAnswer(context, question, passages) {
+  return result('ask', {
+    headline: passages.length === 1 ? 'Found in an indexed passage' : `Found in ${passages.length} indexed passages`,
+    blocks: [
+      ...passages.flatMap(({ object }) => {
+        const traced = context.graph.trace(context.projectId, object);
+        return [text(`“${object.valueText}”`), dim(`  ${traced.path}${traced.locator ? `  ${traced.locator}` : ''}`), blank()];
+      }),
+      dim('Quoted from the indexed sources. Lasso does not compose an answer.'),
+    ],
+    hints: ['`find` lists every passage that mentions it.'],
+    data: { answered: true, passages: passages.map(({ object }) => object.objectKey), question },
+  });
 }
 
 function provenanceBlock(context, object, extra = []) {
@@ -132,6 +181,11 @@ export function askCommand(context, command) {
 
   const intent = classify(question);
   if (!intent) {
+    // Questions outside the supported forms can still be answered by quoting
+    // passages that contain all of their content words.
+    const subject = question.toLowerCase().match(/[a-z0-9][a-z0-9'’-]*/g)?.filter((word) => !QUESTION_WORDS.has(word)).join(' ') ?? '';
+    const passages = subject ? quotablePassages(context.graph.search(context.projectId, subject, { limit: 12, maxPerFile: 4 })) : [];
+    if (passages.length) return passageAnswer(context, question, passages);
     return cannotVerify(question, 'That question does not map to anything this terminal can look up.', [
       'Supported: which source contains X · what was X before the latest update · when was X last updated · what depends on X · what changed since <time>',
     ]);
@@ -179,7 +233,10 @@ export function askCommand(context, command) {
     });
   }
 
-  const found = subjectOf(context, intent.subject);
+  const found = subjectOf(context, intent.subject, intent.kind);
+  const quotable = ['VALUE_OF', 'SOURCE_OF'].includes(intent.kind) && found.passages?.length
+    && (found.error || (found.inferred && isPassage(found.object)));
+  if (quotable) return passageAnswer(context, question, found.passages);
   if (found.error) return cannotVerify(question, found.error, found.hints ?? []);
   const { object } = found;
 

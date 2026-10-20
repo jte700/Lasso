@@ -217,6 +217,12 @@ export class TerminalCommandExecutor {
 
   /** One kind of thing the index can complete. */
   suggestionsOfKind(projectId, kind, fragment, options = {}) {
+    const explicitSearch = options.surface === 'search';
+    const suggestionLimit = explicitSearch ? 14 : 5;
+    const rankingOptions = {
+      ...options,
+      minimumScore: explicitSearch || !String(fragment ?? '').trim() ? 0 : 0.8,
+    };
     const shape = (suggestion) => ({
       value: suggestion.name,
       kind: suggestion.kind,
@@ -229,14 +235,14 @@ export class TerminalCommandExecutor {
     });
 
     switch (kind) {
-      case 'name': return this.graph.nameSuggestions(projectId, fragment, 12, options).map(shape);
+      case 'name': return this.graph.nameSuggestions(projectId, fragment, suggestionLimit, rankingOptions).map(shape);
 
       case 'nameOrPath': {
-        const files = this.graph.sourceSuggestions(projectId, fragment, 14, options);
+        const files = this.graph.sourceSuggestions(projectId, fragment, suggestionLimit, rankingOptions);
         // With no query, browsing starts at the file level. This also avoids
         // offering several cells from one recently used spreadsheet.
         if (!String(fragment ?? '').trim()) return files.map(shape);
-        const names = this.graph.nameSuggestions(projectId, fragment, 14, options);
+        const names = this.graph.nameSuggestions(projectId, fragment, suggestionLimit, rankingOptions);
         // Once a whole file name has been typed, that file is the answer —
         // listing everything inside it as "related" would bury it.
         const named = String(fragment ?? '').toLowerCase();
@@ -244,18 +250,18 @@ export class TerminalCommandExecutor {
           || file.name.toLowerCase().endsWith(`/${named}`));
         return this.graph.rankRecommendations(projectId,
           [...files, ...(complete ? names.filter((item) => item.kind !== 'related') : names)],
-          { ...options, query: fragment, limit: 14, diversify: true, maxPerFile: 2 }).map(shape);
+          { ...rankingOptions, query: fragment, limit: suggestionLimit, diversify: true, maxPerFile: 2 }).map(shape);
       }
 
       case 'path': {
         const directories = this.graph.directorySuggestions(projectId, fragment, 6).map(shape);
-        const files = this.graph.sourceSuggestions(projectId, fragment, 8, options).map(shape);
-        return [...directories, ...files].slice(0, 12);
+        const files = this.graph.sourceSuggestions(projectId, fragment, suggestionLimit, rankingOptions).map(shape);
+        return [...directories, ...files].slice(0, suggestionLimit);
       }
 
       case 'directory': return this.graph.directorySuggestions(projectId, fragment).map(shape);
       case 'sourceType': return this.graph.sourceTypeSuggestions(projectId, fragment).map(shape);
-      case 'address': return this.graph.addressSuggestions(projectId, fragment, 12, options).map(shape);
+      case 'address': return this.graph.addressSuggestions(projectId, fragment, suggestionLimit, rankingOptions).map(shape);
 
       case 'duration': return DURATIONS
         .filter((entry) => !fragment || entry.value.startsWith(fragment.toLowerCase()))
@@ -263,8 +269,8 @@ export class TerminalCommandExecutor {
 
       case 'alias': {
         const wanted = String(fragment ?? '').toLowerCase();
-        return this.graph.nameSuggestions(projectId, fragment, Number.MAX_SAFE_INTEGER, { ...options, diversify: false })
-          .filter((entry) => entry.kind === 'alias' && entry.name.startsWith(wanted)).map(shape);
+        return this.graph.nameSuggestions(projectId, fragment, Number.MAX_SAFE_INTEGER, { ...rankingOptions, diversify: false })
+          .filter((entry) => entry.kind === 'alias' && entry.name.startsWith(wanted)).slice(0, suggestionLimit).map(shape);
       }
 
       case 'aliasName':
@@ -295,8 +301,17 @@ export class TerminalCommandExecutor {
    * Runs the enabled rules against the changes recorded by a capture. Called
    * after every capture, so the terminal and the editor read the same flags.
    */
-  evaluateRules(projectId) {
-    const changes = this.graph.valueChanges(projectId, { limit: 200 });
+  evaluateRules(projectId, capture = null) {
+    if (!this.rules.list(projectId, { enabledOnly: true })
+      .some((rule) => rule.action.kind !== 'EXCLUDE_FROM_AUTOCOMPLETE')) return [];
+    if (capture && !capture.event?.previousSnapshotId) return [];
+    const changes = this.graph.valueChanges(projectId, {
+      limit: 200,
+      ...(capture ? {
+        snapshotId: capture.snapshot.id,
+        previousSnapshotId: capture.event.previousSnapshotId,
+      } : {}),
+    });
     if (!changes.length) return [];
     const shares = this.graph.shares(projectId, { status: 'active' });
     return this.rules.evaluate(projectId, { changes, shares });

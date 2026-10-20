@@ -1,9 +1,11 @@
 //  Keeps local dependency highlights attached to the right words.
 //
-//  On every relevant event — not on a timer — the highlighter re-reads the
-//  focused surface, relocates each reference by its anchor, measures the range,
-//  and repaints. References that cannot be located confidently are marked
-//  unresolved and simply not drawn; nothing is ever highlighted on a guess.
+//  Relevant input and Accessibility events refresh the focused surface, with
+//  a slow fallback for hosts that omit change notifications. The host is read
+//  on the Accessibility queue; the store and overlay change on the main
+//  thread. Unchanged anchor matches, measured geometry and overlay frames are
+//  reused. Uncertain references are marked unresolved and simply not drawn;
+//  nothing is ever highlighted on a guess.
 
 import Cocoa
 import ApplicationServices
@@ -18,7 +20,7 @@ final class DependencyHighlighter {
     }
     var onInspect: ((DependencyReference, CGRect) -> Void)?
 
-    private let adapter: HostTextAdapter = AccessibilityTextAdapter()
+    private let reader = HighlightReader()
     private let store: DependencyReferenceStore
     private let view = OverlayView()
     private lazy var panel = OverlayPanel(view: view)
@@ -26,9 +28,29 @@ final class DependencyHighlighter {
     private var geometries: [DependencyGeometry] = []
     private var scheduled = false
     private var monitors: [Any] = []
+    private var settleTimer: Timer?
+    private var isStarted = false
+    private var systemSleeping = false
+    private var displaySleeping = false
+    private var lastRefresh = Date.distantPast
+    /// Text goes missing briefly during an undo or a re-render, and a second
+    /// editor in the same window shares this document's identity. A reference
+    /// is deleted only when its text stays missing from the editor where it
+    /// last resolved.
+    private var lastResolvedElement: [String: AXUIElement] = [:]
+    private var missingSince: [String: Date] = [:]
+    private static let deletionGrace: TimeInterval = 2
+    private var reads = CoalescingGate()
+    /// Changes whenever the overlay is hidden, so a read that began before
+    /// then is not drawn afterwards.
+    private var readGeneration = 0
+    /// The reader holds an observer and document text that should be let go
+    /// once no relevant host is in front.
+    private var readerHoldsHost = false
+    private var migratingObjectIds = Set<String>()
 
     var isDebugging = false {
-        didSet { view.debug = isDebugging; refresh() }
+        didSet { view.debug = isDebugging; view.needsDisplay = true; refresh() }
     }
 
     private init() {
@@ -40,8 +62,8 @@ final class DependencyHighlighter {
     // MARK: Lifecycle
 
     func start() {
-        // Event driven: application switches, plus a low-frequency settle timer
-        // for window movement and scrolling, which many hosts do not announce.
+        guard !isStarted else { return }
+        isStarted = true
         let centre = NSWorkspace.shared.notificationCenter
         monitors.append(centre.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
@@ -50,6 +72,10 @@ final class DependencyHighlighter {
         monitors.append(centre.addObserver(
             forName: NSWorkspace.didDeactivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
                 self?.hide()
+            })
+        monitors.append(NotificationCenter.default.addObserver(
+            forName: .directoryColorsDidChange, object: nil, queue: .main) { [weak self] _ in
+                self?.scheduleRefresh()
             })
 
         // Hover and click handling for dependency regions only. Global monitors
@@ -62,31 +88,96 @@ final class DependencyHighlighter {
             self?.handleClick(NSEvent.mouseLocation)
         })
         if let click { monitors.append(click) }
+        if let changes = NSEvent.addGlobalMonitorForEvents(
+            matching: [.keyDown, .scrollWheel, .leftMouseDown, .leftMouseDragged, .leftMouseUp],
+            handler: { [weak self] _ in self?.scheduleRefresh() }) { monitors.append(changes) }
 
-        Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
+        for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification] {
+            monitors.append(centre.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                if name == NSWorkspace.willSleepNotification { self?.systemSleeping = true }
+                else { self?.displaySleeping = true }
+                self?.updatePolling()
+                self?.hide()
+            })
+        }
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            monitors.append(centre.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                if name == NSWorkspace.didWakeNotification { self?.systemSleeping = false }
+                else { self?.displaySleeping = false }
+                self?.scheduleRefresh()
+            })
+        }
+        scheduleRefresh()
+    }
+
+    private var hasRelevantHost: Bool {
+        guard !systemSleeping, !displaySleeping,
+              let bundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return false }
+        return store.hasReferences(bundleIdentifier: bundle)
+    }
+
+    private func updatePolling() {
+        guard hasRelevantHost else {
+            settleTimer?.invalidate()
+            settleTimer = nil
+            releaseReader()
+            return
+        }
+        guard settleTimer == nil else { return }
+        // Hosts do not consistently notify programmatic scroll/layout changes.
+        // Preserve that fallback, but never poll apps with no saved references.
+        let timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             self?.scheduleRefresh()
         }
+        timer.tolerance = 0.4
+        settleTimer = timer
+    }
+
+    private func releaseReader() {
+        guard readerHoldsHost else { return }
+        readerHoldsHost = false
+        AccessibilityWork.queue.async { [reader] in reader.release() }
     }
 
     /// Stage B. Records a reference from an already-verified range: the caller
     /// has proved these characters are the accepted phrase, so no searching or
     /// guessing happens here.
-    func recordVerifiedInsertion(objectId: String, versionId: String?, label: String,
+    /// `element` is the editor the insertion was verified in. The reference is
+    /// stored only if that editor still has focus when the host is read.
+    func recordVerifiedInsertion(objectId: String, versionId: String?, projectId: String? = nil, label: String,
                                  valueText: String?, sourcePath: String, sourceLocation: String,
-                                 document: [UInt16], range: Range<Int>, documentOffset: Int = 0) {
-        guard let context = adapter.focusedContext() else {
-            AssistLog.write("  ✗ host lost before the reference could be stored")
-            return
-        }
+                                 document: [UInt16], range: Range<Int>, documentOffset: Int = 0,
+                                 element: AXUIElement) {
         guard let anchor = TextAnchor.make(in: document, range: range,
                                            documentOffset: documentOffset) else {
             AssistLog.write("  ✗ verified range could not be anchored")
             return
         }
-        let colorSlot = sourceColorSlot(path: sourcePath, objectId: objectId, in: context)
+        AccessibilityWork.queue.async { [reader] in
+            let context = reader.focusedContext()
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard let context, CFEqual(context.element, element) else {
+                    AssistLog.write("  ✗ host lost before the reference could be stored")
+                    return
+                }
+                self.storeVerifiedInsertion(
+                    objectId: objectId, versionId: versionId, projectId: projectId, label: label,
+                    valueText: valueText, sourcePath: sourcePath, sourceLocation: sourceLocation,
+                    anchor: anchor, context: context,
+                    documentRange: (documentOffset + range.lowerBound)..<(documentOffset + range.upperBound))
+            }
+        }
+    }
+
+    private func storeVerifiedInsertion(objectId: String, versionId: String?, projectId: String?, label: String,
+                                        valueText: String?, sourcePath: String, sourceLocation: String,
+                                        anchor: TextAnchor, context: HostContext, documentRange: Range<Int>) {
+        let colorSlot = sourceColorSlot(path: sourcePath, objectId: objectId,
+                                       projectId: projectId, in: context)
         let reference = DependencyReference(
             id: "ref_" + UUID().uuidString.prefix(8),
-            objectId: objectId, versionId: versionId,
+            objectId: objectId, versionId: versionId, projectId: projectId,
             hostBundleIdentifier: context.bundleIdentifier,
             hostApplication: context.applicationName,
             documentContext: context.documentContext,
@@ -96,59 +187,67 @@ final class DependencyHighlighter {
             sourceColorSlot: colorSlot,
             createdAt: Date(), updatedAt: Date())
         store.add(reference)
-        AssistLog.write("  ✓ dependency reference stored [\(reference.id)] → “\(anchor.text)”")
-        let documentRange = (documentOffset + range.lowerBound)..<(documentOffset + range.upperBound)
-        reportGeometry(for: reference, in: context, range: documentRange)
+        AssistLog.write("  ✓ dependency reference stored [\(reference.id)] · \(anchor.text.count) char(s)")
+        // Stage C, reported separately so a geometry failure is never mistaken
+        // for an insertion or anchoring failure.
+        AccessibilityWork.queue.async { [reader] in reader.reportGeometry(in: context, range: documentRange) }
         scheduleRefresh()
-    }
-
-    /// Stage C, reported separately so a geometry failure is never mistaken for
-    /// an insertion or anchoring failure.
-    private func reportGeometry(for reference: DependencyReference,
-                                in context: HostContext, range: Range<Int>) {
-        let rects = adapter.rects(for: range, in: context)
-        if rects.isEmpty {
-            AssistLog.write("  ✗ geometry unavailable in \(context.applicationName) — highlight not rendered")
-        } else {
-            AssistLog.write("  ✓ geometry: \(rects.count) rect(s), first \(Int(rects[0].minX)),\(Int(rects[0].minY))")
-        }
     }
 
     func unlink(id: String) {
         store.remove(id: id)
+        lastResolvedElement[id] = nil
+        missingSince[id] = nil
         scheduleRefresh()
     }
 
     func reference(id: String) -> DependencyReference? { store.reference(id: id) }
 
-    /// Pre-color builds stored the human breadcrumb in sourcePath. Resolve each
-    /// indexed object through the local-only API and repair it to the owning
-    /// file path. Nothing leaves the machine and unresolved objects are kept.
+    /// Older builds did not store a work-directory owner and sometimes stored
+    /// a human breadcrumb in sourcePath. Resolve ownership through the object
+    /// API so files with identical relative paths cannot borrow another
+    /// directory's color. Known owners already carry the canonical file path.
     private func migrateStoredSourcePaths() {
         guard let serverURL else { return }
-        for reference in store.references {
+        let legacyObjectIds = Set(store.references.filter {
+            $0.projectId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+        }.map(\.objectId))
+        for objectId in legacyObjectIds {
+            guard migratingObjectIds.insert(objectId).inserted else { continue }
             let url = serverURL
                 .appendingPathComponent("api/dependency-objects")
-                .appendingPathComponent(reference.objectId)
+                .appendingPathComponent(objectId)
             URLSession.shared.dataTask(with: url) { [weak self] data, response, _ in
-                guard let self, let data,
-                      (response as? HTTPURLResponse)?.statusCode == 200,
-                      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let object = root["object"] as? [String: Any],
-                      let path = object["path"] as? String,
-                      !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                let root = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                let object = root?["object"] as? [String: Any]
                 DispatchQueue.main.async {
-                    guard let current = self.store.reference(id: reference.id) else { return }
-                    if current.sourcePath != path {
-                        self.store.update(id: reference.id) {
-                            $0.sourcePath = path
-                            $0.sourceColorSlot = nil
-                        }
-                        AssistLog.write("highlight: repaired source identity for \(reference.id) → \(path)")
+                    guard let self else { return }
+                    self.migratingObjectIds.remove(objectId)
+                    guard self.serverURL == serverURL,
+                          (response as? HTTPURLResponse)?.statusCode == 200,
+                          let object,
+                          let projectId = object["projectId"] as? String,
+                          !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                    let path = (object["path"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let references = self.store.references.filter {
+                        $0.objectId == objectId
+                            && $0.projectId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
                     }
-                    self.normalizeSourceColorSlots(
-                        documentContext: current.documentContext,
-                        bundleIdentifier: current.hostBundleIdentifier)
+                    self.store.batchUpdates {
+                        for reference in references {
+                            self.store.update(id: reference.id) {
+                                $0.projectId = projectId
+                                if let path, !path.isEmpty, $0.sourcePath != path {
+                                    $0.sourcePath = path
+                                    $0.sourceColorSlot = nil
+                                }
+                            }
+                            self.normalizeSourceColorSlots(
+                                documentContext: reference.documentContext,
+                                bundleIdentifier: reference.hostBundleIdentifier)
+                            AssistLog.write("highlight: restored source directory for \(reference.id)")
+                        }
+                    }
                     self.scheduleRefresh()
                 }
             }.resume()
@@ -156,8 +255,10 @@ final class DependencyHighlighter {
     }
 
 
-    private func sourceKey(path: String, objectId: String) -> String {
-        AssistSourceIdentity.key(path: path, objectId: objectId)
+    private func sourceKey(path: String, objectId: String, projectId: String?) -> String {
+        let fileKey = AssistSourceIdentity.key(path: path, objectId: objectId)
+        guard let projectId, !projectId.isEmpty else { return fileKey }
+        return "project:\(projectId)|\(fileKey)"
     }
 
     /// FNV-1a is deterministic across launches; Swift's Hashable seed is not.
@@ -170,18 +271,18 @@ final class DependencyHighlighter {
         return Int(hash % UInt64(DependencyStyle.sourceColorCount))
     }
 
-    private func sourceColorSlot(path: String, objectId: String, in context: HostContext) -> Int {
-        let key = sourceKey(path: path, objectId: objectId)
+    private func sourceColorSlot(path: String, objectId: String, projectId: String?, in context: HostContext) -> Int {
+        let key = sourceKey(path: path, objectId: objectId, projectId: projectId)
         let existing = store.references(forContext: context.documentContext,
                                         bundleIdentifier: context.bundleIdentifier)
         if let sameSource = existing.first(where: {
-            sourceKey(path: $0.sourcePath, objectId: $0.objectId) == key
+            sourceKey(path: $0.sourcePath, objectId: $0.objectId, projectId: $0.projectId) == key
         }) {
             return sameSource.sourceColorSlot ?? stableSourceColorSlot(key)
         }
         let occupied = Set(existing.map {
             $0.sourceColorSlot ?? stableSourceColorSlot(
-                sourceKey(path: $0.sourcePath, objectId: $0.objectId))
+                sourceKey(path: $0.sourcePath, objectId: $0.objectId, projectId: $0.projectId))
         })
         return (0..<DependencyStyle.sourceColorCount).first(where: { !occupied.contains($0) })
             ?? stableSourceColorSlot(key)
@@ -191,14 +292,15 @@ final class DependencyHighlighter {
         let references = store.references(forContext: documentContext,
                                           bundleIdentifier: bundleIdentifier)
         let keyed = references.map {
-            (key: sourceKey(path: $0.sourcePath, objectId: $0.objectId),
+            (key: sourceKey(path: $0.sourcePath, objectId: $0.objectId, projectId: $0.projectId),
              preferred: $0.sourceColorSlot)
         }
         let assignments = AssistSourceIdentity.colorAssignments(
             keyed, paletteCount: DependencyStyle.sourceColorCount,
             fallback: stableSourceColorSlot)
         for reference in references {
-            let key = sourceKey(path: reference.sourcePath, objectId: reference.objectId)
+            let key = sourceKey(path: reference.sourcePath, objectId: reference.objectId,
+                                projectId: reference.projectId)
             guard let slot = assignments[key], reference.sourceColorSlot != slot else { continue }
             store.update(id: reference.id) { $0.sourceColorSlot = slot }
         }
@@ -211,63 +313,115 @@ final class DependencyHighlighter {
 
     // MARK: Refresh
 
+    /// An Accessibility notification from the observed host, on the main run loop.
+    fileprivate func observedChange() {
+        scheduleRefresh()
+    }
+
     private func scheduleRefresh() {
+        updatePolling()
+        guard hasRelevantHost else { hide(); releaseReader(); return }
         guard !scheduled else { return }
         scheduled = true
-        DispatchQueue.main.async { [weak self] in
+        let delay = max(0.04, 0.25 - Date().timeIntervalSince(lastRefresh))
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             self?.scheduled = false
             self?.refresh()
         }
     }
 
     private func refresh() {
-        guard AXIsProcessTrusted() else { hide(); return }
-        guard let context = adapter.focusedContext() else { hide(); return }
-        normalizeSourceColorSlots(in: context)
+        guard hasRelevantHost, AXIsProcessTrusted(),
+              let bundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { hide(); return }
+        // One read at a time; requests meanwhile become a single follow-up.
+        guard reads.begin() else { return }
+        lastRefresh = Date()
+        readerHoldsHost = true
+        let candidates = store.references.filter { $0.hostBundleIdentifier == bundle }
+        let resolvedIn = lastResolvedElement
+        let token = readGeneration
+        let owner = Unmanaged.passUnretained(self).toOpaque()
+        AccessibilityWork.queue.async { [reader] in
+            let reading = reader.read(candidates: candidates, resolvedIn: resolvedIn, owner: owner)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let again = self.reads.end()
+                if token == self.readGeneration { self.apply(reading) }
+                if again { self.scheduleRefresh() }
+            }
+        }
+    }
+
+    private func apply(_ reading: HighlightReader.Reading?) {
+        guard hasRelevantHost, let reading else { hide(); return }
+        let context = reading.context
+        store.batchUpdates { normalizeSourceColorSlots(in: context) }
 
         // Only this document's references, never another window's.
         let references = store.references(forContext: context.documentContext,
                                           bundleIdentifier: context.bundleIdentifier)
-        guard !references.isEmpty else { hide(); return }
-        guard let document = adapter.documentText(context) else { hide(); return }
+        guard !references.isEmpty, reading.hasDocument else { hide(); return }
 
-        let units = Array(document.utf16)
         var found: [DependencyGeometry] = []
         var states: [String: DependencyVisualState] = [:]
         var sourceSlots: [String: Int] = [:]
+        var directoryColors: [String: DirectoryToggleColor] = [:]
 
-        for reference in references {
-            switch TextAnchorResolver.resolve(reference.anchor, in: units) {
-            case .unresolved(let reason):
-                // The phrase is gone or cannot be told apart: never draw a guess.
-                if reason == .textMissing {
-                    store.remove(id: reference.id)   // no ghost highlights
-                    AssistLog.write("highlight: \(reference.id) text deleted; reference dropped")
-                } else {
-                    store.update(id: reference.id) { $0.state = .unresolved }
+        store.batchUpdates {
+            for reference in references {
+                guard let match = reading.matches[reference.id] else { continue }
+                switch match {
+                case .unresolved(let reason):
+                    // The phrase is gone or cannot be told apart: never draw a guess.
+                    if reason == .textMissing {
+                        // Another editor that still exists keeps its own copy;
+                        // one that was closed no longer holds the text anywhere.
+                        if let resolvedIn = lastResolvedElement[reference.id], !CFEqual(resolvedIn, context.element) {
+                            if reading.stillOpenElsewhere.contains(reference.id) { continue }
+                            lastResolvedElement[reference.id] = nil
+                        }
+                        let since = missingSince[reference.id] ?? Date()
+                        missingSince[reference.id] = since
+                        guard Date().timeIntervalSince(since) >= Self.deletionGrace else { continue }
+                        store.remove(id: reference.id)   // no ghost highlights
+                        lastResolvedElement[reference.id] = nil
+                        missingSince[reference.id] = nil
+                        AssistLog.write("highlight: \(reference.id) text deleted; reference dropped")
+                    } else if reference.state != .unresolved {
+                        store.update(id: reference.id) { $0.state = .unresolved }
+                    }
+                case .resolved:
+                    lastResolvedElement[reference.id] = context.element
+                    missingSince[reference.id] = nil
+                    if reference.state == .unresolved {
+                        store.update(id: reference.id) { $0.state = .healthy }
+                    }
+                    states[reference.id] = reference.state == .unresolved ? .healthy : reference.state
+                    sourceSlots[reference.id] = reference.sourceColorSlot
+                        ?? stableSourceColorSlot(sourceKey(path: reference.sourcePath, objectId: reference.objectId,
+                                                           projectId: reference.projectId))
+                    directoryColors[reference.id] = DirectoryColorPreferences.color(for: reference.projectId)
+                    guard let rects = reading.rects[reference.id], !rects.isEmpty else { continue }
+                    let converted = rects.map {
+                        HostGeometryConverter.toAppKit($0, primaryHeight: Self.primaryHeight())
+                    }
+                    found.append(DependencyGeometry.coalesce(converted, referenceId: reference.id))
                 }
-            case .resolved(let range):
-                if reference.state == .unresolved {
-                    store.update(id: reference.id) { $0.state = .healthy }
-                }
-                states[reference.id] = reference.state == .unresolved ? .healthy : reference.state
-                sourceSlots[reference.id] = reference.sourceColorSlot
-                    ?? stableSourceColorSlot(sourceKey(path: reference.sourcePath, objectId: reference.objectId))
-                let rects = adapter.rects(for: range, in: context)
-                guard !rects.isEmpty else { continue }
-                let converted = rects.map {
-                    HostGeometryConverter.toAppKit($0, primaryHeight: Self.primaryHeight())
-                }
-                found.append(DependencyGeometry.coalesce(converted, referenceId: reference.id))
             }
         }
 
+        updatePolling()
         guard !found.isEmpty else { hide(); return }
+        let unchanged = currentContext == context && geometries == found
+            && view.states == states && view.sourceSlots == sourceSlots
+            && view.directoryColors == directoryColors && panel.isVisible
         currentContext = context
+        guard !unchanged else { return }
         geometries = found
         view.geometries = found
         view.states = states
         view.sourceSlots = sourceSlots
+        view.directoryColors = directoryColors
 
         // The panel covers only what it needs to.
         let union = found.dropFirst().reduce(found[0].bounds) { $0.union($1.bounds) }
@@ -279,9 +433,12 @@ final class DependencyHighlighter {
     }
 
     private func hide() {
+        readGeneration += 1
+        guard !geometries.isEmpty || panel.isVisible else { return }
         geometries = []
         view.geometries = []
         view.sourceSlots = [:]
+        view.directoryColors = [:]
         panel.orderOut(nil)
     }
 
@@ -304,5 +461,129 @@ final class DependencyHighlighter {
               let hit = geometries.first(where: { $0.contains(point) }),
               let reference = store.reference(id: hit.referenceId) else { return }
         onInspect?(reference, hit.bounds)
+    }
+}
+
+/// The Accessibility side of highlighting: reading the focused editor, its
+/// text and the geometry of each reference, and watching it for changes.
+/// Used only on `AccessibilityWork.queue`.
+private final class HighlightReader {
+    struct Reading {
+        let context: HostContext
+        /// False when the editor has no references here or exposes no text.
+        let hasDocument: Bool
+        let matches: [String: AnchorResolution]
+        /// Accessibility coordinates, for resolved references that measured.
+        let rects: [String: [CGRect]]
+        /// References missing here whose last editor still exists elsewhere.
+        let stillOpenElsewhere: Set<String>
+    }
+
+    private let adapter = AccessibilityTextAdapter()
+    private let resolutions = TextAnchorResolutionCache()
+    private var geometry = HighlightGeometryCache()
+    private var observer: AXObserver?
+    private var observedPID: pid_t?
+    private var observedElements: [AXUIElement] = []
+
+    func focusedContext() -> HostContext? {
+        adapter.beginRefresh()
+        return adapter.focusedContext()
+    }
+
+    func read(candidates: [DependencyReference], resolvedIn: [String: AXUIElement],
+              owner: UnsafeMutableRawPointer) -> Reading? {
+        guard let context = focusedContext() else { return nil }
+        observe(context, owner: owner)
+        let references = candidates.filter { $0.documentContext == context.documentContext }
+        guard !references.isEmpty, let document = adapter.documentText(context) else {
+            return Reading(context: context, hasDocument: false, matches: [:], rects: [:], stillOpenElsewhere: [])
+        }
+        let matches = resolutions.resolve(references, in: document)
+        let snapshot = adapter.geometrySnapshot(context, text: document)
+        var rects: [String: [CGRect]] = [:]
+        var stillOpenElsewhere = Set<String>()
+        for reference in references {
+            switch matches[reference.id] {
+            case .resolved(let range)?:
+                rects[reference.id] = geometry.rects(for: range, in: snapshot) { [adapter] range in
+                    adapter.measuredRects(for: range, in: context)
+                }
+            case .unresolved(.textMissing)?:
+                if let other = resolvedIn[reference.id], !CFEqual(other, context.element), Self.exists(other) {
+                    stillOpenElsewhere.insert(reference.id)
+                }
+            default:
+                break
+            }
+        }
+        return Reading(context: context, hasDocument: true, matches: matches, rects: rects,
+                       stillOpenElsewhere: stillOpenElsewhere)
+    }
+
+    func reportGeometry(in context: HostContext, range: Range<Int>) {
+        adapter.beginRefresh()
+        let rects = adapter.rects(for: range, in: context)
+        if rects.isEmpty {
+            AssistLog.write("  ✗ geometry unavailable in \(context.applicationName); highlight not rendered")
+        } else {
+            AssistLog.write("  ✓ geometry: \(rects.count) rect(s), first \(Int(rects[0].minX)),\(Int(rects[0].minY))")
+        }
+    }
+
+    /// Stops watching the host and lets go of its text and geometry.
+    func release() {
+        detachObserver()
+        resolutions.clear()
+        geometry.clear()
+    }
+
+    private static func exists(_ element: AXUIElement) -> Bool {
+        var role: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success
+    }
+
+    private func detachObserver() {
+        if let observer {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+        }
+        observer = nil
+        observedPID = nil
+        observedElements = []
+    }
+
+    /// Notifications are delivered on the main run loop, to `owner`.
+    private func observe(_ context: HostContext, owner: UnsafeMutableRawPointer) {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(context.element, &pid) == .success else { return }
+        if observedPID != pid {
+            detachObserver()
+            var created: AXObserver?
+            guard AXObserverCreate(pid, { _, _, _, refcon in
+                guard let refcon else { return }
+                Unmanaged<DependencyHighlighter>.fromOpaque(refcon).takeUnretainedValue().observedChange()
+            }, &created) == .success, let created else { return }
+            observer = created
+            observedPID = pid
+            CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(created), .commonModes)
+        }
+        guard let observer else { return }
+        if observedElements.contains(where: { CFEqual($0, context.element) }) { return }
+        let notifications = [kAXValueChangedNotification, kAXSelectedTextChangedNotification,
+                             kAXFocusedUIElementChangedNotification, kAXFocusedWindowChangedNotification,
+                             kAXMovedNotification, kAXResizedNotification, "AXLayoutChanged"]
+        for element in observedElements {
+            for name in notifications { AXObserverRemoveNotification(observer, element, name as CFString) }
+        }
+        let application = AXUIElementCreateApplication(pid)
+        var window: CFTypeRef?
+        AXUIElementCopyAttributeValue(context.element, kAXWindowAttribute as CFString, &window)
+        observedElements = [application, context.element]
+        if let window, CFGetTypeID(window) == AXUIElementGetTypeID() { observedElements.append(window as! AXUIElement) }
+        for element in observedElements {
+            for name in notifications {
+                AXObserverAddNotification(observer, element, name as CFString, owner)
+            }
+        }
     }
 }

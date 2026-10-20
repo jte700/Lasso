@@ -9,6 +9,21 @@ import { anchorForSpan } from '../src/dependencies/service.js';
 
 const researcher = { id: 'human:writer', displayName: 'Writer', actorType: 'HUMAN_SELF' };
 
+test('identical passages retain distinct citable works in a shared bibliography', () => {
+  const sentence = 'Researchers found that folate levels were higher in the supplemented group.';
+  const works = ['paper:a', 'paper:b'].map((id) => ({
+    path: 'references.bib', snapshotId: 'v1', text: `${sentence} ${sentence}`,
+    dependencyCandidate: { id, objectType: 'REFERENCE', metadata: {} },
+  }));
+  const corpus = buildSentenceCorpus(works);
+  assert.equal(corpus.length, 2);
+  for (const work of works) {
+    const findings = completeFromLinkedSource(corpus, { text: 'The authors found that' }, work.dependencyCandidate);
+    assert.equal(findings.length, 1);
+    assert.equal(findings[0].dependencyCandidate.id, work.dependencyCandidate.id);
+  }
+});
+
 test('sentence completion finishes an exact project-corpus sentence without creating a dependency', () => {
   const corpus = buildSentenceCorpus([{
     path: 'notes/interface.md', snapshotId: 'v1',
@@ -30,6 +45,7 @@ test('sentence completion uses scientific concept equivalents instead of literal
   });
   assert.equal(completion.insertText, ' folate levels were higher in the supplemented group.');
   assert.equal(completion.matchKind, 'SEMANTIC_SEQUENCE');
+  assert.equal(completion.sourceSentence, 'The analysis showed that placental folate levels were higher in the supplemented group.');
 });
 
 test('linked-paper findings prefer grammatical narrative clauses over flattened PDF table rows', () => {

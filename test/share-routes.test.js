@@ -49,11 +49,48 @@ test('public share routes', async (suite) => {
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.source.filename, 'Income-Statement.csv');
+    assert.equal(body.source.absolutePath, fs.realpathSync(path.join(projectRoot, 'Finance', 'Income-Statement.csv')));
     assert.equal(body.path, 'Finance/Income-Statement.csv');
     assert.deepEqual(body.preview.columns, ['A', 'B', 'C']);
     assert.deepEqual(body.preview.headers, ['Account', 'Current Period', 'Prior Period']);
     assert.ok(body.preview.rows.some((row) => row.cells.some((cell) => cell.cited)));
     assert.equal((await fetch(`${base}/api/dependency-objects/not-real/preview`)).status, 404);
+  });
+
+  await suite.test('the private inspector shows the real file location and a source viewport', async () => {
+    const response = await fetch(`${base}/inspect?object=${object.object_id}&version=${object.version_id}`);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.ok(html.includes(path.join(projectRoot, 'Finance', 'Income-Statement.csv')));
+    assert.match(html, /aria-label="Source worksheet"/);
+    assert.match(html, /scope="col">B</);
+    assert.match(html, /scope="row">2</);
+    assert.match(html, />400</);
+    assert.match(html, /Share link <kbd>Tab<\/kbd>/);
+    assert.doesNotMatch(html, /Cited value|Version 1|inspector-topbar|source-type/);
+    assert.equal((await fetch(`${base}/api/dependency-objects/${object.object_id}/source`)).status, 415);
+    assert.equal((await fetch(`${base}/api/dependency-objects/not-real/source`)).status, 404);
+  });
+
+  await suite.test('a local variable selects its header while its indexed share retains column data', async () => {
+    const variable = application.dependencies.objectsAt(project.id)
+      .find(source => source.objectType === 'VARIABLE' && source.label === 'Current Period');
+    assert.ok(variable);
+    const body = await (await fetch(`${base}/api/dependency-objects/${variable.id}/preview?version=${variable.versionId}`)).json();
+    assert.equal(body.source.objectType, 'VARIABLE');
+    assert.equal(body.source.anchor.kind, 'table-column');
+    assert.equal(body.preview.location, 'B1 (column header)');
+    assert.deepEqual(body.preview.rows.flatMap(row => row.cells.filter(cell => cell.cited).map(cell => cell.value)), ['Current Period']);
+    const html = await (await fetch(`${base}/inspect?object=${variable.id}&version=${variable.versionId}`)).text();
+    assert.match(html, /B1 \(column header\)/);
+    assert.equal((html.match(/class="cited"/g) ?? []).length, 1);
+    assert.match(html, /class="cited"[^>]*>Current Period<\/td>/);
+    const share = application.objectShares.createShare({ projectId: project.id, objectId: variable.id,
+      versionId: variable.versionId, actor: maya, accessScope: 'INDEXED' });
+    const shared = await (await fetch(`${base}/d/${share.token}`)).text();
+    assert.match(shared, /class="cited">400<\/td>/);
+    assert.match(shared, /class="cited">225<\/td>/);
+    assert.doesNotMatch(shared, /class="cited">Current Period<\/td>/);
   });
 
   await suite.test('select and redact loads the complete source document', async () => {
@@ -127,7 +164,10 @@ test('public share routes', async (suite) => {
       body: JSON.stringify({
         objectId: object.object_id, versionId: object.version_id, actor: maya,
         accessScope: 'REDACTED',
-        redactions: [{ kind: 'CELL', sheet: 0, row: 1, column: 1, effect: 'BLUR' }],
+        redactions: [
+          { kind: 'CELL', sheet: 0, row: 1, column: 0, effect: 'BLUR' },
+          { kind: 'CELL', sheet: 0, row: 1, column: 1, effect: 'BLUR' },
+        ],
       }),
     });
     assert.equal(created.status, 201);
@@ -136,10 +176,27 @@ test('public share routes', async (suite) => {
     const html = await page.text();
     assert.match(html, /Complete document with redactions/);
     assert.match(html, /aria-label="Redacted"/);
+    assert.match(html, /class="redaction blur" role="img"/);
+    assert.doesNotMatch(html, /Office Supplies/);
     assert.match(html, />225</);
     assert.doesNotMatch(html, />400</);
     assert.doesNotMatch(html, /Download original/);
     assert.equal((await fetch(`${base}/d/${share.token}/download`)).status, 403);
+  });
+
+  await suite.test('redacting an indexed row label also removes it from the page title and heading', async () => {
+    const share = application.objectShares.createShare({
+      projectId: project.id, objectId: object.object_id, versionId: object.version_id, actor: maya,
+      accessScope: 'REDACTED',
+      redactions: [{ kind: 'CELL', sheet: 0, row: 1, column: 0, effect: 'BLANK' }],
+    });
+    const page = await fetch(`${base}/d/${share.token}`);
+    const html = await page.text();
+    assert.equal(page.status, 200);
+    assert.doesNotMatch(html, /Office Supplies/);
+    assert.match(html, /class="redaction blank" role="img"/);
+    assert.match(html, /<h1>Income-Statement\.csv<\/h1>/);
+    assert.match(html, /Payroll taxes/);
   });
 
   await suite.test('unknown and malformed tokens do not leak anything', async () => {
@@ -169,8 +226,11 @@ test('public share routes', async (suite) => {
   await suite.test('expired shares are refused by both routes', async () => {
     const share = application.objectShares.createShare({
       projectId: project.id, objectId: object.object_id, versionId: object.version_id,
-      actor: maya, expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      actor: maya, expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
+    // The link lapses: its stored expiry passes.
+    application.db.prepare('UPDATE object_share_grants SET expires_at = ? WHERE token = ?')
+      .run(new Date(Date.now() - 60_000).toISOString(), share.token);
     assert.equal((await fetch(`${base}/d/${share.token}`)).status, 410);
     assert.equal((await fetch(`${base}/d/${share.token}/download`)).status, 410);
   });

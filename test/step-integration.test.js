@@ -35,7 +35,8 @@ function linkSpan(app, project, source, spanText) {
 
 test('STEP part facts flow through search, questions, model previews and source links', async t => {
   const { app, project, root } = workspace(t);
-  const found = app.dependencies.search(project.id, 'Bracket hole diameter');
+  // Broad queries show a few results per file; name the feature to reach it.
+  const found = app.dependencies.search(project.id, 'Bracket Ø8 hole diameter');
   const hole = found.find(object => object.label === 'Bracket Ø8 hole diameter');
   assert.ok(hole, 'ordinary search discovers measured CAD features');
   assert.equal(hole.objectType, 'DRAWING_ANNOTATION');
@@ -96,7 +97,7 @@ test('STEP part facts flow through search, questions, model previews and source 
   assert.notEqual(app.dependencies.getDependency(extentLink).status, 'BROKEN');
   assert.equal(app.dependencies.objectsAt(project.id).find(object => object.id === extent.id).valueText, '100 mm');
   assert.equal(app.dependencies.dependencyPreview(holeLink).source.valueText, '8 mm', 'the pinned version keeps its evidence');
-  assert.ok(app.dependencies.search(project.id, 'Bracket hole diameter').some(object => object.label === 'Bracket Ø10 hole diameter'));
+  assert.ok(app.dependencies.search(project.id, 'Bracket Ø10 hole diameter').some(object => object.label === 'Bracket Ø10 hole diameter'));
   const pinned = await app.dependencies.dependencyModelPreview(holeLink);
   assert.equal(pinned.selected.label, 'Bracket · Ø8 hole', 'historical previews render the linked source version');
 });
@@ -123,12 +124,13 @@ test('snapshots indexed before STEP support gain CAD facts lazily without creati
   const guard = legacy.prepare("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='scientific_object_versions_immutable_delete'").get().sql;
   legacy.exec('DROP TRIGGER scientific_object_versions_immutable_delete');
   legacy.prepare("DELETE FROM scientific_object_versions WHERE path = 'fixture.stp'").run();
-  legacy.prepare('UPDATE snapshot_object_indexes SET drawing_index_version = 1 WHERE snapshot_id = ?').run(snapshotId);
+  // Index version 3 is the last one before STEP models (4).
+  legacy.prepare('UPDATE snapshot_object_indexes SET drawing_index_version = 3 WHERE snapshot_id = ?').run(snapshotId);
   legacy.exec(guard);
   legacy.close();
   app = createApplication(config);
   assert.deepEqual(step().map(object => object.objectKey).sort(), indexed);
   assert.equal(app.dependencies.objectsAt(project.id).find(object => object.id === budget.id).versionId, budget.versionId, 'earlier objects keep their versions');
-  assert.equal(app.db.prepare('SELECT drawing_index_version FROM snapshot_object_indexes WHERE snapshot_id = ?').get(snapshotId).drawing_index_version, 2);
+  assert.equal(app.db.prepare('SELECT drawing_index_version FROM snapshot_object_indexes WHERE snapshot_id = ?').get(snapshotId).drawing_index_version, 4);
   assert.equal(app.timeline.getProject(project.id).currentSnapshotId, snapshotId);
 });

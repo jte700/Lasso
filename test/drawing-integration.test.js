@@ -162,7 +162,8 @@ test('drawing migration adds facts to an existing snapshot without replacing ear
     DELETE FROM scientific_objects WHERE object_type IN ('DRAWING','DRAWING_ANNOTATION');
     ALTER TABLE snapshot_object_indexes DROP COLUMN drawing_index_version;
     ALTER TABLE snapshot_object_indexes DROP COLUMN spreadsheet_index_version;
-    DELETE FROM schema_migrations WHERE version>=16;
+    ALTER TABLE object_share_grants DROP COLUMN excerpt_json;
+    DELETE FROM schema_migrations WHERE version>=17;
     DROP TABLE drive_projects;
     DROP TABLE removable_drives;`);
   legacy.exec(deleteGuard);
@@ -174,7 +175,7 @@ test('drawing migration adds facts to an existing snapshot without replacing ear
   assert.equal(preserved.versionId, existing.versionId, 'historical CSV object version is retained');
   assert.equal(preserved.valueText, existing.valueText);
   assert.ok(after.some((object) => object.metadata.globalId === spaceGuid && object.metadata.propertyName === 'NetFloorArea'));
-  assert.equal(state.app.db.prepare('SELECT drawing_index_version AS version FROM snapshot_object_indexes WHERE snapshot_id=?').get(snapshotId).version, 2, 'the marker records the current drawing reader (2 adds STEP)');
+  assert.equal(state.app.db.prepare('SELECT drawing_index_version AS version FROM snapshot_object_indexes WHERE snapshot_id=?').get(snapshotId).version, 4, 'the marker records the current drawing reader (4 adds STEP)');
   assert.equal(state.app.timeline.getProject(state.project.id).currentSnapshotId, snapshotId, 'index upgrades do not create timeline edits');
   assert.throws(() => state.app.db.prepare('DELETE FROM scientific_object_versions WHERE id=?').run(existing.versionId), /immutable/);
   const count = after.length;
@@ -198,6 +199,34 @@ test('unsupported native drawing containers remain visible with actionable expor
   const revit = failures.find((failure) => failure.path === 'building.rvt');
   assert.match(revit.reason, /Export IFC.*rooms\/spaces.*quantities/i);
   assert.equal(revit.retryable, false);
+});
+
+function dxfPlan(...entities) {
+  const square = (id, points) => ['0', 'LWPOLYLINE', '5', id, '8', 'ROOMS', '90', String(points.length), '70', '1',
+    ...points.flatMap(([x, y]) => ['10', String(x), '20', String(y)])];
+  const shapes = { room: square('A1', [[0, 0], [5000, 0], [5000, 4000], [0, 4000]]),
+    crossed: square('A2', [[0, 0], [5, 4], [0, 4], [5, 0]]),
+    door: ['0', 'ARC', '5', 'C1', '8', 'DOORS', '10', '0', '20', '0', '40', '900', '50', '0', '51', '90'] };
+  return ['0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4', '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES',
+    ...entities.flatMap((name) => shapes[name]), '0', 'ENDSEC', '0', 'EOF'].join('\n');
+}
+
+test('door arcs and blocks in a measured DXF plan are not reported as indexing issues', (t) => {
+  const state = workspace(t, { 'plan.dxf': dxfPlan('room', 'door'), 'broken.dxf': dxfPlan('room', 'crossed', 'door') });
+  const { indexing } = state.app.terminal;
+  const failures = () => indexing.failures(state.project.id);
+  assert.equal(failures().some((failure) => failure.path === 'plan.dxf'), false);
+  const broken = failures().find((failure) => failure.path === 'broken.dxf');
+  assert.equal(broken.code, 'DRAWING_PARTIAL');
+  assert.doesNotMatch(broken.reason, /Measurements for these DXF entity types/, 'informational notes stay out of the issue');
+
+  // A plan indexed before this rule still carries 'partial' with only notes.
+  const objectsAt = indexing.dependencies.objectsAt.bind(indexing.dependencies);
+  t.mock.method(indexing.dependencies, 'objectsAt', (...args) => objectsAt(...args).map((object) =>
+    object.path === 'plan.dxf' && object.objectType === 'DRAWING'
+      ? { ...object, metadata: { ...object.metadata, extractionStatus: 'partial' } } : object));
+  assert.equal(failures().some((failure) => failure.path === 'plan.dxf'), false);
+  assert.ok(failures().some((failure) => failure.path === 'broken.dxf'));
 });
 
 test('typing a drawing filename or plan topic finds the whole model and preserves its indexed identity', async (t) => {
@@ -247,6 +276,19 @@ test('typing a drawing filename or plan topic finds the whole model and preserve
   const libraryDrawing = (await response.json()).objects.find(object => object.id === drawing.id);
   assert.ok(libraryDrawing.searchAliases.includes('floor plan'));
   assert.match(libraryDrawing.label, /Duplex/);
+  await app.workspace.toggle(project.id, true, actor);
+  for (const scope of [`projects/${project.id}`, 'workspace']) {
+    const response = await fetch(`http://127.0.0.1:${app.server.address().port}/api/${scope}/source-library?query=floor%20plan`);
+    assert.equal(response.status, 200);
+    const objects = (await response.json()).objects;
+    const found = objects.find(object => object.id === drawing.id);
+    assert.ok(found, `${scope} retains server-ranked drawing topic matches`);
+    assert.equal(found.label, libraryDrawing.label, 'search decoration must not repeat the filename');
+    assert.ok(found.searchAliases.includes('floor plan'));
+    assert.equal(objects[0].objectType, 'DRAWING');
+  }
+  assert.ok(app.dependencies.search(project.id, 'floor plan', { sourcePath: 'rooms.ifc' })
+    .every(object => object.path === 'rooms.ifc'), 'drawing discovery preserves source scope');
   app.dependencies.suppressedPathPrefixes = () => ['Duplex_A_20110907.ifc'];
   assert.ok(!app.dependencies.predict(project.id, { text: 'duplex' }).claims
     .flatMap(claim => claim.candidates).some(candidate => candidate.id === drawing.id));

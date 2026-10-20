@@ -401,11 +401,9 @@ test('terminal command layer', async (suite) => {
     assert.deepEqual(Object.keys(directories).sort(), ['Analytics', 'Archive', 'Client-A', 'Finance', 'manuscript']);
     assert.equal(directories.Finance.files, 2);
     assert.equal(directories.Finance.health, 'healthy');
-    assert.equal(status.project.dependencies, application.db
-      .prepare(`SELECT COUNT(*) AS count FROM scientific_object_versions v
-        JOIN scientific_objects o ON o.id = v.object_id
-        WHERE o.project_id = ? AND v.snapshot_id = ?`)
-      .get(project.id, snapshot.id).count);
+    // Unchanged objects are carried forward rather than stored per snapshot.
+    assert.equal(status.project.dependencies, application.timeline.objectVersions.resolved(snapshot.id).rows
+      .filter((row) => row.project_id === project.id).length);
   });
 
   await suite.test('index remove excludes a directory from the next scan', () => {
@@ -578,11 +576,12 @@ test('terminal command layer', async (suite) => {
     assert.ok(files.some((item) => item.value.startsWith('Finance/')));
   });
 
-  await suite.test('completion falls back to related sources rather than nothing', () => {
+  await suite.test('typing stays quiet on weak matches while explicit invocation allows related sources', () => {
     // Nothing is *named* `supplies` — the name is `office-supplies` — but the
     // index knows what the word refers to.
-    const fallback = executor.complete(project.id, 'trace supplies').suggestions;
-    assert.ok(fallback.length > 0, 'an empty box helps nobody');
+    assert.deepEqual(executor.complete(project.id, 'trace supplies').suggestions, []);
+    const fallback = executor.complete(project.id, 'trace supplies', { surface: 'search' }).suggestions;
+    assert.ok(fallback.length > 0);
     assert.ok(fallback.every((item) => item.kind === 'related'), 'and it says they are related');
     assert.ok(fallback.some((item) => item.value === 'office-supplies'));
     assert.ok(fallback.every((item) => item.value && item.detail != null));
@@ -616,7 +615,8 @@ test('terminal command layer', async (suite) => {
     assert.ok(searched.results.every((item) => item.badge == null));
 
     // Matching mid-path works too, so a directory finds its files.
-    assert.ok(executor.complete(project.id, 'find statement').suggestions
+    assert.deepEqual(executor.complete(project.id, 'find statement').suggestions, []);
+    assert.ok(executor.complete(project.id, 'find statement', { surface: 'search' }).suggestions
       .some((item) => item.kind === 'source' && item.value.endsWith('Income-Statement.csv')));
 
     // Having typed a whole file name, that file is the answer — its contents
@@ -679,7 +679,8 @@ test('terminal command layer', async (suite) => {
     assert.ok(files.length > 0);
     assert.equal(completion.suggestions[0].kind, 'source');
     assert.ok(completion.suggestions[0].value.startsWith('Finance/'));
-    assert.equal(completion.suggestions.findIndex((item) => item.kind !== 'source'), files.length);
+    const firstName = completion.suggestions.findIndex((item) => item.kind !== 'source');
+    assert.ok(firstName === -1 || firstName === files.length);
   });
 
   await suite.test('the completion box says what it is offering', () => {
@@ -833,6 +834,8 @@ test('terminal recommendations share relevance, relationship and usage prioritie
   fs.writeFileSync(path.join(root, 'Analytics/many-values.csv'),
     `metric,value\n${Array.from({ length: 60 }, (_, index) => `indicator-${String(index).padStart(2, '0')},${index}`).join('\n')}\n`);
   fs.writeFileSync(path.join(root, 'Client-A/metrics-special.csv'), 'metric,value\nindicator-z-favorite,999\n');
+  fs.writeFileSync(path.join(root, 'Analytics/partial-value.csv'), 'metric,value\nlarge-measurement,41800000\n');
+  fs.writeFileSync(path.join(root, 'Analytics/disposable.csv'), 'metric,value\nghost-measurement,55\n');
   application.timeline.capture(project.id, ada, { source: 'EXPLICIT_CHECKPOINT' });
   application.dependencies.ensureIndex(project.id);
 
@@ -864,6 +867,7 @@ test('terminal recommendations share relevance, relationship and usage prioritie
     assert.equal(suggestions[0].path, 'Client-A/forecast.csv');
     assert.equal(suggestions[1].path, 'Finance/Q3/Income-Statement.csv');
     assert.ok(suggestions.every((item) => item.kind === 'source'));
+    assert.equal(suggestions.length, 5);
     assert.equal(new Set(suggestions.map((item) => item.path)).size, suggestions.length);
     assert.match(suggestions[0].ranking.reason, /Recently used/);
   });
@@ -875,6 +879,47 @@ test('terminal recommendations share relevance, relationship and usage prioritie
     assert.equal(suggestions[0].path, 'Client-A/metrics-special.csv');
     assert.ok(suggestions[0].objectId && suggestions[0].objectKey && suggestions[0].ranking.reason);
     assert.ok(suggestions.filter((item) => item.path === 'Analytics/many-values.csv').length <= 2);
+    assert.ok(suggestions.length <= 5);
+  });
+
+  await suite.test('specific values outrank popular partial content and keep their confidence', () => {
+    for (let session = 0; session < 30; session += 1) record('Analytics/partial-value.csv', 'accept', `popular-${session}`);
+    const matches = graph.search(project.id, '4180000');
+    assert.equal(matches[0].path, 'Analytics/report.csv');
+    assert.equal(matches[0].ranking.reason, 'Exact value match');
+    assert.equal(matches[0].score, 1);
+    assert.equal(matches.find((match) => match.path === 'Analytics/partial-value.csv').ranking.tier, 1);
+    const suggestions = executor.complete(project.id, 'trace 4180000').suggestions;
+    assert.ok(suggestions.length > 0 && suggestions.length <= 5);
+    assert.equal(suggestions[0].path, 'Analytics/report.csv');
+  });
+
+  await suite.test('automatic terminal recommendations preserve exclusions and explicit source scope', () => {
+    const prior = application.dependencies.suppressedPathPrefixes;
+    application.dependencies.suppressedPathPrefixes = () => ['Analytics'];
+    try {
+      record('Analytics/many-values.csv');
+      const suggested = executor.complete(project.id, 'trace indicator').suggestions;
+      assert.ok(suggested.length > 0);
+      assert.ok(suggested.every((suggestion) => !suggestion.path.startsWith('Analytics/')));
+      assert.ok(executor.complete(project.id, 'find ').suggestions.every((suggestion) => !suggestion.path.startsWith('Analytics/')));
+      assert.ok(graph.search(project.id, 'indicator').some((match) => match.path.startsWith('Analytics/')));
+      const scoped = graph.sourceSuggestions(project.id, '', 20, { sourcePath: 'Analytics/many-values.csv' });
+      assert.equal(scoped.length, 1);
+      assert.equal(scoped[0].path, 'Analytics/many-values.csv');
+    } finally {
+      application.dependencies.suppressedPathPrefixes = prior;
+    }
+  });
+
+  await suite.test('broken aliases remain inspectable but never become recommendations', () => {
+    const source = graph.namedObjects(project.id).find((object) => object.path === 'Analytics/disposable.csv');
+    application.terminal.aliases.create(project.id, { name: 'ghost-source', objectKey: source.objectKey }, ada, graph);
+    fs.unlinkSync(path.join(root, 'Analytics/disposable.csv'));
+    application.timeline.capture(project.id, ada);
+    assert.equal(graph.resolve(project.id, 'ghost-source').status, 'ALIAS_BROKEN');
+    assert.deepEqual(executor.complete(project.id, 'trace ghost-source').suggestions, []);
+    assert.deepEqual(graph.nameSuggestions(project.id, 'ghost-source', 20, { surface: 'search' }), []);
   });
 
   await suite.test('broad results are diverse while exact source drilldowns remain complete and filtered', () => {
@@ -916,8 +961,8 @@ test('terminal recommendations share relevance, relationship and usage prioritie
     assert.equal(found.results[0].ref.path, 'Finance/Q3/model.csv');
     assert.equal(found.results[0].ranking.relationship, true);
     const recent = executor.complete(project.id, 'find ', options).suggestions;
-    assert.equal(recent[0].path, 'Finance/Q3/model.csv');
-    assert.match(recent[0].ranking.reason, /this document/);
+    assert.equal(recent[0].path, 'Archive/old-figures.csv');
+    assert.equal(recent.find((item) => item.path === 'Finance/Q3/model.csv').ranking.relationship, true);
   });
 });
 

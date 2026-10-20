@@ -67,15 +67,21 @@ enum SyntheticKeyboard {
 }
 
 extension String {
+    /// Splits text into key events of at most `size` UTF-16 units, the unit
+    /// macOS limits per event. Whole characters stay together, so an accent
+    /// or emoji is never split across two events and dropped by the host.
     func chunkedForTyping(_ size: Int) -> [String] {
-        guard count > size else { return [self] }
+        guard utf16.count > size else { return [self] }
         var result: [String] = []
-        var index = startIndex
-        while index < endIndex {
-            let end = self.index(index, offsetBy: size, limitedBy: endIndex) ?? endIndex
-            result.append(String(self[index..<end]))
-            index = end
+        var current = ""
+        for character in self {
+            if !current.isEmpty, current.utf16.count + character.utf16.count > size {
+                result.append(current)
+                current = ""
+            }
+            current.append(character)
         }
+        if !current.isEmpty { result.append(current) }
         return result
     }
 }

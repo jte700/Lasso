@@ -9,8 +9,13 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { HttpError } from '../history/errors.js';
 import { normalizeProjectRootPath } from '../history/service.js';
+import { isInformationalDxfWarning } from '../dependencies/dxf-extraction.js';
 
 function now() { return new Date().toISOString(); }
+
+// Found while reading files into the index, not while scanning the folder.
+// Each full index replaces this set; a scan never resolves it.
+const INDEX_PROBLEM_CODES = new Set(['UNREADABLE_CONTENT', 'PARTIALLY_INDEXED', 'NOT_INDEXED_LIMIT']);
 
 export class IndexControlService {
   constructor(db, timeline, dependencies) {
@@ -22,6 +27,7 @@ export class IndexControlService {
       exclusionFilter: (projectId) => this.exclusionFilter(projectId),
       recordFailures: (projectId, failures) => this.recordFailures(projectId, failures),
     };
+    dependencies.onIndexProblems = (projectId, problems) => this.recordIndexProblems(projectId, problems);
   }
 
   // ── exclusions ───────────────────────────────────────────────────────────
@@ -77,20 +83,37 @@ export class IndexControlService {
    * that works is visible.
    */
   recordFailures(projectId, failures) {
+    this.replaceFailures(projectId, failures, false);
+  }
+
+  /** Files the latest full index could not read, or read only in part. */
+  recordIndexProblems(projectId, problems) {
+    this.replaceFailures(projectId, problems, true);
+  }
+
+  /**
+   * Upserts `failures`, then resolves open rows of the same kind that no
+   * longer occur. A path holds one row, so an open row of the other kind is
+   * left alone: a file briefly locked must not hide that it cannot be read.
+   */
+  replaceFailures(projectId, failures, indexProblems) {
+    const ownsCode = (code) => INDEX_PROBLEM_CODES.has(code) === indexProblems;
     const timestamp = now();
     const seen = new Set(failures.map((failure) => failure.path));
+    const codes = [...INDEX_PROBLEM_CODES].map((code) => `'${code}'`).join(', ');
     const insert = this.db.prepare(`
       INSERT INTO index_failures(id, project_id, path, code, reason, detected_at, resolved_at)
       VALUES (?, ?, ?, ?, ?, ?, NULL)
       ON CONFLICT(project_id, path) DO UPDATE SET code = excluded.code, reason = excluded.reason, resolved_at = NULL
+      WHERE index_failures.resolved_at IS NOT NULL OR index_failures.code ${indexProblems ? 'IN' : 'NOT IN'} (${codes})
     `);
     for (const failure of failures) {
       insert.run(crypto.randomUUID(), projectId, failure.path, failure.code, failure.reason, timestamp);
     }
-    const open = this.db.prepare('SELECT id, path FROM index_failures WHERE project_id = ? AND resolved_at IS NULL').all(projectId);
+    const open = this.db.prepare('SELECT id, path, code FROM index_failures WHERE project_id = ? AND resolved_at IS NULL').all(projectId);
     const resolve = this.db.prepare('UPDATE index_failures SET resolved_at = ? WHERE id = ?');
     for (const row of open) {
-      if (!seen.has(row.path)) resolve.run(timestamp, row.id);
+      if (ownsCode(row.code) && !seen.has(row.path)) resolve.run(timestamp, row.id);
     }
   }
 
@@ -115,18 +138,23 @@ export class IndexControlService {
         reason: row.reason,
         detectedAt: row.detected_at,
         resolvedAt: row.resolved_at,
-        retryable: row.code !== 'UNSUPPORTED_FORMAT',
+        // Index problems clear when the file changes, not on a retry.
+        retryable: row.code !== 'UNSUPPORTED_FORMAT' && !INDEX_PROBLEM_CODES.has(row.code),
       }));
     const project = this.timeline.getProject(projectId);
     const drawingProblems = new Map();
     for (const object of this.dependencies.objectsAt(projectId, project.currentSnapshotId, ['DRAWING'])) {
       if (object.objectType !== 'DRAWING' || !object.metadata.extractionStatus || object.metadata.extractionStatus === 'ready') continue;
+      // Drawings indexed before informational DXF notes stopped marking a
+      // plan partial still carry that status; only real problems count.
+      const own = (object.metadata.warnings ?? []).filter((warning) => !isInformationalDxfWarning(warning));
+      if (object.metadata.extractionStatus === 'partial' && !own.length) continue;
       const previous = drawingProblems.get(object.path);
-      const warnings = [...new Set([...(previous?.warnings ?? []), ...(object.metadata.warnings ?? [])])];
+      const warnings = [...new Set([...(previous?.warnings ?? []), ...own])];
       drawingProblems.set(object.path, {
         id: `drawing:${object.id}`, path: object.path, code: `DRAWING_${object.metadata.extractionStatus.toUpperCase()}`,
         reason: warnings.join(' ') || 'Some drawing measurements could not be indexed.', warnings,
-        detectedAt: this.timeline.getSnapshot(project.currentSnapshotId).createdAt, resolvedAt: null,
+        detectedAt: this.timeline.snapshotRecord(project.currentSnapshotId).createdAt, resolvedAt: null,
         retryable: false,
       });
     }
@@ -141,11 +169,8 @@ export class IndexControlService {
     const snapshot = this.timeline.getSnapshot(project.currentSnapshotId);
     this.dependencies.ensureIndex(projectId, snapshot.id);
 
-    const objectCount = this.db.prepare(`
-      SELECT COUNT(*) AS count FROM scientific_object_versions v
-      JOIN scientific_objects o ON o.id = v.object_id
-      WHERE o.project_id = ? AND v.snapshot_id = ?
-    `).get(projectId, snapshot.id).count;
+    const objectCount = this.timeline.objectVersions.resolved(snapshot.id).rows
+      .filter((row) => row.project_id === projectId).length;
 
     const lastEvent = this.db.prepare(`
       SELECT occurred_at, source, title FROM timeline_events
@@ -185,6 +210,7 @@ export class IndexControlService {
     }).sort((a, b) => a.name.localeCompare(b.name));
 
     const workspace = this.timeline.listProjects();
+    const active = workspace.filter((entry) => entry.active ?? entry.workspaceActive ?? true);
     return {
       project: {
         id: project.id,
@@ -199,8 +225,8 @@ export class IndexControlService {
         lastScanTitle: lastEvent?.title ?? null,
       },
       workspace: {
-        directories: workspace.length,
-        files: workspace.reduce((total, entry) => total + (entry.fileCount ?? 0), 0),
+        directories: active.length,
+        files: active.reduce((total, entry) => total + (entry.fileCount ?? 0), 0),
       },
       directories: rows,
       grantedDirectories: workspace.map((entry) => ({
@@ -208,7 +234,7 @@ export class IndexControlService {
         name: entry.name,
         rootPath: entry.rootPath,
         files: entry.fileCount ?? 0,
-        active: entry.id === projectId,
+        active: entry.active ?? entry.workspaceActive ?? true,
       })),
       exclusions,
       failures,

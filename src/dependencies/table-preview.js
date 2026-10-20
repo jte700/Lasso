@@ -9,7 +9,13 @@ const text=value=>String(value??'').trim();
 const numeric=value=>text(value)!=='' && /^[-+($€£¥]?\s*\d[\d,.\s%/():-]*$/.test(text(value));
 export function tableContext(table, anchor={}, radius=2, fallbackHeader=-1) {
  const rows=table.rows??[], numbers=table.rowNumbers??rows.map((_,i)=>i+1);
- let target=Number.isInteger(anchor.rowIndex)?(anchor.rowCoordinate==='worksheet'?numbers.indexOf(anchor.rowIndex):anchor.rowIndex):rows.findIndex(r=>r.some(c=>text(c)===text(anchor.rowKey)));
+ const columnCitation=anchor.kind==='table-column'||(!Number.isInteger(anchor.rowIndex)&&!text(anchor.rowKey)&&(Number.isInteger(anchor.columnIndex)||anchor.column!=null));
+ let target=Number.isInteger(anchor.rowIndex)?(anchor.rowCoordinate==='worksheet'?numbers.indexOf(anchor.rowIndex):anchor.rowIndex):text(anchor.rowKey)?rows.findIndex(r=>r.some(c=>text(c)===text(anchor.rowKey))):-1;
+ if(columnCitation){
+  const column=Number.isInteger(anchor.columnIndex)?anchor.columnIndex:rows[fallbackHeader]?.findIndex(c=>text(c)===text(anchor.column));
+  target=rows.findIndex((row,index)=>index>fallbackHeader&&text(row[column]));
+ }
+ if(target<0&&!Number.isInteger(anchor.rowIndex)&&!text(anchor.rowKey))target=Math.min(rows.length-1,Math.max(0,fallbackHeader+1));
  if(target<0||target>=rows.length)return null;
  const physical=numbers[target], targetColumn=Number.isInteger(anchor.columnIndex)?anchor.columnIndex:null;
  const region=table.tables?.find(t=>physical>=t.firstRow&&physical<=t.lastRow&&(targetColumn==null||targetColumn>=t.firstColumn&&targetColumn<=t.lastColumn));
@@ -68,6 +74,8 @@ export function tableContext(table, anchor={}, radius=2, fallbackHeader=-1) {
  return {
   columns:keep.map(columnLetter),
   headers:keep.map(c=>headers[c]),
-  rows:rows.slice(start,end).map((row,i)=>({rowNumber:numbers[start+i],cells:keep.map(c=>({value:text(row[c]),cited:start+i===target&&(selected<0||c===selected)}))})),
+  headerRowNumbers:headerRows.map(row=>numbers[row]),
+  columnCitation,
+  rows:rows.slice(start,end).map((row,i)=>({rowNumber:numbers[start+i],cells:keep.map(c=>({value:text(row[c]),cited:columnCitation?c===selected&&Boolean(text(row[c])):start+i===target&&(selected<0||c===selected)}))})),
  };
 }

@@ -45,8 +45,11 @@ function phraseMatch(candidate, query) {
   let position = 0;
   for (let index = 0; index < query.length; index++) {
     const term = query[index], last = index === query.length - 1;
+    // One unfinished word names a drawing only from its first word: "Rev" is
+    // more likely "Revenue" than the revision tag in "Floor Plan Rev03".
     const found = source.findIndex((word, at) => at >= position
-      && (word === term || last && term.length >= (query.length > 1 ? 2 : 3) && word.startsWith(term)));
+      && (word === term || last && term.length >= (query.length > 1 ? 2 : 3) && word.startsWith(term)
+        && (query.length > 1 || at === 0)));
     if (found < 0) return null;
     position = found + 1;
   }

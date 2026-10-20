@@ -33,7 +33,7 @@ test('an explicit source selection survives a pending debounced search', async (
   globalThis.document = { activeElement: null, querySelector: () => null, querySelectorAll: () => [], getElementById: () => null };
   try {
     const workbench = createSourceWorkbench({ input, getProjectId: () => 'project', getActor: () => ({ id: 'user' }),
-      api: async url => url.endsWith('/source-library') ? { objects: [object] }
+      api: async url => new URL(url, 'http://localhost').pathname.endsWith('/source-library') ? { objects: [object] }
         : url.endsWith('/terminal/session') ? { session: {} }
           : url.endsWith('/terminal/preview') ? { preview: { kind: 'text', lines: [{ text: 'Cited wall property', lineNumber: 1 }] } }
             : { plan: { edits: [] } } });

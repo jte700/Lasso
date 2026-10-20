@@ -1,5 +1,7 @@
 import { inflateRawSync, inflateSync } from 'node:zlib';
 import path from 'node:path';
+import { extractDrawingDocument } from './drawing-extraction.js';
+import { builtInNumberFormat, formatSpreadsheetNumber } from './spreadsheet-number-format.js';
 
 const MAX_PDF_METADATA_BYTES = 32_000_000;
 const MAX_PDF_BODY_BYTES = 3_000_000;
@@ -303,7 +305,7 @@ function textFromPdfContent(content, fonts, unicodeByFont) {
   return output.join(' ');
 }
 
-function structuredPdfText(buffer, limit = MAX_TEXT_EXCERPT) {
+function structuredPdfPages(buffer) {
   const objects = pdfObjects(buffer);
   const unicodeByObject = new Map();
   for (const [objectId, object] of objects) {
@@ -312,18 +314,24 @@ function structuredPdfText(buffer, limit = MAX_TEXT_EXCERPT) {
     const unicodeMap = pdfUnicodeMap(objects.get(unicodeReference)?.stream ?? '');
     if (unicodeMap) unicodeByObject.set(objectId, unicodeMap);
   }
-  const output = [];
+  const pages = [];
   for (const [pageId, page] of objects) {
     if (!/\/Type\s*\/Page\b/.test(page.body)) continue;
     const fonts = pageFonts(pageId, objects);
+    const output = [];
     for (const contentId of contentReferences(page.body)) {
       const content = objects.get(contentId)?.stream;
       if (!content) continue;
       const text = textFromPdfContent(content, fonts, unicodeByObject);
       if (text) output.push(text);
     }
+    pages.push({ pageNumber: pages.length + 1, text: output.join(' '), words: [] });
   }
-  return cleanText(output.join(' '), limit);
+  return pages;
+}
+
+function structuredPdfText(buffer, limit = MAX_TEXT_EXCERPT) {
+  return cleanText(structuredPdfPages(buffer).map(page => page.text).join(' '), limit);
 }
 
 function pdfTextFromStreams(buffer, acceptAny = false, limit = MAX_TEXT_EXCERPT) {
@@ -382,7 +390,103 @@ function pdfTextFromStreams(buffer, acceptAny = false, limit = MAX_TEXT_EXCERPT)
 }
 
 export function extractPdfFullText(buffer) {
-  return pdfTextFromStreams(buffer, true, MAX_FULL_DOCUMENT_TEXT);
+  // The local PDF engine understands compressed object streams and font
+  // encodings that cannot be decoded reliably by scanning PDF syntax.
+  const layout = extractDrawingDocument(buffer);
+  const text = layout.pages.map(page => page.text).filter(Boolean).join('\n\n');
+  const fallback = pdfTextFromStreams(buffer, true, MAX_FULL_DOCUMENT_TEXT);
+  // Some PDFs place selectable text outside the crop box. Keep that text when
+  // the syntax decoder can read it, rather than silently dropping sentences.
+  if (usefulPdfExcerpt(fallback) && fallback.length > text.length * 1.3) return fallback;
+  return text.trim() ? text.slice(0, MAX_FULL_DOCUMENT_TEXT) : fallback;
+}
+
+/** Selectable PDF passages retain the page on which their source text occurs. */
+export function extractPdfPassages(buffer) {
+  const layout = extractDrawingDocument(buffer);
+  const fallback = structuredPdfPages(buffer);
+  const pages = layout.pages.some(page => page.text?.trim()) ? layout.pages.map(page => {
+    const syntax = fallback.find(entry => entry.pageNumber === page.pageNumber);
+    return syntax?.text.length > String(page.text ?? '').length * 1.3 ? { ...page, text: syntax.text } : page;
+  }) : fallback;
+  const segmenter = new Intl.Segmenter('en', { granularity: 'sentence' });
+  const passages = [];
+  const maximum = 2000;
+  for (const page of pages) {
+    const text = String(page.text ?? '').replace(/\r\n/g, '\n');
+    const normalized = text.replace(/\s+/g, ' ').trim();
+    if (!normalized) continue;
+    const wordLocations = [];
+    let wordCursor = 0;
+    for (const word of page.words ?? []) {
+      const value = String(word.text ?? '').replace(/\s+/g, ' ').trim();
+      const start = value ? normalized.indexOf(value, wordCursor) : -1;
+      if (start < 0) continue;
+      wordLocations.push({ start, end: start + value.length, bbox: word.bbox });
+      wordCursor = start + value.length;
+    }
+    const add = (value, excerptType, start) => {
+      const selectedText = value.replace(/\s+/g, ' ').trim();
+      if (selectedText.length < 18 || selectedText.length > 1600 || (selectedText.match(/\p{L}+/gu)?.length ?? 0) < 4) return;
+      const end = start + selectedText.length;
+      const boxes = wordLocations.filter(word => word.start < end && word.end > start).map(word => word.bbox).filter(Boolean);
+      const x = boxes.length ? Math.min(...boxes.map(box => box.x)) : 0;
+      const y = boxes.length ? Math.min(...boxes.map(box => box.y)) : 0;
+      const bbox = boxes.length ? { x, y,
+        width: Math.max(...boxes.map(box => box.x + box.width)) - x,
+        height: Math.max(...boxes.map(box => box.y + box.height)) - y } : null;
+      passages.push({ excerptType, pageNumber: page.pageNumber, selectedText, start, end, bbox });
+    };
+    // Blank lines are hard paragraph boundaries. Short standalone headings
+    // also start a new block, while lowercase wrapped continuations stay joined.
+    const blocks = [];
+    let current = [];
+    const flush = () => { if (current.length) blocks.push(current.join(' ')); current = []; };
+    const lines = text.split('\n').map(line => line.trim());
+    let lineCursor = 0;
+    let previousBox = null;
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (!line) { flush(); continue; }
+      const lineStart = normalized.indexOf(line, lineCursor);
+      const lineEnd = lineStart + line.length;
+      const boxes = wordLocations.filter(word => word.start < lineEnd && word.end > lineStart).map(word => word.bbox).filter(Boolean);
+      const lineBox = boxes.length ? { x: Math.min(...boxes.map(box => box.x)), y: Math.min(...boxes.map(box => box.y)),
+        bottom: Math.max(...boxes.map(box => box.y + box.height)), height: Math.max(...boxes.map(box => box.height)) } : null;
+      if (lineStart >= 0) lineCursor = lineEnd;
+      if (previousBox && lineBox && (lineBox.y - previousBox.bottom > Math.max(previousBox.height, lineBox.height) * 0.75
+        || lineBox.y < previousBox.y - previousBox.height * 0.5)) flush();
+      previousBox = lineBox;
+      const next = lines[index + 1] ?? '';
+      const shortHeading = !/[.!?:;]$/.test(line) && !/\b(?:a|an|and|as|at|by|for|from|in|is|of|on|or|the|to|with)$/i.test(line)
+        && (line.split(/\s+/).length <= 5 || /^[^a-z]+$/.test(line)) && /^[A-Z]/.test(next);
+      if (shortHeading) { flush(); blocks.push(line); }
+      else current.push(line);
+    }
+    flush();
+    let blockCursor = 0;
+    for (const block of blocks) {
+      const blockStart = normalized.indexOf(block, blockCursor);
+      if (blockStart < 0) continue;
+      blockCursor = blockStart + block.length;
+      const sentences = [...segmenter.segment(block)].map(part => ({ text: part.segment.trim(), start: blockStart + part.index
+        + (part.segment.match(/^\s*/)?.[0].length ?? 0) }));
+      let paragraph = '';
+      let paragraphStart = blockStart;
+      for (const sentence of sentences) {
+        if (sentence.text.length <= 420) add(sentence.text, 'sentence', sentence.start);
+        if (paragraph && paragraph.length + sentence.text.length > 1400) {
+          add(paragraph, 'paragraph', paragraphStart); paragraph = '';
+        }
+        if (!paragraph) paragraphStart = sentence.start;
+        paragraph += `${paragraph ? ' ' : ''}${sentence.text}`;
+      }
+      // One-sentence paragraphs already have a precise sentence object.
+      if (paragraph && (sentences.length > 1 || paragraph.length > 420)) add(paragraph, 'paragraph', paragraphStart);
+      if (passages.length >= maximum) return passages.slice(0, maximum);
+    }
+  }
+  return passages;
 }
 
 function pdfScanSource(buffer) {
@@ -418,7 +522,7 @@ export function extractPdfDocument(buffer) {
   const title = xmlItems(source, 'dc:title')[0] ?? pdfProperty(source, 'Title');
   const subject = xmlItems(source, 'dc:description')[0] ?? pdfProperty(source, 'Subject');
   const keywords = pdfProperty(source, 'Keywords');
-  const bodyText = pdfTextFromStreams(buffer);
+  const bodyText = extractPdfFullText(buffer);
   const creationDate = pdfProperty(source, 'CreationDate');
   const doi = pdfProperty(source, 'doi') ?? doiFrom(subject, keywords, source.slice(-200_000), bodyText);
   return {
@@ -474,6 +578,8 @@ function coreProperty(source, name) {
 export function extractDocxDocument(buffer) {
   try {
     const documentXml = zipEntry(buffer, 'word/document.xml')?.toString('utf8') ?? '';
+    // A password-protected or damaged .docx has no readable document part.
+    if (!documentXml) throw new Error('The document part is missing.');
     const coreXml = zipEntry(buffer, 'docProps/core.xml')?.toString('utf8') ?? '';
     const structured = documentXml.replace(/<w:tab\b[^>]*\/>/gi, '\t')
       .replace(/<w:br\b[^>]*\/>/gi, '\n').replace(/<\/w:p>/gi, '\n');
@@ -515,33 +621,63 @@ function spreadsheetColumnIndex(reference = '') {
   return Math.max(0, value - 1);
 }
 
-function spreadsheetStrings(source = '') {
-  return [...String(source).matchAll(/<si\b[^>]*?(?:\/>|>([\s\S]*?)<\/si>)/gi)].map((item) => {
-    const pieces = [...(item[1] ?? '').matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/gi)].map((match) => decodeXml(match[1]));
-    return pieces.join('');
-  });
+// SpreadsheetML allows a default namespace or any explicit namespace prefix.
+// Match the qualified closing tag and consume empty elements independently, so
+// a styled <c/> cannot steal the value from the next populated cell.
+function spreadsheetElements(source, name) {
+  const pattern = new RegExp(`<((?:[A-Za-z_][\\w.-]*:)?${name})(?=[\\s/>])((?:[^"'<>]|"[^"]*"|'[^']*')*?)(?:/\\s*>|>([\\s\\S]*?)<\\/\\1\\s*>)`, 'gi');
+  return [...String(source).matchAll(pattern)].map(match => ({ attributes: match[2], content: match[3] ?? '' }));
 }
 
-function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null) {
+function spreadsheetAttribute(xml, name) {
+  const qualified = name.includes(':') ? `(?:[A-Za-z_][\\w.-]*:)?${name.split(':').pop()}` : name;
+  return decodeXml(String(xml).match(new RegExp(`(?:^|\\s)${qualified}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, 'i'))?.[2] ?? '');
+}
+
+function spreadsheetStrings(source = '') {
+  return spreadsheetElements(source, 'si').map(item => spreadsheetElements(item.content, 't')
+    .map(part => decodeXml(part.content)).join(''));
+}
+
+/** Each cell style's number format, and whether dates count from 1904. */
+function spreadsheetNumberFormats(stylesXml = '', workbookXml = '') {
+  const custom = new Map(spreadsheetElements(stylesXml, 'numFmt').map(({ attributes }) =>
+    [Number(spreadsheetAttribute(attributes, 'numFmtId')), spreadsheetAttribute(attributes, 'formatCode')]));
+  // Cell styles are the <xf> entries of <cellXfs>, not of <cellStyleXfs>.
+  const cellXfs = String(stylesXml).match(/<(?:\w+:)?cellXfs\b[^>]*>([\s\S]*?)<\/(?:\w+:)?cellXfs>/i)?.[1] ?? '';
+  const styles = spreadsheetElements(cellXfs, 'xf').map(({ attributes }) => {
+    const id = Number(spreadsheetAttribute(attributes, 'numFmtId') || 0);
+    return custom.get(id) ?? builtInNumberFormat(id);
+  });
+  const date1904 = /<(?:\w+:)?workbookPr\b[^>]*\bdate1904\s*=\s*["'](?:1|true)["']/i.test(workbookXml);
+  return { styles, date1904 };
+}
+
+function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null, formats = null) {
   const rows = [];
-  for (const rowMatch of String(source).matchAll(/<row\b[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/gi)) {
+  let fallbackRow = 1;
+  for (const rowElement of spreadsheetElements(source, 'row')) {
     const row = [];
+    const rowNumber = Number(spreadsheetAttribute(rowElement.attributes, 'r') || fallbackRow);
+    fallbackRow = rowNumber + 1;
     let fallbackColumn = 0;
-    for (const cell of (rowMatch[1] ?? '').matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/gi)) {
-      const reference = cell[1].match(/\br="([^"]+)"/i)?.[1] ?? '';
+    for (const cell of spreadsheetElements(rowElement.content, 'c')) {
+      const reference = spreadsheetAttribute(cell.attributes, 'r');
       const column = reference ? spreadsheetColumnIndex(reference) : fallbackColumn;
-      const type = cell[1].match(/\bt="([^"]+)"/i)?.[1] ?? '';
-      const content = cell[2] ?? '';
-      const raw = content.match(/<v\b[^>]*>([\s\S]*?)<\/v>/i)?.[1] ?? '';
-      const inline = [...content.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/gi)]
-        .map((match) => decodeXml(match[1])).join('');
-      const value = type === 's' ? (raw ? sharedStrings[Number(raw)] ?? '' : '')
-        : type === 'inlineStr' || inline ? inline : decodeXml(raw);
+      const type = spreadsheetAttribute(cell.attributes, 't');
+      const raw = spreadsheetElements(cell.content, 'v')[0]?.content ?? '';
+      const inline = spreadsheetElements(cell.content, 't').map(part => decodeXml(part.content)).join('');
+      const numeric = !type || type === 'n';
+      const formatted = numeric && formats
+        ? formatSpreadsheetNumber(decodeXml(raw), formats.styles[Number(spreadsheetAttribute(cell.attributes, 's') || 0)], formats)
+        : null;
+      const value = type === 's' && raw.trim() ? sharedStrings[Number(raw)] ?? raw
+        : type === 'inlineStr' || inline ? inline : formatted ?? decodeXml(raw);
       row[column] = cleanText(value, 2_000);
       fallbackColumn = column + 1;
     }
     if (row.some((value) => String(value ?? '').trim())) {
-      rowNumbers?.push(Number(rowMatch[0].match(/^<row\b[^>]*\br="(\d+)"/i)?.[1] ?? rows.length + 1));
+      rowNumbers?.push(rowNumber);
       rows.push(row);
     }
   }
@@ -809,39 +945,62 @@ function spreadsheetRange(reference) {
   return {firstRow:Number(match[2]),lastRow:Number(match[4] ?? match[2]),firstColumn:spreadsheetColumnIndex(match[1]),lastColumn:spreadsheetColumnIndex(match[3] ?? match[1])};
 }
 
+function spreadsheetSheet(buffer, descriptor, shared, relationships, formats) {
+  const attribute = spreadsheetAttribute;
+  const source = zipEntry(buffer, descriptor.entry)?.toString('utf8');
+  if (!source) return null;
+  const rowNumbers = [];
+  const rows = spreadsheetRows(source, shared, rowNumbers, formats);
+  const merges = spreadsheetElements(source, 'mergeCell')
+    .map(({ attributes }) => spreadsheetRange(attribute(attributes, 'ref'))).filter(Boolean);
+  const directory = path.posix.dirname(descriptor.entry);
+  const rels = relationships(zipEntry(buffer, `${directory}/_rels/${path.posix.basename(descriptor.entry)}.rels`)?.toString('utf8') ?? '');
+  const tables = spreadsheetElements(source, 'tablePart').flatMap(({ attributes }) => {
+    const target = rels.find(r => r.id === attribute(attributes, 'r:id'))?.target;
+    if (!target) return [];
+    const entry = path.posix.normalize(target.startsWith('/') ? target.slice(1) : `${directory}/${target}`);
+    const xml = zipEntry(buffer, entry)?.toString('utf8') ?? '';
+    const tag = spreadsheetElements(xml, 'table')[0]?.attributes ?? '';
+    const range = spreadsheetRange(attribute(tag, 'ref'));
+    if (!range) return [];
+    return [{...range, headerRowCount:Number(attribute(tag, 'headerRowCount') || 1), headers:spreadsheetElements(xml, 'tableColumn').map(c => attribute(c.attributes, 'name'))}];
+  });
+  return rows.length ? { name:descriptor.name, rows, rowNumbers, merges, tables } : null;
+}
+
 export function extractSpreadsheetTables(buffer) {
   try {
     if (buffer.subarray(0, 8).equals(COMPOUND_SIGNATURE)) return extractBiffSpreadsheetTables(buffer);
     const workbook = zipEntry(buffer, 'xl/workbook.xml')?.toString('utf8') ?? '';
-    const attribute = (xml, name) => decodeXml(xml.match(new RegExp(`\\b${name}="([^"]*)"`, 'i'))?.[1] ?? '');
-    const relationships = (xml) => [...xml.matchAll(/<Relationship\b[^>]*>/gi)].map(m => ({ id:attribute(m[0], 'Id'), target:attribute(m[0], 'Target') }));
+    // Without a workbook part this is not a readable .xlsx. The result then
+    // carries no `skipped` list, which tells the indexer it failed.
+    if (!workbook) return [];
+    const attribute = spreadsheetAttribute;
+    const relationships = (xml) => spreadsheetElements(xml, 'Relationship')
+      .map(({ attributes }) => ({ id: attribute(attributes, 'Id'), target: attribute(attributes, 'Target') }));
     const workbookRels = relationships(zipEntry(buffer, 'xl/_rels/workbook.xml.rels')?.toString('utf8') ?? '');
-    const descriptors = [...workbook.matchAll(/<sheet\b[^>]*>/gi)].map((m,index) => {
-      const target = workbookRels.find(r => r.id === attribute(m[0], 'r:id'))?.target;
-      return { name:attribute(m[0], 'name') || `Sheet ${index+1}`, entry:target ? path.posix.normalize(target.startsWith('/') ? target.slice(1) : `xl/${target}`) : `xl/worksheets/sheet${index+1}.xml` };
+    const descriptors = spreadsheetElements(workbook, 'sheet').map(({ attributes }, index) => {
+      const target = workbookRels.find(r => r.id === attribute(attributes, 'r:id'))?.target;
+      return { name: attribute(attributes, 'name') || `Sheet ${index+1}`, entry: target ? path.posix.normalize(target.startsWith('/') ? target.slice(1) : `xl/${target}`) : `xl/worksheets/sheet${index+1}.xml` };
     });
     const shared = spreadsheetStrings(zipEntry(buffer, 'xl/sharedStrings.xml')?.toString('utf8') ?? '');
+    let formats = null;
+    try {
+      formats = spreadsheetNumberFormats(zipEntry(buffer, 'xl/styles.xml')?.toString('utf8') ?? '', workbook);
+    } catch { /* unreadable styles leave stored numbers as they are */ }
     const sheets = [];
+    // One sheet that is too large or damaged is skipped on its own, so the
+    // workbook's other sheets stay searchable. Skipped names are reported.
+    const skipped = [];
     for (const descriptor of descriptors.slice(0, 40)) {
-      const source = zipEntry(buffer, descriptor.entry)?.toString('utf8');
-      if (!source) continue;
-      const rowNumbers = [];
-      const rows = spreadsheetRows(source, shared, rowNumbers);
-      const merges = [...source.matchAll(/<mergeCell\b[^>]*\bref="([^"]+)"/gi)].map(m => spreadsheetRange(m[1])).filter(Boolean);
-      const directory = path.posix.dirname(descriptor.entry);
-      const rels = relationships(zipEntry(buffer, `${directory}/_rels/${path.posix.basename(descriptor.entry)}.rels`)?.toString('utf8') ?? '');
-      const tables = [...source.matchAll(/<tablePart\b[^>]*>/gi)].flatMap(m => {
-        const target = rels.find(r => r.id === attribute(m[0], 'r:id'))?.target;
-        if (!target) return [];
-        const entry = path.posix.normalize(target.startsWith('/') ? target.slice(1) : `${directory}/${target}`);
-        const xml = zipEntry(buffer, entry)?.toString('utf8') ?? '';
-        const tag = xml.match(/<table\b[^>]*>/i)?.[0] ?? '';
-        const range = spreadsheetRange(attribute(tag, 'ref'));
-        if (!range) return [];
-        return [{...range, headerRowCount:Number(attribute(tag, 'headerRowCount') || 1), headers:[...xml.matchAll(/<tableColumn\b[^>]*>/gi)].map(c => attribute(c[0], 'name'))}];
-      });
-      if (rows.length) sheets.push({ name:descriptor.name, rows, rowNumbers, merges, tables });
+      try {
+        const sheet = spreadsheetSheet(buffer, descriptor, shared, relationships, formats);
+        if (sheet) sheets.push(sheet);
+      } catch {
+        skipped.push(descriptor.name);
+      }
     }
+    Object.defineProperty(sheets, 'skipped', { value: skipped });
     return sheets;
   } catch {
     return [];

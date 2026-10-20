@@ -2,31 +2,28 @@ import { createRemovableDrives } from './removable-drives.js?v=1';
 import { createSourceDialog } from './source-dialog.js?v=1';
 import { caretPointForTextLengths, contextualCompletionCase } from './editor-acceptance.js';
 import { createCommandPalette } from './palette.js';
-import { createDirectorySidebar, createTabBar, createSidebarResize, createSpatialWorkbench, renderSession, shortenPath } from './shell.js?v=4';
-import { createSourceWorkbench } from './source-workbench.js?v=4';
+import { createDirectorySidebar, createTabBar, createSpatialWorkbench, renderSession } from './shell.js?v=5';
+import { createSourceWorkbench } from './source-workbench.js?v=6';
 import { renderAssistBox } from './assist-box.js?v=2';
 import { renderModelPlan, bindModelPlans } from './model-preview.js?v=2';
+import { createVisibilityRefresh } from './visibility-refresh.js';
+import { dismissLassoOverlays } from './escape-dismissal.js';
 
 const desktop = window.lassoPlatform;
 const openSourceDialog = createSourceDialog({ api, getActor: () => state.identity, onStatus: message => toast(message) });
-const shortcut = (key, shift = false) => desktop?.shortcut(key, shift) ?? `⌘${shift ? '⇧' : ''}${key}`;
+const shortcut = (key, shift = false) => desktop?.shortcut(key, shift) ?? `${shift ? '⇧' : ''}⌘${key}`;
 
 const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
 const RECOMMENDATION_SESSION_ID = crypto.randomUUID();
 const AUTOMATIC_SUGGESTION_LIMIT = 5;
-// The interface build, taken from this module's own cache-busting query. Shown
-// in the terminal banner so "which build am I running?" is answerable on sight.
-const UI_BUILD = new URL(import.meta.url).searchParams.get('v') ?? 'dev';
 
 const state = {
   projects: [],
+  workspace: { directories: [], activeProjectIds: [], revision: null },
   project: null,
   preview: null,
-  previewRevision: 0,
-  sourceViewerRevision: 0,
   identity: loadIdentity(),
   proposedExecution: null,
-  pollTimer: null,
   statusTimer: null,
   projectSwitchRevision: 0,
   view: 'timeline',
@@ -38,6 +35,8 @@ const state = {
     pendingLinks: [], autosaveTimer: null, savePromise: null, editRevision: 0,
     undoStack: [], redoStack: [], restoringHistory: false, lastHistoryAt: 0, lastHistoryType: null,
     activeDependencyId: null, sourcePeekTimer: null, sourcePeekRequest: 0,
+    navigationRevision: 0, pickerTimer: null, pickerController: null,
+    inspectorRequest: 0, viewerRequest: 0, sharingRequest: 0,
   },
 };
 
@@ -83,8 +82,49 @@ async function api(url, options = {}) {
   return body;
 }
 
+let nativeWindowVisible = window.__lassoWindowVisible !== false;
+const projectRefresh = createVisibilityRefresh({
+  visible: !document.hidden && nativeWindowVisible,
+  load: (projectId, signal) => Promise.all([
+    projectId === 'workspace' ? Promise.resolve(null) : api(`/api/projects/${projectId}`, { signal }),
+    api('/api/workspace', { signal }),
+  ]),
+  apply: ([projectResponse, workspace], projectId) => {
+    if ((state.project?.id ?? 'workspace') !== projectId) return;
+    const changed = applyWorkspace(workspace);
+    const projectChanged = projectResponse && JSON.stringify(state.project) !== JSON.stringify(projectResponse.project);
+    if (projectResponse) state.project = projectResponse.project;
+    if (changed || projectChanged) {
+      if (state.project) renderProjectContext();
+      else {
+        const first = state.projects.find(project => project.available !== false);
+        if (first) void selectProject(first.id, false).catch(error => toast(error.message, 'error'));
+        else renderEmpty();
+      }
+    }
+    if (changed) {
+      clearPrediction();
+      dependencyShell.reset();
+      if (state.view === 'session' && state.project) void dependencyShell.refresh();
+    }
+  },
+  onError: error => toast(error.message, 'error'),
+});
+function updateWindowVisibility() {
+  const visible = !document.hidden && nativeWindowVisible;
+  projectRefresh.setVisible(visible);
+  if (!visible) clearPrediction();
+}
+document.addEventListener('visibilitychange', updateWindowVisibility);
+window.addEventListener('lasso-window-visibility', event => {
+  nativeWindowVisible = event.detail?.visible !== false;
+  updateWindowVisibility();
+});
+window.addEventListener('pagehide', () => projectRefresh.setVisible(false));
+window.addEventListener('pageshow', updateWindowVisibility);
+
 function recordRecommendationUsage(source, kind, context = {}) {
-  const projectId = context.projectId ?? state.project?.id;
+  const projectId = source?.projectId ?? (Object.hasOwn(context, 'projectId') ? context.projectId : state.project?.id);
   const identity = source?.objectId ? { objectId: source.objectId }
     : source?.dependencyId ? { dependencyId: source.dependencyId }
       : source?.path ? { path: source.path } : null;
@@ -93,9 +133,14 @@ function recordRecommendationUsage(source, kind, context = {}) {
     method: 'POST',
     body: JSON.stringify({
       ...identity, kind, sessionId: RECOMMENDATION_SESSION_ID,
-      documentPath: context.documentPath ?? state.editor.document?.path,
+      documentPath: Object.hasOwn(context, 'documentPath') ? context.documentPath : state.editor.document?.path,
     }),
   }).catch(() => { /* Ranking history must never interrupt the requested action. */ });
+}
+
+/** For actions started from a click: show a failure instead of doing nothing. */
+function reportError(error) {
+  toast(error?.message || 'Something went wrong. Try again.', 'error');
 }
 
 function toast(message, type = '') {
@@ -131,19 +176,43 @@ function formatDateTime(value) {
 }
 
 async function loadProjects(preferredId = null) {
-  const { projects } = await api('/api/projects');
-  state.projects = projects;
-  renderProjectOptions();
+  applyWorkspace(await api('/api/workspace'));
+  const projects = state.projects.filter(project => project.available !== false);
   const saved = preferredId ?? localStorage.getItem('lasso.projectId') ?? localStorage.getItem('colab.projectId');
-  const project = projects.find((candidate) => candidate.id === saved) ?? projects[0] ?? null;
+  const project = projects.find((candidate) => candidate.id === saved) ?? projects.find(candidate => candidate.active) ?? projects[0] ?? null;
   if (project) await selectProject(project.id, true);
   else renderEmpty();
 }
 
-function renderProjectOptions() {
-  elements['project-select'].innerHTML = '<option value="">No project selected</option>' + state.projects
-    .map(project => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)} · V${project.currentVersion}${project.availability === 'offline' ? ' · Offline (cached)' : ''}</option>`).join('');
-  elements['project-select'].value = state.project?.id ?? '';
+function workspaceVersion() {
+  return `${state.workspace.revision}:${state.projects.filter(project => project.active && project.available !== false)
+    .map(project => `${project.id}:${project.currentSnapshotId}`).join(',')}`;
+}
+
+function applyWorkspace(workspace) {
+  if (Number.isFinite(workspace.revision) && Number.isFinite(state.workspace.revision)
+    && workspace.revision < state.workspace.revision) return false;
+  const changed = JSON.stringify(state.workspace) !== JSON.stringify(workspace);
+  state.workspace = workspace;
+  state.projects = workspace.directories ?? [];
+  elements['project-select'].innerHTML = '<option value="">No directory selected</option>' + state.projects
+    .map(project => `<option value="${escapeHtml(project.id)}" ${project.available === false ? 'disabled' : ''}>${escapeHtml(project.name)} · V${project.currentVersion}${project.active ? '' : ' · Paused'}${project.availability === 'offline' ? ' · Offline (cached)' : ''}</option>`).join('');
+  if (state.project) elements['project-select'].value = state.project.id;
+  return changed;
+}
+
+async function toggleDirectory(projectId, active) {
+  try {
+    await api(`/api/workspace/directories/${encodeURIComponent(projectId)}`, {
+      method: 'POST', body: JSON.stringify({ active, actor: state.identity }),
+    });
+    applyWorkspace(await api('/api/workspace'));
+    clearPrediction();
+    dependencyShell.reset();
+    renderProjectContext();
+    if (state.view === 'session') await dependencyShell.refresh();
+    toast(active ? 'Directory included in workspace' : 'Directory paused');
+  } catch (error) { refreshShell(); toast(error.message, 'error'); }
 }
 
 function projectIsOffline() {
@@ -181,9 +250,8 @@ function syncOfflineEditor() {
 // Device changes update metadata without reopening a document or replacing its
 // unsaved contents. A new index becomes active only when it is safe to switch.
 async function refreshDriveProjects({ preferredId = null, removedProjectIds = [] } = {}) {
-  const { projects } = await api('/api/projects');
-  state.projects = projects;
-  renderProjectOptions();
+  applyWorkspace(await api('/api/workspace'));
+  const projects = state.projects;
   if (removedProjectIds.includes(state.project?.id)) {
     ++state.projectSwitchRevision;
     clearInterval(state.pollTimer);
@@ -209,6 +277,7 @@ async function refreshDriveProjects({ preferredId = null, removedProjectIds = []
 
 async function selectProject(projectId, reconcile = true) {
   const switchRevision = ++state.projectSwitchRevision;
+  state.editor.navigationRevision += 1;
   const previousProjectId = state.project?.id ?? null;
   const switchingProjects = Boolean(previousProjectId && previousProjectId !== projectId);
   const reopenEditor = state.view === 'editor';
@@ -222,6 +291,7 @@ async function selectProject(projectId, reconcile = true) {
     }
   }
   const listedProject = state.projects.find((project) => project.id === projectId);
+  if (listedProject?.available === false) throw new Error('This directory is unavailable. Restore it before opening its documents.');
   const nextProject = listedProject ?? (await api(`/api/projects/${projectId}`)).project;
   if (switchRevision !== state.projectSwitchRevision) return false;
   if (switchingProjects) {
@@ -230,8 +300,6 @@ async function selectProject(projectId, reconcile = true) {
     dependencyShell.reset();
   }
   state.project = nextProject;
-  state.previewRevision += 1;
-  state.sourceViewerRevision += 1;
   state.preview = null;
   state.selection = null;
   localStorage.setItem('lasso.projectId', projectId);
@@ -239,7 +307,7 @@ async function selectProject(projectId, reconcile = true) {
   if (reopenEditor) {
     elements['detail-column'].innerHTML = `<div class="detail-placeholder"><p>Opening ${escapeHtml(nextProject.name)} documents…</p></div>`;
   }
-  if (reconcile) {
+  if (reconcile && listedProject?.active) {
     try {
       const result = await api(`/api/projects/${projectId}/open`, {
         method: 'POST', body: JSON.stringify({ actor: state.identity }),
@@ -255,8 +323,6 @@ async function selectProject(projectId, reconcile = true) {
   renderProjectContext();
   elements['editor-nav'].disabled = false;
   elements['ribbon-editor'].disabled = false;
-  clearInterval(state.pollTimer);
-  state.pollTimer = setInterval(() => refreshProject(true), 5000);
   // Load the document list so tabs and the palette are populated, then rest on
   // the session view unless the user already had a document open.
   try {
@@ -264,24 +330,14 @@ async function selectProject(projectId, reconcile = true) {
     if (state.project?.id === projectId) state.editor.documents = documents;
   } catch { /* the session view says when nothing is indexed */ }
   if (reopenEditor) await openManuscriptWorkspace(null, { projectId, switchRevision });
-  else showSession();
+  else await showSession();
   return true;
 }
 
 async function refreshProject(silent = false, requestedProjectId = state.project?.id) {
-  if (!requestedProjectId) return;
-  try {
-    const [projectResponse, projectsResponse] = await Promise.all([
-      api(`/api/projects/${requestedProjectId}`),
-      api('/api/projects'),
-    ]);
-    if (state.project?.id !== requestedProjectId) return;
-    state.project = projectResponse.project;
-    state.projects = projectsResponse.projects;
-    renderProjectContext();
-  } catch (error) {
-    if (!silent) toast(error.message, 'error');
-  }
+  if (!requestedProjectId || state.project?.id !== requestedProjectId) return;
+  projectRefresh.setProject(requestedProjectId);
+  await projectRefresh.refresh({ silent });
 }
 
 function renderProjectContext() {
@@ -290,14 +346,15 @@ function renderProjectContext() {
   elements['project-name'].textContent = current.name;
   elements['project-path'].textContent = `${current.rootPath}${current.availability === 'offline' ? ' · Offline — browsing saved copies' : ''}`;
   elements['project-path'].title = current.rootPath;
-  document.title = `${current.name} — Lasso`;
+  document.title = `${current.name} · Lasso`;
   refreshShell();
-  // Keep the desktop companion scoped to the selected project.
-  desktop?.postMessage({ activeProjectId: current.id });
-  elements['window-project-name'].textContent = current.name;
-  elements['status-project'].textContent = current.name;
+  // The Windows companion scopes its suggestions to the selected directory;
+  // the Mac app reads the workspace's active directories instead.
+  if (desktop?.isWindows) desktop.postMessage({ activeProjectId: current.id });
   elements['status-version'].textContent = `Version ${current.currentVersion}`;
-  elements['status-files'].textContent = `${current.fileCount ?? state.project.fileCount ?? 0} files`;
+  const active = state.projects.filter(project => project.active && project.available !== false);
+  elements['status-project'].textContent = `${active.length} ${active.length === 1 ? 'directory' : 'directories'} active`;
+  elements['status-files'].textContent = `${active.reduce((count, project) => count + (project.fileCount ?? 0), 0)} files`;
   const selectedOption = elements['project-select'].querySelector(`option[value="${current.id}"]`);
   if (selectedOption) selectedOption.textContent = `${current.name} · V${current.currentVersion}${current.availability === 'offline' ? ' · Offline (cached)' : ''}`;
   syncOfflineEditor();
@@ -305,7 +362,8 @@ function renderProjectContext() {
 
 function renderEmpty() {
   state.project = null;
-  desktop?.postMessage({ activeProjectId: null });
+  projectRefresh.setProject('workspace');
+  if (desktop?.isWindows) desktop.postMessage({ activeProjectId: null });
   elements['project-name'].textContent = 'Welcome to Lasso';
   showSession();
   elements['project-path'].textContent = 'Choose a local directory to begin.';
@@ -318,37 +376,37 @@ function renderEmpty() {
   elements['status-files'].textContent = '0 files';
 }
 
-async function showPreview(snapshotId, path, returnEventId = null, focusAnchor = null) {
-  const revision = ++state.previewRevision;
-  const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
-  const isCurrent = () => revision === state.previewRevision && usageContext.projectId === state.project?.id;
+async function showPreview(snapshotId, path, focusAnchor = null, source = null, context = null) {
+  const usageContext = context ?? { projectId: state.project?.id, documentPath: state.editor.document?.path };
+  const requestedProjectId = state.project?.id;
+  const navigationRevision = ++state.editor.navigationRevision;
+  const isCurrent = () => requestedProjectId === state.project?.id && navigationRevision === state.editor.navigationRevision;
   try {
     const parameters = new URLSearchParams({ path });
     if (focusAnchor?.elementId) parameters.set('elementId', focusAnchor.elementId);
     if (focusAnchor?.featureId) parameters.set('featureId', focusAnchor.featureId);
     const { preview } = await api(`/api/snapshots/${snapshotId}/preview?${parameters}`);
     if (!isCurrent()) return;
-    state.preview = preview;
+    state.preview = { ...preview, projectId: source?.projectId ?? usageContext.projectId };
     state.selection = null;
-    renderPreview(preview, returnEventId, focusAnchor);
-    recordRecommendationUsage({ path }, 'open', usageContext);
+    renderPreview(preview, focusAnchor);
+    recordRecommendationUsage(source?.id ? { objectId: source.id, projectId: source.projectId } : { path, projectId: source?.projectId }, 'open', usageContext);
   } catch (error) { if (isCurrent()) toast(error.message, 'error'); }
 }
 
-function renderPreview(preview, returnEventId, focusAnchor = null) {
+function renderPreview(preview, focusAnchor = null) {
   elements['detail-column'].innerHTML = `<div class="preview-view">
     <header class="preview-header">
       <div class="preview-title"><strong>${escapeHtml(preview.path)}</strong><span>Version ${preview.version} · ${escapeHtml(preview.fileType)}</span></div>
-      <div class="preview-actions">${returnEventId ? `<button class="secondary-button" id="back-to-event">Back to event</button>` : ''}<button class="primary-button" id="request-info" disabled>Request information</button></div>
+      <div class="preview-actions"><button class="primary-button" id="request-info" disabled>Request information</button></div>
     </header>
-    <div class="preview-body"><p class="selection-hint">${preview.kind === 'model-plan' ? (preview.selected ? 'The indexed element is highlighted in the preserved model. Drag to pan, or show its surrounding context.' : 'Plan overview of the preserved model. Drag to pan or use the zoom controls.') : `Select a sentence, line, cell, or value below. The selection is anchored to Version ${preview.version}.`}</p>${previewContent(preview)}<div id="rfi-result"></div></div>
+    <div class="preview-body"><p class="selection-hint">${preview.kind === 'model-plan' ? (preview.selected ? 'The indexed element is highlighted in the preserved model. Drag to pan, or show its surrounding context.' : 'Plan overview of the preserved model. Drag to pan or use the zoom controls.') : preview.kind === 'pdf' ? `Read the preserved PDF below, or expand its text to select evidence from Version ${preview.version}.` : `Select a sentence, line, cell, or value below. The selection is anchored to Version ${preview.version}.`}</p>${previewContent(preview, focusAnchor)}<div id="rfi-result"></div></div>
   </div>`;
   elements['detail-column'].scrollTop = 0;
-  if (returnEventId) document.getElementById('back-to-event').addEventListener('click', () => showEvent(returnEventId));
   document.getElementById('request-info').addEventListener('click', requestInformation);
   bindSelections();
   bindModelPlans(elements['detail-column']);
-  if (focusAnchor) focusPreviewAnchor(focusAnchor);
+  if (focusAnchor && preview.kind !== 'pdf') focusPreviewAnchor(focusAnchor);
 }
 
 function focusPreviewAnchor(anchor) {
@@ -371,16 +429,52 @@ function focusPreviewAnchor(anchor) {
   node.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-function previewContent(preview) {
+/** Large files preview their start only; say so rather than look complete. */
+function previewLimitNote(shown, total, unit) {
+  if (!total || total <= shown) return '';
+  return `<p class="source-viewer-truncated">Showing the first ${shown.toLocaleString()} of ${total.toLocaleString()} ${unit}. Open the file to see the rest.</p>`;
+}
+
+function previewContent(preview, focusAnchor = null) {
   if (preview.kind === 'model-plan') return renderModelPlan(preview);
   if (preview.kind === 'model-unavailable') return `<p class="selection-hint">${escapeHtml(preview.reason ?? 'No displayable geometry was found for this indexed element.')}</p>`;
+  if (preview.kind === 'pdf') {
+    const page = Math.max(1, Math.floor(Number(focusAnchor?.pageNumber ?? focusAnchor?.page ?? preview.pageNumber) || 1));
+    const pages = (preview.pages ?? []).filter(item => item.text?.trim());
+    return `<iframe class="source-viewer-pdf snapshot-pdf" src="${escapeHtml(`${preview.fileUrl}#page=${page}&zoom=page-width`)}" title="${escapeHtml(preview.path)}"></iframe>${(preview.warnings ?? []).map(warning => `<p class="selection-hint">${escapeHtml(warning)}</p>`).join('')}${pages.length ? `<details class="pdf-source-text"><summary>Selectable PDF text</summary>${pages.map(item => `<div class="notebook-cell"><div class="cell-label">Page ${escapeHtml(item.pageNumber)}</div><div class="cell-source selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text)}</div></div>`).join('')}</details>` : ''}`;
+  }
   if (preview.kind === 'drawing') return `${(preview.warnings ?? []).map(warning => `<p class="selection-hint">${escapeHtml(warning)}</p>`).join('')}<div class="json-preview">${preview.items.map(item => `<span class="json-path" title="${escapeHtml(item.location)}">${escapeHtml(item.path)}<small> · ${item.basis === 'geometry' ? 'Measured geometry' : 'Model property'}</small></span><span class="json-value selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.value)}</span>`).join('')}</div>`;
   if (preview.kind === 'blocks') return preview.items.map((item) => `<div class="preview-block ${item.blockType} selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text)}</div>`).join('');
-  if (preview.kind === 'lines') return `<div class="code-preview">${preview.items.map((item) => `<div class="code-line"><span class="number">${item.label}</span><span class="selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text) || ' '}</span></div>`).join('')}</div>`;
-  if (preview.kind === 'table') return `<div style="overflow:auto"><table class="data-preview"><thead><tr>${preview.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>${preview.rows.map((row) => `<tr>${row.cells.map((cell) => `<td class="selectable" data-anchor='${escapeHtml(JSON.stringify(cell.anchor))}'>${escapeHtml(cell.value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-  if (preview.kind === 'json') return `<div class="json-preview">${preview.items.map((item) => `<span class="json-path">${escapeHtml(item.path)}</span><span class="json-value selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.value)}</span>`).join('')}</div>`;
+  if (preview.kind === 'lines') return `<div class="code-preview">${preview.items.map((item) => `<div class="code-line"><span class="number">${item.label}</span><span class="selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text) || ' '}</span></div>`).join('')}</div>${previewLimitNote(preview.items.length, preview.totalItems, 'lines')}`;
+  if (preview.kind === 'table') return `<div style="overflow:auto"><table class="data-preview"><thead><tr>${preview.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>${preview.rows.map((row) => `<tr>${row.cells.map((cell) => `<td class="selectable" data-anchor='${escapeHtml(JSON.stringify(cell.anchor))}'>${escapeHtml(cell.value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>${previewLimitNote(preview.rows.length, preview.totalRows, 'rows')}`;
+  if (preview.kind === 'json') return `<div class="json-preview">${preview.items.map((item) => `<span class="json-path">${escapeHtml(item.path)}</span><span class="json-value selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.value)}</span>`).join('')}</div>${previewLimitNote(preview.items.length, preview.totalItems, 'values')}`;
   if (preview.kind === 'notebook') return preview.cells.map((cell) => `<div class="notebook-cell"><div class="cell-label">${escapeHtml(cell.type)} · ${escapeHtml(cell.id)}</div><div class="cell-source selectable" data-anchor='${escapeHtml(JSON.stringify(cell.anchor))}'>${escapeHtml(cell.source)}</div></div>`).join('');
   return `<div class="binary-preview"><p>${escapeHtml(preview.message)}</p><span>${preview.size.toLocaleString()} bytes</span><span class="binary-hash">SHA-256 ${preview.contentHash}</span></div>`;
+}
+
+function bindSelections() {
+  document.querySelectorAll('.selectable[data-anchor]').forEach(node => {
+    node.addEventListener('click', () => {
+      document.querySelectorAll('.selected-anchor').forEach(selected => selected.classList.remove('selected-anchor'));
+      node.classList.add('selected-anchor');
+      state.selection = JSON.parse(node.dataset.anchor);
+      document.getElementById('request-info').disabled = false;
+    });
+  });
+}
+
+async function requestInformation() {
+  const preview = state.preview;
+  const anchor = state.selection;
+  if (!preview || !anchor) return;
+  const target = document.getElementById('rfi-result');
+  try {
+    const { rfi } = await api(`/api/projects/${encodeURIComponent(preview.projectId)}/rfi`, {
+      method: 'POST', body: JSON.stringify({ snapshotId: preview.snapshotId, path: preview.path, anchor }),
+    });
+    if (!target.isConnected || state.preview !== preview) return;
+    target.innerHTML = `<section class="source-lineage"><h3>Recorded source history</h3><p>${escapeHtml(rfi.message ?? 'The source has recorded provenance.')}</p>${rfi.history.map(item => `<p>Version ${item.version} · ${escapeHtml(String(item.value))}</p>`).join('')}${rfi.provenance.map(link => `<p>${escapeHtml(link.relation)} · ${escapeHtml(link.to.path ?? link.metadata?.label ?? 'Recorded source')}</p>`).join('')}</section>`;
+  } catch (error) { toast(error.message, 'error'); }
 }
 
 function textOffset(root, target, offset) {
@@ -391,7 +485,7 @@ function textOffset(root, target, offset) {
 }
 
 function setWorkspaceView(view) {
-  state.previewRevision += 1;
+  if (view !== 'editor') state.editor.navigationRevision += 1;
   state.view = view;
   if (desktop?.isWindows && view !== 'session') {
     document.querySelectorAll('.rail-navigation .rail-item').forEach(button => { button.classList.remove('active'); button.removeAttribute('aria-current'); });
@@ -405,6 +499,8 @@ function setWorkspaceView(view) {
 }
 
 function resetEditorProjectState() {
+  state.editor.navigationRevision += 1;
+  hideDependencyPicker();
   clearPrediction();
   clearTimeout(state.editor.autosaveTimer);
   clearTimeout(state.editor.revealTimer);
@@ -432,12 +528,13 @@ function resetEditorProjectState() {
 async function openManuscriptWorkspace(preferredPath = null, options = {}) {
   const projectId = options.projectId ?? state.project?.id;
   if (!projectId || state.project?.id !== projectId) return;
+  const navigationRevision = ++state.editor.navigationRevision;
   setWorkspaceView('editor');
   const column = document.querySelector('.files-column');
   if (column) column.innerHTML = '<div class="column-header"><div><span class="eyebrow">Project files</span><h2>Documents</h2></div><span class="editor-live-pill">Sources</span></div><div class="manuscript-browser" id="manuscript-browser"><p class="browser-loading">Finding editable documents…</p></div>';
   try {
     const { documents } = await api(`/api/projects/${projectId}/documents`);
-    if (state.project?.id !== projectId
+    if (state.project?.id !== projectId || navigationRevision !== state.editor.navigationRevision
       || (options.switchRevision != null && options.switchRevision !== state.projectSwitchRevision)) return;
     state.editor.documents = documents;
     renderManuscriptBrowser();
@@ -446,7 +543,7 @@ async function openManuscriptWorkspace(preferredPath = null, options = {}) {
     if (target) await openDocument(target, projectId);
     else elements['detail-column'].innerHTML = '<div class="detail-placeholder"><h2>No editable document found</h2><p>Add a document to the selected project, then checkpoint the project.</p></div>';
   } catch (error) {
-    if (state.project?.id !== projectId) return;
+    if (state.project?.id !== projectId || navigationRevision !== state.editor.navigationRevision) return;
     toast(error.message, 'error');
     const browser = document.getElementById('manuscript-browser');
     if (browser) browser.innerHTML = `<p class="browser-loading">${escapeHtml(error.message)}</p>`;
@@ -471,9 +568,20 @@ function renderManuscriptBrowser() {
 
 async function openDocument(filePath, requestedProjectId = state.project?.id) {
   if (!requestedProjectId || state.project?.id !== requestedProjectId) return;
-  setWorkspaceView('editor');
+  const navigationRevision = ++state.editor.navigationRevision;
+  const isCurrent = () => navigationRevision === state.editor.navigationRevision && state.project?.id === requestedProjectId;
+  if (state.editor.document && (state.editor.dirty || state.editor.pendingLinks.length || state.editor.savePromise)) {
+    await saveDocument();
+    if (!isCurrent()) return;
+    if (state.editor.dirty || state.editor.pendingLinks.length) {
+      toast('Finish saving the current document before opening another document.', 'error');
+      return;
+    }
+  }
   shell.activeTab = `doc:${filePath}`;
+  setWorkspaceView('editor');
   refreshShell();
+  hideDependencyPicker();
   clearPrediction();
   clearTimeout(state.editor.autosaveTimer);
   state.editor.autosaveTimer = null;
@@ -486,19 +594,29 @@ async function openDocument(filePath, requestedProjectId = state.project?.id) {
   elements['detail-column'].innerHTML = '<div class="detail-placeholder"><p>Opening manuscript…</p></div>';
   try {
     const { document } = await api(`/api/projects/${requestedProjectId}/documents?path=${encodeURIComponent(filePath)}`);
-    if (state.project?.id !== requestedProjectId) return;
+    if (!isCurrent()) return;
+    const refreshedProject = (await api(`/api/projects/${requestedProjectId}`)).project;
+    if (!isCurrent()) return;
     state.editor.document = { ...prepareDocumentForEditor(document), projectId: requestedProjectId };
     state.editor.documents = state.editor.documents.map((item) => item.path === document.path
       ? { ...item, ...document.audit.summary }
       : item);
     state.editor.dirty = false;
-    const refreshedProject = (await api(`/api/projects/${requestedProjectId}`)).project;
-    if (state.project?.id !== requestedProjectId) return;
     state.project = refreshedProject;
     renderManuscriptBrowser();
     renderDocumentEditor();
   } catch (error) {
-    if (state.project?.id === requestedProjectId) toast(error.message, 'error');
+    if (!isCurrent()) return;
+    toast(error.message, 'error');
+    // Never leave the "Opening…" placeholder behind: return to the document
+    // that was open, or say why nothing could be opened.
+    if (state.editor.document) {
+      shell.activeTab = `doc:${state.editor.document.path}`;
+      refreshShell();
+      renderDocumentEditor();
+    } else {
+      elements['detail-column'].innerHTML = `<div class="detail-placeholder"><p>${escapeHtml(error.message)}</p></div>`;
+    }
   }
 }
 
@@ -580,7 +698,7 @@ function renderDocumentEditor() {
     <header class="editor-header">
       <div class="editor-title-group">
         <div class="editor-history-buttons"><button data-editor-command="undo" title="Undo">↶</button><button data-editor-command="redo" title="Redo">↷</button></div>
-        <div class="editor-document-title"><select id="editor-document-switcher" aria-label="Current document">${documentOptions}</select><small>Version ${documentState.version} · ${escapeHtml(fileLabel)} · source-backed editing</small></div>
+        <div class="editor-document-title"><select id="editor-document-switcher" aria-label="Current document">${documentOptions}</select><small>Version ${documentState.version} · ${escapeHtml(fileLabel)}</small></div>
       </div>
       <div class="editor-header-actions"><span id="editor-save-state">Saved</span><button id="audit-button">Sources</button><button id="save-document" disabled>Save now</button><button class="editor-share-button" id="editor-share-button">Share <span>⌄</span></button></div>
     </header>
@@ -599,7 +717,7 @@ function renderDocumentEditor() {
       <aside id="dependency-inspector" class="dependency-inspector" hidden aria-label="Source inspector"></aside>
       <aside id="source-peek" class="source-peek" hidden aria-label="Source preview"></aside>
     </div>
-    <div class="t-editor-status" aria-hidden="true"><b>EDIT</b><span>[${shortcut('Z')}] undo · [${shortcut('L', true)}] link source · [Tab] accept suggestion · [Esc] dismiss</span></div>
+    <div class="t-editor-status" aria-hidden="true"><span><kbd>${shortcut('Z')}</kbd> Undo</span><span><kbd>${shortcut('L', true)}</kbd> Link source</span><span><kbd>Tab</kbd> Accept suggestion</span><span><kbd>Esc</kbd> Dismiss</span></div>
   </div>`;
   elements['detail-column'].scrollTop = 0;
   bindEditorSurface();
@@ -823,12 +941,12 @@ async function showSourcePeek(dependencyId, sourceNode) {
     peek.style.left = `${left}px`;
     peek.style.top = `${top}px`;
     peek.hidden = false;
-    peek.addEventListener('pointerenter', () => clearTimeout(state.editor.sourcePeekTimer));
-    peek.addEventListener('pointerleave', () => scheduleSourcePeekClose());
+    peek.onpointerenter = () => clearTimeout(state.editor.sourcePeekTimer);
+    peek.onpointerleave = () => scheduleSourcePeekClose();
     peek.querySelector('header button').addEventListener('click', () => scheduleSourcePeekClose(0));
     peek.querySelector('.source-peek-open').addEventListener('click', () => {
       scheduleSourcePeekClose(0);
-      showDependencyInspector(dependencyId, sourceNode);
+      showDependencyInspector(dependencyId, sourceNode).catch(reportError);
     });
   } catch {
     if (peek) peek.hidden = true;
@@ -844,7 +962,7 @@ function bindLinkedClaimNode(node) {
     }
     if (node.dataset.dependencyId) {
       scheduleSourcePeekClose(0);
-      showDependencyInspector(node.dataset.dependencyId, node);
+      showDependencyInspector(node.dataset.dependencyId, node).catch(reportError);
     }
   });
   if (node.dataset.dependencyId) {
@@ -1098,6 +1216,7 @@ function caretOffsetWithin(block) {
 async function predictForBlock(block) {
   if (!block?.isConnected || !block.textContent.trim()) return;
   const requestedText = block.textContent;
+  const requestedDocument = state.editor.document;
   const controller = new AbortController();
   state.editor.predictionController?.abort();
   state.editor.predictionController = controller;
@@ -1107,7 +1226,7 @@ async function predictForBlock(block) {
     const blockIndex = Number(block.dataset.blockIndex);
     const section = blocks.slice(0, blockIndex + 1).reverse()
       .find((item) => item.dataset.blockType === 'heading')?.textContent ?? '';
-    const { prediction } = await api(`/api/projects/${state.project.id}/dependencies/predict`, {
+    const { prediction } = await api('/api/workspace/dependencies/predict', {
       method: 'POST', body: JSON.stringify({
         text: requestedText,
         context: blocks.slice(Math.max(0, blockIndex - 1), blockIndex + 2).map((item) => item.textContent).join(' '),
@@ -1115,6 +1234,7 @@ async function predictForBlock(block) {
         blockIndex,
         section,
         documentPath: state.editor.document.path,
+        documentProjectId: state.editor.document.projectId,
         sourceScopeBoundary: Number.isInteger(Number(block.dataset.sourceScopeBoundary))
           ? Number(block.dataset.sourceScopeBoundary) : undefined,
         pendingDependencies: pendingDependenciesForPrediction(),
@@ -1122,6 +1242,26 @@ async function predictForBlock(block) {
     });
     if (controller.signal.aborted || state.editor.predictionController !== controller
       || !block.isConnected || block.textContent !== requestedText) return;
+    if (prediction.workspaceRevision != null && prediction.workspaceRevision !== state.workspace.revision) {
+      clearPrediction();
+      const refreshController = new AbortController();
+      state.editor.predictionController = refreshController;
+      try {
+        const workspace = await api('/api/workspace', { signal: refreshController.signal });
+        if (refreshController.signal.aborted || state.editor.predictionController !== refreshController) return;
+        if (applyWorkspace(workspace)) {
+          renderProjectContext();
+          dependencyShell.reset();
+        }
+        if (block.isConnected && block.textContent === requestedText
+          && state.editor.document === requestedDocument && state.editor.activeBlock === block) {
+          state.editor.predictionTimer = setTimeout(() => predictForBlock(block), 45);
+        }
+      } finally {
+        if (state.editor.predictionController === refreshController) state.editor.predictionController = null;
+      }
+      return;
+    }
     if (prediction.sourceCompletions?.length && prediction.sourceContext?.source) {
       const findings = prediction.sourceCompletions.slice(0, AUTOMATIC_SUGGESTION_LIMIT)
         .map((finding) => ({ ...finding, block, requestedText }));
@@ -1188,12 +1328,16 @@ async function predictForBlock(block) {
         && claim.candidates.some((candidate) => candidate.completionText);
       const completesReferenceComponent = ['TABLE_REFERENCE', 'FIGURE'].includes(claim.type) && claim.partial
         && claim.candidates.some((candidate) => candidate.componentText);
+      const completesDrawingReference = claim.type === 'ENTITY' && claim.partial
+        && claim.candidates.some((candidate) => candidate.objectType === 'DRAWING' && candidate.label);
       state.editor.prediction = {
-        mode: completesCitation || completesStudyVariable || completesReferenceComponent ? 'COMPLETE_AND_LINK' : 'LINK',
+        mode: completesCitation || completesStudyVariable || completesReferenceComponent || completesDrawingReference
+          ? 'COMPLETE_AND_LINK' : 'LINK',
         completion: completesCitation
           ? { kind: 'CITATION', block, requestedText }
           : completesStudyVariable ? { kind: 'STUDY_VARIABLE', block, requestedText }
-            : completesReferenceComponent ? { kind: 'REFERENCE_COMPONENT', block, requestedText } : null,
+            : completesReferenceComponent ? { kind: 'REFERENCE_COMPONENT', block, requestedText }
+              : completesDrawingReference ? { kind: 'DRAWING_REFERENCE', block, requestedText } : null,
         claim, sourceContext: prediction.sourceContext,
         blockIndex, blockType: block.dataset.blockType, block,
       };
@@ -1240,7 +1384,9 @@ function predictionEdit(prediction, candidate, selectedIndex = 0) {
     const end = suggestion.claimEnd;
     const typed = completion.requestedText.slice(start, end);
     const before = completion.requestedText.slice(0, start);
-    const joiner = start === end && before && !/\s$/.test(before) ? ' ' : '';
+    const joiner = start === end && before && !/\s$/.test(before)
+      && !/^\s/.test(suggestion.replacementText) && !/[([{“"]$/.test(before)
+      && !/^[,.;:!?)}\]]/.test(suggestion.replacementText) ? ' ' : '';
     const labelCompletion = ['Column', 'Row', 'Variable'].includes(suggestion.category);
     const replacement = contextualCompletionCase(
       suggestion.replacementText,
@@ -1260,16 +1406,18 @@ function predictionEdit(prediction, candidate, selectedIndex = 0) {
         ? `${joiner}${replacement.slice(typed.length)}` : '',
     };
   }
-  if (['CITATION', 'STUDY_VARIABLE', 'REFERENCE_COMPONENT'].includes(completion.kind)) {
+  if (['CITATION', 'STUDY_VARIABLE', 'REFERENCE_COMPONENT', 'DRAWING_REFERENCE'].includes(completion.kind)) {
     const typed = completion.requestedText.slice(prediction.claim.start, prediction.claim.end);
     const before = completion.requestedText.slice(0, prediction.claim.start);
     const rawReplacement = completion.kind === 'CITATION' ? candidate?.citationText
-      : completion.kind === 'REFERENCE_COMPONENT' ? candidate?.componentText : candidate?.completionText;
+      : completion.kind === 'REFERENCE_COMPONENT' ? candidate?.componentText
+        : completion.kind === 'DRAWING_REFERENCE' ? candidate?.objectType === 'DRAWING' ? candidate.label : null
+          : candidate?.completionText;
     const replacement = contextualCompletionCase(
       rawReplacement,
       typed,
       before,
-      ['CITATION', 'REFERENCE_COMPONENT'].includes(completion.kind) ? 'proper-name' : 'label',
+      ['CITATION', 'REFERENCE_COMPONENT', 'DRAWING_REFERENCE'].includes(completion.kind) ? 'proper-name' : 'label',
     );
     if (!replacement) return null;
     const sharesPrefix = replacement.toLocaleLowerCase().startsWith(typed.toLocaleLowerCase());
@@ -1536,11 +1684,19 @@ function serializeManuscript() {
   const blocks = [...document.querySelectorAll('.manuscript-block')];
   let content = '';
   blocks.forEach((block, index) => {
+    const code = block.dataset.blockType === 'code';
+    // Blank lines inside a code block are its content and are kept. Between
+    // other blocks, runs of blank lines collapse to one, and empty blocks
+    // add nothing.
+    const stored = storedTextForEditorBlock(block);
+    const text = code ? stored : stored.replace(/^\n+|\n+$/g, '').replace(/\n{3,}/g, '\n\n');
+    if (!text && !code) return;
     const previous = blocks[index - 1];
-    const separator = index && previous?.dataset.blockType === 'list' && block.dataset.blockType === 'list' ? '\n' : index ? '\n\n' : '';
-    content += `${separator}${storedTextForEditorBlock(block)}`;
+    const separator = !content ? ''
+      : previous?.dataset.blockType === 'list' && block.dataset.blockType === 'list' ? '\n' : '\n\n';
+    content += `${separator}${text}`;
   });
-  return `${content.replace(/\n{3,}/g, '\n\n')}\n`;
+  return `${content}\n`;
 }
 
 function editorOffsetToStored(block, offset) {
@@ -1697,7 +1853,7 @@ function createClaimAnchor(claim, textOverride = null) {
 async function linkCandidate(claim, candidate, selectionMethod, dependencyToChange = null, options = {}) {
   try {
     if (dependencyToChange) {
-      const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
+      const usageContext = { projectId: candidate.projectId ?? state.project?.id, documentPath: state.editor.document?.path };
       const project = (await api(`/api/projects/${state.project.id}`)).project;
       const result = await api(`/api/dependencies/${dependencyToChange.id}/revise`, {
         method: 'POST', body: JSON.stringify({
@@ -1711,7 +1867,7 @@ async function linkCandidate(claim, candidate, selectionMethod, dependencyToChan
       updateEditorVersion(result.snapshot);
       state.editor.document.dependencies = state.editor.document.dependencies
         .map((dependency) => dependency.id === dependencyToChange.id ? result.dependency : dependency);
-      recordRecommendationUsage({ objectId: candidate.id }, 'accept', usageContext);
+      recordRecommendationUsage({ objectId: candidate.id, projectId: candidate.projectId }, 'accept', usageContext);
       toast('Linked source changed');
       hideDependencyPicker();
       return;
@@ -1961,6 +2117,7 @@ function openManualPickerFromSelection() {
 }
 
 async function showDependencyPicker(claim, mode = 'link', dependency = null) {
+  hideDependencyPicker();
   clearPrediction();
   state.editor.manualClaim = claim;
   state.editor.pickerMode = mode;
@@ -1970,16 +2127,19 @@ async function showDependencyPicker(claim, mode = 'link', dependency = null) {
   if (inspector) inspector.hidden = true;
   picker.hidden = false;
   picker.className = 'dependency-picker';
-  picker.innerHTML = `<header><div><span class="eyebrow">Select dependency</span><strong>${mode === 'change' ? 'Change linked source' : `“${escapeHtml(claim.text.slice(0, 70))}”`}</strong></div><button id="close-picker" aria-label="Close dependency picker">×</button></header><label><span class="sr-only">Search project</span><input id="dependency-search" placeholder="Search sources, figures, datasets, and code"></label><div class="picker-results" id="picker-results"><p>Searching the current project…</p></div>`;
+  picker.innerHTML = `<header><div><span class="eyebrow">Select dependency</span><strong>${mode === 'change' ? 'Change linked source' : `“${escapeHtml(claim.text.slice(0, 70))}”`}</strong></div><button id="close-picker" aria-label="Close dependency picker">×</button></header><label><span class="sr-only">Search active directories</span><input id="dependency-search" placeholder="Search sources, figures, datasets, and code"></label><div class="picker-results" id="picker-results"><p>Searching active directories…</p></div>`;
   document.getElementById('close-picker').addEventListener('click', hideDependencyPicker);
   const input = document.getElementById('dependency-search');
   input.value = wordTokensForSearch(dependency
     ? `${dependency.source.label} ${dependency.source.valueText ?? ''}`
     : claim.searchText ?? claim.text);
-  let timer;
-  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => loadPickerResults(input.value, dependency), 220); });
+  input.addEventListener('input', () => {
+    clearTimeout(state.editor.pickerTimer);
+    state.editor.pickerController?.abort();
+    state.editor.pickerTimer = setTimeout(() => loadPickerResults(input.value, dependency), 220);
+  });
   await loadPickerResults(input.value, dependency);
-  input.focus();
+  if (input.isConnected && !picker.hidden) input.focus();
 }
 
 function wordTokensForSearch(value) {
@@ -1989,26 +2149,45 @@ function wordTokensForSearch(value) {
 async function loadPickerResults(query, dependency = null) {
   const target = document.getElementById('picker-results');
   if (!target) return;
+  state.editor.pickerController?.abort();
+  const controller = new AbortController();
+  state.editor.pickerController = controller;
+  const documentAtStart = state.editor.document;
+  const claim = state.editor.manualClaim;
+  const isCurrent = () => state.editor.pickerController === controller && !controller.signal.aborted && target.isConnected && state.editor.document === documentAtStart;
   const parameters = new URLSearchParams({ query });
   if (state.editor.document?.path) parameters.set('documentPath', state.editor.document.path);
-  const { objects } = await api(`/api/projects/${state.project.id}/dependency-objects?${parameters}`);
-  target.innerHTML = objects.length ? objects.map((object) => `<button class="picker-result" data-object-id="${object.id}" data-object-snapshot="${object.snapshotId}"><i class="object-type">${escapeHtml(object.objectType)}</i><span><strong>${escapeHtml(object.label)} ${object.valueText ? `<b>${escapeHtml(object.valueText)}</b>` : ''}</strong><small>${escapeHtml([object.path, object.ranking?.reason].filter(Boolean).join(' · '))}</small></span></button>`).join('') : '<div class="no-candidate"><strong>No matching project dependency found.</strong><span>Lasso will not invent a source.</span></div>';
+  if (state.editor.document?.projectId) parameters.set('documentProjectId', state.editor.document.projectId);
+  try {
+  const { objects } = await api(`/api/workspace/source-library?${parameters}`, { signal: controller.signal });
+  if (!isCurrent()) return;
+  target.innerHTML = objects.length ? objects.map((object) => `<button class="picker-result" data-object-id="${object.id}" data-object-snapshot="${object.snapshotId}"><i class="object-type">${escapeHtml(object.objectType)}</i><span><strong>${escapeHtml(object.label)} ${object.valueText ? `<b>${escapeHtml(object.valueText)}</b>` : ''}</strong><small>${escapeHtml([object.projectName, object.path, object.ranking?.reason].filter(Boolean).join(' · '))}</small></span></button>`).join('') : '<div class="no-candidate"><strong>No matching dependency in active directories.</strong><span>Lasso will not invent a source.</span></div>';
   target.querySelectorAll('[data-object-id]').forEach((button) => button.addEventListener('click', () => {
     const object = objects.find((candidate) => candidate.id === button.dataset.objectId && candidate.snapshotId === button.dataset.objectSnapshot);
-    linkCandidate(state.editor.manualClaim, object, 'MANUAL', dependency);
+    if (isCurrent() && object) linkCandidate(claim, object, 'MANUAL', dependency);
   }));
+  } catch (error) {
+    if (isCurrent()) target.innerHTML = `<div class="no-candidate"><strong>Could not search sources.</strong><span>${escapeHtml(error.message)}</span></div>`;
+  }
 }
 
 function hideDependencyPicker() {
+  clearTimeout(state.editor.pickerTimer);
+  state.editor.pickerTimer = null;
+  state.editor.pickerController?.abort();
+  state.editor.pickerController = null;
   const picker = document.getElementById('dependency-picker');
   if (picker) { picker.hidden = true; picker.replaceChildren(); }
 }
 
 async function showDependencyInspector(dependencyId, sourceNode = null) {
-  const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
-  const { dependency } = await api(`/api/dependencies/${dependencyId}`);
+  const request = ++state.editor.inspectorRequest;
+  const documentAtStart = state.editor.document;
   const inspector = document.getElementById('dependency-inspector');
   if (!inspector) return;
+  const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
+  const { dependency } = await api(`/api/dependencies/${dependencyId}`);
+  if (request !== state.editor.inspectorRequest || state.editor.document !== documentAtStart || !inspector.isConnected) return;
   state.editor.activeDependencyId = dependencyId;
   inspector.hidden = false;
   inspector.className = 'dependency-inspector';
@@ -2060,7 +2239,7 @@ async function showDependencyInspector(dependencyId, sourceNode = null) {
       ${origin?.path ? `<div><dt>Produced by</dt><dd>${escapeHtml(formatObjectLocation(origin))}</dd></div>` : ''}
     </dl>
     <section class="inspector-evidence">
-      <header><span><strong>Cited source preview</strong><small>Exact evidence and nearby context</small></span><button id="open-dependency-source" type="button">Open source</button></header>
+      <header><span><strong>Cited source preview</strong><small>Exact evidence and nearby context</small></span><button id="open-dependency-source" type="button">Open file</button></header>
       <div id="dependency-source-preview"><div class="inspector-preview-loading"><span></span>Loading indexed context…</div></div>
     </section>
     <footer class="inspector-actions">
@@ -2077,29 +2256,30 @@ async function showDependencyInspector(dependencyId, sourceNode = null) {
   recordRecommendationUsage({ dependencyId }, 'open', usageContext);
 
   inspector.querySelector('.native-source-inspector')?.focus({ preventScroll: true });
-  inspector.addEventListener('keydown', (event) => {
+  inspector.onkeydown = (event) => {
     if (event.key === 'Escape') { document.getElementById('close-inspector')?.click(); return; }
     const match = actions.find((action) => action.key === event.key.toLowerCase());
     if (match) { event.preventDefault(); document.getElementById(match.id)?.click(); }
-  });
+  };
 
   bindDraggableInspector(inspector);
   const close = () => {
+    state.editor.inspectorRequest += 1;
     inspector.hidden = true;
     state.editor.activeDependencyId = null;
   };
   document.getElementById('close-inspector')?.addEventListener('click', close);
   inspector.querySelector('.inspector-drag')?.addEventListener('dblclick', close);
-  document.getElementById('dependency-rfi')?.addEventListener('click', () => requestDependencyRfi(dependency));
+  document.getElementById('dependency-rfi')?.addEventListener('click', () => requestDependencyRfi(dependency).catch(reportError));
   document.getElementById('open-dependency-source')?.addEventListener('click', () => openDependencySourceViewer(dependency));
   document.getElementById('share-dependency')?.addEventListener('click', async () => {
     await openDependencySharing(dependency, true);
     document.getElementById('dependency-sharing')?.scrollIntoView({ block: 'nearest' });
   });
-  document.getElementById('open-dependency-origin')?.addEventListener('click', () => showPreview(origin.snapshotId, origin.path, null, origin.anchor));
+  document.getElementById('open-dependency-origin')?.addEventListener('click', () => showPreview(origin.snapshotId, origin.path, origin.anchor));
   document.getElementById('change-dependency')?.addEventListener('click', () => showDependencyPicker({ ...dependency.anchor, text: dependency.spanText }, 'change', dependency));
-  document.getElementById('remove-dependency')?.addEventListener('click', () => reviseDependency(dependency, { action: 'REMOVE' }));
-  document.getElementById('keep-historical')?.addEventListener('click', () => reviseDependency(dependency, { action: 'KEEP_HISTORICAL' }));
+  document.getElementById('remove-dependency')?.addEventListener('click', () => reviseDependency(dependency, { action: 'REMOVE' }).catch(reportError));
+  document.getElementById('keep-historical')?.addEventListener('click', () => reviseDependency(dependency, { action: 'KEEP_HISTORICAL' }).catch(reportError));
   await loadDependencySourcePreview(dependency);
 }
 
@@ -2154,6 +2334,7 @@ function ensureDependencySourceViewer() {
     if (event.target === dialog) dialog.close();
   });
   dialog.addEventListener('close', () => {
+    state.editor.viewerRequest += 1;
     dialog.querySelector('iframe')?.setAttribute('src', 'about:blank');
   });
   return dialog;
@@ -2200,11 +2381,11 @@ function renderDependencySourceViewer(dialog, viewer) {
 }
 
 async function openDependencySourceViewer(dependencyOrId, sheet = null) {
-  const revision = ++state.sourceViewerRevision;
+  const request = ++state.editor.viewerRequest;
   const dependencyId = typeof dependencyOrId === 'string' ? dependencyOrId : dependencyOrId.id;
   const usageContext = { projectId: state.project?.id, documentPath: state.editor.document?.path };
   const dialog = ensureDependencySourceViewer();
-  const isCurrent = () => revision === state.sourceViewerRevision && dialog.open && usageContext.projectId === state.project?.id;
+  const isCurrent = () => request === state.editor.viewerRequest && dialog.open && usageContext.projectId === state.project?.id;
   const target = dialog.querySelector('#dependency-source-viewer-content');
   target.innerHTML = '<div class="source-viewer-loading"><span></span><strong>Opening indexed source…</strong></div>';
   if (!dialog.open) dialog.showModal();
@@ -2284,11 +2465,15 @@ const SHARE_CHOICES = {
 async function openDependencySharing(dependency, alternativesOpen = false) {
   const target = document.getElementById('dependency-sharing');
   if (!target) return;
+  const request = ++state.editor.sharingRequest;
+  const isCurrent = () => request === state.editor.sharingRequest && target.isConnected;
   target.innerHTML = '<div class="share-loading">Loading source access…</div>';
   try {
     const { sharing } = await api(`/api/dependencies/${dependency.id}/share`);
+    if (!isCurrent()) return;
     renderDependencySharing(dependency, sharing, 'CONTEXT', alternativesOpen);
   } catch (error) {
+    if (!isCurrent()) return;
     target.innerHTML = `<div class="share-error">${escapeHtml(error.message)}</div>`;
   }
 }
@@ -2311,6 +2496,8 @@ function renderShareGrant(grant) {
 function renderDependencySharing(dependency, sharing, selectedScope = 'CONTEXT', alternativesOpen = false) {
   const target = document.getElementById('dependency-sharing');
   if (!target) return;
+  const request = ++state.editor.sharingRequest;
+  const isCurrent = () => request === state.editor.sharingRequest && target.isConnected;
   const selected = SHARE_CHOICES[selectedScope];
   const alternatives = Object.entries(SHARE_CHOICES).filter(([scope]) => scope !== selectedScope);
   target.innerHTML = `<section class="share-card">
@@ -2323,7 +2510,7 @@ function renderDependencySharing(dependency, sharing, selectedScope = 'CONTEXT',
     <button class="share-primary" id="apply-share-scope">${selectedScope === 'PRIVATE' ? 'Revoke source access' : `Create ${selectedScope === 'CONTEXT' ? 'context' : 'full-source'} link`}</button>
     ${sharing.grants.length ? `<div class="share-grants"><span class="eyebrow">Active links</span>${sharing.grants.map(renderShareGrant).join('')}</div>` : '<p class="no-share-grants">No active source links. The dependency is private.</p>'}
   </section>`;
-  document.getElementById('close-sharing').addEventListener('click', () => { target.replaceChildren(); });
+  document.getElementById('close-sharing').addEventListener('click', () => { state.editor.sharingRequest += 1; target.replaceChildren(); });
   document.getElementById('share-alternatives-toggle').addEventListener('click', () => renderDependencySharing(dependency, sharing, selectedScope, !alternativesOpen));
   target.querySelectorAll('[data-share-scope]').forEach((button) => button.addEventListener('click', () => renderDependencySharing(dependency, sharing, button.dataset.shareScope, false)));
   document.getElementById('apply-share-scope').addEventListener('click', async (event) => {
@@ -2339,7 +2526,7 @@ function renderDependencySharing(dependency, sharing, selectedScope = 'CONTEXT',
           actor: state.identity,
         }),
       });
-      renderDependencySharing(dependency, updated, selectedScope, false);
+      if (isCurrent()) renderDependencySharing(dependency, updated, selectedScope, false);
       toast(selectedScope === 'PRIVATE' ? 'Source access revoked' : `${selected.label} link created`);
     } catch (error) { toast(error.message, 'error'); button.disabled = false; }
   });
@@ -2355,7 +2542,7 @@ function renderDependencySharing(dependency, sharing, selectedScope = 'CONTEXT',
     try {
       await api(`/api/dependency-shares/${encodeURIComponent(button.dataset.revokeShare)}`, { method: 'DELETE' });
       const { sharing: updated } = await api(`/api/dependencies/${dependency.id}/share`);
-      renderDependencySharing(dependency, updated, selectedScope, alternativesOpen);
+      if (isCurrent()) renderDependencySharing(dependency, updated, selectedScope, alternativesOpen);
       toast('Source link revoked');
     } catch (error) { toast(error.message, 'error'); }
   }));
@@ -2391,7 +2578,7 @@ async function reviseDependency(dependency, revision) {
 function focusDependency(dependencyId) {
   const node = document.querySelector(`[data-dependency-id="${dependencyId}"]`);
   node?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  if (node) showDependencyInspector(dependencyId, node);
+  if (node) showDependencyInspector(dependencyId, node).catch(reportError);
 }
 
 function formatActiveBlock(format) {
@@ -2485,12 +2672,16 @@ elements['import-form'].addEventListener('submit', async (event) => {
   submit.classList.add('loading'); submit.disabled = true;
   try {
     const values = Object.fromEntries(new FormData(form));
-    const result = await api('/api/projects/import', {
-      method: 'POST', body: JSON.stringify({ ...values, actor: state.identity }),
+    const rootPaths = values.rootPaths.split(/\r?\n/).map(path => path.trim()).filter(Boolean);
+    if (!rootPaths.length) throw new Error('Enter at least one absolute directory path.');
+    await api('/api/workspace/directories', {
+      method: 'POST', body: JSON.stringify({ rootPaths, actor: state.identity }),
     });
     elements['import-dialog'].close(); form.reset();
-    toast(result.imported ? 'Version 1 created' : 'Project already registered');
-    await loadProjects(result.project.id);
+    const workspace = await api('/api/workspace');
+    const added = workspace.directories.find(directory => rootPaths.includes(directory.rootPath));
+    toast(`${rootPaths.length} ${rootPaths.length === 1 ? 'directory' : 'directories'} included in workspace`);
+    await loadProjects(added?.id);
   } catch (error) { form.querySelector('[data-dialog-error]').textContent = error.message; }
   finally { submit.classList.remove('loading'); submit.disabled = false; }
 });
@@ -2511,8 +2702,19 @@ function renderSharedTable(content) {
   return `<div class="shared-table-wrap"><table class="shared-table"><thead><tr>${headers.map((header, columnIndex) => `<th class="${columnIndex === content.selectedColumn ? 'cited-column' : ''}">${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>${rows.map((row, rowIndex) => `<tr class="${rowIndex === content.selectedRow ? 'cited-row' : ''}">${row.map((cell, columnIndex) => `<td class="${rowIndex === content.selectedRow && columnIndex === content.selectedColumn ? 'cited-cell' : ''}">${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 
+// A recipient sees only the shared source, never the owner's workspace.
+function sharedViewRoot() {
+  let root = document.querySelector('.shared-dependency-page');
+  if (!root) {
+    root = document.createElement('div');
+    root.className = 'shared-dependency-page';
+    document.body.replaceChildren(root);
+  }
+  return root;
+}
+
 function renderSharedDependency(shared) {
-  const shell = document.querySelector('.app-shell');
+  const shell = sharedViewRoot();
   const contextOnly = shared.access.scope === 'CONTEXT';
   const content = ['table', 'table-context'].includes(shared.content.kind)
     ? renderSharedTable(shared.content)
@@ -2535,20 +2737,13 @@ async function loadSharedDependency(token) {
     const { shared } = await api(`/api/shared-dependencies/${encodeURIComponent(token)}`);
     renderSharedDependency(shared);
   } catch (error) {
-    const shell = document.querySelector('.app-shell');
+    const shell = sharedViewRoot();
     shell.innerHTML = `<main class="shared-source-view"><section class="shared-source-card shared-unavailable"><span class="brand-mark">L</span><h1>Source link unavailable</h1><p>${escapeHtml(error.message)}</p><a href="/">Return to Lasso</a></section></main>`;
   }
 }
 
 
-const THEMES = [
-  { id: 'system', label: 'System', hint: 'Follow system appearance' },
-  { id: 'carbon', label: 'Carbon', hint: 'warm near-black · amber' },
-  { id: 'slate', label: 'Slate', hint: 'cool grey · blue' },
-  { id: 'palenight', label: 'Palenight', hint: 'indigo · violet' },
-  { id: 'alabaster', label: 'Alabaster', hint: 'light · warm paper' },
-];
-
+// Windows keeps a chosen theme in its settings; macOS follows the system.
 function currentTheme() {
   try { return localStorage.getItem('lasso.theme') ?? localStorage.getItem('colab.theme') ?? 'system'; } catch { return 'system'; }
 }
@@ -2574,21 +2769,20 @@ function paletteCommands() {
   }
 
   for (const project of state.projects ?? []) {
-    if (project.id === state.project?.id) continue;
-    commands.push({
+    if (project.id !== state.project?.id && project.available !== false) commands.push({
       title: `switch to ${project.name}`,
-      hint: `project · V${project.currentVersion}${project.availability === 'offline' ? ' · Offline (cached)' : ''}`,
+      hint: `documents · V${project.currentVersion}${project.active ? '' : ' · directory paused'}${project.availability === 'offline' ? ' · Offline (cached)' : ''}`,
       run: () => selectProject(project.id),
+    });
+    if (project.available !== false) commands.push({
+      title: `${project.active ? 'pause' : 'include'} ${project.name}`,
+      hint: 'workspace sources and suggestions',
+      run: () => toggleDirectory(project.id, !project.active),
     });
   }
 
-  for (const theme of THEMES) {
-    if (theme.id === currentTheme()) continue;
-    commands.push({ title: `theme ${theme.label}`, hint: theme.hint, run: () => applyTheme(theme.id) });
-  }
-
   commands.push(
-    { title: 'index a project directory', hint: 'add a new local project', run: () => openDialog(elements['import-dialog']) },
+    { title: 'add work directories', hint: 'include local folders in the workspace', run: () => openDialog(elements['import-dialog']) },
     { title: 'change identity', hint: `currently ${state.identity.displayName}`, run: () => {
       const form = elements['identity-form'];
       form.elements.displayName.value = state.identity.displayName;
@@ -2620,7 +2814,9 @@ function directoriesFromProjects() {
     id: project.id,
     name: project.name,
     path: project.rootPath,
-    status: project.id === state.project?.id ? 'active' : 'available',
+    active: project.active,
+    available: project.available,
+    error: project.error,
     availability: project.availability,
     driveName: project.driveName,
   }));
@@ -2638,12 +2834,27 @@ function refreshShell() {
   shell.sidebar?.set(directoriesFromProjects(), state.project?.id ?? null);
   shell.tabs?.set(tabsForWorkspace(), shell.activeTab);
   const chrome = document.getElementById('window-project-name');
-  if (chrome) chrome.textContent = state.project?.name ?? 'Choose a project';
+  if (chrome) {
+    const active = state.projects.filter(project => project.active && project.available !== false).length;
+    chrome.textContent = active ? `${active} work ${active === 1 ? 'directory' : 'directories'}` : 'Choose work directories';
+  }
 }
 
 /// Return to the structured workspace overview.
-function showSession() {
+async function showSession() {
+  const navigationRevision = ++state.editor.navigationRevision;
+  const projectId = state.project?.id;
+  const switchRevision = state.projectSwitchRevision;
+  if (state.editor.document && (state.editor.dirty || state.editor.pendingLinks.length || state.editor.savePromise)) {
+    await saveDocument();
+    if (state.project?.id !== projectId || state.projectSwitchRevision !== switchRevision || navigationRevision !== state.editor.navigationRevision) return false;
+    if (state.editor.dirty || state.editor.pendingLinks.length) {
+      toast('Finish saving the current document before opening the source library.', 'error');
+      return false;
+    }
+  }
   shell.activeTab = 'session';
+  hideDependencyPicker();
   state.editor.document = null;
   setWorkspaceView('session');
   if (!state.project) {
@@ -2656,7 +2867,7 @@ function showSession() {
     });
     document.getElementById('empty-add-project')?.addEventListener('click', () => openDialog(elements['import-dialog']));
     refreshShell();
-    return;
+    return true;
   }
   elements['detail-column'].innerHTML = '<div class="dsh" id="dependency-shell"></div>';
   dependencyShell.setHost(document.getElementById('dependency-shell'));
@@ -2665,6 +2876,7 @@ function showSession() {
   // The prompt is this view's primary surface, so it takes focus with it.
 
   refreshShell();
+  return true;
 }
 
 function selectShellTab(id) {
@@ -2675,18 +2887,14 @@ function selectShellTab(id) {
   }
 }
 
-applyTheme(currentTheme());
 shell.sidebar = createDirectorySidebar({
   host: document.getElementById('directory-list'),
   onSelect: (id) => selectProject(id).catch((error) => toast(error.message, 'error')),
+  onToggle: toggleDirectory,
 });
 shell.tabs = createTabBar({
   host: document.getElementById('tab-scroll'),
   onSelect: selectShellTab,
-});
-createSidebarResize({
-  handle: document.getElementById('resize-handle'),
-  root: document.documentElement,
 });
 document.getElementById('sidebar-add').addEventListener('click', () => openDialog(elements['import-dialog']));
 const terminalInput = document.getElementById('terminal-input');
@@ -2698,13 +2906,16 @@ const dependencyShell = createSourceWorkbench({
   api,
   getProjectId: () => state.project?.id ?? null,
   getIsOffline: projectIsOffline,
+  getProjectVersion: workspaceVersion,
+  getWorkspaceId: () => workspaceVersion(),
+  getDocumentProjectId: () => state.editor.document?.projectId ?? null,
   getDocumentPath: () => state.editor.document?.path ?? null,
+  getContext: () => state.editor.activeBlock?.textContent ?? '',
   getActor: () => state.identity,
   onRecommendationUsage: recordRecommendationUsage,
-  build: UI_BUILD,
-  onShare: desktop?.isWindows ? object => openSourceDialog({ sourceId: object.id, versionId: object.versionId, projectId: state.project.id, openSharing: true }) : null,
-  onOpenSource: (object) => {
-    if (object.snapshotId) { setWorkspaceView('source'); showPreview(object.snapshotId, object.path, null, object.anchor); }
+  onShare: desktop?.isWindows ? object => openSourceDialog({ sourceId: object.id, versionId: object.versionId, projectId: object.projectId ?? state.project.id, openSharing: true }) : null,
+  onOpenSource: (object, context) => {
+    if (object.snapshotId) { setWorkspaceView('source'); showPreview(object.snapshotId, object.path, object.anchor, object, context); }
   },
   onStatus: (message) => toast(message),
   onSession: (session) => {
@@ -2716,24 +2927,27 @@ const dependencyShell = createSourceWorkbench({
     if (changeCount) changeCount.textContent = session?.changes ? String(session.changes) : '';
     if (reviewCount) reviewCount.textContent = review ? String(review) : '';
   },
-  onOpenDocument: (documentPath, reference) => {
+  onOpenDocument: async (documentPath, reference) => {
     const target = documentPath ?? reference?.documentPath;
     if (!target) return;
-    openDocument(target).then(() => {
+    try {
+      const projectId = reference?.projectId ?? state.project?.id;
+      if (projectId !== state.project?.id && !await selectProject(projectId, false)) return;
+      await openDocument(target, projectId);
       if (reference?.dependencyId) focusDependency(reference.dependencyId);
-    }).catch((error) => toast(error.message, 'error'));
+    } catch (error) { toast(error.message, 'error'); }
   },
 });
-createSpatialWorkbench({
+const spatialWorkbench = createSpatialWorkbench({
   projectTrigger: document.getElementById('project-pill'),
   projectPopover: document.getElementById('project-popover'),
   workspaceButton: document.getElementById('workspace-nav'),
-  onWorkspace: () => { showSession(); dependencyShell.run('index status'); },
+  onWorkspace: async () => { if (await showSession()) await dependencyShell.run('index status'); },
 });
 document.querySelectorAll('[data-workspace-query]').forEach((button) => {
-  button.addEventListener('click', () => {
+  button.addEventListener('click', async () => {
     if (!state.project) { openDialog(elements['import-dialog']); return; }
-    showSession();
+    if (!await showSession()) return;
     document.querySelectorAll('.rail-item').forEach((item) => item.classList.remove('active'));
     button.closest('.rail-item')?.classList.add('active');
     dependencyShell.run(button.dataset.workspaceQuery);
@@ -2745,7 +2959,36 @@ const commandPalette = createCommandPalette({
   getCommands: paletteCommands,
   onStatus: (message) => toast(message, 'error'),
 });
+window.dismissLassoOverlays = () => dismissLassoOverlays({
+  document, palette: commandPalette, closeProjectPicker: () => spatialWorkbench.closeProjectPicker(),
+  cancelPending: () => {
+    clearPrediction();
+    hideDependencyPicker();
+    clearTimeout(state.editor.sourcePeekTimer);
+    state.editor.sourcePeekTimer = null;
+    state.editor.sourcePeekRequest += 1;
+    state.editor.inspectorRequest += 1;
+    state.editor.viewerRequest += 1;
+    state.editor.sharingRequest += 1;
+    state.editor.activeDependencyId = null;
+  },
+});
+// A native overlay can consume Escape's keydown while the workspace browser
+// still has focus. Keyup also dismisses browser overlays, idempotently.
+window.addEventListener('keyup', (event) => {
+  if (event.key === 'Escape' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    window.dismissLassoOverlays();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+}, true);
 window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    window.dismissLassoOverlays();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
   const modifier = event.metaKey || event.ctrlKey;
   if (modifier && !event.shiftKey && /^[1-9]$/.test(event.key)) {
     event.preventDefault();
@@ -2760,7 +3003,9 @@ window.addEventListener('keydown', (event) => {
   }
 }, true);
 
-const removableDrives = new URLSearchParams(window.location.search).get('app') === '1' && window.webkit?.messageHandlers?.lasso ? createRemovableDrives({
+// The Mac app reports mounted drives to the server; the workspace shows them
+// wherever it opens. Without that report the drive controls stay hidden.
+const removableDrives = !desktop?.isWindows ? createRemovableDrives({
   api,
   getActor: () => state.identity,
   onProjectsChanged: refreshDriveProjects,
@@ -2783,7 +3028,12 @@ else {
   loadProjects()
     .then(() => {
       removableDrives?.start();
+      if (launchParams.get('drives') === 'open') window.dispatchEvent(new CustomEvent('lasso-open-drives'));
       if (launchParams.get('view') === 'documents' && state.project) return openManuscriptWorkspace();
+      const view = launchParams.get('view');
+      if (['changes', 'attention'].includes(view) && state.project) {
+        return showSession().then(opened => opened && dependencyShell.run(view === 'changes' ? 'changes' : 'stale'));
+      }
       return null;
     })
     .catch((error) => toast(error.message, 'error'));
@@ -2816,8 +3066,10 @@ if (folderButton && desktop?.canChooseFolder) {
   window.addEventListener('lasso-folder-selected', event => {
     folderButton.disabled = false;
     if (!event.detail.path) return;
-    const input = elements['import-form'].elements.rootPath;
-    input.value = event.detail.path;
+    // Each chosen folder is added as one more line of the directory list.
+    const input = elements['import-form'].elements.rootPaths;
+    const lines = input.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (!lines.includes(event.detail.path)) input.value = [...lines, event.detail.path].join('\n');
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.focus();
   });
@@ -2829,7 +3081,7 @@ window.addEventListener('lasso-host-error', event => {
 });
 if (desktop?.isWindows) {
   document.getElementById('search-shortcut').textContent = shortcut('K');
-  elements['import-form'].elements.rootPath.placeholder = 'C:\\Users\\you\\Documents\\Research';
+  elements['import-form'].elements.rootPaths.placeholder = 'C:\\Users\\you\\Documents\\Research\nC:\\Users\\you\\Documents\\Finance';
   document.getElementById('writing-assist-help').textContent = desktop.isNative
     ? 'Enable writing suggestions, then type in an editor that supports Windows UI Automation. Tab accepts and links a source, Ctrl+Enter inserts plain text, ↑ and ↓ select, and Esc dismisses. Password fields are excluded.'
     : 'Open Lasso for Windows to enable suggestions in supported desktop editors. Your project library and writing workspace are also available here.';

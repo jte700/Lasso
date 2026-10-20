@@ -83,6 +83,14 @@ function inside(point, vertices) {
 }
 function format(value) { return Number(value.toPrecision(12)).toString(); }
 
+/** Notes that describe entities a plan normally contains (door-swing arcs,
+ * furniture blocks, dimensions, open linework) rather than a boundary that
+ * failed to measure. They are shown with the drawing but do not make it partial.
+ */
+export function isInformationalDxfWarning(warning) {
+  return /^Measurements for these DXF entity types|^\d+ open polylines were not treated/.test(String(warning));
+}
+
 /** Extract native, unit-aware measurements from ASCII DXF model-space boundaries.
  * Supported geometry is deliberately limited to simple closed, straight-sided
  * LWPOLYLINE entities. Curves, block transforms, holes and units are not guessed.
@@ -262,7 +270,7 @@ export function extractDxfDocument(buffer, { filePath: _filePath } = {}) {
   }
   if (!polygons.length) warn('No supported closed planar LWPOLYLINE boundaries were found. Lines, blocks and circles remain unmeasured.');
   const text = model.filter((item) => ['TEXT', 'MTEXT', 'ATTRIB'].includes(item.type)).map((item) => plainText(item.groups.filter((pair) => [1, 3].includes(pair.code)).map((pair) => pair.value).join(''))).filter(Boolean).join('\n').slice(0, 300_000);
-  return { status: annotations.length ? (warnings.length ? 'partial' : 'ready') : 'unsupported', method: base.method, warnings,
+  return { status: annotations.length ? (warnings.some((warning) => !isInformationalDxfWarning(warning)) ? 'partial' : 'ready') : 'unsupported', method: base.method, warnings,
     isDrawing: true, format: 'dxf', pageCount: 1, sourceUnits: units?.name ?? null, unitsCode,
     pages: [{ pageNumber: 1, sheetNumber: null, title: 'DXF model space', width: spanX, height: spanY, text,
       annotations, words: [], geometry: geometries, coordinateSystem: { units: units?.name ?? null, bounds, yAxis: 'up' }, isDrawing: true }] };

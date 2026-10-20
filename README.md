@@ -1,183 +1,169 @@
 # Lasso
 
-**A local-first source library and writing assistant with versioned evidence.**
+Lasso indexes local work directories and suggests source-backed text while you write. Accepted suggestions keep a link to the exact source version. Directory history, source search, ranking, and provenance run locally without a language model or external AI service.
 
-Lasso connects the information you use while writing to the files it came from. Index a local project folder, browse its documents and data, inspect an exact cell or passage, and insert source-backed values into your writing. Accepted links retain the original source version, so you can review what changed when the underlying file is updated.
+## Run
 
-The app includes a graphical source workspace, an integrated writing editor, and desktop companions for suggestions in supported external editors. The Windows companion is currently a preview. Retrieval, ranking, extraction, and provenance run locally. No language model or API key is required.
+Requires **Node.js 24+**. Building the macOS app also requires the Xcode Command Line Tools. The built app runs on **macOS 13.5 or later** and carries its own Node.js, so Macs that only run it need neither.
 
-## What you can do
-
-- **Browse and search sources.** Explore indexed files and their contents, inspect nearby spreadsheet cells or document passages, open the recorded source version, and copy values with a source citation.
-- **Write with evidence.** Accept suggested values, citations, and extractive sentence continuations from your project, or select a source manually. Links record the source object, location, and immutable version.
-- **Use Lasso in other apps.** The macOS companion displays a source picker and preview beside your text cursor, inserts a selected value, and keeps a local source reference where the host editor supports it.
-- **Review changes.** Inspect previous and current values, affected document references, and indexing failures. Review proposed wording updates before applying them, or keep a historical source version.
-- **Share selected evidence.** Choose a whole document, an indexed part, or a selectively redacted view. Share records pin the source version and can be revoked.
-- **Query design measurements.** Find supported quantities from IFC, DXF, LandXML, STEP CAD models, and explicit PDF annotations, with source locations and units. Ambiguous or missing measurements are not guessed.
-
-## Run locally
-
-Requires **Node.js 24 or newer**. Run `npm ci` to install the offline IFC and PDF engines. There is no frontend build step.
-
-```sh
-git clone https://github.com/jte700/Lasso.git
-cd Lasso
+```bash
 npm ci
 npm start
 ```
 
-Open [127.0.0.1:4317](http://127.0.0.1:4317). Choose **Index a project**, enter the absolute path to a local directory, and let Lasso create its initial snapshot. Project files remain in their original directory.
+`npm ci` installs the offline IFC geometry and PDF engines. Open [http://127.0.0.1:4317](http://127.0.0.1:4317), add absolute directory paths, and enable the directories you want to use. Sources from all enabled, available directories are searchable together. Selecting a document directory changes where you write without changing which sources are enabled. Pausing a directory stops its suggestions and watcher while preserving history.
 
-The workspace has **All sources**, **Changes**, **Shared links**, and **Review sources** views, plus a **Writing** list for project documents. Search by filename, phrase, or value. Supported questions can be entered in the search field and submitted with Enter, for example:
+## macOS app
 
-```text
-What is the net floor area of Schlafzimmer?
-What is the length of Main Road?
-What is the diameter of the Bracket Ø8 hole?
+```bash
+npm run desktop
+open dist/Lasso.app
 ```
 
-These answers require matching evidence in the indexed project; this is not a general-purpose chat service.
+The app runs in the menu bar and starts its own local server, restarting it automatically if it stops unexpectedly. The server runs on the Node.js bundled inside the app, so the Mac does not need Node installed. If that copy cannot start, Lasso uses an installed Node.js 24 or newer instead; if it finds only an older one, the menu says which version and where. **About Lasso** and the server log name the Node.js in use. The first time Lasso runs without any folders, its menu opens so you can add one, and opening the app again while it runs shows the menu. The menu provides:
+
+- **Add Work Directories…** to choose folders, and **Remove Work Directory** to take one out of Lasso. Removing never changes the folder or its files.
+- **External Drives…** to index a connected external drive, or folders on it (see below).
+- **Work Directories** to collapse the list and switch folders on or off. Suggestions come only from folders that are switched on. The small circle sets the folder's highlight colour, used for text accepted from it. Right-click a folder to show it in Finder or remove it.
+- **Suggest While Typing** to enable suggestions in other apps.
+- **Open at Login** to start Lasso when you log in, so suggestions are ready without opening it. If macOS holds the request for approval, **Allow Open at Login…** opens System Settings → General → Login Items.
+- **Tools → Open in Browser** for writing, source browsing, and review.
+- **Tools → Tab Inserts** to choose what `Tab` does: **Plain Text** (default), **Ask Each Time**, or **Share Link**.
+- **Tools → Troubleshooting** for restarting the server, checking another app's text support, outlining highlight positions, and the logs. **Record Typing Log** is off by default; when on, it records which apps Lasso could read and whether insertions landed, never what you typed or inserted. If the server cannot be recovered, **Restart Server** also appears directly under the error.
+- **About Lasso** for the version and the Node.js the server runs on.
+- **Show Lasso in Notch** on Macs with a built-in camera cutout. Off by default, this remembers your choice and hides itself when the notched display is unavailable. Only the Lasso logo appears immediately to the left of the camera cutout, entirely within the menu bar. Its black backing continues beneath the camera’s curved corner so the logo joins the notch without a seam. The expanded panel forms one continuous black surface from the display edge, with its controls below the camera. Click it to see active directories, indexed files, source value changes and indexing issues. New source changes or indexing issues also open the panel automatically after the initial activity check, without repeatedly reopening unchanged alerts. Automatic panels close after 12 seconds unless the pointer is over them. Pause/resume suggestions or open source review from the panel. Escape or clicking elsewhere collapses it without taking focus from your editor. Activity refreshes every 15 seconds while enabled. No source wording changes until you review and apply it in the browser.
+
+Interacting with the directory controls keeps the popover open. Clicking outside dismisses it; closing it with `Esc` or the menu bar icon returns focus to the app you were using. A folder that is switched on but could not be read shows **(needs attention)**; clicking it tries again. A folder on a drive that was not mounted when Lasso started is picked up automatically when the drive returns. You can move the app to `/Applications`; keep one canonical copy when granting permissions.
+
+### External drives
+
+Connecting a mounted external storage drive adds a badge to the menu bar icon and a brief notice, without interrupting typing. Choose **External Drives…**, the notice's **Review**, or the badged icon to open the workspace in your browser, then index the entire drive or choose one or more folders, including nested folders. Indexing starts only after that choice; each selected folder becomes a work directory. Lasso uses the drive's persistent volume identity, so directories follow it when its mount path changes.
+
+On disconnection, choose **Keep saved index** to browse and search cached file copies and their history offline, or **Remove saved data…** to delete those directories, indexes, local copies, and history from Lasso. Removal leaves the original drive files untouched, preserves blobs still used by another directory, and refuses to delete sources referenced by another directory. Offline directories are marked in the workspace; editing and reindexing resume after reconnection, and folders reconcile their changes when the drive returns.
+
+Detection covers mounted external storage, including USB-A and USB-C drives, while the Mac app is running. Internal disks, network shares, disk images, locked or unmounted volumes, and volumes without a unique persistent identity are excluded. macOS may ask for permission to read removable volumes.
+
+### Bundled Node.js
+
+`npm run desktop` copies the Node.js it builds with (`LASSO_NODE`, or `node` on `PATH`) into `Lasso.app/Contents/MacOS/node`, puts its license in `Contents/Resources/node/LICENSE`, and signs it together with the app. It must be Node.js 24 or newer and link only macOS's own libraries, as the nodejs.org installer and nvm builds do. Homebrew's Node depends on other Homebrew packages, so the build stops and says so. Version manager shims, such as asdf's or Volta's, are followed to the real binary, and a universal Node keeps only the architecture the app is compiled for. The nodejs.org installer does not keep a license file, so the build downloads that release's `LICENSE` from the Node.js repository once and caches it in `~/Library/Caches/Lasso`; set `LASSO_NODE_LICENSE` to build offline.
+
+The runtime brings the app from about 30 MB to 142 MB, and a compressed disk image from about 7 MB to 48 MB.
+
+### Supported macOS
+
+The app runs on macOS 13.5 or later, set once by `MACOS_MINIMUM` in `desktop/build.sh`. The build compiles the app and its PDF helpers for that version and writes it into `Info.plist` as `LSMinimumSystemVersion`. The Swift code itself needs macOS 13, for login items; the nodejs.org build of Node.js 24 needs 13.5. The build reads the bundled Node.js's minimum with `vtool -show-build` and stops if it is later. The app is built for the processor of the Mac that builds it, Apple silicon or Intel.
+
+On macOS 26 the app's surfaces use Liquid Glass; earlier versions use the standard translucent material. The app icon follows the macOS of the building Mac (see `LASSO_ICON_STYLE`), so a build made on macOS 26 shows its icon without rounded corners on earlier versions.
+
+### Signing and permissions
+
+Use a valid code-signing certificate to preserve macOS permissions across updates. The build automatically recognizes `Lasso Local Development` or `CoLab Dry Local Development`. To choose another identity, set `LASSO_SIGN_IDENTITY` to a certificate name or SHA-1 fingerprint from:
+
+```bash
+security find-identity -v -p codesigning
+```
+
+The build compiles, signs, and verifies a temporary app before replacing `dist/Lasso.app`. One `codesign` call signs the bundled Node.js, the PDF helpers and the app, so a single Keychain approval covers them. If signing fails, or the signed Node.js does not run, the previous app stays intact. `LASSO_SIGN_MODE=adhoc npm run desktop` is available for temporary builds, but their Accessibility approval may stop applying after rebuilding.
+
+Repeated Keychain prompts mean the signing tool has not been granted persistent access to the signing key. Save trusted access for Apple's `/usr/bin/codesign` on the existing Lasso signing key once. In a normal signing prompt, **Always Allow** saves access; **Allow** covers only that attempt. After setup, signing runs automatically while the login keychain is unlocked. Keep the same certificate to preserve Lasso's macOS permissions. See [Apple's Keychain access guidance](https://support.apple.com/en-gb/guide/mac-help/kychn002/26/mac/26).
+
+Enable **Suggest While Typing**, then follow any **Allow Accessibility…** or **Allow Input Monitoring…** action. macOS requires you to approve access in System Settings → Privacy & Security. The setting remembers your choice while approval is pending and starts automatically when access becomes available. After changing from an old ad-hoc build to certificate signing, remove the old Accessibility entry and add the signed app once.
+
+### Using suggestions
+
+Type near a term or value from an enabled work directory. Two letters are enough, including the first word in an empty field. A new sentence starts fresh suggestions even right after you accepted a source. A source card shows matching entries and a preview. Use `↑`/`↓` to select and scroll through ranked matches, and `Esc` to dismiss. With no card on screen, `Esc` always reaches your app. Modified keys such as `⇧Tab`, `⌃Tab` and `⇧↑` close the card and keep their usual meaning. PDF sources show their original pages and support word and excerpt completions, with matched passages highlighted in the preview.
+
+- **Tab:** replace the detected keyword or partial phrase with the selected source, value, field name, or citation. Sentence continuations append at the caret. The panel shows **Replace** when typed text will be replaced. Field descriptions and sample values stay in the preview.
+- **⌘Enter:** insert plain text. It differs from `Tab` only when **Tab Inserts** is set to **Ask Each Time** or **Share Link**, so the panel lists it only then.
+- **Share link…** or **⇧⌘Enter:** choose the sharing scope, then insert a share link.
+- **Open file** opens the source in its default app.
+
+Every plain-text insertion keeps a local source reference and highlight. **Ask Each Time** and **Share Link** still open the privacy composer before creating a public token.
+
+Plain-text acceptance stores source identity and a contextual text anchor locally. Lasso draws the colour and underline above the host app; these decorations are not part of the message sent to a recipient. Click a highlight to inspect its source. Highlights follow confidently resolved text and disappear when their position becomes ambiguous.
+
+Typing predictions use a bounded window before the caret and the local loopback server. Secure fields are skipped. Highlight positioning depends on the host application's Accessibility support.
+
+### Sharing
+
+The privacy composer offers **entire document**, **indexed part only**, and **selectively redacted view**. Only whole-document shares permit downloading the original. Every token pins an immutable source version and can be revoked through the share tools or `POST /api/object-shares/:token/revoke`.
+
+PDFs support **Select text** for words, sentences and paragraphs, and **Mark area** for drawings or other page regions. Excerpt previews and downloads contain only the selected regions. Redacted PDFs keep the page layout and remove hidden content from a newly rendered copy. Existing PDF imports automatically gain sentence and paragraph suggestions without reimporting.
+
+Default share URLs are local to the Mac running Lasso. `SHARE_BASE_URL` changes the URL base for a separately configured reachable service; it does not deploy or expose the local server. Only public share pages (`/d/…`) answer requests addressed to another host name; the rest of the local API answers only `127.0.0.1` and `localhost`, and refuses changes requested by other websites. Removing a source link also closes its share links. Share pages name source files without their folders.
 
 ## Windows companion (preview)
 
-A native Windows desktop host is available with a Fluent workspace, standard Windows controls, system tray, native folder selection, and an opt-in writing assistant. It uses the shared source library, editor, history, model previews, and sharing engine.
+A native Windows host offers a Fluent workspace, standard Windows controls, a system tray icon, native folder selection, and an opt-in writing assistant. It uses the same source library, editor, history, model previews, and sharing engine.
 
 ```powershell
 pwsh -NoProfile -File desktop/windows/build.ps1
 ```
 
-Build on Windows with PowerShell 7 and .NET SDK 8. The output bundles Node and .NET; users need only the Microsoft Edge WebView2 Runtime. Extract the complete ZIP and run `Lasso.exe`. See [Windows setup and validation status](desktop/windows/README.md) before rollout. The Windows assistant supports verified local source highlights, five-choice suggestions, source-scoped follow-ups, and explicit shared-link insertion. Live Windows browser validation is still required; cross-compilation alone does not establish full platform parity.
+Build on Windows with PowerShell 7 and the .NET 8 SDK. The output bundles Node.js and .NET; users need only the Microsoft Edge WebView2 Runtime. Extract the complete ZIP and run `Lasso.exe`. The assistant supports verified local source highlights, five-choice suggestions, source-scoped follow-ups, and explicit shared-link insertion. See [Windows setup and validation status](desktop/windows/README.md) before rollout; live Windows validation is still required.
 
-## macOS companion
+## Browser tools
 
-Requires macOS 13 or newer, Node.js 24+, and the Swift compiler from Xcode or its Command Line Tools.
+The browser combines a source library, document editor, history, and dependency review. Markdown and text saves update their tracked files. DOCX and PDF editing uses a versioned text layer and preserves the original binary. Accepted sources are linked locally immediately, then saved with the document through manual save or the five-minute autosave.
 
-```sh
-npm run desktop
-open dist/Lasso.app
-```
+In the editor, `Tab` or `Option+Enter` accepts a source suggestion, arrows choose alternatives, and `Esc` dismisses it. `Cmd/Ctrl+Shift+L` opens the source picker for selected text. Changes to an upstream source mark links for review; Lasso does not silently rewrite your document.
 
-The build creates and locally signs `dist/Lasso.app`. It bundles the server and interface, but **Node.js must remain installed**. Set `LASSO_NODE` when building to select its executable.
+The command layer behind the source tools uses the same dependency graph:
 
-The app lives in the menu bar. Click its icon to show or hide the workspace; closing the window leaves the local server running. The menu includes browser access, server controls, and writing-assistance settings. The desktop server prefers loopback port `4319` and chooses another available port if needed.
+| Purpose | Commands |
+|---|---|
+| Locate and inspect | `find`, `trace`, `history`, `ask` |
+| Review affected references | `impact`, `changes`, `stale`, `shares` |
+| Resolve source names | `conflicts`, `alias`, `aliases`, `unalias` |
+| Manage indexing | `index`, `rules` |
+| Revise references | `update`, `unlink` |
 
-### External drives (macOS)
+`update <dependency>` previews edits; `--apply` writes them and `--keep` retains the current wording. Mutating commands must identify their directory when several are active. `ask` answers only queries supported by the recorded sources.
 
-Connecting a mounted external storage drive adds a menu-bar badge and a brief notice without interrupting typing. Open **External Drives…** to index the entire drive or choose one or more folders, including nested folders. Indexing starts only after that choice; each selected folder becomes a working directory. Lasso uses the drive's persistent volume identity, so retained directories follow it when its mount path changes.
+## Data and configuration
 
-On disconnection, choose **Keep saved index** to browse and search cached file copies and their history offline, or **Remove saved data…** to delete those directories, indexes, local copies, and history from Lasso. Removal leaves the original drive files untouched, preserves blobs still used by another project, and refuses to delete sources referenced by another project. Offline directories are marked in the sidebar; editing and reindexing resume after reconnection. Previously selected folders reconcile changes when the drive returns.
+| Setting | Default or purpose |
+|---|---|
+| `LASSO_DATA_DIR` | CLI history uses `.lasso-data`; an existing `.colab-dry-data` is reused when the new location is absent. |
+| `PORT` | CLI server port, `4317`. The macOS app prefers `4319`, then an available loopback port. |
+| `LASSO_WATCH_DEBOUNCE_MS` | Watcher batching delay, `2500` ms. |
+| `LASSO_WATCH_MAX_WAIT_MS` | Longest a file saved over and over can postpone its capture, `15000` ms. |
+| `LASSO_NODE` | Node.js binary the desktop build bundles, `node` on `PATH` by default. Set when the app starts, it runs the server instead of the bundled copy. |
+| `LASSO_NODE_LICENSE` | Node.js `LICENSE` file for the build to bundle, for offline builds from the nodejs.org installer, which does not keep one. |
+| `LASSO_SIGN_IDENTITY` | Desktop signing certificate name or SHA-1 fingerprint. |
+| `LASSO_ICON_STYLE` | App icon drawn by `scripts/render-app-icon.swift`: `full-bleed` for macOS 26, which masks icons to its own shape, or `squircle` for earlier versions. Defaults to the building Mac's version. |
+| `SHARE_BASE_URL` | Base URL for generated share links. |
 
-Detection works with mounted external storage, including USB-A and USB-C drives, while the Mac app is running. Internal disks, network shares, disk images, locked/unmounted volumes, and volumes without a unique persistent identity are excluded. macOS may request permission to read removable volumes. This flow is currently available only in the Mac companion.
+The macOS app stores history in `~/Library/Application Support/Lasso/data` and logs in `~/Library/Logs/Lasso`. The Windows app keeps history, settings, its browser profile, and logs in `%LOCALAPPDATA%\Lasso`. Its build migrates the former CoLab Dry data location when needed. Enabled directories resume watching after startup, rereading only files whose size, modification or change time differs from the last recorded version; unavailable folders do not prevent other directories from loading. History is stored separately from selected directories unless you explicitly choose otherwise. The server log is rotated at 5 MB.
 
-### Writing in other applications
+Office lock and owner files (`~$Budget.xlsx`, `.~lock.*#`), partial downloads (`.crdownload`, `.part`, `.download`), `.tmp` files and system files such as AppleDouble `._*`, `Thumbs.db` and `desktop.ini` are not tracked. A file that exists but cannot be read for a moment keeps its last recorded version rather than being recorded as deleted. Files that cannot be indexed, or are indexed only in part, are listed by `index failures` and the notch's indexing issues: damaged or password-protected documents, PDFs without a text layer, workbook sheets too large to read, and files beyond the 10,000-item limit per folder. Excel dates and percentages are indexed as the sheet shows them, with dates written as `YYYY-MM-DD`.
 
-Select a project in Lasso, then enable **Suggest While Typing Anywhere** from the menu bar. macOS Accessibility and Input Monitoring permissions are required. Suggestions use the active project's index and nearby text from the focused editor.
+The browser's identity selector provides attribution, not authentication. Remote synchronization, production authentication, and automatic history garbage collection are not implemented.
 
-| Action | Behavior while suggestions are visible |
-| --- | --- |
-| Tab | Accept using the configured insertion preference; plain text is the default |
-| ⌘Enter | Insert as plain text with local source tracking |
-| ↑ / ↓ | Select another suggestion |
-| Esc | Dismiss the suggestions |
-| Share or ⇧⌘Enter | Open the sharing composer before creating a share |
+## Development
 
-The source preview lets you inspect evidence before accepting it. Local source highlights are drawn by Lasso and do not add hidden provenance to a recipient's document. Behavior depends on the host application's text and accessibility support; insertion, caret positioning, and highlighting are not identical in every editor. Rebuilding with ad-hoc signing may require granting permissions again.
-
-### Writing inside Lasso
-
-Open a document from **Writing**. The editor offers source-backed suggestions, manual source linking, and linked-source inspection. Accepted suggestions remain local to the editing session until saved; manual save and the five-minute background autosave commit document content and pending links together.
-
-Markdown and plain-text saves update the project file. DOCX and PDF edits are stored as a separate versioned text layer in Lasso; they do not rewrite the original document's bytes or formatting.
-
-## Supported sources
-
-Support varies by format and content. Files can be retained in history even when structured extraction is unavailable.
-
-| Source | Indexed evidence |
-| --- | --- |
-| Markdown and plain text | Document passages, source-backed continuations, and claims |
-| CSV / TSV and supported spreadsheets | Tables, rows, cells, values, and variable definitions |
-| DOCX | OOXML text and document metadata |
-| PDF | Locally extractable text and metadata; supported explicit drawing annotations |
-| Code, JSON, and notebooks | Code locations, structured values, and notebook cells |
-| BibTeX, RIS, EndNote, and NBIB | Reference records and available author, year, title, DOI, and PMID metadata |
-| IFC | Supported element quantities and typed properties, with entity identity and units |
-| ASCII DXF | Area and perimeter of supported closed model-space polylines with declared units |
-| LandXML | Supported parcel areas, alignment and pipe lengths, diameters, and elevations |
-| STEP (AP203, AP214, AP242) | Named parts and assemblies; overall X/Y/Z extents, hole and cylinder diameters, hole depths, arc radii and arc lengths, and straight-edge lengths measured from the B-rep in the declared unit |
-
-Scanned PDFs require OCR before their text can be indexed. The desktop build includes a PDFKit extraction helper; Windows and other platforms use the bundled PDF.js engine for drawing layout and figure previews. Native IFC, DXF, LandXML, and STEP readers require only Node.js.
-
-DWG, RVT, and DGN require an export from their authoring application, as do native mechanical CAD files (SolidWorks, Inventor, Fusion, CATIA, Parasolid, IGES, Rhino), which should be exported as STEP. IFC can preserve BIM properties, DXF supports selected CAD boundaries, LandXML preserves supported civil attributes, and STEP preserves exact part geometry. Lasso does not infer missing BIM quantities or reconstruct rooms from arbitrary drawing geometry. See [design-source indexing](docs/design-source-indexing.md) for exact supported subsets and limits.
-
-## Sharing and storage
-
-Plain-text insertion and local source linking do not publish a document. Sharing opens a composer where you choose what a recipient can see:
-
-- **Whole document:** permits the original file download.
-- **Indexed part:** exposes the selected indexed evidence and its context.
-- **Selective redaction:** masks chosen cells or text sections before rendering.
-
-Restricted shares do not permit original-file downloads. Shares pin their source version, so later edits do not change the evidence behind an existing link.
-
-**Default share links are local to the computer running Lasso.** Recipients on another computer need a reachable server. `SHARE_BASE_URL` changes generated URLs; it does not deploy the app or create a tunnel. The local API uses actor identities for attribution, not authentication. See [current limitations](docs/limitations.md) before designing a hosted deployment.
-
-| Setting or location | Purpose |
-| --- | --- |
-| `LASSO_DATA_DIR` | Override the development database and blob-store directory |
-| `.lasso-data/` | Default development history store in the server's working directory |
-| `.colab-dry-data/` | Existing legacy store used when `.lasso-data/` is absent |
-| `~/Library/Application Support/Lasso/data` | macOS app history store |
-| `~/Library/Logs/Lasso/server.log` | macOS server log |
-| `%LOCALAPPDATA%\\Lasso` | Windows app history, settings, browser profile, and logs |
-| `PORT` | Development server port; defaults to `4317` |
-| `LASSO_WATCH_DEBOUNCE_MS` | Watcher batching interval; defaults to `2500` ms |
-| `SHARE_BASE_URL` | Base URL used to construct shared links |
-
-History uses SQLite and content-addressed file snapshots. The desktop build can seed a first installation from existing local history; subsequent builds retain the app's existing data. Local databases, generated app bundles, and machine-specific configuration are excluded from Git.
-
-## Development and verification
-
-```sh
-npm test                    # Node.js unit and integration tests
-npm run desktop:test        # Native anchor, text, and coordinate checks
-npm run desktop             # Compile and sign the macOS app
-```
-
-The tests cover indexing, source matching, document links, migrations, history, sharing, drawing readers, and dependency queries using temporary projects and databases.
-
-For optional live Chrome geometry checks:
-
-```sh
-npm run desktop:test:browser
+```bash
+npm test
+npm run desktop:test
 npm run desktop
 ```
 
-The browser check requires Chrome and Accessibility permission, opens an isolated temporary profile, and builds a test variant. The second command restores the regular app build.
+The JavaScript suite covers history, source indexing, cross-directory dependencies, ranking, sharing, browser state, and the command layer using temporary workspaces. Native checks cover insertion, text anchors, highlight geometry, directory colours, and permission state. Building the desktop app compiles the complete Swift application.
 
-For hash-checked architectural and civil sample validation:
+Architecture and implementation references:
 
-```sh
-node --disable-warning=ExperimentalWarning scripts/validate-drawing-sample.js
-# Append --pdf to include the PDF annotation sample.
-```
+- [Timeline, snapshots, and recorded provenance](docs/scientific-timeline.md)
+- [Predictive dependencies, editor behaviour, and ranking](docs/predictive-provenance-editor.md)
+- [Ranking algorithm reference (PDF)](docs/lasso-ranking-algorithm.pdf)
 
-Fixture origins, hashes, and expected measurements are recorded in [the sample manifest](test/fixtures/drawings/sources.json). See [sample validation](docs/drawing-sample-validation.md) for details.
+## Drawing and CAD sources
 
-## Project layout
+The source library also indexes explicit evidence from DXF, IFC, LandXML, drawing PDFs, and STEP CAD models (AP203, AP214, AP242). Supported drawing questions can be submitted with Enter in source search, such as “What is the length of Main Road?” or “What is the diameter of the Bracket Ø8 hole?”. Measurements require recorded evidence; geometry is not guessed from an image.
 
-| Directory | Responsibility |
-| --- | --- |
-| `desktop/` | Swift/AppKit companion and native source/share panels |
-| `desktop/windows/` | Windows WPF/WebView2 host, UI Automation assistant, installer, and packaging |
-| `public/` | Browser and WKWebView interface, source library, and writing workspace |
-| `src/history/` | File snapshots, change detection, previews, and recorded provenance traversal |
-| `src/dependencies/` | Extraction, indexing, matching, ranking, and document-source links |
-| `src/terminal/` | Structured source queries, change review, aliases, and index controls |
-| `src/sharing/` | Version-pinned share grants and scoped previews |
-| `src/http/` | Local HTTP API |
-| `migrations/` | SQLite schema migrations |
-| `scripts/` | Extraction helpers and sample validation |
-| `test/` | Automated tests and source fixtures |
+For each named STEP part and assembly, Lasso indexes overall X/Y/Z extents, hole and cylinder diameters, hole depths, arc radii and arc lengths, and straight-edge lengths, measured exactly from the B-rep in the file's declared unit. An extent that curved faces could exceed is omitted rather than estimated. Previews show an isometric wireframe with the cited feature highlighted. Native CAD files (SolidWorks, Inventor, Fusion, CATIA, Parasolid, IGES, Rhino), like DWG, RVT and DGN, are kept with guidance to export STEP, IFC, DXF or LandXML.
 
-Further implementation details: [version history and provenance](docs/scientific-timeline.md), [writing and source linking](docs/predictive-provenance-editor.md), and [current limitations](docs/limitations.md).
+Run `node --disable-warning=ExperimentalWarning scripts/validate-drawing-sample.js --pdf` to validate the hash-checked architectural, civil, and PDF samples. Optional live Chrome checks use `npm run desktop:test:browser`; this builds a test variant, so restore the regular app afterward with `npm run desktop`.
+
+- [Design source indexing](docs/design-source-indexing.md)
+- [Drawing sample validation](docs/drawing-sample-validation.md)
+- [Format and deployment limitations](docs/limitations.md)

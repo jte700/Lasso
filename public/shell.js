@@ -1,11 +1,8 @@
-// Application shell: window chrome, tab strip, directory sidebar, resize handle
-// and the terminal session view.
+// Application shell: directory navigation, document tabs, and the empty workspace.
 //
 // Each piece is a small factory over existing DOM rather than a framework
 // component, but the boundaries are the same: the shell knows nothing about
 // provenance, and the workspace knows nothing about how it is framed.
-
-const SIDEBAR = { min: 210, max: 460, ratio: 0.245, key: 'lasso.sidebarWidth' };
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (character) => (
@@ -22,27 +19,38 @@ export function shortenPath(path) {
 
 /**
  * Directories the user has granted the application access to. Selecting one
- * changes the active workspace context.
+ * changes the document context. Checkboxes independently select directories
+ * that contribute to the shared source library and writing suggestions.
  */
-export function createDirectorySidebar({ host, onSelect }) {
+export function createDirectorySidebar({ host, onSelect, onToggle }) {
   let directories = [];
   let activeId = null;
 
   function render() {
     host.innerHTML = directories.map((directory) => {
       const selected = directory.id === activeId;
-      const status = directory.availability === 'offline' ? 'offline' : selected ? 'active' : directory.status ?? 'available';
-      const meta = directory.availability === 'offline' ? `${directory.driveName || 'External drive'} · Offline` : directory.gitBranch || shortenPath(directory.path);
-      return `<button class="directory-row ${selected ? 'selected' : ''}" role="option"
-                aria-selected="${selected}" data-directory="${escapeHtml(directory.id)}">
+      // A disconnected drive keeps its cached index browsable and searchable.
+      const offline = directory.availability === 'offline';
+      const status = offline ? 'offline' : directory.active ? 'active' : 'available';
+      const meta = offline ? `${directory.driveName || 'External drive'} · Offline`
+        : [directory.available === false ? 'Unavailable' : directory.active ? 'Included' : 'Paused', directory.gitBranch || shortenPath(directory.path)].filter(Boolean).join(' · ');
+      return `<div style="display:flex;align-items:center;gap:6px">
+        <input type="checkbox" data-toggle-directory="${escapeHtml(directory.id)}" ${directory.active ? 'checked' : ''}
+          ${directory.available === false ? 'disabled' : ''} aria-label="Include ${escapeHtml(directory.name)} in workspace"
+          title="${escapeHtml(directory.error || 'Include this directory in suggestions and search')}" style="accent-color:var(--u-green);flex:none;margin-left:6px">
+        <button class="directory-row ${selected ? 'selected' : ''}" type="button" aria-pressed="${selected}"
+                data-directory="${escapeHtml(directory.id)}" ${directory.available === false ? 'disabled' : ''}>
         <span class="dir-dot ${status}" aria-hidden="true"></span>
         <span class="dir-name">${escapeHtml(directory.name)}${directory.availability === 'offline' ? ' <small class="drive-offline-label">Cached</small>' : ''}</span>
         <span class="dir-meta">${escapeHtml(meta)}</span>
-      </button>`;
+      </button></div>`;
     }).join('') || '<p class="add-directory" style="cursor:default">no directories yet</p>';
 
     host.querySelectorAll('[data-directory]').forEach((row) => {
       row.addEventListener('click', () => onSelect?.(row.dataset.directory));
+    });
+    host.querySelectorAll('[data-toggle-directory]').forEach((checkbox) => {
+      checkbox.addEventListener('change', () => onToggle?.(checkbox.dataset.toggleDirectory, checkbox.checked));
     });
   }
 
@@ -88,64 +96,6 @@ export function createTabBar({ host, onSelect }) {
     },
     get count() { return tabs.length; },
   };
-}
-
-// ── SidebarResizeHandle ─────────────────────────────────────────────────────
-
-/** Drags the sidebar edge. Width updates with the pointer, never animated. */
-export function createSidebarResize({ handle, root }) {
-  const proportional = () => Math.round(
-    Math.min(SIDEBAR.max, Math.max(SIDEBAR.min, window.innerWidth * SIDEBAR.ratio)));
-  const stored = Number(localStorage.getItem(SIDEBAR.key) ?? localStorage.getItem('colab.sidebarWidth'));
-  let width = Number.isFinite(stored) && stored >= SIDEBAR.min && stored <= SIDEBAR.max
-    ? stored : proportional();
-  // Until the user drags it, the sidebar keeps the reference's proportion.
-  let pinned = Number.isFinite(stored) && stored > 0;
-  window.addEventListener('resize', () => {
-    if (pinned) return;
-    width = proportional();
-    apply();
-  });
-  let frame = null;
-
-  const apply = () => root.style.setProperty('--sidebar-w', `${width}px`);
-  apply();
-
-  handle.addEventListener('pointerdown', (event) => {
-    event.preventDefault();
-    handle.classList.add('dragging');
-    handle.setPointerCapture(event.pointerId);
-    const startX = event.clientX;
-    const startWidth = width;
-
-    const move = (moveEvent) => {
-      const next = Math.min(SIDEBAR.max, Math.max(SIDEBAR.min, startWidth + (moveEvent.clientX - startX)));
-      if (next === width) return;
-      width = next;
-      if (frame) return;
-      frame = requestAnimationFrame(() => { frame = null; apply(); });
-    };
-    const stop = () => {
-      handle.classList.remove('dragging');
-      handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', stop);
-      handle.removeEventListener('pointercancel', stop);
-      pinned = true;
-      try { localStorage.setItem(SIDEBAR.key, String(width)); } catch { /* layout only */ }
-    };
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', stop);
-    handle.addEventListener('pointercancel', stop);
-  });
-
-  // Keyboard parity for the drag handle.
-  handle.addEventListener('keydown', (event) => {
-    const step = event.shiftKey ? 32 : 8;
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-    event.preventDefault();
-    width = Math.min(SIDEBAR.max, Math.max(SIDEBAR.min, width + (event.key === 'ArrowRight' ? step : -step)));
-    apply();
-  });
 }
 
 // ── Empty workbench ────────────────────────────────────────────────────────

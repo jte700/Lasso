@@ -139,6 +139,30 @@ enum TextAnchorResolver {
     }
 }
 
+/// Scroll and window events change geometry without changing anchor matches.
+/// Keep only the current document so long sessions cannot accumulate text here.
+final class TextAnchorResolutionCache {
+    private var document: String?
+    private var anchors: [String: TextAnchor] = [:]
+    private var results: [String: AnchorResolution] = [:]
+
+    func resolve(_ references: [DependencyReference], in text: String) -> [String: AnchorResolution] {
+        let currentAnchors = Dictionary(uniqueKeysWithValues: references.map { ($0.id, $0.anchor) })
+        if document == text, anchors == currentAnchors { return results }
+        let units = Array(text.utf16)
+        results = currentAnchors.mapValues { TextAnchorResolver.resolve($0, in: units) }
+        document = text
+        anchors = currentAnchors
+        return results
+    }
+
+    func clear() {
+        document = nil
+        anchors = [:]
+        results = [:]
+    }
+}
+
 // MARK: - The reference itself
 
 /// How a dependency should be drawn, driven by its relationship to the source
@@ -158,6 +182,9 @@ struct DependencyReference: Codable, Equatable {
     /// The indexed object this phrase came from.
     let objectId: String
     let versionId: String?
+    /// Owning work directory, kept separately from relative source file paths.
+    /// Older persisted references decode without this field and are backfilled.
+    var projectId: String? = nil
     /// Where it was inserted.
     let hostBundleIdentifier: String
     let hostApplication: String
@@ -177,13 +204,28 @@ struct DependencyReference: Codable, Equatable {
     var updatedAt: Date
 
     static func == (left: DependencyReference, right: DependencyReference) -> Bool { left.id == right.id }
+
+    /// Identity equality is used by the UI; persistence needs content equality.
+    func hasSameContent(as other: DependencyReference) -> Bool {
+        id == other.id && objectId == other.objectId && versionId == other.versionId
+            && projectId == other.projectId
+            && hostBundleIdentifier == other.hostBundleIdentifier && hostApplication == other.hostApplication
+            && documentContext == other.documentContext && createdAt == other.createdAt
+            && anchor == other.anchor && state == other.state && label == other.label
+            && valueText == other.valueText && sourcePath == other.sourcePath
+            && sourceLocation == other.sourceLocation && sourceColorSlot == other.sourceColorSlot
+    }
 }
 
 /// Persistence for local references. Kept separate from resolution so the store
 /// can be exercised without any host application present.
 final class DependencyReferenceStore {
     private(set) var references: [DependencyReference] = []
+    private(set) var revision = 0
     private let url: URL
+    private var hostBundles: Set<String> = []
+    private var batchDepth = 0
+    private var pendingSave = false
 
     init(url: URL) {
         self.url = url
@@ -193,19 +235,45 @@ final class DependencyReferenceStore {
     func add(_ reference: DependencyReference) {
         references.removeAll { $0.id == reference.id }
         references.append(reference)
-        save()
+        hostBundles = Set(references.map(\.hostBundleIdentifier))
+        didChange()
     }
 
     func remove(id: String) {
+        guard references.contains(where: { $0.id == id }) else { return }
         references.removeAll { $0.id == id }
-        save()
+        hostBundles = Set(references.map(\.hostBundleIdentifier))
+        didChange()
     }
 
     func update(id: String, transform: (inout DependencyReference) -> Void) {
         guard let index = references.firstIndex(where: { $0.id == id }) else { return }
+        let previous = references[index]
         transform(&references[index])
+        guard !references[index].hasSameContent(as: previous) else {
+            references[index] = previous
+            return
+        }
+        if previous.hostBundleIdentifier != references[index].hostBundleIdentifier {
+            hostBundles = Set(references.map(\.hostBundleIdentifier))
+        }
         references[index].updatedAt = Date()
-        save()
+        didChange()
+    }
+
+    func hasReferences(bundleIdentifier: String) -> Bool { hostBundles.contains(bundleIdentifier) }
+
+    /// A refresh can change several references; persist one consistent snapshot.
+    func batchUpdates(_ changes: () -> Void) {
+        batchDepth += 1
+        changes()
+        batchDepth -= 1
+        if batchDepth == 0, pendingSave { pendingSave = false; save() }
+    }
+
+    private func didChange() {
+        revision += 1
+        if batchDepth > 0 { pendingSave = true } else { save() }
     }
 
     /// References belonging to one host document, never any other.
@@ -220,6 +288,7 @@ final class DependencyReferenceStore {
     private func load() {
         guard let data = try? Data(contentsOf: url) else { return }
         references = (try? JSONDecoder().decode([DependencyReference].self, from: data)) ?? []
+        hostBundles = Set(references.map(\.hostBundleIdentifier))
     }
 
     private func save() {

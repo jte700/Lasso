@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { hashBuffer } from './blob-store.js';
+import { isTextualType } from './file-types.js';
 
 function decode(buffer) {
   return buffer?.toString('utf8').replace(/\r\n/g, '\n') ?? '';
@@ -124,7 +125,36 @@ function markdownDiff(beforeText, afterText) {
   };
 }
 
-export function parseDelimited(text, delimiter) {
+function unquotedCounts(line) {
+  const counts = { ',': 0, ';': 0 };
+  let quoted = false;
+  for (const character of line) {
+    if (character === '"') quoted = !quoted;
+    else if (!quoted && character in counts) counts[character] += 1;
+  }
+  return counts;
+}
+
+/**
+ * The delimiter of a .csv file. Spreadsheet exports in many locales separate
+ * fields with semicolons; they are recognised only when the header has no
+ * unquoted comma and the sampled rows agree on the semicolon count.
+ */
+export function csvDelimiter(text) {
+  const lines = String(text ?? '').replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => line.trim()).slice(0, 6);
+  if (!lines.length) return ',';
+  const header = unquotedCounts(lines[0]);
+  if (header[','] > 0 || header[';'] === 0) return ',';
+  return lines.every((line) => unquotedCounts(line)[';'] === header[';']) ? ';' : ',';
+}
+
+/**
+ * Rows of a delimited file. A comma delimiter is checked against csvDelimiter
+ * unless `detect` is false, which preserves the original comma reading for
+ * coordinates recorded before semicolon files were recognised.
+ */
+export function parseDelimited(text, delimiter, { detect = true } = {}) {
+  if (delimiter === ',' && detect) delimiter = csvDelimiter(text);
   const rows = [];
   let row = [];
   let cell = '';
@@ -280,6 +310,7 @@ export function createStructuredDiff({ fileType, filePath, beforeBuffer, afterBu
     return { format: 'file', message: changeType === 'MOVED' ? 'File moved.' : 'File renamed.' };
   }
   if (!beforeBuffer || !afterBuffer) return { format: 'binary', message: 'File changed. Structured comparison unavailable.' };
+  if (!isTextualType(fileType)) return { format: 'binary', message: 'File changed. Structured comparison unavailable.' };
 
   const beforeText = decode(beforeBuffer);
   const afterText = decode(afterBuffer);
@@ -291,6 +322,81 @@ export function createStructuredDiff({ fileType, filePath, beforeBuffer, afterBu
     return lineDiff(beforeText, afterText, fileType === 'code' ? 'code' : 'text');
   }
   return { format: 'binary', message: 'File changed. Structured comparison unavailable.' };
+}
+
+// Line and block comparisons are stored as runs that point into the two
+// compared versions, whose bytes the blob store keeps. A one-line edit to a
+// long file then stores a few runs instead of every line of both versions.
+const RUN_FORMATS = new Set(['text', 'code', 'markdown']);
+
+function continuesRun(run, operation) {
+  if (run.kind !== operation.kind) return false;
+  const nextBefore = run.beforeLine === undefined || operation.beforeLine === run.beforeLine + run.count;
+  const nextAfter = run.afterLine === undefined || operation.afterLine === run.afterLine + run.count;
+  return nextBefore && nextAfter;
+}
+
+/** The form of a structured diff that is written to history. */
+export function compactStructuredDiff(diff) {
+  if (!RUN_FORMATS.has(diff?.format) || !Array.isArray(diff.operations)) return diff;
+  const runs = [];
+  for (const operation of diff.operations) {
+    const last = runs.at(-1);
+    if (last && continuesRun(last, operation)) {
+      runs[runs.length - 1] = { ...last, count: last.count + 1 };
+      continue;
+    }
+    runs.push({
+      kind: operation.kind,
+      ...(operation.beforeLine === undefined ? {} : { beforeLine: operation.beforeLine }),
+      ...(operation.afterLine === undefined ? {} : { afterLine: operation.afterLine }),
+      count: 1,
+    });
+  }
+  const { operations, ...rest } = diff;
+  return { ...rest, operationRuns: runs };
+}
+
+function comparedUnits(format, buffer) {
+  const text = decode(buffer);
+  return format === 'markdown' ? markdownBlocks(text) : text.split('\n');
+}
+
+function operationAt(format, run, offset, before, after) {
+  const beforeLine = run.beforeLine === undefined ? undefined : run.beforeLine + offset;
+  const afterLine = run.afterLine === undefined ? undefined : run.afterLine + offset;
+  const unit = run.kind === 'add' ? after[afterLine - 1] : before[beforeLine - 1];
+  const text = format === 'markdown' ? unit?.text : unit;
+  return {
+    kind: run.kind,
+    text,
+    ...(beforeLine === undefined ? {} : { beforeLine }),
+    ...(afterLine === undefined ? {} : { afterLine }),
+    ...(format === 'markdown' ? { blockType: unit?.type } : {}),
+  };
+}
+
+/**
+ * The structured diff as it was computed, from its stored form.
+ * `loadVersions` returns the compared versions' bytes: { before, after }.
+ * Diffs stored before runs existed are returned unchanged.
+ */
+export function expandStructuredDiff(stored, loadVersions) {
+  if (!Array.isArray(stored?.operationRuns)) return stored;
+  let versions;
+  try {
+    versions = loadVersions();
+  } catch {
+    return stored;
+  }
+  if (!versions?.before && stored.operationRuns.some((run) => run.kind !== 'add')) return stored;
+  if (!versions?.after && stored.operationRuns.some((run) => run.kind === 'add')) return stored;
+  const before = comparedUnits(stored.format, versions.before);
+  const after = comparedUnits(stored.format, versions.after);
+  const operations = stored.operationRuns.flatMap((run) => Array.from({ length: run.count },
+    (_, offset) => operationAt(stored.format, run, offset, before, after)));
+  const { operationRuns, ...rest } = stored;
+  return { ...rest, operations };
 }
 
 export function deterministicEventTitle(changes) {

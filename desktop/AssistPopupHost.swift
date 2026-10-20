@@ -38,7 +38,14 @@ struct AssistPopupHost {
     }
 
     func visibleCaret(using read: (AXUIElement) -> CGRect?) -> CGRect? {
-        guard isCurrent, let caret = read(element),
+        guard isCurrent else { return nil }
+        return caretIfVisible(read(element))
+    }
+
+    /// A caret already measured for this editor, kept only if it lies inside
+    /// the editor and its window. Callers check `isCurrent` first.
+    func caretIfVisible(_ caret: CGRect?) -> CGRect? {
+        guard let caret,
               caret.minX.isFinite, caret.minY.isFinite,
               caret.width.isFinite, caret.height > 0, caret.height < 400,
               let windowFrame = Self.frame(window), let editorFrame = Self.frame(element),

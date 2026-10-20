@@ -1,4 +1,4 @@
-CREATE TABLE removable_drives (
+CREATE TABLE IF NOT EXISTS removable_drives (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   root_path TEXT NOT NULL,
@@ -6,12 +6,12 @@ CREATE TABLE removable_drives (
   pending_action TEXT CHECK (pending_action IN ('connected', 'disconnected')),
   updated_at TEXT NOT NULL
 );
-CREATE TABLE drive_projects (
+CREATE TABLE IF NOT EXISTS drive_projects (
   project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
   drive_id TEXT NOT NULL REFERENCES removable_drives(id) ON DELETE CASCADE,
   relative_path TEXT NOT NULL,
   UNIQUE(drive_id, relative_path)
 );
-CREATE INDEX drive_projects_drive_idx ON drive_projects(drive_id);
-INSERT INTO schema_migrations(version, applied_at)
-VALUES (18, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+CREATE INDEX IF NOT EXISTS drive_projects_drive_idx ON drive_projects(drive_id);
+INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+VALUES (22, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));

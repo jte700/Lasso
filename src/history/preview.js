@@ -2,6 +2,17 @@ import path from 'node:path';
 import { diffInternals, parseDelimited } from './diff.js';
 import { HttpError } from './errors.js';
 import { extractDesignDocument, isDesignFile } from '../dependencies/drawing-objects.js';
+import { extractDrawingDocument } from '../dependencies/drawing-extraction.js';
+
+// A preview renders one element per line, cell or value. Past these limits a
+// browser tab stalls, so the preview shows the start of the file and says how
+// much there is. Anchors still resolve against the whole file.
+const PREVIEW_ROWS = 2000;
+const PREVIEW_ITEMS = 5000;
+
+function cappedItems(items) {
+  return { items: items.slice(0, PREVIEW_ITEMS), totalItems: items.length };
+}
 
 function lineItems(text, language = 'text') {
   return text.replace(/\r\n/g, '\n').split('\n').map((value, index) => ({
@@ -66,6 +77,17 @@ export function buildPreview(snapshot, file, buffer) {
     contentHash: file.contentHash,
   };
 
+  if (file.fileType === 'pdf') {
+    const layout = extractDrawingDocument(buffer);
+    return { ...base, kind: 'pdf',
+      fileUrl: `/api/snapshots/${encodeURIComponent(snapshot.id)}/source?path=${encodeURIComponent(file.path)}`,
+      pageNumber: 1, pageCount: layout.pageCount ?? layout.pages.length,
+      warnings: layout.warnings,
+      pages: layout.pages.map(page => ({ pageNumber: page.pageNumber, text: page.text,
+        anchor: { kind: 'pdf-page', pageNumber: page.pageNumber } })),
+    };
+  }
+
   if (isDesignFile(file)) {
     const design = extractDesignDocument(file, buffer);
     if (design.isDrawing) return { ...base, kind: 'drawing', warnings: design.warnings,
@@ -89,21 +111,24 @@ export function buildPreview(snapshot, file, buffer) {
     };
   }
   if (file.fileType === 'code' || file.fileType === 'text' || file.fileType === 'yaml') {
-    return { ...base, kind: 'lines', items: lineItems(text, file.fileType) };
+    return { ...base, kind: 'lines', ...cappedItems(lineItems(text, file.fileType)) };
   }
-  if (file.fileType === 'table') return { ...base, ...tablePreview(text, file.path) };
+  if (file.fileType === 'table') {
+    const table = tablePreview(text, file.path);
+    return { ...base, ...table, rows: table.rows.slice(0, PREVIEW_ROWS), totalRows: table.rows.length };
+  }
   if (file.fileType === 'json') {
     try {
       return {
         ...base,
         kind: 'json',
-        items: jsonLeaves(JSON.parse(text)).map((item) => ({
+        ...cappedItems(jsonLeaves(JSON.parse(text)).map((item) => ({
           ...item,
           anchor: { kind: 'json-path', path: item.path },
-        })),
+        }))),
       };
     } catch {
-      return { ...base, kind: 'lines', items: lineItems(text) };
+      return { ...base, kind: 'lines', ...cappedItems(lineItems(text)) };
     }
   }
   if (file.fileType === 'notebook') {
@@ -117,7 +142,7 @@ export function buildPreview(snapshot, file, buffer) {
         })),
       };
     } catch {
-      return { ...base, kind: 'lines', items: lineItems(text) };
+      return { ...base, kind: 'lines', ...cappedItems(lineItems(text)) };
     }
   }
   return {
@@ -165,7 +190,9 @@ export function resolveAnchor(file, buffer, anchor, exactSnapshot = false) {
   if (!anchor?.kind) throw new HttpError(400, 'A stable preview anchor is required.');
   const text = buffer.toString('utf8').replace(/\r\n/g, '\n');
   let container = null;
-  if (anchor.kind === 'cad-property') {
+  if (anchor.kind === 'pdf-page' && file.fileType === 'pdf') {
+    container = extractDrawingDocument(buffer).pages.find(page => page.pageNumber === anchor.pageNumber)?.text ?? null;
+  } else if (anchor.kind === 'cad-property') {
     const facts = extractDesignDocument(file, buffer).pages.flatMap((page) => page.annotations);
     container = facts.find((fact) => fact.id === anchor.identifier)?.value ?? null;
   } else if (anchor.kind === 'markdown-block' || anchor.kind === 'manuscript-span') {

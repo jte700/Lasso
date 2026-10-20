@@ -26,12 +26,13 @@ enum DependencyStyle {
     ]
     static var sourceColorCount: Int { sourceColors.count }
 
-    static func stroke(for state: DependencyVisualState, sourceSlot: Int, hovered: Bool) -> NSColor {
+    static func stroke(for state: DependencyVisualState, sourceSlot: Int,
+                       directoryColor: DirectoryToggleColor? = nil, hovered: Bool) -> NSColor {
         let base: NSColor
         switch state {
         case .healthy:
             let index = (sourceSlot % sourceColors.count + sourceColors.count) % sourceColors.count
-            base = sourceColors[index]
+            base = directoryColor?.color ?? sourceColors[index]
         case .changed:    base = NSColor(srgbRed: 0.87, green: 0.66, blue: 0.29, alpha: 1)
         case .stale:      base = NSColor(srgbRed: 0.85, green: 0.72, blue: 0.35, alpha: 1)
         case .missing:    base = NSColor(srgbRed: 0.85, green: 0.40, blue: 0.38, alpha: 1)
@@ -40,11 +41,14 @@ enum DependencyStyle {
         return base.withAlphaComponent(hovered ? 1.0 : 0.90)
     }
 
-    static func wash(for state: DependencyVisualState, sourceSlot: Int, hovered: Bool) -> NSColor {
+    static func wash(for state: DependencyVisualState, sourceSlot: Int,
+                     directoryColor: DirectoryToggleColor? = nil, hovered: Bool) -> NSColor {
         guard hovered else {
-            return stroke(for: state, sourceSlot: sourceSlot, hovered: false).withAlphaComponent(0.08)
+            return stroke(for: state, sourceSlot: sourceSlot,
+                          directoryColor: directoryColor, hovered: false).withAlphaComponent(0.08)
         }
-        return stroke(for: state, sourceSlot: sourceSlot, hovered: true).withAlphaComponent(0.16)
+        return stroke(for: state, sourceSlot: sourceSlot,
+                      directoryColor: directoryColor, hovered: true).withAlphaComponent(0.16)
     }
 
     static func isDashed(_ state: DependencyVisualState) -> Bool {
@@ -58,6 +62,7 @@ final class OverlayView: NSView {
     var geometries: [DependencyGeometry] = []
     var states: [String: DependencyVisualState] = [:]
     var sourceSlots: [String: Int] = [:]
+    var directoryColors: [String: DirectoryToggleColor] = [:]
     var hoveredId: String?
     var debug = false
     /// Screen-space frame of the panel that owns this view.
@@ -72,17 +77,20 @@ final class OverlayView: NSView {
             guard state.isDrawn || debug else { continue }
             let hovered = geometry.referenceId == hoveredId
             let sourceSlot = sourceSlots[geometry.referenceId] ?? 0
+            let directoryColor = directoryColors[geometry.referenceId]
 
             for fragment in geometry.fragments {
                 let local = HostGeometryConverter.toPanelLocal(fragment, panelFrame: panelFrame)
 
                 // A faint wash, kept well below the text's own contrast.
-                DependencyStyle.wash(for: state, sourceSlot: sourceSlot, hovered: hovered).setFill()
+                DependencyStyle.wash(for: state, sourceSlot: sourceSlot,
+                                     directoryColor: directoryColor, hovered: hovered).setFill()
                 NSBezierPath(roundedRect: local.insetBy(dx: -1, dy: 0), xRadius: 4, yRadius: 4).fill()
 
                 // The underline sits just under the baseline.
                 context.saveGState()
-                DependencyStyle.stroke(for: state, sourceSlot: sourceSlot, hovered: hovered).setStroke()
+                DependencyStyle.stroke(for: state, sourceSlot: sourceSlot,
+                                       directoryColor: directoryColor, hovered: hovered).setStroke()
                 context.setLineWidth(hovered ? 2.0 : 1.25)
                 if DependencyStyle.isDashed(state) { context.setLineDash(phase: 0, lengths: [3, 2]) }
                 let y = local.minY + 0.5

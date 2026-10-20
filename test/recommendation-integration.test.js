@@ -66,7 +66,7 @@ test('typing uses the shared ranking, preserves match confidence and stays quiet
   app.dependencies.recordRecommendationUsage(project.id, { path: 'beta.csv', kind: 'accept', sessionId: 'typing' });
   const prediction = app.dependencies.predict(project.id, input);
   const candidates = prediction.claims.flatMap((claim) => claim.candidates);
-  assert.ok(candidates.length > 0 && candidates.length <= 5);
+  assert.ok(candidates.length > 0 && candidates.length <= 12);
   assert.equal(candidates[0].path, 'beta.csv');
   assert.equal(candidates[0].ranking.relevanceScore, candidates[0].score);
   assert.ok(candidates[0].ranking.usageBoost > 0);
@@ -91,6 +91,104 @@ test('sentence completions use accepted-source preferences without bypassing exc
   assert.equal(app.dependencies.predict(project.id, input).completion.source.path, 'beta.md');
   app.dependencies.suppressedPathPrefixes = () => ['beta.md'];
   assert.equal(app.dependencies.predict(project.id, input).completion.source.path, 'alpha.md');
+});
+
+test('typing and explicit Lasso offer scrolling choices while retaining their match thresholds', (t) => {
+  const { application: app, project } = fixture(t);
+  const strong = { text: 'Supplies were 120.', documentPath: 'draft.md' };
+  assert.equal(app.dependencies.predict(project.id, strong).claims.flatMap((claim) => claim.candidates).length, 8);
+  assert.equal(app.dependencies.predict(project.id, { ...strong, surface: 'search' })
+    .claims.flatMap((claim) => claim.candidates).length, 12);
+  const weak = { text: 'Supplies chromatic orbital were 121.', documentPath: 'draft.md' };
+  for (let index = 0; index < 30; index += 1) {
+    app.dependencies.recordRecommendationUsage(project.id, { path: 'beta.csv', kind: 'accept', sessionId: `popular-${index}` });
+  }
+  assert.deepEqual(app.dependencies.predict(project.id, weak).claims.flatMap((claim) => claim.candidates), []);
+  const broader = app.dependencies.predict(project.id, { ...weak, surface: 'search' }).claims.flatMap((claim) => claim.candidates);
+  assert.ok(broader.length > 5 && broader.length <= 12);
+  assert.ok(broader.every((candidate) => candidate.matchStrength < 0.4));
+});
+
+test('file search protects exact values and identifiers from popular partial content matches', (t) => {
+  const { application: app, project, root } = fixture(t);
+  fs.writeFileSync(path.join(root, 'exact.json'), JSON.stringify({ measurement: 314, identifier: 'IL_6' }));
+  fs.writeFileSync(path.join(root, 'popular.json'), JSON.stringify({ measurement: 3140, identifier: 'IL_60' }));
+  app.timeline.capture(project.id, writer);
+  for (let index = 0; index < 30; index += 1) {
+    app.dependencies.recordRecommendationUsage(project.id, { path: 'popular.json', kind: 'accept', sessionId: `popular-${index}` });
+  }
+  const value = app.dependencies.search(project.id, '314');
+  assert.equal(value[0].path, 'exact.json');
+  assert.equal(value[0].ranking.reason, 'Exact value match');
+  assert.equal(value.find((candidate) => candidate.path === 'popular.json').ranking.tier, 1);
+  const identity = app.dependencies.search(project.id, value[0].id);
+  assert.equal(identity[0].id, value[0].id);
+  assert.equal(identity[0].ranking.reason, 'Exact identifier match');
+  assert.equal(app.dependencies.search(project.id, 'IL_6')[0].path, 'exact.json');
+  assert.ok(app.dependencies.search(project.id, '', { sourcePath: 'popular.json', diversify: false })
+    .every((candidate) => candidate.path === 'popular.json'));
+  assert.equal(app.dependencies.search(project.id, '', { sourcePath: 'exact.json', diversify: false }).length, 2);
+});
+
+test('search and terminal completion preserve distinct citable works in a shared bibliography', (t) => {
+  const { application: app, project, root } = fixture(t);
+  const bibliography = Array.from({ length: 4 }, (_, index) => `@article{work${index},\n title={Shared evidence study ${index}},\n author={Researcher, Anne},\n year={2024},\n doi={10.1234/study${index}}\n}`).join('\n');
+  fs.writeFileSync(path.join(root, 'references.bib'), bibliography);
+  fs.writeFileSync(path.join(root, 'other.bib'), '@article{workOutside,\n title={Shared evidence study outside},\n author={Researcher, Bob},\n year={2025}\n}');
+  app.timeline.capture(project.id, writer);
+  const results = app.dependencies.search(project.id, 'Shared evidence');
+  assert.equal(results.filter((candidate) => candidate.path === 'references.bib').length, 4);
+  assert.ok(results.some((candidate) => candidate.path === 'other.bib'));
+  assert.equal(app.dependencies.search(project.id, '10.1234/study3')[0].metadata.citationKey, 'work3');
+  const terminal = app.terminal.graph.search(project.id, 'Shared evidence');
+  assert.equal(terminal.filter((candidate) => candidate.path === 'references.bib').length, 4);
+  const completions = app.terminal.executor.complete(project.id, 'trace work').suggestions;
+  assert.equal(completions.length, 5);
+  assert.equal(completions.filter((candidate) => candidate.path === 'references.bib').length, 4);
+  assert.equal(new Set(completions.map((candidate) => candidate.objectId)).size, 5);
+});
+
+test('every supplied usage identity is checked before recording project activity', (t) => {
+  const { application: app, project, source, link, temporary } = fixture(t);
+  const dependency = app.dependencies.link(project.id, link, writer).dependency;
+  const otherRoot = path.join(temporary, 'second-project');
+  fs.mkdirSync(otherRoot);
+  fs.writeFileSync(path.join(otherRoot, 'foreign.csv'), 'metric,value\nforeign,10\n');
+  const other = app.timeline.importProject(otherRoot, writer, { watch: false }).project;
+  const foreign = app.dependencies.objectsAt(other.id)[0];
+  assert.throws(() => app.dependencies.recordRecommendationUsage(project.id, {
+    objectId: foreign.id, dependencyId: dependency.id, path: source.path, kind: 'open',
+  }), { status: 404 });
+  for (const invalid of ['', null, false, 0, {}]) {
+    for (const key of ['objectId', 'dependencyId']) {
+      assert.throws(() => app.dependencies.recordRecommendationUsage(project.id, {
+        [key]: invalid, path: source.path, kind: 'open',
+      }), { status: 400 });
+    }
+  }
+  const another = app.dependencies.objectsAt(project.id).find((candidate) => candidate.path === 'alpha.csv');
+  assert.throws(() => app.dependencies.recordRecommendationUsage(project.id, {
+    objectId: another.id, dependencyId: dependency.id, kind: 'open',
+  }), { status: 400 });
+  assert.equal(app.dependencies.ranking.usage(project.id)[0].openedSessions, 0);
+});
+
+test('exact aliases rank as direct matches while partial aliases remain broader picker matches', (t) => {
+  const { application: app, project, source } = fixture(t);
+  app.terminal.aliases.create(project.id, { name: 'custom-source-name', objectKey: source.objectKey }, writer, app.terminal.graph);
+  const exact = app.dependencies.search(project.id, 'custom-source-name');
+  assert.equal(exact[0].id, source.id);
+  assert.equal(exact[0].ranking.tier, 0);
+  const partial = app.dependencies.search(project.id, 'source');
+  assert.equal(partial[0].id, source.id);
+  assert.equal(partial[0].ranking.tier, 1);
+  assert.equal(partial[0].ranking.reason, 'Matches a source alias');
+  assert.equal(partial[0].score, 0.75);
+  assert.deepEqual(app.terminal.executor.complete(project.id, 'trace source').suggestions, []);
+  const terminal = app.terminal.graph.search(project.id, 'custom-source-name');
+  assert.equal(terminal[0].id, source.id);
+  assert.equal(terminal[0].ranking.tier, 0);
+  assert.equal(app.terminal.graph.resolve(project.id, 'custom-source-name').object.id, source.id);
 });
 
 test('usage API validates identity and records only explicit actions', async (t) => {

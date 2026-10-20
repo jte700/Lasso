@@ -14,6 +14,7 @@ const helper = fileURLToPath(new URL('../../scripts/extract-drawing-layout.swift
 const cache = new Map();
 let cacheBytes = 0;
 let nativeExecutable;
+let nativeBuildError;
 let nativeBuildDirectory;
 const bundledHelper = fileURLToPath(new URL('../../scripts/extract-drawing-layout', import.meta.url));
 const NUMBER = String.raw`(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?`;
@@ -169,18 +170,20 @@ export function parseDrawingPage(page = {}) {
 
 function nativeBinary() {
   if (nativeExecutable) return nativeExecutable;
+  if (nativeBuildError) throw nativeBuildError;
   // Desktop builds ship the executable so indexing never requires a compiler.
   if (fs.existsSync(bundledHelper)) {
     try { fs.accessSync(bundledHelper, fs.constants.X_OK); nativeExecutable = bundledHelper; return nativeExecutable; } catch { /* source fallback */ }
   }
   nativeBuildDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-drawing-helper-'));
   const executable = path.join(nativeBuildDirectory, 'extract-drawing-layout');
-  const compiled = spawnSync('/usr/bin/swiftc', ['-O', '-module-cache-path', path.join(nativeBuildDirectory, 'module-cache'), helper, '-o', executable],
+  const compiled = spawnSync('/usr/bin/swiftc', ['-O', '-module-cache-path', path.join(os.tmpdir(), 'lasso-swift-module-cache'), helper, '-o', executable],
     { encoding: 'utf8', timeout: 60_000, maxBuffer: 1_000_000 });
   if (compiled.error || compiled.status !== 0) {
     const error = compiled.error?.message || clean(compiled.stderr).slice(0, 500) || 'PDFKit layout helper could not be compiled.';
     fs.rmSync(nativeBuildDirectory, { recursive: true, force: true });
-    throw new Error(error);
+    nativeBuildError = new Error(error);
+    throw nativeBuildError;
   }
   const directory = nativeBuildDirectory;
   process.once('exit', () => { try { fs.rmSync(directory, { recursive: true, force: true }); } catch { /* process cleanup */ } });

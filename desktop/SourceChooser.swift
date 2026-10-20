@@ -19,7 +19,24 @@ final class SourceChooserController: NSObject, NSTableViewDataSource, NSTableVie
     private var host: NSRunningApplication?
     var isVisible: Bool { panel?.isVisible == true }
 
-    func show(serverURL: URL, projectId: String, sourcePath: String?,
+    override private init() {
+        super.init()
+        LassoTransientUI.shared.register(self, priority: 90,
+            isOpen: { [weak self] in self?.isVisible == true },
+            dismiss: { [weak self] in self?.dismissForEscape() })
+        LassoTransientUI.shared.start()
+    }
+
+    func dismissForEscape() {
+        generation += 1
+        request?.cancel(); request = nil
+        completion = nil
+        panel?.orderOut(nil)
+        host?.activate(options: [])
+        host = nil
+    }
+
+    func show(serverURL: URL, sourceProjectId: String?, sourcePath: String?,
               completion: @escaping ([String: Any]?) -> Void) {
         self.completion = completion
         host = NSWorkspace.shared.frontmostApplication
@@ -36,8 +53,7 @@ final class SourceChooserController: NSObject, NSTableViewDataSource, NSTableVie
         generation += 1
         let token = generation
         request?.cancel()
-        request = URLSession.shared.dataTask(with: serverURL.appendingPathComponent("api/projects")
-            .appendingPathComponent(projectId).appendingPathComponent("source-library")) { [weak self] data, response, _ in
+        request = URLSession.shared.dataTask(with: serverURL.appendingPathComponent("api/workspace/source-library")) { [weak self] data, response, _ in
             DispatchQueue.main.async {
                 guard let self, token == self.generation, self.isVisible else { return }
                 guard (response as? HTTPURLResponse)?.statusCode == 200, let data,
@@ -51,13 +67,17 @@ final class SourceChooserController: NSObject, NSTableViewDataSource, NSTableVie
                     let right = ($1["path"] as? String ?? "") + ($1["label"] as? String ?? "")
                     return left.localizedStandardCompare(right) == .orderedAscending
                 }
-                let paths = Set(objects.compactMap { $0["path"] as? String }).sorted()
-                for path in paths {
-                    self.documents.addItem(withTitle: path)
-                    self.documents.lastItem?.representedObject = path
-                }
-                if let sourcePath, let index = paths.firstIndex(of: sourcePath) {
-                    self.documents.selectItem(at: index + 1)
+                var seen = Set<String>()
+                for object in self.objects {
+                    guard let path = object["path"] as? String, let project = object["projectId"] as? String else { continue }
+                    let key = project + "|" + path
+                    guard seen.insert(key).inserted else { continue }
+                    let name = object["projectName"] as? String ?? "Directory"
+                    self.documents.addItem(withTitle: name + " · " + path)
+                    self.documents.lastItem?.representedObject = key
+                    if sourcePath == path && sourceProjectId == project {
+                        self.documents.selectItem(at: self.documents.numberOfItems - 1)
+                    }
                 }
                 self.filter()
             }
@@ -113,7 +133,7 @@ final class SourceChooserController: NSObject, NSTableViewDataSource, NSTableVie
         let path = documents.selectedItem?.representedObject as? String
         let query = search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let results = objects.filter { object in
-            if let path, object["path"] as? String != path { return false }
+            if let path, (object["projectId"] as? String ?? "") + "|" + (object["path"] as? String ?? "") != path { return false }
             let content = [object["label"], object["valueText"], object["path"]]
                 .compactMap { $0 as? String }.joined(separator: " ")
             return query.isEmpty || query.split(separator: " ").allSatisfy {
@@ -138,7 +158,7 @@ final class SourceChooserController: NSObject, NSTableViewDataSource, NSTableVie
         label.font = .systemFont(ofSize: 12, weight: .medium)
         label.lineBreakMode = .byTruncatingTail
         let anchor = object["anchor"] as? [String: Any] ?? [:]
-        let detail = [object["path"], anchor["column"], object["valueText"]]
+        let detail = [object["projectName"], object["path"], anchor["column"], object["valueText"]]
             .compactMap { $0 as? String }.filter { !$0.isEmpty }.joined(separator: " · ")
         let subtitle = NSTextField(labelWithString: detail)
         subtitle.frame = NSRect(x: 10, y: 7, width: 514, height: 15)
@@ -161,7 +181,9 @@ final class SourceChooserController: NSObject, NSTableViewDataSource, NSTableVie
             return true
         }
         if selector == #selector(NSResponder.insertNewline(_:)) { accept(); return true }
-        if selector == #selector(NSResponder.cancelOperation(_:)) { cancel(); return true }
+        if selector == #selector(NSResponder.cancelOperation(_:)) {
+            LassoTransientUI.shared.dismissAll(); return true
+        }
         return false
     }
     @objc private func accept() {
