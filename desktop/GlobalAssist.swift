@@ -1692,7 +1692,8 @@ final class GlobalAssistant {
             inspectorCanShare: inspector?.canShareFromKeyboard == true,
             popup: popup,
             canFocusOut: popup == .suggestions && focusedSource != nil,
-            canFocusIn: popup == .suggestions && linkedSources.canMoveIn(focusedOn: focusedSource, selected: selectedSource))
+            canFocusIn: popup == .suggestions && linkedSources.canMoveIn(focusedOn: focusedSource, selected: selectedSource),
+            offersChoices: !view.suggestions.isEmpty)
     }
 
     private func publishKeyRouting() {
@@ -1720,6 +1721,8 @@ final class GlobalAssistant {
         case .hide:
             hide()
         case .followTyping(let trackCaret):
+            // Typing on ends a move, so a card the move left empty closes as usual.
+            linkedSources.endMove()
             if trackCaret { self.trackCaret() }
             scheduleRefresh()
         case .activate:
@@ -1908,8 +1911,10 @@ final class GlobalAssistant {
             "blockIndex": 0,
         ]
         // Accepted phrases are located inside the window actually being sent,
-        // so the offsets the server receives match the text it is given.
-        body.merge(linkedSources.requestFields(in: captured.text)) { _, focus in focus }
+        // so the offsets the server receives match the text it is given. One
+        // deleted since it was accepted takes the card's focus back a step.
+        linkedSources.observe(captured.text, reachesStart: captured.windowStart == 0)
+        body.merge(linkedSources.requestFields) { _, focus in focus }
         let activeProjectIds = Set(projectIds)
         let expectedRevision = workspaceRevision
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -1981,7 +1986,9 @@ final class GlobalAssistant {
                                    focus: LinkedSourceMemory.Source? = nil, captured: CaretContext, token: Int) {
         guard token == generation, isEnabled else { return }
         request = nil
-        guard !suggestions.isEmpty, let host = popupHost else { hide(); return }
+        // Right after fn+Left or fn+Right an empty card stays, so the move can be undone.
+        guard !suggestions.isEmpty || linkedSources.keepsEmptyCard(focusedOn: focus),
+              let host = popupHost else { hide(); return }
         AccessibilityWork.queue.async { [weak self] in
             var current: (context: CaretContext, caret: CGRect)?
             if host.isCurrent, let fresh = AccessibilityReader.focusedContext(),
@@ -3170,7 +3177,8 @@ final class GlobalAssistant {
             // same phrase again.
             if let objectId = suggestion.objectId, let snapshotId = suggestion.snapshotId {
                 linkedSources.record(.init(projectId: suggestion.projectId, objectId: objectId, snapshotId: snapshotId,
-                                           text: sourceText))
+                                           text: sourceText), in: afterUnits, at: sourceRange,
+                                     reachesStart: after.windowStart == 0)
                 AssistLog.write("  · source context recorded")
             }
             // A sentence continuation carries its source object as the usage
@@ -3382,6 +3390,7 @@ final class GlobalAssistant {
         view.sourceScoped = false
         view.canReturnToFocus = false
         focusedSource = nil
+        linkedSources.endMove()
         pendingShare = nil
         panel?.orderOut(nil)
         publishKeyRouting()

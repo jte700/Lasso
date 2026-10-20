@@ -144,6 +144,20 @@ export function currentClauseStart(text, cursor) {
   return sentenceStart + (joiner ? joiner.index + joiner[0].length : 0);
 }
 
+/**
+ * Whether a file named in the text is the file of a focus chosen with
+ * fn+Right. That focus has no text of its own, so the accepted name it came
+ * from ("Bracket.step", then fn+Left and back) names the focus, not a new
+ * source to choose. Compared by file name, whichever directory holds it.
+ */
+export function namesFocusedFile(claim, dependency) {
+  if (!dependency?.focused) return false;
+  const fileName = (value) => path.posix.basename(String(value ?? '')).toLowerCase();
+  const focusedFile = fileName(dependency.source.path);
+  return Boolean(focusedFile) && (claim.candidates ?? [])
+    .some((candidate) => candidate.fileReference && fileName(candidate.path) === focusedFile);
+}
+
 // Rows keyed by a code ("CO-001", "S014") are found by typing the code's own
 // terms elsewhere; as typed names they would bury real names on two letters.
 const IDENTIFIER_HEADER = /(?:^|\s)(?:id|code|no|number|ref|reference|sample|subject|participant|patient)$/i;
@@ -2666,19 +2680,9 @@ export class PredictiveProvenanceService {
     const hasPending = Array.isArray(input.pendingDependencies) && input.pendingDependencies.length > 0;
     if (!input.documentPath && !hasPending) return null;
 
-    let persisted = [];
-    if (input.documentPath && Number.isInteger(input.blockIndex)) {
-      const project = this.timeline.getProject(projectId);
-      const file = this.timeline.snapshotFile(project.currentSnapshotId, input.documentPath);
-      if (!file && !hasPending) return null;
-      if (file) {
-        persisted = this.currentDependencies(projectId, { projectFileId: file.projectFileId })
-          .filter((item) => item.anchor.blockIndex === input.blockIndex
-            && item.anchor.end <= cursor
-            && item.anchor.end > sourceScopeBoundary
-            && !['BROKEN', 'NEEDS_REVIEW'].includes(item.status));
-      }
-    }
+    const persisted = this.savedBlockLinks(projectId, input)
+      .filter((item) => item.anchor.end <= cursor && item.anchor.end > sourceScopeBoundary
+        && !['BROKEN', 'NEEDS_REVIEW'].includes(item.status));
     const pending = (Array.isArray(input.pendingDependencies) ? input.pendingDependencies.slice(0, 50) : [])
       .filter((item) => (Number.isInteger(item.blockIndex) ? item.blockIndex : 0) === blockIndex
         && Number.isInteger(item.end)
@@ -2696,6 +2700,7 @@ export class PredictiveProvenanceService {
           },
           source,
           status: 'PENDING',
+          focused: item.focused === true,
         };
       }).filter(Boolean);
     const dependency = [...persisted, ...pending]
@@ -2703,6 +2708,42 @@ export class PredictiveProvenanceService {
       .sort((left, right) => right.anchor.end - left.anchor.end)[0] ?? null;
     if (!dependency || cursor - dependency.anchor.end > 420) return null;
     return dependency;
+  }
+
+  /** Links saved in the project document block being edited; none for other callers. */
+  savedBlockLinks(projectId, input) {
+    if (!input.documentPath || !Number.isInteger(input.blockIndex)) return [];
+    const project = this.timeline.getProject(projectId);
+    const file = this.timeline.snapshotFile(project.currentSnapshotId, input.documentPath);
+    if (!file) return [];
+    return this.currentDependencies(projectId, { projectFileId: file.projectFileId })
+      .filter((item) => item.anchor.blockIndex === input.blockIndex);
+  }
+
+  /**
+   * The values inserted with Tab in the sentence being written, by object id,
+   * each with the text it was inserted as. A list such as "2026-08-18,
+   * 2026-09-12, " goes on with the values not yet written. Every accepted
+   * link counts, not only the newest that scopes the suggestions.
+   */
+  valuesWrittenInSentence(projectId, input, cursor) {
+    const text = String(input.text ?? '');
+    const { sentenceStart } = writingSourceContext(text, cursor);
+    const accepted = Array.isArray(input.acceptedDependencies) ? input.acceptedDependencies : input.pendingDependencies;
+    const spans = [
+      ...(Array.isArray(accepted) ? accepted.slice(0, 50) : [])
+        .map((item) => ({ id: item?.sourceObjectId, start: item?.start, end: item?.end })),
+      ...this.savedBlockLinks(projectId, input)
+        .map((item) => ({ id: item.source?.id, start: item.anchor.start, end: item.anchor.end })),
+    ];
+    const written = new Map();
+    for (const { id, start, end } of spans) {
+      if (typeof id !== 'string' || !Number.isInteger(start) || !Number.isInteger(end)
+        || start < sentenceStart || end > cursor || start >= end) continue;
+      if (!written.has(id)) written.set(id, new Set());
+      written.get(id).add(text.slice(start, end).trim().toLowerCase());
+    }
+    return written;
   }
 
   /**
@@ -2963,6 +3004,7 @@ export class PredictiveProvenanceService {
     // The first digits of a value ("was 48") pick out the values they begin,
     // and a word of a column's name ("budget") breaks ties between its cells.
     const typedNumber = typedNumberPrefix(tail, requestedRows);
+    const written = this.valuesWrittenInSentence(projectId, input, cursor);
     const completesTypedNumber = (text) => Boolean(typedNumber) && comparableNumber(text).startsWith(typedNumber);
     const fieldWordsNamed = (object) => namedFieldWords(tail, object.metadata.column ?? object.anchor?.column);
     const objects = scopedObjects
@@ -2972,7 +3014,7 @@ export class PredictiveProvenanceService {
         const resultPath = /(^|\/)(?:results?|outputs?|analysis)(\/|$)/i.test(object.path);
         const derivedField = /\b(?:fold|change|difference|effect|estimate|ratio|percent|reduction|increase|decrease)\b/.test(field);
         const contextualText = contextualStoredValue(object, tail);
-        if (!contextualText) return null;
+        if (!contextualText || written.get(object.id)?.has(contextualText.toLowerCase())) return null;
         let score = object.objectType === 'RESULT' ? 0.52
           : ['VALUE', 'DATASET_VALUE'].includes(object.objectType) ? 0.28 : 0.18;
         if (object.path === source.path) score += 0.18;
@@ -3098,10 +3140,12 @@ export class PredictiveProvenanceService {
     const cursor = Number.isInteger(input.cursor) ? input.cursor : text.length;
     // An explicit model/file reference starts a new source even after another
     // source was linked. It must not depend on scientific-writing intent.
-    // The name just accepted ("The Bracket ") is not a new reference to it.
+    // The name just accepted ("The Bracket ") is not a new reference to it,
+    // nor is the name of the file a focus chosen with fn+Right sits in.
     const linkedDependency = this.linkedDependencyContext(projectId, input, cursor);
     const file = this.namedFile(projectId, input, cursor, text);
-    if (file && !(linkedDependency && file.end <= linkedDependency.anchor.end)) return {
+    if (file && !(linkedDependency && file.end <= linkedDependency.anchor.end)
+      && !namesFocusedFile(file, linkedDependency)) return {
       claims: [file], completion: null, sourceCompletions: [], workspaceCompletions: [],
       sourceContext: null, deterministic: true, generatedText: false,
     };

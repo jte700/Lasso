@@ -4,7 +4,7 @@ import { setImmediate as yieldTurn } from 'node:timers/promises';
 import { transaction } from './db.js';
 import { HttpError } from './history/errors.js';
 import { normalizeProjectRootPath } from './history/service.js';
-import { currentClauseStart } from './dependencies/service.js';
+import { currentClauseStart, namesFocusedFile } from './dependencies/service.js';
 import { directoryIssue } from './directory-issues.js';
 import { parseCommand } from './terminal/parser.js';
 import { failure, result, text, blank, dim } from './terminal/result.js';
@@ -29,7 +29,7 @@ function focusedDependency(focusSource, text, cursor) {
   const { projectId, sourceObjectId, sourceSnapshotId } = focusSource;
   if (![projectId, sourceObjectId, sourceSnapshotId].every((value) => typeof value === 'string' && value)) return null;
   const start = currentClauseStart(text, cursor);
-  return { projectId, blockIndex: 0, start, end: start, sourceObjectId, sourceSnapshotId };
+  return { projectId, blockIndex: 0, start, end: start, sourceObjectId, sourceSnapshotId, focused: true };
 }
 
 // Relevance is calculated by the existing per-project ranker. Merge those
@@ -483,8 +483,10 @@ export class WorkspaceService {
       await yieldTurn();
       if (this.closed || revision !== this.revision()) throw new HttpError(409, 'Work directories changed. Request fresh suggestions.');
       const ownDocument = input.documentProjectId === project.id;
+      // Every accepted link still tells which values were already written.
       const scopedInput = { ...predictionInput, documentPath: ownDocument ? input.documentPath : null,
-        pendingDependencies: ownDocument ? currentPending : currentPending.filter((s) => owners.get(s.sourceObjectId) === project.id) };
+        pendingDependencies: ownDocument ? currentPending : currentPending.filter((s) => owners.get(s.sourceObjectId) === project.id),
+        acceptedDependencies: availablePending };
       predictions.push({ project, prediction: this.dependencies.predict(project.id, scopedInput) });
     }
     // An explicitly linked source narrows suggestions to that source's owner.
@@ -494,10 +496,11 @@ export class WorkspaceService {
       && (!linkedContext || prediction.sourceContext.source.id === linkedContext.source.id));
     // A file spelled as written ("General-Ledger.cs") is the source being
     // chosen, even after a source linked from another directory. Other
-    // directories' guesses about the same words do not outrank it.
+    // directories' guesses about the same words do not outrank it. The file a
+    // focus chosen with fn+Right sits in is that focus, not a new choice.
     const naming = availablePredictions.filter(({ prediction }) => prediction.claims?.some((claim) => claim.asWritten
       && claim.candidates?.some((candidate) => candidate.fileReference)
-      && (!linkedContext || claim.start >= linkedContext.anchor.end)));
+      && (!linkedContext || (claim.start >= linkedContext.anchor.end && !namesFocusedFile(claim, linkedContext)))));
     const pool = naming.length ? naming : scoped.length ? scoped : availablePredictions;
     const limit = 12;
     const slots = [];
