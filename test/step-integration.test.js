@@ -190,6 +190,12 @@ test('an accepted CAD part name offers its measurements, ranked by the words aft
   assert.equal(source.anchor.kind, 'cad-model');
   assert.equal(accepted, 'The Bracket');
 
+  // The space after the accepted name opens its values; the name is not offered again.
+  const spaced = await typed(app, `${accepted} `, { pendingDependencies });
+  assert.equal(spaced.workspaceHeading, 'Values for Bracket');
+  assert.equal(offered(spaced)[0].text, '100 mm');
+  assert.ok(!spaced.claims.some(claim => claim.candidates.some(candidate => candidate.id === source.id)));
+
   // With nothing more to go on, overall sizes come first, then holes and arcs.
   // Equal values of different features each keep a row: the card names the feature.
   const plain = await typed(app, `${accepted} is`, { pendingDependencies });
@@ -231,6 +237,9 @@ test('an accepted CAD part name offers its measurements, ranked by the words aft
     const value = await typed(app, `${accepted}${tail}`, { pendingDependencies });
     assert.deepEqual(offered(value)[0], { text: '60 mm', label: 'Bracket overall Y extent' }, tail);
   }
+  // A whole number typed is that value, not a longer one it begins.
+  const ten = await typed(app, `${accepted} is 10`, { pendingDependencies });
+  assert.deepEqual(offered(ten)[0], { text: '10 mm', label: 'Bracket overall Z extent' });
 
   // A new sentence is a new subject, as it is after a spreadsheet source.
   const next = await typed(app, `${accepted} is 100 mm long. The`, { pendingDependencies });

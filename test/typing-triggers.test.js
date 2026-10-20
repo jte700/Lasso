@@ -155,6 +155,47 @@ test('an accepted variable row keeps offering its values across the table', asyn
   assert.ok(values.items.includes('485000 CAD'), values.items.join(' | '));
 });
 
+test('typing the first digits of a value after an accepted source completes that value', async (t) => {
+  const app = await fixture(t);
+  // A variable, a column and a named row: "was 48" is the value being typed, not a row such as "CON4".
+  // The digits pick out the value they begin (6500, not 21100 or 76000), and "budget" its column.
+  for (const [typed, tail, digits, expected] of [['Reven', ' was ', '48', '485000 CAD'],
+    ['September Act', ' was ', '2', '21100'], ['September Act', ' was ', '65', '6500'],
+    ['Fac', ' budget was ', '21', '21000']]) {
+    const { accepted, pendingDependencies } = await accept(app, typed);
+    const text = `${accepted}${tail}${digits}`;
+    const prediction = await predict(app, text, { pendingDependencies });
+    assert.equal(prediction.workspaceHeading, `Values for ${accepted}`, text);
+    const [first] = prediction.workspaceCompletions;
+    assert.equal(first?.replacementText, expected, text);
+    // Tab replaces the typed digits rather than appending after them.
+    assert.deepEqual([first.claimStart, first.claimEnd], [text.length - digits.length, text.length], text);
+  }
+});
+
+// Accepts one particular indexed source, as Tab does when the card offers it.
+function linkTo(app, file, label, accepted) {
+  const projectId = app.workspace.state().activeProjectIds[0];
+  const source = app.dependencies.objectsAt(projectId).find((object) => object.path === file && object.label === label);
+  const start = accepted.length - label.length;
+  return [{ projectId, blockIndex: 0, start, end: accepted.length, sourceObjectId: source.id, sourceSnapshotId: source.snapshotId }];
+}
+
+test('an accepted column of a table keyed by row names offers the cells of that column', async (t) => {
+  const app = await fixture(t);
+  // Income-Statement.csv keys its rows by account, so each cell is stored under its row's name.
+  const accepted = 'September Actual CAD';
+  const pendingDependencies = linkTo(app, 'Income-Statement.csv', accepted, accepted);
+  const values = (await completions(app, `${accepted} was `, pendingDependencies)).items;
+  // The statement's own cells come first.
+  for (const amount of ['485000', '193000', '14000']) {
+    assert.ok(values.slice(0, 5).some((value) => value.split(' ')[0] === amount), values.join(' | '));
+  }
+  // A text column offers its words: the account classifications.
+  const classes = (await completions(app, 'Classification is ', linkTo(app, 'Income-Statement.csv', 'Classification', 'Classification'))).items;
+  for (const value of ['Income', 'Expense']) assert.ok(classes.includes(value), classes.join(' | '));
+});
+
 test('a partial word inside a drawing name does not claim the typed word', () => {
   const drawing = { id: 'drawing', objectType: 'DRAWING', label: 'Cedar Lane Floor Plan Rev03',
     path: 'Cedar-Lane-Floor-Plan-Rev03.dxf', anchor: { kind: 'cad-model' },

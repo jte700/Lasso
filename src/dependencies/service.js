@@ -507,13 +507,16 @@ function canonicalRowReference(value) {
   return `${prefix}${Number(match[2])}`;
 }
 
-function rowReferencesInText(value) {
-  const references = new Set();
-  for (const match of String(value ?? '').matchAll(/\b[A-Za-z]{1,16}[\s_-]*\d+\b/gi)) {
-    const canonical = canonicalRowReference(match[0]);
-    if (canonical) references.add(canonical);
-  }
-  return references;
+const rowReferencePrefix = (reference) => reference.replace(/\d+$/, '');
+
+/** A word and number name a row only when the table's own row identifiers use
+ * that word: "control 2" or "CON 9" beside CON4, but not "was 48", which is
+ * the value being typed. */
+function rowReferencesInText(value, rowKeys) {
+  const prefixes = new Set(rowKeys.map((rowKey) => rowReferencePrefix(canonicalRowReference(rowKey))).filter(Boolean));
+  return new Set([...String(value ?? '').matchAll(/\b[A-Za-z]{1,16}[\s_-]*\d+\b/gi)]
+    .map((match) => canonicalRowReference(match[0]))
+    .filter((reference) => reference && prefixes.has(rowReferencePrefix(reference))));
 }
 
 function normalizedRowSearch(value) {
@@ -693,6 +696,24 @@ function contextualStoredValue(object, tail) {
   // Units qualify amounts. A word such as a classification ("Income") takes none.
   const units = numeric ? String(object.metadata.units ?? '').trim() : '';
   return `${raw}${units && !raw.toLowerCase().endsWith(units.toLowerCase()) ? ` ${units}` : ''}`;
+}
+
+const comparableNumber = (value) => String(value ?? '').replace(/[\s,]/g, '').replace(/^[^\d.]+/, '');
+
+/** The start of a number being typed at the end of the text ("was 48"), unless
+ * that number completes a row reference ("control 4"). */
+function typedNumberPrefix(tail, requestedRows) {
+  const typed = String(tail ?? '').match(/(?:^|\s)(\d[\d,]*(?:\.\d*)?)$/)?.[1];
+  if (!typed) return '';
+  const rowReference = String(tail).match(/\b[A-Za-z]{1,16}[\s_-]*\d+$/)?.[0];
+  return rowReference && requestedRows.has(canonicalRowReference(rowReference)) ? '' : comparableNumber(typed);
+}
+
+/** How many words of a column's name the writer used ("budget" for September Budget CAD). */
+function namedFieldWords(tail, field) {
+  const written = new Set(variableTokens(tail));
+  return variableTokens(humanVariable(field))
+    .filter((word) => word.length > 2 && !STOP_WORDS.has(word) && written.has(word)).length;
 }
 
 function tabularProvenanceLabel(object) {
@@ -2725,9 +2746,6 @@ export class PredictiveProvenanceService {
     const variableKey = normalizedVariable(variable);
     const tail = String(input.text ?? '').slice(dependency.anchor.end, cursor);
     const changeIntent = /\b(?:increas|decreas|reduc|higher|lower|rais|rise|drop|declin|change|difference|effect)\w*\b/i.test(tail);
-    // Drawings have no rows; "R5 arc" or "is 100" names a feature or a value.
-    const drawingSource = wholeDrawing || source.objectType === 'DRAWING_ANNOTATION';
-    const requestedRows = drawingSource ? new Set() : rowReferencesInText(tail);
     const sourceColumn = String(source.anchor?.column ?? source.metadata.column ?? '').trim();
     const dependencyText = String(input.text ?? '').slice(dependency.anchor.start, dependency.anchor.end);
     const dependencySelectsRow = !source.metadata.sectionRow && sourceRow && normalizedRowSearch(dependencyText) === normalizedRowSearch(sourceRow);
@@ -2755,7 +2773,9 @@ export class PredictiveProvenanceService {
         ? (object) => tableKey(object) === tableKey(source)
           && normalizedRowSearch(object.anchor?.rowKey ?? object.metadata.row) === normalizedRowSearch(sourceRow)
         : (object) => normalizedVariable(object.metadata.variable ?? object.metadata.column) === variableKey
-          || (source.metadata.sectionRow && normalizedVariable(object.metadata.section) === variableKey);
+          || (source.metadata.sectionRow && normalizedVariable(object.metadata.section) === variableKey)
+          // A table keyed by row names stores each cell under its row ("Revenue"); its column names the source.
+          || (source.anchor?.kind === 'table-column' && normalizedVariable(object.metadata.column) === variableKey);
     const allRelatedObjects = workspaceObjects
       .filter((object) => !describesVariable(object))
       .filter((object) => (object.id !== source.id || dependencySelectsRow || dependencySelectsColumn
@@ -2766,6 +2786,8 @@ export class PredictiveProvenanceService {
       .filter((object) => object.path === source.path
         && String(object.metadata.sheet ?? '') === String(source.metadata.sheet ?? ''));
     const relatedObjects = sameSourceObjects.length ? sameSourceObjects : allRelatedObjects;
+    const requestedRows = rowReferencesInText(tail,
+      relatedObjects.map((object) => object.anchor?.rowKey ?? object.metadata.row));
     const fragments = requestedRows.size || dependencySelectsRow ? [] : rowCompletionFragments(tail);
     const rows = new Map();
     for (const object of relatedObjects) {
@@ -2894,6 +2916,11 @@ export class PredictiveProvenanceService {
       scopedObjects = scopedObjects.filter((object) => explicitFields
         .has(normalizedVariable(object.metadata.column ?? object.anchor?.column)));
     }
+    // The first digits of a value ("was 48") pick out the values they begin,
+    // and a word of a column's name ("budget") breaks ties between its cells.
+    const typedNumber = typedNumberPrefix(tail, requestedRows);
+    const completesTypedNumber = (text) => Boolean(typedNumber) && comparableNumber(text).startsWith(typedNumber);
+    const fieldWordsNamed = (object) => namedFieldWords(tail, object.metadata.column ?? object.anchor?.column);
     const objects = scopedObjects
       .map((object) => {
         const field = humanVariable(object.metadata.column ?? object.metadata.metric ?? object.label);
@@ -2908,12 +2935,16 @@ export class PredictiveProvenanceService {
         if (resultPath) score += 0.18;
         if (derivedField) score += 0.2;
         if (numeric) score += 0.08;
-        if (requestedRows.size || dependencySelectsRow) score += 0.5;
+        // Drawing measurements weigh a value being typed, with its unit, in measurementRelevance.
         if (object.objectType === 'DRAWING_ANNOTATION') score += measurementRelevance(object, tail);
+        else if (completesTypedNumber(contextualText)) score += 0.3;
+        if (requestedRows.size || dependencySelectsRow) score += 0.5;
         if (missingMeasurement(object.valueText)) score -= 0.16;
         return { ...object, contextualText, score: Number(Math.min(0.99, score).toFixed(3)) };
       }).filter(Boolean)
       .sort((left, right) => right.score - left.score
+        || Number(completesTypedNumber(right.contextualText)) - Number(completesTypedNumber(left.contextualText))
+        || fieldWordsNamed(right) - fieldWordsNamed(left)
         || Number(right.objectType === 'RESULT') - Number(left.objectType === 'RESULT')
         || measurementOrder(left) - measurementOrder(right)
         || left.path.localeCompare(right.path)
@@ -2999,12 +3030,13 @@ export class PredictiveProvenanceService {
     const cursor = Number.isInteger(input.cursor) ? input.cursor : text.length;
     // An explicit model/file reference starts a new source even after another
     // source was linked. It must not depend on scientific-writing intent.
+    // The name just accepted ("The Bracket ") is not a new reference to it.
+    const linkedDependency = this.linkedDependencyContext(projectId, input, cursor);
     const drawing = this.drawingReference(projectId, input, cursor);
-    if (drawing) return {
+    if (drawing && !(linkedDependency && drawing.end <= linkedDependency.anchor.end)) return {
       claims: [drawing], completion: null, sourceCompletions: [], workspaceCompletions: [],
       sourceContext: null, deterministic: true, generatedText: false,
     };
-    const linkedDependency = this.linkedDependencyContext(projectId, input, cursor);
     const linkedPaper = this.findingsFromLinkedPaper(projectId, input, cursor, linkedDependency);
     if (linkedPaper) {
       return {

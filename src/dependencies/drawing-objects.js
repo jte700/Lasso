@@ -128,6 +128,8 @@ export function measurementRelevance(object, tail) {
   const compact = (value) => String(value ?? '').toLowerCase().replace(/\s+/g, '');
   const typing = String(tail ?? '').match(/(?:^|\s)(\d+(?:\.\d*)?(?:\s*\p{L}+)?)$/u)?.[1];
   const typedValue = Boolean(typing) && compact(object.valueText).startsWith(compact(typing));
+  // "10" is the 10 mm value, ahead of the 100 mm one it also begins.
+  const exactValue = typedValue && Number.parseFloat(object.valueText) === Number.parseFloat(typing);
   return Math.min(0.5, 0.12 * named.filter(mentioned).length + 0.04 * related.filter(mentioned).length
-    + (counted ? 0.06 : 0) + (typedValue ? 0.3 : 0));
+    + (counted ? 0.06 : 0) + (typedValue ? 0.3 : 0) + (exactValue ? 0.05 : 0));
 }
