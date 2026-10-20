@@ -12,7 +12,7 @@ function escapeHtml(value) {
 /// `/Users/x/Documents/research` → `~/Documents/research`
 export function shortenPath(path) {
   if (!path) return '';
-  return path.replace(/^\/Users\/[^/]+/, '~');
+  return path.replace(/^\/Users\/[^/]+/, '~').replace(/^[A-Z]:\\Users\\[^\\]+/i, '~');
 }
 
 // ── DirectorySidebar ────────────────────────────────────────────────────────
@@ -29,8 +29,11 @@ export function createDirectorySidebar({ host, onSelect, onToggle }) {
   function render() {
     host.innerHTML = directories.map((directory) => {
       const selected = directory.id === activeId;
-      const status = directory.active ? 'active' : 'available';
-      const meta = [directory.available === false ? 'Unavailable' : directory.active ? 'Included' : 'Paused', directory.gitBranch || shortenPath(directory.path)].filter(Boolean).join(' · ');
+      // A disconnected drive keeps its cached index browsable and searchable.
+      const offline = directory.availability === 'offline';
+      const status = offline ? 'offline' : directory.active ? 'active' : 'available';
+      const meta = offline ? `${directory.driveName || 'External drive'} · Offline`
+        : [directory.available === false ? 'Unavailable' : directory.active ? 'Included' : 'Paused', directory.gitBranch || shortenPath(directory.path)].filter(Boolean).join(' · ');
       return `<div style="display:flex;align-items:center;gap:6px">
         <input type="checkbox" data-toggle-directory="${escapeHtml(directory.id)}" ${directory.active ? 'checked' : ''}
           ${directory.available === false ? 'disabled' : ''} aria-label="Include ${escapeHtml(directory.name)} in workspace"
@@ -38,7 +41,7 @@ export function createDirectorySidebar({ host, onSelect, onToggle }) {
         <button class="directory-row ${selected ? 'selected' : ''}" type="button" aria-pressed="${selected}"
                 data-directory="${escapeHtml(directory.id)}" ${directory.available === false ? 'disabled' : ''}>
         <span class="dir-dot ${status}" aria-hidden="true"></span>
-        <span class="dir-name">${escapeHtml(directory.name)}</span>
+        <span class="dir-name">${escapeHtml(directory.name)}${directory.availability === 'offline' ? ' <small class="drive-offline-label">Cached</small>' : ''}</span>
         <span class="dir-meta">${escapeHtml(meta)}</span>
       </button></div>`;
     }).join('') || '<p class="add-directory" style="cursor:default">no directories yet</p>';
@@ -74,7 +77,7 @@ export function createTabBar({ host, onSelect }) {
               title="${escapeHtml(tab.title)}">
         ${tab.glyph ? `<span class="tab-glyph" aria-hidden="true">${escapeHtml(tab.glyph)}</span>` : ''}
         <span class="tab-label">${escapeHtml(tab.title)}</span>
-        ${index < 9 ? `<span class="tab-key" aria-hidden="true">⌘${index + 1}</span>` : ''}
+        ${index < 9 ? `<span class="tab-key" aria-hidden="true">${window.lassoPlatform?.shortcut(String(index + 1)) ?? `⌘${index + 1}`}</span>` : ''}
       </button>`).join('');
     host.querySelectorAll('[data-tab]').forEach((button) => {
       button.addEventListener('click', () => onSelect?.(button.dataset.tab));

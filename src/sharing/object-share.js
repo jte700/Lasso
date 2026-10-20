@@ -318,7 +318,7 @@ export class ObjectShareService {
 
   listShares(projectId) {
     return this.db.prepare(`
-      SELECT g.id, g.token, g.created_at, g.expires_at, g.revoked_at, g.access_scope, g.redactions_json, g.excerpt_json, v.label, v.value_text
+      SELECT g.id, g.token, g.created_at, g.expires_at, g.revoked_at, g.access_scope, g.redactions_json, g.excerpt_json, v.label, v.value_text, v.object_id, v.id AS version_id
       FROM object_share_grants g
       JOIN scientific_object_versions v ON v.id = g.object_version_id
       WHERE g.project_id = ?
@@ -329,6 +329,8 @@ export class ObjectShareService {
       url: this.shareUrl(row.token),
       label: row.label,
       valueText: row.value_text,
+      objectId: row.object_id,
+      versionId: row.version_id,
       createdAt: row.created_at,
       expiresAt: row.expires_at,
       revokedAt: row.revoked_at,

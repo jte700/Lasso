@@ -28,7 +28,8 @@ function trackProjectReads(t, root) {
   const reads = [];
   const original = fs.readFileSync;
   t.mock.method(fs, 'readFileSync', function (file, ...args) {
-    if (typeof file === 'string' && file.startsWith(`${root}/`)) reads.push(path.relative(root, file));
+    // Recorded as project-relative POSIX paths on every platform.
+    if (typeof file === 'string' && file.startsWith(`${root}${path.sep}`)) reads.push(path.relative(root, file).split(path.sep).join('/'));
     return original.call(this, file, ...args);
   });
   return reads;
@@ -310,15 +311,19 @@ test('reopening a folder after a restart reads only the files that changed', asy
   const { sandbox, root, app, project } = fixture(t);
   await app.close();
   const reopened = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
-  t.after(() => reopened.close());
-  fs.writeFileSync(path.join(root, 'data.csv'), 'metric,value\nrevenue,250\n');
-  const reads = trackProjectReads(t, root);
+  try {
+    fs.writeFileSync(path.join(root, 'data.csv'), 'metric,value\nrevenue,250\n');
+    const reads = trackProjectReads(t, root);
 
-  // Act
-  const result = reopened.timeline.capture(project.id, actor, { source: 'OPEN_RECONCILE' });
+    // Act
+    const result = reopened.timeline.capture(project.id, actor, { source: 'OPEN_RECONCILE' });
 
-  // Assert
-  assert.deepEqual(reads, ['data.csv'], 'the unchanged note is not read and hashed again');
-  assert.equal(result.changed, true);
-  assert.ok(result.snapshot.files.some((file) => file.path === 'note.md'), 'unchanged files stay in the snapshot');
+    // Assert
+    assert.deepEqual(reads, ['data.csv'], 'the unchanged note is not read and hashed again');
+    assert.equal(result.changed, true);
+    assert.ok(result.snapshot.files.some((file) => file.path === 'note.md'), 'unchanged files stay in the snapshot');
+  } finally {
+    // Close the reopened database before the fixture removes its directory.
+    await reopened.close();
+  }
 });

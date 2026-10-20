@@ -1,0 +1,13 @@
+{
+  "checks": [
+    "Windows platform labels and browser capability separation",
+    "Pinned source preview; deliberate redaction sharing; revoked link",
+    "Light and dark appearance with live theme switch",
+    "Changes, shared links, and review navigation",
+    "Writing editor saves changes to the real temporary project file",
+    "Windows folder path prompt, Ctrl+K search, and Ctrl+Shift+P palette"
+  ],
+  "errors": [],
+  "host": "darwin",
+  "nativeWindowsExecution": false
+}

@@ -67,9 +67,10 @@ function normalizeProjectRootPath(input) {
   if (value.length >= 2 && (quote === "'" || quote === '"') && value.at(-1) === quote) {
     value = value.slice(1, -1).trim();
   }
-  value = value.replace(/\\ /g, ' ');
+  // Backslash is a directory separator on Windows, including before a space.
+  if (process.platform !== 'win32') value = value.replace(/\\ /g, ' ');
   if (value === '~') value = os.homedir();
-  else if (value.startsWith('~/')) value = path.join(os.homedir(), value.slice(2));
+  else if (value.startsWith('~/') || (process.platform === 'win32' && value.startsWith('~\\'))) value = path.join(os.homedir(), value.slice(2));
   return path.resolve(value);
 }
 
@@ -103,6 +104,7 @@ export class TimelineService {
    * real failures rather than an empty list.
    */
   scanProject(project, options = {}) {
+    this.drives?.assertOnline(project.id);
     const failures = [];
     const exclude = this.scanExclusion(project.rootPath, project.id);
     if (!this.scanCaches.has(project.id)) this.scanCaches.set(project.id, new Map());
@@ -119,6 +121,10 @@ export class TimelineService {
       dirtyPaths: options.dirtyPaths,
       previousFiles: options.previousFiles,
     });
+    this.drives?.assertOnline(project.id);
+    if (this.drives?.projectState(project.id).removableDriveId && failures.some(failure => ['DISAPPEARED', 'DEVICE_UNAVAILABLE'].includes(failure.code) || failure.path === '.')) {
+      throw new HttpError(409, 'The drive changed or became unreadable during indexing. Its last complete snapshot was kept.');
+    }
     this.scanPolicy?.recordFailures?.(project.id, failures);
     return files;
   }
@@ -193,6 +199,7 @@ export class TimelineService {
       currentVersion: row.current_version,
       watcherEnabled: Boolean(row.watcher_enabled),
       active: Boolean(row.workspace_active),
+      ...this.drives?.projectState(row.id),
     };
   }
 
@@ -210,6 +217,7 @@ export class TimelineService {
       currentVersion: row.current_version,
       fileCount: row.current_snapshot_id ? this.files.count(row.current_snapshot_id) : 0,
       active: Boolean(row.workspace_active),
+      ...this.drives?.projectState(row.id),
     }));
   }
 
@@ -225,8 +233,14 @@ export class TimelineService {
     if (existing) return { project: this.getProject(existing.id), imported: false };
 
     const actor = normalizeActor(actorInput);
+    const failures = [];
+    if (options.driveId) this.drives.assertDrive(options.driveId);
     const fileCache = new Map();
-    const scanned = scanDirectory(realRoot, this.blobs, { fileCache, exclude: this.scanExclusion(realRoot) });
+    const scanned = scanDirectory(realRoot, this.blobs, { failures, fileCache, exclude: this.scanExclusion(realRoot) });
+    if (options.driveId) {
+      this.drives.assertDrive(options.driveId);
+      if (failures.some(failure => ['DISAPPEARED', 'DEVICE_UNAVAILABLE'].includes(failure.code) || failure.path === '.')) throw new HttpError(409, 'The drive became unavailable during indexing. Reconnect it and try again.');
+    }
     const projectId = id();
     const snapshotId = id();
     const eventId = id();
@@ -259,6 +273,7 @@ export class TimelineService {
       }
     });
 
+    if (options.driveId) this.scanPolicy?.recordFailures?.(projectId, failures);
     this.scanCaches.set(projectId, fileCache);
     if (options.watch !== false && this.config.watchProjects) this.watchProject(projectId, actor);
     const result = { project: this.getProject(projectId), imported: true, event: this.getEvent(eventId) };
@@ -539,6 +554,7 @@ export class TimelineService {
   }
 
   resolveProjectPath(project, relativePath) {
+    this.drives?.assertOnline(project.id);
     if (typeof relativePath !== 'string' || !relativePath || path.isAbsolute(relativePath)) {
       throw new HttpError(400, 'A relative project file path is required.');
     }
@@ -728,6 +744,8 @@ export class TimelineService {
     const project = this.getProject(projectId);
     const actor = normalizeActor(actorInput);
     this.unwatchProject(projectId);
+    // A disconnected drive has nothing to watch; the drive service resumes it.
+    if (project.availability === 'offline') return;
     let watcher;
     try {
       watcher = fs.watch(project.rootPath, { recursive: true }, (_event, filename) => {

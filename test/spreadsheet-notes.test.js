@@ -171,13 +171,14 @@ test('rows of a table keep their object keys when notes are written below it', (
   const withoutNotes = tableKeys(plain);
   const withNotes = tableKeys(annotated);
 
-  // Assert: the keys are the ones earlier builds recorded for these rows.
+  // Assert: the keys are the ones a worksheet-row (xlsx-v2) reading records
+  // for these rows.
   assert.deepEqual(withNotes, withoutNotes);
   for (const key of [
-    'sheet:Budget vs Actual:row:3:revenue',
-    'sheet:Budget vs Actual:row:7:operatingincome',
-    'sheet:Budget vs Actual:cell:3:revenue:Actual',
-    'sheet:Budget vs Actual:cell:7:operatingincome:Variance %',
+    'xlsx-v2:sheet:Budget vs Actual:row:7:revenue',
+    'xlsx-v2:sheet:Budget vs Actual:row:11:operatingincome',
+    'xlsx-v2:sheet:Budget vs Actual:cell:7:revenue:Actual',
+    'xlsx-v2:sheet:Budget vs Actual:cell:11:operatingincome:Variance %',
   ]) assert.ok(withNotes.includes(key), `missing ${key}`);
 });
 

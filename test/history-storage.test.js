@@ -201,7 +201,7 @@ test('a snapshot indexed after later ones does not change them', (t) => {
   assert.deepEqual(objectView(app, project.id, later), laterObjects, 'indexing an earlier snapshot leaves later ones alone');
 });
 
-test('an upgrade pass that adds objects to an earlier snapshot leaves later snapshots unchanged', (t) => {
+test('an upgrade pass that adds objects to an earlier snapshot leaves later snapshots unchanged', async (t) => {
   const state = fixture(t);
   const { app, project } = state;
   const first = project.currentSnapshotId;
@@ -224,9 +224,11 @@ test('an upgrade pass that adds objects to an earlier snapshot leaves later snap
   const upgradedFirst = objectView(app, project.id, first);
   assert.ok(upgradedFirst.some((object) => object.path === 'notes.md' && object.objectKey.includes(':text-excerpt:')),
     'the upgrade pass restores the passages to the first snapshot');
+  // Close before the fixture's cleanup: Windows cannot delete an open database.
   const fresh = createApplication({ dataDir: state.dataDir, watchProjects: false });
-  t.after(() => fresh.close());
-  assert.deepEqual(objectView(fresh, project.id, second), secondObjects, 'the deleted note does not come back');
+  try {
+    assert.deepEqual(objectView(fresh, project.id, second), secondObjects, 'the deleted note does not come back');
+  } finally { await fresh.close(); }
 });
 
 test('carried-forward records stay immutable', (t) => {

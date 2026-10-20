@@ -15,7 +15,7 @@ const numeric=value=>text(value)!=='' && /^[-+($€£¥]?\s*\d[\d,.\s%/():-]*$/.
 export function tableContext(table, anchor={}, radius=2, fallbackHeader=-1, { display=false }={}) {
  const rows=table.rows??[], numbers=table.rowNumbers??rows.map((_,i)=>i+1);
  const columnCitation=anchor.kind==='table-column'||(!Number.isInteger(anchor.rowIndex)&&!text(anchor.rowKey)&&(Number.isInteger(anchor.columnIndex)||anchor.column!=null));
- let target=Number.isInteger(anchor.rowIndex)?anchor.rowIndex:text(anchor.rowKey)?rows.findIndex(r=>r.some(c=>text(c)===text(anchor.rowKey))):-1;
+ let target=Number.isInteger(anchor.rowIndex)?(anchor.rowCoordinate==='worksheet'?numbers.indexOf(anchor.rowIndex):anchor.rowIndex):text(anchor.rowKey)?rows.findIndex(r=>r.some(c=>text(c)===text(anchor.rowKey))):-1;
  if(columnCitation){
   const column=Number.isInteger(anchor.columnIndex)?anchor.columnIndex:rows[fallbackHeader]?.findIndex(c=>text(c)===text(anchor.column));
   target=rows.findIndex((row,index)=>index>fallbackHeader&&text(row[column]));
@@ -49,8 +49,9 @@ export function tableContext(table, anchor={}, radius=2, fallbackHeader=-1, { di
    const datesOnly=present.every(c=>/^\d[\d\s/.,:-]*(?:to|–|—)[\d\s/.,:-]+$/i.test(c));
    const next=rows[i+1]??[];
    const dataBelow=next.some(numeric);
+   const years=present.filter(c=>/^(19|20)\d{2}$/.test(c)).length>=2;
    const known=present.some(c=>/^(account|name|description|date|item|sample|subject|participant|metric|variable|units?|amount)$/i.test(c));
-   if(!datesOnly && present.length>=2 && words.length && (words.length===present.length || known)){
+   if(!datesOnly && present.length>=2 && words.length && (words.length===present.length || known || years)){
     candidates.push({i,dataBelow,score:(i>=first?100:0)+(known?8:0)+(dataBelow?5:0)+Math.min(present.length,6)});
    }
   }

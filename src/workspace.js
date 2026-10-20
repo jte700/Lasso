@@ -120,9 +120,12 @@ export class WorkspaceService {
     this.followRenamedRoots();
     const counts = new Map(this.timeline.listProjects().map((p) => [p.id, p.fileCount]));
     const directories = this.projects().map((p) => {
+      const drive = this.timeline.drives?.projectState(p.id) ?? {};
+      // A disconnected drive kept by the user stays searchable from its saved index.
+      if (drive.availability === 'offline') return { ...p, ...drive, fileCount: counts.get(p.id) ?? 0, available: true, error: null };
       let available = false;
       try { available = fs.statSync(p.rootPath).isDirectory(); } catch { /* disconnected or removed */ }
-      return { ...p, fileCount: counts.get(p.id) ?? 0, available,
+      return { ...p, ...drive, fileCount: counts.get(p.id) ?? 0, available,
         error: this.errors.get(p.id) ?? (available ? null : 'Directory is unavailable.') };
     });
     return { directories, revision: this.revision(),
@@ -182,7 +185,7 @@ export class WorkspaceService {
       const holdsFiles = (candidate) => {
         // Atomic saves replace some inodes; unrelated folders share none.
         const matched = files.filter((file) => {
-          try { return String(fs.statSync(path.join(candidate, file.path)).ino) === String(file.inode); }
+          try { return String(fs.statSync(path.join(candidate, file.path), { bigint: true }).ino) === String(file.inode); }
           catch { return false; }
         }).length;
         return files.length > 0 && matched * 2 >= files.length;
@@ -218,12 +221,18 @@ export class WorkspaceService {
 
   activate(projectId, actor) {
     const project = this.timeline.getProject(projectId);
-    if (!fs.statSync(project.rootPath).isDirectory()) throw new HttpError(400, 'The work directory is unavailable.');
-    this.timeline.capture(projectId, actor, { source: 'OPEN_RECONCILE' });
+    // An offline drive's saved index is served as it is; the drive service
+    // reconciles and watches the folder again when the drive returns.
+    const offline = this.timeline.drives?.projectState(projectId).availability === 'offline';
+    if (!offline) {
+      if (!fs.statSync(project.rootPath).isDirectory()) throw new HttpError(400, 'The work directory is unavailable.');
+      this.timeline.capture(projectId, actor, { source: 'OPEN_RECONCILE' });
+    }
     this.dependencies.ensureIndex(projectId);
     this.dependencies.warmPredictionCaches(projectId);
     this.errors.delete(projectId);
     this.activationRetries.delete(projectId);
+    if (offline) return;
     this.timeline.watchProject(projectId, actor);
     if (this.timeline.config.watchProjects && !this.timeline.watchers.has(projectId)) {
       throw new HttpError(400, 'The work directory could not be watched.');

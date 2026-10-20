@@ -163,6 +163,7 @@ test('an index made before text passages gains them without changing existing ve
   for (const original of originals) {
     assert.equal(app.dependencies.objectsAt(project.id).find(object => object.id === original.id).versionId, original.versionId);
   }
+  // The upgrade records the current index version (4 adds STEP CAD models).
   assert.equal(db.prepare('SELECT drawing_index_version AS version FROM snapshot_object_indexes WHERE snapshot_id = ?')
-    .get(project.currentSnapshotId).version, 3);
+    .get(project.currentSnapshotId).version, 4);
 });

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>Lasso</AssemblyName>
+    <RootNamespace>Lasso.Windows</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/lasso.ico</ApplicationIcon>
+    <Version>1.0.1</Version>
+    <Company>Lasso</Company>
+    <Product>Lasso</Product>
+    <Description>Lasso for Windows</Description>
+    <StartupObject>Lasso.Windows.App</StartupObject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
+    <Resource Include="Assets/lasso.ico" />
+    <Compile Remove="tests/**/*.cs;Assist/tests/**/*.cs;BrowserTests/**/*.cs" />
+  </ItemGroup>
+</Project>

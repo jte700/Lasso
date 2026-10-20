@@ -116,8 +116,9 @@ test('older PDF indexes gain passages without replacing existing objects or vers
     assert.equal(preserved.versionId, original.versionId);
   }
   assert.throws(() => app.dependencies.db.prepare('DELETE FROM scientific_object_versions WHERE id = ?').run(originals[0].versionId), /immutable/);
+  // The upgrade records the current index version (4 adds STEP CAD models).
   assert.equal(app.dependencies.db.prepare('SELECT drawing_index_version AS version FROM snapshot_object_indexes WHERE snapshot_id = ?')
-    .get(project.currentSnapshotId).version, 3);
+    .get(project.currentSnapshotId).version, 4);
 });
 
 test('visual PDF documents preserve original layout while redaction keeps safe extracted blocks', () => {

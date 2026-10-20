@@ -65,16 +65,8 @@ test('non-PDF input is explicitly unsupported', () => {
   assert.equal(result.pages.length, 0);
 });
 
-// Runs wherever a layout extractor is actually available: macOS through
-// PDFKit, Windows through the published drawing helper. Both must find the
-// same measurement on the same page of the same public sample.
-const drawingSample = new URL('./fixtures/drawings/ncsu-office-kit.pdf', import.meta.url);
-const windowsDrawingHelper = new URL('../scripts/extract-drawing-layout.exe', import.meta.url);
-const layoutExtractorAvailable = process.platform === 'darwin'
-  || (process.platform === 'win32' && fs.existsSync(windowsDrawingHelper));
-
-test('public NCSU plan extracts Small Conference 180 square feet', { skip: !layoutExtractorAvailable || !fs.existsSync(drawingSample) }, () => {
-  const buffer = fs.readFileSync(drawingSample);
+test('public NCSU plan extracts Small Conference 180 square feet', { skip: !fs.existsSync(new URL('./fixtures/drawings/ncsu-office-kit.pdf', import.meta.url)) }, () => {
+  const buffer = fs.readFileSync(new URL('./fixtures/drawings/ncsu-office-kit.pdf', import.meta.url));
   const result = extractDrawingDocument(buffer);
   assert.ok(['ready', 'partial'].includes(result.status), JSON.stringify(result.warnings));
   const conference = result.pages.flatMap((item) => item.annotations).find((item) => /small conference/i.test(item.label) && item.numericValue === 180 && item.pageNumber === 17);

@@ -1093,6 +1093,9 @@ do {
         completionText: "october_forecast_cad") == "190000",
           "numeric claims still insert the value when a field completion is also present")
     check(AssistSuggestionSemantics.insertionText(
+        claimType: "STUDY_VARIABLE", label: "Revenue", value: "revenue; inferred numeric variable; examples 41, 5") == "Revenue",
+          "variable acceptance inserts its name, never indexing diagnostics")
+    check(AssistSuggestionSemantics.insertionText(
         claimType: "ENTITY", label: "Bad Debts/Losses and Thefts", value: "25") ==
           "Bad Debts/Losses and Thefts",
           "an entity claim inserts the indexed row name instead of a child cell value")
@@ -1344,6 +1347,20 @@ do {
     invalid["elements"] = [["polygons": [[[Double.nan, 1], [2, 3], [4, 5]]]]]
     check(AssistModelPreview(json: invalid) == nil,
           "does not draw fabricated replacement geometry for malformed coordinates")
+
+    let wireframe: [String: Any] = [
+        "kind": "model-plan", "view": "Isometric view", "bounds": bounds, "focusBounds": bounds,
+        "selected": ["guid": "Bracket", "label": "Bracket · Ø8 hole", "entityType": "Ø8 hole"], "warnings": [],
+        "elements": [[
+            "guid": "Bracket", "role": "context", "selected": true, "polygons": [] as [Any],
+            "lines": [[[10.0, 20.0], [20.0, 30.0]], [[Double.nan, 1.0], [2.0, 3.0]]],
+        ]],
+    ]
+    let cad = AssistModelPreview(json: wireframe)!
+    check(cad.viewLabel == "Isometric view" && cad.elements[0].lines.count == 1 && cad.elements[0].polygons.isEmpty,
+          "keeps finite STEP wireframe edges and the server's view label")
+    check(transform.path(for: cad.elements[0]).isEmpty && transform.linePath(for: cad.elements[0]).elementCount == 2,
+          "strokes open CAD edges without inventing a filled outline")
 
     let doorArc: [String: Any] = [
         "id": "20/A", "type": "path", "layer": "DOORS", "elevation": 0,

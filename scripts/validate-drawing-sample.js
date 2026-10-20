@@ -5,9 +5,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { createApplication } from '../src/server.js';
+import { buildStepView } from '../src/dependencies/step-geometry.js';
 
 // Run against the checked-in, unmodified downloads. No network, real project,
 // or user database is used. --pdf additionally exercises local PDF tooling.
+// STEP samples are checked against values established without Lasso's reader.
 const fixtures = fileURLToPath(new URL('../test/fixtures/drawings/', import.meta.url));
 const manifest = JSON.parse(fs.readFileSync(path.join(fixtures, 'sources.json'), 'utf8'));
 const includePdf = process.argv.includes('--pdf');
@@ -69,6 +71,33 @@ try {
   assert.equal(roads[0].metadata.sourcePropertyPath, '/LandXML/Alignments[name="Site 1"]/Alignment[name="Main Road"]/@length');
   report.push({ file: roads[0].path, label: roads[0].label, value: roads[0].valueText });
 
+  // STEP B-rep measurements are indexed to ten significant digits.
+  const closeToIndexed = (actual, expected) => Number.isFinite(actual) && Math.abs(actual - expected) <= Math.abs(expected) * 5e-10;
+  for (const sample of selected.filter((entry) => entry.format.startsWith('STEP'))) {
+    const stepFacts = facts.filter((fact) => fact.path === sample.file);
+    for (const expected of sample.expectedFacts) {
+      const matches = stepFacts.filter((fact) => fact.anchor.elementId === expected.part && fact.metadata.featureType === expected.featureType
+        && fact.metadata.propertyName === expected.property && closeToIndexed(fact.metadata.numericValue, expected.value)
+        && (!expected.featureIdPrefix || fact.anchor.featureId.startsWith(expected.featureIdPrefix)));
+      const context = `${sample.file} ${expected.part} ${expected.featureType} ${expected.property} ${expected.value}`;
+      assert.equal(matches.length, 1, `${context}: one indexed STEP fact`);
+      const fact = matches[0];
+      assert.equal(fact.metadata.units, expected.unit, context);
+      if (expected.count) assert.equal(fact.metadata.count, expected.count, `${context}: feature count`);
+      assert.equal(fact.metadata.measurementBasis, 'geometry');
+      assert.equal(fact.anchor.kind, 'cad-property');
+      report.push({ file: fact.path, label: fact.label, value: fact.valueText, count: fact.metadata.count, featureId: fact.anchor.featureId });
+    }
+    // Each cited part and feature must also render as a highlighted preview.
+    const buffer = fs.readFileSync(path.join(fixtures, sample.file));
+    const cited = stepFacts.find((fact) => fact.metadata.featureType === 'hole') ?? stepFacts[0];
+    const view = await buildStepView(buffer, { elementId: cited.anchor.elementId, featureId: cited.anchor.featureId });
+    assert.ok(view.elements.some((element) => element.selected && element.lines.length), `${sample.file}: highlighted preview`);
+    report.push({ file: sample.file, preview: view.selected.label, previewBytes: Buffer.byteLength(JSON.stringify(view)) });
+  }
+  const datumTargets = facts.find((fact) => fact.path === 'nist_ftc_07_asme1_ap242-e2.stp' && fact.label === 'nist_ftc_07_asme1 overall Z extent');
+  assert.ok(datumTargets.metadata.rawText.includes('MANIFOLD_SOLID_BREP'), 'the extent cites the solid, not a datum-target surface');
+
   const ask = (question, expectedValue, units) => {
     const result = application.terminal.executor.run(project.id, `ask ${question}`, actor);
     assert.equal(result.ok, true, question);
@@ -87,6 +116,12 @@ try {
   assert.equal(converted.data.conversion.sourceNumericValue, 21.410325);
   assert.equal(converted.data.conversion.definition, '1 ft = 0.3048 m');
   ask('What is the length of Main Road?', expectedRoad.value, 'ft');
+  ask('What is the diameter of the nist_ctc_01_asme1_rd Ø35 hole?', 35, 'mm');
+  // Overall size is three extents; the solid's height is offered, not a datum-target span.
+  const size = application.terminal.executor.run(project.id, 'ask What is the length of nist_ftc_07_asme1?', actor);
+  assert.equal(size.data?.reason, 'AMBIGUOUS_DRAWING_VALUE', 'an unqualified part length offers its X, Y and Z extents');
+  assert.deepEqual(size.results.map((item) => item.value).sort(), ['12.26794919 in', '5.35 in', '8.767949192 in']);
+  report.push({ question: 'What is the length of nist_ftc_07_asme1?', ambiguous: size.results.map((item) => `${item.title}: ${item.value}`) });
   const ambiguous = application.terminal.executor.run(project.id, 'ask What is the area of Schlafzimmer?', actor);
   assert.equal(ambiguous.data?.answered, false, 'Unqualified area must not choose between net and gross');
   assert.equal(ambiguous.data.reason, 'AMBIGUOUS_DRAWING_VALUE');

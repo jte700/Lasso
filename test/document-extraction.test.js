@@ -233,9 +233,7 @@ test('PDF extraction decodes body text through embedded ToUnicode font maps', ()
   assert.match(metadata.textExcerpt, /Placental amino acid levels were significantly higher/);
 });
 
-test('PDF figure dependencies render the actual cited page instead of a scalar value', {
-  skip: process.platform !== 'darwin' ? 'macOS PDFKit is required for the local renderer' : false,
-}, async () => {
+test('PDF figure dependencies render the actual cited page instead of a scalar value', async () => {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-pdf-figure-test-'));
   const root = path.join(sandbox, 'FigureProject');
   fs.mkdirSync(path.join(root, 'Readings'), { recursive: true });
@@ -834,4 +832,81 @@ test('spreadsheet previews show numbers as the sheet displays them while indexin
   assert.deepEqual(shared.rows[0].cells.map((cell) => cell.value), ['Operating income', '-12050', '-16.0%']);
   const full = buildFullShareDocument({ path: 'Budget.xlsx', content });
   assert.deepEqual(full.sheets[0].rows[1], ['Operating income', '-12050', '-16.0%']);
+});
+
+// Synthetic shape of the reported workbook: formatted empty cells, indented
+// account labels, year headings, empty rows and unrelated sidebar content.
+const statementXlsx = storedZip({
+  'xl/workbook.xml': '<workbook><sheets><sheet name="Income" sheetId="1" r:id="r1"/></sheets></workbook>',
+  'xl/sharedStrings.xml': '<sst><si><t>Revenue</t></si><si><t>Sales revenue</t></si><si><t>Service revenue</t></si><si><t>Interest revenue</t></si><si><t>Other revenue</t></si><si><t>Total Revenues</t></si></sst>',
+  'xl/worksheets/sheet1.xml': `<worksheet><sheetData>
+    <row r="4"><c r="A4" s="2"/><c r="B4" t="s"><v>0</v></c><c r="C4" s="2"/><c r="D4"><v>2020</v></c><c r="E4"><v>2019</v></c></row>
+    <row r="5"><c r="B5" s="2"/><c r="C5" t="s"><v>1</v></c><c r="D5"><v>120</v></c><c r="E5"><v>100</v></c></row>
+    <row r="6"><c r="B6"/><c r="C6"/></row><row r="7"/>
+    <row r="8"><c r="B8"/><c r="C8" t="s"><v>2</v></c><c r="D8"><v>80</v></c><c r="E8"><v>70</v></c></row>
+    <row r="9"><c r="B9"/><c r="C9" t="s"><v>3</v></c><c r="D9"><v>10</v></c><c r="E9"><v>5</v></c></row>
+    <row r="10"><c r="B10"/><c r="C10" t="s"><v>4</v></c><c r="D10"><v>20</v></c><c r="E10"><v>10</v></c></row>
+    <row r="12"><c r="B12" t="s"><v>5</v></c><c r="C12"/><c r="D12"><f>SUM(D5:D10)</f><v>230</v></c><c r="E12"><v>185</v></c></row>
+  </sheetData></worksheet>`,
+});
+
+test('formatted empty Excel cells never absorb the next cell or its shared string', () => {
+  const sheet = extractSpreadsheetTables(statementXlsx)[0];
+  assert.equal(sheet.rows[0][1], 'Revenue');
+  assert.equal(sheet.rows[0][2], '');
+  assert.equal(sheet.rows[0][3], '2020');
+  assert.equal(sheet.rows[1][2], 'Sales revenue');
+  assert.equal(sheet.rows[1][3], '120');
+  assert.deepEqual(sheet.rowNumbers, [4, 5, 8, 9, 10, 12]);
+});
+
+test('income statement suggestions retain alternatives, physical cells and linked follow-ups', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-income-regression-'));
+  fs.mkdirSync(path.join(root, 'project'));
+  fs.writeFileSync(path.join(root, 'project', 'income.xlsx'), statementXlsx);
+  const app = createApplication({ dataDir: path.join(root, 'history'), watchProjects: false });
+  try {
+    const project = app.timeline.importProject(path.join(root, 'project'), researcher, { watch: false }).project;
+    const text = 'I was looking at the revenue';
+    const result = app.dependencies.predict(project.id, { text, cursor: text.length, blockIndex: 0 });
+    const candidates = result.claims[0].candidates;
+    // Every revenue row of the statement is offered, with the heading first.
+    assert.deepEqual(new Set(candidates.map(c => c.label)), new Set(['Revenue', 'Sales revenue', 'Service revenue',
+      'Interest revenue', 'Other revenue', 'Total Revenues']));
+    assert.equal(candidates[0].label, 'Revenue');
+    assert.ok(candidates.some(c => c.label === 'Sales revenue'));
+    assert.ok(!candidates.some(c => c.valueText?.includes('inferred numeric')));
+    const objects = app.dependencies.objectsAt(project.id);
+    const value = objects.find(o => o.anchor?.rowKey === 'Service revenue' && o.anchor?.column === '2020' && o.objectType === 'DATASET_VALUE');
+    assert.equal(value.valueText, '80');
+    assert.equal(value.anchor.rowIndex, 8);
+    assert.equal(value.anchor.columnIndex, 3);
+    const preview = buildSharePreview({ path: 'income.xlsx', content: statementXlsx }, value.anchor, value.metadata);
+    const citedRow = preview.rows.find(row => row.cells.some(cell => cell.cited));
+    assert.equal(citedRow.rowNumber, 8);
+    assert.equal(citedRow.cells.find(cell => cell.cited).value, '80');
+    assert.ok(preview.headers.includes('2020'));
+    assert.equal(objects.find(o => o.anchor?.rowKey === 'Total Revenues' && o.anchor?.column === '2020').valueText, '230');
+    const source = candidates[0];
+    const followText = text + ' was ';
+    const follow = app.dependencies.predict(project.id, { text: followText, cursor: followText.length, blockIndex: 0,
+      pendingDependencies: [{ blockIndex: 0, start: 21, end: 28, sourceObjectId: source.id, sourceSnapshotId: source.snapshotId }] });
+    assert.ok(follow.workspaceCompletions.length > 1);
+    assert.ok(follow.workspaceCompletions.every(c => c.dependencyCandidate.path === 'income.xlsx'));
+    assert.ok(follow.workspaceCompletions.some(c => ['120', '100', '80', '70'].includes(c.replacementText)));
+    // A bad object from the previous extractor remains accessible by its pinned
+    // identity, but never competes with the repaired source in new suggestions.
+    app.db.prepare("INSERT INTO scientific_objects(id, project_id, object_key, object_type, created_at) VALUES ('legacy-revenue', ?, 'legacy:variable:revenue', 'VARIABLE', ?)")
+      .run(project.id, new Date().toISOString());
+    app.db.prepare(`INSERT INTO scientific_object_versions(id, object_id, snapshot_id, path, label, value_text, search_text, content_hash, metadata_json, created_at)
+      VALUES ('legacy-version', 'legacy-revenue', ?, 'income.xlsx', 'Revenue', 'revenue; inferred numeric variable; examples 41, 5', 'revenue', ?, '{}', ?)`)
+      .run(source.snapshotId, source.contentHash, new Date().toISOString());
+    // An existing Windows history must re-index without deleting pinned evidence.
+    app.db.prepare('UPDATE snapshot_object_indexes SET spreadsheet_index_version = 0 WHERE snapshot_id = ?').run(project.currentSnapshotId);
+    app.dependencies.ensureIndex(project.id);
+    assert.equal(app.dependencies.objectAt(project.id, source.snapshotId, source.id).versionId, source.versionId);
+    assert.equal(app.dependencies.objectsAt(project.id).length, objects.length);
+    assert.match(app.dependencies.objectAt(project.id, source.snapshotId, 'legacy-revenue').valueText, /inferred numeric/);
+    assert.ok(!app.dependencies.predict(project.id, { text, cursor: text.length, blockIndex: 0 }).claims[0].candidates.some(c => c.id === 'legacy-revenue'));
+  } finally { app.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });

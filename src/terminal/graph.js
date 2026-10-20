@@ -83,6 +83,12 @@ export class DependencyGraph {
     this.foreignDependencyCache = new BoundedCache({ maxEntries: 16, maxWeight: 10_000,
       weight: (dependencies) => dependencies.length });
     this.unsubscribe = timeline.onCapture((capture) => {
+      // Removing directories (a drive's saved data) drops their snapshots.
+      if (capture?.removedProjectIds?.length) {
+        this.namedObjectCache.clear();
+        this.foreignDependencyCache.clear();
+        return;
+      }
       const previous = capture?.event?.previousSnapshotId;
       if (previous) {
         this.namedObjectCache.delete(previous);

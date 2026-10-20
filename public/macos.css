@@ -345,7 +345,7 @@ html.native-app .app-window { grid-template-rows:52px minmax(0,1fr); height:100v
 
 @media (max-width: 920px) {
   :root { --sidebar-w:220px; }
-  
+
   .editor-header-actions > span, #audit-button { display:none; }
   .editor-scroll { padding:24px 18px 80px; }
   .manuscript-page { padding:58px 48px 100px; }
@@ -380,4 +380,3 @@ html.native-app .app-window { grid-template-rows:52px minmax(0,1fr); height:100v
 .cmd-title { color:var(--mac-text); font-weight:600; }
 .cmd-hint { color:var(--mac-text-3); font-size:11px; }
 .cmd-hints { display:flex; gap:14px; padding:8px 12px 11px; border-top:1px solid var(--mac-line-soft) !important; color:var(--mac-text-3); font-size:10px; }
-

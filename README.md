@@ -7,10 +7,11 @@ Lasso indexes local work directories and suggests source-backed text while you w
 Requires **Node.js 24+**. Building the macOS app also requires the Xcode Command Line Tools. The built app runs on **macOS 13.5 or later** and carries its own Node.js, so Macs that only run it need neither.
 
 ```bash
+npm ci
 npm start
 ```
 
-Open [http://127.0.0.1:4317](http://127.0.0.1:4317), add absolute directory paths, and enable the directories you want to use. Sources from all enabled, available directories are searchable together. Selecting a document directory changes where you write without changing which sources are enabled. Pausing a directory stops its suggestions and watcher while preserving history.
+`npm ci` installs the offline IFC geometry and PDF engines. Open [http://127.0.0.1:4317](http://127.0.0.1:4317), add absolute directory paths, and enable the directories you want to use. Sources from all enabled, available directories are searchable together. Selecting a document directory changes where you write without changing which sources are enabled. Pausing a directory stops its suggestions and watcher while preserving history.
 
 ## macOS app
 
@@ -22,6 +23,7 @@ open dist/Lasso.app
 The app runs in the menu bar and starts its own local server, restarting it automatically if it stops unexpectedly. The server runs on the Node.js bundled inside the app, so the Mac does not need Node installed. If that copy cannot start, Lasso uses an installed Node.js 24 or newer instead; if it finds only an older one, the menu says which version and where. **About Lasso** and the server log name the Node.js in use. The first time Lasso runs without any folders, its menu opens so you can add one, and opening the app again while it runs shows the menu. The menu provides:
 
 - **Add Work Directories…** to choose folders (Command-click to add several at once), and **Remove Work Directories…** to take folders out of Lasso: click the folders to select them (Shift-click selects a range, or use **Select All**), then choose **Remove N Directories…** and confirm once. Removing never changes the folders or their files.
+- **External Drives…** to index a connected external drive, or folders on it (see below).
 - **Work Directories** to collapse the list and switch folders on or off. Suggestions come only from folders that are switched on. The small circle sets the folder's highlight colour, used for text accepted from it. Right-click a folder to show it in Finder or remove it.
 - **Suggest While Typing** to enable suggestions in other apps.
 - **Open at Login** to start Lasso when you log in, so suggestions are ready without opening it. If macOS holds the request for approval, **Allow Open at Login…** opens System Settings → General → Login Items.
@@ -34,6 +36,14 @@ The app runs in the menu bar and starts its own local server, restarting it auto
 - **Show Lasso in Notch** on Macs with a built-in camera cutout. Off by default, this remembers your choice and hides itself when the notched display is unavailable. Only the Lasso logo appears immediately to the left of the camera cutout, entirely within the menu bar. Its black backing continues beneath the camera’s curved corner so the logo joins the notch without a seam. The expanded panel forms one continuous black surface from the display edge, with its controls below the camera. Click it to see active directories, indexed files, source value changes and indexing issues. New source changes or indexing issues also open the panel automatically after the initial activity check, without repeatedly reopening unchanged alerts. Automatic panels close after 12 seconds unless the pointer is over them. Pause/resume suggestions or open source review from the panel. Escape or clicking elsewhere collapses it without taking focus from your editor. Activity refreshes every 15 seconds while enabled. No source wording changes until you review and apply it in the browser.
 
 Interacting with the directory controls keeps the popover open. Clicking outside dismisses it; closing it with `Esc` or the menu bar icon returns focus to the app you were using. A folder that is switched on but could not be read shows **(needs attention)**; clicking it tries again. A folder on a drive that was not mounted when Lasso started is picked up automatically when the drive returns. You can move the app to `/Applications`; keep one canonical copy when granting permissions.
+
+### External drives
+
+Connecting a mounted external storage drive adds a badge to the menu bar icon and a brief notice, without interrupting typing. Choose **External Drives…**, the notice's **Review**, or the badged icon to open the workspace in your browser, then index the entire drive or choose one or more folders, including nested folders. Indexing starts only after that choice; each selected folder becomes a work directory. Lasso uses the drive's persistent volume identity, so directories follow it when its mount path changes.
+
+On disconnection, choose **Keep saved index** to browse and search cached file copies and their history offline, or **Remove saved data…** to delete those directories, indexes, local copies, and history from Lasso. Removal leaves the original drive files untouched, preserves blobs still used by another directory, and refuses to delete sources referenced by another directory. Offline directories are marked in the workspace; editing and reindexing resume after reconnection, and folders reconcile their changes when the drive returns.
+
+Detection covers mounted external storage, including USB-A and USB-C drives, while the Mac app is running. Internal disks, network shares, disk images, locked or unmounted volumes, and volumes without a unique persistent identity are excluded. macOS may ask for permission to read removable volumes.
 
 ### Bundled Node.js
 
@@ -84,13 +94,23 @@ PDFs support **Select text** for words, sentences and paragraphs, and **Mark are
 
 Default share URLs are local to the Mac running Lasso. `SHARE_BASE_URL` changes the URL base for a separately configured reachable service; it does not deploy or expose the local server. Only public share pages (`/d/…`) answer requests addressed to another host name; the rest of the local API answers only `127.0.0.1` and `localhost`, and refuses changes requested by other websites. Removing a source link also closes its share links. Share pages name source files without their folders.
 
-## Windows companion
+## Windows companion (preview)
+
+A native Windows host offers a Fluent workspace, standard Windows controls, a system tray icon, native folder selection, and an opt-in writing assistant. It uses the same source library, editor, history, model previews, and sharing engine.
+
+```powershell
+pwsh -NoProfile -File desktop/windows/build.ps1
+```
+
+Build on Windows with PowerShell 7 and the .NET 8 SDK. The output bundles Node.js and .NET; users need only the Microsoft Edge WebView2 Runtime. Extract the complete ZIP and run `Lasso.exe`. The assistant supports verified local source highlights, five-choice suggestions, source-scoped follow-ups, and explicit shared-link insertion. See [Windows setup and validation status](desktop/windows/README.md) before rollout; live Windows validation is still required.
+
+## Windows companion from Alpha-v0
 
 Requires Windows 10 1809 or newer, Node.js 24+, the .NET 9 SDK to build, and the
 Microsoft Edge WebView2 runtime to run.
 
 ```powershell
-npm run desktop:windows
+npm run desktop:windows:alpha
 .\dist\windows\Lasso\Lasso.exe
 ```
 
@@ -152,7 +172,7 @@ The command layer behind the source tools uses the same dependency graph:
 | `LASSO_ICON_STYLE` | App icon drawn by `scripts/render-app-icon.swift`: `full-bleed` for macOS 26, which masks icons to its own shape, or `squircle` for earlier versions. Defaults to the building Mac's version. |
 | `SHARE_BASE_URL` | Base URL for generated share links. |
 
-The macOS app stores history in `~/Library/Application Support/Lasso/data` and logs in `~/Library/Logs/Lasso`. Its build migrates the former CoLab Dry data location when needed. Enabled directories resume watching after startup, rereading only files whose size, modification or change time differs from the last recorded version; unavailable folders do not prevent other directories from loading. History is stored separately from selected directories unless you explicitly choose otherwise. The server log is rotated at 5 MB.
+The macOS app stores history in `~/Library/Application Support/Lasso/data` and logs in `~/Library/Logs/Lasso`. The Windows app keeps history, settings, its browser profile, and logs in `%LOCALAPPDATA%\Lasso`. Its build migrates the former CoLab Dry data location when needed. Enabled directories resume watching after startup, rereading only files whose size, modification or change time differs from the last recorded version; unavailable folders do not prevent other directories from loading. History is stored separately from selected directories unless you explicitly choose otherwise. The server log is rotated at 5 MB.
 
 Office lock and owner files (`~$Budget.xlsx`, `.~lock.*#`), partial downloads (`.crdownload`, `.part`, `.download`), `.tmp` files and system files such as AppleDouble `._*`, `Thumbs.db` and `desktop.ini` are not tracked. A file that exists but cannot be read for a moment keeps its last recorded version rather than being recorded as deleted. Files that cannot be indexed, or are indexed only in part, are listed by `index failures` and the notch's indexing issues: damaged or password-protected documents, PDFs without a text layer, workbook sheets too large to read, and files beyond the 10,000-item limit per folder. Excel dates and percentages are indexed as the sheet shows them, with dates written as `YYYY-MM-DD`.
 
@@ -176,7 +196,9 @@ Architecture and implementation references:
 
 ## Drawing and CAD sources
 
-The source library also indexes explicit evidence from DXF, IFC, LandXML, and drawing PDFs. Supported drawing questions can be submitted with Enter in source search, such as “What is the length of Main Road?”. Measurements require recorded evidence; geometry is not guessed from an image.
+The source library also indexes explicit evidence from DXF, IFC, LandXML, drawing PDFs, and STEP CAD models (AP203, AP214, AP242). Supported drawing questions can be submitted with Enter in source search, such as “What is the length of Main Road?” or “What is the diameter of the Bracket Ø8 hole?”. Measurements require recorded evidence; geometry is not guessed from an image.
+
+For each named STEP part and assembly, Lasso indexes overall X/Y/Z extents, hole and cylinder diameters, hole depths, arc radii and arc lengths, and straight-edge lengths, measured exactly from the B-rep in the file's declared unit. An extent that curved faces could exceed is omitted rather than estimated. Previews show an isometric wireframe with the cited feature highlighted. Native CAD files (SolidWorks, Inventor, Fusion, CATIA, Parasolid, IGES, Rhino), like DWG, RVT and DGN, are kept with guidance to export STEP, IFC, DXF or LandXML.
 
 Run `node --disable-warning=ExperimentalWarning scripts/validate-drawing-sample.js --pdf` to validate the hash-checked architectural, civil, and PDF samples. Optional live Chrome checks use `npm run desktop:test:browser`; this builds a test variant, so restore the regular app afterward with `npm run desktop`.
 

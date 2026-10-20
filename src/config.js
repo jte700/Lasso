@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const ACTOR_TYPES = new Set([
   'HUMAN_SELF',
@@ -31,6 +32,7 @@ export function createConfig(overrides = {}) {
     // Saves that keep arriving cannot postpone a capture longer than this.
     watchMaxWaitMs: Number(overrides.watchMaxWaitMs ?? process.env.LASSO_WATCH_MAX_WAIT_MS ?? 15000),
     watchProjects: overrides.watchProjects ?? true,
-    publicDir: overrides.publicDir ?? path.resolve('public'),
+    driveToken: overrides.driveToken ?? process.env.LASSO_DRIVE_TOKEN ?? null,
+    publicDir: overrides.publicDir ?? fileURLToPath(new URL('../public', import.meta.url)),
   };
 }

@@ -54,7 +54,7 @@ while a UAC prompt is on screen.
 Requires the .NET 9 SDK and Node.js 24+.
 
 ```powershell
-npm run desktop:windows
+npm run desktop:windows:alpha
 ```
 
 The script records the Node executable it found, draws the application icon,
@@ -67,7 +67,7 @@ server beside it. Output is `dist/windows/Lasso/`. Node must remain installed;
 ## Verification
 
 ```powershell
-npm run desktop:windows:test     # host logic, 125 checks
+npm run desktop:windows:alpha:test     # host logic, 125 checks
 npm test                         # application tests
 ```
 

@@ -1,3 +1,5 @@
+import { createRemovableDrives } from './removable-drives.js?v=1';
+import { createSourceDialog } from './source-dialog.js?v=1';
 import { caretPointForTextLengths, contextualCompletionCase } from './editor-acceptance.js';
 import { createCommandPalette } from './palette.js';
 import { createDirectorySidebar, createTabBar, createSpatialWorkbench, renderSession } from './shell.js?v=5';
@@ -6,6 +8,10 @@ import { renderAssistBox } from './assist-box.js?v=2';
 import { renderModelPlan, bindModelPlans } from './model-preview.js?v=2';
 import { createVisibilityRefresh } from './visibility-refresh.js';
 import { dismissLassoOverlays } from './escape-dismissal.js';
+
+const desktop = window.lassoPlatform;
+const openSourceDialog = createSourceDialog({ api, getActor: () => state.identity, onStatus: message => toast(message) });
+const shortcut = (key, shift = false) => desktop?.shortcut(key, shift) ?? `${shift ? '⇧' : ''}⌘${key}`;
 
 const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
 const RECOMMENDATION_SESSION_ID = crypto.randomUUID();
@@ -190,7 +196,7 @@ function applyWorkspace(workspace) {
   state.workspace = workspace;
   state.projects = workspace.directories ?? [];
   elements['project-select'].innerHTML = '<option value="">No directory selected</option>' + state.projects
-    .map(project => `<option value="${escapeHtml(project.id)}" ${project.available === false ? 'disabled' : ''}>${escapeHtml(project.name)} · V${project.currentVersion}${project.active ? '' : ' · Paused'}</option>`).join('');
+    .map(project => `<option value="${escapeHtml(project.id)}" ${project.available === false ? 'disabled' : ''}>${escapeHtml(project.name)} · V${project.currentVersion}${project.active ? '' : ' · Paused'}${project.availability === 'offline' ? ' · Offline (cached)' : ''}</option>`).join('');
   if (state.project) elements['project-select'].value = state.project.id;
   return changed;
 }
@@ -207,6 +213,66 @@ async function toggleDirectory(projectId, active) {
     if (state.view === 'session') await dependencyShell.refresh();
     toast(active ? 'Directory included in workspace' : 'Directory paused');
   } catch (error) { refreshShell(); toast(error.message, 'error'); }
+}
+
+function projectIsOffline() {
+  return (state.projects.find(project => project.id === state.project?.id) ?? state.project)?.availability === 'offline';
+}
+
+function hasUnsavedEditorChanges() {
+  return Boolean(state.editor.dirty || state.editor.pendingLinks.length || state.editor.savePromise);
+}
+
+function syncOfflineEditor() {
+  const offline = projectIsOffline();
+  const sourceStatus = document.querySelector('.wb-status > span:last-child');
+  if (sourceStatus) sourceStatus.textContent = `${offline ? 'Offline · saved copies' : 'Local workspace'}${state.project?.currentVersion ? ` · Version ${state.project.currentVersion}` : ''}`;
+  const body = document.getElementById('document-body');
+  if (body) {
+    body.contentEditable = String(!offline);
+    body.setAttribute('aria-readonly', String(offline));
+  }
+  document.querySelectorAll('.editor-toolbar button,.editor-toolbar select,.editor-history-buttons button,[data-retry]').forEach(button => { button.disabled = offline; });
+  const save = document.getElementById('save-document');
+  if (save) save.disabled = offline || !hasUnsavedEditorChanges();
+  const status = document.getElementById('editor-save-state');
+  if (offline) {
+    clearTimeout(state.editor.autosaveTimer);
+    state.editor.autosaveTimer = null;
+    clearPrediction();
+    if (status) status.textContent = hasUnsavedEditorChanges() ? 'Offline · reconnect to save your changes' : 'Offline · saved copy';
+  } else if (status?.textContent.startsWith('Offline')) {
+    status.textContent = hasUnsavedEditorChanges() ? 'Autosave pending' : 'Saved';
+    if (hasUnsavedEditorChanges()) scheduleEditorAutosave();
+  }
+}
+
+// Device changes update metadata without reopening a document or replacing its
+// unsaved contents. A new index becomes active only when it is safe to switch.
+async function refreshDriveProjects({ preferredId = null, removedProjectIds = [] } = {}) {
+  applyWorkspace(await api('/api/workspace'));
+  const projects = state.projects;
+  if (removedProjectIds.includes(state.project?.id)) {
+    ++state.projectSwitchRevision;
+    clearInterval(state.pollTimer);
+    resetEditorProjectState();
+    dependencyShell.reset();
+    state.project = null;
+    localStorage.removeItem('lasso.projectId');
+    localStorage.removeItem('colab.projectId');
+    renderEmpty();
+  }
+  const current = projects.find(project => project.id === state.project?.id);
+  if (current) state.project = { ...state.project, ...current };
+  if (preferredId && preferredId !== state.project?.id && !hasUnsavedEditorChanges()) {
+    await selectProject(preferredId);
+  } else if (!state.project && projects.length) {
+    await selectProject(projects[0].id);
+  } else if (state.project) {
+    renderProjectContext();
+  } else {
+    refreshShell();
+  }
 }
 
 async function selectProject(projectId, reconcile = true) {
@@ -278,21 +344,26 @@ function renderProjectContext() {
   if (!state.project) return;
   const current = state.projects.find((project) => project.id === state.project.id) ?? state.project;
   elements['project-name'].textContent = current.name;
-  elements['project-path'].textContent = current.rootPath;
+  elements['project-path'].textContent = `${current.rootPath}${current.availability === 'offline' ? ' · Offline — browsing saved copies' : ''}`;
   elements['project-path'].title = current.rootPath;
   document.title = `${current.name} · Lasso`;
   refreshShell();
+  // The Windows companion scopes its suggestions to the selected directory;
+  // the Mac app reads the workspace's active directories instead.
+  if (desktop?.isWindows) desktop.postMessage({ activeProjectId: current.id });
   elements['status-version'].textContent = `Version ${current.currentVersion}`;
   const active = state.projects.filter(project => project.active && project.available !== false);
   elements['status-project'].textContent = `${active.length} ${active.length === 1 ? 'directory' : 'directories'} active`;
   elements['status-files'].textContent = `${active.reduce((count, project) => count + (project.fileCount ?? 0), 0)} files`;
   const selectedOption = elements['project-select'].querySelector(`option[value="${current.id}"]`);
-  if (selectedOption) selectedOption.textContent = `${current.name} · V${current.currentVersion}`;
+  if (selectedOption) selectedOption.textContent = `${current.name} · V${current.currentVersion}${current.availability === 'offline' ? ' · Offline (cached)' : ''}`;
+  syncOfflineEditor();
 }
 
 function renderEmpty() {
   state.project = null;
   projectRefresh.setProject('workspace');
+  if (desktop?.isWindows) desktop.postMessage({ activeProjectId: null });
   elements['project-name'].textContent = 'Welcome to Lasso';
   showSession();
   elements['project-path'].textContent = 'Choose a local directory to begin.';
@@ -313,6 +384,7 @@ async function showPreview(snapshotId, path, focusAnchor = null, source = null, 
   try {
     const parameters = new URLSearchParams({ path });
     if (focusAnchor?.elementId) parameters.set('elementId', focusAnchor.elementId);
+    if (focusAnchor?.featureId) parameters.set('featureId', focusAnchor.featureId);
     const { preview } = await api(`/api/snapshots/${snapshotId}/preview?${parameters}`);
     if (!isCurrent()) return;
     state.preview = { ...preview, projectId: source?.projectId ?? usageContext.projectId };
@@ -371,7 +443,7 @@ function previewContent(preview, focusAnchor = null) {
     const pages = (preview.pages ?? []).filter(item => item.text?.trim());
     return `<iframe class="source-viewer-pdf snapshot-pdf" src="${escapeHtml(`${preview.fileUrl}#page=${page}&zoom=page-width`)}" title="${escapeHtml(preview.path)}"></iframe>${(preview.warnings ?? []).map(warning => `<p class="selection-hint">${escapeHtml(warning)}</p>`).join('')}${pages.length ? `<details class="pdf-source-text"><summary>Selectable PDF text</summary>${pages.map(item => `<div class="notebook-cell"><div class="cell-label">Page ${escapeHtml(item.pageNumber)}</div><div class="cell-source selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text)}</div></div>`).join('')}</details>` : ''}`;
   }
-  if (preview.kind === 'drawing') return `${(preview.warnings ?? []).map(warning => `<p class="selection-hint">${escapeHtml(warning)}</p>`).join('')}<div class="json-preview">${preview.items.map(item => `<span class="json-path" title="${escapeHtml(item.location)}">${escapeHtml(item.path)}<small> · ${item.basis === 'geometry' ? 'Boundary geometry' : 'Model property'}</small></span><span class="json-value selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.value)}</span>`).join('')}</div>`;
+  if (preview.kind === 'drawing') return `${(preview.warnings ?? []).map(warning => `<p class="selection-hint">${escapeHtml(warning)}</p>`).join('')}<div class="json-preview">${preview.items.map(item => `<span class="json-path" title="${escapeHtml(item.location)}">${escapeHtml(item.path)}<small> · ${item.basis === 'geometry' ? 'Measured geometry' : 'Model property'}</small></span><span class="json-value selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.value)}</span>`).join('')}</div>`;
   if (preview.kind === 'blocks') return preview.items.map((item) => `<div class="preview-block ${item.blockType} selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text)}</div>`).join('');
   if (preview.kind === 'lines') return `<div class="code-preview">${preview.items.map((item) => `<div class="code-line"><span class="number">${item.label}</span><span class="selectable" data-anchor='${escapeHtml(JSON.stringify(item.anchor))}'>${escapeHtml(item.text) || ' '}</span></div>`).join('')}</div>${previewLimitNote(preview.items.length, preview.totalItems, 'lines')}`;
   if (preview.kind === 'table') return `<div style="overflow:auto"><table class="data-preview"><thead><tr>${preview.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>${preview.rows.map((row) => `<tr>${row.cells.map((cell) => `<td class="selectable" data-anchor='${escapeHtml(JSON.stringify(cell.anchor))}'>${escapeHtml(cell.value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>${previewLimitNote(preview.rows.length, preview.totalRows, 'rows')}`;
@@ -415,6 +487,9 @@ function textOffset(root, target, offset) {
 function setWorkspaceView(view) {
   if (view !== 'editor') state.editor.navigationRevision += 1;
   state.view = view;
+  if (desktop?.isWindows && view !== 'session') {
+    document.querySelectorAll('.rail-navigation .rail-item').forEach(button => { button.classList.remove('active'); button.removeAttribute('aria-current'); });
+  }
   const window_ = document.getElementById('app-window');
   window_?.classList.toggle('view-editor', view === 'editor');
   window_?.classList.toggle('view-session', view === 'session');
@@ -456,7 +531,7 @@ async function openManuscriptWorkspace(preferredPath = null, options = {}) {
   const navigationRevision = ++state.editor.navigationRevision;
   setWorkspaceView('editor');
   const column = document.querySelector('.files-column');
-  column.innerHTML = '<div class="column-header"><div><span class="eyebrow">Project files</span><h2>Documents</h2></div><span class="editor-live-pill">Sources</span></div><div class="manuscript-browser" id="manuscript-browser"><p class="browser-loading">Finding editable documents…</p></div>';
+  if (column) column.innerHTML = '<div class="column-header"><div><span class="eyebrow">Project files</span><h2>Documents</h2></div><span class="editor-live-pill">Sources</span></div><div class="manuscript-browser" id="manuscript-browser"><p class="browser-loading">Finding editable documents…</p></div>';
   try {
     const { documents } = await api(`/api/projects/${projectId}/documents`);
     if (state.project?.id !== projectId || navigationRevision !== state.editor.navigationRevision
@@ -642,7 +717,7 @@ function renderDocumentEditor() {
       <aside id="dependency-inspector" class="dependency-inspector" hidden aria-label="Source inspector"></aside>
       <aside id="source-peek" class="source-peek" hidden aria-label="Source preview"></aside>
     </div>
-    <div class="t-editor-status" aria-hidden="true"><span><kbd>⌘Z</kbd> Undo</span><span><kbd>⇧⌘L</kbd> Link source</span><span><kbd>Tab</kbd> Accept suggestion</span><span><kbd>Esc</kbd> Dismiss</span></div>
+    <div class="t-editor-status" aria-hidden="true"><span><kbd>${shortcut('Z')}</kbd> Undo</span><span><kbd>${shortcut('L', true)}</kbd> Link source</span><span><kbd>Tab</kbd> Accept suggestion</span><span><kbd>Esc</kbd> Dismiss</span></div>
   </div>`;
   elements['detail-column'].scrollTop = 0;
   bindEditorSurface();
@@ -682,6 +757,7 @@ function renderDocumentEditor() {
     runEditorCommand(button.dataset.editorCommand);
   }));
   document.getElementById('manuscript-page').addEventListener('keydown', handleEditorShortcuts);
+  syncOfflineEditor();
 }
 
 function renderEditableBlock(block, blockIndex, dependencies) {
@@ -1115,6 +1191,7 @@ function markEditorDirty() {
 }
 
 function scheduleEditorAutosave() {
+  if (projectIsOffline()) return;
   if (state.editor.autosaveTimer || state.editor.savePromise) return;
   state.editor.autosaveTimer = setTimeout(() => {
     state.editor.autosaveTimer = null;
@@ -1440,7 +1517,7 @@ function showPredictionCompletion() {
   const scoped = findingMode || linkedSourceMode || scopedWorkspace;
   const hints = [
     'Tab accept',
-    scoped ? '⌘⏎ end source' : null,
+    scoped ? `${shortcut('Enter')} end source` : null,
     rows.length > 1 ? '↑↓ select' : null,
     'Esc close',
   ].filter(Boolean).join('   ');
@@ -1672,6 +1749,11 @@ function updateEditorVersion(snapshot) {
 }
 
 async function saveDocument(options = {}) {
+  if (projectIsOffline()) {
+    syncOfflineEditor();
+    if (!options.automatic && hasUnsavedEditorChanges()) toast('Reconnect the drive to save. Your unsaved changes are still open.', 'error');
+    return state.editor.document;
+  }
   if (state.editor.savePromise) return state.editor.savePromise;
   if (!state.editor.document || (!state.editor.dirty && !state.editor.pendingLinks.length)) return state.editor.document;
   clearTimeout(state.editor.autosaveTimer);
@@ -1942,6 +2024,7 @@ function focusDocumentEnd() {
 }
 
 function handleEditorShortcuts(event) {
+  if (projectIsOffline()) return;
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
     event.preventDefault();
     if (event.shiftKey) redoEditor(); else undoEditor();
@@ -2660,6 +2743,18 @@ async function loadSharedDependency(token) {
 }
 
 
+// Windows keeps a chosen theme in its settings; macOS follows the system.
+function currentTheme() {
+  try { return localStorage.getItem('lasso.theme') ?? localStorage.getItem('colab.theme') ?? 'system'; } catch { return 'system'; }
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme === 'system'
+    ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'carbon' : 'alabaster') : theme;
+  try { localStorage.setItem('lasso.theme', theme); } catch { /* presentation only */ }
+  desktop?.postMessage({ action: 'appearance', dark: document.documentElement.dataset.theme !== 'alabaster' });
+}
+
 /// Everything the workspace can do, as one flat list for the palette.
 function paletteCommands() {
   const commands = [];
@@ -2676,7 +2771,7 @@ function paletteCommands() {
   for (const project of state.projects ?? []) {
     if (project.id !== state.project?.id && project.available !== false) commands.push({
       title: `switch to ${project.name}`,
-      hint: `documents · V${project.currentVersion}${project.active ? '' : ' · directory paused'}`,
+      hint: `documents · V${project.currentVersion}${project.active ? '' : ' · directory paused'}${project.availability === 'offline' ? ' · Offline (cached)' : ''}`,
       run: () => selectProject(project.id),
     });
     if (project.available !== false) commands.push({
@@ -2694,10 +2789,10 @@ function paletteCommands() {
       form.elements.actorType.value = state.identity.actorType;
       openDialog(elements['identity-dialog']);
     } },
-    { title: 'reload sources', hint: 'reindex the current project', run: () => refreshProject() },
+    ...(!projectIsOffline() ? [{ title: 'reload sources', hint: 'refresh the current project', run: () => refreshProject() }] : []),
   );
 
-  if (state.editor.document) {
+  if (state.editor.document && !projectIsOffline()) {
     commands.push({ title: 'save document now', hint: state.editor.document.path, run: () => saveDocument() });
   }
   return commands;
@@ -2722,6 +2817,8 @@ function directoriesFromProjects() {
     active: project.active,
     available: project.available,
     error: project.error,
+    availability: project.availability,
+    driveName: project.driveName,
   }));
 }
 
@@ -2808,6 +2905,7 @@ const dependencyShell = createSourceWorkbench({
   input: terminalInput,
   api,
   getProjectId: () => state.project?.id ?? null,
+  getIsOffline: projectIsOffline,
   getProjectVersion: workspaceVersion,
   getWorkspaceId: () => workspaceVersion(),
   getDocumentProjectId: () => state.editor.document?.projectId ?? null,
@@ -2815,6 +2913,7 @@ const dependencyShell = createSourceWorkbench({
   getContext: () => state.editor.activeBlock?.textContent ?? '',
   getActor: () => state.identity,
   onRecommendationUsage: recordRecommendationUsage,
+  onShare: desktop?.isWindows ? object => openSourceDialog({ sourceId: object.id, versionId: object.versionId, projectId: object.projectId ?? state.project.id, openSharing: true }) : null,
   onOpenSource: (object, context) => {
     if (object.snapshotId) { setWorkspaceView('source'); showPreview(object.snapshotId, object.path, object.anchor, object, context); }
   },
@@ -2904,14 +3003,32 @@ window.addEventListener('keydown', (event) => {
   }
 }, true);
 
+// The Mac app reports mounted drives to the server; the workspace shows them
+// wherever it opens. Without that report the drive controls stay hidden.
+const removableDrives = !desktop?.isWindows ? createRemovableDrives({
+  api,
+  getActor: () => state.identity,
+  onProjectsChanged: refreshDriveProjects,
+  beforeRemove: drive => {
+    if (drive.projects?.some(project => project.id === state.project?.id) && hasUnsavedEditorChanges()) {
+      toast('This drive has unsaved changes open. Reconnect it and save before removing its saved data.', 'error');
+      return false;
+    }
+    return true;
+  },
+  onStatus: message => toast(message),
+}) : null;
+
 const launchParams = new URLSearchParams(window.location.search);
-// The macOS app supplies its own window chrome, so the simulated titlebar is dropped.
+// Desktop hosts supply their own window chrome.
 if (launchParams.get('app') === '1') document.documentElement.classList.add('native-app');
 const sharedDependencyToken = launchParams.get('share');
 if (sharedDependencyToken) loadSharedDependency(sharedDependencyToken);
 else {
   loadProjects()
     .then(() => {
+      removableDrives?.start();
+      if (launchParams.get('drives') === 'open') window.dispatchEvent(new CustomEvent('lasso-open-drives'));
       if (launchParams.get('view') === 'documents' && state.project) return openManuscriptWorkspace();
       const view = launchParams.get('view');
       if (['changes', 'attention'].includes(view) && state.project) {
@@ -2924,7 +3041,7 @@ else {
 
 // The native shell owns permissions and the actual running state.
 const writingAssist = document.getElementById('writing-assist-toggle');
-if (writingAssist && window.webkit?.messageHandlers?.lasso) {
+if (writingAssist && desktop?.isNative) {
   writingAssist.hidden = false;
   window.addEventListener('lasso-assist-state', event => {
     writingAssist.setAttribute('aria-checked', String(Boolean(event.detail?.enabled)));
@@ -2933,7 +3050,49 @@ if (writingAssist && window.webkit?.messageHandlers?.lasso) {
   writingAssist.addEventListener('click', () => {
     if (!state.project) { openDialog(elements['import-dialog']); return; }
     writingAssist.disabled = true;
-    window.webkit.messageHandlers.lasso.postMessage({action:'toggleSuggestions'});
+    desktop.postMessage({action:'toggleSuggestions'});
   });
-  window.webkit.messageHandlers.lasso.postMessage({action:'suggestionState'});
+  desktop.postMessage({action:'suggestionState'});
 }
+
+// Windows shell affordances use the same workspace, settings, and save paths.
+const folderButton = document.getElementById('choose-folder');
+if (folderButton && desktop?.canChooseFolder) {
+  folderButton.hidden = false;
+  folderButton.addEventListener('click', () => {
+    folderButton.disabled = true;
+    desktop.postMessage({ action: 'chooseFolder' });
+  });
+  window.addEventListener('lasso-folder-selected', event => {
+    folderButton.disabled = false;
+    if (!event.detail.path) return;
+    // Each chosen folder is added as one more line of the directory list.
+    const input = elements['import-form'].elements.rootPaths;
+    const lines = input.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (!lines.includes(event.detail.path)) input.value = [...lines, event.detail.path].join('\n');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+  });
+}
+window.addEventListener('lasso-host-error', event => {
+  if (folderButton) folderButton.disabled = false;
+  if (writingAssist) writingAssist.disabled = false;
+  toast(event.detail.message, 'error');
+});
+if (desktop?.isWindows) {
+  document.getElementById('search-shortcut').textContent = shortcut('K');
+  elements['import-form'].elements.rootPaths.placeholder = 'C:\\Users\\you\\Documents\\Research\nC:\\Users\\you\\Documents\\Finance';
+  document.getElementById('writing-assist-help').textContent = desktop.isNative
+    ? 'Enable writing suggestions, then type in an editor that supports Windows UI Automation. Tab accepts and links a source, Ctrl+Enter inserts plain text, ↑ and ↓ select, and Esc dismisses. Password fields are excluded.'
+    : 'Open Lasso for Windows to enable suggestions in supported desktop editors. Your project library and writing workspace are also available here.';
+  const settings = document.getElementById('settings-dialog');
+  const theme = document.getElementById('windows-theme');
+  document.getElementById('windows-settings').addEventListener('click', () => {
+    const current = currentTheme();
+    theme.value = current === 'system' || current === 'alabaster' ? current : 'carbon';
+    settings.showModal();
+  });
+  theme.addEventListener('change', () => applyTheme(theme.value));
+}
+
+window.addEventListener('lasso-open-source', event => openSourceDialog(event.detail));

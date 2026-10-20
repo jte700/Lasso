@@ -37,7 +37,7 @@ export function groupSourceObjects(objects, query = '') {
  return groups;
 }
 
-export function createSourceWorkbench({input, api, getProjectId, getProjectVersion, getWorkspaceId, getDocumentProjectId, getDocumentPath, getContext, getActor, onRecommendationUsage, onOpenDocument, onOpenSource, onStatus, onSession}) {
+export function createSourceWorkbench({input, api, getProjectId, getProjectVersion, getWorkspaceId, getDocumentProjectId, getDocumentPath, getContext, getIsOffline = () => false, getActor, onRecommendationUsage, onOpenDocument, onOpenSource, onShare, onStatus, onSession}) {
  let host, epoch=0, detailEpoch=0, timer, objects=[], mode='library', query='', selectedPath='', selectedObject=null, report=null, preview=null, plan=null, busy=false, problem='', candidates=null;
  let session=null, renderedKey='';
  let groupedObjects=null, groupedQuery=null, groups=new Map(), visibleItemCount=400;
@@ -69,6 +69,8 @@ export function createSourceWorkbench({input, api, getProjectId, getProjectVersi
  }
  const title = () => ({library:'Source library',attention:'Needs attention',changes:'Recent changes',shares:'Shared links',names:'Repeated source names',report:'Results'}[mode]);
  function syncNavigation() {
+  // The editor owns the rail while it is open.
+  if(document.querySelector?.('.app-window.view-editor')) return;
   document.querySelectorAll('.rail-item').forEach(button => {
    const match = mode === 'library' ? button.id === 'workspace-nav' : ({attention:'conflicts',changes:'changes',shares:'share list'}[mode] === button.dataset.workspaceQuery);
    button.classList.toggle('active', match); if(match) button.setAttribute('aria-current','page'); else button.removeAttribute('aria-current');
@@ -97,7 +99,7 @@ export function createSourceWorkbench({input, api, getProjectId, getProjectVersi
    ${problem?`<div class="wb-error" role="alert">${escape(problem)} <button class="wb-button" data-refresh>Try again</button></div>`:''}
    <div class="wb-split"><section class="wb-browser" aria-label="Sources"><header><span>${mode==='library'?(query?'Matching files':'Files'):'Items'}</span><small>${busy?'Loading…':mode==='library'?paths.length:report?.results?.length??0}</small></header><div class="wb-file-list">${list || `<p class="wb-list-empty">${busy?'Loading sources…':query?'No matching sources':'Nothing here yet'}</p>`}</div><footer>${mode==='library'&&paths.length>filePageSize?`<button class="wb-button" data-file-page="${page-1}" ${page===0?'disabled':''}>Previous</button> <span>${page*filePageSize+1}–${Math.min(paths.length,(page+1)*filePageSize)} of ${paths.length}</span> <button class="wb-button" data-file-page="${page+1}" ${(page+1)*filePageSize>=paths.length?'disabled':''}>Next</button>`:mode==='library'?'Files stay in their original folder.':'Select an item to inspect it.'}</footer></section>
    <section class="wb-inspector" aria-label="Source evidence" aria-busy="${busy}">${detail(grouped.get(selectedPath)?.items??[])}</section></div>
-   <footer class="wb-status"><span>${mode==='library'?`${paths.length} files · ${itemCount} indexed items`:escape(report?.headline??'')}</span><span>Local workspace${session?.version?` · Version ${session.version}`:''}</span></footer>
+   <footer class="wb-status"><span>${mode==='library'?`${paths.length} files · ${itemCount} indexed items`:escape(report?.headline??'')}</span><span>${getIsOffline()?'Offline · saved copies':'Local workspace'}${session?.version?` · Version ${session.version}`:''}</span></footer>
   </section>`;
   bind();
   bindModelPlans(host);
@@ -130,7 +132,7 @@ export function createSourceWorkbench({input, api, getProjectId, getProjectVersi
    const o=selectedObject;
    return `<div class="wb-detail"><button class="wb-text-button wb-back" data-back>‹ ${escape(mode==='library'?basename(sourcePath):title())}</button><div class="wb-overline">${escape([o.projectName,o.path?basename(o.path):'Selected source'].filter(Boolean).join(' · '))}</div><h2>${escape(o.label)}</h2><div class="wb-detail-meta">${escape(location(o))}${o.snapshotVersion?` · Version ${o.snapshotVersion}`:''}</div>
    ${o.valueText!=null && o.valueText!==''?`<div class="wb-value">${escape(o.valueText)}</div>`:''}
-   <div class="wb-actions">${o.id?'<button class="wb-button emphasized" data-copy>Copy with citation</button><button class="wb-button" data-open>Open file ↗</button>':''}${o.shareUrl?'<button class="wb-button" data-copy-link>Copy shared link</button>':''}${o.retryPath?'<button class="wb-button emphasized" data-retry>Retry indexing</button>':''}</div>
+   <div class="wb-actions">${o.id?'<button class="wb-button emphasized" data-copy>Copy with citation</button><button class="wb-button" data-open>Open file ↗</button>':''}${o.id && onShare ? '<button class="wb-button" data-share-source>Share…</button>' : ''}${o.shareUrl?'<button class="wb-button" data-copy-link>Copy shared link</button>':''}${o.retryPath?`<button class="wb-button emphasized" data-retry ${getIsOffline()?'disabled title="Reconnect the drive to reindex"':''}>Retry indexing</button>`:''}</div>
    ${o.aliasAddress?`<form class="wb-alias"><label>Name this source<input name="alias" required placeholder="For example, current-period-revenue" /></label><button class="wb-button" type="submit">Save source name</button></form>`:''}
    <section class="wb-preview"><header><h3>Source context</h3><small>${escape(preview?.locator??'Recorded evidence')}</small></header>${previewHTML()}</section>${planHTML()}</div>`;
   }
@@ -233,6 +235,7 @@ export function createSourceWorkbench({input, api, getProjectId, getProjectVersi
   host.querySelector('[data-retry]')?.addEventListener('click',async()=>{try{const result=await command(`index retry -- ${quote(selectedObject.retryPath)}`,selectedObject.projectId);onStatus(result.headline);selectedObject=null;refresh();}catch(error){onStatus(error.message);}});
   host.querySelector('[data-back]')?.addEventListener('click',()=>{cancelDetails();selectedObject=null;candidates=null;render();});
   host.querySelector('[data-open]')?.addEventListener('click',()=>onOpenSource?.(selectedObject,usageContext()));
+  host.querySelector('[data-share-source]')?.addEventListener('click',()=>onShare?.(selectedObject));
   host.querySelector('[data-copy]')?.addEventListener('click',async()=>{
    const o=selectedObject, context=usageContext(), excerpt=preview?.lines?.filter(l=>l.highlighted).map(l=>l.text).join('\n') || preview?.lines?.map(l=>l.text).join('\n') || preview?.selectedText || preview?.text;
    const text=`${o.valueText || excerpt || o.label}\nSource: ${[o.projectName,o.path].filter(Boolean).join(' / ')} · ${location(o)}${o.snapshotVersion?` · Version ${o.snapshotVersion}`:''}`;

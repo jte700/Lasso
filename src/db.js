@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
 const BUSY_TIMEOUT_MS = 5000;
@@ -19,7 +20,7 @@ export function openDatabase(config) {
     ? (db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get()?.version ?? 0)
     : 0;
 
-  const migrationDirectory = path.resolve('migrations');
+  const migrationDirectory = fileURLToPath(new URL('../migrations', import.meta.url));
   // Two development branches shipped different migration 014s. A database
   // carrying the share-scope columns already applied the local UI branch.
   // Install the idempotent ranking schema, then acknowledge its scope schema
@@ -52,6 +53,32 @@ export function openDatabase(config) {
     currentVersion = 17;
   }
 
+  // The external-drives branch shipped drawing index, spreadsheet coordinates
+  // and removable drives as 016-018; they are now 017, 021 and 022. Its
+  // databases (at 17 or 18) lack 016's workspace column, and one at 18 also
+  // skipped 018's text and spreadsheet re-index, so both are applied here.
+  // The runner below records 021 and 022 when their schema already exists.
+  const columnsOf = (table) => new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name));
+  const hasTable = (name) => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name));
+  if ((currentVersion === 17 || currentVersion === 18) && !columnsOf('projects').has('workspace_active')
+    && columnsOf('snapshot_object_indexes').has('spreadsheet_index_version')) {
+    transaction(db, () => {
+      db.exec('ALTER TABLE projects ADD COLUMN workspace_active INTEGER NOT NULL DEFAULT 1 CHECK (workspace_active IN (0, 1))');
+      // That branch's index version 2 meant STEP models; here 2 means PDF
+      // passages. Step it back so the next pass adds what those indexes lack.
+      db.exec('UPDATE snapshot_object_indexes SET drawing_index_version = 1 WHERE drawing_index_version = 2');
+      if (currentVersion === 18) {
+        db.exec(`DELETE FROM snapshot_object_indexes WHERE snapshot_id IN (
+          SELECT p.current_snapshot_id FROM projects p JOIN snapshot_files f ON f.snapshot_id = p.current_snapshot_id
+          WHERE lower(f.path) LIKE '%.txt' OR lower(f.path) LIKE '%.xlsx')`);
+      }
+    });
+  }
+  const alreadyApplied = {
+    21: () => columnsOf('snapshot_object_indexes').has('spreadsheet_index_version'),
+    22: () => hasTable('removable_drives'),
+  };
+
   // Two branches shipped different migration 018s. A store from the Windows
   // companion's branch is at 18 with a reader column (extractor_version) but
   // without Alpha's 016 folder toggle or 018 text and spreadsheet re-index.
@@ -79,6 +106,10 @@ export function openDatabase(config) {
   // Each migration applies completely or not at all, so an interrupted upgrade
   // cannot leave a half-built schema that fails on every later start.
   for (const migration of migrations) {
+    if (alreadyApplied[migration.version]?.()) {
+      db.prepare('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)').run(migration.version, new Date().toISOString());
+      continue;
+    }
     const sql = fs.readFileSync(path.join(migrationDirectory, migration.name), 'utf8');
     // A table rebuild turns foreign keys off, which SQLite ignores inside a
     // transaction. Switch them around the transaction instead.

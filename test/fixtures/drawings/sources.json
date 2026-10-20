@@ -107,6 +107,74 @@
       "verification": "Independently rendered PDF page 17 with Poppler and visually verified 180 sf above Small Conference beside floor-plan diagrams. Optional PDF fallback fixture; primary acceptance uses IFC/LandXML metadata.",
       "sha256": "16283d3d73a3a12235cc4feb69bcd71c010d0501c1724a43bf4be31aa60f7d6f",
       "sizeBytes": 3504901
+    },
+    {
+      "file": "nist_ctc_01_asme1_rd.stp",
+      "title": "NIST MBE PMI Complex Test Case 1, Rev D, AP203 geometry",
+      "format": "STEP AP203",
+      "sourceUrl": "https://www.nist.gov/system/files/documents/noindex/2024/06/19/NIST-PMI-STEP-Files.zip",
+      "sourcePage": "https://www.nist.gov/el/systems-integration-division-73400/mbe-pmi-validation-and-conformance-testing/download-free-cad",
+      "archivePath": "NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_01_asme1_rd.stp",
+      "archiveSha256": "8fa78429e6d8d9b0d7681d223b6aa9ec98c3772185c55b1a0e3679b21c181911",
+      "origin": "National Institute of Standards and Technology, MBE PMI Validation and Conformance Testing; CAD system removed from the header by NIST",
+      "license": "NIST: \"The test cases, CAD models, and STEP files can be used without any restrictions.\" U.S. Government work not subject to copyright (17 U.S.C. 105).",
+      "retrievedOn": "2026-10-19",
+      "modified": false,
+      "expectedFacts": [
+        { "part": "nist_ctc_01_asme1_rd", "featureType": "extent", "property": "X extent", "value": 800, "unit": "mm", "basis": "solid vertex bounds" },
+        { "part": "nist_ctc_01_asme1_rd", "featureType": "extent", "property": "Y extent", "value": 450, "unit": "mm", "basis": "solid vertex bounds" },
+        { "part": "nist_ctc_01_asme1_rd", "featureType": "extent", "property": "Z extent", "value": 150, "unit": "mm", "basis": "solid vertex bounds" },
+        { "part": "nist_ctc_01_asme1_rd", "featureType": "hole", "property": "Diameter", "value": 35, "count": 4, "unit": "mm", "basis": "drawing nist_ctc_01_asme1_rd.pdf: four Ø35 corner bores (Ø34.8-35.2)" },
+        { "part": "nist_ctc_01_asme1_rd", "featureType": "hole", "property": "Diameter", "value": 25, "count": 4, "unit": "mm", "basis": "drawing: one Ø25 ±0.15 callout; four top-face holes are drawn at that size (no 4X note)" },
+        { "part": "nist_ctc_01_asme1_rd", "featureType": "hole", "property": "Diameter", "value": 20, "count": 2, "unit": "mm", "basis": "drawing: two Ø20 side holes" }
+      ],
+      "verification": "Extents are the bounding box of the solid's VERTEX_POINT records, read with a separate regex script; every extreme lies on a vertex. Hole diameters and counts are the nominal callouts on NIST's published drawing (PDF in the same archive), rendered and read visually; the AP242 export's semantic PMI diameters agree.",
+      "sha256": "e081d518484d5c708c6729353237f94a7d97da2b74a10d60d4c0d146d67a5855",
+      "sizeBytes": 235171
+    },
+    {
+      "file": "nist_ctc_05_asme1_rd.stp",
+      "title": "NIST MBE PMI Complex Test Case 5, Rev D, AP203 geometry",
+      "format": "STEP AP203",
+      "sourceUrl": "https://www.nist.gov/system/files/documents/noindex/2024/06/19/NIST-PMI-STEP-Files.zip",
+      "sourcePage": "https://www.nist.gov/el/systems-integration-division-73400/mbe-pmi-validation-and-conformance-testing/download-free-cad",
+      "archivePath": "NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_05_asme1_rd.stp",
+      "archiveSha256": "8fa78429e6d8d9b0d7681d223b6aa9ec98c3772185c55b1a0e3679b21c181911",
+      "origin": "National Institute of Standards and Technology, MBE PMI Validation and Conformance Testing; CAD system removed from the header by NIST",
+      "license": "NIST: \"The test cases, CAD models, and STEP files can be used without any restrictions.\" U.S. Government work not subject to copyright (17 U.S.C. 105).",
+      "retrievedOn": "2026-10-19",
+      "modified": false,
+      "expectedFacts": [
+        { "part": "NIST_CTC_05_ASME1_RD", "featureType": "extent", "property": "X extent", "value": 20.75, "unit": "in", "basis": "solid vertex bounds" },
+        { "part": "NIST_CTC_05_ASME1_RD", "featureType": "extent", "property": "Y extent", "value": 22, "unit": "in", "basis": "solid vertex and circular-arc bounds" },
+        { "part": "NIST_CTC_05_ASME1_RD", "featureType": "extent", "property": "Z extent", "value": 19, "unit": "in", "basis": "solid vertex bounds; a half-frustum face with reversed (.F.) bounds lies below its apex" }
+      ],
+      "verification": "Bounding box of the solid's vertices and circular edge arcs, computed with a separate script from the raw CARTESIAN_POINT, CIRCLE and AXIS2_PLACEMENT_3D records. The AP203-with-PMI and AP242 exports of the same model give the same extents. The file also carries a datum-target surface model beside the solid.",
+      "sha256": "5140b8f41fa1d0a069ea978e28c92a597f47220d0a11e667b79ff5f7c7243b86",
+      "sizeBytes": 326817
+    },
+    {
+      "file": "nist_ftc_07_asme1_ap242-e2.stp",
+      "title": "NIST MBE PMI Fully-Toleranced Test Case 7, AP242 edition 2 with semantic PMI",
+      "format": "STEP AP242",
+      "sourceUrl": "https://www.nist.gov/system/files/documents/noindex/2024/06/19/NIST-PMI-STEP-Files.zip",
+      "sourcePage": "https://www.nist.gov/el/systems-integration-division-73400/mbe-pmi-validation-and-conformance-testing/download-free-cad",
+      "archivePath": "NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp",
+      "archiveSha256": "8fa78429e6d8d9b0d7681d223b6aa9ec98c3772185c55b1a0e3679b21c181911",
+      "origin": "National Institute of Standards and Technology, MBE PMI Validation and Conformance Testing; CAD system removed from the header by NIST",
+      "license": "NIST: \"The test cases, CAD models, and STEP files can be used without any restrictions.\" U.S. Government work not subject to copyright (17 U.S.C. 105).",
+      "retrievedOn": "2026-10-19",
+      "modified": false,
+      "expectedFacts": [
+        { "part": "nist_ftc_07_asme1", "featureType": "extent", "property": "X extent", "value": 12.2679491924, "unit": "in", "basis": "solid vertex bounds" },
+        { "part": "nist_ftc_07_asme1", "featureType": "extent", "property": "Y extent", "value": 5.35, "unit": "in", "basis": "solid vertex bounds" },
+        { "part": "nist_ftc_07_asme1", "featureType": "extent", "property": "Z extent", "value": 8.7679491924, "unit": "in", "basis": "solid vertex bounds; two datum-target areas lie outside the solid and are not material" },
+        { "part": "nist_ftc_07_asme1", "featureType": "hole", "property": "Diameter", "value": 0.25, "count": 8, "unit": "in", "basis": "drawing nist_ftc_07_asme1_rd.pdf view A: Ø.250 called out 1 + 4X + 2X + 1 times; semantic PMI" },
+        { "part": "nist_ftc_07_asme1", "featureType": "hole", "property": "Depth", "featureIdPrefix": "hole:0.25:", "value": 0.3, "unit": "in", "basis": "drawing: ↧.30 on every Ø.250 callout" }
+      ],
+      "verification": "Extents are the bounding box of the MANIFOLD_SOLID_BREP's vertices, read with a separate regex script that does not follow the related surface-model representation; the AP203 export of the same model has the same box. Hole values are NIST's drawing callouts, and each AP242 DIMENSIONAL_SIZE diameter equals twice the CYLINDRICAL_SURFACE radius of the face it is applied to.",
+      "sha256": "aa8115c12e12a99cc439477cbfd222916f9ec629fbb3c9002b18e0c264c9a892",
+      "sizeBytes": 1478375
     }
   ]
 }

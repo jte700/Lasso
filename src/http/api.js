@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { timingSafeEqual } from 'node:crypto';
 import { URL } from 'node:url';
 import { buildPreview } from '../history/preview.js';
 import { HttpError } from '../history/errors.js';
@@ -457,6 +458,43 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         });
       }
 
+      if (pathname.startsWith('/api/drives') && timeline.drives) {
+        // Native inventory is privileged: an arbitrary webpage cannot invent
+        // a mounted volume and thereby grant access to an arbitrary folder.
+        if (request.method === 'POST') {
+          const origin = request.headers.origin;
+          if ((origin && origin !== `http://${request.headers.host}`)
+            || request.headers['sec-fetch-site'] === 'cross-site') throw new HttpError(403, 'Drive actions must come from Lasso.');
+        }
+        if (request.method === 'POST' && pathname === '/api/drives/sync') {
+          const expected = Buffer.from(config.driveToken ?? '');
+          const actual = Buffer.from(String(request.headers['x-lasso-drive-token'] ?? ''));
+          if (!expected.length || actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+            throw new HttpError(403, 'Drive discovery requires the desktop host.');
+          }
+          const body = await readJson(request, 128 * 1024);
+          return sendJson(response, 200, timeline.drives.sync(body.volumes));
+        }
+        if (request.method === 'GET' && pathname === '/api/drives') {
+          return sendJson(response, 200, timeline.drives.list());
+        }
+        const driveRoute = match(pathname, /^\/api\/drives\/([^/]+)\/(folders|index|decision)$/);
+        if (driveRoute) {
+          const [driveId, operation] = driveRoute;
+          if (request.method === 'GET' && operation === 'folders') {
+            return sendJson(response, 200, timeline.drives.folders(driveId, url.searchParams.get('path') ?? '.'));
+          }
+          if (request.method === 'POST' && operation === 'index') {
+            const body = await readJson(request, 128 * 1024);
+            return sendJson(response, 200, timeline.drives.index(driveId, body.paths, actorFrom(body)));
+          }
+          if (request.method === 'POST' && operation === 'decision') {
+            const body = await readJson(request, 4096);
+            return sendJson(response, 200, timeline.drives.decision(driveId, body.action));
+          }
+        }
+      }
+
       if (request.method === 'GET' && pathname === '/api/projects') {
         return sendJson(response, 200, { projects: timeline.listProjects() });
       }
@@ -475,10 +513,11 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const body = await readJson(request);
         const project = timeline.getProject(parameters[0]);
         workspace?.requireActive(project.id);
-        const capture = timeline.capture(project.id, actorFrom(body), {
-          expectedSnapshotId: body.expectedSnapshotId,
-          source: 'OPEN_RECONCILE',
-        });
+        const capture = project.availability === 'offline' ? { changed: false, offline: true }
+          : timeline.capture(project.id, actorFrom(body), {
+            expectedSnapshotId: body.expectedSnapshotId,
+            source: 'OPEN_RECONCILE',
+          });
         dependencies.ensureIndex(project.id);
         dependencies.warmPredictionCaches(project.id);
         timeline.watchProject(project.id, actorFrom(body));
@@ -535,7 +574,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const content = timeline.blobs.get(file.contentHash);
         const properties = buildPreview(snapshot, file, content);
         const model = await buildModelPreview({ path: file.path, content }, {
-          anchor: { elementId: url.searchParams.get('elementId') || undefined },
+          anchor: { elementId: url.searchParams.get('elementId') || undefined, featureId: url.searchParams.get('featureId') || undefined },
         });
         const preview = model ? { ...properties, ...model } : properties;
         return sendJson(response, 200, { preview });

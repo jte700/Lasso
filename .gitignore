@@ -19,6 +19,9 @@ desktop/BuildConfig.swift
 ed.hup
 *.log
 
+# Windows compiler intermediates
+desktop/windows/**/bin/
+desktop/windows/**/obj/
 # Windows companion build output
 desktop-windows/**/bin/
 desktop-windows/**/obj/
