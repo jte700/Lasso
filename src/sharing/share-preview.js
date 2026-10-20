@@ -35,7 +35,7 @@ const FULL_TEXT_EXTENSIONS = new Set([
  * Builds a few rows of context around the cited cell.
  * Returns null for sources that are not tabular.
  */
-export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, objectType = '') {
+export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, objectType = '', { display = false } = {}) {
   if (!file?.content || !file?.path) return null;
   const extension = path.extname(file.path).toLowerCase();
   if (extension === '.pdf') {
@@ -53,6 +53,7 @@ export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, 
   if (!isSpreadsheet && !isDelimited) return null;
 
   let rawRows = null;
+  let delimitedText = null;
   let selectedTable = null;
   try {
     if (isSpreadsheet) {
@@ -62,7 +63,8 @@ export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, 
       rawRows = table?.rows ?? null;
       selectedTable = table;
     } else {
-      rawRows = parseDelimited(file.content.toString('utf8'), extension === '.tsv' ? '\t' : ',');
+      delimitedText = file.content.toString('utf8');
+      rawRows = parseDelimited(delimitedText, extension === '.tsv' ? '\t' : ',');
     }
   } catch {
     return null;
@@ -73,7 +75,7 @@ export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, 
   if (!layout.headers.length) return null;
 
   const table = selectedTable ?? { rows: rawRows };
-  const context = tableContext(table, anchor, radius, layout.headerRowIndex);
+  const context = tableContext(table, anchor, radius, layout.headerRowIndex, { display });
   if (!context || !objectType) return context;
 
   // Local suggestions identify the word/value that was inserted. Public shares
@@ -81,12 +83,13 @@ export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, 
   const selection = inspectorTableSelection(table, anchor, context, layout, objectType);
   const rows = [...context.rows];
   if (selection.kind === 'header' && !rows.some((row) => row.rowNumber === selection.row)) {
-    const source = table.rows[selection.numbers.indexOf(selection.row)] ?? [];
+    const index = selection.numbers.indexOf(selection.row);
     rows.unshift({ rowNumber: selection.row, cells: context.columns.map((column) => ({
-      value: String(source[spreadsheetColumnIndex(column)] ?? '').trim(), cited: false,
+      value: shownCell(table, index, spreadsheetColumnIndex(column), display).trim(), cited: false,
     })) });
   }
   return { ...context, location: selection.location, columnCitation: selection.kind === 'column',
+    openAt: tableOpenAt(table, selection, delimitedText),
     rows: rows.map((row) => ({ ...row, cells: row.cells.map((cell, index) => ({ ...cell,
       cited: selection.cites(row.rowNumber, spreadsheetColumnIndex(context.columns[index]), cell.value),
     })) })) };
@@ -94,6 +97,31 @@ export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, 
 
 const spreadsheetColumnIndex = (value) => [...value]
   .reduce((index, letter) => index * 26 + letter.charCodeAt(0) - 64, 0) - 1;
+
+/** A cell as the sheet shows it ($129,950) when `display` is on, else its stored value (129950). */
+const shownCell = (table, rowIndex, column, display = true) =>
+  String((display ? table.displayRows?.[rowIndex]?.[column] : null) ?? table.rows[rowIndex]?.[column] ?? '');
+
+/** The text line a delimited record starts on: a quoted field can span lines. */
+function recordLine(text, recordNumber) {
+  let record = 1, line = 1, quoted = false;
+  for (let index = 0; index < text.length && record < recordNumber; index += 1) {
+    if (text[index] === '"') quoted = !quoted;
+    else if (text[index] === '\n') {
+      line += 1;
+      if (!quoted) record += 1;
+    }
+  }
+  return record === recordNumber ? line : null;
+}
+
+/** Where "Open file" lands in a table: its sheet and cell, and a delimited file's text line for editors. */
+function tableOpenAt(table, selection, delimitedText = null) {
+  const openAt = { sheet: table.name ?? null, cell: selection.cell };
+  const row = Number(selection.cell?.match(/\d+$/)?.[0]);
+  const line = delimitedText != null && row ? recordLine(delimitedText, row) : null;
+  return line ? { ...openAt, line } : openAt;
+}
 
 function inspectorTableSelection(table, anchor, context, layout, objectType) {
   const numbers = table.rowNumbers ?? table.rows.map((_, index) => index + 1);
@@ -117,8 +145,13 @@ function inspectorTableSelection(table, anchor, context, layout, objectType) {
   const position = kind === 'column' ? `Column ${columnLetter(column)} (all values)`
     : kind === 'row' ? `Row ${row} (all values)`
       : row ? `${columnLetter(column)}${row}${kind === 'header' ? ' (column header)' : ''}` : '';
+  // The one worksheet cell "Open file" selects: a whole-column citation lands on
+  // its heading, a whole-row citation on the row's first shown cell.
+  const cellRow = kind === 'column' ? context.headerRowNumbers.at(-1) ?? row : row;
+  const cellColumn = column >= 0 ? columnLetter(column) : context.columns[0];
   return { numbers, row, column, kind,
     location: [table.name, position].filter(Boolean).join(' · '),
+    cell: cellRow && cellColumn ? `${cellColumn}${cellRow}` : null,
     cites: (rowNumber, columnIndex, value) => kind === 'column'
       ? columnIndex === column && Boolean(value)
       : rowNumber === row && (column < 0 || columnIndex === column),
@@ -137,10 +170,11 @@ export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = 
           const sheet = anchor.sheet ?? metadata.sheet;
           return tables.find((entry) => entry.name === sheet) ?? tables[0];
         })()
-        : { rows: parseDelimited(file.content.toString('utf8'), extension === '.tsv' ? '\t' : ',') };
+        : { rows: parseDelimited(file.content.toString('utf8'), extension === '.tsv' ? '\t' : ','),
+          delimitedText: file.content.toString('utf8') };
       if (!table?.rows?.length) return null;
       const layout = tabularLayout(table.rows);
-      const context = tableContext(table, anchor, 6, layout.headerRowIndex);
+      const context = tableContext(table, anchor, 6, layout.headerRowIndex, { display: true });
       if (!context?.rows?.length) return null;
       const selection = inspectorTableSelection(table, anchor, context, layout, objectType);
       const numbers = selection.numbers;
@@ -161,8 +195,8 @@ export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = 
           const startRow = merge ? Math.max(firstRow, merge.firstRow) : rowNumber;
           const startColumn = merge ? Math.max(firstColumn, merge.firstColumn) : column;
           const covered = Boolean(merge && (rowNumber !== startRow || column !== startColumn));
-          const value = String(merge ? table.rows[numbers.indexOf(merge.firstRow)]?.[merge.firstColumn] ?? ''
-            : table.rows[sourceIndex]?.[column] ?? '');
+          const value = merge ? shownCell(table, numbers.indexOf(merge.firstRow), merge.firstColumn)
+            : shownCell(table, sourceIndex, column);
           const cited = selection.cites(rowNumber, column, value);
           return { value, cited, covered,
             rowSpan: merge ? Math.min(lastRow, merge.lastRow) - startRow + 1 : 1,
@@ -170,7 +204,8 @@ export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = 
         }) };
       });
       return { kind: 'table', columns: Array.from({ length: lastColumn - firstColumn + 1 }, (_, index) => columnLetter(firstColumn + index)),
-        rows, sheet: table.name ?? null, location: selection.location };
+        rows, sheet: table.name ?? null, location: selection.location,
+        openAt: tableOpenAt(table, selection, table.delimitedText) };
     } catch { return null; }
   }
   if (extension === '.pdf') {
@@ -180,7 +215,7 @@ export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = 
     const pageText = extractDrawingDocument(file.content).pages.find(entry => entry.pageNumber === page)?.text;
     const text = selectedText || String(pageText ?? metadata.textExcerpt ?? extractPdfFullText(file.content)).slice(0, 4000);
     return { kind: 'pdf', page, pageNumber: page, selectedText,
-      hasExcerpt: Boolean(selectedText), bbox: anchor.bbox ?? metadata.bbox ?? null, text };
+      hasExcerpt: Boolean(selectedText), bbox: anchor.bbox ?? metadata.bbox ?? null, text, openAt: { page } };
   }
   if (['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(extension)) return { kind: 'image' };
   if (isTextPreviewPath(file.path)) {
@@ -191,13 +226,38 @@ export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = 
   return null;
 }
 
+/** Plain XML formats with no drawable geometry; their preview is the cited element in context. */
+const XML_PREVIEW_EXTENSIONS = new Set(['.landxml']);
+
 export function isTextPreviewPath(filePath) {
   const extension = path.extname(String(filePath ?? '')).toLowerCase();
-  return FULL_TEXT_EXTENSIONS.has(extension) || extension === '.docx'
+  return FULL_TEXT_EXTENSIONS.has(extension) || XML_PREVIEW_EXTENSIONS.has(extension) || extension === '.docx'
     || ['dockerfile', 'makefile'].includes(path.basename(String(filePath ?? '')).toLowerCase());
 }
 
 const WHOLE_DOCUMENT_TYPES = new Set(['DOCUMENT', 'PAPER']);
+
+/** Word searches at most 255 characters; a shorter phrase leaves room for its escape codes. */
+const WORD_SEARCH_LENGTH = 200;
+
+/**
+ * The words Word searches for: the longest cited line, shortened at a word to
+ * fit its search, and which match of them is the cited one, since a heading
+ * such as "Fees" can also appear earlier, in a table of contents.
+ */
+function wordSearch(text, lines, range, excerpt) {
+  const cited = (excerpt ? excerpt.split('\n') : lines.slice(range[0] - 1, range[1])).map((line) => line.trim());
+  const longest = cited.reduce((best, line) => (line.length > best.length ? line : best), '');
+  if (!longest) return {};
+  const words = longest.length <= WORD_SEARCH_LENGTH ? longest
+    : longest.slice(0, WORD_SEARCH_LENGTH + 1).replace(/\s+\S*$/, '');
+  const citedStart = lines.slice(0, range[0] - 1).reduce((offset, line) => offset + line.length + 1, 0);
+  const at = text.indexOf(words, citedStart);
+  if (at < 0) return { text: words };
+  let occurrence = 1;
+  for (let index = text.indexOf(words); index >= 0 && index < at; index = text.indexOf(words, index + words.length)) occurrence += 1;
+  return { text: words, occurrence };
+}
 
 /** Line range [first, last] (1-based) that an indexed object or matched passage cites. */
 function citedLineRange(text, lines, anchor, metadata, label, matchText) {
@@ -211,7 +271,8 @@ function citedLineRange(text, lines, anchor, metadata, label, matchText) {
     const end = Number.isInteger(anchor.end) && anchor.end > anchor.start ? Math.min(text.length, anchor.end) : anchor.start + 1;
     return [lineAt(anchor.start), lineAt(end - 1)];
   }
-  for (const candidate of [matchText, anchor.selectedText]) {
+  // Structured sources (such as a LandXML element) record the exact text they cite.
+  for (const candidate of [matchText, anchor.selectedText, metadata.rawText]) {
     const found = findPassage(text, candidate);
     if (found) return [lineAt(found.start), lineAt(found.end - 1)];
   }
@@ -248,6 +309,9 @@ export function buildTextPreview(filePath, value, anchor = {}, metadata = {}, la
   const extension = path.extname(filePath).toLowerCase();
   // An indexed sentence or paragraph is the cited text itself, not its whole block.
   const excerpt = !matchText && anchor?.kind === 'text-excerpt' ? String(anchor.selectedText ?? '').trim() : '';
+  // Where "Open file" lands. Word cannot go to a line, so it finds the cited words.
+  const openAt = !range || wholeDocument ? null
+    : extension === '.docx' ? { line: range[0], ...wordSearch(text, lines, range, excerpt) } : { line: range[0] };
 
   if (isMarkdownPath(filePath)) {
     const blocks = markdownBlocks(text);
@@ -262,7 +326,7 @@ export function buildTextPreview(filePath, value, anchor = {}, metadata = {}, la
     const citedText = firstCited < 0 ? '' : blocks.slice(firstCited, lastCited + 1)
       .map((block) => markdownPlainText(block.text)).join('\n');
     return {
-      kind: 'text', format: 'markdown', extracted: false,
+      kind: 'text', format: 'markdown', extracted: false, openAt,
       location: wholeDocument ? 'Entire document'
         : [section ? markdownPlainText(section.text) : '', lineLabel].filter(Boolean).join(' · '),
       text: (excerpt || citedText).slice(0, 1200),
@@ -278,6 +342,7 @@ export function buildTextPreview(filePath, value, anchor = {}, metadata = {}, la
   const endLine = Math.min(lines.length, Math.max(startLine + 24, (range?.[1] ?? 0) + 8));
   return {
     kind: 'text', format: extension === '.docx' ? 'document' : 'plain', extracted: extension === '.docx',
+    openAt,
     location: wholeDocument ? 'Entire document' : lineLabel,
     text: excerpt ? excerpt.slice(0, 1200) : range ? lines.slice(range[0] - 1, range[1]).join('\n').trim().slice(0, 1200) : '',
     lines: lines.slice(startLine, endLine).map((line, index) => ({

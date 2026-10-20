@@ -99,16 +99,24 @@ final class DirectoryColorButton: NSButton {
     }
 }
 
-/// The red delete badge shown in place of a folder icon while removing
-/// directories. The glyph lives on its own centered layer so it can scale
-/// from its middle; the button supplies click, keyboard and AX behaviour.
-final class DirectoryRemoveBadge: NSButton {
+/// The selection circle shown in place of a folder icon while choosing
+/// directories to remove: empty when unselected, a filled checkmark when
+/// selected. The glyph lives on its own centered layer so it can scale from
+/// its middle; the button supplies click, keyboard and AX behaviour.
+final class DirectorySelectionMark: NSButton {
     private static let glyphSize: CGFloat = 16
     private static let popDuration: CFTimeInterval = 0.32
     private static let hideDuration: CFTimeInterval = 0.16
     private let glyph = CALayer()
     private var showing = false
-    var onRemove: (() -> Void)?
+    var onToggle: (() -> Void)?
+    var isSelected = false {
+        didSet {
+            guard isSelected != oldValue else { return }
+            setAccessibilityValue(isSelected ? 1 : 0)
+            refreshGlyph()
+        }
+    }
 
     init(label: String) {
         super.init(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
@@ -116,8 +124,10 @@ final class DirectoryRemoveBadge: NSButton {
         title = ""
         wantsLayer = true
         target = self
-        action = #selector(remove)
+        action = #selector(toggle)
+        setAccessibilityRole(.checkBox)
         setAccessibilityLabel(label)
+        setAccessibilityValue(0)
         glyph.contentsGravity = .resizeAspect
         layer?.addSublayer(glyph)
         refreshGlyph()
@@ -139,14 +149,21 @@ final class DirectoryRemoveBadge: NSButton {
         CATransaction.commit()
     }
 
-    /// A white xmark on a filled system red circle, as in native delete badges.
+    /// A white checkmark on the accent colour when selected, an empty circle
+    /// otherwise, as in native list selection modes.
     private func refreshGlyph() {
-        let configuration = NSImage.SymbolConfiguration(pointSize: Self.glyphSize, weight: .regular)
-            .applying(.init(paletteColors: [.white, .systemRed]))
-        let image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: nil)?
+        let base = NSImage.SymbolConfiguration(pointSize: Self.glyphSize, weight: .regular)
+        let configuration = isSelected
+            ? base.applying(.init(paletteColors: [.white, .controlAccentColor]))
+            : base.applying(.init(paletteColors: [.secondaryLabelColor]))
+        let image = NSImage(systemSymbolName: isSelected ? "checkmark.circle.fill" : "circle",
+                            accessibilityDescription: nil)?
             .withSymbolConfiguration(configuration)
         glyph.contentsScale = window?.backingScaleFactor ?? 2
-        glyph.contents = image?.layerContents(forContentsScale: glyph.contentsScale)
+        // Resolve dynamic colours for this view's light or dark appearance.
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            glyph.contents = image?.layerContents(forContentsScale: glyph.contentsScale)
+        }
     }
 
     /// Springs the glyph in from a point, like badges entering edit mode.
@@ -199,7 +216,7 @@ final class DirectoryRemoveBadge: NSButton {
         CATransaction.commit()
     }
 
-    @objc private func remove() { onRemove?() }
+    @objc private func toggle() { onToggle?() }
 }
 
 private func dispatchMenuAction(_ item: NSMenuItem) {
@@ -221,8 +238,11 @@ final class NativeMenuToggleRow: NSView {
     var onSizeChange: (() -> Void)?
     var onReveal: (() -> Void)?
     var onRemove: (() -> Void)?
-    private let removeBadge: DirectoryRemoveBadge
-    private(set) var isRemoving = false
+    /// Selection mode: called with true when Shift extends a range.
+    var onSelect: ((Bool) -> Void)?
+    private let selectionMark: DirectorySelectionMark
+    private(set) var isSelecting = false
+    var isSelected: Bool { selectionMark.isSelected }
     private var hovering = false { didSet { if hovering != oldValue { needsDisplay = true } } }
 
     override var isFlipped: Bool { true }
@@ -252,16 +272,18 @@ final class NativeMenuToggleRow: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard hovering else { return }
-        NSColor.labelColor.withAlphaComponent(0.1).setFill()
+        let highlighted = isSelecting && isSelected
+        guard hovering || highlighted else { return }
+        (highlighted ? NSColor.controlAccentColor.withAlphaComponent(hovering ? 0.22 : 0.15)
+            : NSColor.labelColor.withAlphaComponent(0.1)).setFill()
         NSBezierPath(roundedRect: NSRect(x: 4, y: 2, width: bounds.width - 8, height: 28),
                      xRadius: 5, yRadius: 5).fill()
     }
 
-    init(item: NSMenuItem, color: DirectoryToggleColor, removing: Bool = false,
+    init(item: NSMenuItem, color: DirectoryToggleColor, selecting: Bool = false, selected: Bool = false,
          onColorChange: @escaping (DirectoryToggleColor) -> Void) {
         self.item = item
-        removeBadge = DirectoryRemoveBadge(label: "Remove \(item.title)")
+        selectionMark = DirectorySelectionMark(label: "Select \(item.title)")
         colorButton = DirectoryColorButton(color: color, label: "Highlight color for \(item.title)")
         self.onColorChange = onColorChange
         titleLabel = NSTextField(labelWithString: item.title)
@@ -310,34 +332,41 @@ final class NativeMenuToggleRow: NSView {
             self.setPaletteVisible(!self.isPaletteVisible)
         }
         addSubview(colorButton)
-        // The badge takes the folder icon's place, centered on the same point.
-        removeBadge.setFrameOrigin(NSPoint(x: 14 + 8 - removeBadge.frame.width / 2,
-                                           y: 16 - removeBadge.frame.height / 2))
-        removeBadge.toolTip = "Remove from Lasso. The folder and its files are not changed."
-        removeBadge.isEnabled = item.isEnabled
-        removeBadge.isHidden = true
-        removeBadge.onRemove = { [weak self] in
-            guard let self, self.item.isEnabled else { return }
-            self.onRemove?()
-        }
-        addSubview(removeBadge)
-        setRemoving(removing, animated: false)
+        // The mark takes the folder icon's place, centered on the same point.
+        selectionMark.setFrameOrigin(NSPoint(x: 14 + 8 - selectionMark.frame.width / 2,
+                                             y: 16 - selectionMark.frame.height / 2))
+        selectionMark.toolTip = "Select to remove from Lasso. The folder and its files are not changed."
+        selectionMark.isEnabled = item.isEnabled
+        selectionMark.isHidden = true
+        selectionMark.onToggle = { [weak self] in self?.select() }
+        addSubview(selectionMark)
+        setSelecting(selecting, selected: selected, animated: false)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    /// Swaps the folder icon for a red remove badge, or back again.
-    func setRemoving(_ removing: Bool, animated: Bool) {
+    /// Swaps the folder icon for a selection circle, or back again.
+    func setSelecting(_ selecting: Bool, selected: Bool, animated: Bool) {
+        if selectionMark.isSelected != selected {
+            selectionMark.isSelected = selected
+            needsDisplay = true
+        }
         let animated = animated && window?.isVisible == true
-        guard removing != isRemoving || !animated else { return }
-        isRemoving = removing
-        if removing { removeBadge.popIn(animated: animated) } else { removeBadge.popOut(animated: animated) }
+        guard selecting != isSelecting || !animated else { return }
+        isSelecting = selecting
+        needsDisplay = true
+        if selecting { selectionMark.popIn(animated: animated) } else { selectionMark.popOut(animated: animated) }
         guard let icon else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = animated ? 0.18 : 0
             context.allowsImplicitAnimation = animated
-            (animated ? icon.animator() : icon).alphaValue = removing ? 0 : 1
+            (animated ? icon.animator() : icon).alphaValue = selecting ? 0 : 1
         }
+    }
+
+    private func select() {
+        guard item.isEnabled, isSelecting else { return }
+        onSelect?(NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
     }
 
     func update(item: NSMenuItem, color: DirectoryToggleColor) {
@@ -355,8 +384,8 @@ final class NativeMenuToggleRow: NSView {
         colorButton.isEnabled = item.isEnabled
         colorButton.setAccessibilityLabel("Highlight color for \(item.title)")
         palette?.update(selected: color, isEnabled: item.isEnabled)
-        removeBadge.isEnabled = item.isEnabled
-        removeBadge.setAccessibilityLabel("Remove \(item.title)")
+        selectionMark.isEnabled = item.isEnabled
+        selectionMark.setAccessibilityLabel("Select \(item.title)")
         toolTip = item.toolTip
         refreshHover()
     }
@@ -387,17 +416,18 @@ final class NativeMenuToggleRow: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let hit = super.hitTest(point) else { return nil }
+        // While selecting, a click anywhere on the row selects it, so a stray
+        // click cannot also switch the folder off or change its colour.
+        if isSelecting { return hit === selectionMark ? hit : self }
         if hit === toggle || hit.isDescendant(of: toggle)
-            || hit === colorButton || hit.isDescendant(of: colorButton)
-            || (isRemoving && hit === removeBadge) { return hit }
+            || hit === colorButton || hit.isDescendant(of: colorButton) { return hit }
         if let palette, hit === palette || hit.isDescendant(of: palette) { return hit }
         return self
     }
 
     override func mouseDown(with event: NSEvent) {
-        // While removing, only the badge acts, so a stray click keeps the folder as is.
-        guard item.isEnabled, !isRemoving else { return }
-        toggle.performClick(nil)
+        guard item.isEnabled else { return }
+        if isSelecting { select() } else { toggle.performClick(nil) }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { extractLandXmlDocument } from '../src/dependencies/landxml-extraction.js';
+import { buildInspectorPreview, isTextPreviewPath } from '../src/sharing/share-preview.js';
 
 const metric = '<Metric linearUnit="meter" areaUnit="squareMeter" diameterUnit="millimeter"/>';
 const xml = (content, units = metric) => Buffer.from(`<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2"><Units>${units}</Units>${content}</LandXML>`);
@@ -89,4 +90,21 @@ test('LandXML refuses declared units with the wrong dimension or unknown diction
   }
   const result = extractLandXmlDocument(xml('<Alignments><Alignment name="Road" length="10"/></Alignments>', '<Metric linearUnit="squareMeter"/>'));
   assert.equal(annotations(result).length, 0);
+});
+
+test('a LandXML quantity previews as its source XML with the cited element highlighted', () => {
+  const content = Buffer.from([
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">',
+    ' <Parcels name="Juniper Site"><Parcel name="Juniper Lot" area="1850.5"/></Parcels>',
+    ' <Alignments name="Site Access"><Alignment name="Juniper Access Road" length="125.75"/></Alignments>',
+    '</LandXML>',
+  ].join('\n'));
+  assert.equal(isTextPreviewPath('Survey.landxml'), true);
+  const preview = buildInspectorPreview({ path: 'Survey.landxml', content },
+    { kind: 'cad-property', propertyName: 'area' },
+    { rawText: '<Parcel name="Juniper Lot" area="1850.5"/>' }, 'Parcel Juniper Lot area', 'DRAWING_ANNOTATION');
+  assert.equal(preview.kind, 'text');
+  assert.deepEqual(preview.lines.filter((line) => line.cited).map((line) => line.lineNumber), [3]);
+  assert.match(preview.lines.find((line) => line.cited).value, /area="1850\.5"/);
 });

@@ -185,6 +185,8 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/KeyRouting.swift" \
   "$ROOT/desktop/CompletionTransaction.swift" \
   "$ROOT/desktop/AssistSourceIdentity.swift" \
+  "$ROOT/desktop/SourceOpenTarget.swift" \
+  "$ROOT/desktop/SourceOpener.swift" \
   "$ROOT/desktop/AssistPopupHost.swift" \
   "$ROOT/desktop/DependencyReference.swift" \
   "$ROOT/desktop/HostGeometry.swift" \
@@ -195,6 +197,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/DependencyOverlay.swift" \
   "$ROOT/desktop/DependencyHighlighter.swift" \
   "$ROOT/desktop/ModelPreview.swift" \
+  "$ROOT/desktop/AssistTableLayout.swift" \
   "$ROOT/desktop/SourceInspectorPanel.swift" \
   "$ROOT/desktop/WebText.swift" \
   "$ROOT/desktop/ShareInsertion.swift" \
@@ -319,6 +322,10 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <string>Lasso watches for typing so it can suggest sources from your indexed project.</string>
   <key>NSAccessibilityUsageDescription</key>
   <string>Lasso reads the text around your cursor so it can suggest sources and insert them.</string>
+  <!-- Open file asks the source's app (Excel, Numbers, Word, Acrobat) to go to
+       the cited cell, passage or page. The file opens even when this is denied. -->
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Lasso asks the app that opens a source to go to the cited cell, page or passage.</string>
 </dict>
 </plist>
 PLIST

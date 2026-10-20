@@ -21,7 +21,7 @@ open dist/Lasso.app
 
 The app runs in the menu bar and starts its own local server, restarting it automatically if it stops unexpectedly. The server runs on the Node.js bundled inside the app, so the Mac does not need Node installed. If that copy cannot start, Lasso uses an installed Node.js 24 or newer instead; if it finds only an older one, the menu says which version and where. **About Lasso** and the server log name the Node.js in use. The first time Lasso runs without any folders, its menu opens so you can add one, and opening the app again while it runs shows the menu. The menu provides:
 
-- **Add Work Directories…** to choose folders, and **Remove Work Directory** to take one out of Lasso. Removing never changes the folder or its files.
+- **Add Work Directories…** to choose folders (Command-click to add several at once), and **Remove Work Directories…** to take folders out of Lasso: click the folders to select them (Shift-click selects a range, or use **Select All**), then choose **Remove N Directories…** and confirm once. Removing never changes the folders or their files.
 - **Work Directories** to collapse the list and switch folders on or off. Suggestions come only from folders that are switched on. The small circle sets the folder's highlight colour, used for text accepted from it. Right-click a folder to show it in Finder or remove it.
 - **Suggest While Typing** to enable suggestions in other apps.
 - **Open at Login** to start Lasso when you log in, so suggestions are ready without opening it. If macOS holds the request for approval, **Allow Open at Login…** opens System Settings → General → Login Items.
@@ -68,7 +68,7 @@ Type near a term or value from an enabled work directory. Two letters are enough
 - **Tab:** replace the detected keyword or partial phrase with the selected source, value, field name, or citation. Sentence continuations append at the caret. The panel shows **Replace** when typed text will be replaced. Field descriptions and sample values stay in the preview.
 - **⌘Enter:** insert plain text. It differs from `Tab` only when **Tab Inserts** is set to **Ask Each Time** or **Share Link**, so the panel lists it only then.
 - **Share link…** or **⇧⌘Enter:** choose the sharing scope, then insert a share link.
-- **Open file** opens the source in its default app.
+- **Open file** opens the source in its default app at the place the preview shows: Excel and Numbers select the cited cell on its sheet, Preview and Acrobat go to the cited page, Word finds the cited passage, and VS Code, Cursor, BBEdit and TextMate open text at the cited line. The first jump into each app asks once for permission to control it. Other apps, or a declined permission, open the file as usual. The source inspector's **Open Source** does the same.
 
 Every plain-text insertion keeps a local source reference and highlight. **Ask Each Time** and **Share Link** still open the privacy composer before creating a public token.
 

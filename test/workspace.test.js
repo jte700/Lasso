@@ -94,6 +94,43 @@ test('removing a directory hides it, stops watching, and adding it again restore
   assert.equal(app.timeline.getProject(first.id).currentSnapshotId, history);
 });
 
+test('removing several directories at once takes out exactly the chosen folders', async (t) => {
+  const state = await fixture(t, 3);
+  const app = await state.restart(true);
+  const [first, second, third] = state.projects;
+  const removed = await app.workspace.removeMany([first.id, third.id]);
+  assert.deepEqual(removed.directories.map((d) => d.id), [second.id]);
+  assert.equal(app.timeline.watchers.has(first.id), false);
+  assert.equal(app.timeline.watchers.has(third.id), false);
+  assert.equal(app.timeline.watchers.has(second.id), true);
+  assert.ok(state.roots.every((root) => fs.existsSync(path.join(root, 'data.csv'))), 'folders stay on disk');
+  const restored = await app.workspace.add([state.roots[0], state.roots[2]], actor);
+  assert.deepEqual(new Set(restored.directories.map((d) => d.id)), new Set([first.id, second.id, third.id]));
+});
+
+test('a bulk removal naming an unknown directory removes nothing', async (t) => {
+  const { app, projects } = await fixture(t, 2);
+  await assert.rejects(app.workspace.removeMany([projects[0].id, 'missing-project']), { status: 404 });
+  assert.deepEqual(app.workspace.state().directories.map((d) => d.id), projects.map((p) => p.id));
+  assert.throws(() => app.workspace.removeMany([]), { status: 400 });
+  assert.throws(() => app.workspace.removeMany('not-a-list'), { status: 400 });
+});
+
+test('the bulk removal route removes every listed directory in one request', async (t) => {
+  const { app, projects, roots } = await fixture(t, 3);
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  const removeMany = (projectIds) => fetch(`${base}/api/workspace/directories`, {
+    method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectIds }),
+  });
+  assert.equal((await removeMany([])).status, 400);
+  assert.equal((await removeMany([projects[0].id, 'missing-project'])).status, 404);
+  const response = await removeMany([projects[0].id, projects[1].id]);
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).directories.map((d) => d.id), [projects[2].id]);
+  assert.ok(fs.existsSync(path.join(roots[0], 'data.csv')), 'removing never touches the folder on disk');
+});
+
 test('a directory renamed on disk stays linked under its new name', async (t) => {
   const state = await fixture(t, 2);
   const app = await state.restart(true);

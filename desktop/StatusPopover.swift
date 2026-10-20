@@ -345,7 +345,7 @@ final class StatusPopoverController {
                    let id = item.representedObject as? String {
                     if let existing = directoryRows[id] {
                         existing.update(item: item, color: fresh.currentColor)
-                        existing.setRemoving(fresh.isRemoving, animated: true)
+                        existing.setSelecting(fresh.isSelecting, selected: fresh.isSelected, animated: true)
                         row = existing
                     } else {
                         directoryRows[id] = fresh

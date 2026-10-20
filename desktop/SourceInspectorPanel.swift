@@ -357,7 +357,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
             if let sourcePath = payload["absolutePath"] as? String,
                (sourcePath as NSString).isAbsolutePath,
                FileManager.default.fileExists(atPath: sourcePath),
-               NSWorkspace.shared.open(URL(fileURLWithPath: sourcePath)) {
+               AssistSourceOpener.open(URL(fileURLWithPath: sourcePath), at: AssistOpenTarget(json: payload["openAt"])) {
                 RecommendationUsageClient.recordResolvedOpen(serverURL: serverURL, objectId: reference.objectId)
             } else {
                 onOpenSource?(reference)

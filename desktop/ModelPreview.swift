@@ -352,6 +352,51 @@ struct AssistPDFPageImage {
     let image: NSImage
     let pageNumber: Int
     let highlighted: Bool
+    /// The part of the page shown, in page space, or nil for the whole page.
+    var focus: CGRect? = nil
+
+    /// Shown around a citation: at least this share of the page width, with
+    /// room beside and above it so the surrounding text or drawing reads too.
+    private static let minimumFocusShare: CGFloat = 0.75
+    private static let horizontalMargin: CGFloat = 1.4
+    private static let verticalMargin: CGFloat = 2.5
+    /// A zoom showing nearly the whole page height gains nothing over the page.
+    private static let wholePageShare: CGFloat = 0.85
+
+    /// The area around a cited passage to show, with the preview's proportions,
+    /// so the passage is legible instead of a few points tall on a whole page.
+    /// A wide passage keeps the full page width and is cropped above and below.
+    static func focusRegion(around selection: CGRect, page: CGRect, aspect: CGFloat) -> CGRect? {
+        guard !selection.isEmpty, aspect > 0, page.width > 0, page.height > 0 else { return nil }
+        let wanted = max(selection.width * horizontalMargin, page.width * minimumFocusShare,
+                         selection.height * verticalMargin * aspect)
+        let width = min(page.width, wanted)
+        let height = width / aspect
+        guard height < page.height * wholePageShare, selection.height < height else { return nil }
+        let x = min(max(page.minX, selection.midX - width / 2), page.maxX - width)
+        let y = min(max(page.minY, selection.midY - height / 2), page.maxY - height)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    /// Draws one area of a page at `size`, highlights included. Rasterized now,
+    /// while the page's document is still open.
+    private static func image(of page: PDFPage, region: CGRect, size: NSSize) -> NSImage? {
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width),
+                                            pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
+                                            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                            bytesPerRow: 0, bitsPerPixel: 0),
+              let graphics = NSGraphicsContext(bitmapImageRep: bitmap) else { return nil }
+        let box = page.bounds(for: .cropBox)
+        let context = graphics.cgContext
+        context.setFillColor(NSColor.white.cgColor)
+        context.fill(CGRect(origin: .zero, size: size))
+        context.scaleBy(x: size.width / region.width, y: size.height / region.height)
+        context.translateBy(x: box.minX - region.minX, y: box.minY - region.minY)
+        page.draw(with: .cropBox, to: context)
+        let image = NSImage(size: size)
+        image.addRepresentation(bitmap)
+        return image
+    }
 
     /// Render immutable source bytes in memory. Highlight annotations are never saved.
     static func render(data: Data, preview: AssistPDFPreview,
@@ -387,13 +432,23 @@ struct AssistPDFPageImage {
                let page = selected.pages.first { pageIndex = document.index(for: page) }
         }
         guard let page = document.page(at: pageIndex) else { return nil }
+        var cited = CGRect.null
         for line in selected?.selectionsByLine() ?? [] {
             guard line.pages.contains(page) else { continue }
             let bounds = line.bounds(for: page)
             guard !bounds.isEmpty else { continue }
+            cited = cited.union(bounds)
             let annotation = PDFAnnotation(bounds: bounds, forType: .highlight, withProperties: nil)
             annotation.color = NSColor.systemYellow.withAlphaComponent(0.55)
             page.addAnnotation(annotation)
+        }
+        // Rotated pages map selections differently; they are shown whole.
+        if page.rotation == 0, !cited.isNull,
+           let region = focusRegion(around: cited, page: page.bounds(for: .cropBox), aspect: size.width / size.height) {
+            let zoomedSize = NSSize(width: size.width, height: (size.width * region.height / region.width).rounded())
+            if let zoomed = image(of: page, region: region, size: zoomedSize) {
+                return AssistPDFPageImage(image: zoomed, pageNumber: pageIndex + 1, highlighted: true, focus: region)
+            }
         }
         let image = page.thumbnail(of: size, for: .cropBox)
         guard image.size.width > 0, image.size.height > 0 else { return nil }
@@ -419,6 +474,8 @@ struct AssistDocumentPreview {
     /// Markdown blocks or plain text lines around the cited passage.
     var textBlocks: [AssistTextBlock] = []
     var isMarkdown = false
+    /// The cell, page or line that Open file lands on.
+    var openTarget: AssistOpenTarget? = nil
 
     static func parse(_ data: Data) -> AssistDocumentPreview? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -461,6 +518,7 @@ struct AssistDocumentPreview {
             headers: preview["headers"] as? [String] ?? [],
             rows: rows, model: model, unavailableReason: unavailable,
             pdf: pdf)
+        result.openTarget = AssistOpenTarget(json: preview["openAt"])
         if kind == "text" {
             result.isMarkdown = preview["format"] as? String == "markdown"
             result.textBlocks = result.isMarkdown

@@ -16,6 +16,10 @@ import { normalizePdfExcerpt, normalizeRedactions } from '../sharing/object-shar
 import { refusalReason, WORKSPACE_PAGE_HEADERS } from './request-guard.js';
 import { passiveInlineType } from './passive-types.js';
 
+// Rows on each side of a cited cell in the suggestion card. The card shows as
+// many as fit around the citation, so a footnote still has its table above it.
+const ASSIST_TABLE_RADIUS = 4;
+
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -297,6 +301,10 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           const body = await readJson(request);
           return sendJson(response, 200, await workspace.add(body.rootPaths, actorFrom(body)));
         }
+        if (request.method === 'DELETE' && pathname === '/api/workspace/directories') {
+          const body = await readJson(request);
+          return sendJson(response, 200, await workspace.removeMany(body.projectIds));
+        }
         const directory = match(pathname, /^\/api\/workspace\/directories\/([^/]+)$/);
         if (request.method === 'POST' && directory) {
           const body = await readJson(request);
@@ -431,7 +439,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null;
           preview = path.extname(file?.path ?? '').toLowerCase() === '.pdf'
             ? buildInspectorPreview(sourceFile, resolved.source.anchor, resolved.source.metadata, resolved.source.label, resolved.source.objectType)
-            : buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata, 2, resolved.source.objectType);
+            : buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata, ASSIST_TABLE_RADIUS,
+              resolved.source.objectType, { display: true });
           // Text, Markdown and Word sources show the cited passage in context.
           if (!preview && isTextPreviewPath(file?.path)) {
             preview = buildInspectorPreview(sourceFile, resolved.source.anchor, resolved.source.metadata,

@@ -56,6 +56,7 @@ test('PDF inspector preserves a cited word, page, and drawing region', () => {
   assert.equal(preview.pageNumber, 2);
   assert.equal(preview.selectedText, 'BEDROOM 144 SF');
   assert.deepEqual(preview.bbox, bbox);
+  assert.deepEqual(preview.openAt, { page: 2 }, 'Open file lands on the cited page');
 });
 
 test('the local PDF engine extracts encoded PDF words the syntax fallback cannot read', { skip: !nativePdf }, () => {

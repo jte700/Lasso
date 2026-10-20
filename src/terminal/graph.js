@@ -1168,7 +1168,7 @@ export class DependencyGraph {
 
   tablePreview(file, object, radius) {
     const buffer = this.timeline.blobs.get(file.contentHash);
-    const context = buildSharePreview({path:file.path,content:buffer}, object.anchor ?? {}, object.metadata ?? {}, radius);
+    const context = buildSharePreview({path:file.path,content:buffer}, object.anchor ?? {}, object.metadata ?? {}, radius, '', { display:true });
     if (!context) return null;
     return {
       headerRow:context.headers,

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { setImmediate as yieldTurn } from 'node:timers/promises';
+import { transaction } from './db.js';
 import { HttpError } from './history/errors.js';
 import { normalizeProjectRootPath } from './history/service.js';
 import { parseCommand } from './terminal/parser.js';
@@ -311,13 +312,26 @@ export class WorkspaceService {
    * is kept, so choosing the same folder again restores it.
    */
   remove(projectId) {
+    return this.removeMany([projectId]);
+  }
+
+  /** Removes several folders in one step. An unknown id removes none of them. */
+  removeMany(projectIds) {
+    if (!Array.isArray(projectIds) || !projectIds.length
+      || projectIds.some((id) => typeof id !== 'string' || !id.trim())) {
+      throw new HttpError(400, 'Choose one or more work directories to remove.');
+    }
+    const ids = [...new Set(projectIds)];
     return this.enqueue(() => {
-      this.timeline.getProject(projectId);
-      this.db.prepare('UPDATE projects SET workspace_active = 0, workspace_removed = 1 WHERE id = ?').run(projectId);
-      this.timeline.unwatchProject(projectId);
-      this.timeline.scanCaches.delete(projectId);
-      this.errors.delete(projectId);
-      this.renameChecks.delete(projectId);
+      for (const projectId of ids) this.timeline.getProject(projectId);
+      const removal = this.db.prepare('UPDATE projects SET workspace_active = 0, workspace_removed = 1 WHERE id = ?');
+      transaction(this.db, () => { for (const projectId of ids) removal.run(projectId); });
+      for (const projectId of ids) {
+        this.timeline.unwatchProject(projectId);
+        this.timeline.scanCaches.delete(projectId);
+        this.errors.delete(projectId);
+        this.renameChecks.delete(projectId);
+      }
       return this.state();
     });
   }

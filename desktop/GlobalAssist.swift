@@ -1087,9 +1087,14 @@ final class AssistBoxView: NSView {
                             width: rightWidth - 121, height: 15),
                  font: NSFont.systemFont(ofSize: 10), color: .secondaryLabelColor)
 
-        let previewRect = NSRect(x: rightX + 18, y: bodyTop + 72,
+        // A spreadsheet excerpt uses the room down to the matched-cell line,
+        // so the rows around a cited cell are shown, not only the cell.
+        let isTable = preview.map { $0.model == nil && $0.pdf == nil && !$0.rows.isEmpty } ?? false
+        let previewTop = bodyTop + 72
+        let previewRect = NSRect(x: rightX + 18, y: previewTop,
                                  width: rightWidth - 36,
-                                 height: preview?.model == nil && preview?.pdf == nil
+                                 height: isTable ? max(184, footerY - 30 - previewTop)
+                                    : preview?.model == nil && preview?.pdf == nil
                                     && preview?.textBlocks.isEmpty != false ? 184 : 222)
         if isPreviewLoading {
             drawText("Loading document preview…",
@@ -1184,132 +1189,125 @@ final class AssistBoxView: NSView {
         outline.stroke()
     }
 
+    /// Draws the cited cell with the rows and columns around it, laid out by
+    /// AssistTableLayout: numbers as the sheet shows them, notes overflowing
+    /// into empty cells, and the column letter above each heading.
     private func drawTablePreview(_ preview: AssistDocumentPreview, in rect: NSRect) {
         let projectId = suggestions.indices.contains(selected) ? suggestions[selected].projectId : nil
         let sourceColor = DirectoryColorPreferences.color(for: projectId)?.color ?? .systemGreen
-        let availableColumns = max(1, preview.rows.map(\.cells.count).max() ?? 1)
-        let count = min(4, availableColumns)
-        let selectedColumn = preview.rows.flatMap { row in
-            row.cells.enumerated().filter { $0.element.cited }.map(\.offset)
-        }.first ?? 0
-        let windowStart = max(1, min(selectedColumn - 1, availableColumns - (count - 1)))
-        let visibleColumns = availableColumns <= count
-            ? Array(0..<count)
-            : [0] + Array(windowStart..<(windowStart + count - 1))
-        let rowHeaderWidth: CGFloat = 37
-        let dataWidth = rect.width - rowHeaderWidth
-        let columnWidths: [CGFloat] = count == 2
-            ? [dataWidth * 0.56, dataWidth * 0.44]
-            : Array(repeating: dataWidth / CGFloat(count), count: count)
-        func columnOffset(_ column: Int) -> CGFloat {
-            columnWidths.prefix(column).reduce(0, +)
-        }
-        let rowHeight: CGFloat = 30.5
-        let headerHeight: CGFloat = 66
-        let maximumRows = max(1, Int((rect.height - headerHeight) / rowHeight))
-        let selectedRow = preview.rows.firstIndex { $0.cells.contains { $0.cited } } ?? 0
-        let rowStart = max(0, min(selectedRow - maximumRows / 2, preview.rows.count - maximumRows))
-        let rows = Array(preview.rows.dropFirst(rowStart).prefix(maximumRows))
-        let tableHeight = headerHeight + rowHeight * CGFloat(rows.count)
+        let layout = AssistTableLayout(headers: preview.headers, rows: preview.rows, size: rect.size)
+        let rows = Array(preview.rows[layout.rowRange])
+        let tableHeight = layout.headerHeight + layout.rowHeights.reduce(0, +)
         let table = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: tableHeight)
         let roundedTable = NSBezierPath(roundedRect: table, xRadius: 8, yRadius: 8)
-
         NSColor.textBackgroundColor.withAlphaComponent(0.65).setFill()
         roundedTable.fill()
-
         NSGraphicsContext.current?.saveGraphicsState()
         roundedTable.addClip()
-
-        let header = NSRect(x: table.minX, y: table.minY, width: table.width, height: headerHeight)
-        NSColor.controlBackgroundColor.withAlphaComponent(0.10).setFill()
-        header.fill()
-
-        for (column, sourceColumn) in visibleColumns.enumerated() {
-            let letter = sourceColumn < preview.columns.count ? preview.columns[sourceColumn] : spreadsheetColumn(sourceColumn)
-            let heading = sourceColumn < preview.headers.count ? preview.headers[sourceColumn] : ""
-            let x = table.minX + rowHeaderWidth + columnOffset(column)
-            drawMultilineText(heading.isEmpty ? "Column \(letter)" : heading,
-                     in: NSRect(x: x + 8, y: table.minY + 10, width: columnWidths[column] - 16, height: 49),
-                     font: NSFont.systemFont(ofSize: 11, weight: .semibold), color: .labelColor)
-        }
-
+        drawTableHeader(preview, layout: layout, in: table)
+        var y = table.minY + layout.headerHeight
         var citedOutlines: [NSRect] = []
-        for (rowIndex, row) in rows.enumerated() {
-            let y = table.minY + headerHeight + rowHeight * CGFloat(rowIndex)
-            let citedColumns = visibleColumns.enumerated().filter {
-                $0.element < row.cells.count && row.cells[$0.element].cited
-            }.map(\.offset)
-            let citedRow = !citedColumns.isEmpty
-
-            drawText(row.rowNumber.map(String.init) ?? "—",
-                     in: NSRect(x: table.minX, y: y + 8,
-                               width: rowHeaderWidth - 8, height: 14),
-                     font: NSFont.systemFont(ofSize: 11),
-                     color: citedRow ? sourceColor : .secondaryLabelColor,
-                     alignment: .right)
-
-            if citedRow {
-                let labelCell = NSRect(x: table.minX + rowHeaderWidth, y: y,
-                                       width: columnWidths[0], height: rowHeight)
-                sourceColor.withAlphaComponent(0.075).setFill()
-                labelCell.fill()
-            }
-
-            for (column, sourceColumn) in visibleColumns.enumerated() {
-                let cell = sourceColumn < row.cells.count
-                    ? row.cells[sourceColumn]
-                    : AssistPreviewCell(value: "", cited: false)
-                let cellRect = NSRect(x: table.minX + rowHeaderWidth + columnOffset(column),
-                                      y: y, width: columnWidths[column], height: rowHeight)
-                if cell.cited {
-                    sourceColor.withAlphaComponent(0.025).setFill()
-                    cellRect.fill()
-                }
-                drawText(cell.value,
-                         in: NSRect(x: cellRect.minX + 8, y: cellRect.minY + 8,
-                                   width: cellRect.width - 16, height: 14),
-                         font: NSFont.systemFont(ofSize: 10,
-                                                weight: cell.cited ? .medium : .regular),
-                         color: .labelColor, alignment: column == 0 ? .left : .right)
-            }
-            if let outlined = citedColumns.last {
-                citedOutlines.append(NSRect(
-                    x: table.minX + rowHeaderWidth + columnOffset(outlined),
-                    y: y, width: columnWidths[outlined], height: rowHeight))
-            }
+        for (index, row) in rows.enumerated() {
+            let height = layout.rowHeights[index]
+            let gap = layout.startsAfterGap(preview.rows, at: layout.rowRange.lowerBound + index)
+            citedOutlines += drawTableRow(row, layout: layout, in: NSRect(x: table.minX, y: y, width: table.width,
+                                                                       height: height),
+                                          afterGap: gap, sourceColor: sourceColor)
+            y += height
         }
-
-        NSColor.separatorColor.withAlphaComponent(0.11).setStroke()
-        for column in 0...count {
-            let x = table.minX + rowHeaderWidth + columnOffset(column)
-            let line = NSBezierPath()
-            line.lineWidth = 0.5
-            line.move(to: NSPoint(x: x, y: table.minY))
-            line.line(to: NSPoint(x: x, y: table.maxY))
-            line.stroke()
-        }
-        if !rows.isEmpty {
-            for row in 1...rows.count {
-                let y = table.minY + headerHeight + rowHeight * CGFloat(row - 1)
-                let line = NSBezierPath()
-                line.lineWidth = 0.5
-                line.move(to: NSPoint(x: table.minX, y: y))
-                line.line(to: NSPoint(x: table.maxX, y: y))
-                line.stroke()
-            }
-        }
-
-        for rect in citedOutlines {
+        for outline in citedOutlines {
             sourceColor.withAlphaComponent(0.65).setStroke()
-            let outline = NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5))
-            outline.lineWidth = 0.8
-            outline.stroke()
+            let path = NSBezierPath(rect: outline.insetBy(dx: 0.5, dy: 0.5))
+            path.lineWidth = 0.8
+            path.stroke()
         }
         NSGraphicsContext.current?.restoreGraphicsState()
-
         NSColor.separatorColor.withAlphaComponent(0.14).setStroke()
         roundedTable.lineWidth = 0.65
         roundedTable.stroke()
+    }
+
+    private func drawTableHeader(_ preview: AssistDocumentPreview, layout: AssistTableLayout, in table: NSRect) {
+        NSColor.controlBackgroundColor.withAlphaComponent(0.10).setFill()
+        NSRect(x: table.minX, y: table.minY, width: table.width, height: layout.headerHeight).fill()
+        let padding = AssistTableLayout.cellPadding
+        for (index, column) in layout.visibleColumns.enumerated() {
+            let letter = column < preview.columns.count ? preview.columns[column] : spreadsheetColumn(column)
+            let heading = column < preview.headers.count ? preview.headers[column] : ""
+            let alignment: NSTextAlignment = layout.numericColumns.contains(index) ? .right : .left
+            let x = table.minX + AssistTableLayout.rowHeaderWidth + layout.offset(of: index)
+            let width = layout.columnWidths[index] - 2 * padding
+            let top = table.minY + AssistTableLayout.headerTopPadding
+            drawText(letter, in: NSRect(x: x + padding, y: top, width: width, height: AssistTableLayout.letterHeight),
+                     font: AssistTableLayout.letterFont, color: .tertiaryLabelColor, alignment: alignment)
+            let headingTop = top + AssistTableLayout.letterHeight
+            drawMultilineText(heading.isEmpty ? "Column \(letter)" : heading,
+                              in: NSRect(x: x + padding, y: headingTop, width: width,
+                                         height: table.minY + layout.headerHeight - headingTop - 4),
+                              font: AssistTableLayout.headingFont, color: .labelColor, alignment: alignment,
+                              lineSpacing: 0)
+            if index > 0 { drawGridLine(x: x, from: table.minY, to: table.minY + layout.headerHeight) }
+        }
+    }
+
+    /// Draws one row and returns the outline of its cited cell, if any.
+    private func drawTableRow(_ row: AssistPreviewRow, layout: AssistTableLayout, in rect: NSRect,
+                              afterGap: Bool, sourceColor: NSColor) -> [NSRect] {
+        let padding = AssistTableLayout.cellPadding
+        let dataX = rect.minX + AssistTableLayout.rowHeaderWidth
+        let cells = layout.cells(in: row)
+        let cited = cells.filter { row.cells.indices.contains(layout.visibleColumns[$0.column])
+            && row.cells[layout.visibleColumns[$0.column]].cited }
+        drawText(row.rowNumber.map(String.init) ?? "\u{2014}",
+                 in: NSRect(x: rect.minX, y: rect.minY + 7, width: AssistTableLayout.rowHeaderWidth - 8, height: 14),
+                 font: NSFont.systemFont(ofSize: 11), color: cited.isEmpty ? .secondaryLabelColor : sourceColor,
+                 alignment: .right)
+        if let first = cells.first, !cited.isEmpty {
+            sourceColor.withAlphaComponent(0.075).setFill()
+            NSRect(x: dataX, y: rect.minY, width: layout.width(of: first), height: rect.height).fill()
+        }
+        var outlines: [NSRect] = []
+        for cell in cells {
+            let column = layout.visibleColumns[cell.column]
+            let value = row.cells.indices.contains(column) ? row.cells[column] : AssistPreviewCell(value: "", cited: false)
+            let cellRect = NSRect(x: dataX + layout.offset(of: cell.column), y: rect.minY,
+                                  width: layout.width(of: cell), height: rect.height)
+            let font = value.cited ? AssistTableLayout.citedFont : AssistTableLayout.cellFont
+            let textRect = NSRect(x: cellRect.minX + padding, y: cellRect.minY + 7,
+                                  width: cellRect.width - 2 * padding, height: cellRect.height - 12)
+            if value.cited {
+                sourceColor.withAlphaComponent(0.025).setFill()
+                cellRect.fill()
+                outlines.append(cellRect)
+            }
+            if value.cited && rect.height > layout.rowHeight {
+                drawMultilineText(value.value, in: textRect, font: font, color: .labelColor,
+                                  alignment: cell.alignment, lineSpacing: 0)
+            } else {
+                drawText(value.value, in: NSRect(x: textRect.minX, y: textRect.minY, width: textRect.width, height: 14),
+                         font: font, color: .labelColor, alignment: cell.alignment)
+            }
+            if cell.column > 0 { drawGridLine(x: cellRect.minX, from: rect.minY, to: rect.maxY) }
+        }
+        let line = NSBezierPath()
+        line.lineWidth = afterGap ? 1 : 0.5
+        // Dashes mark empty sheet rows left out between two shown rows.
+        if afterGap { line.setLineDash([3, 2], count: 2, phase: 0) }
+        NSColor.separatorColor.withAlphaComponent(afterGap ? 0.3 : 0.11).setStroke()
+        line.move(to: NSPoint(x: rect.minX, y: rect.minY))
+        line.line(to: NSPoint(x: rect.maxX, y: rect.minY))
+        line.stroke()
+        drawGridLine(x: dataX, from: rect.minY, to: rect.maxY)
+        return outlines
+    }
+
+    private func drawGridLine(x: CGFloat, from top: CGFloat, to bottom: CGFloat) {
+        NSColor.separatorColor.withAlphaComponent(0.11).setStroke()
+        let line = NSBezierPath()
+        line.lineWidth = 0.5
+        line.move(to: NSPoint(x: x, y: top))
+        line.line(to: NSPoint(x: x, y: bottom))
+        line.stroke()
     }
 
     private func spreadsheetColumn(_ index: Int) -> String {
@@ -1348,10 +1346,12 @@ final class AssistBoxView: NSView {
                  font: font, color: .labelColor)
     }
 
-    private func drawMultilineText(_ value: String, in rect: NSRect, font: NSFont, color: NSColor) {
+    private func drawMultilineText(_ value: String, in rect: NSRect, font: NSFont, color: NSColor,
+                                   alignment: NSTextAlignment = .left, lineSpacing: CGFloat = 3) {
         let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment
         paragraph.lineBreakMode = .byWordWrapping
-        paragraph.lineSpacing = 3
+        paragraph.lineSpacing = lineSpacing
         NSAttributedString(string: value, attributes: [
             .font: font,
             .foregroundColor: color,
@@ -2228,6 +2228,8 @@ final class GlobalAssistant {
         }
         let previewPath = view.preview?.path.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let sourcePath = previewPath.isEmpty ? suggestion.path : previewPath
+        // The place the preview cites belongs to the file it previews.
+        let target = previewPath.isEmpty ? nil : view.preview?.openTargetAsShown
         let endpoint = serverURL.appendingPathComponent("api/projects")
             .appendingPathComponent(suggestion.projectId)
         let task = URLSession.shared.dataTask(with: endpoint) { [weak self] data, response, _ in
@@ -2243,18 +2245,18 @@ final class GlobalAssistant {
                 return
             }
             DispatchQueue.main.async {
-                self.openLocalSource(path: sourcePath, projectRoot: rootPath,
+                self.openLocalSource(path: sourcePath, target: target, projectRoot: rootPath,
                                      suggestion: suggestion, serverURL: serverURL)
             }
         }
         task.resume()
     }
 
-    private func openLocalSource(path: String, projectRoot: String,
+    private func openLocalSource(path: String, target: AssistOpenTarget?, projectRoot: String,
                                  suggestion: AssistSuggestion, serverURL: URL) {
         let result = AssistSourceIdentity.openLocalFile(
             projectRoot: projectRoot, sourcePath: path,
-            open: { NSWorkspace.shared.open($0) },
+            open: { AssistSourceOpener.open($0, at: target) },
             onOpened: {
                 RecommendationUsageClient.record(serverURL: serverURL, projectId: suggestion.projectId,
                                                  objectId: suggestion.usageObjectId, path: suggestion.path,

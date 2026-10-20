@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createApplication } from '../src/server.js';
 import { extractDocxDocument, extractPdfDocument, extractSpreadsheetTables } from '../src/dependencies/document-extraction.js';
-import { buildSharePreview } from '../src/sharing/share-preview.js';
+import { buildFullShareDocument, buildSharePreview } from '../src/sharing/share-preview.js';
 import { anchorForSpan } from '../src/dependencies/service.js';
 
 const researcher = { id: 'human:researcher', displayName: 'Researcher', actorType: 'HUMAN_SELF' };
@@ -803,4 +803,35 @@ test('legacy Excel previews retain distant period headings and the physical cite
   assert.equal(preview.rows[0].rowNumber, 24);
   assert.equal(preview.rows[0].cells[2].value, '215');
   assert.equal(preview.rows[0].cells[2].cited, true);
+});
+
+test('spreadsheet previews show numbers as the sheet displays them while indexing keeps stored values', () => {
+  const content = storedZip({
+    'xl/workbook.xml': '<workbook><sheets><sheet name="Budget" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/styles.xml': '<styleSheet><numFmts>'
+      + '<numFmt numFmtId="201" formatCode="&quot;$&quot;#,##0;(&quot;$&quot;#,##0);&quot;-&quot;"/>'
+      + '<numFmt numFmtId="202" formatCode="0.0%;(0.0%);&quot;-&quot;"/></numFmts>'
+      + '<cellXfs><xf numFmtId="0"/><xf numFmtId="201"/><xf numFmtId="202"/></cellXfs></styleSheet>',
+    'xl/sharedStrings.xml': '<sst><si><t>Account</t></si><si><t>Actual</t></si><si><t>Variance %</t></si>'
+      + '<si><t>Operating income</t></si><si><t>Rent</t></si></sst>',
+    'xl/worksheets/sheet1.xml': '<worksheet><sheetData>'
+      + '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c></row>'
+      + '<row r="2"><c r="A2" t="s"><v>3</v></c><c r="B2" s="1"><v>-12050</v></c><c r="C2" s="2"><v>-0.1604527</v></c></row>'
+      + '<row r="3"><c r="A3" t="s"><v>4</v></c><c r="B3" s="1"><v>0</v></c><c r="C3" s="2"><v>0</v></c></row>'
+      + '</sheetData></worksheet>',
+  });
+  const [sheet] = extractSpreadsheetTables(content);
+  assert.deepEqual(sheet.rows[1], ['Operating income', '-12050', '-16.0%'], 'indexed values stay the stored numbers');
+  const anchor = { kind: 'table-row', rowKey: 'Operating income', rowIndex: 1, sheet: 'Budget' };
+  const preview = buildSharePreview({ path: 'Budget.xlsx', content }, anchor, {}, 4, 'DATASET_ROW', { display: true });
+  assert.deepEqual(preview.rows.map((row) => row.cells.map((cell) => cell.value)),
+    [['Operating income', '($12,050)', '(16.0%)'], ['Rent', '-', '-']]);
+  assert.equal(JSON.stringify(sheet).includes('displayRows'), false, 'display text stays out of the sheet data');
+
+  // Shares and their CSV downloads carry the stored numbers, never display text.
+  const shared = buildSharePreview({ path: 'Budget.xlsx', content }, anchor, {});
+  assert.deepEqual(shared.rows[0].cells.map((cell) => cell.value), ['Operating income', '-12050', '-16.0%']);
+  const full = buildFullShareDocument({ path: 'Budget.xlsx', content });
+  assert.deepEqual(full.sheets[0].rows[1], ['Operating income', '-12050', '-16.0%']);
 });

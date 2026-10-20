@@ -309,7 +309,8 @@ export function renderInspectorPanel(resolved, reference, preview) {
       ? `<div class="preview-scroll source-document-text">${escapeHtml(preview.lines.map((line) => line.value).join('\n'))}</div>`
       : `<div class="preview-scroll"><div class="source-lines">${preview.lines.map((line) => `<div class="source-line ${line.cited ? 'cited' : ''}"><span class="line-number">${line.lineNumber}</span><span class="line-content">${escapeHtml(line.value) || '&nbsp;'}</span></div>`).join('')}</div></div>`;
   }
-  const localPayload = JSON.stringify({ referenceId: reference ?? null, absolutePath: source.absolutePath ?? null }).replace(/</g, '\\u003c');
+  const localPayload = JSON.stringify({ referenceId: reference ?? null, absolutePath: source.absolutePath ?? null,
+    openAt: preview?.openAt ?? null }).replace(/</g, '\\u003c');
 
   return page(`${source.label} · source`, `
     <section class="inspector-shell" aria-label="Source inspector">

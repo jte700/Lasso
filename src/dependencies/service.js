@@ -3809,7 +3809,11 @@ export class PredictiveProvenanceService {
         selectedRow = layout.rows.findIndex((row) => String(row[0] ?? '') === String(source.anchor?.rowKey ?? ''));
       }
       const isIndexedSheet = !source.anchor?.sheet || table.name === source.anchor.sheet;
-      const rows = layout.rows.slice(0, 5000);
+      // Show numbers as the sheet does ($129,950); rows were matched on stored values above.
+      const rows = layout.rows.slice(0, 5000).map((row, index) => {
+        const shown = table.displayRows?.[layout.headerRowIndex + 1 + index];
+        return shown?.length ? row.map((cell, column) => shown[column] ?? cell) : row;
+      });
       return {
         ...base,
         kind: 'table',

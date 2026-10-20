@@ -1128,6 +1128,115 @@ do {
                             userInfo: [NSLocalizedDescriptionKey: "Cannot connect to Lasso."])
     check(WorkspaceAPI.errorMessage(data: nil, response: nil, error: transport)
           == "Cannot connect to Lasso.", "connection failures retain their explanation")
+    let removal = WorkspaceAPI.removeDirectoriesBody(["finance", "legal"])
+    check(removal["projectIds"] as? [String] == ["finance", "legal"],
+          "a bulk removal sends every selected directory id in one request")
+}
+
+print("selecting several directories before removing them")
+do {
+    let order = ["finance", "accountant", "residential", "commercial", "legal"]
+    let empty = DirectorySelection()
+    let one = empty.toggling("accountant", in: order)
+    check(one.ids == ["accountant"] && empty.ids.isEmpty,
+          "toggling selects a directory and leaves the previous selection unchanged")
+    check(one.toggling("accountant", in: order).ids.isEmpty, "toggling a selected directory deselects it")
+    let range = one.toggling("commercial", in: order, extendingRange: true)
+    check(range.ids == ["accountant", "residential", "commercial"],
+          "shift-clicking selects every directory between the last choice and this one")
+    let upward = DirectorySelection().toggling("residential", in: order)
+        .toggling("finance", in: order, extendingRange: true)
+    check(upward.ids == ["finance", "accountant", "residential"], "a range can extend upward too")
+    let all = empty.selectingAll(order)
+    check(all.ids == Set(order) && all.containsAll(order), "Select All chooses every directory")
+    check(!one.containsAll(order) && !empty.containsAll([]), "a partial or empty list is not fully selected")
+    check(all.pruned(to: ["legal", "finance"]).ids == ["legal", "finance"],
+          "directories that disappear are dropped from the selection")
+    check(all.ordered(order) == order, "a removal lists directories in the order they appear")
+    check(WorkspaceAPI.removalCommandTitle(count: 0) == "Remove Selected Directories",
+          "the remove command reads plainly before anything is selected")
+    check(WorkspaceAPI.removalCommandTitle(count: 1) == "Remove 1 Directory\u{2026}"
+          && WorkspaceAPI.removalCommandTitle(count: 3) == "Remove 3 Directories\u{2026}",
+          "the remove command counts the selection")
+    let single = WorkspaceAPI.removalConfirmation(names: ["Finance"])
+    check(single.message == "Remove \u{201C}Finance\u{201D} from Lasso?"
+          && single.details.contains("The folder and its files will remain on your Mac"),
+          "removing one directory names it and says its files stay")
+    let many = WorkspaceAPI.removalConfirmation(names: ["A", "B", "C", "D", "E", "F", "G"])
+    check(many.message == "Remove 7 directories from Lasso?"
+          && many.details.contains("A, B, C, D, E and 2 more")
+          && many.details.contains("The folders and their files will remain on your Mac"),
+          "removing several directories names the first few and counts the rest")
+    check(WorkspaceAPI.removalConfirmation(names: ["A", "B"]).details.contains("A and B"),
+          "two directories are named together")
+    let folders = [(name: "Notes", path: "/Work/Notes"), (name: "Notes", path: "/Home/Notes"),
+                   (name: "Legal", path: "/Work/Legal")]
+    check(WorkspaceAPI.distinctNames(folders) == ["/Work/Notes", "/Home/Notes", "Legal"],
+          "folders sharing a name are told apart by their path, as in the list")
+}
+
+print("spreadsheet previews in the suggestion card read like the sheet")
+do {
+    func row(_ number: Int, _ values: [String], cited: Int? = nil) -> AssistPreviewRow {
+        AssistPreviewRow(rowNumber: number, cells: values.enumerated().map {
+            AssistPreviewCell(value: $0.element, cited: $0.offset == cited)
+        })
+    }
+    // Six points per character keeps the expectations independent of fonts.
+    let measure: (String, NSFont) -> CGFloat = { text, _ in CGFloat(text.count) * 6 }
+    let size = CGSize(width: 358, height: 233)
+    let headers = ["Account", "Actual", "Budget", "Actual - budget", "Variance %", "Department"]
+    let note = "Positive expense variance = over budget. Blue values = inputs. Green = worksheet links."
+    let rows = [
+        row(19, ["Total operating expenses", "$129,950", "$129,900", "$50", "0.04%", "Finance"]),
+        row(20, ["Operating income", "$63,050", "$75,100", "($12,050)", "(16.0%)", "Finance"]),
+        row(24, ["Sources and assumptions", "", "", "", "", ""]),
+        row(25, ["Fictional test data generated for Lasso.", "", "", "", "", ""]),
+        row(27, [note, "", "", "", "", ""], cited: 0),
+    ]
+    let layout = AssistTableLayout(headers: headers, rows: rows, size: size, measure: measure)
+    check(layout.rowRange == 0..<5, "the table above a cited footnote is shown, not only the notes")
+    check(layout.visibleColumns == [0, 1, 2, 3], "as many columns are shown as fit at a readable width")
+    check(abs(layout.columnWidths.reduce(0, +) - (size.width - AssistTableLayout.rowHeaderWidth)) < 0.5,
+          "the columns fill the table")
+    check(layout.columnWidths[0] > layout.columnWidths[1], "the label column is wider than the number columns")
+    let footnote = layout.cells(in: rows[4])
+    check(footnote.count == 1 && footnote[0].span == layout.visibleColumns.count,
+          "a note overflows across the empty cells to its right, as it does in the sheet")
+    check(layout.rowHeights[4] > layout.rowHeight, "a cited note too long for one line wraps instead of being cut off")
+    check(layout.rowHeights[0] == layout.rowHeight, "other rows keep one line")
+    let numbers = layout.cells(in: rows[1])
+    check(numbers.count == 4 && numbers[0].alignment == .left && numbers[1].alignment == .right
+          && numbers[3].alignment == .right, "labels align left and numbers align right")
+    check(layout.numericColumns == [1, 2, 3], "number columns are recognised, including ($12,050)")
+    check(AssistTableLayout.isNumeric("1.23E+04") && AssistTableLayout.isNumeric("-")
+          && !AssistTableLayout.isNumeric("E12") && !AssistTableLayout.isNumeric("Room E2"),
+          "scientific numbers align right but codes such as E12 stay text")
+    check(AssistTableLayout.letterFont.pointSize >= 10, "column letters meet the 10 point text minimum")
+    check(!layout.startsAfterGap(rows, at: 1) && layout.startsAfterGap(rows, at: 2),
+          "skipped empty rows between 20 and 24 are marked")
+    let mixed = layout.cells(in: row(30, ["Rent", "", "$18,000", "", "", ""]))
+    check(mixed.map(\.span) == [1, 1, 1, 1], "a short label does not claim its empty neighbours")
+
+    let wideHeaders = (0..<10).map { "H\($0)" }
+    let wide = AssistTableLayout(headers: wideHeaders, rows: [row(5, (0..<10).map { "\($0 * 1000)" }, cited: 8)],
+                                 size: size, measure: measure)
+    check(wide.visibleColumns.first == 0 && wide.visibleColumns.contains(8),
+          "a cited cell far to the right is shown beside the label column")
+    check(wide.visibleColumns == wide.visibleColumns.sorted(), "columns stay in sheet order")
+
+    let short = AssistTableLayout(headers: ["Item", "Cost"], rows: [row(2, ["Rent", "18,000"])],
+                                  size: size, measure: measure)
+    let long = AssistTableLayout(headers: ["Item", "Actual amount recorded for the current reporting period"],
+                                 rows: [row(2, ["Rent", "18,000"])], size: size, measure: measure)
+    check(short.headerHeight < long.headerHeight, "the header grows only when headings wrap")
+
+    let tall = (1...20).map { row($0, ["Line \($0)", "\($0)"], cited: $0 == 20 ? 0 : nil) }
+    let tallLayout = AssistTableLayout(headers: ["Item", "Value"], rows: tall, size: size, measure: measure)
+    check(tallLayout.rowRange.upperBound == 20 && tallLayout.rowRange.count > 3,
+          "a cited last row is shown with as many rows above it as fit")
+    let used = tallLayout.headerHeight + tallLayout.rowHeights.reduce(0, +)
+    check(used <= size.height && used + tallLayout.rowHeight > size.height, "rows fill the available height")
 }
 
 print("directory colors follow accepted source references")
@@ -1430,6 +1539,22 @@ do {
     let wrappedPage = AssistPDFPageImage.render(data: wrappedData as Data, preview: wrapped)!
     check(wrappedPage.pageNumber == 2 && wrappedPage.highlighted,
           "finds and highlights normalized PDF excerpts across line wraps on later pages")
+    let pageBox = CGRect(x: 0, y: 0, width: 612, height: 792)
+    let line = CGRect(x: 50, y: 700, width: 180, height: 14)
+    let focus = AssistPDFPageImage.focusRegion(around: line, page: pageBox, aspect: 1440.0 / 888.0)
+    check(focus.map { $0.contains(line) && pageBox.contains($0) && $0.width < pageBox.width } == true,
+          "a short cited passage is shown zoomed in, inside the page, so it can be read")
+    let focusRatio: CGFloat = focus.map { $0.width / $0.height } ?? 0
+    let previewRatio: CGFloat = 1440.0 / 888.0
+    check(abs(focusRatio - previewRatio) < 0.01, "the zoomed area keeps the preview's proportions")
+    check(AssistPDFPageImage.focusRegion(around: CGRect(x: 40, y: 40, width: 530, height: 700),
+                                         page: pageBox, aspect: 1.6) == nil,
+          "a citation covering most of the page shows the whole page")
+    check(wrappedPage.focus != nil && wrappedPage.image.size.width > 0,
+          "a rendered PDF excerpt is zoomed to its highlight")
+    let wholePage = AssistPDFPageImage.render(data: wrappedData as Data,
+        preview: AssistPDFPreview(json: ["kind": "pdf", "fileUrl": pdf.fileUrl, "page": 1])!)!
+    check(wholePage.focus == nil && !wholePage.highlighted, "a page without a cited passage is shown whole")
 }
 
 print("")
@@ -1814,6 +1939,137 @@ do {
     check(changed.contains("Version 7") && changed.contains("10 sources before, 12 now")
           && changed.contains("1 claim needs review"), "a new reading reports its version, counts and review")
     check(!changed.contains("\u{2014}"), "the report contains no em dashes")
+}
+
+// ── Opening a source where it is cited ─────────────────────────────────────
+do {
+    print("\nOpening a source at its cited cell, page or line")
+    let workbook = URL(fileURLWithPath: "/Users/me/Software Tests/Finance/Finance-Planning.xlsx")
+    let csv = URL(fileURLWithPath: "/Users/me/Software Tests/Finance/Budget-vs-Actual.csv")
+    let pdf = URL(fileURLWithPath: "/Users/me/Software Tests/Legal/Orchard-Services-Agreement.pdf")
+    let markdown = URL(fileURLWithPath: "/Users/me/Software Tests/Finance/Finance-Brief.md")
+    let memo = URL(fileURLWithPath: "/Users/me/Software Tests/Legal/Memo.docx")
+    let cell = AssistOpenTarget(sheet: "Budget vs Actual", cell: "C27")
+
+    let payload: [String: Any] = [
+        "path": "Finance-Planning.xlsx",
+        "source": ["filename": "Finance-Planning.xlsx", "location": "Budget vs Actual!C25"],
+        "preview": ["columns": ["C"], "rows": [["rowNumber": 27, "cells": [["value": "14,000", "cited": true]]]],
+                    "location": "Budget vs Actual · C27",
+                    "openAt": ["sheet": "Budget vs Actual", "cell": "C27"]],
+    ]
+    let parsed = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: payload))!
+    check(parsed.openTarget == cell, "the card keeps the server's physical cell (C27), not the compacted source location")
+    check(AssistOpenTarget(json: ["cell": "C0"]) == nil && AssistOpenTarget(json: ["cell": "27C"]) == nil
+          && AssistOpenTarget(json: ["cell": "C27; quit"]) == nil && AssistOpenTarget(json: ["page": 0]) == nil
+          && AssistOpenTarget(json: ["page": "3"]) == nil && AssistOpenTarget(json: ["page": true]) == nil
+          && AssistOpenTarget(json: ["line": -1]) == nil && AssistOpenTarget(json: "C27") == nil,
+          "malformed cells, pages and lines name no place to open")
+    check(AssistOpenTarget(json: ["sheet": "Bad\u{0007}Sheet", "cell": "B3"]) == AssistOpenTarget(cell: "B3"),
+          "a sheet name with control characters is dropped, keeping its cell")
+
+    // A PDF card opens at the page it rendered, which can follow the cited
+    // text to a later page than the indexed one.
+    var shownPDF = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: [
+        "path": "Plan.pdf", "source": ["filename": "Plan.pdf"],
+        "preview": ["kind": "pdf", "fileUrl": "/api/source", "pageNumber": 2, "openAt": ["page": 2]]]))!
+    check(shownPDF.openTargetAsShown == AssistOpenTarget(page: 2), "a PDF card opens at its indexed page before rendering")
+    shownPDF.pdfPage = AssistPDFPageImage(image: NSImage(size: NSSize(width: 4, height: 4)), pageNumber: 4, highlighted: true)
+    check(shownPDF.openTargetAsShown == AssistOpenTarget(page: 4), "a PDF card opens at the page it shows")
+
+    func plan(_ url: URL, _ target: AssistOpenTarget?, _ app: String?) -> AssistOpenPlan {
+        AssistOpenPlanner.plan(fileURL: url, target: target, appBundleID: app)
+    }
+    check(plan(workbook, cell, "com.microsoft.Excel")
+          == .script(.excel, arguments: ["Finance-Planning.xlsx", "Budget vs Actual", "C27"]),
+          "Excel selects the cited cell on its worksheet")
+    check(plan(csv, AssistOpenTarget(cell: "B3"), "com.microsoft.Excel")
+          == .script(.excel, arguments: ["Budget-vs-Actual.csv", "", "B3"]),
+          "a CSV in Excel selects its cell on the only sheet")
+    check(plan(csv, AssistOpenTarget(cell: "B3"), "com.apple.iWork.Numbers")
+          == .script(.numbers, arguments: ["Budget-vs-Actual.csv", "Budget-vs-Actual", "", "B3"]),
+          "Numbers selects the cell in the document it imported")
+    check(plan(pdf, AssistOpenTarget(page: 3), "com.apple.Preview") == .previewPage(3),
+          "Preview goes to the cited page")
+    check(plan(pdf, AssistOpenTarget(page: 3), "com.adobe.Acrobat.Pro")
+          == .script(.acrobat, arguments: ["Orchard-Services-Agreement.pdf", "3"])
+          && plan(pdf, AssistOpenTarget(page: 3), "com.adobe.Reader")
+          == .script(.adobeReader, arguments: ["Orchard-Services-Agreement.pdf", "3"]),
+          "Acrobat and Acrobat Reader go to the cited page")
+    check(plan(memo, AssistOpenTarget(line: 2, text: "Payment is due within 30 days."), "com.microsoft.Word")
+          == .script(.word, arguments: ["Memo.docx", "Payment is due within 30 days.", "1"]),
+          "Word finds the cited words")
+    check(plan(memo, AssistOpenTarget(line: 5, text: "Fees", occurrence: 2), "com.microsoft.Word")
+          == .script(.word, arguments: ["Memo.docx", "Fees", "2"])
+          && AssistOpenTarget(json: ["text": "Fees", "occurrence": 2])?.occurrence == 2
+          && AssistOpenTarget(json: ["text": "Fees", "occurrence": 0])?.occurrence == nil,
+          "Word skips earlier matches of repeated words, such as a contents entry")
+    check(AssistOpenPlanner.wordFindText("Cost ^ ratio\tnet\nsecond line") == "Cost ^^ ratio^tnet",
+          "Word's search codes are escaped and only the first line is searched")
+    let long = String(repeating: "budget ", count: 80)
+    let found = AssistOpenPlanner.wordFindText(long)!
+    check(found.count <= 255 && found.hasPrefix("budget budget") && !found.hasSuffix(" "),
+          "a long passage is shortened at a word to Word's 255-character search limit")
+    check(plan(markdown, AssistOpenTarget(line: 3), "com.microsoft.VSCode")
+          == .url(URL(string: "vscode://file/Users/me/Software%20Tests/Finance/Finance-Brief.md:3")!),
+          "VS Code opens text at the cited line")
+    check(plan(csv, AssistOpenTarget(cell: "B12", line: 13), "com.microsoft.VSCode")
+          == .url(URL(string: "vscode://file/Users/me/Software%20Tests/Finance/Budget-vs-Actual.csv:13")!)
+          && plan(csv, AssistOpenTarget(cell: "B12"), "com.microsoft.VSCode") == .plain,
+          "a CSV record opens at its text line, which a quoted field can push past its row number")
+    if case .url(let url) = plan(markdown, AssistOpenTarget(line: 3), "com.barebones.bbedit") {
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        check(url.scheme == "x-bbedit" && items.first { $0.name == "line" }?.value == "3"
+              && items.first { $0.name == "url" }?.value == markdown.absoluteString,
+              "BBEdit opens text at the cited line")
+    } else {
+        check(false, "BBEdit opens text at the cited line")
+    }
+    check(plan(workbook, cell, nil) == .plain && plan(workbook, nil, "com.microsoft.Excel") == .plain
+          && plan(pdf, AssistOpenTarget(page: 3), "com.microsoft.Excel") == .plain
+          && plan(markdown, AssistOpenTarget(line: 3), "com.apple.TextEdit") == .plain
+          && plan(memo, AssistOpenTarget(line: 2), "com.microsoft.Word") == .plain,
+          "apps without a way to the cited place, or with nothing to find, open the file plainly")
+    check(AssistOpenScript.allCases.allSatisfy { $0.source.contains("on run argv") },
+          "every script reads its file, sheet, cell or words as arguments, never spliced into its source")
+    check(AssistOpenScript.allCases.allSatisfy { $0.source.contains("tell application id \"\($0.appBundleID)\"") }
+          && AssistOpenScript.numbers.appBundleID == "com.apple.iWork.Numbers"
+          && AssistOpenScript.adobeReader.appBundleID == "com.adobe.Reader",
+          "each script addresses the app whose launch the opener waits for")
+    check(AssistOpenScript.allCases.allSatisfy { $0.source.contains("-1743") },
+          "every script stops waiting as soon as macOS refuses it permission")
+    // A script compiles against its app's own dictionary, where a variable
+    // named like one of the app's terms (Excel's `code`) breaks all of it.
+    for script in AssistOpenScript.allCases {
+        var error: NSDictionary?
+        let compiled = NSAppleScript(source: script.source)?.compileAndReturnError(&error) ?? false
+        let appMissing = (error?[NSAppleScript.errorNumber] as? Int) == -1728
+        check(compiled || appMissing, "the \(script.rawValue) script compiles wherever its app is installed")
+    }
+    let refusal = "execution error: Microsoft Excel got an error: Can\u{2019}t get worksheet \"Q3 Salaries\". (-1728)"
+    check(AssistOpenScript.excel.failureSummary(errorOutput: refusal) == "excel (error -1728)"
+          && AssistOpenScript.word.failureSummary(errorOutput: "") == "word",
+          "a failed jump is logged by app and error number, never with file or sheet names")
+
+    var steps: [String] = []
+    let actions = AssistOpenActions(
+        openFile: { steps.append("file:\($0.lastPathComponent)"); return true },
+        openURL: { steps.append("url:\($0.scheme ?? "")"); return false },
+        runScript: { script, _ in steps.append("script:\(script.rawValue)") },
+        goToPreviewPage: { page, _ in steps.append("page:\(page)") })
+    check(AssistSourceOpening.perform(.script(.excel, arguments: []), fileURL: workbook, actions: actions)
+          && steps == ["file:Finance-Planning.xlsx", "script:excel"],
+          "the file opens before its app is asked to move, so a refused jump still opens it")
+    steps = []
+    check(AssistSourceOpening.perform(.url(URL(string: "vscode://file/x:3")!), fileURL: markdown, actions: actions)
+          && steps == ["url:vscode", "file:Finance-Brief.md"],
+          "an editor link that cannot open falls back to opening the file")
+    steps = []
+    var refusing = actions
+    refusing.openFile = { steps.append("file:\($0.lastPathComponent)"); return false }
+    check(!AssistSourceOpening.perform(.previewPage(3), fileURL: pdf, actions: refusing)
+          && steps == ["file:Orchard-Services-Agreement.pdf"],
+          "a file macOS cannot open reports failure and starts no jump")
 }
 
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")

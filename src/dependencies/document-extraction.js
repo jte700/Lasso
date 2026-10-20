@@ -1,7 +1,7 @@
 import { inflateRawSync, inflateSync } from 'node:zlib';
 import path from 'node:path';
 import { extractDrawingDocument } from './drawing-extraction.js';
-import { builtInNumberFormat, formatSpreadsheetNumber } from './spreadsheet-number-format.js';
+import { builtInNumberFormat, displaySpreadsheetNumber, formatSpreadsheetNumber } from './spreadsheet-number-format.js';
 
 const MAX_PDF_METADATA_BYTES = 32_000_000;
 const MAX_PDF_BODY_BYTES = 3_000_000;
@@ -653,11 +653,25 @@ function spreadsheetNumberFormats(stylesXml = '', workbookXml = '') {
   return { styles, date1904 };
 }
 
-function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null, formats = null) {
+/** How the sheet shows a number or boolean cell, when that differs from its value. */
+function spreadsheetCellDisplay(type, raw, format, formats, value) {
+  if (type === 'b') return raw.trim() === '1' ? 'TRUE' : raw.trim() === '0' ? 'FALSE' : null;
+  if ((type && type !== 'n') || !formats) return null;
+  const shown = displaySpreadsheetNumber(raw, format);
+  return shown != null && shown !== value ? shown : null;
+}
+
+/**
+ * Reads a worksheet's non-empty rows. `displayRows`, when given, receives the
+ * text each number cell shows in the sheet (such as $129,950) for previews;
+ * the returned values stay the stored numbers that Lasso indexes and inserts.
+ */
+function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null, formats = null, displayRows = null) {
   const rows = [];
   let fallbackRow = 1;
   for (const rowElement of spreadsheetElements(source, 'row')) {
     const row = [];
+    const shownRow = [];
     const rowNumber = Number(spreadsheetAttribute(rowElement.attributes, 'r') || fallbackRow);
     fallbackRow = rowNumber + 1;
     let fallbackColumn = 0;
@@ -665,20 +679,24 @@ function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null, for
       const reference = spreadsheetAttribute(cell.attributes, 'r');
       const column = reference ? spreadsheetColumnIndex(reference) : fallbackColumn;
       const type = spreadsheetAttribute(cell.attributes, 't');
-      const raw = spreadsheetElements(cell.content, 'v')[0]?.content ?? '';
+      const raw = decodeXml(spreadsheetElements(cell.content, 'v')[0]?.content ?? '');
       const inline = spreadsheetElements(cell.content, 't').map(part => decodeXml(part.content)).join('');
       const numeric = !type || type === 'n';
-      const formatted = numeric && formats
-        ? formatSpreadsheetNumber(decodeXml(raw), formats.styles[Number(spreadsheetAttribute(cell.attributes, 's') || 0)], formats)
-        : null;
+      const format = formats?.styles[Number(spreadsheetAttribute(cell.attributes, 's') || 0)] ?? null;
+      const formatted = numeric && formats ? formatSpreadsheetNumber(raw, format, formats) : null;
       const value = type === 's' && raw.trim() ? sharedStrings[Number(raw)] ?? raw
-        : type === 'inlineStr' || inline ? inline : formatted ?? decodeXml(raw);
+        : type === 'inlineStr' || inline ? inline : formatted ?? raw;
       row[column] = cleanText(value, 2_000);
+      if (displayRows && !inline) {
+        const shown = spreadsheetCellDisplay(type, raw, format, formats, row[column]);
+        if (shown != null) shownRow[column] = shown;
+      }
       fallbackColumn = column + 1;
     }
     if (row.some((value) => String(value ?? '').trim())) {
       rowNumbers?.push(rowNumber);
       rows.push(row);
+      displayRows?.push(shownRow);
     }
   }
   return rows;
@@ -950,7 +968,8 @@ function spreadsheetSheet(buffer, descriptor, shared, relationships, formats) {
   const source = zipEntry(buffer, descriptor.entry)?.toString('utf8');
   if (!source) return null;
   const rowNumbers = [];
-  const rows = spreadsheetRows(source, shared, rowNumbers, formats);
+  const displayRows = [];
+  const rows = spreadsheetRows(source, shared, rowNumbers, formats, displayRows);
   const merges = spreadsheetElements(source, 'mergeCell')
     .map(({ attributes }) => spreadsheetRange(attribute(attributes, 'ref'))).filter(Boolean);
   const directory = path.posix.dirname(descriptor.entry);
@@ -965,7 +984,9 @@ function spreadsheetSheet(buffer, descriptor, shared, relationships, formats) {
     if (!range) return [];
     return [{...range, headerRowCount:Number(attribute(tag, 'headerRowCount') || 1), headers:spreadsheetElements(xml, 'tableColumn').map(c => attribute(c.attributes, 'name'))}];
   });
-  return rows.length ? { name:descriptor.name, rows, rowNumbers, merges, tables } : null;
+  if (!rows.length) return null;
+  // Presentation only, like `skipped`: kept out of the sheet's data and JSON.
+  return Object.defineProperty({ name:descriptor.name, rows, rowNumbers, merges, tables }, 'displayRows', { value: displayRows });
 }
 
 export function extractSpreadsheetTables(buffer) {

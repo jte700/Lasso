@@ -306,8 +306,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var workspaceGeneration = 0
     private var workspaceTimer: Timer?
     private var assistPermissionTimer: Timer?
-    /// Folders show red remove badges until Done, Escape or the panel closes.
+    /// Folders show selection circles until Cancel, Escape, a removal or the
+    /// panel closes. Chosen folders are removed together in one step.
     private var isRemovingDirectories = false
+    private var removalSelection = DirectorySelection()
     private var assistActivation = AssistActivation(
         requested: UserDefaults.standard.bool(forKey: "AssistEnabled"))
     private lazy var settings: SettingsWindowController = {
@@ -520,11 +522,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusMenu.addItem(command("Add Work Directories…", action: #selector(addDirectories),
                                    enabled: isServerReady && busyMessage == nil))
         if directories.isEmpty { isRemovingDirectories = false }
-        if !directories.isEmpty {
-            let remove = command(isRemovingDirectories ? "Done" : "Remove Work Directory",
-                                 action: #selector(toggleRemovingDirectories))
-            remove.toolTip = isRemovingDirectories ? nil
-                : "Click a red badge to remove that folder from Lasso. The folder and its files are not changed."
+        if !directories.isEmpty && isRemovingDirectories {
+            addRemovalCommands()
+        } else if !directories.isEmpty {
+            let remove = command("Remove Work Directories\u{2026}", action: #selector(toggleRemovingDirectories))
+            remove.toolTip = "Choose one or more folders to remove from Lasso. The folders and their files are not changed."
             statusMenu.addItem(remove)
         }
         if directories.isEmpty {
@@ -540,9 +542,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                   count: directories.count)
             statusMenu.addItem(heading)
             if !directoryListCollapsed || isRemovingDirectories {
-                for directory in directories {
-                    let duplicateName = directories.filter { $0.name == directory.name }.count > 1
-                    let title = duplicateName ? directory.rootPath : directory.name
+                let titles = WorkspaceAPI.distinctNames(directories.map { (name: $0.name, path: $0.rootPath) })
+                for (directory, title) in zip(directories, titles) {
                     let note = !directory.available ? " (unavailable)"
                         : directory.needsAttention ? " (needs attention)" : ""
                     let item = command(title + note, action: #selector(toggleDirectory(_:)),
@@ -553,11 +554,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         : directory.active ? "On: suggestions include this folder." : "Off: this folder is paused."
                     item.toolTip = [directory.rootPath, directory.error, usage].compactMap { $0 }.joined(separator: "\n")
                     item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+                    let id = directory.id
                     let row = NativeMenuToggleRow(item: item, color: toggleColor(for: directory.id),
-                                                  removing: isRemovingDirectories) { [weak self] color in
+                                                  selecting: isRemovingDirectories,
+                                                  selected: removalSelection.ids.contains(id)) { [weak self] color in
                         self?.setToggleColor(color, for: directory.id)
                     }
-                    let id = directory.id
+                    row.onSelect = { [weak self] extend in self?.toggleRemovalSelection(id, extendingRange: extend) }
                     row.onReveal = { [weak self] in self?.revealDirectory(id) }
                     row.onRemove = { [weak self] in
                         let remove = NSMenuItem()
@@ -752,6 +755,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func applyWorkspace(_ state: [String: Any]) {
         directories = (state["directories"] as? [[String: Any]] ?? []).compactMap(WorkDirectory.init)
+        removalSelection = removalSelection.pruned(to: directories.map(\.id))
         if let revision = state["revision"] as? String {
             workspaceRevision = revision
         } else if let revision = state["revision"] as? NSNumber {
@@ -808,7 +812,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard isServerReady, busyMessage == nil else { return }
         let panel = NSOpenPanel()
         panel.title = "Add Work Directories"
-        panel.message = "Select one or more directories. Lasso uses every checked directory for suggestions."
+        panel.message = "Choose the folders Lasso should use. Command-click to select several, or Shift-click to select a range."
         panel.prompt = "Add Directories"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -838,19 +842,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// is kept, so adding the same folder again restores it.
     @objc private func removeDirectory(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String,
-              let directory = directories.first(where: { $0.id == id }),
-              confirmRemoval(of: directory) else { return }
+              let index = directories.firstIndex(where: { $0.id == id }) else { return }
+        let directory = directories[index]
+        let name = WorkspaceAPI.distinctNames(directories.map { (name: $0.name, path: $0.rootPath) })[index]
+        guard confirmRemoval(of: [name]) else { return }
         mutateWorkspace(path: "api/workspace/directories/" + id, method: "DELETE",
                         message: "Removing \(directory.name)…")
     }
 
-    /// Asks before removing. The menu stays open behind the alert so
-    /// several folders can be removed in one pass.
-    private func confirmRemoval(of directory: WorkDirectory) -> Bool {
+    /// Selection mode puts its commands where "Remove Work Directories…" was,
+    /// above the list, so they stay in view while the list scrolls.
+    private func addRemovalCommands() {
+        let order = directories.map(\.id)
+        let count = removalSelection.ordered(order).count
+        let ready = isServerReady && busyMessage == nil
+        let remove = command(WorkspaceAPI.removalCommandTitle(count: count),
+                             action: #selector(removeSelectedDirectories), enabled: ready && count > 0)
+        remove.toolTip = count == 0 ? "Click folders below to select them. Shift-click selects a range."
+            : "The folders and their files are not changed."
+        statusMenu.addItem(remove)
+        let everySelected = removalSelection.containsAll(order)
+        statusMenu.addItem(command(everySelected ? "Deselect All" : "Select All",
+                                   action: #selector(toggleSelectAllForRemoval)))
+        statusMenu.addItem(command("Cancel", action: #selector(toggleRemovingDirectories)))
+    }
+
+    private func toggleRemovalSelection(_ id: String, extendingRange: Bool) {
+        guard isRemovingDirectories else { return }
+        removalSelection = removalSelection.toggling(id, in: directories.map(\.id), extendingRange: extendingRange)
+        rebuildMenu()
+    }
+
+    @objc private func toggleSelectAllForRemoval() {
+        let order = directories.map(\.id)
+        removalSelection = removalSelection.containsAll(order) ? DirectorySelection() : removalSelection.selectingAll(order)
+        rebuildMenu()
+    }
+
+    /// Removes every selected folder in one request, after one confirmation.
+    @objc private func removeSelectedDirectories() {
+        let ids = removalSelection.ordered(directories.map(\.id))
+        let shown = Dictionary(uniqueKeysWithValues: zip(directories.map(\.id),
+            WorkspaceAPI.distinctNames(directories.map { (name: $0.name, path: $0.rootPath) })))
+        let names = ids.compactMap { shown[$0] }
+        guard !ids.isEmpty, isServerReady, busyMessage == nil, confirmRemoval(of: names) else { return }
+        isRemovingDirectories = false
+        removalSelection = DirectorySelection()
+        mutateWorkspace(path: "api/workspace/directories", method: "DELETE",
+                        body: WorkspaceAPI.removeDirectoriesBody(ids),
+                        message: ids.count == 1 ? "Removing \(names[0])…" : "Removing \(ids.count) directories…")
+    }
+
+    /// Asks before removing. The panel stays open behind the alert.
+    private func confirmRemoval(of names: [String]) -> Bool {
+        let text = WorkspaceAPI.removalConfirmation(names: names)
         let alert = NSAlert()
-        alert.messageText = "Remove \u{201C}\(directory.name)\u{201D} from Lasso?"
-        alert.informativeText = "Lasso will stop indexing this directory and will no longer suggest its contents. "
-            + "The folder and its files will remain on your Mac, and you can add it again at any time."
+        alert.messageText = text.message
+        alert.informativeText = text.details
         alert.alertStyle = .warning
         let remove = alert.addButton(withTitle: "Remove")
         remove.hasDestructiveAction = true
@@ -866,13 +914,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleRemovingDirectories() {
         isRemovingDirectories.toggle()
+        removalSelection = DirectorySelection()
         rebuildMenu()
     }
 
-    /// Leaves remove mode. Returns false when it was not on.
+    /// Leaves selection mode. Returns false when it was not on.
     private func endRemovingDirectories() -> Bool {
         guard isRemovingDirectories else { return false }
         isRemovingDirectories = false
+        removalSelection = DirectorySelection()
         rebuildMenu()
         return true
     }
