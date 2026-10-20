@@ -43,7 +43,7 @@ function drawingCompletionHarness(text, fragment, candidate, claimDetails = {}) 
     document: { path: 'Draft.md', projectId: 'one' }, activeBlock: block,
   } };
   const links = [], history = [], caret = [], errors = [];
-  const context = appHandlers(['predictForBlock', 'predictionEdit', 'acceptPrediction'], {
+  const context = appHandlers(['predictForBlock', 'predictionEdit', 'acceptPrediction', 'namesWholeFile'], {
     state, AUTOMATIC_SUGGESTION_LIMIT: 40,
     document: { querySelectorAll() { return [block]; } },
     api: async () => ({ prediction: { claims: [claim] } }),
@@ -77,6 +77,19 @@ test('Tab replaces a partial drawing keyword even when it matches inside the sou
   assert.equal(h.links[0][1].id, 'drawing');
   assert.deepEqual(h.history, [['prediction', true]]);
   assert.deepEqual(h.caret, [h.block.textContent.length]);
+  assert.deepEqual(h.errors, []);
+});
+
+test('Tab completes any named file, not only drawings, to the name the server offers', async () => {
+  const h = drawingCompletionHarness('I checked the General-Ledger.cs', 'General-Ledger.cs', {
+    id: 'ledger', objectType: 'DATASET', label: 'General-Ledger.csv', path: 'Finance/General-Ledger.csv', fileReference: true,
+  });
+  await h.context.predictForBlock(h.block);
+  assert.equal(h.state.editor.prediction.mode, 'COMPLETE_AND_LINK');
+  await h.context.acceptPrediction();
+  assert.equal(h.block.textContent, 'I checked the General-Ledger.csv');
+  assert.equal(h.links[0][0].start, 'I checked the '.length);
+  assert.equal(h.links[0][1].id, 'ledger');
   assert.deepEqual(h.errors, []);
 });
 

@@ -492,7 +492,13 @@ export class WorkspaceService {
       || projectsById.has(this.dependencies.sourceProjectId(prediction.sourceContext.source)));
     const scoped = availablePredictions.filter(({ prediction }) => prediction.sourceContext?.source
       && (!linkedContext || prediction.sourceContext.source.id === linkedContext.source.id));
-    const pool = scoped.length ? scoped : availablePredictions;
+    // A file spelled as written ("General-Ledger.cs") is the source being
+    // chosen, even after a source linked from another directory. Other
+    // directories' guesses about the same words do not outrank it.
+    const naming = availablePredictions.filter(({ prediction }) => prediction.claims?.some((claim) => claim.asWritten
+      && claim.candidates?.some((candidate) => candidate.fileReference)
+      && (!linkedContext || claim.start >= linkedContext.anchor.end)));
+    const pool = naming.length ? naming : scoped.length ? scoped : availablePredictions;
     const limit = 12;
     const slots = [];
     for (const { project, prediction } of pool) {
@@ -515,8 +521,17 @@ export class WorkspaceService {
     // being named. A claim in the clause being written wins over earlier ones.
     const clauseStart = currentClauseStart(input.text, cursor);
     const writingClaim = slots.some((slot) => slot.group === 'claim' && slot.claim.end > clauseStart);
-    const current = writingClaim
+    const inClause = writingClaim
       ? slots.filter((slot) => slot.group !== 'claim' || slot.claim.end > clauseStart) : slots;
+    // Directories may match different suffixes of the same phrase ("net inc"
+    // and "inc", "bracket length" and "length"). The longer match is the one
+    // the writer is typing, so the shorter gives up its slots before ranking;
+    // otherwise its higher scores could crowd the longer match out entirely.
+    const variables = inClause.filter((slot) => slot.group === 'claim' && slot.claim.type === 'STUDY_VARIABLE')
+      .map((slot) => slot.claim);
+    const nested = (claim) => claim.type === 'STUDY_VARIABLE' && variables.some((other) => other !== claim
+      && other.start <= claim.start && other.end >= claim.end && other.end - other.start > claim.end - claim.start);
+    const current = inClause.filter((slot) => slot.group !== 'claim' || !nested(slot.claim));
     const selected = distinctRanked(current, limit);
     const claims = new Map();
     for (const item of selected.filter((s) => s.group === 'claim')) {
@@ -524,14 +539,6 @@ export class WorkspaceService {
       if (!claims.has(key)) claims.set(key, { ...item.claim, candidates: [] });
       const { group, claim, ...candidate } = item;
       claims.get(key).candidates.push(candidate);
-    }
-    // Directories may match different suffixes of the same phrase ("net inc"
-    // and "inc"). The longer match is the one the writer is typing.
-    for (const [key, claim] of claims) {
-      if (claim.type !== 'STUDY_VARIABLE') continue;
-      const nested = [...claims.values()].some((other) => other !== claim && other.type === 'STUDY_VARIABLE'
-        && other.start <= claim.start && other.end >= claim.end && other.end - other.start > claim.end - claim.start);
-      if (nested) claims.delete(key);
     }
     const strip = ({ group, claim, ...value }) => value;
     const context = pool.find(({ prediction }) => prediction.sourceContext?.source) ?? pool[0];

@@ -23,6 +23,7 @@ import { storedFields } from '../history/object-versions.js';
 import { extractDrawingDocument } from './drawing-extraction.js';
 import { buildModelPreview } from './model-preview.js';
 import { drawingDiscovery, drawingReferenceMatch } from './drawing-discovery.js';
+import { fileReferenceMatch, isWholeFile, typedAsWritten } from './file-reference.js';
 
 const OBJECT_TYPES = new Set([
   'REFERENCE', 'PAPER', 'RESULT', 'VALUE', 'CODE', 'CODE_BLOCK', 'CODE_LINE',
@@ -151,6 +152,14 @@ const IDENTIFIER_VALUE = /^[A-Za-z]{0,6}[-_]?\d[\w-]*$/;
 function isIdentifierRow(object) {
   const header = humanVariable(object.metadata.columns?.[0] ?? '');
   return IDENTIFIER_HEADER.test(header) || IDENTIFIER_VALUE.test(String(object.metadata.row ?? object.label).trim());
+}
+
+// "bracket length": a measured part's name leads the words and the rest begin
+// words of one of its measurements, so other models' lengths do not qualify.
+function namesMeasuredPart(object, queryWords) {
+  const part = variableTokens(humanVariable(object.metadata?.entityName ?? ''));
+  if (!part.length || queryWords.length <= part.length || part.some((word, index) => queryWords[index] !== word)) return false;
+  return queryWords.slice(part.length).every((word) => object.variableWords.some((candidate) => candidate.startsWith(word)));
 }
 
 function progressiveVariableFragments(text, cursor) {
@@ -2284,13 +2293,14 @@ export class PredictiveProvenanceService {
           .slice(index).join('').startsWith(normalizedQuery)) ? 1 : 0;
         const tokenPrefix = queryWords.length && queryWords.every((word) => object.variableWords
           .some((candidateWord) => candidateWord === word || candidateWord.startsWith(word))) ? 1 : 0;
+        const partMeasurement = !exact && !prefix && !contains && namesMeasuredPart(object, queryWords) ? 1 : 0;
         const variableObject = object.objectType === 'VARIABLE' ? 1 : 0;
         const rowObject = object.objectType === 'DATASET_ROW' && !object.namedRow ? 1 : 0;
         // Named rows rank below variables and line items that match as well.
         const namedRow = object.namedRow ? 1 : 0;
         const dictionary = object.metadata.dictionary ? 1 : 0;
         const dataPath = /(^|\/)(?:data|datasets?|results?|outputs?|tables?|metabolomics)(\/|$)/i.test(object.path) ? 1 : 0;
-        const base = exact ? 0.91 : prefix ? 0.82 : contains ? 0.74 : tokenPrefix ? 0.68 : 0;
+        const base = exact ? 0.91 : prefix ? 0.82 : contains ? 0.74 : partMeasurement ? 0.72 : tokenPrefix ? 0.68 : 0;
         const profileQuality = object.metadata.range ? 0.025
           : object.metadata.samples?.length ? 0.012 : object.metadata.dictionary ? 0.01 : -0.015;
         const score = Math.min(0.99, base + variableObject * 0.04 + rowObject * 0.065
@@ -2351,22 +2361,24 @@ export class PredictiveProvenanceService {
     return context.projectIntent ? { fragment: null, candidates: [], context } : null;
   }
 
-  drawingReference(projectId, input, cursor) {
+  /** A whole file (drawing, dataset or worksheet, document, PDF) the words at
+   * the cursor name. Its label is the text Tab inserts in place of them. */
+  fileReference(projectId, input, cursor) {
     const fragments = progressiveVariableFragments(input.text, cursor);
     if (!fragments.length) return null;
     const permitted = this.autocompleteFilter(projectId);
-    const drawings = this.objectsAt(projectId, null, ['DRAWING'])
-      .filter(object => object.path !== input.documentPath && permitted(object));
+    const files = this.objectsAt(projectId, null, ['DRAWING', 'DATASET', 'DOCUMENT', 'PAPER'])
+      .filter(object => isWholeFile(object) && object.path !== input.documentPath && permitted(object));
     for (const fragment of fragments) {
-      const candidates = drawings.flatMap(object => {
-        const match = drawingReferenceMatch(object, fragment.text);
+      const candidates = files.flatMap(object => {
+        const match = fileReferenceMatch(object, fragment.text);
         return match ? [this.enrichObject(projectId, {
-          ...object, label: match.label, score: match.score,
-          matchTier: 0, reasons: ['Matching drawing reference'],
+          ...object, label: match.label, score: match.score, matchTier: 0, fileReference: true,
+          reasons: [object.objectType === 'DRAWING' ? 'Matching drawing reference' : 'Matching file name'],
         })] : [];
-      });
+      }).sort((left, right) => right.score - left.score);
       if (candidates.length) return { ...fragment, type: 'ENTITY', partial: true,
-        value: fragment.text, candidates };
+        value: fragment.text, candidates, asWritten: typedAsWritten(fragment.text) };
     }
     return null;
   }
@@ -2720,8 +2732,8 @@ export class PredictiveProvenanceService {
     const subjectStart = dependency.anchor.end + joiner.index + joiner[0].length;
     const fresh = this.progressiveStudyVariable(projectId, input, cursor);
     if (fresh?.fragment && fresh.candidates.length && fresh.fragment.start >= subjectStart) return true;
-    const drawing = this.drawingReference(projectId, input, cursor);
-    return Boolean(drawing && drawing.start >= subjectStart);
+    const file = this.fileReference(projectId, input, cursor);
+    return Boolean(file && file.start >= subjectStart);
   }
 
   linkedPaperContext(projectId, input, cursor) {
@@ -3057,6 +3069,30 @@ export class PredictiveProvenanceService {
     return prediction;
   }
 
+  /** The whole file the words at the cursor name, once other readings of the
+   * same words have had their say. */
+  namedFile(projectId, input, cursor, text) {
+    const named = this.fileReference(projectId, input, cursor);
+    if (!named) return null;
+    // A citation being written ("from the document placental trans") is the
+    // literature path's: it matches documents and papers by title and inserts
+    // citation text. Datasets and drawings remain named files.
+    const citing = detectClaimSpans(text).some((claim) => claim.type === 'LITERATURE'
+      && claim.value != null && claim.end > named.start);
+    let candidates = citing ? named.candidates.filter((candidate) => !['DOCUMENT', 'PAPER'].includes(candidate.objectType))
+      : named.candidates;
+    // Plain words may be a variable's name ("systolic blood pressure"); one
+    // matched on as many words wins over any file but a drawing.
+    if (!named.asWritten && candidates.some((candidate) => candidate.objectType !== 'DRAWING')) {
+      const variable = this.progressiveStudyVariable(projectId, input, cursor);
+      if (variable?.fragment && variable.candidates.length
+        && variable.fragment.end - variable.fragment.start >= named.end - named.start) {
+        candidates = candidates.filter((candidate) => candidate.objectType === 'DRAWING');
+      }
+    }
+    return candidates.length ? { ...named, candidates } : null;
+  }
+
   predictionCandidates(projectId, input) {
     const text = String(input.text ?? '');
     const cursor = Number.isInteger(input.cursor) ? input.cursor : text.length;
@@ -3064,9 +3100,9 @@ export class PredictiveProvenanceService {
     // source was linked. It must not depend on scientific-writing intent.
     // The name just accepted ("The Bracket ") is not a new reference to it.
     const linkedDependency = this.linkedDependencyContext(projectId, input, cursor);
-    const drawing = this.drawingReference(projectId, input, cursor);
-    if (drawing && !(linkedDependency && drawing.end <= linkedDependency.anchor.end)) return {
-      claims: [drawing], completion: null, sourceCompletions: [], workspaceCompletions: [],
+    const file = this.namedFile(projectId, input, cursor, text);
+    if (file && !(linkedDependency && file.end <= linkedDependency.anchor.end)) return {
+      claims: [file], completion: null, sourceCompletions: [], workspaceCompletions: [],
       sourceContext: null, deterministic: true, generatedText: false,
     };
     const linkedPaper = this.findingsFromLinkedPaper(projectId, input, cursor, linkedDependency);

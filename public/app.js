@@ -1328,8 +1328,9 @@ async function predictForBlock(block) {
         && claim.candidates.some((candidate) => candidate.completionText);
       const completesReferenceComponent = ['TABLE_REFERENCE', 'FIGURE'].includes(claim.type) && claim.partial
         && claim.candidates.some((candidate) => candidate.componentText);
+      // Any whole file named while typing: drawings, datasets, documents and PDFs.
       const completesDrawingReference = claim.type === 'ENTITY' && claim.partial
-        && claim.candidates.some((candidate) => candidate.objectType === 'DRAWING' && candidate.label);
+        && claim.candidates.some((candidate) => namesWholeFile(candidate) && candidate.label);
       state.editor.prediction = {
         mode: completesCitation || completesStudyVariable || completesReferenceComponent || completesDrawingReference
           ? 'COMPLETE_AND_LINK' : 'LINK',
@@ -1373,6 +1374,11 @@ function placeCaretAtEnd(node) {
   selection.addRange(range);
 }
 
+// A whole file named while typing; the server's label is the text to insert.
+function namesWholeFile(candidate) {
+  return Boolean(candidate?.fileReference || candidate?.objectType === 'DRAWING');
+}
+
 function predictionEdit(prediction, candidate, selectedIndex = 0) {
   const completion = prediction?.completion;
   if (!completion) return null;
@@ -1411,7 +1417,7 @@ function predictionEdit(prediction, candidate, selectedIndex = 0) {
     const before = completion.requestedText.slice(0, prediction.claim.start);
     const rawReplacement = completion.kind === 'CITATION' ? candidate?.citationText
       : completion.kind === 'REFERENCE_COMPONENT' ? candidate?.componentText
-        : completion.kind === 'DRAWING_REFERENCE' ? candidate?.objectType === 'DRAWING' ? candidate.label : null
+        : completion.kind === 'DRAWING_REFERENCE' ? namesWholeFile(candidate) ? candidate.label : null
           : candidate?.completionText;
     const replacement = contextualCompletionCase(
       rawReplacement,
