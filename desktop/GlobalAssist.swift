@@ -174,55 +174,8 @@ struct CaretContext {
     let diagnosis: String
 }
 
-enum AssistLog {
-    private static let url = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Logs/Lasso/assist.log")
-    /// Off unless the user turns on Tools → Troubleshooting → Record Typing
-    /// Log (`defaults write com.jte700.lasso AssistDebug -bool true`). Entries
-    /// describe apps, roles and lengths, never what was typed or inserted.
-    static var enabled = UserDefaults.standard.object(forKey: "AssistDebug") as? Bool ?? false {
-        didSet { UserDefaults.standard.set(enabled, forKey: "AssistDebug") }
-    }
-    private static let queue = DispatchQueue(label: "lasso.assist-log", qos: .utility)
-    private static let formatter = ISO8601DateFormatter()
-    private static var bytesWritten: UInt64?
-    private static let maximumBytes: UInt64 = 1_048_576
-
-    /// `force` writes one report the user asked for, such as a text support
-    /// check, without turning on logging for everything typed afterwards.
-    static func write(_ line: String, force: Bool = false) {
-        guard enabled || force else { return }
-        let timestamp = Date()
-        queue.async { append(line, at: timestamp) }
-    }
-
-    private static func append(_ line: String, at timestamp: Date) {
-        let stamp = formatter.string(from: timestamp)
-        let entry = "[\(stamp)] \(line)\n"
-        if bytesWritten == nil {
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            bytesWritten = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.uint64Value ?? 0
-        }
-        let data = Data(entry.utf8)
-        if (bytesWritten ?? 0) + UInt64(data.count) > maximumBytes {
-            let previous = url.appendingPathExtension("1")
-            try? FileManager.default.removeItem(at: previous)
-            try? FileManager.default.moveItem(at: url, to: previous)
-            bytesWritten = 0
-        }
-        if let handle = try? FileHandle(forWritingTo: url) {
-            handle.seekToEndOfFile()
-            handle.write(data)
-            try? handle.close()
-        } else {
-            try? entry.write(to: url, atomically: true, encoding: .utf8)
-        }
-        bytesWritten = (bytesWritten ?? 0) + UInt64(data.count)
-    }
-}
-
-/// Reads run on `AccessibilityWork.queue`, except the one-off checks made while
-/// inserting an accepted suggestion, which still run on the main thread.
+/// Reads and writes run on `AccessibilityWork.queue`, including those made
+/// while inserting an accepted suggestion.
 enum AccessibilityReader {
     private static let excludedRoles: Set<String> = ["AXSecureTextField"]
     private static let maxContext = 1200
@@ -241,9 +194,7 @@ enum AccessibilityReader {
             let application = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(application, 0.4)
             // Electron and Chromium publish their tree only once a client asks.
-            if let mode = HostAccessibilityMode.shared.prime(pid: pid, application: application) {
-                AssistLog.write("\(front.localizedName ?? "?"): \(mode)")
-            }
+            _ = HostAccessibilityMode.shared.prime(pid: pid, application: application)
             if let focused = attribute(application, kAXFocusedUIElementAttribute as String),
                CFGetTypeID(focused) == AXUIElementGetTypeID() {
                 return (focused as! AXUIElement, pid)
@@ -262,7 +213,6 @@ enum AccessibilityReader {
 
     static func focusedContext(allowSelection: Bool = false) -> CaretContext? {
         guard let (field, pid) = focusedElement() else {
-            AssistLog.write("no focused element")
             return nil
         }
         AXUIElementSetMessagingTimeout(field, 0.4)
@@ -271,7 +221,6 @@ enum AccessibilityReader {
         let app = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "?"
         let subrole = attribute(field, kAXSubroleAttribute as String) as? String
         if excludedRoles.contains(role) || HostTextSafety.isSecure(role: role, subrole: subrole) {
-            AssistLog.write("\(app): secure field, skipped")
             return nil
         }
 
@@ -328,7 +277,6 @@ enum AccessibilityReader {
         // offsets, so edits there fall back to synthesized keys.
         var rect = caret >= 0 ? caretRect(for: field, caret: caret, selection: selection) : nil
         var addressable = caret >= 0 && window != nil
-        var route = rect == nil ? "range?" : "range"
 
         // Markers answer for web content, and often give a caret rectangle even
         // where the character-range path already produced text. Text is only
@@ -339,32 +287,17 @@ enum AccessibilityReader {
                     window = markerText
                     windowStart = reading.textWindowStart ?? -1
                     addressable = false
-                    route = "marker"
                 }
-                if rect == nil, let markerRect = reading.caretRect {
-                    rect = markerRect
-                    route = route.hasPrefix("range") ? "range+markerRect" : route
-                }
+                if rect == nil, let markerRect = reading.caretRect { rect = markerRect }
             }
         }
         // Measure the text, then settle for the field's own frame.
         if rect == nil, caret >= 0, let frame = fieldFrame(field) {
-            if let measured = measuredCaretRect(field, caret: caret, field: frame) {
-                rect = measured
-                route += "+measured"
-            } else {
-                rect = frame
-                route += "+fieldFrame"
-            }
+            rect = measuredCaretRect(field, caret: caret, field: frame) ?? frame
         }
 
-        guard let text = window else {
-            AssistLog.write("\(app) role=\(role) caret=\(caret): no readable text")
-            describeUnreadable(field, app: app, role: role)
-            return nil
-        }
+        guard let text = window else { return nil }
 
-        AssistLog.write("\(app) role=\(role) via=\(route) caret=\(caret) chars=\(text.count) rect=\(rect.map { "\(Int($0.origin.x)),\(Int($0.origin.y))" } ?? "none")")
         let textLength = Array(text.utf16).count
         return CaretContext(text: text, cursor: textLength,
                             windowStart: windowStart,
@@ -427,40 +360,6 @@ enum AccessibilityReader {
         guard width.isFinite, width >= 0 else { return nil }
         return CGRect(x: min(field.minX + width, field.maxX - 1), y: field.minY,
                       width: 1, height: field.height)
-    }
-
-    /// Logged once per app+role: exactly which attributes the focused element
-    /// offers. This is what turns "it does not work here" into a fix.
-    private static var described = Set<String>()
-    private static let describedLock = NSLock()
-    private static func describeUnreadable(_ element: AXUIElement, app: String, role: String) {
-        let key = "\(app)/\(role)"
-        describedLock.lock()
-        let first = described.insert(key).inserted
-        describedLock.unlock()
-        guard first else { return }
-
-        var names: CFArray?
-        var parameterized: CFArray?
-        AXUIElementCopyAttributeNames(element, &names)
-        AXUIElementCopyParameterizedAttributeNames(element, &parameterized)
-        let attributes = (names as? [String] ?? []).sorted()
-        let parameters = (parameterized as? [String] ?? []).sorted()
-        AssistLog.write("  attributes[\(key)]: \(attributes.joined(separator: ", "))")
-        AssistLog.write("  parameterized[\(key)]: \(parameters.joined(separator: ", "))")
-
-        // Walk up a little: the readable node is often an ancestor.
-        var current = element
-        for depth in 1...4 {
-            guard let parent = attribute(current, kAXParentAttribute as String),
-                  CFGetTypeID(parent) == AXUIElementGetTypeID() else { break }
-            current = parent as! AXUIElement
-            let parentRole = attribute(current, kAXRoleAttribute as String) as? String ?? "?"
-            var parentNames: CFArray?
-            AXUIElementCopyAttributeNames(current, &parentNames)
-            let hasValue = (parentNames as? [String] ?? []).contains(kAXValueAttribute as String)
-            AssistLog.write("  ancestor[\(depth)] role=\(parentRole) hasAXValue=\(hasValue)")
-        }
     }
 
     /// Caret rectangle alone, without pulling any text. Cheap enough to run on
@@ -542,6 +441,7 @@ enum AccessibilityReader {
         return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
     }
 
+    /// Accessibility queue only, where `completion` is called too.
     static func replace(length: Int, at caret: Int, with text: String, in element: AXUIElement,
                         expected: CaretContext, expectedPrefix: String,
                         completion: ((Bool) -> Void)? = nil) {
@@ -571,18 +471,13 @@ enum AccessibilityReader {
         }
 
         // Let the application apply the change before judging it.
-        DispatchQueue.main.asyncAfter(deadline: .now() + (wroteText ? 0.12 : 0.05)) {
+        AccessibilityWork.queue.asyncAfter(deadline: .now() + (wroteText ? 0.12 : 0.05)) {
             if wroteText, landed(text, in: element) {
                 IgnoredTextWrites.forget(bundle)
-                AssistLog.write("insert: accessibility write landed")
                 completion?(true)
                 return
             }
-            if wroteText {
-                IgnoredTextWrites.remember(bundle)
-                AssistLog.write("insert: accessibility reported success but nothing changed; typing")
-            }
-            else { AssistLog.write("insert: typing (selectedRange=\(selectedRange) caret=\(caret))") }
+            if wroteText { IgnoredTextWrites.remember(bundle) }
             guard let current = focusedContext(allowSelection: true), CFEqual(current.element, element),
                   CompletionTransaction.canRetry(before: before,
                     current: CompletionSnapshot(documentStart: current.windowStart, text: Array(current.text.utf16)),
@@ -599,9 +494,8 @@ enum AccessibilityReader {
             SyntheticKeyboard.deleteBackwards(selectedRange ? 0 : expectedPrefix.count)
             SyntheticKeyboard.type(text)
             // Confirm the typed result rather than assuming it arrived.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+            AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.14) {
                 let ok = landed(text, in: element)
-                AssistLog.write("insert: typed result \(ok ? "confirmed" : "not detected")")
                 completion?(ok)
             }
         }
@@ -674,6 +568,7 @@ final class AssistBubbleContainer: NSView {
         bodyEffect.layer?.cornerRadius = content.bubbleCornerRadius
         bodyEffect.layer?.masksToBounds = true
 
+        // The card always fills the panel. Callers size the panel, never the card.
         content.frame = bounds
         content.autoresizingMask = [.width, .height]
         addSubview(content)
@@ -1525,7 +1420,6 @@ final class GlobalAssistant {
         guard !isEnabled else { return nil }
         let accessibility = AssistPermission.hasAccessibility
         let input = AssistPermission.hasInputMonitoring
-        AssistLog.write("enable requested: accessibility=\(accessibility) inputMonitoring=\(input)")
 
         if !accessibility {
             lastProblem = PermissionProblem(service: "Accessibility",
@@ -1542,12 +1436,8 @@ final class GlobalAssistant {
 
         let created = KeyEventTap(
             perform: { [weak self] action in self?.perform(action) },
-            onFirstKey: { [weak self] in self?.firstKeyArrived() },
-            onLateKey: { milliseconds in
-                AssistLog.write("keystroke reached Lasso \(Int(milliseconds)) ms after it was typed")
-            })
+            onFirstKey: { [weak self] in self?.firstKeyArrived() })
         guard created.start() else {
-            AssistLog.write("tap creation failed (accessibility=\(accessibility) inputMonitoring=\(input))")
             if !input && requestPermissions { AssistPermission.requestInputMonitoring() }
             lastProblem = PermissionProblem(service: "Input Monitoring",
                                             settingsAnchor: "Privacy_ListenEvent",
@@ -1566,12 +1456,10 @@ final class GlobalAssistant {
         isEnabled = true
         sawEvent = false
         publishKeyRouting()
-        AssistLog.write("tap created and listening")
         // If nothing arrives the tap exists but is not receiving; that is the
         // real signal that Input Monitoring is required.
         DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
             guard let self, self.isEnabled, !self.sawEvent else { return }
-            AssistLog.write("no key events after 20s — tap is not receiving input")
             self.isAwaitingInput = true
             self.onStateChange?()
         }
@@ -1595,9 +1483,7 @@ final class GlobalAssistant {
             HostAccessibilityMode.shared.restoreAll()
             restored.signal()
         }
-        if restored.wait(timeout: .now() + Self.restoreWait) == .timedOut {
-            AssistLog.write("accessibility mode: still restoring after \(Self.restoreWait)s")
-        }
+        _ = restored.wait(timeout: .now() + Self.restoreWait)
         isEnabled = false
         isAwaitingInput = false
         onStateChange?()
@@ -1647,7 +1533,6 @@ final class GlobalAssistant {
 
     private func firstKeyArrived() {
         sawEvent = true
-        AssistLog.write("first key event received")
         guard isAwaitingInput else { return }
         isAwaitingInput = false
         onStateChange?()
@@ -1686,11 +1571,9 @@ final class GlobalAssistant {
             inspector?.shareFromKeyboard()
         case .focusOut:
             linkedSources.moveOut(from: focusedSource)
-            AssistLog.write("  · fn+Left: suggestions from every directory")
             refresh()
         case .focusIn:
             linkedSources.moveIn(focusedOn: focusedSource, selected: selectedSource)
-            AssistLog.write("  · fn+Right: focused on \(linkedSources.chosen?.text ?? "nothing")")
             refresh()
         }
         publishKeyRouting()
@@ -2443,6 +2326,44 @@ final class GlobalAssistant {
         return checks
     }
 
+    /// The card fills its panel through every change of size. A brief message
+    /// or the share question in between must not leave the next suggestions
+    /// drawn shifted up and stretched past the panel's edge.
+    static func regressionCardSizing() -> [String: Bool] {
+        let assistant = shared
+        assistant.hide()
+        defer {
+            assistant.hide()
+            assistant.view.messageLines = []
+            assistant.view.confirmChoices = []
+        }
+        let panel = assistant.existingPanel()
+        var checks: [String: Bool] = [:]
+        func check(_ state: String) {
+            let content = panel.contentView?.bounds ?? .zero
+            checks["\(state): the panel is the card's size"] = content.size == assistant.view.boxSize
+            checks["\(state): the card fills the panel"] = assistant.view.frame == content
+        }
+        func present(_ mode: AssistBoxView.Mode, _ state: String) {
+            assistant.view.mode = mode
+            assistant.refreshPanelGeometry()
+            check(state)
+        }
+        present(.suggestions, "suggestions")
+        assistant.view.messageLines = ["The insertion could not be verified.", "No source reference was recorded."]
+        present(.message, "message")
+        present(.suggestions, "suggestions after a message")
+        assistant.view.confirmChoices = ["Plain text", "Share link…"]
+        present(.confirmShare, "share question")
+        // The caret can move while the share question gives way to an insertion.
+        panel.orderFrontRegardless()
+        assistant.view.mode = .suggestions
+        assistant.reposition(near: nil)
+        check("suggestions moved after the share question")
+        present(.suggestions, "suggestions after the share question")
+        return checks
+    }
+
     /// Captures the real panel renderer from an actual API response without
     /// moving focus, synthesizing a room, or touching the user's host document.
     static func regressionRenderPreview(data: Data, pdfData: Data? = nil, to output: URL) -> Bool {
@@ -2625,7 +2546,6 @@ final class GlobalAssistant {
 
         let panel = existingPanel()
         let size = view.boxSize
-        view.frame = NSRect(origin: .zero, size: size)
         view.needsDisplay = true
         let visible = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         panel.setFrame(NSRect(x: visible.midX - size.width / 2,
@@ -2641,17 +2561,12 @@ final class GlobalAssistant {
     private func show(_ suggestions: [AssistSuggestion]) {
         feedbackDismissed = false
         guard view.mode == .suggestions else { return }
-        guard context != nil, popupHost != nil, let liveCaret = popupCaret else { hide(); return }
+        guard context != nil, popupHost != nil, popupCaret != nil else { hide(); return }
         let panel = existingPanel()
         view.suggestions = suggestions
         view.selected = min(view.selected, max(0, suggestions.count - 1))
         loadPreviewForSelection()
-        let size = view.boxSize
-        view.frame = NSRect(origin: .zero, size: size)
-        view.needsDisplay = true
-
-        let mainFrame = anchoredFrame(for: liveCaret, size: size)
-        panel.setFrame(mainFrame, display: true)
+        refreshPanelGeometry()
         panel.orderFrontRegardless()
         publishKeyRouting()
     }
@@ -2967,112 +2882,163 @@ final class GlobalAssistant {
         return String(decoding: window[start...], as: UTF16.self)
     }
 
+    /// The host is read and written on the Accessibility queue. Each step
+    /// that returns to the main thread before anything is written is dropped
+    /// if a hide or new typing happened meanwhile; once writing has started,
+    /// the insertion always finishes verifying and reports.
     private func insertPlain(_ suggestion: AssistSuggestion) {
         guard let context else { hide(); return }
-        AssistLog.write("TAB ACCEPT  \(context.diagnosis)")
 
         guard case .success(let plan) = planInsertion(for: suggestion, in: context) else {
-            AssistLog.write("  ✗ could not plan an edit — aborting")
             hide()
             flash(["Could not insert here.", "Nothing was changed."])
             return
         }
 
         // Stage A: confirm the plan is still current against a fresh read.
-        guard let fresh = AccessibilityReader.focusedContext(),
-              CFEqual(fresh.element, context.element),
+        let token = generation
+        AccessibilityWork.queue.async { [weak self] in
+            let fresh = AccessibilityReader.focusedContext()
+            DispatchQueue.main.async {
+                guard let self, token == self.generation else { return }
+                self.writePlain(suggestion, plan: plan, context: context, fresh: fresh)
+            }
+        }
+    }
+
+    /// Checks the fresh read against the planned context, then writes.
+    private func writePlain(_ suggestion: AssistSuggestion, plan: CompletionPlan,
+                            context: CaretContext, fresh: CaretContext?) {
+        guard let fresh, CFEqual(fresh.element, context.element),
               fresh.windowStart == context.windowStart, fresh.absoluteCaret == context.absoluteCaret,
               CompletionTransaction.equivalentHostText(Array(fresh.text.utf16), Array(context.text.utf16)) else {
-            AssistLog.write("  ✗ focus moved before insertion — aborting")
             hide()
             return
         }
         let before = Array(fresh.text.utf16)
         let beforeSnapshot = CompletionSnapshot(documentStart: fresh.windowStart,
                                                 text: before)
-        if let failure = CompletionTransaction.validate(plan, against: before, caret: before.count) {
-            AssistLog.write("  ✗ plan is stale (\(failure.rawValue)) — aborting, nothing changed")
+        if CompletionTransaction.validate(plan, against: before, caret: before.count) != nil {
             hide()
             return
         }
-        AssistLog.write("  ✓ plan: replace \(plan.range.count) char(s) with \(plan.insertText.count) char(s)")
 
         hide()
-        AccessibilityReader.replace(length: plan.range.count, at: context.absoluteCaret,
-                                    with: plan.insertText, in: context.element, expected: fresh, expectedPrefix: plan.expectedPrefix) { [weak self] applied in
-            guard let self else { return }
-            self.completeInsertion(suggestion, plan: plan, before: beforeSnapshot,
-                                   element: context.element, applied: applied)
+        let element = context.element
+        AccessibilityWork.queue.async { [weak self] in
+            AccessibilityReader.replace(length: plan.range.count, at: context.absoluteCaret,
+                                        with: plan.insertText, in: element, expected: fresh,
+                                        expectedPrefix: plan.expectedPrefix) { applied in
+                // Something may have been written, so this reports even if a
+                // hide or new typing happened meanwhile.
+                let check = Self.checkInsertion(plan: plan, before: beforeSnapshot, element: element, applied: applied)
+                DispatchQueue.main.async {
+                    self?.reportInsertion(check, plan: plan, suggestion: suggestion, element: element)
+                }
+            }
         }
     }
 
-    /// Stages A→B. Reads the host back, proves only the intended interval
-    /// changed, and only then records a dependency.
-    private func completeInsertion(_ suggestion: AssistSuggestion, plan: CompletionPlan,
-                                   before: CompletionSnapshot, element: AXUIElement, applied: Bool) {
-        guard applied else {
-            AssistLog.write("  ✗ insertion verification failed — aborting reference creation")
-            flash(["The insertion could not be verified.", "No source reference was recorded."])
-            return
-        }
+    /// What reading the host back after an insertion found.
+    private enum InsertionCheck {
+        case notApplied
+        case hostLost
+        case failed(CompletionFailure)
+        case verified(VerifiedCompletion, after: CaretContext)
+    }
 
-        guard let after = AccessibilityReader.focusedContext(), after.element == element else {
-            AssistLog.write("  ✗ host lost after insertion — no reference created")
-            flash(["Text inserted, but its source could not be anchored here."])
-            return
-        }
-        let afterUnits = Array(after.text.utf16)
-        let afterSnapshot = CompletionSnapshot(documentStart: after.windowStart, text: afterUnits)
+    /// Stages A→B, on the Accessibility queue. Reads the host back and proves
+    /// only the intended interval changed.
+    private static func checkInsertion(plan: CompletionPlan, before: CompletionSnapshot,
+                                       element: AXUIElement, applied: Bool) -> InsertionCheck {
+        guard applied else { return .notApplied }
+        guard let after = AccessibilityReader.focusedContext(), after.element == element else { return .hostLost }
+        let afterSnapshot = CompletionSnapshot(documentStart: after.windowStart, text: Array(after.text.utf16))
         switch CompletionTransaction.verify(before: before, after: afterSnapshot, plan: plan) {
-        case .failure(let failure):
-            AssistLog.write("  ✗ insertion verification failed (\(failure.rawValue)) — no reference created")
+        case .failure(let failure): return .failed(failure)
+        case .success(let verified): return .verified(verified, after: after)
+        }
+    }
+
+    /// Records a dependency only for an insertion proved by `checkInsertion`.
+    private func reportInsertion(_ check: InsertionCheck, plan: CompletionPlan,
+                                 suggestion: AssistSuggestion, element: AXUIElement) {
+        switch check {
+        case .notApplied:
+            flash(["The insertion could not be verified.", "No source reference was recorded."])
+        case .hostLost:
+            flash(["Text inserted, but its source could not be anchored here."])
+        case .failed(let failure):
             if failure == .outsideRangeModified {
                 flash(["Insertion touched other text.", "No dependency was recorded."])
             }
-        case .success(let verified):
-            AssistLog.write("  ✓ insertion verified · document range \(verified.documentRange.lowerBound)..<\(verified.documentRange.upperBound)")
-            let content = plan.sourceRange ?? 0..<plan.insertText.utf16.count
-            let sourceRange = (verified.snapshotRange.lowerBound + content.lowerBound)..<(verified.snapshotRange.lowerBound + content.upperBound)
-            let sourceText = String(decoding: afterUnits[sourceRange], as: UTF16.self)
-            #if BROWSER_GEOMETRY_TEST
-            if regressionPrediction {
-                regressionAccepted = ["text": sourceText,
-                    "start": after.windowStart + sourceRange.lowerBound,
-                    "end": after.windowStart + sourceRange.upperBound,
-                    "objectId": suggestion.objectId ?? ""]
-                return
-            }
-            #endif
-            recordAcceptedUsage(suggestion)
-            // The next suggestion should offer this source's values, not the
-            // same phrase again.
-            if let objectId = suggestion.objectId, let snapshotId = suggestion.snapshotId {
-                linkedSources.record(.init(projectId: suggestion.projectId, objectId: objectId, snapshotId: snapshotId,
-                                           text: sourceText))
-                AssistLog.write("  · source context recorded")
-            }
-            // A sentence continuation carries its source object as the usage
-            // id. It is linked and highlighted like any other inserted source.
-            let continuationSource = suggestion.sentenceContinuation
-                && suggestion.usageObjectId != "completion-source" ? suggestion.usageObjectId : nil
-            guard let objectId = suggestion.objectId ?? continuationSource else {
-                AssistLog.write("  · no linkable source; nothing to record")
-                return
-            }
-            // Stage B: the reference starts from the verified range, never from
-            // a fresh search of the document.
-            DependencyHighlighter.shared.recordVerifiedInsertion(
-                objectId: objectId, versionId: suggestion.versionId,
-                projectId: suggestion.projectId,
-                label: suggestion.label, valueText: suggestion.detail,
-                sourcePath: suggestion.path, sourceLocation: suggestion.detail,
-                document: afterUnits, range: sourceRange,
-                documentOffset: after.windowStart, element: element)
+        case .verified(let verified, let after):
+            recordInsertion(verified, after: after, plan: plan, suggestion: suggestion, element: element)
         }
     }
 
+    private func recordInsertion(_ verified: VerifiedCompletion, after: CaretContext, plan: CompletionPlan,
+                                 suggestion: AssistSuggestion, element: AXUIElement) {
+        let afterUnits = Array(after.text.utf16)
+        let content = plan.sourceRange ?? 0..<plan.insertText.utf16.count
+        let sourceRange = (verified.snapshotRange.lowerBound + content.lowerBound)..<(verified.snapshotRange.lowerBound + content.upperBound)
+        let sourceText = String(decoding: afterUnits[sourceRange], as: UTF16.self)
+        #if BROWSER_GEOMETRY_TEST
+        if regressionPrediction {
+            regressionAccepted = ["text": sourceText,
+                "start": after.windowStart + sourceRange.lowerBound,
+                "end": after.windowStart + sourceRange.upperBound,
+                "objectId": suggestion.objectId ?? ""]
+            return
+        }
+        #endif
+        recordAcceptedUsage(suggestion)
+        // The next suggestion should offer this source's values, not the
+        // same phrase again.
+        if let objectId = suggestion.objectId, let snapshotId = suggestion.snapshotId {
+            linkedSources.record(.init(projectId: suggestion.projectId, objectId: objectId, snapshotId: snapshotId,
+                                       text: sourceText))
+        }
+        // A sentence continuation carries its source object as the usage
+        // id. It is linked and highlighted like any other inserted source.
+        let continuationSource = suggestion.sentenceContinuation
+            && suggestion.usageObjectId != "completion-source" ? suggestion.usageObjectId : nil
+        guard let objectId = suggestion.objectId ?? continuationSource else {
+            return
+        }
+        // Stage B: the reference starts from the verified range, never from
+        // a fresh search of the document.
+        DependencyHighlighter.shared.recordVerifiedInsertion(
+            objectId: objectId, versionId: suggestion.versionId,
+            projectId: suggestion.projectId,
+            label: suggestion.label, valueText: suggestion.detail,
+            sourcePath: suggestion.path, sourceLocation: suggestion.detail,
+            document: afterUnits, range: sourceRange,
+            documentOffset: after.windowStart, element: element)
+    }
+
+    /// A share link on its way into the host, planned against `before`.
+    private struct LinkInsertion {
+        let suggestion: AssistSuggestion
+        let plan: CompletionPlan
+        let before: CompletionSnapshot
+        let element: AXUIElement
+        let caret: Int
+        let serverURL: URL
+    }
+
+    /// How a pasted link ended. One that did not land is already revoked; one
+    /// whose text went in as plain text is already copied.
+    private enum LinkOutcome {
+        case notPasted
+        case unverified
+        case linked(InsertionCheck)
+        case plainText(InsertionCheck)
+    }
+
     /// Create the record, build the URL, insert the link, verify it landed, and
-    /// revoke the record if it did not.
+    /// revoke the record if it did not. The host is read and written on the
+    /// Accessibility queue, as for plain insertion.
     private func insertShared(_ suggestion: AssistSuggestion, configuration: ShareConfiguration,
                               context: CaretContext, serverURL: URL) {
         guard let objectId = suggestion.objectId else {
@@ -3083,86 +3049,139 @@ final class GlobalAssistant {
             flash(["Could not insert here.", "Nothing was changed."])
             return
         }
-        guard let fresh = AccessibilityReader.focusedContext(), fresh.element == context.element,
-              fresh.absoluteCaret == context.absoluteCaret, fresh.windowStart == context.windowStart,
-              CompletionTransaction.equivalentHostText(Array(fresh.text.utf16), Array(context.text.utf16)) else {
-            flash(["The insertion point changed. Choose the source again."])
-            return
-        }
-        let before = CompletionSnapshot(documentStart: fresh.windowStart, text: Array(fresh.text.utf16))
-        let element = context.element
-        let caret = context.absoluteCaret
         hide()
-        flash(["Creating share link…"])
+        let token = generation
+        AccessibilityWork.queue.async { [weak self] in
+            let fresh = AccessibilityReader.focusedContext()
+            DispatchQueue.main.async {
+                // No link exists yet, so a hide or new typing meanwhile drops it.
+                guard let self, token == self.generation else { return }
+                guard let fresh, fresh.element == context.element,
+                      fresh.absoluteCaret == context.absoluteCaret, fresh.windowStart == context.windowStart,
+                      CompletionTransaction.equivalentHostText(Array(fresh.text.utf16), Array(context.text.utf16)) else {
+                    self.flash(["The insertion point changed. Choose the source again."])
+                    return
+                }
+                let before = CompletionSnapshot(documentStart: fresh.windowStart, text: Array(fresh.text.utf16))
+                self.createShare(objectId: objectId, configuration: configuration,
+                                 for: LinkInsertion(suggestion: suggestion, plan: planned, before: before,
+                                                    element: context.element, caret: context.absoluteCaret,
+                                                    serverURL: serverURL))
+            }
+        }
+    }
 
-        ShareClient.createShare(serverURL: serverURL, projectId: suggestion.projectId,
+    private func createShare(objectId: String, configuration: ShareConfiguration, for link: LinkInsertion) {
+        flash(["Creating share link…"])
+        let suggestion = link.suggestion
+        ShareClient.createShare(serverURL: link.serverURL, projectId: suggestion.projectId,
                                 objectId: objectId, versionId: suggestion.versionId, configuration: configuration) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }
                 switch result {
-                case .failure(let error):
-                    AssistLog.write("share creation failed: \(error.localizedDescription)")
+                case .failure:
                     // No record, so nothing was inserted and nothing to clean up.
                     self.flash(["Could not create the share link.", "Nothing was inserted."])
                 case .success(let share):
-                    self.performLinkInsertion(share, plan: planned, before: before, element: element, caret: caret,
-                                              suggestion: suggestion, serverURL: serverURL)
+                    self.performLinkInsertion(share, link)
                 }
             }
         }
     }
 
-    private func performLinkInsertion(_ share: DependencyShare, plan: CompletionPlan,
-                                      before: CompletionSnapshot, element: AXUIElement, caret: Int,
-                                      suggestion: AssistSuggestion, serverURL: URL) {
-        guard let fresh = AccessibilityReader.focusedContext(), fresh.element == element,
-              fresh.absoluteCaret == caret, fresh.windowStart == before.documentStart,
-              CompletionTransaction.equivalentHostText(Array(fresh.text.utf16), before.text) else {
-            ShareClient.revokeShare(serverURL: serverURL, token: share.token)
-            flash(["The insertion point changed. Nothing was inserted."])
-            return
-        }
-        isInserting = true
-        RichTextInserter.insertLink(label: plan.insertText, url: share.url, replacing: plan.range.count,
-                                   at: caret, in: element, keyboardDeleteCount: plan.expectedPrefix.count,
-                                   validateSelection: { selected in
-            AccessibilityReader.canPaste(in: element, before: before, caret: caret,
-                                         expectedPrefix: plan.expectedPrefix, selected: selected)
-        }) { [weak self] pasted in
-            guard let self else { ShareClient.revokeShare(serverURL: serverURL, token: share.token); return }
-            guard pasted else {
-                self.isInserting = false
-                ShareClient.revokeShare(serverURL: serverURL, token: share.token)
-                self.flash(["The insertion point changed. Nothing was inserted."])
-                return
-            }
-            let fallback = RichTextInserter.plainText(label: plan.insertText, url: share.url)
-            var verifiedPlan: CompletionPlan?
-            RichTextInserter.verifyEventually(verify: {
-                guard let after = AccessibilityReader.focusedContext(), CFEqual(after.element, element) else { return false }
-                let snapshot = CompletionSnapshot(documentStart: after.windowStart, text: Array(after.text.utf16))
-                for text in [plan.insertText, fallback] {
-                    let candidate = CompletionPlan(range: plan.range, expectedPrefix: plan.expectedPrefix, insertText: text,
-                        sourceRange: text == plan.insertText ? plan.sourceRange : nil)
-                    if case .success = CompletionTransaction.verify(before: before, after: snapshot, plan: candidate),
-                       text == fallback || AccessibilityReader.hyperlinkPresent(text, url: share.url, in: after) {
-                        verifiedPlan = candidate
-                        return true
+    /// The box only shows "Creating share link…" by now, and measuring or
+    /// following that message can hide it without the user doing anything.
+    /// So the fresh read alone decides, as it did on the main thread: typing
+    /// or a move to another editor changes it, and the link is revoked.
+    private func performLinkInsertion(_ share: DependencyShare, _ link: LinkInsertion) {
+        AccessibilityWork.queue.async { [weak self] in
+            let fresh = AccessibilityReader.focusedContext()
+            DispatchQueue.main.async {
+                guard let self else { ShareClient.revokeShare(serverURL: link.serverURL, token: share.token); return }
+                guard let fresh, fresh.element == link.element,
+                      fresh.absoluteCaret == link.caret, fresh.windowStart == link.before.documentStart,
+                      CompletionTransaction.equivalentHostText(Array(fresh.text.utf16), link.before.text) else {
+                    ShareClient.revokeShare(serverURL: link.serverURL, token: share.token)
+                    self.flash(["The insertion point changed. Nothing was inserted."])
+                    return
+                }
+                self.isInserting = true
+                AccessibilityWork.queue.async { [weak self] in
+                    Self.pasteLink(share, link) { outcome in
+                        // Writing has started, so this always reports.
+                        DispatchQueue.main.async { self?.finishLinkInsertion(outcome, share: share, link: link) }
                     }
                 }
-                return false
-            }) { verified in
-                self.isInserting = false
-                if verified, let verifiedPlan {
-                    self.completeInsertion(suggestion, plan: verifiedPlan, before: before, element: element, applied: true)
-                    let local = ["localhost", "127.0.0.1", "::1", "[::1]"].contains(share.url.host ?? "")
-                    self.flash([verifiedPlan.insertText == fallback ? "Link inserted as text" : "Hyperlink inserted",
-                                local ? "Available only on this Mac" : "Source access is set by your sharing choice"])
-                } else {
-                    ShareClient.revokeShare(serverURL: serverURL, token: share.token)
-                    self.flash(["The link could not be verified.", "Its access link was revoked."])
+            }
+        }
+    }
+
+    /// Accessibility queue. Pastes the link, then reads the host back until it
+    /// shows the link or the attempts run out. A link that did not land is
+    /// revoked here, and one whose text went in as plain text is copied;
+    /// `completion` runs on the queue too.
+    private static func pasteLink(_ share: DependencyShare, _ link: LinkInsertion,
+                                  completion: @escaping (LinkOutcome) -> Void) {
+        let plan = link.plan
+        RichTextInserter.insertLink(label: plan.insertText, url: share.url, replacing: plan.range.count,
+                                   at: link.caret, in: link.element, keyboardDeleteCount: plan.expectedPrefix.count,
+                                   validateSelection: { selected in
+            AccessibilityReader.canPaste(in: link.element, before: link.before, caret: link.caret,
+                                         expectedPrefix: plan.expectedPrefix, selected: selected)
+        }) { pasted in
+            guard pasted else {
+                ShareClient.revokeShare(serverURL: link.serverURL, token: share.token)
+                completion(.notPasted)
+                return
+            }
+            var landing: RichTextInserter.LinkLanding?
+            RichTextInserter.verifyEventually(verify: {
+                guard let after = AccessibilityReader.focusedContext(), CFEqual(after.element, link.element) else {
+                    landing = nil
+                    return false
+                }
+                let snapshot = CompletionSnapshot(documentStart: after.windowStart, text: Array(after.text.utf16))
+                landing = RichTextInserter.landing(of: plan, before: link.before, after: snapshot) { label in
+                    AccessibilityReader.hyperlinkPresent(label, url: share.url, in: after)
+                }
+                // A rich editor can show the text before its link, so only
+                // the link ends the wait early.
+                return landing == .linked
+            }) { _ in
+                switch landing {
+                case .linked?:
+                    completion(.linked(checkInsertion(plan: plan, before: link.before,
+                                                      element: link.element, applied: true)))
+                case .plainText?:
+                    RichTextInserter.copyLink(share.url)
+                    completion(.plainText(checkInsertion(plan: plan, before: link.before,
+                                                         element: link.element, applied: true)))
+                case nil:
+                    ShareClient.revokeShare(serverURL: link.serverURL, token: share.token)
+                    completion(.unverified)
                 }
             }
+        }
+    }
+
+    private func finishLinkInsertion(_ outcome: LinkOutcome, share: DependencyShare, link: LinkInsertion) {
+        isInserting = false
+        switch outcome {
+        case .notPasted:
+            flash(["The insertion point changed. Nothing was inserted."])
+        case .unverified:
+            flash(["The link could not be verified.", "Its access link was revoked."])
+        case .linked(let check):
+            reportInsertion(check, plan: link.plan, suggestion: link.suggestion, element: link.element)
+            let local = ["localhost", "127.0.0.1", "::1", "[::1]"].contains(share.url.host ?? "")
+            flash(["Hyperlink inserted",
+                   local ? "Available only on this Mac" : "Source access is set by your sharing choice"])
+        case .plainText(let check):
+            reportInsertion(check, plan: link.plan, suggestion: link.suggestion, element: link.element)
+            var pid: pid_t = 0
+            AXUIElementGetPid(link.element, &pid)
+            let app = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "This app"
+            flash(["\(app) can\u{2019}t hold a link here.", "Link copied."])
         }
     }
 
@@ -3200,12 +3219,13 @@ final class GlobalAssistant {
         publishKeyRouting()
     }
 
+    /// Only the panel is sized; the card follows it. Sizing the card as well
+    /// applied every change twice: a message was left blank and the next
+    /// suggestions came back shifted up and stretched past the panel's edge.
     private func refreshPanelGeometry() {
         let panel = existingPanel()
-        let size = view.boxSize
-        view.frame = NSRect(origin: .zero, size: size)
         view.needsDisplay = true
-        let mainFrame = anchoredFrame(for: popupCaret ?? context?.caretRect, size: size)
+        let mainFrame = anchoredFrame(for: popupCaret ?? context?.caretRect, size: view.boxSize)
         panel.setFrame(mainFrame, display: true)
     }
 

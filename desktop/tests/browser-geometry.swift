@@ -44,6 +44,8 @@ enum BrowserGeometryRegression {
                 } else if request["command"] as? String == "suggestion-navigation" {
                     response["checks"] = GlobalAssistant.regressionSuggestionNavigation(
                         outputPath: request["output"] as? String)
+                } else if request["command"] as? String == "card-sizing" {
+                    response["checks"] = GlobalAssistant.regressionCardSizing()
                 } else if request["command"] as? String == "share-preview-fit" {
                     response["checks"] = ShareComposerView.runPreviewFitRegression(
                         screenshotPath: request["output"] as? String)
@@ -299,30 +301,38 @@ enum BrowserGeometryRegression {
         let before = CompletionSnapshot(documentStart: captured.windowStart, text: Array(captured.text.utf16))
         var result: Bool?
         var verification = "Paste did not complete"
-        RichTextInserter.insertLink(label: label, url: url, replacing: plan.range.count,
-            at: request["keyboardFallback"] as? Bool == true ? -1 : captured.absoluteCaret,
-            in: captured.element, keyboardDeleteCount: plan.expectedPrefix.count,
-            validateSelection: { selected in
-                AccessibilityReader.canPaste(in: captured.element, before: before, caret: captured.absoluteCaret,
-                                             expectedPrefix: plan.expectedPrefix, selected: selected)
-            }) { pasted in
-                guard pasted else { result = false; return }
-                RichTextInserter.verifyEventually(verify: {
-                    guard let after = AccessibilityReader.focusedContext(), CFEqual(after.element, captured.element) else {
-                        verification = "Focused editor changed"; return false
-                    }
-                    let transaction = CompletionTransaction.verify(before: before,
-                            after: CompletionSnapshot(documentStart: after.windowStart, text: Array(after.text.utf16)),
-                            plan: plan)
-                    verification = String(describing: transaction)
-                    guard case .success = transaction else { return false }
-                    let linked = AccessibilityReader.hyperlinkPresent(label, url: url, in: after)
-                    if !linked {
-                        verification = "Link attributes unavailable: \(String(describing: WebTextReader.attributedTextBeforeCaret(expectedText: label, from: after.element)))"
-                    }
-                    return linked
-                }) { result = $0 }
-            }
+        // Inserting runs on the Accessibility queue, as in the app. Its
+        // results are handed back to this thread, which waits for them.
+        func finish(_ inserted: Bool, _ detail: String) {
+            DispatchQueue.main.async { result = inserted; verification = detail }
+        }
+        AccessibilityWork.queue.async {
+            var detail = "Paste did not complete"
+            RichTextInserter.insertLink(label: label, url: url, replacing: plan.range.count,
+                at: request["keyboardFallback"] as? Bool == true ? -1 : captured.absoluteCaret,
+                in: captured.element, keyboardDeleteCount: plan.expectedPrefix.count,
+                validateSelection: { selected in
+                    AccessibilityReader.canPaste(in: captured.element, before: before, caret: captured.absoluteCaret,
+                                                 expectedPrefix: plan.expectedPrefix, selected: selected)
+                }) { pasted in
+                    guard pasted else { finish(false, detail); return }
+                    RichTextInserter.verifyEventually(verify: {
+                        guard let after = AccessibilityReader.focusedContext(), CFEqual(after.element, captured.element) else {
+                            detail = "Focused editor changed"; return false
+                        }
+                        let transaction = CompletionTransaction.verify(before: before,
+                                after: CompletionSnapshot(documentStart: after.windowStart, text: Array(after.text.utf16)),
+                                plan: plan)
+                        detail = String(describing: transaction)
+                        guard case .success = transaction else { return false }
+                        let linked = AccessibilityReader.hyperlinkPresent(label, url: url, in: after)
+                        if !linked {
+                            detail = "Link attributes unavailable: \(String(describing: WebTextReader.attributedTextBeforeCaret(expectedText: label, from: after.element)))"
+                        }
+                        return linked
+                    }) { finish($0, detail) }
+                }
+        }
         let deadline = Date().addingTimeInterval(4)
         while result == nil, Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.025)) }
         return ["inserted": result ?? false, "prefix": plan.expectedPrefix,

@@ -3,7 +3,8 @@
 //  Sharing is deliberately ordered: create the record, build the URL, insert the
 //  link, verify the insertion, and revoke the record if the insertion did not
 //  land. The application never claims something is shared when the target
-//  document only received plain text.
+//  document only received plain text: there the text goes in as Tab would put
+//  it, and the link is copied instead.
 
 import Cocoa
 import ApplicationServices
@@ -62,11 +63,16 @@ enum ShareClient {
 /// Rich-text insertion for applications that accept pasted HTML, which is how
 /// Gmail's compose field receives a hyperlink. Isolated here so no other layer
 /// depends on clipboard behaviour.
+///
+/// Inserting reads and writes the host, so it runs on `AccessibilityWork.queue`
+/// and calls back there, like the clipboard it borrows.
 enum RichTextInserter {
     private typealias ClipboardItems = [[NSPasteboard.PasteboardType: Data]]
+    /// Touched on `AccessibilityWork.queue` only.
     private static var borrowed: [NSPasteboard.Name: (items: ClipboardItems, changeCount: Int)] = [:]
 
     /// Insertion is a paste, so the clipboard is borrowed and put back.
+    /// Accessibility queue only.
     static func withBorrowedPasteboard(_ pasteboard: NSPasteboard = .general, _ body: () -> Void) {
         // Consecutive insertions share the original clipboard until it is
         // restored or the user copies something else.
@@ -85,7 +91,7 @@ enum RichTextInserter {
         borrowed[pasteboard.name] = (saved, changeCount)
 
         // Restore once the target application has had time to read the paste.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.6) {
             guard borrowed[pasteboard.name]?.changeCount == changeCount else { return }
             borrowed.removeValue(forKey: pasteboard.name)
             guard pasteboard.changeCount == changeCount else { return }
@@ -107,7 +113,8 @@ enum RichTextInserter {
     }
 
     /// Selects the partial word, then pastes `label` as a link to `url`.
-    /// Only the label is clickable; no raw URL is shown.
+    /// Only the label is clickable; no raw URL is shown. Accessibility queue
+    /// only, where `validateSelection` and `onPasted` are called too.
     static func insertLink(label: String, url: URL, replacing length: Int, at caret: Int,
                            in element: AXUIElement, keyboardDeleteCount: Int,
                            validateSelection: @escaping (Bool) -> Bool,
@@ -124,7 +131,7 @@ enum RichTextInserter {
         // A readable caret does not imply a writable AX range. Web editors
         // commonly reject the selection write, so use keyboard replacement
         // only after proving that the original caret and prefix still match.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.05) {
             let verifiedSelection = selectedRange && validateSelection(true)
             guard verifiedSelection || validateSelection(false) else { onPasted(false); return }
             if !verifiedSelection { SyntheticKeyboard.deleteBackwards(keyboardDeleteCount) }
@@ -135,26 +142,53 @@ enum RichTextInserter {
                 pasteboard.declareTypes(Array(formats.keys), owner: nil)
                 for (type, data) in formats { pasteboard.setData(data, forType: type) }
                 paste()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onPasted(true) }
+                AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.25) { onPasted(true) }
             }
         }
     }
 
     /// Rich editors update their accessibility trees after the paste finishes.
     /// Retry read-back only; never paste a second time while waiting for proof.
+    /// Accessibility queue only, where `verify` and `completion` are called too.
     static func verifyEventually(attempts: Int = 8, interval: TimeInterval = 0.12,
                                  verify: @escaping () -> Bool, completion: @escaping (Bool) -> Void) {
         if verify() { completion(true); return }
         guard attempts > 1 else { completion(false); return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + interval) {
+        AccessibilityWork.queue.asyncAfter(deadline: .now() + interval) {
             verifyEventually(attempts: attempts - 1, interval: interval, verify: verify, completion: completion)
         }
     }
 
+    /// How a pasted link shows in the host.
+    enum LinkLanding: Equatable {
+        /// The suggestion's text, where the plan put it, links to the share.
+        case linked
+        /// The suggestion's text is there without a link, as a box that takes
+        /// only plain text pastes it.
+        case plainText
+    }
+
+    /// Nil until the suggestion's text sits exactly where the plan put it with
+    /// nothing else changed. `hasLink` is asked only then.
+    static func landing(of plan: CompletionPlan, before: CompletionSnapshot, after: CompletionSnapshot,
+                        hasLink: (String) -> Bool) -> LinkLanding? {
+        guard case .success = CompletionTransaction.verify(before: before, after: after, plan: plan) else { return nil }
+        return hasLink(plan.insertText) ? .linked : .plainText
+    }
+
+    /// Puts the link on the clipboard as Copy link does. Accessibility queue
+    /// only, so a borrowed clipboard put back later never covers it.
+    static func copyLink(_ url: URL, to pasteboard: NSPasteboard = .general) {
+        pasteboard.clearContents()
+        pasteboard.setString(url.absoluteString, forType: .string)
+    }
+
+    /// The link is the label itself. A box that takes only plain text gets the
+    /// label alone, as Tab would insert it, never the URL beside it.
     static func representations(label: String, url: URL) -> [NSPasteboard.PasteboardType: Data] {
         let html = "<a href=\"\(escapeHtml(url.absoluteString))\">\(escapeHtml(label))</a>"
         var formats: [NSPasteboard.PasteboardType: Data] = [
-            .html: Data(html.utf8), .string: Data(plainText(label: label, url: url).utf8),
+            .html: Data(html.utf8), .string: Data(label.utf8),
         ]
         let attributed = NSAttributedString(string: label, attributes: [.link: url])
         if let rtf = try? attributed.data(from: NSRange(location: 0, length: attributed.length),
@@ -180,8 +214,6 @@ enum RichTextInserter {
         }
         return valid
     }
-
-    static func plainText(label: String, url: URL) -> String { "\(label) (\(url.absoluteString))" }
 
     private static func paste() {
         SyntheticKeyboard.paste()

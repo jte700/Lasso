@@ -4,7 +4,8 @@
 //  take as long as that app's messaging timeout. Repeated reads (suggestions,
 //  popup tracking, highlights) therefore run on one serial background queue,
 //  and their results are applied on the main thread only if nothing newer
-//  happened meanwhile.
+//  happened meanwhile. Accepting a suggestion reads and writes there too; once
+//  it has begun writing, it always finishes and reports.
 
 import Foundation
 

@@ -3,9 +3,9 @@
 //
 //  `npm run desktop:slow-host -- 400` opens a text window whose every
 //  Accessibility answer waits that long (400 ms by default). Type in it with
-//  suggestions on, then type in another app: those keys must not lag. With
-//  Tools → Troubleshooting → Record Typing Log on, a key that reached Lasso
-//  late is logged as "keystroke reached Lasso … ms after it was typed".
+//  suggestions on, then type in another app: those keys must not lag. Accept
+//  a suggestion here with Tab too: the card and other apps must stay
+//  responsive while Lasso reads and writes this window.
 
 import Cocoa
 

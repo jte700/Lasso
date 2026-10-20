@@ -13,6 +13,9 @@ final class MemoryDirectoryDefaults: UserDefaults {
     override func dictionary(forKey defaultName: String) -> [String: Any]? {
         values[defaultName] as? [String: Any]
     }
+    override func string(forKey defaultName: String) -> String? {
+        values[defaultName] as? String
+    }
     override func set(_ value: Any?, forKey defaultName: String) {
         values[defaultName] = value
     }
@@ -206,19 +209,27 @@ do {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
     }
-    func finishPaste() { RunLoop.current.run(until: Date().addingTimeInterval(0.7)) }
+    // A link is pasted on the Accessibility queue, and the clipboard is put
+    // back there too. The main thread is not run while waiting.
+    func borrow(_ text: String) {
+        AccessibilityWork.queue.sync { RichTextInserter.withBorrowedPasteboard(pasteboard) { copy(text) } }
+    }
+    func finishPaste() {
+        Thread.sleep(forTimeInterval: 0.7)
+        AccessibilityWork.queue.sync {}
+    }
     copy("Original clipboard")
-    RichTextInserter.withBorrowedPasteboard(pasteboard) { copy("First link") }
+    borrow("First link")
     finishPaste()
     check(pasteboard.string(forType: .string) == "Original clipboard",
           "sharing restores the original clipboard after the paste")
-    RichTextInserter.withBorrowedPasteboard(pasteboard) { copy("Second link") }
+    borrow("Second link")
     copy("Newly copied text")
     finishPaste()
     check(pasteboard.string(forType: .string) == "Newly copied text",
           "a copy made during sharing is never overwritten")
-    RichTextInserter.withBorrowedPasteboard(pasteboard) { copy("Third link") }
-    RichTextInserter.withBorrowedPasteboard(pasteboard) { copy("Fourth link") }
+    borrow("Third link")
+    borrow("Fourth link")
     finishPaste()
     check(pasteboard.string(forType: .string) == "Newly copied text",
           "consecutive shares restore the user's original clipboard")
@@ -276,8 +287,8 @@ do {
     let html = String(data: formats[.html]!, encoding: .utf8)!
     check(html.contains("Supplies &amp; &lt;cost&gt;"), "escapes source labels in rich email")
     check(html.contains("href=\"https://example.test/d/source?a=1&amp;b=2\""), "preserves the hyperlink destination")
-    check(String(data: formats[.string]!, encoding: .utf8)!.contains(url.absoluteString),
-          "plain-text email fallback keeps the URL")
+    check(String(data: formats[.string]!, encoding: .utf8) == "Supplies & <cost>",
+          "a box that takes only plain text gets the suggestion alone, never the URL beside it")
     let rtf = try! NSAttributedString(data: formats[.rtf]!, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
     check(rtf.string == "Supplies & <cost>", "native rich-text paste preserves the label")
     check(rtf.attribute(.link, at: 0, effectiveRange: nil) != nil, "native rich-text paste retains a clickable link")
@@ -286,6 +297,53 @@ do {
           "a matching label without a hyperlink cannot confirm a share")
     check(!RichTextInserter.containsLink(rtf, to: URL(string: "https://example.test/wrong")!),
           "a hyperlink to another destination cannot confirm a share")
+}
+
+print("a pasted share link is judged by what landed at the caret")
+do {
+    let url = URL(string: "http://127.0.0.1:4319/s/abc")!
+    let before = CompletionSnapshot(documentStart: 40, text: units("The total is office sup"))
+    let plan = CompletionPlan(range: 13..<23, expectedPrefix: "office sup", insertText: "Office supplies",
+                              sourceRange: 0..<15)
+    func after(_ text: String) -> CompletionSnapshot { CompletionSnapshot(documentStart: 40, text: units(text)) }
+    func landing(_ text: String, linked: Bool = true) -> RichTextInserter.LinkLanding? {
+        RichTextInserter.landing(of: plan, before: before, after: after(text)) { _ in linked }
+    }
+
+    var asked: [String] = []
+    let linked = RichTextInserter.landing(of: plan, before: before, after: after("The total is Office supplies")) { label in
+        asked.append(label)
+        return true
+    }
+    check(linked == .linked && asked == ["Office supplies"],
+          "the suggestion's own text, replacing what was typed, is the link")
+    check(landing("The total is Office supplies", linked: false) == .plainText,
+          "the suggestion's text without a link is plain text, as a plain-text box takes it")
+    check(landing("The total is Office supplies (\(url.absoluteString))") == nil,
+          "the URL pasted beside the suggestion never counts as an inserted link")
+    asked = []
+    check(RichTextInserter.landing(of: plan, before: before, after: after("The total is office sup")) { label in
+        asked.append(label)
+        return true
+    } == nil && asked.isEmpty, "nothing landed yet, so no link is read for")
+    check(landing("A total is Office supplies") == nil, "a paste that changed other text counts for nothing")
+
+    // Copy link's clipboard, after a paste whose borrowed clipboard is still out.
+    let pasteboard = NSPasteboard.withUniqueName()
+    defer { pasteboard.releaseGlobally() }
+    pasteboard.clearContents()
+    pasteboard.setString("Original clipboard", forType: .string)
+    AccessibilityWork.queue.sync {
+        RichTextInserter.withBorrowedPasteboard(pasteboard) {
+            pasteboard.clearContents()
+            pasteboard.setString("Office supplies", forType: .string)
+        }
+        RichTextInserter.copyLink(url, to: pasteboard)
+    }
+    Thread.sleep(forTimeInterval: 0.7)
+    AccessibilityWork.queue.sync {}
+    check(pasteboard.string(forType: .string) == url.absoluteString,
+          "a link copied because the box took plain text stays on the clipboard")
 }
 
 print("delayed insertion guards")
@@ -1788,15 +1846,6 @@ do {
     Thread { seen = box.value; read.signal() }.start()
     read.wait()
     check(seen == open, "the tap thread reads the state the main thread published")
-
-    check(KeyEventLatency.milliseconds(eventTimestamp: 1_000_000_000, now: 1_250_000_000) == 250,
-          "keystroke delay is measured from the event's own timestamp")
-    check(KeyEventLatency.milliseconds(eventTimestamp: 0, now: 5_000_000) == nil,
-          "events without a timestamp are not measured")
-    check(KeyEventLatency.milliseconds(eventTimestamp: 9_000_000, now: 5_000_000) == nil,
-          "a timestamp from the future is ignored")
-    check(KeyEventLatency.milliseconds(eventTimestamp: 1, now: 60_000_000_000) == nil,
-          "an implausibly old timestamp from a different clock is ignored")
 }
 
 print("fn+Left and fn+Right move the card's focus out and in")
@@ -1874,6 +1923,73 @@ do {
     _ = gate.begin()
     gate.dropPending()
     check(!gate.end(), "dismissing the box drops a follow-up that would reopen it")
+}
+
+print("accepting a suggestion reads and writes the host off the main thread")
+do {
+    // The main thread waits on a semaphore throughout, so any step that
+    // still needed it would time out here.
+    let onAccessibilityQueue = DispatchSpecificKey<Bool>()
+    AccessibilityWork.queue.setSpecific(key: onAccessibilityQueue, value: true)
+    defer { AccessibilityWork.queue.setSpecific(key: onAccessibilityQueue, value: nil) }
+    func onQueue() -> Bool { DispatchQueue.getSpecific(key: onAccessibilityQueue) == true }
+    let finished = DispatchSemaphore(value: 0)
+    func waited() -> Bool { finished.wait(timeout: .now() + 2) == .success }
+
+    var attempts = 0
+    var everyAttemptOnQueue = true
+    var verified: Bool?
+    var reportedOnQueue = false
+    AccessibilityWork.queue.async {
+        RichTextInserter.verifyEventually(attempts: 4, interval: 0.01, verify: {
+            attempts += 1
+            everyAttemptOnQueue = everyAttemptOnQueue && onQueue()
+            return attempts == 3
+        }) { result in
+            verified = result
+            reportedOnQueue = onQueue()
+            finished.signal()
+        }
+    }
+    check(waited() && verified == true && attempts == 3, "read-back retries until the link appears, then stops")
+    check(everyAttemptOnQueue && reportedOnQueue, "each read-back and its result stay on the Accessibility queue")
+
+    attempts = 0
+    verified = nil
+    AccessibilityWork.queue.async {
+        RichTextInserter.verifyEventually(attempts: 3, interval: 0.01, verify: {
+            attempts += 1
+            return false
+        }) { result in
+            verified = result
+            finished.signal()
+        }
+    }
+    check(waited() && verified == false && attempts == 3,
+          "a link that never shows up is reported once, after the last read-back")
+
+    // Refused before anything is pasted, so this never types into the app
+    // that has focus while the tests run.
+    var validations: [Bool] = []
+    var pasted: Bool?
+    reportedOnQueue = false
+    let clipboard = NSPasteboard.general.changeCount
+    AccessibilityWork.queue.async {
+        RichTextInserter.insertLink(label: "Office supplies", url: URL(string: "http://127.0.0.1:4319/s/abc")!,
+                                    replacing: 0, at: -1, in: AXUIElementCreateApplication(getpid()),
+                                    keyboardDeleteCount: 0, validateSelection: { _ in
+            validations.append(onQueue())
+            return false
+        }) { result in
+            pasted = result
+            reportedOnQueue = onQueue()
+            finished.signal()
+        }
+    }
+    check(waited() && pasted == false && NSPasteboard.general.changeCount == clipboard,
+          "an insertion point that cannot be confirmed pastes nothing and leaves the clipboard alone")
+    check(validations == [true] && reportedOnQueue,
+          "the insertion point is checked, and the refusal reported, on the Accessibility queue")
 }
 
 print("host accessibility mode")
@@ -2070,19 +2186,47 @@ do {
 }
 
 
-// ── Re-reading sources ─────────────────────────────────────────────────────
+// ── Settings ───────────────────────────────────────────────────────────────
+// Settings holds what the status panel does not: appearance, the colour of
+// folders, and how Lasso starts again after it quits.
 do {
-    print("\nRe-reading sources from the menu")
-    let body = WorkspaceAPI.reindexBody()
-    check((body["actor"] as? [String: String])?["actorType"] == "HUMAN_SELF" && body["reason"] != nil,
-          "a menu re-read names the desktop user as its actor")
-    check(WorkspaceAPI.reindexSummary(["changed": false]).contains("Nothing was changed"),
-          "an identical reading reports that nothing was recorded")
-    let changed = WorkspaceAPI.reindexSummary(["changed": true, "snapshot": ["version": 7],
-        "objects": ["before": 10, "after": 12], "dependenciesNeedingReview": 1])
-    check(changed.contains("Version 7") && changed.contains("10 sources before, 12 now")
-          && changed.contains("1 claim needs review"), "a new reading reports its version, counts and review")
-    check(!changed.contains("\u{2014}"), "the report contains no em dashes")
+    print("\nSettings")
+    _ = NSApplication.shared
+    let defaults = MemoryDirectoryDefaults(suiteName: nil)!
+    check(AppearancePreference.current(defaults) == .system && NSApp.appearance == nil,
+          "Lasso follows macOS until an appearance is chosen")
+    AppearancePreference.set(.dark, defaults: defaults)
+    check(AppearancePreference.current(defaults) == .dark && NSApp.appearance?.name == .darkAqua,
+          "choosing Dark turns Lasso's windows dark at once")
+    AppearancePreference.set(.light, defaults: defaults)
+    check(NSApp.appearance?.name == .aqua, "choosing Light turns them light")
+    AppearancePreference.set(.system, defaults: defaults)
+    check(NSApp.appearance == nil, "Match System hands the appearance back to macOS")
+    check(AppearancePreference.allCases.map(\.title) == ["Match System", "Light", "Dark"],
+          "the appearance choices read Match System, Light and Dark")
+
+    check(DirectoryColorPreferences.defaultColor(defaults) == .blue, "folders are blue until another colour is chosen")
+    DirectoryColorPreferences.set(.orange, for: "finance", defaults: defaults)
+    var announced = 0
+    let observer = NotificationCenter.default.addObserver(forName: .directoryColorsDidChange, object: nil,
+                                                          queue: nil) { _ in announced += 1 }
+    DirectoryColorPreferences.setDefault(.purple, defaults: defaults)
+    DirectoryColorPreferences.setDefault(.purple, defaults: defaults)
+    NotificationCenter.default.removeObserver(observer)
+    check(DirectoryColorPreferences.color(for: "research", defaults: defaults) == .purple,
+          "the Settings colour applies to folders without their own")
+    check(DirectoryColorPreferences.color(for: "finance", defaults: defaults) == .orange,
+          "a folder's own colour wins over the Settings colour")
+    check(announced == 1, "highlights redraw once when the colour changes, and not when it stays the same")
+
+    check(LaunchHelper.note(for: .on).contains("log in") && LaunchHelper.note(for: .on).contains("\u{2318}L"),
+          "Settings says Lasso starts at login and \u{2318}L starts it again after quitting")
+    check(LaunchHelper.note(for: .needsApproval).contains("Login Items"),
+          "a launcher switched off in System Settings says where to allow it")
+    check([LaunchHelper.State.on, .needsApproval, .unavailable].allSatisfy { !LaunchHelper.note(for: $0).contains("\u{2014}") },
+          "start notes contain no em dashes")
+    check(LaunchHelper.bundlePath.hasPrefix("Contents/Library/LoginItems/"),
+          "the launcher sits where macOS looks for an app's login items")
 }
 
 // ── Opening a source where it is cited ─────────────────────────────────────
