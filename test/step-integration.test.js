@@ -251,3 +251,22 @@ test('an accepted CAD part name offers its measurements, ranked by the words aft
   assert.equal(unmeasured.workspaceHeading, undefined);
   assert.ok(unmeasured.claims.some(claim => claim.candidates.some(candidate => candidate.label === 'Bracket Ø8 hole diameter')));
 });
+
+test('typing a model file name offers that drawing, not facts that match its unfinished extension', async t => {
+  const app = await typingWorkspace(t);
+  // A dot inside a name does not end the sentence: "st" alone would match every
+  // "straight edge" fact while the file being named was never offered.
+  for (const text of ['Bracket.st', 'The Bracket.ste', 'I opened Bracket.step']) {
+    const prediction = await typed(app, text);
+    const [claim, ...others] = prediction.claims;
+    assert.equal(others.length, 0, text);
+    assert.equal(claim.start, text.indexOf('Bracket'), `${text} replaces the whole typed name`);
+    assert.deepEqual(claim.candidates.map(candidate => [candidate.objectType, candidate.path]),
+      [['DRAWING', 'Bracket.step']], text);
+    assert.deepEqual(offered(prediction), [], text);
+  }
+  // Sentences still end at punctuation followed by a space.
+  const next = await typed(app, 'The plate is 4.5 mm thick. Bracket.st');
+  assert.equal(next.claims[0].start, 'The plate is 4.5 mm thick. '.length);
+  assert.equal(next.claims[0].candidates[0].path, 'Bracket.step');
+});

@@ -79,11 +79,22 @@ function variableTokens(value) {
   return String(value ?? '').toLowerCase().match(/[a-z][a-z0-9]*/g) ?? [];
 }
 
+// Where the last sentence before the cursor ended: terminal punctuation, with
+// any closing quote or bracket, before a space or the cursor; or a line break.
+// A dot inside a name ("Bracket.step") or a number ("4.8") ends nothing, nor
+// does an abbreviation's ("e.g. gross") unless a capitalised word follows it.
+function sentenceStartBefore(before) {
+  const masked = before.replace(ABBREVIATIONS, (match, offset) =>
+    /^(?:\s+\p{Lu}|\s*$)/u.test(before.slice(offset + match.length)) ? match : `${match.slice(0, -1)} `);
+  let start = 0;
+  for (const end of masked.matchAll(/[.!?]["'”’)\]]*(?=\s|$)|\n/g)) start = end.index + end[0].length;
+  return start;
+}
+
 function writingSourceContext(text, cursor, section = '') {
   const source = String(text ?? '');
   const before = source.slice(0, cursor);
-  const boundary = Math.max(before.lastIndexOf('.'), before.lastIndexOf('!'), before.lastIndexOf('?'), before.lastIndexOf('\n'));
-  const sentenceStart = boundary + 1;
+  const sentenceStart = sentenceStartBefore(before);
   const sentence = before.slice(sentenceStart);
   const words = variableTokens(sentence);
   const literatureIntent = /\b(?:et\s+al|according\s+to|cited\s+by|paper|article|publication|authors?|researchers?|investigators?|prior\s+(?:work|studies)|previous\s+(?:work|studies)|(?:study|work|report)\s+(?:by|from))\b/i.test(sentence);
