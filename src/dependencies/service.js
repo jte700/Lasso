@@ -158,6 +158,20 @@ export function namesFocusedFile(claim, dependency) {
     .some((candidate) => candidate.fileReference && fileName(candidate.path) === focusedFile);
 }
 
+// The values of a focus chosen on the words being typed replace those words
+// and anything typed after them ("brac" → "100 mm"). Trailing spaces stay,
+// including the no-break space browser editors leave at the caret.
+function replacingFocusWords(completions, dependency, text, cursor) {
+  if (!dependency?.replacesText) return completions;
+  const { start } = dependency.anchor;
+  const claimEnd = start + text.slice(start, cursor).replace(/[^\S\r\n]+$/, '').length;
+  return completions.map((completion) => ({ ...completion, claimStart: start, claimEnd }));
+}
+
+// What can have values below it: a CAD part's measurements, a table row's
+// cells or a column's values. Anything else offered is a value itself.
+const VALUE_HOLDERS = new Set(['DRAWING', 'DATASET_ROW', 'VARIABLE']);
+
 // Rows keyed by a code ("CO-001", "S014") are found by typing the code's own
 // terms elsewhere; as typed names they would bury real names on two letters.
 const IDENTIFIER_HEADER = /(?:^|\s)(?:id|code|no|number|ref|reference|sample|subject|participant|patient)$/i;
@@ -1659,6 +1673,9 @@ export class PredictiveProvenanceService {
     this.studyVariableCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length });
     this.workspaceRetrievalCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length });
     this.objectCache = new BoundedCache({ maxEntries: 16, maxWeight: 120_000, weight: (objects) => objects.length });
+    // Whether an object has values below it, kept with the retrieval objects
+    // it was worked out from, so it goes when they are read again.
+    this.narrowingCache = new WeakMap();
     // Raw descriptors are cached before dictionary enrichment. Changing a
     // dictionary must still update unchanged source files in the next snapshot.
     this.extractionCache = new BoundedCache({ maxEntries: 256, maxWeight: 24 * 1024 * 1024,
@@ -2701,6 +2718,8 @@ export class PredictiveProvenanceService {
           source,
           status: 'PENDING',
           focused: item.focused === true,
+          // A focus chosen on typed words ("brac") is replaced by its values.
+          replacesText: item.focused === true && item.replacesText === true,
         };
       }).filter(Boolean);
     const dependency = [...persisted, ...pending]
@@ -2814,6 +2833,24 @@ export class PredictiveProvenanceService {
       fragment,
       completions,
     };
+  }
+
+  /**
+   * Whether fn+Right on this suggestion has something narrower to show: a
+   * part's measurements, a named row's cells or a column's values. A value is
+   * as narrow as a suggestion gets, so fn+Right stops there.
+   */
+  narrowsTo(projectId, object) {
+    if (!VALUE_HOLDERS.has(object?.objectType) || !object.snapshotId) return false;
+    const objects = this.workspaceRetrievalObjects(this.sourceProjectId(object) ?? projectId, object.snapshotId);
+    if (!this.narrowingCache.has(objects)) this.narrowingCache.set(objects, new Map());
+    const known = this.narrowingCache.get(objects);
+    if (!known.has(object.id)) {
+      const focus = { id: `narrowing:${object.id}`, anchor: { blockIndex: 0, start: 0, end: 0 }, source: object };
+      const values = this.valuesFromLinkedProjectObject(projectId, { text: '' }, 0, focus);
+      known.set(object.id, Boolean(values?.completions.some((value) => value.dependencyCandidate?.id !== object.id)));
+    }
+    return known.get(object.id);
   }
 
   valuesFromLinkedProjectObject(projectId, input, cursor, dependency) {
@@ -3168,7 +3205,7 @@ export class PredictiveProvenanceService {
     if (linkedProjectObject) {
       return {
         claims: [], completion: null, sourceCompletions: [],
-        workspaceCompletions: linkedProjectObject.completions,
+        workspaceCompletions: replacingFocusWords(linkedProjectObject.completions, linkedDependency, text, cursor),
         workspaceHeading: linkedProjectObject.heading ?? `Values for ${linkedProjectObject.variable}`,
         notice: linkedProjectObject.notice,
         sourceContext: {

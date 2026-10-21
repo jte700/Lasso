@@ -34,6 +34,8 @@ struct AssistSuggestion {
     let rankingReason: String?
     var previewText: String? = nil
     var sentenceContinuation = false
+    /// It has values below it, such as a part's measurements, that fn+Right narrows the card to.
+    var narrowable = false
 
     var isShareable: Bool { objectId != nil }
 }
@@ -729,7 +731,7 @@ final class AssistBoxView: NSView {
     var confirmChoices: [String] = []
     var messageLines: [String] = []
     var sourceScoped = false
-    /// fn+Right can take an unfocused card back to the latest focus.
+    /// fn+Right can take a card fn+Left just moved out back to the focus it left.
     var canReturnToFocus = false
     var preview: AssistDocumentPreview? {
         didSet { modelView = AssistModelView(); modelDrag = nil }
@@ -868,7 +870,9 @@ final class AssistBoxView: NSView {
         var y = bodyTop + (mode == .suggestions ? 0 : headerHeight)
         switch mode {
         case .suggestions:
-            drawText(sourceScoped ? "‹ All sources  fn ←" : canReturnToFocus ? "All sources  fn →" : "All sources",
+            let selectedNarrows = suggestions.indices.contains(selected) && suggestions[selected].narrowable
+            drawText(sourceScoped ? "‹ All sources  fn ←"
+                        : canReturnToFocus || selectedNarrows ? "All sources  fn →" : "All sources",
                      in: NSRect(x: 20, y: bodyTop + 10, width: 130, height: 16),
                      font: .systemFont(ofSize: 11, weight: .medium),
                      color: sourceScoped ? .controlAccentColor : .secondaryLabelColor)
@@ -1691,8 +1695,6 @@ final class GlobalAssistant {
             shareComposerOpen: composer.isVisible,
             inspectorCanShare: inspector?.canShareFromKeyboard == true,
             popup: popup,
-            canFocusOut: popup == .suggestions && focusedSource != nil,
-            canFocusIn: popup == .suggestions && linkedSources.canMoveIn(focusedOn: focusedSource, selected: selectedSource),
             offersChoices: !view.suggestions.isEmpty)
     }
 
@@ -1742,12 +1744,17 @@ final class GlobalAssistant {
         case .inspectorShare:
             inspector?.shareFromKeyboard()
         case .focusOut:
-            linkedSources.moveOut(from: focusedSource)
-            AssistLog.write("  · fn+Left: suggestions from every directory")
+            // Every directory is as broad as the card gets.
+            guard focusedSource != nil else { break }
+            linkedSources.moveOut()
+            AssistLog.write("  · fn+Left: one level out")
             refresh()
         case .focusIn:
-            linkedSources.moveIn(focusedOn: focusedSource, selected: selectedSource)
-            AssistLog.write("  · fn+Right: focused on \(linkedSources.chosen?.text ?? "nothing")")
+            // A value has nothing below it.
+            let choice = narrowingChoice
+            guard linkedSources.canMoveIn(focusedOn: focusedSource, selected: choice?.source) else { break }
+            linkedSources.moveIn(focusedOn: focusedSource, selected: choice?.source, typed: choice?.typed)
+            AssistLog.write("  · fn+Right: focused on \(linkedSources.chosen?.text ?? "the focus fn+Left left")")
             refresh()
         }
         publishKeyRouting()
@@ -1964,12 +1971,20 @@ final class GlobalAssistant {
                      text: source["label"] as? String ?? "")
     }
 
-    /// The highlighted row as a source fn+Right can focus on.
-    private var selectedSource: LinkedSourceMemory.Source? {
-        guard let suggestion = currentSuggestion, let objectId = suggestion.objectId,
+    /// The highlighted row as a focus fn+Right can narrow the card to, when it
+    /// has values below it, with the words typed to find it ("brac" for
+    /// Bracket). Those values replace the words.
+    private var narrowingChoice: (source: LinkedSourceMemory.Source, typed: TextAnchor?)? {
+        guard let suggestion = currentSuggestion, suggestion.narrowable, let objectId = suggestion.objectId,
               let snapshotId = suggestion.snapshotId else { return nil }
-        return .init(projectId: suggestion.projectId, objectId: objectId, snapshotId: snapshotId,
-                     text: suggestion.label)
+        let source = LinkedSourceMemory.Source(projectId: suggestion.projectId, objectId: objectId,
+                                               snapshotId: snapshotId, text: suggestion.label)
+        // The words are found in the text the card answered, which a newer read may have replaced.
+        guard let replacement = suggestion.replacement, let text = context?.text else { return (source, nil) }
+        let document = Array(text.utf16), words = Array(replacement.typedText.utf16)
+        let range = replacement.start..<(replacement.start + words.count)
+        guard range.upperBound <= document.count, Array(document[range]) == words else { return (source, nil) }
+        return (source, TextAnchor.make(in: document, range: range))
     }
 
     private static func predictionRevision(_ data: Data) -> String? {
@@ -2128,7 +2143,8 @@ final class GlobalAssistant {
                     snapshotId: candidate["snapshotId"] as? String,
                     usageObjectId: candidate["id"] as? String, projectId: projectId,
                     rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String,
-                    previewText: entry["sourceSentence"] as? String ?? insert))
+                    previewText: entry["sourceSentence"] as? String ?? insert,
+                    narrowable: candidate["narrowable"] as? Bool == true))
             }
         }
 
@@ -2162,7 +2178,8 @@ final class GlobalAssistant {
                     versionId: candidate["versionId"] as? String,
                     snapshotId: candidate["snapshotId"] as? String,
                     usageObjectId: candidate["id"] as? String, projectId: projectId,
-                    rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String))
+                    rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String,
+                    narrowable: candidate["narrowable"] as? Bool == true))
             }
         }
         return results

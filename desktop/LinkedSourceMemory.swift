@@ -1,9 +1,12 @@
 //  What the suggestion card is focused on in the field being typed in.
 //
 //  Tab accepts a source, and each request names it so the server offers its
-//  values while its sentence goes on. fn+Left moves out to every work
-//  directory; fn+Right moves back in to the last focus or, on a card
-//  already focused, into the selected row.
+//  values while its sentence goes on. fn+Right narrows the card to the
+//  highlighted row when that row has values below it ("brac", then fn+Right,
+//  offers Bracket's measurements) without typing it: the values replace the
+//  words typed to find it. fn+Left steps back out, one level at a time, to
+//  every work directory. A value has nothing below it and every directory is
+//  the top, so there the keys do nothing.
 //
 //  Each change of focus is kept as a step, and the focus is worked out again
 //  from the steps and the text each request sends. Deleting text accepted with
@@ -25,10 +28,10 @@ struct LinkedSourceMemory {
     private enum Step: Equatable {
         /// Tab inserted the source; the anchor finds its text again.
         case accepted(Source, TextAnchor)
-        /// fn+Right chose this focus.
-        case chosen(Source)
-        /// fn+Left moved out to every directory from this focus.
-        case movedOut(Source?)
+        /// fn+Right chose this focus, on the words typed to find it, if any.
+        case chosen(Source, TextAnchor?)
+        /// fn+Left stepped out one level.
+        case movedOut
     }
 
     /// Where an accepted text is in the window last sent.
@@ -42,7 +45,8 @@ struct LinkedSourceMemory {
     private struct Focus {
         var pending: [(source: Source, range: Range<Int>)] = []
         var chosen: Source?
-        var recent: Source?
+        /// Where the words `chosen` was chosen on are; its values replace them.
+        var chosenWords: Range<Int>?
     }
 
     private static let acceptedLimit = 8
@@ -57,8 +61,6 @@ struct LinkedSourceMemory {
     private var window: [UInt16] = []
     /// Whether that text starts at the beginning of the field.
     private var windowReachesStart = true
-    /// The latest focus in earlier fields, where fn+Right returns until this field has one.
-    private var earlier: Source?
     /// fn+Left or fn+Right was pressed and the writer has not typed since.
     private var moving = false
 
@@ -73,9 +75,6 @@ struct LinkedSourceMemory {
 
     /// A focus chosen with fn+Right. The server keeps it until fn+Left.
     var chosen: Source? { focus.chosen }
-
-    /// Where fn+Right returns from every directory: the latest focus in any field.
-    var recent: Source? { focus.recent }
 
     /// Tab inserted `source` at `range` of `document`, the text before the caret afterwards.
     mutating func record(_ source: Source, in document: [UInt16], at range: Range<Int>, reachesStart: Bool = true) {
@@ -103,7 +102,6 @@ struct LinkedSourceMemory {
 
     /// A new field starts with nothing focused.
     mutating func forget() {
-        earlier = focus.recent
         steps.removeAll()
         window = []
         windowReachesStart = true
@@ -112,35 +110,40 @@ struct LinkedSourceMemory {
 
     mutating func keep(projectIds: [String]) {
         let kept = Set(projectIds)
-        steps = steps.compactMap { step in
+        steps.removeAll { step in
             switch step {
-            case .accepted(let source, _), .chosen(let source):
-                return kept.contains(source.projectId) ? step : nil
-            case .movedOut(let source):
-                return .movedOut(source.flatMap { kept.contains($0.projectId) ? $0 : nil })
+            case .accepted(let source, _), .chosen(let source, _): return !kept.contains(source.projectId)
+            case .movedOut: return false
             }
         }
-        if let earlier, !kept.contains(earlier.projectId) { self.earlier = nil }
     }
 
-    /// fn+Left: every directory answers the next words. The source the card
-    /// was focused on is where fn+Right comes back to.
-    mutating func moveOut(from focused: Source?) {
-        steps.append(.movedOut(focused))
+    /// fn+Left: one level out. A focus chosen with fn+Right gives way to the
+    /// source accepted before it, if any; that gives way to every directory.
+    mutating func moveOut() {
+        steps.append(.movedOut)
         trim()
         moving = true
     }
 
-    /// fn+Right from every directory returns to the latest focus; on a
-    /// focused card it moves into the selected row, unless that row is the focus.
+    /// Whether fn+Right has somewhere to go: a highlighted row with values
+    /// below it (the caller passes no row otherwise) that is not the focus
+    /// already, or, right after fn+Left, the focus fn+Left left.
     func canMoveIn(focusedOn current: Source?, selected: Source?) -> Bool {
         target(focusedOn: current, selected: selected) != nil
     }
 
-    mutating func moveIn(focusedOn current: Source?, selected: Source?) {
+    /// fn+Right. `typed` holds the words typed to find the highlighted row
+    /// ("brac" for Bracket), which the server then replaces with its values.
+    mutating func moveIn(focusedOn current: Source?, selected: Source?, typed: TextAnchor? = nil) {
         guard let target = target(focusedOn: current, selected: selected) else { return }
-        steps.append(.chosen(target))
-        trim()
+        switch target {
+        case .row(let source):
+            steps.append(.chosen(source, typed))
+            trim()
+        case .back:
+            steps.removeLast()
+        }
         moving = true
     }
 
@@ -155,10 +158,16 @@ struct LinkedSourceMemory {
         moving && (current != nil || canMoveIn(focusedOn: nil, selected: nil))
     }
 
-    private func target(focusedOn current: Source?, selected: Source?) -> Source? {
-        guard let current else { return recent }
-        guard let selected, selected.objectId != current.objectId else { return nil }
-        return selected
+    private enum Target {
+        case row(Source)
+        /// Undo the fn+Left just pressed.
+        case back
+    }
+
+    private func target(focusedOn current: Source?, selected: Source?) -> Target? {
+        if let selected, selected.objectId != current?.objectId { return .row(selected) }
+        guard current == nil, moving, steps.last == .movedOut else { return nil }
+        return .back
     }
 
     /// The fields a prediction request adds for the card's focus in the
@@ -166,8 +175,13 @@ struct LinkedSourceMemory {
     var requestFields: [String: Any] {
         let focus = focus
         if let chosen = focus.chosen {
-            return ["focusSource": ["projectId": chosen.projectId, "sourceObjectId": chosen.objectId,
-                                    "sourceSnapshotId": chosen.snapshotId]]
+            var source: [String: Any] = ["projectId": chosen.projectId, "sourceObjectId": chosen.objectId,
+                                         "sourceSnapshotId": chosen.snapshotId]
+            if let words = focus.chosenWords {
+                source["start"] = words.lowerBound
+                source["end"] = words.upperBound
+            }
+            return ["focusSource": source]
         }
         // Offsets are in the text being sent, so they match what the server is given.
         let pending = focus.pending.map { source, range -> [String: Any] in
@@ -177,11 +191,11 @@ struct LinkedSourceMemory {
         return pending.isEmpty ? [:] : ["pendingDependencies": pending]
     }
 
-    /// The steps replayed against the window. An accepted text that was
-    /// deleted takes the moves made on it along, up to the next accepted
-    /// text still present.
+    /// The steps replayed against the window. An accepted text, or the words
+    /// a focus was chosen on, that was deleted takes the moves made on it
+    /// along, up to the next accepted text still present.
     private var focus: Focus {
-        var focus = Focus(recent: earlier)
+        var focus = Focus()
         var undone = false
         var claimed = Set<Int>()
         for step in steps {
@@ -203,14 +217,29 @@ struct LinkedSourceMemory {
                 }
                 undone = false
                 focus.chosen = nil
-                focus.recent = source
-            case .chosen(let source) where !undone:
+                focus.chosenWords = nil
+            case .chosen(let source, let words):
+                let found = words.map { place(of: $0) }
+                switch found {
+                case .deleted?:
+                    // Typing over the words returns to the focus before fn+Right.
+                    undone = true
+                    continue
+                case .at?:
+                    // Words still in the text stand on their own, whatever was deleted before them.
+                    undone = false
+                default:
+                    if undone { continue }
+                }
                 focus.chosen = source
-                focus.recent = source
-            case .movedOut(let source) where !undone:
-                focus.pending.removeAll()
-                focus.chosen = nil
-                if let source { focus.recent = source }
+                if case .at(let range)? = found { focus.chosenWords = range } else { focus.chosenWords = nil }
+            case .movedOut where !undone:
+                if focus.chosen != nil {
+                    focus.chosen = nil
+                    focus.chosenWords = nil
+                } else {
+                    focus.pending.removeAll()
+                }
             default:
                 break
             }

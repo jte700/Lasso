@@ -393,6 +393,36 @@ try {
       assert.equal(selected.text, '', `${scenario.name}: accepting a suggestion left text selected`);
       await expectHidden(scenario.name);
     }
+
+    // fn+Right (End) opens the highlighted row being typed; its values replace
+    // the typed words. fn+Left (Home) steps back. Neither moves past the ends.
+    console.log('fn+Right opens the row being typed, and fn+arrows stop at the ends');
+    const lookup = 'Hi, our marke';
+    await evaluate(`fixture.reset(${JSON.stringify(lookup)}); fixture.selectEnd()`);
+    await settle();
+    const lookupSelection = await evaluate('fixture.selectionSnapshot()');
+    await helper('popup-predict', { url: predictionURL,
+      projectIds: predictionWorkspace.activeProjectIds, revision: predictionWorkspace.revision });
+    const onRow = state => state.visible && state.suggestions?.[0]?.label === 'Marketing';
+    const onValues = state => state.visible && state.suggestions?.[0]?.label === '14000';
+    await waitForPopup(onRow, 'fn+Right: the row being typed did not reach the popup');
+    await helper('popup-key', { keyCode: 115 });
+    assert.ok(onRow(await popupState()), 'fn+Left at every directory changed the card');
+    await helper('popup-key', { keyCode: 119 });
+    let opened = await waitForPopup(onValues, 'fn+Right did not open the row\'s values');
+    assert.equal(opened.suggestions[0].replacementStart, 'Hi, our '.length, 'an opened value would not replace the typed words');
+    assert.equal(opened.suggestions[0].replacementText, 'marke', 'an opened value would not replace the typed words');
+    await helper('popup-key', { keyCode: 119 });
+    assert.ok(onValues(await popupState()), 'fn+Right on a value changed the card');
+    await helper('popup-key', { keyCode: 115 });
+    await waitForPopup(onRow, 'fn+Left did not step back to every directory');
+    assert.deepEqual(await evaluate('fixture.selectionSnapshot()'), lookupSelection, 'fn+arrows moved the caret in the host');
+    await helper('popup-key', { keyCode: 119 });
+    await waitForPopup(onValues, 'fn+Right did not open the row again');
+    await helper('popup-key', { keyCode: 48 });
+    await until(async () => await evaluate('editor.textContent') === 'Hi, our 14000',
+      'Tab on an opened value did not replace the typed words');
+    await expectHidden('fn+Right opens the row being typed');
     await predictionApplication.close();
     predictionApplication = null;
     await evaluate('fixture.reset()');

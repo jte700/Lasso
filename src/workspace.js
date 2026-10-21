@@ -21,15 +21,19 @@ function activationError(error) {
   return { message: missing ? UNAVAILABLE_MESSAGE : error.message, code: error?.code ?? null };
 }
 
-// A source the writer focused with fn+Right need not be in the text. It is
-// anchored where the clause being written starts, so the sentence never ends
-// its scope; fn+Left or another accepted source does.
+// A source the writer focused with fn+Right need not be in the text. Chosen
+// on the words being typed ("brac" for Bracket), it rests on them and its
+// values replace them. Otherwise, or once those words are in an earlier
+// clause, it is anchored where the clause being written starts. Either way
+// the sentence never ends its scope; fn+Left or another accepted source does.
 function focusedDependency(focusSource, text, cursor) {
   if (!focusSource || typeof focusSource !== 'object') return null;
-  const { projectId, sourceObjectId, sourceSnapshotId } = focusSource;
+  const { projectId, sourceObjectId, sourceSnapshotId, start, end } = focusSource;
   if (![projectId, sourceObjectId, sourceSnapshotId].every((value) => typeof value === 'string' && value)) return null;
-  const start = currentClauseStart(text, cursor);
-  return { projectId, blockIndex: 0, start, end: start, sourceObjectId, sourceSnapshotId, focused: true };
+  const focus = { projectId, blockIndex: 0, sourceObjectId, sourceSnapshotId, focused: true };
+  const clauseStart = currentClauseStart(text, cursor);
+  const typed = Number.isInteger(start) && Number.isInteger(end) && clauseStart <= start && start < end && end <= cursor;
+  return typed ? { ...focus, start, end, replacesText: true } : { ...focus, start: clauseStart, end: clauseStart };
 }
 
 // Relevance is calculated by the existing per-project ranker. Merge those
@@ -486,7 +490,7 @@ export class WorkspaceService {
       // Every accepted link still tells which values were already written.
       const scopedInput = { ...predictionInput, documentPath: ownDocument ? input.documentPath : null,
         pendingDependencies: ownDocument ? currentPending : currentPending.filter((s) => owners.get(s.sourceObjectId) === project.id),
-        acceptedDependencies: availablePending };
+        acceptedDependencies: availablePending.filter((link) => !link.focused) };
       predictions.push({ project, prediction: this.dependencies.predict(project.id, scopedInput) });
     }
     // An explicitly linked source narrows suggestions to that source's owner.
@@ -536,14 +540,18 @@ export class WorkspaceService {
       && other.start <= claim.start && other.end >= claim.end && other.end - other.start > claim.end - claim.start);
     const current = inClause.filter((slot) => slot.group !== 'claim' || !nested(slot.claim));
     const selected = distinctRanked(current, limit);
+    // fn+Right opens a suggestion that has values below it, such as a part's measurements.
+    const narrowing = (candidate) => this.dependencies.narrowsTo(candidate.projectId, candidate)
+      ? { ...candidate, narrowable: true } : candidate;
     const claims = new Map();
     for (const item of selected.filter((s) => s.group === 'claim')) {
       const key = `${item.claim.start}:${item.claim.end}:${item.claim.type}`;
       if (!claims.has(key)) claims.set(key, { ...item.claim, candidates: [] });
       const { group, claim, ...candidate } = item;
-      claims.get(key).candidates.push(candidate);
+      claims.get(key).candidates.push(narrowing(candidate));
     }
-    const strip = ({ group, claim, ...value }) => value;
+    const strip = ({ group, claim, ...value }) => value.dependencyCandidate
+      ? { ...value, dependencyCandidate: narrowing(value.dependencyCandidate) } : value;
     const context = pool.find(({ prediction }) => prediction.sourceContext?.source) ?? pool[0];
     return { deterministic: true, generatedText: false, workspaceRevision: revision,
       sourceCompletions: selected.filter((s) => s.group === 'sourceCompletions').map(strip),
