@@ -324,7 +324,10 @@ enum BrowserGeometryRegression {
                     guard pasted else { finish(false, detail); return }
                     RichTextInserter.verifyEventually(verify: {
                         guard let after = AccessibilityReader.focusedContext(), CFEqual(after.element, captured.element) else {
-                            detail = "Focused editor changed"; return false
+                            // Usually another app came to the front after the paste.
+                            let front = NSWorkspace.shared.frontmostApplication
+                            detail = "Focused editor changed (frontmost: \(front?.localizedName ?? "none"), pid \(front?.processIdentifier ?? -1))"
+                            return false
                         }
                         let transaction = CompletionTransaction.verify(before: before,
                                 after: CompletionSnapshot(documentStart: after.windowStart, text: Array(after.text.utf16)),

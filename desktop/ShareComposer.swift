@@ -2067,9 +2067,34 @@ final class ShareComposerView: NSView {
         view.masks[selectedMask.locationKey] = selectedMask
         view.pdfSelectionMode = .area
         paint()
+        // Both mask effects are neutral grey and a blurred mask is mostly
+        // white, so the drag covers the cover photo: none of its colour may
+        // show through. Unreadable pixels count as coloured.
         let crop = page.bounds(for: .cropBox)
-        let a = NSPoint(x: crop.minX + crop.width * 0.2, y: crop.maxY - crop.height * 0.12)
-        let b = NSPoint(x: crop.minX + crop.width * 0.5, y: crop.maxY - crop.height * 0.18)
+        let a = NSPoint(x: crop.minX + crop.width * 0.55, y: crop.maxY - crop.height * 0.12)
+        let b = NSPoint(x: crop.minX + crop.width * 0.85, y: crop.maxY - crop.height * 0.3)
+        func colouredPixels() -> Int {
+            guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return .max }
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            let corners = [a, b].map { view.convert(view.pdfView.convert($0, from: page), from: view.pdfView) }
+            let area = NSRect(x: min(corners[0].x, corners[1].x), y: min(corners[0].y, corners[1].y),
+                              width: abs(corners[1].x - corners[0].x), height: abs(corners[1].y - corners[0].y))
+                .insetBy(dx: 4, dy: 4)
+            var coloured = 0
+            for column in 0...10 {
+                for row in 0...6 {
+                    let x = area.minX + area.width * CGFloat(column) / 10
+                    let y = area.minY + area.height * CGFloat(row) / 6
+                    guard let color = bitmap.colorAt(x: Int(x * CGFloat(bitmap.pixelsWide) / view.bounds.width),
+                                                     y: Int(y * CGFloat(bitmap.pixelsHigh) / view.bounds.height))?
+                            .usingColorSpace(.deviceRGB) else { coloured += 1; continue }
+                    let channels = [color.redComponent, color.greenComponent, color.blueComponent]
+                    if channels.max()! - channels.min()! > 0.08 { coloured += 1 }
+                }
+            }
+            return coloured
+        }
+        let photoPixels = colouredPixels()
         func mouse(_ type: NSEvent.EventType, at point: NSPoint) -> NSEvent {
             NSEvent.mouseEvent(with: type, location: view.pdfView.convert(view.pdfView.convert(point, from: page), to: nil),
                 modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
@@ -2080,14 +2105,8 @@ final class ShareComposerView: NSView {
         view.pdfView.mouseUp(with: mouse(.leftMouseUp, at: b))
         paint()
         require(view.masks.count == 2, "A native mouse drag can redact an arbitrary PDF area")
-        if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
-            view.cacheDisplay(in: view.bounds, to: bitmap)
-            let sample = view.convert(view.pdfView.convert(NSPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2), from: page), from: view.pdfView)
-            let color = bitmap.colorAt(x: Int(sample.x * CGFloat(bitmap.pixelsWide) / view.bounds.width),
-                                       y: Int(sample.y * CGFloat(bitmap.pixelsHigh) / view.bounds.height))?.usingColorSpace(.deviceRGB)
-            require(color != nil && color!.redComponent < 0.5 && color!.greenComponent < 0.5 && color!.blueComponent < 0.5,
-                    "The native PDF preview paints opaque mask pixels over the selected area")
-        }
+        require(photoPixels >= 20 && photoPixels != .max && colouredPixels() == 0,
+                "The native PDF preview paints opaque mask pixels over the selected area")
         capture("")
         var configuration: ShareConfiguration?
         view.onCreate = { configuration = $0 }
