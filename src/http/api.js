@@ -21,6 +21,8 @@ import { passiveInlineType } from './passive-types.js';
 // Rows on each side of a cited cell in the suggestion card. The card shows as
 // many as fit around the citation, so a footnote still has its table above it.
 const ASSIST_TABLE_RADIUS = 4;
+// Rows of a cited column the card can scroll through; it counts the rest.
+const ASSIST_COLUMN_ROWS = 100;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -448,7 +450,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           preview = path.extname(file?.path ?? '').toLowerCase() === '.pdf'
             ? buildInspectorPreview(sourceFile, resolved.source.anchor, resolved.source.metadata, resolved.source.label, resolved.source.objectType)
             : buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata, ASSIST_TABLE_RADIUS,
-              resolved.source.objectType, { display: true });
+              resolved.source.objectType, { display: true, columnRows: ASSIST_COLUMN_ROWS });
           // Text, Markdown and Word sources show the cited passage in context.
           if (!preview && isTextPreviewPath(file?.path)) {
             preview = buildInspectorPreview(sourceFile, resolved.source.anchor, resolved.source.metadata,

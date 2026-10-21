@@ -33,10 +33,11 @@ const FULL_TEXT_EXTENSIONS = new Set([
 
 
 /**
- * Builds a few rows of context around the cited cell.
+ * Builds a few rows of context around the cited cell, or with `columnRows`
+ * up to that many rows of a cited column (see tableContext).
  * Returns null for sources that are not tabular.
  */
-export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, objectType = '', { display = false } = {}) {
+export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, objectType = '', { display = false, columnRows = 0 } = {}) {
   if (!file?.content || !file?.path) return null;
   const extension = path.extname(file.path).toLowerCase();
   if (extension === '.pdf') {
@@ -76,7 +77,7 @@ export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, 
   if (!layout.headers.length) return null;
 
   const table = selectedTable ?? { rows: rawRows };
-  const context = tableContext(table, anchor, radius, layout.headerRowIndex, { display });
+  const context = tableContext(table, anchor, radius, layout.headerRowIndex, { display, columnRows });
   if (!context || !objectType) return context;
 
   // Local suggestions identify the word/value that was inserted. Public shares

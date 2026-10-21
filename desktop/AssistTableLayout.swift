@@ -5,6 +5,15 @@ import Cocoa
 /// text overflows into empty cells to its right, as it does in the sheet.
 /// Pure layout, so the card and its tests share it.
 struct AssistTableLayout {
+    /// A whole column, listed from its first row instead of around one cited
+    /// cell. It scrolls, and the card says how many rows are below the ones shown.
+    struct Listing: Equatable {
+        /// The row scrolled to the top; the layout keeps it in range.
+        var firstRow = 0
+        /// Rows of the column the server left out after the last row it sent.
+        var moreRows = 0
+    }
+
     struct Cell: Equatable {
         /// Index into `visibleColumns`.
         let column: Int
@@ -23,6 +32,8 @@ struct AssistTableLayout {
     static let letterHeight: CGFloat = 13
     static let headerTopPadding: CGFloat = 7
     static let headerBottomPadding: CGFloat = 8
+    /// The line under a listed column that counts the rows below it.
+    static let moreRowsHeight: CGFloat = 22
     private static let maximumColumns = 6
     private static let minimumLabelShare: CGFloat = 0.3
     private static let maximumLabelShare: CGFloat = 0.5
@@ -40,6 +51,12 @@ struct AssistTableLayout {
     let rowRange: Range<Int>
     /// Heights of the rows in `rowRange`. A cited cell too long for one line wraps.
     let rowHeights: [CGFloat]
+    /// Rows of a listed column below `rowRange`, counting rows the server left
+    /// out. Always 0 around a cited cell.
+    let rowsBelow: Int
+    /// The highest row a listed column can scroll to the top: from there its
+    /// last rows fit. 0 when every row fits, or around a cited cell.
+    let lastFirstRow: Int
     private let measure: (String, NSFont) -> CGFloat
 
     static func textWidth(_ text: String, _ font: NSFont) -> CGFloat {
@@ -50,7 +67,7 @@ struct AssistTableLayout {
         ceil(font.ascender - font.descender + font.leading) + 1
     }
 
-    init(headers: [String], rows: [AssistPreviewRow], size: CGSize,
+    init(headers: [String], rows: [AssistPreviewRow], size: CGSize, listing: Listing? = nil,
          measure: @escaping (String, NSFont) -> CGFloat = AssistTableLayout.textWidth) {
         self.measure = measure
         let columnCount = max(1, headers.count, rows.map(\.cells.count).max() ?? 0)
@@ -66,7 +83,18 @@ struct AssistTableLayout {
         let header = Self.headerHeight(headers: headers, columns: columns, widths: widths, measure: measure)
         let base = rowHeight
         let heights = rows.map { Self.height(of: $0, columns: columns, widths: widths, base: base, measure: measure) }
-        let range = Self.fittingRows(heights: heights, around: citedRow, available: size.height - header)
+        let available = size.height - header
+        let range: Range<Int>
+        if let listing {
+            lastFirstRow = Self.lastFirstRow(heights: heights, available: available, moreRows: listing.moreRows)
+            range = Self.listedRows(heights: heights, from: min(max(0, listing.firstRow), lastFirstRow),
+                                    available: available, moreRows: listing.moreRows)
+            rowsBelow = heights.count - range.upperBound + max(0, listing.moreRows)
+        } else {
+            lastFirstRow = 0
+            range = Self.fittingRows(heights: heights, around: citedRow, available: available)
+            rowsBelow = 0
+        }
         visibleColumns = columns
         columnWidths = widths
         numericColumns = Set(columns.indices.filter { Self.isNumericColumn(columns[$0], rows: rows) })
@@ -244,6 +272,8 @@ struct AssistTableLayout {
         headerHeight = 0
         rowRange = 0..<0
         rowHeights = []
+        rowsBelow = 0
+        lastFirstRow = 0
     }
 
     /// The cited row and as many rows around it as fit, taking one above,
@@ -262,5 +292,31 @@ struct AssistTableLayout {
             above.toggle()
         }
         return lower..<upper
+    }
+
+    /// Rows from `first` down while they fit, leaving room for the count of
+    /// rows below when some are left out. At least one row is shown.
+    private static func listedRows(heights: [CGFloat], from first: Int, available: CGFloat,
+                                   moreRows: Int) -> Range<Int> {
+        guard heights.indices.contains(first) else { return 0..<0 }
+        if moreRows <= 0, heights[first...].reduce(0, +) <= available { return first..<heights.count }
+        var upper = first, used: CGFloat = 0
+        while upper < heights.count, used + heights[upper] <= available - moreRowsHeight {
+            used += heights[upper]
+            upper += 1
+        }
+        return first..<max(upper, first + 1)
+    }
+
+    /// The first row from which the column's last rows fit, with the count
+    /// line still under them when the server left rows out.
+    private static func lastFirstRow(heights: [CGFloat], available: CGFloat, moreRows: Int) -> Int {
+        let room = available - (moreRows > 0 ? moreRowsHeight : 0)
+        var first = heights.count, used: CGFloat = 0
+        while first > 0, used + heights[first - 1] <= room {
+            used += heights[first - 1]
+            first -= 1
+        }
+        return min(first, max(0, heights.count - 1))
     }
 }

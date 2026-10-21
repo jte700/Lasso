@@ -45,6 +45,12 @@ enum BrowserGeometryRegression {
                         response["checks"] = GlobalAssistant.regressionModelOrbit(
                             data: previewData, outputDirectory: request["output"] as? String)
                     } else { response["error"] = "Model preview JSON is missing." }
+                } else if request["command"] as? String == "column-scroll" {
+                    if let input = request["input"] as? String,
+                       let previewData = try? Data(contentsOf: URL(fileURLWithPath: input)) {
+                        response["checks"] = GlobalAssistant.regressionColumnScroll(
+                            data: previewData, outputDirectory: request["output"] as? String)
+                    } else { response["error"] = "Column preview JSON is missing." }
                 } else if request["command"] as? String == "notch-panel" {
                     response.merge(NotchPanelController.regression(outputPath: request["output"] as? String)) { _, new in new }
                 } else if request["command"] as? String == "suggestion-navigation" {

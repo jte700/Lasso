@@ -1368,6 +1368,36 @@ do {
           "a cited last row is shown with as many rows above it as fit")
     let used = tallLayout.headerHeight + tallLayout.rowHeights.reduce(0, +)
     check(used <= size.height && used + tallLayout.rowHeight > size.height, "rows fill the available height")
+    check(tallLayout.rowsBelow == 0, "a cited cell's context does not count rows below it")
+
+    // A column name's preview lists its whole column, heading row first.
+    let column = (1...12).map { row($0, ["Supplier \($0)", "2026-09-\(10 + $0)"], cited: $0 == 1 ? 1 : nil) }
+    let columnHeaders = ["Supplier", "Invoice Date"]
+    let listed = AssistTableLayout(headers: columnHeaders, rows: column, size: size,
+                                   listing: .init(), measure: measure)
+    check(listed.rowRange.lowerBound == 0 && listed.rowRange.count > 3 && listed.rowRange.upperBound < column.count,
+          "a column too long for the card starts at its first row")
+    check(listed.rowsBelow == column.count - listed.rowRange.upperBound, "the rows below the ones shown are counted")
+    let listedHeight = listed.headerHeight + listed.rowHeights.reduce(0, +) + AssistTableLayout.moreRowsHeight
+    check(listedHeight <= size.height, "the count of rows below fits under the rows shown")
+    check(listed.lastFirstRow > 0, "a column too long for the card scrolls")
+    let scrolled = AssistTableLayout(headers: columnHeaders, rows: column, size: size,
+                                     listing: .init(firstRow: 2), measure: measure)
+    check(scrolled.rowRange.lowerBound == 2 && scrolled.visibleColumns == listed.visibleColumns
+          && scrolled.columnWidths == listed.columnWidths, "scrolling moves the rows and keeps the columns still")
+    let bottom = AssistTableLayout(headers: columnHeaders, rows: column, size: size,
+                                   listing: .init(firstRow: 100), measure: measure)
+    check(bottom.rowRange.upperBound == column.count && bottom.rowRange.lowerBound == listed.lastFirstRow
+          && bottom.rowsBelow == 0, "scrolling stops once the last row is shown")
+    check(bottom.headerHeight + bottom.rowHeights.reduce(0, +) <= size.height, "the last rows fit without a count")
+    let few = Array(column.prefix(4))
+    let whole = AssistTableLayout(headers: columnHeaders, rows: few, size: size, listing: .init(), measure: measure)
+    check(whole.rowRange == 0..<4 && whole.rowsBelow == 0 && whole.lastFirstRow == 0,
+          "a short column shows every row with nothing to scroll")
+    let unsent = AssistTableLayout(headers: columnHeaders, rows: few, size: size,
+                                   listing: .init(moreRows: 40), measure: measure)
+    check(unsent.rowRange == 0..<4 && unsent.rowsBelow == 40 && unsent.lastFirstRow == 0,
+          "rows of the column the server left out are counted too")
 }
 
 print("directory colors follow accepted source references")

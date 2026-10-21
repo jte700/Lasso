@@ -505,6 +505,9 @@ struct AssistDocumentPreview {
     let columns: [String]
     let headers: [String]
     let rows: [AssistPreviewRow]
+    /// Set when `rows` list a whole column from its first row: how many rows
+    /// of the column the server left out after them. Nil around a cited cell.
+    var moreRows: Int? = nil
     var model: AssistModelPreview? = nil
     var unavailableReason: String? = nil
     var pdf: AssistPDFPreview? = nil
@@ -557,6 +560,7 @@ struct AssistDocumentPreview {
             rows: rows, model: model, unavailableReason: unavailable,
             pdf: pdf)
         result.openTarget = AssistOpenTarget(json: preview["openAt"])
+        result.moreRows = (preview["moreRows"] as? NSNumber)?.intValue
         if kind == "text" {
             result.isMarkdown = preview["format"] as? String == "markdown"
             result.textBlocks = result.isMarkdown

@@ -628,13 +628,16 @@ final class AssistBoxView: NSView {
     /// unfocused card back into it.
     var returnFocusName: String?
     var preview: AssistDocumentPreview? {
-        didSet { modelView = AssistModelView(); modelDrag = nil }
+        didSet { modelView = AssistModelView(); modelDrag = nil; tableFirstRow = 0; tableScroll = 0 }
     }
     var isPreviewLoading = false
     var previewError: String?
     /// How a rotatable model preview is turned and zoomed; each new preview starts as sent.
     private(set) var modelView = AssistModelView()
     private var modelDrag: (start: NSPoint, view: AssistModelView)?
+    /// The row a listed column is scrolled to, and scrolling not yet a whole row.
+    private(set) var tableFirstRow = 0
+    private var tableScroll: CGFloat = 0
     var onSelectRow: ((Int) -> Void)?
     var onInsert: (() -> Void)?
     var onLocalLink: (() -> Void)?
@@ -977,6 +980,25 @@ final class AssistBoxView: NSView {
         return model
     }
 
+    /// Scrolls a listed column under `point` by whole rows, the content
+    /// following the fingers as in a scroll view; a wheel notch moves one row.
+    /// False when the pointer is elsewhere or every row already fits.
+    private func scrollTable(by event: NSEvent, at point: NSPoint) -> Bool {
+        guard mode == .suggestions, !isPreviewLoading, let preview, preview.moreRows != nil,
+              preview.model == nil, preview.pdfPage == nil, documentPreviewRect.contains(point) else { return false }
+        let layout = tableLayout(preview, in: documentPreviewRect)
+        guard layout.lastFirstRow > 0 else { return false }
+        tableScroll -= event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * layout.rowHeight
+        let rows = Int(tableScroll / layout.rowHeight)
+        tableScroll -= CGFloat(rows) * layout.rowHeight
+        let firstRow = min(max(0, tableFirstRow + rows), layout.lastFirstRow)
+        if firstRow != tableFirstRow {
+            tableFirstRow = firstRow
+            needsDisplay = true
+        }
+        return true
+    }
+
     private func zoomModel(by factor: CGFloat, at point: NSPoint) -> Bool {
         guard let model = rotatableModel(at: point) else { return false }
         modelView = modelView.zoomed(by: factor, within: AssistModelRenderer.zoomRange(for: model, in: documentPreviewRect))
@@ -1120,15 +1142,23 @@ final class AssistBoxView: NSView {
         outline.stroke()
     }
 
+    /// A whole column is listed from its first row, scrolled to `tableFirstRow`.
+    private func tableLayout(_ preview: AssistDocumentPreview, in rect: NSRect) -> AssistTableLayout {
+        AssistTableLayout(headers: preview.headers, rows: preview.rows, size: rect.size,
+                          listing: preview.moreRows.map { .init(firstRow: tableFirstRow, moreRows: $0) })
+    }
+
     /// Draws the cited cell with the rows and columns around it, laid out by
     /// AssistTableLayout: numbers as the sheet shows them, notes overflowing
-    /// into empty cells, and the column letter above each heading.
+    /// into empty cells, and the column letter above each heading. A listed
+    /// column ends with how many of its rows are below the ones shown.
     private func drawTablePreview(_ preview: AssistDocumentPreview, in rect: NSRect) {
         let projectId = suggestions.indices.contains(selected) ? suggestions[selected].projectId : nil
         let sourceColor = DirectoryColorPreferences.color(for: projectId)?.color ?? .systemGreen
-        let layout = AssistTableLayout(headers: preview.headers, rows: preview.rows, size: rect.size)
+        let layout = tableLayout(preview, in: rect)
         let rows = Array(preview.rows[layout.rowRange])
-        let tableHeight = layout.headerHeight + layout.rowHeights.reduce(0, +)
+        let countHeight = layout.rowsBelow > 0 ? AssistTableLayout.moreRowsHeight : 0
+        let tableHeight = layout.headerHeight + layout.rowHeights.reduce(0, +) + countHeight
         let table = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: tableHeight)
         let roundedTable = NSBezierPath(roundedRect: table, xRadius: 8, yRadius: 8)
         NSColor.textBackgroundColor.withAlphaComponent(0.65).setFill()
@@ -1145,6 +1175,10 @@ final class AssistBoxView: NSView {
                                                                        height: height),
                                           afterGap: gap, sourceColor: sourceColor)
             y += height
+        }
+        if layout.rowsBelow > 0 {
+            drawRowsBelow(layout.rowsBelow, scrollable: layout.rowRange.upperBound < preview.rows.count,
+                          in: NSRect(x: table.minX, y: y, width: table.width, height: countHeight))
         }
         for outline in citedOutlines {
             sourceColor.withAlphaComponent(0.65).setStroke()
@@ -1179,6 +1213,19 @@ final class AssistBoxView: NSView {
                               lineSpacing: 0)
             if index > 0 { drawGridLine(x: x, from: table.minY, to: table.minY + layout.headerHeight) }
         }
+    }
+
+    private func drawRowsBelow(_ count: Int, scrollable: Bool, in rect: NSRect) {
+        NSColor.separatorColor.withAlphaComponent(0.11).setStroke()
+        let line = NSBezierPath()
+        line.lineWidth = 0.5
+        line.move(to: NSPoint(x: rect.minX, y: rect.minY))
+        line.line(to: NSPoint(x: rect.maxX, y: rect.minY))
+        line.stroke()
+        let rows = count == 1 ? "1 more row" : "\(count) more rows"
+        drawText(scrollable ? "\(rows) below · scroll to see them" : "\(rows) in the file",
+                 in: NSRect(x: rect.minX + 8, y: rect.minY + 4, width: rect.width - 16, height: 14),
+                 font: NSFont.systemFont(ofSize: 10), color: .secondaryLabelColor, alignment: .center)
     }
 
     /// Draws one row and returns the outline of its cited cell, if any.
@@ -1344,7 +1391,8 @@ final class AssistBoxView: NSView {
         // the scrolling direction setting.
         let away = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
         let speed: CGFloat = event.hasPreciseScrollingDeltas ? 0.01 : 0.1
-        if !zoomModel(by: exp(away * speed), at: convert(event.locationInWindow, from: nil)) { super.scrollWheel(with: event) }
+        let point = convert(event.locationInWindow, from: nil)
+        if !scrollTable(by: event, at: point), !zoomModel(by: exp(away * speed), at: point) { super.scrollWheel(with: event) }
     }
 
     override func magnify(with event: NSEvent) {
@@ -2542,6 +2590,50 @@ final class GlobalAssistant {
         card.mouseDragged(with: mouse(.leftMouseDragged, at: NSPoint(x: outside.x + 90, y: outside.y)))
         card.mouseUp(with: mouse(.leftMouseUp, at: outside))
         checks["dragging outside the drawing does not turn it"] = card.modelView == AssistModelView()
+        return checks
+    }
+
+    /// Scrolls a real API response's whole-column table preview in the card
+    /// with real scroll events. Writes first-row and last-row PNGs when
+    /// `outputDirectory` is given.
+    static func regressionColumnScroll(data: Data, outputDirectory: String? = nil) -> [String: Bool] {
+        guard let preview = parsePreview(data), preview.moreRows != nil, !preview.rows.isEmpty else {
+            return ["the preview lists a whole column": false]
+        }
+        let card = regressionCard(showing: preview)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: card.frame.size),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = card
+        defer { window.contentView = nil }
+        func scroll(_ pixels: Int32, at point: NSPoint) {
+            // The window sits at the screen origin, so screen and window points agree.
+            let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
+                                wheel1: pixels, wheel2: 0, wheel3: 0)
+            let screen = card.convert(point, to: nil)
+            event?.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
+            if let event = event.flatMap(NSEvent.init(cgEvent:)) { card.scrollWheel(with: event) }
+        }
+        let save = { (name: String) in
+            outputDirectory.map { writePNG(of: card, to: URL(fileURLWithPath: $0).appendingPathComponent(name)) } ?? true
+        }
+        let table = NSPoint(x: card.documentPreviewRect.midX, y: card.documentPreviewRect.midY)
+        var checks = ["writes the card as sent": save("column-first-rows.png"),
+                      "a column starts at its first row": card.tableFirstRow == 0]
+        // Pushing two fingers up moves the rows up, bringing the ones below into view.
+        let steps = preview.rows.count + 10
+        for _ in 0..<steps { scroll(-60, at: table) }
+        checks["scrolling up shows the rows below"] = card.tableFirstRow > 0
+        checks["writes the card scrolled to the end"] = save("column-last-rows.png")
+        let last = card.tableFirstRow
+        scroll(-60, at: table)
+        checks["scrolling stops at the last row"] = card.tableFirstRow == last
+        scroll(-60, at: NSPoint(x: card.documentPreviewRect.midX, y: card.documentPreviewRect.maxY + 30))
+        checks["scrolling outside the table leaves it"] = card.tableFirstRow == last
+        for _ in 0..<steps { scroll(60, at: table) }
+        checks["scrolling back returns to the first row"] = card.tableFirstRow == 0
+        scroll(-60, at: table)
+        card.preview = preview
+        checks["a new preview starts at its first row"] = card.tableFirstRow == 0
         return checks
     }
 

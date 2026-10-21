@@ -10,9 +10,11 @@ const numeric=value=>text(value)!=='' && /^[-+($€£¥]?\s*\d[\d,.\s%/():-]*$/.
 /**
  * Rows around a cited cell. With `display`, number cells read as the sheet
  * shows them ($129,950); otherwise they keep the stored value, as shares and
- * their downloads must.
+ * their downloads must. With `columnRows`, a whole-column citation lists its
+ * column from the heading down, up to that many rows, and `moreRows` counts
+ * the rows of its table left out below them.
  */
-export function tableContext(table, anchor={}, radius=2, fallbackHeader=-1, { display=false }={}) {
+export function tableContext(table, anchor={}, radius=2, fallbackHeader=-1, { display=false, columnRows=0 }={}) {
  const rows=table.rows??[], numbers=table.rowNumbers??rows.map((_,i)=>i+1);
  const columnCitation=anchor.kind==='table-column'||(!Number.isInteger(anchor.rowIndex)&&!text(anchor.rowKey)&&(Number.isInteger(anchor.columnIndex)||anchor.column!=null));
  let target=Number.isInteger(anchor.rowIndex)?(anchor.rowCoordinate==='worksheet'?numbers.indexOf(anchor.rowIndex):anchor.rowIndex):text(anchor.rowKey)?rows.findIndex(r=>r.some(c=>text(c)===text(anchor.rowKey))):-1;
@@ -24,7 +26,8 @@ export function tableContext(table, anchor={}, radius=2, fallbackHeader=-1, { di
  if(target<0||target>=rows.length)return null;
  const physical=numbers[target], targetColumn=Number.isInteger(anchor.columnIndex)?anchor.columnIndex:null;
  const region=table.tables?.find(t=>physical>=t.firstRow&&physical<=t.lastRow&&(targetColumn==null||targetColumn>=t.firstColumn&&targetColumn<=t.lastColumn));
- const width=Math.max(0,...rows.slice(Math.max(0,target-radius),target+radius+1).map(r=>r.length),region?region.lastColumn+1:0);
+ const wholeColumn=columnCitation&&columnRows>0;
+ const width=Math.max(0,...rows.slice(Math.max(0,target-radius),target+(wholeColumn?columnRows:radius+1)).map(r=>r.length),region?region.lastColumn+1:0);
  if(!width)return null;
  // Header detection above reads stored values; output cells may read as the sheet shows them.
  const shown=(row,column)=>text((display?table.displayRows?.[row]?.[column]:null)??rows[row]?.[column]);
@@ -76,8 +79,10 @@ export function tableContext(table, anchor={}, radius=2, fallbackHeader=-1, { di
  const headers=headerText(), shownHeaders=display?headerText(shown):headers;
  const headerEnd=headerRows.length?Math.max(...headerRows):region?-1:header;
  let start=Math.max(0,target-radius,headerEnd+1), end=Math.min(rows.length,target+radius+1);
+ if(wholeColumn){start=Math.min(target,Math.max(0,headerEnd+1));end=Math.min(rows.length,Math.max(start+columnRows,target+1));}
  if(region){while(start<target&&numbers[start]<region.firstRow+region.headerRowCount)start++;while(end>target+1&&numbers[end-1]>region.lastRow)end--;}
  if(start>target)start=target;
+ const moreRows=numbers.slice(end).filter(n=>!region||n<=region.lastRow).length;
  const selected=targetColumn??(anchor.column!=null?headers.indexOf(String(anchor.column)):-1);
  const keep=Array.from({length:width},(_,i)=>i).filter(c=>(!region||c>=region.firstColumn&&c<=region.lastColumn)&&(headers[c]||c===selected||rows.slice(start,end).some(r=>text(r[c]))));
  return {
@@ -86,5 +91,6 @@ export function tableContext(table, anchor={}, radius=2, fallbackHeader=-1, { di
   headerRowNumbers:headerRows.map(row=>numbers[row]),
   columnCitation,
   rows:rows.slice(start,end).map((row,i)=>({rowNumber:numbers[start+i],cells:keep.map(c=>({value:shown(start+i,c),cited:columnCitation?c===selected&&Boolean(text(row[c])):start+i===target&&(selected<0||c===selected)}))})),
+  ...(wholeColumn?{moreRows}:{}),
  };
 }
