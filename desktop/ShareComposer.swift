@@ -108,11 +108,11 @@ final class ShareComposerController: NSObject {
 
     func moveScope(_ delta: Int) {
         guard isVisible, !view.isCopying else { return }
-        let scopes: [ShareAccessScope] = [.document, .indexed, .redacted]
-        let index = scopes.firstIndex(of: view.scope) ?? 1
-        view.scope = scopes[(index + delta + scopes.count) % scopes.count]
-        view.needsDisplay = true
+        view.moveScope(delta)
     }
+
+    func undoRedaction() { if isVisible { view.undoMaskEdit() } }
+    func redoRedaction() { if isVisible { view.redoMaskEdit() } }
 
     func cancel() {
         hide()
@@ -271,7 +271,9 @@ final class ShareComposerController: NSObject {
                     guard let self, token == self.generation else { return }
                     if endpoint == "preview" {
                         self.view.preview = data.flatMap(GlobalAssistant.parsePreview)
+                        self.view.citedPart = data.flatMap(Self.citedPart)
                         self.view.isLoading = false
+                        self.view.keepOfferedScope()
                         self.view.initializePDFExcerpt()
                     } else {
                         self.view.fullDocument = data.flatMap(ShareFullDocument.parse)
@@ -286,6 +288,13 @@ final class ShareComposerController: NSObject {
             requests.append(task)
             task.resume()
         }
+    }
+
+    /// The part a cited-part link of a 3D model would publish, as the server prepared it.
+    fileprivate static func citedPart(_ data: Data) -> AssistModelPreview? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let part = root["citedPart"] as? [String: Any] else { return nil }
+        return AssistModelPreview(json: part)
     }
 
     private func loadPDFDocument(_ preview: AssistPDFPreview, serverURL: URL, token: Int) {
@@ -755,12 +764,18 @@ final class ShareComposerView: NSView {
                 pdfView.cancelInteraction()
                 redactionDrag = nil
                 drawingDrag = nil
+                // Each scope shows its own model, which starts as sent.
+                modelView = AssistModelView()
+                modelDrag = nil
                 targets.removeAll()
                 clearCopyConfirmation()
             }
         }
     }
     var preview: AssistDocumentPreview? { didSet { previewRevision += 1; targets.removeAll() } }
+    /// What "Cited part only" publishes for a 3D CAD model: the cited part
+    /// alone, its feature marked. Nil when the citation names no single part.
+    var citedPart: AssistModelPreview?
     var fullDocument: ShareFullDocument? { didSet { previewRevision += 1; targets.removeAll() } }
     var isLoading = true
     var isDocumentLoading = true
@@ -779,6 +794,9 @@ final class ShareComposerView: NSView {
     private var masks: [String: ShareRedaction] = [:] {
         didSet { if masks != oldValue { clearCopyConfirmation() } }
     }
+    private var history = ShareMaskHistory()
+    /// The masks when the drag or click being made began.
+    private var gestureMasks: [String: ShareRedaction]?
     private var targets: [ShareHitTarget] = []
     private var sheetTabTargets: [(rect: NSRect, index: Int)] = []
     private var sheetIndex = 0
@@ -852,6 +870,11 @@ final class ShareComposerView: NSView {
     private var redactionDrag: ShareRedactionDrag?
     private var drawingLayout: ShareDrawingLayout?
     private var drawingDrag: (start: NSPoint, masks: [String: ShareRedaction], effect: ShareRedactionEffect)?
+    /// A STEP model turns and zooms here as it does in the card and the inspector.
+    private(set) var modelView = AssistModelView()
+    private var modelDrag: (start: NSPoint, view: AssistModelView)?
+    /// The rotatable model drawn last, and where.
+    private var shownModel: (model: AssistModelPreview, rect: NSRect)?
     private var notice: String?
 
     private let headerHeight: CGFloat = 42
@@ -875,6 +898,26 @@ final class ShareComposerView: NSView {
     }
 
     private var isPDFSource: Bool { (filename as NSString).pathExtension.lowercased() == "pdf" || fullDocument?.kind == "pdf" }
+    private var isCADModel: Bool { ["step", "stp"].contains((filename as NSString).pathExtension.lowercased()) }
+
+    /// The scopes this source offers. A model's cited part is offered while
+    /// its preview loads, so the protective choice stays selected meanwhile.
+    var scopes: [ShareAccessScope] {
+        ShareAccessScope.offered(isCADModel: isCADModel, hasCitedPart: citedPart != nil || isLoading)
+    }
+
+    /// Once the preview shows the citation names no part, only what is offered stays chosen.
+    func keepOfferedScope() {
+        if !scopes.contains(scope) { scope = scopes[0] }
+        needsDisplay = true
+    }
+
+    func moveScope(_ delta: Int) {
+        let offered = scopes
+        let index = offered.firstIndex(of: scope) ?? 0
+        scope = offered[(index + delta + offered.count) % offered.count]
+        needsDisplay = true
+    }
 
     private var canSubmit: Bool {
         guard !isCopying else { return false }
@@ -891,7 +934,8 @@ final class ShareComposerView: NSView {
     }
 
     private func scopeRect(_ index: Int) -> NSRect {
-        let width = (bounds.width - 44) / 3
+        let count = CGFloat(scopes.count)
+        let width = (bounds.width - 32 - 6 * (count - 1)) / count
         return NSRect(x: 16 + CGFloat(index) * (width + 6), y: 47,
                       width: width, height: 48)
     }
@@ -911,10 +955,7 @@ final class ShareComposerView: NSView {
         case 48, 36, 76: submit()
         case 123, 124, 125, 126:
             guard !isCopying else { return }
-            let scopes: [ShareAccessScope] = [.document, .indexed, .redacted]
-            let delta = [123, 126].contains(event.keyCode) ? -1 : 1
-            scope = scopes[((scopes.firstIndex(of: scope) ?? 1) + delta + scopes.count) % scopes.count]
-            needsDisplay = true
+            moveScope([123, 126].contains(event.keyCode) ? -1 : 1)
         default: super.keyDown(with: event)
         }
     }
@@ -933,7 +974,12 @@ final class ShareComposerView: NSView {
         localOnly = true
         copyState = .idle
         effect = .blur
+        modelView = AssistModelView()
+        modelDrag = nil
         masks.removeAll()
+        history.clear()
+        gestureMasks = nil
+        citedPart = nil
         blurredMasks.removeAll()
         redactionDrag = nil
         drawingDrag = nil
@@ -969,6 +1015,7 @@ final class ShareComposerView: NSView {
         copyState = .copying
         redactionDrag = nil
         drawingDrag = nil
+        endMaskEdit()
         notice = nil
         needsDisplay = true
     }
@@ -997,6 +1044,7 @@ final class ShareComposerView: NSView {
         showsPDFPreview = false
         sheetTabTargets.removeAll()
         drawingLayout = nil
+        shownModel = nil
         NSGraphicsContext.current?.cgContext.clear(bounds)
         NSGraphicsContext.current?.saveGraphicsState()
         NSBezierPath(roundedRect: bounds, xRadius: ShareComposerSurface.cornerRadius,
@@ -1033,11 +1081,13 @@ final class ShareComposerView: NSView {
     }
 
     private func drawScopes() {
-        let entries: [(ShareAccessScope, String, String)] = [
-            (.document, "Entire document", "Include the original file"),
-            (.indexed, "Cited part only", "Share the matched context"),
-            (.redacted, "Select & redact", "Hide source content"),
-        ]
+        let entries: [(ShareAccessScope, String, String)] = scopes.map { scope in
+            switch scope {
+            case .document: return (scope, "Entire document", "Include the original file")
+            case .indexed: return (scope, "Cited part only", isCADModel ? "The part, its feature marked" : "Share the matched context")
+            case .redacted: return (scope, "Select & redact", "Hide source content")
+            }
+        }
         for (index, entry) in entries.enumerated() {
             let row = scopeRect(index)
             if scope == entry.0 {
@@ -1090,7 +1140,7 @@ final class ShareComposerView: NSView {
         let drawing = fullDocument?.model != nil
         let subtitle = scope == .redacted ? (drawing || isPDF ? "Drag over text or mark an area. Click a mask to remove it." : "Drag across cells or sections to blur or redact.") : scope == .indexed && isPDF
             ? (isChoosingPDFExcerpt ? "Select the words, sentence, paragraph or area to share." : "Only the selected excerpt will be shared.") : scope == .indexed
-            ? (preview?.location.isEmpty == false ? preview!.location : filename)
+            ? (citedPart.map(\.selectedLabel) ?? (preview?.location.isEmpty == false ? preview!.location : filename))
             : "Complete \(filename)"
         drawText(subtitle, in: NSRect(x: card.minX + 13, y: card.minY + 31,
                                      width: card.width - 26, height: 15),
@@ -1112,6 +1162,8 @@ final class ShareComposerView: NSView {
             } else {
                 drawCentered("Complete document preview unavailable", in: content)
             }
+        } else if isCADModel, let citedPart {
+            drawRotatable(citedPart, in: content)
         } else if isLoading {
             drawCentered("Loading source preview…", in: content)
         } else if let preview, !preview.rows.isEmpty {
@@ -1140,7 +1192,9 @@ final class ShareComposerView: NSView {
     }
 
     private func drawFullDocument(_ document: ShareFullDocument, in rect: NSRect) {
-        if let model = document.model {
+        if let model = document.model, model.orbit != nil, scope != .redacted {
+            drawRotatable(model, in: rect)
+        } else if let model = document.model {
             AssistModelRenderer.draw(model, in: rect)
             drawingLayout = ShareDrawingLayout(model: model, in: rect)
             if scope == .redacted, let layout = drawingLayout {
@@ -1159,6 +1213,24 @@ final class ShareComposerView: NSView {
         } else {
             drawCentered(document.unavailableReason ?? "This document has no previewable content", in: rect)
         }
+    }
+
+    private func drawRotatable(_ model: AssistModelPreview, in rect: NSRect) {
+        AssistModelRenderer.draw(model, in: rect, view: model.orbit == nil ? nil : modelView)
+        if model.orbit != nil { shownModel = (model, rect) }
+    }
+
+    /// The model under `point`, if it can be turned there.
+    private func rotatableModel(at point: NSPoint) -> AssistModelPreview? {
+        guard !isCopying, let shownModel, shownModel.rect.contains(point) else { return nil }
+        return shownModel.model
+    }
+
+    private func zoomModel(by factor: CGFloat, at point: NSPoint) -> Bool {
+        guard let model = rotatableModel(at: point), let rect = shownModel?.rect else { return false }
+        modelView = modelView.zoomed(by: factor, within: AssistModelRenderer.zoomRange(for: model, in: rect))
+        needsDisplay = true
+        return true
     }
 
     private var blurEffectRect: NSRect { NSRect(x: bounds.width - 136, y: 103, width: 60, height: 24) }
@@ -1273,10 +1345,12 @@ final class ShareComposerView: NSView {
                 needsDisplay = true
                 return
             }
+            beginMaskEdit()
             for region in regions {
                 let mask = region.redaction(effect: effect)
                 masks[mask.locationKey] = mask
             }
+            endMaskEdit()
             pdfView.clearSelection()
         }
         notice = nil
@@ -1286,7 +1360,9 @@ final class ShareComposerView: NSView {
     private func removePDFMask(page: PDFPage, point: NSPoint) -> Bool {
         guard scope == .redacted, !isCopying,
               let annotation = page.annotations.compactMap({ $0 as? SharePDFMaskAnnotation }).first(where: { $0.bounds.contains(point) }) else { return false }
+        beginMaskEdit()
         masks.removeValue(forKey: annotation.maskKey)
+        endMaskEdit()
         needsDisplay = true
         return true
     }
@@ -1655,6 +1731,7 @@ final class ShareComposerView: NSView {
         let anchor = target.redaction(effect: effect)
         let drag = ShareRedactionDrag(anchor: anchor, masks: masks)
         redactionDrag = drag
+        beginMaskEdit()
         masks = drag.masks(through: anchor)
         needsDisplay = true
     }
@@ -1663,6 +1740,7 @@ final class ShareComposerView: NSView {
     fileprivate func previewMouseUp(at point: NSPoint) {
         updateRedactionDrag(at: point)
         redactionDrag = nil
+        endMaskEdit()
     }
 
     private func drawMask(_ effect: ShareRedactionEffect, in rect: NSRect, value: String,
@@ -1711,7 +1789,7 @@ final class ShareComposerView: NSView {
         let detail: String
         switch scope {
         case .document: detail = "Recipients can download the pinned original."
-        case .indexed: detail = "Only indexed context is published."
+        case .indexed: detail = isCADModel ? "Only the cited part is published, not the model file." : "Only indexed context is published."
         case .redacted: detail = masks.isEmpty ? "Select at least one area to redact." : "\(masks.count) area\(masks.count == 1 ? "" : "s") removed from the shared view."
         }
         drawSymbol("lock.shield", in: NSRect(x: 18, y: centerY - 8, width: 16, height: 16), fraction: 0.8)
@@ -1743,6 +1821,7 @@ final class ShareComposerView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         redactionDrag = nil
         drawingDrag = nil
+        endMaskEdit()
         notice = nil
         if NSRect(x: bounds.width - 40, y: 7, width: 30, height: 30).contains(point) {
             onCancel?(); return
@@ -1758,6 +1837,12 @@ final class ShareComposerView: NSView {
             submit(); return
         }
         guard !isCopying else { return }
+        // Dragging a STEP model turns it; a double-click puts it back.
+        if rotatableModel(at: point) != nil {
+            if event.clickCount >= 2 { modelView = AssistModelView() } else { modelDrag = (point, modelView) }
+            needsDisplay = true
+            return
+        }
         if isPDFSource {
             if (scope == .redacted || (scope == .indexed && isChoosingPDFExcerpt)), pdfTextModeRect.contains(point) {
                 pdfSelectionMode = .text; needsDisplay = true; return
@@ -1769,13 +1854,10 @@ final class ShareComposerView: NSView {
                 isChoosingPDFExcerpt.toggle(); needsDisplay = true; return
             }
         }
-        for index in 0..<3 {
-            let rect = scopeRect(index)
-            if rect.contains(point) {
-                scope = [ShareAccessScope.document, .indexed, .redacted][index]
-                needsDisplay = true
-                return
-            }
+        for (index, offered) in scopes.enumerated() where scopeRect(index).contains(point) {
+            scope = offered
+            needsDisplay = true
+            return
         }
         if scope != .indexed,
            let tab = sheetTabTargets.first(where: { $0.rect.contains(point) }) {
@@ -1794,11 +1876,14 @@ final class ShareComposerView: NSView {
             }
             if let layout = drawingLayout, layout.frame.contains(point) {
                 if let mask = masks.values.first(where: { layout.rect(for: $0)?.contains(point) == true }) {
+                    beginMaskEdit()
                     masks.removeValue(forKey: mask.locationKey)
+                    endMaskEdit()
                 } else if masks.count >= 64 {
                     notice = "Use up to 64 drawing masks. Click a mask to remove it."
                 } else {
                     drawingDrag = (point, masks, effect)
+                    beginMaskEdit()
                 }
                 needsDisplay = true
                 return
@@ -1826,22 +1911,88 @@ final class ShareComposerView: NSView {
 
     override func scrollWheel(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        // Rolling a wheel away, or pushing two fingers away, zooms in, as in the card.
+        let away = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
         if !previewScroll.isHidden, previewScroll.frame.contains(point) {
             previewScroll.scrollWheel(with: event)
-        } else {
+        } else if !zoomModel(by: exp(away * (event.hasPreciseScrollingDeltas ? 0.01 : 0.1)), at: point) {
             super.scrollWheel(with: event)
         }
     }
 
+    override func magnify(with event: NSEvent) {
+        if !zoomModel(by: 1 + event.magnification, at: convert(event.locationInWindow, from: nil)) { super.magnify(with: event) }
+    }
+
     override func mouseDragged(with event: NSEvent) {
-        updateRedactionDrag(at: convert(event.locationInWindow, from: nil))
+        let point = convert(event.locationInWindow, from: nil)
+        if let drag = modelDrag, let sent = shownModel?.model.orbit?.camera {
+            modelView = drag.view.dragged(by: CGSize(width: point.x - drag.start.x, height: point.y - drag.start.y), from: sent)
+            needsDisplay = true
+            return
+        }
+        updateRedactionDrag(at: point)
     }
 
     override func mouseUp(with event: NSEvent) {
+        modelDrag = nil
         updateRedactionDrag(at: convert(event.locationInWindow, from: nil))
         redactionDrag = nil
         drawingDrag = nil
+        endMaskEdit()
     }
+
+    // MARK: Undo
+
+    private func beginMaskEdit() {
+        if gestureMasks == nil { gestureMasks = masks }
+    }
+
+    /// A drag or click is one step for ⌘Z, however many masks it changed.
+    private func endMaskEdit() {
+        guard let before = gestureMasks else { return }
+        gestureMasks = nil
+        history.record(from: before, to: masks)
+    }
+
+    /// ⌘Z: the masks as they were before the last drag or click.
+    func undoMaskEdit() {
+        guard readyForMaskStep(), let previous = history.undo(from: masks) else { return }
+        showMaskStep(previous)
+    }
+
+    /// ⇧⌘Z: the edit ⌘Z last took back.
+    func redoMaskEdit() {
+        guard readyForMaskStep(), let next = history.redo(from: masks) else { return }
+        showMaskStep(next)
+    }
+
+    /// Only the redaction view shows masks, so it alone steps through them.
+    private func readyForMaskStep() -> Bool {
+        guard !isCopying, scope == .redacted else { return false }
+        redactionDrag = nil
+        drawingDrag = nil
+        endMaskEdit()
+        return true
+    }
+
+    private func showMaskStep(_ next: [String: ShareRedaction]) {
+        let changed = Set(masks.keys).union(next.keys).filter { masks[$0] != next[$0] }
+        let sheets = Set(changed.compactMap { (masks[$0] ?? next[$0]).flatMap { $0.kind == "CELL" ? $0.sheet ?? 0 : nil } })
+        masks = next
+        // A step on another worksheet brings that worksheet into view.
+        if !sheets.isEmpty, !sheets.contains(sheetIndex), let sheet = sheets.min() {
+            sheetIndex = sheet
+            scrollLayoutKey = ""
+            targets.removeAll()
+        }
+        notice = nil
+        needsDisplay = true
+    }
+
+    /// The Edit menu's Undo and Redo, when the composer's own panel has focus.
+    @objc func undo(_ sender: Any?) { undoMaskEdit() }
+    @objc func redo(_ sender: Any?) { redoMaskEdit() }
 
     private func updateRedactionDrag(at point: NSPoint) {
         if !isCopying, scope == .redacted, let drag = drawingDrag, let layout = drawingLayout {
@@ -2252,6 +2403,145 @@ final class ShareComposerView: NSView {
         scrollToEnd()
         require(view.targets.contains(where: { $0.block == 1 }), "Final document section is reachable and redactable")
         capture("")
+        return checks
+    }
+
+    /// A STEP citation offers the whole model or its cited part, never
+    /// redaction, and ⌘Z and ⇧⌘Z step through masks one drag at a time.
+    /// `feature` and `overview` are preview responses for a part feature and
+    /// for a whole model.
+    static func runCADShareAndUndoRegression(feature: Data, overview: Data, screenshotPath: String? = nil) -> [String] {
+        let view = ShareComposerView(frame: NSRect(x: 0, y: 0, width: 760, height: 660))
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        var checks: [String] = []
+        func require(_ condition: @autoclosure () -> Bool, _ message: String) {
+            precondition(condition(), message)
+            checks.append(message)
+        }
+        func capture(_ suffix: String) {
+            view.layoutSubtreeIfNeeded()
+            guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            guard let screenshotPath else { return }
+            let stem = (screenshotPath as NSString).deletingPathExtension
+            try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(stem)\(suffix).png"))
+        }
+        func load(_ data: Data) {
+            view.reset(label: "Bracket", filename: "Bracket.step")
+            require(view.scopes == [.document, .indexed] && view.scope == .indexed,
+                    "While a model's preview loads, the cited part stays the chosen scope")
+            view.preview = GlobalAssistant.parsePreview(data)
+            view.citedPart = ShareComposerController.citedPart(data)
+            view.isLoading = false
+            view.keepOfferedScope()
+        }
+
+        load(feature)
+        require(view.citedPart != nil && view.scopes == [.document, .indexed] && view.scope == .indexed,
+                "A cited hole offers its part, with the whole model, and nothing to redact")
+        capture("-cad-part")
+        func mouse(_ type: NSEvent.EventType, at point: NSPoint, clicks: Int = 1) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: view.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: 1)!
+        }
+        guard let sent = view.citedPart?.orbit?.camera, let area = view.shownModel?.rect else {
+            preconditionFailure("The cited part must be drawn as a model that can turn")
+        }
+        let middle = NSPoint(x: area.midX, y: area.midY)
+        view.mouseDown(with: mouse(.leftMouseDown, at: middle))
+        view.mouseDragged(with: mouse(.leftMouseDragged, at: NSPoint(x: middle.x + 120, y: middle.y + 60)))
+        view.mouseUp(with: mouse(.leftMouseUp, at: NSPoint(x: middle.x + 120, y: middle.y + 60)))
+        require(view.modelView.isTurned(from: sent), "Dragging the cited part turns it, as in the card and the inspector")
+        let turned = view.modelView
+        view.mouseDragged(with: mouse(.leftMouseDragged, at: NSPoint(x: middle.x - 80, y: middle.y)))
+        require(view.modelView == turned, "Moving after the button is released does nothing")
+        require(view.zoomModel(by: 1.5, at: middle) && view.modelView.zoom > 1 && view.modelView.camera == turned.camera,
+                "Scrolling or pinching over the part zooms it")
+        capture("-cad-part-turned")
+        view.mouseDown(with: mouse(.leftMouseDown, at: middle, clicks: 2))
+        require(view.modelView == AssistModelView(), "A double-click puts the part back as it was sent")
+        view.mouseDown(with: mouse(.leftMouseDown, at: middle))
+        view.mouseDragged(with: mouse(.leftMouseDragged, at: NSPoint(x: middle.x + 40, y: middle.y)))
+        view.mouseUp(with: mouse(.leftMouseUp, at: NSPoint(x: middle.x + 40, y: middle.y)))
+        view.scope = .document
+        require(view.modelView == AssistModelView(), "Changing scope shows the other model as it was sent")
+        view.scope = .indexed
+        view.moveScope(1)
+        require(view.scope == .document, "Arrows move between the two scopes a part offers")
+        view.moveScope(1)
+        require(view.scope == .indexed, "and wrap around without reaching Select & redact")
+
+        load(overview)
+        require(view.citedPart == nil && view.scopes == [.document] && view.scope == .document,
+                "A whole-model citation is shared as the model, with no cited part or redaction")
+        if let root = try? JSONSerialization.jsonObject(with: overview) as? [String: Any], let model = root["preview"],
+           let document = try? JSONSerialization.data(withJSONObject: ["document": model]) {
+            view.fullDocument = ShareFullDocument.parse(document)
+            view.isDocumentLoading = false
+        }
+        capture("-cad-overview")
+        guard let whole = view.shownModel?.rect, let wholeCamera = view.fullDocument?.model?.orbit?.camera else {
+            preconditionFailure("The whole model must be drawn as a model that can turn")
+        }
+        view.mouseDown(with: mouse(.leftMouseDown, at: NSPoint(x: whole.midX, y: whole.midY)))
+        view.mouseDragged(with: mouse(.leftMouseDragged, at: NSPoint(x: whole.midX - 100, y: whole.midY - 30)))
+        view.mouseUp(with: mouse(.leftMouseUp, at: NSPoint(x: whole.midX - 100, y: whole.midY - 30)))
+        require(view.modelView.isTurned(from: wholeCamera), "The entire model turns too")
+        capture("-cad-overview-turned")
+
+        view.reset(label: "Office supplies", filename: "Income-Statement.xlsx")
+        require(view.scopes == [.document, .indexed, .redacted], "Other documents keep all three scopes")
+        view.fullDocument = ShareFullDocument(kind: "table", sheets: [
+            ShareFullSheet(name: "Accounting", rows: (0..<8).map { row in (0..<4).map { "R\(row)C\($0)" } }),
+            ShareFullSheet(name: "Forecast", rows: [["Account", "Q4"], ["Office Supplies", "420"]]),
+        ], blocks: [])
+        view.isLoading = false
+        view.isDocumentLoading = false
+        view.scope = .redacted
+        capture("")
+        func target(_ row: Int, _ column: Int) -> NSPoint? {
+            view.targets.first(where: { $0.row == row && $0.column == column }).map { NSPoint(x: $0.rect.midX, y: $0.rect.midY) }
+        }
+        guard let first = target(1, 0), let corner = target(3, 2), let single = target(6, 1) else {
+            preconditionFailure("Table cells must be redactable")
+        }
+        view.previewMouseDown(at: first)
+        view.previewMouseDragged(at: corner)
+        view.previewMouseUp(at: corner)
+        require(view.masks.count == 9, "A drag masks the whole rectangle")
+        view.previewMouseDown(at: single)
+        view.previewMouseUp(at: single)
+        require(view.masks.count == 10, "A click masks one more cell")
+        capture("-masked")
+        view.undoMaskEdit()
+        require(view.masks.count == 9 && view.masks["cell:0:6:1"] == nil, "Command+Z unmasks the last click alone")
+        view.undoMaskEdit()
+        require(view.masks.isEmpty, "Command+Z then unmasks the whole drag at once")
+        view.undoMaskEdit()
+        require(view.masks.isEmpty, "With nothing left, Command+Z changes nothing")
+        capture("-undone")
+        view.redoMaskEdit()
+        view.redoMaskEdit()
+        require(view.masks.count == 10, "Shift+Command+Z puts both edits back")
+
+        view.sheetIndex = 1
+        view.scrollLayoutKey = ""
+        capture("")
+        guard let forecast = target(1, 1) else { preconditionFailure("The second worksheet must be redactable") }
+        view.previewMouseDown(at: forecast)
+        view.previewMouseUp(at: forecast)
+        view.sheetIndex = 0
+        view.scrollLayoutKey = ""
+        capture("")
+        view.undoMaskEdit()
+        require(view.masks["cell:1:1:1"] == nil && view.sheetIndex == 1,
+                "Undoing a mask on another worksheet brings that worksheet into view")
+        view.scope = .document
+        view.undoMaskEdit()
+        require(view.masks.count == 10, "Masks are only stepped through where they are shown")
         return checks
     }
     #endif

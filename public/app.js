@@ -8,6 +8,7 @@ import { renderAssistBox } from './assist-box.js?v=2';
 import { renderModelPlan, bindModelPlans } from './model-preview.js?v=3';
 import { createVisibilityRefresh } from './visibility-refresh.js';
 import { dismissLassoOverlays } from './escape-dismissal.js';
+import { shortcutSections, shortcutListMarkup } from './shortcuts.js';
 
 const desktop = window.lassoPlatform;
 const openSourceDialog = createSourceDialog({ api, getActor: () => state.identity, onStatus: message => toast(message) });
@@ -2264,6 +2265,8 @@ async function showDependencyInspector(dependencyId, sourceNode = null) {
   inspector.querySelector('.native-source-inspector')?.focus({ preventScroll: true });
   inspector.onkeydown = (event) => {
     if (event.key === 'Escape') { document.getElementById('close-inspector')?.click(); return; }
+    // Only bare letters are actions; ⌘C and ⌘X still copy and cut.
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
     const match = actions.find((action) => action.key === event.key.toLowerCase());
     if (match) { event.preventDefault(); document.getElementById(match.id)?.click(); }
   };
@@ -3078,6 +3081,19 @@ window.addEventListener('lasso-host-error', event => {
   if (writingAssist) writingAssist.disabled = false;
   toast(event.detail.message, 'error');
 });
+// Settings lists the shortcuts from the file the Mac app's Settings reads too.
+let shortcutsShown = false;
+async function showShortcuts(list) {
+  if (!list || shortcutsShown) return;
+  try {
+    const sections = shortcutSections(await api('/shortcuts.json'), desktop?.name ?? 'macos');
+    if (!sections.length) throw new Error('The shortcut list is empty.');
+    list.innerHTML = shortcutListMarkup(sections);
+    shortcutsShown = true;
+  } catch {
+    list.textContent = 'Keyboard shortcuts could not be loaded. Close Settings and open it again to try again.';
+  }
+}
 if (desktop?.isWindows) {
   document.getElementById('search-shortcut').textContent = shortcut('K');
   elements['import-form'].elements.rootPaths.placeholder = 'C:\\Users\\you\\Documents\\Research\nC:\\Users\\you\\Documents\\Finance';
@@ -3090,6 +3106,7 @@ if (desktop?.isWindows) {
     const current = currentTheme();
     theme.value = current === 'system' || current === 'alabaster' ? current : 'carbon';
     settings.showModal();
+    showShortcuts(document.getElementById('settings-shortcuts'));
   });
   theme.addEventListener('change', () => applyTheme(theme.value));
 }

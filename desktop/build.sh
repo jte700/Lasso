@@ -186,6 +186,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/SyntheticKeyboard.swift" \
   "$ROOT/desktop/KeyRouting.swift" \
   "$ROOT/desktop/CompletionTransaction.swift" \
+  "$ROOT/desktop/InsertionUndo.swift" \
   "$ROOT/desktop/HostSelection.swift" \
   "$ROOT/desktop/AssistSourceIdentity.swift" \
   "$ROOT/desktop/SourceOpenTarget.swift" \
@@ -210,6 +211,8 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/GlobalAssist.swift" \
   "$ROOT/desktop/ExternalDrives.swift" \
   "$ROOT/desktop/MainMenu.swift" \
+  "$ROOT/desktop/ShortcutCatalog.swift" \
+  "$ROOT/desktop/ShortcutsPane.swift" \
   "$ROOT/desktop/SettingsWindow.swift" \
   "$ROOT/desktop/Lasso.swift"
 

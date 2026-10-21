@@ -26,7 +26,7 @@
     <link rel="stylesheet" href="/macos.css?v=2" />
     <link rel="stylesheet" href="/utility.css?v=4" />
     <link rel="stylesheet" href="/workbench.css?v=5" />
-    <link rel="stylesheet" href="/windows.css?v=1" />
+    <link rel="stylesheet" href="/windows.css?v=2" />
     <link rel="stylesheet" href="/removable-drives.css?v=1" />
     <link rel="stylesheet" href="/platform.css?v=2" />
   </head>
@@ -196,11 +196,15 @@
       <form method="dialog">
         <header class="dialog-heading"><div><h2>Settings</h2></div><button class="dialog-close toolbar-icon" type="button" data-close-dialog aria-label="Close">×</button></header>
         <label>App theme<select id="windows-theme"><option value="system">Use Windows setting</option><option value="alabaster">Light</option><option value="carbon">Dark</option></select></label>
+        <section class="settings-shortcuts" aria-labelledby="settings-shortcuts-title">
+          <h3 id="settings-shortcuts-title">Keyboard shortcuts</h3>
+          <div id="settings-shortcuts" class="shortcut-list" tabindex="0"></div>
+        </section>
         <div class="settings-about"><strong>Lasso for Windows</strong><p>Your sources, writing, and version history stay on this PC. Manage writing suggestions and the local server from the Lasso system tray icon.</p></div>
         <div class="dialog-actions"><button class="primary-button" value="close">Done</button></div>
       </form>
     </dialog>
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=66"></script>
+    <script type="module" src="/app.js?v=67"></script>
   </body>
 </html>

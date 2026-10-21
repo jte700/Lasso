@@ -512,6 +512,45 @@ enum AccessibilityReader {
         }
     }
 
+    /// Takes back an insertion that ends at the caret: selects its text and
+    /// writes what it replaced, by Accessibility or, where the host ignores
+    /// that, by keyboard. A link is deleted first, so the typed letters that
+    /// return cannot take on its formatting. Says whether the host then shows
+    /// exactly that edit. Accessibility queue only, where `completion` is called too.
+    static func revert(_ plan: CompletionPlan, in element: AXUIElement, expected: CaretContext,
+                       unlink: Bool, completion: @escaping (Bool) -> Void) {
+        let caret = expected.absoluteCaret
+        let before = CompletionSnapshot(documentStart: expected.windowStart, text: Array(expected.text.utf16))
+        let bundle = bundleIdentifier(of: element)
+        let selected = !IgnoredTextWrites.contains(bundle)
+            && HostSelection.selectForWrite((caret - plan.range.count)..<caret, caret: caret, in: element)
+        func write(_ text: String) -> Bool {
+            AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFTypeRef) == .success
+        }
+        var wrote = false
+        if selected {
+            wrote = unlink && !plan.insertText.isEmpty ? write("") && write(plan.insertText) : write(plan.insertText)
+        }
+        func reverted() -> Bool {
+            guard let after = focusedContext(), CFEqual(after.element, element) else { return false }
+            let snapshot = CompletionSnapshot(documentStart: after.windowStart, text: Array(after.text.utf16))
+            if case .success = CompletionTransaction.verify(before: before, after: snapshot, plan: plan) { return true }
+            return false
+        }
+        AccessibilityWork.queue.asyncAfter(deadline: .now() + (wrote ? 0.12 : 0.05)) {
+            if reverted() { completion(true); return }
+            // Type it only over the untouched insertion, never over a late write.
+            guard let current = focusedContext(allowSelection: true), CFEqual(current.element, element),
+                  CompletionTransaction.canRetry(before: before,
+                    current: CompletionSnapshot(documentStart: current.windowStart, text: Array(current.text.utf16)),
+                    selectionLength: current.selectionLength, expectedPrefix: plan.expectedPrefix,
+                    selectedPrefix: current.selectionLength > 0) else { completion(false); return }
+            SyntheticKeyboard.deleteBackwards(current.selectionLength > 0 ? 1 : plan.expectedPrefix.count)
+            if !plan.insertText.isEmpty { SyntheticKeyboard.type(plan.insertText) }
+            AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.14) { completion(reverted()) }
+        }
+    }
+
     static func canPaste(in element: AXUIElement, before: CompletionSnapshot, caret: Int,
                          expectedPrefix: String, selected: Bool) -> Bool {
         guard let current = focusedContext(allowSelection: true), CFEqual(current.element, element),
@@ -1508,6 +1547,10 @@ final class GlobalAssistant {
         didSet { publishKeyRouting() }
     }
     private var pendingShare: AssistSuggestion?
+    /// Lasso's last verified insertion, while ⌘Z can still take it back.
+    private var undoableInsertion: AcceptedInsertion? {
+        didSet { publishKeyRouting() }
+    }
     /// Sources linked in the current surface. Reported to the server so it
     /// can offer their values instead of matching the same phrase.
     private var linkedSources = LinkedSourceMemory()
@@ -1660,7 +1703,8 @@ final class GlobalAssistant {
             popup: popup,
             canFocusOut: popup == .suggestions && focusedSource != nil,
             canFocusIn: popup == .suggestions && linkedSources.canMoveIn(focusedOn: focusedSource, selected: selectedSource),
-            offersChoices: !view.suggestions.isEmpty)
+            offersChoices: !view.suggestions.isEmpty,
+            canUndoInsertion: undoableInsertion != nil)
     }
 
     private func publishKeyRouting() {
@@ -1689,6 +1733,8 @@ final class GlobalAssistant {
         case .followTyping(let trackCaret):
             // Typing on ends a move, so a card the move left empty closes as usual.
             linkedSources.endMove()
+            // What was typed is now the last change, which the host's own undo takes back.
+            undoableInsertion = nil
             if trackCaret { self.trackCaret() }
             scheduleRefresh()
         case .activate:
@@ -1713,6 +1759,12 @@ final class GlobalAssistant {
         case .focusIn:
             linkedSources.moveIn(focusedOn: focusedSource, selected: selectedSource)
             refresh()
+        case .shareUndo:
+            ShareComposerController.shared.undoRedaction()
+        case .shareRedo:
+            ShareComposerController.shared.redoRedaction()
+        case .undoInsertion:
+            undoInsertion()
         }
         publishKeyRouting()
     }
@@ -3131,6 +3183,7 @@ final class GlobalAssistant {
     /// if a hide or new typing happened meanwhile; once writing has started,
     /// the insertion always finishes verifying and reports.
     private func insertPlain(_ suggestion: AssistSuggestion) {
+        undoableInsertion = nil
         guard let context else { hide(); return }
 
         guard case .success(let plan) = planInsertion(for: suggestion, in: context) else {
@@ -3217,6 +3270,8 @@ final class GlobalAssistant {
                 flash(["Insertion touched other text.", "No dependency was recorded."])
             }
         case .verified(let verified, let after):
+            undoableInsertion = AcceptedInsertion(element: element, caret: verified.documentRange.upperBound,
+                                                  inserted: plan.insertText, replaced: plan.expectedPrefix)
             recordInsertion(verified, after: after, plan: plan, suggestion: suggestion, element: element)
         }
     }
@@ -3253,7 +3308,7 @@ final class GlobalAssistant {
         }
         // Stage B: the reference starts from the verified range, never from
         // a fresh search of the document.
-        DependencyHighlighter.shared.recordVerifiedInsertion(
+        undoableInsertion?.referenceId = DependencyHighlighter.shared.recordVerifiedInsertion(
             objectId: objectId, versionId: suggestion.versionId,
             projectId: suggestion.projectId,
             label: suggestion.label, valueText: suggestion.detail,
@@ -3286,6 +3341,7 @@ final class GlobalAssistant {
     /// Accessibility queue, as for plain insertion.
     private func insertShared(_ suggestion: AssistSuggestion, configuration: ShareConfiguration,
                               context: CaretContext, serverURL: URL) {
+        undoableInsertion = nil
         guard let objectId = suggestion.objectId else {
             flash(["Sharing is unavailable right now."])
             return
@@ -3418,6 +3474,10 @@ final class GlobalAssistant {
             flash(["The link could not be verified.", "Its access link was revoked."])
         case .linked(let check):
             reportInsertion(check, plan: link.plan, suggestion: link.suggestion, element: link.element)
+            if case .verified = check {
+                undoableInsertion?.share = share
+                undoableInsertion?.serverURL = link.serverURL
+            }
             let local = ["localhost", "127.0.0.1", "::1", "[::1]"].contains(share.url.host ?? "")
             flash(["Hyperlink inserted",
                    local ? "Available only on this Mac" : "Source access is set by your sharing choice"])
@@ -3427,6 +3487,44 @@ final class GlobalAssistant {
             AXUIElementGetPid(link.element, &pid)
             let app = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "This app"
             flash(["\(app) can\u{2019}t hold a link here.", "Link copied."])
+        }
+    }
+
+    // MARK: Undo
+
+    /// ⌘Z right after a Tab or an inserted link takes that insertion back
+    /// while its text still ends at the caret. Otherwise the ⌘Z the tap held
+    /// goes on to the host.
+    private func undoInsertion() {
+        guard let insertion = undoableInsertion else { SyntheticKeyboard.undo(); return }
+        undoableInsertion = nil
+        hide()
+        isInserting = true
+        AccessibilityWork.queue.async { [weak self] in
+            guard let fresh = AccessibilityReader.focusedContext(), CFEqual(fresh.element, insertion.element),
+                  let plan = insertion.revertPlan(windowStart: fresh.windowStart, text: Array(fresh.text.utf16),
+                                                  caret: fresh.absoluteCaret) else {
+                SyntheticKeyboard.undo()
+                DispatchQueue.main.async { self?.isInserting = false }
+                return
+            }
+            AccessibilityReader.revert(plan, in: insertion.element, expected: fresh,
+                                       unlink: insertion.share != nil) { reverted in
+                DispatchQueue.main.async { self?.finishUndo(insertion, reverted: reverted) }
+            }
+        }
+    }
+
+    private func finishUndo(_ insertion: AcceptedInsertion, reverted: Bool) {
+        isInserting = false
+        guard reverted else {
+            flash(["The insertion could not be taken back here."])
+            return
+        }
+        if let id = insertion.referenceId { DependencyHighlighter.shared.unlink(id: id) }
+        // A link taken back is revoked, like one that never landed.
+        if let share = insertion.share, let serverURL = insertion.serverURL {
+            ShareClient.revokeShare(serverURL: serverURL, token: share.token)
         }
     }
 
