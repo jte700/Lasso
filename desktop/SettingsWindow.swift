@@ -1,10 +1,37 @@
 // Lasso Settings, opened with Command-Comma or Settings… in the status panel.
 //
-// Options that change how Lasso looks and behaves, and that the status panel
-// does not already show: appearance, the folder colour, what Tab inserts, the
-// notch, and how Lasso starts. Everyday switches stay in the panel.
+// General holds options that change how Lasso looks and behaves, and that the
+// status panel does not already show: appearance, the folder colour, what Tab
+// inserts, the notch, and how Lasso starts. Everyday switches stay in the
+// panel. Shortcuts lists every keyboard shortcut Lasso has on the Mac.
 
 import Cocoa
+
+/// The panes of Settings, chosen from its toolbar.
+enum SettingsPane: String, CaseIterable {
+    case general, shortcuts
+
+    var title: String {
+        switch self {
+        case .general: return "General"
+        case .shortcuts: return "Shortcuts"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: return "gearshape"
+        case .shortcuts: return "keyboard"
+        }
+    }
+
+    var identifier: NSToolbarItem.Identifier { NSToolbarItem.Identifier("LassoSettings.\(rawValue)") }
+
+    init?(identifier: NSToolbarItem.Identifier) {
+        guard let pane = Self.allCases.first(where: { $0.identifier == identifier }) else { return nil }
+        self = pane
+    }
+}
 
 struct SettingsActions {
     let showInNotch: () -> Bool
@@ -16,8 +43,10 @@ struct SettingsActions {
     let didChange: () -> Void
 }
 
-final class SettingsWindowController: NSWindowController, NSWindowDelegate {
+final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
     private let actions: SettingsActions
+    private let generalView = NSView()
+    private lazy var shortcutsView = ShortcutsPane.makeView(width: Self.contentWidth)
     private let appearance = NSPopUpButton()
     private let color = NSPopUpButton()
     private let colorNote = SettingsWindowController.note("Folders you haven\u{2019}t given their own colour, and the text you accept from them.")
@@ -45,13 +74,18 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         self.actions = actions
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Self.contentWidth, height: 240),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        // A single-pane settings window is titled "App Name Settings".
-        window.title = "\(MainMenu.appName) Settings"
+        window.toolbarStyle = .preference
         window.isReleasedWhenClosed = false
         window.setFrameAutosaveName("LassoSettings")
         super.init(window: window)
         window.delegate = self
+        let toolbar = NSToolbar(identifier: "LassoSettings")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconAndLabel
+        toolbar.allowsUserCustomization = false
+        window.toolbar = toolbar
         buildContent()
+        select(.general)
         refresh()
     }
 
@@ -132,16 +166,54 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         grid.row(at: Self.versionRow).topPadding = 16
 
         self.grid = grid
-        let content = NSView()
-        content.addSubview(grid)
+        generalView.addSubview(grid)
         NSLayoutConstraint.activate([
-            grid.topAnchor.constraint(equalTo: content.topAnchor, constant: 24),
-            grid.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            grid.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -40),
-            grid.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -24),
-            content.widthAnchor.constraint(equalToConstant: Self.contentWidth),
+            grid.topAnchor.constraint(equalTo: generalView.topAnchor, constant: 24),
+            grid.leadingAnchor.constraint(equalTo: generalView.leadingAnchor, constant: 20),
+            grid.trailingAnchor.constraint(lessThanOrEqualTo: generalView.trailingAnchor, constant: -40),
+            grid.bottomAnchor.constraint(equalTo: generalView.bottomAnchor, constant: -24),
+            generalView.widthAnchor.constraint(equalToConstant: Self.contentWidth),
         ])
-        window?.contentView = content
+    }
+
+    /// Shows a pane. A settings window with panes is titled by the one it shows.
+    private func select(_ pane: SettingsPane) {
+        guard let window else { return }
+        window.toolbar?.selectedItemIdentifier = pane.identifier
+        window.title = pane.title
+        let view: NSView = pane == .general ? generalView : shortcutsView
+        if window.contentView !== view { window.contentView = view }
+        fitWindowToContent()
+        // The list takes focus so the keyboard can scroll it.
+        if pane == .shortcuts { window.makeFirstResponder(shortcutsView.list) }
+    }
+
+    @objc private func choosePane(_ sender: NSToolbarItem) {
+        guard let pane = SettingsPane(identifier: sender.itemIdentifier) else { return }
+        select(pane)
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        SettingsPane.allCases.map(\.identifier)
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
+                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        guard let pane = SettingsPane(identifier: identifier) else { return nil }
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        item.label = pane.title
+        item.image = NSImage(systemSymbolName: pane.symbol, accessibilityDescription: pane.title)
+        item.target = self
+        item.action = #selector(choosePane(_:))
+        return item
     }
 
     /// Reads the current values, for example after the status panel changed one.
@@ -162,22 +234,27 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         fitWindowToContent()
     }
 
-    /// Notes change length and some rows come and go, so the window takes the
-    /// height its rows need.
+    /// Notes change length, some rows come and go, and each pane has its own
+    /// height, so the window takes the height the shown pane needs.
     private func fitWindowToContent() {
         guard let window, let content = window.contentView else { return }
         content.layoutSubtreeIfNeeded()
         let size = content.fittingSize
-        guard size.height > 0, size != content.frame.size else { return }
-        let top = window.frame.maxY
-        window.setContentSize(size)
-        window.setFrameTopLeftPoint(NSPoint(x: window.frame.minX, y: top))
+        // Compared with the window's content area: Auto Layout may already
+        // have stretched the view itself past the window.
+        guard size.height > 0, size != window.contentRect(forFrameRect: window.frame).size else { return }
+        let frameSize = window.frameRect(forContentRect: NSRect(origin: .zero, size: size)).size
+        let frame = NSRect(x: window.frame.minX, y: window.frame.maxY - frameSize.height,
+                           width: frameSize.width, height: frameSize.height)
+        window.setFrame(frame, display: true, animate: window.isVisible)
     }
 
     func show() {
         refresh()
         // The first time, center the window; after that, reopen where people left it.
         if let window, !window.isVisible, !window.setFrameUsingName("LassoSettings") { window.center() }
+        // The saved frame may have been the other pane's; keep its place, not its height.
+        fitWindowToContent()
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)

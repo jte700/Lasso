@@ -2774,5 +2774,48 @@ do {
           "a file macOS cannot open reports failure and starts no jump")
 }
 
+// ── Settings: keyboard shortcuts ──────────────────────────────────────────
+// Settings > Shortcuts reads public/shortcuts.json, the list the Windows
+// workspace shows too, and keeps only what exists on the Mac.
+
+do {
+    let fixture = """
+    {"sections": [
+      {"title": "Both", "note": "", "shortcuts": [
+        {"action": "Search", "macos": "⌘K", "windows": "Ctrl+K"},
+        {"action": "Open the source", "windows": "F4"},
+        {"action": "Blank", "macos": ""}]},
+      {"title": "Windows only", "shortcuts": [{"action": "Open the source", "windows": "F4"}]},
+      {"title": "Mac only", "note": "While Lasso is off.", "shortcuts": [{"action": "Start Lasso", "macos": "⌘L"}]}
+    ]}
+    """
+    let sections = try ShortcutCatalog.decode(Data(fixture.utf8)).macSections
+    check(sections.map(\.title) == ["Both", "Mac only"], "sections with no Mac shortcuts are left out of Settings")
+    check(sections.first?.rows == [ShortcutCatalog.Row(action: "Search", keys: "⌘K")],
+          "Windows-only and keyless shortcuts are left out, and Mac keys are shown")
+    check(sections.first?.note == nil && sections.last?.note == "While Lasso is off.",
+          "an empty section note is not shown")
+    check((try? ShortcutCatalog.decode(Data("{\"sections\": 3}".utf8))) == nil,
+          "a malformed list is reported instead of shown empty")
+
+    let catalog = try ShortcutCatalog.decode(Data(contentsOf: URL(fileURLWithPath: "public/shortcuts.json")))
+    let mac = catalog.macSections
+    let keys = mac.flatMap { $0.rows.map(\.keys) }
+    check(mac.first?.title == "Lasso" && keys.contains("⌘,") && keys.contains("⌘L"),
+          "the shipped list starts with Lasso's own commands, including ⌘L")
+    check(keys.contains("⇥") && keys.contains("⌘↩") && keys.contains("⇧⌘↩") && keys.contains("fn ←"),
+          "the shipped list names every key the suggestion card answers to")
+    check(!keys.contains("F4") && !keys.contains { $0.contains("Ctrl") },
+          "the Mac never shows Windows keys")
+
+    check(ShortcutCatalog.spokenKeys("⇧⌘↩") == "Shift Command Return"
+          && ShortcutCatalog.spokenKeys("fn ←") == "fn Left Arrow"
+          && ShortcutCatalog.spokenKeys("⌘1…9") == "Command 1 to 9"
+          && ShortcutCatalog.spokenKeys("Esc") == "Esc",
+          "VoiceOver reads shortcut symbols as key names")
+} catch {
+    check(false, "the shortcut list decodes (\(error))")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

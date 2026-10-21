@@ -1,0 +1,87 @@
+{
+  "sections": [
+    {
+      "title": "Lasso",
+      "note": "While the Lasso panel or Settings is open. ⌘L works anywhere once Lasso has quit.",
+      "shortcuts": [
+        { "action": "Open Settings", "macos": "⌘," },
+        { "action": "Open the workspace in your browser", "macos": "⌘B" },
+        { "action": "Lasso Help", "macos": "⌘?" },
+        { "action": "Quit Lasso", "macos": "⌘Q" },
+        { "action": "Start Lasso again after quitting", "macos": "⌘L" }
+      ]
+    },
+    {
+      "title": "Suggestions while typing",
+      "note": "In any app, while a suggestion card is showing or right after you accept one.",
+      "shortcuts": [
+        { "action": "Accept the suggestion", "macos": "⇥", "windows": "Tab" },
+        { "action": "Insert as plain text", "macos": "⌘↩", "windows": "Ctrl+Enter" },
+        { "action": "Share a link to the source", "macos": "⇧⌘↩", "windows": "Ctrl+Shift+Enter" },
+        { "action": "Choose another suggestion", "macos": "↑↓", "windows": "↑↓" },
+        { "action": "Confirm text or link, when Tab asks", "macos": "↩", "windows": "Enter" },
+        { "action": "Show suggestions from every folder", "macos": "fn ←" },
+        { "action": "Focus on a source or the selected row", "macos": "fn →" },
+        { "action": "Undo what Lasso just inserted", "macos": "⌘Z" },
+        { "action": "Open the source", "windows": "F4" },
+        { "action": "Dismiss", "macos": "Esc", "windows": "Esc" }
+      ]
+    },
+    {
+      "title": "Share options",
+      "note": "While the share options are open.",
+      "shortcuts": [
+        { "action": "Change what is shared", "macos": "←→" },
+        { "action": "Create the link", "macos": "↩" },
+        { "action": "Undo the last mask", "macos": "⌘Z" },
+        { "action": "Redo the mask", "macos": "⇧⌘Z" },
+        { "action": "Close", "macos": "Esc" }
+      ]
+    },
+    {
+      "title": "Source preview",
+      "note": "While a source preview is open.",
+      "shortcuts": [
+        { "action": "Share a link to the source", "macos": "⇥" },
+        { "action": "Close", "macos": "Esc" }
+      ]
+    },
+    {
+      "title": "Workspace",
+      "shortcuts": [
+        { "action": "Search", "macos": "⌘K", "windows": "Ctrl+K" },
+        { "action": "Command palette", "macos": "⇧⌘P", "windows": "Ctrl+Shift+P" },
+        { "action": "Go to tab 1 to 9", "macos": "⌘1…9", "windows": "Ctrl+1…9" },
+        { "action": "Close menus and dialogs", "macos": "Esc", "windows": "Esc" }
+      ]
+    },
+    {
+      "title": "Writing in the workspace",
+      "note": "In a document open in the workspace.",
+      "shortcuts": [
+        { "action": "Save", "macos": "⌘S", "windows": "Ctrl+S" },
+        { "action": "Undo", "macos": "⌘Z", "windows": "Ctrl+Z" },
+        { "action": "Redo", "macos": "⇧⌘Z", "windows": "Ctrl+Shift+Z" },
+        { "action": "Link a source to the selection", "macos": "⇧⌘L", "windows": "Ctrl+Shift+L" },
+        { "action": "End the current source", "macos": "⌘↩", "windows": "Ctrl+Enter" },
+        { "action": "Accept the suggestion", "macos": "⇥", "windows": "Tab" },
+        { "action": "Choose another suggestion", "macos": "↑↓", "windows": "↑↓" },
+        { "action": "Dismiss the suggestion", "macos": "Esc", "windows": "Esc" }
+      ]
+    },
+    {
+      "title": "Linked source details",
+      "note": "While a linked source's details are open in the workspace.",
+      "shortcuts": [
+        { "action": "Open the source", "macos": "O", "windows": "O" },
+        { "action": "Share", "macos": "S", "windows": "S" },
+        { "action": "Change the source", "macos": "C", "windows": "C" },
+        { "action": "Trace", "macos": "R", "windows": "R" },
+        { "action": "Go to the origin, if there is one", "macos": "G", "windows": "G" },
+        { "action": "Keep the older version, if the source changed", "macos": "K", "windows": "K" },
+        { "action": "Remove the link", "macos": "X", "windows": "X" },
+        { "action": "Close", "macos": "Esc", "windows": "Esc" }
+      ]
+    }
+  ]
+}
