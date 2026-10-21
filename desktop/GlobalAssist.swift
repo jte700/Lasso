@@ -456,15 +456,10 @@ enum AccessibilityReader {
         var wroteText = false
         let bundle = bundleIdentifier(of: element)
 
-        if caret >= 0, !IgnoredTextWrites.contains(bundle) {
-            if length > 0, caret - length >= 0 {
-                var range = CFRange(location: caret - length, length: length)
-                if let axRange = AXValueCreate(.cfRange, &range) {
-                    selectedRange = AXUIElementSetAttributeValue(
-                        element, kAXSelectedTextRangeAttribute as CFString, axRange) == .success
-                }
-            }
-            if length == 0 || selectedRange {
+        if caret >= 0, caret - length >= 0, !IgnoredTextWrites.contains(bundle) {
+            let ready = selectForWrite((caret - length)..<caret, caret: caret, in: element)
+            selectedRange = length > 0 && ready
+            if ready {
                 wroteText = AXUIElementSetAttributeValue(
                     element, kAXSelectedTextAttribute as CFString, text as CFTypeRef) == .success
             }
@@ -499,6 +494,56 @@ enum AccessibilityReader {
                 completion?(ok)
             }
         }
+    }
+
+    /// The first selection change past a pending prediction only dismisses
+    /// it; the next one normally lands.
+    private static let predictionSelectionAttempts = 3
+
+    /// Selects the text a completion rewrites, or keeps the caret for a plain
+    /// insertion, and says whether the write may go ahead. Without a pending
+    /// prediction this is the single selection write it always was; past one,
+    /// see `CompletionTransaction.checkSelection`.
+    private static func selectForWrite(_ range: Range<Int>, caret: Int, in element: AXUIElement) -> Bool {
+        let target = CFRange(location: range.lowerBound, length: range.count)
+        guard hasMarkedText(element) else { return range.isEmpty || setSelection(target, in: element) }
+        for _ in 0..<predictionSelectionAttempts {
+            // Asking for the caret the host already reports changes nothing,
+            // which would leave the prediction in place. Step off it first.
+            if range.isEmpty { _ = setSelection(CFRange(location: max(0, caret - 1), length: 0), in: element) }
+            guard setSelection(target, in: element) else { return false }
+            switch CompletionTransaction.checkSelection(requested: range, reported: selection(of: element),
+                                                        caret: caret, markedText: hasMarkedText(element)) {
+            case .selected: return true
+            case .retry: continue
+            case .stop: return false
+            }
+        }
+        return false
+    }
+
+    private static func setSelection(_ range: CFRange, in element: AXUIElement) -> Bool {
+        var range = range
+        guard let axRange = AXValueCreate(.cfRange, &range) else { return false }
+        return AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axRange) == .success
+    }
+
+    private static func selection(of element: AXUIElement) -> Range<Int>? {
+        guard let value = attribute(element, kAXSelectedTextRangeAttribute as String),
+              CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var range = CFRange()
+        guard AXValueGetValue(value as! AXValue, .cfRange, &range),
+              range.location >= 0, range.length >= 0 else { return nil }
+        return range.location..<(range.location + range.length)
+    }
+
+    /// Marked text is an inline prediction or input method composition.
+    /// Hosts that do not expose it are taken to hold none.
+    private static func hasMarkedText(_ element: AXUIElement) -> Bool {
+        guard let value = attribute(element, "AXTextInputMarkedRange"),
+              CFGetTypeID(value) == AXValueGetTypeID() else { return false }
+        var range = CFRange()
+        return AXValueGetValue(value as! AXValue, .cfRange, &range) && range.length > 0
     }
 
     static func canPaste(in element: AXUIElement, before: CompletionSnapshot, caret: Int,

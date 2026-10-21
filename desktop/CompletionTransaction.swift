@@ -100,6 +100,32 @@ enum CompletionTransaction {
         return equivalentHostText(old, new)
     }
 
+    /// What asking the host to select the text a completion rewrites achieved.
+    enum SelectionCheck: Equatable {
+        /// The host reports exactly that range, with no prediction pending.
+        case selected
+        /// The caret has not moved: the change only dismissed a prediction.
+        case retry
+        /// The caret is somewhere else, for example past a prediction the
+        /// host accepted. Writing now would land in the wrong place.
+        case stop
+    }
+
+    /// macOS offers its own completion of a partly typed word in grey
+    /// ("outsta" + "nding"), held as marked text that runs past the caret.
+    /// While it shows, AppKit editors such as Notes answer a selection change
+    /// by dropping the prediction and leaving the caret where it was, yet
+    /// report success. Writing then would keep the typed word
+    /// ("outstaoutstanding CAD"), and a write at the caret merges with the
+    /// prediction ("outsta CADnding"). Only the requested range, with the
+    /// prediction gone, is safe to write over.
+    static func checkSelection(requested: Range<Int>, reported: Range<Int>?, caret: Int,
+                               markedText: Bool) -> SelectionCheck {
+        guard let reported else { return .stop }
+        if reported == requested { return markedText ? .retry : .selected }
+        return reported == caret..<caret ? .retry : .stop
+    }
+
     /// Content-editable hosts commonly expose a trailing space as NBSP while
     /// it is at the caret, then turn it back into an ordinary space as soon as
     /// more text follows. Those code units are the same visible edit evidence;
