@@ -325,22 +325,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         requested: UserDefaults.standard.bool(forKey: "AssistEnabled"))
     private lazy var settings: SettingsWindowController = {
         let controller = SettingsWindowController(actions: SettingsActions(
-            suggestWhileTyping: { [weak self] in self?.assistActivation.requested ?? false },
-            setSuggestWhileTyping: { [weak self] on in
-                guard let self, on != self.assistActivation.requested else { return }
-                self.toggleGlobalAssist()
-            },
             showInNotch: { UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey) },
             setShowInNotch: { [weak self] on in
                 guard on != UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey) else { return }
                 self?.toggleNotch()
             },
             notchAvailable: { NotchPanelController.isAvailable },
-            openAtLogin: { LoginItem.isEnabled || LoginItem.needsApproval },
-            setOpenAtLogin: { [weak self] on in
-                guard on != (LoginItem.isEnabled || LoginItem.needsApproval) else { return }
-                self?.toggleLoginItem()
-            },
+            version: { [weak self] in self?.versionLine ?? "" },
             didChange: { [weak self] in self?.rebuildMenu() }))
         // The menu bar and Dock icon show only while Settings is open, as a
         // regular app window. Closing it returns Lasso to the menu bar.
@@ -379,6 +370,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if NSApp.modalWindow != nil { NSApp.abortModal() }
             })
         LassoTransientUI.shared.start()
+        AppearancePreference.apply()
         if ProcessInfo.processInfo.environment["LASSO_SHARE_FIXTURE"] == "1" {
             ShareComposerController.shared.showFixture()
             return
@@ -405,6 +397,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let logs = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/Lasso/server.log")
+        removeTypingLog(beside: logs)
+        LaunchHelper.start()
 
         notch.onToggleSuggestions = { [weak self] in self?.toggleGlobalAssist() }
         notch.onOpenWorkspace = { [weak self] view in
@@ -613,20 +607,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if assistActivation.requested, isServerReady, activeCount == 0, !directories.isEmpty, busyMessage == nil {
             statusMenu.addItem(label("Switch on a work directory to get suggestions."))
         }
-        if NotchPanelController.isAvailable {
-            let notchItem = command("Show Lasso in Notch", action: #selector(toggleNotch))
-            notchItem.state = UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey) ? .on : .off
-            statusMenu.addItem(notchItem)
-        }
-        let login = command("Open at Login", action: #selector(toggleLoginItem))
-        login.state = LoginItem.isEnabled || LoginItem.needsApproval ? .on : .off
-        login.toolTip = LoginItem.needsApproval
-            ? "Waiting for approval in System Settings → General → Login Items."
-            : "Start Lasso when you log in, so suggestions are ready without opening it."
-        statusMenu.addItem(login)
-        if LoginItem.needsApproval {
-            statusMenu.addItem(command("Allow Open at Login…", action: #selector(openLoginItemSettings)))
-        }
         if assistActivation.requested && GlobalAssistant.shared.isEnabled && isServerReady
             && GlobalAssistant.shared.isAwaitingInput && !AssistPermission.hasInputMonitoring {
             statusMenu.addItem(command("Allow Input Monitoring…", action: #selector(openAssistSettings)))
@@ -640,54 +620,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        let tools = NSMenuItem(title: "Tools", action: nil, keyEquivalent: "")
-        let toolsMenu = NSMenu()
-        toolsMenu.autoenablesItems = false
-        toolsMenu.addItem(command("Open in Browser", action: #selector(openInBrowser), key: "b", enabled: isServerReady))
-        toolsMenu.addItem(command("Refresh Directory Status", action: #selector(refreshDirectoryStatus), enabled: isServerReady))
-        let reindex = command("Re-read Sources with Current Reader", action: #selector(reindexSources),
-                              enabled: isServerReady && busyMessage == nil && activeCount > 0)
-        reindex.toolTip = "Reads every active folder again with this version of Lasso and records the result as a new version. Earlier versions stay as they were."
-        toolsMenu.addItem(reindex)
-        let insertion = NSMenuItem(title: "Tab Inserts", action: nil, keyEquivalent: "")
-        let insertionMenu = NSMenu()
-        insertionMenu.autoenablesItems = false
-        for mode in InsertionMode.allCases {
-            let item = command(mode.title, action: #selector(chooseInsertionMode(_:)))
-            item.representedObject = mode.rawValue
-            item.state = InsertionMode.current == mode ? .on : .off
-            item.toolTip = mode.explanation
-            insertionMenu.addItem(item)
-        }
-        insertion.submenu = insertionMenu
-        toolsMenu.addItem(insertion)
-        toolsMenu.addItem(.separator())
-        // Diagnostics stay together so everyday tools are not mixed with them.
-        let troubleshooting = NSMenuItem(title: "Troubleshooting", action: nil, keyEquivalent: "")
-        let troubleshootingMenu = NSMenu()
-        troubleshootingMenu.autoenablesItems = false
-        troubleshootingMenu.addItem(command("Restart Server", action: #selector(restartServer)))
-        let probe = command("Check Text Support in Next App", action: #selector(runHostProbe))
-        probe.toolTip = "Click, then switch to the app you type in. Lasso reports what it can read there."
-        troubleshootingMenu.addItem(probe)
-        let debug = command("Outline Highlight Positions", action: #selector(toggleDependencyDebug))
-        debug.toolTip = "Draws the boxes Lasso uses to place source highlights."
-        debug.state = DependencyHighlighter.shared.isDebugging ? .on : .off
-        troubleshootingMenu.addItem(debug)
-        let typingLog = command("Record Typing Log", action: #selector(toggleTypingLog))
-        typingLog.state = AssistLog.enabled ? .on : .off
-        typingLog.toolTip = "Records which apps Lasso could read and whether insertions landed. Never what you type."
-        troubleshootingMenu.addItem(typingLog)
-        troubleshootingMenu.addItem(command("Reveal Server Log", action: #selector(revealLog)))
-        troubleshootingMenu.addItem(command("Reveal Typing Log", action: #selector(revealAssistLog)))
-        troubleshooting.submenu = troubleshootingMenu
-        toolsMenu.addItem(troubleshooting)
-        tools.submenu = toolsMenu
-        statusMenu.addItem(tools)
+        statusMenu.addItem(command("Open in Browser", action: #selector(openInBrowser), key: "b", enabled: isServerReady))
         statusMenu.addItem(.separator())
+        // Look, Tab, notch and startup options live in Settings, not here.
         statusMenu.addItem(command("Settings…", action: #selector(showSettings), key: ","))
-        statusMenu.addItem(command("About Lasso", action: #selector(showAbout)))
-        statusMenu.addItem(command("Quit Lasso", action: #selector(quit), key: "q"))
+        let quit = command("Quit Lasso", action: #selector(quit), key: "q")
+        if LaunchHelper.state == .on {
+            quit.toolTip = "Turns Lasso off. Press \(LaunchHelper.shortcut) to start it again."
+        }
+        statusMenu.addItem(quit)
         statusPopover.update(menu: statusMenu)
         if settingsLoaded { settings.refresh() }
         notch.configure(enabled: UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey),
@@ -1077,62 +1018,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
     }
 
-    @objc private func refreshDirectoryStatus() { refreshWorkspace() }
-
-    /// Re-reads every active folder with the reader this build ships. Always
-    /// something the user asks for: each re-read records a new version and may
-    /// leave claims needing review, so Lasso never does it on its own.
-    @objc private func reindexSources() {
-        guard isServerReady, busyMessage == nil, let base = server.url else { return }
-        let targets = directories.filter { $0.active && $0.available && ($0.error ?? "").isEmpty }
-        guard !targets.isEmpty else { return }
-        busyMessage = "Re-reading sources\u{2026}"
-        rebuildMenu()
-        reindex(targets, base: base, summaries: [])
-    }
-
-    /// Re-reads one folder at a time, so a large folder never competes with the next.
-    private func reindex(_ remaining: [WorkDirectory], base: URL, summaries: [String]) {
-        guard let directory = remaining.first else {
-            busyMessage = nil
-            rebuildMenu()
-            refreshWorkspace()
-            showReport(summaries.joined(separator: "\n\n"), title: "Sources Re-read")
-            return
-        }
-        var request = URLRequest(url: base.appendingPathComponent("api/projects/\(directory.id)/reindex"))
-        request.httpMethod = "POST"
-        request.timeoutInterval = Self.indexingRequestTimeout
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: WorkspaceAPI.reindexBody())
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                let root = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-                let summary = (root?["reindexed"] as? [String: Any]).map(WorkspaceAPI.reindexSummary)
-                    ?? WorkspaceAPI.errorMessage(data: data, response: response, error: error)
-                self.reindex(Array(remaining.dropFirst()), base: base,
-                             summaries: summaries + ["\(directory.name): \(summary)"])
-            }
-        }.resume()
-    }
-
-    @objc private func toggleLoginItem() {
-        let enable = !(LoginItem.isEnabled || LoginItem.needsApproval)
-        do {
-            try LoginItem.setEnabled(enable)
-            if enable && LoginItem.needsApproval { LoginItem.openSettings() }
-        } catch {
-            showError(enable
-                ? "Lasso could not be added to your login items: \(error.localizedDescription)"
-                : "Lasso could not be removed from your login items: \(error.localizedDescription)",
-                      title: "Open at Login Couldn\u{2019}t Be Changed")
-        }
-        rebuildMenu()
-    }
-
-    @objc private func openLoginItemSettings() { LoginItem.openSettings() }
-
     @objc private func toggleGlobalAssist() {
         let assistant = GlobalAssistant.shared
         assistActivation.setRequested(!assistActivation.requested)
@@ -1182,17 +1067,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// An informational result, such as what a re-read recorded.
-    private func showReport(_ message: String, title: String) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
-        NSApp.activate(ignoringOtherApps: true)
-        alert.runModal()
-    }
-
     /// The title says what happened; macOS already shows Lasso's icon.
     private func showError(_ message: String, title: String) {
         let alert = NSAlert()
@@ -1204,57 +1078,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.runModal()
     }
 
-    /// Time to switch from the Lasso menu to the app being checked.
-    private static let hostProbeDelay: TimeInterval = 3
-
-    @objc private func runHostProbe() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.hostProbeDelay) {
-            let report = HostCapabilityProbe.run()
-            for line in report.split(separator: "\n") { AssistLog.write(String(line), force: true) }
-            let alert = NSAlert()
-            alert.messageText = "Text Support Report"
-            alert.informativeText = report + "\n\nAlso written to the typing log."
-            alert.addButton(withTitle: "OK")
-            NSApp.activate(ignoringOtherApps: true)
-            alert.runModal()
-        }
-    }
-
-    @objc private func toggleTypingLog() {
-        AssistLog.enabled.toggle()
-        rebuildMenu()
-    }
-
-    @objc private func toggleDependencyDebug() {
-        DependencyHighlighter.shared.isDebugging.toggle()
-        rebuildMenu()
-    }
-
-    @objc private func chooseInsertionMode(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let mode = InsertionMode(rawValue: raw) else { return }
-        InsertionMode.set(mode)
-        rebuildMenu()
-    }
-
     @objc private func openInBrowser() {
         guard let url = server.url else { return }
         NSWorkspace.shared.open(url)
     }
 
     @objc private func restartServer() { server.restart() }
-
-    @objc private func revealLog() {
-        let log = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/Lasso/server.log")
-        NSWorkspace.shared.activateFileViewerSelecting([log])
-    }
-
-    @objc private func revealAssistLog() {
-        let log = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/Lasso/assist.log")
-        NSWorkspace.shared.activateFileViewerSelecting([log])
-    }
 
     @objc private func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
@@ -1265,6 +1094,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                          attributes: [.font: NSFont.systemFont(ofSize: 11),
                                                       .foregroundColor: NSColor.secondaryLabelColor]),
         ])
+    }
+
+    /// The bottom line of Settings, which takes the place of About in the panel.
+    private var versionLine: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        return ["\(MainMenu.appName) \(version)", server?.runtime.map { "Server: \($0.summary)" }]
+            .compactMap { $0 }.joined(separator: " \u{00B7} ")
+    }
+
+    /// Lasso no longer records a typing log; an old one is only taking space.
+    private func removeTypingLog(beside serverLog: URL) {
+        let folder = serverLog.deletingLastPathComponent()
+        for name in ["assist.log", "assist.log.1"] {
+            let file = folder.appendingPathComponent(name)
+            guard FileManager.default.fileExists(atPath: file.path) else { continue }
+            do { try FileManager.default.removeItem(at: file) } catch {
+                NSLog("Lasso could not remove its old typing log: %@", error.localizedDescription)
+            }
+        }
+        UserDefaults.standard.removeObject(forKey: "AssistDebug")
     }
 
     @objc private func showSettings() {

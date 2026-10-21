@@ -1,33 +1,37 @@
 // Lasso Settings, opened with Command-Comma or Settings… in the status panel.
 //
-// One General pane holds the app-wide options that otherwise live only in the
-// status panel. The window reads and writes them through the application
-// delegate, so both places always show the same state.
+// Options that change how Lasso looks and behaves, and that the status panel
+// does not already show: appearance, the folder colour, what Tab inserts, the
+// notch, and how Lasso starts. Everyday switches stay in the panel.
 
 import Cocoa
 
 struct SettingsActions {
-    let suggestWhileTyping: () -> Bool
-    let setSuggestWhileTyping: (Bool) -> Void
     let showInNotch: () -> Bool
     let setShowInNotch: (Bool) -> Void
     let notchAvailable: () -> Bool
-    let openAtLogin: () -> Bool
-    let setOpenAtLogin: (Bool) -> Void
+    /// "Lasso 1.0.0 · Server: …", for the line at the bottom.
+    let version: () -> String
     /// Called after any change, so the status panel can show the new state.
     let didChange: () -> Void
 }
 
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let actions: SettingsActions
-    private let suggest = NSButton(checkboxWithTitle: "Suggest sources while typing in other apps", target: nil, action: nil)
+    private let appearance = NSPopUpButton()
+    private let color = NSPopUpButton()
+    private let colorNote = SettingsWindowController.note("Folders you haven\u{2019}t given their own colour, and the text you accept from them.")
     private let insertion = NSPopUpButton()
     private let insertionNote = SettingsWindowController.note("")
     private let notch = NSButton(checkboxWithTitle: "Show Lasso in the notch", target: nil, action: nil)
     private let notchNote = SettingsWindowController.note("Available on Macs with a camera housing in the display.")
-    private let login = NSButton(checkboxWithTitle: "Open Lasso at login", target: nil, action: nil)
+    private let startNote = SettingsWindowController.note("")
+    private let loginItems = NSButton(title: "Open Login Items\u{2026}", target: nil, action: nil)
+    private let version = SettingsWindowController.note("")
     private var grid: NSGridView?
-    private static let notchNoteRow = 4
+    private static let notchNoteRow = 6
+    private static let loginItemsRow = 8
+    private static let versionRow = 9
 
     /// Runs when the window closes, so the app can leave the Dock again.
     var onClose: (() -> Void)?
@@ -35,6 +39,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private static let contentWidth: CGFloat = 520
     private static let labelColumnWidth: CGFloat = 150
     private static let noteWidth: CGFloat = contentWidth - labelColumnWidth - 76
+    private static let swatchSize: CGFloat = 12
 
     init(actions: SettingsActions) {
         self.actions = actions
@@ -68,24 +73,51 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         return label
     }
 
+    private static func swatch(_ color: NSColor) -> NSImage {
+        let image = NSImage(size: NSSize(width: swatchSize, height: swatchSize), flipped: false) { rect in
+            color.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5)).fill()
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
     private func buildContent() {
-        suggest.target = self; suggest.action = #selector(changeSuggest)
-        notch.target = self; notch.action = #selector(changeNotch)
-        login.target = self; login.action = #selector(changeLogin)
+        appearance.target = self; appearance.action = #selector(changeAppearance)
+        for preference in AppearancePreference.allCases {
+            appearance.addItem(withTitle: preference.title)
+            appearance.lastItem?.representedObject = preference.rawValue
+        }
+        appearance.setAccessibilityLabel("Appearance")
+        color.target = self; color.action = #selector(changeColor)
+        for option in DirectoryToggleColor.allCases {
+            color.addItem(withTitle: option.title)
+            color.lastItem?.representedObject = option.rawValue
+            color.lastItem?.image = Self.swatch(option.color)
+        }
+        color.setAccessibilityLabel("Folder colour")
         insertion.target = self; insertion.action = #selector(changeInsertion)
         for mode in InsertionMode.allCases {
             insertion.addItem(withTitle: mode.title)
             insertion.lastItem?.representedObject = mode.rawValue
         }
         insertion.setAccessibilityLabel("Tab inserts")
+        notch.target = self; notch.action = #selector(changeNotch)
+        loginItems.bezelStyle = .rounded
+        loginItems.target = self; loginItems.action = #selector(openLoginItems)
 
         let grid = NSGridView(views: [
-            [Self.rowLabel("Suggestions:"), suggest],
+            [Self.rowLabel("Appearance:"), appearance],
+            [Self.rowLabel("Folder colour:"), color],
+            [NSGridCell.emptyContentView, colorNote],
             [Self.rowLabel("Tab inserts:"), insertion],
             [NSGridCell.emptyContentView, insertionNote],
             [Self.rowLabel("Notch:"), notch],
             [NSGridCell.emptyContentView, notchNote],
-            [Self.rowLabel("Startup:"), login],
+            [Self.rowLabel("Start:"), startNote],
+            [NSGridCell.emptyContentView, loginItems],
+            [NSGridCell.emptyContentView, version],
         ])
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.rowSpacing = 8
@@ -94,10 +126,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         grid.column(at: 0).width = Self.labelColumnWidth
         grid.rowAlignment = .firstBaseline
         // Notes sit closer to the control they explain than to the next row.
-        grid.row(at: 2).topPadding = -4
-        grid.row(at: Self.notchNoteRow).topPadding = -4
-        grid.row(at: 3).topPadding = 10
-        grid.row(at: 5).topPadding = 10
+        for row in [2, 4, Self.notchNoteRow] { grid.row(at: row).topPadding = -4 }
+        // Groups: how Lasso looks, what Tab does, the notch, how Lasso starts.
+        for row in [3, 5, 7] { grid.row(at: row).topPadding = 10 }
+        grid.row(at: Self.versionRow).topPadding = 16
 
         self.grid = grid
         let content = NSView()
@@ -114,7 +146,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     /// Reads the current values, for example after the status panel changed one.
     func refresh() {
-        suggest.state = actions.suggestWhileTyping() ? .on : .off
+        appearance.selectItem(at: AppearancePreference.allCases.firstIndex(of: AppearancePreference.current()) ?? 0)
+        color.selectItem(at: DirectoryToggleColor.allCases.firstIndex(of: DirectoryColorPreferences.defaultColor()) ?? 0)
         let mode = InsertionMode.current
         insertion.selectItem(at: InsertionMode.allCases.firstIndex(of: mode) ?? 0)
         insertionNote.stringValue = mode.explanation
@@ -122,12 +155,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         notch.isEnabled = notchAvailable
         notch.state = notchAvailable && actions.showInNotch() ? .on : .off
         grid?.row(at: Self.notchNoteRow).isHidden = notchAvailable
-        login.state = actions.openAtLogin() ? .on : .off
+        let start = LaunchHelper.state
+        startNote.stringValue = LaunchHelper.note(for: start)
+        grid?.row(at: Self.loginItemsRow).isHidden = start == .on
+        version.stringValue = actions.version()
         fitWindowToContent()
     }
 
-    /// Notes change length and the notch note comes and goes, so the window
-    /// takes the height its rows need.
+    /// Notes change length and some rows come and go, so the window takes the
+    /// height its rows need.
     private func fitWindowToContent() {
         guard let window, let content = window.contentView else { return }
         content.layoutSubtreeIfNeeded()
@@ -147,9 +183,23 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
     }
 
-    @objc private func changeSuggest() { actions.setSuggestWhileTyping(suggest.state == .on); refresh() }
+    @objc private func changeAppearance() {
+        guard let raw = appearance.selectedItem?.representedObject as? String,
+              let preference = AppearancePreference(rawValue: raw) else { return }
+        AppearancePreference.set(preference)
+        actions.didChange()
+        refresh()
+    }
+
+    @objc private func changeColor() {
+        guard let raw = color.selectedItem?.representedObject as? String,
+              let option = DirectoryToggleColor(rawValue: raw) else { return }
+        DirectoryColorPreferences.setDefault(option)
+        actions.didChange()
+        refresh()
+    }
+
     @objc private func changeNotch() { actions.setShowInNotch(notch.state == .on); refresh() }
-    @objc private func changeLogin() { actions.setOpenAtLogin(login.state == .on); refresh() }
 
     @objc private func changeInsertion() {
         guard let raw = insertion.selectedItem?.representedObject as? String,
@@ -158,6 +208,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         actions.didChange()
         refresh()
     }
+
+    @objc private func openLoginItems() { LaunchHelper.openSettings() }
 
     func windowWillClose(_ notification: Notification) { onClose?() }
 }

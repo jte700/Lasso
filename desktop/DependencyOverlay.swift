@@ -64,7 +64,6 @@ final class OverlayView: NSView {
     var sourceSlots: [String: Int] = [:]
     var directoryColors: [String: DirectoryToggleColor] = [:]
     var hoveredId: String?
-    var debug = false
     /// Screen-space frame of the panel that owns this view.
     var panelFrame: CGRect = .zero
 
@@ -74,7 +73,7 @@ final class OverlayView: NSView {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         for geometry in geometries {
             let state = states[geometry.referenceId] ?? .healthy
-            guard state.isDrawn || debug else { continue }
+            guard state.isDrawn else { continue }
             let hovered = geometry.referenceId == hoveredId
             let sourceSlot = sourceSlots[geometry.referenceId] ?? 0
             let directoryColor = directoryColors[geometry.referenceId]
@@ -98,23 +97,6 @@ final class OverlayView: NSView {
                 context.addLine(to: CGPoint(x: local.maxX, y: y))
                 context.strokePath()
                 context.restoreGState()
-
-                if debug {
-                    NSColor.systemPink.withAlphaComponent(0.9).setStroke()
-                    context.setLineWidth(0.5)
-                    context.stroke(local)
-                }
-            }
-
-            if debug, let first = geometry.fragments.first {
-                let label = "\(geometry.referenceId) · \(state.rawValue)"
-                let attributes: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.monospacedSystemFont(ofSize: 8, weight: .regular),
-                    .foregroundColor: NSColor.systemPink,
-                ]
-                let point = CGPoint(x: first.minX - panelFrame.minX,
-                                    y: first.maxY - panelFrame.minY + 2)
-                NSAttributedString(string: label, attributes: attributes).draw(at: point)
             }
         }
     }

@@ -49,10 +49,6 @@ final class DependencyHighlighter {
     private var readerHoldsHost = false
     private var migratingObjectIds = Set<String>()
 
-    var isDebugging = false {
-        didSet { view.debug = isDebugging; view.needsDisplay = true; refresh() }
-    }
-
     private init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Lasso", isDirectory: true)
@@ -149,30 +145,23 @@ final class DependencyHighlighter {
                                  document: [UInt16], range: Range<Int>, documentOffset: Int = 0,
                                  element: AXUIElement) {
         guard let anchor = TextAnchor.make(in: document, range: range,
-                                           documentOffset: documentOffset) else {
-            AssistLog.write("  ✗ verified range could not be anchored")
-            return
-        }
+                                           documentOffset: documentOffset) else { return }
         AccessibilityWork.queue.async { [reader] in
             let context = reader.focusedContext()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                guard let context, CFEqual(context.element, element) else {
-                    AssistLog.write("  ✗ host lost before the reference could be stored")
-                    return
-                }
+                guard let context, CFEqual(context.element, element) else { return }
                 self.storeVerifiedInsertion(
                     objectId: objectId, versionId: versionId, projectId: projectId, label: label,
                     valueText: valueText, sourcePath: sourcePath, sourceLocation: sourceLocation,
-                    anchor: anchor, context: context,
-                    documentRange: (documentOffset + range.lowerBound)..<(documentOffset + range.upperBound))
+                    anchor: anchor, context: context)
             }
         }
     }
 
     private func storeVerifiedInsertion(objectId: String, versionId: String?, projectId: String?, label: String,
                                         valueText: String?, sourcePath: String, sourceLocation: String,
-                                        anchor: TextAnchor, context: HostContext, documentRange: Range<Int>) {
+                                        anchor: TextAnchor, context: HostContext) {
         let colorSlot = sourceColorSlot(path: sourcePath, objectId: objectId,
                                        projectId: projectId, in: context)
         let reference = DependencyReference(
@@ -187,10 +176,6 @@ final class DependencyHighlighter {
             sourceColorSlot: colorSlot,
             createdAt: Date(), updatedAt: Date())
         store.add(reference)
-        AssistLog.write("  ✓ dependency reference stored [\(reference.id)] · \(anchor.text.count) char(s)")
-        // Stage C, reported separately so a geometry failure is never mistaken
-        // for an insertion or anchoring failure.
-        AccessibilityWork.queue.async { [reader] in reader.reportGeometry(in: context, range: documentRange) }
         scheduleRefresh()
     }
 
@@ -245,7 +230,6 @@ final class DependencyHighlighter {
                             self.normalizeSourceColorSlots(
                                 documentContext: reference.documentContext,
                                 bundleIdentifier: reference.hostBundleIdentifier)
-                            AssistLog.write("highlight: restored source directory for \(reference.id)")
                         }
                     }
                     self.scheduleRefresh()
@@ -386,7 +370,6 @@ final class DependencyHighlighter {
                         store.remove(id: reference.id)   // no ghost highlights
                         lastResolvedElement[reference.id] = nil
                         missingSince[reference.id] = nil
-                        AssistLog.write("highlight: \(reference.id) text deleted; reference dropped")
                     } else if reference.state != .unresolved {
                         store.update(id: reference.id) { $0.state = .unresolved }
                     }
@@ -519,16 +502,6 @@ private final class HighlightReader {
         }
         return Reading(context: context, hasDocument: true, matches: matches, rects: rects,
                        stillOpenElsewhere: stillOpenElsewhere)
-    }
-
-    func reportGeometry(in context: HostContext, range: Range<Int>) {
-        adapter.beginRefresh()
-        let rects = adapter.rects(for: range, in: context)
-        if rects.isEmpty {
-            AssistLog.write("  ✗ geometry unavailable in \(context.applicationName); highlight not rendered")
-        } else {
-            AssistLog.write("  ✓ geometry: \(rects.count) rect(s), first \(Int(rects[0].minX)),\(Int(rects[0].minY))")
-        }
     }
 
     /// Stops watching the host and lets go of its text and geometry.

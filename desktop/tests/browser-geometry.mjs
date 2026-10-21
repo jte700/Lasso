@@ -126,6 +126,10 @@ try {
   const suggestionNavigation = await helper('suggestion-navigation');
   for (const [label, passed] of Object.entries(suggestionNavigation.checks)) assert.equal(passed, true, label);
   console.log(`  ok ${Object.keys(suggestionNavigation.checks).length} native suggestion navigation checks`);
+  const cardSizing = await helper('card-sizing');
+  assert.ok(Object.keys(cardSizing.checks ?? {}).length >= 12, 'The card must be measured in every mode it changes size between');
+  for (const [label, passed] of Object.entries(cardSizing.checks)) assert.equal(passed, true, label);
+  console.log(`  ok ${Object.keys(cardSizing.checks).length} native card sizing checks`);
   const sharePreview = await helper('share-preview-fit');
   assert.ok(sharePreview.checks?.length >= 13, 'Share preview must expose every cell and complete passage with stable redaction coordinates');
   console.log(`  ok ${sharePreview.checks.length} native share preview checks`);

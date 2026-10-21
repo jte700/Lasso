@@ -68,31 +68,6 @@ enum WorkspaceAPI {
                 + "The folders and their files will remain on your Mac, and you can add them again at any time.")
     }
 
-    static func reindexBody() -> [String: Any] {
-        ["actor": actor, "reason": "requested from the menu"]
-    }
-
-    /// What a re-read recorded, in the same words as the Windows companion.
-    static func reindexSummary(_ reindexed: [String: Any]) -> String {
-        guard reindexed["changed"] as? Bool == true else {
-            return "The current reader reads these files exactly as recorded. Nothing was changed."
-        }
-        let objects = reindexed["objects"] as? [String: Any] ?? [:]
-        let version = (reindexed["snapshot"] as? [String: Any])?["version"] as? Int ?? 0
-        let before = objects["before"] as? Int ?? 0
-        let after = objects["after"] as? Int ?? 0
-        let review = reindexed["dependenciesNeedingReview"] as? Int ?? 0
-        var message = "Version \(version) records a new reading of the same files: "
-            + "\(before) sources before, \(after) now. "
-            + "Earlier versions are unchanged, so existing links and shares still resolve."
-        if review > 0 {
-            message += review == 1
-                ? " 1 claim needs review: the new reader identifies its source differently."
-                : " \(review) claims need review: the new reader identifies their sources differently."
-        }
-        return message
-    }
-
     static func errorMessage(data: Data?, response: URLResponse?, error: Error?) -> String {
         if let data,
            let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {

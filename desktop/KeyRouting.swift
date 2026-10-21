@@ -131,19 +131,6 @@ final class KeyRoutingStateBox {
     }
 }
 
-enum KeyEventLatency {
-    /// Longer than any real wait; a value past it means another clock.
-    private static let plausibleMilliseconds = 10_000.0
-
-    /// Milliseconds between a key event's creation and now, both on the
-    /// uptime clock in nanoseconds. Nil when the event carries no usable time.
-    static func milliseconds(eventTimestamp: UInt64, now: UInt64) -> Double? {
-        guard eventTimestamp > 0, now >= eventTimestamp else { return nil }
-        let elapsed = Double(now - eventTimestamp) / 1_000_000
-        return elapsed <= plausibleMilliseconds ? elapsed : nil
-    }
-}
-
 /// Owns the CGEvent tap and the thread its run loop runs on. Started once and
 /// stopped once; enabling suggestions again creates a new tap.
 final class KeyEventTap {
@@ -152,8 +139,6 @@ final class KeyEventTap {
     private let perform: (KeyAction) -> Void
     /// Runs on the main thread once, when the first key arrives.
     private let onFirstKey: () -> Void
-    /// Runs on the main thread with the delay of a key that reached the tap late.
-    private let onLateKey: (Double) -> Void
     /// Set before the tap thread starts and never replaced, so the callback
     /// can read it without a lock.
     private var port: CFMachPort?
@@ -161,13 +146,10 @@ final class KeyEventTap {
     private var runLoop: CFRunLoop?
     /// Touched only on the tap thread.
     private var sawKey = false
-    private static let lateKeyMilliseconds = 50.0
 
-    init(perform: @escaping (KeyAction) -> Void, onFirstKey: @escaping () -> Void,
-         onLateKey: @escaping (Double) -> Void) {
+    init(perform: @escaping (KeyAction) -> Void, onFirstKey: @escaping () -> Void) {
         self.perform = perform
         self.onFirstKey = onFirstKey
-        self.onLateKey = onLateKey
     }
 
     /// False when macOS refused the tap, which means Input Monitoring is missing.
@@ -223,11 +205,6 @@ final class KeyEventTap {
         if !sawKey {
             sawKey = true
             DispatchQueue.main.async(execute: onFirstKey)
-        }
-        if let late = KeyEventLatency.milliseconds(eventTimestamp: event.timestamp,
-                                                   now: clock_gettime_nsec_np(CLOCK_UPTIME_RAW)),
-           late >= Self.lateKeyMilliseconds {
-            DispatchQueue.main.async { [onLateKey] in onLateKey(late) }
         }
         let decision = KeyRouter.decide(
             keyCode: event.getIntegerValueField(.keyboardEventKeycode), flags: event.flags,

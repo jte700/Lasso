@@ -26,11 +26,23 @@ extension Notification.Name {
 /// The menu and source references resolve the same live preference by owner.
 enum DirectoryColorPreferences {
     private static let key = "DirectoryToggleColors"
+    private static let defaultKey = "DefaultDirectoryColor"
 
     static func color(for projectId: String?, defaults: UserDefaults = .standard) -> DirectoryToggleColor? {
         guard let projectId, !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let colors = defaults.dictionary(forKey: key) as? [String: String] ?? [:]
-        return colors[projectId].flatMap(DirectoryToggleColor.init(rawValue:)) ?? .blue
+        return colors[projectId].flatMap(DirectoryToggleColor.init(rawValue:)) ?? defaultColor(defaults)
+    }
+
+    /// The colour of every folder not given its own, chosen in Settings.
+    static func defaultColor(_ defaults: UserDefaults = .standard) -> DirectoryToggleColor {
+        defaults.string(forKey: defaultKey).flatMap(DirectoryToggleColor.init(rawValue:)) ?? .blue
+    }
+
+    static func setDefault(_ color: DirectoryToggleColor, defaults: UserDefaults = .standard) {
+        guard defaultColor(defaults) != color else { return }
+        defaults.set(color.rawValue, forKey: defaultKey)
+        NotificationCenter.default.post(name: .directoryColorsDidChange, object: nil)
     }
 
     static func set(_ color: DirectoryToggleColor, for projectId: String, defaults: UserDefaults = .standard) {
