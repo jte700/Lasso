@@ -1993,6 +1993,50 @@ check(NotchActivity(["failures": 1]).hasNewActivity(comparedTo: NotchActivity())
 check(!NotchActivity().hasNewActivity(comparedTo: NotchActivity(["failures": 1])), "resolved issues do not trigger an interruption")
 check(NotchActivity(["changes": [["projectId": "one", "objectId": "cell", "toVersion": 4]]]).hasNewActivity(comparedTo: notchActivity), "a new pinned source version triggers the notch")
 
+print("")
+print("Notch motion")
+func runSpring(_ spring: NotchSpring, _ style: NotchSpringStyle, seconds: Double, hertz: Double = 120) -> (end: NotchSpring, low: CGFloat, high: CGFloat) {
+    var current = spring, low = spring.value, high = spring.value
+    for _ in 0..<Int(seconds * hertz) {
+        current = current.advanced(by: 1 / hertz, style: style)
+        low = min(low, current.value); high = max(high, current.value)
+    }
+    return (current, low, high)
+}
+let springOpen = runSpring(NotchSpring(0, target: 100), .open, seconds: 1)
+check(springOpen.end.isSettled(within: 0.5) && springOpen.high > 104 && springOpen.high < 110,
+      "opening springs visibly past its size and settles within a second")
+let springClose = runSpring(NotchSpring(100, target: 0), .close, seconds: 1)
+check(springClose.end.isSettled(within: 0.5) && springClose.low > -0.01,
+      "closing settles into the housing without bouncing past it")
+let springMidway = runSpring(NotchSpring(0, target: 100), .open, seconds: 0.05).end
+let springTurned = springMidway.retargeted(to: 0).advanced(by: 1.0 / 120, style: .close)
+check(springMidway.velocity > 0 && springTurned.value > springMidway.value,
+      "reversing mid-flight keeps the surface's momentum, so it turns rather than jumps")
+let springAt60 = runSpring(NotchSpring(0, target: 100), .open, seconds: 0.2, hertz: 60).end
+let springAt120 = runSpring(NotchSpring(0, target: 100), .open, seconds: 0.2, hertz: 120).end
+check(abs(springAt60.value - springAt120.value) < 0.5, "the same motion plays on 60 and 120 Hz displays")
+check(NotchSpring(5).advanced(by: 0.5, style: .open).value == 5, "a spring at rest on its target stays put")
+let motionCamera = NSRect(x: -1050, y: -132, width: 200, height: 32)
+var bodyMotion = NotchBodyMotion(from: motionCamera, to: notchFrame)
+for _ in 0..<6 { bodyMotion = bodyMotion.advanced(by: 1.0 / 120, style: .open) }
+check(abs(bodyMotion.frame.maxY - notchScreen.maxY) < 0.001 && bodyMotion.frame.height > 32 && bodyMotion.frame.height < notchFrame.height,
+      "the body grows down from the display edge")
+check(abs(bodyMotion.frame.midX - motionCamera.midX) < 0.01, "the body stays centered on the camera housing as it widens")
+for _ in 0..<120 { bodyMotion = bodyMotion.advanced(by: 1.0 / 120, style: .open) }
+check(bodyMotion.isSettled && abs(bodyMotion.frame.height - notchFrame.height) < 0.5 && bodyMotion.target == notchFrame,
+      "the body settles on its expanded frame")
+let bodyRetargeted = bodyMotion.retargeted(to: motionCamera)
+check(bodyRetargeted.frame == bodyMotion.frame && bodyRetargeted.target == motionCamera && !bodyRetargeted.isSettled,
+      "closing starts from where the body is")
+let motionWindow = NotchGeometry.motionFrame(screen: notchScreen, compact: notchCompact, from: motionCamera, to: notchFrame)
+check(motionWindow.contains(notchCompact) && motionWindow.contains(motionCamera) && motionWindow.contains(notchFrame)
+      && notchScreen.contains(motionWindow) && motionWindow == motionWindow.integral,
+      "one window frame holds the logo and the whole transition, on whole points")
+check(motionWindow.minY <= notchFrame.minY - NotchGeometry.overshootAllowance
+      && motionWindow.maxX >= notchFrame.maxX + NotchGeometry.overshootAllowance,
+      "the transition window leaves room for the opening overshoot")
+
 print("synthetic typing chunks")
 let accented = String(repeating: "e\u{301}", count: 12) + "👩‍🔬 Café"
 let accentedChunks = accented.chunkedForTyping(16)

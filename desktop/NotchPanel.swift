@@ -4,12 +4,16 @@ import Cocoa
 /// above/below the primary screen. No model-name guesses or camera heuristics.
 enum NotchGeometry {
     static let logoWidth: CGFloat = 32
-    static func interpolatedFrame(from: NSRect, to: NSRect, progress: CGFloat) -> NSRect {
-        let p = min(1, max(0, progress))
-        func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * p }
-        let height = mix(from.height, to.height)
-        return NSRect(x: mix(from.minX, to.minX), y: mix(from.maxY, to.maxY) - height,
-                      width: mix(from.width, to.width), height: height)
+    /// More than the opening spring's overshoot of the tallest expanded panel.
+    static let overshootAllowance: CGFloat = 24
+
+    /// One window frame for a whole transition, so the window is resized once
+    /// rather than on every frame: the logo, where the body starts and where it
+    /// settles, plus room for the opening overshoot, on whole points.
+    static func motionFrame(screen: NSRect, compact: NSRect, from start: NSRect, to target: NSRect) -> NSRect {
+        compact.union(start)
+            .union(target.insetBy(dx: -overshootAllowance, dy: -overshootAllowance))
+            .intersection(screen).integral
     }
 
     static func supported(builtIn: Bool, topInset: CGFloat, left: NSRect?, right: NSRect?) -> Bool {
@@ -81,6 +85,10 @@ private final class NotchSurface: NSView {
     override var isFlipped: Bool { true }
     var logoBacking = NSRect.zero
     var body: NSRect?
+    var onPointerInside: ((Bool) -> Void)?
+
+    override func mouseEntered(with event: NSEvent) { onPointerInside?(true) }
+    override func mouseExited(with event: NSEvent) { onPointerInside?(false) }
 
     private func fill(_ rect: NSRect, radius: CGFloat, roundRight: Bool) {
         NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
@@ -114,7 +122,22 @@ final class NotchPanelController: NSObject {
     private var panel: NotchWindow?
     private var launcherButton: NSButton?
     private var autoCollapseTimer: Timer?
-    private var transitionTimer: Timer?
+    private var hoverCloseTimer: Timer?
+    /// Leaving the open notch closes it after this grace, so a pointer that
+    /// overshoots an edge on its way to a button can come back.
+    private static let hoverExitGrace: TimeInterval = 0.2
+    private var frameClock: NotchFrameClock?
+    private var motion: NotchBodyMotion?
+    private var contentReveal = NotchSpring(0)
+    private var lastFrameTime: TimeInterval = 0
+    private var motionWindowFrame = NSRect.zero
+    private var motionCompactFrame = NSRect.zero
+    private var cameraHeight: CGFloat = 0
+    private var contentScreenX: CGFloat = 0
+    /// Content waits until the body is this far open, so the surface leads.
+    private static let contentRevealOpenness: CGFloat = 0.3
+    /// Content sinks this far into place as it fades in, out of the housing.
+    private static let contentDrop: CGFloat = 6
     private var presentationTarget = NSRect.zero
     private var presentedExpanded = false
     private var presentedBody: NSRect?
@@ -172,13 +195,16 @@ final class NotchPanelController: NSObject {
         enabled = false
         generation += 1; task?.cancel(); task = nil
         timer?.invalidate(); timer = nil
-        transitionTimer?.invalidate(); transitionTimer = nil
+        frameClock?.invalidate(); frameClock = nil
+        motion = nil
+        contentReveal = NotchSpring(0)
         presentedExpanded = false
         presentedBody = nil
         content.isHidden = true
         content.alphaValue = 0
         panel?.orderOut(nil)
         autoCollapseTimer?.invalidate(); autoCollapseTimer = nil
+        hoverCloseTimer?.invalidate(); hoverCloseTimer = nil
         expanded = false
         if let localClick { NSEvent.removeMonitor(localClick) }
         if let globalClick { NSEvent.removeMonitor(globalClick) }
@@ -203,6 +229,9 @@ final class NotchPanelController: NSObject {
         contentClip.clipsToBounds = true
         contentClip.addSubview(content)
         surface.addSubview(contentClip)
+        surface.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                               owner: surface, userInfo: nil))
+        surface.onPointerInside = { [weak self] inside in self?.pointer(inside: inside) }
         panel.contentView = surface
         self.panel = panel
         let button = NSButton(title: "", target: self, action: #selector(toggleExpanded))
@@ -336,7 +365,7 @@ final class NotchPanelController: NSObject {
         launcherButton?.setAccessibilityLabel(expanded ? "Close Lasso notch" : "Open Lasso notch")
         panel.title = expanded ? "Lasso notch" : "Lasso notch control"
         guard expanded else {
-            present(frame: frame, compactFrame: compactFrame, cameraFrame: cameraFrame)
+            present(frame: frame, compactFrame: compactFrame, cameraFrame: cameraFrame, screen: screen.frame)
             return
         }
         content.frame = NSRect(x: 0, y: 0, width: frame.width,
@@ -386,15 +415,14 @@ final class NotchPanelController: NSObject {
         button(activity.stale > 0 || activity.failures > 0 ? "Review Sources" : "Open Sources",
                frame: NSRect(x: width - 14 - actionWidth, y: footerY, width: actionWidth, height: 28), action: #selector(openWorkspace),
                symbol: "arrow.up.right.square").isEnabled = baseURL != nil
-        present(frame: frame, compactFrame: compactFrame, cameraFrame: cameraFrame)
+        present(frame: frame, compactFrame: compactFrame, cameraFrame: cameraFrame, screen: screen.frame)
     }
 
-    private func applyPresentation(body: NSRect?, compactFrame: NSRect, cameraHeight: CGFloat, contentX: CGFloat) {
+    private func applyPresentation(body: NSRect?, windowFrame: NSRect, compactFrame: NSRect, cameraHeight: CGFloat) {
         guard let panel else { return }
         // The logo's backing stays fixed. Only the central body grows from the
         // camera cutout; the window contains their union throughout the motion.
-        let windowFrame = body.map { compactFrame.union($0) } ?? compactFrame
-        panel.setFrame(windowFrame, display: false)
+        if panel.frame != windowFrame { panel.setFrame(windowFrame, display: false) }
         let actualFrame = panel.frame // AppKit may round to backing pixels.
         presentedBody = body
         surface.logoBacking = NSRect(x: compactFrame.minX - actualFrame.minX, y: 0,
@@ -405,82 +433,102 @@ final class NotchPanelController: NSObject {
         }
         launcherButton?.frame = NSRect(x: compactFrame.minX - actualFrame.minX, y: 0,
                                       width: NotchGeometry.logoWidth, height: cameraHeight)
+        let reveal = min(1, max(0, contentReveal.value))
         if let body {
             contentClip.frame = NSRect(x: body.minX - actualFrame.minX, y: cameraHeight,
                                        width: body.width, height: max(0, body.height - cameraHeight))
-            content.setFrameOrigin(NSPoint(x: contentX - body.minX, y: 0))
+            content.setFrameOrigin(NSPoint(x: contentScreenX - body.minX, y: -Self.contentDrop * (1 - reveal)))
         } else { contentClip.frame = .zero }
+        content.alphaValue = reveal
         surface.needsDisplay = true
         panel.displayIfNeeded()
     }
 
-    private func present(frame: NSRect, compactFrame: NSRect, cameraFrame: NSRect) {
+    private func present(frame: NSRect, compactFrame: NSRect, cameraFrame: NSRect, screen: NSRect) {
         guard let panel else { return }
         let changedState = presentedExpanded != expanded
-        if transitionTimer != nil && !changedState && presentationTarget == frame {
-            // A refresh may rebuild labels during an animation. Keep their
-            // origin aligned without restarting the central body's motion.
-            if expanded, let body = presentedBody {
-                content.setFrameOrigin(NSPoint(x: frame.minX - body.minX, y: 0))
-            }
-            return
-        }
-        let animated = panel.isVisible && !reduceMotion() && (changedState || transitionTimer != nil)
-        transitionTimer?.invalidate(); transitionTimer = nil
-        let startBody = presentedBody ?? cameraFrame
-        let targetBody = expanded ? frame : cameraFrame
-        let contentX = expanded ? frame.minX : startBody.minX + content.frame.minX
-        let startAlpha = content.isHidden ? 0 : content.alphaValue
+        let animated = panel.isVisible && !reduceMotion() && (changedState || motion != nil)
         presentedExpanded = expanded
         presentationTarget = frame
-        if !animated {
-            content.isHidden = !expanded
-            content.alphaValue = expanded ? 1 : 0
-            applyPresentation(body: expanded ? frame : nil, compactFrame: compactFrame,
-                              cameraHeight: cameraFrame.height, contentX: contentX)
+        motionCompactFrame = compactFrame
+        cameraHeight = cameraFrame.height
+        // Content keeps its place on screen while the body clips it.
+        if expanded { contentScreenX = frame.minX }
+        guard animated else {
+            finishMotion()
             panel.orderFrontRegardless()
             return
         }
-        let opening = expanded
-        let started = ProcessInfo.processInfo.systemUptime
-        let duration = opening ? 0.18 : 0.14
+        // A new target (a reversal, or a refresh that resizes the content)
+        // retargets the running springs instead of restarting from rest.
+        let targetBody = expanded ? frame : cameraFrame
+        let next = motion?.retargeted(to: targetBody) ?? NotchBodyMotion(from: presentedBody ?? cameraFrame, to: targetBody)
+        let room = NotchGeometry.motionFrame(screen: screen, compact: compactFrame, from: next.frame, to: targetBody)
+        motionWindowFrame = motion == nil ? room : motionWindowFrame.union(room)
+        motion = next
         content.isHidden = false
-        content.alphaValue = startAlpha
-        applyPresentation(body: startBody, compactFrame: compactFrame,
-                          cameraHeight: cameraFrame.height, contentX: contentX)
-        let transition = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
-            guard let self else { timer.invalidate(); return }
-            let elapsed = ProcessInfo.processInfo.systemUptime - started
-            let progress = self.reduceMotion() ? 1 : min(1, elapsed / duration)
-            let eased = CGFloat(progress * progress * (3 - 2 * progress))
-            let body = NotchGeometry.interpolatedFrame(from: startBody, to: targetBody, progress: eased)
-            if opening {
-                let fade = min(1, max(0, (progress - 0.25) / 0.75))
-                self.content.alphaValue = startAlpha + (1 - startAlpha) * fade
-            } else {
-                self.content.alphaValue = startAlpha * max(0, 1 - progress * 3)
-            }
-            self.applyPresentation(body: progress >= 1 && !opening ? nil : body, compactFrame: compactFrame,
-                                   cameraHeight: cameraFrame.height, contentX: contentX)
-            if progress >= 1 {
-                timer.invalidate(); self.transitionTimer = nil
-                self.content.isHidden = !opening
-                self.content.alphaValue = opening ? 1 : 0
-            }
-        }
-        transitionTimer = transition
-        RunLoop.main.add(transition, forMode: .common)
         panel.orderFrontRegardless()
+        if frameClock == nil {
+            lastFrameTime = ProcessInfo.processInfo.systemUptime
+            frameClock = NotchFrameClock(view: surface) { [weak self] in self?.stepMotion() }
+        }
+        applyMotion()
+    }
+
+    private func stepMotion() {
+        guard let motion, !reduceMotion() else { finishMotion(); return }
+        let now = ProcessInfo.processInfo.systemUptime
+        // A stalled main thread resumes the motion rather than leaping ahead.
+        let elapsed = min(now - lastFrameTime, 1.0 / 30)
+        lastFrameTime = now
+        let moved = motion.advanced(by: elapsed, style: presentedExpanded ? .open : .close)
+        let travel = presentationTarget.height - cameraHeight
+        let openness = travel > 0 ? (moved.frame.height - cameraHeight) / travel : 1
+        let showContent = presentedExpanded && openness >= Self.contentRevealOpenness
+        contentReveal = contentReveal.retargeted(to: showContent ? 1 : 0)
+            .advanced(by: elapsed, style: presentedExpanded ? .contentIn : .contentOut)
+        self.motion = moved
+        if moved.isSettled && contentReveal.isSettled(within: 0.01) { finishMotion(); return }
+        applyMotion()
+    }
+
+    private func applyMotion() {
+        guard let motion else { return }
+        let body = motion.frame
+        if !motionWindowFrame.contains(body) { motionWindowFrame = motionWindowFrame.union(body).integral }
+        applyPresentation(body: body, windowFrame: motionWindowFrame,
+                          compactFrame: motionCompactFrame, cameraHeight: cameraHeight)
+    }
+
+    /// Lands exactly on the presented state and shrinks the window to it.
+    private func finishMotion() {
+        frameClock?.invalidate(); frameClock = nil
+        motion = nil
+        contentReveal = NotchSpring(presentedExpanded ? 1 : 0)
+        content.isHidden = !presentedExpanded
+        let body = presentedExpanded ? presentationTarget : nil
+        applyPresentation(body: body, windowFrame: body.map { motionCompactFrame.union($0) } ?? motionCompactFrame,
+                          compactFrame: motionCompactFrame, cameraHeight: cameraHeight)
+    }
+
+    private func pointer(inside: Bool) {
+        hoverCloseTimer?.invalidate(); hoverCloseTimer = nil
+        guard expanded, !inside else { return }
+        hoverCloseTimer = Timer.scheduledTimer(withTimeInterval: Self.hoverExitGrace, repeats: false) { [weak self] _ in
+            self?.collapse()
+        }
     }
 
     @objc private func toggleExpanded() {
         autoCollapseTimer?.invalidate(); autoCollapseTimer = nil
+        hoverCloseTimer?.invalidate(); hoverCloseTimer = nil
         expanded.toggle()
         if expanded { installClickDismissal(); refresh() } else { removeClickDismissal() }
         render()
     }
     @objc private func collapse() {
         autoCollapseTimer?.invalidate(); autoCollapseTimer = nil
+        hoverCloseTimer?.invalidate(); hoverCloseTimer = nil
         expanded = false; removeClickDismissal(); render()
     }
     private func removeClickDismissal() {
@@ -560,6 +608,18 @@ final class NotchPanelController: NSObject {
         controller.receive(failure); verify(!controller.expanded)
         controller.launcherButton?.performClick(nil); verify(controller.expanded && controller.autoCollapseTimer == nil)
         controller.launcherButton?.performClick(nil); verify(!controller.expanded)
+        // Leaving the open notch closes it after a grace; coming back cancels.
+        controller.launcherButton?.performClick(nil)
+        controller.surface.onPointerInside?(false); verify(controller.expanded && controller.hoverCloseTimer != nil)
+        controller.surface.onPointerInside?(true); verify(controller.expanded && controller.hoverCloseTimer == nil)
+        controller.surface.onPointerInside?(false)
+        RunLoop.current.run(until: Date().addingTimeInterval(Self.hoverExitGrace + 0.1))
+        verify(!controller.expanded && controller.hoverCloseTimer == nil && controller.localClick == nil)
+        controller.surface.onPointerInside?(false); verify(controller.hoverCloseTimer == nil)
+        // The logo still closes it before the grace runs out.
+        controller.launcherButton?.performClick(nil)
+        controller.surface.onPointerInside?(false)
+        controller.launcherButton?.performClick(nil); verify(!controller.expanded && controller.hoverCloseTimer == nil)
         verify(controller.panel?.canBecomeKey == false)
         controller.baseURL = URL(string: "http://127.0.0.1:4319")
         controller.activity = NotchActivity(["directories": 6, "files": 125, "stale": 3,
@@ -609,28 +669,42 @@ final class NotchPanelController: NSObject {
         controller.baseURL = nil // Keep animation fixtures independent of the live server.
         controller.reduceMotion = { false }
         controller.launcherButton?.performClick(nil)
-        verify(controller.transitionTimer != nil && controller.expanded)
+        verify(controller.frameClock != nil && controller.motion != nil && controller.expanded)
         RunLoop.current.run(until: Date().addingTimeInterval(0.06))
-        verify(controller.panel!.frame.height > compactFrame.height && controller.panel!.frame.height < controller.presentationTarget.height)
+        let opening = controller.presentedBody!
+        verify(opening.height > compactFrame.height && opening.height < controller.presentationTarget.height)
+        // The window is sized once for the whole motion; only the body moves.
+        verify(controller.panel!.frame.contains(opening) && controller.panel!.frame.contains(controller.presentationTarget))
         verify(controller.panel!.frame.maxY == screen.frame.maxY)
         verify(abs(controller.panel!.frame.minX + controller.launcherButton!.frame.minX - compactFrame.minX) < 0.01)
         verify(controller.content.frame.width == controller.presentationTarget.width)
         let cameraCenter = (screen.auxiliaryTopLeftArea!.maxX + screen.auxiliaryTopRightArea!.minX) / 2
-        verify(abs(controller.presentedBody!.midX - cameraCenter) < 0.01)
-        verify(controller.contentClip.clipsToBounds && abs(controller.contentClip.frame.width - controller.presentedBody!.width) < 0.01)
+        verify(abs(opening.midX - cameraCenter) < 0.01)
+        verify(controller.contentClip.clipsToBounds && abs(controller.contentClip.frame.width - opening.width) < 0.01)
+        verify(controller.content.alphaValue < 1) // The surface leads; content follows.
         // Reverse twice before finishing. No stale callback can leave a tiny
-        // panel behind or hide a newer expanded state.
+        // panel behind or hide a newer expanded state, and the window holds
+        // the opening overshoot on every frame.
         controller.collapse()
         controller.launcherButton?.performClick(nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.24))
-        verify(controller.expanded && controller.transitionTimer == nil && controller.panel!.frame == controller.presentationTarget)
+        var peak: CGFloat = 0
+        var contained = true
+        let settleBy = Date().addingTimeInterval(1.5)
+        while controller.motion != nil && Date() < settleBy {
+            RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 120))
+            guard let body = controller.presentedBody else { continue }
+            peak = max(peak, body.height)
+            contained = contained && controller.panel!.frame.contains(body)
+        }
+        verify(controller.expanded && controller.frameClock == nil && controller.panel!.frame == controller.presentationTarget)
+        verify(contained && peak > controller.presentationTarget.height)
         verify(!controller.content.isHidden && controller.content.alphaValue == 1)
         controller.collapse()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.20))
-        verify(controller.panel!.frame == compactFrame && controller.content.isHidden && controller.transitionTimer == nil && controller.presentedBody == nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+        verify(controller.panel!.frame == compactFrame && controller.content.isHidden && controller.frameClock == nil && controller.presentedBody == nil)
         controller.reduceMotion = { true }
         controller.launcherButton?.performClick(nil)
-        verify(controller.transitionTimer == nil && controller.expanded && controller.panel!.frame == controller.presentationTarget)
+        verify(controller.frameClock == nil && controller.expanded && controller.panel!.frame == controller.presentationTarget)
         controller.openWorkspace()
         verify(destination == "attention" && !controller.expanded)
         verify(controller.localClick == nil && controller.globalClick == nil)
@@ -639,7 +713,8 @@ final class NotchPanelController: NSObject {
         controller.configure(enabled: false, serverURL: nil, suggestions: false)
         RunLoop.current.run(until: Date().addingTimeInterval(0.22))
         verify(controller.panel?.isVisible == false
-            && controller.timer == nil && controller.task == nil && controller.autoCollapseTimer == nil && controller.transitionTimer == nil)
+            && controller.timer == nil && controller.task == nil && controller.autoCollapseTimer == nil
+            && controller.frameClock == nil && controller.motion == nil && controller.hoverCloseTimer == nil)
         return ["checks": checks, "supported": true]
     }
     #endif
