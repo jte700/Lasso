@@ -45,6 +45,8 @@ struct AssistModelElement {
     let polygons: [[NSPoint]]
     /// Open CAD edge polylines (STEP isometric wireframes); never filled.
     var lines: [[NSPoint]] = []
+    /// The 3D source of `lines`, when the preview can be rotated.
+    var wire: AssistModelWire? = nil
 }
 
 struct AssistModelDrawingPath {
@@ -136,6 +138,8 @@ struct AssistModelPreview {
     let storeyLabel: String
     let viewLabel: String
     let warnings: [String]
+    /// Present only when every wireframe element carries its 3D source.
+    let orbit: AssistModelOrbit?
 
     init?(json: [String: Any]) {
         guard json["kind"] as? String == "model-plan",
@@ -160,7 +164,8 @@ struct AssistModelPreview {
                 role: item["role"] as? String ?? "context",
                 selected: item["selected"] as? Bool ?? false,
                 polygons: polygons,
-                lines: lines)
+                lines: lines,
+                wire: lines.isEmpty ? nil : AssistModelWire(json: item))
         }
         var remainingPoints = 400_000
         let drawing = (json["drawing"] as? [[String: Any]] ?? []).prefix(25_000).compactMap {
@@ -177,6 +182,8 @@ struct AssistModelPreview {
         self.storeyLabel = (json["storey"] as? [String: Any])?["label"] as? String ?? ""
         self.viewLabel = json["view"] as? String ?? "Plan view"
         self.warnings = json["warnings"] as? [String] ?? []
+        let rotatable = elements.contains { $0.wire != nil } && elements.allSatisfy { $0.lines.isEmpty || $0.wire != nil }
+        self.orbit = rotatable ? AssistModelOrbit(json: json["orbit"]) : nil
     }
 }
 
@@ -184,23 +191,28 @@ struct AssistModelPreview {
 /// AppKit view. The server chooses the actual selected element's focus bounds.
 struct AssistModelTransform {
     let scale: CGFloat
-    private let source: AssistModelBounds
-    private let origin: NSPoint
+    /// The model point drawn at `screenCenter`.
+    let center: NSPoint
+    let screenCenter: NSPoint
 
     init?(bounds: AssistModelBounds, viewport: NSRect, padding: CGFloat = 10) {
         let inner = viewport.insetBy(dx: padding, dy: padding)
         guard inner.width > 0, inner.height > 0 else { return nil }
         let scale = min(inner.width / bounds.width, inner.height / bounds.height)
         guard scale.isFinite, scale > 0 else { return nil }
+        self.init(center: NSPoint(x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2),
+                  scale: scale, screenCenter: NSPoint(x: inner.midX, y: inner.midY))
+    }
+
+    init(center: NSPoint, scale: CGFloat, screenCenter: NSPoint) {
+        self.center = center
         self.scale = scale
-        self.source = bounds
-        self.origin = NSPoint(x: inner.midX - bounds.width * scale / 2,
-                              y: inner.midY - bounds.height * scale / 2)
+        self.screenCenter = screenCenter
     }
 
     func point(_ point: NSPoint) -> NSPoint {
-        NSPoint(x: origin.x + (point.x - source.minX) * scale,
-                y: origin.y + (source.maxY - point.y) * scale)
+        NSPoint(x: screenCenter.x + (point.x - center.x) * scale,
+                y: screenCenter.y + (center.y - point.y) * scale)
     }
 
     func path(for element: AssistModelElement) -> NSBezierPath {
@@ -247,7 +259,8 @@ struct AssistModelTransform {
 }
 
 enum AssistModelRenderer {
-    static func draw(_ model: AssistModelPreview, in rect: NSRect) {
+    /// `view` turns and zooms a rotatable preview; nil draws it as sent.
+    static func draw(_ model: AssistModelPreview, in rect: NSRect, view: AssistModelView? = nil) {
         let outline = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
         NSColor.textBackgroundColor.withAlphaComponent(0.85).setFill()
         outline.fill()
@@ -258,16 +271,15 @@ enum AssistModelRenderer {
         label(title, in: NSRect(x: rect.minX + 11, y: rect.minY + 8, width: rect.width - 22, height: 16),
               font: .systemFont(ofSize: 10.5, weight: .semibold), color: .labelColor)
 
-        let viewport = NSRect(x: rect.minX + 1, y: rect.minY + 29,
-                              width: rect.width - 2, height: rect.height - 55)
-        if let transform = AssistModelTransform(bounds: model.focusBounds, viewport: viewport) {
+        let viewport = viewport(in: rect)
+        if let (transform, elements) = layout(model, viewport: viewport, view: view) {
             NSGraphicsContext.current?.saveGraphicsState()
             NSBezierPath(rect: viewport).addClip()
             // Fill source regions first. DXF drafting remains visible over the
             // selected room, and its outline is reinforced after the details.
             // CAD wireframe edges (STEP) are stroked, never filled.
             for selected in [false, true] {
-                for element in model.elements where element.selected == selected {
+                for element in elements where element.selected == selected {
                     let path = transform.path(for: element)
                     let fill: NSColor = selected ? .systemBlue : .secondaryLabelColor
                     let alpha: CGFloat = selected ? 0.24 : (model.drawing.isEmpty ? (element.role == "space" ? 0.035 : 0.10) : 0.015)
@@ -313,8 +325,7 @@ enum AssistModelRenderer {
             NSGraphicsContext.current?.restoreGraphicsState()
         }
 
-        let caption = model.warnings.first ?? [model.storeyLabel, model.viewLabel].filter { !$0.isEmpty }.joined(separator: " · ")
-        label(caption, in: NSRect(x: rect.minX + 11, y: rect.maxY - 20, width: rect.width - 22, height: 15),
+        label(caption(for: model, view: view), in: NSRect(x: rect.minX + 11, y: rect.maxY - 20, width: rect.width - 22, height: 15),
               font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
         NSGraphicsContext.current?.restoreGraphicsState()
         NSColor.separatorColor.withAlphaComponent(0.18).setStroke()

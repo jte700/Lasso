@@ -23,6 +23,7 @@ import { storedFields } from '../history/object-versions.js';
 import { extractDrawingDocument } from './drawing-extraction.js';
 import { buildModelPreview } from './model-preview.js';
 import { drawingDiscovery, drawingReferenceMatch } from './drawing-discovery.js';
+import { fileReferenceMatch, isWholeFile, typedAsWritten } from './file-reference.js';
 
 const OBJECT_TYPES = new Set([
   'REFERENCE', 'PAPER', 'RESULT', 'VALUE', 'CODE', 'CODE_BLOCK', 'CODE_LINE',
@@ -79,11 +80,22 @@ function variableTokens(value) {
   return String(value ?? '').toLowerCase().match(/[a-z][a-z0-9]*/g) ?? [];
 }
 
+// Where the last sentence before the cursor ended: terminal punctuation, with
+// any closing quote or bracket, before a space or the cursor; or a line break.
+// A dot inside a name ("Bracket.step") or a number ("4.8") ends nothing, nor
+// does an abbreviation's ("e.g. gross") unless a capitalised word follows it.
+function sentenceStartBefore(before) {
+  const masked = before.replace(ABBREVIATIONS, (match, offset) =>
+    /^(?:\s+\p{Lu}|\s*$)/u.test(before.slice(offset + match.length)) ? match : `${match.slice(0, -1)} `);
+  let start = 0;
+  for (const end of masked.matchAll(/[.!?]["'”’)\]]*(?=\s|$)|\n/g)) start = end.index + end[0].length;
+  return start;
+}
+
 function writingSourceContext(text, cursor, section = '') {
   const source = String(text ?? '');
   const before = source.slice(0, cursor);
-  const boundary = Math.max(before.lastIndexOf('.'), before.lastIndexOf('!'), before.lastIndexOf('?'), before.lastIndexOf('\n'));
-  const sentenceStart = boundary + 1;
+  const sentenceStart = sentenceStartBefore(before);
   const sentence = before.slice(sentenceStart);
   const words = variableTokens(sentence);
   const literatureIntent = /\b(?:et\s+al|according\s+to|cited\s+by|paper|article|publication|authors?|researchers?|investigators?|prior\s+(?:work|studies)|previous\s+(?:work|studies)|(?:study|work|report)\s+(?:by|from))\b/i.test(sentence);
@@ -132,6 +144,20 @@ export function currentClauseStart(text, cursor) {
   return sentenceStart + (joiner ? joiner.index + joiner[0].length : 0);
 }
 
+/**
+ * Whether a file named in the text is the file of a focus chosen with
+ * fn+Right. That focus has no text of its own, so the accepted name it came
+ * from ("Bracket.step", then fn+Left and back) names the focus, not a new
+ * source to choose. Compared by file name, whichever directory holds it.
+ */
+export function namesFocusedFile(claim, dependency) {
+  if (!dependency?.focused) return false;
+  const fileName = (value) => path.posix.basename(String(value ?? '')).toLowerCase();
+  const focusedFile = fileName(dependency.source.path);
+  return Boolean(focusedFile) && (claim.candidates ?? [])
+    .some((candidate) => candidate.fileReference && fileName(candidate.path) === focusedFile);
+}
+
 // Rows keyed by a code ("CO-001", "S014") are found by typing the code's own
 // terms elsewhere; as typed names they would bury real names on two letters.
 const IDENTIFIER_HEADER = /(?:^|\s)(?:id|code|no|number|ref|reference|sample|subject|participant|patient)$/i;
@@ -140,6 +166,14 @@ const IDENTIFIER_VALUE = /^[A-Za-z]{0,6}[-_]?\d[\w-]*$/;
 function isIdentifierRow(object) {
   const header = humanVariable(object.metadata.columns?.[0] ?? '');
   return IDENTIFIER_HEADER.test(header) || IDENTIFIER_VALUE.test(String(object.metadata.row ?? object.label).trim());
+}
+
+// "bracket length": a measured part's name leads the words and the rest begin
+// words of one of its measurements, so other models' lengths do not qualify.
+function namesMeasuredPart(object, queryWords) {
+  const part = variableTokens(humanVariable(object.metadata?.entityName ?? ''));
+  if (!part.length || queryWords.length <= part.length || part.some((word, index) => queryWords[index] !== word)) return false;
+  return queryWords.slice(part.length).every((word) => object.variableWords.some((candidate) => candidate.startsWith(word)));
 }
 
 function progressiveVariableFragments(text, cursor) {
@@ -2273,13 +2307,14 @@ export class PredictiveProvenanceService {
           .slice(index).join('').startsWith(normalizedQuery)) ? 1 : 0;
         const tokenPrefix = queryWords.length && queryWords.every((word) => object.variableWords
           .some((candidateWord) => candidateWord === word || candidateWord.startsWith(word))) ? 1 : 0;
+        const partMeasurement = !exact && !prefix && !contains && namesMeasuredPart(object, queryWords) ? 1 : 0;
         const variableObject = object.objectType === 'VARIABLE' ? 1 : 0;
         const rowObject = object.objectType === 'DATASET_ROW' && !object.namedRow ? 1 : 0;
         // Named rows rank below variables and line items that match as well.
         const namedRow = object.namedRow ? 1 : 0;
         const dictionary = object.metadata.dictionary ? 1 : 0;
         const dataPath = /(^|\/)(?:data|datasets?|results?|outputs?|tables?|metabolomics)(\/|$)/i.test(object.path) ? 1 : 0;
-        const base = exact ? 0.91 : prefix ? 0.82 : contains ? 0.74 : tokenPrefix ? 0.68 : 0;
+        const base = exact ? 0.91 : prefix ? 0.82 : contains ? 0.74 : partMeasurement ? 0.72 : tokenPrefix ? 0.68 : 0;
         const profileQuality = object.metadata.range ? 0.025
           : object.metadata.samples?.length ? 0.012 : object.metadata.dictionary ? 0.01 : -0.015;
         const score = Math.min(0.99, base + variableObject * 0.04 + rowObject * 0.065
@@ -2340,22 +2375,24 @@ export class PredictiveProvenanceService {
     return context.projectIntent ? { fragment: null, candidates: [], context } : null;
   }
 
-  drawingReference(projectId, input, cursor) {
+  /** A whole file (drawing, dataset or worksheet, document, PDF) the words at
+   * the cursor name. Its label is the text Tab inserts in place of them. */
+  fileReference(projectId, input, cursor) {
     const fragments = progressiveVariableFragments(input.text, cursor);
     if (!fragments.length) return null;
     const permitted = this.autocompleteFilter(projectId);
-    const drawings = this.objectsAt(projectId, null, ['DRAWING'])
-      .filter(object => object.path !== input.documentPath && permitted(object));
+    const files = this.objectsAt(projectId, null, ['DRAWING', 'DATASET', 'DOCUMENT', 'PAPER'])
+      .filter(object => isWholeFile(object) && object.path !== input.documentPath && permitted(object));
     for (const fragment of fragments) {
-      const candidates = drawings.flatMap(object => {
-        const match = drawingReferenceMatch(object, fragment.text);
+      const candidates = files.flatMap(object => {
+        const match = fileReferenceMatch(object, fragment.text);
         return match ? [this.enrichObject(projectId, {
-          ...object, label: match.label, score: match.score,
-          matchTier: 0, reasons: ['Matching drawing reference'],
+          ...object, label: match.label, score: match.score, matchTier: 0, fileReference: true,
+          reasons: [object.objectType === 'DRAWING' ? 'Matching drawing reference' : 'Matching file name'],
         })] : [];
-      });
+      }).sort((left, right) => right.score - left.score);
       if (candidates.length) return { ...fragment, type: 'ENTITY', partial: true,
-        value: fragment.text, candidates };
+        value: fragment.text, candidates, asWritten: typedAsWritten(fragment.text) };
     }
     return null;
   }
@@ -2643,19 +2680,9 @@ export class PredictiveProvenanceService {
     const hasPending = Array.isArray(input.pendingDependencies) && input.pendingDependencies.length > 0;
     if (!input.documentPath && !hasPending) return null;
 
-    let persisted = [];
-    if (input.documentPath && Number.isInteger(input.blockIndex)) {
-      const project = this.timeline.getProject(projectId);
-      const file = this.timeline.snapshotFile(project.currentSnapshotId, input.documentPath);
-      if (!file && !hasPending) return null;
-      if (file) {
-        persisted = this.currentDependencies(projectId, { projectFileId: file.projectFileId })
-          .filter((item) => item.anchor.blockIndex === input.blockIndex
-            && item.anchor.end <= cursor
-            && item.anchor.end > sourceScopeBoundary
-            && !['BROKEN', 'NEEDS_REVIEW'].includes(item.status));
-      }
-    }
+    const persisted = this.savedBlockLinks(projectId, input)
+      .filter((item) => item.anchor.end <= cursor && item.anchor.end > sourceScopeBoundary
+        && !['BROKEN', 'NEEDS_REVIEW'].includes(item.status));
     const pending = (Array.isArray(input.pendingDependencies) ? input.pendingDependencies.slice(0, 50) : [])
       .filter((item) => (Number.isInteger(item.blockIndex) ? item.blockIndex : 0) === blockIndex
         && Number.isInteger(item.end)
@@ -2673,6 +2700,7 @@ export class PredictiveProvenanceService {
           },
           source,
           status: 'PENDING',
+          focused: item.focused === true,
         };
       }).filter(Boolean);
     const dependency = [...persisted, ...pending]
@@ -2680,6 +2708,42 @@ export class PredictiveProvenanceService {
       .sort((left, right) => right.anchor.end - left.anchor.end)[0] ?? null;
     if (!dependency || cursor - dependency.anchor.end > 420) return null;
     return dependency;
+  }
+
+  /** Links saved in the project document block being edited; none for other callers. */
+  savedBlockLinks(projectId, input) {
+    if (!input.documentPath || !Number.isInteger(input.blockIndex)) return [];
+    const project = this.timeline.getProject(projectId);
+    const file = this.timeline.snapshotFile(project.currentSnapshotId, input.documentPath);
+    if (!file) return [];
+    return this.currentDependencies(projectId, { projectFileId: file.projectFileId })
+      .filter((item) => item.anchor.blockIndex === input.blockIndex);
+  }
+
+  /**
+   * The values inserted with Tab in the sentence being written, by object id,
+   * each with the text it was inserted as. A list such as "2026-08-18,
+   * 2026-09-12, " goes on with the values not yet written. Every accepted
+   * link counts, not only the newest that scopes the suggestions.
+   */
+  valuesWrittenInSentence(projectId, input, cursor) {
+    const text = String(input.text ?? '');
+    const { sentenceStart } = writingSourceContext(text, cursor);
+    const accepted = Array.isArray(input.acceptedDependencies) ? input.acceptedDependencies : input.pendingDependencies;
+    const spans = [
+      ...(Array.isArray(accepted) ? accepted.slice(0, 50) : [])
+        .map((item) => ({ id: item?.sourceObjectId, start: item?.start, end: item?.end })),
+      ...this.savedBlockLinks(projectId, input)
+        .map((item) => ({ id: item.source?.id, start: item.anchor.start, end: item.anchor.end })),
+    ];
+    const written = new Map();
+    for (const { id, start, end } of spans) {
+      if (typeof id !== 'string' || !Number.isInteger(start) || !Number.isInteger(end)
+        || start < sentenceStart || end > cursor || start >= end) continue;
+      if (!written.has(id)) written.set(id, new Set());
+      written.get(id).add(text.slice(start, end).trim().toLowerCase());
+    }
+    return written;
   }
 
   /**
@@ -2709,8 +2773,8 @@ export class PredictiveProvenanceService {
     const subjectStart = dependency.anchor.end + joiner.index + joiner[0].length;
     const fresh = this.progressiveStudyVariable(projectId, input, cursor);
     if (fresh?.fragment && fresh.candidates.length && fresh.fragment.start >= subjectStart) return true;
-    const drawing = this.drawingReference(projectId, input, cursor);
-    return Boolean(drawing && drawing.start >= subjectStart);
+    const file = this.fileReference(projectId, input, cursor);
+    return Boolean(file && file.start >= subjectStart);
   }
 
   linkedPaperContext(projectId, input, cursor) {
@@ -2940,6 +3004,7 @@ export class PredictiveProvenanceService {
     // The first digits of a value ("was 48") pick out the values they begin,
     // and a word of a column's name ("budget") breaks ties between its cells.
     const typedNumber = typedNumberPrefix(tail, requestedRows);
+    const written = this.valuesWrittenInSentence(projectId, input, cursor);
     const completesTypedNumber = (text) => Boolean(typedNumber) && comparableNumber(text).startsWith(typedNumber);
     const fieldWordsNamed = (object) => namedFieldWords(tail, object.metadata.column ?? object.anchor?.column);
     const objects = scopedObjects
@@ -2949,7 +3014,7 @@ export class PredictiveProvenanceService {
         const resultPath = /(^|\/)(?:results?|outputs?|analysis)(\/|$)/i.test(object.path);
         const derivedField = /\b(?:fold|change|difference|effect|estimate|ratio|percent|reduction|increase|decrease)\b/.test(field);
         const contextualText = contextualStoredValue(object, tail);
-        if (!contextualText) return null;
+        if (!contextualText || written.get(object.id)?.has(contextualText.toLowerCase())) return null;
         let score = object.objectType === 'RESULT' ? 0.52
           : ['VALUE', 'DATASET_VALUE'].includes(object.objectType) ? 0.28 : 0.18;
         if (object.path === source.path) score += 0.18;
@@ -3046,16 +3111,42 @@ export class PredictiveProvenanceService {
     return prediction;
   }
 
+  /** The whole file the words at the cursor name, once other readings of the
+   * same words have had their say. */
+  namedFile(projectId, input, cursor, text) {
+    const named = this.fileReference(projectId, input, cursor);
+    if (!named) return null;
+    // A citation being written ("from the document placental trans") is the
+    // literature path's: it matches documents and papers by title and inserts
+    // citation text. Datasets and drawings remain named files.
+    const citing = detectClaimSpans(text).some((claim) => claim.type === 'LITERATURE'
+      && claim.value != null && claim.end > named.start);
+    let candidates = citing ? named.candidates.filter((candidate) => !['DOCUMENT', 'PAPER'].includes(candidate.objectType))
+      : named.candidates;
+    // Plain words may be a variable's name ("systolic blood pressure"); one
+    // matched on as many words wins over any file but a drawing.
+    if (!named.asWritten && candidates.some((candidate) => candidate.objectType !== 'DRAWING')) {
+      const variable = this.progressiveStudyVariable(projectId, input, cursor);
+      if (variable?.fragment && variable.candidates.length
+        && variable.fragment.end - variable.fragment.start >= named.end - named.start) {
+        candidates = candidates.filter((candidate) => candidate.objectType === 'DRAWING');
+      }
+    }
+    return candidates.length ? { ...named, candidates } : null;
+  }
+
   predictionCandidates(projectId, input) {
     const text = String(input.text ?? '');
     const cursor = Number.isInteger(input.cursor) ? input.cursor : text.length;
     // An explicit model/file reference starts a new source even after another
     // source was linked. It must not depend on scientific-writing intent.
-    // The name just accepted ("The Bracket ") is not a new reference to it.
+    // The name just accepted ("The Bracket ") is not a new reference to it,
+    // nor is the name of the file a focus chosen with fn+Right sits in.
     const linkedDependency = this.linkedDependencyContext(projectId, input, cursor);
-    const drawing = this.drawingReference(projectId, input, cursor);
-    if (drawing && !(linkedDependency && drawing.end <= linkedDependency.anchor.end)) return {
-      claims: [drawing], completion: null, sourceCompletions: [], workspaceCompletions: [],
+    const file = this.namedFile(projectId, input, cursor, text);
+    if (file && !(linkedDependency && file.end <= linkedDependency.anchor.end)
+      && !namesFocusedFile(file, linkedDependency)) return {
+      claims: [file], completion: null, sourceCompletions: [], workspaceCompletions: [],
       sourceContext: null, deterministic: true, generatedText: false,
     };
     const linkedPaper = this.findingsFromLinkedPaper(projectId, input, cursor, linkedDependency);

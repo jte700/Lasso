@@ -251,3 +251,55 @@ test('an accepted CAD part name offers its measurements, ranked by the words aft
   assert.equal(unmeasured.workspaceHeading, undefined);
   assert.ok(unmeasured.claims.some(claim => claim.candidates.some(candidate => candidate.label === 'Bracket Ø8 hole diameter')));
 });
+
+test('typing a model file name offers that drawing, not facts that match its unfinished extension', async t => {
+  const app = await typingWorkspace(t);
+  // A dot inside a name does not end the sentence: "st" alone would match every
+  // "straight edge" fact while the file being named was never offered.
+  for (const text of ['Bracket.st', 'The Bracket.ste', 'I opened Bracket.step']) {
+    const prediction = await typed(app, text);
+    const [claim, ...others] = prediction.claims;
+    assert.equal(others.length, 0, text);
+    assert.equal(claim.start, text.indexOf('Bracket'), `${text} replaces the whole typed name`);
+    assert.deepEqual(claim.candidates.map(candidate => [candidate.objectType, candidate.path]),
+      [['DRAWING', 'Bracket.step']], text);
+    assert.deepEqual(offered(prediction), [], text);
+  }
+  // Sentences still end at punctuation followed by a space.
+  const next = await typed(app, 'The plate is 4.5 mm thick. Bracket.st');
+  assert.equal(next.claims[0].start, 'The plate is 4.5 mm thick. '.length);
+  assert.equal(next.claims[0].candidates[0].path, 'Bracket.step');
+});
+
+test('naming a part before a measurement word offers only that part\'s measurements', async t => {
+  const app = await typingWorkspace(t);
+  // Another model with straight edges of its own sits in a second work directory.
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-step-other-'));
+  t.after(() => fs.rmSync(other, { recursive: true, force: true }));
+  fs.copyFileSync(new URL('./fixtures/drawings/nist_ctc_01_asme1_rd.stp', import.meta.url), path.join(other, 'nist_ctc_01_asme1_rd.stp'));
+  await app.workspace.add([fs.realpathSync(other)], actor);
+  assert.ok((await typed(app, 'The length')).claims[0].candidates.some(candidate => candidate.path.startsWith('nist')),
+    'unqualified, every model\'s lengths are candidates');
+  for (const text of ['The bracket length', 'The Bracket edge', 'The bracket straight edge len']) {
+    const [claim] = (await typed(app, text)).claims;
+    assert.equal(claim.start, text.toLowerCase().indexOf('bracket'), `${text}: the part's name is replaced too`);
+    assert.ok(claim.candidates.length > 0, text);
+    assert.ok(claim.candidates.every(candidate => candidate.path === 'Bracket.step'), text);
+  }
+  const [claim] = (await typed(app, 'The bracket length')).claims;
+  assert.ok(claim.candidates.some(candidate => candidate.label === 'Bracket 10 mm straight edge length'));
+});
+
+test('a file spelled out after a linked part is offered even when the file is in another directory', async t => {
+  const app = await typingWorkspace(t);
+  const { accepted, pendingDependencies } = await acceptName(app, 'The brack', 'Bracket');
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-step-ledger-'));
+  t.after(() => fs.rmSync(other, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(other, 'Income-Statement.csv'), 'Line,Amount\nRevenue,1200\n');
+  await app.workspace.add([fs.realpathSync(other)], actor);
+  const text = `${accepted} is shown next to Income-Statement.cs`;
+  const prediction = await typed(app, text, { pendingDependencies });
+  assert.equal(prediction.claims[0]?.candidates[0].path, 'Income-Statement.csv');
+  assert.equal(prediction.claims[0].start, text.indexOf('Income-Statement'));
+  assert.equal(prediction.workspaceCompletions.length, 0);
+});
