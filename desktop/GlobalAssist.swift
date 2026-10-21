@@ -2772,51 +2772,37 @@ final class GlobalAssistant {
     }
 
     /// Accessibility reports rectangles with the origin at the top-left of the
-    /// primary display; AppKit windows use a bottom-left origin. The popover is
-    /// shifted left so its pointer — not its outer edge — sits under the caret.
+    /// primary display; AppKit windows use a bottom-left origin. The card goes
+    /// above the caret where it fits (see CaretCardPlacement).
     private func anchoredFrame(for caret: CGRect?, size: NSSize) -> NSRect {
-        let preferredPointerX: CGFloat = 84
         guard let caret else {
             let mouse = NSEvent.mouseLocation
             let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main
-            var x = mouse.x - preferredPointerX
+            var x = mouse.x - CaretCardPlacement.preferredPointerX
             var y = mouse.y - size.height - 4
             if let visible = screen?.visibleFrame {
                 x = min(max(visible.minX, x), visible.maxX - size.width)
                 y = min(max(visible.minY, y), visible.maxY - size.height)
             }
             view.pointerAtTop = true
-            view.pointerX = min(max(mouse.x - x, 32), size.width - 32)
+            view.pointerX = min(max(mouse.x - x, CaretCardPlacement.pointerInset),
+                                size.width - CaretCardPlacement.pointerInset)
             view.superview?.layoutSubtreeIfNeeded()
             return NSRect(x: x, y: y, width: size.width, height: size.height)
         }
 
         let primary = NSScreen.screens.first(where: { $0.frame.origin == .zero })
             ?? NSScreen.screens.first
-        let primaryTop = primary?.frame.maxY ?? 0
-        let caretBottom = primaryTop - caret.maxY
-        let caretTop = primaryTop - caret.minY
-        let caretX = caret.midX
-
-        var x = caretX - preferredPointerX
-        var y = caretBottom - size.height - 2
-        var pointerAtTop = true
-
-        let caretOnScreen = NSRect(x: caret.minX, y: caretBottom, width: max(1, caret.width), height: max(1, caret.height))
+        let flipped = HostGeometryConverter.toAppKit(caret, primaryHeight: primary?.frame.maxY ?? 0)
+        let caretOnScreen = NSRect(x: flipped.minX, y: flipped.minY,
+                                   width: max(1, flipped.width), height: max(1, flipped.height))
         let screen = self.screen(showing: caretOnScreen) ?? primary ?? NSScreen.main
-        if let visible = screen?.visibleFrame {
-            if y < visible.minY {
-                y = caretTop + 2
-                pointerAtTop = false
-            }
-            y = min(max(visible.minY, y), visible.maxY - size.height)
-            x = min(max(visible.minX, x), visible.maxX - size.width)
-        }
+        let placement = CaretCardPlacement.beside(caret: flipped, size: size, visible: screen?.visibleFrame)
 
-        view.pointerAtTop = pointerAtTop
-        view.pointerX = min(max(caretX - x, 32), size.width - 32)
+        view.pointerAtTop = placement.pointerAtTop
+        view.pointerX = placement.pointerX
         view.superview?.layoutSubtreeIfNeeded()
-        return NSRect(x: x, y: y, width: size.width, height: size.height)
+        return placement.frame
     }
 
     private func existingPanel() -> NSPanel {
@@ -2941,6 +2927,9 @@ final class GlobalAssistant {
         ) { [weak self] configuration in
             self?.insertShared(suggestion, configuration: configuration, context: savedContext, serverURL: serverURL)
         }
+        // The composer grows down from the card's top edge. With the card above
+        // the caret that would cover the typed line, so place it as the card is.
+        if let popupCaret { reposition(near: popupCaret) }
     }
 
     // MARK: Insertion
