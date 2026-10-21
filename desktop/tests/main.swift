@@ -940,6 +940,55 @@ do {
     check(unknownScreen.frame.minY >= caret.maxY, "prefers above even without a display to fit")
 }
 
+print("the caret is measured on the line it is drawn on")
+do {
+    // Measured in Notes: after "The ou" in a 20pt title, the collapsed range
+    // came back a line above the title, the characters on the title itself.
+    let notesTitle = CGRect(x: 507.79, y: 99, width: 0, height: 23)
+    let titleU = CGRect(x: 495.94, y: 122, width: 11.85, height: 23)
+    check(CaretLine.aligned(notesTitle, before: titleU, after: nil)
+            == CGRect(x: 507.79, y: 122, width: 0, height: 23),
+          "takes a title's line from the character before the caret")
+    let notesBody = CGRect(x: 483.41, y: 106, width: 0, height: 16)
+    let bodyCharacter = CGRect(x: 479.83, y: 122, width: 3.58, height: 16)
+    check(CaretLine.aligned(notesBody, before: bodyCharacter, after: nil).minY == 122,
+          "takes body text's line from the character before the caret")
+
+    let lineStart = CGRect(x: 444, y: 106, width: 0, height: 16)
+    let firstCharacter = CGRect(x: 444, y: 122, width: 7.86, height: 16)
+    check(CaretLine.aligned(lineStart, before: nil, after: firstCharacter).minY == 122,
+          "at the start of a line, takes it from the character after the caret")
+
+    let card = CGSize(width: 760, height: 396)
+    let visible = CGRect(x: 0, y: 0, width: 1920, height: 1042)
+    let primaryHeight: CGFloat = 1080
+    let corrected = CaretLine.aligned(notesTitle, before: titleU, after: nil)
+    let below = CaretCardPlacement.beside(
+        caret: HostGeometryConverter.toAppKit(corrected, primaryHeight: primaryHeight),
+        size: card, visible: visible)
+    check(below.pointerAtTop && below.frame.maxY <= primaryHeight - titleU.maxY,
+          "a card hanging below a Notes title leaves the title uncovered")
+
+    var lookedAfter = false
+    func measuredAfter() -> CGRect? { lookedAfter = true; return nil }
+    let agreeing = CGRect(x: 100, y: 200, width: 0, height: 18)
+    check(CaretLine.aligned(agreeing, before: CGRect(x: 92, y: 200, width: 8, height: 18),
+                            after: measuredAfter()) == agreeing,
+          "keeps a caret that agrees with the character before it")
+    check(!lookedAfter, "measures the character after the caret only when needed")
+
+    let wrapped = CGRect(x: 20, y: 218, width: 0, height: 18)
+    let endOfLineAbove = CGRect(x: 300, y: 200, width: 8, height: 18)
+    let startOfLine = CGRect(x: 20, y: 218, width: 8, height: 18)
+    check(CaretLine.aligned(wrapped, before: endOfLineAbove, after: startOfLine) == wrapped,
+          "a caret wrapped to a new line is not pulled back to the line above")
+    check(CaretLine.aligned(agreeing, before: CGRect(x: 40, y: 240, width: 8, height: 18), after: nil)
+            == agreeing,
+          "ignores a character that does not touch the caret")
+    check(CaretLine.aligned(agreeing, before: nil, after: nil) == agreeing,
+          "keeps the caret when nothing beside it was measured")
+}
+
 
 print("browser editor text-run offsets")
 do {
