@@ -314,9 +314,8 @@ struct ShareDrawingLayout {
     let frame: NSRect
 
     init?(model: AssistModelPreview, in rect: NSRect) {
-        let viewport = NSRect(x: rect.minX + 1, y: rect.minY + 29,
-                              width: rect.width - 2, height: rect.height - 55)
-        guard let transform = AssistModelTransform(bounds: model.focusBounds, viewport: viewport) else { return nil }
+        guard let transform = AssistModelTransform(bounds: model.focusBounds,
+                                                   viewport: AssistModelRenderer.viewport(in: rect)) else { return nil }
         let topLeft = transform.point(NSPoint(x: model.bounds.minX, y: model.bounds.maxY))
         let bottomRight = transform.point(NSPoint(x: model.bounds.maxX, y: model.bounds.minY))
         let frame = NSRect(x: topLeft.x, y: topLeft.y,

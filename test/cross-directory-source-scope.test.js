@@ -138,3 +138,41 @@ test('a focus that cannot be used leaves every directory to answer', async t => 
   const paused = await focused(app, 'Reven', part);
   assert.equal(paused.workspaceHeading, undefined);
 });
+
+// What the card remembers as the focus after Tab: the source the server scoped it to.
+const contextFocus = prediction => {
+  const source = prediction.sourceContext?.source;
+  return source && { projectId: source.projectId, sourceObjectId: source.id, sourceSnapshotId: source.snapshotId };
+};
+
+test('fn+Right returns to an accepted source whose name is still the last thing typed', async t => {
+  const app = await twoDirectories(t);
+  // Typed as spelled, a file of any type is named by its file name; in plain words, by its readable name.
+  for (const [text, label, filePath, heading] of [
+    ['Bracket.st', 'Bracket.step', 'Bracket.step', 'Values for Bracket'],
+    ['The brack', 'Bracket', 'Bracket.step', 'Values for Bracket'],
+  ]) {
+    const accepted = await accept(app, text, label, filePath);
+    for (const written of [accepted.accepted, `${accepted.accepted} `]) {
+      const values = await typed(app, written, [accepted.link]);
+      assert.equal(values.workspaceHeading, heading, written);
+      // fn+Left: every directory reads the same words, so the name is offered as a file again.
+      const out = await typed(app, written);
+      assert.equal(out.workspaceHeading, undefined, written);
+      // fn+Right: the name in the text is the focus itself, not a new source to choose.
+      const back = await focused(app, written, contextFocus(values));
+      assert.equal(back.workspaceHeading, heading, written);
+      assert.deepEqual(back.claims, [], written);
+    }
+  }
+  // A narrowed focus inside the named file holds the same way.
+  const bracket = await accept(app, 'Bracket.st', 'Bracket.step', 'Bracket.step');
+  const hole = (await typed(app, `${bracket.accepted} is`, [bracket.link])).workspaceCompletions
+    .map(item => item.dependencyCandidate).find(candidate => candidate.label === 'Bracket Ø8 hole diameter');
+  const narrowed = await focused(app, bracket.accepted, focusOn(hole));
+  assert.equal(narrowed.workspaceHeading, 'Values for Bracket Ø8 hole diameter');
+  // Another file named at the caret is still a new source to choose.
+  const other = await focused(app, `${bracket.accepted} is beside Income-Statement.cs`, contextFocus(
+    await typed(app, `${bracket.accepted} `, [bracket.link])));
+  assert.equal(other.claims[0]?.candidates[0]?.path, 'Income-Statement.csv');
+});

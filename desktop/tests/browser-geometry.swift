@@ -39,6 +39,12 @@ enum BrowserGeometryRegression {
                         response["rendered"] = GlobalAssistant.regressionRenderPreview(
                             data: previewData, pdfData: pdfData, to: URL(fileURLWithPath: output))
                     } else { response["error"] = "Model preview JSON or output path is missing." }
+                } else if request["command"] as? String == "model-orbit" {
+                    if let input = request["input"] as? String,
+                       let previewData = try? Data(contentsOf: URL(fileURLWithPath: input)) {
+                        response["checks"] = GlobalAssistant.regressionModelOrbit(
+                            data: previewData, outputDirectory: request["output"] as? String)
+                    } else { response["error"] = "Model preview JSON is missing." }
                 } else if request["command"] as? String == "notch-panel" {
                     response.merge(NotchPanelController.regression(outputPath: request["output"] as? String)) { _, new in new }
                 } else if request["command"] as? String == "suggestion-navigation" {

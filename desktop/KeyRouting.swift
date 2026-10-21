@@ -26,6 +26,9 @@ struct KeyRoutingState: Equatable {
     var canFocusOut = false
     /// fn+Right has a focus to move into: the last one, or the selected row.
     var canFocusIn = false
+    /// The card lists something to accept. One kept empty after a move only
+    /// answers fn+Left and fn+Right.
+    var offersChoices = true
 }
 
 /// Work a keystroke asks of the main thread.
@@ -80,7 +83,7 @@ enum KeyRouter {
             if keyCode == home, state.canFocusOut { return .swallow(.focusOut) }
             if keyCode == end, state.canFocusIn { return .swallow(.focusIn) }
         }
-        if state.popup == .suggestions || state.popup == .confirmShare {
+        if (state.popup == .suggestions && state.offersChoices) || state.popup == .confirmShare {
             switch keyCode {
             case tab where chord, down where chord, up where chord:
                 return .pass(.hide)

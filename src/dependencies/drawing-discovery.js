@@ -1,12 +1,12 @@
 // Discovery names are derived at read time, so older immutable drawing rows
 // remain usable without rewriting their source labels or versioned metadata.
-const words = value => String(value ?? '').normalize('NFKC')
+export const words = value => String(value ?? '').normalize('NFKC')
   .replace(/([a-z\d])([A-Z])/g, '$1 $2').toLocaleLowerCase('en-US')
   .match(/[\p{L}\p{N}]+/gu) ?? [];
-const normalized = value => words(value).join(' ');
-const humanStem = filename => filename.replace(/\.[^.]+$/, '').replace(/([a-z\d])([A-Z])/g, '$1 $2')
+export const normalized = value => words(value).join(' ');
+export const humanStem = filename => filename.replace(/\.[^.]+$/, '').replace(/([a-z\d])([A-Z])/g, '$1 $2')
   .replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
-const genericTitle = value => !value || /^(?:\d+|(?:ifc|cad|bim|step)?\s*model|drawing(?:\s*[·:-]?\s*page\s*\d+)?)$/i.test(value.trim());
+export const genericTitle = value => !value || /^(?:\d+|(?:ifc|cad|bim|step)?\s*model|drawing(?:\s*[·:-]?\s*page\s*\d+)?)$/i.test(value.trim());
 const ambiguousSingleAlias = new Set(['floor', 'plan', 'building', 'model', 'architectural', 'civil', 'engineering', 'cad', 'bim']);
 
 /** Human-facing names and conservative aliases for a whole indexed drawing. */
@@ -37,7 +37,9 @@ export function drawingDiscovery(object) {
     searchText: [...new Set([label, filename, stem, explicitTitle, ...aliases].filter(Boolean))].join(' ') };
 }
 
-function phraseMatch(candidate, query) {
+/** "exact", "prefix" or null. `shortLast` lets a file name typed as written
+ * ("Bracket.s") end in one letter: its other terms already pin the file. */
+export function phraseMatch(candidate, query, { shortLast = false } = {}) {
   const source = words(candidate);
   if (!source.length || !query.length) return null;
   // Every query term must match in order. Only the last term may be unfinished;
@@ -48,7 +50,7 @@ function phraseMatch(candidate, query) {
     // One unfinished word names a drawing only from its first word: "Rev" is
     // more likely "Revenue" than the revision tag in "Floor Plan Rev03".
     const found = source.findIndex((word, at) => at >= position
-      && (word === term || last && term.length >= (query.length > 1 ? 2 : 3) && word.startsWith(term)
+      && (word === term || last && term.length >= (query.length > 1 ? (shortLast ? 1 : 2) : 3) && word.startsWith(term)
         && (query.length > 1 || at === 0)));
     if (found < 0) return null;
     position = found + 1;

@@ -1,4 +1,4 @@
-import { renderModelPlan, bindModelPlans } from './model-preview.js?v=2';
+import { renderModelPlan, bindModelPlans } from './model-preview.js?v=3';
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // One modal for local inspection and deliberate, version-pinned sharing.

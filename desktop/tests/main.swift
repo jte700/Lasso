@@ -1541,6 +1541,99 @@ do {
     let tablePreview = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: table))!
     check(tablePreview.model == nil && tablePreview.rows[0].cells[0].cited && tablePreview.rows[0].rowNumber == 7,
           "preserves exact-cell spreadsheet preview parsing")
+    check(model.orbit == nil, "keeps IFC plans flat")
+}
+
+print("rotating and zooming 3D model previews")
+do {
+    func near(_ a: NSPoint, _ b: NSPoint, _ tolerance: CGFloat = 1e-6) -> Bool {
+        abs(a.x - b.x) < tolerance && abs(a.y - b.y) < tolerance
+    }
+    func nearLines(_ a: [[NSPoint]], _ b: [[NSPoint]]) -> Bool {
+        a.count == b.count && zip(a, b).allSatisfy { $0.count == $1.count && zip($0, $1).allSatisfy { near($0, $1) } }
+    }
+    let root2 = 2.0.squareRoot(), root3 = 3.0.squareRoot(), root6 = 6.0.squareRoot()
+    // A block's X and Z edges and a cited vertical Ø4 bore, projected
+    // isometrically by the server, with the 3D source of every line.
+    let block: [String: Any] = [
+        "guid": "Block", "role": "context", "selected": false, "polygons": [] as [Any],
+        "lines": [[[0.0, 0.0], [-10 / root2, -10 / root6]], [[0.0, 0.0], [0.0, 20 / root6]]],
+        "edges": [[[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]], [[0.0, 0.0, 0.0], [0.0, 0.0, 10.0]]],
+        "cylinders": [] as [Any],
+    ]
+    let bore: [String: Any] = [
+        "guid": "Block", "role": "context", "selected": true, "polygons": [] as [Any],
+        "lines": [[[2.0, -10 / root6], [2.0, 10 / root6]], [[-2.0, -10 / root6], [-2.0, 10 / root6]]],
+        "edges": [] as [Any],
+        "cylinders": [["center": [5.0, 5.0, 0.0], "axis": [0.0, 0.0, 1.0], "xdir": [1.0, 0.0, 0.0],
+                       "ydir": [0.0, 1.0, 0.0], "radius": 2.0, "h0": 0.0, "h1": 10.0]],
+    ]
+    let solidJSON: [String: Any] = [
+        "kind": "model-plan", "view": "Isometric view", "warnings": [] as [Any],
+        "bounds": ["minX": -8.0, "minY": -5.0, "maxX": 3.0, "maxY": 9.0],
+        "focusBounds": ["minX": -3.0, "minY": -5.0, "maxX": 3.0, "maxY": 5.0],
+        "selected": ["guid": "Block", "label": "Block · Ø4 hole", "entityType": "Ø4 hole"],
+        "orbit": ["azimuth": Double.pi / 4, "elevation": atan(0.5.squareRoot()), "pivot": [5.0, 5.0, 5.0]],
+        "elements": [block, bore],
+    ]
+    let iso = AssistModelCamera.isometric.axes
+    check(abs(iso.toward.x - 1 / root3) < 1e-12 && abs(iso.toward.z - 1 / root3) < 1e-12 &&
+          abs(iso.right.x + 1 / root2) < 1e-12 && abs(iso.up.z - 2 / root6) < 1e-12,
+          "the default camera is the server's isometric view")
+    let solid = AssistModelPreview(json: solidJSON)!
+    check(solid.orbit?.pivot == SIMD3(5, 5, 5) && solid.orbit?.camera == .isometric,
+          "reads the camera and pivot a STEP preview was sent in")
+    check(solid.elements.allSatisfy { nearLines($0.wire!.lines(iso), $0.lines) },
+          "the default camera redraws exactly the lines the server sent, bore silhouettes included")
+
+    let sent = solid.orbit!.camera
+    let turned = AssistModelView().dragged(by: CGSize(width: 90, height: 0), from: sent)
+    let azimuth = turned.camera!.azimuth
+    check(min(azimuth, 2 * .pi - azimuth) < 1e-12 && turned.camera!.elevation == sent.elevation && turned.isTurned(from: sent),
+          "dragging 90 points to the right turns the model a quarter of the way round")
+    check(turned.dragged(by: .zero, from: sent) == turned &&
+          AssistModelView().dragged(by: .zero, from: sent).isTurned(from: sent) == false,
+          "a drag that ends where it started leaves the view as it was")
+    let overTop = AssistModelView().dragged(by: CGSize(width: 0, height: 100_000), from: sent).camera!
+    check(overTop.elevation < .pi / 2 && overTop.axes.up.z > 0,
+          "tilting stops short of the top view instead of flipping the model over")
+
+    let rect = NSRect(x: 20, y: 30, width: 344, height: 222)
+    let viewport = AssistModelRenderer.viewport(in: rect)
+    let fitted = AssistModelTransform(bounds: solid.focusBounds, viewport: viewport)!
+    let flat = AssistModelRenderer.layout(solid, viewport: viewport, view: AssistModelView())!
+    check(flat.elements[0].lines == solid.elements[0].lines && flat.transform.scale == fitted.scale &&
+          flat.transform.point(NSPoint(x: 1, y: 2)) == fitted.point(NSPoint(x: 1, y: 2)),
+          "an untouched preview draws as before")
+    let rotated = AssistModelRenderer.layout(solid, viewport: viewport, view: turned)!
+    check(!nearLines(rotated.elements[1].lines, solid.elements[1].lines) &&
+          near(rotated.transform.point(turned.camera!.axes.project(SIMD3(5, 5, 5))),
+               NSPoint(x: viewport.midX, y: viewport.midY)),
+          "a turned view redraws from 3D and orbits around the cited feature")
+
+    let range = AssistModelRenderer.zoomRange(for: solid, in: rect)
+    check(range.contains(1) && abs(range.upperBound - 10) < 1e-9 && range.lowerBound < 1,
+          "zoom reaches a tenth of the selection and twice the whole model")
+    let closest = AssistModelView().zoomed(by: 1_000, within: range)
+    let farthest = AssistModelView().zoomed(by: 0.000_1, within: range)
+    check(closest.zoom == range.upperBound && farthest.zoom == range.lowerBound,
+          "zoom stops at its limits")
+    let zoomed = AssistModelRenderer.layout(solid, viewport: viewport, view: closest)!
+    check(abs(zoomed.transform.scale - fitted.scale * closest.zoom) < 1e-9 && zoomed.elements[0].lines == solid.elements[0].lines,
+          "zooming scales the sent drawing about the selection")
+    check(AssistModelRenderer.caption(for: solid, view: AssistModelView()) == "Isometric view · Drag to rotate, scroll to zoom" &&
+          AssistModelRenderer.caption(for: solid, view: turned) == "Rotated view · Double-click to reset" &&
+          AssistModelRenderer.caption(for: solid, view: nil) == "Isometric view",
+          "the caption says how to turn the model and how to get back")
+
+    var partial = solidJSON
+    partial["elements"] = [block, bore.filter { $0.key != "edges" }]
+    let flatOnly = AssistModelPreview(json: partial)
+    check(flatOnly != nil && flatOnly?.orbit == nil,
+          "a preview missing any element's 3D source still draws, but does not rotate")
+    var badPivot = solidJSON
+    badPivot["orbit"] = ["azimuth": 0.0, "elevation": 0.0, "pivot": [0.0, Double.nan, 0.0]]
+    check(AssistModelPreview(json: badPivot)?.orbit == nil, "rejects a non-finite orbit pivot")
 }
 
 print("Markdown and text previews")
@@ -1795,6 +1888,11 @@ do {
     check(chord(115, fnArrow, KeyRoutingState(popup: .hidden, canFocusOut: true, canFocusIn: true))
           == .pass(.followTyping(trackCaret: false)),
           "with no card on screen, fn+arrows belong to the host")
+    let empty = KeyRoutingState(popup: .suggestions, canFocusIn: true, offersChoices: false)
+    check(chord(119, fnArrow, empty) == .swallow(.focusIn), "an empty card kept after a move still moves back with fn+Right")
+    check(route(48, empty) == .pass(.followTyping(trackCaret: true)) && route(125, empty) == .pass(.followTyping(trackCaret: true))
+          && chord(36, .maskCommand, empty) == .pass(.hide),
+          "an empty card leaves Tab, arrows and Command+Return to the host")
     check(route(53, KeyRoutingState(transientOpen: true, popup: .suggestions, canFocusOut: true)) == .swallow(.dismissTransient),
           "Escape still only closes the card")
     check(route(0, open) == .pass(.followTyping(trackCaret: true)), "typing keeps the open box on the caret")
@@ -1856,28 +1954,40 @@ do {
     func focusId(_ fields: [String: Any]) -> String? {
         (fields["focusSource"] as? [String: Any])?["sourceObjectId"] as? String
     }
+    /// Tab inserts the source's text at the end of `before`, as the card does.
+    func accept(_ memory: inout LinkedSourceMemory, _ accepted: LinkedSourceMemory.Source, after before: String) -> String {
+        let units = Array((before + accepted.text).utf16)
+        memory.record(accepted, in: units, at: (units.count - accepted.text.utf16.count)..<units.count)
+        return before + accepted.text
+    }
     let bracket = source("bracket", "Bracket"), hole = source("hole", "Bracket Ø8 hole diameter")
     var memory = LinkedSourceMemory()
     check(!memory.canMoveIn(focusedOn: nil, selected: nil), "with nothing used yet, fn+Right has nowhere to go")
-    memory.record(bracket)
-    let pending = memory.pendingDependencies(in: "The Bracket beside the Bracket is")
-    check(pending.count == 1 && pending[0]["start"] as? Int == 23 && pending[0]["end"] as? Int == 30
+    _ = accept(&memory, bracket, after: "The ")
+    memory.observe("The Bracket beside the Bracket is", reachesStart: true)
+    let pending = memory.requestFields["pendingDependencies"] as? [[String: Any]] ?? []
+    check(pending.count == 1 && pending[0]["start"] as? Int == 4 && pending[0]["end"] as? Int == 11
           && pending[0]["sourceObjectId"] as? String == "bracket" && pending[0]["sourceSnapshotId"] as? String == "snap-bracket",
-          "an accepted source is sent at its last occurrence in the text")
-    check(memory.pendingDependencies(in: "The plate is").isEmpty, "a source whose text was deleted is not sent")
-    check(memory.pendingDependencies(in: "📐 Bracket")[0]["start"] as? Int == 3,
+          "an accepted source is sent where it was inserted, not at a later repeat of its text")
+    memory.observe("The plate is", reachesStart: true)
+    check(memory.requestFields.isEmpty, "a source whose text was deleted is not sent")
+    var emoji = LinkedSourceMemory()
+    _ = accept(&emoji, bracket, after: "📐 ")
+    emoji.observe("📐 Bracket is", reachesStart: true)
+    check((emoji.requestFields["pendingDependencies"] as? [[String: Any]])?.first?["start"] as? Int == 3,
           "offsets count UTF-16 units, as the host's text does")
-    let accepted = memory.requestFields(in: "The Bracket is")
+    memory.observe("The Bracket is", reachesStart: true)
+    let accepted = memory.requestFields
     check(accepted["pendingDependencies"] != nil && accepted["focusSource"] == nil,
           "an accepted source is sent for the server to keep while its sentence goes on")
 
     memory.moveOut(from: bracket)
-    check(memory.requestFields(in: "The Bracket is").isEmpty,
-          "fn+Left sends no source, so every directory answers the next words")
+    check(memory.requestFields.isEmpty, "fn+Left sends no source, so every directory answers the next words")
     check(memory.canMoveIn(focusedOn: nil, selected: source("revenue", "Revenue")),
           "from all directories fn+Right can return to the last focus")
     memory.moveIn(focusedOn: nil, selected: source("revenue", "Revenue"))
-    let back = memory.requestFields(in: "The plate is")
+    memory.observe("The Bracket is shown on the plate. It is", reachesStart: true)
+    let back = memory.requestFields
     check(focusId(back) == "bracket" && back["pendingDependencies"] == nil
           && (back["focusSource"] as? [String: Any])?["sourceSnapshotId"] as? String == "snap-bracket",
           "fn+Right from all directories returns to the last focus, not the selected row")
@@ -1885,29 +1995,125 @@ do {
     check(!memory.canMoveIn(focusedOn: bracket, selected: bracket) && !memory.canMoveIn(focusedOn: bracket, selected: nil),
           "a focused card has nowhere further to go without another row selected")
     memory.moveIn(focusedOn: bracket, selected: hole)
-    check(focusId(memory.requestFields(in: "The Bracket is")) == "hole" && memory.recent == hole,
+    check(focusId(memory.requestFields) == "hole" && memory.recent == hole,
           "fn+Right on a focused card narrows it to the selected row")
     memory.moveOut(from: hole)
     memory.moveIn(focusedOn: nil, selected: nil)
-    check(focusId(memory.requestFields(in: "")) == "hole", "fn+Left then fn+Right returns to the narrowed focus")
+    check(focusId(memory.requestFields) == "hole", "fn+Left then fn+Right returns to the narrowed focus")
 
-    memory.record(source("revenue", "Revenue", project: "finance"))
-    check(focusId(memory.requestFields(in: "Revenue was")) == nil
-          && memory.requestFields(in: "Revenue was")["pendingDependencies"] != nil,
+    let revenueText = accept(&memory, source("revenue", "Revenue", project: "finance"), after: "The Bracket is shown. ")
+    memory.observe(revenueText + " was", reachesStart: true)
+    check(focusId(memory.requestFields) == nil && memory.requestFields["pendingDependencies"] != nil,
           "a source accepted with Tab replaces a focus chosen with fn+Right")
     memory.moveIn(focusedOn: nil, selected: nil)
     memory.forget()
-    check(memory.sources.isEmpty && memory.requestFields(in: "Revenue was").isEmpty
+    check(memory.sources.isEmpty && memory.requestFields.isEmpty
           && memory.canMoveIn(focusedOn: nil, selected: nil),
           "a new field starts with nothing focused, but fn+Right still knows the last source")
 
-    for index in 0..<10 { memory.record(source("part-\(index)", "Part \(index)")) }
+    var text = ""
+    for index in 0..<10 { text = accept(&memory, source("part-\(index)", "Part \(index)"), after: text + " ") }
     check(memory.sources.count == 8 && memory.sources.first?.objectId == "part-2",
           "only the eight newest accepted sources are kept")
-    memory.record(source("revenue", "Revenue", project: "finance"))
+    _ = accept(&memory, source("revenue", "Revenue", project: "finance"), after: text + " ")
     memory.keep(projectIds: ["cad"])
-    check(memory.sources.count == 7 && memory.recent == nil && !memory.canMoveIn(focusedOn: nil, selected: nil),
-          "sources in a directory that was removed are dropped, along with fn+Right's way back to them")
+    check(memory.sources.count == 7 && memory.sources.allSatisfy { $0.projectId == "cad" }
+          && memory.recent?.projectId == "cad",
+          "sources in a directory that was removed are dropped, and fn+Right returns to the focus before them")
+    memory.keep(projectIds: [])
+    check(memory.recent == nil && !memory.canMoveIn(focusedOn: nil, selected: nil),
+          "with every directory removed fn+Right has nowhere to go")
+
+    // After a move the card stays on screen even with nothing to offer, so the move can be undone.
+    var moving = LinkedSourceMemory()
+    _ = accept(&moving, bracket, after: "The ")
+    moving.observe("The Bracket is", reachesStart: true)
+    check(!moving.keepsEmptyCard(focusedOn: bracket), "an empty answer to typing closes the card")
+    moving.moveOut(from: bracket)
+    check(moving.keepsEmptyCard(focusedOn: nil), "after fn+Left an empty card stays, so fn+Right can come back")
+    moving.endMove()
+    check(!moving.keepsEmptyCard(focusedOn: nil), "typing on closes an empty card again")
+    moving.moveIn(focusedOn: nil, selected: nil)
+    check(moving.keepsEmptyCard(focusedOn: bracket), "after fn+Right an empty card stays, so fn+Left can go back")
+    var fresh = LinkedSourceMemory()
+    fresh.moveOut(from: nil)
+    check(!fresh.keepsEmptyCard(focusedOn: nil), "with nowhere to move back, an empty card closes")
+}
+
+print("deleting text accepted with Tab steps the card's focus back")
+do {
+    func source(_ id: String, _ text: String, project: String = "cad") -> LinkedSourceMemory.Source {
+        LinkedSourceMemory.Source(projectId: project, objectId: id, snapshotId: "snap-\(id)", text: text)
+    }
+    func focusId(_ fields: [String: Any]) -> String? {
+        (fields["focusSource"] as? [String: Any])?["sourceObjectId"] as? String
+    }
+    func pendingIds(_ fields: [String: Any]) -> [String] {
+        (fields["pendingDependencies"] as? [[String: Any]] ?? []).compactMap { $0["sourceObjectId"] as? String }
+    }
+    func accept(_ memory: inout LinkedSourceMemory, _ accepted: LinkedSourceMemory.Source, after before: String) -> String {
+        let units = Array((before + accepted.text).utf16)
+        memory.record(accepted, in: units, at: (units.count - accepted.text.utf16.count)..<units.count)
+        return before + accepted.text
+    }
+    let file = source("payables", "Accounts-Payable.csv", project: "accounts")
+    let column = source("invoice-date", "Invoice Date", project: "accounts")
+    let date = source("city-date", "2026-09-30", project: "accounts")
+    let row = source("city-row", "City Office Consumables", project: "accounts")
+
+    var memory = LinkedSourceMemory()
+    var text = accept(&memory, file, after: "")
+    text = accept(&memory, column, after: text + " ")
+    text = accept(&memory, date, after: text + " is ")
+    memory.observe(text, reachesStart: true)
+    check(pendingIds(memory.requestFields) == ["payables", "invoice-date", "city-date"], "each accepted source is sent")
+    memory.observe(String(text.dropLast()), reachesStart: true)
+    check(pendingIds(memory.requestFields) == ["payables", "invoice-date"],
+          "deleting into the value accepted last steps back to the column before it")
+    memory.observe("Accounts-Payable.csv Invoice Da", reachesStart: true)
+    check(pendingIds(memory.requestFields) == ["payables"], "deleting the column steps back to the file")
+    memory.observe("Accounts-Payable.cs", reachesStart: true)
+    check(memory.requestFields.isEmpty && !memory.canMoveIn(focusedOn: nil, selected: nil),
+          "deleting the text that first narrowed the card returns it to every directory")
+    memory.observe(text, reachesStart: true)
+    check(pendingIds(memory.requestFields) == ["payables", "invoice-date", "city-date"],
+          "text that comes back, such as after Undo, is focused again")
+
+    // A focus chosen with fn+Right rests on the accepted text it was chosen from.
+    var narrowed = LinkedSourceMemory()
+    var sentence = accept(&narrowed, file, after: "")
+    narrowed.observe(sentence + " ", reachesStart: true)
+    narrowed.moveIn(focusedOn: file, selected: row)
+    sentence = accept(&narrowed, date, after: sentence + " shows ")
+    narrowed.observe(sentence, reachesStart: true)
+    check(focusId(narrowed.requestFields) == nil && pendingIds(narrowed.requestFields) == ["payables", "city-date"],
+          "Tab ends the focus chosen with fn+Right")
+    narrowed.observe("Accounts-Payable.csv shows 2026-", reachesStart: true)
+    check(focusId(narrowed.requestFields) == "city-row",
+          "deleting the value accepted last returns to the row fn+Right had chosen before it")
+    narrowed.observe("Accounts-Payable", reachesStart: true)
+    check(narrowed.requestFields.isEmpty, "deleting the file it was chosen on returns to every directory")
+
+    var returned = LinkedSourceMemory()
+    let named = accept(&returned, file, after: "See ")
+    returned.observe(named + " for", reachesStart: true)
+    returned.moveOut(from: file)
+    returned.moveIn(focusedOn: nil, selected: nil)
+    check(focusId(returned.requestFields) == "payables", "fn+Left then fn+Right focuses the file again")
+    returned.observe("See ", reachesStart: true)
+    check(returned.requestFields.isEmpty && !returned.canMoveIn(focusedOn: nil, selected: nil),
+          "deleting the file's name ends a focus fn+Right returned to, and fn+Right's way back to it")
+
+    // A long paragraph moves the accepted text out of the window sent from the
+    // host; that is not a deletion, so a chosen focus holds.
+    var long = LinkedSourceMemory()
+    _ = accept(&long, file, after: "In ")
+    long.observe("In Accounts-Payable.csv the", reachesStart: true)
+    long.moveIn(focusedOn: file, selected: row)
+    long.observe(" supplier was paid late, and the next words are all that the window still holds", reachesStart: false)
+    check(focusId(long.requestFields) == "city-row", "accepted text scrolled out of the window is not deleted")
+    long.observe("In the", reachesStart: true)
+    check(long.requestFields.isEmpty, "a window from the start of the field without it is a deletion")
 }
 
 print("slow hosts cost one outstanding Accessibility read")
