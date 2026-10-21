@@ -121,11 +121,7 @@ enum RichTextInserter {
                            onPasted: @escaping (Bool) -> Void) {
         var selectedRange = false
         if length > 0, caret >= length {
-            var range = CFRange(location: caret - length, length: length)
-            if let axRange = AXValueCreate(.cfRange, &range) {
-                selectedRange = AXUIElementSetAttributeValue(
-                    element, kAXSelectedTextRangeAttribute as CFString, axRange) == .success
-            }
+            selectedRange = HostSelection.selectForWrite((caret - length)..<caret, caret: caret, in: element)
         }
 
         // A readable caret does not imply a writable AX range. Web editors
@@ -135,6 +131,12 @@ enum RichTextInserter {
             let verifiedSelection = selectedRange && validateSelection(true)
             guard verifiedSelection || validateSelection(false) else { onPasted(false); return }
             if !verifiedSelection { SyntheticKeyboard.deleteBackwards(keyboardDeleteCount) }
+            // Pasted at a bare caret, the link would merge into a pending
+            // prediction, which can return during the wait. Clear it now.
+            if length == 0, !HostSelection.selectForWrite(caret..<caret, caret: caret, in: element) {
+                onPasted(false)
+                return
+            }
             withBorrowedPasteboard {
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
