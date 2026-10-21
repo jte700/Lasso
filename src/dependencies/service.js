@@ -22,7 +22,7 @@ import { drawingDescriptors, drawingContext, isDesignFile, measurementOrder, mea
 import { storedFields } from '../history/object-versions.js';
 import { extractDrawingDocument } from './drawing-extraction.js';
 import { buildModelPreview } from './model-preview.js';
-import { drawingDiscovery, drawingReferenceMatch } from './drawing-discovery.js';
+import { DRAWING_NAME_MIN_LETTERS, drawingDiscovery, drawingReferenceMatch } from './drawing-discovery.js';
 
 const OBJECT_TYPES = new Set([
   'REFERENCE', 'PAPER', 'RESULT', 'VALUE', 'CODE', 'CODE_BLOCK', 'CODE_LINE',
@@ -2265,6 +2265,10 @@ export class PredictiveProvenanceService {
     const ranked = this.studyVariables(projectId, options.snapshotId)
       .filter((object) => !options.documentPath || object.path !== options.documentPath)
       .filter(permitted)
+      // A measurement's label starts with its drawing's name ("Bracket overall X
+      // extent"), so it waits until the drawing itself can be named and offered first.
+      .filter((object) => object.objectType !== 'DRAWING_ANNOTATION'
+        || normalizedQuery.length >= DRAWING_NAME_MIN_LETTERS)
       .map((object) => {
         const exact = object.normalizedVariable === normalizedQuery ? 1 : 0;
         const prefix = !exact && object.normalizedVariable.startsWith(normalizedQuery) ? 1 : 0;
