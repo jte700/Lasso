@@ -11,6 +11,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&display=swap" rel="stylesheet">
+<script>
+  // Windows visitors see the Windows app in the demos; ?os=windows or ?os=mac picks one by hand
+  (() => {
+    const q = new URLSearchParams(location.search).get('os');
+    const p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+    document.documentElement.dataset.os = q === 'windows' || q === 'mac' ? q : /^win/i.test(p) || /Windows NT/.test(navigator.userAgent) ? 'windows' : 'mac';
+  })();
+</script>
 <style>
   :root {
     --bg: #ffffff;
@@ -120,7 +128,7 @@
   .pill.white:hover { transform: translateY(-1px); }
 
   /* ---------- hero ---------- */
-  .hero { position: relative; background: var(--sand); overflow: hidden; height: 100svh; min-height: 720px; }
+  .hero { position: relative; background: var(--sand); overflow: hidden; height: 100vh; height: 100svh; min-height: 720px; }
   .field { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   .hero::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 120px; background: linear-gradient(transparent, var(--sand)); pointer-events: none; }
   .hero-c { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -48%); z-index: 2; width: min(760px, calc(100% - 32px)); text-align: center; pointer-events: none; }
@@ -133,7 +141,7 @@
   .sub b { color: var(--ink-2); font-weight: 500; }
   .cta-row { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
   .proof { display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; margin-top: 26px; font-size: 13.5px; color: var(--ink-3); font-weight: 500; }
-  .proof span { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 6px; border-radius: 999px; background: color-mix(in srgb, var(--sand) 85%, transparent); }
+  .proof span { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 6px; border-radius: 999px; background: var(--sand); background: color-mix(in srgb, var(--sand) 85%, transparent); }
   .proof svg { width: 16px; height: 16px; }
   .ledger { position: absolute; left: clamp(16px, 3vw, 32px); bottom: clamp(20px, 4vw, 40px); z-index: 3; width: min(430px, calc(100% - 32px)); background: var(--surface); border-radius: 20px; box-shadow: var(--shadow), 0 0 0 1px rgba(0, 0, 0, .04); overflow: hidden; }
   .ledger-h { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px 8px; font-size: 13px; font-weight: 600; }
@@ -364,7 +372,7 @@
   #kb .pad.on { fill: var(--green-bg); stroke: var(--green); stroke-width: 2; }
   .klist { display: flex; flex-direction: column; gap: 4px; }
   .krow { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 12px; align-items: center; padding: 11px 14px; border: 0; border-radius: 16px; background: none; text-align: left; cursor: pointer; transition: background .2s, box-shadow .2s; }
-  .krow:hover { background: color-mix(in srgb, var(--surface) 60%, transparent); }
+  .krow:hover { background: var(--surface); background: color-mix(in srgb, var(--surface) 60%, transparent); }
   .krow .kk { display: flex; gap: 4px; }
   .krow kbd { min-width: 28px; padding: 4px 7px; border-radius: 7px; background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 2px 0 var(--line); font-family: var(--sans); font-size: 13px; font-weight: 600; text-align: center; transition: background .2s, color .2s, box-shadow .2s; }
   .krow b { display: block; font-size: 15px; font-weight: 600; }
@@ -423,6 +431,19 @@
   .uwd .new b { margin-left: auto; font-size: 11px; color: var(--green-d); }
   .usb-card .st.on .uwd .new { animation: lin .5s cubic-bezier(.3, 1.2, .4, 1) both; }
   .usb-card .st.on .uwd .new + .new { animation-delay: .15s; }
+  /* on Windows the drive sits above the taskbar and Lasso's card rises from the tray */
+  [data-os="windows"] .usb-screen { background: radial-gradient(60% 80% at 50% 108%, #9fbfff 0%, transparent 70%), radial-gradient(45% 65% at 22% 100%, #c6d8ff 0%, transparent 70%), radial-gradient(55% 70% at 100% 0%, #e8effc 0%, transparent 70%), #edf1f8; }
+  [data-os="windows"] .usb-screen .tb { height: 36px; }
+  [data-os="windows"] .usb-screen .tb-c > i { width: 32px; height: 32px; }
+  [data-os="windows"] .usb-screen .tb-c > i svg { width: 21px; height: 21px; }
+  [data-os="windows"] .usb-screen .tb-c > i.tb-st svg { width: 18px; height: 18px; }
+  [data-os="windows"] .usb-screen .tb-tray { height: 30px; }
+  [data-os="windows"] .usb-ico { border-radius: 4px; }
+  [data-os="windows"] .usb-drive { top: 18px; right: auto; bottom: auto; left: 18px; text-shadow: none; }
+  [data-os="windows"] .usb-card { top: auto; bottom: 46px; border-radius: 8px; transform-origin: 92% 100%; transform: translateY(10px) scale(.94); font-family: "Segoe UI Variable Text", "Segoe UI", var(--sans); }
+  [data-os="windows"] .usb-card.show { transform: none; }
+  [data-os="windows"] .usb-card .st { top: auto; bottom: 0; }
+  [data-os="windows"] .ub { border-radius: 4px; }
   .usb-cursor { position: absolute; left: 0; top: 0; width: 18px; height: 24px; z-index: 9; transform-origin: 2px 2px; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .3)); pointer-events: none; }
   @media (max-width: 1020px) { .kb-grid { grid-template-columns: 1fr; } }
   /* ---------- MacBook + mock OS ---------- */
@@ -672,6 +693,76 @@
   .scene { position: relative; }
   .scene.with-phone { padding-right: 9%; }
 
+  /* ---------- Windows: the same demos on a Windows 11 laptop ---------- */
+  :root[data-os="windows"] .os-mac, :root:not([data-os="windows"]) .os-win { display: none !important; }
+  [data-os="windows"] .krow { grid-template-columns: 124px minmax(0, 1fr); }
+  [data-os="windows"] .mac-lid { padding: 1.4% 1.4% 1.9%; border-radius: 14px 14px 4px 4px; background: #161618; }
+  [data-os="windows"] .mac-lid::before { top: .4%; width: 5px; height: 5px; margin-left: -2.5px; }
+  [data-os="windows"] .mac-screen { border-radius: 2px; }
+  [data-os="windows"] .mac-base { height: 13px; margin: 0 -4%; background: linear-gradient(#5d5f65, #3d3f44 55%, #27282c); border-radius: 0 0 12px 12px / 0 0 9px 9px; }
+  [data-os="windows"] .mac-base::before { width: 16%; height: 4px; margin-left: -8%; background: #2b2c30; }
+  [data-os="windows"] .os, [data-os="windows"] .isl-screen { background: radial-gradient(60% 80% at 50% 108%, #9fbfff 0%, transparent 70%), radial-gradient(45% 65% at 22% 100%, #c6d8ff 0%, transparent 70%), radial-gradient(55% 70% at 100% 0%, #e8effc 0%, transparent 70%), #edf1f8; }
+  .tb { position: absolute; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; align-items: center; height: 44px; padding: 0 8px; background: rgba(240, 243, 249, .85); backdrop-filter: blur(20px) saturate(1.4); -webkit-backdrop-filter: blur(20px) saturate(1.4); box-shadow: 0 -1px 0 rgba(0, 0, 0, .07); font-family: "Segoe UI Variable Text", "Segoe UI", var(--sans); font-size: 11.5px; color: #1b1b1b; }
+  .tb svg { display: block; }
+  .tb-wx { display: flex; align-items: center; gap: 7px; padding: 0 6px; line-height: 1.2; }
+  .tb-wx svg { width: 22px; height: 22px; }
+  .tb-wx small { display: block; font-size: 10.5px; color: rgba(0, 0, 0, .55); }
+  .tb-c { position: absolute; left: 50%; display: flex; gap: 3px; align-items: center; transform: translateX(-50%); }
+  .tb-c > i { position: relative; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 6px; }
+  .tb-c > i svg { width: 25px; height: 25px; }
+  .tb-c > i.tb-st svg { width: 21px; height: 21px; }
+  .tb-c > i.on { background: rgba(255, 255, 255, .65); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .05); }
+  .tb-c > i.on::after { content: ""; position: absolute; bottom: 1px; left: 50%; width: 16px; height: 3px; margin-left: -8px; border-radius: 2px; background: #0067c0; }
+  .tb-q { display: flex; align-items: center; gap: 8px; width: 150px; height: 30px; margin: 0 4px; padding: 0 12px; border-radius: 15px; background: rgba(255, 255, 255, .8); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .06); color: rgba(0, 0, 0, .55); }
+  .tb-q svg { width: 14px; height: 14px; }
+  .tb-r { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+  .tb-tray { display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 8px; border-radius: 6px; }
+  .tb-tray svg { width: 15px; height: 15px; }
+  .tb-up { font-size: 11px; color: rgba(0, 0, 0, .6); }
+  .tb-clk { padding: 0 8px; text-align: right; font-size: 11px; line-height: 1.35; }
+  [data-os="windows"] .win { border-radius: 8px; box-shadow: 0 0 0 1px rgba(0, 0, 0, .1), 0 18px 44px rgba(0, 0, 0, .2); }
+  [data-os="windows"] .win-bar { gap: 8px; height: 34px; padding: 0 0 0 12px; background: #f3f3f3; border-bottom: 0; font-family: "Segoe UI Variable Text", "Segoe UI", var(--sans); font-size: 12px; font-weight: 400; color: #1b1b1b; }
+  [data-os="windows"] .win-bar .t { position: static; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+  [data-os="windows"] .win-bar .t:empty { display: none; }
+  [data-os="windows"] .win-bar .url { border-radius: 15px; background: #fff; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .08); }
+  .wc { display: flex; align-self: stretch; flex: none; margin-left: 4px; color: #1b1b1b; }
+  .wc span { display: grid; place-items: center; width: 40px; }
+  .wc svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1; }
+  [data-os="windows"] .pop { border-radius: 8px; transform: translateY(8px) scale(.98); transform-origin: bottom right; }
+  [data-os="windows"] .pop.show { transform: none; }
+  [data-os="windows"] .ph-st i { width: 9px; height: 9px; border-radius: 50%; }
+  /* review changes: a notification slides in above the taskbar instead of the notch */
+  [data-os="windows"] .isl-lid { left: -40px; right: 26px; top: -40px; height: 408px; padding: 12px 12px 16px; background: #161618; border-radius: 0 0 14px 14px; -webkit-mask-image: linear-gradient(transparent, #000 14%); mask-image: linear-gradient(transparent, #000 14%); }
+  [data-os="windows"] .isl-screen { border-radius: 0 0 3px 3px; }
+  .isl-base { position: absolute; left: -60px; right: 8px; top: 368px; height: 12px; background: linear-gradient(#5d5f65, #3d3f44 55%, #27282c); border-radius: 0 0 12px 12px / 0 0 9px 9px; }
+  [data-os="windows"] .isl-screen .tb { height: 34px; padding: 0 4px; }
+  [data-os="windows"] .isl-screen .tb-c > i { width: 30px; height: 30px; }
+  [data-os="windows"] .isl-screen .tb-c > i svg { width: 20px; height: 20px; }
+  [data-os="windows"] .isl-screen .tb-c > i.tb-st svg { width: 17px; height: 17px; }
+  [data-os="windows"] .isl-screen .tb-tray { gap: 7px; height: 28px; padding: 0 5px; }
+  [data-os="windows"] .isl-win { left: 40px; right: 100px; top: 44px; border-radius: 8px; }
+  [data-os="windows"] .island { top: auto; left: auto; right: 12px; bottom: 44px; width: 286px; height: 160px; transform: translateX(calc(100% + 40px)); background: rgba(250, 250, 250, .97); color: #1b1b1b; border-radius: 8px; box-shadow: 0 0 0 1px rgba(0, 0, 0, .08), 0 14px 32px rgba(0, 0, 0, .2); font-family: "Segoe UI Variable Text", "Segoe UI", var(--sans); transition: transform .5s cubic-bezier(.2, .9, .3, 1), height .4s cubic-bezier(.3, 1, .4, 1); }
+  [data-os="windows"] .island.open, [data-os="windows"] .island.done { transform: none; }
+  [data-os="windows"] .island.done { height: 46px; }
+  [data-os="windows"] .i-open { top: 0; padding: 10px 14px 12px; }
+  [data-os="windows"] .i-done { justify-content: flex-start; height: 46px; padding: 0 14px; font-size: 12.5px; }
+  [data-os="windows"] .i-done b { color: var(--green-d); }
+  .wt-app { display: flex; align-items: center; gap: 6px; font-size: 11px; color: rgba(0, 0, 0, .62); }
+  .island .wt-app svg { width: 14px; height: 14px; }
+  .wt-app span { color: rgba(0, 0, 0, .42); }
+  .wt-app i { margin-left: auto; font-style: normal; color: rgba(0, 0, 0, .42); }
+  .wt-t { margin-top: 6px; font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+  .wt-w { margin-top: 1px; overflow: hidden; font-family: var(--mono); font-size: 10.5px; color: rgba(0, 0, 0, .55); white-space: nowrap; text-overflow: ellipsis; }
+  .wt-v { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; white-space: nowrap; }
+  .wt-v s { font-family: var(--serif); font-size: 15px; color: rgba(0, 0, 0, .4); }
+  .wt-v .ar { color: rgba(0, 0, 0, .4); }
+  .wt-v b { font-family: var(--serif); font-size: 20px; font-weight: 600; color: var(--green-d); }
+  .wt-v em { margin-left: auto; font-style: normal; font-family: var(--mono); font-size: 10.5px; color: rgba(0, 0, 0, .45); }
+  .wt-r { font-size: 11.5px; color: rgba(0, 0, 0, .62); }
+  .wt-bt { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 9px; }
+  [data-os="windows"] .ibtn { padding: 6px 8px; border-radius: 4px; background: #e6e6e6; color: #1b1b1b; font-size: 12px; font-weight: 500; text-align: center; }
+  [data-os="windows"] .ibtn.go { background: var(--green-d); color: #fff; }
+
   /* ---------- dark CTA ---------- */
   .cta { position: relative; overflow: hidden; padding: 150px 16px; background: #000; color: #fff; text-align: center; }
   .cta .field { opacity: .9; }
@@ -744,7 +835,7 @@
     .sub { font-size: 17px; }
     .pill.big { font-size: 17px; padding: 13px 20px; }
     .tab { padding: 9px 14px; font-size: 14px; }
-    .hero { display: flex; flex-direction: column; justify-content: center; height: auto; min-height: max(100svh, 780px); padding: 96px 16px 110px; }
+    .hero { display: flex; flex-direction: column; justify-content: center; height: auto; min-height: max(100vh, 780px); min-height: max(100svh, 780px); padding: 96px 16px 110px; }
     .hero-c { position: relative; left: auto; top: auto; transform: none; width: 100%; margin: 0 auto; }
     .ledger { display: none; }
     .proof { display: none; }
@@ -772,21 +863,11 @@
   }
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
-    .reveal { opacity: 1; transform: none; transition: none; }
   }
 
   /* Keyboard focus is always visible (HIG: Accessibility, Keyboards). */
   :is(a, button, [role="button"], [role="tab"], [tabindex], input, select, textarea, summary):focus-visible {
     outline: 2px solid var(--blue); outline-offset: 2px;
-  }
-  /* With Reduce Motion on, nothing slides, loops or fades on its own (HIG: Motion). */
-  @media (prefers-reduced-motion: reduce) {
-    html { scroll-behavior: auto; }
-    *, *::before, *::after {
-      animation-duration: .01ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: .01ms !important;
-    }
   }
 </style>
 </head>
@@ -795,6 +876,7 @@
   <symbol id="tick" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7.5" fill="#29cc57"/><path d="M4.8 8.3l2.1 2.1 4.3-4.6" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="lassoMark" viewBox="0 0 32 32"><ellipse cx="15" cy="12" rx="11" ry="7.5" transform="rotate(-10 15 12)" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M19.5 18.6c1.6 3.2 4.6 4.6 7.6 9.4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="19.3" cy="18.4" r="2.2" fill="currentColor"/></symbol>
   <symbol id="curSym" viewBox="0 0 22 28"><path d="M2 2v21l5.6-5.3 4 8.6 3.6-1.6-4-8.4H19z" fill="#000" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="curSymWin" viewBox="0 0 22 28"><path d="M2 2v21l5.6-5.3 4 8.6 3.6-1.6-4-8.4H19z" fill="#fff" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/></symbol>
 </svg>
 
 <div class="nav-wrap">
@@ -887,9 +969,9 @@
       <div class="mac reveal" id="macWrite"><div class="mac-lid"><div class="mac-screen"><div class="os" id="osWrite"></div></div></div><div class="mac-base"></div></div>
       <div class="keys reveal">
         <span class="key" data-key="tab"><kbd>Tab</kbd>Accept</span>
-        <span class="key" data-key="enter"><kbd>⌘↵</kbd>Insert with local tracking</span>
+        <span class="key" data-key="enter"><kbd><span class="os-mac">⌘↵</span><span class="os-win">Ctrl+Enter</span></kbd>Insert with local tracking</span>
         <span class="key" data-key="arrows"><kbd>↑↓</kbd>Another source</span>
-        <span class="key" data-key="share"><kbd>⇧⌘↵</kbd>Share the reference</span>
+        <span class="key" data-key="share"><kbd><span class="os-mac">⇧⌘↵</span><span class="os-win">Ctrl+Shift+Enter</span></kbd>Share the reference</span>
         <span class="key" data-key="click"><kbd>Click</kbd>Inspect a linked value</span>
         <span class="key" data-key="esc"><kbd>Esc</kbd>Dismiss</span>
       </div>
@@ -921,8 +1003,8 @@
         <div class="klist" id="kbList">
           <button class="krow star" type="button"><span class="kk"><kbd>⇥</kbd></span><span><b>Tab</b><span class="d">Accept the suggestion</span></span></button>
           <button class="krow" type="button"><span class="kk"><kbd>↑</kbd><kbd>↓</kbd></span><span><b>Arrows</b><span class="d">Look at another source first</span></span></button>
-          <button class="krow" type="button"><span class="kk"><kbd>⌘</kbd><kbd>↵</kbd></span><span><b>Command Return</b><span class="d">Insert with local source tracking</span></span></button>
-          <button class="krow" type="button"><span class="kk"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>↵</kbd></span><span><b>Shift Command Return</b><span class="d">Share the reference</span></span></button>
+          <button class="krow" type="button"><span class="kk os-mac"><kbd>⌘</kbd><kbd>↵</kbd></span><span class="kk os-win"><kbd>Ctrl</kbd><kbd>↵</kbd></span><span><b class="os-mac">Command Return</b><b class="os-win">Ctrl Enter</b><span class="d">Insert with local source tracking</span></span></button>
+          <button class="krow" type="button"><span class="kk os-mac"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>↵</kbd></span><span class="kk os-win"><kbd>Ctrl</kbd><kbd>⇧</kbd><kbd>↵</kbd></span><span><b class="os-mac">Shift Command Return</b><b class="os-win">Ctrl Shift Enter</b><span class="d">Share the reference</span></span></button>
           <button class="krow" type="button"><span class="kk"><kbd>esc</kbd></span><span><b>Escape</b><span class="d">Dismiss and keep typing</span></span></button>
           <button class="krow" type="button"><span class="kk"><kbd>Click</kbd></span><span><b>Click</b><span class="d">Inspect a linked value’s source</span></span></button>
         </div>
@@ -933,7 +1015,7 @@
       <div class="f-text reveal">
         <span class="kicker dev">In development · USB drives</span>
         <h2>Plug in a drive. Lasso asks first.</h2>
-        <p class="lead">Connect any USB drive and the Lasso icon in your menu bar lights up. <b>Index the whole drive or only the folders you choose</b>, and it joins your working directories. When you unplug it, Lasso asks whether to keep the index or remove it.</p>
+        <p class="lead">Connect any USB drive and the Lasso icon in your <span class="os-mac">menu bar</span><span class="os-win">system tray</span> lights up. <b>Index the whole drive or only the folders you choose</b>, and it joins your working directories. When you unplug it, Lasso asks whether to keep the index or remove it.</p>
         <ul class="bullets">
           <li>Works with any USB storage, USB-A or USB-C</li>
           <li>Index everything, or pick specific folders</li>
@@ -953,7 +1035,7 @@
       <div class="center reveal">
         <span class="kicker">Share what you cite</span>
         <h2>Reference it. They can open it.</h2>
-        <p class="lead">Press <b>⇧⌘↵</b> on a suggestion and the reference becomes a link. Share the indexed part, the whole document, or a copy with the private details blacked out. No hunting for the file, no attaching, no redacting by hand.</p>
+        <p class="lead">Press <b class="os-mac">⇧⌘↵</b><b class="os-win">Ctrl+Shift+Enter</b> on a suggestion and the reference becomes a link. Share the indexed part, the whole document, or a copy with the private details blacked out. No hunting for the file, no attaching, no redacting by hand.</p>
       </div>
       <div class="mac reveal" id="macShare"><div class="mac-lid"><div class="mac-screen"><div class="os" id="osShare"></div></div></div><div class="mac-base"></div></div>
       <div class="facts reveal">
@@ -971,7 +1053,7 @@
       <div class="center reveal">
         <span class="kicker dev">In development</span>
         <h2>Lasso is learning to listen and travel</h2>
-        <p class="lead">Someone in a call asks for “that file”, and the Lasso icon in your menu bar offers it, addressed to exactly the person who asked. A whiteboard photo from Tuesday turns up in Thursday’s email, found by what’s written on it.</p>
+        <p class="lead">Someone in a call asks for “that file”, and the Lasso icon in your <span class="os-mac">menu bar</span><span class="os-win">system tray</span> offers it, addressed to exactly the person who asked. A whiteboard photo from Tuesday turns up in Thursday’s email, found by what’s written on it.</p>
       </div>
       <div class="tabs reveal" role="tablist" id="sTabs" aria-label="Upcoming features">
         <button class="tab" role="tab" aria-selected="true" data-soon="meet"><span class="lv lv3">Soon</span>In meetings</button>
@@ -1064,7 +1146,8 @@
 </footer>
 <script>
 (() => {
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // the demos run even when the OS asks for reduced motion: Windows asks whenever its "Animation effects"
+  // setting is off, which is common on low-end PCs, VMs and Remote Desktop, and the page froze for them
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const PI = Math.PI, DARK_MQ = matchMedia('(prefers-color-scheme: dark)');
@@ -1078,7 +1161,7 @@
   const easeInOut = (t) => (t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
   const f1 = (n) => (+n).toFixed(1);
   const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const TYPE = (base) => (reduced ? 0 : base + Math.random() * base);
+  const TYPE = (base) => base + Math.random() * base;
   function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
   // resolves while the element is on screen and the tab is visible, so demos only advance when watched
   function gate(el, threshold = 0.25) {
@@ -1311,10 +1394,10 @@
     function draw(now) {
       ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
       ctx.font = font(); ctx.textBaseline = 'middle';
-      const phase = reduced ? -1 : (now / 5200) % 1.25, sweepY = reduced ? -1e4 : ((now / 9000) % 1.6) * H;
+      const phase = (now / 5200) % 1.25, sweepY = ((now / 9000) % 1.6) * H;
       const mx = mouse.x, my = mouse.y, sig2 = 2 * 110 * 110;
       buckets.forEach(b => (b.length = 0)); acc.forEach(b => (b.length = 0));
-      if (!reduced) for (let i = 0, n = (rows * cols * .0025) | 0; i < n; i++) { const k = (Math.random() * rows * cols) | 0; scr[k] = 4 + ((Math.random() * 8) | 0); alt[k] = SCR[(Math.random() * SCR.length) | 0]; }
+      for (let i = 0, n = (rows * cols * .0025) | 0; i < n; i++) { const k = (Math.random() * rows * cols) | 0; scr[k] = 4 + ((Math.random() * 8) | 0); alt[k] = SCR[(Math.random() * SCR.length) | 0]; }
       for (let r = 0; r < rows; r++) {
         const row = chars[r], py = r * lh + lh * .5, sweep = Math.exp(-((py - sweepY) ** 2) / 1800) * .12;
         for (let c = 0; c < cols; c++) {
@@ -1331,7 +1414,7 @@
       const put = (k) => { const r = (k / cols) | 0, c = k - r * cols; let ch = chars[r][c]; if (scr[k]) { ch = alt[k]; scr[k]--; } ctx.fillText(ch, c * cw, r * lh + lh * .5); };
       for (let i = 0; i < LEVELS; i++) if (buckets[i].length) { ctx.fillStyle = rgba(T.text, Math.min(1, (i + .5) / LEVELS)); buckets[i].forEach(put); }
       for (let i = 0; i < 6; i++) if (acc[i].length) { ctx.fillStyle = rgba(T.pulse, .5 + i * .09); acc[i].forEach(put); }
-      if (events && !reduced) {
+      if (events) {
         evs = evs.filter(e => drawEvent(e, now));
         if (now > nextSpawn && evs.length < (W < 700 ? 1 : 2)) { spawn(now); nextSpawn = now + rng(900, 1700); }
       }
@@ -1342,7 +1425,7 @@
     host.addEventListener('pointerleave', () => { mouse.x = mouse.y = -9999; });
     let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(resize, 150); });
     resize();
-    if (!reduced) ticks.add((now) => { if (visible && !document.hidden && now - lastFrame > 30) { draw(now); lastFrame = now; } });
+    ticks.add((now) => { if (visible && !document.hidden && now - lastFrame > 30) { draw(now); lastFrame = now; } });
   }
 
   const ledgerRows = $('#ledgerRows'), ledgerCount = $('#ledgerCount');
@@ -1689,7 +1772,7 @@
     ticks.add((now) => {
       const dt = Math.min(50, now - last); last = now;
       if (!g.on) return;
-      if (!reduced) { clock += dt; update(dt); }
+      clock += dt; update(dt);
       render();
     });
     const pt = (e) => { const p = stage.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; return p.matrixTransform(stage.getScreenCTM().inverse()); };
@@ -1711,7 +1794,10 @@
     cast();
   })();
 
-  /* ================= mock macOS ================= */
+  /* ================= mock macOS (Windows 11 for Windows visitors) ================= */
+  const WIN = document.documentElement.dataset.os === 'windows';
+  // the Windows app spells its shortcuts out where macOS uses glyphs
+  const K_SHARE = WIN ? 'Ctrl+Shift+Enter' : '⇧⌘↵', K_TAB = WIN ? 'Tab' : '⇥', K_ESC = WIN ? 'Esc' : 'esc';
   const ICONS = {
     folder: '<svg viewBox="0 0 40 40"><rect width="40" height="40" rx="10" fill="#5ba4f5"/><path d="M8 13a2 2 0 0 1 2-2h7l2.5 3H30a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2z" fill="#cfe5ff"/><path d="M8 17h24v11a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2z" fill="#fff" opacity=".9"/></svg>',
     lasso: '<svg viewBox="0 0 40 40"><rect width="40" height="40" rx="10" fill="#fff"/><rect x=".5" y=".5" width="39" height="39" rx="9.5" fill="none" stroke="#e7e4e0"/><svg x="6" y="6" width="28" height="28" viewBox="0 0 32 32" style="color:#29cc57"><use href="#lassoMark"/></svg></svg>',
@@ -1724,19 +1810,31 @@
   };
   const WIFI = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1" fill="currentColor"/></svg>';
   const BATT = '<svg viewBox="0 0 28 14" style="width:24px"><rect x="1" y="1.5" width="23" height="11" rx="3" fill="none" stroke="currentColor" stroke-opacity=".5"/><rect x="3" y="3.5" width="16" height="7" rx="1.5" fill="currentColor"/><rect x="25" y="5" width="2" height="4" rx="1" fill="currentColor" fill-opacity=".5"/></svg>';
+  // Windows has no menu bar or dock: a taskbar along the bottom, with Lasso in the notification area
+  const WINLOGO = '<svg viewBox="0 0 24 24" fill="#0078d4"><path d="M2 2h9.5v9.5H2zM12.5 2H22v9.5h-9.5zM2 12.5h9.5V22H2zM12.5 12.5H22V22h-9.5z"/></svg>';
+  const SEARCH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>';
+  const VOL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4.5 4.5 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>';
+  const SUN = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="#f6b100"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" stroke="#f6b100" stroke-width="2" stroke-linecap="round"/></svg>';
+  const WC = '<span class="wc"><span><svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg></span><span><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9" rx="1.5"/></svg></span><span><svg viewBox="0 0 10 10"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></span></span>';
+  const taskbar = ({ apps, active = [], full = true }) => `<div class="tb">${full ? `<span class="tb-wx">${SUN}<span>18°C<small>Sunny</small></span></span>` : ''}`
+    + `<div class="tb-c"><i class="tb-st">${WINLOGO}</i>${full ? `<span class="tb-q">${SEARCH}Search</span>` : ''}${apps.map(d => `<i class="${active.includes(d) ? 'on' : ''}">${ICONS[d]}</i>`).join('')}</div>`
+    + `<div class="tb-r"><span class="tb-tray"><span class="tb-up">⌃</span><span class="st-lasso"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg></span></span>`
+    + `<span class="tb-tray">${WIFI}${full ? VOL : ''}${BATT}</span><span class="tb-clk">10:42<br>${new Date().toLocaleDateString()}</span></div></div>`;
+  const CURSOR = `<svg class="cur" viewBox="0 0 22 28"><use href="${WIN ? '#curSymWin' : '#curSym'}"/></svg>`;
   function buildOS(os, { app, menus = ['File', 'Edit', 'View', 'Window', 'Help'], active = [], dock = ['folder', 'lasso', 'writer', 'mail', 'browser', 'call', 'photos', 'notes'] }) {
-    os.innerHTML = `<div class="os-bar"><div class="l"><span class="logo"></span><b>${app}</b>${menus.map(m => `<span>${m}</span>`).join('')}</div>`
+    os.innerHTML = (WIN ? taskbar({ apps: dock, active })
+      : `<div class="os-bar"><div class="l"><span class="logo"></span><b>${app}</b>${menus.map(m => `<span>${m}</span>`).join('')}</div>`
       + `<div class="r"><span class="st-lasso"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg></span>${WIFI}${BATT}<span>Tue 10:42</span></div></div>`
-      + `<div class="dock">${dock.map(d => `<i class="${active.includes(d) ? 'on' : ''}">${ICONS[d]}</i>`).join('')}</div>`
-      + `<svg class="cur" viewBox="0 0 22 28"><use href="#curSym"/></svg>`;
+      + `<div class="dock">${dock.map(d => `<i class="${active.includes(d) ? 'on' : ''}">${ICONS[d]}</i>`).join('')}</div>`) + CURSOR;
     const scr = os.parentElement;
     const fit = () => { const k = scr.clientWidth / 1000; if (k > 0) { os.style.transform = `scale(${k})`; os._k = k; } };
     new ResizeObserver(fit).observe(scr); fit();
-    return { status: $('.st-lasso', os), cur: $('.cur', os), app: $('.os-bar b', os) };
+    // Windows names the app in each title bar, so there is no app name to switch
+    return { status: $('.st-lasso', os), cur: $('.cur', os), app: WIN ? document.createElement('b') : $('.os-bar b', os) };
   }
   const html = (s) => { const t = document.createElement('template'); t.innerHTML = s.trim(); return t.content.firstChild; };
   const win = (os, { x, y, w, h, title = '', right = '', cls = '' }) => {
-    const el = html(`<div class="win ${cls}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px"><div class="win-bar"><i></i><i></i><i></i><span class="t">${title}</span>${right}</div></div>`);
+    const el = html(`<div class="win ${cls}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px"><div class="win-bar">${WIN ? '' : '<i></i><i></i><i></i>'}<span class="t">${title}</span>${right}${WIN ? WC : ''}</div></div>`);
     os.insertBefore(el, $('.cur', os)); return el;
   };
   function L(os, el) { const r = el.getBoundingClientRect(), o = os.getBoundingClientRect(), k = os._k || 1; return { x: (r.left - o.left) / k, y: (r.top - o.top) / k, w: r.width / k, h: r.height / k }; }
@@ -1840,9 +1938,9 @@
 
   // the suggestion box: candidates on the left, the selected source previewed beside them
   const pvBody = (o) => `<div class="ph"><span>${esc(o.file)}</span><span class="vr">${o.ver}</span></div><div class="stg">${o.pv}</div>${o.ocr ? `<div class="ocr">Read from photo: ${o.ocr}</div>` : ''}<div class="meta"><span class="val">${esc(o.v)}</span><span class="loc">${esc(o.loc)}</span></div>`;
-  const pvPane = (o) => `<div class="pane"><div class="lab"><span>Preview</span><b>confirm before ⇥</b></div>${pvBody(o)}</div>`;
-  const richPopup = (opts, sel, foot) => `<div class="list">${opts.map((o, i) => `<div class="row${i === sel ? ' on' : ''}"><span class="v">${esc(o.v)}</span><span class="s">${esc(o.file)}</span><span class="vr">${o.ver}</span></div>`).join('')}<div class="foot">${foot || '<span class="go">⇥ accept</span><span>↑↓ source</span><span>esc dismiss</span>'}</div></div>${pvPane(opts[sel])}`;
-  const inspectHTML = (o, n) => `<div class="pane"><div class="lab"><span>Linked source [${n}]</span><b>pinned ${o.ver}</b></div>${pvBody(o)}<div class="insp-ok">✓ Source unchanged since you linked it</div><div class="insp-actions"><span class="pri">Open source</span><span>Copy citation</span><span>Share ⇧⌘↵</span></div></div>`;
+  const pvPane = (o) => `<div class="pane"><div class="lab"><span>Preview</span><b>confirm before ${K_TAB}</b></div>${pvBody(o)}</div>`;
+  const richPopup = (opts, sel, foot) => `<div class="list">${opts.map((o, i) => `<div class="row${i === sel ? ' on' : ''}"><span class="v">${esc(o.v)}</span><span class="s">${esc(o.file)}</span><span class="vr">${o.ver}</span></div>`).join('')}<div class="foot">${foot || `<span class="go">${K_TAB} accept</span><span>↑↓ source</span><span>${K_ESC} dismiss</span>`}</div></div>${pvPane(opts[sel])}`;
+  const inspectHTML = (o, n) => `<div class="pane"><div class="lab"><span>Linked source [${n}]</span><b>pinned ${o.ver}</b></div>${pvBody(o)}<div class="insp-ok">✓ Source unchanged since you linked it</div><div class="insp-actions"><span class="pri">Open source</span><span>Copy citation</span><span>Share ${K_SHARE}</span></div></div>`;
 
   /* ================= demo: retrieval ================= */
   (() => {
@@ -1980,7 +2078,7 @@
         const c = L(os, $('.caret', doc)), d = L(os, doc);
         const pop = html(`<div class="popup" style="left:${Math.max(12, Math.min(c.x - d.x - 8, d.w - 620 - 12))}px;top:${c.y - d.y + c.h + 8}px"></div>`);
         let sel = 0; const render = () => { pop.innerHTML = richPopup(step.s, sel); };
-        render(); doc.append(pop); setStatus('previewing · confirm before ⇥');
+        render(); doc.append(pop); setStatus(`previewing · confirm before ${K_TAB}`);
         try {
           await nap(1700, gg);
           while (sel < step.choose) { await hit('arrows', gg); sel++; render(); await nap(1900, gg); }
@@ -2022,8 +2120,7 @@
     compose.insertAdjacentHTML('beforeend', '<div class="mail-f"><span>To</span>Jordan Ellis</div><div class="mail-f"><span>Subject</span>Unit 4 renewal: notice period</div><div class="mail-b"><span class="txt"></span><span class="caret"></span></div>');
     const inbox = win(os, { x: 640, y: 58, w: 330, h: 190, title: 'Inbox · Jordan Ellis', cls: 'hide' });
     inbox.insertAdjacentHTML('beforeend', '<div class="ib-from">Sam Carter<small>Unit 4 renewal: notice period · now</small></div><div class="ib-body">The signed lease requires at least <span class="linked shared" id="ibChip">six months<sup>↗</sup></span>’ written notice before expiry.</div>');
-    const browser = win(os, { x: 300, y: 128, w: 650, h: 336, title: '', right: '', cls: 'hide' });
-    $('.win-bar', browser).insertAdjacentHTML('beforeend', '<span class="url">lasso · shared link · §12.3</span>');
+    const browser = win(os, { x: 300, y: 128, w: 650, h: 336, title: '', right: '<span class="url">lasso · shared link · §12.3</span>', cls: 'hide' });
     browser.insertAdjacentHTML('beforeend', '<div class="sp-head"><div><b>Sam shared a source with you</b><small>lease_unit4_signed.pdf · §12.3 · pinned v2 · redacted</small></div><span class="btn dark" id="dlBtn">Download redacted PDF</span></div><div class="sp-doc"></div>');
     const body = $('.mail-b', compose), txt = $('.txt', compose), send = $('.send', compose), ibChip = $('#ibChip', os), dl = $('#dlBtn', os), spDoc = $('.sp-doc', browser);
     const leaseHTML = () => `<div class="page lease"><span class="stamp ok">EXECUTED · 14 MAR 2025</span><div class="pt">Lease Agreement · Unit 4</div><div class="pa">lease_unit4_signed.pdf · pp. 3–14</div>`
@@ -2050,10 +2147,10 @@
         await sleep(300);
         const c = L(os, $('.caret', body)), b = L(os, body);
         const pop = html(`<div class="popup" style="width:560px;grid-template-columns:200px minmax(0,1fr);left:${Math.max(8, Math.min(c.x - b.x - 8, b.w - 568))}px;top:${c.y - b.y + c.h + 8}px"></div>`);
-        pop.innerHTML = richPopup(OPTS, 0, '<span>⇥ accept</span><span class="go">⇧⌘↵ share</span><span>esc</span>');
+        pop.innerHTML = richPopup(OPTS, 0, `<span>${K_TAB} accept</span><span class="go">${K_SHARE} share</span><span>${K_ESC}</span>`);
         body.append(pop);
         await sleep(1800); $('.go', pop).classList.add('hit'); await sleep(450);
-        $('.pane', pop).outerHTML = `<div class="pane"><div class="lab"><span>Share this reference</span><b>⇧⌘↵</b></div><div class="seg">${MODES.map(([m, l]) => `<span data-m="${m}">${l}</span>`).join('')}</div><div class="stg">${leaseHTML()}</div><div class="acts" style="justify-content:space-between;align-items:center"><span class="smeta" style="margin:0"></span><span style="display:flex;gap:6px"><span class="btn">Cancel</span><span class="btn dark go2">Create link</span></span></div></div>`;
+        $('.pane', pop).outerHTML = `<div class="pane"><div class="lab"><span>Share this reference</span><b>${K_SHARE}</b></div><div class="seg">${MODES.map(([m, l]) => `<span data-m="${m}">${l}</span>`).join('')}</div><div class="stg">${leaseHTML()}</div><div class="acts" style="justify-content:space-between;align-items:center"><span class="smeta" style="margin:0"></span><span style="display:flex;gap:6px"><span class="btn">Cancel</span><span class="btn dark go2">Create link</span></span></div></div>`;
         const pane = $('.pane', pop), lease = $('.lease', pane), sm = $('.smeta', pane);
         let red = 0;
         const setMode = (m) => { $$('.seg span', pane).forEach(s => s.classList.toggle('on', s.dataset.m === m)); lease.classList.toggle('part', m === 'part'); sm.textContent = meta(m, red); };
@@ -2082,7 +2179,7 @@
     const os = $('#osMeet'), ui = buildOS(os, { app: 'Call', menus: ['File', 'View', 'Window', 'Help'], active: ['call', 'lasso'] }), cur = ui.cur;
     const call = win(os, { x: 40, y: 44, w: 620, h: 500, title: 'Weekly site sync · 00:23:41' });
     call.insertAdjacentHTML('beforeend', `<div class="tiles">${[['PR', '#ff94b6', 'Priya Raman'], ['MB', '#7b93ff', 'Marco Bianchi'], ['LS', '#bcaaff', 'Lena Schulz'], ['You', '#9fcca7', 'You']].map(([i, c, n]) => `<div class="tile"><div class="av" style="background:${c}">${i}</div><span class="nm">${n}</span></div>`).join('')}</div><div class="caps"></div><div class="call-ctl"><span></span><span></span><span></span><span class="end"></span></div><div class="toast"></div>`);
-    const pop = html('<div class="pop" style="top:32px;right:118px"></div>'); os.insertBefore(pop, cur);
+    const pop = html(`<div class="pop" style="${WIN ? 'bottom:54px;right:12px' : 'top:32px;right:118px'}"></div>`); os.insertBefore(pop, cur);
     const tiles = $$('.tile', call), caps = $('.caps', call), toast = $('.toast', call);
     const SC = [
       { who: 'Priya', full: 'Priya Raman', ini: 'PR', color: '#ff94b6', tile: 0, line: 'Could you send me the updated budget you mentioned?', hl: 'send me the updated budget', file: 'budget_2026.xlsx', ver: 'v5', meta: 'Summary sheet · updated 2 days ago<br>linked in 3 documents', alt: ['budget_2026_draft.xlsx', 'v3 · older draft'], mode: 1 },
@@ -2122,15 +2219,15 @@
     const os = $('#osPhone'), ui = buildOS(os, { app: 'Mail', menus: ['File', 'Edit', 'View', 'Message'], active: ['mail', 'lasso', 'photos'] });
     ui.cur.style.opacity = 0;
     const mail = win(os, { x: 40, y: 44, w: 700, h: 500, title: 'Heat equation: what we derived on Tuesday', right: '<span class="rt">Thu 08:15 · on the train</span>' });
-    mail.insertAdjacentHTML('beforeend', '<div class="mail-f"><span>To</span>Amara Okafor</div><div class="mail-f"><span>Subject</span>Heat equation: what we derived on Tuesday</div><div class="mail-b"><span class="txt"></span><span class="caret"></span></div><div style="margin:0 14px 14px;padding:9px 12px;border-radius:12px;background:var(--green-bg);font-size:12px;color:var(--green-d);font-weight:600;opacity:0;transition:opacity .3s" class="att">📎 IMG_4182.jpg · 2.4 MB · from iPhone · pinned</div>');
+    mail.insertAdjacentHTML('beforeend', `<div class="mail-f"><span>To</span>Amara Okafor</div><div class="mail-f"><span>Subject</span>Heat equation: what we derived on Tuesday</div><div class="mail-b"><span class="txt"></span><span class="caret"></span></div><div style="margin:0 14px 14px;padding:9px 12px;border-radius:12px;background:var(--green-bg);font-size:12px;color:var(--green-d);font-weight:600;opacity:0;transition:opacity .3s" class="att">📎 IMG_4182.jpg · 2.4 MB · from ${WIN ? 'your phone' : 'iPhone'} · pinned</div>`);
     const body = $('.mail-b', mail), txt = $('.txt', mail), att = $('.att', mail);
     const scene = $('#phoneScene'), phScreen = $('#phScreen'), phIn = $('#phIn'), grid = $('#phGrid'), flash = $('#phFlash'), badge = $('#phBadge');
     new ResizeObserver(() => { const k = phScreen.clientWidth / 200; phIn.style.transform = `scale(${k})`; }).observe(phScreen);
     const tileSvg = (a, b, c) => `<svg viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10" fill="${a}"/><rect y="6" width="10" height="4" fill="${b}"/><circle cx="7" cy="3" r="1.5" fill="${c}"/></svg>`;
     const TILES = [pvBoard(false), tileSvg('#3c5a73', '#2b3b2a', '#e8d9a8'), tileSvg('#6b4f3a', '#3a2c22', '#d9b38c'), tileSvg('#24303b', '#4a5a4c', '#cfd8dc'), tileSvg('#7a8a99', '#5c6b52', '#f4e3b1'), tileSvg('#2e2a35', '#55405e', '#e6a07a'), tileSvg('#9aa7a0', '#6d7c74', '#ffffff'), tileSvg('#40352b', '#8a7356', '#f0d9b5'), tileSvg('#1f3346', '#2f5266', '#9fc7d9'), tileSvg('#5d6a4b', '#3d4731', '#dfe7c4'), tileSvg('#33363b', '#5a5f66', '#c9ccd1'), tileSvg('#8a6a5a', '#4d3a30', '#f3d9c8')];
     const OPTS = [
-      { v: 'IMG_4182.jpg', file: 'iPhone · Photos', loc: 'Tue 16:42 · whiteboard', ver: 'v1', pv: pvBoard(true), ocr: '<mark>u(x,t) = e^(−α(π/L)²t) sin(πx/L)</mark>' },
-      { v: 'IMG_4179.jpg', file: 'iPhone · Photos', loc: 'Tue 16:31 · earlier board', ver: 'v1', pv: pvBoard(false), ocr: 'u(x,t) = ? · λ = (π/L)²' },
+      { v: 'IMG_4182.jpg', file: WIN ? 'Phone · Photos' : 'iPhone · Photos', loc: 'Tue 16:42 · whiteboard', ver: 'v1', pv: pvBoard(true), ocr: '<mark>u(x,t) = e^(−α(π/L)²t) sin(πx/L)</mark>' },
+      { v: 'IMG_4179.jpg', file: WIN ? 'Phone · Photos' : 'iPhone · Photos', loc: 'Tue 16:31 · earlier board', ver: 'v1', pv: pvBoard(false), ocr: 'u(x,t) = ? · λ = (π/L)²' },
       { v: 'derivation.md', file: 'notes/derivation.md', loc: '¶1 · typed notes', ver: 'v2', pv: pvNotes() },
     ];
     const g = gate(scene, .3);
@@ -2148,7 +2245,7 @@
         await sleep(300);
         const c = L(os, $('.caret', body)), b = L(os, body);
         const pop = html(`<div class="popup" style="width:560px;grid-template-columns:210px minmax(0,1fr);left:${Math.max(8, Math.min(c.x - b.x - 8, b.w - 568))}px;top:${c.y - b.y + c.h + 8}px"></div>`);
-        pop.innerHTML = richPopup(OPTS, 0, '<span class="go">⇥ attach</span><span>↑↓ source</span><span>esc</span>');
+        pop.innerHTML = richPopup(OPTS, 0, `<span class="go">${K_TAB} attach</span><span>↑↓ source</span><span>${K_ESC}</span>`);
         body.append(pop); tile.classList.add('hit');
         await sleep(2600); $('.go', pop).classList.add('hit'); await sleep(350);
         // the photo travels from the phone into the email
@@ -2156,7 +2253,7 @@
         pop.remove();
         const fly = html(`<div class="flyc" style="left:${tr.left - sr.left}px;top:${tr.top - sr.top}px;width:${tr.width}px;height:${tr.height}px">${pvBoard(true)}</div>`);
         scene.append(fly);
-        if (!reduced) await fly.animate([{ transform: 'translate(0,0) scale(1)' }, { transform: `translate(${(cr.left - tr.left) * .5}px, ${(cr.top - tr.top) * .5 - 70}px) scale(2.4) rotate(-4deg)`, offset: .55 }, { transform: `translate(${cr.left - tr.left}px, ${cr.top - tr.top}px) scale(.6)`, opacity: 0 }], { duration: 1300, easing: 'cubic-bezier(.45,0,.25,1)', fill: 'forwards' }).finished.catch(() => {});
+        await fly.animate([{ transform: 'translate(0,0) scale(1)' }, { transform: `translate(${(cr.left - tr.left) * .5}px, ${(cr.top - tr.top) * .5 - 70}px) scale(2.4) rotate(-4deg)`, offset: .55 }, { transform: `translate(${cr.left - tr.left}px, ${cr.top - tr.top}px) scale(.6)`, opacity: 0 }], { duration: 1300, easing: 'cubic-bezier(.45,0,.25,1)', fill: 'forwards' }).finished.catch(() => {});
         fly.remove(); tile.classList.remove('hit');
         txt.append(html('<span class="linked">IMG_4182.jpg<sup>1</sup></span>')); att.style.opacity = 1;
         await sleep(400);
@@ -2172,16 +2269,25 @@
   })();
 
 
-  /* ================= review changes: the notch expands like an island ================= */
+  /* ================= review changes: the notch expands like an island (a notification on Windows) ================= */
   (() => {
     const box = $('#isl'), stage = $('.isl-stage', box);
     new ResizeObserver(() => { const k = box.clientWidth / 460; stage.style.transform = `scale(${k})`; stage._k = k; }).observe(box);
-    stage.innerHTML = `<div class="isl-lid"><div class="isl-screen">
+    const isl = '<div class="island"><div class="i-ping"><i></i><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>Source changed</div><div class="i-open"></div><div class="i-done"></div></div>';
+    const docWin = `<div class="isl-win"><div class="win-bar">${WIN ? '' : '<i></i><i></i><i></i>'}<span class="t"></span>${WIN ? WC : ''}</div><div class="isl-doc"></div></div>`;
+    stage.innerHTML = WIN
+      ? `<div class="isl-lid"><div class="isl-screen">${docWin}${isl}${taskbar({ apps: ['folder', 'writer', 'lasso'], active: ['writer'], full: false })}</div></div><div class="isl-base"></div>${CURSOR}`
+      : `<div class="isl-lid"><div class="isl-screen">
         <div class="isl-bar"><div class="l"><span class="logo"></span><b>Lasso</b><span>File</span><span>Edit</span></div><div class="r"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>${WIFI}<span>10:42</span></div></div>
-        <div class="island"><div class="i-ping"><i></i><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>Source changed</div><div class="i-open"></div><div class="i-done"></div></div>
-        <div class="isl-win"><div class="win-bar"><i></i><i></i><i></i><span class="t"></span></div><div class="isl-doc"></div></div>
-      </div></div><svg class="cur" viewBox="0 0 22 28" style="opacity:0"><use href="#curSym"/></svg>`;
+        ${isl}${docWin}
+      </div></div>${CURSOR}`;
+    if (WIN) box.setAttribute('aria-label', 'Animation: a Windows notification announces a changed source');
     const island = $('.island', stage), open = $('.i-open', stage), done = $('.i-done', stage), title = $('.isl-win .t', stage), doc = $('.isl-doc', stage), cur = $('.cur', stage);
+    // on Windows the tray icon pings first, then the notification slides in
+    const tray = $('.st-lasso', stage);
+    const set = (st) => { island.className = st ? `island ${st}` : 'island'; if (tray) tray.classList.toggle('alert', st === 'ping'); };
+    const C0 = WIN ? [250, 250] : [360, 380], C1 = WIN ? [220, 236] : [380, 390];
+    cur.style.opacity = 0;
     const CHANGES = [
       { file: 'budget_2026.xlsx', where: 'Sheet1 › C14 · Total budget', from: '€ 48,210', to: '€ 51,060', v: 'v4 → v5', n: 3, doc: 'site-report.md', pre: 'The total budget is ', post: ', including a 6 % contingency.' },
       { file: 'plan_L2.ifc', where: 'IfcSpace · Schlafzimmer · NetFloorArea', from: '14.62 m²', to: '14.80 m²', v: 'v3 → v4', n: 2, doc: 'site-report.md', pre: 'The bedroom on level two measures ', post: ' after the partition move.' },
@@ -2193,17 +2299,20 @@
       for (let i = 0; ; i = (i + 1) % CHANGES.length) {
         await g.wait();
         const C = CHANGES[i];
-        island.className = 'island'; title.textContent = C.doc; cur.style.opacity = 0; cur.style.left = '360px'; cur.style.top = '380px';
+        set(''); title.textContent = C.doc; cur.style.opacity = 0; cur.style.left = C0[0] + 'px'; cur.style.top = C0[1] + 'px';
         doc.innerHTML = `${C.pre}<span class="isl-lv">${C.from}<sup>1</sup></span>${C.post}`;
         const lv = $('.isl-lv', doc);
-        open.innerHTML = `<div class="h"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>${C.file} changed<small>just now</small></div><div class="w">${C.where}</div>`
-          + `<div class="vals"><s>${C.from}</s><span class="ar">→</span><b>${C.to}</b><em>${C.v}</em></div><div class="rel">${C.n} sentence${C.n > 1 ? 's rely' : ' relies'} on this value</div>`
-          + `<div class="bt"><span class="ibtn">Keep ${C.v.split(' ')[0]}</span><span class="ibtn go">Review &amp; update</span></div>`;
-        done.innerHTML = `<b>✓</b> ${C.n} sentence${C.n > 1 ? 's' : ''} updated · pinned ${C.v.split(' ').pop()}`;
+        const rel = `${C.n} sentence${C.n > 1 ? 's rely' : ' relies'} on this value`, btns = `<span class="ibtn">Keep ${C.v.split(' ')[0]}</span><span class="ibtn go">Review &amp; update</span>`;
+        open.innerHTML = WIN
+          ? `<div class="wt-app"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>Lasso<span>· now</span><i>✕</i></div><div class="wt-t">${C.file} changed</div><div class="wt-w">${C.where}</div>`
+            + `<div class="wt-v"><s>${C.from}</s><span class="ar">→</span><b>${C.to}</b><em>${C.v}</em></div><div class="wt-r">${rel}</div><div class="wt-bt">${btns}</div>`
+          : `<div class="h"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>${C.file} changed<small>just now</small></div><div class="w">${C.where}</div>`
+            + `<div class="vals"><s>${C.from}</s><span class="ar">→</span><b>${C.to}</b><em>${C.v}</em></div><div class="rel">${rel}</div><div class="bt">${btns}</div>`;
+        done.innerHTML = `${WIN ? '<svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>' : ''}<b>✓</b> ${C.n} sentence${C.n > 1 ? 's' : ''} updated · pinned ${C.v.split(' ').pop()}`;
         await sleep(1400);
-        lv.classList.add('stale'); island.classList.add('ping');
+        lv.classList.add('stale'); set('ping');
         await sleep(1300);
-        island.className = 'island open';
+        set('open');
         await sleep(2300);
         const go = $('.ibtn.go', open);
         cur.style.opacity = 1; await sleep(250);
@@ -2211,11 +2320,11 @@
         await sleep(950);
         cur.classList.add('press'); go.classList.add('press'); await sleep(140); cur.classList.remove('press'); go.classList.remove('press');
         await sleep(200);
-        island.className = 'island done';
+        set('done');
         lv.innerHTML = `${C.to}<sup>1</sup>`; lv.classList.remove('stale'); lv.classList.add('flash');
-        cur.style.left = '380px'; cur.style.top = '390px';
+        cur.style.left = C1[0] + 'px'; cur.style.top = C1[1] + 'px';
         await sleep(2300);
-        island.className = 'island'; cur.style.opacity = 0;
+        set(''); cur.style.opacity = 0;
         await sleep(2000);
       }
     })();
@@ -2228,19 +2337,22 @@
     const F = Array.from({ length: 12 }, (_, i) => [`F${i + 1}`, 12.5 / 12]);
     const ROWS = [
       { y: 34, h: 28, keys: [['esc', 1.5, 'esc'], ...F, ['⏻', 1]] },
-      { y: 68, h: 50, keys: [...'`1234567890-='.split('').map(c => [c, 1]), ['delete', 2]] },
+      { y: 68, h: 50, keys: [...'`1234567890-='.split('').map(c => [c, 1]), [WIN ? 'backspace' : 'delete', 2]] },
       { y: 124, h: 50, keys: [['tab', 1.5, 'tab'], ...'QWERTYUIOP[]'.split('').map(c => [c, 1]), ['\\', 1.5]] },
-      { y: 180, h: 50, keys: [['caps lock', 1.75], ...'ASDFGHJKL;\''.split('').map(c => [c, 1]), ['return', 2.25, 'return']] },
+      { y: 180, h: 50, keys: [['caps lock', 1.75], ...'ASDFGHJKL;\''.split('').map(c => [c, 1]), [WIN ? 'enter' : 'return', 2.25, 'return']] },
       { y: 236, h: 50, keys: [['shift', 2.25], ...'ZXCVBNM,./'.split('').map(c => [c, 1]), ['shift', 2.75, 'shiftR']] },
-      { y: 292, h: 50, keys: [['fn', 1], ['control', 1], ['option', 1], ['command', 1.25], ['', 5.5], ['command', 1.25, 'cmdR'], ['option', 1], ['ARROWS', 3]] },
+      // the thumb's key keeps the id cmdR: Command on a Mac, the right Ctrl on Windows
+      { y: 292, h: 50, keys: WIN ? [['ctrl', 1.25], ['fn', 1], ['WIN', 1], ['alt', 1], ['', 5.5], ['alt', 1], ['ctrl', 1.25, 'cmdR'], ['ARROWS', 3]]
+        : [['fn', 1], ['control', 1], ['option', 1], ['command', 1.25], ['', 5.5], ['command', 1.25, 'cmdR'], ['option', 1], ['ARROWS', 3]] },
     ];
-    const SYM = { tab: '⇥', return: '↵', shift: '⇧', command: '⌘', option: '⌥', control: '⌃', delete: '⌫', 'caps lock': '⇪' };
+    const SYM = { tab: '⇥', return: '↵', enter: '↵', shift: '⇧', command: '⌘', option: '⌥', control: '⌃', delete: '⌫', backspace: '⌫', 'caps lock': '⇪' };
     const keyEl = (id, x, y, w, h, label) => {
       const big = label.length === 1 || /^F\d/.test(label) || label === '⏻';
       let t;
       if (big) t = `<text class="${/^F\d/.test(label) || label === '⏻' ? 'ks' : 'kl'}" x="${x + w / 2}" y="${y + h / 2 + 4.5}" text-anchor="middle">${esc(label)}</text>`;
       else if (!label) t = '';
       else if (label === 'esc') t = `<text class="ks" x="${x + 8}" y="${y + h - 8}">esc</text>`;
+      else if (label === 'WIN') t = `<g fill="rgba(0,0,0,.5)">${[[0, 0], [8, 0], [0, 8], [8, 8]].map(([a, b]) => `<rect x="${x + w / 2 - 7.5 + a}" y="${y + h / 2 - 7.5 + b}" width="7" height="7" rx=".8"/>`).join('')}</g>`;
       else t = `<text class="ks" x="${x + w - 8}" y="${y + 14}" text-anchor="end">${SYM[label] || ''}</text><text class="ks" x="${x + 8}" y="${y + h - 9}">${esc(label)}</text>`;
       return `<g class="k"${id ? ` data-k="${id}"` : ''}><rect class="capsh" x="${x}" y="${y + 2}" width="${w}" height="${h}" rx="7"/><rect class="cap" x="${x}" y="${y}" width="${w}" height="${h}" rx="7"/>${t}</g>`;
     };
@@ -2387,17 +2499,18 @@
     stage.innerHTML = `<div class="usb-top"><svg viewBox="0 0 1280 960">${topA}<g class="usb-stick"></g>${topB}<g class="usb-hand"></g><g class="usb-rip"></g></svg></div>
       <div class="usb-world"><svg viewBox="0 0 1280 960">${lap}</svg>
       <div class="usb-screen">
-        <div class="usb-bar"><div class="l"><span class="logo"></span><b>Finder</b><span>File</span><span>Edit</span><span>View</span></div><div class="r"><span class="usb-ico"><i></i><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg></span>${WIFI}<span>10:42</span></div></div>
-        <div class="usb-drive"><span class="dr"></span>ARCHIVE</div>
+        ${WIN ? `<div class="tb"><div class="tb-c"><i class="tb-st">${WINLOGO}</i><i class="on">${ICONS.folder}</i><i>${ICONS.writer}</i><i>${ICONS.lasso}</i></div><div class="tb-r"><span class="tb-tray"><span class="tb-up">⌃</span><span class="usb-ico"><i></i><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg></span></span><span class="tb-tray">${WIFI}${BATT}</span><span class="tb-clk">10:42<br>${new Date().toLocaleDateString()}</span></div></div>`
+          : `<div class="usb-bar"><div class="l"><span class="logo"></span><b>Finder</b><span>File</span><span>Edit</span><span>View</span></div><div class="r"><span class="usb-ico"><i></i><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg></span>${WIFI}<span>10:42</span></div></div>`}
+        <div class="usb-drive"><span class="dr"></span>${WIN ? 'ARCHIVE (E:)' : 'ARCHIVE'}</div>
         <div class="usb-card">
           <div class="st" data-st="conn"><div class="uh"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>Lasso<small>now</small></div><b class="ut">USB drive connected</b><div class="us">ARCHIVE · 64 GB · 1,204 files</div><p class="up">Index it so Lasso can find what’s inside?</p><div class="ubt"><span class="ub" data-b="choose">Choose folders</span><span class="ub go">Index all</span></div></div>
           <div class="st" data-st="pick"><div class="uh"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>ARCHIVE<small>64 GB</small></div><b class="ut">Choose folders to index</b><div class="ufl"><div class="uf" data-f="q4"><i class="cb"></i><span class="fo"></span>Q4 Campaign<small>214 files</small></div><div class="uf" data-f="ct"><i class="cb"></i><span class="fo"></span>Contracts<small>86 files</small></div><div class="uf"><i class="cb"></i><span class="fo"></span>Photos<small>702 files</small></div><div class="uf"><i class="cb"></i><span class="fo"></span>Old backups<small>202 files</small></div></div><div class="ubt"><span class="ub">Cancel</span><span class="ub go off" data-b="index">Index folders</span></div></div>
-          <div class="st" data-st="prog"><div class="uh"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>ARCHIVE<small>indexing</small></div><b class="ut">Indexing 2 folders</b><div class="ubar"><i></i></div><div class="us"><span class="n">0</span> of 300 files · read on this Mac</div></div>
+          <div class="st" data-st="prog"><div class="uh"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>ARCHIVE<small>indexing</small></div><b class="ut">Indexing 2 folders</b><div class="ubar"><i></i></div><div class="us"><span class="n">0</span> of 300 files · read on this ${WIN ? 'PC' : 'Mac'}</div></div>
           <div class="st" data-st="done"><div class="uh"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>Lasso<small>done</small></div><b class="ut">Added to your working directories</b><div class="uwd"><div><span class="fo"></span>Documents</div><div><span class="fo"></span>Desktop</div><div class="new"><span class="hd"></span>ARCHIVE / Q4 Campaign<b>new</b></div><div class="new"><span class="hd"></span>ARCHIVE / Contracts<b>new</b></div></div></div>
           <div class="st" data-st="gone"><div class="uh"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>Lasso<small>now</small></div><b class="ut">ARCHIVE was removed</b><p class="up">Keep its index? You can still search it, and files open again when you plug it back in.</p><div class="ubt"><span class="ub">Remove index</span><span class="ub go" data-b="keep">Keep index</span></div></div>
           <div class="st" data-st="kept"><div class="uh"><svg viewBox="0 0 32 32"><use href="#lassoMark"/></svg>Lasso<small>now</small></div><b class="ut">Index kept</b><div class="us">ARCHIVE · 2 folders · offline until reconnected</div></div>
         </div>
-        <svg class="usb-cursor" viewBox="0 0 18 24"><path d="M2 2v17l4.4-4.2 3.2 6.9 2.9-1.3-3.2-6.8H15z" fill="#111" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        <svg class="usb-cursor" viewBox="0 0 18 24"><path d="M2 2v17l4.4-4.2 3.2 6.9 2.9-1.3-3.2-6.8H15z" fill="${WIN ? '#fff' : '#111'}" stroke="${WIN ? '#111' : '#fff'}" stroke-width="1.5" stroke-linejoin="round"/></svg>
       </div>
     </div>`;
     const top = $('.usb-top', stage), world = $('.usb-world', stage), screen = $('.usb-screen', stage), card = $('.usb-card', stage), ico = $('.usb-ico', stage), ring = $('.usb-ico i', stage);
@@ -2465,7 +2578,7 @@
       handG.innerHTML = ho > .01 ? handSvg({ x: hx, y: hy }, ho) : '';
       // a ripple where it connects and disconnects
       ripG.innerHTML = [2300, 11720].map(r0 => { const p = ramp(t, r0, r0 + 700); return p > 0 && p < 1 ? `<circle cx="${PORT.x}" cy="${PORT.y}" r="${f1(16 + 60 * p)}" fill="none" stroke="#29cc57" stroke-width="4" opacity="${f1((1 - p) * 100) / 100}"/>` : ''; }).join('');
-      // the screen: the drive appears on the desktop, the menu bar icon blinks
+      // the screen: the drive appears on the desktop, the menu bar (or tray) icon blinks
       const dv = clamp(ramp(t, 2350, 2700) * (1 - ramp(t, 11760, 12000)), 0, 1);
       drive.style.opacity = dv; drive.style.transform = `scale(${f1((.6 + .4 * easeOut(dv)) * 100) / 100})`;
       const blinking = (t > 2400 && t < 4400) || (t > 11800 && t < 13500);
@@ -2493,7 +2606,6 @@
         cursor.style.transform = `translate(${f1(lerp(a.x, b.x, u) - 2)}px, ${f1(lerp(a.y, b.y, u) - 2)}px) scale(${press})`;
       }
     }
-    if (reduced) { render(9400); return; }
     let vis = false, acc = 0, last = 0;
     new IntersectionObserver(([en]) => { vis = en.isIntersecting; }, { rootMargin: '100px 0px' }).observe(box);
     ticks.add((now) => {
@@ -2505,7 +2617,6 @@
 
   /* ================= lasso-in: a character drags a demo card into view ================= */
   function lassoIn(mac, { side, kind, pal, label }) {
-    if (reduced) return;
     const fromLeft = side === 'left';
     const scene = html('<div class="lasso-scene"><div class="lasso-lane"></div></div>');
     mac.parentNode.insertBefore(scene, mac);
@@ -2587,6 +2698,11 @@
   lassoIn($('#macShare'), { side: 'right', kind: 'cowboy', pal: PALS.cowboy[0], label: 'Live demo · Sharing' });
 
   /* ================= page ================= */
+  if (WIN) $$('.cta-row').forEach(row => {
+    const mac = $('a[href$=".dmg"]', row), pc = $('a[href$=".zip"]', row);
+    if (!mac || !pc) return;
+    row.insertBefore(pc, mac); mac.classList.replace('green', 'white'); pc.classList.replace('white', 'green');
+  });
   const io = new IntersectionObserver(ens => ens.forEach(en => { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } }), { threshold: .12 });
   $$('.reveal').forEach(el => io.observe(el));
 })();
@@ -2595,7 +2711,6 @@
 /* sources shelf: a lasso picker, with format chips above and one card below */
 (() => {
   const shelf = document.querySelector('.shelf'); if (!shelf) return;
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const cards = [...shelf.querySelectorAll('.pcard')], DUR = 3400;
   const chips = document.createElement('div'); chips.className = 'sp-chips'; chips.setAttribute('role', 'tablist'); chips.setAttribute('aria-label', 'File types');
   const LOOP = 'M30 3C60 -1 98 4 99 21C100 37 62 41 38 39C12 37 0 28 2 17C4 7 22 2 44 3';
@@ -2613,7 +2728,7 @@
   shelf.before(chips);
   const prog = document.createElement('div'); prog.className = 'sp-prog'; prog.innerHTML = '<i></i>'; shelf.append(prog);
   const bar = prog.firstChild; bar.style.setProperty('--dur', DUR + 'ms');
-  let cur = -1, timer = 0, auto = !reduced, inView = false;
+  let cur = -1, timer = 0, auto = true, inView = false;
   function show(i) {
     cur = (i + cards.length) % cards.length;
     cards.forEach((c, k) => { c.classList.toggle('on', k === cur); c.style.setProperty('--off', (k < cur ? -28 : 28) + 'px'); });
@@ -2629,7 +2744,6 @@
   shelf.addEventListener('pointerup', (e) => { if (x0 === null) return; const dx = e.clientX - x0; x0 = null; if (Math.abs(dx) > 40) { stop(); show(cur + (dx < 0 ? 1 : -1)); } });
   new IntersectionObserver(([en]) => { inView = en.isIntersecting; if (inView && auto) show(cur < 0 ? 0 : cur); else clearTimeout(timer); }, { threshold: .4 }).observe(shelf);
   show(0);
-  if (reduced) prog.style.visibility = 'hidden';
 })();
 </script>
 <script>
@@ -2640,8 +2754,6 @@
   const row = pop.querySelector('.hx-row.on'), go = pop.querySelector('.go'), caret = h.querySelector('.hx-c');
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const WORD = 'Introducing ';
-  const finish = () => { t.textContent = WORD; h.classList.add('done'); h.classList.remove('typing'); pop.classList.remove('show'); };
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return finish();
   const place = () => {
     // anchor the popup under the caret, kept inside the hero column
     const col = h.parentElement.getBoundingClientRect(), ln = line.getBoundingClientRect();
