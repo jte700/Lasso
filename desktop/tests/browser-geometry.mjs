@@ -278,6 +278,21 @@ try {
       console.log(`  ok ${keyboardFallback ? 'read-only AX selection keyboard fallback' : 'native AX selection'} preserves text and inserts a clickable source`);
     }
     const destination = 'https://example.test/d/source-regression';
+    // Switching apps right after accepting must not fail the read-back,
+    // which would revoke the share behind a link that did land.
+    await evaluate("fixture.reset('The total is off'); fixture.selectEnd()");
+    await settle();
+    const switched = await helper('link-insert', {
+      label: 'office supplies', url: destination, activateAfterPaste: 'com.apple.finder',
+    });
+    const switchedActual = await evaluate(`({text: editor.textContent, links: [...editor.querySelectorAll('a')].map(a => ({label:a.textContent, url:a.href}))})`);
+    assert.equal(switched.frontmostAtVerification, 'com.apple.finder', 'Finder did not come to the front before the read-back');
+    assert.equal(switched.inserted, true, `Hyperlink was not verified after switching apps: ${JSON.stringify({ ...switched, actual: switchedActual })}`);
+    assert.deepEqual(switchedActual.links, [{ label: 'office supplies', url: destination }], 'Pasted source is not a real hyperlink');
+    console.log('  ok a link verifies in its own editor after another app comes to the front');
+    await helper('popup-activate', { pid: chrome.pid });
+    await call('Page.bringToFront');
+    await waitForPopup(state => state.frontmostPID === chrome.pid, 'Isolated Chrome did not regain focus');
     for (const [label, html, expected] of [
       ['styled text is not a hyperlink', 'The total is <u>office supplies</u>', false],
       ['a different destination is rejected', '<a href="https://example.test/wrong">office supplies</a>', false],

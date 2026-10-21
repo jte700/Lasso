@@ -261,10 +261,18 @@ enum AccessibilityReader {
     }
 
     static func focusedContext(allowSelection: Bool = false) -> CaretContext? {
-        guard let (field, pid) = focusedElement() else {
+        guard let (field, _) = focusedElement() else {
             AssistLog.write("no focused element")
             return nil
         }
+        return context(of: field, allowSelection: allowSelection)
+    }
+
+    /// Read a known editor directly, whichever app is frontmost. Checks made
+    /// after an edit use this so switching apps does not hide what landed.
+    static func context(of field: AXUIElement, allowSelection: Bool = false) -> CaretContext? {
+        var pid: pid_t = 0
+        AXUIElementGetPid(field, &pid)
         AXUIElementSetMessagingTimeout(field, 0.4)
 
         let role = attribute(field, kAXRoleAttribute as String) as? String ?? "?"
@@ -3138,8 +3146,10 @@ final class GlobalAssistant {
             }
             let fallback = RichTextInserter.plainText(label: plan.insertText, url: share.url)
             var verifiedPlan: CompletionPlan?
+            // Read the captured editor itself: the user may switch apps
+            // before the editor's accessibility tree catches up.
             RichTextInserter.verifyEventually(verify: {
-                guard let after = AccessibilityReader.focusedContext(), CFEqual(after.element, element) else { return false }
+                guard let after = AccessibilityReader.context(of: element) else { return false }
                 let snapshot = CompletionSnapshot(documentStart: after.windowStart, text: Array(after.text.utf16))
                 for text in [plan.insertText, fallback] {
                     let candidate = CompletionPlan(range: plan.range, expectedPrefix: plan.expectedPrefix, insertText: text,
