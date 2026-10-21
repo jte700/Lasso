@@ -324,7 +324,23 @@ enum AccessibilityReader {
             return rect
         }
 
-        if let rect = bounds(caret, 0) { return rect }
+        // A character beside the caret, unless it is a line break.
+        func neighbour(_ location: Int) -> CGRect? {
+            guard location >= 0 else { return nil }
+            var range = CFRange(location: location, length: 1)
+            guard let axRange = AXValueCreate(.cfRange, &range) else { return nil }
+            var value: CFTypeRef?
+            guard AXUIElementCopyParameterizedAttributeValue(
+                    element, kAXStringForRangeParameterizedAttribute as CFString, axRange, &value) == .success,
+                  let character = (value as? String)?.first, !character.isNewline else { return nil }
+            return bounds(location, 1)
+        }
+
+        // Notes puts a collapsed range a line above the caret; the characters
+        // beside it show which line it is really on.
+        if let rect = bounds(caret, 0) {
+            return CaretLine.aligned(rect, before: neighbour(caret - 1), after: neighbour(caret))
+        }
         if let rect = bounds(max(0, caret - 1), 1) { return rect }
         if selection.length > 0, let rect = bounds(selection.location, selection.length) { return rect }
         return nil

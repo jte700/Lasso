@@ -57,6 +57,37 @@ enum HostGeometryConverter {
     }
 }
 
+/// Which line the caret is on. Apple Notes reports a collapsed range one line
+/// above the line it draws, while the characters beside the caret measure where
+/// they are drawn, so a card placed from the collapsed range covered the line
+/// being typed. A character touching the caret on the same line settles it.
+enum CaretLine {
+    /// How far a character's edge may sit from the caret and still touch it.
+    static let touchTolerance: CGFloat = 1.5
+
+    /// `before` is the character just before the caret and `after` the one at
+    /// it, each measured in Accessibility coordinates and nil when it is a line
+    /// break, which can be drawn on another line than the caret's. `after` is
+    /// only measured when `before` does not touch the caret, as at a line start.
+    /// The caret keeps its own x; only its line moves.
+    static func aligned(_ caret: CGRect, before: CGRect?, after: @autoclosure () -> CGRect?) -> CGRect {
+        func touching(_ character: CGRect?, edge: (CGRect) -> CGFloat) -> CGRect? {
+            guard let character, HostGeometryConverter.isUsable(character),
+                  abs(edge(character) - caret.minX) <= touchTolerance else { return nil }
+            return character
+        }
+        guard let line = touching(before, edge: \.maxX) ?? touching(after(), edge: \.minX),
+              !sharesLine(caret, line) else { return caret }
+        return CGRect(x: caret.minX, y: line.minY, width: caret.width, height: line.height)
+    }
+
+    /// Two rectangles share a line when they overlap for half the shorter one.
+    private static func sharesLine(_ first: CGRect, _ second: CGRect) -> Bool {
+        let overlap = min(first.maxY, second.maxY) - max(first.minY, second.minY)
+        return overlap >= min(first.height, second.height) / 2
+    }
+}
+
 /// Where the suggestion card goes beside the caret, in AppKit coordinates.
 struct CaretCardPlacement: Equatable {
     let frame: CGRect
