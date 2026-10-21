@@ -729,8 +729,9 @@ final class AssistBoxView: NSView {
     var confirmChoices: [String] = []
     var messageLines: [String] = []
     var sourceScoped = false
-    /// fn+Right can take an unfocused card back to the latest focus.
-    var canReturnToFocus = false
+    /// The latest focus, named in the header when fn+Right can take an
+    /// unfocused card back into it.
+    var returnFocusName: String?
     var preview: AssistDocumentPreview?
     var isPreviewLoading = false
     var previewError: String?
@@ -863,10 +864,20 @@ final class AssistBoxView: NSView {
         var y = bodyTop + (mode == .suggestions ? 0 : headerHeight)
         switch mode {
         case .suggestions:
-            drawText(sourceScoped ? "‹ All sources  fn ←" : canReturnToFocus ? "All sources  fn →" : "All sources",
-                     in: NSRect(x: 20, y: bodyTop + 10, width: 130, height: 16),
-                     font: .systemFont(ofSize: 11, weight: .medium),
-                     color: sourceScoped ? .controlAccentColor : .secondaryLabelColor)
+            let navigationFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+            if sourceScoped {
+                drawText("‹ All sources  fn ←", in: NSRect(x: 20, y: bodyTop + 10, width: 130, height: 16),
+                         font: navigationFont, color: .controlAccentColor)
+            } else if let returnFocusName {
+                // Clear of the row counter when it shows.
+                let width = suggestions.count > visibleSuggestionCount ? leftWidth - 170 : leftWidth - 40
+                drawLabel("Dive into \(returnFocusName)", key: "fn →",
+                          in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
+                          font: navigationFont, color: .secondaryLabelColor)
+            } else {
+                drawText("All sources", in: NSRect(x: 20, y: bodyTop + 10, width: 130, height: 16),
+                         font: navigationFont, color: .secondaryLabelColor)
+            }
             if suggestions.count > visibleSuggestionCount {
                 drawText("↑↓  \(selected + 1) of \(suggestions.count)",
                          in: NSRect(x: leftWidth - 150, y: bodyTop + 10, width: 130, height: 16),
@@ -1415,6 +1426,17 @@ final class AssistBoxView: NSView {
             .paragraphStyle: paragraph,
         ]).draw(in: rect)
     }
+
+    /// A label followed by its key. A long label is shortened, never the key.
+    private func drawLabel(_ label: String, key: String, in rect: NSRect, font: NSFont, color: NSColor) {
+        let keyText = "  " + key
+        let keyWidth = ceil(keyText.size(withAttributes: [.font: font]).width)
+        let labelWidth = min(ceil(label.size(withAttributes: [.font: font]).width), rect.width - keyWidth)
+        drawText(label, in: NSRect(x: rect.minX, y: rect.minY, width: labelWidth, height: rect.height),
+                 font: font, color: color)
+        drawText(keyText, in: NSRect(x: rect.minX + labelWidth, y: rect.minY, width: keyWidth, height: rect.height),
+                 font: font, color: color)
+    }
 }
 
 // MARK: - Coordinator
@@ -1943,7 +1965,8 @@ final class GlobalAssistant {
                 self.adoptHost(host, caret: current.caret)
                 self.view.sourceScoped = sourceScoped
                 self.focusedSource = focus
-                self.view.canReturnToFocus = focus == nil && self.linkedSources.canMoveIn(focusedOn: nil, selected: nil)
+                self.view.returnFocusName = focus == nil && self.linkedSources.canMoveIn(focusedOn: nil, selected: nil)
+                    ? self.linkedSources.recent?.text : nil
                 self.view.title = heading ?? "dependency"
                 self.show(suggestions)
                 self.publishKeyRouting()
@@ -3247,7 +3270,7 @@ final class GlobalAssistant {
         view.previewError = nil
         view.isPreviewLoading = false
         view.sourceScoped = false
-        view.canReturnToFocus = false
+        view.returnFocusName = nil
         focusedSource = nil
         pendingShare = nil
         panel?.orderOut(nil)
