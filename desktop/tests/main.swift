@@ -365,6 +365,37 @@ do {
           "secure text subroles are excluded before text reads")
 }
 
+print("selection past an inline prediction")
+do {
+    // "…the outsta|" with macOS showing "nding" in grey: the caret is at 62
+    // and the typed word starts at 56.
+    let word = 56..<62
+    let caret = 62..<62
+    check(CompletionTransaction.checkSelection(requested: word, reported: word, caret: 62, markedText: false)
+          == .selected, "the typed word reported as selected may be written over")
+    check(CompletionTransaction.checkSelection(requested: word, reported: caret, caret: 62, markedText: false)
+          == .retry, "a selection swallowed by a dismissed prediction is asked for again")
+    check(CompletionTransaction.checkSelection(requested: word, reported: 67..<67, caret: 62, markedText: false)
+          == .stop, "a caret moved past an accepted prediction stops the write")
+    check(CompletionTransaction.checkSelection(requested: word, reported: nil, caret: 62, markedText: false)
+          == .stop, "an unreadable selection stops the write")
+    check(CompletionTransaction.checkSelection(requested: caret, reported: caret, caret: 62, markedText: true)
+          == .retry, "a plain insertion waits until the prediction is gone")
+    check(CompletionTransaction.checkSelection(requested: caret, reported: caret, caret: 62, markedText: false)
+          == .selected, "a plain insertion at a clear caret goes ahead")
+    check(CompletionTransaction.checkSelection(requested: word, reported: word, caret: 62, markedText: true)
+          == .retry, "a selected word with marked text still showing is asked for again")
+    // A selection that never landed falls back to typing, which must refuse a
+    // caret left anywhere else. The snapshot ends at the caret, so it shows.
+    let before = CompletionSnapshot(documentStart: 0, text: units("the outsta"))
+    check(!CompletionTransaction.canRetry(before: before,
+          current: CompletionSnapshot(documentStart: 0, text: units("the outst")), selectionLength: 0,
+          expectedPrefix: "outsta", selectedPrefix: false), "typing is refused at a caret moved one character back")
+    check(!CompletionTransaction.canRetry(before: before,
+          current: CompletionSnapshot(documentStart: 0, text: units("the ")), selectionLength: 0,
+          expectedPrefix: "outsta", selectedPrefix: false), "typing is refused at a caret collapsed to the word start")
+}
+
 print("canonical source identity")
 do {
     let workbook = AssistSourceIdentity.canonicalPath(
