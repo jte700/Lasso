@@ -29,6 +29,9 @@ struct KeyRoutingState: Equatable {
     /// The card lists something to accept. One kept empty after a move only
     /// answers fn+Left and fn+Right.
     var offersChoices = true
+    /// Lasso's last Tab or inserted link is the last change in the field, so
+    /// ⌘Z takes it back.
+    var canUndoInsertion = false
 }
 
 /// Work a keystroke asks of the main thread.
@@ -47,6 +50,9 @@ enum KeyAction: Equatable {
     case inspectorShare
     case focusOut
     case focusIn
+    case shareUndo
+    case shareRedo
+    case undoInsertion
 }
 
 enum KeyDecision: Equatable {
@@ -56,6 +62,7 @@ enum KeyDecision: Equatable {
 
 enum KeyRouter {
     private static let tab: Int64 = 48, returnKey: Int64 = 36, enter: Int64 = 76, escape: Int64 = 53
+    private static let z: Int64 = 6
     private static let left: Int64 = 123, right: Int64 = 124, down: Int64 = 125, up: Int64 = 126
     /// What macOS sends for fn+← and fn+→ (and a full keyboard's own Home and End keys).
     private static let home: Int64 = 115, end: Int64 = 119
@@ -70,6 +77,12 @@ enum KeyRouter {
         if state.sourceChooserVisible { return .pass(nil) }
         // The share options take their keys from whichever app has focus.
         if state.shareComposerOpen { return shareDecision(keyCode, flags: flags, commandLike: commandLike) }
+        // ⌘Z right after a Tab or an inserted link takes it back, whether or
+        // not the host's own undo would. Lasso hands it on if it cannot.
+        if state.canUndoInsertion, keyCode == z, flags.contains(.maskCommand),
+           flags.intersection([.maskShift, .maskControl, .maskAlternate]).isEmpty {
+            return .swallow(.undoInsertion)
+        }
         // Escape with nothing open belongs to the host, and must not schedule
         // a new prediction that would reopen the just-dismissed menu.
         if keyCode == escape { return .pass(.escapePassed) }
@@ -112,6 +125,10 @@ enum KeyRouter {
     }
 
     private static func shareDecision(_ keyCode: Int64, flags: CGEventFlags, commandLike: Bool) -> KeyDecision {
+        // ⌘Z and ⇧⌘Z step through the masks, never the document behind them.
+        if keyCode == z, flags.contains(.maskCommand), flags.intersection([.maskControl, .maskAlternate]).isEmpty {
+            return .swallow(flags.contains(.maskShift) ? .shareRedo : .shareUndo)
+        }
         guard !commandLike else { return .pass(nil) }
         switch keyCode {
         case tab where flags.contains(.maskShift): return .pass(nil)

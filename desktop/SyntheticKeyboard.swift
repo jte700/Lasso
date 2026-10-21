@@ -52,9 +52,13 @@ enum SyntheticKeyboard {
         }
     }
 
-    static func paste() {
+    static func paste() { command(9) }
+
+    /// Hands ⌘Z on to the host when Lasso has no insertion of its own to take back.
+    static func undo() { command(6) }
+
+    private static func command(_ vKey: CGKeyCode) {
         let source = source()
-        let vKey: CGKeyCode = 9
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: false) else { return }
         down.setIntegerValueField(.eventSourceUserData, value: marker)

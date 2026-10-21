@@ -11,6 +11,7 @@ import { fullTextLayout } from '../sharing/text-layout.js';
 import { isMarkdownPath } from '../sharing/markdown.js';
 import { buildModelPreview } from '../dependencies/model-preview.js';
 import { redactModelPlan } from '../sharing/model-redaction.js';
+import { citedPartModel } from '../sharing/cited-part.js';
 import { buildShareDownload, downloadDisposition } from '../sharing/share-download.js';
 import { drawingDiscovery } from '../dependencies/drawing-discovery.js';
 import { buildSafePdf, pdfShareRequest } from '../sharing/pdf-share.js';
@@ -155,6 +156,10 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
       const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null;
       preview = buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata);
+      // A 3D model's cited part is shared as its own view, never as the file.
+      if (resolved.share.accessScope === 'INDEXED' && /\.(?:step|stp)$/i.test(resolved.internal.filePath)) {
+        return { preview, document: citedPartModel(await resolvedModelPreview(resolved)) };
+      }
       const pdfRequest = pdfShareRequest(resolved);
       if (pdfRequest && sourceFile?.content) {
         const content = await buildSafePdf(sourceFile.content, pdfRequest);
@@ -465,6 +470,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         preview = await resolvedModelPreview(resolved) ?? preview;
         return sendJson(response, 200, {
           source: resolved.source, path: resolved.internal.filePath, preview,
+          // What the share composer's "Cited part only" would publish.
+          citedPart: citedPartModel(preview),
         });
       }
 

@@ -61,6 +61,12 @@ enum BrowserGeometryRegression {
                 } else if request["command"] as? String == "share-preview-fit" {
                     response["checks"] = ShareComposerView.runPreviewFitRegression(
                         screenshotPath: request["output"] as? String)
+                } else if request["command"] as? String == "share-cad-undo" {
+                    if let feature = (request["feature"] as? String).flatMap({ try? Data(contentsOf: URL(fileURLWithPath: $0)) }),
+                       let overview = (request["overview"] as? String).flatMap({ try? Data(contentsOf: URL(fileURLWithPath: $0)) }) {
+                        response["checks"] = ShareComposerView.runCADShareAndUndoRegression(
+                            feature: feature, overview: overview, screenshotPath: request["output"] as? String)
+                    } else { response["error"] = "Part and whole-model preview JSON are missing." }
                 } else if request["command"] as? String == "share-pdf-preview" {
                     if let input = request["input"] as? String, let pdf = request["pdf"] as? String,
                        let data = try? Data(contentsOf: URL(fileURLWithPath: input)),

@@ -185,6 +185,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/SyntheticKeyboard.swift" \
   "$ROOT/desktop/KeyRouting.swift" \
   "$ROOT/desktop/CompletionTransaction.swift" \
+  "$ROOT/desktop/InsertionUndo.swift" \
   "$ROOT/desktop/HostSelection.swift" \
   "$ROOT/desktop/AssistSourceIdentity.swift" \
   "$ROOT/desktop/SourceOpenTarget.swift" \

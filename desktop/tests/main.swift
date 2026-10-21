@@ -150,6 +150,53 @@ do {
     let blocks = ShareRedactionDrag(anchor: firstBlock, masks: [:]).masks(through: lastBlock)
     check(blocks.count == 4 && blocks["block:2"] != nil,
           "text drags include skipped sections in either direction")
+
+    var history = ShareMaskHistory()
+    history.record(from: [:], to: prior)
+    history.record(from: prior, to: selected)
+    history.record(from: selected, to: selected)
+    check(history.undo(from: selected) == prior && history.undo(from: prior) == [:],
+          "Command+Z takes back one whole drag at a time, and an edit that changed nothing is no step")
+    check(history.undo(from: [:]) == nil, "with nothing left to take back, Command+Z changes nothing")
+    check(history.redo(from: [:]) == prior && history.redo(from: prior) == selected && history.redo(from: selected) == nil,
+          "Shift+Command+Z puts the masks back in order")
+    _ = history.undo(from: selected)
+    history.record(from: prior, to: [:])
+    check(!history.canRedo && history.undo(from: [:]) == prior, "a new edit ends what could be redone")
+    history.clear()
+    check(!history.canUndo && !history.canRedo, "a new share starts with no history")
+
+    check(ShareAccessScope.offered(isCADModel: false, hasCitedPart: false) == [.document, .indexed, .redacted],
+          "documents keep every share scope")
+    check(ShareAccessScope.offered(isCADModel: true, hasCitedPart: true) == [.document, .indexed],
+          "a CAD part citation shares the whole model or the cited part, with nothing to redact")
+    check(ShareAccessScope.offered(isCADModel: true, hasCitedPart: false) == [.document],
+          "a whole-model CAD citation is shared as the model")
+}
+
+print("Command+Z takes back what Tab or a link inserted")
+do {
+    let element = AXUIElementCreateApplication(getpid())
+    let typed = "The plate is bra"
+    let after = units("The plate is Bracket.step")
+    let insertion = AcceptedInsertion(element: element, caret: 100 + after.count,
+                                      inserted: "Bracket.step", replaced: "bra")
+    let plan = insertion.revertPlan(windowStart: 100, text: after, caret: 100 + after.count)
+    check(plan.map { string(CompletionTransaction.apply($0, to: after)) } == typed,
+          "undo puts back the typed word the insertion replaced")
+    check(plan.map { CompletionTransaction.validate($0, against: after, caret: after.count) == nil } == true,
+          "the undo edit is checked like any insertion")
+    check(insertion.revertPlan(windowStart: 100, text: after + units("x"), caret: 101 + after.count) == nil,
+          "after more typing the host's own undo applies")
+    check(insertion.revertPlan(windowStart: 100, text: Array(after.dropLast(3)), caret: 97 + after.count) == nil,
+          "a moved caret is not taken for the insertion's end")
+    let edited = units("The plate is Bracket.stp ")
+    check(insertion.revertPlan(windowStart: 100, text: edited, caret: 100 + edited.count) == nil,
+          "inserted text that was changed is left alone")
+    let nbsp = units("The hole is 8 mm\u{00A0}")
+    let spaced = AcceptedInsertion(element: element, caret: nbsp.count, inserted: "8 mm ", replaced: "")
+    check(spaced.revertPlan(windowStart: 0, text: nbsp, caret: nbsp.count)?.expectedPrefix == "8 mm\u{00A0}",
+          "a trailing space the host shows as a no-break space is still the insertion")
 }
 
 print("sharing preserves clipboard changes")
@@ -2131,6 +2178,21 @@ do {
     check(route(48, inspectorSharing) == .swallow(.shareConfirm) && route(124, inspectorSharing) == .swallow(.shareScope(1)),
           "share options opened from the inspector take Tab, Return and arrows from the focused app")
     check(route(53, inspectorSharing) == .swallow(.dismissTransient), "Escape closes share options opened from the inspector")
+    check(chord(6, .maskCommand, sharing) == .swallow(.shareUndo)
+          && chord(6, [.maskCommand, .maskShift], sharing) == .swallow(.shareRedo),
+          "Command+Z and Shift+Command+Z step through the masks, not the document behind them")
+    check(chord(6, [.maskCommand, .maskAlternate], sharing) == .pass(nil) && route(6, sharing) == .pass(nil),
+          "other Z chords and a bare Z are not mask undo")
+
+    let justInserted = KeyRoutingState(canUndoInsertion: true)
+    check(chord(6, .maskCommand, justInserted) == .swallow(.undoInsertion),
+          "Command+Z right after an insertion takes it back")
+    check(chord(6, .maskCommand, KeyRoutingState(popup: .message, canUndoInsertion: true)) == .swallow(.undoInsertion),
+          "the insertion's confirmation does not stop Command+Z")
+    check(chord(6, [.maskCommand, .maskShift], justInserted) == .pass(.hide) && chord(6, .maskCommand, idle) == .pass(.hide),
+          "redo, and undo after anything else, belong to the host")
+    check(chord(6, .maskCommand, KeyRoutingState(isInserting: true, canUndoInsertion: true)) == .pass(nil),
+          "Command+Z passes while an insertion is still typing")
 
     let inspecting = KeyRoutingState(transientOpen: true, inspectorCanShare: true)
     check(route(48, inspecting) == .swallow(.inspectorShare), "Tab opens the inspector's Share Link, not a Tab in the host")
