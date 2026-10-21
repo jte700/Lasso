@@ -166,6 +166,21 @@ const offered = prediction => prediction.workspaceCompletions.map(item => ({
   text: item.replacementText, label: item.dependencyCandidate.label,
 }));
 
+test('a CAD part is offered before its measurements, which need as many letters as its name', async t => {
+  const app = await typingWorkspace(t);
+  const suggested = prediction => [
+    ...prediction.claims.flatMap(claim => claim.candidates),
+    ...[...prediction.workspaceCompletions, ...prediction.sourceCompletions].map(item => item.dependencyCandidate),
+  ].map(candidate => `${candidate.objectType} ${candidate.path}`);
+  // Two letters are too few to name the part, so they are too few for the
+  // measurements whose labels begin with its name ("Bracket overall X extent").
+  const two = await typed(app, 'The br');
+  assert.ok(!suggested(two).some(item => item.startsWith('DRAWING_ANNOTATION')), suggested(two).join('\n'));
+  // The third letter names the whole files; their values follow once one is accepted.
+  const three = await typed(app, 'The bra');
+  assert.deepEqual(suggested(three), ['DRAWING Bracket.step', 'DRAWING Bracket.SLDPRT']);
+});
+
 test('an accepted CAD feature name offers its measured value', async t => {
   const app = await typingWorkspace(t);
   const { source, accepted, pendingDependencies } = await acceptName(app, 'The Bracket Ø8 hole diam', 'Bracket Ø8 hole diameter');

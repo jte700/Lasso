@@ -8,6 +8,8 @@ export const humanStem = filename => filename.replace(/\.[^.]+$/, '').replace(/(
   .replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
 export const genericTitle = value => !value || /^(?:\d+|(?:ifc|cad|bim|step)?\s*model|drawing(?:\s*[·:-]?\s*page\s*\d+)?)$/i.test(value.trim());
 const ambiguousSingleAlias = new Set(['floor', 'plan', 'building', 'model', 'architectural', 'civil', 'engineering', 'cad', 'bim']);
+/** The fewest letters that name a drawing. Its measurements wait for as many. */
+export const DRAWING_NAME_MIN_LETTERS = 3;
 
 /** Human-facing names and conservative aliases for a whole indexed drawing. */
 export function drawingDiscovery(object) {
@@ -63,7 +65,7 @@ export function drawingReferenceMatch(object, query) {
   const discovery = drawingDiscovery(object);
   if (!discovery) return null;
   const terms = words(query);
-  if (!terms.length || terms.length > 12 || terms.join('').length < 3) return null;
+  if (!terms.length || terms.length > 12 || terms.join('').length < DRAWING_NAME_MIN_LETTERS) return null;
   const metadata = object.metadata ?? {};
   const names = [...new Set([discovery.filename, humanStem(discovery.filename),
     object.label, metadata.title].filter(value => value && !genericTitle(String(value))))];
