@@ -396,6 +396,64 @@ do {
           expectedPrefix: "outsta", selectedPrefix: false), "typing is refused at a caret collapsed to the word start")
 }
 
+/// Behaves as Notes did when probed: a selection change while the grey
+/// prediction shows only dismisses it, and the caret stays where it was.
+final class PredictingHost: SelectableHostText {
+    var selected: Range<Int>
+    var prediction: Bool
+    /// macOS shows the prediction again whenever the caret is back at the word end.
+    var predictionReturns = false
+    /// The host takes its prediction instead of dropping it, moving the caret past it.
+    var acceptsPrediction = false
+    private(set) var selectionWrites = 0
+    private let wordEnd: Int
+
+    init(caret: Int, prediction: Bool) {
+        selected = caret..<caret
+        wordEnd = caret
+        self.prediction = prediction
+    }
+
+    func setSelection(_ range: Range<Int>) -> Bool {
+        selectionWrites += 1
+        if prediction {
+            prediction = false
+            if acceptsPrediction { selected = (wordEnd + 5)..<(wordEnd + 5) }
+            return true
+        }
+        selected = range
+        if predictionReturns, range == wordEnd..<wordEnd { prediction = true }
+        return true
+    }
+
+    var selection: Range<Int>? { selected }
+    var hasMarkedText: Bool { prediction }
+}
+
+print("selecting in a host showing a prediction")
+do {
+    let swallowing = PredictingHost(caret: 62, prediction: true)
+    check(HostSelection.selectForWrite(56..<62, caret: 62, in: swallowing) && swallowing.selected == 56..<62
+          && swallowing.selectionWrites == 2, "the typed word is selected on the second request")
+    let bare = PredictingHost(caret: 62, prediction: true)
+    check(HostSelection.selectForWrite(62..<62, caret: 62, in: bare) && bare.selected == 62..<62 && !bare.prediction,
+          "a plain insertion clears the prediction and keeps the caret")
+    let returning = PredictingHost(caret: 62, prediction: true)
+    returning.predictionReturns = true
+    check(!HostSelection.selectForWrite(62..<62, caret: 62, in: returning),
+          "a prediction that keeps coming back stops the write")
+    let accepting = PredictingHost(caret: 62, prediction: true)
+    accepting.acceptsPrediction = true
+    check(!HostSelection.selectForWrite(56..<62, caret: 62, in: accepting) && accepting.selectionWrites == 1,
+          "a host that accepts its prediction stops the write")
+    let plain = PredictingHost(caret: 62, prediction: false)
+    check(HostSelection.selectForWrite(56..<62, caret: 62, in: plain) && plain.selectionWrites == 1,
+          "without a prediction the word is selected once")
+    let untouched = PredictingHost(caret: 62, prediction: false)
+    check(HostSelection.selectForWrite(62..<62, caret: 62, in: untouched) && untouched.selectionWrites == 0,
+          "without a prediction a plain insertion sets no selection")
+}
+
 print("canonical source identity")
 do {
     let workbook = AssistSourceIdentity.canonicalPath(
