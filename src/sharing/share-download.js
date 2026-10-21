@@ -32,7 +32,7 @@ export function shareDownloadOptions(resolved, preview, document) {
     }
   } else if (preview?.headers?.length && preview.rows?.length) {
     type = 'table'; format = 'CSV';
-  } else if (resolved.share.accessScope !== 'INDEXED' && document?.kind === 'model-plan') {
+  } else if (document?.kind === 'model-plan' && (resolved.share.accessScope !== 'INDEXED' || document.citedPart === true)) {
     type = 'drawing'; format = 'SVG';
   } else if (recipientExcerptText(resolved.source)) {
     type = 'text'; format = 'TXT';

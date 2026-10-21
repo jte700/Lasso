@@ -140,32 +140,36 @@ final class DependencyHighlighter {
     /// guessing happens here.
     /// `element` is the editor the insertion was verified in. The reference is
     /// stored only if that editor still has focus when the host is read.
+    /// Returns the reference's id, so taking the insertion back can unlink it.
+    @discardableResult
     func recordVerifiedInsertion(objectId: String, versionId: String?, projectId: String? = nil, label: String,
                                  valueText: String?, sourcePath: String, sourceLocation: String,
                                  document: [UInt16], range: Range<Int>, documentOffset: Int = 0,
-                                 element: AXUIElement) {
+                                 element: AXUIElement) -> String? {
         guard let anchor = TextAnchor.make(in: document, range: range,
-                                           documentOffset: documentOffset) else { return }
+                                           documentOffset: documentOffset) else { return nil }
+        let id = "ref_" + UUID().uuidString.prefix(8)
         AccessibilityWork.queue.async { [reader] in
             let context = reader.focusedContext()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 guard let context, CFEqual(context.element, element) else { return }
                 self.storeVerifiedInsertion(
-                    objectId: objectId, versionId: versionId, projectId: projectId, label: label,
+                    id: id, objectId: objectId, versionId: versionId, projectId: projectId, label: label,
                     valueText: valueText, sourcePath: sourcePath, sourceLocation: sourceLocation,
                     anchor: anchor, context: context)
             }
         }
+        return id
     }
 
-    private func storeVerifiedInsertion(objectId: String, versionId: String?, projectId: String?, label: String,
+    private func storeVerifiedInsertion(id: String, objectId: String, versionId: String?, projectId: String?, label: String,
                                         valueText: String?, sourcePath: String, sourceLocation: String,
                                         anchor: TextAnchor, context: HostContext) {
         let colorSlot = sourceColorSlot(path: sourcePath, objectId: objectId,
                                        projectId: projectId, in: context)
         let reference = DependencyReference(
-            id: "ref_" + UUID().uuidString.prefix(8),
+            id: id,
             objectId: objectId, versionId: versionId, projectId: projectId,
             hostBundleIdentifier: context.bundleIdentifier,
             hostApplication: context.applicationName,

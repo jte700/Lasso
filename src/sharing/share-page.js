@@ -231,10 +231,12 @@ export function renderSharePage(resolved, token, preview, document = null) {
   const title = (redacted || pdfExcerpt ? source.filename : source.label) || source.filename || 'Shared source';
   const hasTable = !redacted && preview?.headers?.length && preview.rows?.length;
   const hasDocument = redacted || (scope === 'DOCUMENT' && (['model-plan', 'pdf'].includes(document?.kind) || document?.format === 'markdown'))
-    || (scope === 'INDEXED' && document?.kind === 'pdf' && document.safe === true);
+    || (scope === 'INDEXED' && document?.kind === 'pdf' && document.safe === true)
+    || (scope === 'INDEXED' && document?.kind === 'model-plan' && document.citedPart === true);
   const table = /\.(?:xlsx?|csv|tsv)$/i.test(source.filename) || hasTable || document?.kind === 'table';
   const drawing = /\.(?:dxf|ifc)$/i.test(source.filename);
-  const type = table ? 'Spreadsheet' : drawing ? 'Design drawing' : 'Document';
+  const model = /\.(?:step|stp)$/i.test(source.filename);
+  const type = table ? 'Spreadsheet' : drawing ? 'Design drawing' : model ? 'CAD model' : 'Document';
   const excerpt = pdfExcerpt ? '' : recipientExcerptText(source);
   const content = hasTable ? recipientTable(preview)
     : hasDocument ? renderFullDocument(document, redactions, redacted)
@@ -247,7 +249,8 @@ export function renderSharePage(resolved, token, preview, document = null) {
     : !redacted && source.location && source.location !== '—' ? source.location : '';
   const stats = hasTable ? `${preview.rows.length} rows · ${preview.headers.length} columns`
     : redacted && document?.kind === 'table' ? `${document.sheets?.length ?? 0} worksheets`
-      : drawing && document?.kind === 'model-plan' ? 'Plan view' : '';
+      : drawing && document?.kind === 'model-plan' ? 'Plan view'
+        : model && document?.kind === 'model-plan' ? escapeHtml(document.view ?? '') : '';
   const options = shareDownloadOptions(resolved, preview, document);
   const base = `/d/${encodeURIComponent(token)}`;
   const originalType = String(source.filename ?? '').match(/\.([a-z\d]{1,10})$/i)?.[1].toUpperCase() || 'File';
@@ -267,7 +270,7 @@ export function renderSharePage(resolved, token, preview, document = null) {
     <article class="shared-window">
       <header class="shared-toolbar"><div class="shared-brand">${icon('lasso')}<span>Lasso</span></div><span class="shared-toolbar-label">${icon('link')}Shared source</span></header>
       <section class="shared-source">
-        <div class="shared-source-identity"><span class="shared-source-icon">${icon(table ? 'table' : drawing ? 'drawing' : 'document')}</span>
+        <div class="shared-source-identity"><span class="shared-source-icon">${icon(table ? 'table' : drawing || model ? 'drawing' : 'document')}</span>
           <div><p class="shared-file-type">${type}</p><h1>${escapeHtml(title)}</h1>${title !== source.filename ? `<p class="shared-file-name">${escapeHtml(source.filename)}</p>` : ''}</div></div>
         <span class="shared-scope" title="${escapeHtml(shareScopeName(scope))}">${icon('lock')}${scopeLabel}</span>
       </section>

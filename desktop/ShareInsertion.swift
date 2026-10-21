@@ -225,6 +225,13 @@ enum ShareAccessScope: String {
     case document = "DOCUMENT"
     case indexed = "INDEXED"
     case redacted = "REDACTED"
+
+    /// A 3D CAD model has no text to redact. It is shared whole, or as the
+    /// cited part with its feature marked when the citation names one part.
+    static func offered(isCADModel: Bool, hasCitedPart: Bool) -> [ShareAccessScope] {
+        guard isCADModel else { return [.document, .indexed, .redacted] }
+        return hasCitedPart ? [.document, .indexed] : [.document]
+    }
 }
 
 enum ShareRedactionEffect: String {
@@ -392,6 +399,45 @@ struct ShareRedactionDrag {
             }
         }
         return []
+    }
+}
+
+/// ⌘Z takes back the last mask edit, a whole drag or click at a time, and
+/// ⇧⌘Z puts it back. Every document kind keeps its masks in one dictionary,
+/// so one history serves cells, sections, PDF areas and drawing regions.
+struct ShareMaskHistory {
+    typealias Masks = [String: ShareRedaction]
+    private static let limit = 100
+    private var undone: [Masks] = []
+    private var redone: [Masks] = []
+
+    var canUndo: Bool { !undone.isEmpty }
+    var canRedo: Bool { !redone.isEmpty }
+
+    /// An edit that changed nothing is not a step.
+    mutating func record(from before: Masks, to after: Masks) {
+        guard before != after else { return }
+        undone.append(before)
+        if undone.count > Self.limit { undone.removeFirst() }
+        redone.removeAll()
+    }
+
+    /// The masks before the last edit, or nil with nothing to take back.
+    mutating func undo(from current: Masks) -> Masks? {
+        guard let previous = undone.popLast() else { return nil }
+        redone.append(current)
+        return previous
+    }
+
+    mutating func redo(from current: Masks) -> Masks? {
+        guard let next = redone.popLast() else { return nil }
+        undone.append(current)
+        return next
+    }
+
+    mutating func clear() {
+        undone.removeAll()
+        redone.removeAll()
     }
 }
 
