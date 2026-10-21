@@ -869,6 +869,46 @@ do {
           "keeps dependency highlight dimensions in panel space")
 }
 
+print("the suggestion card stays off the line being typed")
+do {
+    let visible = CGRect(x: 0, y: 0, width: 1440, height: 875)
+    let card = CGSize(width: 520, height: 300)
+    let caret = CGRect(x: 600, y: 400, width: 1, height: 18)
+
+    let middle = CaretCardPlacement.beside(caret: caret, size: card, visible: visible)
+    check(middle.frame.minY >= caret.maxY && !middle.pointerAtTop,
+          "sits above the caret, leaving the typed line and the lines after it uncovered")
+    check(middle.frame.minY - caret.maxY <= 4, "hangs just above the caret")
+    check(middle.frame.minX + middle.pointerX == caret.midX, "points at the caret")
+
+    let nearTop = CaretCardPlacement.beside(
+        caret: CGRect(x: 600, y: 700, width: 1, height: 18), size: card, visible: visible)
+    check(nearTop.frame.maxY <= 700 && nearTop.pointerAtTop,
+          "drops below the caret only when the display has no room above")
+
+    let tall = CGSize(width: 520, height: 700)
+    let lowCaret = CGRect(x: 600, y: 200, width: 1, height: 18)
+    let cramped = CaretCardPlacement.beside(caret: lowCaret, size: tall, visible: visible)
+    check(!cramped.pointerAtTop && visible.contains(cramped.frame),
+          "a card too tall for either side takes the roomier one and stays on screen")
+    let highCaret = CGRect(x: 600, y: 600, width: 1, height: 18)
+    let crampedHigh = CaretCardPlacement.beside(caret: highCaret, size: tall, visible: visible)
+    check(crampedHigh.pointerAtTop && visible.contains(crampedHigh.frame),
+          "the roomier side can be below when the caret sits high")
+
+    let rightCaret = CGRect(x: 1300, y: 400, width: 1, height: 18)
+    let right = CaretCardPlacement.beside(caret: rightCaret, size: card, visible: visible)
+    check(right.frame.maxX == visible.maxX && right.frame.minX + right.pointerX == rightCaret.midX,
+          "stays on screen at the right edge, its pointer sliding over to the caret")
+    let left = CaretCardPlacement.beside(
+        caret: CGRect(x: 20, y: 400, width: 1, height: 18), size: card, visible: visible)
+    check(left.frame.minX == visible.minX && left.pointerX == CaretCardPlacement.pointerInset,
+          "stays on screen at the left edge, its pointer kept clear of the rounded corner")
+
+    let unknownScreen = CaretCardPlacement.beside(caret: caret, size: card, visible: nil)
+    check(unknownScreen.frame.minY >= caret.maxY, "prefers above even without a display to fit")
+}
+
 
 print("browser editor text-run offsets")
 do {

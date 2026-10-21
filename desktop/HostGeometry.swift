@@ -57,6 +57,43 @@ enum HostGeometryConverter {
     }
 }
 
+/// Where the suggestion card goes beside the caret, in AppKit coordinates.
+struct CaretCardPlacement: Equatable {
+    let frame: CGRect
+    /// True when the card hangs below the caret and points up at it.
+    let pointerAtTop: Bool
+    /// The pointer's distance from the card's leading edge.
+    let pointerX: CGFloat
+
+    static let gap: CGFloat = 2
+    static let preferredPointerX: CGFloat = 84
+    /// Keeps the pointer clear of the card's rounded corners.
+    static let pointerInset: CGFloat = 32
+
+    /// Above the caret by preference, so the card never covers the line being
+    /// typed or the lines that follow it. It drops below only when the display
+    /// has no room above and more room below. The card is shifted sideways so
+    /// its pointer, not its outer edge, sits at the caret.
+    static func beside(caret: CGRect, size: CGSize, visible: CGRect?) -> CaretCardPlacement {
+        var x = caret.midX - preferredPointerX
+        var y = caret.maxY + gap
+        var pointerAtTop = false
+        if let visible {
+            let roomAbove = visible.maxY - caret.maxY - gap
+            let roomBelow = caret.minY - gap - visible.minY
+            if roomAbove < size.height, roomBelow > roomAbove {
+                y = caret.minY - gap - size.height
+                pointerAtTop = true
+            }
+            y = min(max(visible.minY, y), visible.maxY - size.height)
+            x = min(max(visible.minX, x), visible.maxX - size.width)
+        }
+        let pointerX = min(max(caret.midX - x, pointerInset), size.width - pointerInset)
+        return CaretCardPlacement(frame: CGRect(x: x, y: y, width: size.width, height: size.height),
+                                  pointerAtTop: pointerAtTop, pointerX: pointerX)
+    }
+}
+
 /// One dependency's drawn geometry. A wrapped phrase is several rectangles that
 /// still resolve to a single reference when clicked.
 struct DependencyGeometry: Equatable {
