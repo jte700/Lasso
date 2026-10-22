@@ -68,6 +68,8 @@ function changeRow(row, at, previous, previousAt) {
     anchor_json: row.anchor_json, metadata_json: row.metadata_json, label: row.label,
     version: at.version, created_at: at.at,
     previous_value: previous.value_text, previous_path: previous.path,
+    removed: Boolean(row.removed), restored: Boolean(row.restored),
+    content_changed: row.content_hash !== previous.content_hash,
     previous_version: previousAt?.version ?? null, previous_at: previousAt?.at ?? null,
   };
 }
@@ -733,7 +735,7 @@ export class DependencyGraph {
     // history queries retain their complete historical view below.
     const rows = options.snapshotId && options.previousSnapshotId
       ? this.changesBetween(projectId, options.previousSnapshotId, options.snapshotId)
-      : this.recordedChanges('o.project_id = ?', [projectId])
+      : this.recordedChanges('o.project_id = ?', [projectId], options)
         .sort((left, right) => right.version - left.version || compareIds(left.object_id, right.object_id));
 
     if (!options.previousSnapshotId && !options.ownSourcesOnly) {
@@ -746,14 +748,17 @@ export class DependencyGraph {
     const seen = new Set();
     const changes = [];
     for (const row of rows) {
+      if (options.objectIds && !options.objectIds.has(row.object_id)) continue;
       const rowAnchor = json(row.anchor_json, null);
       const rowMetadata = json(row.metadata_json, {});
       // A column profile's "value" is the indexer's own description of the
       // column, not a value from the source. Reporting it as a change would
       // announce that a range widened, which is not what the user recorded.
-      if (rowAnchor?.kind === 'table-column' && !rowMetadata.dictionary) continue;
-      if (rowAnchor?.kind === 'table-row' || rowAnchor?.kind === 'table-summary') continue;
-      if (row.value_text == null && row.previous_value == null) continue;
+      if (!options.includeSourceChanges) {
+        if (rowAnchor?.kind === 'table-column' && !rowMetadata.dictionary) continue;
+        if (rowAnchor?.kind === 'table-row' || rowAnchor?.kind === 'table-summary') continue;
+        if (row.value_text == null && row.previous_value == null) continue;
+      }
       if (options.latestPerObject !== false) {
         if (seen.has(row.object_id)) continue;
         seen.add(row.object_id);
@@ -784,6 +789,8 @@ export class DependencyGraph {
         previousPath: row.previous_path,
         path: row.path,
         moved: row.previous_path !== row.path,
+        ...(options.includeSourceChanges ? { removed: row.removed, restored: row.restored,
+          contentChanged: row.content_changed && row.previous_value === row.value_text } : {}),
         fileName: sourceFileName(row.path),
         locator: object?.locator ?? sourceLocator(shape),
         fromVersion: row.previous_version,
@@ -819,7 +826,7 @@ export class DependencyGraph {
    * from was last seen at the snapshot the changing index was built on (or
    * just before a removal), as a full copy per indexed snapshot would show.
    */
-  recordedChanges(filter, parameters) {
+  recordedChanges(filter, parameters, options = {}) {
     const columns = `o.project_id AS source_project_id, s.version, s.created_at,
       base.version AS base_version, base.created_at AS base_at`;
     const joins = `JOIN scientific_objects o ON o.id = x.object_id
@@ -847,11 +854,17 @@ export class DependencyGraph {
         const seenUntil = laterSnapshot({ version: last?.version, at: last?.created_at },
           event.base_version == null ? null : { version: event.base_version, at: event.base_at });
         if (event.removed) {
-          if (last && !lastSeen) lastSeen = seenUntil;
+          if (last && !lastSeen) {
+            lastSeen = seenUntil;
+            if (options.includeSourceChanges) changes.push(changeRow({ ...last, ...event, value_text: null },
+              { version: event.version, at: event.created_at }, last, seenUntil));
+          }
           continue;
         }
-        if (last && (event.value_text !== last.value_text || event.path !== last.path)) {
-          changes.push(changeRow(event, { version: event.version, at: event.created_at }, last, lastSeen ?? seenUntil));
+        if (last && (event.value_text !== last.value_text || event.path !== last.path
+          || (options.includeSourceChanges && (event.content_hash !== last.content_hash || lastSeen)))) {
+          changes.push(changeRow({ ...event, restored: Boolean(lastSeen) },
+            { version: event.version, at: event.created_at }, last, lastSeen ?? seenUntil));
         }
         last = event;
         lastSeen = null;

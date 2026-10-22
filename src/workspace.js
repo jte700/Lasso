@@ -578,22 +578,22 @@ export class WorkspaceService {
    * active folder. Reuse it until a folder's version, state or open indexing
    * issues change, so a poll cannot hold up suggestions while typing.
    */
-  activity() {
+  activity(options = {}) {
     this.followRenamedRoots();
+    // Native links belong to their host app, not a browser document. These
+    // opaque IDs extend the notification set without transmitting host text.
+    const sourceObjectIds = [...new Set((options.sourceObjectIds ?? [])
+      .filter(id => typeof id === 'string' && id.length <= 128))].sort().slice(0, 256);
     const openIssues = this.db.prepare('SELECT COUNT(*) AS count FROM index_failures WHERE resolved_at IS NULL').get().count;
-    const key = `${this.revision()}#${openIssues}`;
+    const key = `${this.revision()}#${openIssues}#${JSON.stringify(sourceObjectIds)}`;
     if (this.activityCache?.key === key) return this.activityCache.value;
-    const value = this.computeActivity();
+    const value = this.computeActivity(sourceObjectIds);
     this.activityCache = { key, value };
     return value;
   }
 
-  computeActivity() {
+  computeActivity(sourceObjectIds = []) {
     const projects = this.activeProjects();
-    const changes = projects.flatMap(project => this.terminal.graph.valueChanges(project.id, { limit: 8, ownSourcesOnly: true })
-      .map(change => ({ ...change, projectId: project.id, projectName: project.name })));
-    changes.sort((a, b) => String(b.changedAt).localeCompare(String(a.changedAt))
-      || b.toVersion - a.toVersion || a.objectId.localeCompare(b.objectId));
     const session = this.terminalSession();
     const references = new Map();
     for (const project of projects) for (const dependency of this.dependencies.currentDependencies(project.id)) {
@@ -602,11 +602,33 @@ export class WorkspaceService {
       if (!['LINKED', 'PREDICTED'].includes(dependency.status)) counts.unresolvedReferences += 1;
       references.set(dependency.source.id, counts);
     }
+    for (const objectId of sourceObjectIds) {
+      const counts = references.get(objectId) ?? { referenceCount: 0, unresolvedReferences: 0 };
+      counts.referenceCount += 1;
+      references.set(objectId, counts);
+    }
+    const linkedIds = new Set(references.keys());
+    const recentFirst = (a, b) => String(b.changedAt).localeCompare(String(a.changedAt))
+      || b.toVersion - a.toVersion || a.objectId.localeCompare(b.objectId);
+    const decorate = (change, project) => ({ ...change, projectId: project.id, projectName: project.name,
+      ...(references.get(change.objectId) ?? { referenceCount: 0, unresolvedReferences: 0 }) });
+    // A linked whole file can change without changing its title, and a removed
+    // source has no current value. Both still need a notification. Select linked
+    // IDs before applying the limit so a large CSV cannot crowd them out.
+    const linkedChanges = projects.flatMap(project => linkedIds.size ? this.terminal.graph.valueChanges(project.id,
+      { limit: 256, ownSourcesOnly: true, objectIds: linkedIds, includeSourceChanges: true })
+      .map(change => decorate(change, project)) : []).sort(recentFirst).slice(0, 256);
+    const linkedById = new Map(linkedChanges.map(change => [change.objectId, change]));
+    const otherChanges = projects.flatMap(project => this.terminal.graph.valueChanges(project.id,
+      { limit: 8, ownSourcesOnly: true }).filter(change => !linkedById.has(change.objectId))
+      .map(change => decorate(change, project))).sort(recentFirst);
     const unavailable = this.state().directories.filter(directory => directory.active
       && (!directory.available || directory.error)).length;
     return { directories: projects.length, files: session.files, stale: session.stale,
-      failures: session.failures + unavailable, changes: changes.slice(0, 8).map(change => ({ ...change,
-        ...(references.get(change.objectId) ?? { referenceCount: 0, unresolvedReferences: 0 }) })) };
+      failures: session.failures + unavailable, changes: [...linkedChanges, ...otherChanges].slice(0, 8), linkedChanges,
+      // Include links with no changes yet: the native client must distinguish
+      // their first edit from old history newly exposed by adding a link.
+      linkedSourceObjectIds: [...linkedIds].sort() };
   }
 
   terminalComplete(input, options = {}) {

@@ -400,6 +400,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         removeTypingLog(beside: logs)
         LaunchHelper.start()
 
+        notch.linkedSourceObjectIDs = { DependencyHighlighter.shared.linkedSourceObjectIDs }
         notch.onToggleSuggestions = { [weak self] in self?.toggleGlobalAssist() }
         notch.onOpenWorkspace = { [weak self] view in
             guard let base = self?.server?.url, var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return }

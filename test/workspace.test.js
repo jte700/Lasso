@@ -449,6 +449,9 @@ test('notch activity reports pinned source changes, excludes paused folders and 
     documentPath: 'draft.md', sourceObjectId: source.id, sourceSnapshotId: source.snapshotId,
     spanText: 'Supplies were 120.', anchor: {kind:'manuscript-span', blockIndex:0, start:0, end:18},
   }, actor);
+  const baseline = app.workspace.activity();
+  assert.deepEqual(baseline.linkedSourceObjectIds, [source.id], 'a linked source with no history establishes its subscription');
+  assert.deepEqual(baseline.linkedChanges, []);
   fs.writeFileSync(path.join(roots[0], 'data.csv'), 'Metric,Value\nSupplies 0,450\n');
   app.timeline.capture(first.id, actor, { source: 'EXPLICIT_CHECKPOINT' });
   const activity = app.workspace.activity();
@@ -457,6 +460,7 @@ test('notch activity reports pinned source changes, excludes paused folders and 
   assert.ok(change);
   assert.equal(change.projectId, first.id);
   assert.equal(change.fileName, 'data.csv');
+  assert.deepEqual(activity.linkedSourceObjectIds, baseline.linkedSourceObjectIds, 'the first edit keeps the same subscription and can notify');
   assert.equal(change.referenceCount, 1, 'notch includes references in a different enabled directory');
   assert.equal(change.unresolvedReferences, 1, 'notch reports the changed cross-directory reference');
   assert.ok(change.toVersion > change.fromVersion);
@@ -511,4 +515,102 @@ test('notch activity is reused until the workspace or its indexing issues change
   // Assert
   assert.deepEqual(repeated, first);
   assert.equal(sessions.mock.callCount(), 1, 'recomputed only after the folder changed');
+});
+
+test('native linked whole-file edits and removals appear even when their displayed name does not change', async t => {
+  const { app, projects, roots } = await fixture(t, 1, 1);
+  const project = projects[0];
+  app.dependencies.ensureIndex(project.id);
+  const source = app.dependencies.objectsAt(project.id).find(object => object.objectType === 'DATASET');
+  assert.ok(source);
+  const options = { sourceObjectIds: [source.id, source.id] };
+  const baseline = app.workspace.activity(options);
+  assert.deepEqual(baseline.linkedSourceObjectIds, [source.id], 'native links with no history also establish a subscription');
+  assert.deepEqual(baseline.linkedChanges, []);
+  fs.writeFileSync(path.join(roots[0], 'data.csv'), 'Metric,Value\nSupplies 0,450\n');
+  app.timeline.capture(project.id, actor);
+  const edited = app.workspace.activity(options).linkedChanges.find(change => change.objectId === source.id);
+  assert.ok(edited, 'a linked whole file reports its content edit');
+  assert.equal(edited.previousValue, edited.currentValue, 'the file label did not change');
+  assert.equal(edited.contentChanged, true);
+  assert.equal(edited.referenceCount, 1, 'duplicate native IDs count once');
+  assert.equal(edited.removed, false);
+  assert.deepEqual(app.workspace.activity().linkedChanges, [], 'changing native links invalidates the cached notification set');
+
+  fs.renameSync(path.join(roots[0], 'data.csv'), path.join(roots[0], 'renamed.csv'));
+  app.timeline.capture(project.id, actor);
+  const moved = app.workspace.activity(options).linkedChanges.find(change => change.objectId === source.id);
+  assert.equal(moved.moved, true);
+  assert.equal(moved.previousPath, 'data.csv');
+  assert.equal(moved.path, 'renamed.csv');
+
+  fs.unlinkSync(path.join(roots[0], 'renamed.csv'));
+  app.timeline.capture(project.id, actor);
+  const removed = app.workspace.activity(options).linkedChanges.find(change => change.objectId === source.id);
+  assert.equal(removed.removed, true);
+  assert.equal(removed.currentValue, null);
+  assert.ok(removed.toVersion > edited.toVersion);
+  assert.equal(removed.fileName, 'renamed.csv');
+
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  const url = new URL(`http://127.0.0.1:${app.server.address().port}/api/workspace/activity`);
+  url.searchParams.append('sourceObjectId', source.id);
+  const response = await fetch(url);
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).activity.linkedChanges, [removed]);
+  await app.workspace.toggle(project.id, false, actor);
+  assert.deepEqual(app.workspace.activity(options).linkedChanges, [], 'paused source directories cannot notify');
+});
+
+test('linked source activity survives a batch larger than the eight-row popup history', async t => {
+  const { app, projects, roots } = await fixture(t, 2, 20);
+  const project = projects[0];
+  app.dependencies.ensureIndex(project.id);
+  const values = app.dependencies.objectsAt(project.id).filter(object => object.objectType === 'DATASET_VALUE');
+  assert.equal(values.length, 20);
+  const source = values[values.length - 1];
+  app.dependencies.getDocument(projects[1].id, 'draft.md');
+  app.dependencies.link(projects[1].id, {
+    documentPath: 'draft.md', sourceObjectId: source.id, sourceSnapshotId: source.snapshotId,
+    spanText: 'Supplies were 120.', anchor: { kind: 'manuscript-span', blockIndex: 0, start: 0, end: 18 },
+  }, actor);
+  fs.writeFileSync(path.join(roots[0], 'data.csv'), 'Metric,Value\n'
+    + Array.from({ length: 20 }, (_, row) => `Supplies ${row},${450 + row}`).join('\n') + '\n');
+  app.timeline.capture(project.id, actor);
+  const activity = app.workspace.activity({ sourceObjectIds: values.map(object => object.id) });
+  assert.equal(activity.linkedChanges.length, 20, 'notification identities are not limited to the visible eight rows');
+  assert.ok(activity.linkedChanges.some(change => change.objectId === source.id && change.referenceCount === 2));
+  assert.equal(activity.changes.length, 8);
+  assert.ok(activity.changes.every(change => change.referenceCount > 0));
+  assert.ok(app.workspace.activity().changes.some(change => change.objectId === source.id),
+    'the persisted browser link is prioritized over unrelated CSV edits');
+});
+
+
+test('a newly linked current browser source exposes its subscription separately from old change history', async t => {
+  const { app, projects, roots } = await fixture(t, 1, 1);
+  const project = projects[0];
+  app.dependencies.ensureIndex(project.id);
+  fs.writeFileSync(path.join(roots[0], 'data.csv'), 'Metric,Value\nSupplies 0,450\n');
+  app.timeline.capture(project.id, actor);
+  const beforeLink = app.workspace.activity();
+  assert.deepEqual(beforeLink.linkedSourceObjectIds, []);
+  assert.deepEqual(beforeLink.linkedChanges, []);
+  const source = app.dependencies.objectsAt(project.id).find(object => object.objectType === 'DATASET_VALUE');
+  fs.writeFileSync(path.join(roots[0], 'draft.md'), 'Supplies were 450.\n');
+  app.timeline.capture(project.id, actor);
+  app.dependencies.getDocument(project.id, 'draft.md');
+  app.dependencies.link(project.id, {
+    documentPath: 'draft.md', sourceObjectId: source.id, sourceSnapshotId: source.snapshotId,
+    spanText: 'Supplies were 450.', anchor: { kind: 'manuscript-span', blockIndex: 0, start: 0, end: 18 },
+  }, actor);
+  const linked = app.workspace.activity();
+  assert.deepEqual(linked.linkedSourceObjectIds, [source.id], 'the client can baseline the newly subscribed browser source');
+  assert.equal(linked.linkedChanges[0].currentValue, '450', 'old history remains available for manual review');
+  assert.equal(linked.linkedChanges[0].unresolvedReferences, 0, 'linking the current version does not need review');
+  fs.writeFileSync(path.join(roots[0], 'data.csv'), 'Metric,Value\nSupplies 0,700\n');
+  app.timeline.capture(project.id, actor);
+  const edited = app.workspace.activity();
+  assert.deepEqual(edited.linkedSourceObjectIds, linked.linkedSourceObjectIds);
+  assert.ok(edited.linkedChanges[0].toVersion > linked.linkedChanges[0].toVersion, 'a later edit has a new notification identity');
 });

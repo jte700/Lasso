@@ -2024,21 +2024,81 @@ let notchFrame = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX:
 check(notchFrame.maxY == notchScreen.maxY && notchFrame.height == 230, "black notch surface reaches the display edge and reserves the camera band")
 check(notchFrame.midX == -950 && notchScreen.contains(notchFrame), "notch follows a secondary display with negative coordinates")
 let notchCompact = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: false)
-check(notchCompact.height == 32 && notchCompact.maxY == notchFrame.maxY, "collapsed logo stays entirely inside the menu bar")
+check(notchCompact == NSRect(x: -1050, y: -132, width: 200, height: 32), "collapsed hit target exactly covers the physical camera housing without a logo extension")
 let wideNotch = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: false, notchWidth: 250)
-check(wideNotch.minX + NotchGeometry.logoWidth == -1075, "logo sits immediately left of the physical notch")
-check(wideNotch.maxX == -1075 + 32, "compact black backing fills the rounded housing corner")
-check(wideNotch.maxX < -950 && notchScreen.contains(wideNotch), "compact overlap stays beneath the housing without extending beyond the screen")
+check(wideNotch.minX == -1075 && wideNotch.maxX == -825 && wideNotch.midX == -950,
+      "the full left, middle and right of a wider camera housing remain clickable")
+check(wideNotch.height == 32 && notchScreen.contains(wideNotch), "collapsed surface remains within the camera band")
 let wideExpandedNotch = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: true, notchWidth: 500)
 let wideCompactNotch = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: false, notchWidth: 500)
-check(wideExpandedNotch.minX <= wideCompactNotch.minX && wideExpandedNotch.maxX > -700, "expanded panel keeps the logo visible beside unusually wide camera cutouts")
-let notchActivity = NotchActivity(["directories": -1, "changes": [["projectId": "one", "objectId": "cell", "toVersion": 3]]])
+check(wideExpandedNotch.contains(wideCompactNotch) && wideExpandedNotch.midX == wideCompactNotch.midX,
+      "expanded content remains centered around an unusually wide camera cutout")
+let notchNotice = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: true, contentHeight: 92)
+check(notchNotice.height == 124 && notchNotice.height < notchFrame.height && notchNotice.maxY == notchFrame.maxY,
+      "source notifications form a compact popup attached to the same top edge")
+let shortNotchScreen = NSRect(x: 200, y: 1200, width: 900, height: 180)
+let boundedNotch = NotchGeometry.frame(screen: shortNotchScreen, topInset: 32, centerX: 650, expanded: true, contentHeight: 500)
+check(shortNotchScreen.contains(boundedNotch) && boundedNotch.minY == shortNotchScreen.minY + 12,
+      "an expanded notch fits a short display above the primary screen")
+
+print("Notch spring motion")
+check(NotchGeometry.springProgress(0) == 0 && NotchGeometry.springProgress(1) == 1,
+      "spring animation starts at the current frame and settles exactly at the destination")
+let notchSpringSamples = (0...100).map { NotchGeometry.springProgress(Double($0) / 100) }
+check(notchSpringSamples.allSatisfy { $0.isFinite && $0 >= 0 && $0 < 1.15 }
+      && notchSpringSamples.contains { $0 > 1 }, "spring expansion has a bounded overshoot rather than a clamped ease")
+check(NotchGeometry.interpolatedFrame(from: notchCompact, to: notchFrame, progress: 0) == notchCompact
+      && NotchGeometry.interpolatedFrame(from: notchCompact, to: notchFrame, progress: 1) == notchFrame,
+      "frame interpolation preserves both animation endpoints")
+let notchOvershoot = NotchGeometry.interpolatedFrame(from: notchCompact, to: notchFrame,
+                                                    progress: NotchGeometry.springProgress(0.4))
+check(notchOvershoot.height > notchFrame.height && notchOvershoot.width > notchFrame.width,
+      "the surface can expand slightly beyond its destination during the spring")
+check(notchSpringSamples.allSatisfy { progress in
+    let frame = NotchGeometry.interpolatedFrame(from: notchCompact, to: notchFrame, progress: progress)
+    return abs(frame.maxY - notchScreen.maxY) < 0.0001 && abs(frame.midX - notchCompact.midX) < 0.0001
+}, "every spring frame stays attached to the display edge and centered on the camera")
+let interruptedNotch = NotchGeometry.interpolatedFrame(from: notchCompact, to: notchFrame,
+                                                      progress: NotchGeometry.springProgress(0.15))
+check(NotchGeometry.interpolatedFrame(from: interruptedNotch, to: notchCompact, progress: 0) == interruptedNotch,
+      "reversing a transition begins at its displayed frame without jumping")
+let reversingNotch = NotchGeometry.interpolatedFrame(from: interruptedNotch, to: notchCompact, progress: 0.5)
+check(reversingNotch.height < interruptedNotch.height && reversingNotch.height > notchCompact.height
+      && abs(reversingNotch.maxY - notchScreen.maxY) < 0.0001,
+      "interrupted collapse retracts toward the camera while holding the top edge")
+
+print("Notch linked-source activity")
+let linkedNotchChange: [String: Any] = ["projectId": "one", "objectId": "cell", "toVersion": 3, "referenceCount": 1]
+let notchActivity = NotchActivity(["directories": -1, "changes": [linkedNotchChange]])
 check(notchActivity.directories == 0 && notchActivity.newestKey == "one:cell:3", "activity uses source identity and clamps invalid counts")
 check(NotchActivity().newestKey == nil, "an empty workspace has no fabricated notification")
 check(!notchActivity.hasNewActivity(comparedTo: notchActivity), "unchanged source history cannot reopen the notch")
 check(NotchActivity(["failures": 1]).hasNewActivity(comparedTo: NotchActivity()), "new indexing failures trigger the notch")
 check(!NotchActivity().hasNewActivity(comparedTo: NotchActivity(["failures": 1])), "resolved issues do not trigger an interruption")
-check(NotchActivity(["changes": [["projectId": "one", "objectId": "cell", "toVersion": 4]]]).hasNewActivity(comparedTo: notchActivity), "a new pinned source version triggers the notch")
+let newerLinkedNotchChange: [String: Any] = ["projectId": "one", "objectId": "cell", "toVersion": 4, "referenceCount": 1]
+check(NotchActivity(["changes": [newerLinkedNotchChange]]).hasNewActivity(comparedTo: notchActivity),
+      "a new pinned linked-source version triggers the notch with an older server response")
+let unlinkedNotchChange: [String: Any] = ["projectId": "one", "objectId": "unlinked", "toVersion": 8, "referenceCount": 0]
+check(!NotchActivity(["changes": [unlinkedNotchChange]]).hasNewActivity(comparedTo: NotchActivity()),
+      "an unrelated source change does not interrupt the user")
+let nativeNotchActivity = NotchActivity(["changes": [unlinkedNotchChange], "linkedChanges": [newerLinkedNotchChange]])
+check(nativeNotchActivity.hasNewActivity(comparedTo: notchActivity)
+      && nativeNotchActivity.changeKeys == Set(["one:cell:4"]),
+      "native linked-source changes trigger even when absent from the recent-change summary")
+check(!NotchActivity(["changes": [newerLinkedNotchChange], "linkedChanges": [[String: Any]]()])
+    .hasNewActivity(comparedTo: NotchActivity()), "an explicit empty linked-change response takes precedence over the general summary")
+let otherLinkedNotchChange: [String: Any] = ["projectId": "two", "objectId": "cell", "toVersion": 4]
+check(NotchActivity(["linkedChanges": [otherLinkedNotchChange]]).hasNewActivity(comparedTo: nativeNotchActivity),
+      "source versions in different directories keep separate identities")
+check(!NotchActivity(["linkedChanges": [otherLinkedNotchChange, newerLinkedNotchChange]])
+    .hasNewActivity(comparedTo: NotchActivity(["linkedChanges": [newerLinkedNotchChange, otherLinkedNotchChange]])),
+      "reordering linked changes does not produce a duplicate notification")
+check(!NotchActivity().hasNewActivity(comparedTo: nativeNotchActivity),
+      "removing a link or resolving its change does not fabricate fresh activity")
+let manyNotchChanges = (0..<12).map { ["projectId": "one", "objectId": "cell-\($0)", "toVersion": 2] as [String: Any] }
+let crowdedNotchActivity = NotchActivity(["changes": manyNotchChanges, "linkedChanges": manyNotchChanges])
+check(crowdedNotchActivity.changes.count == 8 && crowdedNotchActivity.changeKeys.contains("one:cell-11:2"),
+      "linked-source detection remains complete beyond the eight visible history rows")
 
 print("synthetic typing chunks")
 let accented = String(repeating: "e\u{301}", count: 12) + "👩‍🔬 Café"
