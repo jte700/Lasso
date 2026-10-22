@@ -805,6 +805,58 @@ export class DependencyGraph {
     return changes;
   }
 
+  /** Lightweight notch history. Never resolves the full object index or dependency graph. */
+  activityChanges(projectId, { objectIds = null, limit = 8, includeSourceChanges = false } = {}) {
+    let ids = objectIds ? [...objectIds] : [];
+    if (!objectIds) {
+      // Manual history is a recent sample. Visit indexed snapshots newest first
+      // through the snapshot_id index, with a hard candidate budget; opening a
+      // notch must not read years of unrelated object metadata into memory.
+      const snapshots = this.db.prepare(`SELECT s.id FROM snapshots s
+        JOIN snapshot_object_indexes i ON i.snapshot_id = s.id
+        WHERE s.project_id = ? ORDER BY s.version DESC LIMIT 8`).all(projectId);
+      const candidates = new Set();
+      for (const snapshot of snapshots) {
+        const remaining = 64 - candidates.size;
+        if (remaining <= 0) break;
+        for (const row of this.db.prepare(`SELECT object_id FROM scientific_object_versions
+          WHERE snapshot_id = ? LIMIT ?`).all(snapshot.id, remaining)) candidates.add(row.object_id);
+      }
+      ids = [...candidates];
+    }
+    if (!ids.length) return [];
+    const rows = [];
+    // SQLite's object_id index restricts the read before metadata is loaded.
+    // Keep parameter counts bounded even for a large set of browser links.
+    for (let offset = 0; offset < ids.length; offset += 128) {
+      const batch = ids.slice(offset, offset + 128);
+      rows.push(...this.recordedChanges(`o.project_id = ? AND x.object_id IN (${batch.map(() => '?').join(',')})`,
+        [projectId, ...batch], { includeSourceChanges, indexedObjectLookup: true }));
+    }
+    rows.sort((a, b) => b.version - a.version || compareIds(a.object_id, b.object_id));
+    const seen = new Set(), changes = [];
+    for (const row of rows) {
+      const anchor = json(row.anchor_json, null), metadata = json(row.metadata_json, {});
+      if (!includeSourceChanges && ((anchor?.kind === 'table-column' && !metadata.dictionary)
+        || ['table-row', 'table-summary'].includes(anchor?.kind)
+        || (row.value_text == null && row.previous_value == null))) continue;
+      if (seen.has(row.object_id)) continue;
+      seen.add(row.object_id);
+      const shape = { id: row.object_id, objectKey: null, objectType: null, label: row.label,
+        path: row.path, anchor, metadata, valueText: row.value_text };
+      changes.push({ projectId, name: dependencyName(shape), objectId: row.object_id, objectKey: null,
+        previousValue: row.previous_value, currentValue: row.value_text,
+        previousPath: row.previous_path, path: row.path, moved: row.previous_path !== row.path,
+        ...(includeSourceChanges ? { removed: row.removed, restored: row.restored,
+          contentChanged: row.content_changed && row.previous_value === row.value_text } : {}),
+        fileName: sourceFileName(row.path), locator: sourceLocator(shape),
+        fromVersion: row.previous_version, toVersion: row.version,
+        changedAt: row.created_at, previousAt: row.previous_at });
+      if (changes.length >= limit) break;
+    }
+    return changes;
+  }
+
   /** Objects present at both snapshots whose value or location differs. */
   changesBetween(projectId, previousSnapshotId, snapshotId) {
     const versions = this.timeline.objectVersions;
@@ -829,7 +881,11 @@ export class DependencyGraph {
   recordedChanges(filter, parameters, options = {}) {
     const columns = `o.project_id AS source_project_id, s.version, s.created_at,
       base.version AS base_version, base.created_at AS base_at`;
-    const joins = `JOIN scientific_objects o ON o.id = x.object_id
+    // For activity's small IN-list, SQLite otherwise prefers the project's
+    // object index and visits every object before filtering IDs. CROSS JOIN
+    // pins x first so both versions and removals use their object_id index.
+    const objectJoin = options.indexedObjectLookup ? 'CROSS JOIN' : 'JOIN';
+    const joins = `${objectJoin} scientific_objects o ON o.id = x.object_id
       JOIN snapshots s ON s.id = x.snapshot_id
       LEFT JOIN object_index_bases b ON b.snapshot_id = x.snapshot_id
       LEFT JOIN snapshots base ON base.id = b.base_snapshot_id`;

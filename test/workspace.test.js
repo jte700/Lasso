@@ -504,7 +504,7 @@ test('notch activity is reused until the workspace or its indexing issues change
   const state = await fixture(t, 1);
   const app = state.app;
   const first = app.workspace.activity();
-  const sessions = t.mock.method(app.workspace, 'terminalSession');
+  const summaries = t.mock.method(app.workspace, 'computeActivity');
 
   // Act
   const repeated = app.workspace.activity();
@@ -514,7 +514,7 @@ test('notch activity is reused until the workspace or its indexing issues change
 
   // Assert
   assert.deepEqual(repeated, first);
-  assert.equal(sessions.mock.callCount(), 1, 'recomputed only after the folder changed');
+  assert.equal(summaries.mock.callCount(), 1, 'recomputed only after the folder changed');
 });
 
 test('native linked whole-file edits and removals appear even when their displayed name does not change', async t => {
@@ -613,4 +613,53 @@ test('a newly linked current browser source exposes its subscription separately 
   const edited = app.workspace.activity();
   assert.deepEqual(edited.linkedSourceObjectIds, linked.linkedSourceObjectIds);
   assert.ok(edited.linkedChanges[0].toVersion > linked.linkedChanges[0].toVersion, 'a later edit has a new notification identity');
+});
+
+test('notch polling reads linked history without traversing the full graph or rebuilding indexes', async t => {
+  const { app, projects, roots } = await fixture(t, 1, 96);
+  const project = projects[0];
+  const source = app.dependencies.objectsAt(project.id).find(object => object.objectType === 'DATASET_VALUE'
+    && object.valueText === '215');
+  assert.ok(source);
+  fs.writeFileSync(path.join(roots[0], 'data.csv'), 'Metric,Value\n'
+    + Array.from({ length: 96 }, (_, row) => `Supplies ${row},${450 + row}`).join('\n') + '\n');
+  app.timeline.capture(project.id, actor);
+  const unexpected = () => { throw new Error('Notch polling invoked the full graph/index path'); };
+  t.mock.method(app.workspace, 'terminalSession', unexpected);
+  t.mock.method(app.dependencies, 'ensureIndex', unexpected);
+  for (const name of ['valueChanges', 'objectById', 'referencesTo', 'namedObjects']) {
+    t.mock.method(app.terminal.graph, name, unexpected);
+  }
+  const activity = app.workspace.activity({ sourceObjectIds: [source.id] });
+  assert.equal(activity.files, 2);
+  assert.equal(activity.linkedChanges.length, 1);
+  assert.equal(activity.linkedChanges[0].previousValue, '215');
+  assert.equal(activity.linkedChanges[0].currentValue, '545');
+  assert.ok(activity.changes.length <= 8);
+  const queries = t.mock.method(app.terminal.graph.db, 'prepare', () => { throw new Error('Empty linked set queried history'); });
+  assert.deepEqual(app.terminal.graph.activityChanges(project.id, { objectIds: new Set(), includeSourceChanges: true }), []);
+  queries.mock.restore();
+});
+
+
+test('notch linked history query uses object-ID indexes before checking the project', async t => {
+  const { app, projects } = await fixture(t, 1, 4);
+  const source = app.dependencies.objectsAt(projects[0].id).find(object => object.objectType === 'DATASET_VALUE');
+  const plans = [], prepare = app.terminal.graph.db.prepare.bind(app.terminal.graph.db);
+  const queryMock = t.mock.method(app.terminal.graph.db, 'prepare', sql => {
+    const statement = prepare(sql);
+    if (!sql.includes('FROM scientific_object_versions x') && !sql.includes('FROM scientific_object_removals x')) return statement;
+    return { all(...parameters) {
+      plans.push(prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...parameters));
+      return statement.all(...parameters);
+    } };
+  });
+  app.terminal.graph.activityChanges(projects[0].id, { objectIds: new Set([source.id]), includeSourceChanges: true });
+  queryMock.mock.restore();
+  assert.equal(plans.length, 2, 'both version and removal history are queried');
+  for (const plan of plans) {
+    assert.match(plan[0].detail, /SEARCH x .*\(object_id=\?\)/, 'selected object IDs drive the query');
+    assert.ok(!plan.some(row => row.detail.includes('scientific_object_project_type_idx')),
+      'a linked-source poll must not scan every object in the project');
+  }
 });

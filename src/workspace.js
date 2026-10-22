@@ -599,12 +599,18 @@ export class WorkspaceService {
 
   computeActivity(sourceObjectIds = []) {
     const projects = this.activeProjects();
-    const session = this.terminalSession();
+    const files = projects.reduce((sum, project) => sum + this.timeline.files.count(project.currentSnapshotId), 0);
+    const staleSources = new Set();
+    const failures = projects.reduce((sum, project) => sum + this.db.prepare(
+      'SELECT COUNT(*) AS count FROM index_failures WHERE project_id = ? AND resolved_at IS NULL').get(project.id).count, 0);
     const references = new Map();
     for (const project of projects) for (const dependency of this.dependencies.currentDependencies(project.id)) {
       const counts = references.get(dependency.source.id) ?? { referenceCount: 0, unresolvedReferences: 0 };
       counts.referenceCount += 1;
-      if (!['LINKED', 'PREDICTED'].includes(dependency.status)) counts.unresolvedReferences += 1;
+      if (!['LINKED', 'PREDICTED'].includes(dependency.status)) {
+        counts.unresolvedReferences += 1;
+        staleSources.add(`${project.id}:${dependency.source.id}`);
+      }
       references.set(dependency.source.id, counts);
     }
     for (const objectId of sourceObjectIds) {
@@ -620,17 +626,20 @@ export class WorkspaceService {
     // A linked whole file can change without changing its title, and a removed
     // source has no current value. Both still need a notification. Select linked
     // IDs before applying the limit so a large CSV cannot crowd them out.
-    const linkedChanges = projects.flatMap(project => linkedIds.size ? this.terminal.graph.valueChanges(project.id,
-      { limit: 256, ownSourcesOnly: true, objectIds: linkedIds, includeSourceChanges: true })
+    const linkedChanges = projects.flatMap(project => linkedIds.size ? this.terminal.graph.activityChanges(project.id,
+      { limit: 256, objectIds: linkedIds, includeSourceChanges: true })
       .map(change => decorate(change, project)) : []).sort(recentFirst).slice(0, 256);
     const linkedById = new Map(linkedChanges.map(change => [change.objectId, change]));
-    const otherChanges = projects.flatMap(project => this.terminal.graph.valueChanges(project.id,
-      { limit: 8, ownSourcesOnly: true }).filter(change => !linkedById.has(change.objectId))
+    const otherChanges = projects.flatMap(project => this.terminal.graph.activityChanges(project.id,
+      { limit: 8 }).filter(change => !linkedById.has(change.objectId))
       .map(change => decorate(change, project))).sort(recentFirst);
-    const unavailable = this.state().directories.filter(directory => directory.active
-      && (!directory.available || directory.error)).length;
-    return { directories: projects.length, files: session.files, stale: session.stale,
-      failures: session.failures + unavailable, changes: [...linkedChanges, ...otherChanges].slice(0, 8), linkedChanges,
+    // state() also computes detailed folder issues by resolving drawing objects.
+    // Eligibility is already known here; keep that full-index work out of polls.
+    const availableIds = new Set(projects.map(project => project.id));
+    const unavailable = this.projects().filter(project => project.active && !availableIds.has(project.id)
+      && this.timeline.drives?.projectState(project.id).availability !== 'offline').length;
+    return { directories: projects.length, files, stale: staleSources.size,
+      failures: failures + unavailable, changes: [...linkedChanges, ...otherChanges].slice(0, 8), linkedChanges,
       // Include links with no changes yet: the native client must distinguish
       // their first edit from old history newly exposed by adding a link.
       linkedSourceObjectIds: [...linkedIds].sort() };
