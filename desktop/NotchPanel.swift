@@ -71,6 +71,10 @@ private final class NotchWindow: NSPanel {
 
 private final class NotchContent: NSView {
     override var isFlipped: Bool { true }
+    var onClick: (() -> Void)?
+    override func mouseDown(with event: NSEvent) {
+        if let onClick { onClick() } else { super.mouseDown(with: event) }
+    }
 }
 
 /// One continuous silhouette grows out of the actual camera housing.
@@ -242,6 +246,10 @@ final class NotchPanelController: NSObject {
         panel.title = "Lasso notch"
         content.frame = NSRect(x: 0, y: 0, width: 360, height: 198)
         panel.appearance = NSAppearance(named: .darkAqua)
+        content.onClick = { [weak self] in
+            guard let self, self.state == .notification else { return }
+            self.toggleExpanded()
+        }
         contentClip.clipsToBounds = true
         contentClip.addSubview(content)
         surface.addSubview(contentClip)
@@ -611,7 +619,7 @@ final class NotchPanelController: NSObject {
         let point = pointerLocation()
         if event.type == .mouseMoved { handlePointer(at: point); return }
         if local && event.window === panel {
-            // Interacting with an expanded card pins it, including navigation.
+            // Content interaction completes hover activation before the control action.
             if expanded, event.type == .leftMouseDown, let panel,
                point.y < panel.frame.maxY - cameraFrame.height {
                 hoverOpened = false; hoverExitTimer?.invalidate(); hoverExitTimer = nil
@@ -733,7 +741,7 @@ final class NotchPanelController: NSObject {
         // Details must include the announced source even beyond the eight-row summary.
         let extra: [String: Any] = ["projectId": "p", "objectId": "extra", "toVersion": 2, "fileName": "Plan.pdf", "removed": true]
         controller.receive(NotchActivity(["changes": activity(5).changes, "linkedChanges": [extra]]))
-        controller.launcherButton?.performClick(nil)
+        controller.content.mouseDown(with: click)
         verify(controller.activity.changes[controller.selectedChange]["objectId"] as? String == "extra")
         controller.activity = activity(5); controller.selectedChange = 0
         controller.render()

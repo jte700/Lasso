@@ -2358,12 +2358,21 @@ do {
     check(memory.sources.isEmpty && memory.requestFields.isEmpty
           && memory.canMoveIn(focusedOn: nil, selected: nil),
           "a new field starts with nothing focused, but fn+Right still knows the last source")
+    let width = source("width", "100 mm"), budget = source("budget", "September Budget CAD", project: "finance")
+    memory.noteFocus(bracket)
+    let widthText = accept(&memory, width, after: "The Bracket is ")
+    check(memory.sources.last == width && memory.recent == bracket,
+          "a value tabbed on a focused card is sent, and fn+Right returns to the card's focus, not the value")
+    _ = accept(&memory, budget, after: widthText + " and ")
+    memory.noteFocus(budget)
+    check(memory.recent == budget, "a deeper focus the card then shows becomes fn+Right's way back")
 
     var text = ""
     for index in 0..<10 { text = accept(&memory, source("part-\(index)", "Part \(index)"), after: text + " ") }
     check(memory.sources.count == 8 && memory.sources.first?.objectId == "part-2",
           "only the eight newest accepted sources are kept")
     _ = accept(&memory, source("revenue", "Revenue", project: "finance"), after: text + " ")
+    memory.noteFocus(source("revenue", "Revenue", project: "finance"))
     memory.keep(projectIds: ["cad"])
     check(memory.sources.count == 7 && memory.sources.allSatisfy { $0.projectId == "cad" }
           && memory.recent?.projectId == "cad",

@@ -176,7 +176,9 @@ function namesMeasuredPart(object, queryWords) {
   return queryWords.slice(part.length).every((word) => object.variableWords.some((candidate) => candidate.startsWith(word)));
 }
 
-function progressiveVariableFragments(text, cursor) {
+/** Name fragments ending at the cursor, longest first. None starts at or before
+ * `after`, the end of a value already accepted ("100 mm" is not "mm"). */
+function progressiveVariableFragments(text, cursor, after = -1) {
   const source = String(text ?? '');
   if (cursor !== source.length) return [];
   const context = writingSourceContext(source, cursor);
@@ -192,7 +194,7 @@ function progressiveVariableFragments(text, cursor) {
     const trailing = raw.match(/\s*$/)?.[0].length ?? 0;
     const fragment = raw.slice(leading, raw.length - trailing);
     const firstWord = fragment.match(/^[A-Za-z]+/)?.[0].toLowerCase();
-    if (normalizedVariable(fragment).length >= 2 && !FRAGMENT_FUNCTION_WORDS.has(firstWord)) {
+    if (start + leading > after && normalizedVariable(fragment).length >= 2 && !FRAGMENT_FUNCTION_WORDS.has(firstWord)) {
       output.push({ text: fragment, start: start + leading, end: cursor - trailing });
     }
   }
@@ -737,6 +739,17 @@ function contextualStoredValue(object, tail) {
   // Units qualify amounts. A word such as a classification ("Income") takes none.
   const units = numeric ? String(object.metadata.units ?? '').trim() : '';
   return `${raw}${units && !raw.toLowerCase().endsWith(units.toLowerCase()) ? ` ${units}` : ''}`;
+}
+
+/** Whether a source was accepted as its own value ("100 mm", "485000 CAD",
+ * "Income") rather than by a name that leads on to values. */
+function acceptedAsValue(dependency, text) {
+  const { source, anchor } = dependency;
+  if (['PAPER', 'REFERENCE'].includes(source.objectType)) return false;
+  const accepted = normalizedVariable(String(text ?? '').slice(anchor.start, anchor.end));
+  if (!accepted) return false;
+  return [source.valueText, contextualStoredValue(source, String(text ?? '').slice(0, anchor.start))]
+    .some((value) => value && normalizedVariable(value) === accepted);
 }
 
 const comparableNumber = (value) => String(value ?? '').replace(/[\s,]/g, '').replace(/^[^\d.]+/, '');
@@ -2364,11 +2377,12 @@ export class PredictiveProvenanceService {
     return output;
   }
 
-  progressiveStudyVariable(projectId, input, cursor) {
+  /** Words after `settledAt`, a value already accepted, are the only ones read. */
+  progressiveStudyVariable(projectId, input, cursor, settledAt = -1) {
     if (cursor !== String(input.text ?? '').length) return null;
     const context = writingSourceContext(input.text, cursor, input.section);
     if (context.literatureIntent) return null;
-    for (const fragment of progressiveVariableFragments(input.text, cursor)) {
+    for (const fragment of progressiveVariableFragments(input.text, cursor, settledAt)) {
       const candidates = this.candidatesForStudyVariable(projectId, fragment, {
         documentPath: input.documentPath,
         relatedPaths: this.relatedSourcePaths(projectId, input),
@@ -2381,8 +2395,8 @@ export class PredictiveProvenanceService {
 
   /** A whole file (drawing, dataset or worksheet, document, PDF) the words at
    * the cursor name. Its label is the text Tab inserts in place of them. */
-  fileReference(projectId, input, cursor) {
-    const fragments = progressiveVariableFragments(input.text, cursor);
+  fileReference(projectId, input, cursor, settledAt = -1) {
+    const fragments = progressiveVariableFragments(input.text, cursor, settledAt);
     if (!fragments.length) return null;
     const permitted = this.autocompleteFilter(projectId);
     const files = this.objectsAt(projectId, null, ['DRAWING', 'DATASET', 'DOCUMENT', 'PAPER'])
@@ -2748,6 +2762,20 @@ export class PredictiveProvenanceService {
       written.get(id).add(text.slice(start, end).trim().toLowerCase());
     }
     return written;
+  }
+
+  /**
+   * Where the newest accepted source was settled by its own value, or -1. A
+   * value is as deep as a source goes: every directory answers the words
+   * after it, and nothing is offered again for the text it fills.
+   */
+  settledValueEnd(input, dependency) {
+    if (Number.isInteger(input.settledValueEnd)) return input.settledValueEnd;
+    // An explicit comma continues a table column's value list. Ordinary words
+    // after a completed value still return to every directory.
+    const tail = dependency && String(input.text ?? '').slice(dependency.anchor.end, input.cursor);
+    if (dependency?.source.anchor?.kind === 'table-cell' && /^\s*,\s*$/.test(tail)) return -1;
+    return dependency && acceptedAsValue(dependency, input.text) ? dependency.anchor.end : -1;
   }
 
   /**
@@ -3117,8 +3145,8 @@ export class PredictiveProvenanceService {
 
   /** The whole file the words at the cursor name, once other readings of the
    * same words have had their say. */
-  namedFile(projectId, input, cursor, text) {
-    const named = this.fileReference(projectId, input, cursor);
+  namedFile(projectId, input, cursor, text, settledAt = -1) {
+    const named = this.fileReference(projectId, input, cursor, settledAt);
     if (!named) return null;
     // A citation being written ("from the document placental trans") is the
     // literature path's: it matches documents and papers by title and inserts
@@ -3130,7 +3158,7 @@ export class PredictiveProvenanceService {
     // Plain words may be a variable's name ("systolic blood pressure"); one
     // matched on as many words wins over any file but a drawing.
     if (!named.asWritten && candidates.some((candidate) => candidate.objectType !== 'DRAWING')) {
-      const variable = this.progressiveStudyVariable(projectId, input, cursor);
+      const variable = this.progressiveStudyVariable(projectId, input, cursor, settledAt);
       if (variable?.fragment && variable.candidates.length
         && variable.fragment.end - variable.fragment.start >= named.end - named.start) {
         candidates = candidates.filter((candidate) => candidate.objectType === 'DRAWING');
@@ -3146,8 +3174,10 @@ export class PredictiveProvenanceService {
     // source was linked. It must not depend on scientific-writing intent.
     // The name just accepted ("The Bracket ") is not a new reference to it,
     // nor is the name of the file a focus chosen with fn+Right sits in.
-    const linkedDependency = this.linkedDependencyContext(projectId, input, cursor);
-    const file = this.namedFile(projectId, input, cursor, text);
+    const newestDependency = this.linkedDependencyContext(projectId, input, cursor);
+    const settledAt = this.settledValueEnd(input, newestDependency);
+    const linkedDependency = newestDependency?.anchor.end > settledAt ? newestDependency : null;
+    const file = this.namedFile(projectId, input, cursor, text, settledAt);
     if (file && !(linkedDependency && file.end <= linkedDependency.anchor.end)
       && !namesFocusedFile(file, linkedDependency)) return {
       claims: [file], completion: null, sourceCompletions: [], workspaceCompletions: [],
@@ -3185,7 +3215,8 @@ export class PredictiveProvenanceService {
         deterministic: true, generatedText: false,
       };
     }
-    const detected = detectClaimSpans(text);
+    // A value just accepted already fills its claim ("The Bracket is 100 mm").
+    const detected = detectClaimSpans(text).filter((claim) => claim.end > settledAt);
     // An amount or citation in an earlier sentence or clause says nothing about
     // the words being typed now ("Revenue was 485000. Gross pr", "... and gross pr").
     const clauseStart = currentClauseStart(text, cursor);
@@ -3194,7 +3225,7 @@ export class PredictiveProvenanceService {
     const hasReferenceIntent = current.some((claim) => ['LITERATURE', 'TABLE_REFERENCE', 'FIGURE', 'METHOD', 'DATASET_REFERENCE']
       .includes(claim.type));
     const studyPrediction = hasStudyValue || hasReferenceIntent
-      ? null : this.progressiveStudyVariable(projectId, input, cursor);
+      ? null : this.progressiveStudyVariable(projectId, input, cursor, settledAt);
     if (studyPrediction) {
       const { fragment, candidates } = studyPrediction;
       const hasVariableChoices = Boolean(fragment && candidates.length);

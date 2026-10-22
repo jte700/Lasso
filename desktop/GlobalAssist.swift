@@ -2020,6 +2020,7 @@ final class GlobalAssistant {
                 self.adoptHost(host, caret: current.caret)
                 self.view.sourceScoped = sourceScoped
                 self.focusedSource = focus
+                if let focus { self.linkedSources.noteFocus(focus) }
                 self.view.returnFocusName = focus == nil && self.linkedSources.canMoveIn(focusedOn: nil, selected: nil)
                     ? self.linkedSources.recent?.text : nil
                 self.view.title = heading ?? "dependency"
