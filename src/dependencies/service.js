@@ -32,10 +32,8 @@ const OBJECT_TYPES = new Set([
 ]);
 const SELECTION_METHODS = new Set(['AUTOCOMPLETE', 'PREDICTED_ACCEPTED', 'MANUAL', 'SYSTEM_LINKED', 'IMPORTED']);
 const STATUS_TYPES = new Set(['PREDICTED', 'LINKED', 'NEEDS_REVIEW', 'STALE', 'BROKEN']);
-const MAX_SNAPSHOT_OBJECTS = 10_000;
-// The most objects one snapshot's object list returns.
-const MAX_RESOLVED_OBJECTS = 30_000;
-// Up to this many new objects are looked up one by one; more read the folder's objects at once.
+// Up to this many new objects are looked up one by one; larger batches look
+// up only the keys being indexed, not every historical object in the folder.
 const INDIVIDUAL_OBJECT_LOOKUPS = 200;
 const INDEX_VERSION = 4;
 const STEP_FILE = /\.(?:step|stp)$/i;
@@ -49,7 +47,9 @@ const STEP_FILE = /\.(?:step|stp)$/i;
 //    own row.
 // 4: worksheet cells are anchored at their sheet row, and statements with
 //    year columns read their indented labels as rows.
-const EXTRACTOR_VERSION = 4;
+// 5: all eligible files remain indexed in large folders, and ordinary STEP
+//    feature groups are no longer discarded by small per-kind limits.
+const EXTRACTOR_VERSION = 5;
 const MAX_TABLE_CELLS = 1_500;
 const MAX_INDEXED_TABLE_ROWS = 1_000;
 const EDITABLE_DOCUMENT_TYPES = new Set(['markdown', 'text', 'document', 'pdf']);
@@ -1888,6 +1888,8 @@ export class PredictiveProvenanceService {
       // project stops being offered a re-read it does not need.
       this.db.prepare('UPDATE snapshot_object_indexes SET extractor_version = ? WHERE snapshot_id = ? AND extractor_version < ?')
         .run(EXTRACTOR_VERSION, previous.id, EXTRACTOR_VERSION);
+      this.indexedHere.set(previous.id, index.summary);
+      this.onIndexProblems?.(projectId, index.problems);
       return {
         changed: false, reason: 'IDENTICAL_READING', projectId, snapshot: previous, event: null,
         objects: { before: recorded.size, after: recorded.size }, dependenciesNeedingReview: 0,
@@ -1988,38 +1990,19 @@ export class PredictiveProvenanceService {
     const descriptors = [];
     const problems = [];
     const counts = new Map();
-    let truncated = false;
     for (const file of files) {
-      const available = MAX_SNAPSHOT_OBJECTS - descriptors.length;
-      if (available <= 0) {
-        truncated = true;
-        problems.push({ path: file.path, code: 'NOT_INDEXED_LIMIT',
-          reason: `Not indexed: this folder reached Lasso's limit of ${MAX_SNAPSHOT_OBJECTS.toLocaleString('en-US')} indexed items. Split it into smaller work directories to include this file.` });
-        continue;
-      }
       const extracted = this.extractedObjects(file);
       counts.set(file.path, extracted.objects.length);
       if (extracted.problem) problems.push({ path: file.path, ...extracted.problem });
-      else if (extracted.objects.length > available) {
-        problems.push({ path: file.path, code: 'PARTIALLY_INDEXED',
-          reason: `Only ${available.toLocaleString('en-US')} of ${extracted.objects.length.toLocaleString('en-US')} items were indexed: this folder reached Lasso's limit of ${MAX_SNAPSHOT_OBJECTS.toLocaleString('en-US')} indexed items.` });
+      // Readers bound each file's bytes, rows and geometry. A folder-wide
+      // budget must not silently exclude every file after an arbitrary cutoff.
+      for (const descriptor of extracted.objects) {
+        descriptors.push({ ...descriptor, metadata: { ...descriptor.metadata } });
       }
-      const included = extracted.objects.slice(0, available).map((descriptor) => ({
-        ...descriptor, metadata: { ...descriptor.metadata },
-      }));
-      if (extracted.objects.length > available) {
-        truncated = true;
-        for (const descriptor of included) {
-          if (descriptor.type !== 'DRAWING') continue;
-          descriptor.metadata.extractionStatus = 'partial';
-          descriptor.metadata.warnings = [...(descriptor.metadata.warnings ?? []), 'The workspace object limit was reached; some measurements were not indexed.'];
-        }
-      }
-      descriptors.push(...included);
     }
     const definitions = descriptors.filter(isDictionaryVariable);
     applyVariableDefinitions(descriptors, definitions);
-    return { descriptors, problems, summary: indexSummary(counts, problems, definitions, truncated) };
+    return { descriptors, problems, summary: indexSummary(counts, problems, definitions, false) };
   }
 
   /**
@@ -2040,16 +2023,8 @@ export class PredictiveProvenanceService {
     };
     const carriedPaths = new Set(files.filter(unchanged).map((file) => file.path));
     if ([...known.dictionaryPaths].some((filePath) => !carriedPaths.has(filePath))) return null;
-    let total = 0;
     for (const file of files) {
-      if (carriedPaths.has(file.path)) {
-        total += known.counts.get(file.path);
-      } else {
-        const { objects } = this.extractedObjects(file);
-        if (objects.some(isDictionaryVariable)) return null;
-        total += objects.length;
-      }
-      if (total > MAX_SNAPSHOT_OBJECTS) return null;
+      if (!carriedPaths.has(file.path) && this.extractedObjects(file).objects.some(isDictionaryVariable)) return null;
     }
     return { base, known, carriedPaths };
   }
@@ -2082,11 +2057,16 @@ export class PredictiveProvenanceService {
       INSERT INTO scientific_objects(id, project_id, object_key, object_type, created_at)
       VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, object_key) DO NOTHING
     `);
-    // A full index reads the folder's objects at once instead of one by one.
-    const objects = descriptors.length > INDIVIDUAL_OBJECT_LOOKUPS
-      ? new Map(this.db.prepare('SELECT rowid, id, object_key, object_type FROM scientific_objects WHERE project_id = ?')
-        .all(projectId).map((row) => [row.object_key, row]))
-      : new Map();
+    const objects = new Map();
+    if (descriptors.length > INDIVIDUAL_OBJECT_LOOKUPS) {
+      const keys = [...new Set(descriptors.map(descriptor => descriptor.key))];
+      for (let offset = 0; offset < keys.length; offset += 128) {
+        const batch = keys.slice(offset, offset + 128);
+        const rows = this.db.prepare(`SELECT rowid, id, object_key, object_type FROM scientific_objects
+          WHERE project_id = ? AND object_key IN (${batch.map(() => '?').join(',')})`).all(projectId, ...batch);
+        for (const row of rows) objects.set(row.object_key, row);
+      }
+    }
     const entries = [];
     const seen = new Set();
     for (const descriptor of descriptors) {
@@ -2108,10 +2088,12 @@ export class PredictiveProvenanceService {
     const project = this.timeline.getProject(projectId);
     const target = snapshotId ?? project.currentSnapshotId;
     this.ensureIndex(projectId, target);
+    const types = new Set([...(objectTypes ?? [])].filter((type) => OBJECT_TYPES.has(type)));
     let objects = this.objectCache.get(target);
     if (!objects) {
       const resolved = this.timeline.objectVersions.resolved(target);
-      objects = resolved.rows.filter((row) => row.project_id === projectId).slice(0, MAX_RESOLVED_OBJECTS).map((row) => {
+      objects = resolved.rows.filter((row) => row.project_id === projectId
+        && (!types.size || types.has(row.object_type))).map((row) => {
         const object = mapObjectRow(row, resolved);
         // Search existing PDF versions through their preserved bytes as well as
         // the short metadata excerpt. Derived search text stays in memory so
@@ -2128,9 +2110,10 @@ export class PredictiveProvenanceService {
         // Workbook objects from before worksheet coordinates were superseded
         // by xlsx-v2 keys; they stay resolvable for links but are not offered.
         .filter((object) => !/\.xlsx?$/i.test(object.path) || object.metadata.binary || object.metadata.spreadsheetExtractionVersion === 2);
-      this.objectCache.set(target, objects);
+      // A typed request (such as directory drawing warnings) maps only its
+      // own types and must not replace the complete snapshot cache.
+      if (!types.size) this.objectCache.set(target, objects);
     }
-    const types = new Set([...(objectTypes ?? [])].filter((type) => OBJECT_TYPES.has(type)));
     // Each consumer gets its own array. Indexed object values are immutable.
     return types.size ? objects.filter((object) => types.has(object.objectType)) : [...objects];
   }

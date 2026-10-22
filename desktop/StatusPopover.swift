@@ -553,10 +553,21 @@ final class StatusPopoverController {
             if let disclosure = row.view as? NativeMenuDisclosureRow {
                 return (disclosure.actionItem, disclosure)
             }
+            if let progress = row.view as? NativeMenuProgressRow {
+                return (progress.actionItem, progress)
+            }
             return nil
         }
         for (item, view) in customItems { item.view = view }
         update(menu: menu)
+    }
+
+    /// A repair's hover card goes away before the request begins. Keep its
+    /// replacement feedback visible, even after scrolling through a long menu.
+    func revealProgress() {
+        guard rows.contains(where: { $0.view is NativeMenuProgressRow }) else { return }
+        scroll.contentView.scroll(to: .zero)
+        scroll.reflectScrolledClipView(scroll.contentView)
     }
 
     private func layoutRows() {

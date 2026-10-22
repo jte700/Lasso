@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { extractStepDocument } from '../src/dependencies/step-extraction.js';
-import { parseStepRecord, readStepModel } from '../src/dependencies/step-model.js';
+import { parseStepRecord, readStepModel, stepFeatures } from '../src/dependencies/step-model.js';
 import { extractDesignDocument, drawingDescriptors } from '../src/dependencies/drawing-objects.js';
 import { detectFileType } from '../src/history/file-types.js';
 import { BRACKET, bracketPart, filletedPart, fixtureAssembly, pinPart } from './fixtures/step-models.js';
@@ -205,4 +206,30 @@ test('malformed, non-CAD and unsupported STEP input is reported without measurem
   assert.equal(unitless.status, 'partial');
   assert.deepEqual(unitless.pages[0].annotations, [], 'geometry without a declared unit is not measured');
   assert.match(unitless.warnings.join(' '), /no supported length unit/);
+});
+
+
+test('ordinary STEP details are indexed beyond the former per-kind caps', () => {
+  const bytes = fs.readFileSync(new URL('./fixtures/drawings/nist_ctc_05_asme1_rd.stp', import.meta.url));
+  const drawing = extractStepDocument(bytes);
+  const annotations = drawing.pages.flatMap(page => page.annotations);
+  assert.equal(drawing.status, 'ready', drawing.warnings.join('; '));
+  assert.equal(annotations.filter(value => value.kind === 'radius').length, 25,
+    'all 25 distinct circular-arc sizes in the NIST model are searchable');
+  assert.equal(annotations.filter(value => value.kind === 'arc_length').length, 25);
+  assert.equal(annotations.filter(value => value.kind === 'edge_length').length, 42,
+    'all 42 distinct straight-edge sizes are searchable');
+  assert.equal(annotations.length, 109);
+  assert.ok(annotations.every(value => value.confidence === 1 && value.rawText.includes('#')));
+  assert.equal(new Set(annotations.map(value => value.id)).size, annotations.length);
+});
+
+test('large STEP parts keep a bounded feature budget and report omissions', () => {
+  const part = { featureTolerance: 1e-9, extents: [], cylinders: [], arcs: [],
+    lines: Array.from({ length: 5_000 }, (_, index) => ({ length: index + 1, edge: { id: index + 1, key: `edge:${index}` } })) };
+  const result = stepFeatures(part, 'mm');
+  assert.equal(result.features.length, 4_000);
+  assert.deepEqual(result.omitted, { edge: 1_000 });
+  assert.equal(result.features[0].length, 5_000);
+  assert.equal(result.features.at(-1).length, 1_001);
 });

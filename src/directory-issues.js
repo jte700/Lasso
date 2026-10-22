@@ -26,16 +26,41 @@ const sentence = (text) => {
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 };
 
+const PARTIAL_CODES = new Set(['PARTIALLY_INDEXED', 'DRAWING_PARTIAL']);
+const NOT_INDEXED_CODES = new Set(['NOT_INDEXED_LIMIT', 'UNSUPPORTED_FORMAT', 'DRAWING_UNSUPPORTED', 'DRAWING_OCR_REQUIRED']);
+const failureCategory = ({ code }) => PARTIAL_CODES.has(code) ? 'partial'
+  : NOT_INDEXED_CODES.has(code) ? 'notIndexed' : 'unreadable';
+
 function filesIssue(failures) {
-  // A failure Lasso can fix is the one shown, so its button explains itself.
-  const shown = failures.find((failure) => LASSO_FAILURES.has(failure.code)) ?? failures[0];
+  // Prioritize a fixable failure, then unreadable files over partial results.
+  const shown = failures.find((failure) => LASSO_FAILURES.has(failure.code))
+    ?? failures.find((failure) => failureCategory(failure) === 'unreadable')
+    ?? failures.find((failure) => failureCategory(failure) === 'notIndexed') ?? failures[0];
   const reason = SCAN_REASONS[shown.code] ?? shown.reason;
   const name = fileName(shown.path);
-  // An indexing reason names the file itself ("This workbook could not be read. ...").
+  const category = failureCategory(shown);
+  const paths = new Map();
+  for (const failure of failures) {
+    const kind = failureCategory(failure);
+    const previous = paths.get(failure.path);
+    if (!previous || kind === 'unreadable' || kind === 'notIndexed' && previous === 'partial') paths.set(failure.path, kind);
+  }
+  const counts = { unreadable: 0, notIndexed: 0, partial: 0 };
+  for (const kind of paths.values()) counts[kind]++;
   const own = /^This \w+ could not be (?:read|opened|parsed)\.\s*/i;
-  const message = failures.length === 1
-    ? own.test(reason) ? sentence(`${name} could not be read. ${reason.replace(own, '')}`) : sentence(`${name}: ${reason}`)
-    : `${failures.length} files could not be read. ${sentence(`${name}: ${reason}`)}`;
+  let message;
+  if (paths.size === 1) {
+    message = category === 'partial' ? sentence(`${name} was only partially indexed. ${reason}`)
+      : category === 'notIndexed' ? sentence(`${name} was not indexed. ${reason}`)
+      : own.test(reason) ? sentence(`${name} could not be read. ${reason.replace(own, '')}`) : sentence(`${name}: ${reason}`);
+  } else {
+    const summary = [
+      counts.unreadable && `${counts.unreadable} file${counts.unreadable === 1 ? '' : 's'} could not be read`,
+      counts.notIndexed && `${counts.notIndexed} file${counts.notIndexed === 1 ? ' was' : 's were'} not indexed`,
+      counts.partial && `${counts.partial} file${counts.partial === 1 ? ' was' : 's were'} only partially indexed`,
+    ].filter(Boolean).join('; ');
+    message = `${summary}. ${sentence(`${name}: ${reason}`)}`;
+  }
   return { kind: 'FILES', message: message.replace(/\s+\.$/, '.'),
     fix: failures.some((failure) => LASSO_FAILURES.has(failure.code)) ? TRY_AGAIN : null };
 }

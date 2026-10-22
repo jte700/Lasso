@@ -219,6 +219,48 @@ final class DirectorySelectionMark: NSButton {
     @objc private func toggle() { onToggle?() }
 }
 
+/// Visible feedback while a directory request reads or re-indexes files. The
+/// server replies when it finishes, so the native bar stays indeterminate.
+final class NativeMenuProgressRow: NSView {
+    let actionItem: NSMenuItem
+    private let titleLabel: NSTextField
+    private let progress = NSProgressIndicator()
+
+    override var isFlipped: Bool { true }
+
+    init(item: NSMenuItem) {
+        actionItem = item
+        titleLabel = NSTextField(labelWithString: item.title)
+        super.init(frame: NSRect(x: 0, y: 0, width: 280, height: 48))
+        autoresizingMask = [.width]
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.textColor = .labelColor
+        titleLabel.lineBreakMode = .byTruncatingMiddle
+        titleLabel.frame = NSRect(x: 14, y: 1, width: 252, height: 20)
+        titleLabel.autoresizingMask = [.width]
+        titleLabel.toolTip = item.title
+        addSubview(titleLabel)
+        progress.style = .bar
+        progress.controlSize = .small
+        progress.isIndeterminate = true
+        progress.usesThreadedAnimation = true
+        progress.isDisplayedWhenStopped = true
+        progress.frame = NSRect(x: 14, y: 29, width: 252, height: 6)
+        progress.autoresizingMask = [.width]
+        progress.setAccessibilityLabel(item.title)
+        progress.setAccessibilityHelp("Lasso is updating your work directories. This indicator stays active until the operation finishes.")
+        addSubview(progress)
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { progress.stopAnimation(nil) } else { progress.startAnimation(nil) }
+    }
+}
+
 private func dispatchMenuAction(_ item: NSMenuItem) {
     guard item.isEnabled, let action = item.action else { return }
     NSApp.sendAction(action, to: item.target, from: item)

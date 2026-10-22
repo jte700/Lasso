@@ -124,3 +124,33 @@ test('Fix starts a folder again after Lasso failed to start it', async t => {
   assert.equal(directory.active, true);
   assert.equal(directory.issue, null);
 });
+
+
+test('partial geometry and unsupported formats are not reported as unreadable files', () => {
+  const partials = Array.from({ length: 6 }, (_, index) => ({ path: `part${index}.stp`, code: 'DRAWING_PARTIAL',
+    reason: 'Some curved-face extents cannot be bounded exactly. The other measurements are indexed.' }));
+  const partial = directoryIssue({ ...healthy, failures: partials });
+  assert.match(partial.message, /^6 files were only partially indexed\./);
+  assert.doesNotMatch(partial.message, /could not be read/);
+  assert.match(directoryIssue({ ...healthy, failures: partials.slice(0, 1) }).message,
+    /^part0\.stp was only partially indexed\./);
+  const mixed = directoryIssue({ ...healthy, failures: [partials[0],
+    { path: 'bad.xlsx', code: 'UNREADABLE_CONTENT', reason: 'This workbook could not be read. It may be damaged.' },
+    { path: 'native.dwg', code: 'DRAWING_UNSUPPORTED', reason: 'Export a DXF drawing to index this file.' },
+  ] });
+  assert.equal(mixed.message, '1 file could not be read; 1 file was not indexed; 1 file was only partially indexed. bad.xlsx: This workbook could not be read. It may be damaged.');
+  assert.match(directoryIssue({ ...healthy, failures: [{ path: 'native.dwg', code: 'DRAWING_UNSUPPORTED',
+    reason: 'Export a DXF drawing to index this file.' }] }).message,
+  /^native\.dwg was not indexed\. Export a DXF drawing/);
+});
+
+test('index limits report missing indexing rather than failed file reads', () => {
+  const issue = directoryIssue({ ...healthy, failures: [
+    { path: 'a.csv', code: 'PARTIALLY_INDEXED', reason: 'Only some items were indexed because the folder limit was reached.' },
+    { path: 'b.csv', code: 'NOT_INDEXED_LIMIT', reason: 'The folder limit was reached.' },
+    { path: 'b.csv', code: 'NOT_INDEXED_LIMIT', reason: 'The folder limit was reached.' },
+  ] });
+  assert.match(issue.message, /^1 file was not indexed; 1 file was only partially indexed\./);
+  assert.match(issue.message, /b\.csv: The folder limit was reached/);
+  assert.doesNotMatch(issue.message, /could not be read/);
+});

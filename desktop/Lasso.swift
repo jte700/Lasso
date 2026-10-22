@@ -533,7 +533,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func rebuildMenu() {
         statusMenu.removeAllItems()
         let activeCount = directories.filter { $0.active && $0.available && ($0.error ?? "").isEmpty }.count
-        statusMenu.addItem(label(busyMessage ?? statusTitle(activeCount: activeCount)))
+        let status = label(busyMessage ?? statusTitle(activeCount: activeCount))
+        if busyMessage != nil { status.view = NativeMenuProgressRow(item: status) }
+        statusMenu.addItem(status)
         statusMenu.addItem(.separator())
         statusMenu.addItem(command("Add Work Directories…", action: #selector(addDirectories),
                                    enabled: isServerReady && busyMessage == nil))
@@ -852,6 +854,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // In-flight predictions cannot outlive a directory selection change.
         GlobalAssistant.shared.suspendWorkspace()
         rebuildMenu()
+        // The issue card closes when its button is pressed. Bring the progress
+        // header into view even when that folder was below the menu's fold.
+        statusPopover.revealProgress()
         var request = URLRequest(url: base.appendingPathComponent(path))
         request.httpMethod = method
         request.timeoutInterval = method == "DELETE" ? 120 : Self.indexingRequestTimeout
@@ -912,8 +917,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func fixDirectory(_ id: String) {
         guard let directory = directories.first(where: { $0.id == id }),
               let fix = directory.issue?.fixLabel else { return }
+        let action = fix == "Re-read Files" ? "Re-reading" : "Retrying"
         mutateWorkspace(path: WorkspaceAPI.fixDirectoryPath(id), body: WorkspaceAPI.fixDirectoryBody(),
-                        message: "\(fix): \(directory.name)…")
+                        message: "\(action) \(directory.name)…")
     }
 
     /// Takes a folder out of Lasso. Nothing on disk changes, and its history

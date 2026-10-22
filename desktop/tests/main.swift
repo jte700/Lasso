@@ -1491,6 +1491,54 @@ do {
           "a healthy folder shows no badge")
 }
 
+print("directory operations keep their loading bar visible until the response arrives")
+do {
+    _ = NSApplication.shared
+    func descendants(_ view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap(descendants)
+    }
+    let controller = StatusPopoverController()
+    let pending = NSMenu()
+    let status = NSMenuItem(title: "Re-read Files: CAD models…", action: nil, keyEquivalent: "")
+    let progressRow = NativeMenuProgressRow(item: status)
+    status.view = progressRow
+    pending.addItem(status)
+    let settings = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
+    settings.submenu = NSMenu()
+    settings.submenu?.addItem(NSMenuItem(title: "Appearance", action: nil, keyEquivalent: ""))
+    pending.addItem(settings)
+    for index in 1...32 { pending.addItem(NSMenuItem(title: "Directory status \(index)", action: nil, keyEquivalent: "")) }
+    controller.update(menu: pending)
+    let root = controller.popover.contentViewController!.view
+    let progress = descendants(root).compactMap { $0 as? NSProgressIndicator }.first
+    check(progress != nil && progress?.isIndeterminate == true && progress?.style == .bar,
+          "a pending directory operation displays an honest indeterminate loading bar")
+    check(progress?.accessibilityLabel() == status.title,
+          "the loading bar names the directory operation to VoiceOver")
+    check(progress != nil && progress!.frame.width > 200 && progressRow.bounds.contains(progress!.frame),
+          "the bar has visible width and remains inside its row after menu layout")
+    let scroll = root.subviews.compactMap { $0 as? NSScrollView }.first!
+    scroll.contentView.scroll(to: NSPoint(x: 0, y: 160))
+    check(scroll.contentView.bounds.origin.y > 0, "the operation can start below a long menu's fold")
+    controller.revealProgress()
+    check(scroll.contentView.bounds.origin.y == 0,
+          "starting repair brings progress into view after the issue card closes")
+    let settingsButton = descendants(root).compactMap { $0 as? NSButton }.first { $0.title == "Settings" }
+    settingsButton?.performClick(nil)
+    check(settingsButton != nil && descendants(root).contains { $0 === progressRow },
+          "expanding settings during a request preserves the loading bar")
+    let complete = NSMenu()
+    complete.addItem(NSMenuItem(title: "Lasso · 3 active directories", action: nil, keyEquivalent: ""))
+    controller.update(menu: complete)
+    check(!descendants(root).contains { $0 is NSProgressIndicator } && progressRow.superview == nil,
+          "completion removes the loading bar instead of leaving a stuck operation")
+    let failure = NSMenu()
+    failure.addItem(NSMenuItem(title: "The directory could not be read.", action: nil, keyEquivalent: ""))
+    controller.update(menu: failure)
+    check(!descendants(root).contains { $0 is NSProgressIndicator },
+          "the error state shows its message without retaining progress")
+}
+
 print("spreadsheet previews in the suggestion card read like the sheet")
 do {
     func row(_ number: Int, _ values: [String], cited: Int? = nil) -> AssistPreviewRow {
