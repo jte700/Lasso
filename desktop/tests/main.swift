@@ -2099,6 +2099,25 @@ check(bundledRuntime.summary == "Node.js v24.13.0, bundled with Lasso"
 check(nodeMajorVersion("v24.13.0") == 24 && nodeMajorVersion("v9.11.2\n") == 9 && nodeMajorVersion("") == 0,
       "Node versions compare by major number")
 
+print("pinches over the source inspector reach its drawing")
+do {
+    let frame = NSRect(x: 100, y: 200, width: 560, height: 540)
+    check(PinchRouting.quartzRect(for: frame, primaryScreenHeight: 1000)
+          == CGRect(x: 100, y: 260, width: 560, height: 540),
+          "the inspector's region is measured from the primary display's top, as the tap's locations are")
+    check(PinchRouting.quartzRect(for: NSRect(x: -800, y: 1100, width: 560, height: 540), primaryScreenHeight: 1000)
+          == CGRect(x: -800, y: -640, width: 560, height: 540),
+          "an inspector on a display left of and above the primary one keeps negative Quartz coordinates")
+    check(PinchRouting.wheelDelta(forMagnification: 0) == nil && PinchRouting.wheelDelta(forMagnification: -1) == nil
+          && PinchRouting.wheelDelta(forMagnification: -1.5) == nil,
+          "a pinch that has not moved, or an impossible scale, sends no wheel event")
+    let spread = PinchRouting.wheelDelta(forMagnification: 0.1) ?? 0
+    let squeeze = PinchRouting.wheelDelta(forMagnification: -0.1) ?? 0
+    check(spread < 0 && squeeze > 0, "spreading fingers zooms in like a browser's Control + wheel up")
+    check(abs(exp(spread * 0.01) * 1.1 - 1) < 1e-9,
+          "the page's pinch speed turns a forwarded spread back into exactly the pinch's scale")
+}
+
 print("keystrokes are routed from a published snapshot")
 do {
     func route(_ keyCode: Int64, _ state: KeyRoutingState) -> KeyDecision {

@@ -44,6 +44,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
     private var serverURL: URL?
     private var pendingNavigation: WKNavigation?
     private var resolvedSuccessfully = false
+    private var pinchTap: PinchEventTap?
     #if BROWSER_GEOMETRY_TEST
     private var regressionActions: [String] = []
     #endif
@@ -111,6 +112,13 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         panel.setFrame(NSRect(origin: placement(for: rect), size: size), display: true)
         panel.invalidateShadow()
         panel.orderFrontRegardless()
+        // macOS gives pinches to the active app, which the inspector never
+        // makes Lasso, so a tap takes the ones made over the panel.
+        if pinchTap == nil {
+            let tap = PinchEventTap { [weak self] magnification, location in self?.pinch(magnification, at: location) }
+            if tap.start() { pinchTap = tap }
+        }
+        claimPinches()
     }
 
     func hide() {
@@ -125,9 +133,39 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         serverURL = nil
         webView?.stopLoading()
         panel?.orderOut(nil)
+        pinchTap?.stop()
+        pinchTap = nil
     }
 
     @objc private func closeInspector(_ sender: Any?) { hide() }
+
+    /// Keeps the tap's region on the panel as it moves, resizes, or the
+    /// primary display it is measured from changes.
+    @objc private func claimPinches() {
+        guard let panel, panel.isVisible, let pinchTap else { return }
+        pinchTap.region = PinchRouting.quartzRect(
+            for: panel.frame, primaryScreenHeight: NSScreen.screens.first?.frame.height ?? 0)
+    }
+
+    /// Hands a pinch to the page as browsers do, as Control + wheel at the
+    /// pointer, which the drawing zooms on. Share options covering the page
+    /// take no pinch, and neither does the app behind.
+    private func pinch(_ magnification: CGFloat, at location: CGPoint) {
+        guard let panel, panel.isVisible, let webView, !ShareComposerController.shared.isPresented(in: panel),
+              let deltaY = PinchRouting.wheelDelta(forMagnification: magnification) else { return }
+        let screenHeight = NSScreen.screens.first?.frame.height ?? 0
+        let point = webView.convert(panel.convertPoint(fromScreen: NSPoint(x: location.x, y: screenHeight - location.y)),
+                                    from: nil)
+        guard webView.bounds.contains(point) else { return }
+        let y = webView.isFlipped ? point.y : webView.bounds.height - point.y
+        webView.evaluateJavaScript("""
+            (() => {
+              const x = \(point.x), y = \(y);
+              document.elementFromPoint(x, y)?.dispatchEvent(new WheelEvent('wheel', {
+                bubbles: true, cancelable: true, ctrlKey: true, clientX: x, clientY: y, deltaY: \(deltaY) }));
+            })()
+            """)
+    }
 
     var isVisible: Bool { panel?.isVisible == true }
 
@@ -307,6 +345,11 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         created.backgroundColor = .clear
         created.isOpaque = false
         created.hasShadow = true
+        for moved in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(claimPinches), name: moved, object: created)
+        }
+        NotificationCenter.default.addObserver(self, selector: #selector(claimPinches),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil)
         created.contentView = NativeMaterial.glassContainer(
             content: content, cornerRadius: InspectorWindow.cornerRadius,
             tint: NSColor.windowBackgroundColor.withAlphaComponent(0.10))
