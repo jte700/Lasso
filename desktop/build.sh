@@ -184,6 +184,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/NotchPanel.swift" \
   "$ROOT/desktop/SyntheticKeyboard.swift" \
   "$ROOT/desktop/KeyRouting.swift" \
+  "$ROOT/desktop/PinchRouting.swift" \
   "$ROOT/desktop/CompletionTransaction.swift" \
   "$ROOT/desktop/InsertionUndo.swift" \
   "$ROOT/desktop/HostSelection.swift" \
