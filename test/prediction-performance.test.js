@@ -112,3 +112,40 @@ test('warm prediction features retain identical results after cache eviction', (
   all.length = 0;
   assert.ok(app.dependencies.objectsAt(project.id).length, 'consumer array edits do not damage cached retrieval');
 });
+
+test('a typed name is matched against each variable name once and finds what matching every object finds', (t) => {
+  const { app } = fixture(t);
+  const words = (value) => String(value).replace(/[_./-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')
+    .toLowerCase().match(/[a-z][a-z0-9]*/g) ?? [];
+  const variable = (name, metadata = {}) => ({ variable: name, normalizedVariable: name.toLowerCase().replace(/[^a-z0-9]+/g, ''),
+    variableWords: words(name), metadata });
+  // Every cell of a column shares its name; a drawing's measurements carry their part's name.
+  const objects = [
+    ...Array.from({ length: 50 }, () => variable('Systolic blood pressure')),
+    variable('Blood pressure'), variable('Revision'), variable('Office supplies'), variable('2019 revenue'),
+    variable('overall_length', { entityName: 'Bracket' }), variable('Overall X extent', { entityName: 'Bracket Plate' }),
+    variable('overall_length', { entityName: 'Hinge' }),
+  ];
+  const everyObject = (normalizedQuery, queryWords) => objects.flatMap((object, position) => {
+    const exact = object.normalizedVariable === normalizedQuery;
+    const prefix = !exact && object.normalizedVariable.startsWith(normalizedQuery);
+    const contains = !prefix && object.variableWords.some((_, index) => object.variableWords.slice(index).join('').startsWith(normalizedQuery));
+    const tokenPrefix = queryWords.length > 0 && queryWords.every((word) => object.variableWords.some((candidate) => candidate.startsWith(word)));
+    const part = words(object.metadata.entityName ?? '');
+    const partMeasurement = !exact && !prefix && !contains && part.length > 0 && queryWords.length > part.length
+      && part.every((word, index) => queryWords[index] === word)
+      && queryWords.slice(part.length).every((word) => object.variableWords.some((candidate) => candidate.startsWith(word)));
+    return exact || prefix || contains || tokenPrefix || partMeasurement
+      ? [{ position, match: { exact, prefix, contains, tokenPrefix, partMeasurement } }] : [];
+  });
+  for (const typed of ['blood pr', 'Blood pressure', 'sys bl', 'is', 'rev', 'revenue', 'office sup', 'bracket overall',
+    'bracket plate overall x', 'hinge over', 'pressure', 'nothing here']) {
+    const normalizedQuery = typed.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const found = app.dependencies.matchingStudyVariables(objects, normalizedQuery, words(typed))
+      .map(({ object, match }) => ({ position: objects.indexOf(object), match }));
+    assert.deepEqual(found.map(({ position }) => position), everyObject(normalizedQuery, words(typed)).map(({ position }) => position), typed);
+    assert.deepEqual(found.map(({ match }) => match), everyObject(normalizedQuery, words(typed)).map(({ match }) => match), typed);
+  }
+  // The 50 cells of one column are one name.
+  assert.equal(app.dependencies.variableIndexOf(objects).names.length, 7);
+});

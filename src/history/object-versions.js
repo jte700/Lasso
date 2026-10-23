@@ -57,6 +57,11 @@ FROM nearest JOIN scientific_object_versions v ON v.rowid = nearest.version_rowi
 JOIN scientific_objects o ON o.id = v.object_id
 ORDER BY o.object_type, v.label, o.rowid`;
 
+const RESOLVE_LOCATIONS = `${RESOLVE_ENTRIES}
+SELECT v.object_id, o.project_id, v.path
+FROM nearest JOIN scientific_object_versions v ON v.rowid = nearest.version_rowid
+JOIN scientific_objects o ON o.id = v.object_id`;
+
 const OBJECT_ENTRIES = `SELECT rowid AS version_rowid, snapshot_id FROM scientific_object_versions WHERE object_id = ?
   UNION ALL SELECT NULL, snapshot_id FROM scientific_object_removals WHERE object_id = ?`;
 
@@ -150,6 +155,13 @@ export class ObjectVersionStore {
       this.sets.set(snapshotId, set);
     }
     return set;
+  }
+
+  /** Where each object at a snapshot is, { object_id, project_id, path }, without reading its content. */
+  locations(snapshotId) {
+    const cached = this.sets.get(snapshotId);
+    if (cached) return cached.rows.map(({ object_id, project_id, path }) => ({ object_id, project_id, path }));
+    return this.db.prepare(RESOLVE_LOCATIONS).all(snapshotId);
   }
 
   /**

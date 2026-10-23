@@ -1561,6 +1561,13 @@ final class GlobalAssistant {
     private var flashTimer: Timer?
     private static let minimumTypedCharacters = 2
     private static let minimumMessageTime: TimeInterval = 0.8
+    /// The tap sees a key before the editor does. This is long enough for
+    /// most editors to take it before the text is read; a read that is still
+    /// early is caught when the answer arrives, and read again.
+    private static let typingSettleTime: TimeInterval = 0.04
+    /// How many times one keystroke's suggestions are asked for again because
+    /// the editor's text moved on while they were found.
+    private static let maximumRereads = 2
     private static let restoreWait: TimeInterval = 1
     private var messageShownAt = Date.distantPast
     private var lastTrack = Date.distantPast
@@ -1572,6 +1579,7 @@ final class GlobalAssistant {
     private var hostTimer: Timer?
     private var hostObservers: [NSObjectProtocol] = []
     private var contextReads = CoalescingGate()
+    private var rereadsLeft = 0
     private var hostReads = CoalescingGate()
     /// The generation a box or message is being measured for, until it shows.
     private var measuringFor: Int?
@@ -1832,8 +1840,11 @@ final class GlobalAssistant {
         generation += 1
         request?.cancel()
         request = nil
+        rereadsLeft = Self.maximumRereads
+        // Each key restarts the wait, but it is short enough to fall between
+        // keys, so suggestions follow fast typing instead of waiting for a pause.
         debounce?.invalidate()
-        debounce = Timer.scheduledTimer(withTimeInterval: 0.16, repeats: false) { [weak self] _ in
+        debounce = Timer.scheduledTimer(withTimeInterval: Self.typingSettleTime, repeats: false) { [weak self] _ in
             self?.refresh()
         }
     }
@@ -2007,14 +2018,28 @@ final class GlobalAssistant {
               let host = popupHost else { hide(); return }
         AccessibilityWork.queue.async { [weak self] in
             var current: (context: CaretContext, caret: CGRect)?
-            if host.isCurrent, let fresh = AccessibilityReader.focusedContext(),
-               CFEqual(fresh.element, captured.element), fresh.text == captured.text,
-               fresh.absoluteCaret == captured.absoluteCaret, fresh.windowStart == captured.windowStart,
-               let caret = host.caretIfVisible(fresh.caretRect) {
-                current = (fresh, caret)
+            var movedOn = false
+            if host.isCurrent, let fresh = AccessibilityReader.focusedContext(), CFEqual(fresh.element, captured.element) {
+                if fresh.text == captured.text, fresh.absoluteCaret == captured.absoluteCaret,
+                   fresh.windowStart == captured.windowStart, let caret = host.caretIfVisible(fresh.caretRect) {
+                    current = (fresh, caret)
+                } else {
+                    // A key the editor had not yet taken when it was read: the
+                    // text before the caret grew or shrank at its end. A click
+                    // elsewhere in the field does neither, and closes the box.
+                    movedOn = fresh.text != captured.text && fresh.windowStart == captured.windowStart
+                        && (fresh.text.hasPrefix(captured.text) || captured.text.hasPrefix(fresh.text))
+                }
             }
             DispatchQueue.main.async {
                 guard let self, token == self.generation, self.isEnabled else { return }
+                // The same editor with newer text is asked about that text, and
+                // whatever is showing stays until the answer replaces it.
+                if current == nil, movedOn, self.rereadsLeft > 0 {
+                    self.rereadsLeft -= 1
+                    self.refresh()
+                    return
+                }
                 guard let current else { self.hide(); return }
                 self.context = current.context
                 self.adoptHost(host, caret: current.caret)

@@ -10,7 +10,7 @@ import {
   extractSpreadsheetTables, extractTaggedReferences, isLargeSpreadsheet,
 } from './document-extraction.js';
 import {
-  buildSentenceCorpus, completeFromLinkedSource, completeSentence, originalFindingSentence, sourceFindingFragment,
+  buildSentenceCorpus, completeFromLinkedSource, completeSentence, indexSentenceCorpus, originalFindingSentence, sourceFindingFragment,
 } from './completion.js';
 import { renderPdfFigurePage } from './figure-preview.js';
 import { columnLetter } from './table-preview.js';
@@ -189,12 +189,30 @@ function isIdentifierRow(object) {
   return IDENTIFIER_HEADER.test(header) || IDENTIFIER_VALUE.test(String(object.metadata.row ?? object.label).trim());
 }
 
+function measuredPartWords(object) {
+  return variableTokens(humanVariable(object.metadata?.entityName ?? ''));
+}
+
 // "bracket length": a measured part's name leads the words and the rest begin
 // words of one of its measurements, so other models' lengths do not qualify.
-function namesMeasuredPart(object, queryWords) {
-  const part = variableTokens(humanVariable(object.metadata?.entityName ?? ''));
+function namesMeasuredPart(object, queryWords, part = measuredPartWords(object)) {
   if (!part.length || queryWords.length <= part.length || part.some((word, index) => queryWords[index] !== word)) return false;
   return queryWords.slice(part.length).every((word) => object.variableWords.some((candidate) => candidate.startsWith(word)));
+}
+
+/** How a variable's name matches what is typed, apart from naming a measured part. */
+function variableNameMatch(name, normalizedQuery, queryWords) {
+  const exact = name.normalizedVariable === normalizedQuery;
+  const prefix = !exact && name.normalizedVariable.startsWith(normalizedQuery);
+  // Only a match that starts a word counts; "is" must not match "Revision".
+  const contains = !prefix && name.wordSuffixes.some((suffix) => suffix.startsWith(normalizedQuery));
+  const tokenPrefix = queryWords.length > 0 && queryWords.every((word) => name.variableWords
+    .some((candidateWord) => candidateWord === word || candidateWord.startsWith(word)));
+  return { exact, prefix, contains, tokenPrefix };
+}
+
+function wordSuffixes(words) {
+  return words.map((_, index) => words.slice(index).join(''));
 }
 
 /** Name fragments ending at the cursor, longest first. None starts at or before
@@ -1634,6 +1652,8 @@ export class PredictiveProvenanceService {
     // Rows of large tables already offered at a snapshot, by snapshot and key.
     this.deepObjects = new BoundedCache({ maxEntries: 4_096 });
     this.objectKeySets = new WeakMap();
+    this.variableIndexes = new WeakMap();
+    this.retrievalIndexes = new WeakMap();
     // PDFs' text outlives the process, so a restart does not read every PDF again.
     this.textStore = new TextStore(path.join(timeline.config.dataDir, 'derived', 'text'), EXTRACTOR_VERSION);
     // A drawing PDF keeps one entry per page, so the bound is on bytes.
@@ -2638,10 +2658,16 @@ export class PredictiveProvenanceService {
     const project = this.timeline.getProject(projectId);
     const target = snapshotId ?? project.currentSnapshotId;
     yield* this.pdfTextSteps(projectId, target);
-    this.workspaceRetrievalObjects(projectId, target);
+    this.retrievalIndexOf(this.workspaceRetrievalObjects(projectId, target));
+    yield;
     // Typing a file's name asks for these on the first keystroke.
     this.objectsAt(projectId, target, WHOLE_FILE_TYPES);
-    this.studyVariables(projectId, target);
+    this.variableIndexOf(this.studyVariables(projectId, target));
+    yield;
+    // Ranking checks every suggestion is still at the snapshot it came from.
+    this.ranking.indexedSnapshot(projectId, target);
+    yield;
+    indexSentenceCorpus(this.completionCorpus(projectId, target));
   }
 
   completionCorpus(projectId, snapshotId = null) {
@@ -2755,6 +2781,57 @@ export class PredictiveProvenanceService {
     return indexed;
   }
 
+  /**
+   * The names in a list of study variables, kept with the list. Many objects
+   * share a name, as every cell of a column does, so what is typed is matched
+   * against each name once rather than against every object. Measured parts
+   * are found by the first word of the part's name.
+   */
+  variableIndexOf(objects) {
+    let index = this.variableIndexes.get(objects);
+    if (index) return index;
+    const names = [];
+    const byVariable = new Map();
+    const nameOf = new Int32Array(objects.length);
+    const parts = new Map();
+    objects.forEach((object, position) => {
+      let name = byVariable.get(object.variable);
+      if (name === undefined) {
+        name = names.length;
+        byVariable.set(object.variable, name);
+        names.push({ normalizedVariable: object.normalizedVariable, variableWords: object.variableWords,
+          wordSuffixes: wordSuffixes(object.variableWords) });
+      }
+      nameOf[position] = name;
+      const part = measuredPartWords(object);
+      if (part.length) {
+        if (!parts.has(part[0])) parts.set(part[0], []);
+        parts.get(part[0]).push({ position, part });
+      }
+    });
+    index = { names, nameOf, parts };
+    this.variableIndexes.set(objects, index);
+    return index;
+  }
+
+  /** The objects in a list of study variables that what is typed can name, in list order, with how. */
+  matchingStudyVariables(objects, normalizedQuery, queryWords) {
+    const { names, nameOf, parts } = this.variableIndexOf(objects);
+    const matches = names.map((name) => variableNameMatch(name, normalizedQuery, queryWords));
+    const measured = new Set((parts.get(queryWords[0]) ?? [])
+      .filter(({ position, part }) => namesMeasuredPart(objects[position], queryWords, part))
+      .map(({ position }) => position));
+    const output = [];
+    for (let position = 0; position < objects.length; position += 1) {
+      const match = matches[nameOf[position]];
+      const partMeasurement = !match.exact && !match.prefix && !match.contains && measured.has(position);
+      if (match.exact || match.prefix || match.contains || partMeasurement || match.tokenPrefix) {
+        output.push({ object: objects[position], match: { ...match, partMeasurement } });
+      }
+    }
+    return output;
+  }
+
   /** The keys of objects already in a list, kept with the list. */
   keysOf(objects) {
     let keys = this.objectKeySets.get(objects);
@@ -2829,22 +2906,22 @@ export class PredictiveProvenanceService {
     const permitted = this.autocompleteFilter(projectId);
     const known = this.studyVariables(projectId, options.snapshotId);
     const indexed = this.indexedStudyVariables(projectId, options.snapshotId, query, this.keysOf(known));
-    const ranked = (indexed.length ? [...known, ...indexed] : known)
-      .filter((object) => !options.documentPath || object.path !== options.documentPath)
-      .filter(permitted)
+    // Only names that match can score; an object that matches no way scores under the threshold.
+    const matching = [...this.matchingStudyVariables(known, normalizedQuery, queryWords),
+      ...indexed.map((object) => {
+        const match = variableNameMatch({ ...object, wordSuffixes: wordSuffixes(object.variableWords) }, normalizedQuery, queryWords);
+        return { object, match: { ...match, partMeasurement: !match.exact && !match.prefix && !match.contains
+          && namesMeasuredPart(object, queryWords) } };
+      })];
+    const ranked = matching
+      .filter(({ object }) => !options.documentPath || object.path !== options.documentPath)
+      .filter(({ object }) => permitted(object))
       // A measurement's label starts with its drawing's name ("Bracket overall X
       // extent"), so it waits until the drawing itself can be named and offered first.
-      .filter((object) => object.objectType !== 'DRAWING_ANNOTATION'
+      .filter(({ object }) => object.objectType !== 'DRAWING_ANNOTATION'
         || normalizedQuery.length >= DRAWING_NAME_MIN_LETTERS)
-      .map((object) => {
-        const exact = object.normalizedVariable === normalizedQuery ? 1 : 0;
-        const prefix = !exact && object.normalizedVariable.startsWith(normalizedQuery) ? 1 : 0;
-        // Only a match that starts a word counts; "is" must not match "Revision".
-        const contains = !prefix && object.variableWords.some((_, index) => object.variableWords
-          .slice(index).join('').startsWith(normalizedQuery)) ? 1 : 0;
-        const tokenPrefix = queryWords.length && queryWords.every((word) => object.variableWords
-          .some((candidateWord) => candidateWord === word || candidateWord.startsWith(word))) ? 1 : 0;
-        const partMeasurement = !exact && !prefix && !contains && namesMeasuredPart(object, queryWords) ? 1 : 0;
+      .map(({ object, match }) => {
+        const { exact, prefix, contains, tokenPrefix, partMeasurement } = match;
         const variableObject = object.objectType === 'VARIABLE' ? 1 : 0;
         const rowObject = object.objectType === 'DATASET_ROW' && !object.namedRow ? 1 : 0;
         // Named rows rank below variables and line items that match as well.
@@ -2977,6 +3054,33 @@ export class PredictiveProvenanceService {
   }
 
   /**
+   * Which retrievable objects each word appears in, and what scoring reads of
+   * each object besides its words, kept with the list. Every object is scored
+   * for a sentence, so this is what keeps a keystroke from reading them all.
+   */
+  retrievalIndexOf(objects) {
+    let index = this.retrievalIndexes.get(objects);
+    if (index) return index;
+    const places = new Map();
+    const features = objects.map((object, position) => {
+      for (const token of object.retrievalTokens) {
+        if (!places.has(token)) places.set(token, []);
+        places.get(token).push(position);
+      }
+      return {
+        resultType: ['VARIABLE', 'RESULT', 'VALUE', 'DATASET_ROW', 'DATASET_VALUE', 'DATASET', 'TABLE'].includes(object.objectType),
+        methodType: ['METHOD', 'MODEL', 'PARAMETER', 'PROTOCOL', 'ANALYSIS_RUN'].includes(object.objectType),
+        identifier: /^(?:sample|subject|participant|patient)?[_ -]?id$|^(?:group|cohort)$/i.test(object.metadata.variable ?? object.label),
+        dataPath: /(^|\/)(?:results?|outputs?|analysis|data|datasets?|tables?)(\/|$)/i.test(object.path),
+        priority: dependencyFilePriority({ path: object.path }),
+      };
+    });
+    index = { places, features };
+    this.retrievalIndexes.set(objects, index);
+    return index;
+  }
+
+  /**
    * Sources an `exclude from autocomplete` rule tells the prediction surface to
    * skip. Search is deliberately unaffected: the rule suppresses suggestions,
    * not the index, so an explicitly searched source is still reachable.
@@ -2998,48 +3102,55 @@ export class PredictiveProvenanceService {
     const methodIntent = /\b(?:method|protocol|procedure|experiment|model|parameter|dose|assay|analysis|analy[sz]ed|using)\w*\b/i.test(context.sentence)
       || /\bmethods?\b/i.test(input.section);
     const permitted = this.autocompleteFilter(projectId);
-    const objects = this.workspaceRetrievalObjects(projectId, options.snapshotId)
-      .filter((object) => !input.documentPath || object.path !== input.documentPath)
-      .filter(permitted)
-      .map((object) => {
-        const overlap = overlapScore(query, `${object.retrievalText} ${object.searchText}`);
-        const resultType = ['VARIABLE', 'RESULT', 'VALUE', 'DATASET_ROW', 'DATASET_VALUE', 'DATASET', 'TABLE'].includes(object.objectType);
-        const methodType = ['METHOD', 'MODEL', 'PARAMETER', 'PROTOCOL', 'ANALYSIS_RUN'].includes(object.objectType);
-        const identifier = /^(?:sample|subject|participant|patient)?[_ -]?id$|^(?:group|cohort)$/i.test(object.metadata.variable ?? object.label);
-        let score = 0.18 + overlap * 0.52;
-        if (resultIntent && resultType) score += object.objectType === 'RESULT' ? 0.32 : object.objectType === 'VARIABLE' ? 0.28 : 0.16;
-        if (methodIntent && methodType) score += 0.36;
-        if (!resultIntent && !methodIntent && object.objectType === 'VARIABLE') score += 0.2;
-        if (object.metadata.dictionary) score += 0.08;
-        if (object.objectType === 'VARIABLE') {
-          if (object.metadata.range) score += 0.08;
-          else if (object.metadata.samples?.length) score += 0.035;
-          else if (!object.metadata.dictionary) score -= 0.06;
-        }
-        if (/(^|\/)(?:results?|outputs?|analysis|data|datasets?|tables?)(\/|$)/i.test(object.path)) score += 0.06;
-        if (object.metadata.metric === 'row-count' && !sampleSizeIntent) score -= 0.32;
-        if (identifier) score *= 0.38;
-        return { ...object, score: Number(Math.min(0.98, score).toFixed(3)) };
-      }).filter((object) => object.score >= 0.34)
-      .sort((left, right) => right.score - left.score
-        || Number(right.objectType === 'RESULT') - Number(left.objectType === 'RESULT')
-        || Number(right.objectType === 'VARIABLE') - Number(left.objectType === 'VARIABLE')
-        || dependencyFilePriority({ path: right.path }) - dependencyFilePriority({ path: left.path })
-        || left.retrievalText.localeCompare(right.retrievalText));
+    const retrievable = this.workspaceRetrievalObjects(projectId, options.snapshotId);
+    const { places, features } = this.retrievalIndexOf(retrievable);
+    // How many of the sentence's words each object has, as overlapScore counts them.
+    const queryWords = wordTokens(query);
+    const shared = new Uint16Array(retrievable.length);
+    for (const word of queryWords) for (const position of places.get(word) ?? []) shared[position] += 1;
+    const reasons = ['contextual workspace match', resultIntent ? 'study-data context' : methodIntent ? 'methods context' : 'project context'];
+    // Ranking keeps only objects that reach its minimum, so the rest are not sorted for it.
+    const minimumScore = options.minimumScore ?? 0.54;
+    const scored = [];
+    retrievable.forEach((object, position) => {
+      if (input.documentPath && object.path === input.documentPath) return;
+      if (!permitted(object)) return;
+      const { resultType, methodType, identifier, dataPath, priority } = features[position];
+      const overlap = queryWords.length ? shared[position] / Math.max(2, queryWords.length) : 0;
+      let score = 0.18 + overlap * 0.52;
+      if (resultIntent && resultType) score += object.objectType === 'RESULT' ? 0.32 : object.objectType === 'VARIABLE' ? 0.28 : 0.16;
+      if (methodIntent && methodType) score += 0.36;
+      if (!resultIntent && !methodIntent && object.objectType === 'VARIABLE') score += 0.2;
+      if (object.metadata.dictionary) score += 0.08;
+      if (object.objectType === 'VARIABLE') {
+        if (object.metadata.range) score += 0.08;
+        else if (object.metadata.samples?.length) score += 0.035;
+        else if (!object.metadata.dictionary) score -= 0.06;
+      }
+      if (dataPath) score += 0.06;
+      if (object.metadata.metric === 'row-count' && !sampleSizeIntent) score -= 0.32;
+      if (identifier) score *= 0.38;
+      score = Number(Math.min(0.98, score).toFixed(3));
+      // The reasons go with the object into ranking, which then has no fallback score to work out.
+      if (score >= 0.34 && score >= minimumScore) scored.push({ object: { ...object, score, reasons }, priority });
+    });
+    const objects = scored.sort((left, right) => right.object.score - left.object.score
+        || Number(right.object.objectType === 'RESULT') - Number(left.object.objectType === 'RESULT')
+        || Number(right.object.objectType === 'VARIABLE') - Number(left.object.objectType === 'VARIABLE')
+        || right.priority - left.priority
+        || left.object.retrievalText.localeCompare(right.object.retrievalText))
+      .map(({ object }) => object);
     const seen = new Set();
     const suggestions = [];
     for (const object of this.ranking.rank(projectId, objects, {
       query, documentPath: input.documentPath, relatedPaths: this.relatedSourcePaths(projectId, input),
-      minimumScore: options.minimumScore ?? 0.54, limit: objects.length,
+      minimumScore, limit: objects.length,
       diversify: false,
     })) {
       const fingerprint = object.retrievalText.toLowerCase().replace(/\W+/g, ' ').trim();
       if (!fingerprint || seen.has(fingerprint)) continue;
       seen.add(fingerprint);
-      const candidate = this.enrichObject(projectId, {
-        ...object,
-        reasons: ['contextual workspace match', resultIntent ? 'study-data context' : methodIntent ? 'methods context' : 'project context'],
-      });
+      const candidate = this.enrichObject(projectId, object);
       suggestions.push({
         id: `${object.id}:workspace:${suggestions.length}`,
         replacementText: object.retrievalText,
@@ -3218,7 +3329,8 @@ export class PredictiveProvenanceService {
 
   sentenceSuggestion(projectId, input) {
     const permitted = this.autocompleteFilter(projectId);
-    return completeSentence(this.completionCorpus(projectId).filter(permitted), input, {
+    return completeSentence(this.completionCorpus(projectId), input, {
+      include: permitted,
       rank: (completions) => this.rankCompletions(projectId, completions.filter((item) => item.dependencyCandidate?.id).map((item) => ({
         ...item,
         dependencyCandidate: {

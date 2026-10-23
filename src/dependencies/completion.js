@@ -210,6 +210,42 @@ function bestSemanticContinuation(fragment, queryTokens, entry) {
   return best;
 }
 
+// Where each word appears, as sentence and word positions in corpus order, kept with the corpus.
+const wordPlaces = new WeakMap();
+
+/** Indexes a corpus's words for completion, once; Lasso does this before anyone types. */
+export function indexSentenceCorpus(corpus) {
+  let index = wordPlaces.get(corpus);
+  if (!index) {
+    index = new Map();
+    corpus.forEach((entry, position) => entry.tokens.forEach((token, place) => {
+      if (!index.has(token.key)) index.set(token.key, []);
+      index.get(token.key).push(position, place);
+    }));
+    wordPlaces.set(corpus, index);
+  }
+  return index;
+}
+
+/**
+ * The sentences, in corpus order, where the word before the last one typed is
+ * followed by a word the last one is or begins. A sentence that begins with
+ * what is typed has that pair, and so does any run of its last words.
+ */
+function sentencesContinuing(corpus, before, last) {
+  const index = indexSentenceCorpus(corpus);
+  const typed = last.raw.toLowerCase();
+  const output = [];
+  const places = index.get(before.key) ?? [];
+  for (let at = 0; at < places.length; at += 2) {
+    if (output.at(-1) === places[at]) continue;
+    const next = corpus[places[at]].tokens[places[at + 1] + 1];
+    if (next && (next.key === last.key || next.raw.toLowerCase().startsWith(typed))) output.push(places[at]);
+  }
+  return output;
+}
+
+/** `options.include` leaves sentences out without copying the corpus, so its index is kept. */
 export function completeSentence(corpus, input, options = {}) {
   const text = String(input.text ?? '');
   const cursor = Number.isInteger(input.cursor) ? input.cursor : text.length;
@@ -220,7 +256,9 @@ export function completeSentence(corpus, input, options = {}) {
 
   let best = null;
   const candidates = [];
-  for (const entry of corpus) {
+  for (const position of sentencesContinuing(corpus, queryTokens.at(-2), queryTokens.at(-1))) {
+    const entry = corpus[position];
+    if (options.include && !options.include(entry)) continue;
     if (input.documentPath && entry.path === input.documentPath) continue;
     const lowerSentence = entry.sentence.toLowerCase();
     const lowerFragment = fragment.toLowerCase();
