@@ -1877,10 +1877,25 @@ export class PredictiveProvenanceService {
     // unindexed snapshot is read first.
     this.ensureIndex(projectId, previous.id);
     const index = this.indexDescriptors(this.indexableFiles(previous, { indexed: null }));
-    const reading = PredictiveProvenanceService.descriptorReading(index.descriptors);
-    const recorded = this.recordedReading(previous.id);
-    const identical = reading.size === recorded.size
-      && [...reading].every(([key, value]) => recorded.get(key) === value);
+    const recordedCount = this.timeline.objectVersions.count(previous.id);
+    // Compare one stored row at a time. Keeping serialized Maps of both
+    // readings alongside the descriptors doubled large folders' memory use.
+    const identical = (() => {
+      const byKey = new Map();
+      for (const descriptor of index.descriptors) {
+        if (!byKey.has(descriptor.key)) byKey.set(descriptor.key, descriptor);
+      }
+      if (byKey.size !== recordedCount) return false;
+      for (const row of this.timeline.objectVersions.iterateResolved(previous.id)) {
+        const descriptor = byKey.get(row.object_key);
+        if (!descriptor || row.object_type !== descriptor.type) return false;
+        const fields = storedFields(descriptor);
+        if (row.path !== fields[0] || row.anchor_json !== fields[1] || row.label !== fields[2]
+          || (row.value_text ?? null) !== fields[3] || row.search_text !== fields[4]
+          || row.content_hash !== fields[5] || row.metadata_json !== fields[6]) return false;
+      }
+      return true;
+    })();
     if (identical) {
       // The current reader reads these files exactly as the snapshot already
       // says. Naming the reader that produced an identical reading is
@@ -1892,7 +1907,7 @@ export class PredictiveProvenanceService {
       this.onIndexProblems?.(projectId, index.problems);
       return {
         changed: false, reason: 'IDENTICAL_READING', projectId, snapshot: previous, event: null,
-        objects: { before: recorded.size, after: recorded.size }, dependenciesNeedingReview: 0,
+        objects: { before: recordedCount, after: recordedCount }, dependenciesNeedingReview: 0,
         freshness: this.indexFreshness(projectId),
       };
     }
@@ -1940,7 +1955,7 @@ export class PredictiveProvenanceService {
       projectId,
       snapshot: result.snapshot,
       event: result.event,
-      objects: { before: recorded.size, after: objectCount },
+      objects: { before: recordedCount, after: objectCount },
       dependenciesNeedingReview: reconciled?.changed
         ? this.currentDependencies(projectId).filter((dependency) => dependency.status === 'NEEDS_REVIEW').length
         : 0,
@@ -2091,7 +2106,8 @@ export class PredictiveProvenanceService {
     const types = new Set([...(objectTypes ?? [])].filter((type) => OBJECT_TYPES.has(type)));
     let objects = this.objectCache.get(target);
     if (!objects) {
-      const resolved = this.timeline.objectVersions.resolved(target);
+      const resolved = types.size ? this.timeline.objectVersions.resolvedTypes(target, types)
+        : this.timeline.objectVersions.resolved(target);
       objects = resolved.rows.filter((row) => row.project_id === projectId
         && (!types.size || types.has(row.object_type))).map((row) => {
         const object = mapObjectRow(row, resolved);

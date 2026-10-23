@@ -18,7 +18,9 @@ test('large folders index every eligible file and return sources beyond the old 
   }
   const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
   t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  app.timeline.objectVersions.sets.maxWeight = 2;
   const project = app.timeline.importProject(root, actor, { watch: false }).project;
+  assert.equal(app.timeline.objectVersions.sets.size, 0, 'large initial indexes are not duplicated into an unretainable row cache');
   const tables = app.dependencies.objectsAt(project.id, null, ['DATASET']);
   assert.ok(tables.length > 0);
   assert.ok(tables.every(object => object.objectType === 'DATASET'));
