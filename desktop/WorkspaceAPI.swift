@@ -157,6 +157,7 @@ struct DirectoryProgress: Equatable {
     var activity: String {
         switch phase {
         case "waiting": return "Waiting to start"
+        case "fetching": return "Reading the app"
         case "listing": return "Finding files"
         case "reading": return "Reading files"
         case "indexing": return kind == "rereading" ? "Re-reading files" : "Indexing files"

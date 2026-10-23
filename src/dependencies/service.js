@@ -34,6 +34,7 @@ import { extractDrawingDocument } from './drawing-extraction.js';
 import { buildModelPreview } from './model-preview.js';
 import { DRAWING_NAME_MIN_LETTERS, drawingDiscovery, drawingReferenceMatch } from './drawing-discovery.js';
 import { fileReferenceMatch, isWholeFile, typedAsWritten } from './file-reference.js';
+import { fieldCue, recordFields } from './record-fields.js';
 
 const OBJECT_TYPES = new Set([
   'REFERENCE', 'PAPER', 'RESULT', 'VALUE', 'CODE', 'CODE_BLOCK', 'CODE_LINE',
@@ -106,7 +107,7 @@ function variableTokens(value) {
 // A dot inside a name ("Bracket.step") or a number ("4.8") ends nothing, nor
 // does an abbreviation's ("e.g. gross") unless a capitalised word follows it.
 function sentenceStartBefore(before) {
-  const masked = before.replace(ABBREVIATIONS, (match, offset) =>
+  const masked = withoutHonorificStops(before).replace(ABBREVIATIONS, (match, offset) =>
     /^(?:\s+\p{Lu}|\s*$)/u.test(before.slice(offset + match.length)) ? match : `${match.slice(0, -1)} `);
   let start = 0;
   for (const end of masked.matchAll(/[.!?]["'”’)\]]*(?=\s|$)|\n/g)) start = end.index + end[0].length;
@@ -152,10 +153,16 @@ const FRAGMENT_FUNCTION_WORDS = new Set(['a', 'an', 'the', 'of', 'to', 'in', 'on
 // and common abbreviations ("vs.", "e.g.") are removed before testing.
 const SENTENCE_BOUNDARY = /[.!?]["'”’)\]]*\s|\n/;
 const ABBREVIATIONS = /\b(?:e\.g|i\.e|vs|etc|approx|cf|fig|figs|no|nos|eq|ref|al|ca)\./gi;
+// A title before a name ("Dr. Lavalee") never ends a sentence, capital or not.
+const HONORIFICS = /\b(?:Dr|Mr|Mrs|Ms|Mx|Prof|Rev|Hon|Capt|Sgt|Lt)\./gi;
+
+function withoutHonorificStops(text) {
+  return String(text ?? '').replace(HONORIFICS, (match) => `${match.slice(0, -1)} `);
+}
 const CLAUSE_JOINER = /\b(?:and|or|but|while|whereas|versus|vs\.?)\s+/gi;
 
 function endsSentence(text) {
-  return SENTENCE_BOUNDARY.test(String(text ?? '').replace(ABBREVIATIONS, (match) => match.slice(0, -1)));
+  return SENTENCE_BOUNDARY.test(withoutHonorificStops(text).replace(ABBREVIATIONS, (match) => match.slice(0, -1)));
 }
 
 /** Where the clause being written starts: after its sentence's last joining word, if any. */
@@ -761,11 +768,16 @@ function contextualStoredValue(object, tail) {
 function acceptedAsValue(dependency, text) {
   const { source, anchor } = dependency;
   if (['PAPER', 'REFERENCE'].includes(source.objectType)) return false;
+  // A record's title names it; its fields are what come next.
+  if (source.metadata?.recordFields?.length) return false;
   const accepted = normalizedVariable(String(text ?? '').slice(anchor.start, anchor.end));
   if (!accepted) return false;
   return [source.valueText, contextualStoredValue(source, String(text ?? '').slice(0, anchor.start))]
     .some((value) => value && normalizedVariable(value) === accepted);
 }
+
+// Cue words that ask for any field rather than one kind.
+const OPEN_FIELD_CUES = new Set(['is', 'was', 'are', 'were']);
 
 const comparableNumber = (value) => String(value ?? '').replace(/[\s,]/g, '').replace(/^[^\d.]+/, '');
 
@@ -1398,16 +1410,38 @@ function objectsFromFile(file, buffer, report = () => {}) {
   } else if (file.fileType === 'markdown' || (file.fileType === 'text' && path.extname(file.path).toLowerCase() === '.txt')) {
     const referenceLike = referenceLikePath(file.path);
     const heading = text.match(/^#\s+(.+)$/m)?.[1]?.trim();
+    // A note written as a record (a title, then labelled fields, as connected
+    // apps write mail, events and pages) offers its fields after its title.
+    const record = file.fileType === 'markdown' && !referenceLike ? recordFields(text) : null;
     const parentMetadata = { format: file.fileType === 'markdown' ? 'MARKDOWN' : 'TXT',
       heading: heading ?? null, title: heading ?? fileName,
-      ...(file.fileType === 'text' ? { textExcerpt: text.slice(0, 20_000) } : {}) };
+      ...(file.fileType === 'text' ? { textExcerpt: text.slice(0, 20_000) } : {}),
+      ...(record ? { recordFields: record.fields.map((field) => field.label) } : {}) };
     objects.push(objectDescriptor({
       key: `${base}:document`, type: referenceLike ? 'PAPER' : 'DOCUMENT', path: file.path,
       label: heading || fileName, value: heading || text.slice(0, 240), contentHash: file.contentHash,
       metadata: parentMetadata,
     }));
     objects.push(...documentComponentDescriptors(file, text, parentMetadata, base));
-    objects.push(...textPassageDescriptors(file, text, parentMetadata));
+    // A field's line is that field, not a passage of prose.
+    const fieldLines = new Set(record?.fields.map((field) => field.line));
+    objects.push(...textPassageDescriptors(file, text, parentMetadata)
+      .filter((passage) => !fieldLines.has(passage.anchor.lineStart)));
+    const labels = new Map();
+    for (const field of record?.fields ?? []) {
+      const key = normalizedVariable(field.label);
+      const occurrence = labels.get(key) ?? 0;
+      labels.set(key, occurrence + 1);
+      objects.push(objectDescriptor({
+        key: `${base}:record-field:${key}${occurrence ? `:${occurrence}` : ''}`, type: 'VALUE', path: file.path,
+        label: `${record.title} · ${field.label}`, value: field.text, contentHash: file.contentHash,
+        anchor: { kind: 'text-excerpt', selectedText: field.value, start: field.start, end: field.end,
+          lineStart: field.line, lineEnd: field.line },
+        metadata: { format: 'MARKDOWN', componentType: 'RECORD_FIELD', field: field.label, role: field.role,
+          record: record.title, rawText: field.value, lineStart: field.line, lineEnd: field.line,
+          parentTitle: record.title },
+      }));
+    }
   }
 
   if (path.extname(file.path).toLowerCase() === '.bib') {
@@ -3423,6 +3457,10 @@ export class PredictiveProvenanceService {
    */
   settledValueEnd(input, dependency) {
     if (Number.isInteger(input.settledValueEnd)) return input.settledValueEnd;
+    // A record's field just written ("on Tuesday, October 27") leads on to its
+    // other fields when the next words ask for one ("at").
+    if (dependency?.source.metadata?.componentType === 'RECORD_FIELD'
+      && fieldCue(String(input.text ?? '').slice(dependency.anchor.end, input.cursor))) return -1;
     // An explicit comma continues a table column's value list. Ordinary words
     // after a completed value still return to every directory.
     const tail = dependency && String(input.text ?? '').slice(dependency.anchor.end, input.cursor);
@@ -3459,6 +3497,75 @@ export class PredictiveProvenanceService {
     if (fresh?.fragment && fresh.candidates.length && fresh.fragment.start >= subjectStart) return true;
     const file = this.fileReference(projectId, input, cursor);
     return Boolean(file && file.start >= subjectStart);
+  }
+
+  /**
+   * The record the newest link belongs to: the record itself when its title
+   * was linked, or the record of a field just written, so "on Tuesday,
+   * October 27 at" goes on to the same event's time.
+   */
+  linkedRecord(projectId, dependency) {
+    const source = dependency?.source;
+    if (!source) return null;
+    if (source.metadata?.recordFields?.length) return dependency;
+    if (source.metadata?.componentType !== 'RECORD_FIELD') return null;
+    const record = this.objectsAt(this.sourceProjectId(source) ?? projectId, source.snapshotId, ['DOCUMENT'])
+      .find((object) => object.path === source.path && object.metadata.recordFields?.length);
+    return record ? { ...dependency, source: record } : null;
+  }
+
+  /**
+   * A linked record's fields, as the word after it asks for them: "on" its
+   * date, "at" its time or place, "with" its people, "from" its sender. What
+   * has been typed of a value since narrows them; fields already written in
+   * the sentence are not offered again.
+   */
+  fieldsFromLinkedRecord(projectId, input, cursor, dependency) {
+    const linked = this.linkedRecord(projectId, dependency);
+    if (!linked) return null;
+    const text = String(input.text ?? '');
+    const tail = text.slice(linked.anchor.end, cursor);
+    const cue = endsSentence(tail) ? null : fieldCue(tail);
+    if (!cue) return null;
+    const source = linked.source;
+    const written = this.valuesWrittenInSentence(projectId, input, cursor);
+    const typed = normalizedCompletionPhrase(cue.typed);
+    const matchesTyped = (value) => {
+      const words = normalizedCompletionPhrase(value).split(' ');
+      return !typed || words.some((_, index) => words.slice(index).join(' ').startsWith(typed));
+    };
+    const candidates = this.objectsAt(this.sourceProjectId(source) ?? projectId, source.snapshotId, ['VALUE'])
+      .filter((object) => object.path === source.path && object.metadata.componentType === 'RECORD_FIELD'
+        && object.valueText && !written.has(object.id) && matchesTyped(object.valueText))
+      .map((object) => {
+        const role = cue.roles.indexOf(object.metadata.role);
+        const rank = normalizedVariable(object.metadata.field) === cue.word ? 0 : role >= 0 ? role + 1 : Infinity;
+        // Fields keep the order the record lists them in.
+        return { object, order: object.metadata.lineStart ?? 0, rank };
+      });
+    if (!candidates.length) return null;
+    // The fields the cue names come first, and alone when it names any.
+    const named = candidates.filter((candidate) => candidate.rank !== Infinity);
+    const offered = (named.length ? named : candidates)
+      .sort((left, right) => left.rank - right.rank || left.order - right.order).slice(0, 8);
+    const completions = offered.map(({ object }, index) => {
+      // Spaced wider than a ranking band, so the order chosen here holds.
+      const confidence = Number(Math.max(0.3, 0.95 - index * 0.1).toFixed(3));
+      return {
+        id: `${object.id}:field:${index}`,
+        replacementText: object.valueText,
+        category: object.metadata.field,
+        provenanceLabel: `${source.label} · ${object.metadata.field}`,
+        ...contextualCompletionRange(text, cursor, object.valueText, { floor: linked.anchor.end }),
+        confidence,
+        dependencyCandidate: this.enrichObject(projectId, {
+          ...object, score: confidence,
+          reasons: [cue.word && !OPEN_FIELD_CUES.has(cue.word) ? `${object.metadata.field}, after “${cue.word}”` : 'field of the linked record'],
+        }),
+        generated: false,
+      };
+    });
+    return { dependencyId: linked.id, source, variable: source.label, heading: source.label, completions };
   }
 
   linkedPaperContext(projectId, input, cursor) {
@@ -3831,6 +3938,23 @@ export class PredictiveProvenanceService {
     // The name just accepted ("The Bracket ") is not a new reference to it,
     // nor is the name of the file a focus chosen with fn+Right sits in.
     const newestDependency = this.linkedDependencyContext(projectId, input, cursor);
+    const linkedRecord = this.fieldsFromLinkedRecord(projectId, input, cursor, newestDependency);
+    if (linkedRecord) {
+      return {
+        claims: [], completion: null, sourceCompletions: [],
+        workspaceCompletions: linkedRecord.completions,
+        workspaceHeading: linkedRecord.heading,
+        notice: null,
+        sourceContext: {
+          dependencyId: linkedRecord.dependencyId,
+          source: linkedRecord.source,
+          variable: linkedRecord.variable,
+          kind: 'PROJECT_OBJECT',
+          exclusive: true,
+        },
+        deterministic: true, generatedText: false,
+      };
+    }
     const settledAt = this.settledValueEnd(input, newestDependency);
     const linkedDependency = newestDependency?.anchor.end > settledAt ? newestDependency : null;
     const file = this.namedFile(projectId, input, cursor, text, settledAt);

@@ -9,6 +9,8 @@
 node_modules/
 dist/
 desktop/BuildConfig.swift
+# App registrations a local build signs connected apps in with
+connector-apps.json
 
 # Local configuration and editor artifacts
 .claude/

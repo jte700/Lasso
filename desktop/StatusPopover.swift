@@ -490,6 +490,7 @@ final class StatusPopoverController {
                         existing.setSelecting(fresh.isSelecting, selected: fresh.isSelected, animated: true)
                         existing.issue = fresh.issue
                         existing.onFix = fresh.onFix
+                        existing.contextActions = fresh.contextActions
                         // The same row keeps counting from where it was.
                         existing.progress = fresh.progress
                         row = existing
