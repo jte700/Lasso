@@ -227,10 +227,10 @@ test('workspace uses the newest eligible linked source across roots', async (t) 
 test('failed directory reactivation rolls back active status and reports a recoverable error', async (t) => {
   const { app, sourceRoot, sourceProject } = fixture(t);
   await app.workspace.toggle(sourceProject.id, false, actor);
-  const original = app.dependencies.warmPredictionCaches.bind(app.dependencies);
-  t.mock.method(app.dependencies, 'warmPredictionCaches', (projectId, ...args) => {
+  const original = app.dependencies.warmPredictionCacheSteps.bind(app.dependencies);
+  t.mock.method(app.dependencies, 'warmPredictionCacheSteps', function* (projectId, ...args) {
     if (projectId === sourceProject.id) throw new Error('Index unavailable');
-    return original(projectId, ...args);
+    return yield* original(projectId, ...args);
   });
   await assert.rejects(app.workspace.add([sourceRoot], actor), { status: 400 });
   assert.equal(app.workspace.isActive(sourceProject.id), false);

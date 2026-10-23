@@ -1398,7 +1398,11 @@ function assemblyExtents(parts, occurrences, rootName) {
 }
 
 // ── indexed features ─────────────────────────────────────────────────────────
-const MAX_GROUPS = { hole: 16, cylinder: 16, arc: 16, edge: 12 };
+// Keep every measurable feature that can fit the file's 4,000-fact budget.
+// Small per-kind caps used to discard ordinary CAD details even when the file
+// had ample room. Each group yields at least one fact, so this bound cannot
+// remove a feature from a file whose complete measurements fit that budget.
+const MAX_FEATURE_GROUPS = 4_000;
 export const formatLength = (value) => Number(value.toPrecision(10)).toString();
 export const formatDegrees = (radians) => Number((radians * 180 / Math.PI).toPrecision(9)).toString();
 
@@ -1433,11 +1437,17 @@ export function stepFeatures(part, unitLabel) {
     const groups = groupWithin(part.cylinders.filter((cylinder) => cylinder.full && cylinder.kind === kind),
       (cylinder) => [cylinder.radius * 2, cylinder.h1 - cylinder.h0], [tolerance * 2, tolerance])
       .sort((a, b) => b.values[0] - a.values[0] || b.values[1] - a.values[1]);
-    if (groups.length > MAX_GROUPS[kind]) omitted[kind] = groups.length - MAX_GROUPS[kind];
-    const kept = groups.slice(0, MAX_GROUPS[kind]);
+    const available = MAX_FEATURE_GROUPS - features.length;
+    if (groups.length > available) omitted[kind] = groups.length - available;
+    const kept = groups.slice(0, available);
+    const diameterCounts = new Map();
+    for (const group of kept) {
+      const diameter = formatLength(group.values[0]);
+      diameterCounts.set(diameter, (diameterCounts.get(diameter) ?? 0) + 1);
+    }
     for (const group of kept) {
       const [diameter, length] = group.values;
-      const shared = kept.filter((other) => formatLength(other.values[0]) === formatLength(diameter)).length > 1;
+      const shared = diameterCounts.get(formatLength(diameter)) > 1;
       features.push({ featureId: `${kind}:${formatLength(diameter)}:${formatLength(length)}`, type: kind,
         name: `Ø${formatLength(diameter)}${shared ? ` × ${formatLength(length)}` : ''} ${kind}`,
         diameter, length, count: group.items.length, surfaceId: group.items[0].surfaceId,
@@ -1446,16 +1456,18 @@ export function stepFeatures(part, unitLabel) {
   }
   const arcs = groupWithin(part.arcs, (arc) => [arc.radius, arc.sweep], [tolerance, Math.max(1e-9, tolerance / Math.max(extremes(part.arcs.map((arc) => arc.radius))[1], 1))])
     .sort((a, b) => b.values[0] - a.values[0] || b.values[1] - a.values[1]);
-  if (arcs.length > MAX_GROUPS.arc) omitted.arc = arcs.length - MAX_GROUPS.arc;
-  for (const group of arcs.slice(0, MAX_GROUPS.arc)) {
+  const availableArcs = MAX_FEATURE_GROUPS - features.length;
+  if (arcs.length > availableArcs) omitted.arc = arcs.length - availableArcs;
+  for (const group of arcs.slice(0, availableArcs)) {
     const [radius, sweep] = group.values;
     features.push({ featureId: `arc:${formatLength(radius)}:${formatDegrees(sweep)}`, type: 'arc',
       name: `R${formatLength(radius)} ${formatDegrees(sweep)}° arc`, radius, sweep, arcLength: radius * sweep,
       count: group.items.length, curveId: group.items[0].curveId, edgeKeys: [...new Set(group.items.flatMap((arc) => arc.edgeKeys))], cylinders: null });
   }
   const edges = groupWithin(part.lines, (line) => [line.length], [tolerance]).sort((a, b) => b.values[0] - a.values[0]);
-  if (edges.length > MAX_GROUPS.edge) omitted.edge = edges.length - MAX_GROUPS.edge;
-  for (const group of edges.slice(0, MAX_GROUPS.edge)) {
+  const availableEdges = MAX_FEATURE_GROUPS - features.length;
+  if (edges.length > availableEdges) omitted.edge = edges.length - availableEdges;
+  for (const group of edges.slice(0, availableEdges)) {
     const [length] = group.values;
     features.push({ featureId: `edge:${formatLength(length)}`, type: 'edge', name: `${formatLength(length)} ${unitLabel} straight edge`,
       length, count: group.items.length, edgeId: group.items[0].edge.id, edgeKeys: group.items.map((line) => line.edge.key), cylinders: null });

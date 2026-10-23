@@ -35,6 +35,21 @@ test('sentence completion finishes an exact project-corpus sentence without crea
   assert.equal(completion.generated, false);
 });
 
+test('sentence completion finishes a sentence from a short unfinished word, and skips sentences left out', () => {
+  const corpus = buildSentenceCorpus([
+    { path: 'notes/summary.md', snapshotId: 'v1', text: 'Total revenue was 485000 in the second quarter.' },
+    { path: 'notes/old.md', snapshotId: 'v1', text: 'Total returns were lower than expected in the second quarter.' },
+  ]);
+  const completion = completeSentence(corpus, { text: 'Total re', cursor: 8, documentPath: 'draft.md' });
+  assert.equal(completion.insertText, 'venue was 485000 in the second quarter.');
+  assert.equal(completion.matchKind, 'PREFIX');
+  const kept = completeSentence(corpus, { text: 'Total re', cursor: 8, documentPath: 'draft.md' },
+    { include: (entry) => entry.path !== 'notes/summary.md' });
+  assert.equal(kept.insertText, 'turns were lower than expected in the second quarter.');
+  // Leaving sentences out does not change what the full corpus offers.
+  assert.equal(completeSentence(corpus, { text: 'Total re', cursor: 8 }).insertText, completion.insertText);
+});
+
 test('sentence completion uses scientific concept equivalents instead of literal word overlap', () => {
   const corpus = buildSentenceCorpus([{
     path: 'notes/analysis.md', snapshotId: 'v1',

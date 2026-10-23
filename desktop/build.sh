@@ -181,6 +181,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/NativeMaterial.swift" \
   "$ROOT/desktop/DirectoryMenu.swift" \
   "$ROOT/desktop/StatusPopover.swift" \
+  "$ROOT/desktop/NotchMotion.swift" \
   "$ROOT/desktop/NotchPanel.swift" \
   "$ROOT/desktop/SyntheticKeyboard.swift" \
   "$ROOT/desktop/KeyRouting.swift" \

@@ -1,11 +1,13 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { setImmediate as yieldTurn } from 'node:timers/promises';
 import { transaction } from './db.js';
 import { HttpError } from './history/errors.js';
 import { normalizeProjectRootPath } from './history/service.js';
+import { runSliced, runSync } from './history/work.js';
 import { currentClauseStart, namesFocusedFile } from './dependencies/service.js';
-import { directoryIssue } from './directory-issues.js';
+import { directoryIssue, directoryNote } from './directory-issues.js';
 import { parseCommand } from './terminal/parser.js';
 import { failure, result, text, blank, dim } from './terminal/result.js';
 
@@ -14,6 +16,46 @@ const systemActor = { id: 'system:workspace', displayName: 'Lasso', actorType: '
 // mounted yet, is retried when it reappears, at most this often.
 const ACTIVATION_RETRY_MS = 30_000;
 const UNAVAILABLE_MESSAGE = 'The folder is not available. Lasso will use it again when it reappears.';
+
+// Where each phase of reading a folder sits on its progress bar. Reading files
+// is mostly disk time; indexing parses them and takes most of the work, and
+// warming reads PDFs' text for search. A re-read has no files to fetch, so its
+// indexing fills the bar.
+const PROGRESS_SPANS = {
+  adding: { listing: [0, 0.04], reading: [0.04, 0.3], indexing: [0.3, 0.82], saving: [0.82, 0.85], warming: [0.85, 0.99] },
+  updating: { listing: [0, 0.08], reading: [0.08, 0.3], indexing: [0.3, 0.82], saving: [0.82, 0.85], warming: [0.85, 0.99] },
+  rereading: { indexing: [0, 0.95], saving: [0.95, 0.99] },
+};
+
+/**
+ * How far one folder has got through being added, brought up to date or
+ * re-read. Steps report their own units; this maps them onto one bar that
+ * only moves forward, so a phase that starts over never moves it back.
+ */
+class DirectoryProgress {
+  constructor({ kind, rootPath, name, pending }) {
+    this.kind = kind;
+    this.rootPath = rootPath;
+    this.name = name;
+    this.pending = pending;
+    this.phase = 'waiting';
+    this.fraction = 0;
+  }
+
+  report(step) {
+    const span = PROGRESS_SPANS[this.kind][step?.phase];
+    if (!span) return;
+    // Listing cannot know its total, so it approaches the end of its span.
+    const share = step.phase === 'listing' ? (step.files ?? 0) / ((step.files ?? 0) + 2_000)
+      : step.total > 0 ? Math.min(1, step.done / step.total) : 1;
+    this.phase = step.phase;
+    this.fraction = Math.max(this.fraction, span[0] + (span[1] - span[0]) * share);
+  }
+
+  toJSON() {
+    return { kind: this.kind, phase: this.phase, percent: Math.min(99, Math.floor(this.fraction * 100)) };
+  }
+}
 
 // The code is kept so a permission macOS withheld can be told from a failure of Lasso's own.
 function activationError(error) {
@@ -90,6 +132,8 @@ export class WorkspaceService {
     this.mutations = Promise.resolve();
     this.renameChecks = new Map();
     this.activationRetries = new Map();
+    // Folders being added, brought up to date or re-read, by project id.
+    this.indexing = new Map();
     timeline.workspace = this;
     dependencies.workspace = this;
   }
@@ -118,51 +162,103 @@ export class WorkspaceService {
   activeProjects() {
     this.followRenamedRoots();
     return this.projects().filter((p) => {
-      if (!p.active || this.errors.has(p.id)) return false;
+      if (!p.active || this.errors.has(p.id) || !this.serving(p)) return false;
       try { return fs.statSync(p.rootPath).isDirectory(); } catch { return false; }
     });
+  }
+
+  /**
+   * Whether a folder can answer suggestions. One being read keeps answering
+   * from its last index until a new version is recorded; that version's
+   * index is then built in slices, and asking it first would build it at once.
+   */
+  serving(project) {
+    return !this.indexing.has(project.id) || this.dependencies.isIndexed(project.currentSnapshotId);
   }
 
   revision() {
     return this.projects().map((p) => {
       let available = false;
       try { available = fs.statSync(p.rootPath).isDirectory(); } catch { /* disconnected or removed */ }
-      return `${p.id}:${Number(p.active)}:${Number(available)}:${p.currentSnapshotId}:${this.errors.get(p.id)?.message ?? ''}`;
+      return `${p.id}:${Number(p.active)}:${Number(available)}:${p.currentSnapshotId}:${Number(this.serving(p))}:${this.errors.get(p.id)?.message ?? ''}`;
     }).join('|');
   }
 
-  state() {
+  /** Starts reporting progress for a folder; `pending` lists one not recorded yet. */
+  beginIndexing(projectId, { kind, rootPath = null, name = null, pending = false }) {
+    const progress = new DirectoryProgress({ kind, rootPath, name, pending });
+    this.indexing.set(projectId, progress);
+    return progress;
+  }
+
+  endIndexing(projectId, progress) {
+    if (this.indexing.get(projectId) === progress) this.indexing.delete(projectId);
+  }
+
+  /** Runs steps in slices, reporting to `progress` and stopping if Lasso shuts down. */
+  runIndexing(steps, progress) {
+    return runSliced(steps, {
+      onProgress: (step) => progress.report(step),
+      cancelled: () => (this.closed ? new HttpError(503, 'Lasso is shutting down.') : null),
+    });
+  }
+
+  /**
+   * `options.pending` also lists folders chosen but not recorded yet, for the
+   * menu that shows their progress. Other clients cannot open them yet.
+   */
+  state(options = {}) {
     this.followRenamedRoots();
     const counts = new Map(this.timeline.listProjects().map((p) => [p.id, p.fileCount]));
     const directories = this.projects().map((p) => {
       const drive = this.timeline.drives?.projectState(p.id) ?? {};
+      const serving = this.serving(p);
       // A disconnected drive kept by the user stays searchable from its saved index.
       if (drive.availability === 'offline') {
-        return { ...p, ...drive, fileCount: counts.get(p.id) ?? 0, available: true, error: null, issue: null };
+        return { ...p, ...drive, fileCount: counts.get(p.id) ?? 0, available: true, serving, error: null, issue: null, note: null };
       }
       let available = false;
       try { available = fs.statSync(p.rootPath).isDirectory(); } catch { /* disconnected or removed */ }
+      // While a folder is read, its row shows how far that has got instead of
+      // the problem the read may be about to fix.
+      const progress = this.indexing.get(p.id);
+      if (progress && available) {
+        return { ...p, ...drive, fileCount: counts.get(p.id) ?? 0, available, serving, error: null, issue: null, note: null,
+          indexing: progress.toJSON() };
+      }
       const failure = this.errors.get(p.id) ?? null;
-      return { ...p, ...drive, fileCount: counts.get(p.id) ?? 0, available,
+      return { ...p, ...drive, fileCount: counts.get(p.id) ?? 0, available, serving,
         error: failure?.message ?? (available ? null : 'Directory is unavailable.'),
-        issue: this.issueFor(p, available, failure) };
+        ...this.problemsFor(p, available, failure) };
     });
+    // A folder still being read for the first time has no record yet.
+    for (const [id, progress] of options.pending ? this.indexing : []) {
+      if (!progress.pending || directories.some((directory) => directory.id === id)) continue;
+      directories.push({ id, name: progress.name, rootPath: progress.rootPath, active: true, currentSnapshotId: null,
+        currentVersion: null, fileCount: 0, available: true, serving: false, pending: true,
+        error: null, issue: null, note: null, indexing: progress.toJSON() });
+    }
     return { directories, revision: this.revision(),
-      activeProjectIds: directories.filter((p) => p.active && p.available && !p.error).map((p) => p.id) };
+      activeProjectIds: directories.filter((p) => p.active && p.available && !p.error && p.serving).map((p) => p.id) };
   }
 
   /**
-   * Indexing problems are read only for a folder in use: a paused one is not
-   * indexed again until it is switched on, which reports them afresh.
+   * A folder's issue, for its badge, and its note, for its tooltip. Indexing
+   * problems are read only for a folder in use: a paused one is not indexed
+   * again until it is switched on, which reports them afresh.
    */
-  issueFor(project, available, activationFailure) {
+  problemsFor(project, available, activationFailure) {
     const inUse = project.active && available && !activationFailure;
-    return directoryIssue({
-      available,
-      activationError: activationFailure,
-      readerBehind: inUse && this.dependencies.indexFreshness(project.id).stale,
-      failures: inUse ? this.terminal.indexing.failures(project.id) : [],
-    });
+    const failures = inUse ? this.terminal.indexing.failures(project.id) : [];
+    return {
+      issue: directoryIssue({
+        available,
+        activationError: activationFailure,
+        readerBehind: inUse && this.dependencies.indexFreshness(project.id).stale,
+        failures,
+      }),
+      note: directoryNote(failures),
+    };
   }
 
   /** Applies the fix the folder's issue offers. Only Lasso's own problems have one. */
@@ -171,24 +267,68 @@ export class WorkspaceService {
     if (!directory) throw new HttpError(404, 'Work directory not found.');
     if (!directory.issue?.fix) throw new HttpError(409, 'There is nothing for Lasso to fix in this folder.');
     if (directory.issue.kind === 'ACTIVATION') return this.toggle(projectId, true, actor);
-    return this.enqueue(() => {
-      if (directory.issue.kind === 'READER') {
-        this.dependencies.reindex(projectId, actor, { reason: 'fixed from the work directory list' });
-      } else {
-        this.terminal.indexing.refresh(projectId, actor);
+    const kind = directory.issue.kind === 'READER' ? 'rereading' : 'updating';
+    const progress = this.beginIndexing(projectId, { kind });
+    return this.enqueue(async () => {
+      try {
+        if (kind === 'rereading') {
+          await this.runIndexing(this.dependencies.reindexSteps(projectId, actor, { reason: 'fixed from the work directory list' }), progress);
+        } else {
+          // A checkpoint reads every file again, so the files that failed are retried.
+          await this.runIndexing(this.timeline.captureSteps(projectId, actor, {
+            source: 'EXPLICIT_CHECKPOINT', prepare: (capture) => this.dependencies.ensureIndexSteps(projectId, capture.snapshot.id),
+          }), progress);
+          await this.runIndexing(this.dependencies.ensureIndexSteps(projectId), progress);
+        }
+      } finally {
+        this.endIndexing(projectId, progress);
       }
       return this.state();
-    });
+    }).finally(() => this.endIndexing(projectId, progress));
   }
 
   async restore() {
     // Reconcile independently, so an unavailable volume cannot prevent other
-    // enabled folders from starting. Yield between roots to serve the menu.
+    // enabled folders from starting. Each is read in slices, so the menu and
+    // suggestions from folders already started are served meanwhile.
     for (const p of this.projects().filter((p) => p.active)) {
       await yieldTurn();
       if (this.closed) return;
-      try { this.activate(p.id, systemActor); }
-      catch (error) { this.errors.set(p.id, activationError(error)); }
+      const progress = this.beginIndexing(p.id, { kind: 'updating' });
+      try { await this.activateAsync(p.id, systemActor, progress); }
+      catch (error) {
+        if (this.closed) return;
+        this.errors.set(p.id, activationError(error));
+      } finally {
+        this.endIndexing(p.id, progress);
+      }
+    }
+    this.upgradeReaders();
+  }
+
+  /**
+   * Folders indexed by an older reader are read again with the current one,
+   * one at a time and behind anything the user asked for. A reading that
+   * matches what is recorded only notes the reader; one that differs is
+   * recorded as a new version, as Re-read Files would. Until it runs, or if
+   * it fails, the folder offers Re-read Files.
+   */
+  upgradeReaders() {
+    for (const project of this.projects()) {
+      if (!project.active || this.errors.has(project.id) || !this.dependencies.indexFreshness(project.id).stale) continue;
+      this.enqueue(async () => {
+        if (!this.isActive(project.id) || this.errors.has(project.id)
+          || !this.dependencies.indexFreshness(project.id).stale) return;
+        const progress = this.beginIndexing(project.id, { kind: 'rereading' });
+        try {
+          await this.runIndexing(this.dependencies.reindexSteps(project.id, systemActor,
+            { reason: "Lasso's file reader was updated" }), progress);
+        } finally {
+          this.endIndexing(project.id, progress);
+        }
+      }).catch((error) => {
+        if (!this.closed) console.error(`Re-reading ${project.rootPath} with the current reader failed:`, error.message);
+      });
     }
   }
 
@@ -269,16 +409,27 @@ export class WorkspaceService {
   }
 
   activate(projectId, actor) {
+    return runSync(this.activationSteps(projectId, actor));
+  }
+
+  /** The same, in slices, reporting to `progress`. */
+  activateAsync(projectId, actor, progress) {
+    return this.runIndexing(this.activationSteps(projectId, actor), progress);
+  }
+
+  *activationSteps(projectId, actor) {
     const project = this.timeline.getProject(projectId);
     // An offline drive's saved index is served as it is; the drive service
     // reconciles and watches the folder again when the drive returns.
     const offline = this.timeline.drives?.projectState(projectId).availability === 'offline';
     if (!offline) {
       if (!fs.statSync(project.rootPath).isDirectory()) throw new HttpError(400, 'The work directory is unavailable.');
-      this.timeline.capture(projectId, actor, { source: 'OPEN_RECONCILE' });
+      yield* this.timeline.captureSteps(projectId, actor, {
+        source: 'OPEN_RECONCILE', prepare: (capture) => this.dependencies.ensureIndexSteps(projectId, capture.snapshot.id),
+      });
     }
-    this.dependencies.ensureIndex(projectId);
-    this.dependencies.warmPredictionCaches(projectId);
+    yield* this.dependencies.ensureIndexSteps(projectId);
+    yield* this.dependencies.warmPredictionCacheSteps(projectId);
     this.errors.delete(projectId);
     this.activationRetries.delete(projectId);
     if (offline) return;
@@ -302,58 +453,102 @@ export class WorkspaceService {
     if (!Array.isArray(rootPaths) || !rootPaths.length || rootPaths.some((p) => typeof p !== 'string' || !p.trim())) {
       throw new HttpError(400, 'Choose one or more work directories.');
     }
-    return this.enqueue(async () => {
-      // Validate every choice before importing, including aliases to one root.
-      const roots = [...new Set(rootPaths.map((input) => {
+    // Validate every choice before importing, including aliases to one root.
+    let roots;
+    try {
+      roots = [...new Set(rootPaths.map((input) => {
         try {
           const root = fs.realpathSync(normalizeProjectRootPath(input));
           if (!fs.statSync(root).isDirectory()) throw new Error();
           return root;
         } catch { throw new HttpError(400, `Work directory is unavailable: ${input}`); }
       }))];
-      for (const root of roots) {
-        await yieldTurn();
-        if (this.closed) throw new HttpError(503, 'Lasso is shutting down.');
-        const imported = this.timeline.importProject(root, actor, { watch: false });
-        this.db.prepare('UPDATE projects SET workspace_active = 1, workspace_removed = 0 WHERE id = ?').run(imported.project.id);
-        try {
-          if (imported.imported) {
-            this.dependencies.ensureIndex(imported.project.id);
-            this.dependencies.warmPredictionCaches(imported.project.id);
-            this.timeline.watchProject(imported.project.id, actor);
-            if (this.timeline.config.watchProjects && !this.timeline.watchers.has(imported.project.id)) {
-              throw new HttpError(400, 'The work directory could not be watched.');
-            }
-            this.errors.delete(imported.project.id);
-          } else this.activate(imported.project.id, actor);
-        } catch (error) {
-          this.db.prepare('UPDATE projects SET workspace_active = 0 WHERE id = ?').run(imported.project.id);
-          this.timeline.unwatchProject(imported.project.id);
-          this.timeline.scanCaches.delete(imported.project.id);
-          this.errors.set(imported.project.id, activationError(error));
-          throw new HttpError(400, `Could not add the work directory: ${activationError(error).message}`);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    // Each folder is listed with its progress from the moment it is chosen,
+    // under the id it will keep, while earlier ones are still being read.
+    const plans = roots.map((root) => {
+      const known = this.db.prepare('SELECT id, name, workspace_active, workspace_removed FROM projects WHERE root_path = ?').get(root);
+      const projectId = known?.id ?? crypto.randomUUID();
+      const ready = known && known.workspace_active && !known.workspace_removed && !this.errors.has(known.id);
+      const progress = ready ? null : this.beginIndexing(projectId, {
+        kind: known ? 'updating' : 'adding', rootPath: root, name: known?.name ?? path.basename(root),
+        pending: !known || Boolean(known.workspace_removed),
+      });
+      return { root, projectId, progress };
+    });
+    const finish = () => { for (const { projectId, progress } of plans) if (progress) this.endIndexing(projectId, progress); };
+    return this.enqueue(async () => {
+      try {
+        for (const { root, projectId, progress } of plans) {
+          await yieldTurn();
+          if (this.closed) throw new HttpError(503, 'Lasso is shutting down.');
+          const reported = progress ?? this.beginIndexing(projectId, { kind: 'updating' });
+          try { await this.addRoot(root, projectId, reported, actor); }
+          finally { this.endIndexing(projectId, reported); }
         }
+      } finally {
+        finish();
       }
       return this.state();
-    });
+    }).finally(finish);
+  }
+
+  async addRoot(root, projectId, progress, actor) {
+    // The new folder's first index is built before anything hears of it.
+    const imported = await this.runIndexing(this.timeline.importProjectSteps(root, actor, {
+      watch: false, projectId, prepare: (result) => this.dependencies.ensureIndexSteps(result.project.id),
+    }), progress);
+    const id = imported.project.id;
+    this.db.prepare('UPDATE projects SET workspace_active = 1, workspace_removed = 0 WHERE id = ?').run(id);
+    try {
+      if (imported.imported) {
+        await this.runIndexing(this.dependencies.warmPredictionCacheSteps(id), progress);
+        this.timeline.watchProject(id, actor);
+        if (this.timeline.config.watchProjects && !this.timeline.watchers.has(id)) {
+          throw new HttpError(400, 'The work directory could not be watched.');
+        }
+        this.errors.delete(id);
+      } else {
+        if (id !== projectId) {
+          this.endIndexing(projectId, progress);
+          this.indexing.set(id, progress);
+        }
+        try { await this.activateAsync(id, actor, progress); }
+        finally { this.endIndexing(id, progress); }
+      }
+    } catch (error) {
+      if (this.closed) throw error;
+      this.db.prepare('UPDATE projects SET workspace_active = 0 WHERE id = ?').run(id);
+      this.timeline.unwatchProject(id);
+      this.timeline.scanCaches.delete(id);
+      this.errors.set(id, activationError(error));
+      throw new HttpError(400, `Could not add the work directory: ${activationError(error).message}`);
+    }
   }
 
   toggle(projectId, active, actor = systemActor) {
     if (typeof active !== 'boolean') throw new HttpError(400, 'Directory active state must be true or false.');
-    return this.enqueue(() => {
+    return this.enqueue(async () => {
       this.timeline.getProject(projectId);
       if (active) {
         if (!this.isActive(projectId) || this.errors.has(projectId)) {
           // Record activation only after a successful reconcile. A failed
           // folder selection must not claim that it is ready for suggestions.
           this.db.prepare('UPDATE projects SET workspace_active = 1 WHERE id = ?').run(projectId);
-          try { this.activate(projectId, actor); }
+          const progress = this.beginIndexing(projectId, { kind: 'updating' });
+          try { await this.activateAsync(projectId, actor, progress); }
           catch (error) {
+            if (this.closed) throw error;
             this.db.prepare('UPDATE projects SET workspace_active = 0 WHERE id = ?').run(projectId);
             this.timeline.unwatchProject(projectId);
             this.errors.set(projectId, activationError(error));
             throw new HttpError(400, `Could not enable the work directory: ${activationError(error).message}`);
+          } finally {
+            this.endIndexing(projectId, progress);
           }
+          this.upgradeReaders();
         }
       } else {
         this.db.prepare('UPDATE projects SET workspace_active = 0 WHERE id = ?').run(projectId);
@@ -465,6 +660,10 @@ export class WorkspaceService {
       pendingDependencies: availablePending,
     }, cursor) : null;
     if (linkedContext && !projectsById.has(this.dependencies.sourceProjectId(linkedContext.source))) linkedContext = null;
+    // A value is as deep as a source goes. Once the newest accepted source is
+    // one ("The Bracket is 100 mm"), every directory answers the words after it.
+    const settledAt = this.dependencies.settledValueEnd(input, linkedContext);
+    if (settledAt >= 0) linkedContext = null;
     // A subject named after a joining word ends the accepted source's scope
     // whichever directory holds it ("Revenue was 485000 and the brack"). The
     // source's own directory checks this itself, so only the others are asked.
@@ -474,7 +673,8 @@ export class WorkspaceService {
         ...input, documentPath: input.documentProjectId === project.id ? input.documentPath : null,
       }, cursor, linkedContext));
     // Every link ends at or before the newest, so one boundary releases them all.
-    const predictionInput = namedElsewhere ? { ...input, sourceScopeBoundary: linkedContext.anchor.end } : input;
+    const predictionInput = namedElsewhere ? { ...input, sourceScopeBoundary: linkedContext.anchor.end }
+      : settledAt >= 0 ? { ...input, sourceScopeBoundary: settledAt, settledValueEnd: settledAt } : input;
     if (namedElsewhere) linkedContext = null;
     const currentPending = linkedContext
       ? availablePending.filter((link) => link.sourceObjectId === linkedContext.source.id) : availablePending;
@@ -578,35 +778,66 @@ export class WorkspaceService {
    * active folder. Reuse it until a folder's version, state or open indexing
    * issues change, so a poll cannot hold up suggestions while typing.
    */
-  activity() {
+  activity(options = {}) {
     this.followRenamedRoots();
+    // Native links belong to their host app, not a browser document. These
+    // opaque IDs extend the notification set without transmitting host text.
+    const sourceObjectIds = [...new Set((options.sourceObjectIds ?? [])
+      .filter(id => typeof id === 'string' && id.length <= 128))].sort().slice(0, 256);
     const openIssues = this.db.prepare('SELECT COUNT(*) AS count FROM index_failures WHERE resolved_at IS NULL').get().count;
-    const key = `${this.revision()}#${openIssues}`;
+    const key = `${this.revision()}#${openIssues}#${JSON.stringify(sourceObjectIds)}`;
     if (this.activityCache?.key === key) return this.activityCache.value;
-    const value = this.computeActivity();
+    const value = this.computeActivity(sourceObjectIds);
     this.activityCache = { key, value };
     return value;
   }
 
-  computeActivity() {
+  computeActivity(sourceObjectIds = []) {
     const projects = this.activeProjects();
-    const changes = projects.flatMap(project => this.terminal.graph.valueChanges(project.id, { limit: 8, ownSourcesOnly: true })
-      .map(change => ({ ...change, projectId: project.id, projectName: project.name })));
-    changes.sort((a, b) => String(b.changedAt).localeCompare(String(a.changedAt))
-      || b.toVersion - a.toVersion || a.objectId.localeCompare(b.objectId));
-    const session = this.terminalSession();
+    const files = projects.reduce((sum, project) => sum + this.timeline.files.count(project.currentSnapshotId), 0);
+    const staleSources = new Set();
+    const failures = projects.reduce((sum, project) => sum + this.db.prepare(
+      'SELECT COUNT(*) AS count FROM index_failures WHERE project_id = ? AND resolved_at IS NULL').get(project.id).count, 0);
     const references = new Map();
     for (const project of projects) for (const dependency of this.dependencies.currentDependencies(project.id)) {
       const counts = references.get(dependency.source.id) ?? { referenceCount: 0, unresolvedReferences: 0 };
       counts.referenceCount += 1;
-      if (!['LINKED', 'PREDICTED'].includes(dependency.status)) counts.unresolvedReferences += 1;
+      if (!['LINKED', 'PREDICTED'].includes(dependency.status)) {
+        counts.unresolvedReferences += 1;
+        staleSources.add(`${project.id}:${dependency.source.id}`);
+      }
       references.set(dependency.source.id, counts);
     }
-    const unavailable = this.state().directories.filter(directory => directory.active
-      && (!directory.available || directory.error)).length;
-    return { directories: projects.length, files: session.files, stale: session.stale,
-      failures: session.failures + unavailable, changes: changes.slice(0, 8).map(change => ({ ...change,
-        ...(references.get(change.objectId) ?? { referenceCount: 0, unresolvedReferences: 0 }) })) };
+    for (const objectId of sourceObjectIds) {
+      const counts = references.get(objectId) ?? { referenceCount: 0, unresolvedReferences: 0 };
+      counts.referenceCount += 1;
+      references.set(objectId, counts);
+    }
+    const linkedIds = new Set(references.keys());
+    const recentFirst = (a, b) => String(b.changedAt).localeCompare(String(a.changedAt))
+      || b.toVersion - a.toVersion || a.objectId.localeCompare(b.objectId);
+    const decorate = (change, project) => ({ ...change, projectId: project.id, projectName: project.name,
+      ...(references.get(change.objectId) ?? { referenceCount: 0, unresolvedReferences: 0 }) });
+    // A linked whole file can change without changing its title, and a removed
+    // source has no current value. Both still need a notification. Select linked
+    // IDs before applying the limit so a large CSV cannot crowd them out.
+    const linkedChanges = projects.flatMap(project => linkedIds.size ? this.terminal.graph.activityChanges(project.id,
+      { limit: 256, objectIds: linkedIds, includeSourceChanges: true })
+      .map(change => decorate(change, project)) : []).sort(recentFirst).slice(0, 256);
+    const linkedById = new Map(linkedChanges.map(change => [change.objectId, change]));
+    const otherChanges = projects.flatMap(project => this.terminal.graph.activityChanges(project.id,
+      { limit: 8 }).filter(change => !linkedById.has(change.objectId))
+      .map(change => decorate(change, project))).sort(recentFirst);
+    // state() also computes detailed folder issues by resolving drawing objects.
+    // Eligibility is already known here; keep that full-index work out of polls.
+    const availableIds = new Set(projects.map(project => project.id));
+    const unavailable = this.projects().filter(project => project.active && !availableIds.has(project.id)
+      && this.timeline.drives?.projectState(project.id).availability !== 'offline').length;
+    return { directories: projects.length, files, stale: staleSources.size,
+      failures: failures + unavailable, changes: [...linkedChanges, ...otherChanges].slice(0, 8), linkedChanges,
+      // Include links with no changes yet: the native client must distinguish
+      // their first edit from old history newly exposed by adding a link.
+      linkedSourceObjectIds: [...linkedIds].sort() };
   }
 
   terminalComplete(input, options = {}) {

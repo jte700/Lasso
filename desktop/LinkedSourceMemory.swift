@@ -1,7 +1,9 @@
 //  What the suggestion card is focused on in the field being typed in.
 //
 //  Tab accepts a source, and each request names it so the server offers its
-//  values while its sentence goes on. fn+Left moves out to every work
+//  values while its sentence goes on. A value is as deep as a source goes:
+//  once one is tabbed, the server offers the next words from every work
+//  directory again. fn+Left moves out to every work
 //  directory; fn+Right moves back in to the last focus or, on a card
 //  already focused, into the selected row.
 //
@@ -29,6 +31,8 @@ struct LinkedSourceMemory {
         case chosen(Source)
         /// fn+Left moved out to every directory from this focus.
         case movedOut(Source?)
+        /// The source whose values the server actually showed on the card.
+        case displayed(Source)
     }
 
     /// Where an accepted text is in the window last sent.
@@ -43,6 +47,7 @@ struct LinkedSourceMemory {
         var pending: [(source: Source, range: Range<Int>)] = []
         var chosen: Source?
         var recent: Source?
+        var displayed: Source?
     }
 
     private static let acceptedLimit = 8
@@ -101,6 +106,14 @@ struct LinkedSourceMemory {
         windowReachesStart = reachesStart
     }
 
+    /// Remember the card's parent source separately from an accepted value.
+    /// Keeping this in the step history preserves delete-to-undo navigation.
+    mutating func noteFocus(_ source: Source) {
+        if case .displayed(let previous) = steps.last, previous == source { return }
+        steps.append(.displayed(source))
+        trim()
+    }
+
     /// A new field starts with nothing focused.
     mutating func forget() {
         earlier = focus.recent
@@ -114,7 +127,7 @@ struct LinkedSourceMemory {
         let kept = Set(projectIds)
         steps = steps.compactMap { step in
             switch step {
-            case .accepted(let source, _), .chosen(let source):
+            case .accepted(let source, _), .chosen(let source), .displayed(let source):
                 return kept.contains(source.projectId) ? step : nil
             case .movedOut(let source):
                 return .movedOut(source.flatMap { kept.contains($0.projectId) ? $0 : nil })
@@ -203,10 +216,14 @@ struct LinkedSourceMemory {
                 }
                 undone = false
                 focus.chosen = nil
+                focus.recent = focus.displayed ?? source
+            case .displayed(let source) where !undone:
                 focus.recent = source
+                focus.displayed = source
             case .chosen(let source) where !undone:
                 focus.chosen = source
                 focus.recent = source
+                focus.displayed = source
             case .movedOut(let source) where !undone:
                 focus.pending.removeAll()
                 focus.chosen = nil

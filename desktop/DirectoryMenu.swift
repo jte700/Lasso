@@ -219,6 +219,42 @@ final class DirectorySelectionMark: NSButton {
     @objc private func toggle() { onToggle?() }
 }
 
+/// Visible feedback while a directory request reads or re-indexes files. The
+/// server replies when it finishes, so the native bar stays indeterminate.
+final class NativeMenuProgressRow: NSView {
+    let actionItem: NSMenuItem
+    private let titleLabel: NSTextField
+    /// No folder reports how far a removal has got, so its blocks sweep the track.
+    let progress = DirectoryProgressBar()
+
+    override var isFlipped: Bool { true }
+
+    init(item: NSMenuItem) {
+        actionItem = item
+        titleLabel = NSTextField(labelWithString: item.title)
+        super.init(frame: NSRect(x: 0, y: 0, width: 280, height: 48))
+        autoresizingMask = [.width]
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.textColor = .labelColor
+        titleLabel.lineBreakMode = .byTruncatingMiddle
+        titleLabel.frame = NSRect(x: 14, y: 1, width: 252, height: 20)
+        titleLabel.autoresizingMask = [.width]
+        titleLabel.toolTip = item.title
+        addSubview(titleLabel)
+        progress.indeterminate = true
+        progress.accent = .controlAccentColor
+        progress.frame = NSRect(x: 14, y: 27, width: 252, height: 9)
+        progress.autoresizingMask = [.width]
+        progress.setAccessibilityLabel(item.title)
+        progress.setAccessibilityHelp("Lasso is updating your work directories. This indicator stays active until the operation finishes.")
+        addSubview(progress)
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+}
+
 private func dispatchMenuAction(_ item: NSMenuItem) {
     guard item.isEnabled, let action = item.action else { return }
     NSApp.sendAction(action, to: item.target, from: item)
@@ -266,6 +302,281 @@ final class DirectoryIssueBadge: NSView {
     override func mouseDown(with event: NSEvent) { onHover?(true) }
 }
 
+/// A track of shaded blocks that fills in the folder's colour, after Loading
+/// UI's accordion loader: a solid block leads, a dark and a light shade trail
+/// it, and they spread apart as the bar moves and close up when it rests. The
+/// solid block is where the work has got to; the fill settles behind the
+/// slowest shade, so at rest the bar is solid up to its value. Drawn
+/// directly, like the switch it stands in for, so it keeps its colour when
+/// the menu's window is not key.
+final class DirectoryProgressBar: NSView {
+    static let track: Character = "\u{2591}"
+    static let light: Character = "\u{2592}"
+    static let dark: Character = "\u{2593}"
+    static let solid: Character = "\u{2588}"
+    /// How far behind the leading block each shade trails as the bar fills, as in the loader.
+    static let lag: [Double] = [0.04, 0.08]
+    /// One sweep there and back while nothing reports a percentage.
+    static let sweepSeconds: Double = 2.8
+
+    var tint: DirectoryToggleColor = .blue { didSet { needsDisplay = true } }
+    /// Drawn instead of the folder colour, for a bar that belongs to no folder.
+    var accent: NSColor? { didSet { needsDisplay = true } }
+    /// From 0 to 100: where the leading block is.
+    var value: Double = 0 {
+        didSet {
+            guard value != oldValue else { return }
+            if animates { startAnimating() } else { settle() }
+            needsDisplay = true
+        }
+    }
+    /// With no percentage to show, the blocks sweep the track back and forth.
+    var indeterminate = false {
+        didSet {
+            needsDisplay = true
+            if indeterminate && animates { startAnimating() }
+        }
+    }
+    /// The shades' places, in cells: each follows the one ahead of it.
+    private(set) var followers: [Double] = [0, 0]
+    private var timer: Timer?
+    private var elapsed: Double = 0
+    private var lastFrame: CFTimeInterval = 0
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.progressIndicator)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    deinit { timer?.invalidate() }
+
+    private var animates: Bool {
+        window != nil && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    private var metrics: (height: CGFloat, font: NSFont, size: NSSize, block: NSRect)?
+
+    /// Block glyphs fill the line, so the bar is as tall as the font's line.
+    /// `block` is where the solid glyph's ink falls, from the baseline.
+    private var glyphMetrics: (font: NSFont, size: NSSize, block: NSRect) {
+        if let metrics, metrics.height == bounds.height { return (metrics.font, metrics.size, metrics.block) }
+        let points = max(6, min(9, bounds.height * 0.82))
+        let font = NSFont(name: "Menlo", size: points) ?? .monospacedSystemFont(ofSize: points, weight: .regular)
+        let size = (String(Self.solid) as NSString).size(withAttributes: [.font: font])
+        var character = Self.solid.utf16.first!
+        var glyph: CGGlyph = 0
+        CTFontGetGlyphsForCharacters(font, &character, &glyph, 1)
+        let block = font.boundingRect(forCGGlyph: glyph)
+        metrics = (bounds.height, font, size, block)
+        return (font, size, block)
+    }
+
+    /// How many cells fit across the bar.
+    var cellCount: Int { max(4, Int(bounds.width / max(1, glyphMetrics.size.width))) }
+
+    /// The leading block's place, in cells.
+    var lead: Double {
+        let cells = Double(cellCount)
+        if indeterminate { return Self.sweep(elapsed, cells: cells) }
+        return cells * min(max(value, 0), 100) / 100
+    }
+
+    /// Where a block sweeping the track is at a time: eased there and back.
+    static func sweep(_ time: Double, cells: Double) -> Double {
+        let phase = (time.truncatingRemainder(dividingBy: sweepSeconds) + sweepSeconds)
+            .truncatingRemainder(dividingBy: sweepSeconds) / sweepSeconds
+        let half = phase < 0.5 ? phase * 2 : (1 - phase) * 2
+        let eased = half < 0.5 ? 2 * half * half : 1 - pow(-2 * half + 2, 2) / 2
+        return eased * max(0, cells - 1)
+    }
+
+    /**
+     The glyph each cell shows. `lead` and `followers` are places in cells.
+     A filling bar shows a cell solid once it is wholly reached, so 99% never
+     looks done; the shades trailing a moving leader sit in the cells they
+     are crossing, behind it, and at rest they are hidden in the solid fill.
+     A sweeping bar has only its three blocks on the track.
+     */
+    static func cells(count: Int, lead: Double, followers: [Double], fills: Bool) -> [Character] {
+        guard count > 0 else { return [] }
+        if !fills {
+            let at = { (place: Double) in min(count - 1, max(0, Int(place.rounded()))) }
+            var cells = [Character](repeating: track, count: count)
+            for (place, glyph) in zip(followers, [dark, light]).reversed() { cells[at(place)] = glyph }
+            cells[at(lead)] = solid
+            return cells
+        }
+        let leader = min(count, Int(max(0, lead))) - 1
+        let solidCells = min(leader + 1, Int(max(0, followers.min() ?? lead)))
+        var cells = [Character](repeating: track, count: count)
+        for index in 0..<max(0, solidCells) { cells[index] = solid }
+        for (place, glyph) in zip(followers, [dark, light]) {
+            let crossing = Int(max(0, place))
+            if crossing < leader && cells[crossing] == track { cells[crossing] = glyph }
+        }
+        if leader >= 0 { cells[leader] = solid }
+        return cells
+    }
+
+    /// The glyphs on screen now, for tests and VoiceOver's sake.
+    var glyphs: [Character] { Self.cells(count: cellCount, lead: lead, followers: followers, fills: !indeterminate) }
+
+    /// Shades join the leading block at once, as with Reduce Motion.
+    func settle() {
+        followers = followers.map { _ in lead }
+        stopAnimating()
+    }
+
+    /// One frame. Public so tests can step it without a run loop.
+    func advance(by seconds: Double) {
+        elapsed += seconds
+        if indeterminate {
+            // The loader's shades trail by a block and two at full speed and
+            // bunch up where it turns; the delays that do that depend on how
+            // many cells the track has.
+            let cells = Double(cellCount)
+            let fastest = 4 * max(1, cells - 1) / Self.sweepSeconds
+            followers = [1.0, 2.0].map { Self.sweep(elapsed - $0 / fastest, cells: cells) }
+        } else {
+            // Each shade closes on the block ahead of it, as a delay would.
+            var ahead = lead
+            followers = zip(followers, Self.lag).map { place, lag in
+                let caught = place + (ahead - place) * (1 - exp(-seconds / (lag * 0.75)))
+                ahead = caught
+                return caught
+            }
+            if followers.allSatisfy({ abs($0 - lead) < 0.02 }) {
+                followers = followers.map { _ in lead }
+                stopAnimating()
+            }
+        }
+        needsDisplay = true
+    }
+
+    private func startAnimating() {
+        guard timer == nil else { return }
+        lastFrame = CACurrentMediaTime()
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let now = CACurrentMediaTime()
+            self.advance(by: min(0.1, now - self.lastFrame))
+            self.lastFrame = now
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    private func stopAnimating() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    var isAnimating: Bool { timer != nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil || isHidden { stopAnimating(); return }
+        if indeterminate && animates { startAnimating() }
+    }
+
+    override var isHidden: Bool {
+        didSet { if isHidden { stopAnimating() } else if indeterminate && animates { startAnimating() } }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let glyphs = self.glyphs
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let trackColor = NSColor.labelColor.withAlphaComponent(dark ? 0.42 : 0.34)
+        let (font, size, block) = glyphMetrics
+        let origin = (bounds.height - size.height) / 2
+        let fill = accent ?? tint.color
+        // Solid blocks are filled as one rectangle where their ink would be,
+        // since glyphs side by side leave hairline seams; the shades are drawn
+        // as glyphs, a run of one at a time at the font's own spacing.
+        var start = 0
+        while start < glyphs.count {
+            var end = start
+            while end < glyphs.count && glyphs[end] == glyphs[start] { end += 1 }
+            let x = CGFloat(start) * size.width
+            if glyphs[start] == Self.solid {
+                fill.setFill()
+                let ink = NSRect(x: x, y: origin - font.descender + block.minY,
+                                 width: CGFloat(end - start) * size.width, height: block.height)
+                backingAlignedRect(ink, options: .alignAllEdgesNearest).fill()
+            } else {
+                (String(repeating: String(glyphs[start]), count: end - start) as NSString)
+                    .draw(at: NSPoint(x: x, y: origin),
+                          withAttributes: [.font: font, .foregroundColor: glyphs[start] == Self.track ? trackColor : fill])
+            }
+            start = end
+        }
+    }
+}
+
+/// Counts a folder's percentage up to what the server last reported, one
+/// percent after another, so a report that jumps from 12% to 40% plays as a
+/// count rather than a leap. It never runs ahead of the server, and never
+/// back: the bar shows only work that is done.
+final class ProgressCounter {
+    private(set) var shown: Double = 0
+    private(set) var target: Double = 0
+    private var timer: Timer?
+    var onChange: ((Double) -> Void)?
+    /// Called each time the count catches up with the latest report.
+    var onCaughtUp: (() -> Void)?
+    var isCounting: Bool { timer != nil }
+
+    /// Percent per second: brisk across a wide gap, about thirty a second
+    /// across a narrow one, so each percent is visible as it passes.
+    static func speed(gap: Double) -> Double { max(30, gap * 4) }
+
+    func move(to value: Double, animated: Bool) {
+        target = min(100, max(value, target))
+        guard animated else {
+            stop()
+            shown = target
+            onChange?(shown)
+            onCaughtUp?()
+            return
+        }
+        guard shown < target else { onCaughtUp?(); return }
+        guard timer == nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in self?.advance(by: 1.0 / 60) }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    /// One frame of the count. Public so tests can step it without a run loop.
+    func advance(by seconds: Double) {
+        let gap = target - shown
+        guard gap > 0 else { stop(); onCaughtUp?(); return }
+        shown = min(target, shown + Self.speed(gap: gap) * seconds)
+        onChange?(shown)
+        if shown >= target {
+            stop()
+            onCaughtUp?()
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    /// Back to 0% for a new run: the count never moves back within one.
+    func reset() {
+        stop()
+        shown = 0
+        target = 0
+        onChange?(shown)
+    }
+
+    deinit { timer?.invalidate() }
+}
+
 final class NativeMenuToggleRow: NSView {
     private var item: NSMenuItem
     private let titleLabel: NSTextField
@@ -296,6 +607,25 @@ final class NativeMenuToggleRow: NSView {
     private(set) var isSelecting = false
     var isSelected: Bool { selectionMark.isSelected }
     private var hovering = false { didSet { if hovering != oldValue { needsDisplay = true } } }
+    private let progressBar = DirectoryProgressBar()
+    private let percentLabel = NSTextField(labelWithString: "")
+    let progressCounter = ProgressCounter()
+    /// The server stopped reporting: the count finishes at 100% before the
+    /// row gives back its switch.
+    private var finishingProgress = false
+    private var hideProgress: DispatchWorkItem?
+    /// While the folder is read, its row shows how far that has got in place of its switch.
+    var progress: DirectoryProgress? {
+        didSet { applyProgress(previous: oldValue) }
+    }
+    var isShowingProgress: Bool { !progressBar.isHidden }
+    var progressBarView: DirectoryProgressBar { progressBar }
+    var percentText: String { percentLabel.stringValue }
+    /// How long the full bar stays before the switch returns.
+    static let progressHoldSeconds: TimeInterval = 0.45
+    /// Room for "100%" to the right of the bar.
+    static let percentWidth: CGFloat = 32
+    private let titleX: CGFloat
 
     override var isFlipped: Bool { true }
 
@@ -310,6 +640,11 @@ final class NativeMenuToggleRow: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         refreshHover()
+        if window != nil { hasBeenOnScreen = true }
+        // A count left behind while the menu was closed finishes on screen.
+        if window != nil, !progressBar.isHidden {
+            progressCounter.move(to: finishingProgress ? 100 : progressCounter.target, animated: animatesProgress)
+        }
     }
 
     override func mouseEntered(with event: NSEvent) { hovering = item.isEnabled }
@@ -355,6 +690,7 @@ final class NativeMenuToggleRow: NSView {
 
         let iconWidth: CGFloat = item.image == nil ? 0 : 22
         let width = min(480, max(260, 14 + iconWidth + title.frame.width + 18 + 24 + 8 + 40 + 12))
+        titleX = 14 + iconWidth
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: 32))
         autoresizingMask = [.width]
         toolTip = item.toolTip
@@ -399,7 +735,111 @@ final class NativeMenuToggleRow: NSView {
             self.onIssueHover?(self, inside)
         }
         addSubview(issueBadge)
+        // A bar under the name, with the count where the switch is.
+        progressBar.tint = color
+        progressBar.autoresizingMask = [.width]
+        progressBar.setAccessibilityLabel("Indexing \(item.title)")
+        progressBar.isHidden = true
+        addSubview(progressBar)
+        percentLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+        percentLabel.textColor = .secondaryLabelColor
+        percentLabel.alignment = .right
+        percentLabel.autoresizingMask = [.minXMargin]
+        percentLabel.setAccessibilityElement(false)
+        percentLabel.isHidden = true
+        addSubview(percentLabel)
+        progressCounter.onChange = { [weak self] shown in self?.showCount(shown) }
+        progressCounter.onCaughtUp = { [weak self] in self?.countCaughtUp() }
         setSelecting(selecting, selected: selected, animated: false)
+    }
+
+    /// Counting plays once a row has been on screen, and not with Reduce
+    /// Motion: a row built for the next menu takes its value at once. The
+    /// menu detaches its rows while it rebuilds, which is when the next report
+    /// arrives, so being in a window right now is not the test.
+    private var hasBeenOnScreen = false
+    private var animatesProgress: Bool {
+        (hasBeenOnScreen || window != nil) && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    private func applyProgress(previous: DirectoryProgress?) {
+        if let progress {
+            // A new run counts from 0%, also after one that reached 100%:
+            // the count never moves back within a run, so it starts afresh.
+            let starting = progressBar.isHidden || finishingProgress
+            hideProgress?.cancel()
+            hideProgress = nil
+            finishingProgress = false
+            if starting {
+                progressCounter.reset()
+                progressBar.settle()
+            }
+            if progressBar.isHidden { setProgressVisible(true) }
+            progressCounter.move(to: Double(progress.percent), animated: animatesProgress)
+            progressBar.setAccessibilityHelp(progress.activity)
+            toolTip = "\(progress.activity)\u{2026}"
+        } else if previous != nil && !progressBar.isHidden {
+            // Done: count the rest of the way, then give the row back its switch.
+            finishingProgress = true
+            toolTip = item.toolTip
+            progressCounter.move(to: 100, animated: animatesProgress)
+        }
+    }
+
+    private func showCount(_ shown: Double) {
+        let percent = Int(shown.rounded(.down))
+        progressBar.value = shown
+        percentLabel.stringValue = "\(percent)%"
+        progressBar.setAccessibilityValue("\(percent) percent")
+    }
+
+    private func countCaughtUp() {
+        guard finishingProgress, progressCounter.shown >= 100, hideProgress == nil else { return }
+        let hide = DispatchWorkItem { [weak self] in
+            guard let self, self.finishingProgress else { return }
+            self.hideProgress = nil
+            self.finishingProgress = false
+            self.setProgressVisible(false)
+        }
+        hideProgress = hide
+        if animatesProgress {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.progressHoldSeconds, execute: hide)
+        } else {
+            hide.perform()
+        }
+    }
+
+    /// Swaps the switch and colour circle for the percentage and bar, or back.
+    private func setProgressVisible(_ visible: Bool) {
+        let width = bounds.width
+        progressBar.isHidden = !visible
+        percentLabel.isHidden = !visible
+        toggle.isHidden = visible
+        colorButton.isHidden = visible
+        if visible {
+            setPaletteVisible(false)
+            progressCounter.stop()
+            showCount(progressCounter.shown)
+            // The name above, and the bar under it with its percentage to its right.
+            titleLabel.frame = NSRect(x: titleX, y: 2, width: max(40, width - titleX - 12),
+                                      height: titleLabel.frame.height)
+            percentLabel.frame = NSRect(x: width - 12 - Self.percentWidth, y: 19, width: Self.percentWidth, height: 12)
+            progressBar.frame = NSRect(x: titleX, y: 21, width: max(40, width - titleX - 12 - Self.percentWidth - 6), height: 9)
+        } else {
+            titleLabel.frame = NSRect(x: titleX, y: (32 - titleLabel.frame.height) / 2,
+                                      width: max(40, width - titleX - 18 - 24 - 8 - 40 - 12),
+                                      height: titleLabel.frame.height)
+        }
+        refreshColors()
+        needsDisplay = true
+    }
+
+    /// A folder being read cannot be switched, but it is not dimmed: it is the
+    /// row the user is watching.
+    private func refreshColors() {
+        let lit = item.isEnabled || !progressBar.isHidden
+        titleLabel.textColor = lit ? .labelColor : .disabledControlTextColor
+        icon?.contentTintColor = lit ? .secondaryLabelColor : .disabledControlTextColor
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -431,11 +871,11 @@ final class NativeMenuToggleRow: NSView {
     func update(item: NSMenuItem, color: DirectoryToggleColor) {
         self.item = item
         titleLabel.stringValue = item.title
-        titleLabel.textColor = item.isEnabled ? .labelColor : .disabledControlTextColor
         icon?.image = item.image
-        icon?.contentTintColor = item.isEnabled ? .secondaryLabelColor : .disabledControlTextColor
+        refreshColors()
         toggle.state = item.state
         toggle.tint = color
+        progressBar.tint = color
         toggle.isEnabled = item.isEnabled
         toggle.setAccessibilityLabel(item.title)
         toggle.setAccessibilityHelp(item.toolTip)
@@ -445,7 +885,8 @@ final class NativeMenuToggleRow: NSView {
         palette?.update(selected: color, isEnabled: item.isEnabled)
         selectionMark.isEnabled = item.isEnabled
         selectionMark.setAccessibilityLabel("Select \(item.title)")
-        toolTip = item.toolTip
+        progressBar.setAccessibilityLabel("Indexing \(item.title)")
+        toolTip = progress.map { "\($0.activity)\u{2026}" } ?? item.toolTip
         refreshHover()
     }
 
@@ -457,6 +898,7 @@ final class NativeMenuToggleRow: NSView {
                 guard let self, self.item.isEnabled else { return }
                 self.toggle.tint = color
                 self.colorButton.tint = color
+                self.progressBar.tint = color
                 self.palette?.update(selected: color, isEnabled: self.item.isEnabled)
                 self.onColorChange(color)
             }

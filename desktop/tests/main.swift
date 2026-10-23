@@ -1491,6 +1491,233 @@ do {
           "a healthy folder shows no badge")
 }
 
+print("directory operations keep their loading bar visible until the response arrives")
+do {
+    _ = NSApplication.shared
+    func descendants(_ view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap(descendants)
+    }
+    let controller = StatusPopoverController()
+    let pending = NSMenu()
+    let status = NSMenuItem(title: "Re-read Files: CAD models…", action: nil, keyEquivalent: "")
+    let progressRow = NativeMenuProgressRow(item: status)
+    status.view = progressRow
+    pending.addItem(status)
+    let settings = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
+    settings.submenu = NSMenu()
+    settings.submenu?.addItem(NSMenuItem(title: "Appearance", action: nil, keyEquivalent: ""))
+    pending.addItem(settings)
+    for index in 1...32 { pending.addItem(NSMenuItem(title: "Directory status \(index)", action: nil, keyEquivalent: "")) }
+    controller.update(menu: pending)
+    let root = controller.popover.contentViewController!.view
+    let progress = descendants(root).compactMap { $0 as? DirectoryProgressBar }.first
+    check(progress != nil && progress?.indeterminate == true && progress?.accessibilityRole() == .progressIndicator,
+          "a pending directory operation displays an honest indeterminate loading bar")
+    check(progress?.accessibilityLabel() == status.title,
+          "the loading bar names the directory operation to VoiceOver")
+    check(progress != nil && progress!.frame.width > 200 && progressRow.bounds.contains(progress!.frame),
+          "the bar has visible width and remains inside its row after menu layout")
+    let scroll = root.subviews.compactMap { $0 as? NSScrollView }.first!
+    scroll.contentView.scroll(to: NSPoint(x: 0, y: 160))
+    check(scroll.contentView.bounds.origin.y > 0, "the operation can start below a long menu's fold")
+    controller.revealProgress()
+    check(scroll.contentView.bounds.origin.y == 0,
+          "starting repair brings progress into view after the issue card closes")
+    let settingsButton = descendants(root).compactMap { $0 as? NSButton }.first { $0.title == "Settings" }
+    settingsButton?.performClick(nil)
+    check(settingsButton != nil && descendants(root).contains { $0 === progressRow },
+          "expanding settings during a request preserves the loading bar")
+    let complete = NSMenu()
+    complete.addItem(NSMenuItem(title: "Lasso · 3 active directories", action: nil, keyEquivalent: ""))
+    controller.update(menu: complete)
+    check(!descendants(root).contains { $0 is DirectoryProgressBar } && progressRow.superview == nil,
+          "completion removes the loading bar instead of leaving a stuck operation")
+    let failure = NSMenu()
+    failure.addItem(NSMenuItem(title: "The directory could not be read.", action: nil, keyEquivalent: ""))
+    controller.update(menu: failure)
+    check(!descendants(root).contains { $0 is DirectoryProgressBar },
+          "the error state shows its message without retaining progress")
+}
+
+print("a folder being read reports its progress as the server describes it")
+do {
+    let reported = DirectoryProgress(["kind": "adding", "phase": "reading", "percent": NSNumber(value: 37)])
+    check(reported?.percent == 37 && reported?.activity == "Reading files",
+          "the row reads the server's percentage and what the folder is doing")
+    check(DirectoryProgress(["kind": "rereading", "phase": "indexing", "percent": 140])?.percent == 100
+          && DirectoryProgress(["percent": -4])?.percent == 0,
+          "a percentage outside 0 to 100 is held inside it")
+    check(DirectoryProgress(["kind": "rereading", "phase": "indexing", "percent": 5])?.activity == "Re-reading files",
+          "a re-read says so")
+    check(DirectoryProgress(nil) == nil && DirectoryProgress(["phase": "reading"]) == nil,
+          "a folder that is not being read shows no bar")
+    check(WorkspaceAPI.stateURL(base: URL(string: "http://127.0.0.1:4319/")!)?.absoluteString
+          == "http://127.0.0.1:4319/api/workspace?pending=1",
+          "the menu asks for folders still being added, so they are listed from the start")
+}
+
+print("the percentage counts up one percent after another and never runs ahead")
+do {
+    let counter = ProgressCounter()
+    var shown: [Int] = []
+    counter.onChange = { shown.append(Int($0.rounded(.down))) }
+    counter.move(to: 12, animated: false)
+    check(counter.shown == 12 && !counter.isCounting, "off screen the count takes the value at once")
+    counter.move(to: 20, animated: true)
+    check(counter.isCounting, "a later report is counted towards on screen")
+    for _ in 0..<600 where counter.isCounting { counter.advance(by: 1.0 / 60) }
+    check(counter.shown == 20 && !counter.isCounting, "the count stops at the report, never past it")
+    let counted = Array(Set(shown.filter { $0 > 12 })).sorted()
+    check(counted == Array(13...20), "every percent from 13 to 20 is shown on the way: \(counted)")
+    counter.move(to: 15, animated: true)
+    check(counter.shown == 20 && counter.target == 20 && !counter.isCounting, "the bar never moves back")
+    let wide = ProgressCounter()
+    wide.move(to: 0, animated: false)
+    wide.move(to: 90, animated: true)
+    var frames = 0
+    while wide.isCounting && frames < 600 { wide.advance(by: 1.0 / 60); frames += 1 }
+    check(frames > 20 && frames < 90, "a wide jump plays as a quick count, not a leap or a crawl (\(frames) frames)")
+    wide.stop()
+}
+
+print("a folder's row shows its progress in place of its switch, then gives the switch back")
+do {
+    _ = NSApplication.shared
+    func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+    let item = NSMenuItem(title: "Multiple Cause Mortality", action: nil, keyEquivalent: "")
+    item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+    item.isEnabled = false
+    let row = NativeMenuToggleRow(item: item, color: .blue) { _ in }
+    row.frame.size.width = 296
+    let toggle = descendants(row).first { $0 is DirectoryTintSwitch }!
+    check(!row.isShowingProgress && !toggle.isHidden, "a folder at rest shows its switch")
+    row.progress = DirectoryProgress(percent: 0, phase: "waiting", kind: "adding")
+    let bar = row.progressBarView
+    check(row.isShowingProgress && toggle.isHidden && bar.accessibilityRole() == .progressIndicator,
+          "a folder being added shows a determinate bar where its switch was")
+    check(row.percentText == "0%" && bar.value == 0, "it starts at 0%")
+    let name = descendants(row).compactMap { $0 as? NSTextField }.first { $0.stringValue == item.title }
+    check(name?.textColor == .labelColor, "the folder being read is not dimmed, though it cannot be switched")
+    check(bar.frame.width > 200 && row.bounds.contains(bar.frame), "the bar spans the row under the folder's name")
+    row.progress = DirectoryProgress(percent: 41, phase: "indexing", kind: "adding")
+    check(row.percentText == "41%" && bar.value == 41, "a later report moves the bar and the count")
+    check(bar.accessibilityValue() as? String == "41 percent" && (row.toolTip ?? "").hasPrefix("Indexing files"),
+          "VoiceOver and the tooltip say how far the folder has got")
+    row.progress = DirectoryProgress(percent: 30, phase: "warming", kind: "adding")
+    check(row.percentText == "41%", "an earlier report does not move the bar back")
+    row.progress = nil
+    check(!row.isShowingProgress && !toggle.isHidden && row.percentText == "100%",
+          "when the folder is ready the bar completes and the switch returns")
+    check(name?.textColor == .disabledControlTextColor, "then it reads as its menu item does")
+    row.progress = DirectoryProgress(percent: 6, phase: "indexing", kind: "rereading")
+    check(row.isShowingProgress && row.percentText == "6%" && bar.value == 6,
+          "a re-read after a finished run counts from 0% again, not from the last run's 100%")
+    let percent = descendants(row).compactMap { $0 as? NSTextField }.first { $0.stringValue == "6%" }!
+    check(percent.frame.minX > bar.frame.maxX && abs(percent.frame.midY - bar.frame.midY) < 3,
+          "the percentage sits to the right of the bar, on its line")
+    row.progress = nil
+
+    // A new run that arrives while the last one is still finishing on screen.
+    let finishing = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 296, height: 40), styleMask: [.borderless],
+                             backing: .buffered, defer: true)
+    finishing.contentView?.addSubview(row)
+    row.progress = DirectoryProgress(percent: 90, phase: "indexing", kind: "rereading")
+    for _ in 0..<600 where row.progressCounter.isCounting { row.progressCounter.advance(by: 1.0 / 60) }
+    row.progress = nil
+    for _ in 0..<600 where row.progressCounter.isCounting { row.progressCounter.advance(by: 1.0 / 60) }
+    row.progress = DirectoryProgress(percent: 2, phase: "indexing", kind: "rereading")
+    let restarted = row.progressCounter.target == 2 && row.progressCounter.shown <= 2
+    for _ in 0..<600 where row.progressCounter.isCounting { row.progressCounter.advance(by: 1.0 / 60) }
+    check(restarted && row.percentText == "2%",
+          "a run that starts while the last is finishing begins at 0% too")
+    row.removeFromSuperview()
+
+    let controller = StatusPopoverController()
+    func menu(_ percent: Int?) -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(NSMenuItem(title: "Adding Multiple Cause Mortality\u{2026}", action: nil, keyEquivalent: ""))
+        let entry = NSMenuItem(title: "Multiple Cause Mortality", action: nil, keyEquivalent: "")
+        entry.representedObject = "mcm"
+        entry.isEnabled = false
+        let fresh = NativeMenuToggleRow(item: entry, color: .blue) { _ in }
+        fresh.progress = percent.map { DirectoryProgress(percent: $0, phase: "reading", kind: "adding") }
+        entry.view = fresh
+        menu.addItem(entry)
+        return menu
+    }
+    controller.update(menu: menu(10))
+    let root = controller.popover.contentViewController!.view
+    let shown = descendants(root).compactMap { $0 as? NativeMenuToggleRow }.first!
+    check(shown.isShowingProgress && shown.percentText == "10%", "the menu lists the folder with its progress")
+    check(!descendants(root).contains { ($0 as? DirectoryProgressBar)?.indeterminate == true },
+          "the status line has no second, indeterminate bar while a folder shows its own")
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.borderless],
+                          backing: .buffered, defer: true)
+    window.contentView?.addSubview(root)
+    controller.update(menu: menu(55))
+    let reused = descendants(root).compactMap { $0 as? NativeMenuToggleRow }.first!
+    check(reused === shown && reused.progressCounter.target == 55,
+          "the next report reaches the same row, so the count carries on from where it was")
+    // With Reduce Motion the count takes each report at once, as it should.
+    check(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+          || (reused.progressCounter.isCounting && reused.percentText == "10%"),
+          "a report that arrives while the menu rebuilds its rows is counted towards, not jumped to")
+    for _ in 0..<600 where reused.progressCounter.isCounting { reused.progressCounter.advance(by: 1.0 / 60) }
+    check(reused.percentText == "55%", "and the count arrives there")
+    root.removeFromSuperview()
+}
+
+print("the bar fills with blocks that spread as it moves and close up at rest")
+do {
+    _ = NSApplication.shared
+    let solid = DirectoryProgressBar.solid, dark = DirectoryProgressBar.dark
+    let light = DirectoryProgressBar.light, track = DirectoryProgressBar.track
+    let bar = DirectoryProgressBar(frame: NSRect(x: 0, y: 0, width: 210, height: 9))
+    let count = bar.cellCount
+    check(count >= 30, "the track holds enough cells to move in small steps (\(count))")
+    let solids = { bar.glyphs.filter { $0 == solid }.count }
+    bar.value = 50
+    check(solids() == Int(Double(count) * 0.5) && !bar.glyphs.contains(dark) && !bar.glyphs.contains(light),
+          "at rest the bar is solid up to its value, with no shades")
+    bar.value = 99
+    check(bar.glyphs.last == track, "99% never looks done")
+    bar.value = 100
+    check(bar.glyphs.allSatisfy { $0 == solid }, "100% fills the bar")
+    check(String(DirectoryProgressBar.cells(count: 24, lead: 20, followers: [17.5, 15.2], fills: true))
+          == "\(String(repeating: solid, count: 15))\(light)\(track)\(dark)\(track)\(solid)\(String(repeating: track, count: 4))",
+          "a moving bar trails a dark and a light shade behind its solid block, spread apart")
+
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 40), styleMask: [.borderless],
+                          backing: .buffered, defer: true)
+    let moving = DirectoryProgressBar(frame: NSRect(x: 0, y: 0, width: 210, height: 9))
+    window.contentView?.addSubview(moving)
+    if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        moving.value = 10
+        for _ in 0..<120 { moving.advance(by: 1.0 / 60) }
+        moving.value = 80
+        moving.advance(by: 1.0 / 60)
+        check(moving.glyphs.contains(dark) || moving.glyphs.contains(light),
+              "a jump spreads the shades out behind the leading block")
+        for _ in 0..<120 { moving.advance(by: 1.0 / 60) }
+        check(!moving.glyphs.contains(dark) && !moving.glyphs.contains(light) && !moving.isAnimating,
+              "and they close up behind it once it rests")
+    }
+    check(moving.glyphs.filter { $0 == solid }.count == Int(Double(moving.cellCount) * 0.8),
+          "the settled bar shows the value it was given")
+
+    let sweeping = DirectoryProgressBar(frame: NSRect(x: 0, y: 0, width: 210, height: 9))
+    sweeping.indeterminate = true
+    sweeping.advance(by: 0.5)
+    let first = sweeping.glyphs.firstIndex(of: solid)
+    sweeping.advance(by: 0.5)
+    let second = sweeping.glyphs.firstIndex(of: solid)
+    check(sweeping.glyphs.filter { $0 == solid }.count == 1 && first != nil && second != nil && first != second,
+          "with no percentage, one solid block sweeps the track")
+    check(sweeping.glyphs.contains(dark) || sweeping.glyphs.contains(light),
+          "with its shades trailing it")
+    moving.removeFromSuperview()
+}
+
 print("spreadsheet previews in the suggestion card read like the sheet")
 do {
     func row(_ number: Int, _ values: [String], cited: Int? = nil) -> AssistPreviewRow {
@@ -2024,21 +2251,99 @@ let notchFrame = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX:
 check(notchFrame.maxY == notchScreen.maxY && notchFrame.height == 230, "black notch surface reaches the display edge and reserves the camera band")
 check(notchFrame.midX == -950 && notchScreen.contains(notchFrame), "notch follows a secondary display with negative coordinates")
 let notchCompact = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: false)
-check(notchCompact.height == 32 && notchCompact.maxY == notchFrame.maxY, "collapsed logo stays entirely inside the menu bar")
+check(notchCompact == NSRect(x: -1050, y: -132, width: 200, height: 32), "collapsed hit target exactly covers the physical camera housing without a logo extension")
 let wideNotch = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: false, notchWidth: 250)
-check(wideNotch.minX + NotchGeometry.logoWidth == -1075, "logo sits immediately left of the physical notch")
-check(wideNotch.maxX == -1075 + 32, "compact black backing fills the rounded housing corner")
-check(wideNotch.maxX < -950 && notchScreen.contains(wideNotch), "compact overlap stays beneath the housing without extending beyond the screen")
+check(wideNotch.minX == -1075 && wideNotch.maxX == -825 && wideNotch.midX == -950,
+      "the full left, middle and right of a wider camera housing remain clickable")
+check(wideNotch.height == 32 && notchScreen.contains(wideNotch), "collapsed surface remains within the camera band")
 let wideExpandedNotch = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: true, notchWidth: 500)
 let wideCompactNotch = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: false, notchWidth: 500)
-check(wideExpandedNotch.minX <= wideCompactNotch.minX && wideExpandedNotch.maxX > -700, "expanded panel keeps the logo visible beside unusually wide camera cutouts")
-let notchActivity = NotchActivity(["directories": -1, "changes": [["projectId": "one", "objectId": "cell", "toVersion": 3]]])
+check(wideExpandedNotch.contains(wideCompactNotch) && wideExpandedNotch.midX == wideCompactNotch.midX,
+      "expanded content remains centered around an unusually wide camera cutout")
+let notchNotice = NotchGeometry.frame(screen: notchScreen, topInset: 32, centerX: -950, expanded: true, contentHeight: 92)
+check(notchNotice.height == 124 && notchNotice.height < notchFrame.height && notchNotice.maxY == notchFrame.maxY,
+      "source notifications form a compact popup attached to the same top edge")
+let shortNotchScreen = NSRect(x: 200, y: 1200, width: 900, height: 180)
+let boundedNotch = NotchGeometry.frame(screen: shortNotchScreen, topInset: 32, centerX: 650, expanded: true, contentHeight: 500)
+check(shortNotchScreen.contains(boundedNotch) && boundedNotch.minY == shortNotchScreen.minY + 12,
+      "an expanded notch fits a short display above the primary screen")
+
+print("Notch linked-source activity")
+let linkedNotchChange: [String: Any] = ["projectId": "one", "objectId": "cell", "toVersion": 3, "referenceCount": 1]
+let notchActivity = NotchActivity(["directories": -1, "changes": [linkedNotchChange]])
 check(notchActivity.directories == 0 && notchActivity.newestKey == "one:cell:3", "activity uses source identity and clamps invalid counts")
 check(NotchActivity().newestKey == nil, "an empty workspace has no fabricated notification")
 check(!notchActivity.hasNewActivity(comparedTo: notchActivity), "unchanged source history cannot reopen the notch")
 check(NotchActivity(["failures": 1]).hasNewActivity(comparedTo: NotchActivity()), "new indexing failures trigger the notch")
 check(!NotchActivity().hasNewActivity(comparedTo: NotchActivity(["failures": 1])), "resolved issues do not trigger an interruption")
-check(NotchActivity(["changes": [["projectId": "one", "objectId": "cell", "toVersion": 4]]]).hasNewActivity(comparedTo: notchActivity), "a new pinned source version triggers the notch")
+let newerLinkedNotchChange: [String: Any] = ["projectId": "one", "objectId": "cell", "toVersion": 4, "referenceCount": 1]
+check(NotchActivity(["changes": [newerLinkedNotchChange]]).hasNewActivity(comparedTo: notchActivity),
+      "a new pinned linked-source version triggers the notch with an older server response")
+let unlinkedNotchChange: [String: Any] = ["projectId": "one", "objectId": "unlinked", "toVersion": 8, "referenceCount": 0]
+check(!NotchActivity(["changes": [unlinkedNotchChange]]).hasNewActivity(comparedTo: NotchActivity()),
+      "an unrelated source change does not interrupt the user")
+let nativeNotchActivity = NotchActivity(["changes": [unlinkedNotchChange], "linkedChanges": [newerLinkedNotchChange]])
+check(nativeNotchActivity.hasNewActivity(comparedTo: notchActivity)
+      && nativeNotchActivity.changeKeys == Set(["one:cell:4"]),
+      "native linked-source changes trigger even when absent from the recent-change summary")
+check(!NotchActivity(["changes": [newerLinkedNotchChange], "linkedChanges": [[String: Any]]()])
+    .hasNewActivity(comparedTo: NotchActivity()), "an explicit empty linked-change response takes precedence over the general summary")
+let otherLinkedNotchChange: [String: Any] = ["projectId": "two", "objectId": "cell", "toVersion": 4]
+check(NotchActivity(["linkedChanges": [otherLinkedNotchChange]]).hasNewActivity(comparedTo: nativeNotchActivity),
+      "source versions in different directories keep separate identities")
+check(!NotchActivity(["linkedChanges": [otherLinkedNotchChange, newerLinkedNotchChange]])
+    .hasNewActivity(comparedTo: NotchActivity(["linkedChanges": [newerLinkedNotchChange, otherLinkedNotchChange]])),
+      "reordering linked changes does not produce a duplicate notification")
+check(!NotchActivity().hasNewActivity(comparedTo: nativeNotchActivity),
+      "removing a link or resolving its change does not fabricate fresh activity")
+let manyNotchChanges = (0..<12).map { ["projectId": "one", "objectId": "cell-\($0)", "toVersion": 2] as [String: Any] }
+let crowdedNotchActivity = NotchActivity(["changes": manyNotchChanges, "linkedChanges": manyNotchChanges])
+check(crowdedNotchActivity.changes.count == 8 && crowdedNotchActivity.changeKeys.contains("one:cell-11:2"),
+      "linked-source detection remains complete beyond the eight visible history rows")
+
+print("")
+print("Notch motion")
+func runSpring(_ spring: NotchSpring, _ style: NotchSpringStyle, seconds: Double, hertz: Double = 120) -> (end: NotchSpring, low: CGFloat, high: CGFloat) {
+    var current = spring, low = spring.value, high = spring.value
+    for _ in 0..<Int(seconds * hertz) {
+        current = current.advanced(by: 1 / hertz, style: style)
+        low = min(low, current.value); high = max(high, current.value)
+    }
+    return (current, low, high)
+}
+let springOpen = runSpring(NotchSpring(0, target: 100), .open, seconds: 1)
+check(springOpen.end.isSettled(within: 0.5) && springOpen.high > 104 && springOpen.high < 110,
+      "opening springs visibly past its size and settles within a second")
+let springClose = runSpring(NotchSpring(100, target: 0), .close, seconds: 1)
+check(springClose.end.isSettled(within: 0.5) && springClose.low > -0.01,
+      "closing settles into the housing without bouncing past it")
+let springMidway = runSpring(NotchSpring(0, target: 100), .open, seconds: 0.05).end
+let springTurned = springMidway.retargeted(to: 0).advanced(by: 1.0 / 120, style: .close)
+check(springMidway.velocity > 0 && springTurned.value > springMidway.value,
+      "reversing mid-flight keeps the surface's momentum, so it turns rather than jumps")
+let springAt60 = runSpring(NotchSpring(0, target: 100), .open, seconds: 0.2, hertz: 60).end
+let springAt120 = runSpring(NotchSpring(0, target: 100), .open, seconds: 0.2, hertz: 120).end
+check(abs(springAt60.value - springAt120.value) < 0.5, "the same motion plays on 60 and 120 Hz displays")
+check(NotchSpring(5).advanced(by: 0.5, style: .open).value == 5, "a spring at rest on its target stays put")
+let motionCamera = NSRect(x: -1050, y: -132, width: 200, height: 32)
+var bodyMotion = NotchBodyMotion(from: motionCamera, to: notchFrame)
+for _ in 0..<6 { bodyMotion = bodyMotion.advanced(by: 1.0 / 120, style: .open) }
+check(abs(bodyMotion.frame.maxY - notchScreen.maxY) < 0.001 && bodyMotion.frame.height > 32 && bodyMotion.frame.height < notchFrame.height,
+      "the body grows down from the display edge")
+check(abs(bodyMotion.frame.midX - motionCamera.midX) < 0.01, "the body stays centered on the camera housing as it widens")
+for _ in 0..<120 { bodyMotion = bodyMotion.advanced(by: 1.0 / 120, style: .open) }
+check(bodyMotion.isSettled && abs(bodyMotion.frame.height - notchFrame.height) < 0.5 && bodyMotion.target == notchFrame,
+      "the body settles on its expanded frame")
+let bodyRetargeted = bodyMotion.retargeted(to: motionCamera)
+check(bodyRetargeted.frame == bodyMotion.frame && bodyRetargeted.target == motionCamera && !bodyRetargeted.isSettled,
+      "closing starts from where the body is")
+let motionWindow = NotchGeometry.motionFrame(screen: notchScreen, compact: notchCompact, from: motionCamera, to: notchFrame)
+check(motionWindow.contains(notchCompact) && motionWindow.contains(motionCamera) && motionWindow.contains(notchFrame)
+      && notchScreen.contains(motionWindow) && motionWindow == motionWindow.integral,
+      "one window frame holds the housing and the whole transition, on whole points")
+check(motionWindow.minY <= notchFrame.minY - NotchGeometry.overshootAllowance
+      && motionWindow.maxX >= notchFrame.maxX + NotchGeometry.overshootAllowance,
+      "the transition window leaves room for the opening overshoot")
 
 print("synthetic typing chunks")
 let accented = String(repeating: "e\u{301}", count: 12) + "👩‍🔬 Café"
@@ -2299,12 +2604,21 @@ do {
     check(memory.sources.isEmpty && memory.requestFields.isEmpty
           && memory.canMoveIn(focusedOn: nil, selected: nil),
           "a new field starts with nothing focused, but fn+Right still knows the last source")
+    let width = source("width", "100 mm"), budget = source("budget", "September Budget CAD", project: "finance")
+    memory.noteFocus(bracket)
+    let widthText = accept(&memory, width, after: "The Bracket is ")
+    check(memory.sources.last == width && memory.recent == bracket,
+          "a value tabbed on a focused card is sent, and fn+Right returns to the card's focus, not the value")
+    _ = accept(&memory, budget, after: widthText + " and ")
+    memory.noteFocus(budget)
+    check(memory.recent == budget, "a deeper focus the card then shows becomes fn+Right's way back")
 
     var text = ""
     for index in 0..<10 { text = accept(&memory, source("part-\(index)", "Part \(index)"), after: text + " ") }
     check(memory.sources.count == 8 && memory.sources.first?.objectId == "part-2",
           "only the eight newest accepted sources are kept")
     _ = accept(&memory, source("revenue", "Revenue", project: "finance"), after: text + " ")
+    memory.noteFocus(source("revenue", "Revenue", project: "finance"))
     memory.keep(projectIds: ["cad"])
     check(memory.sources.count == 7 && memory.sources.allSatisfy { $0.projectId == "cad" }
           && memory.recent?.projectId == "cad",

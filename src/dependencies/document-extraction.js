@@ -1,4 +1,6 @@
-import { inflateRawSync, inflateSync } from 'node:zlib';
+import { createInflateRaw, inflateRawSync, inflateSync } from 'node:zlib';
+import { Readable } from 'node:stream';
+import { StringDecoder } from 'node:string_decoder';
 import path from 'node:path';
 import { extractDrawingDocument } from './drawing-extraction.js';
 import { builtInNumberFormat, displaySpreadsheetNumber, formatSpreadsheetNumber } from './spreadsheet-number-format.js';
@@ -538,7 +540,20 @@ export function extractPdfDocument(buffer) {
   };
 }
 
-function zipEntry(buffer, requestedName) {
+// The most a workbook part is inflated to in memory. A larger worksheet is
+// read a batch of rows at a time by streamSpreadsheetRows.
+export const MAX_IN_MEMORY_PART_BYTES = 5_000_000;
+
+function zipEntry(buffer, requestedName, limit = MAX_IN_MEMORY_PART_BYTES) {
+  const entry = zipEntryData(buffer, requestedName);
+  if (!entry) return null;
+  if (entry.method === 0) return entry.compressed;
+  if (entry.method === 8) return inflateRawSync(entry.compressed, { maxOutputLength: limit });
+  return null;
+}
+
+/** A zip entry's stored bytes and compression method, without inflating it. */
+function zipEntryData(buffer, requestedName) {
   const minimum = Math.max(0, buffer.length - 65_557);
   let eocd = -1;
   for (let index = buffer.length - 22; index >= minimum; index -= 1) {
@@ -560,10 +575,8 @@ function zipEntry(buffer, requestedName) {
       const localNameLength = buffer.readUInt16LE(localOffset + 26);
       const localExtraLength = buffer.readUInt16LE(localOffset + 28);
       const start = localOffset + 30 + localNameLength + localExtraLength;
-      const compressed = buffer.subarray(start, start + compressedSize);
-      if (method === 0) return compressed;
-      if (method === 8) return inflateRawSync(compressed, { maxOutputLength: 5_000_000 });
-      return null;
+      return { method, compressed: buffer.subarray(start, start + compressedSize),
+        size: buffer.readUInt32LE(offset + 24) };
     }
     offset += 46 + fileNameLength + extraLength + commentLength;
   }
@@ -666,9 +679,12 @@ function spreadsheetCellDisplay(type, raw, format, formats, value) {
  * text each number cell shows in the sheet (such as $129,950) for previews;
  * the returned values stay the stored numbers that Lasso indexes and inserts.
  */
-function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null, formats = null, displayRows = null) {
+function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null, formats = null, displayRows = null,
+  state = { fallbackRow: 1 }) {
   const rows = [];
-  let fallbackRow = 1;
+  // A row without its number follows the one before; a sheet read in batches
+  // carries that count from one batch to the next.
+  let fallbackRow = state.fallbackRow;
   for (const rowElement of spreadsheetElements(source, 'row')) {
     const row = [];
     const shownRow = [];
@@ -699,6 +715,7 @@ function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null, for
       displayRows?.push(shownRow);
     }
   }
+  state.fallbackRow = fallbackRow;
   return rows;
 }
 
@@ -989,26 +1006,133 @@ function spreadsheetSheet(buffer, descriptor, shared, relationships, formats) {
   return Object.defineProperty({ name:descriptor.name, rows, rowNumbers, merges, tables }, 'displayRows', { value: displayRows });
 }
 
+const spreadsheetRelationships = (xml) => spreadsheetElements(xml, 'Relationship')
+  .map(({ attributes }) => ({ id: spreadsheetAttribute(attributes, 'Id'), target: spreadsheetAttribute(attributes, 'Target') }));
+
+/** A workbook's sheet list, shared strings and number formats; null when it is not a readable .xlsx. */
+function workbookParts(buffer, limit = MAX_IN_MEMORY_PART_BYTES) {
+  const attribute = spreadsheetAttribute;
+  const workbook = zipEntry(buffer, 'xl/workbook.xml', limit)?.toString('utf8') ?? '';
+  if (!workbook) return null;
+  const workbookRels = spreadsheetRelationships(zipEntry(buffer, 'xl/_rels/workbook.xml.rels', limit)?.toString('utf8') ?? '');
+  const descriptors = spreadsheetElements(workbook, 'sheet').map(({ attributes }, index) => {
+    const target = workbookRels.find(r => r.id === attribute(attributes, 'r:id'))?.target;
+    return { name: attribute(attributes, 'name') || `Sheet ${index+1}`, entry: target ? path.posix.normalize(target.startsWith('/') ? target.slice(1) : `xl/${target}`) : `xl/worksheets/sheet${index+1}.xml` };
+  });
+  const shared = spreadsheetStrings(zipEntry(buffer, 'xl/sharedStrings.xml', limit)?.toString('utf8') ?? '');
+  let formats = null;
+  try {
+    formats = spreadsheetNumberFormats(zipEntry(buffer, 'xl/styles.xml', limit)?.toString('utf8') ?? '', workbook);
+  } catch { /* unreadable styles leave stored numbers as they are */ }
+  return { descriptors, shared, formats };
+}
+
+/**
+ * Whether a workbook has a part too large to inflate at once: a worksheet or
+ * its shared strings. Such a workbook is read with streamSpreadsheetRows.
+ */
+export function isLargeSpreadsheet(buffer) {
+  if (buffer.subarray(0, 8).equals(COMPOUND_SIGNATURE)) return false;
+  try {
+    const workbook = zipEntry(buffer, 'xl/workbook.xml')?.toString('utf8');
+    if (!workbook) return false;
+    const rels = spreadsheetRelationships(zipEntry(buffer, 'xl/_rels/workbook.xml.rels')?.toString('utf8') ?? '');
+    const entries = ['xl/sharedStrings.xml', ...rels.map(r => r.target).filter(Boolean)
+      .map(target => path.posix.normalize(target.startsWith('/') ? target.slice(1) : `xl/${target}`))];
+    return entries.some(name => (zipEntryData(buffer, name)?.size ?? 0) > MAX_IN_MEMORY_PART_BYTES);
+  } catch {
+    return false;
+  }
+}
+
+// The largest shared-strings or other workbook part a streamed read holds in memory.
+const MAX_STREAMED_PART_BYTES = 512 * 1024 * 1024;
+const STREAM_PIECE_BYTES = 1024 * 1024;
+
+/**
+ * Reads a workbook's worksheets a batch of rows at a time, holding one batch
+ * in memory, so a sheet of any size can be read. The values are the ones
+ * extractSpreadsheetTables reads. Calls `onSheet(name)` as each sheet starts,
+ * `onRows(rows, rowNumbers, displayRows)` for each batch, `onSheetEnd({ merges })`
+ * after its last, and `onProgress(share)` with the share of the workbook's
+ * compressed sheets read so far. Resolves with the sheets read and skipped,
+ * or null for a file that is not a readable .xlsx.
+ */
+export async function streamSpreadsheetRows(buffer, { onSheet, onRows, onSheetEnd, onProgress = () => {} }) {
+  const parts = workbookParts(buffer, MAX_STREAMED_PART_BYTES);
+  if (!parts) return null;
+  const entries = parts.descriptors.slice(0, 40).map((descriptor) => ({ descriptor, data: zipEntryData(buffer, descriptor.entry) }));
+  // Progress is the sheets' XML read so far, which is what takes the time.
+  const total = Math.max(1, entries.reduce((sum, { data }) => sum + (data?.size || data?.compressed.length || 0), 0));
+  let consumed = 0;
+  const read = [];
+  const skipped = [];
+  for (const { descriptor, data } of entries) {
+    if (!data || ![0, 8].includes(data.method)) {
+      skipped.push(descriptor.name);
+      continue;
+    }
+    const started = consumed;
+    try {
+      onSheet(descriptor.name);
+      const state = { fallbackRow: 1 };
+      let pending = '';
+      const advance = (bytes) => {
+        consumed += bytes;
+        onProgress(Math.min(1, consumed / total));
+      };
+      const take = (text) => {
+        pending += text;
+        const end = pending.lastIndexOf('</row>');
+        if (end < 0) return;
+        const complete = pending.slice(0, end + 6);
+        pending = pending.slice(end + 6);
+        const rowNumbers = [];
+        const displayRows = [];
+        const rows = spreadsheetRows(complete, parts.shared, rowNumbers, parts.formats, displayRows, state);
+        if (rows.length) onRows(rows, rowNumbers, displayRows);
+      };
+      const pieces = function* () {
+        for (let offset = 0; offset < data.compressed.length; offset += STREAM_PIECE_BYTES) {
+          yield data.compressed.subarray(offset, offset + STREAM_PIECE_BYTES);
+        }
+      };
+      const decoder = new StringDecoder('utf8');
+      if (data.method === 0) {
+        for (const piece of pieces()) {
+          take(decoder.write(piece));
+          advance(piece.length);
+        }
+      } else {
+        const inflate = Readable.from(pieces(), { objectMode: false }).pipe(createInflateRaw());
+        for await (const chunk of inflate) {
+          take(decoder.write(chunk));
+          advance(chunk.length);
+        }
+      }
+      take(decoder.end());
+      // Merged cells follow the sheet's rows.
+      const merges = spreadsheetElements(pending, 'mergeCell')
+        .map(({ attributes }) => spreadsheetRange(spreadsheetAttribute(attributes, 'ref'))).filter(Boolean);
+      onSheetEnd({ merges });
+      read.push(descriptor.name);
+    } catch {
+      consumed = started + (data.size || data.compressed.length);
+      skipped.push(descriptor.name);
+    }
+  }
+  return { sheets: read, skipped };
+}
+
 export function extractSpreadsheetTables(buffer) {
   try {
     if (buffer.subarray(0, 8).equals(COMPOUND_SIGNATURE)) return extractBiffSpreadsheetTables(buffer);
-    const workbook = zipEntry(buffer, 'xl/workbook.xml')?.toString('utf8') ?? '';
     // Without a workbook part this is not a readable .xlsx. The result then
     // carries no `skipped` list, which tells the indexer it failed.
-    if (!workbook) return [];
-    const attribute = spreadsheetAttribute;
-    const relationships = (xml) => spreadsheetElements(xml, 'Relationship')
-      .map(({ attributes }) => ({ id: attribute(attributes, 'Id'), target: attribute(attributes, 'Target') }));
-    const workbookRels = relationships(zipEntry(buffer, 'xl/_rels/workbook.xml.rels')?.toString('utf8') ?? '');
-    const descriptors = spreadsheetElements(workbook, 'sheet').map(({ attributes }, index) => {
-      const target = workbookRels.find(r => r.id === attribute(attributes, 'r:id'))?.target;
-      return { name: attribute(attributes, 'name') || `Sheet ${index+1}`, entry: target ? path.posix.normalize(target.startsWith('/') ? target.slice(1) : `xl/${target}`) : `xl/worksheets/sheet${index+1}.xml` };
-    });
-    const shared = spreadsheetStrings(zipEntry(buffer, 'xl/sharedStrings.xml')?.toString('utf8') ?? '');
-    let formats = null;
-    try {
-      formats = spreadsheetNumberFormats(zipEntry(buffer, 'xl/styles.xml')?.toString('utf8') ?? '', workbook);
-    } catch { /* unreadable styles leave stored numbers as they are */ }
+    const parts = workbookParts(buffer);
+    if (!parts) return [];
+    const { descriptors, shared, formats } = parts;
+    const relationships = spreadsheetRelationships;
     const sheets = [];
     // One sheet that is too large or damaged is skipped on its own, so the
     // workbook's other sheets stay searchable. Skipped names are reported.

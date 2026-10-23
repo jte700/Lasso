@@ -68,6 +68,8 @@ function changeRow(row, at, previous, previousAt) {
     anchor_json: row.anchor_json, metadata_json: row.metadata_json, label: row.label,
     version: at.version, created_at: at.at,
     previous_value: previous.value_text, previous_path: previous.path,
+    removed: Boolean(row.removed), restored: Boolean(row.restored),
+    content_changed: row.content_hash !== previous.content_hash,
     previous_version: previousAt?.version ?? null, previous_at: previousAt?.at ?? null,
   };
 }
@@ -733,7 +735,7 @@ export class DependencyGraph {
     // history queries retain their complete historical view below.
     const rows = options.snapshotId && options.previousSnapshotId
       ? this.changesBetween(projectId, options.previousSnapshotId, options.snapshotId)
-      : this.recordedChanges('o.project_id = ?', [projectId])
+      : this.recordedChanges('o.project_id = ?', [projectId], options)
         .sort((left, right) => right.version - left.version || compareIds(left.object_id, right.object_id));
 
     if (!options.previousSnapshotId && !options.ownSourcesOnly) {
@@ -746,14 +748,17 @@ export class DependencyGraph {
     const seen = new Set();
     const changes = [];
     for (const row of rows) {
+      if (options.objectIds && !options.objectIds.has(row.object_id)) continue;
       const rowAnchor = json(row.anchor_json, null);
       const rowMetadata = json(row.metadata_json, {});
       // A column profile's "value" is the indexer's own description of the
       // column, not a value from the source. Reporting it as a change would
       // announce that a range widened, which is not what the user recorded.
-      if (rowAnchor?.kind === 'table-column' && !rowMetadata.dictionary) continue;
-      if (rowAnchor?.kind === 'table-row' || rowAnchor?.kind === 'table-summary') continue;
-      if (row.value_text == null && row.previous_value == null) continue;
+      if (!options.includeSourceChanges) {
+        if (rowAnchor?.kind === 'table-column' && !rowMetadata.dictionary) continue;
+        if (rowAnchor?.kind === 'table-row' || rowAnchor?.kind === 'table-summary') continue;
+        if (row.value_text == null && row.previous_value == null) continue;
+      }
       if (options.latestPerObject !== false) {
         if (seen.has(row.object_id)) continue;
         seen.add(row.object_id);
@@ -784,6 +789,8 @@ export class DependencyGraph {
         previousPath: row.previous_path,
         path: row.path,
         moved: row.previous_path !== row.path,
+        ...(options.includeSourceChanges ? { removed: row.removed, restored: row.restored,
+          contentChanged: row.content_changed && row.previous_value === row.value_text } : {}),
         fileName: sourceFileName(row.path),
         locator: object?.locator ?? sourceLocator(shape),
         fromVersion: row.previous_version,
@@ -794,6 +801,58 @@ export class DependencyGraph {
         unresolvedReferences: unresolved,
       });
       if (changes.length >= (options.limit ?? 200)) break;
+    }
+    return changes;
+  }
+
+  /** Lightweight notch history. Never resolves the full object index or dependency graph. */
+  activityChanges(projectId, { objectIds = null, limit = 8, includeSourceChanges = false } = {}) {
+    let ids = objectIds ? [...objectIds] : [];
+    if (!objectIds) {
+      // Manual history is a recent sample. Visit indexed snapshots newest first
+      // through the snapshot_id index, with a hard candidate budget; opening a
+      // notch must not read years of unrelated object metadata into memory.
+      const snapshots = this.db.prepare(`SELECT s.id FROM snapshots s
+        JOIN snapshot_object_indexes i ON i.snapshot_id = s.id
+        WHERE s.project_id = ? ORDER BY s.version DESC LIMIT 8`).all(projectId);
+      const candidates = new Set();
+      for (const snapshot of snapshots) {
+        const remaining = 64 - candidates.size;
+        if (remaining <= 0) break;
+        for (const row of this.db.prepare(`SELECT object_id FROM scientific_object_versions
+          WHERE snapshot_id = ? LIMIT ?`).all(snapshot.id, remaining)) candidates.add(row.object_id);
+      }
+      ids = [...candidates];
+    }
+    if (!ids.length) return [];
+    const rows = [];
+    // SQLite's object_id index restricts the read before metadata is loaded.
+    // Keep parameter counts bounded even for a large set of browser links.
+    for (let offset = 0; offset < ids.length; offset += 128) {
+      const batch = ids.slice(offset, offset + 128);
+      rows.push(...this.recordedChanges(`o.project_id = ? AND x.object_id IN (${batch.map(() => '?').join(',')})`,
+        [projectId, ...batch], { includeSourceChanges, indexedObjectLookup: true }));
+    }
+    rows.sort((a, b) => b.version - a.version || compareIds(a.object_id, b.object_id));
+    const seen = new Set(), changes = [];
+    for (const row of rows) {
+      const anchor = json(row.anchor_json, null), metadata = json(row.metadata_json, {});
+      if (!includeSourceChanges && ((anchor?.kind === 'table-column' && !metadata.dictionary)
+        || ['table-row', 'table-summary'].includes(anchor?.kind)
+        || (row.value_text == null && row.previous_value == null))) continue;
+      if (seen.has(row.object_id)) continue;
+      seen.add(row.object_id);
+      const shape = { id: row.object_id, objectKey: null, objectType: null, label: row.label,
+        path: row.path, anchor, metadata, valueText: row.value_text };
+      changes.push({ projectId, name: dependencyName(shape), objectId: row.object_id, objectKey: null,
+        previousValue: row.previous_value, currentValue: row.value_text,
+        previousPath: row.previous_path, path: row.path, moved: row.previous_path !== row.path,
+        ...(includeSourceChanges ? { removed: row.removed, restored: row.restored,
+          contentChanged: row.content_changed && row.previous_value === row.value_text } : {}),
+        fileName: sourceFileName(row.path), locator: sourceLocator(shape),
+        fromVersion: row.previous_version, toVersion: row.version,
+        changedAt: row.created_at, previousAt: row.previous_at });
+      if (changes.length >= limit) break;
     }
     return changes;
   }
@@ -819,10 +878,14 @@ export class DependencyGraph {
    * from was last seen at the snapshot the changing index was built on (or
    * just before a removal), as a full copy per indexed snapshot would show.
    */
-  recordedChanges(filter, parameters) {
+  recordedChanges(filter, parameters, options = {}) {
     const columns = `o.project_id AS source_project_id, s.version, s.created_at,
       base.version AS base_version, base.created_at AS base_at`;
-    const joins = `JOIN scientific_objects o ON o.id = x.object_id
+    // For activity's small IN-list, SQLite otherwise prefers the project's
+    // object index and visits every object before filtering IDs. CROSS JOIN
+    // pins x first so both versions and removals use their object_id index.
+    const objectJoin = options.indexedObjectLookup ? 'CROSS JOIN' : 'JOIN';
+    const joins = `${objectJoin} scientific_objects o ON o.id = x.object_id
       JOIN snapshots s ON s.id = x.snapshot_id
       LEFT JOIN object_index_bases b ON b.snapshot_id = x.snapshot_id
       LEFT JOIN snapshots base ON base.id = b.base_snapshot_id`;
@@ -838,6 +901,7 @@ export class DependencyGraph {
       if (!byObject.has(event.object_id)) byObject.set(event.object_id, []);
       byObject.get(event.object_id).push(event);
     }
+    this.addFullIndexRemovals(byObject);
     const changes = [];
     for (const objectEvents of byObject.values()) {
       objectEvents.sort((left, right) => left.version - right.version);
@@ -847,17 +911,58 @@ export class DependencyGraph {
         const seenUntil = laterSnapshot({ version: last?.version, at: last?.created_at },
           event.base_version == null ? null : { version: event.base_version, at: event.base_at });
         if (event.removed) {
-          if (last && !lastSeen) lastSeen = seenUntil;
+          if (last && !lastSeen) {
+            lastSeen = seenUntil;
+            if (options.includeSourceChanges) changes.push(changeRow({ ...last, ...event, value_text: null },
+              { version: event.version, at: event.created_at }, last, seenUntil));
+          }
           continue;
         }
-        if (last && (event.value_text !== last.value_text || event.path !== last.path)) {
-          changes.push(changeRow(event, { version: event.version, at: event.created_at }, last, lastSeen ?? seenUntil));
+        if (last && (event.value_text !== last.value_text || event.path !== last.path
+          || (options.includeSourceChanges && (event.content_hash !== last.content_hash || lastSeen)))) {
+          changes.push(changeRow({ ...event, restored: Boolean(lastSeen) },
+            { version: event.version, at: event.created_at }, last, lastSeen ?? seenUntil));
         }
         last = event;
         lastSeen = null;
       }
     }
     return changes;
+  }
+
+  /**
+   * An index written without a base holds every object present at its
+   * snapshot, so an object with no version there had gone by then. Such an
+   * index records no removal rows: one written in full after most of a
+   * folder stopped being indexed would otherwise need one for nearly every
+   * object it no longer has. The removal is read from the absence instead,
+   * as the object was last seen at the indexed snapshot before it.
+   */
+  addFullIndexRemovals(byObject) {
+    const projects = [...new Set([...byObject.values()].map((objectEvents) => objectEvents[0].source_project_id))];
+    if (!projects.length) return;
+    const indexed = this.db.prepare(`SELECT s.id, s.project_id, s.version, s.created_at, b.snapshot_id IS NULL AS full
+      FROM snapshots s JOIN snapshot_object_indexes i ON i.snapshot_id = s.id
+      LEFT JOIN object_index_bases b ON b.snapshot_id = s.id
+      WHERE s.project_id IN (${projects.map(() => '?').join(',')}) ORDER BY s.version`).all(...projects);
+    const byProject = new Map();
+    for (const snapshot of indexed) {
+      if (!byProject.has(snapshot.project_id)) byProject.set(snapshot.project_id, []);
+      byProject.get(snapshot.project_id).push(snapshot);
+    }
+    for (const objectEvents of byObject.values()) {
+      const snapshots = byProject.get(objectEvents[0].source_project_id) ?? [];
+      const recorded = new Set(objectEvents.map((event) => event.snapshot_id));
+      const first = Math.min(...objectEvents.map((event) => event.version));
+      for (let index = 1; index < snapshots.length; index += 1) {
+        const snapshot = snapshots[index];
+        if (!snapshot.full || snapshot.version <= first || recorded.has(snapshot.id)) continue;
+        const before = snapshots[index - 1];
+        objectEvents.push({ object_id: objectEvents[0].object_id, snapshot_id: snapshot.id, removed: 1,
+          source_project_id: snapshot.project_id, version: snapshot.version, created_at: snapshot.created_at,
+          base_version: before.version, base_at: before.created_at });
+      }
+    }
   }
 
   // ── staleness ────────────────────────────────────────────────────────────

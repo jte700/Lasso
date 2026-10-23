@@ -174,7 +174,8 @@ Readers bound input size and parsing complexity. STEP supports up to 64 MB,
 500,000 STEP records and 8,000 indexed measurements. LandXML bounds XML size,
 element count and nesting. DXF bounds entity and geometry association work. PDF
 processing bounds size, pages, output and subprocess time. The workspace retains
-its existing 10,000-object indexing limit. Partial extraction, missing units,
+format-specific per-file safety limits without a folder-wide object cutoff.
+Partial extraction, missing units,
 unsupported geometry and native-format limitations remain visible in source
 metadata and `index failures`; failed measurements never become numeric answers.
 

@@ -4,12 +4,13 @@ import crypto from 'node:crypto';
 import { transaction, json } from '../db.js';
 import { normalizeActor } from '../history/service.js';
 import { HttpError, VersionConflictError } from '../history/errors.js';
-import { diffInternals, parseDelimited } from '../history/diff.js';
+import { csvDelimiter, diffInternals, parseDelimited } from '../history/diff.js';
 import {
-  extractDocxDocument, extractPdfDocument, extractPdfFullText, extractPdfPassages, extractSpreadsheetTables, extractTaggedReferences,
+  MAX_IN_MEMORY_PART_BYTES, extractDocxDocument, extractPdfDocument, extractPdfFullText, extractPdfPassages,
+  extractSpreadsheetTables, extractTaggedReferences, isLargeSpreadsheet,
 } from './document-extraction.js';
 import {
-  buildSentenceCorpus, completeFromLinkedSource, completeSentence, originalFindingSentence, sourceFindingFragment,
+  buildSentenceCorpus, completeFromLinkedSource, completeSentence, indexSentenceCorpus, originalFindingSentence, sourceFindingFragment,
 } from './completion.js';
 import { renderPdfFigurePage } from './figure-preview.js';
 import { columnLetter } from './table-preview.js';
@@ -19,7 +20,16 @@ import { RecommendationRanking, directRecommendationMatch } from './ranking.js';
 import { correctedDocumentLabel, firstAuthorFamily } from './authors.js';
 import { BoundedCache } from '../cache.js';
 import { drawingDescriptors, drawingContext, isDesignFile, measurementOrder, measurementRelevance } from './drawing-objects.js';
-import { storedFields } from '../history/object-versions.js';
+import { FULL_WRITE_SHARE, storedFields } from '../history/object-versions.js';
+import { runSync, workUnits } from '../history/work.js';
+import { compareText } from '../history/text-order.js';
+import { TextStore } from './text-store.js';
+import { TAIL_ROWS, TableIndex, writeTable } from './table-index.js';
+import { Worker } from 'node:worker_threads';
+import { canonicalRowReference, normalizedRowSearch, rowSearchAliases } from './row-names.js';
+import { dictionaryColumns, humanVariable, normalizedVariable, spreadsheetLayout, tableShape, tabularLayout } from './tabular.js';
+
+export { spreadsheetLayout, tabularLayout };
 import { extractDrawingDocument } from './drawing-extraction.js';
 import { buildModelPreview } from './model-preview.js';
 import { DRAWING_NAME_MIN_LETTERS, drawingDiscovery, drawingReferenceMatch } from './drawing-discovery.js';
@@ -32,12 +42,12 @@ const OBJECT_TYPES = new Set([
 ]);
 const SELECTION_METHODS = new Set(['AUTOCOMPLETE', 'PREDICTED_ACCEPTED', 'MANUAL', 'SYSTEM_LINKED', 'IMPORTED']);
 const STATUS_TYPES = new Set(['PREDICTED', 'LINKED', 'NEEDS_REVIEW', 'STALE', 'BROKEN']);
-const MAX_SNAPSHOT_OBJECTS = 10_000;
-// The most objects one snapshot's object list returns.
-const MAX_RESOLVED_OBJECTS = 30_000;
-// Up to this many new objects are looked up one by one; more read the folder's objects at once.
+// Up to this many new objects are looked up one by one; larger batches look
+// up only the keys being indexed, not every historical object in the folder.
 const INDIVIDUAL_OBJECT_LOOKUPS = 200;
 const INDEX_VERSION = 4;
+// The object types a whole file can be named as while typing.
+const WHOLE_FILE_TYPES = ['DRAWING', 'DATASET', 'DOCUMENT', 'PAPER'];
 const STEP_FILE = /\.(?:step|stp)$/i;
 // The reader that turns file bytes into indexed objects. Bumped whenever
 // extraction changes what it reads out of unchanged files, so a project indexed
@@ -49,9 +59,20 @@ const STEP_FILE = /\.(?:step|stp)$/i;
 //    own row.
 // 4: worksheet cells are anchored at their sheet row, and statements with
 //    year columns read their indented labels as rows.
-const EXTRACTOR_VERSION = 4;
+// 5: all eligible files remain indexed in large folders, and ordinary STEP
+//    feature groups are no longer discarded by small per-kind limits.
+// 6: worksheets and delimited files of any size are read whole into the
+//    table index; those past the in-memory limit were skipped or cut short.
+const EXTRACTOR_VERSION = 6;
 const MAX_TABLE_CELLS = 1_500;
 const MAX_INDEXED_TABLE_ROWS = 1_000;
+// The last rows of a large table read for the notes written under it.
+const TABLE_TAIL_ROWS = TAIL_ROWS;
+// How much the table index adds to a suggestion: rows matched per table, rows
+// shown among the names offered, and cells offered for an accepted source.
+const INDEXED_MATCHES_PER_TABLE = 12;
+const INDEXED_ROWS_SHOWN = 8;
+const INDEXED_RELATED_OBJECTS = 64;
 const EDITABLE_DOCUMENT_TYPES = new Set(['markdown', 'text', 'document', 'pdf']);
 const STOP_WORDS = new Set([
   'about', 'after', 'before', 'between', 'from', 'have', 'into', 'levels', 'prior', 'shown',
@@ -168,15 +189,35 @@ function isIdentifierRow(object) {
   return IDENTIFIER_HEADER.test(header) || IDENTIFIER_VALUE.test(String(object.metadata.row ?? object.label).trim());
 }
 
+function measuredPartWords(object) {
+  return variableTokens(humanVariable(object.metadata?.entityName ?? ''));
+}
+
 // "bracket length": a measured part's name leads the words and the rest begin
 // words of one of its measurements, so other models' lengths do not qualify.
-function namesMeasuredPart(object, queryWords) {
-  const part = variableTokens(humanVariable(object.metadata?.entityName ?? ''));
+function namesMeasuredPart(object, queryWords, part = measuredPartWords(object)) {
   if (!part.length || queryWords.length <= part.length || part.some((word, index) => queryWords[index] !== word)) return false;
   return queryWords.slice(part.length).every((word) => object.variableWords.some((candidate) => candidate.startsWith(word)));
 }
 
-function progressiveVariableFragments(text, cursor) {
+/** How a variable's name matches what is typed, apart from naming a measured part. */
+function variableNameMatch(name, normalizedQuery, queryWords) {
+  const exact = name.normalizedVariable === normalizedQuery;
+  const prefix = !exact && name.normalizedVariable.startsWith(normalizedQuery);
+  // Only a match that starts a word counts; "is" must not match "Revision".
+  const contains = !prefix && name.wordSuffixes.some((suffix) => suffix.startsWith(normalizedQuery));
+  const tokenPrefix = queryWords.length > 0 && queryWords.every((word) => name.variableWords
+    .some((candidateWord) => candidateWord === word || candidateWord.startsWith(word)));
+  return { exact, prefix, contains, tokenPrefix };
+}
+
+function wordSuffixes(words) {
+  return words.map((_, index) => words.slice(index).join(''));
+}
+
+/** Name fragments ending at the cursor, longest first. None starts at or before
+ * `after`, the end of a value already accepted ("100 mm" is not "mm"). */
+function progressiveVariableFragments(text, cursor, after = -1) {
   const source = String(text ?? '');
   if (cursor !== source.length) return [];
   const context = writingSourceContext(source, cursor);
@@ -192,7 +233,7 @@ function progressiveVariableFragments(text, cursor) {
     const trailing = raw.match(/\s*$/)?.[0].length ?? 0;
     const fragment = raw.slice(leading, raw.length - trailing);
     const firstWord = fragment.match(/^[A-Za-z]+/)?.[0].toLowerCase();
-    if (normalizedVariable(fragment).length >= 2 && !FRAGMENT_FUNCTION_WORDS.has(firstWord)) {
+    if (start + leading > after && normalizedVariable(fragment).length >= 2 && !FRAGMENT_FUNCTION_WORDS.has(firstWord)) {
       output.push({ text: fragment, start: start + leading, end: cursor - trailing });
     }
   }
@@ -539,14 +580,6 @@ function missingMeasurement(value) {
   return /^(?:n\/?a|na|nd|not detected|<\s*(?:lod|loq)|below (?:the )?(?:lod|loq))$/i.test(String(value ?? '').trim());
 }
 
-function canonicalRowReference(value) {
-  const match = String(value ?? '').trim().match(/\b([A-Za-z]{1,16})[\s_-]*(\d+)\b/i);
-  if (!match) return '';
-  const rawPrefix = match[1].toLowerCase();
-  const prefix = /^(?:control|ctrl|con)$/.test(rawPrefix) ? 'con'
-    : /^(?:case|ca)$/.test(rawPrefix) ? 'ca' : rawPrefix;
-  return `${prefix}${Number(match[2])}`;
-}
 
 const rowReferencePrefix = (reference) => reference.replace(/\d+$/, '');
 
@@ -560,9 +593,6 @@ function rowReferencesInText(value, rowKeys) {
     .filter((reference) => reference && prefixes.has(rowReferencePrefix(reference))));
 }
 
-function normalizedRowSearch(value) {
-  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-}
 
 function dependencyReferencesTableRow(dependency) {
   const source = dependency?.source ?? {};
@@ -600,19 +630,6 @@ function semanticDependencySource(dependency) {
   };
 }
 
-function rowSearchAliases(value) {
-  const raw = normalizedRowSearch(value);
-  const canonical = canonicalRowReference(value);
-  const aliases = new Set([raw, canonical].filter(Boolean));
-  const numbered = canonical.match(/^([a-z]+)(\d+)$/);
-  if (numbered?.[1] === 'con') {
-    aliases.add(`control${numbered[2]}`);
-    aliases.add(`ctrl${numbered[2]}`);
-  } else if (numbered?.[1] === 'ca') {
-    aliases.add(`case${numbered[2]}`);
-  }
-  return [...aliases];
-}
 
 function editDistance(left, right) {
   const a = String(left ?? '');
@@ -739,6 +756,17 @@ function contextualStoredValue(object, tail) {
   return `${raw}${units && !raw.toLowerCase().endsWith(units.toLowerCase()) ? ` ${units}` : ''}`;
 }
 
+/** Whether a source was accepted as its own value ("100 mm", "485000 CAD",
+ * "Income") rather than by a name that leads on to values. */
+function acceptedAsValue(dependency, text) {
+  const { source, anchor } = dependency;
+  if (['PAPER', 'REFERENCE'].includes(source.objectType)) return false;
+  const accepted = normalizedVariable(String(text ?? '').slice(anchor.start, anchor.end));
+  if (!accepted) return false;
+  return [source.valueText, contextualStoredValue(source, String(text ?? '').slice(0, anchor.start))]
+    .some((value) => value && normalizedVariable(value) === accepted);
+}
+
 const comparableNumber = (value) => String(value ?? '').replace(/[\s,]/g, '').replace(/^[^\d.]+/, '');
 
 /** The start of a number being typed at the end of the text ("was 48"), unless
@@ -847,28 +875,8 @@ function objectDescriptor({ key, type, path: filePath, anchor = null, label, val
   };
 }
 
-function normalizedVariable(value) {
-  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-}
 
-function humanVariable(value) {
-  return String(value ?? '').replace(/[_./-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/\s+/g, ' ').trim().toLowerCase();
-}
 
-function dictionaryColumns(filePath, headers) {
-  const names = headers.map((header) => humanVariable(header));
-  const variableIndex = names.findIndex((name) => /^(?:variable(?: name)?|var|field(?: name)?|column(?: name)?|code|item|name)$/.test(name));
-  const descriptionIndex = names.findIndex((name) => /(?:description|definition|meaning|label|question|concept|long name)/.test(name));
-  const pathLooksLikeDictionary = /(?:data[_ -]?(?:dictionary|dict)|codebook|variable[_ -]?(?:definitions?|labels?)|metadata|schema|layout)/i.test(filePath);
-  return {
-    dictionary: (variableIndex >= 0 && descriptionIndex >= 0) || pathLooksLikeDictionary,
-    variableIndex: variableIndex >= 0 ? variableIndex : pathLooksLikeDictionary ? 0 : -1,
-    descriptionIndex: descriptionIndex >= 0 ? descriptionIndex
-      : pathLooksLikeDictionary ? Math.min(1, Math.max(0, headers.length - 1)) : -1,
-    unitIndex: names.findIndex((name) => /^(?:unit|units|format|type|allowed values?|coding)$/.test(name)),
-  };
-}
 
 function variableProfile(column, values) {
   const present = values.map((value) => String(value ?? '').trim()).filter(Boolean);
@@ -882,50 +890,7 @@ function variableProfile(column, values) {
   return { dataType, range, samples, inferredMeaning };
 }
 
-export function tabularLayout(rawRows) {
-  const rows = Array.isArray(rawRows) ? rawRows : [];
-  if (!rows.length) return { headers: [], rows: [], headerRowIndex: 0 };
-  const candidates = rows.slice(0, 20).map((row, index) => {
-    const cells = row.map((cell) => String(cell ?? '').trim());
-    const present = cells.filter(Boolean);
-    const alphabetic = present.filter((cell) => /[A-Za-z]/.test(cell));
-    const unique = new Set(present.map((cell) => cell.toLowerCase())).size;
-    const knownHeaders = present.filter((cell) => /^(?:sample(?: id)?|subject(?: id)?|participant(?: id)?|patient(?: id)?|group|variable|metric|measure|outcome|parameter|feature|marker|analyte|description|definition|units?)$/i.test(cell)).length;
-    const following = rows.slice(index + 1, index + 4);
-    const compatibleRows = following.filter((next) => next.filter((cell) => String(cell ?? '').trim()).length
-      >= Math.max(1, Math.floor(present.length * 0.6))).length;
-    const duplicates = Math.max(0, present.length - unique);
-    const score = alphabetic.length * 3 + unique * 0.35 + knownHeaders * 8
-      + compatibleRows * 1.5 - duplicates * 1.5;
-    return { index, cells, present: present.length, alphabetic: alphabetic.length, score };
-  }).filter((candidate) => candidate.present >= 2 && candidate.alphabetic >= 1)
-    .sort((left, right) => right.score - left.score || left.index - right.index);
-  const selected = candidates[0] ?? { index: 0, cells: rows[0].map((cell) => String(cell ?? '').trim()) };
-  return {
-    headers: selected.cells,
-    rows: rows.slice(selected.index + 1),
-    headerRowIndex: selected.index,
-  };
-}
 
-// Financial worksheets often indent account labels across several columns and
-// place year headings above values. Preserve physical cell coordinates while
-// treating those labels as rows, not as measured columns.
-export function spreadsheetLayout(sheet) {
-  const yearHeader = sheet.rows.slice(0, 20).findIndex(row =>
-    row.filter(cell => /^(?:19|20)\d{2}$/.test(String(cell ?? '').trim())).length >= 2
-      && row.some(cell => /\b(?:revenue|expenses?|income|account|sales|balance|assets?|liabilit|cash|profit)\b/i.test(String(cell ?? ''))));
-  const base = tabularLayout(sheet.rows);
-  if (yearHeader < 0) return { ...base, rowNumbers: sheet.rowNumbers?.slice(base.headerRowIndex + 1) };
-  const header = sheet.rows[yearHeader];
-  const yearColumns = [...header.keys()].filter(index => /^(?:19|20)\d{2}$/.test(String(header[index] ?? '').trim()));
-  const labelColumns = Array.from({ length: yearColumns[0] }, (_, index) => index);
-  const headers = Array.from({ length: yearColumns.at(-1) + 1 }, (_, index) => yearColumns.includes(index) ? String(header[index]) : '');
-  // The year row can also be a section heading (Revenue, Expenses…).
-  const rows = sheet.rows.slice(yearHeader);
-  return { headers, rows, headerRowIndex: yearHeader - 1, labelColumns,
-    rowNumbers: sheet.rowNumbers?.slice(yearHeader), statement: true };
-}
 
 const filledColumns = (row) => [...row.keys()].filter((column) => String(row[column] ?? '').trim());
 // A sentence, or a line that introduces one ("Source: ...", "Blue values = inputs").
@@ -971,13 +936,17 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
   // sheet row each one is; a delimited file keeps its blank lines as rows.
   const filled = rawRows.flatMap((row, index) => row.some((cell) => String(cell ?? '').trim())
     ? [{ row, index, number: options.rowNumbers?.[index] ?? rowOffset + index + 1 }] : []);
-  const notes = trailingTableNotes(filled);
+  // A table read from the table index arrives as its first rows (`window`),
+  // with how many rows it has and its last few, where notes sit. Its notes
+  // are past the rows read here, so they only change the count.
+  const notes = options.window ? new Map() : trailingTableNotes(filled);
   // Only the first rows are indexed, but the row count reports the table as
   // it is: inserting "n = 1000" for a larger table would state a false fact.
   const filledRows = filled.map((entry) => entry.row);
   const data = filled.slice(0, MAX_INDEXED_TABLE_ROWS).map((entry) => entry.row);
   const bodyRows = data.filter((_, rowIndex) => !notes.has(rowIndex));
-  const rowCount = filledRows.length - notes.size;
+  const rowCount = options.window ? options.window.filledRows - trailingTableNotes(options.window.tail).size
+    : filledRows.length - notes.size;
   // Anchors name a worksheet row by its sheet row number, and a delimited
   // file's row by its index among the file's rows, as previews look them up.
   const rowNumber = (rowIndex) => options.rowNumbers?.[filled[rowIndex].index] ?? rowOffset + filled[rowIndex].index;
@@ -1025,60 +994,13 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
     });
   }
 
-  // Which column names the rows. Usually the first, but a statement or
-  // budget template commonly indents its line items behind one or two narrow
-  // spacer columns, leaving column A empty or holding only a stray mark. A
-  // column that does not read as row labels cannot name a row, so the first
-  // one that does is used instead; a sheet whose labels are already in column
-  // A is unaffected, because that column is tested first. Notes under the
-  // table still count here, as they did when the rows' keys were first made:
-  // leaving them out could move the label column and rename every row.
-  const looksNumeric = (value) => /^[-+(]?[$]?[\d][\d.,\s%$]*\)?$/.test(value);
-  // Why a column reads as the one that names the rows, or null if it does not.
-  const columnNamesRows = (column) => {
-    const values = data.map((row) => String(row[column] ?? '').trim());
-    const named = values.filter(Boolean);
-    if (named.length < Math.max(1, Math.ceil(data.length * 0.45))) return null;
-    const unique = named.length === data.length
-      && new Set(named.map(normalizedRowSearch)).size === named.length;
-    const header = humanVariable(headers[column]);
-    if (unique) return 'unique';
-    if (!header) return 'unheaded';
-    if (/^(?:row|label|name|account|item|category|variable|metric|measure|outcome|parameter|feature|marker|analyte|sample|subject|participant|patient|id)$/i.test(header)) {
-      return 'named-heading';
-    }
-    // A column of words with the figures to its right is naming those figures,
-    // whatever its heading says. Statements and budgets rarely head that
-    // column at all, and a heading read off the wrong row should not cost the
-    // sheet its line-item names.
-    const words = named.filter((value) => !looksNumeric(value)).length;
-    const toTheRight = data.flatMap((row) => row.slice(column + 1)
-      .map((cell) => String(cell ?? '').trim()).filter(Boolean));
-    const figures = toTheRight.filter(looksNumeric).length;
-    const namesFigures = words >= Math.ceil(named.length * 0.7)
-      && toTheRight.length > 0 && figures >= Math.ceil(toTheRight.length * 0.6);
-    return namesFigures ? 'words-beside-figures' : null;
-  };
-  const widestRow = data.reduce((widest, row) => Math.max(widest, row.length), 0);
-  const searchLimit = Math.min(widestRow, 4);
-  let labelColumn = 0;
-  let labelReason = null;
-  while (labelColumn < searchLimit) {
-    labelReason = columnNamesRows(labelColumn);
-    if (labelReason) break;
-    labelColumn += 1;
-  }
-  const firstColumnActsAsRowLabels = options.statement || Boolean(labelReason);
-  if (!firstColumnActsAsRowLabels) labelColumn = 0;
-  const firstHeader = humanVariable(headers[labelColumn]);
-  const rowDescribesVariable = options.statement || firstColumnActsAsRowLabels
-    && (!firstHeader
-      || /^(?:account|item|category|variable|metric|measure|outcome|parameter|feature|marker|analyte)$/i.test(firstHeader)
-      // Line items named beside their figures are variables in every sense
-      // that matters here: they are what a writer refers to by name.
-      || labelReason === 'words-beside-figures');
+  const shape = tableShape(headers, data, options);
+  const { labelColumn, firstColumnActsAsRowLabels } = shape;
+  const rowContext = { file, fileName, keyPrefix, sheet, headers, ...shape, statement: options.statement };
   let indexedCells = 0;
   let section = '';
+  // Whether rows or cells were left for the table index to answer.
+  let truncated = data.length < filled.length - notes.size || Boolean(options.window);
   tableRows: for (const [rowIndex, row] of data.entries()) {
     if (notes.has(rowIndex)) continue;
     const rowLabel = options.statement ? rowLabelFor(row) : String(row[labelColumn] ?? '').trim();
@@ -1087,53 +1009,15 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
       && !String(row[options.labelColumns.at(-1)] ?? '').trim()
       && (row === rawRows[0] || !headers.some((header, index) => header && numericDescriptor(row[index])));
     if (sectionRow) section = rowLabel;
-    const rowKey = firstColumnActsAsRowLabels && rowLabel ? rowLabel : `row:${rowIndex + 1}`;
-    const rowIdentity = `${rowNumber(rowIndex)}:${normalizedVariable(rowKey) || 'row'}`;
-    if (firstColumnActsAsRowLabels && rowLabel) {
-      objects.push(objectDescriptor({
-        key: `${keyPrefix}:row:${rowIdentity}`,
-        type: 'DATASET_ROW', path: file.path,
-        anchor: { kind: 'table-row', rowKey, rowIndex: rowNumber(rowIndex), sheet },
-        label: rowKey, contentHash: file.contentHash,
-        metadata: {
-          row: rowKey,
-          rowIndex: rowNumber(rowIndex),
-          variable: rowDescribesVariable ? rowKey : null,
-          columns: headers.slice(0, 80).map((header) => String(header ?? '')).filter(Boolean),
-          orientation: 'ROW', section, sectionRow,
-          dataset: fileName,
-          sheet,
-        },
-      }));
-    }
-    for (const [columnIndex, column] of headers.slice(0, 80).entries()) {
-      if (options.statement && (!column || sectionRow)) continue;
-      // The label names the row; as a cell it would only repeat that name.
-      // Column A stays unread as before when the labels sit further right, so
-      // a stray mark there does not become a value of its row.
-      if (!options.statement && firstColumnActsAsRowLabels && (columnIndex === labelColumn || columnIndex === 0)) continue;
-      const value = String(row[columnIndex] ?? '').trim();
-      if (!value || value.length > 180) continue;
-      const numeric = numericDescriptor(value);
-      const type = numeric ? /(^|\/)results?\//i.test(file.path) ? 'RESULT' : 'DATASET_VALUE' : 'TABLE';
-      objects.push(objectDescriptor({
-        key: `${keyPrefix}:cell:${rowIdentity}:${column || columnIndex}`,
-        type, path: file.path,
-        anchor: { kind: 'table-cell', rowKey, rowIndex: rowNumber(rowIndex), column: column || `column:${columnIndex + 1}`, columnIndex, sheet },
-        label: `${rowKey} · ${column || `column ${columnIndex + 1}`}`,
-        value, contentHash: file.contentHash,
-        metadata: {
-          row: rowKey,
-          rowIndex: rowNumber(rowIndex),
-          variable: rowDescribesVariable ? rowKey : column || columnIndex + 1,
-          column: column || columnIndex + 1,
-          orientation: rowDescribesVariable ? 'ROW' : 'COLUMN', section,
-          dataset: fileName,
-          sheet,
-        },
-      }));
+    const { rowObject, cells } = tableRowObjects(rowContext, { row, rowIndex, rowNumber: rowNumber(rowIndex), rowLabel, section, sectionRow });
+    if (rowObject) objects.push(rowObject);
+    for (const cell of cells) {
+      objects.push(cell);
       indexedCells += 1;
-      if (indexedCells >= MAX_TABLE_CELLS) break tableRows;
+      if (indexedCells >= MAX_TABLE_CELLS) {
+        truncated = true;
+        break tableRows;
+      }
     }
   }
   // A note is read as a passage of text at its own cell, so it is found by its
@@ -1155,11 +1039,120 @@ function objectsFromTabular(file, fileName, headers, rawRows, options = {}) {
         parentTitle: labelPrefix, parentAuthor: null, parentYear: null },
     }));
   }
-  return objects;
+  // The table index answers for the rest of a plain table whose rows are named.
+  const searchable = !options.statement && !dictionary.dictionary && firstColumnActsAsRowLabels;
+  return Object.defineProperty(objects, 'deep', { value: truncated && searchable });
+}
+
+/**
+ * One table row's objects: the row itself when its rows are named, and each
+ * of its cells. The indexer makes them for a table's first rows; the table
+ * index makes the same ones, under the same keys, for any row after those.
+ */
+function tableRowObjects(context, { row, rowIndex, rowNumber, rowLabel, section = '', sectionRow = false }) {
+  const { file, fileName, keyPrefix, sheet, headers, labelColumn, firstColumnActsAsRowLabels, rowDescribesVariable,
+    statement } = context;
+  const rowKey = firstColumnActsAsRowLabels && rowLabel ? rowLabel : `row:${rowIndex + 1}`;
+  const rowIdentity = `${rowNumber}:${normalizedVariable(rowKey) || 'row'}`;
+  const rowObject = firstColumnActsAsRowLabels && rowLabel ? objectDescriptor({
+    key: `${keyPrefix}:row:${rowIdentity}`,
+    type: 'DATASET_ROW', path: file.path,
+    anchor: { kind: 'table-row', rowKey, rowIndex: rowNumber, sheet },
+    label: rowKey, contentHash: file.contentHash,
+    metadata: {
+      row: rowKey,
+      rowIndex: rowNumber,
+      variable: rowDescribesVariable ? rowKey : null,
+      columns: headers.slice(0, 80).map((header) => String(header ?? '')).filter(Boolean),
+      orientation: 'ROW', section, sectionRow,
+      dataset: fileName,
+      sheet,
+    },
+  }) : null;
+  const cells = [];
+  for (const [columnIndex, column] of headers.slice(0, 80).entries()) {
+    if (statement && (!column || sectionRow)) continue;
+    // The label names the row; as a cell it would only repeat that name.
+    // Column A stays unread as before when the labels sit further right, so
+    // a stray mark there does not become a value of its row.
+    if (!statement && firstColumnActsAsRowLabels && (columnIndex === labelColumn || columnIndex === 0)) continue;
+    const value = String(row[columnIndex] ?? '').trim();
+    if (!value || value.length > 180) continue;
+    const numeric = numericDescriptor(value);
+    const type = numeric ? /(^|\/)results?\//i.test(file.path) ? 'RESULT' : 'DATASET_VALUE' : 'TABLE';
+    cells.push(objectDescriptor({
+      key: `${keyPrefix}:cell:${rowIdentity}:${column || columnIndex}`,
+      type, path: file.path,
+      anchor: { kind: 'table-cell', rowKey, rowIndex: rowNumber, column: column || `column:${columnIndex + 1}`, columnIndex, sheet },
+      label: `${rowKey} · ${column || `column ${columnIndex + 1}`}`,
+      value, contentHash: file.contentHash,
+      metadata: {
+        row: rowKey,
+        rowIndex: rowNumber,
+        variable: rowDescribesVariable ? rowKey : column || columnIndex + 1,
+        column: column || columnIndex + 1,
+        orientation: rowDescribesVariable ? 'ROW' : 'COLUMN', section,
+        dataset: fileName,
+        sheet,
+      },
+    }));
+  }
+  return { rowObject, cells };
+}
+
+// Which kinds of file each reader version reads differently from the one
+// before it, so a reader upgrade re-reads only those. A version missing here
+// changed more than a few kinds, and a folder it is new to is read whole.
+const READER_CHANGES = new Map([[6, new Set(['table', 'spreadsheet'])]]);
+
+function kindsChangedSince(version) {
+  if (!Number.isInteger(version) || version < 1) return null;
+  const kinds = new Set();
+  for (let next = version + 1; next <= EXTRACTOR_VERSION; next += 1) {
+    const changed = READER_CHANGES.get(next);
+    if (!changed) return null;
+    for (const kind of changed) kinds.add(kind);
+  }
+  return kinds.size ? kinds : null;
+}
+
+/**
+ * Steps reading one file, reported as part of the whole read: `toStep(share)`
+ * turns the share of the file read so far into the read's progress.
+ */
+function* withinFile(steps, toStep) {
+  let next = steps.next();
+  while (!next.done) {
+    const step = next.value ?? {};
+    const reported = toStep(step.share ?? 0);
+    const reply = yield typeof step.offThread === 'function'
+      ? { ...reported, offThread: (report) => step.offThread((share) => report?.(toStep(share))) }
+      : reported;
+    next = steps.next(reply);
+  }
+  return next.value;
+}
+
+/** Worksheet objects name their rows by sheet row number. */
+function worksheetCoordinates(object) {
+  object.metadata.spreadsheetExtractionVersion = 2;
+  if (object.anchor && Number.isInteger(object.anchor.rowIndex)) object.anchor.rowCoordinate = 'worksheet';
+  return object;
 }
 
 function isDictionaryVariable(descriptor) {
   return descriptor.type === 'VARIABLE' && Boolean(descriptor.metadata.dictionary);
+}
+
+/**
+ * Whether an index row needs no upgrade pass. Version two adds page-anchored
+ * PDF sentences and paragraphs to existing imports without changing any
+ * previously linked object or version. Version three adds the same passages
+ * for Markdown and plain-text files. Version four adds STEP CAD models.
+ * Spreadsheet version two records worksheet row coordinates under new keys.
+ */
+function indexIsCurrent(indexed) {
+  return Boolean(indexed?.indexed && indexed.drawing_index_version >= INDEX_VERSION && indexed.spreadsheet_index_version >= 2);
 }
 
 /** What a later index needs to carry these files' objects forward. */
@@ -1313,14 +1306,8 @@ function objectsFromFile(file, buffer, report = () => {}) {
     ];
   }
 
-  if (file.fileType === 'table') {
-    const delimiter = path.extname(file.path).toLowerCase() === '.tsv' ? '\t' : ',';
-    const layout = tabularLayout(parseDelimited(text, delimiter));
-    objects.push(...objectsFromTabular(file, fileName, layout.headers, layout.rows, {
-      format: path.extname(file.path).slice(1).toUpperCase(),
-      rowOffset: layout.headerRowIndex + 1,
-    }));
-  } else if (file.fileType === 'code') {
+  // Tables and workbooks are read by tableObjectSteps, which can index them whole.
+  if (file.fileType === 'code') {
     objects.push(objectDescriptor({
       key: `${base}:code`, type: /model|analysis/i.test(fileName) ? 'MODEL' : 'CODE_BLOCK', path: file.path,
       label: fileName, contentHash: file.contentHash, metadata: { file: file.path },
@@ -1380,40 +1367,6 @@ function objectsFromFile(file, buffer, report = () => {}) {
     } catch {
       // The line diff remains available in history.
       report('UNREADABLE_CONTENT', 'This JSON file could not be parsed, so its values are not suggested.');
-    }
-  } else if (file.fileType === 'spreadsheet') {
-    const format = path.extname(file.path).slice(1).toUpperCase();
-    const sheets = extractSpreadsheetTables(buffer);
-    // A readable workbook lists the sheets it had to skip; a failed one does not.
-    const readable = Array.isArray(sheets.skipped);
-    if (sheets.skipped?.length) {
-      report('PARTIALLY_INDEXED', `${sheets.skipped.length === 1 ? 'Sheet' : 'Sheets'} ${sheets.skipped.map((name) => `“${name}”`).join(', ')} could not be read (too large or damaged). The other sheets are indexed.`);
-    }
-    if (!sheets.length && format === 'ODS') {
-      report('UNREADABLE_CONTENT', 'OpenDocument spreadsheets are not indexed yet. Save a copy as .xlsx or .csv to use its values.');
-    } else if (!sheets.length && (!readable || sheets.skipped.length)) {
-      report('UNREADABLE_CONTENT', 'This workbook could not be read. It may be password-protected, damaged or too large.');
-    }
-    if (sheets.length) {
-      for (const sheet of sheets) {
-        const layout = spreadsheetLayout(sheet);
-        objects.push(...objectsFromTabular(file, fileName, layout.headers, layout.rows, {
-          format, sheet: sheet.name, ...layout, rowOffset: layout.headerRowIndex + 1,
-        }));
-      }
-      for (const object of objects) {
-        object.metadata.spreadsheetExtractionVersion = 2;
-        if (object.anchor && Number.isInteger(object.anchor.rowIndex)) object.anchor.rowCoordinate = 'worksheet';
-      }
-    } else {
-      objects.push(objectDescriptor({
-        key: `${base}:spreadsheet`, type: 'TABLE', path: file.path, label: fileName,
-        contentHash: file.contentHash, metadata: { format, binary: true },
-      }));
-      objects.push(objectDescriptor({
-        key: `${base}:spreadsheet-dataset`, type: 'DATASET', path: file.path, label: fileName,
-        contentHash: file.contentHash, metadata: { format, binary: true },
-      }));
     }
   } else if (file.fileType === 'pdf' || file.fileType === 'document') {
     const fallback = paperMetadata(fileName);
@@ -1642,6 +1595,31 @@ function mapObjectRow(row, at = { snapshotId: row.snapshot_id, version: row.snap
   };
 }
 
+/** A row of a large table not yet recorded as an object, shaped as one for scoring. */
+function pendingObject(projectId, snapshotId, descriptor) {
+  return { id: `indexed:${descriptor.key}`, projectId, versionId: null, objectKey: descriptor.key, objectType: descriptor.type,
+    snapshotId, snapshotVersion: null, path: descriptor.path, anchor: descriptor.anchor,
+    label: correctedDocumentLabel(descriptor.type, descriptor.label, descriptor.metadata), valueText: descriptor.value,
+    contentHash: descriptor.contentHash, metadata: descriptor.metadata, searchText: descriptor.searchText };
+}
+
+/** An object with the variable a writer names it by, as study-variable suggestions read it. */
+function studyVariable(object) {
+  // A row named in a Department or Supplier column ("Facilities") is not
+  // a variable, but it is still a name the writer types.
+  const namedRow = object.objectType === 'DATASET_ROW' && !object.metadata.variable
+    && !isIdentifierRow(object);
+  const variable = String(object.metadata.variable ?? object.metadata.column
+    ?? (object.objectType === 'VARIABLE' ? object.label : namedRow ? object.metadata.row ?? object.label : '')).trim();
+  return {
+    ...object,
+    namedRow,
+    variable,
+    normalizedVariable: normalizedVariable(variable),
+    variableWords: variableTokens(humanVariable(variable)),
+  };
+}
+
 function freezeIndexedValue(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   for (const child of Object.values(value)) freezeIndexedValue(child);
@@ -1659,13 +1637,27 @@ export class PredictiveProvenanceService {
     this.studyVariableCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length });
     this.workspaceRetrievalCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length });
     this.objectCache = new BoundedCache({ maxEntries: 16, maxWeight: 120_000, weight: (objects) => objects.length });
+    this.typedObjectCache = new BoundedCache({ maxEntries: 96, maxWeight: 120_000, weight: (objects) => objects.length });
     // Raw descriptors are cached before dictionary enrichment. Changing a
     // dictionary must still update unchanged source files in the next snapshot.
     this.extractionCache = new BoundedCache({ maxEntries: 256, maxWeight: 24 * 1024 * 1024,
       weight: (entry) => entry.bytes });
     // Extracted file text depends only on the file's bytes, so an unchanged
     // PDF is not parsed again after every capture of its folder.
-    this.extractedTextCache = new BoundedCache({ maxEntries: 64, maxWeight: 16 * 1024 * 1024,
+    // Large tables, whole, by file content (see table-index.js).
+    this.tables = new TableIndex(path.join(timeline.config.dataDir, 'derived'));
+    this.tableBuilds = new Map();
+    this.tableReadings = new BoundedCache({ maxEntries: 256 });
+    this.snapshotTableCache = new BoundedCache({ maxEntries: 32 });
+    // Rows of large tables already offered at a snapshot, by snapshot and key.
+    this.deepObjects = new BoundedCache({ maxEntries: 4_096 });
+    this.objectKeySets = new WeakMap();
+    this.variableIndexes = new WeakMap();
+    this.retrievalIndexes = new WeakMap();
+    // PDFs' text outlives the process, so a restart does not read every PDF again.
+    this.textStore = new TextStore(path.join(timeline.config.dataDir, 'derived', 'text'), EXTRACTOR_VERSION);
+    // A drawing PDF keeps one entry per page, so the bound is on bytes.
+    this.extractedTextCache = new BoundedCache({ maxEntries: 1024, maxWeight: 32 * 1024 * 1024,
       weight: (text) => text.length * 2 });
     this.sourceTextCache = new BoundedCache({ maxEntries: 64, maxWeight: 8 * 1024 * 1024,
       weight: (text) => text.length * 2 });
@@ -1691,62 +1683,142 @@ export class PredictiveProvenanceService {
     this.unsubscribe?.();
     this.ranking.close();
     for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache,
-      this.objectCache, this.extractionCache, this.sourceTextCache, this.figurePreviewCache, this.indexedHere]) cache.clear();
+      this.objectCache, this.typedObjectCache, this.extractionCache, this.sourceTextCache, this.figurePreviewCache,
+      this.indexedHere, this.tableReadings, this.snapshotTableCache, this.deepObjects]) cache.clear();
+    this.tables.close();
   }
 
   sourceText(source) {
     if (isPassageExcerpt(source)) return source.metadata.rawText ?? source.valueText ?? '';
     const key = `${source.snapshotId}|${source.id}|${source.contentHash}`;
     if (this.sourceTextCache.has(key)) return this.sourceTextCache.get(key);
-    let extractedText = '';
     const file = this.timeline.snapshotFile(source.snapshotId, source.path);
-    if (file) {
-      const page = file.fileType === 'pdf' && source.objectType === 'DRAWING' ? source.anchor?.pageNumber ?? '' : '';
-      const extractedKey = `${file.contentHash}|${file.fileType}|${source.objectType === 'DRAWING' ? `page:${page}` : 'all'}`;
-      extractedText = this.extractedTextCache.get(extractedKey);
-      if (extractedText === undefined) {
-        const buffer = this.timeline.blobs.get(file.contentHash);
-        extractedText = '';
-        if (file.fileType === 'pdf') {
-          extractedText = source.objectType === 'DRAWING'
-            ? extractDrawingDocument(buffer).pages.find(item => item.pageNumber === source.anchor?.pageNumber)?.text ?? ''
-            : extractPdfFullText(buffer);
-        } else if (file.fileType === 'document') extractedText = extractDocxDocument(buffer).textExcerpt;
-        else if (['markdown', 'text'].includes(file.fileType)) extractedText = buffer.toString('utf8');
-        this.extractedTextCache.set(extractedKey, extractedText);
-      }
-    }
+    const extractedText = file ? this.fileText(file, source.objectType, source.anchor?.pageNumber) : '';
     const text = [extractedText, source.metadata.textExcerpt, source.metadata.subject,
       source.metadata.title, source.valueText].filter(Boolean).join('\n');
     this.sourceTextCache.set(key, text);
     return text;
   }
 
+  /** A file's text: a whole PDF, one page of a PDF drawing, or a document's. */
+  fileText(file, objectType, pageNumber) {
+    const page = file.fileType === 'pdf' && objectType === 'DRAWING' ? pageNumber ?? '' : '';
+    const extractedKey = `${file.contentHash}|${file.fileType}|${objectType === 'DRAWING' ? `page:${page}` : 'all'}`;
+    let extractedText = this.extractedTextCache.get(extractedKey);
+    if (extractedText !== undefined) return extractedText;
+    extractedText = '';
+    if (file.fileType === 'pdf' && objectType === 'DRAWING') {
+      // One reading has every page, and the next page's object asks next.
+      const pages = this.pdfText(file, 'pages', (layout) => layout.pages.map((item) => ({
+        pageNumber: item.pageNumber, text: item.text ?? '' })));
+      for (const item of pages) this.extractedTextCache.set(`${file.contentHash}|pdf|page:${item.pageNumber}`, item.text);
+      extractedText = pages.find(item => item.pageNumber === pageNumber)?.text ?? '';
+    } else if (file.fileType === 'pdf') {
+      extractedText = this.pdfText(file, 'all', (_layout, buffer) => extractPdfFullText(buffer));
+    } else if (file.fileType === 'document') {
+      extractedText = extractDocxDocument(this.timeline.blobs.get(file.contentHash)).textExcerpt;
+    } else if (['markdown', 'text'].includes(file.fileType)) {
+      extractedText = this.timeline.blobs.get(file.contentHash).toString('utf8');
+    }
+    this.extractedTextCache.set(extractedKey, extractedText);
+    return extractedText;
+  }
+
+  /** A PDF's text, from the text store when an earlier reading kept it. */
+  pdfText(file, kind, read) {
+    const key = `${file.contentHash}|pdf|${kind}`;
+    const stored = this.textStore.get(key);
+    if (stored !== undefined) return stored;
+    const buffer = this.timeline.blobs.get(file.contentHash);
+    const layout = extractDrawingDocument(buffer);
+    const value = read(layout, buffer);
+    // A reading the native reader failed, such as a timeout under load, is not kept.
+    if (layout.status !== 'error') this.textStore.set(key, value);
+    return value;
+  }
+
+  /**
+   * Reads the text of a snapshot's PDFs, one file per step, yielding
+   * `{ phase: 'warming', done, total }`. Search over a PDF's objects includes
+   * its text, and the native reader takes a moment per file, so this is done
+   * while a folder starts rather than on the first keystroke after it.
+   */
+  *pdfTextSteps(projectId, snapshotId) {
+    const pdfs = this.timeline.snapshotFiles(snapshotId).filter((file) => file.fileType === 'pdf');
+    if (!pdfs.length) return;
+    const drawings = new Map();
+    for (const row of this.timeline.objectVersions.resolvedTypes(snapshotId, ['DRAWING']).rows) {
+      if (row.project_id === projectId && /\.pdf$/i.test(row.path)) drawings.set(row.path, json(row.anchor_json, {})?.pageNumber);
+    }
+    // PDFs not yet in the text store are read by a worker; a caller that
+    // cannot wait for one reads them below, on this thread.
+    const unread = pdfs.filter((file) => this.textStore.get(`${file.contentHash}|pdf|all`) === undefined)
+      .map((file) => ({ blobPath: this.timeline.blobs.pathFor(file.contentHash), contentHash: file.contentHash,
+        pages: drawings.has(file.path) }));
+    if (unread.length) {
+      yield { phase: 'warming', done: 0, total: 1, offThread: (report) => this.readPdfTexts(unread,
+        (share) => report?.({ phase: 'warming', done: share, total: 1 })) };
+    }
+    const total = pdfs.reduce((sum, file) => sum + workUnits(file.size), 0);
+    let done = 0;
+    for (const file of pdfs) {
+      this.fileText(file, 'PAPER');
+      if (drawings.has(file.path)) this.fileText(file, 'DRAWING', drawings.get(file.path));
+      done += workUnits(file.size);
+      yield { phase: 'warming', done, total };
+    }
+  }
+
   ensureIndex(projectId, snapshotId = null) {
+    return runSync(this.ensureIndexSteps(projectId, snapshotId));
+  }
+
+  /** The snapshot's index row, as `ensureIndex` decides whether it has work to do. */
+  indexState(snapshotId) {
+    // Do not materialize the entire file manifest on every warm prediction.
+    return this.db.prepare(`SELECT s.project_id, i.snapshot_id AS indexed, i.drawing_index_version, i.spreadsheet_index_version
+      FROM snapshots s LEFT JOIN snapshot_object_indexes i ON i.snapshot_id = s.id WHERE s.id = ?`)
+      .get(snapshotId);
+  }
+
+  /** Whether a snapshot's objects can be read without indexing anything first. */
+  isIndexed(snapshotId) {
+    return indexIsCurrent(snapshotId ? this.indexState(snapshotId) : null);
+  }
+
+  /**
+   * Reads the files a snapshot's index lacks, yielding
+   * `{ phase: 'indexing', done, total }` after each file and
+   * `{ phase: 'saving' }` before recording what it read.
+   */
+  *ensureIndexSteps(projectId, snapshotId = null) {
     const project = this.timeline.getProject(projectId);
     const targetSnapshotId = snapshotId ?? project.currentSnapshotId;
-    // Do not materialize the entire file manifest on every warm prediction.
-    const indexed = this.db.prepare(`SELECT s.project_id, i.snapshot_id AS indexed, i.drawing_index_version, i.spreadsheet_index_version
-      FROM snapshots s LEFT JOIN snapshot_object_indexes i ON i.snapshot_id = s.id WHERE s.id = ?`)
-      .get(targetSnapshotId);
+    const indexed = this.indexState(targetSnapshotId);
     if (!indexed) throw new HttpError(404, 'Snapshot not found.');
     if (indexed.project_id !== projectId) throw new HttpError(400, 'Snapshot does not belong to this project.');
-    // Version two adds page-anchored PDF sentences and paragraphs to existing
-    // imports without changing any previously linked object or version.
-    // Version three adds the same passages for Markdown and plain-text files.
-    // Version four adds STEP CAD models. Spreadsheet version two records
-    // worksheet row coordinates under new keys.
-    if (indexed.indexed && indexed.drawing_index_version >= INDEX_VERSION && indexed.spreadsheet_index_version >= 2) return;
+    if (indexIsCurrent(indexed)) return;
     const files = this.indexableFiles(this.timeline.getSnapshot(targetSnapshotId), indexed);
     const versions = this.timeline.objectVersions;
     // An index row cleared to force a re-index still leaves the snapshot's
     // records in place; like an upgrade pass, that only adds missing objects.
     const existing = Boolean(indexed.indexed) || versions.hasRecords(targetSnapshotId);
-    const carry = existing ? null : this.carryPlan(projectId, targetSnapshotId, files);
-    const index = carry ? this.carriedDescriptors(files, carry) : this.indexDescriptors(files);
+    const carry = existing ? null : yield* this.carryPlanSteps(projectId, targetSnapshotId, files);
+    const index = carry ? this.carriedDescriptors(files, carry) : yield* this.indexDescriptorSteps(files);
+    // Other requests ran between the slices of a sliced index. If one of them
+    // indexed this snapshot meanwhile, what was read here is already recorded,
+    // or was decided against an older state; start over from the new one. The
+    // files read so far stay in the extraction cache.
+    const latest = this.indexState(targetSnapshotId);
+    if (latest.indexed !== indexed.indexed || latest.drawing_index_version !== indexed.drawing_index_version
+      || latest.spreadsheet_index_version !== indexed.spreadsheet_index_version
+      || existing !== (Boolean(latest.indexed) || versions.hasRecords(targetSnapshotId))) {
+      return yield* this.ensureIndexSteps(projectId, targetSnapshotId);
+    }
+    yield { phase: 'saving' };
     try {
       transaction(this.db, () => {
-        versions.record(projectId, targetSnapshotId, this.indexEntries(projectId, index.descriptors),
+        const recorded = versions.record(projectId, targetSnapshotId, this.indexEntries(projectId, index.descriptors),
           { existing, carriedPaths: carry?.carriedPaths });
         // A full index names the reader that produced it. An upgrade pass adds
         // to an older reading, so the snapshot keeps the reader it had, and a
@@ -1754,7 +1826,7 @@ export class PredictiveProvenanceService {
         this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version, spreadsheet_index_version, extractor_version)
           VALUES (?, ?, ?, ?, 2, ?)
           ON CONFLICT(snapshot_id) DO UPDATE SET drawing_index_version = excluded.drawing_index_version, spreadsheet_index_version = 2, indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
-          .run(targetSnapshotId, now(), versions.count(targetSnapshotId), INDEX_VERSION, existing ? 0 : EXTRACTOR_VERSION);
+          .run(targetSnapshotId, now(), recorded ?? versions.count(targetSnapshotId), INDEX_VERSION, existing ? 0 : EXTRACTOR_VERSION);
       });
     } catch (error) {
       // The index was read into memory as it was written; drop it with the rollback.
@@ -1765,7 +1837,7 @@ export class PredictiveProvenanceService {
     // indexes cannot carry objects forward from it without reading them again.
     if (existing) this.indexedHere.delete(targetSnapshotId);
     else this.indexedHere.set(targetSnapshotId, index.summary);
-    this.objectCache.delete(targetSnapshotId);
+    this.forgetObjects(targetSnapshotId);
     this.completionCorpusCache.delete(targetSnapshotId);
     this.workspaceRetrievalCache.delete(targetSnapshotId);
     this.ranking.invalidateSnapshot(targetSnapshotId);
@@ -1785,16 +1857,16 @@ export class PredictiveProvenanceService {
    * full index; one that already has records only gains the objects it lacks.
    * Returns the snapshot's object count.
    */
-  writeObjectIndex(projectId, snapshotId, descriptors) {
+  writeObjectIndex(projectId, snapshotId, descriptors, { carriedPaths = null } = {}) {
     const versions = this.timeline.objectVersions;
     const existing = versions.hasRecords(snapshotId);
-    versions.record(projectId, snapshotId, this.indexEntries(projectId, descriptors), { existing });
-    const objectCount = versions.count(snapshotId);
+    const objectCount = versions.record(projectId, snapshotId, this.indexEntries(projectId, descriptors), { existing, carriedPaths })
+      ?? versions.count(snapshotId);
     this.db.prepare(`INSERT INTO snapshot_object_indexes(snapshot_id, indexed_at, object_count, drawing_index_version, spreadsheet_index_version, extractor_version)
       VALUES (?, ?, ?, ?, 2, ?)
       ON CONFLICT(snapshot_id) DO UPDATE SET indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
       .run(snapshotId, now(), objectCount, INDEX_VERSION, existing ? 0 : EXTRACTOR_VERSION);
-    this.objectCache.delete(snapshotId);
+    this.forgetObjects(snapshotId);
     return objectCount;
   }
 
@@ -1855,6 +1927,10 @@ export class PredictiveProvenanceService {
    * and a half-re-read snapshot could not honestly carry one.
    */
   reindex(projectId, actorInput, options = {}) {
+    return runSync(this.reindexSteps(projectId, actorInput, options));
+  }
+
+  *reindexSteps(projectId, actorInput, options = {}) {
     const project = this.timeline.getProject(projectId);
     if (options.expectedSnapshotId && options.expectedSnapshotId !== project.currentSnapshotId) {
       throw new VersionConflictError(options.expectedSnapshotId, project.currentSnapshotId);
@@ -1862,12 +1938,47 @@ export class PredictiveProvenanceService {
     const previous = this.timeline.getSnapshot(project.currentSnapshotId);
     // The comparison below is against what is actually recorded, so an
     // unindexed snapshot is read first.
-    this.ensureIndex(projectId, previous.id);
-    const index = this.indexDescriptors(this.indexableFiles(previous, { indexed: null }));
-    const reading = PredictiveProvenanceService.descriptorReading(index.descriptors);
-    const recorded = this.recordedReading(previous.id);
-    const identical = reading.size === recorded.size
-      && [...reading].every(([key, value]) => recorded.get(key) === value);
+    yield* this.ensureIndexSteps(projectId, previous.id);
+    const versions = this.timeline.objectVersions;
+    const indexable = this.indexableFiles(previous, { indexed: null });
+    // A reader upgrade re-reads only the kinds of file it reads differently,
+    // and carries the rest of the recorded reading forward. A data dictionary
+    // can describe variables in any file, so a folder with one is read whole,
+    // as is one whose index cannot build on its last.
+    const kinds = kindsChangedSince(this.indexFreshness(projectId).indexedWith);
+    const partial = Boolean(kinds) && versions.canBuildOn(previous.id)
+      && !this.objectsAt(projectId, previous.id, ['VARIABLE']).some((object) => object.metadata.dictionary);
+    const files = partial ? indexable.filter((file) => kinds.has(file.fileType)) : indexable;
+    const reread = new Set(files.map((file) => file.path));
+    const carriedPaths = partial ? new Set(previous.files.map((file) => file.path).filter((filePath) => !reread.has(filePath))) : null;
+    const index = yield* this.indexDescriptorSteps(files);
+    // A file saved while a sliced re-read ran makes a newer version, which
+    // this reading does not describe. Read that version instead.
+    if (this.timeline.getProject(projectId).currentSnapshotId !== previous.id) {
+      return yield* this.reindexSteps(projectId, actorInput, { ...options, expectedSnapshotId: null });
+    }
+    yield { phase: 'saving' };
+    const recordedCount = versions.indexedCount(previous.id);
+    // Compare one stored row at a time. Keeping serialized Maps of both
+    // readings alongside the descriptors doubled large folders' memory use.
+    const identical = (() => {
+      const byKey = new Map();
+      for (const descriptor of index.descriptors) {
+        if (!byKey.has(descriptor.key)) byKey.set(descriptor.key, descriptor);
+      }
+      let compared = 0;
+      for (const row of versions.iterateResolved(previous.id)) {
+        if (partial && !reread.has(row.path)) continue;
+        compared += 1;
+        const descriptor = byKey.get(row.object_key);
+        if (!descriptor || row.object_type !== descriptor.type) return false;
+        const fields = storedFields(descriptor);
+        if (row.path !== fields[0] || row.anchor_json !== fields[1] || row.label !== fields[2]
+          || (row.value_text ?? null) !== fields[3] || row.search_text !== fields[4]
+          || row.content_hash !== fields[5] || row.metadata_json !== fields[6]) return false;
+      }
+      return compared === byKey.size;
+    })();
     if (identical) {
       // The current reader reads these files exactly as the snapshot already
       // says. Naming the reader that produced an identical reading is
@@ -1875,18 +1986,19 @@ export class PredictiveProvenanceService {
       // project stops being offered a re-read it does not need.
       this.db.prepare('UPDATE snapshot_object_indexes SET extractor_version = ? WHERE snapshot_id = ? AND extractor_version < ?')
         .run(EXTRACTOR_VERSION, previous.id, EXTRACTOR_VERSION);
+      if (!partial) this.indexedHere.set(previous.id, index.summary);
+      this.onIndexProblems?.(projectId, index.problems, partial ? reread : null);
       return {
         changed: false, reason: 'IDENTICAL_READING', projectId, snapshot: previous, event: null,
-        objects: { before: recorded.size, after: recorded.size }, dependenciesNeedingReview: 0,
+        objects: { before: recordedCount, after: recordedCount }, dependenciesNeedingReview: 0,
         freshness: this.indexFreshness(projectId),
       };
     }
 
-    const fileCount = previous.files.length;
+    const fileCount = partial ? files.length : previous.files.length;
     const reason = String(options.reason ?? '').trim().slice(0, 120);
     const title = `Re-read ${fileCount} file${fileCount === 1 ? '' : 's'} with the current reader`
       + '; the files did not change' + (reason ? ` (${reason})` : '');
-    const versions = this.timeline.objectVersions;
     let objectCount = 0;
     let newSnapshotId = null;
     let result;
@@ -1895,19 +2007,20 @@ export class PredictiveProvenanceService {
         source: 'REINDEX', title, initiatedBy: options.initiatedBy ?? null,
       }, ({ resultingSnapshotId }) => {
         newSnapshotId = resultingSnapshotId;
-        objectCount = this.writeObjectIndex(projectId, resultingSnapshotId, index.descriptors);
+        objectCount = this.writeObjectIndex(projectId, resultingSnapshotId, index.descriptors, { carriedPaths });
       });
     } catch (error) {
       // The index was read into memory as it was written; drop it with the rollback.
       if (newSnapshotId) versions.forget(newSnapshotId);
       throw error;
     }
-    this.indexedHere.set(result.snapshot.id, index.summary);
-    for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache, this.objectCache]) {
+    if (!partial) this.indexedHere.set(result.snapshot.id, index.summary);
+    for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache]) {
       cache.delete(previous.id);
     }
+    this.forgetObjects(previous.id);
     this.ranking.invalidateSnapshot(previous.id);
-    this.onIndexProblems?.(projectId, index.problems);
+    this.onIndexProblems?.(projectId, index.problems, partial ? reread : null);
 
     // A better reader can key an object differently (the row-label fix renames
     // every indented line item), so a claim whose source is absent from the new
@@ -1925,7 +2038,7 @@ export class PredictiveProvenanceService {
       projectId,
       snapshot: result.snapshot,
       event: result.event,
-      objects: { before: recorded.size, after: objectCount },
+      objects: { before: recordedCount, after: objectCount },
       dependenciesNeedingReview: reconciled?.changed
         ? this.currentDependencies(projectId).filter((dependency) => dependency.status === 'NEEDS_REVIEW').length
         : 0,
@@ -1946,7 +2059,8 @@ export class PredictiveProvenanceService {
       const design = isDesignFile(file);
       const prose = file.fileType === 'markdown' || (file.fileType === 'text' && path.extname(file.path).toLowerCase() === '.txt');
       if (indexed.indexed && !upgrades(file, design, prose)) return false;
-      if (file.size > 25_000_000 && !design && !['image', 'pdf', 'document'].includes(file.fileType)) return false;
+      // Tables of any size are read a batch of rows at a time (table-index.js).
+      if (file.size > 25_000_000 && !design && !['image', 'pdf', 'document', 'table', 'spreadsheet'].includes(file.fileType)) return false;
       if (file.size > 5_000_000 && !design && !['image', 'pdf', 'document', 'table', 'spreadsheet'].includes(file.fileType)) return false;
       if (!design && !['table', 'spreadsheet', 'code', 'notebook', 'image', 'json', 'text', 'markdown', 'pdf', 'document'].includes(file.fileType)) return false;
       return !(file.fileType === 'text' && !['.txt', '.bib', '.ris', '.enw', '.nbib'].includes(path.extname(file.path).toLowerCase()));
@@ -1954,13 +2068,20 @@ export class PredictiveProvenanceService {
   }
 
   extractedObjects(file) {
+    return runSync(this.extractedObjectSteps(file));
+  }
+
+  /** The same as steps: a table too large to hold is read off this thread. */
+  *extractedObjectSteps(file) {
     const key = JSON.stringify([file.projectFileId, file.path, file.fileType, file.contentHash]);
     let extracted = this.extractionCache.get(key);
     if (!extracted) {
       let problem = null;
-      const objects = objectsFromFile(file, this.timeline.blobs.get(file.contentHash), (code, reason) => {
-        problem ??= { code, reason };
-      });
+      const report = (code, reason) => { problem ??= { code, reason }; };
+      const buffer = this.timeline.blobs.get(file.contentHash);
+      const objects = ['table', 'spreadsheet'].includes(file.fileType)
+        ? yield* this.tableObjectSteps(file, buffer, report)
+        : objectsFromFile(file, buffer, report);
       extracted = { objects, problem, bytes: JSON.stringify(objects).length * 2 };
       this.extractionCache.set(key, extracted);
     }
@@ -1968,45 +2089,368 @@ export class PredictiveProvenanceService {
   }
 
   /**
+   * A table file's objects. Its first rows are read as they always were. A
+   * table with more rows or cells than those is also written to the table
+   * index whole, which answers for the rest; one too large to read in memory
+   * is read into the index by a worker, and its first rows come from there.
+   */
+  *tableObjectSteps(file, buffer, report) {
+    const fileName = path.posix.basename(file.path, path.posix.extname(file.path));
+    const format = path.extname(file.path).slice(1).toUpperCase();
+    if (file.fileType === 'table') {
+      const tsv = path.extname(file.path).toLowerCase() === '.tsv';
+      if (buffer.length <= MAX_IN_MEMORY_PART_BYTES) {
+        const rows = parseDelimited(buffer.toString('utf8').replace(/\r\n/g, '\n'), tsv ? '\t' : ',');
+        const layout = tabularLayout(rows);
+        const objects = objectsFromTabular(file, fileName, layout.headers, layout.rows, {
+          format, rowOffset: layout.headerRowIndex + 1,
+        });
+        if (objects.deep) this.indexTableRows(file.contentHash, { rows, rowNumbers: rows.map((_, index) => index) });
+        return objects;
+      }
+      const head = buffer.subarray(0, MAX_IN_MEMORY_PART_BYTES).toString('utf8').replace(/\r\n/g, '\n');
+      const read = yield* this.tableBuildSteps(file, { kind: 'delimited', delimiter: tsv ? '\t' : csvDelimiter(head) });
+      const meta = read.readable ? this.tables.table(file.contentHash, '') : null;
+      if (!meta) {
+        report('UNREADABLE_CONTENT', 'This table could not be read.');
+        return [];
+      }
+      return this.indexedTableObjects(file, fileName, meta, { format });
+    }
+    const objects = [];
+    const base = file.projectFileId;
+    let sheets = null;
+    let metas = null;
+    let readable;
+    let skipped;
+    if (isLargeSpreadsheet(buffer)) {
+      const read = yield* this.tableBuildSteps(file, { kind: 'spreadsheet' });
+      metas = this.tables.sheets(file.contentHash);
+      readable = read.readable || metas.length > 0;
+      skipped = metas[0]?.extras.skipped ?? read.skipped ?? [];
+    } else {
+      sheets = extractSpreadsheetTables(buffer);
+      // A readable workbook lists the sheets it had to skip; a failed one does not.
+      readable = Array.isArray(sheets.skipped);
+      skipped = sheets.skipped ?? [];
+    }
+    const count = metas ? metas.length : sheets.length;
+    if (skipped.length) {
+      report('PARTIALLY_INDEXED', `${skipped.length === 1 ? 'Sheet' : 'Sheets'} ${skipped.map((name) => `“${name}”`).join(', ')} could not be read (damaged). The other sheets are indexed.`);
+    }
+    if (!count && format === 'ODS') {
+      report('UNREADABLE_CONTENT', 'OpenDocument spreadsheets are not indexed yet. Save a copy as .xlsx or .csv to use its values.');
+    } else if (!count && (!readable || skipped.length)) {
+      report('UNREADABLE_CONTENT', 'This workbook could not be read. It may be password-protected or damaged.');
+    }
+    if (count) {
+      if (metas) {
+        for (const meta of metas) objects.push(...this.indexedTableObjects(file, fileName, meta, { format, sheet: meta.sheet }));
+      } else {
+        for (const [position, sheet] of sheets.entries()) {
+          const layout = spreadsheetLayout(sheet);
+          const sheetObjects = objectsFromTabular(file, fileName, layout.headers, layout.rows, {
+            format, sheet: sheet.name, ...layout, rowOffset: layout.headerRowIndex + 1,
+          });
+          objects.push(...sheetObjects);
+          if (sheetObjects.deep) {
+            this.indexTableRows(file.contentHash, { sheet: sheet.name, position, rows: sheet.rows,
+              rowNumbers: sheet.rowNumbers, displayRows: sheet.displayRows, merges: sheet.merges });
+          }
+        }
+      }
+      for (const object of objects) worksheetCoordinates(object);
+    } else {
+      objects.push(objectDescriptor({
+        key: `${base}:spreadsheet`, type: 'TABLE', path: file.path, label: fileName,
+        contentHash: file.contentHash, metadata: { format, binary: true },
+      }));
+      objects.push(objectDescriptor({
+        key: `${base}:spreadsheet-dataset`, type: 'DATASET', path: file.path, label: fileName,
+        contentHash: file.contentHash, metadata: { format, binary: true },
+      }));
+    }
+    return objects;
+  }
+
+  /**
+   * The tables of a file the table index answers for: plain tables whose rows
+   * are named, with what their objects' keys and labels are made from.
+   */
+  indexedTables(file) {
+    if (!['table', 'spreadsheet'].includes(file.fileType)) return [];
+    const fileName = path.posix.basename(file.path, path.posix.extname(file.path));
+    return this.tables.sheets(file.contentHash).filter((meta) => meta.shape?.searchable).map((meta) => {
+      const sheet = file.fileType === 'spreadsheet' ? meta.sheet : null;
+      const keyPrefix = sheet ? `${file.projectFileId}:xlsx-v2:sheet:${sheet}` : file.projectFileId;
+      return { file, meta, sheet, keyPrefix,
+        context: { file, fileName, keyPrefix, sheet, headers: meta.shape.headers, labelColumn: meta.shape.labelColumn,
+          firstColumnActsAsRowLabels: meta.shape.firstColumnActsAsRowLabels,
+          rowDescribesVariable: meta.shape.rowDescribesVariable, statement: false } };
+    });
+  }
+
+  /** Every indexed table of a snapshot's files. */
+  snapshotTables(projectId, snapshotId) {
+    if (this.snapshotTableCache.has(snapshotId)) return this.snapshotTableCache.get(snapshotId);
+    const tables = this.timeline.snapshotFiles(snapshotId)
+      .filter((file) => ['table', 'spreadsheet'].includes(file.fileType))
+      .flatMap((file) => this.indexedTables(file));
+    this.snapshotTableCache.set(snapshotId, tables);
+    return tables;
+  }
+
+  /**
+   * A stored row's objects, the ones the indexer would have made had it read
+   * that far. The lines of notes under a table are not rows of it.
+   */
+  indexedRowObjects(table, row) {
+    const { meta, context, sheet } = table;
+    const rowIndex = row.ordinal - meta.shape.dataStart;
+    if (rowIndex < 0) return [];
+    table.notes ??= new Set([...trailingTableNotes(this.tables.rows(meta.id, Math.max(0, meta.rowCount - TABLE_TAIL_ROWS), meta.rowCount)
+      .map((stored) => ({ row: stored.cells, number: stored.rowNumber, ordinal: stored.ordinal })))
+      .keys()].map((index) => Math.max(0, meta.rowCount - TABLE_TAIL_ROWS) + index));
+    if (table.notes.has(row.ordinal)) return [];
+    const rowLabel = String(row.cells[meta.shape.labelColumn] ?? '').trim();
+    const { rowObject, cells } = tableRowObjects(context, { row: row.cells, rowIndex, rowNumber: row.rowNumber, rowLabel });
+    const objects = rowObject ? [rowObject, ...cells] : cells;
+    return sheet != null ? objects.map(worksheetCoordinates) : objects;
+  }
+
+  /**
+   * The rows and cells of large tables this folder has recorded, read again
+   * from this version of their file, so a link to one survives the file
+   * being read again. `read` are the objects the indexer read itself.
+   */
+  recordedTableDescriptors(file, read) {
+    const tables = this.indexedTables(file);
+    if (!tables.length) return [];
+    const readKeys = new Set(read.map((descriptor) => descriptor.key));
+    const recorded = this.db.prepare('SELECT object_key FROM table_objects WHERE key_prefix = ?');
+    const output = [];
+    for (const table of tables) {
+      const byRow = new Map();
+      for (const { object_key: key } of recorded.all(table.keyPrefix)) {
+        if (readKeys.has(key)) continue;
+        // Keys name their row by its sheet or file row number: "row:12:ontario".
+        const rowNumber = Number(key.slice(table.keyPrefix.length + 1).match(/^(?:row|cell):(\d+):/)?.[1]);
+        if (!Number.isInteger(rowNumber)) continue;
+        if (!byRow.has(rowNumber)) byRow.set(rowNumber, new Set());
+        byRow.get(rowNumber).add(key);
+      }
+      for (const [rowNumber, keys] of byRow) {
+        const row = this.tables.rowNumbered(table.meta.id, rowNumber);
+        if (!row) continue;
+        output.push(...this.indexedRowObjects(table, row).filter((descriptor) => keys.has(descriptor.key)));
+      }
+    }
+    return output;
+  }
+
+  /** A snapshot's data dictionary definitions, as the indexer applies them to every variable it reads. */
+  dictionaryDefinitions(projectId, snapshotId) {
+    return this.objectsAt(projectId, snapshotId, ['VARIABLE']).filter((object) => object.metadata.dictionary)
+      .map((object) => ({ type: 'VARIABLE', path: object.path, label: object.label, value: object.valueText, metadata: object.metadata }));
+  }
+
+  /**
+   * Records rows and cells of a large table as objects of a snapshot, the
+   * first time they are offered, and returns them as offered objects. They
+   * are the objects a reading of the whole table would have recorded, and
+   * each later reading of the file records them again (table_objects).
+   */
+  indexedObjects(projectId, snapshotId, table, descriptors) {
+    const found = new Map();
+    const missing = [];
+    for (const descriptor of descriptors) {
+      const cached = this.deepObjects.get(`${snapshotId}|${descriptor.key}`);
+      if (cached) found.set(descriptor.key, cached);
+      else if (!missing.some((other) => other.key === descriptor.key)) missing.push({ ...descriptor, metadata: { ...descriptor.metadata } });
+    }
+    if (missing.length) {
+      applyVariableDefinitions(missing, this.dictionaryDefinitions(projectId, snapshotId));
+      const versions = this.timeline.objectVersions;
+      let entries = [];
+      transaction(this.db, () => {
+        entries = this.indexEntries(projectId, missing);
+        const added = versions.addAt(snapshotId, entries);
+        if (added.length) {
+          this.db.prepare('UPDATE snapshot_object_indexes SET object_count = object_count + ? WHERE snapshot_id = ?')
+            .run(added.length, snapshotId);
+        }
+        const record = this.db.prepare('INSERT OR IGNORE INTO table_objects(key_prefix, object_key) VALUES (?, ?)');
+        for (const descriptor of missing) record.run(table.keyPrefix, descriptor.key);
+      });
+      for (const { object, descriptor } of entries) {
+        const row = versions.at(snapshotId, object.id);
+        if (!row) continue;
+        const mapped = freezeIndexedValue(mapObjectRow(row));
+        this.deepObjects.set(`${snapshotId}|${descriptor.key}`, mapped);
+        found.set(descriptor.key, mapped);
+      }
+      // The ranker offers only objects it knows the snapshot holds.
+      this.ranking.noteObjects(snapshotId, [...found.values()]);
+    }
+    return descriptors.map((descriptor) => found.get(descriptor.key)).filter(Boolean);
+  }
+
+  /** Whether a table file is too large to read whole for a preview, so its rows come from the table index. */
+  isLargeTable(file, buffer) {
+    if (file.fileType === 'table') return file.size > MAX_IN_MEMORY_PART_BYTES;
+    return file.fileType === 'spreadsheet' && isLargeSpreadsheet(buffer);
+  }
+
+  /**
+   * A large table's header rows and the rows around a cited one, from the
+   * table index, for a preview; null for a table read whole as before. A
+   * delimited file's rows read as worksheet rows here, numbered from 1, so a
+   * preview finds the cited row among them as it would on a worksheet.
+   */
+  tableWindow(file, buffer, anchor = {}, { before = 2, after = 2, sheet = null } = {}) {
+    if (!this.isLargeTable(file, buffer)) return null;
+    const metas = this.tables.sheets(file.contentHash);
+    const wanted = sheet ?? anchor.sheet ?? null;
+    const meta = metas.find((candidate) => wanted == null || candidate.sheet === wanted) ?? metas[0];
+    if (!meta) return null;
+    const delimited = file.fileType === 'table';
+    const { dataStart } = meta.shape;
+    const target = Number.isInteger(anchor.rowIndex) ? this.tables.rowNumbered(meta.id, anchor.rowIndex) : null;
+    const center = Math.max(dataStart, target?.ordinal ?? dataStart);
+    const from = Math.max(dataStart, center - before);
+    const rows = [...this.tables.rows(meta.id, 0, dataStart), ...this.tables.rows(meta.id, from, center + after + 1)];
+    return {
+      table: { name: delimited ? null : meta.sheet, rows: rows.map((row) => row.cells),
+        rowNumbers: rows.map((row) => (delimited ? row.rowNumber + 1 : row.rowNumber)),
+        displayRows: rows.map((row) => row.display ?? []), merges: meta.extras.merges ?? [], tables: [] },
+      anchor: delimited && Number.isInteger(anchor.rowIndex) ? { ...anchor, rowIndex: anchor.rowIndex + 1, rowCoordinate: 'worksheet' } : anchor,
+      sheets: metas.map((candidate) => candidate.sheet),
+      headerRows: dataStart,
+      firstRow: from - dataStart,
+      totalRows: meta.rowCount - dataStart,
+    };
+  }
+
+  /** Writes a table read in memory to the table index, once per file content. */
+  indexTableRows(contentHash, table) {
+    if (this.tables.table(contentHash, table.sheet ?? '')) return;
+    writeTable(this.tables.db, contentHash, table);
+    this.tables.forget(contentHash);
+  }
+
+  /**
+   * Has a worker read a large table file into the index, unless it already is.
+   * A caller in slices waits for it without holding the thread; one that must
+   * have the answer now waits for it here. Either way the reading is the same.
+   */
+  *tableBuildSteps(file, request) {
+    if (this.tables.has(file.contentHash)) return { readable: true };
+    const known = this.tableReadings.get(file.contentHash);
+    if (known) return known;
+    const job = { ...request, contentHash: file.contentHash, blobPath: this.timeline.blobs.pathFor(file.contentHash) };
+    let read = yield { share: 0, offThread: (report) => this.buildTable(job, report) };
+    if (!read) {
+      try { read = this.tables.buildBlocking(job); }
+      catch (error) { read = { readable: false, error: error.message, skipped: [] }; }
+    }
+    this.tableReadings.set(file.contentHash, read);
+    return read;
+  }
+
+  /** Has a worker read PDFs' text into the text store. Resolves once it has, or has failed. */
+  readPdfTexts(items, report) {
+    return new Promise((resolve) => {
+      const worker = new Worker(new URL('./pdf-text-worker.js', import.meta.url), {
+        workerData: { root: this.textStore.root, readerVersion: EXTRACTOR_VERSION, items },
+        resourceLimits: { maxOldGenerationSizeMb: 512 },
+      });
+      worker.on('message', (message) => {
+        if (message.progress != null) report?.(message.progress);
+        if (message.done) resolve(true);
+      });
+      worker.on('error', () => resolve(false));
+      worker.on('exit', () => resolve(false));
+    });
+  }
+
+  /** One worker per file content; a second request waits for the first. */
+  buildTable(job, report) {
+    let pending = this.tableBuilds.get(job.contentHash);
+    if (!pending) {
+      pending = this.tables.build(job, report)
+        .catch((error) => ({ readable: false, error: error.message, skipped: [] }))
+        .finally(() => this.tableBuilds.delete(job.contentHash));
+      this.tableBuilds.set(job.contentHash, pending);
+    }
+    return pending;
+  }
+
+  /**
+   * A table's objects read from the table index: all its rows when there are
+   * few, as the in-memory reader would read them, otherwise its first rows,
+   * how many it has, and its last rows for the notes under it.
+   */
+  indexedTableObjects(file, fileName, meta, { format, sheet = null }) {
+    const { dataStart } = meta.shape;
+    const limit = dataStart + MAX_INDEXED_TABLE_ROWS;
+    const whole = meta.rowCount <= limit + TABLE_TAIL_ROWS;
+    const stored = this.tables.rows(meta.id, 0, whole ? meta.rowCount : limit);
+    const window = whole ? null : {
+      filledRows: meta.rowCount - dataStart,
+      tail: this.tables.rows(meta.id, meta.rowCount - TABLE_TAIL_ROWS, meta.rowCount)
+        .map((row) => ({ row: row.cells, number: row.rowNumber })),
+    };
+    if (sheet != null) {
+      const layout = spreadsheetLayout({ name: sheet, rows: stored.map((row) => row.cells), rowNumbers: stored.map((row) => row.rowNumber) });
+      return objectsFromTabular(file, fileName, layout.headers, layout.rows, {
+        format, sheet, ...layout, rowOffset: layout.headerRowIndex + 1, ...(window ? { window } : {}),
+      });
+    }
+    // A delimited file's blank lines are not stored; its rows keep their places.
+    const rows = [];
+    for (const row of stored) {
+      while (rows.length < row.rowNumber) rows.push(['']);
+      rows.push(row.cells);
+    }
+    const layout = tabularLayout(rows);
+    return objectsFromTabular(file, fileName, layout.headers, layout.rows, {
+      format, rowOffset: layout.headerRowIndex + 1, ...(window ? { window } : {}),
+    });
+  }
+
+  /**
    * Every object of the files, as a full index records them, with what a
    * later index needs to carry them forward without reading them again.
    */
   indexDescriptors(files) {
+    return runSync(this.indexDescriptorSteps(files));
+  }
+
+  /** The same, yielding `{ phase: 'indexing', done, total }` in work units after each file. */
+  *indexDescriptorSteps(files) {
     const descriptors = [];
     const problems = [];
     const counts = new Map();
-    let truncated = false;
+    const total = files.reduce((sum, file) => sum + workUnits(file.size), 0);
+    let done = 0;
     for (const file of files) {
-      const available = MAX_SNAPSHOT_OBJECTS - descriptors.length;
-      if (available <= 0) {
-        truncated = true;
-        problems.push({ path: file.path, code: 'NOT_INDEXED_LIMIT',
-          reason: `Not indexed: this folder reached Lasso's limit of ${MAX_SNAPSHOT_OBJECTS.toLocaleString('en-US')} indexed items. Split it into smaller work directories to include this file.` });
-        continue;
-      }
-      const extracted = this.extractedObjects(file);
-      counts.set(file.path, extracted.objects.length);
+      const units = workUnits(file.size);
+      const extracted = yield* withinFile(this.extractedObjectSteps(file),
+        (share) => ({ phase: 'indexing', done: done + share * units, total }));
+      const objects = [...extracted.objects, ...this.recordedTableDescriptors(file, extracted.objects)];
+      counts.set(file.path, objects.length);
       if (extracted.problem) problems.push({ path: file.path, ...extracted.problem });
-      else if (extracted.objects.length > available) {
-        problems.push({ path: file.path, code: 'PARTIALLY_INDEXED',
-          reason: `Only ${available.toLocaleString('en-US')} of ${extracted.objects.length.toLocaleString('en-US')} items were indexed: this folder reached Lasso's limit of ${MAX_SNAPSHOT_OBJECTS.toLocaleString('en-US')} indexed items.` });
+      // Readers bound each file's bytes, rows and geometry. A folder-wide
+      // budget must not silently exclude every file after an arbitrary cutoff.
+      for (const descriptor of objects) {
+        descriptors.push({ ...descriptor, metadata: { ...descriptor.metadata } });
       }
-      const included = extracted.objects.slice(0, available).map((descriptor) => ({
-        ...descriptor, metadata: { ...descriptor.metadata },
-      }));
-      if (extracted.objects.length > available) {
-        truncated = true;
-        for (const descriptor of included) {
-          if (descriptor.type !== 'DRAWING') continue;
-          descriptor.metadata.extractionStatus = 'partial';
-          descriptor.metadata.warnings = [...(descriptor.metadata.warnings ?? []), 'The workspace object limit was reached; some measurements were not indexed.'];
-        }
-      }
-      descriptors.push(...included);
+      done += units;
+      yield { phase: 'indexing', done, total };
     }
     const definitions = descriptors.filter(isDictionaryVariable);
     applyVariableDefinitions(descriptors, definitions);
-    return { descriptors, problems, summary: indexSummary(counts, problems, definitions, truncated) };
+    return { descriptors, problems, summary: indexSummary(counts, problems, definitions, false) };
   }
 
   /**
@@ -2016,6 +2460,11 @@ export class PredictiveProvenanceService {
    * changed defines variables for other files.
    */
   carryPlan(projectId, snapshotId, files) {
+    return runSync(this.carryPlanSteps(projectId, snapshotId, files));
+  }
+
+  /** The same, yielding `{ phase: 'indexing', done, total }` as it reads the files that changed. */
+  *carryPlanSteps(projectId, snapshotId, files) {
     const base = this.timeline.objectVersions.baseFor(projectId, snapshotId);
     const known = base ? this.indexedHere.get(base) : null;
     if (!known || known.truncated) return null;
@@ -2027,16 +2476,23 @@ export class PredictiveProvenanceService {
     };
     const carriedPaths = new Set(files.filter(unchanged).map((file) => file.path));
     if ([...known.dictionaryPaths].some((filePath) => !carriedPaths.has(filePath))) return null;
-    let total = 0;
-    for (const file of files) {
-      if (carriedPaths.has(file.path)) {
-        total += known.counts.get(file.path);
-      } else {
-        const { objects } = this.extractedObjects(file);
-        if (objects.some(isDictionaryVariable)) return null;
-        total += objects.length;
-      }
-      if (total > MAX_SNAPSHOT_OBJECTS) return null;
+    // Carrying a few files forward from a much larger base would record a
+    // removal for most of it; such an index is read and written in full.
+    const carried = [...carriedPaths].reduce((sum, filePath) => sum + known.counts.get(filePath), 0);
+    const based = [...known.counts.values()].reduce((sum, count) => sum + count, 0);
+    if (carried * FULL_WRITE_SHARE < based) return null;
+    // The files that changed are read here, once; carriedDescriptors then
+    // takes them from the extraction cache.
+    const changed = files.filter((file) => !carriedPaths.has(file.path));
+    const total = changed.reduce((sum, file) => sum + workUnits(file.size), 0);
+    let done = 0;
+    for (const file of changed) {
+      const units = workUnits(file.size);
+      const extracted = yield* withinFile(this.extractedObjectSteps(file),
+        (share) => ({ phase: 'indexing', done: done + share * units, total }));
+      if (extracted.objects.some(isDictionaryVariable)) return null;
+      done += units;
+      yield { phase: 'indexing', done, total };
     }
     return { base, known, carriedPaths };
   }
@@ -2053,9 +2509,10 @@ export class PredictiveProvenanceService {
         continue;
       }
       const extracted = this.extractedObjects(file);
-      counts.set(file.path, extracted.objects.length);
+      const objects = [...extracted.objects, ...this.recordedTableDescriptors(file, extracted.objects)];
+      counts.set(file.path, objects.length);
       if (extracted.problem) problems.push({ path: file.path, ...extracted.problem });
-      descriptors.push(...extracted.objects.map((descriptor) => ({ ...descriptor, metadata: { ...descriptor.metadata } })));
+      descriptors.push(...objects.map((descriptor) => ({ ...descriptor, metadata: { ...descriptor.metadata } })));
     }
     applyVariableDefinitions(descriptors, known.definitions);
     return { descriptors, problems, summary: indexSummary(counts, problems, known.definitions, false) };
@@ -2069,11 +2526,16 @@ export class PredictiveProvenanceService {
       INSERT INTO scientific_objects(id, project_id, object_key, object_type, created_at)
       VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, object_key) DO NOTHING
     `);
-    // A full index reads the folder's objects at once instead of one by one.
-    const objects = descriptors.length > INDIVIDUAL_OBJECT_LOOKUPS
-      ? new Map(this.db.prepare('SELECT rowid, id, object_key, object_type FROM scientific_objects WHERE project_id = ?')
-        .all(projectId).map((row) => [row.object_key, row]))
-      : new Map();
+    const objects = new Map();
+    if (descriptors.length > INDIVIDUAL_OBJECT_LOOKUPS) {
+      const keys = [...new Set(descriptors.map(descriptor => descriptor.key))];
+      for (let offset = 0; offset < keys.length; offset += 128) {
+        const batch = keys.slice(offset, offset + 128);
+        const rows = this.db.prepare(`SELECT rowid, id, object_key, object_type FROM scientific_objects
+          WHERE project_id = ? AND object_key IN (${batch.map(() => '?').join(',')})`).all(projectId, ...batch);
+        for (const row of rows) objects.set(row.object_key, row);
+      }
+    }
     const entries = [];
     const seen = new Set();
     for (const descriptor of descriptors) {
@@ -2095,10 +2557,38 @@ export class PredictiveProvenanceService {
     const project = this.timeline.getProject(projectId);
     const target = snapshotId ?? project.currentSnapshotId;
     this.ensureIndex(projectId, target);
-    let objects = this.objectCache.get(target);
-    if (!objects) {
-      const resolved = this.timeline.objectVersions.resolved(target);
-      objects = resolved.rows.filter((row) => row.project_id === projectId).slice(0, MAX_RESOLVED_OBJECTS).map((row) => {
+    const types = new Set([...(objectTypes ?? [])].filter((type) => OBJECT_TYPES.has(type)));
+    const complete = this.objectCache.get(target);
+    // Each consumer gets its own array. Indexed object values are immutable.
+    if (complete) return types.size ? complete.filter((object) => types.has(object.objectType)) : [...complete];
+    if (!types.size) {
+      const objects = this.mappedObjects(projectId, this.timeline.objectVersions.resolved(target));
+      this.objectCache.set(target, objects);
+      return [...objects];
+    }
+    // Nearly every suggestion asks for a few types. They are kept by type, so
+    // a later request for an overlapping set maps nothing again; mapping a
+    // PDF's objects reads its text, which ran the PDF reader on each keystroke.
+    // Full resolution orders rows by type first, so joining the types in that
+    // order is the same list the complete snapshot would filter down to.
+    const ordered = [...types].sort(compareText);
+    const byType = new Map(ordered.map((type) => [type, this.typedObjectCache.get(`${target}|${type}`)]));
+    const missing = ordered.filter((type) => !byType.get(type));
+    if (missing.length) {
+      const mapped = this.mappedObjects(projectId, this.timeline.objectVersions.resolvedTypes(target, missing));
+      for (const type of missing) {
+        const objects = mapped.filter((object) => object.objectType === type);
+        byType.set(type, objects);
+        // Partial results never stand in for the complete snapshot.
+        this.typedObjectCache.set(`${target}|${type}`, objects);
+      }
+    }
+    return ordered.flatMap((type) => byType.get(type));
+  }
+
+  /** Version rows as the objects suggestions and search are offered. */
+  mappedObjects(projectId, resolved) {
+    return resolved.rows.filter((row) => row.project_id === projectId).map((row) => {
         const object = mapObjectRow(row, resolved);
         // Search existing PDF versions through their preserved bytes as well as
         // the short metadata excerpt. Derived search text stays in memory so
@@ -2115,11 +2605,12 @@ export class PredictiveProvenanceService {
         // Workbook objects from before worksheet coordinates were superseded
         // by xlsx-v2 keys; they stay resolvable for links but are not offered.
         .filter((object) => !/\.xlsx?$/i.test(object.path) || object.metadata.binary || object.metadata.spreadsheetExtractionVersion === 2);
-      this.objectCache.set(target, objects);
-    }
-    const types = new Set([...(objectTypes ?? [])].filter((type) => OBJECT_TYPES.has(type)));
-    // Each consumer gets its own array. Indexed object values are immutable.
-    return types.size ? objects.filter((object) => types.has(object.objectType)) : [...objects];
+  }
+
+  /** Drops a snapshot's mapped objects, complete and by type, after its index changes. */
+  forgetObjects(snapshotId) {
+    this.objectCache.delete(snapshotId);
+    for (const type of OBJECT_TYPES) this.typedObjectCache.delete(`${snapshotId}|${type}`);
   }
 
   objectAt(projectId, snapshotId, objectId) {
@@ -2159,10 +2650,24 @@ export class PredictiveProvenanceService {
   }
 
   warmPredictionCaches(projectId, snapshotId = null) {
+    return runSync(this.warmPredictionCacheSteps(projectId, snapshotId));
+  }
+
+  /** Builds a snapshot's suggestion caches, reading its PDFs' text first, one file per step. */
+  *warmPredictionCacheSteps(projectId, snapshotId = null) {
     const project = this.timeline.getProject(projectId);
     const target = snapshotId ?? project.currentSnapshotId;
-    this.workspaceRetrievalObjects(projectId, target);
-    this.studyVariables(projectId, target);
+    yield* this.pdfTextSteps(projectId, target);
+    this.retrievalIndexOf(this.workspaceRetrievalObjects(projectId, target));
+    yield;
+    // Typing a file's name asks for these on the first keystroke.
+    this.objectsAt(projectId, target, WHOLE_FILE_TYPES);
+    this.variableIndexOf(this.studyVariables(projectId, target));
+    yield;
+    // Ranking checks every suggestion is still at the snapshot it came from.
+    this.ranking.indexedSnapshot(projectId, target);
+    yield;
+    indexSentenceCorpus(this.completionCorpus(projectId, target));
   }
 
   completionCorpus(projectId, snapshotId = null) {
@@ -2271,23 +2776,126 @@ export class PredictiveProvenanceService {
     const workspaceObjects = this.workspaceRetrievalCache.get(target);
     const indexed = (workspaceObjects ?? this.objectsAt(projectId, target, dataTypes))
       .filter((object) => dataTypes.has(object.objectType))
-      .map((object) => {
-        // A row named in a Department or Supplier column ("Facilities") is not
-        // a variable, but it is still a name the writer types.
-        const namedRow = object.objectType === 'DATASET_ROW' && !object.metadata.variable
-          && !isIdentifierRow(object);
-        const variable = String(object.metadata.variable ?? object.metadata.column
-          ?? (object.objectType === 'VARIABLE' ? object.label : namedRow ? object.metadata.row ?? object.label : '')).trim();
-        return {
-          ...object,
-          namedRow,
-          variable,
-          normalizedVariable: normalizedVariable(variable),
-          variableWords: variableTokens(humanVariable(variable)),
-        };
-      }).filter((object) => object.variable && /[A-Za-z]/.test(object.variable));
+      .map(studyVariable).filter((object) => object.variable && /[A-Za-z]/.test(object.variable));
     this.studyVariableCache.set(target, indexed);
     return indexed;
+  }
+
+  /**
+   * The names in a list of study variables, kept with the list. Many objects
+   * share a name, as every cell of a column does, so what is typed is matched
+   * against each name once rather than against every object. Measured parts
+   * are found by the first word of the part's name.
+   */
+  variableIndexOf(objects) {
+    let index = this.variableIndexes.get(objects);
+    if (index) return index;
+    const names = [];
+    const byVariable = new Map();
+    const nameOf = new Int32Array(objects.length);
+    const parts = new Map();
+    objects.forEach((object, position) => {
+      let name = byVariable.get(object.variable);
+      if (name === undefined) {
+        name = names.length;
+        byVariable.set(object.variable, name);
+        names.push({ normalizedVariable: object.normalizedVariable, variableWords: object.variableWords,
+          wordSuffixes: wordSuffixes(object.variableWords) });
+      }
+      nameOf[position] = name;
+      const part = measuredPartWords(object);
+      if (part.length) {
+        if (!parts.has(part[0])) parts.set(part[0], []);
+        parts.get(part[0]).push({ position, part });
+      }
+    });
+    index = { names, nameOf, parts };
+    this.variableIndexes.set(objects, index);
+    return index;
+  }
+
+  /** The objects in a list of study variables that what is typed can name, in list order, with how. */
+  matchingStudyVariables(objects, normalizedQuery, queryWords) {
+    const { names, nameOf, parts } = this.variableIndexOf(objects);
+    const matches = names.map((name) => variableNameMatch(name, normalizedQuery, queryWords));
+    const measured = new Set((parts.get(queryWords[0]) ?? [])
+      .filter(({ position, part }) => namesMeasuredPart(objects[position], queryWords, part))
+      .map(({ position }) => position));
+    const output = [];
+    for (let position = 0; position < objects.length; position += 1) {
+      const match = matches[nameOf[position]];
+      const partMeasurement = !match.exact && !match.prefix && !match.contains && measured.has(position);
+      if (match.exact || match.prefix || match.contains || partMeasurement || match.tokenPrefix) {
+        output.push({ object: objects[position], match: { ...match, partMeasurement } });
+      }
+    }
+    return output;
+  }
+
+  /** The keys of objects already in a list, kept with the list. */
+  keysOf(objects) {
+    let keys = this.objectKeySets.get(objects);
+    if (!keys) {
+      keys = new Set(objects.map((object) => object.objectKey));
+      this.objectKeySets.set(objects, keys);
+    }
+    return keys;
+  }
+
+  /**
+   * Named rows past the first rows of a snapshot's large tables whose names
+   * begin with `query`, or have a word that does: a bounded range scan of the
+   * table index, never a pass over the table. They are scored as the
+   * indexer's own rows are, and recorded as objects only if they are shown.
+   */
+  indexedStudyVariables(projectId, snapshotId, query, known) {
+    const target = snapshotId ?? this.timeline.getProject(projectId).currentSnapshotId;
+    const output = [];
+    for (const table of this.snapshotTables(projectId, target)) {
+      for (const row of this.tables.search(table.meta.id, query, INDEXED_MATCHES_PER_TABLE)) {
+        const descriptor = this.indexedRowObjects(table, row).find((candidate) => candidate.type === 'DATASET_ROW');
+        if (!descriptor || known.has(descriptor.key)) continue;
+        output.push({ ...studyVariable(pendingObject(projectId, target, descriptor)),
+          pendingIndex: { table, descriptor, snapshotId: target } });
+      }
+    }
+    return output;
+  }
+
+  /**
+   * Rows past the first rows of an accepted source's large table: the source
+   * row's own cells, or the rows the words after it begin to name, with the
+   * value in the source's column. Found in the table index and recorded as
+   * objects to offer.
+   */
+  indexedRelatedObjects(projectId, source, tail, { variableKey, known }) {
+    const ownerId = this.sourceProjectId(source) ?? projectId;
+    const sheet = source.metadata.sheet ?? source.anchor?.sheet ?? null;
+    const table = this.snapshotTables(ownerId, source.snapshotId)
+      .find((candidate) => candidate.file.path === source.path && (candidate.sheet ?? null) === sheet);
+    if (!table) return [];
+    const rowLabel = String(source.anchor?.rowKey ?? source.metadata.row ?? '').trim();
+    // A row, or a cell of a table whose rows are its variables, stands for its row.
+    const byRow = source.objectType === 'DATASET_ROW' || (rowLabel && normalizedVariable(rowLabel) === variableKey);
+    const descriptors = [];
+    if (byRow) {
+      const row = Number.isInteger(source.anchor?.rowIndex) ? this.tables.rowNumbered(table.meta.id, source.anchor.rowIndex) : null;
+      if (row) descriptors.push(...this.indexedRowObjects(table, row).filter((descriptor) => descriptor.type !== 'DATASET_ROW'));
+    } else {
+      // The rows the words after the source can name, as the in-memory rows
+      // are matched: the name being typed at the end, and a numbered row
+      // ("Control 3", "district 45003") written anywhere after it.
+      const typed = [...rowCompletionFragments(tail).map((fragment) => fragment.text),
+        ...[...String(tail).matchAll(/\b[A-Za-z]{1,16}[\s_-]*\d+\b/g)].map((match) => match[0])];
+      for (const text of new Set(typed)) {
+        for (const row of this.tables.search(table.meta.id, text, INDEXED_MATCHES_PER_TABLE)) {
+          descriptors.push(...this.indexedRowObjects(table, row).filter((descriptor) => descriptor.type !== 'DATASET_ROW'
+            && normalizedVariable(descriptor.metadata.variable ?? descriptor.metadata.column) === variableKey));
+        }
+      }
+    }
+    const fresh = descriptors.filter((descriptor) => !known.has(descriptor.key)).slice(0, INDEXED_RELATED_OBJECTS);
+    return fresh.length ? this.indexedObjects(ownerId, source.snapshotId, table, fresh) : [];
   }
 
   candidatesForStudyVariable(projectId, fragment, options = {}) {
@@ -2296,22 +2904,24 @@ export class PredictiveProvenanceService {
     const normalizedQuery = normalizedVariable(query);
     const queryWords = variableTokens(humanVariable(query));
     const permitted = this.autocompleteFilter(projectId);
-    const ranked = this.studyVariables(projectId, options.snapshotId)
-      .filter((object) => !options.documentPath || object.path !== options.documentPath)
-      .filter(permitted)
+    const known = this.studyVariables(projectId, options.snapshotId);
+    const indexed = this.indexedStudyVariables(projectId, options.snapshotId, query, this.keysOf(known));
+    // Only names that match can score; an object that matches no way scores under the threshold.
+    const matching = [...this.matchingStudyVariables(known, normalizedQuery, queryWords),
+      ...indexed.map((object) => {
+        const match = variableNameMatch({ ...object, wordSuffixes: wordSuffixes(object.variableWords) }, normalizedQuery, queryWords);
+        return { object, match: { ...match, partMeasurement: !match.exact && !match.prefix && !match.contains
+          && namesMeasuredPart(object, queryWords) } };
+      })];
+    const ranked = matching
+      .filter(({ object }) => !options.documentPath || object.path !== options.documentPath)
+      .filter(({ object }) => permitted(object))
       // A measurement's label starts with its drawing's name ("Bracket overall X
       // extent"), so it waits until the drawing itself can be named and offered first.
-      .filter((object) => object.objectType !== 'DRAWING_ANNOTATION'
+      .filter(({ object }) => object.objectType !== 'DRAWING_ANNOTATION'
         || normalizedQuery.length >= DRAWING_NAME_MIN_LETTERS)
-      .map((object) => {
-        const exact = object.normalizedVariable === normalizedQuery ? 1 : 0;
-        const prefix = !exact && object.normalizedVariable.startsWith(normalizedQuery) ? 1 : 0;
-        // Only a match that starts a word counts; "is" must not match "Revision".
-        const contains = !prefix && object.variableWords.some((_, index) => object.variableWords
-          .slice(index).join('').startsWith(normalizedQuery)) ? 1 : 0;
-        const tokenPrefix = queryWords.length && queryWords.every((word) => object.variableWords
-          .some((candidateWord) => candidateWord === word || candidateWord.startsWith(word))) ? 1 : 0;
-        const partMeasurement = !exact && !prefix && !contains && namesMeasuredPart(object, queryWords) ? 1 : 0;
+      .map(({ object, match }) => {
+        const { exact, prefix, contains, tokenPrefix, partMeasurement } = match;
         const variableObject = object.objectType === 'VARIABLE' ? 1 : 0;
         const rowObject = object.objectType === 'DATASET_ROW' && !object.namedRow ? 1 : 0;
         // Named rows rank below variables and line items that match as well.
@@ -2351,7 +2961,7 @@ export class PredictiveProvenanceService {
         || left.path.localeCompare(right.path));
     const seen = new Set();
     const output = [];
-    for (const candidate of this.ranking.rank(projectId, ranked, {
+    for (const candidate of this.ranking.rank(projectId, this.recordIndexedCandidates(projectId, ranked), {
       query, documentPath: options.documentPath, relatedPaths: options.relatedPaths,
       minimumScore: 0.68, limit: ranked.length, diversify: false,
     })) {
@@ -2364,11 +2974,32 @@ export class PredictiveProvenanceService {
     return output;
   }
 
-  progressiveStudyVariable(projectId, input, cursor) {
+  /**
+   * Scored candidates with the best few rows from the table index recorded as
+   * objects, since only recorded objects are offered; the rest are left out.
+   */
+  recordIndexedCandidates(projectId, scored) {
+    const pending = scored.filter((candidate) => candidate.pendingIndex).slice(0, INDEXED_ROWS_SHOWN);
+    if (!pending.length) return scored;
+    const recorded = new Map();
+    for (const candidate of pending) {
+      const { table, descriptor, snapshotId } = candidate.pendingIndex;
+      const [object] = this.indexedObjects(projectId, snapshotId, table, [descriptor]);
+      if (!object) continue;
+      const { pendingIndex, ...rest } = candidate;
+      recorded.set(candidate, { ...rest, id: object.id, versionId: object.versionId, snapshotId: object.snapshotId,
+        snapshotVersion: object.snapshotVersion, metadata: object.metadata, searchText: object.searchText });
+    }
+    return scored.flatMap((candidate) => !candidate.pendingIndex ? [candidate]
+      : recorded.has(candidate) ? [recorded.get(candidate)] : []);
+  }
+
+  /** Words after `settledAt`, a value already accepted, are the only ones read. */
+  progressiveStudyVariable(projectId, input, cursor, settledAt = -1) {
     if (cursor !== String(input.text ?? '').length) return null;
     const context = writingSourceContext(input.text, cursor, input.section);
     if (context.literatureIntent) return null;
-    for (const fragment of progressiveVariableFragments(input.text, cursor)) {
+    for (const fragment of progressiveVariableFragments(input.text, cursor, settledAt)) {
       const candidates = this.candidatesForStudyVariable(projectId, fragment, {
         documentPath: input.documentPath,
         relatedPaths: this.relatedSourcePaths(projectId, input),
@@ -2381,11 +3012,11 @@ export class PredictiveProvenanceService {
 
   /** A whole file (drawing, dataset or worksheet, document, PDF) the words at
    * the cursor name. Its label is the text Tab inserts in place of them. */
-  fileReference(projectId, input, cursor) {
-    const fragments = progressiveVariableFragments(input.text, cursor);
+  fileReference(projectId, input, cursor, settledAt = -1) {
+    const fragments = progressiveVariableFragments(input.text, cursor, settledAt);
     if (!fragments.length) return null;
     const permitted = this.autocompleteFilter(projectId);
-    const files = this.objectsAt(projectId, null, ['DRAWING', 'DATASET', 'DOCUMENT', 'PAPER'])
+    const files = this.objectsAt(projectId, null, WHOLE_FILE_TYPES)
       .filter(object => isWholeFile(object) && object.path !== input.documentPath && permitted(object));
     for (const fragment of fragments) {
       const candidates = files.flatMap(object => {
@@ -2423,6 +3054,33 @@ export class PredictiveProvenanceService {
   }
 
   /**
+   * Which retrievable objects each word appears in, and what scoring reads of
+   * each object besides its words, kept with the list. Every object is scored
+   * for a sentence, so this is what keeps a keystroke from reading them all.
+   */
+  retrievalIndexOf(objects) {
+    let index = this.retrievalIndexes.get(objects);
+    if (index) return index;
+    const places = new Map();
+    const features = objects.map((object, position) => {
+      for (const token of object.retrievalTokens) {
+        if (!places.has(token)) places.set(token, []);
+        places.get(token).push(position);
+      }
+      return {
+        resultType: ['VARIABLE', 'RESULT', 'VALUE', 'DATASET_ROW', 'DATASET_VALUE', 'DATASET', 'TABLE'].includes(object.objectType),
+        methodType: ['METHOD', 'MODEL', 'PARAMETER', 'PROTOCOL', 'ANALYSIS_RUN'].includes(object.objectType),
+        identifier: /^(?:sample|subject|participant|patient)?[_ -]?id$|^(?:group|cohort)$/i.test(object.metadata.variable ?? object.label),
+        dataPath: /(^|\/)(?:results?|outputs?|analysis|data|datasets?|tables?)(\/|$)/i.test(object.path),
+        priority: dependencyFilePriority({ path: object.path }),
+      };
+    });
+    index = { places, features };
+    this.retrievalIndexes.set(objects, index);
+    return index;
+  }
+
+  /**
    * Sources an `exclude from autocomplete` rule tells the prediction surface to
    * skip. Search is deliberately unaffected: the rule suppresses suggestions,
    * not the index, so an explicitly searched source is still reachable.
@@ -2444,48 +3102,55 @@ export class PredictiveProvenanceService {
     const methodIntent = /\b(?:method|protocol|procedure|experiment|model|parameter|dose|assay|analysis|analy[sz]ed|using)\w*\b/i.test(context.sentence)
       || /\bmethods?\b/i.test(input.section);
     const permitted = this.autocompleteFilter(projectId);
-    const objects = this.workspaceRetrievalObjects(projectId, options.snapshotId)
-      .filter((object) => !input.documentPath || object.path !== input.documentPath)
-      .filter(permitted)
-      .map((object) => {
-        const overlap = overlapScore(query, `${object.retrievalText} ${object.searchText}`);
-        const resultType = ['VARIABLE', 'RESULT', 'VALUE', 'DATASET_ROW', 'DATASET_VALUE', 'DATASET', 'TABLE'].includes(object.objectType);
-        const methodType = ['METHOD', 'MODEL', 'PARAMETER', 'PROTOCOL', 'ANALYSIS_RUN'].includes(object.objectType);
-        const identifier = /^(?:sample|subject|participant|patient)?[_ -]?id$|^(?:group|cohort)$/i.test(object.metadata.variable ?? object.label);
-        let score = 0.18 + overlap * 0.52;
-        if (resultIntent && resultType) score += object.objectType === 'RESULT' ? 0.32 : object.objectType === 'VARIABLE' ? 0.28 : 0.16;
-        if (methodIntent && methodType) score += 0.36;
-        if (!resultIntent && !methodIntent && object.objectType === 'VARIABLE') score += 0.2;
-        if (object.metadata.dictionary) score += 0.08;
-        if (object.objectType === 'VARIABLE') {
-          if (object.metadata.range) score += 0.08;
-          else if (object.metadata.samples?.length) score += 0.035;
-          else if (!object.metadata.dictionary) score -= 0.06;
-        }
-        if (/(^|\/)(?:results?|outputs?|analysis|data|datasets?|tables?)(\/|$)/i.test(object.path)) score += 0.06;
-        if (object.metadata.metric === 'row-count' && !sampleSizeIntent) score -= 0.32;
-        if (identifier) score *= 0.38;
-        return { ...object, score: Number(Math.min(0.98, score).toFixed(3)) };
-      }).filter((object) => object.score >= 0.34)
-      .sort((left, right) => right.score - left.score
-        || Number(right.objectType === 'RESULT') - Number(left.objectType === 'RESULT')
-        || Number(right.objectType === 'VARIABLE') - Number(left.objectType === 'VARIABLE')
-        || dependencyFilePriority({ path: right.path }) - dependencyFilePriority({ path: left.path })
-        || left.retrievalText.localeCompare(right.retrievalText));
+    const retrievable = this.workspaceRetrievalObjects(projectId, options.snapshotId);
+    const { places, features } = this.retrievalIndexOf(retrievable);
+    // How many of the sentence's words each object has, as overlapScore counts them.
+    const queryWords = wordTokens(query);
+    const shared = new Uint16Array(retrievable.length);
+    for (const word of queryWords) for (const position of places.get(word) ?? []) shared[position] += 1;
+    const reasons = ['contextual workspace match', resultIntent ? 'study-data context' : methodIntent ? 'methods context' : 'project context'];
+    // Ranking keeps only objects that reach its minimum, so the rest are not sorted for it.
+    const minimumScore = options.minimumScore ?? 0.54;
+    const scored = [];
+    retrievable.forEach((object, position) => {
+      if (input.documentPath && object.path === input.documentPath) return;
+      if (!permitted(object)) return;
+      const { resultType, methodType, identifier, dataPath, priority } = features[position];
+      const overlap = queryWords.length ? shared[position] / Math.max(2, queryWords.length) : 0;
+      let score = 0.18 + overlap * 0.52;
+      if (resultIntent && resultType) score += object.objectType === 'RESULT' ? 0.32 : object.objectType === 'VARIABLE' ? 0.28 : 0.16;
+      if (methodIntent && methodType) score += 0.36;
+      if (!resultIntent && !methodIntent && object.objectType === 'VARIABLE') score += 0.2;
+      if (object.metadata.dictionary) score += 0.08;
+      if (object.objectType === 'VARIABLE') {
+        if (object.metadata.range) score += 0.08;
+        else if (object.metadata.samples?.length) score += 0.035;
+        else if (!object.metadata.dictionary) score -= 0.06;
+      }
+      if (dataPath) score += 0.06;
+      if (object.metadata.metric === 'row-count' && !sampleSizeIntent) score -= 0.32;
+      if (identifier) score *= 0.38;
+      score = Number(Math.min(0.98, score).toFixed(3));
+      // The reasons go with the object into ranking, which then has no fallback score to work out.
+      if (score >= 0.34 && score >= minimumScore) scored.push({ object: { ...object, score, reasons }, priority });
+    });
+    const objects = scored.sort((left, right) => right.object.score - left.object.score
+        || Number(right.object.objectType === 'RESULT') - Number(left.object.objectType === 'RESULT')
+        || Number(right.object.objectType === 'VARIABLE') - Number(left.object.objectType === 'VARIABLE')
+        || right.priority - left.priority
+        || left.object.retrievalText.localeCompare(right.object.retrievalText))
+      .map(({ object }) => object);
     const seen = new Set();
     const suggestions = [];
     for (const object of this.ranking.rank(projectId, objects, {
       query, documentPath: input.documentPath, relatedPaths: this.relatedSourcePaths(projectId, input),
-      minimumScore: options.minimumScore ?? 0.54, limit: objects.length,
+      minimumScore, limit: objects.length,
       diversify: false,
     })) {
       const fingerprint = object.retrievalText.toLowerCase().replace(/\W+/g, ' ').trim();
       if (!fingerprint || seen.has(fingerprint)) continue;
       seen.add(fingerprint);
-      const candidate = this.enrichObject(projectId, {
-        ...object,
-        reasons: ['contextual workspace match', resultIntent ? 'study-data context' : methodIntent ? 'methods context' : 'project context'],
-      });
+      const candidate = this.enrichObject(projectId, object);
       suggestions.push({
         id: `${object.id}:workspace:${suggestions.length}`,
         replacementText: object.retrievalText,
@@ -2664,7 +3329,8 @@ export class PredictiveProvenanceService {
 
   sentenceSuggestion(projectId, input) {
     const permitted = this.autocompleteFilter(projectId);
-    return completeSentence(this.completionCorpus(projectId).filter(permitted), input, {
+    return completeSentence(this.completionCorpus(projectId), input, {
+      include: permitted,
       rank: (completions) => this.rankCompletions(projectId, completions.filter((item) => item.dependencyCandidate?.id).map((item) => ({
         ...item,
         dependencyCandidate: {
@@ -2748,6 +3414,20 @@ export class PredictiveProvenanceService {
       written.get(id).add(text.slice(start, end).trim().toLowerCase());
     }
     return written;
+  }
+
+  /**
+   * Where the newest accepted source was settled by its own value, or -1. A
+   * value is as deep as a source goes: every directory answers the words
+   * after it, and nothing is offered again for the text it fills.
+   */
+  settledValueEnd(input, dependency) {
+    if (Number.isInteger(input.settledValueEnd)) return input.settledValueEnd;
+    // An explicit comma continues a table column's value list. Ordinary words
+    // after a completed value still return to every directory.
+    const tail = dependency && String(input.text ?? '').slice(dependency.anchor.end, input.cursor);
+    if (dependency?.source.anchor?.kind === 'table-cell' && /^\s*,\s*$/.test(tail)) return -1;
+    return dependency && acceptedAsValue(dependency, input.text) ? dependency.anchor.end : -1;
   }
 
   /**
@@ -2844,7 +3524,11 @@ export class PredictiveProvenanceService {
     // has its own value to state, unless that value is the linked text.
     const dependencyNamesMeasurement = source.objectType === 'DRAWING_ANNOTATION'
       && normalizedVariable(dependencyText) !== normalizedVariable(source.valueText);
-    const workspaceObjects = this.workspaceRetrievalObjects(this.sourceProjectId(source) ?? projectId, source.snapshotId);
+    const retrieved = this.workspaceRetrievalObjects(this.sourceProjectId(source) ?? projectId, source.snapshotId);
+    // A large table's later rows come from the table index, as few as the words typed name.
+    const indexedRelated = wholeDrawing ? [] : this.indexedRelatedObjects(projectId, source, tail,
+      { variableKey, known: this.keysOf(retrieved) });
+    const workspaceObjects = indexedRelated.length ? [...retrieved, ...indexedRelated] : retrieved;
     // A data dictionary's cells describe the variable (its description and
     // units); they are not values of it, unless that file is the linked source.
     // Keyed by sheet: a workbook's data sheets beside its dictionary still count.
@@ -3117,8 +3801,8 @@ export class PredictiveProvenanceService {
 
   /** The whole file the words at the cursor name, once other readings of the
    * same words have had their say. */
-  namedFile(projectId, input, cursor, text) {
-    const named = this.fileReference(projectId, input, cursor);
+  namedFile(projectId, input, cursor, text, settledAt = -1) {
+    const named = this.fileReference(projectId, input, cursor, settledAt);
     if (!named) return null;
     // A citation being written ("from the document placental trans") is the
     // literature path's: it matches documents and papers by title and inserts
@@ -3130,7 +3814,7 @@ export class PredictiveProvenanceService {
     // Plain words may be a variable's name ("systolic blood pressure"); one
     // matched on as many words wins over any file but a drawing.
     if (!named.asWritten && candidates.some((candidate) => candidate.objectType !== 'DRAWING')) {
-      const variable = this.progressiveStudyVariable(projectId, input, cursor);
+      const variable = this.progressiveStudyVariable(projectId, input, cursor, settledAt);
       if (variable?.fragment && variable.candidates.length
         && variable.fragment.end - variable.fragment.start >= named.end - named.start) {
         candidates = candidates.filter((candidate) => candidate.objectType === 'DRAWING');
@@ -3146,8 +3830,10 @@ export class PredictiveProvenanceService {
     // source was linked. It must not depend on scientific-writing intent.
     // The name just accepted ("The Bracket ") is not a new reference to it,
     // nor is the name of the file a focus chosen with fn+Right sits in.
-    const linkedDependency = this.linkedDependencyContext(projectId, input, cursor);
-    const file = this.namedFile(projectId, input, cursor, text);
+    const newestDependency = this.linkedDependencyContext(projectId, input, cursor);
+    const settledAt = this.settledValueEnd(input, newestDependency);
+    const linkedDependency = newestDependency?.anchor.end > settledAt ? newestDependency : null;
+    const file = this.namedFile(projectId, input, cursor, text, settledAt);
     if (file && !(linkedDependency && file.end <= linkedDependency.anchor.end)
       && !namesFocusedFile(file, linkedDependency)) return {
       claims: [file], completion: null, sourceCompletions: [], workspaceCompletions: [],
@@ -3185,7 +3871,8 @@ export class PredictiveProvenanceService {
         deterministic: true, generatedText: false,
       };
     }
-    const detected = detectClaimSpans(text);
+    // A value just accepted already fills its claim ("The Bracket is 100 mm").
+    const detected = detectClaimSpans(text).filter((claim) => claim.end > settledAt);
     // An amount or citation in an earlier sentence or clause says nothing about
     // the words being typed now ("Revenue was 485000. Gross pr", "... and gross pr").
     const clauseStart = currentClauseStart(text, cursor);
@@ -3194,7 +3881,7 @@ export class PredictiveProvenanceService {
     const hasReferenceIntent = current.some((claim) => ['LITERATURE', 'TABLE_REFERENCE', 'FIGURE', 'METHOD', 'DATASET_REFERENCE']
       .includes(claim.type));
     const studyPrediction = hasStudyValue || hasReferenceIntent
-      ? null : this.progressiveStudyVariable(projectId, input, cursor);
+      ? null : this.progressiveStudyVariable(projectId, input, cursor, settledAt);
     if (studyPrediction) {
       const { fragment, candidates } = studyPrediction;
       const hasVariableChoices = Boolean(fragment && candidates.length);
@@ -3873,14 +4560,18 @@ export class PredictiveProvenanceService {
   }
 
   tabularShareContent(file, buffer, anchor, scope, radius) {
-    const table = file.fileType === 'spreadsheet'
+    // A large table's share reads its first rows or the rows around the cited one.
+    const window = this.tableWindow(file, buffer, anchor ?? {}, scope === 'FULL'
+      ? { before: 0, after: 1_000 } : { before: Math.max(radius, 2), after: Math.max(radius, 2) });
+    if (window) anchor = window.anchor;
+    const table = window ? window.table : file.fileType === 'spreadsheet'
       ? extractSpreadsheetTables(buffer).find((sheet) => !anchor?.sheet || sheet.name === anchor.sheet)
       : {
         name: null,
         rows: parseDelimited(buffer.toString('utf8'), path.extname(file.path).toLowerCase() === '.tsv' ? '\t' : ','),
       };
     if (!table?.rows?.length) return null;
-    const layout = file.fileType === 'spreadsheet' ? spreadsheetLayout(table) : tabularLayout(table.rows);
+    const layout = file.fileType === 'spreadsheet' || window ? spreadsheetLayout(table) : tabularLayout(table.rows);
     const headers = layout.headers;
     const data = layout.rows;
     const rowReference = anchor?.kind === 'table-row';
@@ -4099,7 +4790,11 @@ export class PredictiveProvenanceService {
     }
 
     if (['table', 'spreadsheet'].includes(file.fileType)) {
-      const tables = file.fileType === 'spreadsheet'
+      // A large table shows the rows around the cited one, from the table index.
+      const window = this.tableWindow(file, buffer, source.anchor ?? {}, {
+        before: 2_500, after: 2_500, sheet: String(options.sheet ?? '').trim() || null });
+      const anchor = window?.anchor ?? source.anchor;
+      const tables = window ? [window.table] : file.fileType === 'spreadsheet'
         ? extractSpreadsheetTables(buffer)
         : [{
           name: path.posix.basename(file.path),
@@ -4110,17 +4805,17 @@ export class PredictiveProvenanceService {
       const table = tables.find((candidate) => candidate.name === requestedSheet)
         ?? tables.find((candidate) => candidate.name === source.anchor?.sheet)
         ?? tables[0];
-      const layout = file.fileType === 'spreadsheet' ? spreadsheetLayout(table) : tabularLayout(table.rows);
-      const rowReference = source.anchor?.kind === 'table-row';
+      const layout = file.fileType === 'spreadsheet' || window ? spreadsheetLayout(table) : tabularLayout(table.rows);
+      const rowReference = anchor?.kind === 'table-row';
       const selectedColumn = rowReference ? -1
-        : Number.isInteger(source.anchor?.columnIndex) ? source.anchor.columnIndex
-          : layout.headers.findIndex((header) => String(header) === String(source.anchor?.column));
-      let selectedRow = Number.isInteger(source.anchor?.rowIndex)
-        ? (layout.rowNumbers && source.anchor.rowCoordinate === 'worksheet' ? layout.rowNumbers.indexOf(source.anchor.rowIndex) : source.anchor.rowIndex - layout.headerRowIndex - 1) : -1;
+        : Number.isInteger(anchor?.columnIndex) ? anchor.columnIndex
+          : layout.headers.findIndex((header) => String(header) === String(anchor?.column));
+      let selectedRow = Number.isInteger(anchor?.rowIndex)
+        ? (layout.rowNumbers && anchor.rowCoordinate === 'worksheet' ? layout.rowNumbers.indexOf(anchor.rowIndex) : anchor.rowIndex - layout.headerRowIndex - 1) : -1;
       if (selectedRow < 0 || selectedRow >= layout.rows.length) {
-        selectedRow = layout.rows.findIndex((row) => String(row[0] ?? '') === String(source.anchor?.rowKey ?? ''));
+        selectedRow = layout.rows.findIndex((row) => String(row[0] ?? '') === String(anchor?.rowKey ?? ''));
       }
-      const isIndexedSheet = !source.anchor?.sheet || table.name === source.anchor.sheet;
+      const isIndexedSheet = !anchor?.sheet || table.name === anchor.sheet;
       // Show numbers as the sheet does ($129,950); rows were matched on stored values above.
       const rows = layout.rows.slice(0, 5000).map((row, index) => {
         const shown = table.displayRows?.[layout.headerRowIndex + 1 + index];
@@ -4130,13 +4825,14 @@ export class PredictiveProvenanceService {
         ...base,
         kind: 'table',
         sheet: table.name,
-        sheets: tables.map((candidate) => candidate.name),
+        sheets: window?.sheets ?? tables.map((candidate) => candidate.name),
         headers: layout.headers,
         rows,
         selectedRow: isIndexedSheet ? selectedRow : -1,
         selectedColumn: isIndexedSheet ? selectedColumn : -1,
-        truncated: layout.rows.length > rows.length,
-        totalRows: layout.rows.length,
+        truncated: window ? window.totalRows > rows.length : layout.rows.length > rows.length,
+        totalRows: window?.totalRows ?? layout.rows.length,
+        ...(window ? { firstRow: window.firstRow } : {}),
         locationLabel: [source.anchor?.sheet, source.anchor?.rowKey, rowReference ? null : source.anchor?.column]
           .filter(Boolean).join(' · ') || source.label,
       };

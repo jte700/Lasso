@@ -90,3 +90,17 @@ test('every invoice date of an Excel sheet can be inserted in turn after accepti
   const column = await acceptName(app, 'The invoice dat', 'Invoice Date', []);
   await writeEveryDate(app, column);
 });
+
+
+test('a completed table value releases the scope unless a comma continues its list', async t => {
+  const app = await directory(t, 'Accounts-Payable.csv', `${PAYABLES.map(row => row.join(',')).join('\n')}\n`);
+  const column = await acceptName(app, 'The invoice dat', 'Invoice Date', []);
+  const before = `${column.text} is `;
+  const prediction = await typed(app, before, column.links);
+  const value = prediction.workspaceCompletions[0];
+  const text = before + value.replacementText;
+  const links = [...column.links, link(value.dependencyCandidate, before.length, text.length)];
+  assert.equal((await typed(app, `${text} `, links)).workspaceHeading, undefined);
+  assert.equal((await typed(app, `${text}, `, links)).workspaceHeading, 'Values for Invoice Date');
+  assert.equal((await typed(app, `${text}, next `, links)).workspaceHeading, undefined);
+});

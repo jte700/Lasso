@@ -1,8 +1,18 @@
 // Discovery names are derived at read time, so older immutable drawing rows
 // remain usable without rewriting their source labels or versioned metadata.
-export const words = value => String(value ?? '').normalize('NFKC')
-  .replace(/([a-z\d])([A-Z])/g, '$1 $2').toLocaleLowerCase('en-US')
-  .match(/[\p{L}\p{N}]+/gu) ?? [];
+// Every file's names are read again on each keystroke, so their words are kept.
+const wordsOf = new Map();
+export const words = (value) => {
+  const text = String(value ?? '');
+  let found = wordsOf.get(text);
+  if (!found) {
+    found = text.normalize('NFKC').replace(/([a-z\d])([A-Z])/g, '$1 $2').toLocaleLowerCase('en-US')
+      .match(/[\p{L}\p{N}]+/gu) ?? [];
+    if (wordsOf.size >= 50_000) wordsOf.clear();
+    wordsOf.set(text, found);
+  }
+  return found;
+};
 export const normalized = value => words(value).join(' ');
 export const humanStem = filename => filename.replace(/\.[^.]+$/, '').replace(/([a-z\d])([A-Z])/g, '$1 $2')
   .replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -11,9 +21,19 @@ const ambiguousSingleAlias = new Set(['floor', 'plan', 'building', 'model', 'arc
 /** The fewest letters that name a drawing. Its measurements wait for as many. */
 export const DRAWING_NAME_MIN_LETTERS = 3;
 
+// An indexed object is frozen, so what it is discovered as never changes.
+const discovered = new WeakMap();
+
 /** Human-facing names and conservative aliases for a whole indexed drawing. */
 export function drawingDiscovery(object) {
   if (object?.objectType !== 'DRAWING') return null;
+  if (discovered.has(object)) return discovered.get(object);
+  const discovery = discoverDrawing(object);
+  if (Object.isFrozen(object)) discovered.set(object, discovery);
+  return discovery;
+}
+
+function discoverDrawing(object) {
   const metadata = object.metadata ?? {};
   const filename = String(object.path ?? '').replaceAll('\\', '/').split('/').pop() ?? '';
   const stem = humanStem(filename);

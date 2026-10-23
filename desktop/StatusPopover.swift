@@ -490,6 +490,8 @@ final class StatusPopoverController {
                         existing.setSelecting(fresh.isSelecting, selected: fresh.isSelected, animated: true)
                         existing.issue = fresh.issue
                         existing.onFix = fresh.onFix
+                        // The same row keeps counting from where it was.
+                        existing.progress = fresh.progress
                         row = existing
                     } else {
                         directoryRows[id] = fresh
@@ -553,10 +555,28 @@ final class StatusPopoverController {
             if let disclosure = row.view as? NativeMenuDisclosureRow {
                 return (disclosure.actionItem, disclosure)
             }
+            if let progress = row.view as? NativeMenuProgressRow {
+                return (progress.actionItem, progress)
+            }
             return nil
         }
         for (item, view) in customItems { item.view = view }
         update(menu: menu)
+    }
+
+    /// A repair's hover card goes away before the request begins. Keep its
+    /// replacement feedback visible, even after scrolling through a long menu:
+    /// the folder being read, or the status line when no folder shows it.
+    func revealProgress() {
+        if let reading = rows.lazy.compactMap({ $0.view as? NativeMenuToggleRow }).first(where: \.isShowingProgress) {
+            directoryList.reveal(reading)
+            let frame = directoryList.rows.contains(where: { $0 === reading }) ? directoryList.frame : reading.frame
+            content.scrollToVisible(frame)
+            return
+        }
+        guard rows.contains(where: { $0.view is NativeMenuProgressRow }) else { return }
+        scroll.contentView.scroll(to: .zero)
+        scroll.reflectScrolledClipView(scroll.contentView)
     }
 
     private func layoutRows() {

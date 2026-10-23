@@ -298,3 +298,17 @@ function jsonRequest(method, url, body) {
   const payload = Buffer.from(JSON.stringify(body));
   return Object.assign(async function* () { yield payload; }(), { method, url, headers: LOCAL_HEADERS });
 }
+
+test('an identical re-read clears obsolete indexing failures without creating a version', t => {
+  const { application, project } = workspace(t);
+  application.dependencies.ensureIndex(project.id);
+  const before = application.timeline.getProject(project.id).currentSnapshotId;
+  application.terminal.indexing.recordIndexProblems(project.id, [{ path: 'ledger.csv', code: 'NOT_INDEXED_LIMIT',
+    reason: 'An older folder-wide limit skipped this file.' }]);
+  const result = application.dependencies.reindex(project.id, maya);
+  assert.equal(result.changed, false);
+  assert.equal(result.reason, 'IDENTICAL_READING');
+  assert.equal(application.timeline.getProject(project.id).currentSnapshotId, before);
+  assert.ok(application.db.prepare('SELECT resolved_at FROM index_failures WHERE project_id = ? AND path = ?')
+    .get(project.id, 'ledger.csv').resolved_at, 'successful rereading clears stale warnings even when the objects are identical');
+});

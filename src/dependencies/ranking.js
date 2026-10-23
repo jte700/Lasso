@@ -70,6 +70,12 @@ export class RecommendationRanking {
   close() { this.snapshotCache.clear(); }
   invalidateSnapshot(snapshotId) { this.snapshotCache.delete(snapshotId); }
 
+  /** Objects recorded at a snapshot after it was indexed, such as rows of a large table. */
+  noteObjects(snapshotId, objects) {
+    const cached = this.snapshotCache.get(snapshotId);
+    for (const object of cached ? objects : []) cached.objects.add(`${object.id}\u0000${object.path}`);
+  }
+
   indexedSnapshot(projectId, snapshotId) {
     const cached = this.snapshotCache.get(snapshotId);
     if (cached) return cached.projectId === projectId ? cached : null;
@@ -78,7 +84,7 @@ export class RecommendationRanking {
       WHERE s.id = ? AND s.project_id = ?`).get(snapshotId, projectId);
     if (!row) return null;
     const files = this.timeline.snapshotFiles(snapshotId);
-    const versions = this.timeline.objectVersions.resolved(snapshotId).rows
+    const versions = this.timeline.objectVersions.locations(snapshotId)
       .filter((version) => version.project_id === projectId);
     const snapshot = {
       projectId,
@@ -238,9 +244,13 @@ export class RecommendationRanking {
       // Retrieval already supplied the score and explanation for most callers.
       // Preserve direct-match protection without tokenizing the same source a
       // second time merely to calculate an unused fallback score.
-      const match = Number.isFinite(candidate.score) && candidate.reasons?.[0] != null
+      const scored = Number.isFinite(candidate.score);
+      // A score given with a candidate is its relevance, so one under the
+      // minimum is left out before its names are matched.
+      if (scored && clamp(candidate.score) < minimumScore) return [];
+      const match = scored && candidate.reasons?.[0] != null
         ? directRecommendationMatch(candidate, query) : textMatch(candidate, query);
-      const relevanceScore = Number.isFinite(candidate.score) ? clamp(candidate.score) : match.score;
+      const relevanceScore = scored ? clamp(candidate.score) : match.score;
       if (relevanceScore < minimumScore) return [];
       const usage = usageByFile.get(file.project_file_id);
       const documentUsed = Boolean(document && usage?.documentProjectFileIds.includes(document.projectFileId));

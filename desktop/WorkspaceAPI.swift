@@ -121,6 +121,52 @@ struct DirectorySelection: Equatable {
     }
 }
 
+extension WorkspaceAPI {
+    /// The workspace state, including folders chosen but not recorded yet, so
+    /// the menu can show them with their progress from the start.
+    static func stateURL(base: URL) -> URL? {
+        guard var components = URLComponents(url: base.appendingPathComponent("api/workspace"),
+                                              resolvingAgainstBaseURL: false) else { return nil }
+        components.queryItems = [URLQueryItem(name: "pending", value: "1")]
+        return components.url
+    }
+}
+
+/// How far the server has got reading a work directory, as it reports it
+/// while the folder is added, brought up to date or re-read. The folder's own
+/// row shows it in place of its switch.
+struct DirectoryProgress: Equatable {
+    let percent: Int
+    let phase: String
+    let kind: String
+
+    init?(_ value: Any?) {
+        guard let progress = value as? [String: Any],
+              let percent = (progress["percent"] as? NSNumber)?.intValue else { return nil }
+        self.init(percent: percent, phase: progress["phase"] as? String ?? "",
+                  kind: progress["kind"] as? String ?? "")
+    }
+
+    init(percent: Int, phase: String, kind: String) {
+        self.percent = min(max(percent, 0), 100)
+        self.phase = phase
+        self.kind = kind
+    }
+
+    /// What the folder is doing, for its tooltip and VoiceOver.
+    var activity: String {
+        switch phase {
+        case "waiting": return "Waiting to start"
+        case "listing": return "Finding files"
+        case "reading": return "Reading files"
+        case "indexing": return kind == "rereading" ? "Re-reading files" : "Indexing files"
+        case "saving": return "Saving the index"
+        case "warming": return "Preparing suggestions"
+        default: return "Indexing files"
+        }
+    }
+}
+
 /// What a work directory's issue badge says, as the server describes it. A fix
 /// label is present only when the problem is Lasso's own to repair.
 struct DirectoryIssue: Equatable {

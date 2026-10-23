@@ -417,3 +417,29 @@ test('carrying unchanged files forward records exactly what a full index would',
     assert.deepEqual(storedIndex(state.app, snapshotId), fullIndex(state.app, snapshotId), `index at ${snapshotId}`);
   }
 });
+
+test('indexes beyond the row-cache budget count and carry changes without materializing the full index', t => {
+  const state = fixture(t);
+  const versions = state.app.timeline.objectVersions;
+  const before = state.app.dependencies.objectsAt(state.project.id);
+  const kept = before.find(object => object.path === 'ledger-2.csv');
+  const oldSnapshot = state.app.timeline.getProject(state.project.id).currentSnapshotId;
+  versions.clear();
+  versions.sets.maxWeight = 2;
+  const noFullRead = t.mock.method(versions, 'resolved', () => { throw new Error('Full index materialized above cache budget'); });
+  assert.equal(versions.count(oldSnapshot), before.length);
+  fs.writeFileSync(path.join(state.root, 'ledger-0.csv'), ledger(0, CSV_ROWS, 0));
+  fs.rmSync(path.join(state.root, 'ledger-1.csv'));
+  const changed = capture(state);
+  const current = changed.snapshot.id;
+  const count = versions.count(current);
+  assert.ok(count > 2 && count < before.length);
+  assert.equal(versions.sets.size, 0, 'oversized row graphs are not built for a cache that cannot retain them');
+  assert.equal(versions.at(current, kept.id).version_id, kept.versionId, 'unchanged evidence is carried forward');
+  assert.equal(versions.count(oldSnapshot), before.length, 'the previous version is preserved');
+  noFullRead.mock.restore();
+  const after = state.app.dependencies.objectsAt(state.project.id);
+  assert.equal(after.length, count);
+  assert.ok(after.some(object => object.path === 'ledger-0.csv' && object.valueText === '999999'));
+  assert.ok(!after.some(object => object.path === 'ledger-1.csv'));
+});
