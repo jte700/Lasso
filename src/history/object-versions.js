@@ -20,6 +20,11 @@ import { compareText, mergeSorted } from './text-order.js';
 // An index resolves through at most this many bases; past it, the next index
 // is written in full, which bounds the cost of reading any one snapshot.
 export const MAX_INDEX_CHAIN = 2_000;
+// An index that keeps less than a quarter of its base's objects is written in full.
+export const FULL_WRITE_SHARE = 4;
+// Typed resolution starts at the candidate objects only when they number less
+// than this share of the index's rows (see resolvedTypes).
+const CANDIDATE_SHARE = 4;
 
 const VERSION_COLUMNS = `o.id AS object_id, o.project_id, o.object_key, o.object_type, o.rowid AS object_rowid,
   v.id, v.id AS version_id, v.snapshot_id AS recorded_snapshot_id, v.path, v.anchor_json, v.label, v.value_text,
@@ -158,8 +163,25 @@ export class ObjectVersionStore {
     const snapshot = this.db.prepare('SELECT project_id, version FROM snapshots WHERE id = ?').get(snapshotId);
     if (!snapshot || !types.length) return resolvedSet(snapshotId, snapshot?.version ?? null, []);
     const placeholders = types.map(() => '?').join(',');
+    // Starting at the folder's objects of these types visits every version
+    // each of them ever had; starting at the index visits each of its rows.
+    // The first wins for a few types of a large index (drawing statuses);
+    // the second when the types are most of the index, or when the folder's
+    // history dwarfs it, as after a large subfolder stopped being indexed.
+    const candidates = this.db.prepare(`SELECT COUNT(*) AS count FROM scientific_objects
+      WHERE project_id = ? AND object_type IN (${placeholders})`).get(snapshot.project_id, ...types).count;
+    const fromIndex = candidates * CANDIDATE_SHARE >= this.chainEntries(snapshotId);
     const query = `${INDEX_CHAIN},
-      entries AS (
+      entries AS (${fromIndex ? `
+        SELECT v.object_id, v.rowid AS version_rowid, chain.depth FROM chain
+        CROSS JOIN scientific_object_versions v ON v.snapshot_id = chain.snapshot_id
+        CROSS JOIN scientific_objects candidate ON candidate.id = v.object_id
+        WHERE candidate.project_id = ? AND candidate.object_type IN (${placeholders})
+        UNION ALL
+        SELECT r.object_id, NULL, chain.depth FROM chain
+        CROSS JOIN scientific_object_removals r ON r.snapshot_id = chain.snapshot_id
+        CROSS JOIN scientific_objects candidate ON candidate.id = r.object_id
+        WHERE candidate.project_id = ? AND candidate.object_type IN (${placeholders})` : `
         SELECT v.object_id, v.rowid AS version_rowid, chain.depth FROM scientific_objects candidate
         CROSS JOIN scientific_object_versions v ON v.object_id = candidate.id
         JOIN chain ON v.snapshot_id = chain.snapshot_id
@@ -168,7 +190,7 @@ export class ObjectVersionStore {
         SELECT r.object_id, NULL, chain.depth FROM scientific_objects candidate
         CROSS JOIN scientific_object_removals r ON r.object_id = candidate.id
         JOIN chain ON r.snapshot_id = chain.snapshot_id
-        WHERE candidate.project_id = ? AND candidate.object_type IN (${placeholders})
+        WHERE candidate.project_id = ? AND candidate.object_type IN (${placeholders})`}
       ),
       nearest AS (SELECT object_id, version_rowid, MIN(depth) AS depth FROM entries GROUP BY object_id)
       SELECT ${VERSION_COLUMNS}
@@ -177,6 +199,14 @@ export class ObjectVersionStore {
       ORDER BY o.object_type, v.label, o.rowid`;
     const rows = this.db.prepare(query).all(snapshotId, snapshot.project_id, ...types, snapshot.project_id, ...types);
     return resolvedSet(snapshotId, snapshot.version, rows);
+  }
+
+  /** How many version and removal rows an index resolves through, counted from their snapshot index. */
+  chainEntries(snapshotId) {
+    return this.db.prepare(`${INDEX_CHAIN}
+      SELECT (SELECT COUNT(*) FROM chain JOIN scientific_object_versions v ON v.snapshot_id = chain.snapshot_id)
+        + (SELECT COUNT(*) FROM chain JOIN scientific_object_removals r ON r.snapshot_id = chain.snapshot_id) AS count`)
+      .get(snapshotId).count;
   }
 
   /** Read a full index incrementally, without retaining another graph of rows. */
@@ -316,7 +346,13 @@ export class ObjectVersionStore {
       };
     };
     const version = this.snapshotVersion(snapshotId);
-    const base = this.baseFor(projectId, snapshotId);
+    let base = this.baseFor(projectId, snapshotId);
+    const baseCount = base ? this.count(base) : 0;
+    // A reading that keeps little of its base, such as the first after a large
+    // subfolder stopped being indexed, is written in full. As differences it
+    // would record a removal for most of the base, and every later read of
+    // this index would resolve through all of them.
+    if (base && !carriedPaths?.size && entries.length * FULL_WRITE_SHARE < baseCount) base = null;
     if (!base) {
       const rows = [];
       for (const entry of entries) {
@@ -328,7 +364,6 @@ export class ObjectVersionStore {
       this.depths.set(snapshotId, 0);
       return;
     }
-    const baseCount = this.count(base);
     const previous = baseCount <= this.sets.maxWeight ? this.resolved(base) : null;
     cacheRows = cacheRows && previous !== null && baseCount + entries.length <= this.sets.maxWeight;
     this.db.prepare('INSERT INTO object_index_bases(snapshot_id, base_snapshot_id, created_at) VALUES (?, ?, ?)')

@@ -8,6 +8,8 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { HttpError } from '../history/errors.js';
+import { BoundedCache } from '../cache.js';
+import { json } from '../db.js';
 import { normalizeProjectRootPath } from '../history/service.js';
 import { isInformationalDxfWarning } from '../dependencies/dxf-extraction.js';
 
@@ -22,6 +24,9 @@ export class IndexControlService {
     this.db = db;
     this.timeline = timeline;
     this.dependencies = dependencies;
+    // A snapshot's drawing problems never change. The work directory list asks
+    // for them on every refresh, so they are read once per snapshot.
+    this.drawingProblems = new BoundedCache({ maxEntries: 32 });
     // Consulted by TimelineService.scanProject.
     timeline.scanPolicy = {
       exclusionFilter: (projectId) => this.exclusionFilter(projectId),
@@ -127,10 +132,10 @@ export class IndexControlService {
   }
 
   failures(projectId, options = {}) {
+    // Resolved rows are history; a folder re-read many times holds thousands.
     const stored = this.db.prepare(`
-      SELECT * FROM index_failures WHERE project_id = ? ORDER BY detected_at DESC, path
-    `).all(projectId)
-      .filter((row) => options.includeResolved || !row.resolved_at)
+      SELECT * FROM index_failures WHERE project_id = ? AND (? OR resolved_at IS NULL) ORDER BY detected_at DESC, path
+    `).all(projectId, options.includeResolved ? 1 : 0)
       .map((row) => ({
         id: row.id,
         path: row.path,
@@ -141,24 +146,42 @@ export class IndexControlService {
         // Index problems clear when the file changes, not on a retry.
         retryable: row.code !== 'UNSUPPORTED_FORMAT' && !INDEX_PROBLEM_CODES.has(row.code),
       }));
+    const drawingProblems = this.drawingProblemsAt(projectId);
+    return [...stored, ...drawingProblems.filter((problem) => !stored.some((entry) => entry.path === problem.path))];
+  }
+
+  /**
+   * Drawings in the current snapshot that were read only in part. Only each
+   * drawing's recorded status is needed, so this reads the version rows
+   * directly: mapping them as searchable objects parsed every PDF again.
+   */
+  drawingProblemsAt(projectId) {
     const project = this.timeline.getProject(projectId);
-    const drawingProblems = new Map();
-    for (const object of this.dependencies.objectsAt(projectId, project.currentSnapshotId, ['DRAWING'])) {
-      if (object.objectType !== 'DRAWING' || !object.metadata.extractionStatus || object.metadata.extractionStatus === 'ready') continue;
+    const snapshotId = project.currentSnapshotId;
+    if (!snapshotId) return [];
+    const cached = this.drawingProblems.get(snapshotId);
+    if (cached) return cached;
+    this.dependencies.ensureIndex(projectId, snapshotId);
+    const problems = new Map();
+    for (const row of this.timeline.objectVersions.resolvedTypes(snapshotId, ['DRAWING']).rows) {
+      const metadata = json(row.metadata_json, {});
+      if (row.project_id !== projectId || !metadata.extractionStatus || metadata.extractionStatus === 'ready') continue;
       // Drawings indexed before informational DXF notes stopped marking a
       // plan partial still carry that status; only real problems count.
-      const own = (object.metadata.warnings ?? []).filter((warning) => !isInformationalDxfWarning(warning));
-      if (object.metadata.extractionStatus === 'partial' && !own.length) continue;
-      const previous = drawingProblems.get(object.path);
+      const own = (metadata.warnings ?? []).filter((warning) => !isInformationalDxfWarning(warning));
+      if (metadata.extractionStatus === 'partial' && !own.length) continue;
+      const previous = problems.get(row.path);
       const warnings = [...new Set([...(previous?.warnings ?? []), ...own])];
-      drawingProblems.set(object.path, {
-        id: `drawing:${object.id}`, path: object.path, code: `DRAWING_${object.metadata.extractionStatus.toUpperCase()}`,
+      problems.set(row.path, {
+        id: `drawing:${row.object_id}`, path: row.path, code: `DRAWING_${metadata.extractionStatus.toUpperCase()}`,
         reason: warnings.join(' ') || 'Some drawing measurements could not be indexed.', warnings,
-        detectedAt: this.timeline.snapshotRecord(project.currentSnapshotId).createdAt, resolvedAt: null,
+        detectedAt: this.timeline.snapshotRecord(snapshotId).createdAt, resolvedAt: null,
         retryable: false,
       });
     }
-    return [...stored, ...[...drawingProblems.values()].filter((problem) => !stored.some((entry) => entry.path === problem.path))];
+    const result = [...problems.values()];
+    this.drawingProblems.set(snapshotId, result);
+    return result;
   }
 
   // ── status ───────────────────────────────────────────────────────────────

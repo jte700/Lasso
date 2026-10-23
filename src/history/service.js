@@ -3,7 +3,8 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { BlobStore, hashBuffer } from './blob-store.js';
-import { isIgnoredScanPath, scanDirectory, scannedFile } from './scanner.js';
+import { isIgnoredScanPath, scanSteps, scannedFile } from './scanner.js';
+import { runSync } from './work.js';
 import { isTrackedFile } from './file-types.js';
 import { compactStructuredDiff, createStructuredDiff, deterministicEventTitle, expandStructuredDiff } from './diff.js';
 import { SnapshotFileStore } from './snapshot-store.js';
@@ -92,6 +93,8 @@ export class TimelineService {
     this.pendingTimers = new Map();
     this.pendingPaths = new Map();
     this.scanCaches = new Map();
+    // Environment directories each project's last scan skipped, by project.
+    this.environments = new Map();
     this.captureListeners = new Set();
     // Set by the terminal's index controls. The timeline owns scanning; the
     // terminal owns which paths the user excluded and what failed to be read.
@@ -104,6 +107,10 @@ export class TimelineService {
    * real failures rather than an empty list.
    */
   scanProject(project, options = {}) {
+    return runSync(this.scanProjectSteps(project, options));
+  }
+
+  *scanProjectSteps(project, options = {}) {
     this.drives?.assertOnline(project.id);
     const failures = [];
     const exclude = this.scanExclusion(project.rootPath, project.id);
@@ -114,13 +121,15 @@ export class TimelineService {
     if (!cache.size && options.previousFiles) {
       for (const file of options.previousFiles) cache.set(file.path, { file: scannedFile(file) });
     }
-    const files = scanDirectory(project.rootPath, this.blobs, {
-      exclude, failures, fileCache: cache,
+    const environments = new Set();
+    const files = yield* scanSteps(project.rootPath, this.blobs, {
+      exclude, failures, fileCache: cache, environments,
       reuseUnchanged: (options.source === 'WATCHER' && Array.isArray(options.dirtyPaths))
         || options.source === 'OPEN_RECONCILE',
       dirtyPaths: options.dirtyPaths,
       previousFiles: options.previousFiles,
     });
+    this.environments.set(project.id, environments);
     this.drives?.assertOnline(project.id);
     if (this.drives?.projectState(project.id).removableDriveId && failures.some(failure => ['DISAPPEARED', 'DEVICE_UNAVAILABLE'].includes(failure.code) || failure.path === '.')) {
       throw new HttpError(409, 'The drive changed or became unreadable during indexing. Its last complete snapshot was kept.');
@@ -222,6 +231,15 @@ export class TimelineService {
   }
 
   importProject(rootPath, actorInput, options = {}) {
+    return runSync(this.importProjectSteps(rootPath, actorInput, options));
+  }
+
+  /**
+   * The same as steps (see history/work.js). `options.projectId` names the
+   * new project in advance, so a folder still being read can be listed under
+   * the id it will keep.
+   */
+  *importProjectSteps(rootPath, actorInput, options = {}) {
     let realRoot;
     try {
       realRoot = fs.realpathSync(normalizeProjectRootPath(rootPath));
@@ -236,12 +254,17 @@ export class TimelineService {
     const failures = [];
     if (options.driveId) this.drives.assertDrive(options.driveId);
     const fileCache = new Map();
-    const scanned = scanDirectory(realRoot, this.blobs, { failures, fileCache, exclude: this.scanExclusion(realRoot) });
+    const environments = new Set();
+    const scanned = yield* scanSteps(realRoot, this.blobs, { failures, fileCache, environments, exclude: this.scanExclusion(realRoot) });
     if (options.driveId) {
       this.drives.assertDrive(options.driveId);
       if (failures.some(failure => ['DISAPPEARED', 'DEVICE_UNAVAILABLE'].includes(failure.code) || failure.path === '.')) throw new HttpError(409, 'The drive became unavailable during indexing. Reconnect it and try again.');
     }
-    const projectId = id();
+    // A sliced import let other requests run while it read; one of them may
+    // have added the same folder meanwhile.
+    const added = this.db.prepare('SELECT id FROM projects WHERE root_path = ?').get(realRoot);
+    if (added) return { project: this.getProject(added.id), imported: false };
+    const projectId = options.projectId ?? id();
     const snapshotId = id();
     const eventId = id();
     const timestamp = now();
@@ -275,8 +298,11 @@ export class TimelineService {
 
     if (options.driveId) this.scanPolicy?.recordFailures?.(projectId, failures);
     this.scanCaches.set(projectId, fileCache);
-    if (options.watch !== false && this.config.watchProjects) this.watchProject(projectId, actor);
+    this.environments.set(projectId, environments);
     const result = { project: this.getProject(projectId), imported: true, event: this.getEvent(eventId) };
+    // As for a capture: index the new folder before listeners ask it for objects.
+    if (options.prepare) yield* options.prepare(result);
+    if (options.watch !== false && this.config.watchProjects) this.watchProject(projectId, actor);
     this.notifyCapture({ changed: true, projectId, snapshot: this.getSnapshot(snapshotId), event: result.event });
     return result;
   }
@@ -377,13 +403,22 @@ export class TimelineService {
   }
 
   capture(projectId, actorInput, options = {}) {
+    return runSync(this.captureSteps(projectId, actorInput, options));
+  }
+
+  /**
+   * The same as steps. `options.prepare(result)`, a step generator, runs after a new snapshot is
+   * recorded and before capture listeners hear of it, so a sliced capture can
+   * index the snapshot before anything asks it for objects.
+   */
+  *captureSteps(projectId, actorInput, options = {}) {
     const project = this.getProject(projectId);
     const actor = normalizeActor(actorInput, options.source === 'SYSTEM' ? 'SYSTEM' : 'HUMAN_SELF');
     if (options.expectedSnapshotId && options.expectedSnapshotId !== project.currentSnapshotId) {
       throw new VersionConflictError(options.expectedSnapshotId, project.currentSnapshotId);
     }
     const previous = this.getSnapshot(project.currentSnapshotId);
-    const scanned = this.scanProject(project, { ...options, previousFiles: previous.files });
+    const scanned = yield* this.scanProjectSteps(project, { ...options, previousFiles: previous.files });
     const comparison = this.compareScan(previous.files, scanned);
     if (!comparison.changes.length) return { changed: false, snapshot: previous, event: null };
 
@@ -430,8 +465,11 @@ export class TimelineService {
       `);
       for (const change of comparison.changes) {
         const fileType = change.after?.fileType ?? change.before?.fileType;
-        const beforeBuffer = change.before ? this.blobs.get(change.before.contentHash) : null;
-        const afterBuffer = change.after ? this.blobs.get(change.after.contentHash) : null;
+        // An added or removed file's diff is a sentence. Reading its bytes
+        // made removing a large subfolder read every file it held.
+        const compares = change.before && change.after;
+        const beforeBuffer = compares ? this.blobs.get(change.before.contentHash) : null;
+        const afterBuffer = compares ? this.blobs.get(change.after.contentHash) : null;
         const structuredDiff = createStructuredDiff({
           fileType,
           filePath: change.after?.path ?? change.before?.path,
@@ -450,6 +488,7 @@ export class TimelineService {
     });
 
     const result = { changed: true, projectId, snapshot: this.getSnapshot(snapshotId), event: this.getEvent(eventId) };
+    if (options.prepare) yield* options.prepare(result);
     this.notifyCapture(result);
     return result;
   }
@@ -753,7 +792,7 @@ export class TimelineService {
         const eventPath = rawPath ? path.posix.normalize(rawPath.split(path.sep).join('/')) : null;
         const knownPath = eventPath && eventPath !== '.' && !path.posix.isAbsolute(eventPath)
           && eventPath !== '..' && !eventPath.startsWith('../') ? eventPath : null;
-        if (knownPath && (isIgnoredScanPath(knownPath)
+        if (knownPath && (isIgnoredScanPath(knownPath) || this.insideEnvironment(projectId, knownPath)
           || this.scanExclusion(project.rootPath, projectId)(knownPath))) return;
         if (knownPath && !isTrackedFile(knownPath)) {
           let isDirectory = false;
@@ -822,6 +861,14 @@ export class TimelineService {
       this.pendingTimers.set(projectId, setTimeout(() => this.runWatcherCapture(projectId, actor),
         this.config.watchDebounceMs));
     }
+  }
+
+  /** Whether a path lies in an environment directory the last scan skipped. */
+  insideEnvironment(projectId, relativePath) {
+    for (const environment of this.environments.get(projectId) ?? []) {
+      if (relativePath === environment || relativePath.startsWith(`${environment}/`)) return true;
+    }
+    return false;
   }
 
   unwatchProject(projectId) {

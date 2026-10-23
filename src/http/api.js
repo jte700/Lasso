@@ -306,7 +306,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           return sendJson(response, 200, { activity: workspace.activity({ sourceObjectIds: url.searchParams.getAll('sourceObjectId') }) });
         }
         if (request.method === 'GET' && pathname === '/api/workspace') {
-          return sendJson(response, 200, workspace.state());
+          return sendJson(response, 200, workspace.state({ pending: url.searchParams.get('pending') === '1' }));
         }
         if (request.method === 'POST' && pathname === '/api/workspace/directories') {
           const body = await readJson(request);

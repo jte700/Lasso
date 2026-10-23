@@ -314,7 +314,7 @@ test('source reviews reject changes that arrive while an apply request body is u
 
 test('shutdown cancels a yielded directory import without accessing closed storage', async (t) => {
   const { app, roots } = await fixture(t, 1);
-  const imported = t.mock.method(app.timeline, 'importProject');
+  const imported = t.mock.method(app.timeline, 'importProjectSteps');
   const pending = app.workspace.add(roots, actor);
   const rejected = assert.rejects(pending, { status: 503 });
   await yieldTurn();

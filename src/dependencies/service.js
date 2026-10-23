@@ -19,7 +19,10 @@ import { RecommendationRanking, directRecommendationMatch } from './ranking.js';
 import { correctedDocumentLabel, firstAuthorFamily } from './authors.js';
 import { BoundedCache } from '../cache.js';
 import { drawingDescriptors, drawingContext, isDesignFile, measurementOrder, measurementRelevance } from './drawing-objects.js';
-import { storedFields } from '../history/object-versions.js';
+import { FULL_WRITE_SHARE, storedFields } from '../history/object-versions.js';
+import { runSync, workUnits } from '../history/work.js';
+import { compareText } from '../history/text-order.js';
+import { TextStore } from './text-store.js';
 import { extractDrawingDocument } from './drawing-extraction.js';
 import { buildModelPreview } from './model-preview.js';
 import { DRAWING_NAME_MIN_LETTERS, drawingDiscovery, drawingReferenceMatch } from './drawing-discovery.js';
@@ -36,6 +39,8 @@ const STATUS_TYPES = new Set(['PREDICTED', 'LINKED', 'NEEDS_REVIEW', 'STALE', 'B
 // up only the keys being indexed, not every historical object in the folder.
 const INDIVIDUAL_OBJECT_LOOKUPS = 200;
 const INDEX_VERSION = 4;
+// The object types a whole file can be named as while typing.
+const WHOLE_FILE_TYPES = ['DRAWING', 'DATASET', 'DOCUMENT', 'PAPER'];
 const STEP_FILE = /\.(?:step|stp)$/i;
 // The reader that turns file bytes into indexed objects. Bumped whenever
 // extraction changes what it reads out of unchanged files, so a project indexed
@@ -1175,6 +1180,17 @@ function isDictionaryVariable(descriptor) {
   return descriptor.type === 'VARIABLE' && Boolean(descriptor.metadata.dictionary);
 }
 
+/**
+ * Whether an index row needs no upgrade pass. Version two adds page-anchored
+ * PDF sentences and paragraphs to existing imports without changing any
+ * previously linked object or version. Version three adds the same passages
+ * for Markdown and plain-text files. Version four adds STEP CAD models.
+ * Spreadsheet version two records worksheet row coordinates under new keys.
+ */
+function indexIsCurrent(indexed) {
+  return Boolean(indexed?.indexed && indexed.drawing_index_version >= INDEX_VERSION && indexed.spreadsheet_index_version >= 2);
+}
+
 /** What a later index needs to carry these files' objects forward. */
 function indexSummary(counts, problems, definitions, truncated) {
   const problemsByPath = new Map();
@@ -1672,13 +1688,17 @@ export class PredictiveProvenanceService {
     this.studyVariableCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length });
     this.workspaceRetrievalCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length });
     this.objectCache = new BoundedCache({ maxEntries: 16, maxWeight: 120_000, weight: (objects) => objects.length });
+    this.typedObjectCache = new BoundedCache({ maxEntries: 96, maxWeight: 120_000, weight: (objects) => objects.length });
     // Raw descriptors are cached before dictionary enrichment. Changing a
     // dictionary must still update unchanged source files in the next snapshot.
     this.extractionCache = new BoundedCache({ maxEntries: 256, maxWeight: 24 * 1024 * 1024,
       weight: (entry) => entry.bytes });
     // Extracted file text depends only on the file's bytes, so an unchanged
     // PDF is not parsed again after every capture of its folder.
-    this.extractedTextCache = new BoundedCache({ maxEntries: 64, maxWeight: 16 * 1024 * 1024,
+    // PDFs' text outlives the process, so a restart does not read every PDF again.
+    this.textStore = new TextStore(path.join(timeline.config.dataDir, 'derived', 'text'), EXTRACTOR_VERSION);
+    // A drawing PDF keeps one entry per page, so the bound is on bytes.
+    this.extractedTextCache = new BoundedCache({ maxEntries: 1024, maxWeight: 32 * 1024 * 1024,
       weight: (text) => text.length * 2 });
     this.sourceTextCache = new BoundedCache({ maxEntries: 64, maxWeight: 8 * 1024 * 1024,
       weight: (text) => text.length * 2 });
@@ -1704,59 +1724,129 @@ export class PredictiveProvenanceService {
     this.unsubscribe?.();
     this.ranking.close();
     for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache,
-      this.objectCache, this.extractionCache, this.sourceTextCache, this.figurePreviewCache, this.indexedHere]) cache.clear();
+      this.objectCache, this.typedObjectCache, this.extractionCache, this.sourceTextCache, this.figurePreviewCache,
+      this.indexedHere]) cache.clear();
   }
 
   sourceText(source) {
     if (isPassageExcerpt(source)) return source.metadata.rawText ?? source.valueText ?? '';
     const key = `${source.snapshotId}|${source.id}|${source.contentHash}`;
     if (this.sourceTextCache.has(key)) return this.sourceTextCache.get(key);
-    let extractedText = '';
     const file = this.timeline.snapshotFile(source.snapshotId, source.path);
-    if (file) {
-      const page = file.fileType === 'pdf' && source.objectType === 'DRAWING' ? source.anchor?.pageNumber ?? '' : '';
-      const extractedKey = `${file.contentHash}|${file.fileType}|${source.objectType === 'DRAWING' ? `page:${page}` : 'all'}`;
-      extractedText = this.extractedTextCache.get(extractedKey);
-      if (extractedText === undefined) {
-        const buffer = this.timeline.blobs.get(file.contentHash);
-        extractedText = '';
-        if (file.fileType === 'pdf') {
-          extractedText = source.objectType === 'DRAWING'
-            ? extractDrawingDocument(buffer).pages.find(item => item.pageNumber === source.anchor?.pageNumber)?.text ?? ''
-            : extractPdfFullText(buffer);
-        } else if (file.fileType === 'document') extractedText = extractDocxDocument(buffer).textExcerpt;
-        else if (['markdown', 'text'].includes(file.fileType)) extractedText = buffer.toString('utf8');
-        this.extractedTextCache.set(extractedKey, extractedText);
-      }
-    }
+    const extractedText = file ? this.fileText(file, source.objectType, source.anchor?.pageNumber) : '';
     const text = [extractedText, source.metadata.textExcerpt, source.metadata.subject,
       source.metadata.title, source.valueText].filter(Boolean).join('\n');
     this.sourceTextCache.set(key, text);
     return text;
   }
 
+  /** A file's text: a whole PDF, one page of a PDF drawing, or a document's. */
+  fileText(file, objectType, pageNumber) {
+    const page = file.fileType === 'pdf' && objectType === 'DRAWING' ? pageNumber ?? '' : '';
+    const extractedKey = `${file.contentHash}|${file.fileType}|${objectType === 'DRAWING' ? `page:${page}` : 'all'}`;
+    let extractedText = this.extractedTextCache.get(extractedKey);
+    if (extractedText !== undefined) return extractedText;
+    extractedText = '';
+    if (file.fileType === 'pdf' && objectType === 'DRAWING') {
+      // One reading has every page, and the next page's object asks next.
+      const pages = this.pdfText(file, 'pages', (layout) => layout.pages.map((item) => ({
+        pageNumber: item.pageNumber, text: item.text ?? '' })));
+      for (const item of pages) this.extractedTextCache.set(`${file.contentHash}|pdf|page:${item.pageNumber}`, item.text);
+      extractedText = pages.find(item => item.pageNumber === pageNumber)?.text ?? '';
+    } else if (file.fileType === 'pdf') {
+      extractedText = this.pdfText(file, 'all', (_layout, buffer) => extractPdfFullText(buffer));
+    } else if (file.fileType === 'document') {
+      extractedText = extractDocxDocument(this.timeline.blobs.get(file.contentHash)).textExcerpt;
+    } else if (['markdown', 'text'].includes(file.fileType)) {
+      extractedText = this.timeline.blobs.get(file.contentHash).toString('utf8');
+    }
+    this.extractedTextCache.set(extractedKey, extractedText);
+    return extractedText;
+  }
+
+  /** A PDF's text, from the text store when an earlier reading kept it. */
+  pdfText(file, kind, read) {
+    const key = `${file.contentHash}|pdf|${kind}`;
+    const stored = this.textStore.get(key);
+    if (stored !== undefined) return stored;
+    const buffer = this.timeline.blobs.get(file.contentHash);
+    const layout = extractDrawingDocument(buffer);
+    const value = read(layout, buffer);
+    // A reading the native reader failed, such as a timeout under load, is not kept.
+    if (layout.status !== 'error') this.textStore.set(key, value);
+    return value;
+  }
+
+  /**
+   * Reads the text of a snapshot's PDFs, one file per step, yielding
+   * `{ phase: 'warming', done, total }`. Search over a PDF's objects includes
+   * its text, and the native reader takes a moment per file, so this is done
+   * while a folder starts rather than on the first keystroke after it.
+   */
+  *pdfTextSteps(projectId, snapshotId) {
+    const pdfs = this.timeline.snapshotFiles(snapshotId).filter((file) => file.fileType === 'pdf');
+    if (!pdfs.length) return;
+    const drawings = new Map();
+    for (const row of this.timeline.objectVersions.resolvedTypes(snapshotId, ['DRAWING']).rows) {
+      if (row.project_id === projectId && /\.pdf$/i.test(row.path)) drawings.set(row.path, json(row.anchor_json, {})?.pageNumber);
+    }
+    const total = pdfs.reduce((sum, file) => sum + workUnits(file.size), 0);
+    let done = 0;
+    for (const file of pdfs) {
+      this.fileText(file, 'PAPER');
+      if (drawings.has(file.path)) this.fileText(file, 'DRAWING', drawings.get(file.path));
+      done += workUnits(file.size);
+      yield { phase: 'warming', done, total };
+    }
+  }
+
   ensureIndex(projectId, snapshotId = null) {
+    return runSync(this.ensureIndexSteps(projectId, snapshotId));
+  }
+
+  /** The snapshot's index row, as `ensureIndex` decides whether it has work to do. */
+  indexState(snapshotId) {
+    // Do not materialize the entire file manifest on every warm prediction.
+    return this.db.prepare(`SELECT s.project_id, i.snapshot_id AS indexed, i.drawing_index_version, i.spreadsheet_index_version
+      FROM snapshots s LEFT JOIN snapshot_object_indexes i ON i.snapshot_id = s.id WHERE s.id = ?`)
+      .get(snapshotId);
+  }
+
+  /** Whether a snapshot's objects can be read without indexing anything first. */
+  isIndexed(snapshotId) {
+    return indexIsCurrent(snapshotId ? this.indexState(snapshotId) : null);
+  }
+
+  /**
+   * Reads the files a snapshot's index lacks, yielding
+   * `{ phase: 'indexing', done, total }` after each file and
+   * `{ phase: 'saving' }` before recording what it read.
+   */
+  *ensureIndexSteps(projectId, snapshotId = null) {
     const project = this.timeline.getProject(projectId);
     const targetSnapshotId = snapshotId ?? project.currentSnapshotId;
-    // Do not materialize the entire file manifest on every warm prediction.
-    const indexed = this.db.prepare(`SELECT s.project_id, i.snapshot_id AS indexed, i.drawing_index_version, i.spreadsheet_index_version
-      FROM snapshots s LEFT JOIN snapshot_object_indexes i ON i.snapshot_id = s.id WHERE s.id = ?`)
-      .get(targetSnapshotId);
+    const indexed = this.indexState(targetSnapshotId);
     if (!indexed) throw new HttpError(404, 'Snapshot not found.');
     if (indexed.project_id !== projectId) throw new HttpError(400, 'Snapshot does not belong to this project.');
-    // Version two adds page-anchored PDF sentences and paragraphs to existing
-    // imports without changing any previously linked object or version.
-    // Version three adds the same passages for Markdown and plain-text files.
-    // Version four adds STEP CAD models. Spreadsheet version two records
-    // worksheet row coordinates under new keys.
-    if (indexed.indexed && indexed.drawing_index_version >= INDEX_VERSION && indexed.spreadsheet_index_version >= 2) return;
+    if (indexIsCurrent(indexed)) return;
     const files = this.indexableFiles(this.timeline.getSnapshot(targetSnapshotId), indexed);
     const versions = this.timeline.objectVersions;
     // An index row cleared to force a re-index still leaves the snapshot's
     // records in place; like an upgrade pass, that only adds missing objects.
     const existing = Boolean(indexed.indexed) || versions.hasRecords(targetSnapshotId);
-    const carry = existing ? null : this.carryPlan(projectId, targetSnapshotId, files);
-    const index = carry ? this.carriedDescriptors(files, carry) : this.indexDescriptors(files);
+    const carry = existing ? null : yield* this.carryPlanSteps(projectId, targetSnapshotId, files);
+    const index = carry ? this.carriedDescriptors(files, carry) : yield* this.indexDescriptorSteps(files);
+    // Other requests ran between the slices of a sliced index. If one of them
+    // indexed this snapshot meanwhile, what was read here is already recorded,
+    // or was decided against an older state; start over from the new one. The
+    // files read so far stay in the extraction cache.
+    const latest = this.indexState(targetSnapshotId);
+    if (latest.indexed !== indexed.indexed || latest.drawing_index_version !== indexed.drawing_index_version
+      || latest.spreadsheet_index_version !== indexed.spreadsheet_index_version
+      || existing !== (Boolean(latest.indexed) || versions.hasRecords(targetSnapshotId))) {
+      return yield* this.ensureIndexSteps(projectId, targetSnapshotId);
+    }
+    yield { phase: 'saving' };
     try {
       transaction(this.db, () => {
         versions.record(projectId, targetSnapshotId, this.indexEntries(projectId, index.descriptors),
@@ -1778,7 +1868,7 @@ export class PredictiveProvenanceService {
     // indexes cannot carry objects forward from it without reading them again.
     if (existing) this.indexedHere.delete(targetSnapshotId);
     else this.indexedHere.set(targetSnapshotId, index.summary);
-    this.objectCache.delete(targetSnapshotId);
+    this.forgetObjects(targetSnapshotId);
     this.completionCorpusCache.delete(targetSnapshotId);
     this.workspaceRetrievalCache.delete(targetSnapshotId);
     this.ranking.invalidateSnapshot(targetSnapshotId);
@@ -1807,7 +1897,7 @@ export class PredictiveProvenanceService {
       VALUES (?, ?, ?, ?, 2, ?)
       ON CONFLICT(snapshot_id) DO UPDATE SET indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
       .run(snapshotId, now(), objectCount, INDEX_VERSION, existing ? 0 : EXTRACTOR_VERSION);
-    this.objectCache.delete(snapshotId);
+    this.forgetObjects(snapshotId);
     return objectCount;
   }
 
@@ -1868,6 +1958,10 @@ export class PredictiveProvenanceService {
    * and a half-re-read snapshot could not honestly carry one.
    */
   reindex(projectId, actorInput, options = {}) {
+    return runSync(this.reindexSteps(projectId, actorInput, options));
+  }
+
+  *reindexSteps(projectId, actorInput, options = {}) {
     const project = this.timeline.getProject(projectId);
     if (options.expectedSnapshotId && options.expectedSnapshotId !== project.currentSnapshotId) {
       throw new VersionConflictError(options.expectedSnapshotId, project.currentSnapshotId);
@@ -1875,8 +1969,14 @@ export class PredictiveProvenanceService {
     const previous = this.timeline.getSnapshot(project.currentSnapshotId);
     // The comparison below is against what is actually recorded, so an
     // unindexed snapshot is read first.
-    this.ensureIndex(projectId, previous.id);
-    const index = this.indexDescriptors(this.indexableFiles(previous, { indexed: null }));
+    yield* this.ensureIndexSteps(projectId, previous.id);
+    const index = yield* this.indexDescriptorSteps(this.indexableFiles(previous, { indexed: null }));
+    // A file saved while a sliced re-read ran makes a newer version, which
+    // this reading does not describe. Read that version instead.
+    if (this.timeline.getProject(projectId).currentSnapshotId !== previous.id) {
+      return yield* this.reindexSteps(projectId, actorInput, { ...options, expectedSnapshotId: null });
+    }
+    yield { phase: 'saving' };
     const recordedCount = this.timeline.objectVersions.count(previous.id);
     // Compare one stored row at a time. Keeping serialized Maps of both
     // readings alongside the descriptors doubled large folders' memory use.
@@ -1933,9 +2033,10 @@ export class PredictiveProvenanceService {
       throw error;
     }
     this.indexedHere.set(result.snapshot.id, index.summary);
-    for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache, this.objectCache]) {
+    for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache]) {
       cache.delete(previous.id);
     }
+    this.forgetObjects(previous.id);
     this.ranking.invalidateSnapshot(previous.id);
     this.onIndexProblems?.(projectId, index.problems);
 
@@ -2002,9 +2103,16 @@ export class PredictiveProvenanceService {
    * later index needs to carry them forward without reading them again.
    */
   indexDescriptors(files) {
+    return runSync(this.indexDescriptorSteps(files));
+  }
+
+  /** The same, yielding `{ phase: 'indexing', done, total }` in work units after each file. */
+  *indexDescriptorSteps(files) {
     const descriptors = [];
     const problems = [];
     const counts = new Map();
+    const total = files.reduce((sum, file) => sum + workUnits(file.size), 0);
+    let done = 0;
     for (const file of files) {
       const extracted = this.extractedObjects(file);
       counts.set(file.path, extracted.objects.length);
@@ -2014,6 +2122,8 @@ export class PredictiveProvenanceService {
       for (const descriptor of extracted.objects) {
         descriptors.push({ ...descriptor, metadata: { ...descriptor.metadata } });
       }
+      done += workUnits(file.size);
+      yield { phase: 'indexing', done, total };
     }
     const definitions = descriptors.filter(isDictionaryVariable);
     applyVariableDefinitions(descriptors, definitions);
@@ -2027,6 +2137,11 @@ export class PredictiveProvenanceService {
    * changed defines variables for other files.
    */
   carryPlan(projectId, snapshotId, files) {
+    return runSync(this.carryPlanSteps(projectId, snapshotId, files));
+  }
+
+  /** The same, yielding `{ phase: 'indexing', done, total }` as it reads the files that changed. */
+  *carryPlanSteps(projectId, snapshotId, files) {
     const base = this.timeline.objectVersions.baseFor(projectId, snapshotId);
     const known = base ? this.indexedHere.get(base) : null;
     if (!known || known.truncated) return null;
@@ -2038,8 +2153,20 @@ export class PredictiveProvenanceService {
     };
     const carriedPaths = new Set(files.filter(unchanged).map((file) => file.path));
     if ([...known.dictionaryPaths].some((filePath) => !carriedPaths.has(filePath))) return null;
-    for (const file of files) {
-      if (!carriedPaths.has(file.path) && this.extractedObjects(file).objects.some(isDictionaryVariable)) return null;
+    // Carrying a few files forward from a much larger base would record a
+    // removal for most of it; such an index is read and written in full.
+    const carried = [...carriedPaths].reduce((sum, filePath) => sum + known.counts.get(filePath), 0);
+    const based = [...known.counts.values()].reduce((sum, count) => sum + count, 0);
+    if (carried * FULL_WRITE_SHARE < based) return null;
+    // The files that changed are read here, once; carriedDescriptors then
+    // takes them from the extraction cache.
+    const changed = files.filter((file) => !carriedPaths.has(file.path));
+    const total = changed.reduce((sum, file) => sum + workUnits(file.size), 0);
+    let done = 0;
+    for (const file of changed) {
+      if (this.extractedObjects(file).objects.some(isDictionaryVariable)) return null;
+      done += workUnits(file.size);
+      yield { phase: 'indexing', done, total };
     }
     return { base, known, carriedPaths };
   }
@@ -2104,12 +2231,37 @@ export class PredictiveProvenanceService {
     const target = snapshotId ?? project.currentSnapshotId;
     this.ensureIndex(projectId, target);
     const types = new Set([...(objectTypes ?? [])].filter((type) => OBJECT_TYPES.has(type)));
-    let objects = this.objectCache.get(target);
-    if (!objects) {
-      const resolved = types.size ? this.timeline.objectVersions.resolvedTypes(target, types)
-        : this.timeline.objectVersions.resolved(target);
-      objects = resolved.rows.filter((row) => row.project_id === projectId
-        && (!types.size || types.has(row.object_type))).map((row) => {
+    const complete = this.objectCache.get(target);
+    // Each consumer gets its own array. Indexed object values are immutable.
+    if (complete) return types.size ? complete.filter((object) => types.has(object.objectType)) : [...complete];
+    if (!types.size) {
+      const objects = this.mappedObjects(projectId, this.timeline.objectVersions.resolved(target));
+      this.objectCache.set(target, objects);
+      return [...objects];
+    }
+    // Nearly every suggestion asks for a few types. They are kept by type, so
+    // a later request for an overlapping set maps nothing again; mapping a
+    // PDF's objects reads its text, which ran the PDF reader on each keystroke.
+    // Full resolution orders rows by type first, so joining the types in that
+    // order is the same list the complete snapshot would filter down to.
+    const ordered = [...types].sort(compareText);
+    const byType = new Map(ordered.map((type) => [type, this.typedObjectCache.get(`${target}|${type}`)]));
+    const missing = ordered.filter((type) => !byType.get(type));
+    if (missing.length) {
+      const mapped = this.mappedObjects(projectId, this.timeline.objectVersions.resolvedTypes(target, missing));
+      for (const type of missing) {
+        const objects = mapped.filter((object) => object.objectType === type);
+        byType.set(type, objects);
+        // Partial results never stand in for the complete snapshot.
+        this.typedObjectCache.set(`${target}|${type}`, objects);
+      }
+    }
+    return ordered.flatMap((type) => byType.get(type));
+  }
+
+  /** Version rows as the objects suggestions and search are offered. */
+  mappedObjects(projectId, resolved) {
+    return resolved.rows.filter((row) => row.project_id === projectId).map((row) => {
         const object = mapObjectRow(row, resolved);
         // Search existing PDF versions through their preserved bytes as well as
         // the short metadata excerpt. Derived search text stays in memory so
@@ -2126,12 +2278,12 @@ export class PredictiveProvenanceService {
         // Workbook objects from before worksheet coordinates were superseded
         // by xlsx-v2 keys; they stay resolvable for links but are not offered.
         .filter((object) => !/\.xlsx?$/i.test(object.path) || object.metadata.binary || object.metadata.spreadsheetExtractionVersion === 2);
-      // A typed request (such as directory drawing warnings) maps only its
-      // own types and must not replace the complete snapshot cache.
-      if (!types.size) this.objectCache.set(target, objects);
-    }
-    // Each consumer gets its own array. Indexed object values are immutable.
-    return types.size ? objects.filter((object) => types.has(object.objectType)) : [...objects];
+  }
+
+  /** Drops a snapshot's mapped objects, complete and by type, after its index changes. */
+  forgetObjects(snapshotId) {
+    this.objectCache.delete(snapshotId);
+    for (const type of OBJECT_TYPES) this.typedObjectCache.delete(`${snapshotId}|${type}`);
   }
 
   objectAt(projectId, snapshotId, objectId) {
@@ -2171,9 +2323,17 @@ export class PredictiveProvenanceService {
   }
 
   warmPredictionCaches(projectId, snapshotId = null) {
+    return runSync(this.warmPredictionCacheSteps(projectId, snapshotId));
+  }
+
+  /** Builds a snapshot's suggestion caches, reading its PDFs' text first, one file per step. */
+  *warmPredictionCacheSteps(projectId, snapshotId = null) {
     const project = this.timeline.getProject(projectId);
     const target = snapshotId ?? project.currentSnapshotId;
+    yield* this.pdfTextSteps(projectId, target);
     this.workspaceRetrievalObjects(projectId, target);
+    // Typing a file's name asks for these on the first keystroke.
+    this.objectsAt(projectId, target, WHOLE_FILE_TYPES);
     this.studyVariables(projectId, target);
   }
 
@@ -2398,7 +2558,7 @@ export class PredictiveProvenanceService {
     const fragments = progressiveVariableFragments(input.text, cursor, settledAt);
     if (!fragments.length) return null;
     const permitted = this.autocompleteFilter(projectId);
-    const files = this.objectsAt(projectId, null, ['DRAWING', 'DATASET', 'DOCUMENT', 'PAPER'])
+    const files = this.objectsAt(projectId, null, WHOLE_FILE_TYPES)
       .filter(object => isWholeFile(object) && object.path !== input.documentPath && permitted(object));
     for (const fragment of fragments) {
       const candidates = files.flatMap(object => {

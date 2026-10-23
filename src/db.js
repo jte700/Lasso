@@ -4,14 +4,17 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
 const BUSY_TIMEOUT_MS = 5000;
+const WAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024;
 
 export function openDatabase(config) {
   fs.mkdirSync(path.dirname(config.databasePath), { recursive: true });
   const db = new DatabaseSync(config.databasePath);
   // Wait briefly for a lock instead of failing at once if another connection
   // (such as a server that has not finished shutting down) is still writing.
+  // A large index write grows the write-ahead log, and SQLite keeps the file
+  // at its largest size unless told otherwise. One re-read left it at 650 MB.
   db.exec(`PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;
-    PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`);
+    PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}; PRAGMA journal_size_limit = ${WAL_SIZE_LIMIT_BYTES};`);
 
   const hasMigrations = db
     .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'")

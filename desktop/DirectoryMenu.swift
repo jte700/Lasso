@@ -308,6 +308,88 @@ final class DirectoryIssueBadge: NSView {
     override func mouseDown(with event: NSEvent) { onHover?(true) }
 }
 
+/// A thin capsule that fills in the folder's own colour as the folder is
+/// read. Drawn directly, like the switch it stands in for, so it keeps its
+/// colour when the menu's window is not key.
+final class DirectoryProgressBar: NSView {
+    var tint: DirectoryToggleColor = .blue { didSet { needsDisplay = true } }
+    /// From 0 to 100.
+    var value: Double = 0 { didSet { if value != oldValue { needsDisplay = true } } }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.progressIndicator)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let track = NSRect(x: 0, y: (bounds.height - 4) / 2, width: bounds.width, height: 4)
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        (dark ? NSColor(white: 1, alpha: 0.14) : NSColor(white: 0, alpha: 0.09)).setFill()
+        NSBezierPath(roundedRect: track, xRadius: 2, yRadius: 2).fill()
+        let filled = track.width * CGFloat(min(max(value, 0), 100) / 100)
+        guard filled > 0 else { return }
+        tint.color.setFill()
+        NSBezierPath(roundedRect: NSRect(x: track.minX, y: track.minY, width: max(filled, track.height), height: track.height),
+                     xRadius: 2, yRadius: 2).fill()
+    }
+}
+
+/// Counts a folder's percentage up to what the server last reported, one
+/// percent after another, so a report that jumps from 12% to 40% plays as a
+/// count rather than a leap. It never runs ahead of the server, and never
+/// back: the bar shows only work that is done.
+final class ProgressCounter {
+    private(set) var shown: Double = 0
+    private(set) var target: Double = 0
+    private var timer: Timer?
+    var onChange: ((Double) -> Void)?
+    /// Called each time the count catches up with the latest report.
+    var onCaughtUp: (() -> Void)?
+    var isCounting: Bool { timer != nil }
+
+    /// Percent per second: brisk across a wide gap, about thirty a second
+    /// across a narrow one, so each percent is visible as it passes.
+    static func speed(gap: Double) -> Double { max(30, gap * 4) }
+
+    func move(to value: Double, animated: Bool) {
+        target = min(100, max(value, target))
+        guard animated else {
+            stop()
+            shown = target
+            onChange?(shown)
+            onCaughtUp?()
+            return
+        }
+        guard shown < target else { onCaughtUp?(); return }
+        guard timer == nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in self?.advance(by: 1.0 / 60) }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    /// One frame of the count. Public so tests can step it without a run loop.
+    func advance(by seconds: Double) {
+        let gap = target - shown
+        guard gap > 0 else { stop(); onCaughtUp?(); return }
+        shown = min(target, shown + Self.speed(gap: gap) * seconds)
+        onChange?(shown)
+        if shown >= target {
+            stop()
+            onCaughtUp?()
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    deinit { timer?.invalidate() }
+}
+
 final class NativeMenuToggleRow: NSView {
     private var item: NSMenuItem
     private let titleLabel: NSTextField
@@ -338,6 +420,23 @@ final class NativeMenuToggleRow: NSView {
     private(set) var isSelecting = false
     var isSelected: Bool { selectionMark.isSelected }
     private var hovering = false { didSet { if hovering != oldValue { needsDisplay = true } } }
+    private let progressBar = DirectoryProgressBar()
+    private let percentLabel = NSTextField(labelWithString: "")
+    let progressCounter = ProgressCounter()
+    /// The server stopped reporting: the count finishes at 100% before the
+    /// row gives back its switch.
+    private var finishingProgress = false
+    private var hideProgress: DispatchWorkItem?
+    /// While the folder is read, its row shows how far that has got in place of its switch.
+    var progress: DirectoryProgress? {
+        didSet { applyProgress(previous: oldValue) }
+    }
+    var isShowingProgress: Bool { !progressBar.isHidden }
+    var progressBarView: DirectoryProgressBar { progressBar }
+    var percentText: String { percentLabel.stringValue }
+    /// How long the full bar stays before the switch returns.
+    static let progressHoldSeconds: TimeInterval = 0.45
+    private let titleX: CGFloat
 
     override var isFlipped: Bool { true }
 
@@ -352,6 +451,11 @@ final class NativeMenuToggleRow: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         refreshHover()
+        if window != nil { hasBeenOnScreen = true }
+        // A count left behind while the menu was closed finishes on screen.
+        if window != nil, !progressBar.isHidden {
+            progressCounter.move(to: finishingProgress ? 100 : progressCounter.target, animated: animatesProgress)
+        }
     }
 
     override func mouseEntered(with event: NSEvent) { hovering = item.isEnabled }
@@ -397,6 +501,7 @@ final class NativeMenuToggleRow: NSView {
 
         let iconWidth: CGFloat = item.image == nil ? 0 : 22
         let width = min(480, max(260, 14 + iconWidth + title.frame.width + 18 + 24 + 8 + 40 + 12))
+        titleX = 14 + iconWidth
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: 32))
         autoresizingMask = [.width]
         toolTip = item.toolTip
@@ -441,7 +546,103 @@ final class NativeMenuToggleRow: NSView {
             self.onIssueHover?(self, inside)
         }
         addSubview(issueBadge)
+        // A bar under the name, with the count where the switch is.
+        progressBar.tint = color
+        progressBar.autoresizingMask = [.width]
+        progressBar.setAccessibilityLabel("Indexing \(item.title)")
+        progressBar.isHidden = true
+        addSubview(progressBar)
+        percentLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        percentLabel.textColor = .secondaryLabelColor
+        percentLabel.alignment = .right
+        percentLabel.autoresizingMask = [.minXMargin]
+        percentLabel.setAccessibilityElement(false)
+        percentLabel.isHidden = true
+        addSubview(percentLabel)
+        progressCounter.onChange = { [weak self] shown in self?.showCount(shown) }
+        progressCounter.onCaughtUp = { [weak self] in self?.countCaughtUp() }
         setSelecting(selecting, selected: selected, animated: false)
+    }
+
+    /// Counting plays once a row has been on screen, and not with Reduce
+    /// Motion: a row built for the next menu takes its value at once. The
+    /// menu detaches its rows while it rebuilds, which is when the next report
+    /// arrives, so being in a window right now is not the test.
+    private var hasBeenOnScreen = false
+    private var animatesProgress: Bool {
+        (hasBeenOnScreen || window != nil) && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    private func applyProgress(previous: DirectoryProgress?) {
+        if let progress {
+            hideProgress?.cancel()
+            hideProgress = nil
+            finishingProgress = false
+            if previous == nil && progressBar.isHidden { setProgressVisible(true) }
+            progressCounter.move(to: Double(progress.percent), animated: animatesProgress)
+            progressBar.setAccessibilityHelp(progress.activity)
+            toolTip = "\(progress.activity)\u{2026}"
+        } else if previous != nil && !progressBar.isHidden {
+            // Done: count the rest of the way, then give the row back its switch.
+            finishingProgress = true
+            toolTip = item.toolTip
+            progressCounter.move(to: 100, animated: animatesProgress)
+        }
+    }
+
+    private func showCount(_ shown: Double) {
+        let percent = Int(shown.rounded(.down))
+        progressBar.value = shown
+        percentLabel.stringValue = "\(percent)%"
+        progressBar.setAccessibilityValue("\(percent) percent")
+    }
+
+    private func countCaughtUp() {
+        guard finishingProgress, progressCounter.shown >= 100, hideProgress == nil else { return }
+        let hide = DispatchWorkItem { [weak self] in
+            guard let self, self.finishingProgress else { return }
+            self.hideProgress = nil
+            self.finishingProgress = false
+            self.setProgressVisible(false)
+        }
+        hideProgress = hide
+        if animatesProgress {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.progressHoldSeconds, execute: hide)
+        } else {
+            hide.perform()
+        }
+    }
+
+    /// Swaps the switch and colour circle for the percentage and bar, or back.
+    private func setProgressVisible(_ visible: Bool) {
+        let width = bounds.width
+        progressBar.isHidden = !visible
+        percentLabel.isHidden = !visible
+        toggle.isHidden = visible
+        colorButton.isHidden = visible
+        if visible {
+            setPaletteVisible(false)
+            progressCounter.stop()
+            showCount(progressCounter.shown)
+            titleLabel.frame = NSRect(x: titleX, y: 3, width: max(40, width - titleX - 12 - 44 - 6),
+                                      height: titleLabel.frame.height)
+            percentLabel.frame = NSRect(x: width - 12 - 44, y: 4, width: 44, height: 16)
+            progressBar.frame = NSRect(x: titleX, y: 22, width: max(40, width - titleX - 12), height: 6)
+        } else {
+            titleLabel.frame = NSRect(x: titleX, y: (32 - titleLabel.frame.height) / 2,
+                                      width: max(40, width - titleX - 18 - 24 - 8 - 40 - 12),
+                                      height: titleLabel.frame.height)
+        }
+        refreshColors()
+        needsDisplay = true
+    }
+
+    /// A folder being read cannot be switched, but it is not dimmed: it is the
+    /// row the user is watching.
+    private func refreshColors() {
+        let lit = item.isEnabled || !progressBar.isHidden
+        titleLabel.textColor = lit ? .labelColor : .disabledControlTextColor
+        icon?.contentTintColor = lit ? .secondaryLabelColor : .disabledControlTextColor
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -473,11 +674,11 @@ final class NativeMenuToggleRow: NSView {
     func update(item: NSMenuItem, color: DirectoryToggleColor) {
         self.item = item
         titleLabel.stringValue = item.title
-        titleLabel.textColor = item.isEnabled ? .labelColor : .disabledControlTextColor
         icon?.image = item.image
-        icon?.contentTintColor = item.isEnabled ? .secondaryLabelColor : .disabledControlTextColor
+        refreshColors()
         toggle.state = item.state
         toggle.tint = color
+        progressBar.tint = color
         toggle.isEnabled = item.isEnabled
         toggle.setAccessibilityLabel(item.title)
         toggle.setAccessibilityHelp(item.toolTip)
@@ -487,7 +688,8 @@ final class NativeMenuToggleRow: NSView {
         palette?.update(selected: color, isEnabled: item.isEnabled)
         selectionMark.isEnabled = item.isEnabled
         selectionMark.setAccessibilityLabel("Select \(item.title)")
-        toolTip = item.toolTip
+        progressBar.setAccessibilityLabel("Indexing \(item.title)")
+        toolTip = progress.map { "\($0.activity)\u{2026}" } ?? item.toolTip
         refreshHover()
     }
 
@@ -499,6 +701,7 @@ final class NativeMenuToggleRow: NSView {
                 guard let self, self.item.isEnabled else { return }
                 self.toggle.tint = color
                 self.colorButton.tint = color
+                self.progressBar.tint = color
                 self.palette?.update(selected: color, isEnabled: self.item.isEnabled)
                 self.onColorChange(color)
             }
