@@ -577,6 +577,30 @@ final class ProgressCounter {
     deinit { timer?.invalidate() }
 }
 
+/// A command in a row's context menu, for rows that are not folders.
+struct RowAction {
+    let title: String
+    var enabled = true
+    var help: String?
+    let perform: () -> Void
+}
+
+private final class RowActionItem: NSMenuItem {
+    private let perform: () -> Void
+
+    init(_ action: RowAction) {
+        perform = action.perform
+        super.init(title: action.title, action: #selector(run), keyEquivalent: "")
+        target = self
+        isEnabled = action.enabled
+        toolTip = action.help
+    }
+
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    @objc private func run() { perform() }
+}
+
 final class NativeMenuToggleRow: NSView {
     private var item: NSMenuItem
     private let titleLabel: NSTextField
@@ -591,6 +615,8 @@ final class NativeMenuToggleRow: NSView {
     var onSizeChange: (() -> Void)?
     var onReveal: (() -> Void)?
     var onRemove: (() -> Void)?
+    /// Replaces Show in Finder and Remove, read when the menu opens; nil is a separator.
+    var contextActions: (() -> [RowAction?])?
     private let issueBadge = DirectoryIssueBadge()
     var issue: DirectoryIssue? {
         get { issueBadge.issue }
@@ -935,6 +961,10 @@ final class NativeMenuToggleRow: NSView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu()
         menu.autoenablesItems = false
+        if let actions = contextActions?() {
+            for action in actions { menu.addItem(action.map(RowActionItem.init) ?? .separator()) }
+            return menu
+        }
         let reveal = NSMenuItem(title: "Show in Finder", action: #selector(reveal), keyEquivalent: "")
         reveal.target = self
         reveal.isEnabled = !item.title.hasSuffix(" (unavailable)")
