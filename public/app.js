@@ -2361,8 +2361,12 @@ function sourceViewerTableContent(viewer) {
   const sheets = viewer.sheets?.length > 1
     ? `<nav class="source-viewer-sheet-tabs" aria-label="Workbook sheets">${viewer.sheets.map((sheet) => `<button class="${sheet === viewer.sheet ? 'active' : ''}" data-source-viewer-sheet="${escapeHtml(sheet)}">${escapeHtml(sheet)}</button>`).join('')}</nav>` : '';
   const header = `<thead><tr><th class="source-viewer-row-number" aria-label="Row number"></th>${viewer.headers.map((value, columnIndex) => `<th class="${columnIndex === viewer.selectedColumn ? 'indexed-column' : ''}">${escapeHtml(value)}</th>`).join('')}</tr></thead>`;
-  const rows = viewer.rows.map((row, rowIndex) => `<tr class="${rowIndex === viewer.selectedRow ? 'indexed-row' : ''}"><th class="source-viewer-row-number">${rowIndex + 1}</th>${row.map((value, columnIndex) => `<td ${rowIndex === viewer.selectedRow && (columnIndex === viewer.selectedColumn || (viewer.selectedColumn < 0 && columnIndex === 0)) ? 'id="source-viewer-cited-location"' : ''} class="${rowIndex === viewer.selectedRow && columnIndex === viewer.selectedColumn ? 'indexed-cell' : ''}">${escapeHtml(value)}</td>`).join('')}</tr>`).join('');
-  return `${sheets}<div class="source-viewer-table-scroll"><table class="source-viewer-table">${header}<tbody>${rows}</tbody></table></div>${viewer.truncated ? `<p class="source-viewer-truncated">Showing the first ${viewer.rows.length.toLocaleString()} of ${viewer.totalRows.toLocaleString()} indexed rows.</p>` : ''}`;
+  // A large table arrives as the rows around the cited one, starting at `firstRow`.
+  const firstRow = viewer.firstRow ?? 0;
+  const rows = viewer.rows.map((row, rowIndex) => `<tr class="${rowIndex === viewer.selectedRow ? 'indexed-row' : ''}"><th class="source-viewer-row-number">${firstRow + rowIndex + 1}</th>${row.map((value, columnIndex) => `<td ${rowIndex === viewer.selectedRow && (columnIndex === viewer.selectedColumn || (viewer.selectedColumn < 0 && columnIndex === 0)) ? 'id="source-viewer-cited-location"' : ''} class="${rowIndex === viewer.selectedRow && columnIndex === viewer.selectedColumn ? 'indexed-cell' : ''}">${escapeHtml(value)}</td>`).join('')}</tr>`).join('');
+  return `${sheets}<div class="source-viewer-table-scroll"><table class="source-viewer-table">${header}<tbody>${rows}</tbody></table></div>${viewer.truncated ? `<p class="source-viewer-truncated">${firstRow
+    ? `Showing rows ${(firstRow + 1).toLocaleString()} to ${(firstRow + viewer.rows.length).toLocaleString()} of ${viewer.totalRows.toLocaleString()}.`
+    : `Showing the first ${viewer.rows.length.toLocaleString()} of ${viewer.totalRows.toLocaleString()} indexed rows.`}</p>` : ''}`;
 }
 
 function renderDependencySourceViewer(dialog, viewer) {

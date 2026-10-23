@@ -1539,6 +1539,112 @@ do {
           "the error state shows its message without retaining progress")
 }
 
+print("a folder being read reports its progress as the server describes it")
+do {
+    let reported = DirectoryProgress(["kind": "adding", "phase": "reading", "percent": NSNumber(value: 37)])
+    check(reported?.percent == 37 && reported?.activity == "Reading files",
+          "the row reads the server's percentage and what the folder is doing")
+    check(DirectoryProgress(["kind": "rereading", "phase": "indexing", "percent": 140])?.percent == 100
+          && DirectoryProgress(["percent": -4])?.percent == 0,
+          "a percentage outside 0 to 100 is held inside it")
+    check(DirectoryProgress(["kind": "rereading", "phase": "indexing", "percent": 5])?.activity == "Re-reading files",
+          "a re-read says so")
+    check(DirectoryProgress(nil) == nil && DirectoryProgress(["phase": "reading"]) == nil,
+          "a folder that is not being read shows no bar")
+    check(WorkspaceAPI.stateURL(base: URL(string: "http://127.0.0.1:4319/")!)?.absoluteString
+          == "http://127.0.0.1:4319/api/workspace?pending=1",
+          "the menu asks for folders still being added, so they are listed from the start")
+}
+
+print("the percentage counts up one percent after another and never runs ahead")
+do {
+    let counter = ProgressCounter()
+    var shown: [Int] = []
+    counter.onChange = { shown.append(Int($0.rounded(.down))) }
+    counter.move(to: 12, animated: false)
+    check(counter.shown == 12 && !counter.isCounting, "off screen the count takes the value at once")
+    counter.move(to: 20, animated: true)
+    check(counter.isCounting, "a later report is counted towards on screen")
+    for _ in 0..<600 where counter.isCounting { counter.advance(by: 1.0 / 60) }
+    check(counter.shown == 20 && !counter.isCounting, "the count stops at the report, never past it")
+    let counted = Array(Set(shown.filter { $0 > 12 })).sorted()
+    check(counted == Array(13...20), "every percent from 13 to 20 is shown on the way: \(counted)")
+    counter.move(to: 15, animated: true)
+    check(counter.shown == 20 && counter.target == 20 && !counter.isCounting, "the bar never moves back")
+    let wide = ProgressCounter()
+    wide.move(to: 0, animated: false)
+    wide.move(to: 90, animated: true)
+    var frames = 0
+    while wide.isCounting && frames < 600 { wide.advance(by: 1.0 / 60); frames += 1 }
+    check(frames > 20 && frames < 90, "a wide jump plays as a quick count, not a leap or a crawl (\(frames) frames)")
+    wide.stop()
+}
+
+print("a folder's row shows its progress in place of its switch, then gives the switch back")
+do {
+    _ = NSApplication.shared
+    func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+    let item = NSMenuItem(title: "Multiple Cause Mortality", action: nil, keyEquivalent: "")
+    item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+    item.isEnabled = false
+    let row = NativeMenuToggleRow(item: item, color: .blue) { _ in }
+    row.frame.size.width = 296
+    let toggle = descendants(row).first { $0 is DirectoryTintSwitch }!
+    check(!row.isShowingProgress && !toggle.isHidden, "a folder at rest shows its switch")
+    row.progress = DirectoryProgress(percent: 0, phase: "waiting", kind: "adding")
+    let bar = row.progressBarView
+    check(row.isShowingProgress && toggle.isHidden && bar.accessibilityRole() == .progressIndicator,
+          "a folder being added shows a determinate bar where its switch was")
+    check(row.percentText == "0%" && bar.value == 0, "it starts at 0%")
+    let name = descendants(row).compactMap { $0 as? NSTextField }.first { $0.stringValue == item.title }
+    check(name?.textColor == .labelColor, "the folder being read is not dimmed, though it cannot be switched")
+    check(bar.frame.width > 200 && row.bounds.contains(bar.frame), "the bar spans the row under the folder's name")
+    row.progress = DirectoryProgress(percent: 41, phase: "indexing", kind: "adding")
+    check(row.percentText == "41%" && bar.value == 41, "a later report moves the bar and the count")
+    check(bar.accessibilityValue() as? String == "41 percent" && (row.toolTip ?? "").hasPrefix("Indexing files"),
+          "VoiceOver and the tooltip say how far the folder has got")
+    row.progress = DirectoryProgress(percent: 30, phase: "warming", kind: "adding")
+    check(row.percentText == "41%", "an earlier report does not move the bar back")
+    row.progress = nil
+    check(!row.isShowingProgress && !toggle.isHidden && row.percentText == "100%",
+          "when the folder is ready the bar completes and the switch returns")
+    check(name?.textColor == .disabledControlTextColor, "then it reads as its menu item does")
+
+    let controller = StatusPopoverController()
+    func menu(_ percent: Int?) -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(NSMenuItem(title: "Adding Multiple Cause Mortality\u{2026}", action: nil, keyEquivalent: ""))
+        let entry = NSMenuItem(title: "Multiple Cause Mortality", action: nil, keyEquivalent: "")
+        entry.representedObject = "mcm"
+        entry.isEnabled = false
+        let fresh = NativeMenuToggleRow(item: entry, color: .blue) { _ in }
+        fresh.progress = percent.map { DirectoryProgress(percent: $0, phase: "reading", kind: "adding") }
+        entry.view = fresh
+        menu.addItem(entry)
+        return menu
+    }
+    controller.update(menu: menu(10))
+    let root = controller.popover.contentViewController!.view
+    let shown = descendants(root).compactMap { $0 as? NativeMenuToggleRow }.first!
+    check(shown.isShowingProgress && shown.percentText == "10%", "the menu lists the folder with its progress")
+    check(!descendants(root).contains { ($0 as? NSProgressIndicator)?.isIndeterminate == true },
+          "the status line has no second, indeterminate bar while a folder shows its own")
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.borderless],
+                          backing: .buffered, defer: true)
+    window.contentView?.addSubview(root)
+    controller.update(menu: menu(55))
+    let reused = descendants(root).compactMap { $0 as? NativeMenuToggleRow }.first!
+    check(reused === shown && reused.progressCounter.target == 55,
+          "the next report reaches the same row, so the count carries on from where it was")
+    // With Reduce Motion the count takes each report at once, as it should.
+    check(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+          || (reused.progressCounter.isCounting && reused.percentText == "10%"),
+          "a report that arrives while the menu rebuilds its rows is counted towards, not jumped to")
+    for _ in 0..<600 where reused.progressCounter.isCounting { reused.progressCounter.advance(by: 1.0 / 60) }
+    check(reused.percentText == "55%", "and the count arrives there")
+    root.removeFromSuperview()
+}
+
 print("spreadsheet previews in the suggestion card read like the sheet")
 do {
     func row(_ number: Int, _ values: [String], cited: Int? = nil) -> AssistPreviewRow {

@@ -901,6 +901,7 @@ export class DependencyGraph {
       if (!byObject.has(event.object_id)) byObject.set(event.object_id, []);
       byObject.get(event.object_id).push(event);
     }
+    this.addFullIndexRemovals(byObject);
     const changes = [];
     for (const objectEvents of byObject.values()) {
       objectEvents.sort((left, right) => left.version - right.version);
@@ -927,6 +928,41 @@ export class DependencyGraph {
       }
     }
     return changes;
+  }
+
+  /**
+   * An index written without a base holds every object present at its
+   * snapshot, so an object with no version there had gone by then. Such an
+   * index records no removal rows: one written in full after most of a
+   * folder stopped being indexed would otherwise need one for nearly every
+   * object it no longer has. The removal is read from the absence instead,
+   * as the object was last seen at the indexed snapshot before it.
+   */
+  addFullIndexRemovals(byObject) {
+    const projects = [...new Set([...byObject.values()].map((objectEvents) => objectEvents[0].source_project_id))];
+    if (!projects.length) return;
+    const indexed = this.db.prepare(`SELECT s.id, s.project_id, s.version, s.created_at, b.snapshot_id IS NULL AS full
+      FROM snapshots s JOIN snapshot_object_indexes i ON i.snapshot_id = s.id
+      LEFT JOIN object_index_bases b ON b.snapshot_id = s.id
+      WHERE s.project_id IN (${projects.map(() => '?').join(',')}) ORDER BY s.version`).all(...projects);
+    const byProject = new Map();
+    for (const snapshot of indexed) {
+      if (!byProject.has(snapshot.project_id)) byProject.set(snapshot.project_id, []);
+      byProject.get(snapshot.project_id).push(snapshot);
+    }
+    for (const objectEvents of byObject.values()) {
+      const snapshots = byProject.get(objectEvents[0].source_project_id) ?? [];
+      const recorded = new Set(objectEvents.map((event) => event.snapshot_id));
+      const first = Math.min(...objectEvents.map((event) => event.version));
+      for (let index = 1; index < snapshots.length; index += 1) {
+        const snapshot = snapshots[index];
+        if (!snapshot.full || snapshot.version <= first || recorded.has(snapshot.id)) continue;
+        const before = snapshots[index - 1];
+        objectEvents.push({ object_id: objectEvents[0].object_id, snapshot_id: snapshot.id, removed: 1,
+          source_project_id: snapshot.project_id, version: snapshot.version, created_at: snapshot.created_at,
+          base_version: before.version, base_at: before.created_at });
+      }
+    }
   }
 
   // ── staleness ────────────────────────────────────────────────────────────

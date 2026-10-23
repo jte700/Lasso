@@ -155,40 +155,76 @@ export function csvDelimiter(text) {
  */
 export function parseDelimited(text, delimiter, { detect = true } = {}) {
   if (delimiter === ',' && detect) delimiter = csvDelimiter(text);
-  const rows = [];
+  const reader = delimitedRows(delimiter);
+  return reader.end(reader.write(text));
+}
+
+/**
+ * The same reading taken a piece of text at a time, for a file too large to
+ * hold at once. `write(text)` returns the rows its piece completed and `end()`
+ * the last one; together they are the rows parseDelimited gives for the whole
+ * text, wherever the pieces were cut.
+ */
+export function delimitedRows(delimiter) {
   let row = [];
   let cell = '';
   let quoted = false;
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    if (quoted) {
-      if (character === '"' && text[index + 1] === '"') {
-        cell += '"';
-        index += 1;
-      } else if (character === '"') {
-        quoted = false;
-      } else {
-        cell += character;
-      }
-    } else if (character === '"') {
-      quoted = true;
-    } else if (character === delimiter) {
-      row.push(cell);
-      cell = '';
-    } else if (character === '\n') {
-      row.push(cell.replace(/\r$/, ''));
-      rows.push(row);
-      row = [];
-      cell = '';
-    } else {
-      cell += character;
-    }
-  }
-  if (cell.length || row.length) {
+  // A quote that ends a piece inside a quoted cell either escapes a quote at
+  // the start of the next piece or closes the cell; the next piece decides.
+  let quoteAtEnd = false;
+  const finishRow = (rows) => {
     row.push(cell.replace(/\r$/, ''));
     rows.push(row);
-  }
-  return rows;
+    row = [];
+    cell = '';
+  };
+  return {
+    write(text, rows = []) {
+      let index = 0;
+      if (quoteAtEnd && text.length) {
+        quoteAtEnd = false;
+        if (text[0] === '"') {
+          cell += '"';
+          index = 1;
+        } else {
+          quoted = false;
+        }
+      }
+      for (; index < text.length; index += 1) {
+        const character = text[index];
+        if (quoted) {
+          if (character === '"' && index + 1 === text.length) {
+            quoteAtEnd = true;
+          } else if (character === '"' && text[index + 1] === '"') {
+            cell += '"';
+            index += 1;
+          } else if (character === '"') {
+            quoted = false;
+          } else {
+            cell += character;
+          }
+        } else if (character === '"') {
+          quoted = true;
+        } else if (character === delimiter) {
+          row.push(cell);
+          cell = '';
+        } else if (character === '\n') {
+          finishRow(rows);
+        } else {
+          cell += character;
+        }
+      }
+      return rows;
+    },
+    end(rows = []) {
+      if (quoteAtEnd) {
+        quoteAtEnd = false;
+        quoted = false;
+      }
+      if (cell.length || row.length) finishRow(rows);
+      return rows;
+    },
+  };
 }
 
 function tableModel(text, extension) {

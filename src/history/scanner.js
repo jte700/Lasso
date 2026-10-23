@@ -1,11 +1,32 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { detectFileType, isTrackedFile } from './file-types.js';
+import { runSync, workUnits } from './work.js';
 
-const IGNORED_DIRECTORIES = new Set(['.git', '.svn', '.hg', 'node_modules', '.lasso-data', '.colab-dry-data']);
+// Directories that hold tools' files rather than the user's work: version
+// control, installed packages, language and build caches, and the metadata
+// macOS and Windows keep on each volume. A Python environment inside a project
+// held thousands of library sources, and indexing them crowded out the work.
+const IGNORED_DIRECTORIES = new Set([
+  '.git', '.svn', '.hg', '.lasso-data', '.colab-dry-data',
+  'node_modules', 'bower_components', 'site-packages', '.venv', '.tox', '.nox', '.eggs',
+  '__pycache__', '.pycache', '.mypy_cache', '.pytest_cache', '.ruff_cache', '.ipynb_checkpoints',
+  '.gradle', '.parcel-cache', '.next', '.nuxt', '.svelte-kit', '.turbo', '.terraform', '.Rproj.user',
+  '.Trash', '.Trashes', '.Spotlight-V100', '.fseventsd', '.TemporaryItems', '.DocumentRevisions-V100',
+  '$RECYCLE.BIN', 'System Volume Information',
+]);
+// R's project libraries keep installed packages under the project itself.
+const IGNORED_SUBPATHS = /(?:^|\/)(?:renv\/(?:library|staging|sandbox)|packrat\/lib(?:-[^/]*)?)(?:\/|$)/;
+// A virtual or conda environment can have any name; these entries mark one.
+const ENVIRONMENT_MARKERS = new Set(['pyvenv.cfg', 'conda-meta']);
 
 export function isIgnoredScanPath(relativePath) {
-  return relativePath.split('/').some((part) => IGNORED_DIRECTORIES.has(part));
+  return relativePath.split('/').some((part) => IGNORED_DIRECTORIES.has(part)) || IGNORED_SUBPATHS.test(relativePath);
+}
+
+/** Whether a directory's entries mark it as a Python virtual or conda environment. */
+export function isEnvironmentDirectory(entries) {
+  return entries.some((entry) => ENVIRONMENT_MARKERS.has(typeof entry === 'string' ? entry : entry.name));
 }
 
 function statFingerprint(stat) {
@@ -78,8 +99,19 @@ export function describeScanError(error) {
  * An in-memory fileCache permits unchanged-byte reuse only when explicitly
  * enabled. Dirty paths (including directory ancestors) always force a read;
  * explicit checkpoints omit reuseUnchanged and verify every file's bytes.
+ * `options.environments`, when given, collects the environment directories
+ * skipped, so a watcher can ignore their events too.
  */
 export function scanDirectory(rootPath, blobStore, options = {}) {
+  return runSync(scanSteps(rootPath, blobStore, options));
+}
+
+/**
+ * The same walk as steps: it lists the folder first, yielding
+ * `{ phase: 'listing', files }` per directory, then reads what changed,
+ * yielding `{ phase: 'reading', done, total }` in work units after each file.
+ */
+export function* scanSteps(rootPath, blobStore, options = {}) {
   const root = fs.realpathSync(rootPath);
   const rootStat = fs.statSync(root);
   if (!rootStat.isDirectory()) throw new Error('Project root must be a directory.');
@@ -108,71 +140,110 @@ export function scanDirectory(rootPath, blobStore, options = {}) {
 
   const relative = (absolutePath) => path.relative(root, absolutePath).split(path.sep).join('/');
 
-  function walk(directory) {
-    let entries;
+  // Listing first tells how much there is to read. Entries keep the walk's
+  // order, so a failed directory's carried files land where they always did.
+  const entries = [];
+  let listed = 0;
+  function* list(directory) {
+    let children;
     try {
-      entries = fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+      children = fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
     } catch (error) {
-      const prefix = relative(directory);
-      failures.push({ path: prefix || '.', ...describeScanError(error) });
-      carryForward(error, prefix, true);
+      entries.push({ kind: 'directory', relativePath: relative(directory), error });
       return;
     }
-    for (const entry of entries) {
+    if (directory !== root && isEnvironmentDirectory(children)) {
+      options.environments?.add(relative(directory));
+      return;
+    }
+    for (const entry of children) {
       if (entry.isSymbolicLink()) continue;
       const absolutePath = path.join(directory, entry.name);
       const relativePath = relative(absolutePath);
       if (isIgnoredScanPath(relativePath)) continue;
       if (entry.isDirectory()) {
         if (exclude(relativePath, true)) continue;
-        walk(absolutePath);
+        yield* list(absolutePath);
         continue;
       }
       if (!entry.isFile() || !isTrackedFile(absolutePath)) continue;
       if (exclude(relativePath, false)) continue;
-      let stat;
-      let buffer;
-      let fingerprint;
-      try {
-        stat = fs.statSync(absolutePath, { bigint: true });
-        fingerprint = statFingerprint(stat);
-        const cached = options.fileCache?.get(relativePath);
-        if (options.reuseUnchanged && !isDirty(relativePath, dirtyPaths) && matchesCache(cached, fingerprint, stat)) {
-          files.push(cached.file);
-          nextCache.set(relativePath, { fingerprint, file: cached.file });
-          continue;
-        }
-        buffer = fs.readFileSync(absolutePath);
-      } catch (error) {
-        failures.push({ path: relativePath, ...describeScanError(error) });
-        carryForward(error, relativePath, false);
-        continue;
-      }
-      const contentHash = blobStore.put(buffer);
-      const fileType = detectFileType(relativePath);
-      const file = {
-        path: relativePath,
-        contentHash,
-        size: Number(stat.size),
-        mtimeMs: Number(stat.mtimeNs) / 1_000_000,
-        ctimeMs: Number(stat.ctimeNs) / 1_000_000,
-        fileType,
-        device: String(stat.dev),
-        inode: String(stat.ino),
-        metadata: metadataFor(fileType, buffer),
-      };
-      files.push(file);
-      // A writer can change the file while it is being read. Keep its captured
-      // bytes, but require another read before trusting a cached fingerprint.
-      try {
-        if (statFingerprint(fs.statSync(absolutePath, { bigint: true })) === fingerprint) {
-          nextCache.set(relativePath, { fingerprint, file });
-        }
-      } catch { /* A later scan will reconcile a file removed during this read. */ }
+      let stat = null;
+      let error = null;
+      try { stat = fs.statSync(absolutePath, { bigint: true }); } catch (failure) { error = failure; }
+      entries.push({ kind: 'file', absolutePath, relativePath, stat, error });
+      listed += 1;
     }
+    yield { phase: 'listing', files: listed };
+  }
+  if (!exclude('', true)) yield* list(root);
+
+  const reuses = (entry) => {
+    if (!entry.stat || !options.reuseUnchanged || isDirty(entry.relativePath, dirtyPaths)) return false;
+    entry.fingerprint = statFingerprint(entry.stat);
+    return matchesCache(options.fileCache?.get(entry.relativePath), entry.fingerprint, entry.stat);
+  };
+  let total = 0;
+  for (const entry of entries) {
+    if (entry.kind !== 'file' || entry.error) continue;
+    entry.reused = reuses(entry);
+    if (!entry.reused) total += workUnits(entry.stat.size);
+  }
+  let done = 0;
+  for (const entry of entries) {
+    if (entry.kind === 'directory') {
+      failures.push({ path: entry.relativePath || '.', ...describeScanError(entry.error) });
+      carryForward(entry.error, entry.relativePath, true);
+      continue;
+    }
+    const { absolutePath, relativePath, stat } = entry;
+    if (entry.error) {
+      failures.push({ path: relativePath, ...describeScanError(entry.error) });
+      carryForward(entry.error, relativePath, false);
+      continue;
+    }
+    const fingerprint = entry.fingerprint ?? statFingerprint(stat);
+    if (entry.reused) {
+      const cached = options.fileCache.get(relativePath);
+      files.push(cached.file);
+      nextCache.set(relativePath, { fingerprint, file: cached.file });
+      continue;
+    }
+    let buffer;
+    try {
+      buffer = fs.readFileSync(absolutePath);
+    } catch (error) {
+      failures.push({ path: relativePath, ...describeScanError(error) });
+      carryForward(error, relativePath, false);
+      done += workUnits(stat.size);
+      yield { phase: 'reading', done, total };
+      continue;
+    }
+    const contentHash = blobStore.put(buffer);
+    const fileType = detectFileType(relativePath);
+    const file = {
+      path: relativePath,
+      contentHash,
+      size: Number(stat.size),
+      mtimeMs: Number(stat.mtimeNs) / 1_000_000,
+      ctimeMs: Number(stat.ctimeNs) / 1_000_000,
+      fileType,
+      device: String(stat.dev),
+      inode: String(stat.ino),
+      metadata: metadataFor(fileType, buffer),
+    };
+    files.push(file);
+    // A writer can change the file while it is being read. Keep its captured
+    // bytes, but require another read before trusting a cached fingerprint.
+    try {
+      if (statFingerprint(fs.statSync(absolutePath, { bigint: true })) === fingerprint) {
+        nextCache.set(relativePath, { fingerprint, file });
+      }
+    } catch { /* A later scan will reconcile a file removed during this read. */ }
+    done += workUnits(stat.size);
+    yield { phase: 'reading', done, total };
   }
 
-  if (!exclude('', true)) walk(root);
   if (options.fileCache) {
     options.fileCache.clear();
     for (const [filePath, entry] of nextCache) options.fileCache.set(filePath, entry);

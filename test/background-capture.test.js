@@ -121,7 +121,7 @@ test('watcher filters ignored and excluded paths and batches dirty hints', async
   const { app, project } = fixture(t, { watchProjects: true, watchDebounceMs: 5 });
   app.terminal.indexing.exclude(project.id, 'excluded');
   const captures = [];
-  t.mock.method(app.timeline, 'capture', (...args) => captures.push(args));
+  t.mock.method(app.timeline, 'captureFromWatcher', (...args) => captures.push(args));
   callback('change', '.git/config');
   callback('rename', 'nested/node_modules/file.js');
   callback('change', '.lasso-data/timeline.sqlite-wal');
@@ -155,7 +155,7 @@ test('configured storage inside a project is excluded from captures and watcher 
   });
   const { project } = app.timeline.importProject(sandbox, actor);
   assert.deepEqual(app.timeline.getSnapshot(project.currentSnapshotId).files.map((file) => file.path), ['note.md']);
-  const captures = t.mock.method(app.timeline, 'capture');
+  const captures = t.mock.method(app.timeline, 'captureFromWatcher');
   callback('change', 'custom-history/timeline.sqlite-wal');
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(captures.mock.callCount(), 0);
@@ -180,7 +180,7 @@ test('an overridden SQLite database inside a project excludes its file and every
   });
   const { project } = app.timeline.importProject(root, actor);
   assert.deepEqual(app.timeline.getSnapshot(project.currentSnapshotId).files.map((file) => file.path), ['note.md']);
-  const captures = t.mock.method(app.timeline, 'capture');
+  const captures = t.mock.method(app.timeline, 'captureFromWatcher');
   for (const suffix of ['', '-wal', '-shm', '-journal']) callback('change', `custom.sqlite${suffix}`);
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(captures.mock.callCount(), 0);
@@ -265,7 +265,7 @@ test('a file saved continuously is still captured within the maximum wait', asyn
   const watcher = fakeWatcher(t);
   const { app } = fixture(t, { watchProjects: true, watchDebounceMs: 60, watchMaxWaitMs: 150 });
   const captures = [];
-  t.mock.method(app.timeline, 'capture', (...args) => captures.push(args));
+  t.mock.method(app.timeline, 'captureFromWatcher', (...args) => captures.push(args));
 
   // Act: a save every 25 ms keeps resetting the debounce.
   for (let index = 0; index < 16; index += 1) {
@@ -283,7 +283,7 @@ test('a failed watcher capture keeps its changed paths and tries again', async (
   const captures = [];
   const errors = [];
   t.mock.method(console, 'error', (...values) => errors.push(values));
-  t.mock.method(app.timeline, 'capture', (...args) => {
+  t.mock.method(app.timeline, 'captureFromWatcher', (...args) => {
     captures.push(args);
     if (captures.length === 1) throw new Error('database is locked');
   });
@@ -298,7 +298,7 @@ test('a watcher that fails is restarted and the folder rescanned', async (t) => 
   const { app } = fixture(t, { watchProjects: true, watchDebounceMs: 5 });
   const captures = [];
   t.mock.method(console, 'error', () => {});
-  t.mock.method(app.timeline, 'capture', (...args) => captures.push(args));
+  t.mock.method(app.timeline, 'captureFromWatcher', (...args) => captures.push(args));
   assert.equal(watcher.starts, 1);
   watcher.errorHandler(new Error('EMFILE: too many open files, watch'));
   await pause(60);

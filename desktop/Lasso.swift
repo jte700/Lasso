@@ -278,6 +278,12 @@ private struct WorkDirectory {
     let available: Bool
     let error: String?
     let issue: DirectoryIssue?
+    /// What the readers could not make of some files: for the tooltip, not a badge.
+    let note: String?
+    /// Set while the server reads the folder.
+    let progress: DirectoryProgress?
+    /// Chosen and being read, but not recorded yet.
+    let pending: Bool
 
     init?(_ object: [String: Any]) {
         guard let id = object["id"] as? String,
@@ -289,6 +295,9 @@ private struct WorkDirectory {
         self.available = object["available"] as? Bool ?? true
         self.error = object["error"] as? String
         self.issue = DirectoryIssue(object["issue"])
+        self.note = (object["note"] as? [String: Any])?["message"] as? String
+        self.progress = DirectoryProgress(object["indexing"])
+        self.pending = object["pending"] as? Bool ?? false
     }
 
     /// Switched on and present, but not usable for suggestions.
@@ -317,6 +326,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var workspaceGeneration = 0
     private var workspaceTimer: Timer?
     private var assistPermissionTimer: Timer?
+    /// Reads how far the server has got while a directory request runs.
+    private var progressTimer: Timer?
+    private var progressRequest: URLSessionDataTask?
+    private static let progressInterval: TimeInterval = 0.25
+    private var progressFollowUp = false
     /// Folders show selection circles until Cancel, Escape, a removal or the
     /// panel closes. Chosen folders are removed together in one step.
     private var isRemovingDirectories = false
@@ -474,6 +488,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notch.stop()
         workspaceTimer?.invalidate()
         assistPermissionTimer?.invalidate()
+        stopProgressPolling()
         workspaceRequest?.cancel()
         driveMonitor.stop()
         drivePulseTimer?.invalidate()
@@ -533,8 +548,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func rebuildMenu() {
         statusMenu.removeAllItems()
         let activeCount = directories.filter { $0.active && $0.available && ($0.error ?? "").isEmpty }.count
+        let reading = directories.contains { $0.progress != nil }
         let status = label(busyMessage ?? statusTitle(activeCount: activeCount))
-        if busyMessage != nil { status.view = NativeMenuProgressRow(item: status) }
+        // A folder being read shows its own bar; the status line has one only
+        // for requests no folder reports, such as a removal.
+        if busyMessage != nil && !reading { status.view = NativeMenuProgressRow(item: status) }
         statusMenu.addItem(status)
         statusMenu.addItem(.separator())
         statusMenu.addItem(command("Add Work Directories…", action: #selector(addDirectories),
@@ -556,22 +574,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } else {
             statusMenu.addItem(.separator())
+            // A folder being read stays in view even in a collapsed list.
+            let expanded = !directoryListCollapsed || isRemovingDirectories || reading
             let heading = command("Work Directories", action: #selector(toggleDirectoryList))
-            heading.view = NativeMenuDisclosureRow(item: heading, expanded: !directoryListCollapsed || isRemovingDirectories,
-                                                  count: directories.count)
+            heading.view = NativeMenuDisclosureRow(item: heading, expanded: expanded, count: directories.count)
             statusMenu.addItem(heading)
-            if !directoryListCollapsed || isRemovingDirectories {
+            if expanded {
                 let titles = WorkspaceAPI.distinctNames(directories.map { (name: $0.name, path: $0.rootPath) })
                 for (directory, title) in zip(directories, titles) {
                     let note = !directory.available ? " (unavailable)"
                         : directory.needsAttention ? " (needs attention)" : ""
                     let item = command(title + note, action: #selector(toggleDirectory(_:)),
-                                       enabled: isServerReady && busyMessage == nil)
+                                       enabled: isServerReady && busyMessage == nil && directory.progress == nil)
                     item.state = directory.active ? .on : .off
                     item.representedObject = directory.id
-                    let usage = directory.needsAttention ? "Click to try this folder again."
+                    let usage = directory.progress != nil ? "Lasso is reading this folder."
+                        : directory.needsAttention ? "Click to try this folder again."
                         : directory.active ? "On: suggestions include this folder." : "Off: this folder is paused."
-                    item.toolTip = [directory.rootPath, directory.error, usage].compactMap { $0 }.joined(separator: "\n")
+                    item.toolTip = [directory.rootPath, directory.error, directory.note, usage].compactMap { $0 }
+                        .joined(separator: "\n")
                     item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
                     let id = directory.id
                     let row = NativeMenuToggleRow(item: item, color: toggleColor(for: directory.id),
@@ -580,6 +601,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self?.setToggleColor(color, for: directory.id)
                     }
                     row.issue = directory.issue
+                    row.progress = directory.progress
                     row.onFix = { [weak self] in self?.fixDirectory(id) }
                     row.onSelect = { [weak self] extend in self?.toggleRemovalSelection(id, extendingRange: extend) }
                     row.onReveal = { [weak self] in self?.revealDirectory(id) }
@@ -655,6 +677,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspaceGeneration += 1
         workspaceRequest?.cancel()
         workspaceRequest = nil
+        stopProgressPolling()
         busyMessage = nil
         switch state {
         case .ready:
@@ -679,7 +702,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshWorkspace() {
         guard isServerReady, busyMessage == nil, workspaceRequest == nil,
-              let url = server.url?.appendingPathComponent("api/workspace") else { return }
+              let base = server.url, let url = WorkspaceAPI.stateURL(base: base) else { return }
         workspaceGeneration += 1
         let token = workspaceGeneration
         var request = URLRequest(url: url)
@@ -839,6 +862,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GlobalAssistant.shared.updateWorkspace(projectIds: activeIds, revision: workspaceRevision)
         rebuildMenu()
         welcomeIfNeeded()
+        followProgress()
+    }
+
+    /// A folder the server reads on its own, such as one brought up to date
+    /// at startup, is followed as closely as one the user just added.
+    private func followProgress() {
+        guard busyMessage == nil, !progressFollowUp, directories.contains(where: { $0.progress != nil }) else { return }
+        progressFollowUp = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.progressInterval) { [weak self] in
+            self?.progressFollowUp = false
+            self?.refreshWorkspace()
+        }
+    }
+
+    /// While a request reads folders, asks how far it has got. The request
+    /// itself answers only when it is done.
+    private func startProgressPolling(token: Int) {
+        stopProgressPolling()
+        let timer = Timer(timeInterval: Self.progressInterval, repeats: true) { [weak self] _ in
+            self?.pollProgress(token: token)
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        progressTimer = timer
+    }
+
+    private func pollProgress(token: Int) {
+        guard token == workspaceGeneration, busyMessage != nil, progressRequest == nil,
+              let base = server.url, let url = WorkspaceAPI.stateURL(base: base) else { return }
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 5
+        progressRequest = URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.progressRequest = nil
+                guard token == self.workspaceGeneration, self.busyMessage != nil,
+                      let state = self.readWorkspace(data: data, response: response) else { return }
+                let revealing = !self.directories.contains { $0.progress != nil }
+                self.applyWorkspace(state)
+                if revealing { self.statusPopover.revealProgress() }
+            }
+        }
+        progressRequest?.resume()
+    }
+
+    private func stopProgressPolling() {
+        progressTimer?.invalidate()
+        progressTimer = nil
+        progressRequest?.cancel()
+        progressRequest = nil
     }
 
     /// Adding a large folder reads and indexes every file before answering.
@@ -868,6 +941,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 guard let self, token == self.workspaceGeneration else { return }
                 self.workspaceRequest = nil
+                self.stopProgressPolling()
                 self.busyMessage = nil
                 if let state = self.readWorkspace(data: data, response: response) {
                     self.applyWorkspace(state)
@@ -881,6 +955,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         workspaceRequest?.resume()
+        startProgressPolling(token: token)
     }
 
     @objc private func addDirectories() {
@@ -896,9 +971,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         panel.begin { [weak self] response in
             guard response == .OK else { return }
+            let urls = panel.urls
             self?.mutateWorkspace(path: "api/workspace/directories",
-                                  body: WorkspaceAPI.addDirectoriesBody(panel.urls.map(\.path)),
-                                  message: "Adding and indexing directories…")
+                                  body: WorkspaceAPI.addDirectoriesBody(urls.map(\.path)),
+                                  message: urls.count == 1 ? "Adding \(urls[0].lastPathComponent)\u{2026}"
+                                      : "Adding \(urls.count) directories\u{2026}")
         }
     }
 
