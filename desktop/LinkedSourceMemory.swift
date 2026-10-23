@@ -3,9 +3,12 @@
 //  Tab accepts a source, and each request names it so the server offers its
 //  values while its sentence goes on. A value is as deep as a source goes:
 //  once one is tabbed, the server offers the next words from every work
-//  directory again. fn+Left moves out to every work
-//  directory; fn+Right moves back in to the last focus or, on a card
-//  already focused, into the selected row.
+//  directory again. fn+Right narrows the card one level: on a focused card
+//  into the selected row, and from every directory back into the last focus.
+//  fn+Left steps back one level, so the list fn+Right narrowed comes back: a
+//  row chosen with fn+Right gives way to the focus it was chosen on, and a
+//  source accepted with Tab to what the card showed before that Tab, until
+//  every directory answers.
 //
 //  Each change of focus is kept as a step, and the focus is worked out again
 //  from the steps and the text each request sends. Deleting text accepted with
@@ -27,12 +30,13 @@ struct LinkedSourceMemory {
     private enum Step: Equatable {
         /// Tab inserted the source; the anchor finds its text again.
         case accepted(Source, TextAnchor)
-        /// fn+Right chose this focus.
+        /// fn+Right narrowed the card to this focus.
         case chosen(Source)
-        /// fn+Left moved out to every directory from this focus.
+        /// fn+Left stepped back one level from this focus.
         case movedOut(Source?)
-        /// The source whose values the server actually showed on the card.
-        case displayed(Source)
+        /// The source whose values the server actually showed on the card, or
+        /// nil for suggestions from every directory.
+        case displayed(Source?)
     }
 
     /// Where an accepted text is in the window last sent.
@@ -43,15 +47,36 @@ struct LinkedSourceMemory {
         case unseen
     }
 
+    /// One level fn+Left can step back from, with the card's focus beneath
+    /// it: what the card showed when it was chosen or accepted.
+    private struct Level {
+        let source: Source
+        let beneath: Source?
+        /// The step that made it.
+        let step: Int
+    }
+
     private struct Focus {
-        var pending: [(source: Source, range: Range<Int>)] = []
-        var chosen: Source?
+        /// Accepted sources in the window, each with the focuses chosen with
+        /// fn+Right that its Tab replaced, which fn+Left out of it brings back.
+        var pending: [(level: Level, range: Range<Int>, replaced: [Level])] = []
+        /// Focuses chosen with fn+Right, innermost last. They stand in for the accepted sources.
+        var chosen: [Level] = []
         var recent: Source?
         var displayed: Source?
     }
 
+    /// The steps replayed against the window.
+    private struct Replay {
+        var focus: Focus
+        /// Steps a deletion undid.
+        var undone: Set<Int> = []
+        /// The step each fn+Left stepped back out of, by the fn+Left's own step.
+        var steppedOut: [Int: Int] = [:]
+    }
+
     private static let acceptedLimit = 8
-    private static let stepLimit = 32
+    private static let stepLimit = 64
     /// Characters of the text before an accepted phrase that show it was
     /// deleted rather than scrolled out of the window.
     private static let precedingEvidence = 12
@@ -77,7 +102,15 @@ struct LinkedSourceMemory {
     }
 
     /// A focus chosen with fn+Right. The server keeps it until fn+Left.
-    var chosen: Source? { focus.chosen }
+    var chosen: Source? { focus.chosen.last?.source }
+
+    /// Where fn+Left steps back to from a focused card: the focus beneath, or
+    /// nil for every directory.
+    var stepBack: Source? {
+        let focus = focus
+        if let level = focus.chosen.last { return level.beneath }
+        return focus.pending.last?.level.beneath
+    }
 
     /// Where fn+Right returns from every directory: the latest focus in any field.
     var recent: Source? { focus.recent }
@@ -106,9 +139,11 @@ struct LinkedSourceMemory {
         windowReachesStart = reachesStart
     }
 
-    /// Remember the card's parent source separately from an accepted value.
+    /// Remember what the card showed: a source's values, or every directory
+    /// for nil. It is the parent of the next value accepted, where fn+Right
+    /// returns, and what fn+Left steps back to from a focus chosen on it.
     /// Keeping this in the step history preserves delete-to-undo navigation.
-    mutating func noteFocus(_ source: Source) {
+    mutating func noteFocus(_ source: Source?) {
         if case .displayed(let previous) = steps.last, previous == source { return }
         steps.append(.displayed(source))
         trim()
@@ -125,33 +160,45 @@ struct LinkedSourceMemory {
 
     mutating func keep(projectIds: [String]) {
         let kept = Set(projectIds)
-        steps = steps.compactMap { step in
-            switch step {
-            case .accepted(let source, _), .chosen(let source), .displayed(let source):
-                return kept.contains(source.projectId) ? step : nil
-            case .movedOut(let source):
-                return .movedOut(source.flatMap { kept.contains($0.projectId) ? $0 : nil })
+        let removed = Set(steps.indices.filter { index in
+            switch steps[index] {
+            case .accepted(let source, _), .chosen(let source), .displayed(let source?):
+                return !kept.contains(source.projectId)
+            case .displayed, .movedOut:
+                return false
             }
+        })
+        // An fn+Left out of a removed level goes with it, or it would step back out of another.
+        let dropped = removed.union(replay.steppedOut.filter { removed.contains($0.value) }.keys)
+        steps = steps.enumerated().compactMap { index, step in
+            guard !dropped.contains(index) else { return nil }
+            guard case .movedOut(let source?) = step, !kept.contains(source.projectId) else { return step }
+            return .movedOut(nil)
         }
         if let earlier, !kept.contains(earlier.projectId) { self.earlier = nil }
     }
 
-    /// fn+Left: every directory answers the next words. The source the card
-    /// was focused on is where fn+Right comes back to.
+    /// fn+Left: one level back. A focus chosen with fn+Right gives way to the
+    /// one it was chosen on, and the newest accepted source to what the card
+    /// showed before its Tab. The source the card was focused on is where
+    /// fn+Right comes back to.
     mutating func moveOut(from focused: Source?) {
+        dropUndone()
         steps.append(.movedOut(focused))
         trim()
         moving = true
     }
 
-    /// fn+Right from every directory returns to the latest focus; on a
-    /// focused card it moves into the selected row, unless that row is the focus.
+    /// fn+Right narrows one level: from every directory into the latest
+    /// focus, and on a focused card into the selected row, unless that row is
+    /// the focus.
     func canMoveIn(focusedOn current: Source?, selected: Source?) -> Bool {
         target(focusedOn: current, selected: selected) != nil
     }
 
     mutating func moveIn(focusedOn current: Source?, selected: Source?) {
         guard let target = target(focusedOn: current, selected: selected) else { return }
+        dropUndone()
         steps.append(.chosen(target))
         trim()
         moving = true
@@ -178,61 +225,83 @@ struct LinkedSourceMemory {
     /// text last observed.
     var requestFields: [String: Any] {
         let focus = focus
-        if let chosen = focus.chosen {
+        if let chosen = focus.chosen.last?.source {
             return ["focusSource": ["projectId": chosen.projectId, "sourceObjectId": chosen.objectId,
                                     "sourceSnapshotId": chosen.snapshotId]]
         }
         // Offsets are in the text being sent, so they match what the server is given.
-        let pending = focus.pending.map { source, range -> [String: Any] in
-            ["projectId": source.projectId, "blockIndex": 0, "start": range.lowerBound, "end": range.upperBound,
-             "sourceObjectId": source.objectId, "sourceSnapshotId": source.snapshotId]
+        let pending = focus.pending.map { entry -> [String: Any] in
+            let source = entry.level.source, range = entry.range
+            return ["projectId": source.projectId, "blockIndex": 0, "start": range.lowerBound, "end": range.upperBound,
+                    "sourceObjectId": source.objectId, "sourceSnapshotId": source.snapshotId]
         }
         return pending.isEmpty ? [:] : ["pendingDependencies": pending]
     }
 
+    private var focus: Focus { replay.focus }
+
     /// The steps replayed against the window. An accepted text that was
     /// deleted takes the moves made on it along, up to the next accepted
-    /// text still present.
-    private var focus: Focus {
-        var focus = Focus(recent: earlier)
+    /// text still present. fn+Left undoes the latest level still standing.
+    private var replay: Replay {
+        var replay = Replay(focus: Focus(recent: earlier))
         var undone = false
         var claimed = Set<Int>()
-        for step in steps {
+        for (index, step) in steps.enumerated() {
             switch step {
             case .accepted(let source, let anchor):
                 switch place(of: anchor) {
                 case .deleted:
                     undone = true
+                    replay.undone.insert(index)
                     continue
                 case .at(let range):
                     // Two accepted phrases found at one place: the later one's own text is gone.
                     guard claimed.insert(range.lowerBound).inserted else {
                         undone = true
+                        replay.undone.insert(index)
                         continue
                     }
-                    focus.pending.append((source, range))
+                    let level = Level(source: source, beneath: replay.focus.displayed, step: index)
+                    replay.focus.pending.append((level, range, replay.focus.chosen))
                 case .unseen:
                     break
                 }
                 undone = false
-                focus.chosen = nil
-                focus.recent = focus.displayed ?? source
+                replay.focus.chosen.removeAll()
+                replay.focus.recent = replay.focus.displayed ?? source
             case .displayed(let source) where !undone:
-                focus.recent = source
-                focus.displayed = source
+                if let source { replay.focus.recent = source }
+                replay.focus.displayed = source
             case .chosen(let source) where !undone:
-                focus.chosen = source
-                focus.recent = source
-                focus.displayed = source
+                replay.focus.chosen.append(Level(source: source, beneath: replay.focus.displayed, step: index))
+                replay.focus.recent = source
+                replay.focus.displayed = source
             case .movedOut(let source) where !undone:
-                focus.pending.removeAll()
-                focus.chosen = nil
-                if let source { focus.recent = source }
+                if let level = replay.focus.chosen.popLast() {
+                    replay.focus.displayed = level.beneath
+                    replay.steppedOut[index] = level.step
+                } else if let accepted = replay.focus.pending.popLast() {
+                    // Out of a Tab, the focus it replaced comes back.
+                    replay.focus.chosen = accepted.replaced
+                    replay.focus.displayed = accepted.level.beneath
+                    replay.steppedOut[index] = accepted.level.step
+                }
+                if let source { replay.focus.recent = source }
             default:
-                break
+                replay.undone.insert(index)
             }
         }
-        return focus
+        return replay
+    }
+
+    /// A move made after a deletion starts from the card on screen, so the
+    /// steps that deletion undid are dropped first. Otherwise the move would
+    /// be undone with them.
+    private mutating func dropUndone() {
+        let undone = replay.undone
+        guard !undone.isEmpty else { return }
+        steps = steps.enumerated().filter { !undone.contains($0.offset) }.map(\.element)
     }
 
     private func place(of anchor: TextAnchor) -> Place {
@@ -253,5 +322,18 @@ struct LinkedSourceMemory {
 
     private mutating func trim() {
         if steps.count > Self.stepLimit { steps.removeFirst(steps.count - Self.stepLimit) }
+    }
+}
+
+/// The row the list a focus move asked for opens on.
+enum FocusLanding: Equatable {
+    /// fn+Right: the narrower list starts at its top.
+    case first
+    /// fn+Left: the row stepped back out of, while the list still offers it.
+    case row(objectId: String)
+
+    func index(in objectIds: [String?]) -> Int {
+        guard case .row(let objectId) = self else { return 0 }
+        return objectIds.firstIndex(of: objectId) ?? 0
     }
 }

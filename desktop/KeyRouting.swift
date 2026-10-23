@@ -22,9 +22,9 @@ struct KeyRoutingState: Equatable {
     /// The source inspector shows a source its Share Link can share.
     var inspectorCanShare = false
     var popup: Popup = .hidden
-    /// The card is focused on a source, so fn+Left can show every directory.
+    /// The card is focused on a source, so fn+Left can step back a level.
     var canFocusOut = false
-    /// fn+Right has a focus to move into: the last one, or the selected row.
+    /// fn+Right has a focus to narrow into: the last one, or the selected row.
     var canFocusIn = false
     /// The card lists something to accept. One kept empty after a move only
     /// answers fn+Left and fn+Right.
@@ -90,8 +90,8 @@ enum KeyRouter {
         // Shift+Tab leaves the field, Control+Tab switches tabs, and modified
         // arrows move or select text. Only the bare keys belong to the box.
         let chord = !flags.intersection([.maskShift, .maskCommand, .maskControl, .maskAlternate]).isEmpty
-        // fn+Left and fn+Right move the card's focus out to every directory
-        // and back in. With nowhere to move they keep their meaning in the host.
+        // fn+Right narrows the card's focus a level and fn+Left steps back
+        // one. With nowhere to move they keep their meaning in the host.
         if state.popup == .suggestions, !chord {
             if keyCode == home, state.canFocusOut { return .swallow(.focusOut) }
             if keyCode == end, state.canFocusIn { return .swallow(.focusIn) }

@@ -164,6 +164,22 @@ test('fn+Right on a focused card narrows it to the selected row', async t => {
   assert.deepEqual(offered(narrowed), ['8 mm']);
 });
 
+test('fn+Left from a narrowed measurement brings the part\'s whole list back', async t => {
+  const app = await twoDirectories(t);
+  const bracket = await accept(app, 'the bra', 'Bracket', 'Bracket.step');
+  const values = await typed(app, bracket.accepted, [bracket.link]);
+  const width = values.workspaceCompletions.find(item => item.replacementText === '100 mm')?.dependencyCandidate;
+  assert.ok(width, offered(values).join(', '));
+  assert.deepEqual(offered(await focused(app, bracket.accepted, focusOn(width))), ['100 mm']);
+  // One level back the card asks with the accepted part alone, as it did right after Tab.
+  const back = await typed(app, bracket.accepted, [bracket.link]);
+  assert.equal(back.workspaceHeading, 'Values for Bracket');
+  assert.deepEqual(offered(back), offered(values));
+  assert.ok(offered(back).length > 1);
+  // A second step reaches every directory, which names the part again.
+  assert.equal(named(await typed(app, bracket.accepted))[0], 'Bracket');
+});
+
 test('a focus that cannot be used leaves every directory to answer', async t => {
   const app = await twoDirectories(t);
   const bracket = await accept(app, 'The brack', 'Bracket', 'Bracket.step');
