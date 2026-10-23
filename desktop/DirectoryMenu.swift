@@ -224,7 +224,8 @@ final class DirectorySelectionMark: NSButton {
 final class NativeMenuProgressRow: NSView {
     let actionItem: NSMenuItem
     private let titleLabel: NSTextField
-    private let progress = NSProgressIndicator()
+    /// No folder reports how far a removal has got, so its blocks sweep the track.
+    let progress = DirectoryProgressBar()
 
     override var isFlipped: Bool { true }
 
@@ -240,12 +241,9 @@ final class NativeMenuProgressRow: NSView {
         titleLabel.autoresizingMask = [.width]
         titleLabel.toolTip = item.title
         addSubview(titleLabel)
-        progress.style = .bar
-        progress.controlSize = .small
-        progress.isIndeterminate = true
-        progress.usesThreadedAnimation = true
-        progress.isDisplayedWhenStopped = true
-        progress.frame = NSRect(x: 14, y: 29, width: 252, height: 6)
+        progress.indeterminate = true
+        progress.accent = .controlAccentColor
+        progress.frame = NSRect(x: 14, y: 27, width: 252, height: 9)
         progress.autoresizingMask = [.width]
         progress.setAccessibilityLabel(item.title)
         progress.setAccessibilityHelp("Lasso is updating your work directories. This indicator stays active until the operation finishes.")
@@ -255,10 +253,6 @@ final class NativeMenuProgressRow: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window == nil { progress.stopAnimation(nil) } else { progress.startAnimation(nil) }
-    }
 }
 
 private func dispatchMenuAction(_ item: NSMenuItem) {
@@ -308,13 +302,46 @@ final class DirectoryIssueBadge: NSView {
     override func mouseDown(with event: NSEvent) { onHover?(true) }
 }
 
-/// A thin capsule that fills in the folder's own colour as the folder is
-/// read. Drawn directly, like the switch it stands in for, so it keeps its
-/// colour when the menu's window is not key.
+/// A track of shaded blocks that fills in the folder's colour, after Loading
+/// UI's accordion loader: a solid block leads, a dark and a light shade trail
+/// it, and they spread apart as the bar moves and close up when it rests. The
+/// solid block is where the work has got to; the fill settles behind the
+/// slowest shade, so at rest the bar is solid up to its value. Drawn
+/// directly, like the switch it stands in for, so it keeps its colour when
+/// the menu's window is not key.
 final class DirectoryProgressBar: NSView {
+    static let track: Character = "\u{2591}"
+    static let light: Character = "\u{2592}"
+    static let dark: Character = "\u{2593}"
+    static let solid: Character = "\u{2588}"
+    /// How far behind the leading block each shade trails as the bar fills, as in the loader.
+    static let lag: [Double] = [0.04, 0.08]
+    /// One sweep there and back while nothing reports a percentage.
+    static let sweepSeconds: Double = 2.8
+
     var tint: DirectoryToggleColor = .blue { didSet { needsDisplay = true } }
-    /// From 0 to 100.
-    var value: Double = 0 { didSet { if value != oldValue { needsDisplay = true } } }
+    /// Drawn instead of the folder colour, for a bar that belongs to no folder.
+    var accent: NSColor? { didSet { needsDisplay = true } }
+    /// From 0 to 100: where the leading block is.
+    var value: Double = 0 {
+        didSet {
+            guard value != oldValue else { return }
+            if animates { startAnimating() } else { settle() }
+            needsDisplay = true
+        }
+    }
+    /// With no percentage to show, the blocks sweep the track back and forth.
+    var indeterminate = false {
+        didSet {
+            needsDisplay = true
+            if indeterminate && animates { startAnimating() }
+        }
+    }
+    /// The shades' places, in cells: each follows the one ahead of it.
+    private(set) var followers: [Double] = [0, 0]
+    private var timer: Timer?
+    private var elapsed: Double = 0
+    private var lastFrame: CFTimeInterval = 0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -324,16 +351,168 @@ final class DirectoryProgressBar: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    deinit { timer?.invalidate() }
+
+    private var animates: Bool {
+        window != nil && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    private var metrics: (height: CGFloat, font: NSFont, size: NSSize, block: NSRect)?
+
+    /// Block glyphs fill the line, so the bar is as tall as the font's line.
+    /// `block` is where the solid glyph's ink falls, from the baseline.
+    private var glyphMetrics: (font: NSFont, size: NSSize, block: NSRect) {
+        if let metrics, metrics.height == bounds.height { return (metrics.font, metrics.size, metrics.block) }
+        let points = max(6, min(9, bounds.height * 0.82))
+        let font = NSFont(name: "Menlo", size: points) ?? .monospacedSystemFont(ofSize: points, weight: .regular)
+        let size = (String(Self.solid) as NSString).size(withAttributes: [.font: font])
+        var character = Self.solid.utf16.first!
+        var glyph: CGGlyph = 0
+        CTFontGetGlyphsForCharacters(font, &character, &glyph, 1)
+        let block = font.boundingRect(forCGGlyph: glyph)
+        metrics = (bounds.height, font, size, block)
+        return (font, size, block)
+    }
+
+    /// How many cells fit across the bar.
+    var cellCount: Int { max(4, Int(bounds.width / max(1, glyphMetrics.size.width))) }
+
+    /// The leading block's place, in cells.
+    var lead: Double {
+        let cells = Double(cellCount)
+        if indeterminate { return Self.sweep(elapsed, cells: cells) }
+        return cells * min(max(value, 0), 100) / 100
+    }
+
+    /// Where a block sweeping the track is at a time: eased there and back.
+    static func sweep(_ time: Double, cells: Double) -> Double {
+        let phase = (time.truncatingRemainder(dividingBy: sweepSeconds) + sweepSeconds)
+            .truncatingRemainder(dividingBy: sweepSeconds) / sweepSeconds
+        let half = phase < 0.5 ? phase * 2 : (1 - phase) * 2
+        let eased = half < 0.5 ? 2 * half * half : 1 - pow(-2 * half + 2, 2) / 2
+        return eased * max(0, cells - 1)
+    }
+
+    /**
+     The glyph each cell shows. `lead` and `followers` are places in cells.
+     A filling bar shows a cell solid once it is wholly reached, so 99% never
+     looks done; the shades trailing a moving leader sit in the cells they
+     are crossing, behind it, and at rest they are hidden in the solid fill.
+     A sweeping bar has only its three blocks on the track.
+     */
+    static func cells(count: Int, lead: Double, followers: [Double], fills: Bool) -> [Character] {
+        guard count > 0 else { return [] }
+        if !fills {
+            let at = { (place: Double) in min(count - 1, max(0, Int(place.rounded()))) }
+            var cells = [Character](repeating: track, count: count)
+            for (place, glyph) in zip(followers, [dark, light]).reversed() { cells[at(place)] = glyph }
+            cells[at(lead)] = solid
+            return cells
+        }
+        let leader = min(count, Int(max(0, lead))) - 1
+        let solidCells = min(leader + 1, Int(max(0, followers.min() ?? lead)))
+        var cells = [Character](repeating: track, count: count)
+        for index in 0..<max(0, solidCells) { cells[index] = solid }
+        for (place, glyph) in zip(followers, [dark, light]) {
+            let crossing = Int(max(0, place))
+            if crossing < leader && cells[crossing] == track { cells[crossing] = glyph }
+        }
+        if leader >= 0 { cells[leader] = solid }
+        return cells
+    }
+
+    /// The glyphs on screen now, for tests and VoiceOver's sake.
+    var glyphs: [Character] { Self.cells(count: cellCount, lead: lead, followers: followers, fills: !indeterminate) }
+
+    /// Shades join the leading block at once, as with Reduce Motion.
+    func settle() {
+        followers = followers.map { _ in lead }
+        stopAnimating()
+    }
+
+    /// One frame. Public so tests can step it without a run loop.
+    func advance(by seconds: Double) {
+        elapsed += seconds
+        if indeterminate {
+            // The loader's shades trail by a block and two at full speed and
+            // bunch up where it turns; the delays that do that depend on how
+            // many cells the track has.
+            let cells = Double(cellCount)
+            let fastest = 4 * max(1, cells - 1) / Self.sweepSeconds
+            followers = [1.0, 2.0].map { Self.sweep(elapsed - $0 / fastest, cells: cells) }
+        } else {
+            // Each shade closes on the block ahead of it, as a delay would.
+            var ahead = lead
+            followers = zip(followers, Self.lag).map { place, lag in
+                let caught = place + (ahead - place) * (1 - exp(-seconds / (lag * 0.75)))
+                ahead = caught
+                return caught
+            }
+            if followers.allSatisfy({ abs($0 - lead) < 0.02 }) {
+                followers = followers.map { _ in lead }
+                stopAnimating()
+            }
+        }
+        needsDisplay = true
+    }
+
+    private func startAnimating() {
+        guard timer == nil else { return }
+        lastFrame = CACurrentMediaTime()
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let now = CACurrentMediaTime()
+            self.advance(by: min(0.1, now - self.lastFrame))
+            self.lastFrame = now
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    private func stopAnimating() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    var isAnimating: Bool { timer != nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil || isHidden { stopAnimating(); return }
+        if indeterminate && animates { startAnimating() }
+    }
+
+    override var isHidden: Bool {
+        didSet { if isHidden { stopAnimating() } else if indeterminate && animates { startAnimating() } }
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        let track = NSRect(x: 0, y: (bounds.height - 4) / 2, width: bounds.width, height: 4)
+        let glyphs = self.glyphs
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        (dark ? NSColor(white: 1, alpha: 0.14) : NSColor(white: 0, alpha: 0.09)).setFill()
-        NSBezierPath(roundedRect: track, xRadius: 2, yRadius: 2).fill()
-        let filled = track.width * CGFloat(min(max(value, 0), 100) / 100)
-        guard filled > 0 else { return }
-        tint.color.setFill()
-        NSBezierPath(roundedRect: NSRect(x: track.minX, y: track.minY, width: max(filled, track.height), height: track.height),
-                     xRadius: 2, yRadius: 2).fill()
+        let trackColor = NSColor.labelColor.withAlphaComponent(dark ? 0.42 : 0.34)
+        let (font, size, block) = glyphMetrics
+        let origin = (bounds.height - size.height) / 2
+        let fill = accent ?? tint.color
+        // Solid blocks are filled as one rectangle where their ink would be,
+        // since glyphs side by side leave hairline seams; the shades are drawn
+        // as glyphs, a run of one at a time at the font's own spacing.
+        var start = 0
+        while start < glyphs.count {
+            var end = start
+            while end < glyphs.count && glyphs[end] == glyphs[start] { end += 1 }
+            let x = CGFloat(start) * size.width
+            if glyphs[start] == Self.solid {
+                fill.setFill()
+                let ink = NSRect(x: x, y: origin - font.descender + block.minY,
+                                 width: CGFloat(end - start) * size.width, height: block.height)
+                backingAlignedRect(ink, options: .alignAllEdgesNearest).fill()
+            } else {
+                (String(repeating: String(glyphs[start]), count: end - start) as NSString)
+                    .draw(at: NSPoint(x: x, y: origin),
+                          withAttributes: [.font: font, .foregroundColor: glyphs[start] == Self.track ? trackColor : fill])
+            }
+            start = end
+        }
     }
 }
 
@@ -387,6 +566,14 @@ final class ProgressCounter {
         timer = nil
     }
 
+    /// Back to 0% for a new run: the count never moves back within one.
+    func reset() {
+        stop()
+        shown = 0
+        target = 0
+        onChange?(shown)
+    }
+
     deinit { timer?.invalidate() }
 }
 
@@ -436,6 +623,8 @@ final class NativeMenuToggleRow: NSView {
     var percentText: String { percentLabel.stringValue }
     /// How long the full bar stays before the switch returns.
     static let progressHoldSeconds: TimeInterval = 0.45
+    /// Room for "100%" to the right of the bar.
+    static let percentWidth: CGFloat = 32
     private let titleX: CGFloat
 
     override var isFlipped: Bool { true }
@@ -552,7 +741,7 @@ final class NativeMenuToggleRow: NSView {
         progressBar.setAccessibilityLabel("Indexing \(item.title)")
         progressBar.isHidden = true
         addSubview(progressBar)
-        percentLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        percentLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .medium)
         percentLabel.textColor = .secondaryLabelColor
         percentLabel.alignment = .right
         percentLabel.autoresizingMask = [.minXMargin]
@@ -575,10 +764,17 @@ final class NativeMenuToggleRow: NSView {
 
     private func applyProgress(previous: DirectoryProgress?) {
         if let progress {
+            // A new run counts from 0%, also after one that reached 100%:
+            // the count never moves back within a run, so it starts afresh.
+            let starting = progressBar.isHidden || finishingProgress
             hideProgress?.cancel()
             hideProgress = nil
             finishingProgress = false
-            if previous == nil && progressBar.isHidden { setProgressVisible(true) }
+            if starting {
+                progressCounter.reset()
+                progressBar.settle()
+            }
+            if progressBar.isHidden { setProgressVisible(true) }
             progressCounter.move(to: Double(progress.percent), animated: animatesProgress)
             progressBar.setAccessibilityHelp(progress.activity)
             toolTip = "\(progress.activity)\u{2026}"
@@ -624,10 +820,11 @@ final class NativeMenuToggleRow: NSView {
             setPaletteVisible(false)
             progressCounter.stop()
             showCount(progressCounter.shown)
-            titleLabel.frame = NSRect(x: titleX, y: 3, width: max(40, width - titleX - 12 - 44 - 6),
+            // The name above, and the bar under it with its percentage to its right.
+            titleLabel.frame = NSRect(x: titleX, y: 2, width: max(40, width - titleX - 12),
                                       height: titleLabel.frame.height)
-            percentLabel.frame = NSRect(x: width - 12 - 44, y: 4, width: 44, height: 16)
-            progressBar.frame = NSRect(x: titleX, y: 22, width: max(40, width - titleX - 12), height: 6)
+            percentLabel.frame = NSRect(x: width - 12 - Self.percentWidth, y: 19, width: Self.percentWidth, height: 12)
+            progressBar.frame = NSRect(x: titleX, y: 21, width: max(40, width - titleX - 12 - Self.percentWidth - 6), height: 9)
         } else {
             titleLabel.frame = NSRect(x: titleX, y: (32 - titleLabel.frame.height) / 2,
                                       width: max(40, width - titleX - 18 - 24 - 8 - 40 - 12),

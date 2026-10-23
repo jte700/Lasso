@@ -1510,8 +1510,8 @@ do {
     for index in 1...32 { pending.addItem(NSMenuItem(title: "Directory status \(index)", action: nil, keyEquivalent: "")) }
     controller.update(menu: pending)
     let root = controller.popover.contentViewController!.view
-    let progress = descendants(root).compactMap { $0 as? NSProgressIndicator }.first
-    check(progress != nil && progress?.isIndeterminate == true && progress?.style == .bar,
+    let progress = descendants(root).compactMap { $0 as? DirectoryProgressBar }.first
+    check(progress != nil && progress?.indeterminate == true && progress?.accessibilityRole() == .progressIndicator,
           "a pending directory operation displays an honest indeterminate loading bar")
     check(progress?.accessibilityLabel() == status.title,
           "the loading bar names the directory operation to VoiceOver")
@@ -1530,12 +1530,12 @@ do {
     let complete = NSMenu()
     complete.addItem(NSMenuItem(title: "Lasso · 3 active directories", action: nil, keyEquivalent: ""))
     controller.update(menu: complete)
-    check(!descendants(root).contains { $0 is NSProgressIndicator } && progressRow.superview == nil,
+    check(!descendants(root).contains { $0 is DirectoryProgressBar } && progressRow.superview == nil,
           "completion removes the loading bar instead of leaving a stuck operation")
     let failure = NSMenu()
     failure.addItem(NSMenuItem(title: "The directory could not be read.", action: nil, keyEquivalent: ""))
     controller.update(menu: failure)
-    check(!descendants(root).contains { $0 is NSProgressIndicator },
+    check(!descendants(root).contains { $0 is DirectoryProgressBar },
           "the error state shows its message without retaining progress")
 }
 
@@ -1609,6 +1609,28 @@ do {
     check(!row.isShowingProgress && !toggle.isHidden && row.percentText == "100%",
           "when the folder is ready the bar completes and the switch returns")
     check(name?.textColor == .disabledControlTextColor, "then it reads as its menu item does")
+    row.progress = DirectoryProgress(percent: 6, phase: "indexing", kind: "rereading")
+    check(row.isShowingProgress && row.percentText == "6%" && bar.value == 6,
+          "a re-read after a finished run counts from 0% again, not from the last run's 100%")
+    let percent = descendants(row).compactMap { $0 as? NSTextField }.first { $0.stringValue == "6%" }!
+    check(percent.frame.minX > bar.frame.maxX && abs(percent.frame.midY - bar.frame.midY) < 3,
+          "the percentage sits to the right of the bar, on its line")
+    row.progress = nil
+
+    // A new run that arrives while the last one is still finishing on screen.
+    let finishing = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 296, height: 40), styleMask: [.borderless],
+                             backing: .buffered, defer: true)
+    finishing.contentView?.addSubview(row)
+    row.progress = DirectoryProgress(percent: 90, phase: "indexing", kind: "rereading")
+    for _ in 0..<600 where row.progressCounter.isCounting { row.progressCounter.advance(by: 1.0 / 60) }
+    row.progress = nil
+    for _ in 0..<600 where row.progressCounter.isCounting { row.progressCounter.advance(by: 1.0 / 60) }
+    row.progress = DirectoryProgress(percent: 2, phase: "indexing", kind: "rereading")
+    let restarted = row.progressCounter.target == 2 && row.progressCounter.shown <= 2
+    for _ in 0..<600 where row.progressCounter.isCounting { row.progressCounter.advance(by: 1.0 / 60) }
+    check(restarted && row.percentText == "2%",
+          "a run that starts while the last is finishing begins at 0% too")
+    row.removeFromSuperview()
 
     let controller = StatusPopoverController()
     func menu(_ percent: Int?) -> NSMenu {
@@ -1627,7 +1649,7 @@ do {
     let root = controller.popover.contentViewController!.view
     let shown = descendants(root).compactMap { $0 as? NativeMenuToggleRow }.first!
     check(shown.isShowingProgress && shown.percentText == "10%", "the menu lists the folder with its progress")
-    check(!descendants(root).contains { ($0 as? NSProgressIndicator)?.isIndeterminate == true },
+    check(!descendants(root).contains { ($0 as? DirectoryProgressBar)?.indeterminate == true },
           "the status line has no second, indeterminate bar while a folder shows its own")
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.borderless],
                           backing: .buffered, defer: true)
@@ -1643,6 +1665,57 @@ do {
     for _ in 0..<600 where reused.progressCounter.isCounting { reused.progressCounter.advance(by: 1.0 / 60) }
     check(reused.percentText == "55%", "and the count arrives there")
     root.removeFromSuperview()
+}
+
+print("the bar fills with blocks that spread as it moves and close up at rest")
+do {
+    _ = NSApplication.shared
+    let solid = DirectoryProgressBar.solid, dark = DirectoryProgressBar.dark
+    let light = DirectoryProgressBar.light, track = DirectoryProgressBar.track
+    let bar = DirectoryProgressBar(frame: NSRect(x: 0, y: 0, width: 210, height: 9))
+    let count = bar.cellCount
+    check(count >= 30, "the track holds enough cells to move in small steps (\(count))")
+    let solids = { bar.glyphs.filter { $0 == solid }.count }
+    bar.value = 50
+    check(solids() == Int(Double(count) * 0.5) && !bar.glyphs.contains(dark) && !bar.glyphs.contains(light),
+          "at rest the bar is solid up to its value, with no shades")
+    bar.value = 99
+    check(bar.glyphs.last == track, "99% never looks done")
+    bar.value = 100
+    check(bar.glyphs.allSatisfy { $0 == solid }, "100% fills the bar")
+    check(String(DirectoryProgressBar.cells(count: 24, lead: 20, followers: [17.5, 15.2], fills: true))
+          == "\(String(repeating: solid, count: 15))\(light)\(track)\(dark)\(track)\(solid)\(String(repeating: track, count: 4))",
+          "a moving bar trails a dark and a light shade behind its solid block, spread apart")
+
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 40), styleMask: [.borderless],
+                          backing: .buffered, defer: true)
+    let moving = DirectoryProgressBar(frame: NSRect(x: 0, y: 0, width: 210, height: 9))
+    window.contentView?.addSubview(moving)
+    if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        moving.value = 10
+        for _ in 0..<120 { moving.advance(by: 1.0 / 60) }
+        moving.value = 80
+        moving.advance(by: 1.0 / 60)
+        check(moving.glyphs.contains(dark) || moving.glyphs.contains(light),
+              "a jump spreads the shades out behind the leading block")
+        for _ in 0..<120 { moving.advance(by: 1.0 / 60) }
+        check(!moving.glyphs.contains(dark) && !moving.glyphs.contains(light) && !moving.isAnimating,
+              "and they close up behind it once it rests")
+    }
+    check(moving.glyphs.filter { $0 == solid }.count == Int(Double(moving.cellCount) * 0.8),
+          "the settled bar shows the value it was given")
+
+    let sweeping = DirectoryProgressBar(frame: NSRect(x: 0, y: 0, width: 210, height: 9))
+    sweeping.indeterminate = true
+    sweeping.advance(by: 0.5)
+    let first = sweeping.glyphs.firstIndex(of: solid)
+    sweeping.advance(by: 0.5)
+    let second = sweeping.glyphs.firstIndex(of: solid)
+    check(sweeping.glyphs.filter { $0 == solid }.count == 1 && first != nil && second != nil && first != second,
+          "with no percentage, one solid block sweeps the track")
+    check(sweeping.glyphs.contains(dark) || sweeping.glyphs.contains(light),
+          "with its shades trailing it")
+    moving.removeFromSuperview()
 }
 
 print("spreadsheet previews in the suggestion card read like the sheet")
