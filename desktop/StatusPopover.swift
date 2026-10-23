@@ -441,6 +441,14 @@ final class StatusPopoverController {
         previous.activate(options: [])
     }
 
+    /// Opens the groups along a path of titles, such as one drive inside
+    /// External Drives, the next time the panel is filled.
+    func expand(path titles: [String]) {
+        for depth in titles.indices {
+            expandedGroups.insert(titles[...depth].map { "/" + $0 }.joined())
+        }
+    }
+
     func update(menu: NSMenu) {
         self.menu = menu
         // Rows may move or change; a card left open could point at the wrong

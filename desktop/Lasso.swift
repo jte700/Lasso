@@ -311,6 +311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusPopover = StatusPopoverController()
     private let notch = NotchPanelController()
     private let driveMonitor = ExternalDriveMonitor()
+    private let driveMenu = ExternalDriveMenu()
     private var hasUnreadDriveChange = false
     private var pendingDriveDialog = false
     private var driveNotice: ExternalDriveNoticePanel?
@@ -434,10 +435,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             appDirectory: resources.path,
             dataDirectory: data.path,
             logURL: logs)
-        // The browser workspace polls drive inventory; native UI only announces changes.
+        // Drive choices are made in the menu bar panel; the monitor reports what is mounted.
         driveMonitor.onInventorySynced = { [weak self] change in
-            if let notice = change.notice { self?.announceDriveChange(notice) }
+            guard let self else { return }
+            self.driveMenu.refresh(base: self.server?.url)
+            if let notice = change.notice { self.announceDriveChange(notice) }
         }
+        driveMenu.onChange = { [weak self] in self?.rebuildMenu() }
+        driveMenu.perform = { [weak self] path, body, message in
+            self?.mutateWorkspace(path: path, body: body, message: message,
+                                  failureTitle: "External Drive Couldn\u{2019}t Be Updated", answersWithWorkspace: false)
+        }
+        driveMenu.confirm = { [weak self] alert in self?.confirm(alert) ?? false }
         server.onStateChange = { [weak self] state in self?.render(state) }
         server.start()
         assistPermissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
@@ -525,6 +534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if hasUnreadDriveChange { openDrives(); return }
         statusPopover.toggle(relativeTo: sender)
         refreshWorkspace()
+        if isServerReady { driveMenu.refresh(base: server.url) }
     }
 
     private var isServerReady: Bool {
@@ -557,7 +567,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusMenu.addItem(.separator())
         statusMenu.addItem(command("Add Work Directories…", action: #selector(addDirectories),
                                    enabled: isServerReady && busyMessage == nil))
-        statusMenu.addItem(command("External Drives…", action: #selector(openDrives), enabled: isServerReady))
+        statusMenu.addItem(driveMenu.item(ready: isServerReady, idle: busyMessage == nil))
         if directories.isEmpty { isRemovingDirectories = false }
         if !directories.isEmpty && isRemovingDirectories {
             addRemovalCommands()
@@ -684,6 +694,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             GlobalAssistant.shared.serverURL = server.url
             DependencyHighlighter.shared.serverURL = server.url
             if let url = server.url { driveMonitor.start(serverURL: url, token: server.driveToken) }
+            driveMenu.refresh(base: server.url)
             refreshWorkspace()
             reconcileAssistant()
         case .starting:
@@ -725,8 +736,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: External drive attention
 
-    /// The workspace opens in the browser, which shows the pending drive
-    /// decision; the native badge and notice only point the way there.
+    /// Drive choices are in the menu bar panel. A review opens it on the drive
+    /// waiting for a decision; the badge and notice only point the way there.
     @objc private func openDrives() {
         hasUnreadDriveChange = false
         drivePulseTimer?.invalidate()
@@ -736,10 +747,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.toolTip = "Lasso work directories"
         statusItem.button?.setAccessibilityLabel("Lasso")
         dismissDriveNotice()
-        guard isServerReady, let base = server.url,
-              var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return }
-        components.queryItems = [URLQueryItem(name: "drives", value: "open")]
-        if let url = components.url { NSWorkspace.shared.open(url) }
+        guard let button = statusItem.button else { return }
+        statusPopover.expand(path: driveMenu.attentionPath)
+        rebuildMenu()
+        statusPopover.show(relativeTo: button)
+        refreshWorkspace()
+        // The list may have changed since the notice; open the drive it is about.
+        driveMenu.refresh(base: isServerReady ? server.url : nil) { [weak self] in
+            guard let self else { return }
+            self.statusPopover.expand(path: self.driveMenu.attentionPath)
+            self.rebuildMenu()
+        }
     }
 
     private func announceDriveChange(_ message: String) {
@@ -917,7 +935,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Adding a large folder reads and indexes every file before answering.
     private static let indexingRequestTimeout: TimeInterval = 30 * 60
 
-    private func mutateWorkspace(path: String, method: String = "POST", body: [String: Any]? = nil, message: String) {
+    /// A drive request answers with the drive, not the workspace
+    /// (`answersWithWorkspace` false); the workspace is read again afterwards.
+    private func mutateWorkspace(path: String, method: String = "POST", body: [String: Any]? = nil, message: String,
+                                 failureTitle: String = "Work Directories Couldn\u{2019}t Be Updated",
+                                 answersWithWorkspace: Bool = true) {
         guard isServerReady, busyMessage == nil, let base = server.url else { return }
         workspaceGeneration += 1
         let token = workspaceGeneration
@@ -943,13 +965,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.workspaceRequest = nil
                 self.stopProgressPolling()
                 self.busyMessage = nil
-                if let state = self.readWorkspace(data: data, response: response) {
+                let succeeded = error == nil && (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } == true
+                if !answersWithWorkspace { self.driveMenu.refresh(base: self.server.url) }
+                if answersWithWorkspace, let state = self.readWorkspace(data: data, response: response) {
                     self.applyWorkspace(state)
+                } else if !answersWithWorkspace && succeeded {
+                    self.rebuildMenu()
+                    self.refreshWorkspace()
                 } else {
                     let message = WorkspaceAPI.errorMessage(data: data, response: response, error: error)
                     self.workspaceError = message
                     self.rebuildMenu()
-                    self.showError(message, title: "Work Directories Couldn\u{2019}t Be Updated")
+                    self.showError(message, title: failureTitle)
                     self.refreshWorkspace()
                 }
             }
@@ -1064,6 +1091,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let remove = alert.addButton(withTitle: "Remove")
         remove.hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel")
+        return confirm(alert)
+    }
+
+    /// True when the alert's first button is chosen. The panel stays open behind it.
+    private func confirm(_ alert: NSAlert) -> Bool {
         NSApp.activate(ignoringOtherApps: true)
         return statusPopover.holdingOpen { alert.runModal() } == .alertFirstButtonReturn
     }

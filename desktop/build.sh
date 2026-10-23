@@ -211,6 +211,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/SourceChooser.swift" \
   "$ROOT/desktop/GlobalAssist.swift" \
   "$ROOT/desktop/ExternalDrives.swift" \
+  "$ROOT/desktop/DriveMenu.swift" \
   "$ROOT/desktop/MainMenu.swift" \
   "$ROOT/desktop/ShortcutCatalog.swift" \
   "$ROOT/desktop/ShortcutsPane.swift" \

@@ -28,6 +28,16 @@ enum WorkspaceAPI {
         ["actor": actor]
     }
 
+    /// `operation` is "index" or "decision".
+    static func drivePath(_ id: String, _ operation: String) -> String {
+        "api/drives/" + id + "/" + operation
+    }
+
+    /// Paths are relative to the drive; "." is the whole drive.
+    static func driveIndexBody(_ paths: [String]) -> [String: Any] {
+        ["paths": paths, "actor": actor]
+    }
+
     /// Directories that are on come first, each group keeping the server's order.
     static func switchedOnFirst<Directory>(_ directories: [Directory], isOn: (Directory) -> Bool) -> [Directory] {
         directories.filter(isOn) + directories.filter { !isOn($0) }
