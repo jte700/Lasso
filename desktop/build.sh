@@ -169,6 +169,7 @@ fi
 swiftc "${SWIFT_OPTIONS[@]}" \
   -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" \
   -framework Cocoa -framework WebKit -framework PDFKit -framework ServiceManagement -framework DiskArbitration \
+  -framework EventKit \
   -o "$CONTENTS/MacOS/Lasso" \
   "$ROOT/desktop/BuildConfig.swift" \
   "$ROOT/desktop/NodeRuntime.swift" \
@@ -211,10 +212,12 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/SourceChooser.swift" \
   "$ROOT/desktop/GlobalAssist.swift" \
   "$ROOT/desktop/ExternalDrives.swift" \
+  "$ROOT/desktop/DriveMenu.swift" \
   "$ROOT/desktop/MainMenu.swift" \
   "$ROOT/desktop/ShortcutCatalog.swift" \
   "$ROOT/desktop/ShortcutsPane.swift" \
   "$ROOT/desktop/SettingsWindow.swift" \
+  "$ROOT/desktop/ConnectApps.swift" \
   "$ROOT/desktop/Lasso.swift"
 
 echo "==> Compiling the launcher (starts Lasso at login and with Command-L)"
@@ -288,6 +291,14 @@ for item in src public migrations scripts package.json package-lock.json; do
 done
 # Finder leaves .DS_Store files in folders it has shown; the app needs none.
 find "$RESOURCES/app" -name .DS_Store -delete
+# The app registrations connected apps sign in with, when this build has its
+# own. Without them, the Connect window asks for one the first time.
+if [ -n "${LASSO_MICROSOFT_CLIENT_ID:-}${LASSO_GOOGLE_CLIENT_ID:-}" ]; then
+  "$NODE_BIN" -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({
+    microsoft: { clientId: process.env.LASSO_MICROSOFT_CLIENT_ID || null },
+    google: { clientId: process.env.LASSO_GOOGLE_CLIENT_ID || null, clientSecret: process.env.LASSO_GOOGLE_CLIENT_SECRET || null },
+  }, null, 2))' "$RESOURCES/app/connector-apps.json"
+fi
 
 echo "==> Bundling offline IFC geometry engine"
 if [ ! -f "$ROOT/node_modules/web-ifc/web-ifc-node.wasm" ]; then
@@ -370,6 +381,11 @@ cat > "$CONTENTS/Info.plist" <<PLIST
        the cited cell, passage or page. The file opens even when this is denied. -->
   <key>NSAppleEventsUsageDescription</key>
   <string>Lasso asks the app that opens a source to go to the cited cell, page or passage.</string>
+  <!-- Connecting the Calendar app in Connect 3rd Party Apps reads its events. -->
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>Lasso reads the events in the calendars you choose so it can suggest and cite them.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>Lasso reads the events in the calendars you choose so it can suggest and cite them.</string>
 </dict>
 </plist>
 PLIST

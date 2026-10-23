@@ -3352,5 +3352,104 @@ do {
     check(false, "the shortcut list decodes (\(error))")
 }
 
+// ── External drives in the menu bar panel ──────────────────────────────────
+// Drive choices are made in the panel, not in the browser workspace.
+
+print("external drives")
+do {
+    let listing = """
+    {"supported": true, "drives": [
+      {"id": "macos-volume:aa", "name": "Backup", "rootPath": "/Volumes/Backup", "connected": true,
+       "pendingAction": "connected", "projects": []},
+      {"id": "macos-volume:bb", "name": "Archive", "rootPath": "/Volumes/Archive", "connected": false,
+       "pendingAction": null, "projects": [{"id": "p1", "name": "Archive / Jobs"}, {"id": "p2", "name": "Archive / Bids"}]},
+      {"id": "macos-volume:cc", "name": "Field", "rootPath": "/Volumes/Field", "connected": false,
+       "pendingAction": "disconnected", "projects": [{"id": "p3", "name": "Field"}]},
+      {"name": "No identity"}
+    ]}
+    """
+    let drives = ExternalDrive.list(from: Data(listing.utf8)) ?? []
+    check(drives.map(\.id) == ["macos-volume:aa", "macos-volume:bb", "macos-volume:cc"],
+          "the drive list keeps the server's order and skips a drive without an identity")
+    check(ExternalDrive.list(from: Data("{\"error\": \"nope\"}".utf8)) == nil && ExternalDrive.list(from: nil) == nil,
+          "an unreadable drive answer is reported instead of shown as no drives")
+    check(drives.map(\.title) == ["Backup (needs a decision)", "Archive (offline)", "Field (needs a decision)"],
+          "drive titles say which one is waiting for a decision or offline, like work directories")
+    check(drives[1].workspaces == ["Archive / Jobs", "Archive / Bids"], "a drive lists the workspaces indexed from it")
+    check(drives[0].summary == "Connected. Lasso reads only the files you choose."
+          && drives[1].summary == "Disconnected. Its 2 saved indexes stay searchable."
+          && drives[2].summary == "Disconnected. Its saved index stays searchable.",
+          "each drive says what Lasso holds for it")
+
+    let backup = drives[0]
+    check(backup.relativePaths([URL(fileURLWithPath: "/Volumes/Backup")]) == ["."],
+          "choosing the drive itself indexes the whole drive")
+    check(backup.relativePaths([URL(fileURLWithPath: "/Volumes/Backup/Jobs/2026"),
+                                URL(fileURLWithPath: "/Volumes/Backup/Bids/")]) == ["Jobs/2026", "Bids"],
+          "chosen folders are sent relative to the drive")
+    check(backup.relativePaths([URL(fileURLWithPath: "/Volumes/Backup/Jobs"),
+                                URL(fileURLWithPath: "/Users/me/Documents")]) == nil,
+          "a folder outside the drive cancels the whole choice")
+    check(backup.relativePaths([URL(fileURLWithPath: "/Volumes/Backup2/Jobs")]) == nil,
+          "a drive whose name starts the same is not inside this drive")
+
+    let body = WorkspaceAPI.driveIndexBody(["Jobs"])
+    check(body["paths"] as? [String] == ["Jobs"] && (body["actor"] as? [String: String])?["actorType"] == "HUMAN_SELF",
+          "indexing a drive is recorded as the person at this Mac")
+    check(WorkspaceAPI.drivePath("macos-volume:aa", "index") == "api/drives/macos-volume:aa/index",
+          "drive requests address the drive by its volume identity")
+
+    let removal = drives[2].removalConfirmation()
+    check(removal.message == "Remove saved data for \u{201C}Field\u{201D}?"
+          && removal.details.contains("can\u{2019}t be undone") && removal.details.contains("files on the drive"),
+          "removing a drive's saved data asks first and says the drive itself is untouched")
+    check(removal.details.contains("not yet saved"),
+          "removing a drive's saved data warns that unsaved edits to its files go with it")
+    check(drives[2].removalConfirmation(shown: "/Volumes/Field").message.contains("/Volumes/Field"),
+          "the removal alert names the drive the way the list shows it")
+
+    let menu = ExternalDriveMenu()
+    menu.drives = drives
+    let group = menu.item(ready: true, idle: true)
+    check(group.title == "External Drives" && group.submenu?.items.map(\.title) == drives.map(\.title),
+          "External Drives opens to a row for each drive")
+    func choices(_ index: Int, in item: NSMenuItem) -> [String] {
+        item.submenu?.items[index].submenu?.items.filter { $0.action != nil }.map(\.title) ?? []
+    }
+    check(choices(0, in: group) == ["Index Entire Drive", "Choose Folders\u{2026}", "Not Now"],
+          "a newly connected drive offers to index all of it, choose folders, or wait")
+    check(choices(1, in: group) == ["Remove Saved Data\u{2026}"],
+          "an offline drive that is not waiting for a decision offers only removal")
+    check(choices(2, in: group) == ["Keep Saved Index", "Remove Saved Data\u{2026}"],
+          "a drive that was just disconnected offers to keep or remove its saved index")
+    check(group.submenu?.items[0].submenu?.items.first?.action == nil
+          && group.submenu?.items[0].submenu?.items.first?.title == drives[0].summary,
+          "each drive's choices start with what Lasso holds for it")
+    let busy = menu.item(ready: true, idle: false)
+    check(busy.isEnabled && busy.submenu?.items[0].submenu?.items.filter { $0.action != nil }.allSatisfy { !$0.isEnabled } == true,
+          "drive choices wait while another request runs, but the list stays open")
+    check(!menu.item(ready: false, idle: true).isEnabled, "External Drives waits for the server")
+    check(menu.attentionPath == ["External Drives", "Backup (needs a decision)"],
+          "a review opens the first drive that is waiting for a decision")
+
+    let twins = ExternalDrive.list(from: Data("""
+    {"drives": [
+      {"id": "x", "name": "Untitled", "rootPath": "/Volumes/Untitled", "connected": true, "pendingAction": "connected"},
+      {"id": "y", "name": "Untitled", "rootPath": "/Volumes/Untitled 1", "connected": true, "pendingAction": null}]}
+    """.utf8)) ?? []
+    menu.drives = twins
+    check(menu.item(ready: true, idle: true).submenu?.items.map(\.title)
+          == ["/Volumes/Untitled (needs a decision)", "/Volumes/Untitled 1"]
+          && menu.attentionPath.last == "/Volumes/Untitled (needs a decision)",
+          "drives with the same name are told apart by their paths, like work directories")
+
+    menu.drives = []
+    let empty = menu.item(ready: true, idle: true)
+    check(empty.submenu?.items.count == 1 && empty.submenu?.items.first?.action == nil
+          && empty.submenu?.items.first?.title.hasPrefix("Connect an external drive") == true,
+          "with no drives, the group says how to add one")
+    check(menu.attentionPath == ["External Drives"], "a review with nothing pending opens the drive list")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

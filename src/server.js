@@ -12,6 +12,7 @@ import { ObjectShareService } from './sharing/object-share.js';
 import { RemovableDriveService } from './drives/service.js';
 import { createTerminal } from './terminal/service.js';
 import { WorkspaceService } from './workspace.js';
+import { ConnectionService } from './connections/service.js';
 import { watchParent } from './parent-watchdog.js';
 
 const FORCE_CLOSE_AFTER_MS = 1000;
@@ -30,8 +31,10 @@ export function createApplication(overrides = {}) {
   const terminal = createTerminal({ timeline, dependencies, objectShares });
   const drives = new RemovableDriveService(timeline, dependencies, config);
   const workspace = new WorkspaceService({ timeline, dependencies, terminal });
+  const connections = new ConnectionService({ db, timeline, dependencies, workspace, config, fetchImpl: overrides.fetch });
   if (config.watchProjects) workspace.ready = workspace.restore();
-  const server = http.createServer(createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal, workspace));
+  connections.start();
+  const server = http.createServer(createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal, workspace, connections));
   // Resolve ephemeral desktop ports before any share links are generated.
   server.on('listening', () => { config.port = server.address().port; });
   let closing;
@@ -45,9 +48,11 @@ export function createApplication(overrides = {}) {
     terminal,
     drives,
     workspace,
+    connections,
     server,
     close() {
       if (closing) return closing;
+      connections.close();
       workspace.close();
       timeline.close();
       dependencies.close();
