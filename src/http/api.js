@@ -285,10 +285,12 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         let preview = null;
         try {
           const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+          const content = file ? timeline.blobs.get(file.contentHash) : null;
           preview = buildInspectorPreview(
-            file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null,
+            file ? { path: file.path, content } : null,
             resolved.source.anchor, resolved.source.metadata, resolved.source.label, resolved.source.objectType,
-            { matchText: url.searchParams.get('text') ?? '' });
+            { matchText: url.searchParams.get('text') ?? '',
+              window: file ? dependencies.tableWindow(file, content, resolved.source.anchor ?? {}, { before: 6, after: 6 }) : null });
           if (preview && ['pdf', 'image'].includes(preview.kind)) {
             const query = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
             preview.fileUrl = `/api/dependency-objects/${encodeURIComponent(objectId)}/source${query}`;
@@ -453,10 +455,13 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         try {
           const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
           const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null;
+          // A table too large to read here previews from the table index.
+          const window = file ? dependencies.tableWindow(file, sourceFile.content, resolved.source.anchor ?? {},
+            { before: ASSIST_TABLE_RADIUS, after: Math.max(ASSIST_TABLE_RADIUS, ASSIST_COLUMN_ROWS) }) : null;
           preview = path.extname(file?.path ?? '').toLowerCase() === '.pdf'
             ? buildInspectorPreview(sourceFile, resolved.source.anchor, resolved.source.metadata, resolved.source.label, resolved.source.objectType)
             : buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata, ASSIST_TABLE_RADIUS,
-              resolved.source.objectType, { display: true, columnRows: ASSIST_COLUMN_ROWS });
+              resolved.source.objectType, { display: true, columnRows: ASSIST_COLUMN_ROWS, window });
           // Text, Markdown and Word sources show the cited passage in context.
           if (!preview && isTextPreviewPath(file?.path)) {
             preview = buildInspectorPreview(sourceFile, resolved.source.anchor, resolved.source.metadata,

@@ -35,10 +35,12 @@ const FULL_TEXT_EXTENSIONS = new Set([
 /**
  * Builds a few rows of context around the cited cell, or with `columnRows`
  * up to that many rows of a cited column (see tableContext).
- * Returns null for sources that are not tabular.
+ * Returns null for sources that are not tabular. A table too large to read
+ * here arrives as `window`, its header and nearby rows from the table index.
  */
-export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, objectType = '', { display = false, columnRows = 0 } = {}) {
+export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, objectType = '', { display = false, columnRows = 0, window = null } = {}) {
   if (!file?.content || !file?.path) return null;
+  if (window) anchor = window.anchor;
   const extension = path.extname(file.path).toLowerCase();
   if (extension === '.pdf') {
     const selectedText = String(anchor.selectedText ?? metadata.rawText
@@ -58,7 +60,10 @@ export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, 
   let delimitedText = null;
   let selectedTable = null;
   try {
-    if (isSpreadsheet) {
+    if (window) {
+      selectedTable = window.table;
+      rawRows = window.table.rows;
+    } else if (isSpreadsheet) {
       const sheetName = anchor.sheet ?? metadata.sheet ?? null;
       const tables = extractSpreadsheetTables(file.content);
       const table = tables.find((sheet) => !sheetName || sheet.name === sheetName) ?? tables[0];
@@ -164,9 +169,10 @@ function inspectorTableSelection(table, anchor, context, layout, objectType) {
 export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = '', objectType = '', options = {}) {
   if (!file?.content || !file?.path) return null;
   const extension = path.extname(file.path).toLowerCase();
+  if (options.window) anchor = options.window.anchor;
   if (['.xlsx', '.xls', '.csv', '.tsv'].includes(extension)) {
     try {
-      const table = ['.xlsx', '.xls'].includes(extension)
+      const table = options.window ? options.window.table : ['.xlsx', '.xls'].includes(extension)
         ? (() => {
           const tables = extractSpreadsheetTables(file.content);
           const sheet = anchor.sheet ?? metadata.sheet;

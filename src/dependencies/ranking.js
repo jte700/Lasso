@@ -70,6 +70,12 @@ export class RecommendationRanking {
   close() { this.snapshotCache.clear(); }
   invalidateSnapshot(snapshotId) { this.snapshotCache.delete(snapshotId); }
 
+  /** Objects recorded at a snapshot after it was indexed, such as rows of a large table. */
+  noteObjects(snapshotId, objects) {
+    const cached = this.snapshotCache.get(snapshotId);
+    for (const object of cached ? objects : []) cached.objects.add(`${object.id}\u0000${object.path}`);
+  }
+
   indexedSnapshot(projectId, snapshotId) {
     const cached = this.snapshotCache.get(snapshotId);
     if (cached) return cached.projectId === projectId ? cached : null;

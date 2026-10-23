@@ -14,9 +14,10 @@ const MAX_STORE_BYTES = 256 * 1024 * 1024;
  * reader never serves an older reading.
  */
 export class TextStore {
-  constructor(root, readerVersion) {
+  constructor(root, readerVersion, { tidy = true } = {}) {
     this.root = root;
     this.directory = path.join(root, `v${readerVersion}`);
+    if (!tidy) return;
     try {
       for (const entry of fs.readdirSync(root)) {
         if (entry !== path.basename(this.directory)) fs.rmSync(path.join(root, entry), { recursive: true, force: true });

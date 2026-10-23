@@ -4,7 +4,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { BlobStore, hashBuffer } from './blob-store.js';
 import { isIgnoredScanPath, scanSteps, scannedFile } from './scanner.js';
-import { runSync } from './work.js';
+import { runSliced, runSync } from './work.js';
 import { isTrackedFile } from './file-types.js';
 import { compactStructuredDiff, createStructuredDiff, deterministicEventTitle, expandStructuredDiff } from './diff.js';
 import { SnapshotFileStore } from './snapshot-store.js';
@@ -95,6 +95,9 @@ export class TimelineService {
     this.scanCaches = new Map();
     // Environment directories each project's last scan skipped, by project.
     this.environments = new Map();
+    // Watcher captures in progress, by project: one per folder at a time.
+    this.capturing = new Map();
+    this.closed = false;
     this.captureListeners = new Set();
     // Set by the terminal's index controls. The timeline owns scanning; the
     // terminal owns which paths the user excluded and what failed to be read.
@@ -163,6 +166,7 @@ export class TimelineService {
   }
 
   close() {
+    this.closed = true;
     for (const watcher of this.watchers.values()) watcher.close();
     for (const timer of this.pendingTimers.values()) clearTimeout(timer);
     this.watchers.clear();
@@ -840,14 +844,20 @@ export class TimelineService {
   runWatcherCapture(projectId, actor) {
     const pending = this.pendingPaths.get(projectId);
     this.pendingTimers.delete(projectId);
-    this.pendingPaths.delete(projectId);
     if (!pending) return;
-    const project = this.getProject(projectId);
-    try {
-      this.capture(projectId, actor, {
-        source: 'WATCHER', dirtyPaths: pending.unknown ? null : [...pending.paths],
+    // A save while the folder's last capture is still being read waits for
+    // it; its paths stay pending and are captured next.
+    const running = this.capturing.get(projectId);
+    if (running) {
+      running.finally(() => {
+        if (!this.closed && this.pendingPaths.has(projectId) && !this.pendingTimers.has(projectId)) this.runWatcherCapture(projectId, actor);
       });
-    } catch (error) {
+      return;
+    }
+    this.pendingPaths.delete(projectId);
+    const project = this.getProject(projectId);
+    const failed = (error) => {
+      if (this.closed) return;
       // A renamed root fails its capture; follow it now rather than at the next poll.
       if (!fs.existsSync(project.rootPath)) {
         this.workspace?.followRenamedRoots?.();
@@ -860,7 +870,31 @@ export class TimelineService {
       this.pendingPaths.set(projectId, { ...pending, since: Date.now(), retries: pending.retries + 1 });
       this.pendingTimers.set(projectId, setTimeout(() => this.runWatcherCapture(projectId, actor),
         this.config.watchDebounceMs));
+    };
+    let capture;
+    try {
+      capture = Promise.resolve(this.captureFromWatcher(projectId, actor, {
+        source: 'WATCHER', dirtyPaths: pending.unknown ? null : [...pending.paths],
+      })).catch(failed);
+    } catch (error) {
+      failed(error);
+      return;
     }
+    const tracked = capture.finally(() => {
+      if (this.capturing.get(projectId) === tracked) this.capturing.delete(projectId);
+    });
+    this.capturing.set(projectId, tracked);
+  }
+
+  /**
+   * A watcher's capture, read in slices with its new version indexed before
+   * anything hears of it, so saving a large workbook does not hold up
+   * suggestions from every other folder while it is read.
+   */
+  captureFromWatcher(projectId, actor, options) {
+    return runSliced(this.captureSteps(projectId, actor, {
+      ...options, prepare: (capture) => this.dependencies?.ensureIndexSteps(projectId, capture.snapshot.id) ?? [],
+    }), { cancelled: () => (this.closed ? new HttpError(503, 'Lasso is shutting down.') : null) });
   }
 
   /** Whether a path lies in an environment directory the last scan skipped. */

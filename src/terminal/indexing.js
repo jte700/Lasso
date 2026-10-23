@@ -32,7 +32,7 @@ export class IndexControlService {
       exclusionFilter: (projectId) => this.exclusionFilter(projectId),
       recordFailures: (projectId, failures) => this.recordFailures(projectId, failures),
     };
-    dependencies.onIndexProblems = (projectId, problems) => this.recordIndexProblems(projectId, problems);
+    dependencies.onIndexProblems = (projectId, problems, paths) => this.recordIndexProblems(projectId, problems, paths);
   }
 
   // ── exclusions ───────────────────────────────────────────────────────────
@@ -91,9 +91,12 @@ export class IndexControlService {
     this.replaceFailures(projectId, failures, false);
   }
 
-  /** Files the latest full index could not read, or read only in part. */
-  recordIndexProblems(projectId, problems) {
-    this.replaceFailures(projectId, problems, true);
+  /**
+   * Files the latest full index could not read, or read only in part. A
+   * re-read of some kinds of file (`paths`) speaks only for those files.
+   */
+  recordIndexProblems(projectId, problems, paths = null) {
+    this.replaceFailures(projectId, problems, true, paths);
   }
 
   /**
@@ -101,7 +104,7 @@ export class IndexControlService {
    * longer occur. A path holds one row, so an open row of the other kind is
    * left alone: a file briefly locked must not hide that it cannot be read.
    */
-  replaceFailures(projectId, failures, indexProblems) {
+  replaceFailures(projectId, failures, indexProblems, paths = null) {
     const ownsCode = (code) => INDEX_PROBLEM_CODES.has(code) === indexProblems;
     const timestamp = now();
     const seen = new Set(failures.map((failure) => failure.path));
@@ -118,7 +121,7 @@ export class IndexControlService {
     const open = this.db.prepare('SELECT id, path, code FROM index_failures WHERE project_id = ? AND resolved_at IS NULL').all(projectId);
     const resolve = this.db.prepare('UPDATE index_failures SET resolved_at = ? WHERE id = ?');
     for (const row of open) {
-      if (ownsCode(row.code) && !seen.has(row.path)) resolve.run(timestamp, row.id);
+      if (ownsCode(row.code) && !seen.has(row.path) && (!paths || paths.has(row.path))) resolve.run(timestamp, row.id);
     }
   }
 

@@ -156,6 +156,20 @@ export function openDatabase(config) {
   // the one it was made from. Existing shares read NULL and use their version's.
   const shareColumns = new Set(db.prepare('PRAGMA table_info(object_share_grants)').all().map((column) => column.name));
   if (!shareColumns.has('snapshot_id')) db.exec('ALTER TABLE object_share_grants ADD COLUMN snapshot_id TEXT REFERENCES snapshots(id)');
+  // Rows and cells of large tables become objects only when they are offered
+  // or linked (see dependencies/table-index.js). Each later reading of their
+  // file reads these keys again, so a link to one survives a new version.
+  db.exec(`CREATE TABLE IF NOT EXISTS table_objects (
+    key_prefix TEXT NOT NULL,
+    object_key TEXT NOT NULL,
+    PRIMARY KEY (key_prefix, object_key)
+  ) WITHOUT ROWID`);
+  // Resolving an index groups its versions by object. With the object beside
+  // the snapshot in one index that reads the index alone, not every version
+  // row; on a large history the difference was seconds per resolution. It
+  // serves every lookup by snapshot, so the narrower index is dropped.
+  db.exec(`CREATE INDEX IF NOT EXISTS scientific_object_versions_snapshot_object_idx
+    ON scientific_object_versions(snapshot_id, object_id); DROP INDEX IF EXISTS scientific_object_snapshot_idx;`);
   // The first duplicates UNIQUE(snapshot_id, path); search text is matched in
   // memory, never in SQL, so its index only stored the text a second time.
   // Dropped here rather than in a migration, which replaying 001 would undo.

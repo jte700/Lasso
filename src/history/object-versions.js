@@ -223,6 +223,18 @@ export class ObjectVersionStore {
       SELECT COUNT(*) AS count FROM nearest WHERE version_rowid IS NOT NULL`).get(snapshotId).count;
   }
 
+  /**
+   * How many objects an index holds, as recorded when it was written.
+   * Counting them again resolves the whole chain, which for a large old index
+   * reads hundreds of thousands of rows from across the database.
+   */
+  indexedCount(snapshotId) {
+    const cached = this.sets.get(snapshotId);
+    if (cached) return cached.rows.length;
+    return this.db.prepare('SELECT object_count FROM snapshot_object_indexes WHERE snapshot_id = ?').get(snapshotId)?.object_count
+      ?? this.count(snapshotId);
+  }
+
   /** A row as read at a snapshot, the shape callers of a single version expect. */
   rowAtSnapshot(row, snapshotId, version = this.snapshotVersion(snapshotId)) {
     return { ...row, snapshot_id: snapshotId, snapshot_version: version };
@@ -308,6 +320,11 @@ export class ObjectVersionStore {
       UNION ALL SELECT 1 FROM scientific_object_removals WHERE snapshot_id = ? LIMIT 1`).get(snapshotId, snapshotId, snapshotId));
   }
 
+  /** Whether an index can still be built on this one, rather than written in full. */
+  canBuildOn(snapshotId) {
+    return this.depthOf(snapshotId) + 1 < MAX_INDEX_CHAIN;
+  }
+
   /** The nearest earlier indexed snapshot a new index can build on, or null to write it in full. */
   baseFor(projectId, snapshotId) {
     const base = this.db.prepare(`SELECT s.id FROM snapshots s JOIN snapshot_object_indexes i ON i.snapshot_id = s.id
@@ -324,11 +341,13 @@ export class ObjectVersionStore {
    * exists (an upgrade pass) only gains the objects it lacks, as the full-copy
    * INSERT OR IGNORE did; indexes built on it record those objects as absent,
    * so no later snapshot changes. Runs inside the caller's transaction.
+   * Returns how many objects the index holds, or null after an upgrade pass,
+   * whose count is not known without resolving it.
    */
   record(projectId, snapshotId, entries, { existing = false, carriedPaths = null } = {}) {
     if (existing) {
       this.addMissing(snapshotId, entries);
-      return;
+      return null;
     }
     const insert = this.db.prepare(INSERT_VERSION);
     const createdAt = now();
@@ -347,7 +366,7 @@ export class ObjectVersionStore {
     };
     const version = this.snapshotVersion(snapshotId);
     let base = this.baseFor(projectId, snapshotId);
-    const baseCount = base ? this.count(base) : 0;
+    const baseCount = base ? this.indexedCount(base) : 0;
     // A reading that keeps little of its base, such as the first after a large
     // subfolder stopped being indexed, is written in full. As differences it
     // would record a removal for most of the base, and every later read of
@@ -362,7 +381,7 @@ export class ObjectVersionStore {
       if (cacheRows) this.sets.set(snapshotId, resolvedSet(snapshotId, version, rows.sort(compareResolved)));
       this.chains.delete(snapshotId);
       this.depths.set(snapshotId, 0);
-      return;
+      return entries.length;
     }
     const previous = baseCount <= this.sets.maxWeight ? this.resolved(base) : null;
     cacheRows = cacheRows && previous !== null && baseCount + entries.length <= this.sets.maxWeight;
@@ -370,9 +389,12 @@ export class ObjectVersionStore {
       .run(snapshotId, base, createdAt);
     const replaced = new Set();
     const added = [];
+    // The new count is the base's, with the objects this index adds and removes.
+    let count = baseCount;
     for (const entry of entries) {
       const fields = storedFields(entry.descriptor);
       const before = previous ? previous.byObject.get(entry.object.id) : this.at(base, entry.object.id);
+      if (!before) count += 1;
       if (before && sameVersion(before, fields)) continue;
       if (before) replaced.add(entry.object.id);
       const row = store(entry, fields);
@@ -388,6 +410,7 @@ export class ObjectVersionStore {
       if (present.has(row.object_id) || carriedPaths?.has(row.path)) continue;
       remove.run(snapshotId, row.object_id);
       replaced.add(row.object_id);
+      count -= 1;
     }
     // The new index read without the database: its base's rows with this
     // index's changes applied, in the order RESOLVE_OBJECTS returns.
@@ -397,6 +420,33 @@ export class ObjectVersionStore {
     }
     this.chains.delete(snapshotId);
     this.depths.set(snapshotId, this.depthOf(base) + 1);
+    return count;
+  }
+
+  /**
+   * Records objects a snapshot's index did not read when it was built, such
+   * as rows of a large table first offered later. Each is the version a
+   * reading of the whole file would have recorded. Indexes already built on
+   * this one are told they lack them, as for an upgrade pass. An object this
+   * index records as removed stays removed. Returns the entries recorded.
+   */
+  addAt(snapshotId, entries) {
+    const insert = this.db.prepare(INSERT_VERSION);
+    const removed = this.db.prepare('SELECT 1 FROM scientific_object_removals WHERE snapshot_id = ? AND object_id = ?');
+    const added = [];
+    for (const entry of entries) {
+      if (this.at(snapshotId, entry.object.id) || removed.get(snapshotId, entry.object.id)) continue;
+      insert.run(crypto.randomUUID(), entry.object.id, snapshotId, ...storedFields(entry.descriptor), now());
+      added.push(entry);
+    }
+    if (!added.length) return added;
+    const hide = this.db.prepare(`INSERT OR IGNORE INTO scientific_object_removals(snapshot_id, object_id)
+      SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM scientific_object_versions WHERE snapshot_id = ? AND object_id = ?)`);
+    for (const { snapshot_id: dependent } of this.db.prepare('SELECT snapshot_id FROM object_index_bases WHERE base_snapshot_id = ?').all(snapshotId)) {
+      for (const { object } of added) hide.run(dependent, object.id, dependent, object.id);
+    }
+    this.sets.delete(snapshotId);
+    return added;
   }
 
   addMissing(snapshotId, entries) {

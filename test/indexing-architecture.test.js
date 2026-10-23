@@ -76,7 +76,7 @@ test('a watcher ignores changes inside an environment its folder\'s scan skipped
   t.after(() => app.close());
   const { project } = app.timeline.importProject(path.join(root, 'project'), actor);
   const captures = [];
-  t.mock.method(app.timeline, 'capture', (...args) => captures.push(args));
+  t.mock.method(app.timeline, 'captureFromWatcher', (...args) => captures.push(args));
   listener('change', 'venv/lib/core.py');
   listener('rename', 'venv/lib/python3.12/site-packages/new.py');
   await new Promise((resolve) => setTimeout(resolve, 25));

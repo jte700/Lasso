@@ -25,11 +25,23 @@ export function runSync(steps) {
  */
 export async function runSliced(steps, { onProgress = null, cancelled = null, sliceMs = SLICE_MS } = {}) {
   let sliceStart = performance.now();
+  let reply;
   try {
     for (;;) {
-      const step = steps.next();
+      const step = steps.next(reply);
+      reply = undefined;
       if (step.done) return step.value;
       if (step.value && onProgress) onProgress(step.value);
+      // Work handed to another thread (a large table read by a worker) is
+      // waited for here, and its answer handed back to the step. runSync
+      // hands back nothing, and the step does the work itself.
+      if (typeof step.value?.offThread === 'function') {
+        reply = await step.value.offThread((value) => onProgress?.(value));
+        const reason = cancelled?.();
+        if (reason) throw reason;
+        sliceStart = performance.now();
+        continue;
+      }
       if (performance.now() - sliceStart >= sliceMs) {
         await nextTurn();
         const reason = cancelled?.();
