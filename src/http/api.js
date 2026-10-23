@@ -141,7 +141,22 @@ function sourceLibraryEntry(source) {
   return drawing ? { ...object, label: drawing.label, searchAliases: drawing.aliases } : object;
 }
 
-export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null, workspace = null) {
+// The page the browser lands on after signing in to a connected app. It runs
+// no script; the Connect window sees the connection change on its own.
+function signInPage(title, message, ok) {
+  const escape = (value) => String(value).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escape(title)} · Lasso</title><style>
+:root{color-scheme:light dark;--bg:#f5f3f1;--ink:#000;--ink2:rgba(0,0,0,.6);--card:#fff;--accent:#1f9d55;--bad:#c2410c}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--ink:#f5f4f2;--ink2:rgba(245,244,242,.62);--card:#1f1f1e;--accent:#3fd977;--bad:#ff8a4c}}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+main{max-width:420px;margin:24px;padding:32px 30px;border-radius:18px;background:var(--card);box-shadow:0 1px 2px rgba(0,0,0,.05),0 18px 40px rgba(0,0,0,.08);text-align:center}
+.mark{width:44px;height:44px;margin:0 auto 14px;border-radius:50%;display:grid;place-items:center;font-size:22px;color:#fff;background:${ok ? 'var(--accent)' : 'var(--bad)'}}
+h1{margin:0 0 6px;font-size:21px;letter-spacing:-.01em}p{margin:0;color:var(--ink2)}</style></head>
+<body><main><div class="mark" aria-hidden="true">${ok ? '&#10003;' : '!'}</div><h1>${escape(title)}</h1><p>${escape(message)}</p></main></body></html>`;
+}
+
+export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null, workspace = null, connections = null) {
   const resolvedModelPreview = resolved => dependencies.sourceModelPreview({ ...resolved.source,
     path: resolved.internal.filePath, snapshotId: resolved.internal.snapshotId });
   const resolvedModelDocument = async resolved => {
@@ -371,6 +386,48 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         if (request.method === 'POST' && pathname === '/api/workspace/terminal') {
           const body = await readJson(request);
           return sendJson(response, 200, { result: await workspace.terminalRun(body.input, actorFrom(body), body) });
+        }
+      }
+      if (connections && request.method === 'GET' && pathname === '/connect/callback') {
+        try {
+          const connection = await connections.completeSignIn(Object.fromEntries(url.searchParams));
+          return sendHtml(response, 200, signInPage(`${connection.providerName} is connected`,
+            'Lasso is bringing in your items now. You can close this tab and return to Lasso.', true));
+        } catch (error) {
+          if ((error.status ?? 500) >= 500) console.error(error);
+          return sendHtml(response, error.status ?? 500, signInPage('Lasso could not connect',
+            (error.status ?? 500) >= 500 ? 'An unexpected error occurred. Try again from the Connect window.' : error.message, false));
+        }
+      }
+      if (connections && pathname.startsWith('/api/connections')) {
+        if (request.method === 'GET' && pathname === '/api/connections') {
+          return sendJson(response, 200, { catalog: connections.catalog({ native: url.searchParams.get('native') === '1' }),
+            connections: workspace.state({ pending: true }).connections });
+        }
+        if (request.method === 'POST' && pathname === '/api/connections') {
+          return sendJson(response, 201, await connections.create(await readJson(request, 64 * 1024)));
+        }
+        const app = match(pathname, /^\/api\/connections\/apps\/([^/]+)$/);
+        if (request.method === 'POST' && app) {
+          return sendJson(response, 200, { catalog: connections.configureApp(app[0], await readJson(request, 16 * 1024)) });
+        }
+        const action = match(pathname, /^\/api\/connections\/([^/]+)\/(sync|sign-in|items)$/);
+        if (request.method === 'POST' && action) {
+          const [id, verb] = action;
+          if (verb === 'sync') return sendJson(response, 200, { connection: await connections.sync(id) });
+          if (verb === 'sign-in') return sendJson(response, 200, connections.reauthorize(id));
+          const body = await readJson(request, 32 * 1024 * 1024);
+          return sendJson(response, 200, { connection: await connections.receive(id, body.events) });
+        }
+        const connection = match(pathname, /^\/api\/connections\/([^/]+)$/);
+        if (request.method === 'POST' && connection) {
+          const body = await readJson(request, 4096);
+          // The menu reads the whole workspace back, as it does for a folder's switch.
+          const changed = await connections.setActive(connection[0], body.active);
+          return sendJson(response, 200, { ...workspace.state({ pending: true }), connection: changed });
+        }
+        if (request.method === 'DELETE' && connection) {
+          return sendJson(response, 200, await connections.disconnect(connection[0]));
         }
       }
       if (request.method === 'GET' && pathname === '/api/sharing/status' && objectShares) {

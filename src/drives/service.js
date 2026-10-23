@@ -219,8 +219,11 @@ export class RemovableDriveService {
         const guards = this.db.prepare(`SELECT name, sql FROM sqlite_master WHERE type = 'trigger'
           AND name LIKE '%_immutable_delete'`).all();
         for (const guard of guards) this.db.exec(`DROP TRIGGER "${guard.name.replaceAll('"', '""')}"`);
-        this.db.prepare(`DELETE FROM snapshot_object_indexes WHERE snapshot_id IN
-          (SELECT id FROM snapshots WHERE project_id IN (${placeholders}))`).run(...ids);
+        // Carried-forward history refers to snapshots without cascading.
+        for (const table of ['snapshot_object_indexes', 'object_index_bases', 'scientific_object_removals']) {
+          this.db.prepare(`DELETE FROM ${table} WHERE snapshot_id IN
+            (SELECT id FROM snapshots WHERE project_id IN (${placeholders}))`).run(...ids);
+        }
         this.db.prepare(`DELETE FROM projects WHERE id IN (${placeholders})`).run(...ids);
         for (const guard of guards) this.db.exec(guard.sql);
       });

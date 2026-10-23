@@ -154,6 +154,15 @@ final class ServerController {
         // The server stops itself if this app crashes or is force-quit, so an
         // orphan cannot keep the preferred port and database from the next launch.
         environment["LASSO_PARENT_PID"] = String(getpid())
+        // Connected apps' dates and times are written as this Mac shows them.
+        environment["LASSO_LOCALE"] = Locale.current.identifier
+        switch Locale.current.hourCycle {
+        case .zeroToEleven: environment["LASSO_HOUR_CYCLE"] = "h11"
+        case .oneToTwelve: environment["LASSO_HOUR_CYCLE"] = "h12"
+        case .zeroToTwentyThree: environment["LASSO_HOUR_CYCLE"] = "h23"
+        case .oneToTwentyFour: environment["LASSO_HOUR_CYCLE"] = "h24"
+        @unknown default: break
+        }
         // Isolated here so shares can later be served from a hosted origin.
         environment["SHARE_BASE_URL"] = ProcessInfo.processInfo.environment["SHARE_BASE_URL"]
             ?? "http://localhost:\(port)"
@@ -304,6 +313,61 @@ private struct WorkDirectory {
     var needsAttention: Bool { active && available && !(error ?? "").isEmpty }
 }
 
+/// A third-party app connected in the Connect window. Its items are indexed
+/// in a folder Lasso manages, so it switches on and off like a directory.
+private struct ConnectedApp {
+    let id: String
+    let provider: String
+    let name: String
+    let projectId: String?
+    let status: String
+    let active: Bool
+    let itemCount: Int
+    let lastSyncedAt: Date?
+    let error: String?
+    let issue: DirectoryIssue?
+    let progress: DirectoryProgress?
+    let settings: [String: Any]
+    /// Written by an earlier Lasso, so it is read again in the current format.
+    let outdated: Bool
+
+    private static let dates: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    init?(_ object: [String: Any]) {
+        guard let id = object["id"] as? String, let provider = object["provider"] as? String else { return nil }
+        self.id = id
+        self.provider = provider
+        name = object["name"] as? String ?? provider
+        projectId = object["projectId"] as? String
+        status = object["status"] as? String ?? "ready"
+        active = object["active"] as? Bool ?? false
+        itemCount = (object["itemCount"] as? NSNumber)?.intValue ?? 0
+        lastSyncedAt = (object["lastSyncedAt"] as? String).flatMap(Self.dates.date(from:))
+        error = object["error"] as? String
+        issue = DirectoryIssue(object["issue"])
+        progress = DirectoryProgress(object["indexing"])
+        settings = object["settings"] as? [String: Any] ?? [:]
+        outdated = object["outdated"] as? Bool ?? false
+    }
+
+    /// Signing in, reading the app or indexing what it read.
+    var isBusy: Bool { status == "connecting" || status == "syncing" || progress != nil }
+    var isNative: Bool { provider == "apple-calendar" }
+
+    var symbol: String {
+        switch provider {
+        case "outlook": return "envelope"
+        case "notion": return "doc.text"
+        case "ics": return "calendar.badge.plus"
+        default: return "calendar"
+        }
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var server: ServerController!
@@ -320,6 +384,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let inspector = SourceInspectorPanel()
     private var directories: [WorkDirectory] = []
+    private var connections: [ConnectedApp] = []
+    private lazy var connectApps: ConnectAppsWindowController = {
+        let controller = ConnectAppsWindowController()
+        controller.onChange = { [weak self] in self?.refreshWorkspace() }
+        controller.onClose = { [weak self] in self?.returnToMenuBar() }
+        controller.calendar.onSynced = { [weak self] in self?.refreshWorkspace() }
+        return controller
+    }()
     private var workspaceRevision = ""
     private var workspaceError: String?
     private var busyMessage: String?
@@ -350,7 +422,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             didChange: { [weak self] in self?.rebuildMenu() }))
         // The menu bar and Dock icon show only while Settings is open, as a
         // regular app window. Closing it returns Lasso to the menu bar.
-        controller.onClose = { NSApp.setActivationPolicy(.accessory) }
+        controller.onClose = { [weak self] in self?.returnToMenuBar() }
         return controller
     }()
     private var settingsLoaded = false
@@ -361,6 +433,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var directoryListCollapsed: Bool {
         get { UserDefaults.standard.bool(forKey: "WorkDirectoriesCollapsed") }
         set { UserDefaults.standard.set(newValue, forKey: "WorkDirectoriesCollapsed") }
+    }
+
+    private var connectedListCollapsed: Bool {
+        get { UserDefaults.standard.bool(forKey: "ConnectedAppsCollapsed") }
+        set { UserDefaults.standard.set(newValue, forKey: "ConnectedAppsCollapsed") }
     }
 
     private func toggleColor(for directoryID: String) -> DirectoryToggleColor {
@@ -558,7 +635,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func rebuildMenu() {
         statusMenu.removeAllItems()
         let activeCount = directories.filter { $0.active && $0.available && ($0.error ?? "").isEmpty }.count
-        let reading = directories.contains { $0.progress != nil }
+        let reading = directories.contains { $0.progress != nil } || connections.contains { $0.progress != nil }
         let status = label(busyMessage ?? statusTitle(activeCount: activeCount))
         // A folder being read shows its own bar; the status line has one only
         // for requests no folder reports, such as a removal.
@@ -568,6 +645,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusMenu.addItem(command("Add Work Directories…", action: #selector(addDirectories),
                                    enabled: isServerReady && busyMessage == nil))
         statusMenu.addItem(driveMenu.item(ready: isServerReady, idle: busyMessage == nil))
+        let connect = command("Connect 3rd Party Apps…", action: #selector(showConnectApps), enabled: isServerReady)
+        connect.toolTip = "Bring in mail, calendars and notes from Outlook, Google Calendar, Notion and more."
+        statusMenu.addItem(connect)
         if directories.isEmpty { isRemovingDirectories = false }
         if !directories.isEmpty && isRemovingDirectories {
             addRemovalCommands()
@@ -625,6 +705,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        addConnectedApps()
         if let workspaceError {
             let item = label(workspaceError)
             item.toolTip = workspaceError
@@ -670,6 +751,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         serverURL: isServerReady ? server?.url : nil,
                         suggestions: GlobalAssistant.shared.isEnabled, requested: assistActivation.requested,
                         revision: directories.filter { $0.active && $0.available && ($0.error ?? "").isEmpty }.map(\.id).sorted().joined(separator: "|"))
+    }
+
+    /// Connected apps, in their own section below the folders, each with the
+    /// same switch and colour as a folder.
+    private func addConnectedApps() {
+        guard !connections.isEmpty else { return }
+        statusMenu.addItem(.separator())
+        // An app being read stays in view even in a collapsed list.
+        let expanded = !connectedListCollapsed || connections.contains { $0.progress != nil }
+        let heading = command("Connected Apps", action: #selector(toggleConnectedList))
+        heading.view = NativeMenuDisclosureRow(item: heading, expanded: expanded, count: connections.count)
+        statusMenu.addItem(heading)
+        guard expanded else { return }
+        for connection in connections {
+            let id = connection.id
+            let signingIn = connection.status == "connecting"
+            let item = command(connection.name + (signingIn ? " (signing in)" : ""), action: #selector(toggleConnection(_:)),
+                               enabled: isServerReady && busyMessage == nil && connection.projectId != nil
+                                && connection.progress == nil && !signingIn)
+            item.state = connection.active ? .on : .off
+            item.representedObject = id
+            let synced = connection.lastSyncedAt.map {
+                "Synced " + RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) + "."
+            }
+            let usage = signingIn ? "Finish signing in, in your browser."
+                : connection.progress != nil ? "Lasso is bringing in this app’s items."
+                : connection.active ? "On: suggestions include this app." : "Off: this app is paused."
+            item.toolTip = ["\(connection.itemCount) items.", synced, connection.error, usage].compactMap { $0 }.joined(separator: "\n")
+            item.image = NSImage(systemSymbolName: connection.symbol, accessibilityDescription: nil)
+            // Inserted text is highlighted by the project it came from.
+            let colorKey = connection.projectId ?? id
+            let row = NativeMenuToggleRow(item: item, color: toggleColor(for: colorKey)) { [weak self] color in
+                self?.setToggleColor(color, for: colorKey)
+            }
+            row.issue = connection.issue
+            row.progress = connection.progress
+            row.onFix = { [weak self] in self?.syncConnection(id) }
+            row.contextActions = { [weak self] in
+                let current = self?.connections.first { $0.id == id }
+                let ready = self?.isServerReady == true && current?.isBusy == false
+                return [
+                    RowAction(title: "Sync Now", enabled: ready, help: "Read the app again now.") { self?.syncConnection(id) },
+                    RowAction(title: "Open Connect Window…") { self?.showConnectApps() },
+                    nil,
+                    RowAction(title: "Disconnect…", enabled: self?.isServerReady == true,
+                              help: "Lasso stops reading this app and forgets its items. Nothing changes in the app.") {
+                        self?.disconnectConnection(id)
+                    },
+                ]
+            }
+            item.view = row
+            statusMenu.addItem(item)
+        }
     }
 
     private func statusTitle(activeCount: Int) -> String {
@@ -868,7 +1002,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func applyWorkspace(_ state: [String: Any]) {
         directories = WorkspaceAPI.switchedOnFirst(
             (state["directories"] as? [[String: Any]] ?? []).compactMap(WorkDirectory.init), isOn: \.active)
+        connections = WorkspaceAPI.switchedOnFirst(
+            (state["connections"] as? [[String: Any]] ?? []).compactMap(ConnectedApp.init), isOn: \.active)
         removalSelection = removalSelection.pruned(to: directories.map(\.id))
+        // The Calendar app's events are read here and sent to the server.
+        let calendars = connections.filter { $0.isNative && $0.active && $0.projectId != nil }
+        if !calendars.isEmpty || connectAppsLoaded {
+            for calendar in calendars where !calendar.outdated {
+                if let date = calendar.lastSyncedAt { connectApps.calendar.noteSynced(calendar.id, at: date) }
+            }
+            connectApps.calendar.track(calendars.map { (id: $0.id, settings: $0.settings) }, serverURL: server.url)
+            connectAppsLoaded = true
+        }
         if let revision = state["revision"] as? String {
             workspaceRevision = revision
         } else if let revision = state["revision"] as? NSNumber {
@@ -886,7 +1031,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// A folder the server reads on its own, such as one brought up to date
     /// at startup, is followed as closely as one the user just added.
     private func followProgress() {
-        guard busyMessage == nil, !progressFollowUp, directories.contains(where: { $0.progress != nil }) else { return }
+        guard busyMessage == nil, !progressFollowUp,
+              directories.contains(where: { $0.progress != nil }) || connections.contains(where: \.isBusy) else { return }
         progressFollowUp = true
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.progressInterval) { [weak self] in
             self?.progressFollowUp = false
@@ -1123,6 +1269,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleDirectoryList() {
         directoryListCollapsed.toggle()
         rebuildMenu()
+    }
+
+    // MARK: Connected apps
+
+    /// Whether the Connect window's controller exists, so tracking Calendar
+    /// does not create it for someone who never connected one.
+    private var connectAppsLoaded = false
+
+    @objc private func showConnectApps() {
+        guard isServerReady, let url = server.url else { return }
+        connectAppsLoaded = true
+        statusPopover.popover.performClose(nil)
+        // Like Settings, the window is a regular app window while it is open.
+        NSApp.setActivationPolicy(.regular)
+        DispatchQueue.main.async { [weak self] in self?.connectApps.show(serverURL: url) }
+    }
+
+    /// Back to the menu bar alone once no Lasso window is open.
+    private func returnToMenuBar() {
+        let settingsOpen = settingsLoaded && settings.window?.isVisible == true
+        let connectOpen = connectAppsLoaded && connectApps.isVisible
+        if !settingsOpen && !connectOpen { NSApp.setActivationPolicy(.accessory) }
+    }
+
+    @objc private func toggleConnectedList() {
+        connectedListCollapsed.toggle()
+        rebuildMenu()
+    }
+
+    @objc private func toggleConnection(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String,
+              let connection = connections.first(where: { $0.id == id }) else { return }
+        let activate = !connection.active
+        mutateWorkspace(path: "api/connections/" + id, body: ["active": activate],
+                        message: activate ? "Switching on \(connection.name)…" : "Pausing \(connection.name)…",
+                        failureTitle: "The Connected App Couldn\u{2019}t Be Updated")
+    }
+
+    /// Reads the app again. Its row shows how far that has got.
+    private func syncConnection(_ id: String) {
+        guard isServerReady, let base = server.url, let connection = connections.first(where: { $0.id == id }) else { return }
+        if connection.isNative {
+            connectAppsLoaded = true
+            connectApps.calendar.sync(connectionId: id, settings: connection.settings, serverURL: base) { [weak self] result in
+                if case .failure(let error) = result {
+                    self?.showError(error.localizedDescription, title: "Calendar Couldn\u{2019}t Be Read")
+                }
+                self?.refreshWorkspace()
+            }
+        } else {
+            var request = URLRequest(url: base.appendingPathComponent("api/connections/\(id)/sync"))
+            request.httpMethod = "POST"
+            request.timeoutInterval = Self.indexingRequestTimeout
+            // The row follows the sync through the workspace; the answer only ends it.
+            URLSession.shared.dataTask(with: request) { [weak self] _, _, _ in
+                DispatchQueue.main.async { self?.refreshWorkspace() }
+            }.resume()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.refreshWorkspace() }
+    }
+
+    /// Stops reading the app and forgets what Lasso brought in from it.
+    private func disconnectConnection(_ id: String) {
+        guard let connection = connections.first(where: { $0.id == id }) else { return }
+        let alert = NSAlert()
+        alert.messageText = "Disconnect \(connection.name)?"
+        alert.informativeText = "Lasso stops reading it and removes the copy of its items from this Mac. Nothing changes in the app itself, and you can connect it again any time."
+        alert.alertStyle = .warning
+        let disconnect = alert.addButton(withTitle: "Disconnect")
+        disconnect.hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard statusPopover.holdingOpen({ alert.runModal() }) == .alertFirstButtonReturn else { return }
+        mutateWorkspace(path: "api/connections/" + id, method: "DELETE", message: "Disconnecting \(connection.name)…",
+                        failureTitle: "The App Couldn\u{2019}t Be Disconnected")
     }
 
     @objc private func screensChanged() { rebuildMenu() }

@@ -11,6 +11,21 @@ export const ACTOR_TYPES = new Set([
 
 export const CHANGE_TYPES = new Set(['ADDED', 'DELETED', 'RENAMED', 'MOVED', 'MODIFIED']);
 
+/**
+ * App registrations that connected apps sign in with: from the environment,
+ * or written into the app by a build that had them (desktop/build.sh).
+ */
+function connectorApps() {
+  let built = {};
+  try { built = JSON.parse(fs.readFileSync(fileURLToPath(new URL('../connector-apps.json', import.meta.url)), 'utf8')); }
+  catch { /* this build has none of its own */ }
+  return {
+    microsoft: { clientId: process.env.LASSO_MICROSOFT_CLIENT_ID || built.microsoft?.clientId || null },
+    google: { clientId: process.env.LASSO_GOOGLE_CLIENT_ID || built.google?.clientId || null,
+      clientSecret: process.env.LASSO_GOOGLE_CLIENT_SECRET || built.google?.clientSecret || null },
+  };
+}
+
 export function createConfig(overrides = {}) {
   const currentDataDir = path.join(process.cwd(), '.lasso-data');
   const previousDataDir = path.join(process.cwd(), '.colab-dry-data');
@@ -34,5 +49,11 @@ export function createConfig(overrides = {}) {
     watchProjects: overrides.watchProjects ?? true,
     driveToken: overrides.driveToken ?? process.env.LASSO_DRIVE_TOKEN ?? null,
     publicDir: overrides.publicDir ?? fileURLToPath(new URL('../public', import.meta.url)),
+    // Connected apps are read again on a schedule; tests sync by hand.
+    syncConnections: overrides.syncConnections ?? true,
+    // Without a registration of Lasso's own, one is entered in the Connect window.
+    connectorApps: overrides.connectorApps ?? connectorApps(),
+    // Pause between Notion requests, within its rate limit.
+    notionSpacingMs: overrides.notionSpacingMs ?? 340,
   };
 }

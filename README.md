@@ -24,6 +24,7 @@ The app runs in the menu bar and starts its own local server, restarting it auto
 
 - **Add Work Directories…** to choose folders (Command-click to add several at once), and **Remove Work Directories…** to take folders out of Lasso: click the folders to select them (Shift-click selects a range, or use **Select All**), then choose **Remove N Directories…** and confirm once. Removing never changes the folders or their files.
 - **External Drives** to index a connected external drive, or folders on it, and to keep or remove what Lasso saved from a disconnected one (see below).
+- **Connect 3rd Party Apps…** to bring in mail, calendars and notes (see [Connected apps](#connected-apps)). Connected apps are listed under **Connected Apps**, below the folders, each with the same switch and colour circle as a folder; right-click one to sync it now or disconnect it.
 - **Work Directories** to collapse the list and switch folders on or off. Folders that are on are listed above those that are off. Suggestions come only from folders that are switched on. The small circle sets the folder's highlight colour, used for text accepted from it. Right-click a folder to show it in Finder or remove it.
 - An orange **!** to the left of a folder's icon means the folder needs you: it cannot be found, macOS withheld access, Lasso could not start it, or some of its files could not be read from disk. Hover over it to see what happened. When the problem is Lasso's own, such as a folder it failed to start, the card also has a button (**Try Again**, or **Re-read Files** for a folder indexed by an older version of Lasso's reader) that fixes it. What Lasso's readers could only partly understand, such as a damaged or password-protected workbook or a CAD export without solid geometry, is not a problem with the folder and has no badge: the folder's tooltip, the notch's indexing issues and `index failures` list it.
 - While a folder is added, brought up to date or re-read, its row shows a bar in the folder's colour with a percentage that counts up from 0% to 100%, in place of its switch. Folders already in use keep giving suggestions meanwhile, and a folder being brought up to date answers from its last index until its new version is ready.
@@ -56,6 +57,20 @@ Connecting a mounted external storage drive adds a badge to the menu bar icon an
 On disconnection, choose **Keep Saved Index** to browse and search cached file copies and their history offline, or **Remove Saved Data…** to delete those directories, indexes, local copies, and history from Lasso. Removal leaves the original drive files untouched, preserves blobs still used by another directory, and refuses to delete sources referenced by another directory. Offline directories are marked in the workspace; editing and reindexing resume after reconnection, and folders reconcile their changes when the drive returns.
 
 Detection covers mounted external storage, including USB-A and USB-C drives, while the Mac app is running. Internal disks, network shares, disk images, locked or unmounted volumes, and volumes without a unique persistent identity are excluded. macOS may ask for permission to read removable volumes.
+
+### Connected apps
+
+**Connect 3rd Party Apps…** opens a window, over the website's lasso of source text, where you connect:
+
+- **Outlook** (Outlook.com, Hotmail or Microsoft 365): mail and calendar, read through Microsoft Graph.
+- **Google Calendar**: events from the calendars in your list.
+- **Calendar** on this Mac: the Calendar app's calendars you choose, including iCloud, Exchange and Google accounts added in System Settings. macOS asks once for access.
+- **Notion**: the pages and databases you share with an internal integration whose secret you paste.
+- **Calendar Feed**: any calendar published as an iCal (`.ics`) address.
+
+You choose how far back and ahead Lasso reads (30 days back and 90 ahead by default). Each item is written as a record: its title, then its fields (an event's date, time, end, location, organizer and attendees; a message's sender, recipients, date and time; a page's properties), with dates and times as this Mac shows them. After you accept an item by its title, the word you write next picks its field: "I have a meeting with Dr. Lavalee **on**" offers the meeting's date, **at** its time or place, **in** its location, **with** its people, **from** a message's sender, **is** any of them. A field you accept leads on to the rest ("…on Tuesday, October 27 **at**" offers its time), and fields already written in the sentence are not offered again. Notes of your own written the same way (a level-one heading, then lines such as `- **Date:** Monday, October 19`) work the same. Lasso writes each message, event or page as a Markdown file in a folder it manages under `Application Support/Lasso/data/connected-apps`, and indexes that folder like a work directory, so its items are suggested and cited the same way. Apps are read again every 30 minutes while they are switched on (Calendar on this Mac whenever its events change), and only items that changed are rewritten. Lasso only reads; it never changes or sends anything in the app. Sign-ins, secrets and private calendar addresses are kept in `connection-credentials.json` beside the history database, readable only by your user, never in the database itself. **Disconnect…** stops reading the app, removes its folder and sign-in, and forgets the history Lasso kept of its items.
+
+Outlook and Google Calendar sign in on the provider's own page in your browser (OAuth with PKCE), which returns to `http://localhost:<port>/connect/callback` on this Mac. They need an app registration: set `LASSO_MICROSOFT_CLIENT_ID`, or `LASSO_GOOGLE_CLIENT_ID` and `LASSO_GOOGLE_CLIENT_SECRET`, when running `npm run desktop` (the build writes them into the app), or enter yours in the Connect window the first time. For Microsoft, register a public client for personal and work accounts with the redirect URI `http://localhost/connect/callback` and the delegated permissions `Mail.Read`, `Calendars.Read` and `User.Read`; for Google, an OAuth client of type Desktop app with the Google Calendar API enabled.
 
 ### Bundled Node.js
 
@@ -181,6 +196,8 @@ The command layer behind the source tools uses the same dependency graph:
 | `LASSO_NODE` | Node.js binary the desktop build bundles, `node` on `PATH` by default. Set when the app starts, it runs the server instead of the bundled copy. |
 | `LASSO_NODE_LICENSE` | Node.js `LICENSE` file for the build to bundle, for offline builds from the nodejs.org installer, which does not keep one. |
 | `LASSO_SIGN_IDENTITY` | Desktop signing certificate name or SHA-1 fingerprint. |
+| `LASSO_MICROSOFT_CLIENT_ID` | Client ID of the Microsoft app registration Outlook signs in with. Without it, the Connect window asks for one. |
+| `LASSO_GOOGLE_CLIENT_ID`, `LASSO_GOOGLE_CLIENT_SECRET` | The Google OAuth desktop client Google Calendar signs in with. Without them, the Connect window asks for them. |
 | `LASSO_ICON_STYLE` | App icon drawn by `scripts/render-app-icon.swift`: `full-bleed` for macOS 26, which masks icons to its own shape, or `squircle` for earlier versions. Defaults to the building Mac's version. |
 | `SHARE_BASE_URL` | Base URL for generated share links. |
 

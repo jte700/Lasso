@@ -238,7 +238,11 @@ export class WorkspaceService {
         currentVersion: null, fileCount: 0, available: true, serving: false, pending: true,
         error: null, issue: null, note: null, indexing: progress.toJSON() });
     }
-    return { directories, revision: this.revision(),
+    // Connected apps are indexed as folders Lasso manages. They answer
+    // suggestions like any directory but are listed with the apps.
+    const connected = directories.filter((p) => this.connections?.ownsRoot(p.rootPath));
+    return { directories: directories.filter((p) => !connected.includes(p)),
+      connections: this.connections?.describe(connected) ?? [], revision: this.revision(),
       activeProjectIds: directories.filter((p) => p.active && p.available && !p.error && p.serving).map((p) => p.id) };
   }
 
