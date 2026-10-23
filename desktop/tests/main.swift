@@ -2588,11 +2588,17 @@ do {
 
     check(!memory.canMoveIn(focusedOn: bracket, selected: bracket) && !memory.canMoveIn(focusedOn: bracket, selected: nil),
           "a focused card has nowhere further to go without another row selected")
+    memory.noteFocus(bracket)
     memory.moveIn(focusedOn: bracket, selected: hole)
-    check(focusId(memory.requestFields) == "hole" && memory.recent == hole,
-          "fn+Right on a focused card narrows it to the selected row")
+    check(focusId(memory.requestFields) == "hole" && memory.recent == hole && memory.stepBack == bracket,
+          "fn+Right on a focused card narrows it to the selected row, and fn+Left would step back to the card's focus")
+    memory.noteFocus(hole)
     memory.moveOut(from: hole)
-    memory.moveIn(focusedOn: nil, selected: nil)
+    check(focusId(memory.requestFields) == "bracket", "fn+Left steps back to the focus the row was chosen on")
+    memory.noteFocus(bracket)
+    check(memory.canMoveIn(focusedOn: bracket, selected: hole) && memory.stepBack == nil,
+          "back on the focus, fn+Right can narrow to the row again, and fn+Left goes on to every directory")
+    memory.moveIn(focusedOn: bracket, selected: hole)
     check(focusId(memory.requestFields) == "hole", "fn+Left then fn+Right returns to the narrowed focus")
 
     let revenueText = accept(&memory, source("revenue", "Revenue", project: "finance"), after: "The Bracket is shown. ")
@@ -2641,6 +2647,140 @@ do {
     var fresh = LinkedSourceMemory()
     fresh.moveOut(from: nil)
     check(!fresh.keepsEmptyCard(focusedOn: nil), "with nowhere to move back, an empty card closes")
+}
+
+print("fn+Left steps the card back one level at a time")
+do {
+    func source(_ id: String, _ text: String, project: String = "cad") -> LinkedSourceMemory.Source {
+        LinkedSourceMemory.Source(projectId: project, objectId: id, snapshotId: "snap-\(id)", text: text)
+    }
+    func focusId(_ fields: [String: Any]) -> String? {
+        (fields["focusSource"] as? [String: Any])?["sourceObjectId"] as? String
+    }
+    func pendingIds(_ fields: [String: Any]) -> [String] {
+        (fields["pendingDependencies"] as? [[String: Any]] ?? []).compactMap { $0["sourceObjectId"] as? String }
+    }
+    func accept(_ memory: inout LinkedSourceMemory, _ accepted: LinkedSourceMemory.Source, after before: String) -> String {
+        let units = Array((before + accepted.text).utf16)
+        memory.record(accepted, in: units, at: (units.count - accepted.text.utf16.count)..<units.count)
+        return before + accepted.text
+    }
+    let bracket = source("bracket", "Bracket"), width = source("width", "Bracket overall X extent")
+
+    // "the bra", Tab, then fn+Right on 100 mm: fn+Left brings the part's list back.
+    var memory = LinkedSourceMemory()
+    memory.noteFocus(nil)
+    let text = accept(&memory, bracket, after: "the ")
+    memory.observe(text, reachesStart: true)
+    memory.noteFocus(bracket)
+    check(memory.stepBack == nil, "the card Tab focused steps back to every directory")
+    memory.moveIn(focusedOn: bracket, selected: width)
+    memory.noteFocus(width)
+    check(focusId(memory.requestFields) == "width" && memory.stepBack == bracket,
+          "fn+Right narrows to the measurement, one level below the part")
+    memory.moveOut(from: width)
+    check(focusId(memory.requestFields) == nil && pendingIds(memory.requestFields) == ["bracket"],
+          "fn+Left asks for the part's values again, not every directory")
+    memory.noteFocus(bracket)
+    check(memory.canMoveIn(focusedOn: bracket, selected: width),
+          "back on the part's list, fn+Right can narrow to the measurement again")
+    memory.moveOut(from: bracket)
+    check(memory.requestFields.isEmpty, "a second fn+Left reaches every directory")
+    memory.noteFocus(nil)
+    check(memory.recent == bracket && memory.keepsEmptyCard(focusedOn: nil),
+          "from every directory fn+Right returns to the part, the level fn+Left just left")
+    memory.moveIn(focusedOn: nil, selected: nil)
+    memory.noteFocus(bracket)
+    memory.moveIn(focusedOn: bracket, selected: width)
+    memory.noteFocus(width)
+    memory.moveOut(from: width)
+    check(focusId(memory.requestFields) == "bracket", "each fn+Right is undone by one fn+Left")
+    memory.noteFocus(bracket)
+    memory.moveOut(from: bracket)
+    check(memory.requestFields.isEmpty && memory.stepBack == nil, "and the last one returns to every directory")
+
+    // Sources accepted one inside another step back the way deleting them would.
+    let file = source("payables", "Accounts-Payable", project: "accounts")
+    let column = source("invoice-date", "Invoice Date", project: "accounts")
+    var chain = LinkedSourceMemory()
+    var sentence = accept(&chain, file, after: "")
+    chain.observe(sentence + " inv", reachesStart: true)
+    chain.noteFocus(nil)
+    sentence = accept(&chain, column, after: sentence + " ")
+    chain.observe(sentence + " ", reachesStart: true)
+    chain.noteFocus(column)
+    check(chain.stepBack == nil, "a source tabbed on a card from every directory steps back to it")
+    chain.moveOut(from: column)
+    check(pendingIds(chain.requestFields) == ["payables"],
+          "fn+Left on a tabbed column steps back to the file it was named in, which stays in the text")
+    chain.observe(String(sentence.dropLast()), reachesStart: true)
+    check(pendingIds(chain.requestFields) == ["payables"], "deleting the column afterwards changes nothing more")
+
+    var nested = LinkedSourceMemory()
+    let row = source("city-row", "City Office Consumables", project: "accounts")
+    let cell = source("city-amount", "City Office Consumables · Amount", project: "accounts")
+    _ = accept(&nested, column, after: "")
+    nested.noteFocus(column)
+    nested.moveIn(focusedOn: column, selected: row)
+    nested.noteFocus(row)
+    nested.moveIn(focusedOn: row, selected: cell)
+    nested.noteFocus(cell)
+    check(nested.stepBack == row, "a row narrowed twice steps back to the row first")
+    nested.moveOut(from: cell)
+    check(focusId(nested.requestFields) == "city-row", "then to the row")
+    nested.noteFocus(row)
+    check(nested.stepBack == column, "and names the column next")
+    nested.moveOut(from: row)
+    check(focusId(nested.requestFields) == nil && pendingIds(nested.requestFields) == ["invoice-date"],
+          "then to the column accepted with Tab")
+
+    // Tab on a narrowed card: fn+Left out of that Tab returns to the narrowed focus, as deleting it would.
+    var replacing = LinkedSourceMemory()
+    let header = source("header-row", "Vendor", project: "accounts")
+    var written = accept(&replacing, column, after: "")
+    replacing.noteFocus(column)
+    replacing.moveIn(focusedOn: column, selected: row)
+    replacing.noteFocus(row)
+    written = accept(&replacing, header, after: written + " ")
+    replacing.observe(written + " ", reachesStart: true)
+    replacing.noteFocus(header)
+    check(replacing.stepBack == row, "the header of a source tabbed on a narrowed card names that focus")
+    replacing.moveOut(from: header)
+    check(focusId(replacing.requestFields) == "city-row", "and fn+Left goes there, not to the source beneath it")
+
+    // fn+Left and fn+Right still move after deleting a value accepted with Tab.
+    var deleted = LinkedSourceMemory()
+    let value = source("x-extent-value", "100 mm")
+    var typed = accept(&deleted, bracket, after: "the ")
+    deleted.noteFocus(bracket)
+    typed = accept(&deleted, value, after: typed + " is ")
+    deleted.noteFocus(nil)
+    deleted.observe(String(typed.dropLast(2)), reachesStart: true)
+    deleted.noteFocus(bracket)
+    check(pendingIds(deleted.requestFields) == ["bracket"], "deleting the value shows the part's list again")
+    deleted.moveIn(focusedOn: bracket, selected: width)
+    check(focusId(deleted.requestFields) == "width", "fn+Right then narrows it")
+    deleted.noteFocus(width)
+    deleted.moveOut(from: width)
+    deleted.noteFocus(bracket)
+    deleted.moveOut(from: bracket)
+    check(deleted.requestFields.isEmpty, "and fn+Left steps back to every directory")
+
+    // A removed directory takes the fn+Left out of its source along.
+    var removing = LinkedSourceMemory()
+    let quote = source("quote", "Quote 114", project: "finance")
+    let both = accept(&removing, bracket, after: "the ")
+    _ = accept(&removing, quote, after: both + " and ")
+    removing.moveOut(from: quote)
+    removing.keep(projectIds: ["cad"])
+    check(pendingIds(removing.requestFields) == ["bracket"],
+          "fn+Left out of a source in a removed directory does not step back out of the one before it")
+
+    let rows: [String?] = ["height", nil, "width"]
+    check(FocusLanding.row(objectId: "width").index(in: rows) == 2,
+          "the list fn+Left returns to opens on the row it stepped out of")
+    check(FocusLanding.row(objectId: "gone").index(in: rows) == 0 && FocusLanding.first.index(in: rows) == 0,
+          "a list without that row, or one fn+Right narrowed to, opens at the top")
 }
 
 print("deleting text accepted with Tab steps the card's focus back")

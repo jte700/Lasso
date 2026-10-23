@@ -20,8 +20,8 @@
         { "action": "Share a link to the source", "macos": "⇧⌘↩", "windows": "Ctrl+Shift+Enter" },
         { "action": "Choose another suggestion", "macos": "↑↓", "windows": "↑↓" },
         { "action": "Confirm text or link, when Tab asks", "macos": "↩", "windows": "Enter" },
-        { "action": "Show suggestions from every folder", "macos": "fn ←" },
-        { "action": "Focus on a source or the selected row", "macos": "fn →" },
+        { "action": "Step back to the previous suggestions", "macos": "fn ←" },
+        { "action": "Narrow to the selected row", "macos": "fn →" },
         { "action": "Undo what Lasso just inserted", "macos": "⌘Z" },
         { "action": "Open the source", "windows": "F4" },
         { "action": "Dismiss", "macos": "Esc", "windows": "Esc" }

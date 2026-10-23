@@ -677,6 +677,9 @@ final class AssistBoxView: NSView {
     /// The latest focus, named in the header when fn+Right can take an
     /// unfocused card back into it.
     var returnFocusName: String?
+    /// The focus fn+Left steps a focused card back to, named in its header;
+    /// nil when it steps back to every directory.
+    var stepBackName: String?
     var preview: AssistDocumentPreview? {
         didSet { modelView = AssistModelView(); modelDrag = nil; tableFirstRow = 0; tableScroll = 0 }
     }
@@ -694,6 +697,7 @@ final class AssistBoxView: NSView {
     var onShare: (() -> Void)?
     var onOpenSource: (() -> Void)?
     var onAllSources: (() -> Void)?
+    var onStepBack: (() -> Void)?
     var onDismiss: (() -> Void)?
     fileprivate let closeButton = NSButton()
 
@@ -818,12 +822,13 @@ final class AssistBoxView: NSView {
         switch mode {
         case .suggestions:
             let navigationFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+            // Clear of the row counter when it shows.
+            let width = suggestions.count > visibleSuggestionCount ? leftWidth - 170 : leftWidth - 40
             if sourceScoped {
-                drawText("‹ All sources  fn ←", in: NSRect(x: 20, y: bodyTop + 10, width: 130, height: 16),
-                         font: navigationFont, color: .controlAccentColor)
+                drawLabel("‹ \(stepBackName ?? "All sources")", key: "fn ←",
+                          in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
+                          font: navigationFont, color: .controlAccentColor)
             } else if let returnFocusName {
-                // Clear of the row counter when it shows.
-                let width = suggestions.count > visibleSuggestionCount ? leftWidth - 170 : leftWidth - 40
                 drawLabel("Dive into \(returnFocusName)", key: "fn →",
                           in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
                           font: navigationFont, color: .secondaryLabelColor)
@@ -1413,7 +1418,8 @@ final class AssistBoxView: NSView {
             }
             guard point.y >= bodyTop else { return }
             if point.y < bodyTop + navigationHeight {
-                if sourceScoped { onAllSources?() }
+                // The header names where it goes: one level back, or the list of every source.
+                if sourceScoped { stepBackName == nil ? onAllSources?() : onStepBack?() }
                 return
             }
             let slot = Int((point.y - bodyTop - navigationHeight) / suggestionHeight)
@@ -1556,6 +1562,8 @@ final class GlobalAssistant {
     private var linkedSources = LinkedSourceMemory()
     /// The source the card on screen is focused on, as the server reported it.
     private var focusedSource: LinkedSourceMemory.Source?
+    /// The row the list a focus move asked for opens on.
+    private var focusLanding: FocusLanding?
     private var linkedContext: String?
     private var linkedElement: AXUIElement?
     private var flashTimer: Timer?
@@ -1741,6 +1749,7 @@ final class GlobalAssistant {
         case .followTyping(let trackCaret):
             // Typing on ends a move, so a card the move left empty closes as usual.
             linkedSources.endMove()
+            focusLanding = nil
             // What was typed is now the last change, which the host's own undo takes back.
             undoableInsertion = nil
             if trackCaret { self.trackCaret() }
@@ -1762,10 +1771,12 @@ final class GlobalAssistant {
         case .inspectorShare:
             inspector?.shareFromKeyboard()
         case .focusOut:
-            linkedSources.moveOut(from: focusedSource)
-            refresh()
+            stepBack()
         case .focusIn:
+            focusLanding = .first
             linkedSources.moveIn(focusedOn: focusedSource, selected: selectedSource)
+            // Until the server answers, a second fn+Right starts from here, not from the old card.
+            focusedSource = linkedSources.chosen
             refresh()
         case .shareUndo:
             ShareComposerController.shared.undoRedaction()
@@ -1775,6 +1786,18 @@ final class GlobalAssistant {
             undoInsertion()
         }
         publishKeyRouting()
+    }
+
+    /// fn+Left: one level back. The list it returns to opens on the row
+    /// stepped out of, so fn+Right goes straight back into it.
+    private func stepBack() {
+        guard let focused = focusedSource else { return }
+        focusLanding = .row(objectId: focused.objectId)
+        let beneath = linkedSources.stepBack
+        linkedSources.moveOut(from: focused)
+        // Until the server answers, a second fn+Left steps back from here, not from the old card.
+        focusedSource = beneath
+        refresh()
     }
 
     // MARK: Suggestion flow
@@ -2045,9 +2068,14 @@ final class GlobalAssistant {
                 self.adoptHost(host, caret: current.caret)
                 self.view.sourceScoped = sourceScoped
                 self.focusedSource = focus
-                if let focus { self.linkedSources.noteFocus(focus) }
+                self.linkedSources.noteFocus(focus)
+                self.view.stepBackName = focus == nil ? nil : self.linkedSources.stepBack?.text
                 self.view.returnFocusName = focus == nil && self.linkedSources.canMoveIn(focusedOn: nil, selected: nil)
                     ? self.linkedSources.recent?.text : nil
+                if let landing = self.focusLanding {
+                    self.focusLanding = nil
+                    self.view.selected = landing.index(in: suggestions.map(\.objectId))
+                }
                 self.view.title = heading ?? "dependency"
                 self.show(suggestions)
                 self.publishKeyRouting()
@@ -3075,6 +3103,7 @@ final class GlobalAssistant {
         view.onShare = { [weak self] in self?.acceptShared() }
         view.onOpenSource = { [weak self] in self?.openCurrentSource() }
         view.onAllSources = { [weak self] in self?.chooseSource(allDocuments: true) }
+        view.onStepBack = { [weak self] in self?.stepBack(); self?.publishKeyRouting() }
         view.onDismiss = { [weak self] in self?.hide() }
         created.contentView = AssistBubbleContainer(content: view)
         panel = created
@@ -3648,7 +3677,9 @@ final class GlobalAssistant {
         view.isPreviewLoading = false
         view.sourceScoped = false
         view.returnFocusName = nil
+        view.stepBackName = nil
         focusedSource = nil
+        focusLanding = nil
         linkedSources.endMove()
         pendingShare = nil
         panel?.orderOut(nil)
