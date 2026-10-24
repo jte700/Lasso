@@ -6,7 +6,7 @@ import { buildPreview } from '../history/preview.js';
 import { HttpError } from '../history/errors.js';
 import { DEFAULT_EVENT_PAGE } from '../history/service.js';
 import { renderSharePage, renderUnavailable, renderInspectorPanel } from '../sharing/share-page.js';
-import { buildFullShareDocument, buildInspectorPreview, buildSharePreview, isTextPreviewPath, usesStructuredLayout, detectsCsvDelimiter } from '../sharing/share-preview.js';
+import { buildFullShareDocument, buildInspectorPreview, buildSharePreview, buildSlideShareDocument, isTextPreviewPath, usesStructuredLayout, detectsCsvDelimiter } from '../sharing/share-preview.js';
 import { fullTextLayout } from '../sharing/text-layout.js';
 import { isMarkdownPath } from '../sharing/markdown.js';
 import { buildModelPreview } from '../dependencies/model-preview.js';
@@ -15,7 +15,9 @@ import { citedPartModel } from '../sharing/cited-part.js';
 import { buildShareDownload, downloadDisposition } from '../sharing/share-download.js';
 import { drawingDiscovery } from '../dependencies/drawing-discovery.js';
 import { buildSafePdf, pdfShareRequest } from '../sharing/pdf-share.js';
-import { normalizePdfExcerpt, normalizeRedactions } from '../sharing/object-share.js';
+import { normalizePdfExcerpt, normalizeRedactions, offeredShareScopes } from '../sharing/object-share.js';
+import { isPresentationPath } from '../dependencies/presentation-extraction.js';
+import { singleSlidePresentation } from '../sharing/slide-export.js';
 import { refusalReason, WORKSPACE_PAGE_HEADERS } from './request-guard.js';
 import { passiveInlineType } from './passive-types.js';
 
@@ -175,6 +177,15 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       if (resolved.share.accessScope === 'INDEXED' && /\.(?:step|stp)$/i.test(resolved.internal.filePath)) {
         return { preview, document: citedPartModel(await resolvedModelPreview(resolved)) };
       }
+      // A deck is shared whole, or as the slide the citation is on and nothing else.
+      if (isPresentationPath(resolved.internal.filePath)) {
+        if (resolved.share.accessScope === 'DOCUMENT') return { preview: null, document: buildFullShareDocument(sourceFile) };
+        if (resolved.share.accessScope !== 'INDEXED') return { preview: null, document: null };
+        const slide = buildSlideShareDocument(sourceFile, resolved.source.anchor, resolved.source.metadata);
+        return { preview: null, document: slide && { ...slide,
+          // Made only when the slide is downloaded.
+          slideFile: () => singleSlidePresentation(sourceFile.content, slide.slide) } };
+      }
       const pdfRequest = pdfShareRequest(resolved);
       if (pdfRequest && sourceFile?.content) {
         const content = await buildSafePdf(sourceFile.content, pdfRequest);
@@ -312,7 +323,10 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           }
         } catch { preview = null; }
         preview = await resolvedModelPreview(resolved) ?? preview;
-        return sendHtml(response, 200, renderInspectorPanel(resolved, referenceId, preview));
+        const shareable = offeredShareScopes(resolved.internal.filePath, resolved.source.anchor).length > 0;
+        // The Mac app reads this before the page loads, so Tab never offers a link the page does not.
+        return sendHtml(response, 200, renderInspectorPanel(resolved, referenceId, preview, { shareable }),
+          { 'x-lasso-shareable': shareable ? '1' : '0' });
       }
 
       if (request.method === 'GET' && pathname === '/api/health') {
@@ -513,6 +527,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         document = await resolvedModelDocument(resolved) ?? document;
         return sendJson(response, 200, {
           source: resolved.source, path: resolved.internal.filePath, document,
+          shareScopes: offeredShareScopes(resolved.internal.filePath, resolved.source.anchor),
         });
       }
 
@@ -568,6 +583,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           source: resolved.source, path: resolved.internal.filePath, preview,
           // What the share composer's "Cited part only" would publish.
           citedPart: citedPartModel(preview),
+          shareScopes: offeredShareScopes(resolved.internal.filePath, resolved.source.anchor),
         });
       }
 

@@ -3,6 +3,7 @@ import { diffInternals, parseDelimited } from './diff.js';
 import { HttpError } from './errors.js';
 import { extractDesignDocument, isDesignFile } from '../dependencies/drawing-objects.js';
 import { extractDrawingDocument } from '../dependencies/drawing-extraction.js';
+import { presentationOutline, readPresentation } from '../dependencies/presentation-extraction.js';
 
 // A preview renders one element per line, cell or value. Past these limits a
 // browser tab stalls, so the preview shows the start of the file and says how
@@ -99,6 +100,18 @@ export function buildPreview(snapshot, file, buffer) {
       }))) };
   }
 
+  if (file.fileType === 'presentation') {
+    // A deck's history shows its slide outline: each slide's heading, then its text.
+    return {
+      ...base,
+      kind: 'blocks',
+      items: diffInternals.markdownBlocks(presentationOutline(readPresentation(buffer)).text).map((block, index) => ({
+        anchor: { kind: 'markdown-block', blockIndex: index },
+        blockType: block.type,
+        text: block.text,
+      })),
+    };
+  }
   if (file.fileType === 'markdown') {
     return {
       ...base,

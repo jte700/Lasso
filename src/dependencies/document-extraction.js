@@ -10,7 +10,7 @@ const MAX_PDF_BODY_BYTES = 3_000_000;
 const MAX_TEXT_EXCERPT = 20_000;
 const MAX_FULL_DOCUMENT_TEXT = 5_000_000;
 
-function decodeXml(value = '') {
+export function decodeXml(value = '') {
   return String(value)
     .replace(/<[^>]+>/g, ' ')
     .replace(/&amp;/gi, '&')

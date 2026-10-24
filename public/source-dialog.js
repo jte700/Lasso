@@ -30,14 +30,22 @@ export function createSourceDialog({ api, getActor, onStatus }) {
       if (current !== generation) return;
       const source = context.source;
       const doc = full.document;
-      const redactionSupported = ['table', 'text'].includes(doc?.kind);
-      let scope = 'INDEXED', redact = new Map(), creating = false, created = null;
+      // The server says which scopes this source can be shared with: none for code, no redaction for slides.
+      const allowed = full.shareScopes ?? ['INDEXED', 'DOCUMENT', 'REDACTED'];
+      const redactionSupported = ['table', 'text'].includes(doc?.kind) && allowed.includes('REDACTED');
+      const scopes = ['INDEXED', 'DOCUMENT', 'REDACTED'].filter(option => allowed.includes(option) && (option !== 'REDACTED' || redactionSupported));
+      const deck = /\.pptx$/i.test(full.path ?? '');
+      let scope = scopes[0] ?? 'INDEXED', redact = new Map(), creating = false, created = null;
       const insertable = Boolean(shareInsertionId && window.lassoPlatform?.isNative && window.lassoPlatform?.isWindows);
       panel.innerHTML = `<header class="dialog-heading"><div><span class="eyebrow">Recorded source · Version ${escape(source.snapshotVersion)}</span><h2>${escape(source.label)}</h2></div><button class="dialog-close toolbar-icon" data-close-dialog aria-label="Close">×</button></header>
         <p class="source-dialog-location">${escape(full.path)} · ${escape(source.location)}</p>
         <div class="source-dialog-preview"></div>
-        <details class="source-share-controls" ${openSharing ? 'open' : ''}><summary>Share this evidence</summary>
-          <label>Recipients can access<select data-share-scope><option value="INDEXED">Indexed part only</option><option value="DOCUMENT">Entire document, including download</option>${redactionSupported ? '<option value="REDACTED">Document with selected content hidden</option>' : ''}</select></label>
+        ${scopes.length ? '' : '<p class="source-share-local">Code files are not shared with links. Send a copy of the file instead.</p>'}
+        <details class="source-share-controls" ${openSharing ? 'open' : ''} ${scopes.length ? '' : 'hidden'}><summary>Share this evidence</summary>
+          <label>Recipients can access<select data-share-scope>${scopes.map(option => `<option value="${option}">${{
+            INDEXED: deck ? 'Cited slide only' : 'Indexed part only',
+            DOCUMENT: 'Entire document, including download',
+            REDACTED: 'Document with selected content hidden' }[option]}</option>`).join('')}</select></label>
           <p data-scope-help></p><p class="source-share-local">${sharing.localOnly ? 'These links work on this PC while Lasso is running. Remote recipients need a reachable Lasso server.' : 'Anyone with the link can access the evidence you choose to share.'}</p>
           <div class="source-share-result" hidden><label>Share link<input readonly data-share-url /></label>${insertable ? '<button class="primary-button" data-insert-share>Insert link into document</button>' : ''}<button class="secondary-button" data-copy-share>Copy link</button><button class="secondary-button" data-revoke-share>Revoke link</button></div>
           <p class="source-share-error" role="alert"></p>
@@ -48,7 +56,8 @@ export function createSourceDialog({ api, getActor, onStatus }) {
       const select = panel.querySelector('[data-share-scope]');
       const error = panel.querySelector('.source-share-error');
       const helpers = {
-        INDEXED: 'Only this indexed evidence and its nearby context are shared. The original file cannot be downloaded.',
+        INDEXED: deck ? 'Only the slide this evidence is on is shared, without speaker notes or comments.'
+          : 'Only this indexed evidence and its nearby context are shared. The original file cannot be downloaded.',
         DOCUMENT: 'Recipients can download the complete recorded file, including all its contents.',
         REDACTED: 'Select cells or text blocks in the preview to hide them. The original file cannot be downloaded. Review all sheets and blocks before creating the link.',
       };

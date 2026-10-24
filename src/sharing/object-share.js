@@ -5,6 +5,8 @@ import { fullTextLayout } from './text-layout.js';
 import { csvDelimiter } from '../history/diff.js';
 import { correctedDocumentLabel } from '../dependencies/authors.js';
 import { shareExpiry } from './expiry.js';
+import { isCodePath } from '../history/file-types.js';
+import { isPresentationPath } from '../dependencies/presentation-extraction.js';
 
 const MIME_TYPES = {
   '.pdf': 'application/pdf',
@@ -20,6 +22,7 @@ const MIME_TYPES = {
   '.tsv': 'text/tab-separated-values; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   '.xls': 'application/vnd.ms-excel',
 };
@@ -75,13 +78,15 @@ export class ObjectShareService {
     if (!projectId) throw new HttpError(400, 'A project is required to share a source.');
     if (!objectId) throw new HttpError(400, 'An indexed object is required to share a source.');
     const normalizedScope = normalizeShareScope(accessScope);
-    const normalizedRedactions = normalizeRedactions(redactions, normalizedScope);
-    const normalizedExcerpt = normalizePdfExcerpt(excerpt, normalizedScope);
-
     const version = this.pinnedVersion(objectId, versionId);
 
     if (!version) throw new HttpError(404, 'That indexed source version was not found.');
     if (version.project_id !== projectId) throw new HttpError(404, 'That indexed source version was not found.');
+    // What can be shared is decided by the source before what was selected in it.
+    const offered = offeredShareScopes(version.path, version.anchor_json ? JSON.parse(version.anchor_json) : null);
+    if (!offered.includes(normalizedScope)) throw new HttpError(422, scopeRefusal(version.path, normalizedScope));
+    const normalizedRedactions = normalizeRedactions(redactions, normalizedScope);
+    const normalizedExcerpt = normalizePdfExcerpt(excerpt, normalizedScope);
     const isDrawing = /\.(?:ifc|dxf)$/i.test(version.path ?? '');
     const isPdf = /\.pdf$/i.test(version.path ?? '');
     if ((normalizedExcerpt || normalizedRedactions.some(entry => entry.kind === 'PDF')) && !isPdf) {
@@ -267,6 +272,9 @@ export class ObjectShareService {
       return sheet ? `${sheet} · ${column}` : column;
     }
     if (Number.isInteger(anchor.pageNumber)) return `Page ${anchor.pageNumber}`;
+    if (Number.isInteger(anchor.slideNumber)) {
+      return metadata.slideTitle ? `Slide ${anchor.slideNumber} · ${metadata.slideTitle}` : `Slide ${anchor.slideNumber}`;
+    }
     if (Number.isInteger(anchor.lineStart)) {
       return anchor.lineEnd && anchor.lineEnd !== anchor.lineStart
         ? `lines ${anchor.lineStart}–${anchor.lineEnd}`
@@ -343,6 +351,26 @@ export class ObjectShareService {
   }
 }
 const SHARE_SCOPES = new Set(['DOCUMENT', 'INDEXED', 'REDACTED']);
+
+/**
+ * The scopes a source can be shared with. Code is never shared with a link.
+ * A deck is shared whole or as one slide, the cited one, and has nothing to
+ * redact; its whole-deck citation names no slide.
+ * @param {string} filePath
+ * @param {object|null} anchor the cited object's anchor
+ * @returns {string[]}
+ */
+export function offeredShareScopes(filePath, anchor = null) {
+  if (isCodePath(filePath)) return [];
+  if (isPresentationPath(filePath)) return Number.isInteger(anchor?.slideNumber) ? ['DOCUMENT', 'INDEXED'] : ['DOCUMENT'];
+  return [...SHARE_SCOPES];
+}
+
+function scopeRefusal(filePath, scope) {
+  if (isCodePath(filePath)) return 'Lasso doesn’t make share links for code files. Send a copy of the file instead.';
+  if (scope === 'REDACTED') return 'Presentations are shared whole or one slide at a time; there is nothing to redact.';
+  return 'This citation names no slide. Share the whole presentation, or cite a slide to share only that slide.';
+}
 const REDACTION_KINDS = new Set(['CELL', 'BLOCK', 'DRAWING', 'PDF']);
 const REDACTION_EFFECTS = new Set(['BLUR', 'BLANK']);
 

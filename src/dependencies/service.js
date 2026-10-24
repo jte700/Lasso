@@ -35,6 +35,11 @@ import { buildModelPreview } from './model-preview.js';
 import { DRAWING_NAME_MIN_LETTERS, drawingDiscovery, drawingReferenceMatch } from './drawing-discovery.js';
 import { fileReferenceMatch, isWholeFile, typedAsWritten } from './file-reference.js';
 import { fieldCue, recordFields } from './record-fields.js';
+import { presentationOutline, presentationPlainText, readPresentation, slideAtLine } from './presentation-extraction.js';
+import {
+  MAX_CODE_LINES, codeOfLines, fileLines, fileNameBefore, lineMentionAtEnd, lineMentionBeforeName, linesLabel,
+} from './code-lines.js';
+import { currentFileType, isCodePath, isCodeType } from '../history/file-types.js';
 
 const OBJECT_TYPES = new Set([
   'REFERENCE', 'PAPER', 'RESULT', 'VALUE', 'CODE', 'CODE_BLOCK', 'CODE_LINE',
@@ -48,7 +53,7 @@ const STATUS_TYPES = new Set(['PREDICTED', 'LINKED', 'NEEDS_REVIEW', 'STALE', 'B
 const INDIVIDUAL_OBJECT_LOOKUPS = 200;
 const INDEX_VERSION = 4;
 // The object types a whole file can be named as while typing.
-const WHOLE_FILE_TYPES = ['DRAWING', 'DATASET', 'DOCUMENT', 'PAPER'];
+const WHOLE_FILE_TYPES = ['DRAWING', 'DATASET', 'DOCUMENT', 'PAPER', 'CODE_BLOCK', 'MODEL'];
 const STEP_FILE = /\.(?:step|stp)$/i;
 // The reader that turns file bytes into indexed objects. Bumped whenever
 // extraction changes what it reads out of unchanged files, so a project indexed
@@ -64,7 +69,7 @@ const STEP_FILE = /\.(?:step|stp)$/i;
 //    feature groups are no longer discarded by small per-kind limits.
 // 6: worksheets and delimited files of any size are read whole into the
 //    table index; those past the in-memory limit were skipped or cut short.
-const EXTRACTOR_VERSION = 6;
+const EXTRACTOR_VERSION = 7;
 const MAX_TABLE_CELLS = 1_500;
 const MAX_INDEXED_TABLE_ROWS = 1_000;
 // The last rows of a large table read for the notes written under it.
@@ -75,6 +80,8 @@ const INDEXED_MATCHES_PER_TABLE = 12;
 const INDEXED_ROWS_SHOWN = 8;
 const INDEXED_RELATED_OBJECTS = 64;
 const EDITABLE_DOCUMENT_TYPES = new Set(['markdown', 'text', 'document', 'pdf']);
+// What a code line's key starts with, after its file's id; recorded so later readings keep it.
+const CODE_LINES_KEY = 'lines';
 const STOP_WORDS = new Set([
   'about', 'after', 'before', 'between', 'from', 'have', 'into', 'levels', 'prior', 'shown',
   'that', 'the', 'their', 'this', 'using', 'with', 'were', 'was', 'and', 'for', 'our', 'has',
@@ -571,7 +578,8 @@ function workspaceCompletionText(object) {
 function workspaceSuggestionCategory(object) {
   if (isPassageExcerpt(object)) {
     if (object.metadata.excerptType === 'note') return 'Sheet note';
-    const format = object.metadata.componentType === 'PDF_EXCERPT' ? 'PDF' : object.metadata.format === 'MARKDOWN' ? 'Markdown' : 'Text';
+    const format = object.metadata.componentType === 'PDF_EXCERPT' ? 'PDF'
+      : { MARKDOWN: 'Markdown', PPTX: 'Slide' }[object.metadata.format] ?? 'Text';
     return `${format} ${object.metadata.excerptType === 'paragraph' ? 'paragraph' : 'sentence'}`;
   }
   if (object.objectType === 'DRAWING_ANNOTATION') return 'Drawing measurement';
@@ -1115,7 +1123,7 @@ function tableRowObjects(context, { row, rowIndex, rowNumber, rowLabel, section 
 // Which kinds of file each reader version reads differently from the one
 // before it, so a reader upgrade re-reads only those. A version missing here
 // changed more than a few kinds, and a folder it is new to is read whole.
-const READER_CHANGES = new Map([[6, new Set(['table', 'spreadsheet'])]]);
+const READER_CHANGES = new Map([[6, new Set(['table', 'spreadsheet'])], [7, new Set(['presentation', 'code', 'yaml'])]]);
 
 function kindsChangedSince(version) {
   if (!Number.isInteger(version) || version < 1) return null;
@@ -1277,10 +1285,15 @@ function pdfPassageDescriptors(file, buffer, parentMetadata) {
   });
 }
 
-function textPassageDescriptors(file, text, parentMetadata) {
-  const markdown = file.fileType === 'markdown';
+/**
+ * `outline` is a deck's slide outline, when `text` is one: each passage then
+ * also names the slide it is on.
+ */
+function textPassageDescriptors(file, text, parentMetadata, outline = null) {
+  const markdown = file.fileType === 'markdown' || Boolean(outline);
   const repeats = new Map();
   return markdownPassages(text, { plain: !markdown }).map(passage => {
+    const slide = outline ? slideAtLine(outline, passage.lineStart) : null;
     const fingerprint = sha(`${passage.excerptType}|${passage.selectedText.toLowerCase()}`).slice(0, 24);
     const occurrence = repeats.get(fingerprint) ?? 0;
     repeats.set(fingerprint, occurrence + 1);
@@ -1290,10 +1303,11 @@ function textPassageDescriptors(file, text, parentMetadata) {
       label: passage.selectedText.length > 110 ? `${passage.selectedText.slice(0, 107)}…` : passage.selectedText,
       value: passage.selectedText,
       anchor: { kind: 'text-excerpt', selectedText: passage.selectedText, start: passage.start, end: passage.end,
-        lineStart: passage.lineStart, lineEnd: passage.lineEnd },
+        lineStart: passage.lineStart, lineEnd: passage.lineEnd, ...(slide ? { slideNumber: slide.number } : {}) },
       metadata: { format: parentMetadata.format, componentType: 'TEXT_EXCERPT', excerptType: passage.excerptType,
         rawText: passage.selectedText, textExcerpt: passage.selectedText,
         lineStart: passage.lineStart, lineEnd: passage.lineEnd, section: passage.section ?? null,
+        ...(slide ? { slideNumber: slide.number, slideTitle: slide.title } : {}),
         parentTitle: parentMetadata.title ?? null, parentAuthor: null, parentYear: null },
     });
   });
@@ -1319,10 +1333,12 @@ function objectsFromFile(file, buffer, report = () => {}) {
   }
 
   // Tables and workbooks are read by tableObjectSteps, which can index them whole.
-  if (file.fileType === 'code') {
+  if (isCodeType(file.fileType)) {
     objects.push(objectDescriptor({
       key: `${base}:code`, type: /model|analysis/i.test(fileName) ? 'MODEL' : 'CODE_BLOCK', path: file.path,
-      label: fileName, contentHash: file.contentHash, metadata: { file: file.path },
+      label: fileName, contentHash: file.contentHash,
+      // The whole file, nameable while writing; its lines follow it.
+      metadata: { file: file.path, codeFile: true, lineCount: fileLines(text).length },
     }));
     text.split('\n').slice(0, 4000).forEach((line, index) => {
       const symbol = line.match(/^\s*(?:def|function|class)\s+([A-Za-z_][\w]*)|^\s*([A-Za-z_][\w.]*)\s*(?:=|<-)/);
@@ -1407,6 +1423,8 @@ function objectsFromFile(file, buffer, report = () => {}) {
     }));
     objects.push(...documentComponentDescriptors(file, extracted.textExcerpt, parentMetadata, base));
     if (file.fileType === 'pdf') objects.push(...pdfPassageDescriptors(file, buffer, parentMetadata));
+  } else if (file.fileType === 'presentation') {
+    objects.push(...presentationDescriptors(file, buffer, fileName, report));
   } else if (file.fileType === 'markdown' || (file.fileType === 'text' && path.extname(file.path).toLowerCase() === '.txt')) {
     const referenceLike = referenceLikePath(file.path);
     const heading = text.match(/^#\s+(.+)$/m)?.[1]?.trim();
@@ -1478,6 +1496,54 @@ function objectsFromFile(file, buffer, report = () => {}) {
   }
   return objects;
 }
+
+/**
+ * A deck: the whole deck, nameable by its title or file name, and the
+ * sentences and paragraphs of its slides, each knowing its slide. They cite
+ * lines of the deck's slide outline, which previews and shares read the same way.
+ */
+function presentationDescriptors(file, buffer, fileName, report) {
+  const deck = readPresentation(buffer);
+  if (deck.extraction === 'PPTX_UNREADABLE') {
+    report('UNREADABLE_CONTENT', 'This presentation could not be opened. It may be password-protected or damaged.');
+  }
+  const outline = presentationOutline(deck);
+  const title = deck.title || deck.slides.find((slide) => slide.title)?.title || titleFromFileName(fileName);
+  const parentMetadata = {
+    format: 'PPTX', title, author: deck.author, subject: deck.subject, keywords: deck.keywords,
+    slideCount: deck.slideCount, fileName: path.posix.basename(file.path), textExcerpt: presentationPlainText(deck),
+  };
+  const withSlide = (descriptor) => {
+    const line = descriptor.anchor?.lineStart ?? (Number.isInteger(descriptor.anchor?.start)
+      ? outline.text.slice(0, descriptor.anchor.start).split('\n').length : null);
+    const slide = line ? slideAtLine(outline, line) : null;
+    return slide ? { ...descriptor, anchor: { ...descriptor.anchor, slideNumber: slide.number },
+      metadata: { ...descriptor.metadata, slideNumber: slide.number, slideTitle: slide.title } } : descriptor;
+  };
+  return [
+    objectDescriptor({
+      key: `${file.projectFileId}:document`, type: 'DOCUMENT', path: file.path,
+      label: title, value: title, contentHash: file.contentHash, metadata: parentMetadata,
+    }),
+    ...documentComponentDescriptors(file, outline.text, parentMetadata, file.projectFileId).map(withSlide),
+    ...textPassageDescriptors(file, outline.text, parentMetadata, outline),
+  ];
+}
+
+/** Lines `first` through `last` of a code file as an object, or null when the file has no such lines. */
+function codeLinesDescriptor(file, lines, first, last) {
+  if (!Number.isInteger(first) || !Number.isInteger(last) || first < 1 || last < first || last > lines.length) return null;
+  const code = codeOfLines(lines, first, last);
+  if (!code.trim()) return null;
+  return objectDescriptor({
+    key: `${file.projectFileId}:${CODE_LINES_KEY}:${first}-${last}`, type: 'CODE_LINE', path: file.path,
+    anchor: { kind: 'line-range', lineStart: first, lineEnd: last },
+    label: linesLabel(first, last), value: code, contentHash: file.contentHash,
+    metadata: { lineStart: first, lineEnd: last, lineReference: true },
+  });
+}
+
+const isCodeLineReference = (object) => object?.anchor?.kind === 'line-range' && object.metadata?.lineReference === true;
 
 function partialReferenceIntent(source) {
   const nouns = '(paper|study|article|publication|reference|document|report|file|note|memo|proposal|manuscript|protocol|spreadsheet|workbook|presentation|slides?)';
@@ -1751,6 +1817,8 @@ export class PredictiveProvenanceService {
       extractedText = this.pdfText(file, 'all', (_layout, buffer) => extractPdfFullText(buffer));
     } else if (file.fileType === 'document') {
       extractedText = extractDocxDocument(this.timeline.blobs.get(file.contentHash)).textExcerpt;
+    } else if (file.fileType === 'presentation') {
+      extractedText = presentationOutline(readPresentation(this.timeline.blobs.get(file.contentHash))).text;
     } else if (['markdown', 'text'].includes(file.fileType)) {
       extractedText = this.timeline.blobs.get(file.contentHash).toString('utf8');
     }
@@ -2094,9 +2162,11 @@ export class PredictiveProvenanceService {
       const prose = file.fileType === 'markdown' || (file.fileType === 'text' && path.extname(file.path).toLowerCase() === '.txt');
       if (indexed.indexed && !upgrades(file, design, prose)) return false;
       // Tables of any size are read a batch of rows at a time (table-index.js).
-      if (file.size > 25_000_000 && !design && !['image', 'pdf', 'document', 'table', 'spreadsheet'].includes(file.fileType)) return false;
-      if (file.size > 5_000_000 && !design && !['image', 'pdf', 'document', 'table', 'spreadsheet'].includes(file.fileType)) return false;
-      if (!design && !['table', 'spreadsheet', 'code', 'notebook', 'image', 'json', 'text', 'markdown', 'pdf', 'document'].includes(file.fileType)) return false;
+      // A deck's size is mostly its pictures; only its slides' text is read.
+      const packaged = ['image', 'pdf', 'document', 'presentation', 'table', 'spreadsheet'].includes(file.fileType);
+      if (file.size > 5_000_000 && !design && !packaged) return false;
+      if (!design && !['table', 'spreadsheet', 'code', 'yaml', 'notebook', 'image', 'json', 'text', 'markdown', 'pdf',
+        'document', 'presentation'].includes(file.fileType)) return false;
       return !(file.fileType === 'text' && !['.txt', '.bib', '.ris', '.enw', '.nbib'].includes(path.extname(file.path).toLowerCase()));
     });
   }
@@ -2280,6 +2350,30 @@ export class PredictiveProvenanceService {
       }
     }
     return output;
+  }
+
+  /** What each reading of a file records again besides what its reader finds: table rows and code lines offered before. */
+  recordedDescriptors(file, read) {
+    return [...this.recordedTableDescriptors(file, read), ...this.recordedLineDescriptors(file, read)];
+  }
+
+  /**
+   * The code lines this folder has offered from a file, read again from this
+   * version of it, so a link to "line 42" keeps following line 42.
+   */
+  recordedLineDescriptors(file, read) {
+    if (!isCodeType(file.fileType)) return [];
+    const prefix = `${file.projectFileId}:${CODE_LINES_KEY}`;
+    const keys = this.db.prepare('SELECT object_key FROM table_objects WHERE key_prefix = ?').all(prefix)
+      .map((row) => row.object_key);
+    if (!keys.length) return [];
+    const readKeys = new Set(read.map((descriptor) => descriptor.key));
+    const lines = fileLines(this.timeline.blobs.get(file.contentHash)?.toString('utf8') ?? '');
+    return keys.flatMap((key) => {
+      if (readKeys.has(key)) return [];
+      const [first, last] = key.slice(prefix.length + 1).split('-').map(Number);
+      return codeLinesDescriptor(file, lines, first, last) ?? [];
+    });
   }
 
   /** A snapshot's data dictionary definitions, as the indexer applies them to every variable it reads. */
@@ -2471,7 +2565,7 @@ export class PredictiveProvenanceService {
       const units = workUnits(file.size);
       const extracted = yield* withinFile(this.extractedObjectSteps(file),
         (share) => ({ phase: 'indexing', done: done + share * units, total }));
-      const objects = [...extracted.objects, ...this.recordedTableDescriptors(file, extracted.objects)];
+      const objects = [...extracted.objects, ...this.recordedDescriptors(file, extracted.objects)];
       counts.set(file.path, objects.length);
       if (extracted.problem) problems.push({ path: file.path, ...extracted.problem });
       // Readers bound each file's bytes, rows and geometry. A folder-wide
@@ -2506,7 +2600,7 @@ export class PredictiveProvenanceService {
     const unchanged = (file) => {
       const previous = before.get(file.path);
       return previous?.project_file_id === file.projectFileId && previous.content_hash === file.contentHash
-        && previous.file_type === file.fileType && known.counts.has(file.path);
+        && currentFileType(previous.path, previous.file_type) === file.fileType && known.counts.has(file.path);
     };
     const carriedPaths = new Set(files.filter(unchanged).map((file) => file.path));
     if ([...known.dictionaryPaths].some((filePath) => !carriedPaths.has(filePath))) return null;
@@ -2543,7 +2637,7 @@ export class PredictiveProvenanceService {
         continue;
       }
       const extracted = this.extractedObjects(file);
-      const objects = [...extracted.objects, ...this.recordedTableDescriptors(file, extracted.objects)];
+      const objects = [...extracted.objects, ...this.recordedDescriptors(file, extracted.objects)];
       counts.set(file.path, objects.length);
       if (extracted.problem) problems.push({ path: file.path, ...extracted.problem });
       descriptors.push(...objects.map((descriptor) => ({ ...descriptor, metadata: { ...descriptor.metadata } })));
@@ -3461,6 +3555,10 @@ export class PredictiveProvenanceService {
     // other fields when the next words ask for one ("at").
     if (dependency?.source.metadata?.componentType === 'RECORD_FIELD'
       && fieldCue(String(input.text ?? '').slice(dependency.anchor.end, input.cursor))) return -1;
+    // Code lines just written lead on to more of their file ("and lines 50-52").
+    const text = String(input.text ?? '');
+    if (isCodeLineReference(dependency?.source)
+      && lineMentionAtEnd(text, dependency.anchor.end, Number.isInteger(input.cursor) ? input.cursor : text.length)) return -1;
     // An explicit comma continues a table column's value list. Ordinary words
     // after a completed value still return to every directory.
     const tail = dependency && String(input.text ?? '').slice(dependency.anchor.end, input.cursor);
@@ -3566,6 +3664,87 @@ export class PredictiveProvenanceService {
       };
     });
     return { dependencyId: linked.id, source, variable: source.label, heading: source.label, completions };
+  }
+
+  /**
+   * The code file and lines the writer names: after a code file they
+   * accepted ("server.js line 42", "lines 10 through 20"), just before it
+   * ("line 42 of server.js"), after one of its lines ("and line 50"), or
+   * after its name written out ("app.py lines 3-9").
+   */
+  namedCodeLines(projectId, input, cursor, dependency) {
+    const text = String(input.text ?? '');
+    if (dependency && isCodePath(dependency.source.path)) {
+      const after = lineMentionAtEnd(text, dependency.anchor.end, cursor);
+      const before = !after && /^\s*:?\s*$/.test(text.slice(dependency.anchor.end, cursor))
+        ? lineMentionBeforeName(text, dependency.anchor.start) : null;
+      const mention = after ?? before;
+      return mention ? { ...mention, path: dependency.source.path, dependency,
+        ownerId: this.sourceProjectId(dependency.source) ?? projectId } : null;
+    }
+    const mention = lineMentionAtEnd(text, 0, cursor);
+    const written = mention && fileNameBefore(text, mention.start);
+    if (!written) return null;
+    const name = written.name.toLowerCase();
+    const file = this.objectsAt(projectId, null, ['CODE_BLOCK', 'MODEL'])
+      .filter((object) => object.metadata.codeFile && object.path !== input.documentPath)
+      .map((object) => object.path)
+      .filter((filePath) => filePath.toLowerCase() === name || filePath.toLowerCase().endsWith(`/${name}`))
+      .sort((left, right) => left.length - right.length || left.localeCompare(right))[0];
+    return file ? { ...mention, path: file, dependency: null, ownerId: projectId } : null;
+  }
+
+  /**
+   * The lines named while writing, as one suggestion whose Tab inserts their
+   * code after the words that named them: one line without its indentation,
+   * or the lines on lines of their own.
+   */
+  linesFromCode(projectId, input, cursor, dependency) {
+    const named = this.namedCodeLines(projectId, input, cursor, dependency);
+    if (!named) return null;
+    const { first, last, ownerId } = named;
+    const snapshotId = this.timeline.getProject(ownerId).currentSnapshotId;
+    const file = this.timeline.snapshotFile(snapshotId, named.path);
+    if (!file || !isCodeType(file.fileType)) return null;
+    const fileName = path.posix.basename(file.path);
+    const sourceObject = named.dependency?.source ?? this.objectsAt(ownerId, snapshotId, ['CODE_BLOCK', 'MODEL'])
+      .find((object) => object.path === file.path && object.metadata.codeFile) ?? null;
+    const result = (completions, notice = null) => ({ dependencyId: named.dependency?.id ?? null,
+      source: sourceObject ?? completions[0]?.dependencyCandidate ?? null, completions, notice,
+      heading: `${linesLabel(first, last)} of ${fileName}` });
+    // "lines 10 through 2" is still being typed: nothing yet, and nothing else either.
+    if (last < first) return sourceObject ? result([]) : null;
+    const lines = fileLines(this.timeline.blobs.get(file.contentHash)?.toString('utf8') ?? '');
+    if (last > lines.length) {
+      return sourceObject ? result([], `${fileName} has ${lines.length} line${lines.length === 1 ? '' : 's'}.`) : null;
+    }
+    if (last - first + 1 > MAX_CODE_LINES) {
+      return sourceObject ? result([], `Tab inserts up to ${MAX_CODE_LINES} lines at once.`) : null;
+    }
+    const descriptor = codeLinesDescriptor(file, lines, first, last);
+    if (!descriptor) {
+      return sourceObject ? result([], `${linesLabel(first, last)} of ${fileName} ${first === last ? 'is' : 'are'} blank.`) : null;
+    }
+    this.ensureIndex(ownerId, snapshotId);
+    const [object] = this.indexedObjects(ownerId, snapshotId, { keyPrefix: `${file.projectFileId}:${CODE_LINES_KEY}` }, [descriptor]);
+    if (!object) return null;
+    const code = object.valueText;
+    const block = first !== last;
+    const startsLine = /(?:^|\n)$/.test(String(input.text ?? '').slice(0, cursor));
+    const firstLine = code.split('\n').find((line) => line.trim()) ?? code;
+    return result([{
+      id: `${object.id}:lines`,
+      replacementText: block && !startsLine ? `\n${code}` : code,
+      label: block ? `${firstLine.trim()} \u2026` : code,
+      detail: block ? `${last - first + 1} lines` : '',
+      category: 'Code',
+      provenanceLabel: `${fileName} · ${object.label}`,
+      claimStart: cursor, claimEnd: cursor,
+      confidence: 0.99,
+      dependencyCandidate: this.enrichObject(ownerId, { ...object, score: 0.99, matchTier: 0,
+        reasons: [`${object.label} of ${fileName}`] }),
+      generated: false,
+    }]);
   }
 
   linkedPaperContext(projectId, input, cursor) {
@@ -3938,6 +4117,20 @@ export class PredictiveProvenanceService {
     // The name just accepted ("The Bracket ") is not a new reference to it,
     // nor is the name of the file a focus chosen with fn+Right sits in.
     const newestDependency = this.linkedDependencyContext(projectId, input, cursor);
+    const codeLines = this.linesFromCode(projectId, input, cursor, newestDependency);
+    if (codeLines) {
+      return {
+        claims: [], completion: null, sourceCompletions: [],
+        workspaceCompletions: codeLines.completions,
+        workspaceHeading: codeLines.heading,
+        notice: codeLines.notice,
+        sourceContext: {
+          dependencyId: codeLines.dependencyId, source: codeLines.source, variable: null,
+          kind: 'PROJECT_OBJECT', exclusive: true,
+        },
+        deterministic: true, generatedText: false,
+      };
+    }
     const linkedRecord = this.fieldsFromLinkedRecord(projectId, input, cursor, newestDependency);
     if (linkedRecord) {
       return {
@@ -4657,6 +4850,9 @@ export class PredictiveProvenanceService {
       return this.dependencyShareSettings(dependencyId);
     }
     if (!['CONTEXT', 'FULL'].includes(scope)) throw new HttpError(400, 'Share scope must be private, cited context, or full source.');
+    if (isCodePath(semanticDependencySource(this.getDependency(dependencyId)).path)) {
+      throw new HttpError(422, 'Lasso doesn’t make share links for code files. Send a copy of the file instead.');
+    }
     const timestamp = now();
     const token = crypto.randomBytes(24).toString('base64url');
     const parsedRadius = Number(input.contextRadius);
@@ -4759,6 +4955,7 @@ export class PredictiveProvenanceService {
     let text = '';
     if (['markdown', 'text', 'code', 'yaml', 'json'].includes(file.fileType)) text = buffer.toString('utf8');
     else if (file.fileType === 'document') text = extractDocxDocument(buffer).textExcerpt;
+    else if (file.fileType === 'presentation') text = this.fileText(file, source.objectType);
     else if (file.fileType === 'pdf') text = extractPdfFullText(buffer);
     else text = [source.metadata.title, source.metadata.subject, source.valueText]
       .filter(Boolean).join('\n');
@@ -4854,6 +5051,7 @@ export class PredictiveProvenanceService {
       '.tsv': 'text/tab-separated-values; charset=utf-8',
       '.json': 'application/json; charset=utf-8',
       '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       '.xls': 'application/vnd.ms-excel',
     };
@@ -4968,6 +5166,7 @@ export class PredictiveProvenanceService {
 
     let text;
     if (file.fileType === 'document') text = extractDocxDocument(buffer).textExcerpt;
+    else if (file.fileType === 'presentation') text = this.fileText(file, source.objectType);
     else if (['markdown', 'text', 'code', 'yaml', 'json', 'notebook'].includes(file.fileType)) text = buffer.toString('utf8');
     if (text != null) {
       const selectedText = String(source.valueText ?? dependency.spanText ?? source.label ?? '').trim();

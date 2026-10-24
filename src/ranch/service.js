@@ -8,6 +8,7 @@ import path from 'node:path';
 import { BoundedCache } from '../cache.js';
 import { HttpError } from '../history/errors.js';
 import { isWholeFile } from '../dependencies/file-reference.js';
+import { isCodeType } from '../history/file-types.js';
 import { activityScore, addCounts, EMPTY_COUNTS, latestTime, normalizedActivity } from './activity.js';
 import { recentHistory } from './history.js';
 import { MAX_SCANNED_BYTES, SCANNED_TEXT_TYPES, sourceKind } from './kinds.js';
@@ -218,6 +219,8 @@ export class RanchService {
       name: path.posix.basename(file.path),
       kind: sourceKind(file.path, file.fileType),
       fileType: file.fileType,
+      // Code is sent as a copy of the file, never as a Lasso share link.
+      shareable: !isCodeType(file.fileType),
       size: file.size,
       contentHash: file.contentHash,
       modifiedAt: iso(file.mtimeMs),
@@ -331,6 +334,9 @@ export class RanchService {
   /** The indexed object that stands for a whole file, which a share link pins. */
   shareTarget(input) {
     const { project, file } = this.currentFile(input);
+    if (isCodeType(file.fileType)) {
+      throw new HttpError(422, 'Lasso doesn’t make share links for code files. Use Send a Copy to send the file itself.');
+    }
     const objects = this.terminal.graph.namedObjects(project.id)
       .filter((object) => object.path === file.path && (!object.projectId || object.projectId === project.id));
     const chosen = objects.find(isWholeFile) ?? objects[0];

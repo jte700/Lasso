@@ -898,12 +898,16 @@ final class ShareComposerView: NSView {
     }
 
     private var isPDFSource: Bool { (filename as NSString).pathExtension.lowercased() == "pdf" || fullDocument?.kind == "pdf" }
-    private var isCADModel: Bool { ["step", "stp"].contains((filename as NSString).pathExtension.lowercased()) }
+    private var sourceKind: ShareSourceKind { ShareSourceKind(filename: filename) }
+    private var isCADModel: Bool { sourceKind == .cadModel }
+    private var isPresentation: Bool { sourceKind == .presentation }
 
-    /// The scopes this source offers. A model's cited part is offered while
-    /// its preview loads, so the protective choice stays selected meanwhile.
+    /// The scopes this source offers. A model's cited part, or a deck's cited
+    /// slide, is offered while its preview loads, so the protective choice
+    /// stays selected meanwhile.
     var scopes: [ShareAccessScope] {
-        ShareAccessScope.offered(isCADModel: isCADModel, hasCitedPart: citedPart != nil || isLoading)
+        let cited = isPresentation ? preview?.slideNumber != nil : citedPart != nil
+        return ShareAccessScope.offered(for: sourceKind, hasCitedPart: cited || isLoading)
     }
 
     /// Once the preview shows the citation names no part, only what is offered stays chosen.
@@ -1083,8 +1087,11 @@ final class ShareComposerView: NSView {
     private func drawScopes() {
         let entries: [(ShareAccessScope, String, String)] = scopes.map { scope in
             switch scope {
-            case .document: return (scope, "Entire document", "Include the original file")
-            case .indexed: return (scope, "Cited part only", isCADModel ? "The part, its feature marked" : "Share the matched context")
+            case .document: return (scope, isPresentation ? "Entire presentation" : "Entire document",
+                                    isPresentation ? "Every slide, and the original file" : "Include the original file")
+            case .indexed: return (scope, isPresentation ? "Cited slide only" : "Cited part only",
+                                   isCADModel ? "The part, its feature marked"
+                                   : isPresentation ? "This slide, without notes or comments" : "Share the matched context")
             case .redacted: return (scope, "Select & redact", "Hide source content")
             }
         }
@@ -1164,6 +1171,9 @@ final class ShareComposerView: NSView {
             }
         } else if isCADModel, let citedPart {
             drawRotatable(citedPart, in: content)
+        } else if isPresentation, let preview, !preview.textBlocks.isEmpty {
+            // The whole cited slide is what the recipient gets, with the cited passage marked.
+            AssistMarkdown.draw(preview.textBlocks, in: content, accent: sourceColor, baseSize: 11.5)
         } else if isLoading {
             drawCentered("Loading source preview…", in: content)
         } else if let preview, !preview.rows.isEmpty {
@@ -1789,7 +1799,8 @@ final class ShareComposerView: NSView {
         let detail: String
         switch scope {
         case .document: detail = "Recipients can download the pinned original."
-        case .indexed: detail = isCADModel ? "Only the cited part is published, not the model file." : "Only indexed context is published."
+        case .indexed: detail = isCADModel ? "Only the cited part is published, not the model file."
+            : isPresentation ? "Only this slide is published, without speaker notes or comments." : "Only indexed context is published."
         case .redacted: detail = masks.isEmpty ? "Select at least one area to redact." : "\(masks.count) area\(masks.count == 1 ? "" : "s") removed from the shared view."
         }
         drawSymbol("lock.shield", in: NSRect(x: 18, y: centerY - 8, width: 16, height: 16), fraction: 0.8)

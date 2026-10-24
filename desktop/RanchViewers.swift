@@ -270,3 +270,124 @@ final class RanchPlanCanvas: NSView {
         AssistModelRenderer.draw(model, in: bounds.insetBy(dx: 12, dy: 12))
     }
 }
+
+/// Code with its line numbers beside it, read-only, so the number to write
+/// after the file's name ("server.js line 42") is always in view. Selecting
+/// text reports the lines it covers.
+struct RanchCodeView: NSViewRepresentable {
+    let text: String
+    let onSelectLines: (ClosedRange<Int>?) -> Void
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var onSelectLines: (ClosedRange<Int>?) -> Void
+        init(onSelectLines: @escaping (ClosedRange<Int>?) -> Void) { self.onSelectLines = onSelectLines }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let view = notification.object as? NSTextView else { return }
+            onSelectLines(RanchCodeLines.lines(in: view.string, selection: view.selectedRange()))
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onSelectLines: onSelectLines) }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        // TextKit 1, whose line fragments the numbers are drawn beside.
+        let storage = NSTextStorage()
+        let layout = NSLayoutManager()
+        storage.addLayoutManager(layout)
+        let container = NSTextContainer(size: NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
+        container.widthTracksTextView = false
+        layout.addTextContainer(container)
+        let textView = NSTextView(frame: .zero, textContainer: container)
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.usesFindBar = true
+        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.textColor = .textColor
+        textView.backgroundColor = .textBackgroundColor
+        textView.textContainerInset = NSSize(width: 6, height: 8)
+        textView.isHorizontallyResizable = true
+        textView.isVerticallyResizable = true
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        textView.string = text
+        textView.delegate = context.coordinator
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.documentView = textView
+        let ruler = RanchLineNumberRuler(scrollView: scroll, textView: textView)
+        scroll.verticalRulerView = ruler
+        scroll.hasVerticalRuler = true
+        scroll.rulersVisible = true
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        context.coordinator.onSelectLines = onSelectLines
+        guard let textView = scroll.documentView as? NSTextView, textView.string != text else { return }
+        textView.string = text
+        (scroll.verticalRulerView as? RanchLineNumberRuler)?.textDidChange()
+    }
+}
+
+/// The line numbers in the margin of a code view, one beside the first
+/// fragment of each line.
+final class RanchLineNumberRuler: NSRulerView {
+    private weak var textView: NSTextView?
+    /// Where each line starts, in UTF-16 offsets.
+    private var lineStarts: [Int] = [0]
+    private let numberFont = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .regular)
+
+    init(scrollView: NSScrollView, textView: NSTextView) {
+        self.textView = textView
+        super.init(scrollView: scrollView, orientation: .verticalRuler)
+        clientView = textView
+        textDidChange()
+        NotificationCenter.default.addObserver(self, selector: #selector(redraw),
+                                               name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        scrollView.contentView.postsBoundsChangedNotifications = true
+    }
+
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func textDidChange() {
+        let units = Array((textView?.string ?? "").utf16)
+        var starts = [0]
+        for (index, unit) in units.enumerated() where unit == UInt16(UInt8(ascii: "\n")) && index + 1 < units.count {
+            starts.append(index + 1)
+        }
+        lineStarts = starts
+        ruleThickness = max(34, CGFloat(String(starts.count).count) * 7 + 18)
+        needsDisplay = true
+    }
+
+    @objc private func redraw() { needsDisplay = true }
+
+    override func drawHashMarksAndLabels(in rect: NSRect) {
+        guard let textView, let layout = textView.layoutManager, let container = textView.textContainer,
+              layout.numberOfGlyphs > 0 else { return }
+        let visible = layout.glyphRange(forBoundingRect: textView.visibleRect, in: container)
+        let characters = layout.characterRange(forGlyphRange: visible, actualGlyphRange: nil)
+        var low = 0, high = lineStarts.count - 1
+        while low < high {
+            let middle = (low + high + 1) / 2
+            if lineStarts[middle] <= characters.location { low = middle } else { high = middle - 1 }
+        }
+        let attributes: [NSAttributedString.Key: Any] = [.font: numberFont, .foregroundColor: NSColor.tertiaryLabelColor]
+        let origin = textView.textContainerOrigin
+        var line = low
+        while line < lineStarts.count, lineStarts[line] <= NSMaxRange(characters) {
+            let fragment = layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: lineStarts[line]), effectiveRange: nil)
+            let top = convert(NSPoint(x: 0, y: fragment.minY + origin.y), from: textView)
+            let bottom = convert(NSPoint(x: 0, y: fragment.maxY + origin.y), from: textView)
+            let label = String(line + 1) as NSString
+            let size = label.size(withAttributes: attributes)
+            let box = NSRect(x: ruleThickness - size.width - 8, y: min(top.y, bottom.y) + (abs(bottom.y - top.y) - size.height) / 2,
+                             width: size.width, height: size.height)
+            label.draw(in: box, withAttributes: attributes)
+            line += 1
+        }
+    }
+}

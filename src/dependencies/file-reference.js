@@ -10,7 +10,9 @@ const UNREADABLE = new Set(['unsupported', 'failed', 'error']);
 /** Objects that stand for a whole file rather than a passage, row or value. */
 export function isWholeFile(object) {
   return ['DRAWING', 'DATASET', 'PAPER'].includes(object?.objectType)
-    || (object?.objectType === 'DOCUMENT' && !object.anchor);
+    || (object?.objectType === 'DOCUMENT' && !object.anchor)
+    // A programming file; its lines are named after it ("server.js line 42").
+    || (['CODE_BLOCK', 'MODEL'].includes(object?.objectType) && !object.anchor && object.metadata?.codeFile === true);
 }
 
 const fileName = object => String(object.path ?? '').replaceAll('\\', '/').split('/').pop() ?? '';

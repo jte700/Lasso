@@ -34,8 +34,10 @@ struct AssistSuggestion {
     let rankingReason: String?
     var previewText: String? = nil
     var sentenceContinuation = false
+    /// The server's word on whether a share link can be made: never for code.
+    var shareable = true
 
-    var isShareable: Bool { objectId != nil }
+    var isShareable: Bool { objectId != nil && shareable }
 }
 
 /// Records successful, intentional source interactions. The session is stable
@@ -1154,13 +1156,22 @@ final class AssistBoxView: NSView {
         footerLine.stroke()
 
         let gap: CGFloat = 8
-        let buttonWidth = (rightWidth - 36 - gap) / 2
+        // Code has no share link, so Open file takes the whole row.
+        let shareable = selectedSuggestionIsShareable
+        let buttonWidth = shareable ? (rightWidth - 36 - gap) / 2 : rightWidth - 36
         drawActionButton("Open file", symbol: "arrow.up.right.square",
                          in: NSRect(x: rightX + 18, y: footerY + 6,
                                    width: buttonWidth, height: 35))
-        drawActionButton("Share link…", symbol: "link",
-                         in: NSRect(x: rightX + 18 + buttonWidth + gap, y: footerY + 6,
-                                   width: buttonWidth, height: 35))
+        if shareable {
+            drawActionButton("Share link…", symbol: "link",
+                             in: NSRect(x: rightX + 18 + buttonWidth + gap, y: footerY + 6,
+                                       width: buttonWidth, height: 35))
+        }
+    }
+
+    /// False for a suggestion from code, which is never shared with a link.
+    private var selectedSuggestionIsShareable: Bool {
+        !suggestions.indices.contains(selected) || suggestions[selected].shareable
     }
 
     private func drawPDFPreview(_ page: AssistPDFPageImage, in rect: NSRect) {
@@ -1429,7 +1440,7 @@ final class AssistBoxView: NSView {
         }
 
         guard point.y >= footerY + 6, point.y <= footerY + 41 else { return }
-        if point.x < leftWidth + (bounds.width - leftWidth) / 2 { onOpenSource?() }
+        if !selectedSuggestionIsShareable || point.x < leftWidth + (bounds.width - leftWidth) / 2 { onOpenSource?() }
         else { onShare?() }
     }
 
@@ -2122,6 +2133,11 @@ final class GlobalAssistant {
            !rowKey.isEmpty {
             return sheet.isEmpty ? rowKey : sheet + " · " + rowKey
         }
+        if let slide = (anchor["slideNumber"] as? NSNumber)?.intValue { return "Slide " + String(slide) }
+        if anchor["kind"] as? String == "line-range", let first = (anchor["lineStart"] as? NSNumber)?.intValue {
+            let last = (anchor["lineEnd"] as? NSNumber)?.intValue ?? first
+            return last > first ? "Lines \(first)–\(last)" : "Line \(first)"
+        }
         return sheet
     }
 
@@ -2187,8 +2203,9 @@ final class GlobalAssistant {
                 guard let replacement = CompletionReplacement.capture(start: entry["claimStart"] as? Int,
                     end: entry["claimEnd"] as? Int, in: requestedText) else { continue }
                 append(AssistSuggestion(
-                    insertText: insert, label: insert,
-                    detail: candidate["valueText"] as? String ?? (entry["category"] as? String ?? ""),
+                    // A code range inserts several lines; the row names its first one.
+                    insertText: insert, label: entry["label"] as? String ?? insert,
+                    detail: entry["detail"] as? String ?? candidate["valueText"] as? String ?? (entry["category"] as? String ?? ""),
                     path: AssistSourceIdentity.canonicalPath(
                         candidatePath: candidate["path"] as? String,
                         provenanceLabel: entry["provenanceLabel"] as? String),
@@ -2199,7 +2216,8 @@ final class GlobalAssistant {
                     snapshotId: candidate["snapshotId"] as? String,
                     usageObjectId: candidate["id"] as? String, projectId: projectId,
                     rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String,
-                    previewText: entry["sourceSentence"] as? String ?? insert))
+                    previewText: entry["sourceSentence"] as? String ?? insert,
+                    shareable: candidate["shareable"] as? Bool ?? true))
             }
         }
 
@@ -2233,7 +2251,8 @@ final class GlobalAssistant {
                     versionId: candidate["versionId"] as? String,
                     snapshotId: candidate["snapshotId"] as? String,
                     usageObjectId: candidate["id"] as? String, projectId: projectId,
-                    rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String))
+                    rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String,
+                    shareable: candidate["shareable"] as? Bool ?? true))
             }
         }
         return results
@@ -3167,7 +3186,8 @@ final class GlobalAssistant {
     private func acceptShared() {
         guard view.mode == .suggestions, let suggestion = currentSuggestion else { return }
         guard suggestion.isShareable else {
-            flash(["This suggestion has no linkable source."])
+            flash([suggestion.objectId == nil ? "This suggestion has no linkable source."
+                   : "Lasso doesn\u{2019}t make share links for code. Tab inserts it as text."])
             return
         }
         beginShare(suggestion)

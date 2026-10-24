@@ -228,9 +228,24 @@ enum ShareAccessScope: String {
 
     /// A 3D CAD model has no text to redact. It is shared whole, or as the
     /// cited part with its feature marked when the citation names one part.
-    static func offered(isCADModel: Bool, hasCitedPart: Bool) -> [ShareAccessScope] {
-        guard isCADModel else { return [.document, .indexed, .redacted] }
+    /// A presentation is the same: the whole deck, or the slide the citation
+    /// is on, which `hasCitedPart` then means.
+    static func offered(for kind: ShareSourceKind, hasCitedPart: Bool) -> [ShareAccessScope] {
+        guard kind != .other else { return [.document, .indexed, .redacted] }
         return hasCitedPart ? [.document, .indexed] : [.document]
+    }
+}
+
+/// What a shared source is, as far as which scopes it offers.
+enum ShareSourceKind: Equatable {
+    case cadModel, presentation, other
+
+    init(filename: String) {
+        switch (filename as NSString).pathExtension.lowercased() {
+        case "step", "stp": self = .cadModel
+        case "pptx": self = .presentation
+        default: self = .other
+        }
     }
 }
 

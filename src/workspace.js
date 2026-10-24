@@ -8,6 +8,7 @@ import { normalizeProjectRootPath } from './history/service.js';
 import { runSliced, runSync } from './history/work.js';
 import { currentClauseStart, namesFocusedFile } from './dependencies/service.js';
 import { directoryIssue, directoryNote } from './directory-issues.js';
+import { offeredShareScopes } from './sharing/object-share.js';
 import { parseCommand } from './terminal/parser.js';
 import { failure, result, text, blank, dim } from './terminal/result.js';
 
@@ -99,6 +100,8 @@ function tag(value, project, projects = null) {
   const ownerId = value.projectId ?? value.dependencyCandidate?.projectId ?? value.object?.projectId;
   project = projects?.get(ownerId) ?? project;
   return { ...value, projectId: project.id, projectName: project.name, rootPath: project.rootPath,
+    // Whether a share link can be made for it; the Mac app hides Share Link when not.
+    ...(typeof value.path === 'string' ? { shareable: offeredShareScopes(value.path, value.anchor).length > 0 } : {}),
     ...(value.object ? { object: tag(value.object, project, projects) } : {}),
     ...(value.dependencyCandidate ? { dependencyCandidate: tag(value.dependencyCandidate, project, projects) } : {}) };
 }

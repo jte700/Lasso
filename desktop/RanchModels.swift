@@ -67,6 +67,14 @@ struct RanchSource: Decodable, Identifiable, Equatable {
     /// Share links to it that still work.
     let activeShares: Int
     let activity: Double
+    /// How Lasso read it: "code", "presentation", "pdf" and so on.
+    var fileType: String? = nil
+    /// False for code, which is sent as a copy of the file, never as a share link.
+    var shareable: Bool? = nil
+
+    var canShareLink: Bool { shareable ?? true }
+    /// Programming files, shown with their line numbers so they can be cited by line.
+    var isCode: Bool { fileType == "code" || fileType == "yaml" }
 
     /// The folders inside its directory, "" at the top.
     var folder: String { (path as NSString).deletingLastPathComponent }
@@ -251,6 +259,8 @@ enum RanchActivityColor {
 
 enum RanchViewerKind: Equatable {
     case quickLook
+    /// Programming files, numbered line by line.
+    case code
     /// STEP models, drawn from the edges and faces Lasso's reader recorded.
     case wireframe
     /// Meshes SceneKit reads itself: STL, OBJ, PLY, USD and Collada.
@@ -259,6 +269,13 @@ enum RanchViewerKind: Equatable {
     case plan
 
     private static let meshExtensions: Set<String> = ["stl", "obj", "ply", "usdz", "usd", "usda", "usdc", "abc", "dae", "scn"]
+
+    /// Code larger than this scrolls in Quick Look instead.
+    static let maximumCodeBytes = 5_000_000
+
+    static func choose(for source: RanchSource) -> RanchViewerKind {
+        source.isCode && source.size <= maximumCodeBytes ? .code : choose(for: source.fileExtension)
+    }
 
     static func choose(for fileExtension: String) -> RanchViewerKind {
         switch fileExtension.lowercased() {
@@ -273,7 +290,7 @@ enum RanchViewerKind: Equatable {
         switch self {
         case .wireframe, .mesh: return "Drag to rotate \u{00B7} Pinch or scroll to zoom \u{00B7} Option-drag to pan"
         case .plan: return "Pinch or scroll to zoom \u{00B7} Drag to pan"
-        case .quickLook: return nil
+        case .quickLook, .code: return nil
         }
     }
 }
@@ -336,4 +353,26 @@ enum RanchKindFilter: String, CaseIterable, Identifiable {
     func includes(_ source: RanchSource) -> Bool { kind.map { $0 == source.kind } ?? true }
 
     static let key = "RanchKindFilter"
+}
+
+/// Which lines of a file a selection covers, numbered as editors and
+/// Lasso's "line 42" number them.
+enum RanchCodeLines {
+    static func lines(in text: String, selection: NSRange) -> ClosedRange<Int>? {
+        let units = Array(text.utf16)
+        guard selection.location != NSNotFound, selection.length > 0, selection.location < units.count else { return nil }
+        let newline = UInt16(UInt8(ascii: "\n"))
+        let start = selection.location
+        // A selection that ends just after a line break ends on that line.
+        var end = min(units.count, selection.location + selection.length) - 1
+        if end > start, units[end] == newline { end -= 1 }
+        let first = units[..<start].filter { $0 == newline }.count + 1
+        let last = first + units[start..<max(start, end)].filter { $0 == newline }.count
+        return first...last
+    }
+
+    /// "Lines 10–20", what to write after the file's name to insert them.
+    static func label(_ lines: ClosedRange<Int>) -> String {
+        lines.count == 1 ? "Line \(lines.lowerBound)" : "Lines \(lines.lowerBound)\u{2013}\(lines.upperBound)"
+    }
 }

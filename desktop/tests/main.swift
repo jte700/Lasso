@@ -166,12 +166,18 @@ do {
     history.clear()
     check(!history.canUndo && !history.canRedo, "a new share starts with no history")
 
-    check(ShareAccessScope.offered(isCADModel: false, hasCitedPart: false) == [.document, .indexed, .redacted],
+    check(ShareAccessScope.offered(for: .other, hasCitedPart: false) == [.document, .indexed, .redacted],
           "documents keep every share scope")
-    check(ShareAccessScope.offered(isCADModel: true, hasCitedPart: true) == [.document, .indexed],
+    check(ShareAccessScope.offered(for: .cadModel, hasCitedPart: true) == [.document, .indexed],
           "a CAD part citation shares the whole model or the cited part, with nothing to redact")
-    check(ShareAccessScope.offered(isCADModel: true, hasCitedPart: false) == [.document],
+    check(ShareAccessScope.offered(for: .cadModel, hasCitedPart: false) == [.document],
           "a whole-model CAD citation is shared as the model")
+    check(ShareAccessScope.offered(for: .presentation, hasCitedPart: true) == [.document, .indexed],
+          "a slide's citation shares the whole deck or that slide, with nothing to redact")
+    check(ShareAccessScope.offered(for: .presentation, hasCitedPart: false) == [.document],
+          "a whole-deck citation is shared as the deck")
+    check(ShareSourceKind(filename: "Review.PPTX") == .presentation && ShareSourceKind(filename: "Bracket.stp") == .cadModel
+          && ShareSourceKind(filename: "Budget.xlsx") == .other, "a source's kind comes from its extension")
 }
 
 print("Command+Z takes back what Tab or a link inserted")
@@ -3271,6 +3277,19 @@ do {
           && plan(markdown, AssistOpenTarget(line: 3), "com.apple.TextEdit") == .plain
           && plan(memo, AssistOpenTarget(line: 2), "com.microsoft.Word") == .plain,
           "apps without a way to the cited place, or with nothing to find, open the file plainly")
+    let deck = URL(fileURLWithPath: "/Users/me/Software Tests/Board/Quarterly-Review.pptx")
+    check(AssistOpenTarget(json: ["slide": 3]) == AssistOpenTarget(slide: 3)
+          && AssistOpenTarget(json: ["slide": 0]) == nil && AssistOpenTarget(json: ["slide": "3"]) == nil,
+          "a slide is a place to open; a malformed one is not")
+    check(plan(deck, AssistOpenTarget(slide: 3), "com.microsoft.Powerpoint")
+          == .script(.powerPoint, arguments: ["Quarterly-Review.pptx", "3"]),
+          "PowerPoint goes to the cited slide")
+    check(plan(deck, AssistOpenTarget(slide: 3), "com.apple.iWork.Keynote")
+          == .script(.keynote, arguments: ["Quarterly-Review.pptx", "Quarterly-Review", "3"]),
+          "Keynote goes to the cited slide in the document it imported")
+    check(plan(deck, AssistOpenTarget(slide: 3), "com.apple.Preview") == .plain
+          && plan(deck, AssistOpenTarget(line: 3), "com.microsoft.Powerpoint") == .plain,
+          "an app without slides, or a deck without a slide, opens plainly")
     check(AssistOpenScript.allCases.allSatisfy { $0.source.contains("on run argv") },
           "every script reads its file, sheet, cell or words as arguments, never spliced into its source")
     check(AssistOpenScript.allCases.allSatisfy { $0.source.contains("tell application id \"\($0.appBundleID)\"") }
@@ -3580,6 +3599,28 @@ do {
     check(RanchViewerKind.choose(for: "STEP") == .wireframe && RanchViewerKind.choose(for: "stl") == .mesh
           && RanchViewerKind.choose(for: "dxf") == .plan && RanchViewerKind.choose(for: "xlsx") == .quickLook,
           "models turn, drawings pan, and documents scroll in Quick Look")
+
+    let codeJSON = """
+    {"id": "c", "directoryId": "d1", "path": "src/server.js", "name": "server.js", "kind": "code", "fileType": "code",
+     "size": 900, "contentHash": "h-c", "modifiedAt": null, "createdAt": null, "lastUsedAt": null,
+     "counts": {"tabs": 0, "opens": 0, "visits": 0, "shares": 0, "references": 0}, "activeShares": 0, "activity": 0,
+     "shareable": false}
+    """
+    let code = try! JSONDecoder().decode(RanchSource.self, from: Data(codeJSON.utf8))
+    check(code.isCode && !code.canShareLink && RanchViewerKind.choose(for: code) == .code,
+          "code shows numbered lines and offers no share link")
+    let older = try! JSONDecoder().decode(RanchSource.self, from: Data(codeJSON
+        .replacingOccurrences(of: ",\n \"shareable\": false", with: "").replacingOccurrences(of: "\"fileType\": \"code\",", with: "").utf8))
+    check(older.canShareLink && !older.isCode && RanchViewerKind.choose(for: older) == .quickLook,
+          "a server that says neither keeps the file shareable and in Quick Look")
+    let text = "one\ntwo\nthree\n"
+    check(RanchCodeLines.lines(in: text, selection: NSRange(location: 4, length: 3)) == 2...2
+          && RanchCodeLines.lines(in: text, selection: NSRange(location: 0, length: 8)) == 1...2
+          && RanchCodeLines.lines(in: text, selection: NSRange(location: 2, length: 7)) == 1...3
+          && RanchCodeLines.lines(in: text, selection: NSRange(location: 3, length: 0)) == nil,
+          "a selection covers the lines it touches, not the line after its last line break")
+    check(RanchCodeLines.label(4...4) == "Line 4" && RanchCodeLines.label(10...20) == "Lines 10\u{2013}20",
+          "selected lines are named the way they are written")
 }
 
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
