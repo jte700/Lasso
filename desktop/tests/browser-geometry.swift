@@ -319,10 +319,11 @@ enum BrowserGeometryRegression {
         let before = CompletionSnapshot(documentStart: captured.windowStart, text: Array(captured.text.utf16))
         var result: Bool?
         var verification = "Paste did not complete"
+        var frontmostAtVerification = ""
         // Inserting runs on the Accessibility queue, as in the app. Its
         // results are handed back to this thread, which waits for them.
-        func finish(_ inserted: Bool, _ detail: String) {
-            DispatchQueue.main.async { result = inserted; verification = detail }
+        func finish(_ inserted: Bool, _ detail: String, frontmost: String) {
+            DispatchQueue.main.async { result = inserted; verification = detail; frontmostAtVerification = frontmost }
         }
         AccessibilityWork.queue.async {
             var detail = "Paste did not complete"
@@ -333,32 +334,54 @@ enum BrowserGeometryRegression {
                     AccessibilityReader.canPaste(in: captured.element, before: before, caret: captured.absoluteCaret,
                                                  expectedPrefix: plan.expectedPrefix, selected: selected)
                 }) { pasted in
-                    guard pasted else { finish(false, detail); return }
-                    RichTextInserter.verifyEventually(verify: {
-                        guard let after = AccessibilityReader.focusedContext(), CFEqual(after.element, captured.element) else {
-                            // Usually another app came to the front after the paste.
-                            let front = NSWorkspace.shared.frontmostApplication
-                            detail = "Focused editor changed (frontmost: \(front?.localizedName ?? "none"), pid \(front?.processIdentifier ?? -1))"
-                            return false
-                        }
-                        let transaction = CompletionTransaction.verify(before: before,
-                                after: CompletionSnapshot(documentStart: after.windowStart, text: Array(after.text.utf16)),
-                                plan: plan)
-                        detail = String(describing: transaction)
-                        guard case .success = transaction else { return false }
-                        let linked = AccessibilityReader.hyperlinkPresent(label, url: url, in: after)
-                        if !linked {
-                            detail = "Link attributes unavailable: \(String(describing: WebTextReader.attributedTextBeforeCaret(expectedText: label, from: after.element)))"
-                        }
-                        return linked
-                    }) { finish($0, detail) }
+                    guard pasted else { finish(false, detail, frontmost: ""); return }
+                    bringForward(request["activateAfterPaste"] as? String) {
+                        let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
+                        RichTextInserter.verifyEventually(verify: {
+                            // Production reads the captured editor, not the frontmost one.
+                            guard let after = AccessibilityReader.context(of: captured.element) else {
+                                let front = NSWorkspace.shared.frontmostApplication
+                                detail = "Captured editor could not be read (frontmost: \(front?.localizedName ?? "none"), pid \(front?.processIdentifier ?? -1))"
+                                return false
+                            }
+                            let transaction = CompletionTransaction.verify(before: before,
+                                    after: CompletionSnapshot(documentStart: after.windowStart, text: Array(after.text.utf16)),
+                                    plan: plan)
+                            detail = String(describing: transaction)
+                            guard case .success = transaction else { return false }
+                            let linked = AccessibilityReader.hyperlinkPresent(label, url: url, in: after)
+                            if !linked {
+                                detail = "Link attributes unavailable: \(String(describing: WebTextReader.attributedTextBeforeCaret(expectedText: label, from: after.element)))"
+                            }
+                            return linked
+                        }) { finish($0, detail, frontmost: frontmost) }
+                    }
                 }
         }
         let deadline = Date().addingTimeInterval(4)
         while result == nil, Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.025)) }
         return ["inserted": result ?? false, "prefix": plan.expectedPrefix,
                 "caretBefore": captured.absoluteCaret, "windowBefore": captured.windowStart,
-                "verification": verification]
+                "verification": verification, "frontmostAtVerification": frontmostAtVerification]
+    }
+
+    /// Bring another app to the front between the paste and its read-back, as
+    /// a user switching apps would, and continue once macOS reports it there.
+    /// Runs on the Accessibility queue, like the insertion it interrupts.
+    private static func bringForward(_ bundleIdentifier: String?, then next: @escaping () -> Void) {
+        guard let bundleIdentifier,
+              let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first else {
+            next(); return
+        }
+        app.activate(options: [.activateIgnoringOtherApps])
+        let deadline = Date().addingTimeInterval(1)
+        func poll() {
+            if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleIdentifier || Date() >= deadline {
+                next(); return
+            }
+            AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.025) { poll() }
+        }
+        poll()
     }
 
     private static func measure(_ request: [String: Any], adapter: AccessibilityTextAdapter) throws -> [String: Any] {
