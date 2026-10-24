@@ -368,6 +368,9 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           return sendJson(response, 200, { result: workspace.applySourceValuePlan(review[0], body.action, actorFrom(body), plan) });
         }
         if (request.method === 'GET' && pathname === '/api/workspace/terminal/session') {
+          // Its Changes count reads value history; a long one is read off
+          // this thread first so the server keeps answering meanwhile.
+          await workspace.readValueHistory();
           return sendJson(response, 200, { session: workspace.terminalSession() });
         }
         if (request.method === 'GET' && pathname === '/api/workspace/terminal/complete') {
@@ -385,6 +388,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         }
         if (request.method === 'POST' && pathname === '/api/workspace/terminal') {
           const body = await readJson(request);
+          await workspace.readValueHistory();
           return sendJson(response, 200, { result: await workspace.terminalRun(body.input, actorFrom(body), body) });
         }
       }
@@ -742,6 +746,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/terminal$/);
       if (request.method === 'POST' && parameters && terminal) {
         const body = await readJson(request);
+        await terminal.graph.readFolderHistories([parameters[0]]);
         return sendJson(response, 200, {
           result: terminal.executor.run(parameters[0], body.input, actorFrom(body), {
             documentPath: body.documentPath, context: body.context,
@@ -750,6 +755,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       }
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/terminal\/session$/);
       if (request.method === 'GET' && parameters && terminal) {
+        // Its Changes count reads value history (see the workspace session).
+        await terminal.graph.readFolderHistories([parameters[0]]);
         return sendJson(response, 200, { session: terminal.executor.banner(parameters[0]) });
       }
       parameters = match(pathname, /^\/api\/projects\/([^/]+)\/terminal\/complete$/);

@@ -308,6 +308,14 @@ export class WorkspaceService {
       }
     }
     this.upgradeReaders();
+    // Changes counts read every enabled folder's whole value history. Read it
+    // now, off the server's thread, rather than when the library first asks.
+    this.readValueHistory().catch(() => {});
+  }
+
+  /** Reads the enabled folders' value history off the server's thread, once each. */
+  readValueHistory() {
+    return this.terminal.graph.readFolderHistories(this.activeProjects().map((project) => project.id));
   }
 
   /**

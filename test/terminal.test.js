@@ -966,6 +966,81 @@ test('terminal recommendations share relevance, relationship and usage prioritie
   });
 });
 
+test('value history reads only objects that changed and keeps up with later captures', async (suite) => {
+  const { sandbox, root, application, project } = buildWorkspace();
+  const { graph } = application.terminal;
+  suite.after(async () => {
+    await application.close();
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  });
+  // Counts the version rows each history read hands to JavaScript.
+  let versionRowsRead = 0;
+  const prepare = application.db.prepare.bind(application.db);
+  application.db.prepare = (sql) => {
+    const statement = prepare(sql);
+    if (!/x\.metadata_json/.test(sql)) return statement;
+    return { all: (...parameters) => { const rows = statement.all(...parameters); versionRowsRead += rows.length; return rows; } };
+  };
+  const capture = (contents) => {
+    fs.writeFileSync(path.join(root, 'Finance/Q3/Income-Statement.csv'), contents);
+    application.timeline.capture(project.id, ada, { source: 'EXPLICIT_CHECKPOINT' });
+    application.dependencies.ensureIndex(project.id);
+  };
+  const changed = () => Object.fromEntries(graph.valueChanges(project.id)
+    .map((change) => [change.name, `${change.previousValue} → ${change.currentValue}`]));
+
+  await suite.test('an unchanged folder reads no versions', () => {
+    assert.deepEqual(changed(), {});
+    assert.equal(versionRowsRead, 0);
+  });
+
+  await suite.test('a capture adds its changes, read from those objects alone', () => {
+    capture(INCOME_V2);
+    versionRowsRead = 0;
+    const changes = changed();
+    assert.equal(changes['depreciation-direct'], '612 → 684');
+    assert.equal(changes['office-supplies'], '400 → 438');
+    assert.ok(!changes['payroll-tax']);
+    const versions = application.db.prepare(`SELECT COUNT(*) AS count FROM scientific_object_versions x
+      JOIN scientific_objects o ON o.id = x.object_id WHERE o.project_id = ?`).get(project.id).count;
+    assert.ok(versionRowsRead < versions / 4, `read ${versionRowsRead} of ${versions} versions`);
+  });
+
+  await suite.test('a later capture keeps earlier changes and matches a full reading', () => {
+    capture(INCOME_V2.replace('Payroll tax,225', 'Payroll tax,231'));
+    const changes = changed();
+    assert.equal(changes['depreciation-direct'], '612 → 684');
+    assert.equal(changes['payroll-tax'], '225 → 231');
+    graph.changedObjectSets.clear();
+    assert.deepEqual(changed(), changes);
+  });
+
+  await suite.test('a history read off the server thread finds the same changes', async () => {
+    const expected = changed();
+    graph.changedObjectSets.clear();
+    const read = await graph.readChangedObjectsOffThread('o.project_id = ?', [project.id], null);
+    assert.ok(read, 'the worker read the history');
+    assert.deepEqual([...read.ids].sort(), graph.changedObjectIds('o.project_id = ?', [project.id]).sort());
+    graph.changedObjectSets.clear();
+    await graph.readFolderHistories([project.id]);
+    versionRowsRead = 0;
+    assert.deepEqual(changed(), expected);
+    assert.ok(versionRowsRead > 0, 'only the changed objects are then read here');
+  });
+
+  await suite.test('versions recorded after a reading are read off the server thread too', async () => {
+    capture(INCOME_V2.replace('Payroll tax,225', 'Payroll tax,240'));
+    const since = graph.changedObjectSets.get(JSON.stringify(['o.project_id = ?', [project.id]])).newest;
+    const offered = [];
+    const offThread = graph.readChangedObjectsOffThread.bind(graph);
+    graph.readChangedObjectsOffThread = (...args) => { offered.push(args[2]); return offThread(...args); };
+    await graph.readFolderHistories([project.id]);
+    graph.readChangedObjectsOffThread = offThread;
+    assert.deepEqual(offered, [since], 'only the versions since the last reading are offered');
+    assert.equal(changed()['payroll-tax'], '231 → 240');
+  });
+});
+
 test('terminal command parser', async (suite) => {
   await suite.test('splits quoted arguments', () => {
     assert.deepEqual(tokenize('history dep --at "Aug 19"'), ['history', 'dep', '--at', 'Aug 19']);
