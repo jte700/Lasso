@@ -3092,14 +3092,14 @@ do {
         @objc func about() {}
         @objc func settings() {}
         @objc func add() {}
-        @objc func workspace() {}
+        @objc func ranch() {}
         @objc func help() {}
     }
     let menuTarget = MenuTarget()
     _ = NSApplication.shared
     MainMenu.install(MainMenu.Commands(target: menuTarget, about: #selector(MenuTarget.about),
         settings: #selector(MenuTarget.settings), addDirectories: #selector(MenuTarget.add),
-        openWorkspace: #selector(MenuTarget.workspace), help: #selector(MenuTarget.help)))
+        openRanch: #selector(MenuTarget.ranch), help: #selector(MenuTarget.help)))
     let bar = NSApp.mainMenu
     check(bar?.items.map(\.title) == ["Lasso", "File", "Edit", "View", "Window", "Help"],
           "menu bar lists Lasso, File, Edit, View, Window and Help in order")
@@ -3128,6 +3128,10 @@ do {
     check(shortcut("Edit", "f")?.tag == Int(NSFindPanelAction.showFindPanel.rawValue), "Command-F opens Find")
     check(shortcut("Window", "m")?.action == #selector(NSWindow.performMiniaturize(_:)), "Command-M minimizes")
     check(shortcut("Help", "?")?.action == #selector(MenuTarget.help), "Command-? opens Lasso Help")
+    check(shortcut("File", "r")?.action == #selector(MenuTarget.ranch) && shortcut("File", "r")?.title == "Open The Ranch",
+          "Command-R opens The Ranch")
+    check(!(bar?.items ?? []).flatMap({ $0.submenu?.items ?? [] }).contains { $0.title.localizedCaseInsensitiveContains("browser") },
+          "nothing in the menu bar sends you to the browser")
     check(NSApp.windowsMenu?.title == "Window" && NSApp.helpMenu?.title == "Help",
           "Window and Help menus are registered with AppKit")
     let titles = (bar?.items ?? []).flatMap { $0.submenu?.items ?? [] }.map(\.title).filter { !$0.isEmpty }
@@ -3449,6 +3453,133 @@ do {
           && empty.submenu?.items.first?.title.hasPrefix("Connect an external drive") == true,
           "with no drives, the group says how to add one")
     check(menu.attentionPath == ["External Drives"], "a review with nothing pending opens the drive list")
+}
+
+// MARK: The Ranch
+
+do {
+    func source(_ id: String, _ directory: String, _ name: String, modified: String?, created: String?,
+                used: String? = nil, activity: Double = 0) -> String {
+        let quote: (String?) -> String = { $0.map { "\"\($0)\"" } ?? "null" }
+        return """
+        {"id": "\(id)", "directoryId": "\(directory)", "path": "Reports/\(name)", "name": "\(name)", "kind": "spreadsheet",
+         "fileType": "spreadsheet", "size": 2048, "contentHash": "h-\(id)", "modifiedAt": \(quote(modified)),
+         "createdAt": \(quote(created)), "lastUsedAt": \(quote(used)),
+         "counts": {"tabs": 1, "opens": 0, "visits": 2, "shares": 0, "references": 0}, "activeShares": 0, "activity": \(activity)}
+        """
+    }
+    func directory(_ id: String, _ name: String, edited: String?, used: String?, created: String?, kind: String = "folder") -> String {
+        let quote: (String?) -> String = { $0.map { "\"\($0)\"" } ?? "null" }
+        return """
+        {"id": "\(id)", "name": "\(name)", "rootPath": "/tmp/\(name)", "kind": "\(kind)", "symbol": null, "active": true,
+         "available": true, "offline": false, "snapshotId": "s-\(id)", "fileCount": 2, "listedCount": 2, "issue": null,
+         "createdAt": \(quote(created)), "addedAt": "2026-09-01T00:00:00.000Z", "lastEditedAt": \(quote(edited)),
+         "lastUsedAt": \(quote(used)), "activity": 0.5}
+        """
+    }
+    let json = """
+    {"generatedAt": "2026-10-23T12:00:00.000Z", "truncated": false,
+     "directories": [\(directory("d1", "Finance", edited: "2026-10-20T10:00:00.000Z", used: nil, created: "2025-01-01T00:00:00.000Z")),
+                     \(directory("d2", "Models", edited: "2026-10-22T10:00:00.000Z", used: "2026-10-21T10:00:00.000Z", created: "2026-03-01T00:00:00.000Z")),
+                     \(directory("d3", "Outlook", edited: nil, used: nil, created: nil, kind: "app"))],
+     "sources": [\(source("a", "d1", "Budget.xlsx", modified: "2026-10-19T10:00:00.000Z", created: "2026-01-01T00:00:00Z", activity: 1)),
+                 \(source("b", "d1", "Actuals.xlsx", modified: "2026-10-20T10:00:00.000Z", created: "2025-06-01T00:00:00.000Z",
+                          used: "2026-10-22T09:00:00.000Z", activity: 0.4)),
+                 \(source("c", "d2", "Bracket.step", modified: nil, created: nil)),
+                 \(source("d", "d2", "Plate.step", modified: "2026-10-01T10:00:00.000Z", created: "2026-02-01T00:00:00.000Z"))],
+     "history": [{"id": "e1", "directoryId": "d1", "at": "2026-10-20T10:00:00.000Z", "change": "edited",
+                  "path": "Reports/Actuals.xlsx", "previousPath": null, "fileId": "b"},
+                 {"id": "e2", "directoryId": "d2", "at": "2026-10-10T10:00:00.000Z", "change": "directory-added",
+                  "path": null, "previousPath": null, "fileCount": 2}],
+     "historyTruncated": false,
+     "links": {"outgoing": [{"id": "l1", "kind": "OBJECT", "token": "t", "url": "http://127.0.0.1:4319/d/t", "directoryId": "d1",
+                             "path": "Reports/Budget.xlsx", "fileId": "a", "name": "Budget.xlsx", "locator": null, "scope": "DOCUMENT",
+                             "status": "active", "drifted": false, "createdAt": "2026-10-22T10:00:00.000Z",
+                             "expiresAt": "2026-10-24T10:00:00.000Z", "revokedAt": null}],
+               "received": []},
+     "review": [{"id": "r1", "kind": "changed", "title": "Linked value changed", "directoryId": "d1",
+                 "path": "Reports/Budget.xlsx", "fileId": "a", "documents": ["Memo.md"], "detail": "Changed."}],
+     "network": {"edges": [{"from": "a", "to": "c", "kind": "mention", "weight": 0.75},
+                           {"from": "a", "to": "b", "kind": "link", "weight": 2}]}}
+    """
+    let overview = try? RanchOverview.decode(Data(json.utf8))
+    check(overview?.sources.count == 4 && overview?.history.last?.fileCount == 2
+          && overview?.links.outgoing.first?.expiresAt != nil && overview?.sources[2].modifiedAt == nil,
+          "The Ranch decodes the server's overview, with and without fractional seconds, and its nulls")
+    if let overview {
+        let names = { (directories: [RanchDirectory]) in directories.map(\.name) }
+        check(names(RanchOrder.lastEdited.sorted(overview.directories)) == ["Models", "Finance", "Outlook"],
+              "directories ordered by last edit put the latest first and undated ones last")
+        check(names(RanchOrder.recentlyUsed.sorted(overview.directories)) == ["Models", "Finance", "Outlook"],
+              "never-used directories go after used ones, by name")
+        check(names(RanchOrder.oldest.sorted(overview.directories)) == ["Finance", "Models", "Outlook"]
+              && names(RanchOrder.newest.sorted(overview.directories)) == ["Outlook", "Models", "Finance"],
+              "oldest and newest order directories by when they were made, or added when that is unknown")
+        let files = { (sources: [RanchSource]) in sources.map(\.id) }
+        check(files(RanchOrder.lastEdited.sorted(overview.sources)) == ["b", "a", "d", "c"]
+              && files(RanchOrder.recentlyUsed.sorted(overview.sources)) == ["b", "c", "a", "d"]
+              && files(RanchOrder.oldest.sorted(overview.sources)) == ["b", "a", "d", "c"],
+              "files sort by their own order, separately from directories")
+        check(overview.sources[0].folder == "Reports" && overview.sources[2].fileExtension == "step",
+              "a file knows its folder and extension")
+        check(overview.sources[0].counts.summary == "Tabbed once \u{00B7} Viewed twice" && RanchCounts.none.summary == "Not used yet",
+              "use is summarised in words, leaving out what never happened")
+
+        let defaults = MemoryDirectoryDefaults()
+        defaults.set(RanchOrder.oldest.rawValue, forKey: RanchOrder.directoryKey)
+        check(RanchOrder.saved(RanchOrder.directoryKey, defaults: defaults) == .oldest
+              && RanchOrder.saved(RanchOrder.itemKey, defaults: defaults) == .lastEdited,
+              "directory and file orders are remembered under separate keys")
+
+        let layout = RanchNetworkLayout.make(overview)
+        let fileIDs = Set(layout.nodes.filter { $0.role == .file }.map(\.id))
+        check(fileIDs == ["a", "b", "c"] && !layout.isStarter,
+              "the network draws used and connected files, not unused loners")
+        check(layout.nodes.filter { $0.role == .hub }.map(\.label) == ["Finance", "Models"],
+              "each directory with files drawn is a hub")
+        check(layout.lines.contains { $0.kind == "mention" && $0.crossesDirectories }
+              && layout.lines.contains { $0.kind == "link" && !$0.crossesDirectories },
+              "lines say whether they cross directories")
+        check(layout == RanchNetworkLayout.make(overview), "the same library always lays out the same way")
+        check(layout.nodes.allSatisfy { abs($0.position.x) <= 1 && abs($0.position.y) <= 1 },
+              "every node stays inside the drawing")
+        let finance = RanchNetworkLayout.make(overview, directoryId: "d1")
+        check(Set(finance.nodes.filter { $0.role == .file }.map(\.id)) == ["a", "b", "c"],
+              "one directory's network keeps the files elsewhere it connects to")
+        check(RanchNetworkLayout.make(overview, maxFiles: 1).nodes.filter { $0.role == .file }.map(\.id) == ["a"],
+              "past the limit, the busiest and best-connected files are kept")
+        let quiet = RanchOverview(generatedAt: nil, truncated: false, directories: overview.directories,
+                                  sources: overview.sources.map { source in
+                                      RanchSource(id: source.id, directoryId: source.directoryId, path: source.path, name: source.name,
+                                                  kind: source.kind, size: source.size, contentHash: source.contentHash,
+                                                  modifiedAt: source.modifiedAt, createdAt: source.createdAt,
+                                                  lastUsedAt: nil, counts: .none, activeShares: 0, activity: 0)
+                                  }, history: [], historyTruncated: false, links: RanchLinks(outgoing: [], received: []), review: [],
+                                  network: RanchNetworkData(edges: []))
+        let starter = RanchNetworkLayout.make(quiet)
+        check(starter.isStarter && starter.nodes.filter { $0.role == .file }.count == 4,
+              "with nothing used or linked, recently edited files are drawn as a start")
+        check(layout.labelledFiles(limit: 1).count == 1, "only the busiest file labels are drawn")
+        check(overview.sources.filter(RanchKindFilter.spreadsheets.includes).count == 4
+              && overview.sources.filter(RanchKindFilter.models.includes).isEmpty
+              && overview.sources.filter(RanchKindFilter.all.includes).count == 4
+              && Set(RanchKindFilter.allCases.map(\.title)).count == RanchKindFilter.allCases.count,
+              "the kind filter keeps one kind of file, and All Kinds keeps every file")
+    }
+
+    func components(_ color: NSColor) -> (saturation: CGFloat, brightness: CGFloat) {
+        let rgb = color.usingColorSpace(.deviceRGB) ?? color
+        return (rgb.saturationComponent, rgb.brightnessComponent)
+    }
+    let grey = components(RanchActivityColor.color(for: 0)), green = components(RanchActivityColor.color(for: 1))
+    check(grey.saturation < 0.01 && green.saturation > 0.6 && green.brightness > grey.brightness,
+          "unused files are grey and the most used are bright green")
+    check(components(RanchActivityColor.color(for: .nan)).saturation < 0.01
+          && components(RanchActivityColor.color(for: 4)).saturation == green.saturation,
+          "activity outside 0...1 is clamped")
+    check(RanchViewerKind.choose(for: "STEP") == .wireframe && RanchViewerKind.choose(for: "stl") == .mesh
+          && RanchViewerKind.choose(for: "dxf") == .plan && RanchViewerKind.choose(for: "xlsx") == .quickLook,
+          "models turn, drawings pan, and documents scroll in Quick Look")
 }
 
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")

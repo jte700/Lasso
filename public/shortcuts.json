@@ -5,10 +5,20 @@
       "note": "While the Lasso panel or Settings is open. ⌘L works anywhere once Lasso has quit.",
       "shortcuts": [
         { "action": "Open Settings", "macos": "⌘," },
-        { "action": "Open the workspace in your browser", "macos": "⌘B" },
+        { "action": "Open The Ranch", "macos": "⌘R" },
         { "action": "Lasso Help", "macos": "⌘?" },
         { "action": "Quit Lasso", "macos": "⌘Q" },
         { "action": "Start Lasso again after quitting", "macos": "⌘L" }
+      ]
+    },
+    {
+      "title": "The Ranch",
+      "note": "While The Ranch is open.",
+      "shortcuts": [
+        { "action": "Go to Recent Changes, All Sources, Links, Needs Review or Network", "macos": "⌘1…5" },
+        { "action": "Edit the file in its app", "macos": "⌘E" },
+        { "action": "Copy a share link to the file", "macos": "⇧⌘L" },
+        { "action": "Show the file in Finder", "macos": "⇧⌘R" }
       ]
     },
     {

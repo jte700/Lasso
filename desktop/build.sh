@@ -169,7 +169,7 @@ fi
 swiftc "${SWIFT_OPTIONS[@]}" \
   -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" \
   -framework Cocoa -framework WebKit -framework PDFKit -framework ServiceManagement -framework DiskArbitration \
-  -framework EventKit \
+  -framework EventKit -framework SwiftUI -framework Quartz -framework SceneKit -framework ModelIO \
   -o "$CONTENTS/MacOS/Lasso" \
   "$ROOT/desktop/BuildConfig.swift" \
   "$ROOT/desktop/NodeRuntime.swift" \
@@ -218,6 +218,16 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/ShortcutsPane.swift" \
   "$ROOT/desktop/SettingsWindow.swift" \
   "$ROOT/desktop/ConnectApps.swift" \
+  "$ROOT/desktop/RanchModels.swift" \
+  "$ROOT/desktop/RanchNetworkLayout.swift" \
+  "$ROOT/desktop/RanchStore.swift" \
+  "$ROOT/desktop/RanchEditors.swift" \
+  "$ROOT/desktop/RanchViewers.swift" \
+  "$ROOT/desktop/RanchViews.swift" \
+  "$ROOT/desktop/RanchLists.swift" \
+  "$ROOT/desktop/RanchDetail.swift" \
+  "$ROOT/desktop/RanchNetworkView.swift" \
+  "$ROOT/desktop/RanchWindow.swift" \
   "$ROOT/desktop/Lasso.swift"
 
 echo "==> Compiling the launcher (starts Lasso at login and with Command-L)"

@@ -392,6 +392,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.calendar.onSynced = { [weak self] in self?.refreshWorkspace() }
         return controller
     }()
+    /// The Ranch, the library window that took the browser workspace's place on the Mac.
+    private var ranchLoaded = false
+    private lazy var ranch: RanchWindowController = {
+        let controller = RanchWindowController(actions: RanchActions(
+            createShareLink: { [weak self] target, anchor in self?.composeRanchShare(target, near: anchor) },
+            addDirectories: { [weak self] in self?.addDirectories() }))
+        controller.onClose = { [weak self] in self?.returnToMenuBar() }
+        return controller
+    }()
     private var workspaceRevision = ""
     private var workspaceError: String?
     private var busyMessage: String?
@@ -452,7 +461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainMenu.install(MainMenu.Commands(
             target: self, about: #selector(showAbout), settings: #selector(showSettings),
-            addDirectories: #selector(addDirectories), openWorkspace: #selector(openInBrowser),
+            addDirectories: #selector(addDirectories), openRanch: #selector(openRanch),
             help: #selector(openHelp)))
         LassoTransientUI.shared.register(self, priority: 5,
             isOpen: { NSApp.modalWindow != nil || NSApp.keyWindow?.attachedSheet != nil },
@@ -494,10 +503,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         notch.linkedSourceObjectIDs = { DependencyHighlighter.shared.linkedSourceObjectIDs }
         notch.onToggleSuggestions = { [weak self] in self?.toggleGlobalAssist() }
-        notch.onOpenWorkspace = { [weak self] view in
-            guard let base = self?.server?.url, var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return }
-            components.queryItems = [URLQueryItem(name: "view", value: view)]
-            if let url = components.url { NSWorkspace.shared.open(url) }
+        notch.onOpenWorkspace = { [weak self] destination in
+            self?.showRanch(section: RanchStore.Section(notchDestination: destination))
         }
         NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -736,7 +743,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        statusMenu.addItem(command("Open in Browser", action: #selector(openInBrowser), key: "b", enabled: isServerReady))
+        statusMenu.addItem(command("Open \(Ranch.title)", action: #selector(openRanch), key: "r", enabled: isServerReady))
         statusMenu.addItem(.separator())
         // Look, Tab, notch and startup options live in Settings, not here.
         statusMenu.addItem(command("Settings…", action: #selector(showSettings), key: ","))
@@ -827,6 +834,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .ready:
             GlobalAssistant.shared.serverURL = server.url
             DependencyHighlighter.shared.serverURL = server.url
+            if ranchLoaded { ranch.store.serverURL = server.url }
             if let url = server.url { driveMonitor.start(serverURL: url, token: server.driveToken) }
             driveMenu.refresh(base: server.url)
             refreshWorkspace()
@@ -1288,9 +1296,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Back to the menu bar alone once no Lasso window is open.
     private func returnToMenuBar() {
-        let settingsOpen = settingsLoaded && settings.window?.isVisible == true
-        let connectOpen = connectAppsLoaded && connectApps.isVisible
-        if !settingsOpen && !connectOpen { NSApp.setActivationPolicy(.accessory) }
+        // A window still counts as visible while it closes, so look once it has gone.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let settingsOpen = self.settingsLoaded && self.settings.window?.isVisible == true
+            let connectOpen = self.connectAppsLoaded && self.connectApps.isVisible
+            let ranchOpen = self.ranchLoaded && self.ranch.isVisible
+            if !settingsOpen && !connectOpen && !ranchOpen { NSApp.setActivationPolicy(.accessory) }
+        }
     }
 
     @objc private func toggleConnectedList() {
@@ -1415,9 +1428,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.runModal()
     }
 
-    @objc private func openInBrowser() {
-        guard let url = server.url else { return }
-        NSWorkspace.shared.open(url)
+    @objc private func openRanch() { showRanch() }
+
+    /// The Ranch opens as a regular app window, like Settings, on `section` when given.
+    private func showRanch(section: RanchStore.Section? = nil) {
+        ranchLoaded = true
+        statusPopover.popover.performClose(nil)
+        NSApp.setActivationPolicy(.regular)
+        // As for Settings: the window shows on the next turn, once the policy has applied.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.ranch.show(section: section, serverURL: self.isServerReady ? self.server.url : nil)
+        }
+    }
+
+    /// A share link for a whole file, from The Ranch, through the same composer as suggestions.
+    private func composeRanchShare(_ target: RanchShareTarget, near anchor: NSRect) {
+        guard isServerReady, let url = server.url else { return }
+        ShareComposerController.shared.show(
+            objectId: target.objectId, versionId: target.versionId, label: target.label, sourcePath: target.path,
+            near: anchor, serverURL: url, projectId: target.projectId,
+            fallbackColor: toggleColor(for: target.projectId).color,
+            copyAction: { [weak self] configuration, finished in
+                ShareClient.createShare(serverURL: url, projectId: target.projectId, objectId: target.objectId,
+                                        versionId: target.versionId, configuration: configuration) { result in
+                    finished(result)
+                    DispatchQueue.main.async { self?.ranch.store.reload() }
+                }
+            })
     }
 
     @objc private func restartServer() { server.restart() }

@@ -468,7 +468,7 @@ final class NotchPanelController: NSObject {
             .isEnabled = baseURL != nil
         button(activity.stale > 0 || activity.failures > 0 ? "Review Sources" : "Open Sources",
                frame: NSRect(x: width - 14 - actionWidth, y: footerY, width: actionWidth, height: 28), action: #selector(openWorkspace),
-               symbol: "arrow.up.right.square").isEnabled = baseURL != nil
+               symbol: "square.stack.3d.up").isEnabled = baseURL != nil
         present(frame: frame, compactFrame: compactFrame, cameraFrame: cameraFrame)
     }
 

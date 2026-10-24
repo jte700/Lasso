@@ -156,7 +156,7 @@ h1{margin:0 0 6px;font-size:21px;letter-spacing:-.01em}p{margin:0;color:var(--in
 <body><main><div class="mark" aria-hidden="true">${ok ? '&#10003;' : '!'}</div><h1>${escape(title)}</h1><p>${escape(message)}</p></main></body></html>`;
 }
 
-export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null, workspace = null, connections = null) {
+export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null, workspace = null, connections = null, ranch = null) {
   const resolvedModelPreview = resolved => dependencies.sourceModelPreview({ ...resolved.source,
     path: resolved.internal.filePath, snapshotId: resolved.internal.snapshotId });
   const resolvedModelDocument = async resolved => {
@@ -386,6 +386,36 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         if (request.method === 'POST' && pathname === '/api/workspace/terminal') {
           const body = await readJson(request);
           return sendJson(response, 200, { result: await workspace.terminalRun(body.input, actorFrom(body), body) });
+        }
+      }
+      // The Ranch, the Mac app's library window. Read-only apart from visits.
+      if (ranch && pathname.startsWith('/api/ranch')) {
+        if (request.method === 'GET' && pathname === '/api/ranch') {
+          // The window asks every few seconds; an unchanged library is not sent again.
+          const { value, tag } = ranch.current();
+          if (request.headers['if-none-match'] === tag) {
+            response.writeHead(304, { etag: tag, 'cache-control': 'no-cache' });
+            return response.end();
+          }
+          const body = JSON.stringify(value);
+          response.writeHead(200, { 'content-type': 'application/json; charset=utf-8',
+            'content-length': Buffer.byteLength(body), 'cache-control': 'no-cache', etag: tag });
+          return response.end(body);
+        }
+        if (request.method === 'POST' && pathname === '/api/ranch/visits') {
+          return sendJson(response, 200, { visit: ranch.recordVisit(await readJson(request, 16 * 1024)) });
+        }
+        const file = { directoryId: url.searchParams.get('directory'), path: url.searchParams.get('path') };
+        if (request.method === 'GET' && pathname === '/api/ranch/share-target') {
+          return sendJson(response, 200, { target: ranch.shareTarget(file) });
+        }
+        if (request.method === 'GET' && pathname === '/api/ranch/file') {
+          // Saved as a file for Quick Look, never shown as a page of this origin.
+          const copy = ranch.fileContent(file);
+          return sendBinary(response, 200, copy.content, 'application/octet-stream', {
+            'content-disposition': downloadDisposition(copy.name),
+            'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
+          });
         }
       }
       if (connections && request.method === 'GET' && pathname === '/connect/callback') {
