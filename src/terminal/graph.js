@@ -5,12 +5,16 @@ import { buildSharePreview } from '../sharing/share-preview.js';
 // editor, the source inspector and the share service read: scientific objects
 // and their versions, claim dependencies and their versions, snapshots, and
 // share grants. Nothing is recomputed and nothing is cached beyond the
-// per-snapshot object list, which the indexer already treats as immutable.
+// per-snapshot object list, which the indexer already treats as immutable,
+// and which objects' values have changed, which only grows.
 
 import path from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { json } from '../db.js';
 import { BoundedCache } from '../cache.js';
 import { parseDelimited } from '../history/diff.js';
+import { runSliced, runSync } from '../history/work.js';
+import { NEWEST_VERSION, readChangedObjects } from './changed-objects.js';
 import { extractSpreadsheetTables } from '../dependencies/document-extraction.js';
 import { directRecommendationMatch } from '../dependencies/ranking.js';
 import { drawingContext } from '../dependencies/drawing-objects.js';
@@ -20,6 +24,19 @@ import {
 
 /** Objects that are containers rather than addressable values. */
 const CONTAINER_TYPES = new Set(['DATASET', 'DOCUMENT', 'TABLE', 'CODE_BLOCK', 'DRAWING']);
+
+/** Every version one folder recorded, as value history reads it. */
+const FOLDER_HISTORY = 'o.project_id = ?';
+
+/**
+ * Two readings of changed objects as one, when together they cover every
+ * version up to the later of them; otherwise the first alone.
+ */
+function combinedReading(known, read) {
+  if (!read || (read.since ?? 0) > (known?.newest ?? 0)) return known;
+  if (!known) return read;
+  return { newest: Math.max(known.newest, read.newest), ids: new Set([...known.ids, ...read.ids]) };
+}
 
 function tokens(value) {
   return String(value ?? '').toLowerCase().match(/[a-z0-9]+/g) ?? [];
@@ -84,11 +101,17 @@ export class DependencyGraph {
     this.namedObjectCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length });
     this.foreignDependencyCache = new BoundedCache({ maxEntries: 16, maxWeight: 10_000,
       weight: (dependencies) => dependencies.length });
+    // Objects whose value or location has changed, by query, as of the newest
+    // version recorded when they were found, and the readings under way
+    // (see changedObjectSteps).
+    this.changedObjectSets = new BoundedCache({ maxEntries: 16 });
+    this.changedObjectReads = new Map();
     this.unsubscribe = timeline.onCapture((capture) => {
       // Removing directories (a drive's saved data) drops their snapshots.
       if (capture?.removedProjectIds?.length) {
         this.namedObjectCache.clear();
         this.foreignDependencyCache.clear();
+        this.changedObjectSets.clear();
         return;
       }
       const previous = capture?.event?.previousSnapshotId;
@@ -99,7 +122,12 @@ export class DependencyGraph {
     });
   }
 
-  close() { this.unsubscribe?.(); this.namedObjectCache.clear(); this.foreignDependencyCache.clear(); }
+  close() {
+    this.unsubscribe?.();
+    this.namedObjectCache.clear();
+    this.foreignDependencyCache.clear();
+    this.changedObjectSets.clear();
+  }
 
   project(projectId) { return this.timeline.getProject(projectId); }
 
@@ -735,7 +763,7 @@ export class DependencyGraph {
     // history queries retain their complete historical view below.
     const rows = options.snapshotId && options.previousSnapshotId
       ? this.changesBetween(projectId, options.previousSnapshotId, options.snapshotId)
-      : this.recordedChanges('o.project_id = ?', [projectId], options)
+      : this.recordedChanges(FOLDER_HISTORY, [projectId], options)
         .sort((left, right) => right.version - left.version || compareIds(left.object_id, right.object_id));
 
     if (!options.previousSnapshotId && !options.ownSourcesOnly) {
@@ -884,7 +912,19 @@ export class DependencyGraph {
     // For activity's small IN-list, SQLite otherwise prefers the project's
     // object index and visits every object before filtering IDs. CROSS JOIN
     // pins x first so both versions and removals use their object_id index.
-    const objectJoin = options.indexedObjectLookup ? 'CROSS JOIN' : 'JOIN';
+    let objectJoin = options.indexedObjectLookup ? 'CROSS JOIN' : 'JOIN';
+    // Without source changes, an object changes only between two of its own
+    // versions with a different value or location. A folder's history can
+    // hold hundreds of thousands of objects that never changed, and reading
+    // every version of them ran the server out of memory, so SQLite picks out
+    // the objects that did change and only their history is read.
+    if (!options.includeSourceChanges) {
+      const changed = this.changedObjectIds(filter, parameters);
+      if (!changed.length) return [];
+      filter = 'x.object_id IN (SELECT value FROM json_each(?))';
+      parameters = [JSON.stringify(changed)];
+      objectJoin = 'CROSS JOIN';
+    }
     const joins = `${objectJoin} scientific_objects o ON o.id = x.object_id
       JOIN snapshots s ON s.id = x.snapshot_id
       LEFT JOIN object_index_bases b ON b.snapshot_id = x.snapshot_id
@@ -928,6 +968,72 @@ export class DependencyGraph {
       }
     }
     return changes;
+  }
+
+  /**
+   * The matching objects with a version whose value or location differs from
+   * the version before it, compared inside SQLite so no version is read here.
+   */
+  changedObjectIds(filter, parameters) {
+    return runSync(this.changedObjectSteps(filter, parameters));
+  }
+
+  /**
+   * Reads which objects changed across each folder's history off the server's
+   * thread, for the folders not read yet. Requests that show value history
+   * wait for this, so a long history cannot stop the server answering.
+   */
+  readFolderHistories(projectIds) {
+    return Promise.all(projectIds.map((projectId) => runSliced(this.changedObjectSteps(FOLDER_HISTORY, [projectId]))));
+  }
+
+  /**
+   * Comparing a folder's whole history reads all of it, so the answer is kept
+   * as of the newest version it read. Versions are only ever added (removing
+   * a directory clears this), so an object found to have changed always has;
+   * a later call compares again only the objects recorded since. A reading
+   * that is not up to date is offered to a worker, since a first one or a
+   * folder read again can take a minute; a synchronous caller gets no reply
+   * and reads here.
+   */
+  *changedObjectSteps(filter, parameters) {
+    const key = JSON.stringify([filter, parameters]);
+    let known = this.changedObjectSets.get(key);
+    if (known?.newest !== this.newestVersion()) {
+      const since = known?.newest ?? null;
+      const read = yield { offThread: () => this.readChangedObjectsOffThread(filter, parameters, since) };
+      known = combinedReading(this.changedObjectSets.get(key) ?? known, read);
+    }
+    // Whatever was recorded after the worker's reading is read here.
+    const newest = this.newestVersion();
+    if (known?.newest !== newest) {
+      const since = known && known.newest < newest ? known.newest : null;
+      const read = readChangedObjects(this.db, filter, parameters, since);
+      known = { newest: read.newest, ids: new Set([...(since === null ? [] : known.ids), ...read.ids]) };
+    }
+    // Versions written inside an open transaction may yet be rolled back.
+    if (!this.db.isTransaction) this.changedObjectSets.set(key, known);
+    return [...known.ids];
+  }
+
+  newestVersion() { return this.db.prepare(NEWEST_VERSION).get().rowid ?? 0; }
+
+  /** Resolves to a worker's { since, newest, ids } reading, or null when it cannot read one. */
+  readChangedObjectsOffThread(filter, parameters, since) {
+    const key = JSON.stringify([filter, parameters, since]);
+    if (this.changedObjectReads.has(key)) return this.changedObjectReads.get(key);
+    const read = new Promise((resolve) => {
+      const worker = new Worker(new URL('./changed-objects-worker.js', import.meta.url), {
+        workerData: { databasePath: this.timeline.config.databasePath, filter, parameters, since },
+      });
+      // A reading under way does not keep a closing server open.
+      worker.unref();
+      worker.once('message', ({ newest, ids }) => resolve({ since, newest, ids: new Set(ids) }));
+      worker.once('error', () => resolve(null));
+      worker.once('exit', () => resolve(null));
+    }).finally(() => this.changedObjectReads.delete(key));
+    this.changedObjectReads.set(key, read);
+    return read;
   }
 
   /**
