@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { crc32 } from 'node:zlib';
+import { writeZip } from '../dependencies/zip-archive.js';
 import { sharedDrawingSvg } from './shared-drawing.js';
 
 export function isInferredProfile(source) {
@@ -22,6 +22,9 @@ export function shareDownloadOptions(resolved, preview, document) {
   let type, format;
   if (document?.kind === 'pdf' && document.safe === true && Buffer.isBuffer(document.content)) {
     type = 'pdf'; format = 'PDF';
+  } else if (resolved.share.accessScope === 'INDEXED' && document?.citedSlide === true && typeof document.slideFile === 'function') {
+    // The one slide as a deck of its own, opened in PowerPoint or Keynote as it looks.
+    return { type: 'slide', format: 'PPTX', label: 'Download slide' };
   } else if (redacted) {
     if (document?.kind === 'table' && document.sheets?.length) {
       type = 'sheets'; format = document.sheets.length > 1 ? 'ZIP' : 'CSV';
@@ -57,34 +60,6 @@ function csv(rows) {
   return Buffer.from(`\uFEFF${rows.map(row => row.map(cell).join(',')).join('\r\n')}\r\n`, 'utf8');
 }
 
-// Small dependency-free ZIP using the store method. Entry names are generated
-// internally, so no source path or traversal component can enter the archive.
-function zip(entries) {
-  if (entries.length > 65535) throw new Error('Too many worksheets to export.');
-  const files = [], directory = [];
-  let offset = 0;
-  for (const { name, content } of entries) {
-    const filename = Buffer.from(name, 'utf8'), checksum = crc32(content);
-    const local = Buffer.alloc(30);
-    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0x800, 6);
-    local.writeUInt16LE(0x21, 12); // 1980-01-01, no filesystem timestamps.
-    local.writeUInt32LE(checksum, 14); local.writeUInt32LE(content.length, 18); local.writeUInt32LE(content.length, 22);
-    local.writeUInt16LE(filename.length, 26);
-    files.push(local, filename, content);
-    const central = Buffer.alloc(46);
-    central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6);
-    central.writeUInt16LE(0x800, 8); central.writeUInt16LE(0x21, 14);
-    central.writeUInt32LE(checksum, 16); central.writeUInt32LE(content.length, 20); central.writeUInt32LE(content.length, 24);
-    central.writeUInt16LE(filename.length, 28); central.writeUInt32LE(offset, 42);
-    directory.push(central, filename);
-    offset += local.length + filename.length + content.length;
-  }
-  const index = Buffer.concat(directory), end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10);
-  end.writeUInt32LE(index.length, 12); end.writeUInt32LE(offset, 16);
-  return Buffer.concat([...files, index, end]);
-}
-
 export function downloadDisposition(filename) {
   const clean = String(filename).replaceAll('\\', '/').split('/').at(-1)
     .replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200) || 'source';
@@ -103,6 +78,9 @@ export function buildShareDownload(resolved, preview, document) {
   let content;
   if (options.type === 'pdf') {
     content = document.content;
+  } else if (options.type === 'slide') {
+    content = document.slideFile();
+    if (!content) return null;
   } else if (options.type === 'table') {
     content = csv([preview.headers, ...preview.rows.map(row => row.cells.map(cell => cell.value))]);
   } else if (options.type === 'sheets') {
@@ -111,7 +89,7 @@ export function buildShareDownload(resolved, preview, document) {
       content: csv(sheet.rows.map((row, rowIndex) => row.map((cell, column) =>
         maskFor('CELL', { sheet: sheetIndex, row: rowIndex, column }) ? '[Redacted]' : cell))),
     }));
-    content = entries.length > 1 ? zip(entries) : entries[0].content;
+    content = entries.length > 1 ? writeZip(entries) : entries[0].content;
   } else if (options.type === 'drawing') {
     const svg = sharedDrawingSvg(document, { requireRedacted: resolved.share.accessScope === 'REDACTED' });
     if (!svg) return null;
@@ -130,8 +108,8 @@ export function buildShareDownload(resolved, preview, document) {
     content = Buffer.from(`${text}\n`, 'utf8');
   }
   const version = Number.isSafeInteger(resolved.source.snapshotVersion) ? `-v${resolved.source.snapshotVersion}` : '';
-  const suffix = resolved.share.accessScope === 'REDACTED' ? 'redacted' : 'excerpt';
-  const contentType = { PDF: 'application/pdf', CSV: 'text/csv; charset=utf-8', ZIP: 'application/zip', TXT: 'text/plain; charset=utf-8', MD: 'text/markdown; charset=utf-8', SVG: 'image/svg+xml; charset=utf-8' }[options.format];
+  const suffix = resolved.share.accessScope === 'REDACTED' ? 'redacted' : options.type === 'slide' ? `slide-${document.slide}` : 'excerpt';
+  const contentType = { PPTX: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', PDF: 'application/pdf', CSV: 'text/csv; charset=utf-8', ZIP: 'application/zip', TXT: 'text/plain; charset=utf-8', MD: 'text/markdown; charset=utf-8', SVG: 'image/svg+xml; charset=utf-8' }[options.format];
   return { ...options, content, contentType,
     filename: `${safeStem(resolved.source.filename)}-${suffix}${version}.${options.format.toLowerCase()}` };
 }

@@ -3,6 +3,7 @@ import { renderModelPlan } from '../../public/model-preview.js';
 import { renderSharedDrawing } from './shared-drawing.js';
 import { recipientExcerptText, shareDownloadOptions } from './share-download.js';
 import { MARKDOWN_STYLE, isMarkdownPath, markdownBlockHtml, markdownInlineHtml } from './markdown.js';
+import { isPresentationPath } from '../dependencies/presentation-extraction.js';
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (character) => (
@@ -175,7 +176,8 @@ function renderFullDocument(document, redactions, requireRedacted = false) {
     // A masked section keeps only its position. Its type and wording are omitted.
     return `<div class="full-document markdown-document">${document.styles.map((style, index) => {
       const mask = findRedaction(redactions, 'BLOCK', { block: index });
-      return mask ? `<div class="md-redacted">${maskedValue('', mask)}</div>` : markdownBlockHtml(style);
+      return mask ? `<div class="md-redacted">${maskedValue('', mask)}</div>`
+        : markdownBlockHtml(style, { className: style.cited ? 'cited' : '' });
     }).join('')}</div>`;
   }
   if (document?.kind === 'text' && document.blocks?.length) {
@@ -232,11 +234,13 @@ export function renderSharePage(resolved, token, preview, document = null) {
   const hasTable = !redacted && preview?.headers?.length && preview.rows?.length;
   const hasDocument = redacted || (scope === 'DOCUMENT' && (['model-plan', 'pdf'].includes(document?.kind) || document?.format === 'markdown'))
     || (scope === 'INDEXED' && document?.kind === 'pdf' && document.safe === true)
-    || (scope === 'INDEXED' && document?.kind === 'model-plan' && document.citedPart === true);
+    || (scope === 'INDEXED' && document?.kind === 'model-plan' && document.citedPart === true)
+    || (scope === 'INDEXED' && document?.citedSlide === true);
   const table = /\.(?:xlsx?|csv|tsv)$/i.test(source.filename) || hasTable || document?.kind === 'table';
   const drawing = /\.(?:dxf|ifc)$/i.test(source.filename);
   const model = /\.(?:step|stp)$/i.test(source.filename);
-  const type = table ? 'Spreadsheet' : drawing ? 'Design drawing' : model ? 'CAD model' : 'Document';
+  const deck = isPresentationPath(source.filename);
+  const type = table ? 'Spreadsheet' : drawing ? 'Design drawing' : model ? 'CAD model' : deck ? 'Presentation' : 'Document';
   const excerpt = pdfExcerpt ? '' : recipientExcerptText(source);
   const content = hasTable ? recipientTable(preview)
     : hasDocument ? renderFullDocument(document, redactions, redacted)
@@ -244,13 +248,15 @@ export function renderSharePage(resolved, token, preview, document = null) {
         ? `<blockquote class="shared-quote"><div class="markdown-document"><p class="md-paragraph">${markdownInlineHtml(excerpt)}</p></div></blockquote>`
         : `<blockquote class="shared-quote">${escapeHtml(excerpt)}</blockquote>`
         : '<p class="shared-empty">An inline excerpt is unavailable for this source. The sharing options below show what you can download.</p>';
-  const heading = redacted ? 'Redacted document' : scope === 'INDEXED' ? 'Shared excerpt' : 'Source preview';
-  const location = !redacted && document?.safe && document.location ? document.location
+  const heading = redacted ? 'Redacted document' : deck && scope === 'INDEXED' ? 'Shared slide'
+    : scope === 'INDEXED' ? 'Shared excerpt' : deck ? 'Slides' : 'Source preview';
+  const location = !redacted && (document?.safe || document?.citedSlide) && document.location ? document.location
     : !redacted && source.location && source.location !== '—' ? source.location : '';
   const stats = hasTable ? `${preview.rows.length} rows · ${preview.headers.length} columns`
     : redacted && document?.kind === 'table' ? `${document.sheets?.length ?? 0} worksheets`
       : drawing && document?.kind === 'model-plan' ? 'Plan view'
-        : model && document?.kind === 'model-plan' ? escapeHtml(document.view ?? '') : '';
+        : model && document?.kind === 'model-plan' ? escapeHtml(document.view ?? '')
+          : deck && scope === 'DOCUMENT' && document?.styles ? `${document.styles.filter((style) => style.type === 'heading').length} slides` : '';
   const options = shareDownloadOptions(resolved, preview, document);
   const base = `/d/${encodeURIComponent(token)}`;
   const originalType = String(source.filename ?? '').match(/\.([a-z\d]{1,10})$/i)?.[1].toUpperCase() || 'File';
@@ -260,9 +266,11 @@ export function renderSharePage(resolved, token, preview, document = null) {
   ].filter(Boolean).join('');
   const downloadDetail = options?.format === 'ZIP' ? 'All worksheets are included as separate CSV files.'
     : redacted ? 'The downloaded copy includes these redactions.'
-      : options ? 'Download the excerpt shown above.' : scope === 'DOCUMENT' ? 'Download the complete source file.' : '';
-  const scopeLabel = scope === 'INDEXED' ? 'Cited part only' : redacted ? 'Redacted copy' : 'Entire document';
+      : options?.type === 'slide' ? 'Download this slide as a presentation of its own.'
+        : options ? 'Download the excerpt shown above.' : scope === 'DOCUMENT' ? 'Download the complete source file.' : '';
+  const scopeLabel = scope === 'INDEXED' ? (deck ? 'Cited slide only' : 'Cited part only') : redacted ? 'Redacted copy' : 'Entire document';
   const notice = scope === 'DOCUMENT' ? 'This link includes the original document shared with you.'
+    : scope === 'INDEXED' && deck ? 'Only this slide is shared. The rest of the presentation, its speaker notes and comments are not included.'
     : scope === 'INDEXED' ? 'Only the excerpt shown here is shared. The original document is not included.'
       : 'Marked content has been removed from this view and its downloads. The original document is not included.';
 
@@ -285,7 +293,7 @@ export function renderSharePage(resolved, token, preview, document = null) {
 }
 
 /** The private source inspector uses original file content and local provenance. */
-export function renderInspectorPanel(resolved, reference, preview) {
+export function renderInspectorPanel(resolved, reference, preview, { shareable = true } = {}) {
   const { source } = resolved;
   const position = preview?.location || source.location;
   let content = '<div class="preview-unavailable">This file cannot be displayed inline. Open the source to view it in its original application.</div>';
@@ -330,7 +338,7 @@ export function renderInspectorPanel(resolved, reference, preview) {
       </div>
       <footer class="inspector-toolbar">
         <button data-action="open">${icon('open')}Open Source</button>
-        <button data-action="share">Share Link <kbd>Tab</kbd></button>
+        ${shareable ? '<button data-action="share">Share Link <kbd>Tab</kbd></button>' : ''}
         <button data-action="unlink" class="destructive">${icon('unlink')}Unlink</button>
       </footer>
     </section>
@@ -348,7 +356,7 @@ export function renderInspectorPanel(resolved, reference, preview) {
       });
       document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') { event.preventDefault(); sendAction('close'); }
-        if (event.key === 'Tab' && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+        if (${shareable} && event.key === 'Tab' && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
           event.preventDefault(); sendAction('share');
         }
       });

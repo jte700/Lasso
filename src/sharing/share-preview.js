@@ -10,6 +10,8 @@ import { tabularLayout } from '../dependencies/service.js';
 import { parseDelimited } from '../history/diff.js';
 import { MARKDOWN_LAYOUT, isMarkdownPath, markdownBlocks, markdownPlainText } from './markdown.js';
 import { LINE_LAYOUT, fullTextLayout } from './text-layout.js';
+import { isPresentationPath, presentationOutline, readPresentation, slideAtLine } from '../dependencies/presentation-extraction.js';
+import { isCodePath } from '../history/file-types.js';
 
 /// Legacy paragraph blocks are used when any stored text redaction predates
 /// the file's structured layout; otherwise the structured layout is used.
@@ -226,6 +228,11 @@ export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = 
       hasExcerpt: Boolean(selectedText), bbox: anchor.bbox ?? metadata.bbox ?? null, text, openAt: { page } };
   }
   if (['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(extension)) return { kind: 'image' };
+  if (isPresentationPath(file.path)) {
+    const outline = presentationOutline(readPresentation(file.content));
+    if (!outline.slides.length) return null;
+    return buildTextPreview(file.path, outline.text, anchor, metadata, label, objectType, { ...options, outline });
+  }
   if (isTextPreviewPath(file.path)) {
     const text = extension === '.docx' ? extractDocxFullText(file.content) : file.content.toString('utf8');
     if (!text) return null;
@@ -240,7 +247,7 @@ const XML_PREVIEW_EXTENSIONS = new Set(['.landxml']);
 export function isTextPreviewPath(filePath) {
   const extension = path.extname(String(filePath ?? '')).toLowerCase();
   return FULL_TEXT_EXTENSIONS.has(extension) || XML_PREVIEW_EXTENSIONS.has(extension) || extension === '.docx'
-    || ['dockerfile', 'makefile'].includes(path.basename(String(filePath ?? '')).toLowerCase());
+    || isPresentationPath(filePath) || isCodePath(filePath);
 }
 
 const WHOLE_DOCUMENT_TYPES = new Set(['DOCUMENT', 'PAPER']);
@@ -307,10 +314,15 @@ export function findPassage(text, passage) {
  * composer. Markdown is returned as structured blocks so every surface renders
  * headings, lists and emphasis instead of the raw syntax.
  */
-export function buildTextPreview(filePath, value, anchor = {}, metadata = {}, label = '', objectType = '', { matchText = '' } = {}) {
+export function buildTextPreview(filePath, value, anchor = {}, metadata = {}, label = '', objectType = '', { matchText = '', outline = null } = {}) {
   const text = String(value ?? '').replace(/\r\n?/g, '\n');
   const lines = text.split('\n');
   const range = citedLineRange(text, lines, anchor ?? {}, metadata ?? {}, label, matchText);
+  if (outline) {
+    // The deck itself cites no line; its title is found in the first slide's heading.
+    const located = matchText || Number.isInteger(anchor?.lineStart) || Number.isInteger(anchor?.start);
+    return slidePreview(text, outline, located ? range : null, anchor ?? {}, metadata ?? {});
+  }
   const wholeDocument = WHOLE_DOCUMENT_TYPES.has(objectType) && !matchText
     && !Number.isInteger(anchor?.start) && !Number.isInteger(anchor?.lineStart ?? anchor?.line);
   const lineLabel = range ? (range[1] > range[0] ? `Lines ${range[0]}–${range[1]}` : `Line ${range[0]}`) : '';
@@ -360,6 +372,60 @@ export function buildTextPreview(filePath, value, anchor = {}, metadata = {}, la
   };
 }
 
+/**
+ * A deck's preview: the slide the citation is on, as Markdown blocks with the
+ * cited ones marked, or the first slide for the whole deck. Open file goes to
+ * that slide.
+ */
+function slidePreview(text, outline, range, anchor, metadata) {
+  const number = Number(anchor.slideNumber ?? metadata.slideNumber);
+  const slide = outline.slides.find((entry) => entry.number === number)
+    ?? (range ? slideAtLine(outline, range[0]) : null);
+  const shown = slide ?? outline.slides[0];
+  const document = slideDocument(text, shown, slide ? range : null);
+  return {
+    kind: 'text', format: 'markdown', extracted: true, slideNumber: slide?.number ?? null,
+    slideCount: outline.slides.length, openAt: { slide: shown.number },
+    location: slide ? slideLocation(slide) : 'Entire presentation',
+    text: document.styles.filter((block) => block.cited).map((block) => markdownPlainText(block.text)).join('\n').slice(0, 1200),
+    firstBlock: 0, blockCount: document.styles.length,
+    blocks: document.styles,
+  };
+}
+
+const slideLocation = (slide) => `Slide ${slide.number}${slide.title ? ` · ${slide.title}` : ''}`;
+
+/** One slide of a deck's outline as Markdown blocks; `range` marks the cited lines of the outline. */
+function slideDocument(text, slide, range) {
+  const lines = text.split('\n').slice(slide.lineStart - 1, slide.lineEnd);
+  const blocks = markdownBlocks(lines.join('\n'));
+  const cited = (block) => Boolean(range) && block.lineStart + slide.lineStart - 1 <= range[1]
+    && block.lineEnd + slide.lineStart - 1 >= range[0] && block.type !== 'heading';
+  return {
+    blocks: blocks.map((block) => block.source),
+    styles: blocks.map(({ source, lineStart, lineEnd, ...style }) => ({ ...style, cited: cited({ ...style, lineStart, lineEnd }) })),
+  };
+}
+
+/**
+ * What a share of one slide shows: the slide a citation is on, whole, with the
+ * cited passage marked. Null when the citation names no slide, as the whole
+ * deck does: a deck is shared whole or one slide at a time.
+ */
+export function buildSlideShareDocument(file, anchor = {}, metadata = {}) {
+  if (!file?.content || !isPresentationPath(file.path)) return null;
+  const number = Number(anchor?.slideNumber ?? metadata?.slideNumber);
+  if (!Number.isInteger(number) || number < 1) return null;
+  const outline = presentationOutline(readPresentation(file.content));
+  const slide = outline.slides.find((entry) => entry.number === number);
+  if (!slide) return null;
+  const first = Number(anchor?.lineStart ?? metadata?.lineStart);
+  const last = Number(anchor?.lineEnd ?? metadata?.lineEnd);
+  const range = Number.isInteger(first) ? [first, Number.isInteger(last) && last >= first ? last : first] : null;
+  return { kind: 'text', format: 'markdown', layout: MARKDOWN_LAYOUT, ...slideDocument(outline.text, slide, range),
+    slide: slide.number, citedSlide: true, location: slideLocation(slide) };
+}
+
 function fullTextBlocks(value) {
   const normalized = String(value ?? '').replace(/\r\n/g, '\n').trim();
   if (!normalized) return [];
@@ -389,6 +455,15 @@ export function buildFullShareDocument(file, { visualPdf = false, structuredLayo
   try {
     // Markdown and XML sections follow the document's own structure. Redacted
     // shares created before these layouts keep the paragraph blocks they were made with.
+    if (isPresentationPath(file.path)) {
+      // A deck reads as its slide outline; it is shared whole or a slide at a time, never redacted.
+      const blocks = markdownBlocks(presentationOutline(readPresentation(file.content)).text);
+      return blocks.length ? {
+        kind: 'text', format: 'markdown', layout: MARKDOWN_LAYOUT, presentation: true,
+        blocks: blocks.map((block) => block.source),
+        styles: blocks.map(({ source, lineStart, lineEnd, ...style }) => style),
+      } : null;
+    }
     if (layout === MARKDOWN_LAYOUT) {
       const blocks = markdownBlocks(file.content.toString('utf8'));
       return blocks.length ? {

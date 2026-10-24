@@ -44,6 +44,8 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
     private var serverURL: URL?
     private var pendingNavigation: WKNavigation?
     private var resolvedSuccessfully = false
+    /// The server says so with each page: code is never shared with a link.
+    private var sourceShareable = true
     private var pinchTap: PinchEventTap?
     #if BROWSER_GEOMETRY_TEST
     private var regressionActions: [String] = []
@@ -171,7 +173,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
 
     /// A loaded source is shown and no share options cover it, so Tab can share it.
     var canShareFromKeyboard: Bool {
-        isVisible && reference != nil && resolvedSuccessfully && pendingNavigation == nil
+        isVisible && reference != nil && resolvedSuccessfully && sourceShareable && pendingNavigation == nil
             && !ShareComposerController.shared.isPresented(in: panel)
     }
 
@@ -368,6 +370,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
            components.queryItems?.first(where: { $0.name == "reference" })?.value == reference.id,
            components.queryItems?.first(where: { $0.name == "version" })?.value == reference.versionId {
             resolvedSuccessfully = (200..<300).contains(response.statusCode)
+            sourceShareable = response.value(forHTTPHeaderField: "x-lasso-shareable") != "0"
         }
         decisionHandler(.allow)
     }
@@ -423,7 +426,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
             } else {
                 onOpenSource?(reference)
             }
-        case "share": onShare?(reference)
+        case "share": if sourceShareable { onShare?(reference) }
         case "unlink": onUnlink?(reference); hide()
         case "close": hide()
         default: break

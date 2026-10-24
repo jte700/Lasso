@@ -6,13 +6,19 @@ const CODE = new Set([
   '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.py', '.r', '.rb', '.go', '.rs', '.java',
   '.c', '.h', '.cpp', '.hpp', '.cs', '.swift', '.kt', '.kts', '.sh', '.zsh', '.fish', '.sql',
   '.html', '.css', '.scss', '.vue', '.svelte', '.toml', '.ini', '.env',
+  '.mts', '.cts', '.cc', '.cxx', '.hh', '.hxx', '.m', '.mm', '.php', '.pl', '.pm', '.lua', '.scala',
+  '.dart', '.ex', '.exs', '.erl', '.hs', '.clj', '.cljs', '.groovy', '.gradle', '.jl', '.vb', '.fs',
+  '.ml', '.elm', '.zig', '.nim', '.sol', '.bash', '.ps1', '.bat', '.cmd', '.sass', '.less',
+  '.graphql', '.gql', '.proto', '.tf', '.cmake', '.mk', '.astro',
 ]);
+const CODE_NAMES = new Set(['dockerfile', 'makefile', 'gemfile', 'rakefile', 'podfile', 'brewfile', 'justfile']);
 const TABLE = new Set(['.csv', '.tsv']);
 const SPREADSHEET = new Set(['.xlsx', '.xls', '.ods']);
 const JSON_TYPES = new Set(['.json', '.geojson']);
 const YAML = new Set(['.yaml', '.yml']);
 const NOTEBOOK = new Set(['.ipynb']);
 const DOCUMENT = new Set(['.docx']);
+const PRESENTATION = new Set(['.pptx']);
 const IMAGE = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.tif', '.tiff', '.svg']);
 const PDF = new Set(['.pdf']);
 const DRAWING = new Set(['.ifc', '.dxf', '.dwg', '.rvt', '.dgn', '.landxml', '.step', '.stp',
@@ -28,14 +34,34 @@ export function detectFileType(filePath) {
   if (SPREADSHEET.has(extension)) return 'spreadsheet';
   if (JSON_TYPES.has(extension)) return 'json';
   if (YAML.has(extension)) return 'yaml';
-  if (CODE.has(extension) || name === 'dockerfile' || name === 'makefile') return 'code';
+  if (CODE.has(extension) || CODE_NAMES.has(name)) return 'code';
   if (TEXT.has(extension)) return 'text';
   if (DOCUMENT.has(extension)) return 'document';
+  if (PRESENTATION.has(extension)) return 'presentation';
   if (IMAGE.has(extension)) return 'image';
   if (PDF.has(extension)) return 'pdf';
   if (DRAWING.has(extension)) return 'drawing';
   if (extension === '.xml') return 'xml';
   return 'binary';
+}
+
+/**
+ * The type a recorded file is read as now. A file recorded before Lasso could
+ * read its kind (a presentation, a newer language's source) was stored as
+ * binary, and its bytes do not change when the reader learns it, so it is
+ * read as what it is from then on without being recorded again.
+ */
+export function currentFileType(filePath, recordedType) {
+  return recordedType === 'binary' ? detectFileType(filePath) : recordedType;
+}
+
+/** Programming files: read line by line, cited by line number, and never shared with a link. */
+export function isCodeType(type) {
+  return type === 'code' || type === 'yaml';
+}
+
+export function isCodePath(filePath) {
+  return isCodeType(detectFileType(filePath));
 }
 
 export function isTextualType(type) {

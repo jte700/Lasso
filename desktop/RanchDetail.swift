@@ -102,9 +102,12 @@ struct RanchSourceDetail: View {
             ShareLink(item: url) { Label("Send a Copy", systemImage: "square.and.arrow.up") }
                 .help("Send a copy with AirDrop, Mail, Messages and more")
         }
-        Button(action: createShareLink) { Label("Share Link", systemImage: "link") }
-            .help("Copy a Lasso share link to this file. Links stop working after 48 hours. (\u{21E7}\u{2318}L)")
-            .keyboardShortcut("l", modifiers: [.command, .shift])
+        // Code is sent as a copy of the file; Lasso makes no share links for it.
+        if source.canShareLink {
+            Button(action: createShareLink) { Label("Share Link", systemImage: "link") }
+                .help("Copy a Lasso share link to this file. Links stop working after 48 hours. (\u{21E7}\u{2318}L)")
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+        }
         if let localURL {
             Button {
                 NSWorkspace.shared.activateFileViewerSelecting([localURL])
@@ -209,15 +212,23 @@ struct RanchFileViewer: View {
     @State private var plan: AssistModelPreview?
     @State private var failed = false
     @State private var reset = 0
+    @State private var code: String?
+    @State private var selectedLines: ClosedRange<Int>?
     @Environment(\.colorScheme) private var colorScheme
 
-    private var kind: RanchViewerKind { failed ? .quickLook : RanchViewerKind.choose(for: source.fileExtension) }
+    private var kind: RanchViewerKind { failed ? .quickLook : RanchViewerKind.choose(for: source) }
 
     var body: some View {
         ZStack(alignment: .bottom) {
             switch kind {
             case .quickLook:
                 RanchQuickLookView(url: url)
+            case .code:
+                if let code {
+                    RanchCodeView(text: code) { selectedLines = $0 }
+                } else {
+                    ProgressView("Reading the file\u{2026}").frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             case .mesh, .wireframe:
                 if let scene {
                     RanchSceneView(scene: scene, resetToken: reset)
@@ -233,6 +244,14 @@ struct RanchFileViewer: View {
                     ProgressView("Reading the drawing\u{2026}").frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            if kind == .code, let selectedLines {
+                // What to write to insert these lines while typing elsewhere.
+                Text("\(RanchCodeLines.label(selectedLines)) \u{00B7} Write \u{201C}\(source.name) \(RanchCodeLines.label(selectedLines).lowercased())\u{201D} to insert \(selectedLines.count == 1 ? "it" : "them")")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.bottom, 12)
+            }
             if let hint = kind.hint, scene != nil || plan != nil {
                 HStack(spacing: 10) {
                     Text(hint).font(.caption).foregroundStyle(.secondary)
@@ -247,9 +266,15 @@ struct RanchFileViewer: View {
     }
 
     private func load() {
-        switch RanchViewerKind.choose(for: source.fileExtension) {
+        switch RanchViewerKind.choose(for: source) {
         case .quickLook:
             return
+        case .code:
+            let file = url
+            DispatchQueue.global(qos: .userInitiated).async {
+                let text = (try? Data(contentsOf: file)).map { String(decoding: $0, as: UTF8.self) }
+                DispatchQueue.main.async { if let text { code = text } else { failed = true } }
+            }
         case .mesh:
             let file = url
             DispatchQueue.global(qos: .userInitiated).async {

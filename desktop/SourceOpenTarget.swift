@@ -20,21 +20,25 @@ struct AssistOpenTarget: Equatable {
     var text: String? = nil
     /// Which match of `text` is the cited one, counting from the start.
     var occurrence: Int? = nil
+    /// A presentation's slide, counted as the app shows them.
+    var slide: Int? = nil
 
     private static let maximumPage = 1_000_000
     private static let maximumLine = 100_000_000
     private static let maximumSheetLength = 255
     private static let maximumTextLength = 1_200
     private static let maximumOccurrence = 10_000
+    private static let maximumSlide = 100_000
 
     init(sheet: String? = nil, cell: String? = nil, page: Int? = nil, line: Int? = nil,
-         text: String? = nil, occurrence: Int? = nil) {
+         text: String? = nil, occurrence: Int? = nil, slide: Int? = nil) {
         self.sheet = sheet
         self.cell = cell
         self.page = page
         self.line = line
         self.text = text
         self.occurrence = occurrence
+        self.slide = slide
     }
 
     /// Reads the server's `openAt`. Malformed values are dropped, and nil means
@@ -47,7 +51,8 @@ struct AssistOpenTarget: Equatable {
         text = (json["text"] as? String).map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.maximumTextLength)) }
             .flatMap { $0.isEmpty ? nil : $0 }
         occurrence = Self.integer(json["occurrence"], maximum: Self.maximumOccurrence)
-        guard cell != nil || page != nil || line != nil || text != nil else { return nil }
+        slide = Self.integer(json["slide"], maximum: Self.maximumSlide)
+        guard cell != nil || page != nil || line != nil || text != nil || slide != nil else { return nil }
         sheet = (json["sheet"] as? String).flatMap { name in
             let valid = !name.isEmpty && name.count <= Self.maximumSheetLength
                 && !name.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
@@ -81,7 +86,7 @@ extension AssistDocumentPreview {
 /// Scripts sent to the apps that open sources. Each reads its file, sheet,
 /// cell or words from its arguments; nothing is spliced into the source.
 enum AssistOpenScript: String, CaseIterable {
-    case excel, numbers, word, acrobat, adobeReader
+    case excel, numbers, word, acrobat, adobeReader, powerPoint, keynote
 
     /// The app each script addresses.
     var appBundleID: String {
@@ -91,6 +96,8 @@ enum AssistOpenScript: String, CaseIterable {
         case .word: return "com.microsoft.Word"
         case .acrobat: return "com.adobe.Acrobat.Pro"
         case .adobeReader: return "com.adobe.Reader"
+        case .powerPoint: return "com.microsoft.Powerpoint"
+        case .keynote: return "com.apple.iWork.Keynote"
         }
     }
 
@@ -112,6 +119,57 @@ enum AssistOpenScript: String, CaseIterable {
         end repeat
         """
     }
+
+    /// Numbers and Keynote import an Office file as a new document named
+    /// after it, or "<name> 2" when that name is taken, so documents open
+    /// before the jump are passed over. The app is polled gently while it imports.
+    private static let findImportedDocument = """
+        set earlierDocuments to {}
+        try
+            set earlierDocuments to id of every document
+        on error waitMessage number waitNumber
+            if waitNumber is in \(Self.stopWaiting) then error waitMessage number waitNumber
+        end try
+        set targetDocument to missing value
+        repeat 60 times
+            try
+                repeat with candidate in documents
+                    if id of candidate is not in earlierDocuments ¬
+                        and my isNamedAfter(name of candidate, fileName, baseName) then
+                        set targetDocument to contents of candidate
+                        exit repeat
+                    end if
+                end repeat
+            on error waitMessage number waitNumber
+                if waitNumber is in \(Self.stopWaiting) then error waitMessage number waitNumber
+            end try
+            if targetDocument is not missing value then exit repeat
+            delay 0.5
+        end repeat
+        if targetDocument is missing value then
+            -- The import finished before the first look: use the front copy.
+            repeat with candidate in documents
+                if my isNamedAfter(name of candidate, fileName, baseName) then
+                    set targetDocument to contents of candidate
+                    exit repeat
+                end if
+            end repeat
+        end if
+        if targetDocument is missing value then error "The document did not open."
+        """
+
+    private static let isNamedAfter = """
+        on isNamedAfter(candidateName, fileName, baseName)
+            if candidateName is fileName or candidateName is baseName then return true
+            if candidateName does not start with (baseName & " ") then return false
+            try
+                (text ((length of baseName) + 2) thru -1 of candidateName) as integer
+                return true
+            on error
+                return false
+            end try
+        end isNamedAfter
+        """
 
     /// What a failed jump logs: the app and macOS's error number. The error
     /// text can name the file, sheet or cited words, which stay private.
@@ -142,45 +200,12 @@ enum AssistOpenScript: String, CaseIterable {
             end run
             """
         case .numbers:
-            // Numbers imports the file as a new document named after it, or
-            // "<name> 2" when that name is taken, so documents open before the
-            // jump are passed over. It is polled gently while it imports.
+            // The cell is selected in the document Numbers imported the file as.
             return """
             on run argv
                 set {fileName, baseName, sheetName, cellReference} to argv
                 tell application id "\(appBundleID)"
-                    set earlierDocuments to {}
-                    try
-                        set earlierDocuments to id of every document
-                    on error waitMessage number waitNumber
-                        if waitNumber is in \(Self.stopWaiting) then error waitMessage number waitNumber
-                    end try
-                    set targetDocument to missing value
-                    repeat 60 times
-                        try
-                            repeat with candidate in documents
-                                if id of candidate is not in earlierDocuments ¬
-                                    and my isNamedAfter(name of candidate, fileName, baseName) then
-                                    set targetDocument to contents of candidate
-                                    exit repeat
-                                end if
-                            end repeat
-                        on error waitMessage number waitNumber
-                            if waitNumber is in \(Self.stopWaiting) then error waitMessage number waitNumber
-                        end try
-                        if targetDocument is not missing value then exit repeat
-                        delay 0.5
-                    end repeat
-                    if targetDocument is missing value then
-                        -- The import finished before the first look: use the front copy.
-                        repeat with candidate in documents
-                            if my isNamedAfter(name of candidate, fileName, baseName) then
-                                set targetDocument to contents of candidate
-                                exit repeat
-                            end if
-                        end repeat
-                    end if
-                    if targetDocument is missing value then error "The document did not open."
+                    \(Self.findImportedDocument)
                     tell targetDocument
                         try
                             if sheetName is not "" then set active sheet to sheet sheetName
@@ -196,16 +221,7 @@ enum AssistOpenScript: String, CaseIterable {
                 end tell
             end run
 
-            on isNamedAfter(candidateName, fileName, baseName)
-                if candidateName is fileName or candidateName is baseName then return true
-                if candidateName does not start with (baseName & " ") then return false
-                try
-                    (text ((length of baseName) + 2) thru -1 of candidateName) as integer
-                    return true
-                on error
-                    return false
-                end try
-            end isNamedAfter
+            \(Self.isNamedAfter)
             """
         case .word:
             // The search starts at the beginning of the document and repeats
@@ -238,6 +254,28 @@ enum AssistOpenScript: String, CaseIterable {
                     goto (PDF Window 1 of document documentName) page (pageText as integer)
                 end tell
             end run
+            """
+        case .powerPoint:
+            return """
+            on run argv
+                set {presentationName, slideText} to argv
+                tell application id "\(appBundleID)"
+                    \(Self.waitFor("document window 1 of presentation presentationName"))
+                    go to slide (view of document window 1 of presentation presentationName) number (slideText as integer)
+                end tell
+            end run
+            """
+        case .keynote:
+            return """
+            on run argv
+                set {fileName, baseName, slideText} to argv
+                tell application id "\(appBundleID)"
+                    \(Self.findImportedDocument)
+                    set current slide of targetDocument to slide (slideText as integer) of targetDocument
+                end tell
+            end run
+
+            \(Self.isNamedAfter)
             """
         }
     }
@@ -290,6 +328,11 @@ enum AssistOpenPlanner {
             return .script(.word, arguments: [name, words, String(target.occurrence ?? 1)])
         case "com.apple.Preview":
             return target.page.map { .previewPage($0) } ?? .plain
+        case "com.microsoft.Powerpoint":
+            return target.slide.map { .script(.powerPoint, arguments: [name, String($0)]) } ?? .plain
+        case "com.apple.iWork.Keynote":
+            guard let slide = target.slide else { return .plain }
+            return .script(.keynote, arguments: [name, fileURL.deletingPathExtension().lastPathComponent, String(slide)])
         case "com.adobe.Acrobat.Pro", "com.adobe.Reader":
             guard let page = target.page else { return .plain }
             return .script(appBundleID == "com.adobe.Reader" ? .adobeReader : .acrobat, arguments: [name, String(page)])

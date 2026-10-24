@@ -517,6 +517,8 @@ struct AssistDocumentPreview {
     var isMarkdown = false
     /// The cell, page or line that Open file lands on.
     var openTarget: AssistOpenTarget? = nil
+    /// The slide of a presentation the citation is on; nil for the whole deck.
+    var slideNumber: Int? = nil
 
     static func parse(_ data: Data) -> AssistDocumentPreview? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -561,6 +563,7 @@ struct AssistDocumentPreview {
             pdf: pdf)
         result.openTarget = AssistOpenTarget(json: preview["openAt"])
         result.moreRows = (preview["moreRows"] as? NSNumber)?.intValue
+        result.slideNumber = (preview["slideNumber"] as? NSNumber)?.intValue
         if kind == "text" {
             result.isMarkdown = preview["format"] as? String == "markdown"
             result.textBlocks = result.isMarkdown

@@ -1,6 +1,7 @@
 import { BoundedCache } from '../cache.js';
 import { json, transaction } from '../db.js';
 import { compareText, mergeSorted } from './text-order.js';
+import { currentFileType } from './file-types.js';
 
 /**
  * A snapshot built on a base stores rows only for the files that are new or
@@ -82,7 +83,7 @@ export function rowToSnapshotFile(row, snapshotId = row.snapshot_id) {
     size: row.size,
     mtimeMs: row.mtime_ms,
     ctimeMs: row.ctime_ms ?? null,
-    fileType: row.file_type,
+    fileType: currentFileType(row.path, row.file_type),
     device: row.device,
     inode: row.inode,
     metadata: json(row.metadata_json, {}),
