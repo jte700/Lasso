@@ -22,10 +22,6 @@ struct KeyRoutingState: Equatable {
     /// The source inspector shows a source its Share Link can share.
     var inspectorCanShare = false
     var popup: Popup = .hidden
-    /// The card is focused on a source, so fn+Left can step back a level.
-    var canFocusOut = false
-    /// fn+Right has a focus to narrow into: the last one, or the selected row.
-    var canFocusIn = false
     /// The card lists something to accept. One kept empty after a move only
     /// answers fn+Left and fn+Right.
     var offersChoices = true
@@ -91,10 +87,11 @@ enum KeyRouter {
         // arrows move or select text. Only the bare keys belong to the box.
         let chord = !flags.intersection([.maskShift, .maskCommand, .maskControl, .maskAlternate]).isEmpty
         // fn+Right narrows the card's focus a level and fn+Left steps back
-        // one. With nowhere to move they keep their meaning in the host.
+        // one. While the card is up they never reach the host, so at the top
+        // or the bottom they do nothing rather than move the caret.
         if state.popup == .suggestions, !chord {
-            if keyCode == home, state.canFocusOut { return .swallow(.focusOut) }
-            if keyCode == end, state.canFocusIn { return .swallow(.focusIn) }
+            if keyCode == home { return .swallow(.focusOut) }
+            if keyCode == end { return .swallow(.focusIn) }
         }
         if (state.popup == .suggestions && state.offersChoices) || state.popup == .confirmShare {
             switch keyCode {

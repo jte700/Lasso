@@ -2459,26 +2459,26 @@ do {
     check(route(36, open) == .pass(.followTyping(trackCaret: true)), "Return alone belongs to the host")
     // macOS delivers fn+← as Home (115) and fn+→ as End (119), with the fn flag.
     let fnArrow: CGEventFlags = [.maskSecondaryFn]
-    let focusable = KeyRoutingState(popup: .suggestions, canFocusOut: true, canFocusIn: true)
-    check(chord(115, fnArrow, focusable) == .swallow(.focusOut), "fn+Left moves a focused card out to all directories")
-    check(chord(119, fnArrow, focusable) == .swallow(.focusIn), "fn+Right moves the card's focus in")
-    check(chord(123, [.maskShift, .maskNumericPad, .maskSecondaryFn], focusable) == .pass(.followTyping(trackCaret: true))
-          && chord(124, [.maskShift, .maskNumericPad, .maskSecondaryFn], focusable) == .pass(.followTyping(trackCaret: true)),
-          "Shift+arrows select text even while the card could move")
-    check(chord(115, fnArrow, open) == .pass(.followTyping(trackCaret: true))
-          && chord(119, fnArrow, open) == .pass(.followTyping(trackCaret: true)),
-          "with nowhere to move, fn+arrows keep their usual meaning in the host")
-    check(chord(115, [.maskSecondaryFn, .maskShift], focusable) == .pass(.followTyping(trackCaret: true)),
+    // The main thread decides whether there is a level to move to; at the top
+    // or the bottom the key does nothing, rather than move the host's caret.
+    check(chord(115, fnArrow, open) == .swallow(.focusOut), "fn+Left on the card steps its focus back a level")
+    check(chord(119, fnArrow, open) == .swallow(.focusIn), "fn+Right on the card narrows its focus a level")
+    check(chord(123, [.maskShift, .maskNumericPad, .maskSecondaryFn], open) == .pass(.followTyping(trackCaret: true))
+          && chord(124, [.maskShift, .maskNumericPad, .maskSecondaryFn], open) == .pass(.followTyping(trackCaret: true)),
+          "Shift+arrows select text even while the card is up")
+    check(chord(115, [.maskSecondaryFn, .maskShift], open) == .pass(.followTyping(trackCaret: true)),
           "Shift+fn+Left still selects to the start")
-    check(chord(115, fnArrow, KeyRoutingState(popup: .hidden, canFocusOut: true, canFocusIn: true))
-          == .pass(.followTyping(trackCaret: false)),
+    check(chord(115, fnArrow, idle) == .pass(.followTyping(trackCaret: false))
+          && chord(119, fnArrow, idle) == .pass(.followTyping(trackCaret: false)),
           "with no card on screen, fn+arrows belong to the host")
-    let empty = KeyRoutingState(popup: .suggestions, canFocusIn: true, offersChoices: false)
+    check(chord(119, fnArrow, KeyRoutingState(popup: .confirmShare)) == .pass(.followTyping(trackCaret: true)),
+          "the share question leaves fn+arrows to the host")
+    let empty = KeyRoutingState(popup: .suggestions, offersChoices: false)
     check(chord(119, fnArrow, empty) == .swallow(.focusIn), "an empty card kept after a move still moves back with fn+Right")
     check(route(48, empty) == .pass(.followTyping(trackCaret: true)) && route(125, empty) == .pass(.followTyping(trackCaret: true))
           && chord(36, .maskCommand, empty) == .pass(.hide),
           "an empty card leaves Tab, arrows and Command+Return to the host")
-    check(route(53, KeyRoutingState(transientOpen: true, popup: .suggestions, canFocusOut: true)) == .swallow(.dismissTransient),
+    check(route(53, KeyRoutingState(transientOpen: true, popup: .suggestions)) == .swallow(.dismissTransient),
           "Escape still only closes the card")
     check(route(0, open) == .pass(.followTyping(trackCaret: true)), "typing keeps the open box on the caret")
 
@@ -2551,8 +2551,19 @@ do {
     func source(_ id: String, _ text: String, project: String = "cad") -> LinkedSourceMemory.Source {
         LinkedSourceMemory.Source(projectId: project, objectId: id, snapshotId: "snap-\(id)", text: text)
     }
-    func focusId(_ fields: [String: Any]) -> String? {
-        (fields["focusSource"] as? [String: Any])?["sourceObjectId"] as? String
+    func focus(_ fields: [String: Any]) -> [String: Any]? { fields["focusSource"] as? [String: Any] }
+    func focusId(_ fields: [String: Any]) -> String? { focus(fields)?["sourceObjectId"] as? String }
+    func focusWords(_ fields: [String: Any]) -> Range<Int>? {
+        guard let start = focus(fields)?["start"] as? Int, let end = focus(fields)?["end"] as? Int else { return nil }
+        return start..<end
+    }
+    func pendingIds(_ fields: [String: Any]) -> [String] {
+        (fields["pendingDependencies"] as? [[String: Any]] ?? []).compactMap { $0["sourceObjectId"] as? String }
+    }
+    /// The words typed to find a row, as the card reads them from the text it answered.
+    func words(_ text: String, _ typed: String) -> TextAnchor? {
+        let units = Array(text.utf16), start = units.count - typed.utf16.count
+        return TextAnchor.make(in: units, range: start..<units.count)
     }
     /// Tab inserts the source's text at the end of `before`, as the card does.
     func accept(_ memory: inout LinkedSourceMemory, _ accepted: LinkedSourceMemory.Source, after before: String) -> String {
@@ -2583,14 +2594,15 @@ do {
 
     memory.moveOut(from: bracket)
     check(memory.requestFields.isEmpty, "fn+Left sends no source, so every directory answers the next words")
-    check(memory.canMoveIn(focusedOn: nil, selected: source("revenue", "Revenue")),
+    check(memory.canMoveIn(focusedOn: nil, selected: nil),
           "from all directories fn+Right can return to the last focus")
-    memory.moveIn(focusedOn: nil, selected: source("revenue", "Revenue"))
+    memory.endMove()
+    memory.moveIn(focusedOn: nil, selected: nil)
     memory.observe("The Bracket is shown on the plate. It is", reachesStart: true)
     let back = memory.requestFields
     check(focusId(back) == "bracket" && back["pendingDependencies"] == nil
           && (back["focusSource"] as? [String: Any])?["sourceSnapshotId"] as? String == "snap-bracket",
-          "fn+Right from all directories returns to the last focus, not the selected row")
+          "with no highlighted row that has values below it, fn+Right from all directories returns to the last focus")
 
     check(!memory.canMoveIn(focusedOn: bracket, selected: bracket) && !memory.canMoveIn(focusedOn: bracket, selected: nil),
           "a focused card has nowhere further to go without another row selected")
@@ -2614,8 +2626,8 @@ do {
     memory.moveIn(focusedOn: nil, selected: nil)
     memory.forget()
     check(memory.sources.isEmpty && memory.requestFields.isEmpty
-          && memory.canMoveIn(focusedOn: nil, selected: nil),
-          "a new field starts with nothing focused, but fn+Right still knows the last source")
+          && !memory.canMoveIn(focusedOn: nil, selected: nil),
+          "a new field starts with nothing focused and no focus from an earlier field to return to")
     let width = source("width", "100 mm"), budget = source("budget", "September Budget CAD", project: "finance")
     memory.noteFocus(bracket)
     let widthText = accept(&memory, width, after: "The Bracket is ")
@@ -2626,7 +2638,12 @@ do {
     check(memory.recent == budget, "a deeper focus the card then shows becomes fn+Right's way back")
 
     var text = ""
-    for index in 0..<10 { text = accept(&memory, source("part-\(index)", "Part \(index)"), after: text + " ") }
+    for index in 0..<10 {
+        // The card shows each part's values once it is tabbed.
+        let part = source("part-\(index)", "Part \(index)")
+        text = accept(&memory, part, after: text + " ")
+        memory.noteFocus(part)
+    }
     check(memory.sources.count == 8 && memory.sources.first?.objectId == "part-2",
           "only the eight newest accepted sources are kept")
     _ = accept(&memory, source("revenue", "Revenue", project: "finance"), after: text + " ")
@@ -2638,6 +2655,116 @@ do {
     memory.keep(projectIds: [])
     check(memory.recent == nil && !memory.canMoveIn(focusedOn: nil, selected: nil),
           "with every directory removed fn+Right has nowhere to go")
+
+    // "brac" offers Bracket; fn+Right opens its measurements, which replace "brac".
+    var lookup = LinkedSourceMemory()
+    let typed = "Hi Sam, the brac"
+    lookup.observe(typed, reachesStart: true)
+    check(lookup.canMoveIn(focusedOn: nil, selected: bracket), "fn+Right can open the highlighted row")
+    let plate = source("plate", "Plate")
+    var highlighted = lookup
+    highlighted.noteFocus(bracket)
+    _ = accept(&highlighted, plate, after: "The ")
+    highlighted.observe("The Plate is. Hi Sam, the brac", reachesStart: true)
+    check(highlighted.canMoveIn(focusedOn: nil, selected: bracket),
+          "a highlighted row with values below it comes before the way back to the last focus")
+    lookup.moveIn(focusedOn: nil, selected: bracket, typed: words(typed, "brac"))
+    check(focusId(lookup.requestFields) == "bracket" && focusWords(lookup.requestFields) == 12..<16
+          && lookup.requestFields["pendingDependencies"] == nil,
+          "fn+Right focuses the highlighted row on the words typed to find it")
+    lookup.noteFocus(bracket)
+    lookup.observe(typed + " ho", reachesStart: true)
+    check(focusWords(lookup.requestFields) == 12..<16, "words typed after fn+Right leave the focus on the typed words")
+    check(!lookup.canMoveIn(focusedOn: bracket, selected: nil) && !lookup.canMoveIn(focusedOn: bracket, selected: bracket),
+          "on the part's measurements fn+Right does nothing: a value has nothing below it")
+    lookup.moveOut(from: bracket)
+    check(lookup.requestFields.isEmpty, "fn+Left steps back out to every directory")
+    lookup.noteFocus(nil)
+    lookup.moveIn(focusedOn: nil, selected: nil)
+    check(focusId(lookup.requestFields) == "bracket" && focusWords(lookup.requestFields) == 12..<16,
+          "fn+Left then fn+Right returns to the same focus on the same words")
+    lookup.observe("Hi Sam, the bra", reachesStart: true)
+    check(lookup.requestFields.isEmpty, "deleting the typed words ends the focus chosen on them")
+    let retyped = "Hi Sam, the pla"
+    lookup.observe(retyped, reachesStart: true)
+    lookup.endMove()
+    lookup.moveIn(focusedOn: nil, selected: plate, typed: words(retyped, "pla"))
+    check(focusId(lookup.requestFields) == "plate" && focusWords(lookup.requestFields) == 12..<15,
+          "after deleting the typed words, fn+Right on the next words typed opens their row")
+    var chosenWords = LinkedSourceMemory()
+    chosenWords.observe("📐 brac", reachesStart: true)
+    chosenWords.moveIn(focusedOn: nil, selected: bracket, typed: words("📐 brac", "brac"))
+    check(focusWords(chosenWords.requestFields) == 3..<7, "typed words are sent in UTF-16 units too")
+
+    // Tab on a value replaces the typed words: the value is accepted, and the
+    // focus fn+Right chose is where fn+Left and fn+Right lead back to.
+    var replaced = LinkedSourceMemory()
+    replaced.observe("brac", reachesStart: true)
+    replaced.moveIn(focusedOn: nil, selected: bracket, typed: words("brac", "brac"))
+    replaced.noteFocus(bracket)
+    _ = accept(&replaced, source("width", "100 mm"), after: "")
+    check(focusId(replaced.requestFields) == nil && pendingIds(replaced.requestFields) == ["width"]
+          && replaced.recent == bracket && replaced.stepBack == bracket,
+          "Tab on a value ends the focus fn+Right chose on the typed words, without undoing it")
+    replaced.moveOut(from: nil)
+    check(focusId(replaced.requestFields) == "bracket" && focusWords(replaced.requestFields) == nil,
+          "fn+Left out of that Tab returns to the part, whose typed words the value took the place of")
+
+    // Undo in the host after that Tab brings the typed words back, and the focus rests on them again.
+    var undoTab = LinkedSourceMemory()
+    let typedReven = "Hi Sam, the Reven", revenue = source("revenue", "Revenue", project: "finance")
+    undoTab.observe(typedReven, reachesStart: true)
+    undoTab.moveIn(focusedOn: nil, selected: revenue, typed: words(typedReven, "Reven"))
+    undoTab.noteFocus(revenue)
+    _ = accept(&undoTab, source("revenue-value", "485000", project: "finance"), after: "Hi Sam, the ")
+    check(focusId(undoTab.requestFields) == nil && pendingIds(undoTab.requestFields) == ["revenue-value"],
+          "Tab on the value ends the focus chosen on the typed words")
+    undoTab.observe(typedReven, reachesStart: true)
+    check(focusId(undoTab.requestFields) == "revenue" && focusWords(undoTab.requestFields) == 12..<17,
+          "undoing the Tab returns to the focus on the typed words, which its values replace again")
+
+    // Right after fn+Left, fn+Right goes back into the level it left, even one with nothing below it.
+    let facilities = source("facilities", "Facilities", project: "finance")
+    let budgetCell = source("facilities-budget", "September Budget CAD", project: "finance")
+    var tabbed = LinkedSourceMemory()
+    var said = accept(&tabbed, facilities, after: "")
+    tabbed.noteFocus(facilities)
+    said = accept(&tabbed, budgetCell, after: said + " for the ")
+    tabbed.observe(said, reachesStart: true)
+    tabbed.noteFocus(budgetCell)
+    tabbed.moveOut(from: budgetCell)
+    tabbed.noteFocus(facilities)
+    check(tabbed.steppedOutOf == budgetCell && !tabbed.canMoveIn(focusedOn: facilities, selected: nil)
+          && tabbed.canMoveIn(focusedOn: facilities, selected: nil, highlighted: budgetCell),
+          "after fn+Left the row it stepped out of can be gone back into, though nothing is below it")
+    check(tabbed.moveIn(focusedOn: facilities, selected: nil, highlighted: budgetCell) == budgetCell
+          && pendingIds(tabbed.requestFields) == ["facilities", "facilities-budget"] && tabbed.steppedOutOf == nil,
+          "fn+Right then undoes fn+Left, back into the tabbed column item")
+
+    // Two fn+Left presses are undone by two fn+Right presses, each back into the level left.
+    let column = source("invoice-date", "Invoice date", project: "accounts")
+    let payables = source("payables", "Accounts-Payable.csv", project: "accounts")
+    var history = LinkedSourceMemory()
+    _ = accept(&history, payables, after: "See ")
+    history.noteFocus(payables)
+    history.moveIn(focusedOn: payables, selected: column)
+    history.noteFocus(column)
+    history.moveOut(from: column)
+    history.noteFocus(payables)
+    history.moveOut(from: payables)
+    history.noteFocus(nil)
+    check(history.moveIn(focusedOn: nil, selected: nil) == payables && history.steppedOutOf == column,
+          "the first fn+Right goes back into the file, on the column the first fn+Left left")
+    history.noteFocus(payables)
+    history.moveIn(focusedOn: payables, selected: nil, highlighted: column)
+    check(focusId(history.requestFields) == "invoice-date", "the second goes back into the column")
+
+    // A value tabbed from every directory has nothing below it to go back into.
+    var leaf = LinkedSourceMemory()
+    _ = accept(&leaf, source("width", "100 mm"), after: "It is ")
+    leaf.noteFocus(nil)
+    check(leaf.recent == nil && !leaf.canMoveIn(focusedOn: nil, selected: nil),
+          "a value tabbed from every directory is no way back for fn+Right")
 
     // After a move the card stays on screen even with nothing to offer, so the move can be undone.
     var moving = LinkedSourceMemory()
@@ -2700,7 +2827,8 @@ do {
     memory.moveIn(focusedOn: bracket, selected: width)
     memory.noteFocus(width)
     memory.moveOut(from: width)
-    check(focusId(memory.requestFields) == "bracket", "each fn+Right is undone by one fn+Left")
+    check(focusId(memory.requestFields) == nil && pendingIds(memory.requestFields) == ["bracket"],
+          "each fn+Right is undone by one fn+Left")
     memory.noteFocus(bracket)
     memory.moveOut(from: bracket)
     check(memory.requestFields.isEmpty && memory.stepBack == nil, "and the last one returns to every directory")
@@ -2848,7 +2976,7 @@ do {
     returned.observe(named + " for", reachesStart: true)
     returned.moveOut(from: file)
     returned.moveIn(focusedOn: nil, selected: nil)
-    check(focusId(returned.requestFields) == "payables", "fn+Left then fn+Right focuses the file again")
+    check(pendingIds(returned.requestFields) == ["payables"], "fn+Left then fn+Right focuses the file again")
     returned.observe("See ", reachesStart: true)
     check(returned.requestFields.isEmpty && !returned.canMoveIn(focusedOn: nil, selected: nil),
           "deleting the file's name ends a focus fn+Right returned to, and fn+Right's way back to it")

@@ -152,16 +152,65 @@ test('fn+Right focuses the last source again, and it holds until fn+Left', async
   assert.equal(over.workspaceHeading, 'Values for Bracket');
 });
 
-test('fn+Right on a focused card narrows it to the selected row', async t => {
+// fn+Right on a suggestion the writer is typing: the focus rests on the typed words.
+const focusOnTyped = (source, text, words) => ({ ...focusOn(source), start: text.lastIndexOf(words),
+  end: text.lastIndexOf(words) + words.length });
+const replaced = prediction => prediction.workspaceCompletions.map(item => [item.claimStart, item.claimEnd]);
+
+test('fn+Right on a name being typed shows its values, which replace the typed words', async t => {
+  const app = await twoDirectories(t);
+  const text = 'Hi Sam, the brac';
+  const part = (await typed(app, text)).claims[0].candidates[0];
+  assert.equal(part.label, 'Bracket');
+  assert.equal(part.narrowable, true);
+  const values = await focused(app, text, focusOnTyped(part, text, 'brac'));
+  assert.equal(values.workspaceHeading, 'Values for Bracket');
+  assert.equal(offered(values)[0], '100 mm');
+  assert.ok(replaced(values).every(([start, end]) => start === 12 && end === 16), JSON.stringify(replaced(values)));
+  // Words typed after fn+Right narrow the list and are replaced with the typed name; a trailing space stays.
+  const refined = await focused(app, `${text} ho`, focusOnTyped(part, `${text} ho`, 'brac'));
+  assert.equal(refined.workspaceHeading, 'Values for Bracket');
+  assert.ok(replaced(refined).every(([start, end]) => start === 12 && end === 19));
+  for (const space of [' ', ' ']) {
+    const spaced = await focused(app, `${text}${space}`, focusOnTyped(part, `${text}${space}`, 'brac'));
+    assert.ok(replaced(spaced).every(([start, end]) => start === 12 && end === 16), JSON.stringify(space));
+  }
+
+  // A row named in a table offers its cells, not its own name again.
+  const row = (await typed(app, 'Reven')).claims[0].candidates[0];
+  assert.equal(row.label, 'Revenue');
+  assert.equal(row.narrowable, true);
+  const cells = await focused(app, 'Reven', focusOnTyped(row, 'Reven', 'Reven'));
+  assert.equal(cells.workspaceHeading, 'Values for Revenue');
+  assert.deepEqual(offered(cells), ['485000']);
+  assert.deepEqual(replaced(cells), [[0, 5]]);
+});
+
+test('fn+Right stops at a value, which has nothing below it', async t => {
   const app = await twoDirectories(t);
   const bracket = await accept(app, 'The brack', 'Bracket', 'Bracket.step');
   const values = await typed(app, `${bracket.accepted} is`, [bracket.link]);
-  const hole = values.workspaceCompletions.map(item => item.dependencyCandidate)
-    .find(candidate => candidate.label === 'Bracket Ø8 hole diameter');
-  assert.ok(hole);
-  const narrowed = await focused(app, `${bracket.accepted} is`, focusOn(hole), { pendingDependencies: [bracket.link] });
-  assert.equal(narrowed.workspaceHeading, 'Values for Bracket Ø8 hole diameter');
-  assert.deepEqual(offered(narrowed), ['8 mm']);
+  assert.ok(values.workspaceCompletions.length > 1);
+  assert.ok(values.workspaceCompletions.every(item => !item.dependencyCandidate.narrowable),
+    'a part\'s measurements are the bottom');
+  const revenue = await accept(app, 'Reven', 'Revenue', 'Income-Statement.csv');
+  const cells = await typed(app, `${revenue.accepted} was`, [revenue.link]);
+  assert.ok(cells.workspaceCompletions.length && cells.workspaceCompletions.every(item => !item.dependencyCandidate.narrowable));
+});
+
+test('typed words a focus rests on stop being replaced once they are in an earlier clause', async t => {
+  const app = await twoDirectories(t);
+  const part = (await typed(app, 'brac')).claims[0].candidates[0];
+  const text = 'brac. The plate is';
+  const held = await focused(app, text, focusOnTyped(part, text, 'brac'));
+  assert.equal(held.workspaceHeading, 'Values for Bracket');
+  assert.ok(replaced(held).every(([start, end]) => start === text.length && end === text.length));
+  // A range that is not typed text before the caret is ignored the same way.
+  for (const range of [{ start: 0, end: 40 }, { start: 3, end: 3 }, { start: '0', end: 4 }]) {
+    const prediction = await focused(app, 'The plate is', { ...focusOn(part), ...range });
+    assert.equal(prediction.workspaceHeading, 'Values for Bracket', JSON.stringify(range));
+    assert.ok(replaced(prediction).every(([start, end]) => start === 12 && end === 12), JSON.stringify(range));
+  }
 });
 
 test('fn+Left from a narrowed measurement brings the part\'s whole list back', async t => {

@@ -36,6 +36,8 @@ struct AssistSuggestion {
     var sentenceContinuation = false
     /// The server's word on whether a share link can be made: never for code.
     var shareable = true
+    /// It has values below it, such as a part's measurements, that fn+Right narrows the card to.
+    var narrowable = false
 
     var isShareable: Bool { objectId != nil && shareable }
 }
@@ -685,7 +687,7 @@ final class AssistBoxView: NSView {
     var messageLines: [String] = []
     var sourceScoped = false
     /// The latest focus, named in the header when fn+Right can take an
-    /// unfocused card back into it.
+    /// unfocused card back into it and no highlighted row has values below it.
     var returnFocusName: String?
     /// The focus fn+Left steps a focused card back to, named in its header;
     /// nil when it steps back to every directory.
@@ -834,12 +836,15 @@ final class AssistBoxView: NSView {
             let navigationFont = NSFont.systemFont(ofSize: 11, weight: .medium)
             // Clear of the row counter when it shows.
             let width = suggestions.count > visibleSuggestionCount ? leftWidth - 170 : leftWidth - 40
+            // fn+Right opens the highlighted row when it has values below it.
+            let narrowsInto = suggestions.indices.contains(selected) && suggestions[selected].narrowable
+                ? suggestions[selected].label : nil
             if sourceScoped {
                 drawLabel("‹ \(stepBackName ?? "All sources")", key: "fn ←",
                           in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
                           font: navigationFont, color: .controlAccentColor)
-            } else if let returnFocusName {
-                drawLabel("Dive into \(returnFocusName)", key: "fn →",
+            } else if let diveName = narrowsInto ?? returnFocusName {
+                drawLabel("Dive into \(diveName)", key: "fn →",
                           in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
                           font: navigationFont, color: .secondaryLabelColor)
             } else {
@@ -1736,8 +1741,6 @@ final class GlobalAssistant {
             shareComposerOpen: composer.isVisible,
             inspectorCanShare: inspector?.canShareFromKeyboard == true,
             popup: popup,
-            canFocusOut: popup == .suggestions && focusedSource != nil,
-            canFocusIn: popup == .suggestions && linkedSources.canMoveIn(focusedOn: focusedSource, selected: selectedSource),
             offersChoices: !view.suggestions.isEmpty,
             canUndoInsertion: undoableInsertion != nil)
     }
@@ -1792,10 +1795,17 @@ final class GlobalAssistant {
         case .focusOut:
             stepBack()
         case .focusIn:
-            focusLanding = .first
-            linkedSources.moveIn(focusedOn: focusedSource, selected: selectedSource)
+            // A value has nothing below it, so there fn+Right does nothing.
+            let choice = narrowingChoice, highlighted = highlightedSource
+            guard linkedSources.canMoveIn(focusedOn: focusedSource, selected: choice?.source,
+                                          highlighted: highlighted) else { break }
+            let narrowed = linkedSources.moveIn(focusedOn: focusedSource, selected: choice?.source,
+                                                highlighted: highlighted, typed: choice?.typed)
+            // Back in a level an earlier fn+Left left, the list opens on the row
+            // that fn+Left stepped out of, so fn+Right goes on back into it.
+            focusLanding = linkedSources.steppedOutOf.map { .row(objectId: $0.objectId) } ?? .first
             // Until the server answers, a second fn+Right starts from here, not from the old card.
-            focusedSource = linkedSources.chosen
+            focusedSource = narrowed
             refresh()
         case .shareUndo:
             ShareComposerController.shared.undoRedaction()
@@ -2033,12 +2043,25 @@ final class GlobalAssistant {
                      text: source["label"] as? String ?? "")
     }
 
-    /// The highlighted row as a source fn+Right can focus on.
-    private var selectedSource: LinkedSourceMemory.Source? {
+    /// The highlighted row as a source, whether or not it has values below it.
+    private var highlightedSource: LinkedSourceMemory.Source? {
         guard let suggestion = currentSuggestion, let objectId = suggestion.objectId,
               let snapshotId = suggestion.snapshotId else { return nil }
         return .init(projectId: suggestion.projectId, objectId: objectId, snapshotId: snapshotId,
                      text: suggestion.label)
+    }
+
+    /// The highlighted row as a focus fn+Right can narrow the card to, when it
+    /// has values below it, with the words typed to find it ("brac" for
+    /// Bracket). Those values replace the words.
+    private var narrowingChoice: (source: LinkedSourceMemory.Source, typed: TextAnchor?)? {
+        guard let suggestion = currentSuggestion, suggestion.narrowable, let source = highlightedSource else { return nil }
+        // The words are found in the text the card answered, which a newer read may have replaced.
+        guard let replacement = suggestion.replacement, let text = context?.text else { return (source, nil) }
+        let document = Array(text.utf16), words = Array(replacement.typedText.utf16)
+        let range = replacement.start..<(replacement.start + words.count)
+        guard range.upperBound <= document.count, Array(document[range]) == words else { return (source, nil) }
+        return (source, TextAnchor.make(in: document, range: range))
     }
 
     private static func predictionRevision(_ data: Data) -> String? {
@@ -2225,7 +2248,8 @@ final class GlobalAssistant {
                     usageObjectId: candidate["id"] as? String, projectId: projectId,
                     rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String,
                     previewText: entry["sourceSentence"] as? String ?? insert,
-                    shareable: candidate["shareable"] as? Bool ?? true))
+                    shareable: candidate["shareable"] as? Bool ?? true,
+                    narrowable: candidate["narrowable"] as? Bool == true))
             }
         }
 
@@ -2260,7 +2284,8 @@ final class GlobalAssistant {
                     snapshotId: candidate["snapshotId"] as? String,
                     usageObjectId: candidate["id"] as? String, projectId: projectId,
                     rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String,
-                    shareable: candidate["shareable"] as? Bool ?? true))
+                    shareable: candidate["shareable"] as? Bool ?? true,
+                    narrowable: candidate["narrowable"] as? Bool == true))
             }
         }
         return results

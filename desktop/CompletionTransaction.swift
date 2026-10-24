@@ -33,6 +33,11 @@ struct CompletionReplacement: Equatable {
     let expectedText: String
     var preservedSuffix: String = ""
 
+    /// The typed words this replaces, without the spacing kept after them.
+    var typedText: String {
+        String(decoding: expectedText.utf16.dropLast(preservedSuffix.utf16.count), as: UTF16.self)
+    }
+
     /// Capture a matched fragment or an explicit insertion at the request caret.
     static func capture(start: Int?, end: Int?, in text: String,
                         expectedText: String? = nil) -> CompletionReplacement? {
