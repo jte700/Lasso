@@ -1195,6 +1195,7 @@ export class DependencyGraph {
         createdBy: row.created_by_name,
         expiresAt: row.expires_at,
         revokedAt: row.revoked_at,
+        scope: row.access_scope,
         status: statusOf(row),
       });
     }

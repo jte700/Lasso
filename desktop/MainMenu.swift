@@ -14,7 +14,7 @@ enum MainMenu {
         let about: Selector
         let settings: Selector
         let addDirectories: Selector
-        let openWorkspace: Selector
+        let openRanch: Selector
         let help: Selector
     }
 
@@ -65,7 +65,7 @@ enum MainMenu {
     private static func makeFileMenu(_ commands: Commands) -> NSMenu {
         let menu = NSMenu(title: "File")
         menu.addItem(item("Add Work Directories…", commands.addDirectories, target: commands.target))
-        menu.addItem(item("Open Workspace in Browser", commands.openWorkspace, "b", target: commands.target))
+        menu.addItem(item("Open \(Ranch.title)", commands.openRanch, "r", target: commands.target))
         menu.addItem(.separator())
         menu.addItem(item("Close", #selector(NSWindow.performClose(_:)), "w"))
         return menu
@@ -104,8 +104,7 @@ enum MainMenu {
     }
 
     private static func makeViewMenu() -> NSMenu {
-        // Lasso's windows have no toolbar or sidebar to show or hide, so the
-        // View menu holds only the full-screen command, as the HIG suggests.
+        // The View menu holds only the full-screen command, as the HIG suggests.
         let menu = NSMenu(title: "View")
         menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
         return menu

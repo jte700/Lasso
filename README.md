@@ -30,7 +30,7 @@ The app runs in the menu bar and starts its own local server, restarting it auto
 - While a folder is added, brought up to date or re-read, its row shows a bar in the folder's colour with a percentage that counts up from 0% to 100%, in place of its switch. Folders already in use keep giving suggestions meanwhile, and a folder being brought up to date answers from its last index until its new version is ready.
 - When an update to Lasso improves its file reader, folders are re-read in the background after it starts, one at a time, and their rows show the progress. Only the kinds of file the new reader reads differently are read again; the rest of each folder's recorded reading carries over. **Re-read Files** records the new reading as a new version of the folder; earlier versions, links and shares are unchanged. `index reindex` in the workspace does the same.
 - **Suggest While Typing** to show or stop suggestions in other apps. This is the switch for suggestions; Lasso itself stays on.
-- **Open in Browser** (`⌘B`) for writing, source browsing, and review.
+- **Open The Ranch** (`⌘R`) to look through every source, its recent changes, share links and anything that needs review, in a Mac window (see [The Ranch](#the-ranch)).
 - **Settings…** (`⌘,`) for the options below.
 - **Quit Lasso** to turn Lasso off.
 
@@ -43,12 +43,29 @@ Settings holds what the menu does not:
 - **Appearance**: Match System, Light or Dark, for Lasso's menu, suggestions and windows.
 - **Folder colour**: the colour of folders you haven't given their own, and of the text you accept from them.
 - **Tab inserts**: what `Tab` does: **Plain Text** (default), **Ask Each Time**, or **Share Link**.
-- **Notch**: **Show Lasso in the notch** on Macs with a built-in camera cutout. Off by default, this remembers your choice and hides itself when the notched display is unavailable. At rest the surface matches the camera gap, without a separate logo extension. Hover over or click anywhere across the notch to open Lasso; the controls sit below the camera, and moving away closes it after a short grace. The surface expands and settles with a spring animation, respecting macOS Reduce Motion. A changed linked source opens a compact six-second popup with its file and change summary, including whole-file edits, moves and removals. Links accepted in other apps and saved browser-document links both contribute notifications. Existing history establishes a baseline when enabled, and unchanged alerts do not reopen. Activity refreshes every three seconds while enabled. Clicking the popup opens the full source details; Escape or clicking elsewhere collapses it without taking focus from your editor. No source wording changes until you review and apply it in the browser.
+- **Notch**: **Show Lasso in the notch** on Macs with a built-in camera cutout. Off by default, this remembers your choice and hides itself when the notched display is unavailable. At rest the surface matches the camera gap, without a separate logo extension. Hover over or click anywhere across the notch to open Lasso; the controls sit below the camera, and moving away closes it after a short grace. The surface expands and settles with a spring animation, respecting macOS Reduce Motion. A changed linked source opens a compact six-second popup with its file and change summary, including whole-file edits, moves and removals. Links accepted in other apps and saved browser-document links both contribute notifications. Existing history establishes a baseline when enabled, and unchanged alerts do not reopen. Activity refreshes every three seconds while enabled. Clicking the popup opens the full source details; Escape or clicking elsewhere collapses it without taking focus from your editor. Its **Open Sources** or **Review Sources** button opens The Ranch on what changed or what needs review. No source wording changes on its own.
 - **Start**: whether Lasso starts at login and with `⌘L`, with **Open Login Items…** when macOS has the helper switched off. The version of Lasso and the Node.js its server runs on are listed below it.
 
 These sit in Settings' **General** pane. Its **Shortcuts** pane lists every keyboard shortcut, grouped by where it works. On Windows the workspace's **Settings** lists the same shortcuts with their Windows keys; both read [`public/shortcuts.json`](public/shortcuts.json), so a new shortcut is added there once.
 
 Interacting with the directory controls keeps the popover open. Clicking outside dismisses it; closing it with `Esc` or the menu bar icon returns focus to the app you were using. A folder that is switched on but could not be read shows **(needs attention)**; clicking it tries again. A folder on a drive that was not mounted when Lasso started is picked up automatically when the drive returns. You can move the app to `/Applications`; keep one canonical copy when granting permissions.
+
+### The Ranch
+
+**Open The Ranch** (`⌘R`) opens Lasso's library as a Mac window, in place of the browser workspace. It only shows files; it never changes one.
+
+- **Recent Changes**: what was added, edited, renamed, moved or removed in every directory over the last two weeks, by day.
+- **All Sources**: every file Lasso has read, grouped by directory, with the search field at the top of the sidebar.
+- **Links**: **Shared by You** lists the share links made on this Mac, active, expired or stopped, with **Copy Link** and **Stop Sharing**. **Received** lists Lasso share links that reached you inside an indexed file, such as a note or a message from a connected mail app.
+- **Needs Review**: values that changed since a document linked them, linked sources that moved or are missing, files Lasso could only partly read (with what to do about it), directories that need attention, and files that changed since you shared them.
+- **Network**: each directory as a hub with its most used and best connected files around it, and lines where files connect, in one directory or across several: a document links a value from a file, a file was accepted while writing a document, a text file names another file, or two files share a distinctive name (`Bracket.step` and `Bracket.pdf`). Files fade from grey (unused) to green (most tabbed, opened, viewed, shared and linked). Hover over a file to light up what it connects to, click it to show it beside the network, and click a directory to show only it and what it connects to.
+- **Directories** and **Connected Apps**: each directory's files. The sidebar's **Last Edited** menu orders the directories by Last Edited, Recently Used, Oldest or Newest. The sort button in the toolbar above a list of files orders the files the same ways, chosen separately, and the filter button beside it shows one kind of file: documents, spreadsheets, PDFs, presentations, 3D models, drawings, images, notes or code.
+
+`⌘1` to `⌘5` go to Recent Changes, All Sources, Links, Needs Review and Network, and the search field at the top of the sidebar narrows every list by file name and lights matching files in the network. The Ranch reopens where you left it.
+
+Selecting a file shows it on the right, with its actions in the toolbar: documents, spreadsheets (with their sheets), PDFs, slides, images and text scroll in Quick Look; STEP models and STL, OBJ, PLY and USD meshes turn with a drag and zoom with a pinch or scroll; DXF and IFC plans pan and zoom. **Edit in** (`⌘E`) opens the file in the app that edits it, such as Excel, Word, Numbers or Fusion, and its menu lists every other app that can open it. Double-clicking a file does the same, and files can be dragged out of the list into Mail, Finder or any app that takes files. Files kept in Google Drive also offer Google Docs, Sheets or Slides, and `.gdoc`, `.gsheet` and `.gslides` files open in Google's editor. CAD files only offer CAD software; when none is installed, The Ranch says which app edits the file. Beside it, the share button sends a copy with AirDrop, Mail, Messages and the rest of the macOS share menu, **Share Link** (`⇧⌘L`) makes a Lasso share link through the usual privacy options, and the folder button (`⇧⌘R`) shows the file in Finder. A file on a disconnected drive shows the copy Lasso saved.
+
+Looking at a file counts toward how green it is, once per half hour; it never changes how suggestions are ranked.
 
 ### External drives
 
@@ -168,6 +185,8 @@ See [the Windows companion notes](desktop-windows/README.md) for what each
 native piece replaces, how it is verified, and its current limits.
 
 ## Browser tools
+
+The Mac app no longer links to these; The Ranch replaces them there. The local server still serves them, for the Windows companion and `npm start`.
 
 The browser combines a source library, document editor, history, and dependency review. Markdown and text saves update their tracked files. DOCX and PDF editing uses a versioned text layer and preserves the original binary. Accepted sources are linked locally immediately, then saved with the document through manual save or the five-minute autosave.
 
