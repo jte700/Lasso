@@ -65,7 +65,12 @@ enum MainMenu {
     private static func makeFileMenu(_ commands: Commands) -> NSMenu {
         let menu = NSMenu(title: "File")
         menu.addItem(item("Add Work Directories…", commands.addDirectories, target: commands.target))
-        menu.addItem(item("Open \(Ranch.title)", commands.openRanch, "r", target: commands.target))
+        menu.addItem(item("Open \(Ranch.title)", commands.openRanch, Ranch.key, Ranch.modifiers, target: commands.target))
+        // Plain ⌘R, The Ranch's first key, still works while Lasso is in front.
+        let firstKey = item("Open \(Ranch.title)", commands.openRanch, Ranch.key, target: commands.target)
+        firstKey.isHidden = true
+        firstKey.allowsKeyEquivalentWhenHidden = true
+        menu.addItem(firstKey)
         menu.addItem(.separator())
         menu.addItem(item("Close", #selector(NSWindow.performClose(_:)), "w"))
         return menu

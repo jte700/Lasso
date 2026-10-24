@@ -7,6 +7,9 @@ import Cocoa
 enum Ranch {
     /// The window's name, in the menu bar panel, the File menu and its title bar.
     static let title = "The Ranch"
+    /// ⇧⌘R, which Lasso holds in every app while it runs; menus show it.
+    static let key = "r"
+    static let modifiers: NSEvent.ModifierFlags = [.command, .shift]
 }
 
 struct RanchCounts: Decodable, Equatable {

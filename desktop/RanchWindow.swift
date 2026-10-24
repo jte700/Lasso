@@ -24,13 +24,15 @@ final class RanchWindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 860, height: 520)
         window.tabbingMode = .disallowed
+        super.init(window: window)
+        // Before the content: the window keeps the first undo manager anything
+        // asks it for, and SwiftUI asks while the content is set up.
+        window.delegate = self
         let hosting = NSHostingController(rootView: RanchRootView(store: store, actions: actions))
         // The window keeps the size people give it, not the content's ideal size.
         hosting.sizingOptions = []
         window.contentViewController = hosting
         window.setContentSize(NSSize(width: 1240, height: 780))
-        super.init(window: window)
-        window.delegate = self
         window.setFrameAutosaveName(Self.autosaveName)
     }
 
@@ -46,6 +48,8 @@ final class RanchWindowController: NSWindowController, NSWindowDelegate {
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
     }
+
+    func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? { store.undoManager }
 
     func windowWillClose(_ notification: Notification) {
         store.stopRefreshing()

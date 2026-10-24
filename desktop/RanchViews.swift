@@ -72,6 +72,7 @@ extension RanchDirectory {
 
 /// The Finder's own icon for a file, or the one for its type. Lists use the
 /// type's, kept once per extension, so a long list never reads the disk to draw.
+/// Types macOS draws as plain white pages get Lasso's own (`RanchTypeIcon`).
 struct RanchFileIcon: View {
     let url: URL?
     let fileExtension: String
@@ -84,6 +85,7 @@ struct RanchFileIcon: View {
     }
 
     private var icon: NSImage {
+        if let drawn = RanchTypeIcon.image(for: fileExtension, size: size) { return drawn }
         if let url, FileManager.default.fileExists(atPath: url.path) { return NSWorkspace.shared.icon(forFile: url.path) }
         return Self.typeIcon(fileExtension)
     }
@@ -167,6 +169,8 @@ struct RanchSidebar: View {
     @ObservedObject var store: RanchStore
     let actions: RanchActions
     private static let shortcuts: [RanchStore.Section] = [.changes, .sources, .links, .review, .network]
+    /// Section headers run wider than rows; this lines the sort menu up with the file counts below it.
+    private static let countColumnInset: CGFloat = 16
 
     var body: some View {
         List(selection: $store.section) {
@@ -201,6 +205,7 @@ struct RanchSidebar: View {
                     Text("Directories")
                     Spacer()
                     RanchOrderMenu(title: "Sort Directories By", order: $store.directoryOrder)
+                        .padding(.trailing, Self.countColumnInset)
                 }
             }
             if !store.apps.isEmpty {
@@ -236,16 +241,28 @@ struct RanchOrderMenu: View {
             }
             .pickerStyle(.inline)
         } label: {
-            HStack(spacing: 3) {
+            HStack(spacing: 2) {
                 Text(order.title)
-                Image(systemName: "chevron.up.chevron.down").imageScale(.small)
+                Image(systemName: "chevron.down").imageScale(.small)
             }
-            .font(.caption)
         }
-        .menuStyle(.borderlessButton)
+        .modifier(HeaderMenuStyle())
         .menuIndicator(.hidden)
         .fixedSize()
         .help(title)
+    }
+}
+
+/// A menu that reads as part of a section header: its label in the header's
+/// own type and colour. A plain SwiftUI label needs macOS 14; macOS 13 keeps
+/// the borderless pop-up, made small.
+private struct HeaderMenuStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 14, *) {
+            content.menuStyle(.button).buttonStyle(.plain)
+        } else {
+            content.menuStyle(.borderlessButton).controlSize(.small)
+        }
     }
 }
 

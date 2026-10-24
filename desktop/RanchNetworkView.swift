@@ -28,7 +28,10 @@ struct RanchNetworkPane: View {
 
 struct RanchNetworkView: View {
     @ObservedObject var store: RanchStore
-    @State private var hovered: Int?
+    /// By id, not place: a click that narrows the network, or the refresh
+    /// after a visit, redraws it under a resting pointer, and an old index
+    /// would point at another node or past the end.
+    @State private var hoveredID: String?
     @State private var zoom: CGFloat = 1
     @State private var settledZoom: CGFloat = 1
     @State private var pan: CGSize = .zero
@@ -65,6 +68,45 @@ struct RanchNetworkView: View {
             }
         }
         .onChange(of: store.networkDirectory) { _ in resetView() }
+        // ⌘Z (Edit > Undo) brings back the whole network in one step, however
+        // far a click narrowed it or a pinch or drag moved it.
+        .onChange(of: viewpoint) { _ in
+            if showsWholeNetwork { forgetWholeNetwork() } else { offerWholeNetwork() }
+        }
+        .onAppear { if !showsWholeNetwork { offerWholeNetwork() } }
+        .onDisappear { forgetWholeNetwork() }
+    }
+
+    /// Every directory, at the size that fits the window.
+    private var showsWholeNetwork: Bool {
+        store.networkDirectory == nil && settledZoom == 1 && settledPan == .zero
+    }
+
+    /// What the network shows, and from where.
+    private var viewpoint: String {
+        "\(store.networkDirectory ?? "")|\(settledZoom)|\(settledPan.width),\(settledPan.height)"
+    }
+
+    /// One offer at a time, named for what is on screen now, as the Edit menu shows it.
+    private func offerWholeNetwork() {
+        forgetWholeNetwork()
+        store.undoManager.registerUndo(withTarget: store) { store in
+            store.networkDirectory = nil
+            resetView()
+        }
+        store.undoManager.setActionName(store.networkDirectory.map { "Show \(store.directoryName($0))" }
+                                   ?? (settledZoom == 1 ? "Move" : "Zoom"))
+    }
+
+    /// Back at the whole network, or out of sight: ⌘Z has nothing here to undo.
+    private func forgetWholeNetwork() {
+        store.undoManager.removeAllActions(withTarget: store)
+    }
+
+    /// A click, pinch or drag on the network takes focus from the search
+    /// field, whose own typing would otherwise take ⌘Z.
+    private func focusNetwork() {
+        NSApp.keyWindow?.makeFirstResponder(nil)
     }
 
     private func subtitle(_ layout: RanchNetworkLayout) -> String {
@@ -82,9 +124,10 @@ struct RanchNetworkView: View {
         let query = store.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let found = query.isEmpty ? nil : Set(layout.nodes.indices.filter { layout.nodes[$0].role == .hub
             || layout.nodes[$0].label.localizedCaseInsensitiveContains(query) })
+        let hovered = layout.index(of: hoveredID)
         let lit = hovered.map { layout.neighbours(of: $0).union([$0]) } ?? found
         let labelled = layout.labelledFiles(limit: 10)
-        let selected = layout.nodes.firstIndex { $0.id == store.selectedSourceID }
+        let selected = layout.index(of: store.selectedSourceID)
         return Canvas { context, canvasSize in
             for line in layout.lines {
                 let from = place(layout.nodes[line.from].position), to = place(layout.nodes[line.to].position)
@@ -167,21 +210,22 @@ struct RanchNetworkView: View {
             .map { layout.nodes[$0].label }.joined(separator: ", "))
         .onContinuousHover { phase in
             switch phase {
-            case .active(let point): hovered = hit(layout, at: point, place: place)
-            case .ended: hovered = nil
+            case .active(let point): hoveredID = hit(layout, at: point, place: place).map { layout.nodes[$0].id }
+            case .ended: hoveredID = nil
             }
         }
         .gesture(SpatialTapGesture().onEnded { value in
+            focusNetwork()
             guard let index = hit(layout, at: value.location, place: place) else { store.selectedSourceID = nil; return }
             let node = layout.nodes[index]
             if node.role == .file { store.selectedSourceID = node.id } else { store.networkDirectory = node.directoryId }
         })
         .gesture(MagnificationGesture()
             .onChanged { zoom = min(4, max(0.5, settledZoom * $0)) }
-            .onEnded { _ in settledZoom = zoom })
+            .onEnded { _ in settledZoom = zoom; focusNetwork() })
         .simultaneousGesture(DragGesture(minimumDistance: 4)
             .onChanged { pan = CGSize(width: settledPan.width + $0.translation.width, height: settledPan.height + $0.translation.height) }
-            .onEnded { _ in settledPan = pan })
+            .onEnded { _ in settledPan = pan; focusNetwork() })
     }
 
     /// From the layout's -1...1 square to the whole view, so a wide window spreads the network out.
@@ -211,7 +255,7 @@ struct RanchNetworkView: View {
     @ViewBuilder
     private func footer(_ layout: RanchNetworkLayout) -> some View {
         HStack(alignment: .bottom) {
-            if let hovered, layout.nodes.indices.contains(hovered) {
+            if let hovered = layout.index(of: hoveredID) {
                 card(layout.nodes[hovered])
             } else if layout.isStarter {
                 Text("Nothing has been used or linked yet, so these are recently edited files. They turn green as you Tab, open, view and share them.")

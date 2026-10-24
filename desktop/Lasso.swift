@@ -4,6 +4,7 @@
 //  Source suggestions, inspectors, and sharing stay available across apps.
 
 import Cocoa
+import Carbon.HIToolbox
 
 // MARK: - Local port allocation
 
@@ -394,6 +395,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }()
     /// The Ranch, the library window that took the browser workspace's place on the Mac.
     private var ranchLoaded = false
+    /// ⇧⌘R opens The Ranch from any app, as the launcher's ⌘L starts Lasso.
+    private var ranchHotKey: GlobalHotKey?
     private lazy var ranch: RanchWindowController = {
         let controller = RanchWindowController(actions: RanchActions(
             createShareLink: { [weak self] target, anchor in self?.composeRanchShare(target, near: anchor) },
@@ -508,6 +511,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        ranchHotKey = GlobalHotKey(keyCode: kVK_ANSI_R, modifiers: Ranch.modifiers, id: 1) { [weak self] in
+            self?.showRanch()
+        }
         buildStatusItem()
         GlobalAssistant.shared.onStateChange = { [weak self] in
             DispatchQueue.main.async { self?.rebuildMenu() }
@@ -626,8 +632,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    private func command(_ title: String, action: Selector, key: String = "", enabled: Bool = true) -> NSMenuItem {
+    private func command(_ title: String, action: Selector, key: String = "", modifiers: NSEvent.ModifierFlags = .command,
+                         enabled: Bool = true) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        item.keyEquivalentModifierMask = modifiers
         item.target = self
         item.isEnabled = enabled
         return item
@@ -743,7 +751,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        statusMenu.addItem(command("Open \(Ranch.title)", action: #selector(openRanch), key: "r", enabled: isServerReady))
+        statusMenu.addItem(command("Open \(Ranch.title)", action: #selector(openRanch), key: Ranch.key, modifiers: Ranch.modifiers,
+                                   enabled: isServerReady))
         statusMenu.addItem(.separator())
         // Look, Tab, notch and startup options live in Settings, not here.
         statusMenu.addItem(command("Settings…", action: #selector(showSettings), key: ","))

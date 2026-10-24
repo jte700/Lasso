@@ -3262,8 +3262,13 @@ do {
     check(shortcut("Edit", "f")?.tag == Int(NSFindPanelAction.showFindPanel.rawValue), "Command-F opens Find")
     check(shortcut("Window", "m")?.action == #selector(NSWindow.performMiniaturize(_:)), "Command-M minimizes")
     check(shortcut("Help", "?")?.action == #selector(MenuTarget.help), "Command-? opens Lasso Help")
-    check(shortcut("File", "r")?.action == #selector(MenuTarget.ranch) && shortcut("File", "r")?.title == "Open The Ranch",
-          "Command-R opens The Ranch")
+    let ranch = shortcut("File", "r", [.command, .shift])
+    check(ranch?.action == #selector(MenuTarget.ranch) && ranch?.title == "Open The Ranch" && ranch?.isHidden == false,
+          "Shift-Command-R opens The Ranch, as the key held in every app")
+    let ranchAlias = shortcut("File", "r")
+    check(ranchAlias?.action == #selector(MenuTarget.ranch) && ranchAlias?.isHidden == true
+          && ranchAlias?.allowsKeyEquivalentWhenHidden == true,
+          "plain Command-R still opens The Ranch inside Lasso, without a second menu row")
     check(!(bar?.items ?? []).flatMap({ $0.submenu?.items ?? [] }).contains { $0.title.localizedCaseInsensitiveContains("browser") },
           "nothing in the menu bar sends you to the browser")
     check(NSApp.windowsMenu?.title == "Window" && NSApp.helpMenu?.title == "Help",
@@ -3489,6 +3494,8 @@ do {
     let keys = mac.flatMap { $0.rows.map(\.keys) }
     check(mac.first?.title == "Lasso" && keys.contains("⌘,") && keys.contains("⌘L"),
           "the shipped list starts with Lasso's own commands, including ⌘L")
+    check(mac.first?.rows.filter { $0.keys == "⇧⌘R" }.count == 1 && keys.filter { $0 == "⇧⌘R" }.count == 1,
+          "⇧⌘R is listed once, for The Ranch, since Lasso holds it in every app")
     check(keys.contains("⇥") && keys.contains("⌘↩") && keys.contains("⇧⌘↩") && keys.contains("fn ←"),
           "the shipped list names every key the suggestion card answers to")
     check(!keys.contains("F4") && !keys.contains { $0.contains("Ctrl") },
@@ -3706,6 +3713,15 @@ do {
         let starter = RanchNetworkLayout.make(quiet)
         check(starter.isStarter && starter.nodes.filter { $0.role == .file }.count == 4,
               "with nothing used or linked, recently edited files are drawn as a start")
+        // A click that narrows the network, or the refresh after a visit, redraws
+        // it under a resting pointer; the hovered node's old place may be gone.
+        let narrowed = RanchNetworkLayout.make(overview, maxFiles: 1)
+        let lastPlace = starter.nodes.count - 1
+        check(!narrowed.nodes.indices.contains(lastPlace) && narrowed.index(of: starter.nodes[lastPlace].id) == nil
+              && starter.nodes.allSatisfy { node in narrowed.index(of: node.id).map { narrowed.nodes[$0].id == node.id } ?? true }
+              && narrowed.index(of: "hub:d1").map { narrowed.nodes[$0].role == .hub } == true
+              && narrowed.index(of: nil) == nil,
+              "a node in focus is found again by its id after the network is redrawn, not by where it was")
         check(layout.labelledFiles(limit: 1).count == 1, "only the busiest file labels are drawn")
         check(overview.sources.filter(RanchKindFilter.spreadsheets.includes).count == 4
               && overview.sources.filter(RanchKindFilter.models.includes).isEmpty
@@ -3713,6 +3729,35 @@ do {
               && Set(RanchKindFilter.allCases.map(\.title)).count == RanchKindFilter.allCases.count,
               "the kind filter keeps one kind of file, and All Kinds keeps every file")
     }
+
+    let lookalikes = ["gsheet", "csv", "pdf", "gdoc", "gslides", "txt", "md", "json", "js", "step", "dxf", "png"]
+    let styles = lookalikes.compactMap(RanchTypeIcon.style(for:))
+    check(styles.count == lookalikes.count && Set(styles.map { "\($0.mark)" }).count == lookalikes.count,
+          "every type macOS draws as a plain white page gets an icon of its own")
+    check(RanchTypeIcon.style(for: "gsheet")?.mark == .sheet && RanchTypeIcon.style(for: "csv")?.mark == .label("CSV")
+          && RanchTypeIcon.style(for: "gsheet")?.color != RanchTypeIcon.style(for: "csv")?.color
+          && RanchTypeIcon.style(for: "pdf")?.mark == .label("PDF"),
+          "a Google Sheet, a CSV and a PDF look different from each other")
+    check(["xlsx", "docx", "pptx", "numbers", "pages", "key", "html", "zip"].allSatisfy { RanchTypeIcon.style(for: $0) == nil },
+          "Excel, Word, PowerPoint, iWork, web pages and archives keep their apps' own icons")
+    check(RanchTypeIcon.style(for: "PDF") == RanchTypeIcon.style(for: "pdf") && RanchTypeIcon.style(for: "jpeg")?.mark == .label("JPG")
+          && RanchTypeIcon.style(for: "markdown")?.mark == .label("MD"),
+          "type icons ignore case and shorten long extensions")
+    func ink(_ fileExtension: String) -> Data? {
+        guard let image = RanchTypeIcon.image(for: fileExtension, size: 20),
+              let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 40, pixelsHigh: 40, bitsPerSample: 8, samplesPerPixel: 4,
+                                         hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(x: 0, y: 0, width: 40, height: 40))
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.tiffRepresentation
+    }
+    let blank = ink("xlsx")
+    check(blank == nil && ink("pdf") != nil && ink("pdf") != ink("csv") && ink("gsheet") != ink("gdoc")
+          && RanchTypeIcon.image(for: "pdf", size: 20) === RanchTypeIcon.image(for: "pdf", size: 20),
+          "type icons draw differently from each other and are made once per size")
 
     func components(_ color: NSColor) -> (saturation: CGFloat, brightness: CGFloat) {
         let rgb = color.usingColorSpace(.deviceRGB) ?? color

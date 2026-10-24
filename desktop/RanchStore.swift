@@ -118,6 +118,8 @@ final class RanchStore: ObservableObject {
     private static let cachedPreviews = 24
     private var previews: [String: AssistModelPreview] = [:]
     private var networkCache: (key: String, layout: RanchNetworkLayout)?
+    /// The window's, so Edit > Undo (⌘Z) reaches what its views offer to undo.
+    let undoManager = UndoManager()
 
     init(defaults: UserDefaults = .standard, session: URLSession = .shared) {
         self.defaults = defaults

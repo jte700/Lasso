@@ -114,8 +114,9 @@ struct RanchSourceDetail: View {
             } label: {
                 Label("Show in Finder", systemImage: "folder")
             }
-            .help("Show in Finder (\u{21E7}\u{2318}R)")
-            .keyboardShortcut("r", modifiers: [.command, .shift])
+            // ⌥⌘R: Lasso holds ⇧⌘R in every app, for opening The Ranch.
+            .help("Show in Finder (\u{2325}\u{2318}R)")
+            .keyboardShortcut("r", modifiers: [.command, .option])
         }
     }
 

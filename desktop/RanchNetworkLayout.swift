@@ -161,6 +161,13 @@ struct RanchNetworkLayout: Equatable {
         return Set(files.sorted { nodes[$0].activity > nodes[$1].activity }.prefix(limit))
     }
 
+    /// Where a node is in this layout. Nodes are kept by id outside it, since
+    /// a redraw moves them or leaves them out.
+    func index(of id: String?) -> Int? {
+        guard let id else { return nil }
+        return nodes.firstIndex { $0.id == id }
+    }
+
     func neighbours(of node: Int) -> Set<Int> {
         Set(lines.compactMap { line in
             line.from == node ? line.to : line.to == node ? line.from : nil
