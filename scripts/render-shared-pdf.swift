@@ -19,12 +19,41 @@ struct Region: Decodable {
     let height: Double
     let effect: String?
 }
+struct Stroke: Decodable {
+    let tool: String
+    let color: String
+    let page: Int
+    /// x, y pairs from the crop box's top left, each 0...1.
+    let points: [Double]
+}
 struct Request: Decodable {
     let mode: String
-    let regions: [Region]
+    let regions: [Region]?
+    let strokes: [Stroke]?
     let text: String?
     let page: Int?
 }
+
+// How each marking tool draws, as a share of the page's width. Keep in sync
+// with ShareMarkTool in desktop/ShareInsertion.swift, which draws the strokes
+// while they are made.
+func strokeStyle(_ tool: String) -> (width: CGFloat, alpha: CGFloat, blend: CGBlendMode)? {
+    switch tool {
+    case "PEN": return (0.0032, 1, .normal)
+    case "MARKER": return (0.009, 1, .normal)
+    case "HIGHLIGHTER": return (0.024, 0.38, .multiply)
+    default: return nil
+    }
+}
+
+func strokeColor(_ hex: String) -> CGColor? {
+    guard hex.count == 7, hex.hasPrefix("#"), let value = Int(hex.dropFirst(), radix: 16) else { return nil }
+    return CGColor(srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255,
+                   blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+}
+
+let maxStrokes = 400
+let maxStrokePoints = 2000
 
 let blurContext = CIContext(options: [.cacheIntermediates: false])
 
@@ -70,11 +99,20 @@ guard args.count == 4,
       let input = PDFDocument(url: URL(fileURLWithPath: args[1])), !input.isLocked,
       let json = try? Data(contentsOf: URL(fileURLWithPath: args[2])),
       let request = try? JSONDecoder().decode(Request.self, from: json),
-      ["REDACTED", "INDEXED"].contains(request.mode), input.pageCount > 0,
+      ["REDACTED", "INDEXED", "MARKED"].contains(request.mode), input.pageCount > 0,
       input.pageCount <= 1000 else { fail("The PDF could not be prepared for sharing.") }
 
-var regions = request.regions
-if request.mode == "INDEXED", regions.isEmpty {
+var regions = request.regions ?? []
+let strokes = request.strokes ?? []
+if request.mode == "MARKED" {
+    guard !strokes.isEmpty, strokes.count <= maxStrokes,
+          strokes.allSatisfy({ stroke in strokeStyle(stroke.tool) != nil && strokeColor(stroke.color) != nil
+              && stroke.page > 0 && stroke.page <= input.pageCount && stroke.points.count >= 2
+              && stroke.points.count % 2 == 0 && stroke.points.count <= maxStrokePoints * 2
+              && stroke.points.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1 }) }) else {
+        fail("The markings could not be placed on this version.")
+    }
+} else if request.mode == "INDEXED", regions.isEmpty {
     let text = (request.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     guard !text.isEmpty, text.utf16.count <= 100_000 else { fail("Select text or an area from the PDF before sharing.") }
     // Match only existing selectable PDF text, tolerating wrapped whitespace.
@@ -99,7 +137,7 @@ if request.mode == "INDEXED", regions.isEmpty {
         break
     }
 }
-guard !regions.isEmpty, regions.count <= 512,
+guard request.mode == "MARKED" || !regions.isEmpty, regions.count <= 512,
       regions.allSatisfy({ r in r.page > 0 && r.page <= input.pageCount
           && [r.x, r.y, r.width, r.height].allSatisfy({ $0.isFinite })
           && r.x >= 0 && r.y >= 0 && r.width > 0 && r.height > 0
@@ -140,6 +178,28 @@ for number in pages {
     context.translateBy(x: -crop.minX, y: -crop.minY)
     context.drawPDFPage(original)
     context.restoreGState()
+    if request.mode == "MARKED" {
+        for stroke in strokes where stroke.page == number {
+            guard let style = strokeStyle(stroke.tool), let color = strokeColor(stroke.color) else { continue }
+            let path = CGMutablePath()
+            for index in stride(from: 0, to: stroke.points.count, by: 2) {
+                let point = CGPoint(x: stroke.points[index] * crop.width, y: (1 - stroke.points[index + 1]) * crop.height)
+                if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+            }
+            // A single point is a dot.
+            if stroke.points.count == 2 { path.addLine(to: path.currentPoint) }
+            context.saveGState()
+            context.setBlendMode(style.blend)
+            context.setAlpha(style.alpha)
+            context.setStrokeColor(color)
+            context.setLineWidth(style.width * crop.width)
+            context.setLineCap(.round)
+            context.setLineJoin(.round)
+            context.addPath(path)
+            context.strokePath()
+            context.restoreGState()
+        }
+    }
     if request.mode == "REDACTED" {
         for region in selected {
             // Expanding to full raster pixels prevents antialiased edge remnants.

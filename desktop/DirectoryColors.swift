@@ -17,6 +17,17 @@ enum DirectoryToggleColor: String, CaseIterable {
         }
         return NSColor(srgbRed: rgb.0, green: rgb.1, blue: rgb.2, alpha: 1)
     }
+
+    /// A dot of the colour, kept in colour in a menu.
+    func swatch(size: CGFloat = 12) -> NSImage {
+        let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            color.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5)).fill()
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
 }
 
 extension Notification.Name {

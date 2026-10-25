@@ -675,13 +675,17 @@ final class AssistBoxView: NSView {
     enum Mode { case suggestions, confirmShare, message }
     var mode: Mode = .suggestions
     var suggestions: [AssistSuggestion] = [] {
-        didSet { revealSelectedSuggestion() }
+        didSet { revealSelectedSuggestion(); suggestionScroll = 0 }
     }
     var selected: Int = 0 {
         didSet { revealSelectedSuggestion() }
     }
     private(set) var firstVisibleSuggestion = 0
     private let visibleSuggestionCount = 4
+    /// Scrolling over the list not yet a whole step, in steps.
+    private var suggestionScroll: CGFloat = 0
+    /// How far two fingers travel to move the highlight one suggestion.
+    fileprivate let suggestionScrollStep: CGFloat = 36
     var title: String = "Dependency"
     var confirmChoices: [String] = []
     var messageLines: [String] = []
@@ -737,7 +741,7 @@ final class AssistBoxView: NSView {
     @objc private func dismissSuggestions() { onDismiss?() }
 
     private let panelWidth: CGFloat = 760
-    private let leftWidth: CGFloat = 366
+    fileprivate let leftWidth: CGFloat = 366
     private let headerHeight: CGFloat = 31
     private let suggestionHeight: CGFloat = 72
     private let choiceHeight: CGFloat = 34
@@ -1472,7 +1476,25 @@ final class AssistBoxView: NSView {
         let away = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
         let speed: CGFloat = event.hasPreciseScrollingDeltas ? 0.01 : 0.1
         let point = convert(event.locationInWindow, from: nil)
-        if !scrollTable(by: event, at: point), !zoomModel(by: exp(away * speed), at: point) { super.scrollWheel(with: event) }
+        if !scrollSuggestions(by: event, at: point), !scrollTable(by: event, at: point),
+           !zoomModel(by: exp(away * speed), at: point) { super.scrollWheel(with: event) }
+    }
+
+    /// Over the list, scrolling moves the highlight as ↑ and ↓ do: a row per
+    /// wheel notch, or per short swipe, following the fingers as a scroll
+    /// view's rows would. It stops at either end rather than wrapping, so a
+    /// flick never spins round the list.
+    private func scrollSuggestions(by event: NSEvent, at point: NSPoint) -> Bool {
+        guard mode == .suggestions, point.x < leftWidth,
+              point.y >= bodyTop + navigationHeight, point.y < footerY else { return false }
+        guard suggestions.count > 1 else { return true }
+        suggestionScroll -= event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / suggestionScrollStep : event.scrollingDeltaY
+        let steps = Int(suggestionScroll)
+        guard steps != 0 else { return true }
+        suggestionScroll -= CGFloat(steps)
+        let target = min(max(0, selected + steps), suggestions.count - 1)
+        if target != selected { onSelectRow?(target) }
+        return true
     }
 
     override func magnify(with event: NSEvent) {
@@ -2608,6 +2630,26 @@ final class GlobalAssistant {
             list.mouseDown(with: event)
         }
         checks["clicking a scrolled row selects its actual source"] = clicked == 9
+        func wheel(_ amount: Int32, precise: Bool = false, at point: NSPoint) {
+            // The window sits at the screen origin, so screen and window points agree.
+            let event = CGEvent(scrollWheelEvent2Source: nil, units: precise ? .pixel : .line, wheelCount: 1,
+                                wheel1: amount, wheel2: 0, wheel3: 0)
+            let screen = list.convert(point, to: nil)
+            event?.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
+            if let event = event.flatMap(NSEvent.init(cgEvent:)) { list.scrollWheel(with: event) }
+        }
+        list.onSelectRow = { list.selected = $0 }
+        let row = NSPoint(x: 80, y: list.pointerHeight + 32 + 35)
+        list.selected = 12
+        wheel(1, at: row)
+        checks["a wheel notch up over the list highlights the result above"] = list.selected == 11
+        wheel(-1, at: row); wheel(-1, at: row)
+        checks["scrolling down stops at the last result instead of wrapping"] = list.selected == 12
+        wheel(Int32(list.suggestionScrollStep * 3), precise: true, at: row)
+        checks["a two-finger swipe moves a result per short step"] = list.selected == 9
+            && list.visibleSuggestionRange.contains(9)
+        wheel(-1, at: NSPoint(x: list.leftWidth + 40, y: row.y))
+        checks["scrolling over the preview leaves the highlight"] = list.selected == 9
         list.onSelectRow = savedOnSelect
         if let outputPath {
             list.appearance = NSAppearance(named: .aqua)

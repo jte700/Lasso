@@ -208,6 +208,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/SourceInspectorPanel.swift" \
   "$ROOT/desktop/WebText.swift" \
   "$ROOT/desktop/ShareInsertion.swift" \
+  "$ROOT/desktop/ShareMarkup.swift" \
   "$ROOT/desktop/ShareComposer.swift" \
   "$ROOT/desktop/SourceChooser.swift" \
   "$ROOT/desktop/GlobalAssist.swift" \
@@ -333,6 +334,10 @@ echo "==> Compiling safe PDF sharing renderer"
 swiftc -O -target "$SWIFT_TARGET" -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework PDFKit -framework AppKit -o "$RESOURCES/app/scripts/render-shared-pdf" \
   "$ROOT/scripts/render-shared-pdf.swift"
 
+echo "==> Compiling document page renderer for marked-up shares"
+swiftc -O -target "$SWIFT_TARGET" -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework AppKit -framework PDFKit -framework QuickLookThumbnailing -o "$RESOURCES/app/scripts/render-document-pages" \
+  "$ROOT/scripts/render-document-pages.swift"
+
 echo "==> Drawing the app icon"
 # The icon is drawn from scripts/render-app-icon.swift and cached by that
 # script's hash, so ordinary rebuilds reuse it instead of redrawing.
@@ -430,7 +435,7 @@ echo "==> Signing"
 # second prompt.
 codesign --force --sign "$SIGNING_IDENTITY" "$BUNDLED_NODE" \
   "$RESOURCES/app/scripts/extract-drawing-layout" "$RESOURCES/app/scripts/render-shared-pdf" \
-  "$LAUNCHER" "$BUILD_APP"
+  "$RESOURCES/app/scripts/render-document-pages" "$LAUNCHER" "$BUILD_APP"
 codesign --verify --deep --strict "$BUILD_APP"
 if [ "$("$BUNDLED_NODE" --version 2>/dev/null || true)" != "$NODE_VERSION" ]; then
   echo "error: the signed bundled Node.js does not run. The previous app has been preserved." >&2

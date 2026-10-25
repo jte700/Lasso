@@ -16,6 +16,12 @@ final class MemoryDirectoryDefaults: UserDefaults {
     override func string(forKey defaultName: String) -> String? {
         values[defaultName] as? String
     }
+    override func object(forKey defaultName: String) -> Any? {
+        values[defaultName]
+    }
+    override func stringArray(forKey defaultName: String) -> [String]? {
+        values[defaultName] as? [String]
+    }
     override func set(_ value: Any?, forKey defaultName: String) {
         values[defaultName] = value
     }
@@ -178,6 +184,80 @@ do {
           "a whole-deck citation is shared as the deck")
     check(ShareSourceKind(filename: "Review.PPTX") == .presentation && ShareSourceKind(filename: "Bracket.stp") == .cadModel
           && ShareSourceKind(filename: "Budget.xlsx") == .other, "a source's kind comes from its extension")
+    check(ShareAccessScope.offered(for: .other, hasCitedPart: false, markable: true) == [.document, .indexed, .redacted, .marked]
+          && ShareAccessScope.offered(for: .presentation, hasCitedPart: false, markable: true) == [.document, .marked]
+          && ShareAccessScope.offered(for: .presentation, hasCitedPart: true, markable: true) == [.document, .indexed, .marked],
+          "PDFs, Word documents and decks can also be shared marked up")
+    check(ShareSourceKind.isMarkable("Plan.PDF") && ShareSourceKind.isMarkable("Notes/Memo.docx") && ShareSourceKind.isMarkable("Deck.pptx")
+          && !ShareSourceKind.isMarkable("Budget.xlsx") && !ShareSourceKind.isMarkable("Bracket.step"),
+          "only documents shown as pages can be marked up")
+}
+
+print("Marking up a copy to share")
+do {
+    let crop = NSRect(x: 0, y: 0, width: 600, height: 800)
+    var session = ShareMarkupSession()
+    session.begin(page: 2, at: NSPoint(x: 60, y: 720), crop: crop, reach: 4)
+    session.move(to: NSPoint(x: 60.4, y: 720), page: 2, crop: crop, reach: 4)
+    session.move(to: NSPoint(x: 300, y: 720), page: 2, crop: crop, reach: 4)
+    session.move(to: NSPoint(x: 300, y: 900), page: 2, crop: crop, reach: 4)
+    check(session.marks.isEmpty && session.draft?.points.count == 3, "a stroke is drawn as a draft until the pointer lifts")
+    session.end()
+    let line = session.marks.first
+    check(session.marks.count == 1 && line?.tool == .pen && line?.color == .red
+          && line?.points == [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.5, y: 0.1), CGPoint(x: 0.5, y: 0)],
+          "a pen stroke keeps points from the page's top left, skips ones too close to see, and stays on its page")
+    check(line?.payload["points"] as? [Double] == [0.1, 0.1, 0.5, 0.1, 0.5, 0] && line?.payload["tool"] as? String == "PEN"
+          && line?.payload["color"] as? String == "#E5372B" && line?.payload["page"] as? Int == 2,
+          "a stroke is sent as the server reads it")
+
+    session.hand = .tool(.highlighter)
+    check(session.color == .yellow, "the highlighter starts yellow")
+    session.choose(.green)
+    check(session.color(for: .highlighter) == .green && session.color(for: .pen) == .red, "each tool keeps its own colour")
+    session.hand = .eraser
+    check(session.color == nil, "the eraser has no colour")
+    session.choose(.blue)
+    check(session.hand == .tool(.pen) && session.color == .blue, "choosing a colour with the eraser in hand picks the pen back up")
+
+    session.hand = .eraser
+    session.begin(page: 1, at: NSPoint(x: 180, y: 722), crop: crop, reach: 4)
+    session.end()
+    check(session.marks.count == 1, "the eraser leaves marks on other pages")
+    session.begin(page: 2, at: NSPoint(x: 590, y: 20), crop: crop, reach: 4)
+    session.move(to: NSPoint(x: 180, y: 722), page: 2, crop: crop, reach: 4)
+    session.end()
+    check(session.marks.isEmpty, "dragging the eraser across a stroke takes it away")
+    check(session.undo() && session.marks.count == 1 && session.redo() && session.marks.isEmpty && !session.redo(),
+          "an erasing drag is one step for Command+Z and Shift+Command+Z")
+
+    session.hand = .tool(.marker)
+    session.begin(page: 1, at: NSPoint(x: 10, y: 10), crop: crop, reach: 4)
+    session.cancel()
+    check(session.marks.isEmpty && session.draft == nil, "a stroke under way is dropped when the composer changes what it shows")
+    for _ in 0..<ShareMarkupSession.maxStrokes {
+        session.begin(page: 1, at: NSPoint(x: 10, y: 10), crop: crop, reach: 4)
+        session.end()
+    }
+    check(session.marks.count == ShareMarkupSession.maxStrokes && session.marks.last?.points.count == 1
+          && !session.begin(page: 1, at: NSPoint(x: 20, y: 20), crop: crop, reach: 4),
+          "a click draws a dot, and the copy stops taking strokes at the server's limit")
+
+    var detailed = ShareMarkupSession()
+    for stroke in 0..<(ShareMarkupSession.maxPoints / ShareMarkStroke.maxPoints) {
+        detailed.begin(page: 1, at: .zero, crop: crop, reach: 4)
+        for step in 1..<ShareMarkStroke.maxPoints {
+            detailed.move(to: NSPoint(x: CGFloat(step * 2 % 600), y: CGFloat(step * 2 / 600 + stroke) * 4), page: 1, crop: crop, reach: 4)
+        }
+        detailed.end()
+    }
+    check(detailed.marks.reduce(0, { $0 + $1.points.count }) == ShareMarkupSession.maxPoints
+          && !detailed.begin(page: 1, at: .zero, crop: crop, reach: 4),
+          "the copy stops taking strokes once they hold as many points as the server takes")
+
+    var full = ShareMarkStroke(tool: .pen, color: .black, page: 1, start: .zero, crop: crop)
+    for step in 1...(ShareMarkStroke.maxPoints + 10) { full.extend(to: NSPoint(x: CGFloat(step * 2 % 600), y: CGFloat(step * 2 / 600) * 4), crop: crop) }
+    check(full.points.count == ShareMarkStroke.maxPoints, "a stroke ends at the server's limit of points")
 }
 
 print("Command+Z takes back what Tab or a link inserted")
@@ -3723,6 +3803,27 @@ do {
               && narrowed.index(of: nil) == nil,
               "a node in focus is found again by its id after the network is redrawn, not by where it was")
         check(layout.labelledFiles(limit: 1).count == 1, "only the busiest file labels are drawn")
+
+        let ordered = RanchOrder.lastEdited.sorted(overview.directories)
+        check(names(RanchPins.ordered(ordered, pinned: ["d1"])) == ["Finance", "Models", "Outlook"]
+              && names(RanchPins.ordered(ordered, pinned: ["d1", "d3"])) == ["Finance", "Outlook", "Models"]
+              && names(RanchPins.ordered(ordered, pinned: [])) == names(ordered),
+              "pinned directories go first, in the chosen order among themselves, and the rest keep theirs")
+        let pinDefaults = MemoryDirectoryDefaults(suiteName: nil)!
+        RanchPins.save(["d2", "d1"], defaults: pinDefaults)
+        check(RanchPins.saved(defaults: pinDefaults) == ["d1", "d2"] && RanchPins.saved(defaults: MemoryDirectoryDefaults(suiteName: nil)!).isEmpty,
+              "pins are remembered between launches, and none are pinned at first")
+
+        var trail = RanchNetworkTrail()
+        check(!trail.canGoBack && trail.back() == nil, "the whole network has nothing to go back to")
+        trail.leave(nil, for: "d1")
+        trail.leave("d1", for: "d1")
+        trail.leave("d1", for: "d2")
+        check(trail.visited == [nil, "d1"] && trail.canGoBack, "each click into another directory is retraced, staying put is not")
+        check(trail.back() == "d1" && trail.back() == nil && !trail.canGoBack,
+              "Back returns to the directory before, then to every directory")
+        for index in 0..<60 { trail.leave("d\(index)", for: "d\(index + 1)") }
+        check(trail.visited.count == 50 && trail.visited.last == "d59", "the trail keeps the latest fifty steps")
         check(overview.sources.filter(RanchKindFilter.spreadsheets.includes).count == 4
               && overview.sources.filter(RanchKindFilter.models.includes).isEmpty
               && overview.sources.filter(RanchKindFilter.all.includes).count == 4

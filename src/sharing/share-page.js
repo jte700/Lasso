@@ -136,6 +136,7 @@ function shareScopeName(scope) {
     DOCUMENT: 'Entire document',
     INDEXED: 'Indexed part only',
     REDACTED: 'Complete document with redactions',
+    MARKED: 'Copy of the document with markings',
   }[scope] ?? 'Indexed part only';
 }
 
@@ -228,11 +229,12 @@ export function renderSharePage(resolved, token, preview, document = null) {
   const { source, share } = resolved;
   const scope = share.accessScope ?? 'DOCUMENT';
   const redacted = scope === 'REDACTED';
+  const marked = scope === 'MARKED' && document?.kind === 'pdf' && document.safe === true;
   const pdfExcerpt = scope === 'INDEXED' && /\.pdf$/i.test(source.filename);
   const redactions = redacted ? share.redactions ?? [] : [];
-  const title = (redacted || pdfExcerpt ? source.filename : source.label) || source.filename || 'Shared source';
+  const title = (redacted || scope === 'MARKED' || pdfExcerpt ? source.filename : source.label) || source.filename || 'Shared source';
   const hasTable = !redacted && preview?.headers?.length && preview.rows?.length;
-  const hasDocument = redacted || (scope === 'DOCUMENT' && (['model-plan', 'pdf'].includes(document?.kind) || document?.format === 'markdown'))
+  const hasDocument = redacted || marked || (scope === 'DOCUMENT' && (['model-plan', 'pdf'].includes(document?.kind) || document?.format === 'markdown'))
     || (scope === 'INDEXED' && document?.kind === 'pdf' && document.safe === true)
     || (scope === 'INDEXED' && document?.kind === 'model-plan' && document.citedPart === true)
     || (scope === 'INDEXED' && document?.citedSlide === true);
@@ -241,17 +243,18 @@ export function renderSharePage(resolved, token, preview, document = null) {
   const model = /\.(?:step|stp)$/i.test(source.filename);
   const deck = isPresentationPath(source.filename);
   const type = table ? 'Spreadsheet' : drawing ? 'Design drawing' : model ? 'CAD model' : deck ? 'Presentation' : 'Document';
-  const excerpt = pdfExcerpt ? '' : recipientExcerptText(source);
+  const excerpt = pdfExcerpt || scope === 'MARKED' ? '' : recipientExcerptText(source);
   const content = hasTable ? recipientTable(preview)
     : hasDocument ? renderFullDocument(document, redactions, redacted)
+      : scope === 'MARKED' ? '<p class="shared-empty">The marked copy couldn’t be prepared. Ask the sender for a new link.</p>'
       : excerpt ? isMarkdownPath(source.filename)
         ? `<blockquote class="shared-quote"><div class="markdown-document"><p class="md-paragraph">${markdownInlineHtml(excerpt)}</p></div></blockquote>`
         : `<blockquote class="shared-quote">${escapeHtml(excerpt)}</blockquote>`
         : '<p class="shared-empty">An inline excerpt is unavailable for this source. The sharing options below show what you can download.</p>';
-  const heading = redacted ? 'Redacted document' : deck && scope === 'INDEXED' ? 'Shared slide'
+  const heading = redacted ? 'Redacted document' : marked ? 'Marked-up copy' : deck && scope === 'INDEXED' ? 'Shared slide'
     : scope === 'INDEXED' ? 'Shared excerpt' : deck ? 'Slides' : 'Source preview';
   const location = !redacted && (document?.safe || document?.citedSlide) && document.location ? document.location
-    : !redacted && source.location && source.location !== '—' ? source.location : '';
+    : !redacted && scope !== 'MARKED' && source.location && source.location !== '—' ? source.location : '';
   const stats = hasTable ? `${preview.rows.length} rows · ${preview.headers.length} columns`
     : redacted && document?.kind === 'table' ? `${document.sheets?.length ?? 0} worksheets`
       : drawing && document?.kind === 'model-plan' ? 'Plan view'
@@ -266,12 +269,15 @@ export function renderSharePage(resolved, token, preview, document = null) {
   ].filter(Boolean).join('');
   const downloadDetail = options?.format === 'ZIP' ? 'All worksheets are included as separate CSV files.'
     : redacted ? 'The downloaded copy includes these redactions.'
+      : marked ? 'The downloaded copy includes these markings.'
       : options?.type === 'slide' ? 'Download this slide as a presentation of its own.'
         : options ? 'Download the excerpt shown above.' : scope === 'DOCUMENT' ? 'Download the complete source file.' : '';
-  const scopeLabel = scope === 'INDEXED' ? (deck ? 'Cited slide only' : 'Cited part only') : redacted ? 'Redacted copy' : 'Entire document';
+  const scopeLabel = scope === 'INDEXED' ? (deck ? 'Cited slide only' : 'Cited part only') : redacted ? 'Redacted copy'
+    : scope === 'MARKED' ? 'Marked-up copy' : 'Entire document';
   const notice = scope === 'DOCUMENT' ? 'This link includes the original document shared with you.'
     : scope === 'INDEXED' && deck ? 'Only this slide is shared. The rest of the presentation, its speaker notes and comments are not included.'
     : scope === 'INDEXED' ? 'Only the excerpt shown here is shared. The original document is not included.'
+      : scope === 'MARKED' ? 'This is a copy of the document with markings drawn on it. The original file is not included.'
       : 'Marked content has been removed from this view and its downloads. The original document is not included.';
 
   return page(`${title} · Lasso`, `

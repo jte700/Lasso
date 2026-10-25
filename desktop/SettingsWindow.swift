@@ -107,16 +107,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
         return label
     }
 
-    private static func swatch(_ color: NSColor) -> NSImage {
-        let image = NSImage(size: NSSize(width: swatchSize, height: swatchSize), flipped: false) { rect in
-            color.setFill()
-            NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5)).fill()
-            return true
-        }
-        image.isTemplate = false
-        return image
-    }
-
     private func buildContent() {
         appearance.target = self; appearance.action = #selector(changeAppearance)
         for preference in AppearancePreference.allCases {
@@ -128,7 +118,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
         for option in DirectoryToggleColor.allCases {
             color.addItem(withTitle: option.title)
             color.lastItem?.representedObject = option.rawValue
-            color.lastItem?.image = Self.swatch(option.color)
+            color.lastItem?.image = option.swatch(size: Self.swatchSize)
         }
         color.setAccessibilityLabel("Folder colour")
         insertion.target = self; insertion.action = #selector(changeInsertion)

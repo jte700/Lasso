@@ -14,7 +14,9 @@ import { redactModelPlan } from '../sharing/model-redaction.js';
 import { citedPartModel } from '../sharing/cited-part.js';
 import { buildShareDownload, downloadDisposition } from '../sharing/share-download.js';
 import { drawingDiscovery } from '../dependencies/drawing-discovery.js';
-import { buildSafePdf, pdfShareRequest } from '../sharing/pdf-share.js';
+import { buildSafePdf, markedPdfRequest, pdfShareRequest } from '../sharing/pdf-share.js';
+import { buildPagePdf } from '../sharing/document-pages.js';
+import { isMarkablePath } from '../sharing/markup.js';
 import { normalizePdfExcerpt, normalizeRedactions, offeredShareScopes } from '../sharing/object-share.js';
 import { isPresentationPath } from '../dependencies/presentation-extraction.js';
 import { singleSlidePresentation } from '../sharing/slide-export.js';
@@ -173,6 +175,19 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
       const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null;
       preview = buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata);
+      // A marked copy is the document's pages with the strokes drawn on, never the file.
+      // When it cannot be drawn, nothing else of the document is shown in its place.
+      const marked = markedPdfRequest(resolved);
+      if (marked) {
+        try {
+          const content = await buildSafePdf(await buildPagePdf(sourceFile), marked);
+          return { preview: null, document: content && { kind: 'pdf', safe: true, marked: true, page: 1, location: '',
+            fileUrl: `/d/${encodeURIComponent(resolved.share.token)}/source`, content } };
+        } catch (error) {
+          console.error('Lasso could not draw the marked copy of %s: %s', resolved.internal.filePath, error.message);
+          return { preview: null, document: null };
+        }
+      }
       // A 3D model's cited part is shared as its own view, never as the file.
       if (resolved.share.accessScope === 'INDEXED' && /\.(?:step|stp)$/i.test(resolved.internal.filePath)) {
         return { preview, document: citedPartModel(await resolvedModelPreview(resolved)) };
@@ -260,8 +275,11 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         if (resolved.share.accessScope !== 'DOCUMENT') {
           const { document } = await sharedContent(resolved);
           if (!document?.safe || !document.content) return sendHtml(response, 403, renderUnavailable('SCOPE_RESTRICTED'), SHARE_PAGE_HEADERS);
+          // A marked Word document or deck arrives as a PDF, and is named as one.
+          const original = String(resolved.source.filename ?? 'document');
+          const filename = /\.pdf$/i.test(original) ? original : `${original.replace(/\.[^./]+$/, '')}.pdf`;
           return sendBinary(response, 200, document.content, 'application/pdf', {
-            'content-disposition': downloadDisposition(resolved.source.filename).replace(/^attachment;/, 'inline;'),
+            'content-disposition': downloadDisposition(filename).replace(/^attachment;/, 'inline;'),
             'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
           });
         }
@@ -532,6 +550,24 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           source: resolved.source, path: resolved.internal.filePath, document,
           shareScopes: offeredShareScopes(resolved.internal.filePath, resolved.source.anchor),
         });
+      }
+
+      // The pages the share composer draws on, as a marked copy will show them.
+      const localPagesParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/pages$/);
+      if (request.method === 'GET' && localPagesParameters && objectShares) {
+        const resolved = objectShares.describe(localPagesParameters[0], url.searchParams.get('version'));
+        if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
+        if (!isMarkablePath(resolved.internal.filePath)) throw new HttpError(415, 'Only PDFs, Word documents and presentations can be marked up.');
+        const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+        const content = file ? timeline.blobs.get(file.contentHash) : null;
+        if (!content) throw new HttpError(404, 'The document is unavailable.');
+        let pages;
+        try { pages = await buildPagePdf({ path: file.path, content }); } catch (error) {
+          console.error('Lasso could not lay out %s as pages: %s', resolved.internal.filePath, error.message);
+          throw new HttpError(422, 'The document couldn’t be shown as pages to mark up.');
+        }
+        return sendBinary(response, 200, pages, 'application/pdf', { 'content-disposition': 'inline',
+          'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
       }
 
       const localPdfPreviewParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/pdf-preview$/);
@@ -869,6 +905,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
             accessScope: body.accessScope ?? 'DOCUMENT',
             redactions: body.redactions ?? [],
             excerpt: body.excerpt ?? null,
+            markup: body.markup ?? [],
           }),
         });
       }

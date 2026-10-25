@@ -89,11 +89,13 @@ test('one slide exported alone keeps only that slide and what it needs', () => {
   for (const number of [1, 3, 4]) assert.equal(readPresentation(singleSlidePresentation(original, number)).slideCount, 1);
 });
 
-test('a deck is shared whole or as one slide, and code never', () => {
-  assert.deepEqual(offeredShareScopes('Deck.pptx', { kind: 'text-excerpt', slideNumber: 2 }), ['DOCUMENT', 'INDEXED']);
-  assert.deepEqual(offeredShareScopes('Deck.pptx', null), ['DOCUMENT'], 'the whole deck names no slide');
+test('a deck is shared whole, as one slide or marked up, and code never', () => {
+  assert.deepEqual(offeredShareScopes('Deck.pptx', { kind: 'text-excerpt', slideNumber: 2 }), ['DOCUMENT', 'INDEXED', 'MARKED']);
+  assert.deepEqual(offeredShareScopes('Deck.pptx', null), ['DOCUMENT', 'MARKED'], 'the whole deck names no slide');
   assert.deepEqual(offeredShareScopes('src/server.js', { kind: 'line-range' }), []);
-  assert.deepEqual(offeredShareScopes('Budget.xlsx', {}), ['DOCUMENT', 'INDEXED', 'REDACTED']);
+  assert.deepEqual(offeredShareScopes('Budget.xlsx', {}), ['DOCUMENT', 'INDEXED', 'REDACTED'], 'a workbook has no pages to draw on');
+  assert.deepEqual(offeredShareScopes('Memo.docx', {}), ['DOCUMENT', 'INDEXED', 'REDACTED', 'MARKED']);
+  assert.deepEqual(offeredShareScopes('Plan.PDF', {}), ['DOCUMENT', 'INDEXED', 'REDACTED', 'MARKED']);
   assert.equal(currentFileType('Deck.pptx', 'binary'), 'presentation', 'a deck recorded before Lasso read decks is read now');
   assert.equal(currentFileType('notes.txt', 'text'), 'text');
 });
@@ -156,9 +158,9 @@ test('the card shows the cited slide, and shares publish that slide or the whole
   assert.ok(preview.preview.blocks.every((block) => !/Hiring|Quarterly/.test(block.text)), 'only the cited slide');
   assert.deepEqual(preview.preview.blocks.filter((block) => block.cited).map((block) => block.text),
     ['Churn fell to 3 percent across enterprise accounts.']);
-  assert.deepEqual(preview.shareScopes, ['DOCUMENT', 'INDEXED']);
+  assert.deepEqual(preview.shareScopes, ['DOCUMENT', 'INDEXED', 'MARKED']);
   assert.equal(whole.preview.location, 'Entire presentation');
-  assert.deepEqual(whole.shareScopes, ['DOCUMENT']);
+  assert.deepEqual(whole.shareScopes, ['DOCUMENT', 'MARKED']);
   assert.equal(full.document.format, 'markdown');
   assert.equal(full.document.styles.filter((style) => style.type === 'heading').length, 4, 'the composer’s whole deck has every slide');
 

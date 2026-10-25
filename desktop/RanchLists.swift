@@ -437,8 +437,7 @@ struct RanchOutgoingRow: View {
                 .background(Capsule().fill(statusColor.opacity(0.13)))
                 .foregroundStyle(statusColor)
                 .lineLimit(1)
-            Button(action: copy) { Image(systemName: "doc.on.doc") }
-                .buttonStyle(RanchIconButtonStyle(size: 24)).help("Copy Link")
+            RanchCopyButton(copy: copy)
             if link.status == "active" {
                 Button(action: stop) { Image(systemName: "xmark.circle") }
                     .buttonStyle(RanchIconButtonStyle(size: 24)).help("Stop Sharing")
@@ -447,7 +446,7 @@ struct RanchOutgoingRow: View {
     }
 
     private var caption: String {
-        let scope = ["INDEXED": "Cited part", "REDACTED": "Redacted"][link.scope] ?? "Whole document"
+        let scope = ["INDEXED": "Cited part", "REDACTED": "Redacted", "MARKED": "Marked up"][link.scope] ?? "Whole document"
         return [link.locator, scope, directory].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " \u{00B7} ")
     }
 
@@ -475,9 +474,32 @@ struct RanchReceivedRow: View {
             RanchRowText(title: URL(string: link.url)?.host ?? link.url,
                          caption: "In \((link.path as NSString).lastPathComponent) \u{00B7} \(directory) \u{00B7} \(RanchFormat.ago(link.receivedAt))")
             Spacer(minLength: 4)
-            Button(action: copy) { Image(systemName: "doc.on.doc") }
-                .buttonStyle(RanchIconButtonStyle(size: 24)).help("Copy Link")
+            RanchCopyButton(copy: copy)
         }
+    }
+}
+
+/// Copies a link, and shows a tick for a moment so the copy is seen to land.
+struct RanchCopyButton: View {
+    let copy: () -> Void
+    @State private var copied = false
+    private static let tickDuration: TimeInterval = 1.5
+
+    var body: some View {
+        Button {
+            copy()
+            copied = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.tickDuration) { copied = false }
+        } label: {
+            if copied {
+                Image(systemName: "checkmark").foregroundStyle(.green)
+            } else {
+                Image(systemName: "doc.on.doc")
+            }
+        }
+        .buttonStyle(RanchIconButtonStyle(size: 24))
+        .help(copied ? "Copied" : "Copy Link")
+        .accessibilityLabel(copied ? "Copied" : "Copy Link")
     }
 }
 

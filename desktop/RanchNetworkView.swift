@@ -44,6 +44,14 @@ struct RanchNetworkView: View {
         VStack(spacing: 0) {
             RanchColumnHeader(title: "Network", subtitle: subtitle(layout))
             RanchFilterBar {
+                // Retraces clicks into directories, one at a time, back to every directory.
+                Button { focusNetwork(); store.networkBack() } label: {
+                    Label("Back", systemImage: "chevron.left")
+                }
+                .buttonStyle(RanchPillButtonStyle())
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(!store.canGoBackInNetwork)
+                .help("Back (\u{2318}[)")
                 RanchPillMenu(title: store.networkDirectory.map(store.directoryName) ?? "All Directories", symbol: "folder",
                               help: "Show every directory, or one and what it connects to") {
                     Picker("Show", selection: $store.networkDirectory) {

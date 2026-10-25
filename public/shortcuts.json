@@ -23,6 +23,7 @@
         { "action": "Edit the file in its app", "macos": "⌘E" },
         { "action": "Copy a share link to the file", "macos": "⇧⌘L" },
         { "action": "Show the file in Finder", "macos": "⌥⌘R" },
+        { "action": "Back to the directory the network showed before", "macos": "⌘[" },
         { "action": "Back to the whole network", "macos": "⌘Z" }
       ]
     },
