@@ -427,6 +427,9 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         if (request.method === 'GET' && pathname === '/api/ranch/share-target') {
           return sendJson(response, 200, { target: ranch.shareTarget(file) });
         }
+        if (request.method === 'GET' && pathname === '/api/ranch/sheet') {
+          return sendJson(response, 200, ranch.sheet(file));
+        }
         if (request.method === 'GET' && pathname === '/api/ranch/file') {
           // Saved as a file for Quick Look, never shown as a page of this origin.
           const copy = ranch.fileContent(file);
@@ -702,8 +705,13 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         if (!file) throw new HttpError(404, 'File is not present in this snapshot.');
         const content = timeline.blobs.get(file.contentHash);
         const properties = buildPreview(snapshot, file, content);
+        // A viewer that moved on to another file closes its request; a model
+        // still waiting its turn is then not made.
+        const waiting = new AbortController();
+        response.once('close', () => { if (!response.writableFinished) waiting.abort(); });
         const model = await buildModelPreview({ path: file.path, content }, {
           anchor: { elementId: url.searchParams.get('elementId') || undefined, featureId: url.searchParams.get('featureId') || undefined },
+          signal: waiting.signal,
         });
         const preview = model ? { ...properties, ...model } : properties;
         return sendJson(response, 200, { preview });

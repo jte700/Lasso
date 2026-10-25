@@ -9,6 +9,27 @@ const LINK_PROBLEMS = {
 };
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+/** Links described per item; a source linked from more documents says how many. */
+const MAX_LINKS_PER_ITEM = 50;
+
+/** One link as the window shows it: where it is written, what it cites and
+ * what Lasso found. Values are quoted as recorded; nothing is inferred. */
+function linkDetail(dependency, fileIdAt) {
+  const details = dependency.statusDetails ?? {};
+  return {
+    id: dependency.id,
+    status: dependency.status,
+    documentDirectoryId: dependency.projectId,
+    documentPath: dependency.documentPath,
+    documentFileId: fileIdAt(dependency.projectId, dependency.documentPath),
+    text: dependency.spanText ?? '',
+    label: dependency.source.label ?? null,
+    linkedValue: details.linkedSourceValue ?? dependency.source.valueText ?? null,
+    currentValue: details.currentSourceValue ?? null,
+    anchor: dependency.source.anchor ?? null,
+    issue: [details.anchorIssue, details.sourceIssue].filter(Boolean).join(' ') || null,
+  };
+}
 
 /**
  * Links whose source changed, moved or no longer resolves, one item per source.
@@ -24,8 +45,9 @@ export function linkReviewItems(dependencies, fileIdAt) {
     const directoryId = dependency.source.projectId ?? dependency.projectId;
     const key = `${problem.kind}\u0000${directoryId}\u0000${dependency.source.path}`;
     const item = grouped.get(key) ?? { id: `link:${key}`, kind: problem.kind, title: problem.title,
-      directoryId, path: dependency.source.path, fileId: fileIdAt(directoryId, dependency.source.path), documents: [] };
-    grouped.set(key, { ...item, documents: [...new Set([...item.documents, dependency.documentPath])] });
+      directoryId, path: dependency.source.path, fileId: fileIdAt(directoryId, dependency.source.path), documents: [], links: [] };
+    grouped.set(key, { ...item, documents: [...new Set([...item.documents, dependency.documentPath])],
+      links: item.links.length < MAX_LINKS_PER_ITEM ? [...item.links, linkDetail(dependency, fileIdAt)] : item.links });
   }
   return [...grouped.values()].map((item) => ({
     ...item,

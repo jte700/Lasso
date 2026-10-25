@@ -18,49 +18,60 @@ struct RanchContent: View {
             case .network: RanchNetworkView(store: store)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(RanchTheme.surface)
         .overlay {
             if !store.hasLoaded {
                 if let error = store.loadError {
                     RanchEmptyState(symbol: "exclamationmark.icloud", title: "The Library Isn\u{2019}t Available", message: error)
+                        .background(RanchTheme.surface)
                 } else {
-                    ProgressView("Gathering your sources\u{2026}").frame(maxWidth: .infinity, maxHeight: .infinity)
+                    VStack(spacing: 10) {
+                        ProgressView().controlSize(.small)
+                        Text("Gathering your sources\u{2026}").font(RanchTheme.captionFont).foregroundStyle(RanchTheme.secondaryInk)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
     }
 }
 
-extension View {
-    /// The column's name and a line about it, in the window's toolbar as Mail and Finder show theirs.
-    func ranchColumn(_ title: String, _ subtitle: String) -> some View {
-        navigationTitle(title).navigationSubtitle(subtitle)
+/// A line under a column's header about what it leaves out.
+struct RanchNotice: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(RanchTheme.captionFont)
+            .foregroundStyle(RanchTheme.secondaryInk)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .overlay(alignment: .bottom) { RanchHairline() }
     }
 }
 
-/// The kind filter and file order, as toolbar menus above a list of files.
+/// The kind filter and file order, as pill menus above a list of files.
 struct RanchFileMenus: View {
     @ObservedObject var store: RanchStore
 
     var body: some View {
-        Menu {
+        RanchPillMenu(title: store.kindFilter.title,
+                      symbol: store.kindFilter == .all ? "line.3.horizontal.decrease" : store.kindFilter.symbol,
+                      help: "Show: \(store.kindFilter.title)") {
             Picker("Show", selection: $store.kindFilter) {
                 ForEach(RanchKindFilter.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
             }
             .pickerStyle(.inline)
-        } label: {
-            Label("Show", systemImage: store.kindFilter == .all ? "line.3.horizontal.decrease.circle"
-                  : "line.3.horizontal.decrease.circle.fill")
         }
-        .help("Show: \(store.kindFilter.title)")
-        Menu {
+        RanchPillMenu(title: store.itemOrder.title, symbol: "arrow.up.arrow.down",
+                      help: "Sort Files By: \(store.itemOrder.title)") {
             Picker("Sort Files By", selection: $store.itemOrder) {
                 ForEach(RanchOrder.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.inline)
-        } label: {
-            Label("Sort Files By", systemImage: "arrow.up.arrow.down")
         }
-        .help("Sort Files By: \(store.itemOrder.title)")
     }
 }
 
@@ -76,21 +87,25 @@ struct RanchSourcesList: View {
         let total = groups.reduce(0) { $0 + $1.1.count }
         let flagged = Set(store.overview.review.compactMap(\.fileId))
         VStack(spacing: 0) {
+            RanchColumnHeader(title: directoryId.flatMap { store.directory($0)?.name } ?? "All Sources",
+                              subtitle: subtitle(directories: directories, total: total))
+            RanchFilterBar { RanchFileMenus(store: store) }
             if store.overview.truncated {
-                Text("Your library is very large; The Ranch lists the first \(store.overview.sources.count.formatted()) files.")
-                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 14).padding(.vertical, 6)
+                RanchNotice(text: "Your library is very large; The Ranch lists the first \(store.overview.sources.count.formatted()) files.")
             }
             if total == 0 && store.hasLoaded {
                 RanchEmptyState(symbol: emptySymbol, title: emptyTitle, message: emptyMessage)
             } else {
-                List(selection: $store.selectedSourceID) {
+                RanchCardList(selection: $store.selectedSourceID, order: { groups.flatMap { $0.1.map(\.id) } }) {
                     ForEach(groups, id: \.0.id) { directory, sources in
                         if directoryId == nil {
                             if !sources.isEmpty {
                                 Section {
                                     rows(sources, flagged: flagged)
                                 } header: {
-                                    Label(directory.name, systemImage: directory.sidebarSymbol)
+                                    RanchSectionHeader(title: directory.name, symbol: directory.sidebarSymbol, tint: directory.color) {
+                                        RanchCount(value: sources.count)
+                                    }
                                 }
                             }
                         } else {
@@ -98,19 +113,8 @@ struct RanchSourcesList: View {
                         }
                     }
                 }
-                .listStyle(.inset)
-                // Double-clicking opens the file in the app that edits it, as in Finder.
-                .contextMenu(forSelectionType: String.self) { ids in
-                    if let id = ids.first, let source = store.source(id) { RanchSourceMenu(store: store, source: source) }
-                } primaryAction: { ids in
-                    guard let id = ids.first, let source = store.source(id), let url = store.localURL(for: source) else { return }
-                    RanchEditors.primary(for: url)?.open(url)
-                }
             }
         }
-        .ranchColumn(directoryId.flatMap { store.directory($0)?.name } ?? "All Sources",
-                     subtitle(directories: directories, total: total))
-        .toolbar { ToolbarItemGroup { RanchFileMenus(store: store) } }
     }
 
     private var emptySymbol: String {
@@ -130,11 +134,19 @@ struct RanchSourcesList: View {
     @ViewBuilder
     private func rows(_ sources: [RanchSource], flagged: Set<String>) -> some View {
         ForEach(sources) { source in
-            RanchSourceRow(source: source, url: nil, order: store.itemOrder, flagged: flagged.contains(source.id))
-                .tag(source.id)
-                // Drag a file out to Mail, Finder or any app that takes files.
-                .onDrag { store.localURL(for: source).flatMap { NSItemProvider(contentsOf: $0) } ?? NSItemProvider() }
+            // Double-clicking opens the file in the app that edits it, as in Finder.
+            RanchCard(id: source.id, selection: $store.selectedSourceID, open: { edit(source) }) {
+                RanchSourceRow(source: source, url: nil, order: store.itemOrder, flagged: flagged.contains(source.id))
+            }
+            .contextMenu { RanchSourceMenu(store: store, source: source) }
+            // Drag a file out to Mail, Finder or any app that takes files.
+            .onDrag { store.localURL(for: source).flatMap { NSItemProvider(contentsOf: $0) } ?? NSItemProvider() }
         }
+    }
+
+    private func edit(_ source: RanchSource) {
+        guard let url = store.localURL(for: source) else { return }
+        RanchEditors.primary(for: url)?.open(url)
     }
 
     private func subtitle(directories: [RanchDirectory], total: Int) -> String {
@@ -152,24 +164,20 @@ struct RanchSourceRow: View {
     let flagged: Bool
 
     var body: some View {
-        HStack(spacing: 9) {
-            RanchFileIcon(url: url, fileExtension: source.fileExtension, size: 20)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(source.name).lineLimit(1).truncationMode(.middle)
-                Text(caption).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-            }
+        HStack(spacing: 10) {
+            RanchFileIcon(url: url, fileExtension: source.fileExtension, size: 24)
+            RanchRowText(title: source.name, caption: caption)
             Spacer(minLength: 4)
             if flagged {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).imageScale(.small)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(RanchTheme.warning).imageScale(.small)
                     .help("Needs review")
             }
             if source.activeShares > 0 {
-                Image(systemName: "link").foregroundStyle(.secondary).imageScale(.small)
+                Image(systemName: "link").foregroundStyle(RanchTheme.secondaryInk).imageScale(.small)
                     .help(source.activeShares == 1 ? "Shared with a working link" : "Shared with \(source.activeShares) working links")
             }
             if source.activity > 0 { RanchActivityDot(activity: source.activity) }
         }
-        .padding(.vertical, 2)
     }
 
     /// The date the chosen order sorts by, beside the folder the file is in.
@@ -221,28 +229,33 @@ struct RanchChangesList: View {
                 .localizedCaseInsensitiveContains(store.searchText)
         }
         let days = Dictionary(grouping: entries) { Calendar.current.startOfDay(for: $0.at ?? .distantPast) }
+        let order = days.keys.sorted(by: >)
         VStack(spacing: 0) {
+            RanchColumnHeader(title: "Recent Changes",
+                              subtitle: "Last 2 weeks \u{00B7} \(entries.count) change\(entries.count == 1 ? "" : "s")")
             if entries.isEmpty && store.hasLoaded {
                 RanchEmptyState(symbol: "clock", title: "No Changes",
                                 message: "Edits, new files and removals from the last two weeks appear here.")
             } else {
-                List(selection: $selection) {
-                    ForEach(days.keys.sorted(by: >), id: \.self) { day in
-                        Section(RanchFormat.dayTitle(day)) {
+                RanchCardList(selection: $selection, order: { order.flatMap { (days[$0] ?? []).map(\.id) } }) {
+                    ForEach(order, id: \.self) { day in
+                        Section {
                             ForEach(days[day] ?? []) { entry in
-                                RanchChangeRow(entry: entry, directory: store.directoryName(entry.directoryId)).tag(entry.id)
+                                RanchCard(id: entry.id, selection: $selection) {
+                                    RanchChangeRow(entry: entry, directory: store.directoryName(entry.directoryId))
+                                }
                             }
+                        } header: {
+                            RanchSectionHeader(title: RanchFormat.dayTitle(day))
                         }
                     }
                 }
-                .listStyle(.inset)
                 if store.overview.historyTruncated {
-                    Text("Only the latest changes are listed. Every file keeps its full history in Lasso.")
-                        .font(.caption).foregroundStyle(.secondary).padding(8)
+                    RanchNotice(text: "Only the latest changes are listed. Every file keeps its full history in Lasso.")
+                        .overlay(alignment: .top) { RanchHairline() }
                 }
             }
         }
-        .ranchColumn("Recent Changes", "Last 2 weeks \u{00B7} \(entries.count) change\(entries.count == 1 ? "" : "s")")
         .onChange(of: selection) { id in
             let entry = store.overview.history.first { $0.id == id }
             store.selectedSourceID = entry?.fileId
@@ -267,21 +280,31 @@ extension RanchChangesList {
     }
 }
 
+/// A symbol in a soft circle of its own colour, at the start of a row.
+struct RanchRowBadge: View {
+    let symbol: String
+    let tint: Color
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 11.5, weight: .semibold))
+            .foregroundStyle(tint)
+            .frame(width: 26, height: 26)
+            .background(Circle().fill(tint.opacity(0.13)))
+    }
+}
+
 struct RanchChangeRow: View {
     let entry: RanchHistoryEntry
     let directory: String
 
     var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: symbol).foregroundStyle(tint).frame(width: 20)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).lineLimit(1).truncationMode(.middle)
-                Text(caption).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-            }
+        HStack(spacing: 10) {
+            RanchRowBadge(symbol: symbol, tint: tint)
+            RanchRowText(title: title, caption: caption)
             Spacer(minLength: 4)
-            Text(RanchFormat.clock(entry.at)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            Text(RanchFormat.clock(entry.at)).font(RanchTheme.captionFont).foregroundStyle(RanchTheme.tertiaryInk).monospacedDigit()
         }
-        .padding(.vertical, 2)
     }
 
     private var title: String {
@@ -304,12 +327,12 @@ struct RanchChangeRow: View {
 
     private var symbol: String {
         switch entry.change {
-        case "added": return "plus.circle"
-        case "removed": return "minus.circle"
-        case "renamed", "moved": return "arrow.right.circle"
+        case "added": return "plus"
+        case "removed": return "minus"
+        case "renamed", "moved": return "arrow.right"
         case "directory-added": return "folder.badge.plus"
         case "many": return "doc.on.doc"
-        default: return "pencil.circle"
+        default: return "pencil"
         }
     }
 
@@ -331,23 +354,17 @@ struct RanchLinksList: View {
     var body: some View {
         let links = store.overview.links
         VStack(spacing: 0) {
-            Picker("Links", selection: $store.linkTab) {
-                ForEach(RanchStore.LinkTab.allCases) { tab in
-                    Text(tabTitle(tab, links)).tag(tab)
-                }
+            RanchColumnHeader(title: "Links", subtitle: "\(store.activeLinkCount) active \u{00B7} \(links.received.count) received")
+            RanchFilterBar {
+                RanchSegmented(selection: $store.linkTab,
+                               options: RanchStore.LinkTab.allCases.map { ($0, tabTitle($0, links)) })
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            Divider()
             if store.linkTab == .outgoing {
                 outgoing(links.outgoing)
             } else {
                 received(links.received)
             }
         }
-        .ranchColumn("Links", "\(store.activeLinkCount) active \u{00B7} \(links.received.count) received")
         .onChange(of: selection) { id in select(id, links) }
     }
 
@@ -368,18 +385,18 @@ struct RanchLinksList: View {
             RanchEmptyState(symbol: "link", title: "No Shared Links",
                             message: "Choose Share Link on any file, or press \u{21E7}\u{2318}\u{21A9} on a suggestion, to make one. Links stop working after 48 hours.")
         } else {
-            List(selection: $selection) {
+            RanchCardList(selection: $selection, order: { links.map(\.id) }) {
                 ForEach(links) { link in
-                    RanchOutgoingRow(link: link, directory: store.directoryName(link.directoryId),
-                                     copy: { store.copy(link.url) }, stop: { store.stopSharing(link) })
-                        .tag(link.id)
-                        .contextMenu {
-                            Button("Copy Link") { store.copy(link.url) }
-                            if link.status == "active" { Button("Stop Sharing") { store.stopSharing(link) } }
-                        }
+                    RanchCard(id: link.id, selection: $selection) {
+                        RanchOutgoingRow(link: link, directory: store.directoryName(link.directoryId),
+                                         copy: { store.copy(link.url) }, stop: { store.stopSharing(link) })
+                    }
+                    .contextMenu {
+                        Button("Copy Link") { store.copy(link.url) }
+                        if link.status == "active" { Button("Stop Sharing") { store.stopSharing(link) } }
+                    }
                 }
             }
-            .listStyle(.inset)
         }
     }
 
@@ -389,17 +406,17 @@ struct RanchLinksList: View {
             RanchEmptyState(symbol: "tray.and.arrow.down", title: "No Received Links",
                             message: "Share links people send you appear here when they arrive in an indexed folder, a note, or mail from a connected app.")
         } else {
-            List(selection: $selection) {
+            RanchCardList(selection: $selection, order: { links.map(\.id) }) {
                 ForEach(links) { link in
-                    RanchReceivedRow(link: link, directory: store.directoryName(link.directoryId), copy: { store.copy(link.url) })
-                        .tag(link.id)
-                        .contextMenu {
-                            Button("Copy Link") { store.copy(link.url) }
-                            if let url = URL(string: link.url) { Button("Open Link") { NSWorkspace.shared.open(url) } }
-                        }
+                    RanchCard(id: link.id, selection: $selection) {
+                        RanchReceivedRow(link: link, directory: store.directoryName(link.directoryId), copy: { store.copy(link.url) })
+                    }
+                    .contextMenu {
+                        Button("Copy Link") { store.copy(link.url) }
+                        if let url = URL(string: link.url) { Button("Open Link") { NSWorkspace.shared.open(url) } }
+                    }
                 }
             }
-            .listStyle(.inset)
         }
     }
 }
@@ -411,23 +428,22 @@ struct RanchOutgoingRow: View {
     let stop: () -> Void
 
     var body: some View {
-        HStack(spacing: 9) {
-            RanchFileIcon(url: nil, fileExtension: ((link.path ?? "") as NSString).pathExtension, size: 20)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(link.name ?? link.path ?? "Shared source").lineLimit(1).truncationMode(.middle)
-                Text(caption).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-            }
+        HStack(spacing: 10) {
+            RanchFileIcon(url: nil, fileExtension: ((link.path ?? "") as NSString).pathExtension, size: 24)
+            RanchRowText(title: link.name ?? link.path ?? "Shared source", caption: caption)
             Spacer(minLength: 4)
-            Text(statusTitle).font(.caption.weight(.medium))
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Capsule().fill(statusColor.opacity(0.15)))
+            Text(statusTitle).font(.system(size: 11, weight: .medium))
+                .padding(.horizontal, 7).padding(.vertical, 2)
+                .background(Capsule().fill(statusColor.opacity(0.13)))
                 .foregroundStyle(statusColor)
-            Button(action: copy) { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless).help("Copy Link")
+                .lineLimit(1)
+            Button(action: copy) { Image(systemName: "doc.on.doc") }
+                .buttonStyle(RanchIconButtonStyle(size: 24)).help("Copy Link")
             if link.status == "active" {
-                Button(action: stop) { Image(systemName: "xmark.circle") }.buttonStyle(.borderless).help("Stop Sharing")
+                Button(action: stop) { Image(systemName: "xmark.circle") }
+                    .buttonStyle(RanchIconButtonStyle(size: 24)).help("Stop Sharing")
             }
         }
-        .padding(.vertical, 2)
     }
 
     private var caption: String {
@@ -443,7 +459,9 @@ struct RanchOutgoingRow: View {
         }
     }
 
-    private var statusColor: Color { link.status == "active" ? (link.drifted ? .orange : .green) : .secondary }
+    private var statusColor: Color {
+        link.status == "active" ? (link.drifted ? RanchTheme.warning : .green) : RanchTheme.secondaryInk
+    }
 }
 
 struct RanchReceivedRow: View {
@@ -452,17 +470,14 @@ struct RanchReceivedRow: View {
     let copy: () -> Void
 
     var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "tray.and.arrow.down").foregroundStyle(Color.accentColor).frame(width: 20)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(URL(string: link.url)?.host ?? link.url).lineLimit(1)
-                Text("In \((link.path as NSString).lastPathComponent) \u{00B7} \(directory) \u{00B7} \(RanchFormat.ago(link.receivedAt))")
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-            }
+        HStack(spacing: 10) {
+            RanchRowBadge(symbol: "tray.and.arrow.down", tint: .accentColor)
+            RanchRowText(title: URL(string: link.url)?.host ?? link.url,
+                         caption: "In \((link.path as NSString).lastPathComponent) \u{00B7} \(directory) \u{00B7} \(RanchFormat.ago(link.receivedAt))")
             Spacer(minLength: 4)
-            Button(action: copy) { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless).help("Copy Link")
+            Button(action: copy) { Image(systemName: "doc.on.doc") }
+                .buttonStyle(RanchIconButtonStyle(size: 24)).help("Copy Link")
         }
-        .padding(.vertical, 2)
     }
 }
 
@@ -484,30 +499,38 @@ struct RanchReviewList: View {
     var body: some View {
         let items = store.overview.review
         VStack(spacing: 0) {
+            RanchColumnHeader(title: "Needs Review",
+                              subtitle: items.isEmpty ? "Everything looks fine"
+                                  : "\(items.count) source\(items.count == 1 ? "" : "s") with a possible problem")
             if items.isEmpty && store.hasLoaded {
                 RanchEmptyState(symbol: "checkmark.seal", title: "Nothing Needs Review",
                                 message: "Changed links, missing sources and files Lasso couldn\u{2019}t fully read show up here.")
             } else {
-                List(selection: $selection) {
+                RanchCardList(selection: $selection,
+                              order: { Self.sections.flatMap { section in items.filter { $0.kind == section.kind }.map(\.id) } }) {
                     ForEach(Self.sections, id: \.kind) { section in
                         let matching = items.filter { $0.kind == section.kind }
                         if !matching.isEmpty {
-                            Section(section.title) {
+                            Section {
                                 ForEach(matching) { item in
-                                    RanchReviewRow(item: item, symbol: section.symbol,
-                                                   directory: store.directoryName(item.directoryId)).tag(item.id)
+                                    RanchCard(id: item.id, selection: $selection) {
+                                        RanchReviewRow(item: item, symbol: section.symbol,
+                                                       directory: store.directoryName(item.directoryId))
+                                    }
                                 }
+                            } header: {
+                                RanchSectionHeader(title: section.title) { RanchCount(value: matching.count) }
                             }
                         }
                     }
                 }
-                .listStyle(.inset)
             }
         }
-        .ranchColumn("Needs Review",
-                     items.isEmpty ? "Everything looks fine" : "\(items.count) source\(items.count == 1 ? "" : "s") with a possible problem")
+        // The file opens at the place the item is about, with ways to resolve it.
         .onChange(of: selection) { id in
-            store.selectedSourceID = items.first { $0.id == id }?.fileId
+            let item = items.first { $0.id == id }
+            store.selectedSourceID = item?.fileId
+            store.reviewFocus = item
         }
     }
 }
@@ -518,17 +541,16 @@ struct RanchReviewRow: View {
     let directory: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: symbol).foregroundStyle(.orange).frame(width: 20)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.path.map { ($0 as NSString).lastPathComponent } ?? directory).lineLimit(1).truncationMode(.middle)
-                Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+        HStack(alignment: .top, spacing: 10) {
+            RanchRowBadge(symbol: symbol, tint: RanchTheme.warning)
+            VStack(alignment: .leading, spacing: 3) {
+                RanchRowText(title: item.path.map { ($0 as NSString).lastPathComponent } ?? directory,
+                             caption: item.detail, captionLines: 3)
                 if !item.documents.isEmpty {
                     Text("In " + item.documents.map { ($0 as NSString).lastPathComponent }.joined(separator: ", "))
-                        .font(.caption).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.tail)
+                        .font(RanchTheme.captionFont).foregroundStyle(RanchTheme.tertiaryInk).lineLimit(1).truncationMode(.tail)
                 }
             }
         }
-        .padding(.vertical, 3)
     }
 }

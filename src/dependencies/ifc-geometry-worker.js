@@ -9,6 +9,8 @@ const MAX_PRODUCTS = 20_000;
 const MAX_TRIANGLES = 2_000_000;
 const MAX_ELEMENT_TRIANGLES = 50_000;
 const MAX_PLAN_POINTS = 400_000;
+/** Faces united at a time before the groups are merged in pairs. */
+const UNION_GROUP = 64;
 
 const scalar = value => value?.value ?? null;
 const round = value => Math.round(value * 1e6) / 1e6;
@@ -16,6 +18,52 @@ const emptyBounds = () => ({ minX: Infinity, minY: Infinity, maxX: -Infinity, ma
 function include(bounds, point) {
   bounds.minX = Math.min(bounds.minX, point[0]); bounds.maxX = Math.max(bounds.maxX, point[0]);
   bounds.minY = Math.min(bounds.minY, point[1]); bounds.maxY = Math.max(bounds.maxY, point[1]);
+}
+
+const snapped = union => union.map(polygon => polygon.map(ring => ring.map(point => point.map(Math.round))));
+
+/** One union over a few polygons, batched so large inputs never spread into
+ * the JS argument stack. Smaller batches, snapped after each, get past a
+ * numerical degeneracy that coincident curved faces cause in the sweep line. */
+function unionInBatches(polygons) {
+  for (const batchSize of [256, 16, 1]) {
+    let union = [];
+    try {
+      for (let i = 0; i < polygons.length; i += batchSize) {
+        union = snapped(polygonClipping.union(union, ...polygons.slice(i, i + batchSize)));
+      }
+      return union;
+    } catch (error) {
+      if (batchSize === 1) throw error;
+    }
+  }
+  return [];
+}
+
+/** The union of many faces as a tree: small groups first, then pairs of
+ * groups. Adding faces one batch at a time to a growing outline re-reads that
+ * outline on every batch, which took a minute on a wall of thousands of curved
+ * faces. A pair that hits a degeneracy is merged again from its own faces. */
+function unionAll(polygons) {
+  let layer = [];
+  for (let i = 0; i < polygons.length; i += UNION_GROUP) {
+    const faces = polygons.slice(i, i + UNION_GROUP);
+    layer.push({ union: unionInBatches(faces), faces });
+  }
+  while (layer.length > 1) {
+    const next = [];
+    for (let i = 0; i < layer.length; i += 2) {
+      const [left, right] = [layer[i], layer[i + 1]];
+      if (!right) { next.push(left); continue; }
+      const faces = left.faces.concat(right.faces);
+      let union;
+      try { union = snapped(polygonClipping.union(left.union, right.union)); }
+      catch { union = unionInBatches(faces); }
+      next.push({ union, faces });
+    }
+    layer = next;
+  }
+  return layer[0]?.union ?? [];
 }
 
 export async function tessellateIfc(bytes) {
@@ -105,26 +153,11 @@ export async function tessellateIfc(bytes) {
           } finally { geometry.delete(); }
         }
         if (!triangles.length) continue;
-        // Union real projected faces, retaining concavity and holes. Chunking
-        // avoids spreading large triangle arrays into the JS argument stack.
-        let union = [];
+        // Union real projected faces, retaining concavity and holes.
         // Integer micrometre input avoids tiny world-coordinate residues at
         // shared mesh edges destabilising the polygon sweep line.
         const integerTriangles = triangles.map(polygon => polygon.map(ring => ring.map(point => point.map(value => Math.round(value * 1e6)))));
-        for (const batchSize of [256, 16, 1]) {
-          union = [];
-          try {
-            for (let i = 0; i < integerTriangles.length; i += batchSize) {
-              union = polygonClipping.union(union, ...integerTriangles.slice(i, i + batchSize))
-                .map(polygon => polygon.map(ring => ring.map(point => point.map(Math.round))));
-            }
-            break;
-          } catch (error) {
-            // Snap after smaller batches when coincident curved faces cause
-            // a numerical degeneracy inside the sweep-line operation.
-            if (batchSize === 1) throw error;
-          }
-        }
+        const union = unionAll(integerTriangles);
         const polygons = union.flat().map(ring => ring.map(p => p.map(value => value ? value / 1e6 : 0)));
         const bounds = emptyBounds();
         for (const ring of polygons) for (const point of ring) include(bounds, point);

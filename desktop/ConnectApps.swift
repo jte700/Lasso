@@ -223,8 +223,8 @@ final class AppleCalendarBridge {
 
 /// The strip under the title bar of a window whose page runs to its top
 /// edge: dragging it moves the window, and double-clicking it zooms or
-/// minimizes the window as System Settings says.
-private final class TitlebarDragView: NSView {
+/// minimizes the window as System Settings says. The Ranch's headers use it too.
+final class TitlebarDragView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard event.clickCount == 2 else { window?.performDrag(with: event); return }
         switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {

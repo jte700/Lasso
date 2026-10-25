@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { buildIfcPlan } from '../src/dependencies/ifc-geometry.js';
+import { buildIfcPlan, keepIfcModelsIn } from '../src/dependencies/ifc-geometry.js';
 
 // Deliberate geometric fixture: millimetres, an L-shaped space with a void,
 // another floor translated 10m in X, a wall, and a property-only space.
@@ -111,4 +111,52 @@ test('IFC geometry cache separates changed source bytes and never mutates previo
   const pinned = await buildIfcPlan(source, { elementId: 'room-lower' });
   assert.equal(pinned.selected.guid, 'room-lower');
   assert.equal(original.selected.guid, 'room-upper');
+});
+
+/** A store like the derived TextStore, held in memory. */
+function memoryStore() {
+  const entries = new Map();
+  return { entries, get: key => entries.get(key), set: (key, value) => entries.set(key, structuredClone(value)) };
+}
+const variant = (from, to) => Buffer.from(source.toString().replace(from, to));
+
+test('IFC models are kept by content, so a drawing is worked out once across launches', async (t) => {
+  const store = memoryStore();
+  keepIfcModelsIn(store);
+  t.after(() => keepIfcModelsIn(null));
+  const bytes = variant('Geometry test', 'Stored model');
+  const hash = createHash('sha256').update(bytes).digest('hex');
+  const first = await buildIfcPlan(bytes, { elementId: 'room-lower' });
+  assert.ok(store.entries.get(hash)?.model, 'the worked-out model is stored under the file\'s content');
+  // A later launch has no model in memory and reads the stored one.
+  const stored = store.entries.get(hash).model;
+  store.entries.set(hash, { model: { ...stored, warnings: ['read from the store'] } });
+  const relaunched = await buildIfcPlan(variant('Geometry test', 'Stored model'), { elementId: 'room-lower' });
+  assert.deepEqual(relaunched.elements.find(element => element.selected).bounds,
+    first.elements.find(element => element.selected).bounds);
+
+  const unreadable = Buffer.from('ISO-10303-21; not a model that opens');
+  await assert.rejects(buildIfcPlan(unreadable), /could not be opened/);
+  const unreadableHash = createHash('sha256').update(unreadable).digest('hex');
+  assert.match(store.entries.get(unreadableHash)?.error ?? '', /could not be opened/,
+    'a file the engine cannot read is remembered, so it fails at once next time');
+  store.entries.set(unreadableHash, { error: 'Remembered failure.' });
+  await assert.rejects(buildIfcPlan(unreadable), /Remembered failure/);
+});
+
+test('an IFC model no one is waiting for by its turn is not made, and nothing is remembered for it', async (t) => {
+  const store = memoryStore();
+  keepIfcModelsIn(store);
+  t.after(() => keepIfcModelsIn(null));
+  const ahead = buildIfcPlan(variant('Geometry test', 'Ahead in line'));
+  const passedOver = variant('Geometry test', 'Clicked past');
+  const leaving = new AbortController();
+  const waiting = buildIfcPlan(passedOver, { signal: leaving.signal });
+  leaving.abort();
+  await assert.rejects(waiting, { name: 'AbortError' });
+  await ahead;
+  assert.equal(store.entries.get(createHash('sha256').update(passedOver).digest('hex')), undefined,
+    'an abandoned model is neither made nor recorded as a failure');
+  const later = await buildIfcPlan(passedOver, { elementId: 'room-lower' });
+  assert.equal(later.selected.guid, 'room-lower', 'the file is drawn when someone asks again');
 });

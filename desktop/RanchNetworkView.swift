@@ -17,7 +17,7 @@ struct RanchNetworkPane: View {
         HStack(spacing: 0) {
             RanchNetworkView(store: store)
             if let source = store.source(store.selectedSourceID) {
-                Divider()
+                RanchHairline(vertical: true)
                 RanchSourceDetail(store: store, source: source, actions: actions)
                     .id(source.id + (source.contentHash ?? ""))
                     .frame(width: Self.previewWidth)
@@ -42,6 +42,23 @@ struct RanchNetworkView: View {
     var body: some View {
         let layout = store.networkLayout()
         VStack(spacing: 0) {
+            RanchColumnHeader(title: "Network", subtitle: subtitle(layout))
+            RanchFilterBar {
+                RanchPillMenu(title: store.networkDirectory.map(store.directoryName) ?? "All Directories", symbol: "folder",
+                              help: "Show every directory, or one and what it connects to") {
+                    Picker("Show", selection: $store.networkDirectory) {
+                        Text("All Directories").tag(String?.none)
+                        Divider()
+                        ForEach(store.orderedDirectories) { Text($0.name).tag(Optional($0.id)) }
+                    }
+                    .pickerStyle(.inline)
+                }
+                Button { resetView() } label: {
+                    Label("Fit to Window", systemImage: "arrow.up.left.and.down.right.magnifyingglass")
+                }
+                .buttonStyle(RanchPillButtonStyle())
+                .help("Fit to Window")
+            }
             if layout.nodes.isEmpty {
                 RanchEmptyState(symbol: "point.3.connected.trianglepath.dotted", title: "Nothing to Connect Yet",
                                 message: "Add a work directory and its files appear here.")
@@ -54,19 +71,7 @@ struct RanchNetworkView: View {
                 }
             }
         }
-        .ranchColumn("Network", subtitle(layout))
-        .toolbar {
-            ToolbarItemGroup {
-                Picker("Show", selection: $store.networkDirectory) {
-                    Text("All Directories").tag(String?.none)
-                    Divider()
-                    ForEach(store.orderedDirectories) { Text($0.name).tag(Optional($0.id)) }
-                }
-                .help("Show every directory, or one and what it connects to")
-                Button { resetView() } label: { Label("Fit to Window", systemImage: "arrow.up.left.and.down.right.magnifyingglass") }
-                    .help("Fit to Window")
-            }
-        }
+        .background(RanchTheme.surface)
         .onChange(of: store.networkDirectory) { _ in resetView() }
         // ⌘Z (Edit > Undo) brings back the whole network in one step, however
         // far a click narrowed it or a pinch or drag moved it.
@@ -156,7 +161,7 @@ struct RanchNetworkView: View {
                 context.opacity = lit.map { $0.contains(index) ? 1 : 0.25 } ?? 1
                 let fill = Color(nsColor: RanchActivityColor.color(for: node.activity))
                 if node.role == .hub {
-                    context.fill(Path(ellipseIn: rect), with: .color(Color(nsColor: .windowBackgroundColor)))
+                    context.fill(Path(ellipseIn: rect), with: .color(RanchTheme.surface))
                     context.stroke(Path(ellipseIn: rect), with: .color(fill), lineWidth: 3)
                     // In the directory's own Lasso colour, as in the sidebar and the menu bar panel.
                     let directory = store.directory(node.directoryId)
@@ -165,9 +170,9 @@ struct RanchNetworkView: View {
                     context.draw(glyph, at: center)
                 } else {
                     context.fill(Path(ellipseIn: rect), with: .color(fill))
-                    context.stroke(Path(ellipseIn: rect), with: .color(Color(nsColor: .windowBackgroundColor)), lineWidth: 1)
+                    context.stroke(Path(ellipseIn: rect), with: .color(RanchTheme.surface), lineWidth: 1)
                     if index == selected {
-                        context.stroke(Path(ellipseIn: rect.insetBy(dx: -3, dy: -3)), with: .color(.accentColor), lineWidth: 2)
+                        context.stroke(Path(ellipseIn: rect.insetBy(dx: -3.5, dy: -3.5)), with: .color(RanchTheme.ink), lineWidth: 1.75)
                     }
                 }
             }
@@ -259,40 +264,66 @@ struct RanchNetworkView: View {
                 card(layout.nodes[hovered])
             } else if layout.isStarter {
                 Text("Nothing has been used or linked yet, so these are recently edited files. They turn green as you Tab, open, view and share them.")
-                    .font(.caption).foregroundStyle(.secondary).frame(maxWidth: 300, alignment: .leading)
-                    .padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    .font(RanchTheme.captionFont).foregroundStyle(RanchTheme.secondaryInk)
+                    .frame(maxWidth: 300, alignment: .leading)
+                    .padding(10)
+                    .background {
+                        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        shape.fill(RanchTheme.control).overlay(shape.strokeBorder(RanchTheme.controlEdge, lineWidth: 1))
+                    }
             }
             Spacer()
             legend
         }
-        .padding(12)
+        .padding(14)
     }
 
+    /// What the pointer is on, as a dark note in the corner.
     private func card(_ node: RanchNetworkNode) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(node.label).font(.callout.weight(.semibold)).lineLimit(1)
-            if node.role == .file, let source = store.source(node.id) {
-                Text(store.directoryName(source.directoryId) + (source.folder.isEmpty ? "" : " \u{203A} " + source.folder))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                Text(source.counts.summary).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            } else {
-                Text("Click to show only this directory and what it connects to.").font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(node.label).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+            Group {
+                if node.role == .file, let source = store.source(node.id) {
+                    Text(store.directoryName(source.directoryId) + (source.folder.isEmpty ? "" : " \u{203A} " + source.folder))
+                        .lineLimit(1)
+                    Text(source.counts.summary).lineLimit(1)
+                } else {
+                    Text("Click to show only this directory and what it connects to.")
+                }
             }
+            .font(RanchTheme.captionFont)
+            .foregroundStyle(RanchTheme.onTooltipSecondary)
         }
         .frame(maxWidth: 300, alignment: .leading)
-        .padding(10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .ranchTooltip()
     }
 
+    /// Grey to green, from files nobody has used to the busiest.
     private var legend: some View {
-        HStack(spacing: 6) {
-            Text("Less used").font(.caption2).foregroundStyle(.secondary)
-            ForEach([0.0, 0.25, 0.5, 0.75, 1.0], id: \.self) { step in
-                Circle().fill(Color(nsColor: RanchActivityColor.color(for: step))).frame(width: 8, height: 8)
+        HStack(spacing: 10) {
+            Text("Use").font(RanchTheme.captionFont).foregroundStyle(RanchTheme.secondaryInk)
+            VStack(spacing: 3) {
+                Capsule()
+                    .fill(LinearGradient(colors: [0.0, 0.25, 0.5, 0.75, 1.0].map { Color(nsColor: RanchActivityColor.color(for: $0)) },
+                                         startPoint: .leading, endPoint: .trailing))
+                    .frame(width: 112, height: 6)
+                HStack {
+                    Text("Less used")
+                    Spacer()
+                    Text("More used")
+                }
+                .font(.system(size: 9.5))
+                .foregroundStyle(RanchTheme.tertiaryInk)
+                .frame(width: 112)
             }
-            Text("More used").font(.caption2).foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background {
+            let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+            shape.fill(RanchTheme.control).overlay(shape.strokeBorder(RanchTheme.controlEdge, lineWidth: 1))
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Grey for files not used yet, through to green for the most used")
     }
 }

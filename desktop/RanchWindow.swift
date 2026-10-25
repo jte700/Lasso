@@ -8,19 +8,24 @@ final class RanchWindowController: NSWindowController, NSWindowDelegate {
     static let title = Ranch.title
     private static let autosaveName = "LassoRanch"
 
-    let store = RanchStore()
+    let store: RanchStore
     var onClose: (() -> Void)?
 
     var isVisible: Bool { window?.isVisible == true }
 
-    init(actions: RanchActions) {
+    init(actions: RanchActions, store: RanchStore = RanchStore()) {
+        self.store = store
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 780),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
+        // The title names the window in the Window menu and to VoiceOver; the
+        // sidebar shows it. The columns run to the top edge, under the window's
+        // buttons, and their headers move the window as a title bar would.
         window.title = Self.title
-        window.toolbarStyle = .unified
-        // An empty toolbar gives the title bar the height macOS gives sidebar windows.
-        window.toolbar = NSToolbar(identifier: Self.autosaveName)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.backgroundColor = RanchTheme.nsSurface
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 860, height: 520)
         window.tabbingMode = .disallowed
@@ -32,6 +37,9 @@ final class RanchWindowController: NSWindowController, NSWindowDelegate {
         // The window keeps the size people give it, not the content's ideal size.
         hosting.sizingOptions = []
         window.contentViewController = hosting
+        // The window opens with no field taking the keyboard, as Finder's do;
+        // left alone, AppKit would give it to the search field.
+        window.initialFirstResponder = hosting.view
         window.setContentSize(NSSize(width: 1240, height: 780))
         window.setFrameAutosaveName(Self.autosaveName)
     }

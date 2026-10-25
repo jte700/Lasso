@@ -141,6 +141,167 @@ struct RanchReviewItem: Decodable, Identifiable, Equatable {
     let fileId: String?
     let documents: [String]
     let detail: String
+    /// The links behind a changed, missing or unverified source, one per document passage.
+    var links: [RanchReviewLink] = []
+
+    private enum Keys: String, CodingKey { case id, kind, title, directoryId, path, fileId, documents, detail, links }
+
+    init(id: String, kind: String, title: String, directoryId: String, path: String?, fileId: String?,
+         documents: [String], detail: String, links: [RanchReviewLink] = []) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.directoryId = directoryId
+        self.path = path
+        self.fileId = fileId
+        self.documents = documents
+        self.detail = detail
+        self.links = links
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: Keys.self)
+        id = try container.decode(String.self, forKey: .id)
+        kind = try container.decode(String.self, forKey: .kind)
+        title = try container.decode(String.self, forKey: .title)
+        directoryId = try container.decode(String.self, forKey: .directoryId)
+        path = try container.decodeIfPresent(String.self, forKey: .path)
+        fileId = try container.decodeIfPresent(String.self, forKey: .fileId)
+        documents = try container.decode([String].self, forKey: .documents)
+        detail = try container.decode(String.self, forKey: .detail)
+        // Older servers send none; links that don't read leave the item as it was.
+        links = (try? container.decode([RanchReviewLink].self, forKey: .links)) ?? []
+    }
+}
+
+/// One link a review item is about: the words in a document, and the value
+/// in the source they cite, as Lasso recorded them.
+struct RanchReviewLink: Decodable, Identifiable, Equatable {
+    let id: String
+    /// STALE, BROKEN or NEEDS_REVIEW.
+    let status: String
+    let documentDirectoryId: String
+    let documentPath: String
+    let documentFileId: String?
+    /// The linked words, as the document has them.
+    let text: String
+    let label: String?
+    let linkedValue: String?
+    /// What the source holds now, when Lasso found it changed.
+    let currentValue: String?
+    let anchor: RanchAnchor?
+    /// What Lasso couldn't confirm, in its own words.
+    let issue: String?
+
+    var documentName: String { (documentPath as NSString).lastPathComponent }
+}
+
+/// Where in its source a link points: a sheet's cell, a page, a line or a model
+/// element. Anchors come in many shapes, so a field of another type is left out
+/// rather than failing the whole library.
+struct RanchAnchor: Decodable, Equatable {
+    var kind: String? = nil
+    var sheet: String? = nil
+    var rowIndex: Int? = nil
+    var columnIndex: Int? = nil
+    var rowKey: String? = nil
+    var pageNumber: Int? = nil
+    var line: Int? = nil
+    var elementId: String? = nil
+
+    private enum Keys: String, CodingKey {
+        case kind, sheet, rowIndex, columnIndex, rowKey, pageNumber, page, line, lineStart, elementId
+    }
+
+    init(kind: String? = nil, sheet: String? = nil, rowIndex: Int? = nil, columnIndex: Int? = nil, rowKey: String? = nil,
+         pageNumber: Int? = nil, line: Int? = nil, elementId: String? = nil) {
+        self.kind = kind
+        self.sheet = sheet
+        self.rowIndex = rowIndex
+        self.columnIndex = columnIndex
+        self.rowKey = rowKey
+        self.pageNumber = pageNumber
+        self.line = line
+        self.elementId = elementId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: Keys.self)
+        kind = try? container.decode(String.self, forKey: .kind)
+        sheet = try? container.decode(String.self, forKey: .sheet)
+        rowIndex = try? container.decode(Int.self, forKey: .rowIndex)
+        columnIndex = try? container.decode(Int.self, forKey: .columnIndex)
+        rowKey = try? container.decode(String.self, forKey: .rowKey)
+        pageNumber = (try? container.decode(Int.self, forKey: .pageNumber)) ?? (try? container.decode(Int.self, forKey: .page))
+        line = (try? container.decode(Int.self, forKey: .line)) ?? (try? container.decode(Int.self, forKey: .lineStart))
+        elementId = try? container.decode(String.self, forKey: .elementId)
+    }
+}
+
+/// A workbook's sheets as Lasso reads them, for the sheet view.
+struct RanchWorkbook: Decodable, Equatable {
+    let sheets: [RanchSheet]
+    /// Sheets too large or damaged to read; the file then shows in Quick Look.
+    let skipped: [String]
+
+    /// The sheet, row and column a link cites. The row is found again by its
+    /// label when rows were added above it since the link was made.
+    func place(of anchor: RanchAnchor) -> RanchCellPlace? {
+        guard anchor.rowIndex != nil || anchor.rowKey != nil else { return nil }
+        // A sheet the link names and the workbook no longer has is not guessed at.
+        let named = anchor.sheet.map { name in sheets.firstIndex { $0.name == name } }
+        guard let sheetIndex = named ?? sheets.indices.first else { return nil }
+        let sheet = sheets[sheetIndex]
+        let key = anchor.rowKey?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let holdsKey = { (row: Int) -> Bool in
+            guard let key, !key.isEmpty else { return true }
+            return sheet.rows[row].contains { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == key }
+        }
+        let recorded = anchor.rowIndex.flatMap { sheet.rows.indices.contains($0) ? $0 : nil }
+        guard let row = recorded.flatMap({ holdsKey($0) ? $0 : nil })
+                ?? (key == nil ? nil : sheet.rows.indices.first(where: holdsKey)) ?? recorded else { return nil }
+        let column = anchor.columnIndex.flatMap { (0..<sheet.columns).contains($0) ? $0 : nil }
+        return RanchCellPlace(sheet: sheetIndex, sheetName: sheet.name, row: row, column: column,
+                              name: column.map { RanchSheetColumns.letter($0) + "\(sheet.rowNumbers[safe: row] ?? row + 1)" })
+    }
+}
+
+struct RanchSheet: Decodable, Equatable {
+    let name: String
+    let columns: Int
+    let rows: [[String]]
+    /// The number the app shows beside each row.
+    let rowNumbers: [Int]
+    /// More rows or columns than the view shows.
+    let truncated: Bool
+}
+
+/// A cell in a workbook, or a whole row when the link names no column.
+struct RanchCellPlace: Equatable {
+    let sheet: Int
+    let sheetName: String
+    let row: Int
+    let column: Int?
+    /// "B19", as the app names the cell.
+    let name: String?
+}
+
+enum RanchSheetColumns {
+    /// A, B … Z, AA, AB, as spreadsheets name columns, from 0.
+    static func letter(_ index: Int) -> String {
+        var number = index + 1
+        var name = ""
+        while number > 0 {
+            let remainder = (number - 1) % 26
+            name = String(UnicodeScalar(UInt8(65 + remainder))) + name
+            number = (number - 1) / 26
+        }
+        return name
+    }
+}
+
+extension Array {
+    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }
 
 struct RanchEdge: Decodable, Equatable {
@@ -186,6 +347,74 @@ struct RanchOverview: Decodable, Equatable {
             return date
         }
         return try decoder.decode(RanchOverview.self, from: data)
+    }
+}
+
+/// A directory's files as the folders they sit in, for the sidebar's outline.
+struct RanchTree: Equatable {
+    struct Folder: Equatable {
+        /// Inside the directory, "" for the directory itself.
+        let path: String
+        let name: String
+        let folders: [Folder]
+        let files: [RanchSource]
+    }
+
+    /// One line of the outline. Depth 1 is directly inside the directory.
+    enum Row: Equatable, Identifiable {
+        case folder(path: String, name: String, depth: Int)
+        case file(RanchSource, depth: Int)
+
+        var id: String {
+            switch self {
+            case .folder(let path, _, _): return "folder:" + path
+            case .file(let source, _): return "file:" + source.id
+            }
+        }
+    }
+
+    let root: Folder
+
+    var isEmpty: Bool { root.folders.isEmpty && root.files.isEmpty }
+
+    /// Folders in name order, each before the files beside it; files keep the order given.
+    static func make(_ sources: [RanchSource]) -> RanchTree {
+        var files: [String: [RanchSource]] = [:]
+        var children: [String: Set<String>] = [:]
+        for source in sources {
+            files[source.folder, default: []].append(source)
+            var path = source.folder
+            while !path.isEmpty {
+                let parent = (path as NSString).deletingLastPathComponent
+                children[parent, default: []].insert(path)
+                path = parent
+            }
+        }
+        func name(_ path: String) -> String { (path as NSString).lastPathComponent }
+        func folder(_ path: String) -> Folder {
+            let inside = (children[path] ?? []).sorted { name($0).localizedStandardCompare(name($1)) == .orderedAscending }
+            return Folder(path: path, name: name(path), folders: inside.map(folder), files: files[path] ?? [])
+        }
+        return RanchTree(root: folder(""))
+    }
+
+    /// What the outline shows, top to bottom, with the folders `isOpen` names opened.
+    func rows(isOpen: (String) -> Bool) -> [Row] {
+        var rows: [Row] = []
+        func add(_ folder: Folder, depth: Int) {
+            for child in folder.folders {
+                rows.append(.folder(path: child.path, name: child.name, depth: depth))
+                if isOpen(child.path) { add(child, depth: depth + 1) }
+            }
+            rows += folder.files.map { .file($0, depth: depth) }
+        }
+        add(root, depth: 1)
+        return rows
+    }
+
+    /// How the outline remembers an open directory ("" inside it) or folder.
+    static func key(directory: String, folder: String = "") -> String {
+        folder.isEmpty ? directory : directory + "/" + folder
     }
 }
 
@@ -270,7 +499,10 @@ enum RanchViewerKind: Equatable {
     case mesh
     /// DXF and IFC plans.
     case plan
+    /// Workbooks, as cells Lasso reads, with Quick Look's layout a click away.
+    case sheet
 
+    private static let sheetExtensions: Set<String> = ["xlsx", "xlsm", "xls"]
     private static let meshExtensions: Set<String> = ["stl", "obj", "ply", "usdz", "usd", "usda", "usdc", "abc", "dae", "scn"]
 
     /// Code larger than this scrolls in Quick Look instead.
@@ -285,6 +517,7 @@ enum RanchViewerKind: Equatable {
         case "step", "stp": return .wireframe
         case "dxf", "ifc": return .plan
         case let other where meshExtensions.contains(other): return .mesh
+        case let other where sheetExtensions.contains(other): return .sheet
         default: return .quickLook
         }
     }
@@ -293,7 +526,7 @@ enum RanchViewerKind: Equatable {
         switch self {
         case .wireframe, .mesh: return "Drag to rotate \u{00B7} Pinch or scroll to zoom \u{00B7} Option-drag to pan"
         case .plan: return "Pinch or scroll to zoom \u{00B7} Drag to pan"
-        case .quickLook, .code: return nil
+        case .quickLook, .code, .sheet: return nil
         }
     }
 }
@@ -372,6 +605,20 @@ enum RanchCodeLines {
         let first = units[..<start].filter { $0 == newline }.count + 1
         let last = first + units[start..<max(start, end)].filter { $0 == newline }.count
         return first...last
+    }
+
+    /// Line `line` of `text`, with its line break, as a range to select.
+    static func range(ofLine line: Int, in text: String) -> NSRange {
+        let text = text as NSString
+        var start = 0
+        var current = 1
+        while current < line, start < text.length {
+            let newline = text.range(of: "\n", options: [], range: NSRange(location: start, length: text.length - start))
+            if newline.location == NSNotFound { break }
+            start = newline.location + 1
+            current += 1
+        }
+        return text.lineRange(for: NSRange(location: min(start, text.length), length: 0))
     }
 
     /// "Lines 10–20", what to write after the file's name to insert them.

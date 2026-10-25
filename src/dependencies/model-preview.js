@@ -29,7 +29,7 @@ export async function buildModelPreview(file, source = {}) {
   }
   try {
     const view = extension === '.dxf' ? buildDxfPlan(file.content, { elementId })
-      : extension === '.ifc' ? buildIfcPlan(file.content, { elementId, stepId })
+      : extension === '.ifc' ? buildIfcPlan(file.content, { elementId, stepId, signal: source.signal })
         : buildStepView(file.content, { elementId, featureId });
     return { ...context, ...await view };
   } catch (error) {

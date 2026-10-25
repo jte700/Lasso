@@ -221,11 +221,14 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/RanchModels.swift" \
   "$ROOT/desktop/RanchNetworkLayout.swift" \
   "$ROOT/desktop/RanchTypeIcon.swift" \
+  "$ROOT/desktop/RanchTheme.swift" \
   "$ROOT/desktop/RanchStore.swift" \
   "$ROOT/desktop/RanchEditors.swift" \
   "$ROOT/desktop/RanchViewers.swift" \
   "$ROOT/desktop/RanchViews.swift" \
   "$ROOT/desktop/RanchLists.swift" \
+  "$ROOT/desktop/RanchSheetView.swift" \
+  "$ROOT/desktop/RanchReview.swift" \
   "$ROOT/desktop/RanchDetail.swift" \
   "$ROOT/desktop/RanchNetworkView.swift" \
   "$ROOT/desktop/RanchWindow.swift" \
