@@ -67,12 +67,14 @@ test('a percent never matches a length in metres or a row count', async (t) => {
   assert.ok(indexed(app, 'n = 6'), 'the close holds the six reconciled rows');
 
   // Act
-  const prediction = await typed(app, 'Fuel surcharge rises from 6%');
+  const symbol = offeredValues(await typed(app, 'Fuel surcharge rises from 6%'));
+  const word = offeredValues(await typed(app, 'Fuel surcharge was 6 percent'));
 
   // Assert
-  const values = offeredValues(prediction);
-  assert.ok(values.includes('6% (Carrier-Rates.csv)'), values.join(', '));
-  assert.deepEqual(values.filter((value) => /^(?:0\.06 m|n = 6) /.test(value)), []);
+  assert.ok(symbol.includes('6% (Carrier-Rates.csv)'), symbol.join(', '));
+  for (const values of [symbol, word]) {
+    assert.deepEqual(values.filter((value) => /^(?:0\.06 m|n = 6) /.test(value)), []);
+  }
 });
 
 test('a row count still matches a count written as one', async (t) => {

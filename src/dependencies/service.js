@@ -307,12 +307,13 @@ function quantityKind(number, writtenUnit = number.unit) {
 
 // Claim values arrive without their unit; read one written right after the
 // number. "in" is inches only when no word follows ("8 in diameter" is not).
+// A percent written as a word ("6 percent") is a percent like "6%".
 function claimUnit(claim) {
   const text = String(claim.text ?? '').toLowerCase(), value = String(claim.value ?? '').toLowerCase();
   const at = value ? text.lastIndexOf(value) : -1;
   const match = at < 0 ? null : text.slice(at + value.length)
-    .match(/^\s*(mm|cm|km|µm|mil|m²|m2|m³|m3|m|in(?!\s*[a-z])|ft²|ft2|ft³|ft3|ft|yd|°|deg)(?![a-z0-9²³])/);
-  return match ? MEASUREMENT_UNITS[match[1]] : null;
+    .match(/^\s*(mm|cm|km|µm|mil|m²|m2|m³|m3|m|in(?!\s*[a-z])|ft²|ft2|ft³|ft3|ft|yd|°|deg|percent)(?![a-z0-9²³])/);
+  return match?.[1] === 'percent' ? '%' : match ? MEASUREMENT_UNITS[match[1]] : null;
 }
 
 function valueMatch(claim, candidate, claimNumber = measurementDescriptor(claim.value),
@@ -1659,7 +1660,7 @@ export function detectClaimSpans(text) {
   }
   const partialPValue = source.match(/\bp(?:-?value)?\s*[<=>]\s*(0?\.\d*)\s*$/i);
   if (partialPValue?.[1]) add(partialPValue.index, source.length, 'QUANTITATIVE', partialPValue[1], { partial: true, unitHint: 'p-value' });
-  const studyNumber = /[+-]?\d[\d,]*(?:\.\d+)?(?:\s*(?:µ?g|mg|kg|ng|pg|mm|cm|mL|dL|L|mmol\/L|µmol\/L|ng\/mL|years?|months?|days?|hours?))?/gi;
+  const studyNumber = /[+-]?\d[\d,]*(?:\.\d+)?(?:\s*(?:percent\b|µ?g|mg|kg|ng|pg|mm|cm|mL|dL|L|mmol\/L|µmol\/L|ng\/mL|years?|months?|days?|hours?))?/gi;
   for (const match of source.matchAll(studyNumber)) {
     const end = match.index + match[0].length;
     if (claims.some((claim) => claim.start < end && claim.end > match.index)) continue;
