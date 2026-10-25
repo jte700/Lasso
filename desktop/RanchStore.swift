@@ -155,6 +155,9 @@ final class RanchStore: ObservableObject {
     private var colorObserver: NSObjectProtocol?
     /// The window's, so Edit > Undo (⌘Z) reaches what its views offer to undo.
     let undoManager = UndoManager()
+    /// Whom the network's offer to show every directory again is registered
+    /// for, so withdrawing it leaves pins and colours to undo.
+    let networkUndoTarget = NSObject()
 
     init(defaults: UserDefaults = .standard, session: URLSession = .shared) {
         self.defaults = defaults
@@ -289,13 +292,27 @@ final class RanchStore: ObservableObject {
 
     func isPinned(_ id: String) -> Bool { pinnedDirectories.contains(id) }
 
+    /// ⌘Z (Edit > Undo) takes back a pin or a colour, one change at a time.
     func togglePin(_ id: String) {
-        if pinnedDirectories.contains(id) { pinnedDirectories.remove(id) } else { pinnedDirectories.insert(id) }
+        let pinning = !pinnedDirectories.contains(id)
+        if pinning { pinnedDirectories.insert(id) } else { pinnedDirectories.remove(id) }
+        undoManager.registerUndo(withTarget: self) { $0.togglePin(id) }
+        nameUndo(pinning ? "Pin \(directoryName(id))" : "Unpin \(directoryName(id))")
     }
 
     /// The same colour the menu bar panel and every source reference use.
-    func setColor(_ color: DirectoryToggleColor, for id: String) {
-        DirectoryColorPreferences.set(color, for: id)
+    /// Nil puts the directory back on the default colour.
+    func setColor(_ color: DirectoryToggleColor?, for id: String) {
+        let previous = DirectoryColorPreferences.ownColor(for: id, defaults: defaults)
+        guard color != previous else { return }
+        DirectoryColorPreferences.set(color, for: id, defaults: defaults)
+        undoManager.registerUndo(withTarget: self) { $0.setColor(previous, for: id) }
+        nameUndo("Colour Change")
+    }
+
+    /// Undo keeps the name for Redo, so it is set only for the change itself.
+    private func nameUndo(_ name: String) {
+        if !undoManager.isUndoing && !undoManager.isRedoing { undoManager.setActionName(name) }
     }
 
     // MARK: The network's Back button

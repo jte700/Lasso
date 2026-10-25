@@ -56,11 +56,18 @@ enum DirectoryColorPreferences {
         NotificationCenter.default.post(name: .directoryColorsDidChange, object: nil)
     }
 
-    static func set(_ color: DirectoryToggleColor, for projectId: String, defaults: UserDefaults = .standard) {
+    /// The colour a folder was given itself, or nil when it shows the default.
+    static func ownColor(for projectId: String, defaults: UserDefaults = .standard) -> DirectoryToggleColor? {
+        let colors = defaults.dictionary(forKey: key) as? [String: String] ?? [:]
+        return colors[projectId].flatMap(DirectoryToggleColor.init(rawValue:))
+    }
+
+    /// Nil puts the folder back on the default colour.
+    static func set(_ color: DirectoryToggleColor?, for projectId: String, defaults: UserDefaults = .standard) {
         guard !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         var colors = defaults.dictionary(forKey: key) as? [String: String] ?? [:]
-        guard colors[projectId] != color.rawValue else { return }
-        colors[projectId] = color.rawValue
+        guard colors[projectId] != color?.rawValue else { return }
+        colors[projectId] = color?.rawValue
         defaults.set(colors, forKey: key)
         NotificationCenter.default.post(name: .directoryColorsDidChange, object: nil)
     }

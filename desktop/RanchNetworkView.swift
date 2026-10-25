@@ -103,7 +103,7 @@ struct RanchNetworkView: View {
     /// One offer at a time, named for what is on screen now, as the Edit menu shows it.
     private func offerWholeNetwork() {
         forgetWholeNetwork()
-        store.undoManager.registerUndo(withTarget: store) { store in
+        store.undoManager.registerUndo(withTarget: store.networkUndoTarget) { _ in
             store.networkDirectory = nil
             resetView()
         }
@@ -113,7 +113,7 @@ struct RanchNetworkView: View {
 
     /// Back at the whole network, or out of sight: ⌘Z has nothing here to undo.
     private func forgetWholeNetwork() {
-        store.undoManager.removeAllActions(withTarget: store)
+        store.undoManager.removeAllActions(withTarget: store.networkUndoTarget)
     }
 
     /// A click, pinch or drag on the network takes focus from the search
