@@ -138,6 +138,9 @@ enum CompletionTransaction {
     private static func canonicalHostUnit(_ unit: UInt16) -> UInt16 {
         switch unit {
         case 0x00A0, 0x2007, 0x202F: return 0x0020
+        // Word reports a line break as a carriage return, others as a line or
+        // paragraph separator.
+        case 0x000D, 0x2028, 0x2029: return 0x000A
         default: return unit
         }
     }

@@ -37,6 +37,14 @@ enum SyntheticKeyboard {
         }
     }
 
+    /// Whether `text` survives being typed as key events. A line break does
+    /// not: Chromium hosts such as the Claude app dropped key events that
+    /// began with one and moved the last character of the others to the end
+    /// of the insertion, so text that holds one is pasted instead.
+    static func canType(_ text: String) -> Bool {
+        !text.contains(where: \.isNewline)
+    }
+
     /// Types text as unicode key events, which works regardless of layout.
     static func type(_ text: String) {
         let source = source()

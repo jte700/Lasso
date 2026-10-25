@@ -23,6 +23,24 @@ const SERVER = [
   '',
 ].join('\n');
 
+const ROUTES = [
+  'from flask import Flask, jsonify',
+  '',
+  'app = Flask(__name__)',
+  '',
+  '',
+  '@app.route("/orders/<int:order_id>")',
+  'def order(order_id):',
+  '    record = ORDERS.get(order_id)',
+  '    if record is None:',
+  '        return jsonify(error="not found"), 404',
+  '',
+  '    return jsonify(record)',
+  '',
+  'ORDERS = {}',
+  '',
+].join('\n');
+
 test('a line or a range of lines is read from the words that name it', () => {
   const at = (text) => {
     const mention = lineMentionAtEnd(text, 0, text.length);
@@ -34,7 +52,19 @@ test('a line or a range of lines is read from the words that name it', () => {
   assert.deepEqual(at('line 10 through line 20'), [10, 20]);
   assert.deepEqual(at('lines 10 to 20'), [10, 20]);
   assert.deepEqual(at('line 10 thru 12'), [10, 12]);
-  assert.equal(at('line 10 through'), null, 'a range waits for its last line');
+  assert.deepEqual(at('line 6'), [6, 6]);
+  assert.deepEqual(at('line 6 to line 12'), [6, 12]);
+  assert.deepEqual(at('line 6 to 12'), [6, 12]);
+  assert.deepEqual(at('line 6-12'), [6, 12]);
+  assert.deepEqual(at('line 6 - 12'), [6, 12]);
+  assert.deepEqual(at('lines 6–12'), [6, 12]);
+  for (const typing of ['line 10 through', 'line 6 to', 'line 6 to line', 'line 6 to line ', 'line 6-', 'lines 6 - ']) {
+    const mention = lineMentionAtEnd(typing, 0, typing.length);
+    assert.equal(mention?.pending, true, `"${typing}" is a range still being typed`);
+    assert.equal(mention.first, typing.includes('10') ? 10 : 6);
+    assert.equal(mention.last, null, 'a range waits for its last line');
+  }
+  assert.equal(lineMentionAtEnd('line 6', 0, 6).pending, undefined);
   assert.equal(at('the outline 4'), null);
   assert.equal(at('line 42 has a bug'), null, 'the sentence went on');
   assert.equal(at('line 42.'), null);
@@ -57,13 +87,15 @@ async function project(t) {
   const root = path.join(sandbox, 'App');
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src', 'server.js'), SERVER);
+  fs.writeFileSync(path.join(root, 'src', 'routes.py'), ROUTES);
   fs.writeFileSync(path.join(root, 'docker-compose.yaml'), 'services:\n  web:\n    image: app\n');
   const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false, port: 0 });
   t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
   await app.workspace.add([fs.realpathSync(root)], actor);
   const projectId = app.workspace.state().directories[0].id;
-  const file = app.dependencies.objectsAt(projectId).find((object) => object.path === 'src/server.js' && object.metadata.codeFile);
-  return { app, root: fs.realpathSync(root), projectId, file };
+  const codeFile = (filePath) => app.dependencies.objectsAt(projectId)
+    .find((object) => object.path === filePath && object.metadata.codeFile);
+  return { app, root: fs.realpathSync(root), projectId, file: codeFile('src/server.js'), routes: codeFile('src/routes.py') };
 }
 
 const link = (start, end, object) => ({ projectId: object.projectId, blockIndex: 0, start, end,
@@ -91,6 +123,7 @@ test('after a code file is accepted, "line N" offers that line and Tab inserts i
   assert.equal(line.dependencyCandidate.label, 'Line 4');
   assert.deepEqual(line.dependencyCandidate.anchor, { kind: 'line-range', lineStart: 4, lineEnd: 4 });
   assert.equal(line.shareable, undefined);
+  assert.equal(line.verbatim, true, 'code goes in exactly as written, never typed key by key');
   assert.equal(line.dependencyCandidate.shareable, false, 'code is never offered as a share link');
   assert.equal(one.workspaceHeading, 'Line 4 of server.js');
   assert.equal(one.sourceContext.source.id, file.id);
@@ -102,6 +135,80 @@ test('after a code file is accepted, "line N" offers that line and Tab inserts i
   assert.match(app.dependencies.objectById(block.dependencyCandidate.id).objectKey, /:lines:3-7$/,
     'the lines are a source of their own');
   assert.equal(projectId, block.dependencyCandidate.projectId);
+});
+
+test('"line 6", "line 6 to line 12", "line 6 to 12" and "line 6-12" insert those lines, both ends included', async (t) => {
+  // Arrange
+  const { app, routes } = await project(t);
+  const typed = 'The order lookup is in routes.py';
+  const accepted = [link(typed.length - 'routes.py'.length, typed.length, routes)];
+  const block = [
+    '@app.route("/orders/<int:order_id>")',
+    'def order(order_id):',
+    '    record = ORDERS.get(order_id)',
+    '    if record is None:',
+    '        return jsonify(error="not found"), 404',
+    '',
+    '    return jsonify(record)',
+  ].join('\n');
+
+  // Act
+  const one = await ask(app, `${typed} line 6`, accepted);
+  const ranges = await Promise.all(['line 6 to line 12', 'line 6 to 12', 'line 6-12']
+    .map((words) => ask(app, `${typed} ${words}`, accepted)));
+
+  // Assert
+  assert.equal(one.workspaceCompletions[0].replacementText, '@app.route("/orders/<int:order_id>")');
+  for (const range of ranges) {
+    const [completion] = range.workspaceCompletions;
+    assert.equal(completion.replacementText, `\n${block}`, 'every line from 6 through 12, on lines of their own');
+    assert.equal(completion.detail, '7 lines');
+    assert.equal(completion.dependencyCandidate.label, 'Lines 6–12');
+    assert.equal(completion.verbatim, true);
+  }
+});
+
+test('a range still being typed offers nothing, not even other suggestions', async (t) => {
+  // Arrange
+  const { app, routes } = await project(t);
+  const typed = 'See routes.py';
+  const accepted = [link(4, typed.length, routes)];
+
+  // Act
+  const typing = await Promise.all(['line 6 to', 'line 6 to line', 'line 6-', 'lines 6 through ']
+    .map((words) => ask(app, `${typed} ${words}`, accepted)));
+
+  // Assert
+  for (const prediction of typing) {
+    assert.deepEqual(prediction.workspaceCompletions, []);
+    assert.deepEqual(prediction.claims, []);
+    assert.equal(prediction.notice ?? null, null);
+  }
+});
+
+test('inserted lines take the indentation of the line being written', async (t) => {
+  // Arrange
+  const { app, routes } = await project(t);
+  const linked = (text) => [link(text.indexOf('routes.py'), text.indexOf('routes.py') + 'routes.py'.length, routes)];
+  const indented = '    see routes.py lines 7-8';
+  const newLine = 'routes.py lines 9-10\n    ';
+  const blank = '  routes.py lines 10-12';
+  const flush = 'routes.py lines 9-10\n';
+
+  // Act
+  const [underIndented, onIndentedLine, withBlank, atLineStart] = await Promise.all([indented, newLine, blank, flush]
+    .map((text) => ask(app, text, linked(text))));
+
+  // Assert
+  assert.equal(underIndented.workspaceCompletions[0].replacementText,
+    '\n    def order(order_id):\n        record = ORDERS.get(order_id)');
+  assert.equal(onIndentedLine.workspaceCompletions[0].replacementText,
+    'if record is None:\n        return jsonify(error="not found"), 404',
+    'the first line goes after the indentation already there');
+  assert.equal(withBlank.workspaceCompletions[0].replacementText,
+    '\n      return jsonify(error="not found"), 404\n\n  return jsonify(record)', 'a blank line stays empty');
+  assert.equal(atLineStart.workspaceCompletions[0].replacementText,
+    'if record is None:\n    return jsonify(error="not found"), 404');
 });
 
 test('lines are found before the file, after its name written out, and after a line already inserted', async (t) => {

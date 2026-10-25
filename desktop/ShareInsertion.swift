@@ -218,6 +218,17 @@ enum RichTextInserter {
         return valid
     }
 
+    /// Pastes `text` as plain text, so the host takes it as written, in the
+    /// formatting already at the caret. Accessibility queue only.
+    static func pastePlainText(_ text: String) {
+        withBorrowedPasteboard {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+            paste()
+        }
+    }
+
     private static func paste() {
         SyntheticKeyboard.paste()
     }
