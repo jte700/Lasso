@@ -28,6 +28,16 @@ enum WorkspaceAPI {
         ["actor": actor]
     }
 
+    static func reviseLinkPath(_ id: String) -> String {
+        "api/dependencies/" + id + "/revise"
+    }
+
+    /// `action` is KEEP_HISTORICAL, which keeps citing the linked version, or REMOVE.
+    /// Neither changes the document; only Lasso's record of the link.
+    static func reviseLinkBody(action: String) -> [String: Any] {
+        ["action": action, "actor": actor]
+    }
+
     /// `operation` is "index" or "decision".
     static func drivePath(_ id: String, _ operation: String) -> String {
         "api/drives/" + id + "/" + operation

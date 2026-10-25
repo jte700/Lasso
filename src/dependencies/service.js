@@ -24,6 +24,7 @@ import { FULL_WRITE_SHARE, storedFields } from '../history/object-versions.js';
 import { runSync, workUnits } from '../history/work.js';
 import { compareText } from '../history/text-order.js';
 import { TextStore } from './text-store.js';
+import { IFC_MODEL_VERSION, keepIfcModelsIn } from './ifc-geometry.js';
 import { TAIL_ROWS, TableIndex, writeTable } from './table-index.js';
 import { Worker } from 'node:worker_threads';
 import { canonicalRowReference, normalizedRowSearch, rowSearchAliases } from './row-names.js';
@@ -1773,6 +1774,8 @@ export class PredictiveProvenanceService {
     this.retrievalIndexes = new WeakMap();
     // PDFs' text outlives the process, so a restart does not read every PDF again.
     this.textStore = new TextStore(path.join(timeline.config.dataDir, 'derived', 'text'), EXTRACTOR_VERSION);
+    // So are IFC plans, which can take the geometry engine several seconds each.
+    keepIfcModelsIn(new TextStore(path.join(timeline.config.dataDir, 'derived', 'ifc-models'), IFC_MODEL_VERSION));
     // A drawing PDF keeps one entry per page, so the bound is on bytes.
     this.extractedTextCache = new BoundedCache({ maxEntries: 1024, maxWeight: 32 * 1024 * 1024,
       weight: (text) => text.length * 2 });

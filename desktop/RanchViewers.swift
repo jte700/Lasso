@@ -4,29 +4,85 @@
 // Nothing here can change the file.
 
 import Cocoa
+import PDFKit
 import Quartz
 import SceneKit
 import SceneKit.ModelIO
 import SwiftUI
 
-/// The Mac's Quick Look viewer, which scrolls documents, sheets and PDFs.
+/// Quick Look's view, which knows whether it was ever on screen: closing one
+/// that never was trips an assertion inside Quick Look and ends the app.
+final class RanchPreviewView: QLPreviewView {
+    private(set) var wasShown = false
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { wasShown = true }
+    }
+}
+
+/// The Mac's Quick Look viewer, which scrolls documents and sheets.
 struct RanchQuickLookView: NSViewRepresentable {
     let url: URL
 
-    func makeNSView(context: Context) -> QLPreviewView {
-        let view = QLPreviewView(frame: .zero, style: .normal) ?? QLPreviewView()
+    func makeNSView(context: Context) -> RanchPreviewView {
+        let view = RanchPreviewView(frame: .zero, style: .normal) ?? RanchPreviewView()
         view.autostarts = true
         view.shouldCloseWithWindow = true
         view.previewItem = url as NSURL
         return view
     }
 
-    func updateNSView(_ view: QLPreviewView, context: Context) {
+    func updateNSView(_ view: RanchPreviewView, context: Context) {
         if (view.previewItem as? NSURL) as URL? != url { view.previewItem = url as NSURL }
     }
 
-    static func dismantleNSView(_ view: QLPreviewView, coordinator: ()) {
-        view.close()
+    static func dismantleNSView(_ view: RanchPreviewView, coordinator: ()) {
+        if view.wasShown { view.close() }
+    }
+}
+
+/// A PDF in PDFKit, which can turn to the page a review link cites and light
+/// up the cited words; Quick Look cannot be told which page to show.
+struct RanchPDFView: NSViewRepresentable {
+    let url: URL
+    var page: Int? = nil
+    /// Words to light up on the page, such as the value a link cites.
+    var find: String? = nil
+
+    final class Coordinator {
+        var shown: String?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.autoScales = true
+        view.displayMode = .singlePageContinuous
+        view.backgroundColor = .underPageBackgroundColor
+        view.document = PDFDocument(url: url)
+        return view
+    }
+
+    func updateNSView(_ view: PDFView, context: Context) {
+        guard let document = view.document, document.pageCount > 0 else { return }
+        let key = "\(page ?? 0)|\(find ?? "")"
+        guard context.coordinator.shown != key else { return }
+        context.coordinator.shown = key
+        guard let page, let target = document.page(at: max(0, min(document.pageCount - 1, page - 1))) else {
+            view.highlightedSelections = nil
+            return
+        }
+        let words = find?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        DispatchQueue.main.async {
+            view.go(to: target)
+            guard words.count >= 2 else { view.highlightedSelections = nil; return }
+            let matches = document.findString(words, withOptions: [.caseInsensitive]).filter { $0.pages.contains(target) }
+            matches.forEach { $0.color = NSColor.systemYellow.withAlphaComponent(0.55) }
+            view.highlightedSelections = matches.isEmpty ? nil : matches
+            if let first = matches.first { view.go(to: first) }
+        }
     }
 }
 
@@ -234,7 +290,9 @@ struct RanchPlanView: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         let canvas = scroll.documentView as? RanchPlanCanvas
-        if canvas?.model.bounds.width != model.bounds.width || canvas?.model.elements.count != model.elements.count {
+        // A drawing framed on another element, for a review link, is drawn afresh.
+        if canvas?.model.bounds.width != model.bounds.width || canvas?.model.elements.count != model.elements.count
+            || canvas?.model.selectedLabel != model.selectedLabel {
             scroll.documentView = RanchPlanCanvas(model: model)
         }
         if context.coordinator.resetToken != resetToken {
@@ -276,9 +334,12 @@ final class RanchPlanCanvas: NSView {
 /// text reports the lines it covers.
 struct RanchCodeView: NSViewRepresentable {
     let text: String
+    /// A line a review link cites, selected and scrolled to.
+    var focusLine: Int? = nil
     let onSelectLines: (ClosedRange<Int>?) -> Void
 
     final class Coordinator: NSObject, NSTextViewDelegate {
+        var shownLine: Int?
         var onSelectLines: (ClosedRange<Int>?) -> Void
         init(onSelectLines: @escaping (ClosedRange<Int>?) -> Void) { self.onSelectLines = onSelectLines }
 
@@ -326,9 +387,21 @@ struct RanchCodeView: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.onSelectLines = onSelectLines
-        guard let textView = scroll.documentView as? NSTextView, textView.string != text else { return }
-        textView.string = text
-        (scroll.verticalRulerView as? RanchLineNumberRuler)?.textDidChange()
+        guard let textView = scroll.documentView as? NSTextView else { return }
+        if textView.string != text {
+            textView.string = text
+            (scroll.verticalRulerView as? RanchLineNumberRuler)?.textDidChange()
+        }
+        if let focusLine, context.coordinator.shownLine != focusLine {
+            context.coordinator.shownLine = focusLine
+            let range = RanchCodeLines.range(ofLine: focusLine, in: textView.string)
+            // After layout, so the line is scrolled to where it really is.
+            DispatchQueue.main.async {
+                textView.setSelectedRange(range)
+                textView.scrollRangeToVisible(range)
+                textView.showFindIndicator(for: range)
+            }
+        }
     }
 }
 

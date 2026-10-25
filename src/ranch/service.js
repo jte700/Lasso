@@ -14,6 +14,7 @@ import { recentHistory } from './history.js';
 import { MAX_SCANNED_BYTES, SCANNED_TEXT_TYPES, sourceKind } from './kinds.js';
 import { addNameEdges, edgeCollector, mentionTargets } from './network.js';
 import { directoryReviewItems, linkReviewItems, readingReviewItems, shareReviewItems } from './review.js';
+import { spreadsheetView } from './sheets.js';
 import { fileNamesIn, shareLinksIn } from './text-links.js';
 
 /** Files listed in one read. Past this the window says the list is partial. */
@@ -343,6 +344,14 @@ export class RanchService {
     if (!chosen) throw new HttpError(404, 'Lasso hasn’t indexed anything in this file, so it can’t make a share link for it.');
     return { projectId: project.id, objectId: chosen.id, versionId: chosen.versionId ?? null,
       label: chosen.name ?? chosen.label ?? file.path, path: file.path };
+  }
+
+  /** A workbook's cells as Lasso reads them, for the sheet view. */
+  sheet(input) {
+    const { file } = this.currentFile(input);
+    const content = this.timeline.blobs.get(file.contentHash);
+    if (!content) throw new HttpError(404, 'Lasso no longer has a copy of this file.');
+    return spreadsheetView(content);
   }
 
   /** The recorded copy of a file, for a directory whose drive is disconnected. */

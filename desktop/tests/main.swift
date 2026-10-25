@@ -3730,6 +3730,81 @@ do {
               "the kind filter keeps one kind of file, and All Kinds keeps every file")
     }
 
+    // The sidebar's outline: folders before files, in name order, opened a level at a time.
+    do {
+        func file(_ id: String, _ path: String) -> RanchSource {
+            RanchSource(id: id, directoryId: "d", path: path, name: (path as NSString).lastPathComponent, kind: "text", size: 1,
+                        contentHash: nil, modifiedAt: nil, createdAt: nil, lastUsedAt: nil, counts: .none, activeShares: 0,
+                        activity: 0)
+        }
+        let tree = RanchTree.make([file("1", "notes.md"), file("2", "transfer/b.csv"), file("3", "timecourse/run/a.csv"),
+                                   file("4", "transfer/a.csv"), file("5", "Archive/old.txt")])
+        let lines = { (rows: [RanchTree.Row]) in
+            rows.map { row -> String in
+                switch row {
+                case .folder(_, let name, let depth): return "\(depth) \(name)/"
+                case .file(let source, let depth): return "\(depth) \(source.name)"
+                }
+            }
+        }
+        check(lines(tree.rows { _ in false }) == ["1 Archive/", "1 timecourse/", "1 transfer/", "1 notes.md"],
+              "a closed outline lists the directory's folders in name order, then the files at its top")
+        check(lines(tree.rows { $0 == "transfer" || $0 == "timecourse" })
+              == ["1 Archive/", "1 timecourse/", "2 run/", "1 transfer/", "2 b.csv", "2 a.csv", "1 notes.md"],
+              "an open folder shows its folders, then its files in the order given, a level further in")
+        let everything = tree.rows { _ in true }
+        check(lines(everything).contains("3 a.csv") && RanchTree.make([]).isEmpty && !tree.isEmpty,
+              "folders inside folders open in turn, and a directory with no files has no outline")
+        check(Set(everything.map(\.id)).count == everything.count, "every line of the outline has an id of its own")
+        check(RanchTree.key(directory: "d") == "d" && RanchTree.key(directory: "d", folder: "transfer/run") == "d/transfer/run",
+              "an open directory or folder is remembered by its directory and path")
+    }
+
+    // Needs Review: each link's place in its source, and the sheet view that goes to it.
+    do {
+        check(RanchSheetColumns.letter(0) == "A" && RanchSheetColumns.letter(25) == "Z" && RanchSheetColumns.letter(26) == "AA"
+              && RanchSheetColumns.letter(701) == "ZZ" && RanchSheetColumns.letter(702) == "AAA",
+              "columns are lettered as spreadsheets letter them")
+        let sheet = RanchSheet(name: "Accounting", columns: 4,
+                               rows: [["REVENUES", "", "", ""], ["Supplies", "400", "", "310"], ["TOTAL", "47400", "", "37902"]],
+                               rowNumbers: [9, 26, 27], truncated: false)
+        let book = RanchWorkbook(sheets: [RanchSheet(name: "Notes", columns: 1, rows: [["x"]], rowNumbers: [1], truncated: false), sheet],
+                                 skipped: [])
+        let cited = book.place(of: RanchAnchor(kind: "table-cell", sheet: "Accounting", rowIndex: 1, columnIndex: 3, rowKey: "Supplies"))
+        check(cited == RanchCellPlace(sheet: 1, sheetName: "Accounting", row: 1, column: 3, name: "D26"),
+              "a link's cell is found on its sheet and named as the app names it")
+        check(book.place(of: RanchAnchor(sheet: "Accounting", rowIndex: 0, columnIndex: 1, rowKey: "Supplies"))?.row == 1,
+              "a row that moved since the link was made is found again by its label")
+        check(book.place(of: RanchAnchor(sheet: "Gone", rowIndex: 0, columnIndex: 0)) == nil
+              && book.place(of: RanchAnchor(kind: "pdf-page", pageNumber: 3)) == nil,
+              "a sheet the workbook no longer has, or a place that is not a cell, is not guessed at")
+        check(book.place(of: RanchAnchor(sheet: "Accounting", rowIndex: 2, columnIndex: 9))?.name == nil,
+              "a link to a whole row shades the row and names no cell")
+
+        let json = """
+        {"id": "link:x", "kind": "changed", "title": "Linked value changed", "directoryId": "d", "path": "Budget.xlsx",
+         "fileId": "f", "documents": ["Memo.docx"], "detail": "Changed.",
+         "links": [{"id": "dep", "status": "STALE", "documentDirectoryId": "d", "documentPath": "Notes/Memo.docx",
+                    "documentFileId": null, "text": "400", "label": "Supplies", "linkedValue": "400", "currentValue": "450",
+                    "anchor": {"kind": "table-cell", "sheet": "Accounting", "rowIndex": "18", "columnIndex": 1, "elementId": 7},
+                    "issue": null}]}
+        """
+        let item = try? JSONDecoder().decode(RanchReviewItem.self, from: Data(json.utf8))
+        check(item?.links.first?.documentName == "Memo.docx" && item?.links.first?.currentValue == "450"
+              && item?.links.first?.anchor == RanchAnchor(kind: "table-cell", sheet: "Accounting", columnIndex: 1),
+              "an anchor field of an unexpected type is left out rather than failing the library")
+        let older = try? JSONDecoder().decode(RanchReviewItem.self, from: Data("""
+        {"id": "r", "kind": "unreadable", "title": "t", "directoryId": "d", "path": null, "fileId": null, "documents": [], "detail": "x"}
+        """.utf8))
+        check(older?.links == [], "an item from a server that sends no links still reads")
+
+        let text = "first\nsecond\nthird"
+        check(RanchCodeLines.range(ofLine: 2, in: text) == NSRange(location: 6, length: 7)
+              && RanchCodeLines.range(ofLine: 3, in: text) == NSRange(location: 13, length: 5)
+              && RanchCodeLines.range(ofLine: 99, in: text).location == 13,
+              "a cited line is selected whole, and a line past the end selects the last")
+    }
+
     let lookalikes = ["gsheet", "csv", "pdf", "gdoc", "gslides", "txt", "md", "json", "js", "step", "dxf", "png"]
     let styles = lookalikes.compactMap(RanchTypeIcon.style(for:))
     check(styles.count == lookalikes.count && Set(styles.map { "\($0.mark)" }).count == lookalikes.count,
@@ -3770,7 +3845,8 @@ do {
           && components(RanchActivityColor.color(for: 4)).saturation == green.saturation,
           "activity outside 0...1 is clamped")
     check(RanchViewerKind.choose(for: "STEP") == .wireframe && RanchViewerKind.choose(for: "stl") == .mesh
-          && RanchViewerKind.choose(for: "dxf") == .plan && RanchViewerKind.choose(for: "xlsx") == .quickLook,
+          && RanchViewerKind.choose(for: "dxf") == .plan && RanchViewerKind.choose(for: "xlsx") == .sheet
+          && RanchViewerKind.choose(for: "XLS") == .sheet && RanchViewerKind.choose(for: "csv") == .quickLook,
           "models turn, drawings pan, and documents scroll in Quick Look")
 
     let codeJSON = """

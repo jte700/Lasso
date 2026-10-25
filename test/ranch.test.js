@@ -10,6 +10,8 @@ import { nameGroups, nameStem } from '../src/ranch/name-groups.js';
 import { sourceKind } from '../src/ranch/kinds.js';
 import { edgeCollector, mentionTargets } from '../src/ranch/network.js';
 import { linkReviewItems, readingReviewItems } from '../src/ranch/review.js';
+import { shownCell, spreadsheetView } from '../src/ranch/sheets.js';
+import { workbook } from './fixtures/workbook.js';
 import { VISIT_SESSION_MS } from '../src/ranch/service.js';
 import { bracketPart } from './fixtures/step-models.js';
 
@@ -102,11 +104,49 @@ test('review groups link problems by source and skips formats Lasso does not rea
   assert.equal(items.length, 1);
   assert.deepEqual(items[0].documents, ['Report.md', 'Memo.md']);
   assert.match(items[0].detail, /2 documents/);
+  assert.deepEqual(items[0].links.map((link) => link.documentPath), ['Report.md', 'Memo.md']);
+
+  // Each link says where it is written, what it cites and what Lasso found, as recorded.
+  const [changed] = linkReviewItems([{
+    id: 'dependency-1', projectId: 'doc', documentPath: 'Memo.docx', status: 'STALE', spanText: '400',
+    statusDetails: { linkedSourceValue: '400', currentSourceValue: '450' },
+    source: { projectId: 'src', path: 'Budget.xlsx', label: 'Supplies · Current Period', valueText: '400',
+      anchor: { kind: 'table-cell', sheet: 'Accounting', rowIndex: 18, columnIndex: 1, rowKey: 'Supplies' } },
+  }], (directoryId, filePath) => `${directoryId}:${filePath}`);
+  assert.deepEqual(changed.links, [{
+    id: 'dependency-1', status: 'STALE', documentDirectoryId: 'doc', documentPath: 'Memo.docx', documentFileId: 'doc:Memo.docx',
+    text: '400', label: 'Supplies · Current Period', linkedValue: '400', currentValue: '450',
+    anchor: { kind: 'table-cell', sheet: 'Accounting', rowIndex: 18, columnIndex: 1, rowKey: 'Supplies' }, issue: null,
+  }]);
+  const [unverified] = linkReviewItems([{
+    id: 'dependency-2', projectId: 'doc', documentPath: 'Memo.docx', status: 'NEEDS_REVIEW', spanText: 'supplies',
+    statusDetails: { anchorIssue: 'Document no longer exists.', sourceIssue: 'Re-point the claim.' },
+    source: { projectId: 'src', path: 'Budget.xlsx', label: 'Supplies', valueText: '400', anchor: null },
+  }], () => null);
+  assert.equal(unverified.links[0].issue, 'Document no longer exists. Re-point the claim.');
+  assert.equal(unverified.links[0].currentValue, null, 'no current value is shown that Lasso did not find');
   const reading = readingReviewItems('src', [
     { path: 'Locked.xlsx', code: 'UNREADABLE_CONTENT', reason: 'The workbook is password protected.' },
     { path: 'Part.f3d', code: 'UNSUPPORTED_FORMAT', reason: 'Not read.' },
   ], () => null);
   assert.deepEqual(reading.map((item) => item.path), ['Locked.xlsx']);
+});
+
+test('the sheet view shows each cell as the sheet does, with the row numbers beside it', () => {
+  const view = spreadsheetView(workbook('Accounting', {
+    4: ['Supplies', '400', '', '493.30000000000018'],
+    6: ['TOTAL', '47400'],
+  }));
+  assert.deepEqual(view.sheets.map((sheet) => sheet.name), ['Accounting']);
+  const [sheet] = view.sheets;
+  assert.equal(sheet.columns, 4);
+  assert.deepEqual(sheet.rows[0], ['Supplies', '400', '', '493.3'], 'stored floating-point residue is not shown');
+  assert.deepEqual(sheet.rowNumbers, sheet.rows.map((_, index) => [4, 6][index]), 'rows keep the numbers the app shows');
+  assert.equal(sheet.truncated, false);
+  assert.equal(shownCell('$129,950', '129950'), '$129,950', 'a formatted value is shown as the sheet formats it');
+  assert.equal(shownCell(null, '0.5'), '0.5');
+  assert.equal(shownCell(null, null), '');
+  assert.deepEqual(spreadsheetView(Buffer.from('not a workbook')).sheets, []);
 });
 
 async function library(t) {
@@ -240,4 +280,7 @@ test('the Ranch routes answer the Mac app and keep file copies out of the page o
 
   const missing = await fetch(`${base}/api/ranch/file?directory=${encodeURIComponent(financeId)}`);
   assert.equal(missing.status, 400);
+
+  const notAWorkbook = await fetch(`${base}/api/ranch/sheet?${query}`);
+  assert.deepEqual((await notAWorkbook.json()).sheets, [], 'a file that is not a workbook has no sheets to show');
 });

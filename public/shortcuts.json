@@ -16,6 +16,10 @@
       "note": "While The Ranch is open.",
       "shortcuts": [
         { "action": "Go to Recent Changes, All Sources, Links, Needs Review or Network", "macos": "⌘1…5" },
+        { "action": "Search files", "macos": "⌘F" },
+        { "action": "Move through the list", "macos": "↑↓" },
+        { "action": "Open or close a directory in the sidebar", "macos": "→ ←" },
+        { "action": "Show or hide the sidebar", "macos": "⌃⌘S" },
         { "action": "Edit the file in its app", "macos": "⌘E" },
         { "action": "Copy a share link to the file", "macos": "⇧⌘L" },
         { "action": "Show the file in Finder", "macos": "⌥⌘R" },

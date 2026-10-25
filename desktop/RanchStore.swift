@@ -55,7 +55,7 @@ final class RanchStore: ObservableObject {
         didSet {
             sourcesByID = Dictionary(overview.sources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             sourcesByDirectory = Dictionary(grouping: overview.sources, by: \.directoryId)
-            listCache.removeAll()
+            clearLists()
         }
     }
     private var sourcesByID: [String: RanchSource] = [:]
@@ -63,21 +63,34 @@ final class RanchStore: ObservableObject {
     /// Each directory's files as listed: filtered, searched and sorted once per
     /// change, not on every redraw, which a large library would feel.
     private var listCache: [String: [RanchSource]] = [:]
+    /// Each directory's outline in the sidebar, kept the same way.
+    private var treeCache: [String: RanchTree] = [:]
     @Published private(set) var hasLoaded = false
     @Published private(set) var loadError: String?
     @Published var section: Section? = .sources {
         didSet {
             defaults.set(section?.saved, forKey: Self.sectionKey)
             // A new view starts with nothing chosen, as Mail does on another mailbox.
-            if section != oldValue { selectedSourceID = nil; selectionNote = nil }
+            if section != oldValue { selectedSourceID = nil; selectionNote = nil; reviewFocus = nil }
         }
     }
     @Published var selectedSourceID: String? {
         didSet {
             if let id = selectedSourceID, id != oldValue { recordVisit(id) }
             if selectedSourceID != nil { selectionNote = nil }
+            if reviewFocus?.fileId != selectedSourceID { reviewFocus = nil }
         }
     }
+    /// The Needs Review item the file on the right is shown for: the viewer
+    /// goes to the place it cites and offers ways to resolve it.
+    @Published var reviewFocus: RanchReviewItem? {
+        didSet {
+            if reviewFocus?.links.contains(where: { $0.id == focusedLinkID }) != true { focusedLinkID = reviewFocus?.links.first?.id }
+        }
+    }
+    /// Which of the item's links is in view, when it has several.
+    @Published var focusedLinkID: String?
+    var focusedLink: RanchReviewLink? { reviewFocus?.links.first { $0.id == focusedLinkID } }
     /// What the right side says when the selected row has no file to show,
     /// such as a change that removed one.
     @Published var selectionNote: (title: String, message: String)?
@@ -85,19 +98,27 @@ final class RanchStore: ObservableObject {
         didSet { defaults.set(directoryOrder.rawValue, forKey: RanchOrder.directoryKey) }
     }
     @Published var itemOrder: RanchOrder {
-        didSet { defaults.set(itemOrder.rawValue, forKey: RanchOrder.itemKey); listCache.removeAll() }
+        didSet { defaults.set(itemOrder.rawValue, forKey: RanchOrder.itemKey); clearLists() }
     }
     @Published var kindFilter: RanchKindFilter {
-        didSet { defaults.set(kindFilter.rawValue, forKey: RanchKindFilter.key); listCache.removeAll() }
+        didSet { defaults.set(kindFilter.rawValue, forKey: RanchKindFilter.key); clearLists() }
     }
     @Published var searchText = "" {
-        didSet { listCache.removeAll() }
+        didSet { clearLists() }
     }
     /// Something the person asked for that did not work, for an alert.
     @Published var actionError: String?
     @Published var linkTab = LinkTab.outgoing
     /// The network shows every directory, or one and what it connects to.
     @Published var networkDirectory: String?
+    /// Hidden, the sidebar gives its width to the list and the file.
+    @Published var sidebarHidden: Bool {
+        didSet { defaults.set(sidebarHidden, forKey: Self.sidebarKey) }
+    }
+    /// The directories and folders open in the sidebar's outline, by `RanchTree.key`.
+    @Published var openFolders: Set<String> {
+        didSet { defaults.set(Array(openFolders).sorted(), forKey: Self.openFoldersKey) }
+    }
 
     var serverURL: URL? {
         didSet { if serverURL != oldValue { etag = nil; reload() } }
@@ -114,9 +135,13 @@ final class RanchStore: ObservableObject {
     /// from its cache when nothing changed.
     private static let refreshInterval: TimeInterval = 20
     private static let sectionKey = "RanchSection"
+    private static let sidebarKey = "RanchSidebarHidden"
+    private static let openFoldersKey = "RanchOpenFolders"
     private static let modelTimeout: TimeInterval = 120
     private static let cachedPreviews = 24
     private var previews: [String: AssistModelPreview] = [:]
+    private var workbooks: [String: RanchWorkbook] = [:]
+    private static let cachedWorkbooks = 8
     private var networkCache: (key: String, layout: RanchNetworkLayout)?
     /// The window's, so Edit > Undo (⌘Z) reaches what its views offer to undo.
     let undoManager = UndoManager()
@@ -127,6 +152,8 @@ final class RanchStore: ObservableObject {
         directoryOrder = RanchOrder.saved(RanchOrder.directoryKey, defaults: defaults)
         itemOrder = RanchOrder.saved(RanchOrder.itemKey, defaults: defaults)
         kindFilter = defaults.string(forKey: RanchKindFilter.key).flatMap(RanchKindFilter.init(rawValue:)) ?? .all
+        sidebarHidden = defaults.bool(forKey: Self.sidebarKey)
+        openFolders = Set(defaults.stringArray(forKey: Self.openFoldersKey) ?? [])
         section = Section(saved: defaults.string(forKey: Self.sectionKey)) ?? .sources
     }
 
@@ -187,6 +214,8 @@ final class RanchStore: ObservableObject {
             etag = tag
             if next != overview { overview = next }
             if let id = selectedSourceID, source(id) == nil { selectedSourceID = nil }
+            // A resolved item leaves the list; one still open keeps its newest details.
+            if let focus = reviewFocus { reviewFocus = overview.review.first { $0.id == focus.id } }
             // A directory removed since the window last showed it.
             if case .directory(let id) = section, directory(id) == nil { section = .sources }
             if let id = networkDirectory, directory(id) == nil { networkDirectory = nil }
@@ -225,7 +254,56 @@ final class RanchStore: ObservableObject {
         return listed
     }
 
+    private func clearLists() {
+        listCache.removeAll()
+        treeCache.removeAll()
+    }
+
     func directoryName(_ id: String) -> String { directory(id)?.name ?? "Removed directory" }
+
+    // MARK: The sidebar's outline
+
+    private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    /// A directory's folders and files, narrowed by the search field but not
+    /// the kind filter, which belongs to the list beside it.
+    func tree(in directoryId: String) -> RanchTree {
+        if let tree = treeCache[directoryId] { return tree }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tree = RanchTree.make(itemOrder.sorted((sourcesByDirectory[directoryId] ?? []).filter { source in
+            query.isEmpty || source.path.localizedCaseInsensitiveContains(query)
+        }))
+        treeCache[directoryId] = tree
+        return tree
+    }
+
+    /// While searching, every folder with a match is open, without changing which stay open.
+    func isOpen(_ key: String) -> Bool { isSearching || openFolders.contains(key) }
+
+    /// Whether the outline's open folders can be opened and closed; a search holds them open.
+    var canToggleFolders: Bool { !isSearching }
+
+    func toggleFolder(_ key: String) {
+        if openFolders.contains(key) { openFolders.remove(key) } else { openFolders.insert(key) }
+    }
+
+    /// Shows a file chosen in the sidebar's outline. The list stays where it is
+    /// when it holds the file, and goes to the file's directory when it doesn't.
+    func showFromOutline(_ id: String) {
+        guard let source = source(id) else { return }
+        switch section {
+        case .sources?, .network?: break
+        case .directory(let directoryId)? where directoryId == source.directoryId: break
+        default: section = .directory(source.directoryId)
+        }
+        selectedSourceID = id
+    }
+
+    /// Closes the folder a file is in, or its directory when it sits at the top.
+    func closeFolder(around id: String) {
+        guard let source = source(id) else { return }
+        openFolders.remove(RanchTree.key(directory: source.directoryId, folder: source.folder))
+    }
 
     var reviewCount: Int { overview.review.count }
     var activeLinkCount: Int { overview.links.outgoing.filter { $0.status == "active" }.count }
@@ -281,29 +359,66 @@ final class RanchStore: ObservableObject {
     }
 
     /// The model or drawing Lasso's reader recorded for a STEP, DXF or IFC
-    /// file, kept by content so a file looked at twice is read once.
-    func modelPreview(_ source: RanchSource, completion: @escaping (AssistModelPreview?) -> Void) {
-        if let hash = source.contentHash, let cached = previews[hash] { return completion(cached) }
+    /// file, kept by content so a file looked at twice is read once; with an
+    /// element, the drawing is framed on it. The viewer cancels the returned
+    /// request when it moves on, and a cancelled request never completes.
+    @discardableResult
+    func modelPreview(_ source: RanchSource, elementId: String? = nil,
+                      completion: @escaping (AssistModelPreview?) -> Void) -> URLSessionDataTask? {
+        let key = source.contentHash.map { $0 + "#" + (elementId ?? "") }
+        if let key, let cached = previews[key] { completion(cached); return nil }
         guard let serverURL, let snapshot = directory(source.directoryId)?.snapshotId,
               var components = URLComponents(url: serverURL.appendingPathComponent("api/snapshots/\(snapshot)/preview"),
-                                             resolvingAgainstBaseURL: false) else { return completion(nil) }
+                                             resolvingAgainstBaseURL: false) else { completion(nil); return nil }
         components.queryItems = [URLQueryItem(name: "path", value: source.path)]
-        guard let url = components.url else { return completion(nil) }
+            + (elementId.map { [URLQueryItem(name: "elementId", value: $0)] } ?? [])
+        guard let url = components.url else { completion(nil); return nil }
         var request = URLRequest(url: url)
         // A large model takes the reader a while; the viewer says it is reading.
         request.timeoutInterval = Self.modelTimeout
-        session.dataTask(with: request) { [weak self] data, _, error in
+        let task = session.dataTask(with: request) { [weak self] data, _, error in
+            if (error as NSError?)?.code == NSURLErrorCancelled { return }
             let body = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             let model = (body?["preview"] as? [String: Any]).flatMap(AssistModelPreview.init(json:))
             if let error { NSLog("The Ranch could not read the model %@: %@", source.path, error.localizedDescription) }
             DispatchQueue.main.async {
-                if let model, let hash = source.contentHash {
+                if let model, let key {
                     if self?.previews.count ?? 0 >= Self.cachedPreviews { self?.previews.removeAll() }
-                    self?.previews[hash] = model
+                    self?.previews[key] = model
                 }
                 completion(model)
             }
-        }.resume()
+        }
+        task.resume()
+        return task
+    }
+
+    /// A workbook's cells as Lasso reads them; nil when it has none to show,
+    /// such as a sheet too large to read, and the file shows in Quick Look.
+    @discardableResult
+    func workbook(_ source: RanchSource, completion: @escaping (RanchWorkbook?) -> Void) -> URLSessionDataTask? {
+        if let hash = source.contentHash, let cached = workbooks[hash] { completion(cached); return nil }
+        guard let serverURL,
+              var components = URLComponents(url: serverURL.appendingPathComponent("api/ranch/sheet"),
+                                             resolvingAgainstBaseURL: false) else { completion(nil); return nil }
+        components.queryItems = [URLQueryItem(name: "directory", value: source.directoryId),
+                                 URLQueryItem(name: "path", value: source.path)]
+        guard let url = components.url else { completion(nil); return nil }
+        let task = session.dataTask(with: url) { [weak self] data, response, error in
+            if (error as NSError?)?.code == NSURLErrorCancelled { return }
+            let book = (response as? HTTPURLResponse)?.statusCode == 200
+                ? data.flatMap { try? JSONDecoder().decode(RanchWorkbook.self, from: $0) } : nil
+            DispatchQueue.main.async {
+                let shown = book.flatMap { $0.sheets.isEmpty ? nil : $0 }
+                if let shown, let hash = source.contentHash {
+                    if self?.workbooks.count ?? 0 >= Self.cachedWorkbooks { self?.workbooks.removeAll() }
+                    self?.workbooks[hash] = shown
+                }
+                completion(shown)
+            }
+        }
+        task.resume()
+        return task
     }
 
     // MARK: Actions
@@ -344,6 +459,59 @@ final class RanchStore: ObservableObject {
                 result = .failure(Self.failure(WorkspaceAPI.errorMessage(data: data, response: response, error: error)))
             }
             DispatchQueue.main.async { completion(result) }
+        }.resume()
+    }
+
+    // MARK: Resolving what needs review
+
+    /// The document keeps citing the version it linked, and the item leaves the list.
+    func keepLinkedVersion(_ link: RanchReviewLink) {
+        post(WorkspaceAPI.reviseLinkPath(link.id), WorkspaceAPI.reviseLinkBody(action: "KEEP_HISTORICAL"),
+             failure: "The link couldn\u{2019}t be kept.")
+    }
+
+    /// Lasso stops tracking the link. The document's words are left as they are.
+    func removeLink(_ link: RanchReviewLink) {
+        post(WorkspaceAPI.reviseLinkPath(link.id), WorkspaceAPI.reviseLinkBody(action: "REMOVE"),
+             failure: "The link couldn\u{2019}t be removed.")
+    }
+
+    /// Tries a directory that needs attention again, as the menu bar's Try Again does.
+    func retryDirectory(_ id: String) {
+        post(WorkspaceAPI.fixDirectoryPath(id), WorkspaceAPI.fixDirectoryBody(), failure: "The directory couldn\u{2019}t be tried again.")
+    }
+
+    /// Where a link's document is on this Mac, if it is.
+    func documentURL(for link: RanchReviewLink) -> URL? {
+        if let source = source(link.documentFileId), let url = localURL(for: source) { return url }
+        guard let directory = directory(link.documentDirectoryId), !directory.offline else { return nil }
+        let url = URL(fileURLWithPath: directory.rootPath).appendingPathComponent(link.documentPath)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// Opens the document in its app at the linked words, for the person to change.
+    func openDocument(for link: RanchReviewLink) {
+        guard let url = documentURL(for: link) else {
+            actionError = "\(link.documentName) isn\u{2019}t on this Mac right now."
+            return
+        }
+        _ = AssistSourceOpener.open(url, at: link.text.isEmpty ? nil : AssistOpenTarget(text: link.text))
+    }
+
+    private func post(_ path: String, _ body: [String: Any], failure: String) {
+        guard let serverURL else { actionError = "Lasso\u{2019}s server isn\u{2019}t ready yet."; return }
+        var request = URLRequest(url: serverURL.appendingPathComponent(path))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        request.timeoutInterval = 30
+        session.dataTask(with: request) { [weak self] data, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let message = (200..<300).contains(status) ? nil : WorkspaceAPI.errorMessage(data: data, response: response, error: error)
+            DispatchQueue.main.async {
+                if let message { self?.actionError = "\(failure) \(message)" }
+                self?.reload()
+            }
         }.resume()
     }
 
