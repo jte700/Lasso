@@ -87,6 +87,23 @@ const PRES_PROPS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 const VIEW_PROPS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:viewPr ${NS}><p:normalViewPr><p:restoredLeft sz="15620"/><p:restoredTop sz="94660"/></p:normalViewPr><p:outlineViewPr><p:cViewPr><p:scale><a:sx n="33" d="100"/><a:sy n="33" d="100"/></p:scale><p:origin x="0" y="0"/></p:cViewPr><p:sldLst><p:sld r:id="rId1" collapse="1"/></p:sldLst></p:outlineViewPr></p:viewPr>`;
 
+/** A plain deck of titled slides, each a list of bullet lines: `[{ title, lines }]`. */
+export function bulletDeck(slides) {
+  const numbers = slides.map((_, index) => index + 1);
+  const parts = {
+    '[Content_Types].xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="${CT}.presentation.main+xml"/>${
+  numbers.map((n) => `<Override PartName="/ppt/slides/slide${n}.xml" ContentType="${CT}.slide+xml"/>`).join('')}</Types>`,
+    '_rels/.rels': rels([['rId1', 'officeDocument', 'ppt/presentation.xml']]),
+    'ppt/presentation.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentation ${NS}><p:sldIdLst>${numbers.map((n) => `<p:sldId id="${255 + n}" r:id="rId${n}"/>`).join('')}</p:sldIdLst><p:sldSz cx="12192000" cy="6858000"/></p:presentation>`,
+    'ppt/_rels/presentation.xml.rels': rels(numbers.map((n) => [`rId${n}`, 'slide', `slides/slide${n}.xml`])),
+    ...Object.fromEntries(slides.map(({ title: heading, lines }, index) => [`ppt/slides/slide${index + 1}.xml`,
+      slide([title(heading), shape(3, 'Content Placeholder 2', '<p:ph idx="1"/>', lines.map((line) => paragraph(line)))])])),
+  };
+  return writeZip(Object.entries(parts).map(([name, content]) => ({ name, content: Buffer.from(content, 'utf8') })));
+}
+
 /** The deck as PowerPoint would save it, or with `overrides` replacing or (null) dropping parts. */
 export function quarterlyReview(overrides = {}) {
   const parts = {

@@ -181,6 +181,16 @@ export function currentClauseStart(text, cursor) {
 }
 
 /**
+ * Whether a value claim was written before the words at the caret ("rises
+ * from 6% to"). The writer has moved past it, so it is not the value being
+ * typed. Only spaces or punctuation after it leave it at the caret ("by 50%.").
+ */
+export function writtenBeforeCaret(claim, text, cursor) {
+  return ['QUANTITATIVE', 'SAMPLE_SIZE'].includes(claim.type) && claim.end <= cursor
+    && /[\p{L}\p{N}]/u.test(String(text ?? '').slice(claim.end, cursor));
+}
+
+/**
  * Whether a file named in the text is the file of a focus chosen with
  * fn+Right. That focus has no text of its own, so the accepted name it came
  * from ("Bracket.step", then fn+Left and back) names the focus, not a new
@@ -271,9 +281,9 @@ function progressiveVariableFragments(text, cursor, after = -1) {
 
 function numericDescriptor(value) {
   const text = String(value ?? '').trim().toLowerCase().replaceAll(',', '');
-  const match = text.match(/^(?:(?:p(?:-?value)?|n|fold[_ -]?change)\s*[<=>:]?\s*)?([+-]?\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*(%|percent)?(?:\s*ci|\s*[- ]?fold(?:\s+change)?)?$/i);
+  const match = text.match(/^(?:(p(?:-?value)?|n|fold[_ -]?change)\s*[<=>:]?\s*)?([+-]?\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*(%|percent)?(?:\s*ci|\s*[- ]?fold(?:\s+change)?)?$/i);
   if (!match) return null;
-  return { number: Number(match[1]), percent: Boolean(match[2]) };
+  return { number: Number(match[2]), percent: Boolean(match[3]), count: match[1] === 'n' };
 }
 
 const MEASUREMENT_UNITS = { mm: 'mm', cm: 'cm', m: 'm', km: 'km', 'µm': 'µm', mil: 'mil', in: 'in', ft: 'ft', yd: 'yd',
@@ -286,24 +296,33 @@ function measurementDescriptor(value) {
   if (plain) return { ...plain, unit: null };
   const match = String(value ?? '').trim().toLowerCase().replaceAll(',', '')
     .match(/^([+-]?\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*(mm|cm|km|µm|mil|m²|m2|m³|m3|m|in|ft²|ft2|ft³|ft3|ft|yd|°|deg)$/);
-  return match ? { number: Number(match[1]), percent: false, unit: MEASUREMENT_UNITS[match[2]] } : null;
+  return match ? { number: Number(match[1]), percent: false, count: false, unit: MEASUREMENT_UNITS[match[2]] } : null;
+}
+
+// What a number measures: a percent, a count ("n = 6") or a physical unit.
+// Plain numbers say nothing, so they keep matching as before.
+function quantityKind(number, writtenUnit = number.unit) {
+  return number.percent ? '%' : number.count ? 'count' : writtenUnit;
 }
 
 // Claim values arrive without their unit; read one written right after the
 // number. "in" is inches only when no word follows ("8 in diameter" is not).
+// A percent written as a word ("6 percent") is a percent like "6%".
 function claimUnit(claim) {
   const text = String(claim.text ?? '').toLowerCase(), value = String(claim.value ?? '').toLowerCase();
   const at = value ? text.lastIndexOf(value) : -1;
   const match = at < 0 ? null : text.slice(at + value.length)
-    .match(/^\s*(mm|cm|km|µm|mil|m²|m2|m³|m3|m|in(?!\s*[a-z])|ft²|ft2|ft³|ft3|ft|yd|°|deg)(?![a-z0-9²³])/);
-  return match ? MEASUREMENT_UNITS[match[1]] : null;
+    .match(/^\s*(mm|cm|km|µm|mil|m²|m2|m³|m3|m|in(?!\s*[a-z])|ft²|ft2|ft³|ft3|ft|yd|°|deg|percent)(?![a-z0-9²³])/);
+  return match?.[1] === 'percent' ? '%' : match ? MEASUREMENT_UNITS[match[1]] : null;
 }
 
 function valueMatch(claim, candidate, claimNumber = measurementDescriptor(claim.value),
   candidateNumber = measurementDescriptor(candidate.valueText)) {
   if (!claimNumber || !candidateNumber) return { score: 0, displayValue: null };
-  const writtenUnit = claimNumber.unit ?? claimUnit(claim);
-  if (writtenUnit && candidateNumber.unit && writtenUnit !== candidateNumber.unit) return { score: 0, displayValue: null };
+  // A value in one kind never matches another: 6% is not 0.06 m, nor n = 6.
+  const writtenKind = quantityKind(claimNumber, claimNumber.unit ?? claimUnit(claim));
+  const candidateKind = quantityKind(candidateNumber);
+  if (writtenKind && candidateKind && writtenKind !== candidateKind) return { score: 0, displayValue: null };
   const direction = /\b(decreas|reduc|lower|declin|drop)/i.test(claim.text) ? -1
     : /\b(increas|rais|higher|grew|rise)/i.test(claim.text) ? 1 : 0;
   const expected = direction ? Math.abs(claimNumber.number) * direction : claimNumber.number;
@@ -1641,7 +1660,7 @@ export function detectClaimSpans(text) {
   }
   const partialPValue = source.match(/\bp(?:-?value)?\s*[<=>]\s*(0?\.\d*)\s*$/i);
   if (partialPValue?.[1]) add(partialPValue.index, source.length, 'QUANTITATIVE', partialPValue[1], { partial: true, unitHint: 'p-value' });
-  const studyNumber = /[+-]?\d[\d,]*(?:\.\d+)?(?:\s*(?:µ?g|mg|kg|ng|pg|mm|cm|mL|dL|L|mmol\/L|µmol\/L|ng\/mL|years?|months?|days?|hours?))?/gi;
+  const studyNumber = /[+-]?\d[\d,]*(?:\.\d+)?(?:\s*(?:percent\b|µ?g|mg|kg|ng|pg|mm|cm|mL|dL|L|mmol\/L|µmol\/L|ng\/mL|years?|months?|days?|hours?))?/gi;
   for (const match of source.matchAll(studyNumber)) {
     const end = match.index + match[0].length;
     if (claims.some((claim) => claim.start < end && claim.end > match.index)) continue;
@@ -4306,11 +4325,14 @@ export class PredictiveProvenanceService {
         }
         return { ...claim, candidates, scopedToLinkedPaper };
       });
-    const predictedCompletion = claims.some((claim) => claim.candidates.length)
+    // Only a value at the caret holds back the rest of the sentence. Once it
+    // goes on, the sources of a value written before it are not suggestions.
+    const atCaret = claims.filter((claim) => !writtenBeforeCaret(claim, text, cursor));
+    const predictedCompletion = atCaret.some((claim) => claim.candidates.length)
       ? null : this.sentenceSuggestion(projectId, input);
     const completion = predictedCompletion?.dependencyCandidate ? predictedCompletion : null;
     return {
-      claims, completion, sourceCompletions: [], workspaceCompletions: [],
+      claims: completion ? atCaret : claims, completion, sourceCompletions: [], workspaceCompletions: [],
       sourceContext: claims.some((claim) => claim.scopedToLinkedPaper)
         ? {
           dependencyId: linkedDependency.id,
