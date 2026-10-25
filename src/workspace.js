@@ -6,7 +6,7 @@ import { transaction } from './db.js';
 import { HttpError } from './history/errors.js';
 import { normalizeProjectRootPath } from './history/service.js';
 import { runSliced, runSync } from './history/work.js';
-import { currentClauseStart, namesFocusedFile } from './dependencies/service.js';
+import { currentClauseStart, namesFocusedFile, writtenBeforeCaret } from './dependencies/service.js';
 import { directoryIssue, directoryNote } from './directory-issues.js';
 import { offeredShareScopes } from './sharing/object-share.js';
 import { parseCommand } from './terminal/parser.js';
@@ -745,15 +745,20 @@ export class WorkspaceService {
     const writingClaim = slots.some((slot) => slot.group === 'claim' && slot.claim.end > clauseStart);
     const inClause = writingClaim
       ? slots.filter((slot) => slot.group !== 'claim' || slot.claim.end > clauseStart) : slots;
+    // A value written before the words at the caret ("rises from 6% to") is
+    // not being typed. When a directory continues the sentence, other
+    // directories' sources for that value give up their places to it.
+    const continuing = slots.some((slot) => slot.group === 'completion')
+      ? inClause.filter((slot) => slot.group !== 'claim' || !writtenBeforeCaret(slot.claim, input.text, cursor)) : inClause;
     // Directories may match different suffixes of the same phrase ("net inc"
     // and "inc", "bracket length" and "length"). The longer match is the one
     // the writer is typing, so the shorter gives up its slots before ranking;
     // otherwise its higher scores could crowd the longer match out entirely.
-    const variables = inClause.filter((slot) => slot.group === 'claim' && slot.claim.type === 'STUDY_VARIABLE')
+    const variables = continuing.filter((slot) => slot.group === 'claim' && slot.claim.type === 'STUDY_VARIABLE')
       .map((slot) => slot.claim);
     const nested = (claim) => claim.type === 'STUDY_VARIABLE' && variables.some((other) => other !== claim
       && other.start <= claim.start && other.end >= claim.end && other.end - other.start > claim.end - claim.start);
-    const current = inClause.filter((slot) => slot.group !== 'claim' || !nested(slot.claim));
+    const current = continuing.filter((slot) => slot.group !== 'claim' || !nested(slot.claim));
     const selected = distinctRanked(current, limit);
     // fn+Right opens a suggestion that has values below it, such as a part's measurements.
     const narrowing = (candidate) => this.dependencies.narrowsTo(candidate.projectId, candidate)
