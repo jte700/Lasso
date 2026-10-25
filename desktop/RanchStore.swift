@@ -110,7 +110,16 @@ final class RanchStore: ObservableObject {
     @Published var actionError: String?
     @Published var linkTab = LinkTab.outgoing
     /// The network shows every directory, or one and what it connects to.
-    @Published var networkDirectory: String?
+    @Published var networkDirectory: String? {
+        didSet { if !retracing { networkTrail.leave(oldValue, for: networkDirectory) } }
+    }
+    /// Where the network was before each change, for its Back button.
+    @Published private(set) var networkTrail = RanchNetworkTrail()
+    private var retracing = false
+    /// Directories pinned to the top of the sidebar from their right-click menu.
+    @Published private(set) var pinnedDirectories: Set<String> {
+        didSet { RanchPins.save(pinnedDirectories, defaults: defaults) }
+    }
     /// Hidden, the sidebar gives its width to the list and the file.
     @Published var sidebarHidden: Bool {
         didSet { defaults.set(sidebarHidden, forKey: Self.sidebarKey) }
@@ -143,6 +152,7 @@ final class RanchStore: ObservableObject {
     private var workbooks: [String: RanchWorkbook] = [:]
     private static let cachedWorkbooks = 8
     private var networkCache: (key: String, layout: RanchNetworkLayout)?
+    private var colorObserver: NSObjectProtocol?
     /// The window's, so Edit > Undo (⌘Z) reaches what its views offer to undo.
     let undoManager = UndoManager()
 
@@ -154,7 +164,17 @@ final class RanchStore: ObservableObject {
         kindFilter = defaults.string(forKey: RanchKindFilter.key).flatMap(RanchKindFilter.init(rawValue:)) ?? .all
         sidebarHidden = defaults.bool(forKey: Self.sidebarKey)
         openFolders = Set(defaults.stringArray(forKey: Self.openFoldersKey) ?? [])
+        pinnedDirectories = RanchPins.saved(defaults: defaults)
         section = Section(saved: defaults.string(forKey: Self.sectionKey)) ?? .sources
+        // A colour chosen here, in the menu bar panel or in Settings redraws every directory.
+        colorObserver = NotificationCenter.default.addObserver(forName: .directoryColorsDidChange, object: nil,
+                                                               queue: .main) { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+    }
+
+    deinit {
+        if let colorObserver { NotificationCenter.default.removeObserver(colorObserver) }
     }
 
     // MARK: Loading
@@ -228,8 +248,12 @@ final class RanchStore: ObservableObject {
 
     // MARK: What the window lists
 
-    var folders: [RanchDirectory] { directoryOrder.sorted(overview.directories.filter { !$0.isApp }) }
-    var apps: [RanchDirectory] { directoryOrder.sorted(overview.directories.filter(\.isApp)) }
+    var folders: [RanchDirectory] {
+        RanchPins.ordered(directoryOrder.sorted(overview.directories.filter { !$0.isApp }), pinned: pinnedDirectories)
+    }
+    var apps: [RanchDirectory] {
+        RanchPins.ordered(directoryOrder.sorted(overview.directories.filter(\.isApp)), pinned: pinnedDirectories)
+    }
     /// Folders, then connected apps, each in the chosen directory order.
     var orderedDirectories: [RanchDirectory] { folders + apps }
 
@@ -260,6 +284,35 @@ final class RanchStore: ObservableObject {
     }
 
     func directoryName(_ id: String) -> String { directory(id)?.name ?? "Removed directory" }
+
+    // MARK: A directory's right-click menu
+
+    func isPinned(_ id: String) -> Bool { pinnedDirectories.contains(id) }
+
+    func togglePin(_ id: String) {
+        if pinnedDirectories.contains(id) { pinnedDirectories.remove(id) } else { pinnedDirectories.insert(id) }
+    }
+
+    /// The same colour the menu bar panel and every source reference use.
+    func setColor(_ color: DirectoryToggleColor, for id: String) {
+        DirectoryColorPreferences.set(color, for: id)
+    }
+
+    // MARK: The network's Back button
+
+    var canGoBackInNetwork: Bool { networkTrail.canGoBack || networkDirectory != nil }
+
+    /// The directory the network showed before, skipping any since removed, or every directory.
+    func networkBack() {
+        var trail = networkTrail
+        var previous = trail.back()
+        while let id = previous, directory(id) == nil, trail.canGoBack { previous = trail.back() }
+        if let id = previous, directory(id) == nil { previous = nil }
+        retracing = true
+        networkTrail = trail
+        networkDirectory = previous
+        retracing = false
+    }
 
     // MARK: The sidebar's outline
 
@@ -530,7 +583,8 @@ final class RanchStore: ObservableObject {
         request.httpMethod = link.kind == "DEPENDENCY" ? "DELETE" : "POST"
         request.timeoutInterval = 10
         session.dataTask(with: request) { [weak self] data, response, error in
-            let stopped = (response as? HTTPURLResponse)?.statusCode == 200
+            // Not found is a link already stopped, as by a second click before the list refreshes.
+            let stopped = [200, 404].contains((response as? HTTPURLResponse)?.statusCode)
             let message = stopped ? nil : WorkspaceAPI.errorMessage(data: data, response: response, error: error)
             DispatchQueue.main.async {
                 if let message { self?.actionError = "The link couldn\u{2019}t be stopped. \(message)" }

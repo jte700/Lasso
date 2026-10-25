@@ -86,6 +86,8 @@ final class ShareComposerController: NSObject {
     private var previousFrame: NSRect?
     private var previousLevel: NSWindow.Level?
     private static let sharingLevel = NSWindow.Level.popUpMenu
+    /// The server allows a long deck several minutes, saying nothing until it is done.
+    private static let markupPagesTimeout: TimeInterval = 600
     private var active = false
     private var requests: [URLSessionDataTask] = []
     private var generation = 0
@@ -218,6 +220,9 @@ final class ShareComposerController: NSObject {
         view.onReviewPDFExcerpt = { [weak self] excerpt in
             self?.loadPDFExcerpt(excerpt, serverURL: serverURL, token: token)
         }
+        view.onNeedsMarkupPages = { [weak self] in
+            self?.loadMarkupPages(objectId: objectId, versionId: versionId, serverURL: serverURL, token: token)
+        }
         view.actionTitle = actionTitle
         let statusRequest = URLSession.shared.dataTask(with: serverURL.appendingPathComponent("api/sharing/status")) { [weak self] data, _, _ in
             DispatchQueue.main.async {
@@ -313,6 +318,33 @@ final class ShareComposerController: NSObject {
                 self.view.loadedPDFDocument = document
                 self.view.isPDFLoading = false
                 self.view.initializePDFExcerpt()
+                self.view.needsDisplay = true
+            }
+        }
+        requests.append(task)
+        task.resume()
+    }
+
+    /// A Word document or deck laid out as pages to mark up. Quick Look draws
+    /// a long deck's slides one at a time, so this can take a while.
+    private func loadMarkupPages(objectId: String, versionId: String?, serverURL: URL, token: Int) {
+        var components = URLComponents(url: serverURL.appendingPathComponent("api/dependency-objects")
+            .appendingPathComponent(objectId).appendingPathComponent("pages"), resolvingAgainstBaseURL: false)
+        if let versionId { components?.queryItems = [URLQueryItem(name: "version", value: versionId)] }
+        guard let url = components?.url else { return }
+        view.isMarkupPagesLoading = true
+        view.markupPagesError = nil
+        var request = URLRequest(url: url)
+        request.timeoutInterval = Self.markupPagesTimeout
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let pages = (200..<300).contains(status) ? data.flatMap(PDFDocument.init(data:)).flatMap { $0.pageCount > 0 ? $0 : nil } : nil
+            let failure = pages == nil ? WorkspaceAPI.errorMessage(data: data, response: response, error: error) : nil
+            DispatchQueue.main.async {
+                guard let self, token == self.generation else { return }
+                self.view.markupPages = pages
+                self.view.isMarkupPagesLoading = false
+                self.view.markupPagesError = failure
                 self.view.needsDisplay = true
             }
         }
@@ -644,13 +676,37 @@ private final class ShareInteractivePDFView: PDFView {
             context.setStrokeColor(NSColor.systemBlue.cgColor)
             context.stroke(rect, width: 1)
         }
+        drawMarks(in: context)
         context.restoreGState()
     }
-    enum SelectionMode { case read, text, area }
+
+    /// The marked copy's strokes, and the one being drawn, on the pages in view.
+    private func drawMarks(in context: CGContext) {
+        guard let document, !marks.isEmpty || draftMark != nil else { return }
+        for page in visiblePages {
+            let number = document.index(for: page) + 1
+            let crop = page.bounds(for: .cropBox)
+            for mark in marks + [draftMark].compactMap({ $0 }) where mark.page == number {
+                mark.draw(in: context, crop: crop, scale: scaleFactor) { convert($0, from: page) }
+            }
+        }
+    }
+
+    enum SelectionMode { case read, text, area, draw }
     var selectionMode: SelectionMode = .read
     var onTextSelection: ((PDFSelection) -> Void)?
     var onAreaSelection: ((PDFPage, NSRect) -> Void)?
     var onMaskClick: ((PDFPage, NSPoint) -> Bool)?
+    /// While drawing: where a stroke starts and moves on its page, in page space, and when it ends.
+    var onMarkBegin: ((PDFPage, NSPoint) -> Void)?
+    var onMarkMove: ((PDFPage, NSPoint) -> Void)?
+    var onMarkEnd: (() -> Void)?
+    var marks: [ShareMarkStroke] = [] {
+        didSet { if marks != oldValue { refreshMasks() } }
+    }
+    var draftMark: ShareMarkStroke? {
+        didSet { if draftMark != oldValue { refreshMasks() } }
+    }
     private var start: (page: PDFPage, point: NSPoint, viewPoint: NSPoint)?
     private var draft: PDFAnnotation?
 
@@ -658,6 +714,7 @@ private final class ShareInteractivePDFView: PDFView {
         if let draft, let page = start?.page { page.removeAnnotation(draft); annotationsChanged(on: page) }
         draft = nil
         start = nil
+        draftMark = nil
         clearSelection()
         refreshMasks()
     }
@@ -686,6 +743,11 @@ private final class ShareInteractivePDFView: PDFView {
         let point = convert(event.locationInWindow, from: nil)
         guard let page = page(for: point, nearest: false) else { return }
         let pagePoint = convert(point, to: page)
+        if selectionMode == .draw {
+            start = (page, pagePoint, point)
+            onMarkBegin?(page, pagePoint)
+            return
+        }
         if onMaskClick?(page, pagePoint) == true { return }
         clearSelection()
         start = (page, pagePoint, point)
@@ -697,6 +759,11 @@ private final class ShareInteractivePDFView: PDFView {
 
     override func mouseDragged(with event: NSEvent) {
         guard let start else { return }
+        if selectionMode == .draw {
+            // The stroke stays on the page it began on; the page holds still under the pen.
+            onMarkMove?(start.page, convert(convert(event.locationInWindow, from: nil), to: start.page))
+            return
+        }
         _ = documentView?.autoscroll(with: event)
         let point = convert(event.locationInWindow, from: nil)
         if selectionMode == .text, let endPage = page(for: point, nearest: true), let document {
@@ -722,6 +789,11 @@ private final class ShareInteractivePDFView: PDFView {
     override func mouseUp(with event: NSEvent) {
         guard let start else { return }
         self.start = nil
+        if selectionMode == .draw {
+            onMarkMove?(start.page, convert(convert(event.locationInWindow, from: nil), to: start.page))
+            onMarkEnd?()
+            return
+        }
         if let draft {
             let rect = draft.bounds
             start.page.removeAnnotation(draft)
@@ -768,7 +840,9 @@ final class ShareComposerView: NSView {
                 modelView = AssistModelView()
                 modelDrag = nil
                 targets.removeAll()
+                markup.cancel()
                 clearCopyConfirmation()
+                if scope == .marked && !isPDFSource && markupPages == nil && !isMarkupPagesLoading { onNeedsMarkupPages?() }
             }
         }
     }
@@ -785,6 +859,11 @@ final class ShareComposerView: NSView {
     var reviewedPDFDocument: PDFDocument?
     var isPDFExcerptLoading = false
     var pdfExcerptError: String?
+    /// A Word document's or deck's pages to mark up, laid out by Lasso's server; a PDF is marked on its own pages.
+    var markupPages: PDFDocument?
+    var isMarkupPagesLoading = false
+    var markupPagesError: String?
+    var onNeedsMarkupPages: (() -> Void)?
     var onCancel: (() -> Void)?
     var onCreate: ((ShareConfiguration) -> Void)?
 
@@ -795,6 +874,12 @@ final class ShareComposerView: NSView {
         didSet { if masks != oldValue { clearCopyConfirmation() } }
     }
     private var history = ShareMaskHistory()
+    private var markup = ShareMarkupSession() {
+        didSet {
+            pdfView.draftMark = markup.draft
+            if markup.marks != oldValue.marks { clearCopyConfirmation() }
+        }
+    }
     /// The masks when the drag or click being made began.
     private var gestureMasks: [String: ShareRedaction]?
     private var targets: [ShareHitTarget] = []
@@ -839,6 +924,9 @@ final class ShareComposerView: NSView {
         view.onTextSelection = { [weak self] in self?.selectPDFText($0) }
         view.onAreaSelection = { [weak self] in self?.selectPDFArea(page: $0, rect: $1) }
         view.onMaskClick = { [weak self] in self?.removePDFMask(page: $0, point: $1) ?? false }
+        view.onMarkBegin = { [weak self] in self?.beginMark(page: $0, at: $1) }
+        view.onMarkMove = { [weak self] in self?.moveMark(page: $0, to: $1) }
+        view.onMarkEnd = { [weak self] in self?.endMark() }
         addSubview(view)
         return view
     }()
@@ -901,13 +989,16 @@ final class ShareComposerView: NSView {
     private var sourceKind: ShareSourceKind { ShareSourceKind(filename: filename) }
     private var isCADModel: Bool { sourceKind == .cadModel }
     private var isPresentation: Bool { sourceKind == .presentation }
+    /// The pages a marked copy is drawn on.
+    private var markupDocument: PDFDocument? { isPDFSource ? loadedPDFDocument : markupPages }
 
     /// The scopes this source offers. A model's cited part, or a deck's cited
     /// slide, is offered while its preview loads, so the protective choice
     /// stays selected meanwhile.
     var scopes: [ShareAccessScope] {
         let cited = isPresentation ? preview?.slideNumber != nil : citedPart != nil
-        return ShareAccessScope.offered(for: sourceKind, hasCitedPart: cited || isLoading)
+        return ShareAccessScope.offered(for: sourceKind, hasCitedPart: cited || isLoading,
+                                        markable: ShareSourceKind.isMarkable(filename))
     }
 
     /// Once the preview shows the citation names no part, only what is offered stays chosen.
@@ -926,6 +1017,7 @@ final class ShareComposerView: NSView {
     private var canSubmit: Bool {
         guard !isCopying else { return false }
         if scope == .redacted { return !masks.isEmpty }
+        if scope == .marked { return !markup.marks.isEmpty && markupDocument != nil }
         if scope == .indexed && isPDFSource {
             return pdfExcerpt != nil && reviewedPDFDocument != nil && !isPDFExcerptLoading
         }
@@ -983,6 +1075,10 @@ final class ShareComposerView: NSView {
         masks.removeAll()
         history.clear()
         gestureMasks = nil
+        markup = ShareMarkupSession()
+        markupPages = nil
+        isMarkupPagesLoading = false
+        markupPagesError = nil
         citedPart = nil
         blurredMasks.removeAll()
         redactionDrag = nil
@@ -1016,6 +1112,7 @@ final class ShareComposerView: NSView {
 
     func beginCopy() {
         pdfView.cancelInteraction()
+        markup.cancel()
         copyState = .copying
         redactionDrag = nil
         drawingDrag = nil
@@ -1093,6 +1190,7 @@ final class ShareComposerView: NSView {
                                    isCADModel ? "The part, its feature marked"
                                    : isPresentation ? "This slide, without notes or comments" : "Share the matched context")
             case .redacted: return (scope, "Select & redact", "Hide source content")
+            case .marked: return (scope, "Mark up", "Pen, marker and highlighter")
             }
         }
         for (index, entry) in entries.enumerated() {
@@ -1120,11 +1218,14 @@ final class ShareComposerView: NSView {
         previewScroll.layer?.borderColor = NSColor.separatorColor.cgColor
         let x: CGFloat = 16
         let isPDF = isPDFSource
-        drawText(scope == .indexed ? (isPDF && isChoosingPDFExcerpt ? "Select excerpt" : "Recipient preview") : "Complete document",
+        drawText(scope == .indexed ? (isPDF && isChoosingPDFExcerpt ? "Select excerpt" : "Recipient preview")
+                 : scope == .marked ? (isPresentation ? "Slides to mark up" : "Pages to mark up") : "Complete document",
                  in: NSRect(x: x + 2, y: 108, width: 170, height: 16),
                  font: .systemFont(ofSize: 11, weight: .semibold), color: .secondaryLabelColor)
 
-        if scope == .redacted {
+        if scope == .marked {
+            drawMarkupPalette()
+        } else if scope == .redacted {
             drawSegmentedControl([("Blur", effect == .blur, blurEffectRect), ("Redact", effect == .blank, redactEffectRect)])
         } else {
             let badge = scope == .document ? "Original available" : "Original protected"
@@ -1145,7 +1246,8 @@ final class ShareComposerView: NSView {
                                   width: card.width - 26 - (isPDF && scope == .indexed && pdfExcerpt != nil ? 124 : 0), height: 17),
                  font: .systemFont(ofSize: 12.5, weight: .semibold), color: .labelColor)
         let drawing = fullDocument?.model != nil
-        let subtitle = scope == .redacted ? (drawing || isPDF ? "Drag over text or mark an area. Click a mask to remove it." : "Drag across cells or sections to blur or redact.") : scope == .indexed && isPDF
+        let subtitle = scope == .marked ? "Draw with the pen, marker or highlighter. The eraser takes a mark away."
+            : scope == .redacted ? (drawing || isPDF ? "Drag over text or mark an area. Click a mask to remove it." : "Drag across cells or sections to blur or redact.") : scope == .indexed && isPDF
             ? (isChoosingPDFExcerpt ? "Select the words, sentence, paragraph or area to share." : "Only the selected excerpt will be shared.") : scope == .indexed
             ? (citedPart.map(\.selectedLabel) ?? (preview?.location.isEmpty == false ? preview!.location : filename))
             : "Complete \(filename)"
@@ -1159,7 +1261,9 @@ final class ShareComposerView: NSView {
 
         let content = NSRect(x: card.minX + 13, y: card.minY + 55,
                              width: card.width - 26, height: card.height - 68)
-        if isPDF {
+        if scope == .marked {
+            drawMarkupContent(in: content)
+        } else if isPDF {
             drawPDFContent(in: content)
         } else if scope != .indexed {
             if isDocumentLoading {
@@ -1253,6 +1357,7 @@ final class ShareComposerView: NSView {
     }
 
     private func drawPDFContent(in rect: NSRect) {
+        pdfView.marks = []
         syncPDFMasks()
         if scope == .indexed && !isChoosingPDFExcerpt {
             if let reviewedPDFDocument {
@@ -1286,8 +1391,11 @@ final class ShareComposerView: NSView {
             }
         }
         let detail = scope == .indexed ? (isChoosingPDFExcerpt ? "Select text or mark an area · Scroll for more pages" : "Selected excerpt · Original page layout")
-            : scope == .redacted ? "\(masks.count) area\(masks.count == 1 ? "" : "s") hidden · Scroll for more pages" : "Original PDF layout · Scroll to read"
-        drawText("\(document.pageCount) \(document.pageCount == 1 ? "page" : "pages") · \(detail)",
+            : scope == .redacted ? "\(masks.count) area\(masks.count == 1 ? "" : "s") hidden · Scroll for more pages"
+            : scope == .marked ? "\(markup.marks.count) mark\(markup.marks.count == 1 ? "" : "s") · Scroll for more \(isPresentation ? "slides" : "pages")"
+            : "Original PDF layout · Scroll to read"
+        let unit = scope == .marked && isPresentation ? "slide" : "page"
+        drawText("\(document.pageCount) \(unit)\(document.pageCount == 1 ? "" : "s") · \(detail)",
                  in: NSRect(x: rect.minX + 2, y: rect.maxY - 15, width: rect.width - 4, height: 14),
                  font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
     }
@@ -1802,6 +1910,8 @@ final class ShareComposerView: NSView {
         case .indexed: detail = isCADModel ? "Only the cited part is published, not the model file."
             : isPresentation ? "Only this slide is published, without speaker notes or comments." : "Only indexed context is published."
         case .redacted: detail = masks.isEmpty ? "Select at least one area to redact." : "\(masks.count) area\(masks.count == 1 ? "" : "s") removed from the shared view."
+        case .marked: detail = markup.marks.isEmpty ? "Draw on the pages to mark them up."
+            : "A copy with \(markup.marks.count) mark\(markup.marks.count == 1 ? "" : "s") is shared, not the original."
         }
         drawSymbol("lock.shield", in: NSRect(x: 18, y: centerY - 8, width: 16, height: 16), fraction: 0.8)
         let availability = localOnly ? "Only on this Mac. Email recipients need hosted sharing." : detail
@@ -1865,6 +1975,7 @@ final class ShareComposerView: NSView {
                 isChoosingPDFExcerpt.toggle(); needsDisplay = true; return
             }
         }
+        if scope == .marked, choosePaletteItem(at: point) { return }
         for (index, offered) in scopes.enumerated() where scopeRect(index).contains(point) {
             scope = offered
             needsDisplay = true
@@ -1915,9 +2026,15 @@ final class ShareComposerView: NSView {
             needsDisplay = true
             return
         }
+        guard scope != .marked || !markup.marks.isEmpty else {
+            notice = "Draw on the document before creating the link."
+            needsDisplay = true
+            return
+        }
         let redactions = scope == .redacted ? Array(masks.values) : []
         onCreate?(ShareConfiguration(scope: scope, redactions: redactions,
-                                     excerpt: scope == .indexed ? pdfExcerpt : nil))
+                                     excerpt: scope == .indexed ? pdfExcerpt : nil,
+                                     markup: scope == .marked ? markup.marks : []))
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -1968,12 +2085,14 @@ final class ShareComposerView: NSView {
 
     /// ⌘Z: the masks as they were before the last drag or click.
     func undoMaskEdit() {
+        if scope == .marked { if !isCopying, markup.undo() { showMarks() }; return }
         guard readyForMaskStep(), let previous = history.undo(from: masks) else { return }
         showMaskStep(previous)
     }
 
     /// ⇧⌘Z: the edit ⌘Z last took back.
     func redoMaskEdit() {
+        if scope == .marked { if !isCopying, markup.redo() { showMarks() }; return }
         guard readyForMaskStep(), let next = history.redo(from: masks) else { return }
         showMaskStep(next)
     }
@@ -2557,3 +2676,203 @@ final class ShareComposerView: NSView {
     }
     #endif
 }
+
+// MARK: Marking up
+
+extension ShareComposerView {
+    private static let markHands: [(hand: ShareMarkupSession.Hand, title: String, width: CGFloat)] = [
+        (.tool(.pen), ShareMarkTool.pen.title, 50), (.tool(.marker), ShareMarkTool.marker.title, 64),
+        (.tool(.highlighter), ShareMarkTool.highlighter.title, 86), (.eraser, "Eraser", 62),
+    ]
+    private static let markColorSpacing: CGFloat = 24
+
+    private var markHandRects: [(hand: ShareMarkupSession.Hand, title: String, rect: NSRect)] {
+        var x = pdfTextModeRect.minX
+        return Self.markHands.map { item in
+            defer { x += item.width }
+            return (item.hand, item.title, NSRect(x: x, y: pdfTextModeRect.minY, width: item.width, height: pdfTextModeRect.height))
+        }
+    }
+
+    private func markColorRect(_ index: Int) -> NSRect {
+        let count = CGFloat(ShareMarkColor.allCases.count)
+        return NSRect(x: bounds.width - 16 - (count - CGFloat(index)) * Self.markColorSpacing + 2, y: 105, width: 20, height: 20)
+    }
+
+    /// How near the eraser must come to a stroke, in page space, so it feels the same at any zoom.
+    private var eraserReach: CGFloat { 5 / max(0.05, pdfView.scaleFactor) }
+
+    /// The tools, then the colours of the one in hand.
+    private func drawMarkupPalette() {
+        drawSegmentedControl(markHandRects.map { ($0.title, markup.hand == $0.hand, $0.rect) })
+        let chosen = markup.color
+        for (index, option) in ShareMarkColor.allCases.enumerated() {
+            let rect = markColorRect(index)
+            // The eraser has no colour; choosing one picks the pen back up.
+            let dot = NSBezierPath(ovalIn: rect.insetBy(dx: 3, dy: 3))
+            option.color.withAlphaComponent(chosen == nil ? 0.35 : 1).setFill()
+            dot.fill()
+            // Black stays visible on a dark panel.
+            NSColor.labelColor.withAlphaComponent(0.25).setStroke()
+            dot.lineWidth = 0.75
+            dot.stroke()
+            if chosen == option {
+                NSColor.labelColor.withAlphaComponent(0.55).setStroke()
+                let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.75, dy: 0.75))
+                ring.lineWidth = 1.5
+                ring.stroke()
+            }
+        }
+    }
+
+    private func choosePaletteItem(at point: NSPoint) -> Bool {
+        if let item = markHandRects.first(where: { $0.rect.contains(point) }) {
+            markup.hand = item.hand
+        } else if let index = ShareMarkColor.allCases.indices.first(where: { markColorRect($0).contains(point) }) {
+            markup.choose(ShareMarkColor.allCases[index])
+        } else {
+            return false
+        }
+        needsDisplay = true
+        return true
+    }
+
+    private func drawMarkupContent(in rect: NSRect) {
+        // A PDF's redaction masks belong to Select & redact, not to the marked copy.
+        if isPDFSource { syncPDFMasks() }
+        guard let document = markupDocument else {
+            let waiting = isPDFSource ? isDocumentLoading || isPDFLoading : markupPagesError == nil
+            drawCentered(waiting ? (isPresentation ? "Drawing the slides\u{2026}" : "Laying out the pages\u{2026}")
+                         : markupPagesError ?? "The pages could not be loaded. Reopen this source to try again.", in: rect)
+            return
+        }
+        pdfView.selectionMode = isCopying ? .read : .draw
+        pdfView.marks = markup.marks
+        drawFullPDF(document, page: isPDFSource ? fullDocument?.pdf?.pageNumber ?? 1 : preview?.slideNumber ?? 1, in: rect)
+    }
+
+    private func beginMark(page: PDFPage, at point: NSPoint) {
+        guard scope == .marked, !isCopying, let document = markupDocument else { return }
+        let started = markup.begin(page: document.index(for: page) + 1, at: point, crop: page.bounds(for: .cropBox),
+                                   reach: eraserReach)
+        notice = started ? nil : "This copy holds as many marks as it can. The eraser takes one away."
+        showMarks()
+    }
+
+    private func moveMark(page: PDFPage, to point: NSPoint) {
+        guard scope == .marked, let document = markupDocument else { return }
+        let count = markup.marks.count
+        markup.move(to: point, page: document.index(for: page) + 1, crop: page.bounds(for: .cropBox), reach: eraserReach)
+        pdfView.marks = markup.marks
+        if markup.marks.count != count { needsDisplay = true }
+    }
+
+    private func endMark() {
+        guard scope == .marked else { return }
+        markup.end()
+        showMarks()
+    }
+
+    private func showMarks() {
+        pdfView.marks = markup.marks
+        needsDisplay = true
+    }
+}
+
+#if BROWSER_GEOMETRY_TEST
+extension ShareComposerView {
+    /// Marks up a deck's pages with real mouse events: a pen stroke, a
+    /// highlighter stroke in another colour, the eraser, ⌘Z and ⇧⌘Z, then the
+    /// share it sends. `pages` is a page PDF from the server's /pages.
+    static func runMarkupRegression(pages: Data, screenshotPath: String? = nil) -> [String] {
+        let view = ShareComposerView(frame: NSRect(x: 0, y: 0, width: 760, height: 660))
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        var checks: [String] = []
+        func require(_ condition: @autoclosure () -> Bool, _ message: String) {
+            precondition(condition(), message)
+            checks.append(message)
+        }
+        func paint() {
+            view.layoutSubtreeIfNeeded()
+            if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) { view.cacheDisplay(in: view.bounds, to: bitmap) }
+        }
+        func mouse(_ type: NSEvent.EventType, at point: NSPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: view.pdfView.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        func drag(_ points: [NSPoint]) {
+            view.pdfView.mouseDown(with: mouse(.leftMouseDown, at: points[0]))
+            for point in points.dropFirst() { view.pdfView.mouseDragged(with: mouse(.leftMouseDragged, at: point)) }
+            view.pdfView.mouseUp(with: mouse(.leftMouseUp, at: points[points.count - 1]))
+        }
+        func capture(_ suffix: String) {
+            guard let screenshotPath, let bitmap = window.contentView?.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            window.contentView?.cacheDisplay(in: view.bounds, to: bitmap)
+            let stem = (screenshotPath as NSString).deletingPathExtension
+            try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(stem)\(suffix).png"))
+        }
+
+        view.reset(label: "Quarterly review", filename: "Quarterly-Review.pptx")
+        view.isLoading = false
+        view.isDocumentLoading = false
+        require(view.scopes == [.document, .marked], "A whole deck offers the deck itself or a marked-up copy")
+        var asked = 0
+        view.onNeedsMarkupPages = { asked += 1 }
+        view.scope = .marked
+        view.isMarkupPagesLoading = true
+        paint()
+        require(asked == 1 && view.pdfView.isHidden && !view.canSubmit, "Choosing Mark up asks once for the slides and waits for them")
+        view.markupPages = PDFDocument(data: pages)
+        view.isMarkupPagesLoading = false
+        paint()
+        require(!view.pdfView.isHidden && view.pdfView.selectionMode == .draw && view.pdfView.document === view.markupPages,
+                "The slides are shown to draw on")
+        let frame = view.pdfView.bounds
+        let left = NSPoint(x: frame.minX + frame.width * 0.3, y: frame.midY)
+        let right = NSPoint(x: frame.minX + frame.width * 0.6, y: frame.midY)
+        drag([left, NSPoint(x: (left.x + right.x) / 2, y: left.y + 30), right])
+        require(view.markup.marks.count == 1 && view.markup.marks[0].tool == .pen && view.markup.marks[0].points.count >= 3,
+                "Dragging across a slide draws a pen stroke on it")
+        require(view.canSubmit, "A marked copy can be shared once it has a mark")
+        guard let highlighter = view.markHandRects.first(where: { $0.hand == .tool(.highlighter) })?.rect,
+              let eraser = view.markHandRects.first(where: { $0.hand == .eraser })?.rect else {
+            preconditionFailure("The palette shows every tool")
+        }
+        view.mouseDown(with: NSEvent.mouseEvent(with: .leftMouseDown, location: view.convert(NSPoint(x: highlighter.midX, y: highlighter.midY), to: nil),
+                                                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                                                eventNumber: 0, clickCount: 1, pressure: 1)!)
+        let green = view.markColorRect(ShareMarkColor.allCases.firstIndex(of: .green)!)
+        require(view.choosePaletteItem(at: NSPoint(x: green.midX, y: green.midY)) && view.markup.color == .green,
+                "The palette picks the highlighter and gives it a colour")
+        drag([NSPoint(x: left.x, y: left.y - 60), NSPoint(x: right.x, y: right.y - 60)])
+        require(view.markup.marks.count == 2 && view.markup.marks[1].tool == .highlighter && view.markup.marks[1].color == .green,
+                "A highlighter stroke is drawn in its own colour")
+        paint()
+        capture("-drawn")
+        view.mouseDown(with: NSEvent.mouseEvent(with: .leftMouseDown, location: view.convert(NSPoint(x: eraser.midX, y: eraser.midY), to: nil),
+                                                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                                                eventNumber: 0, clickCount: 1, pressure: 1)!)
+        drag([NSPoint(x: right.x - 4, y: right.y - 60), NSPoint(x: right.x - 4, y: right.y - 50)])
+        require(view.markup.hand == .eraser && view.markup.marks.count == 1 && view.markup.marks[0].tool == .pen,
+                "The eraser takes away the stroke it touches")
+        view.undoMaskEdit()
+        require(view.markup.marks.count == 2, "Command+Z brings an erased stroke back")
+        view.redoMaskEdit()
+        require(view.markup.marks.count == 1, "Shift+Command+Z erases it again")
+        var sent: ShareConfiguration?
+        view.onCreate = { sent = $0 }
+        view.submit()
+        require(sent?.scope == .marked && sent?.markup.count == 1 && sent?.redactions.isEmpty == true
+                && (sent?.markup.first?.payload["points"] as? [Double])?.allSatisfy { (0...1).contains($0) } == true,
+                "The share carries the strokes on their page, from its top left")
+        view.scope = .document
+        paint()
+        require(view.pdfView.isHidden || view.pdfView.marks.isEmpty, "Marks are shown only while marking up")
+        capture("-final")
+        return checks
+    }
+}
+#endif

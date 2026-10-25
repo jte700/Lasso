@@ -7,6 +7,7 @@ import { correctedDocumentLabel } from '../dependencies/authors.js';
 import { shareExpiry } from './expiry.js';
 import { isCodePath } from '../history/file-types.js';
 import { isPresentationPath } from '../dependencies/presentation-extraction.js';
+import { isMarkablePath, normalizeMarkup } from './markup.js';
 
 const MIME_TYPES = {
   '.pdf': 'application/pdf',
@@ -74,7 +75,7 @@ export class ObjectShareService {
    * recipient always sees the source as it was at the moment of sharing.
    */
   createShare({ projectId, objectId, versionId, actor, expiresAt = null,
-    accessScope = "DOCUMENT", redactions = [], excerpt = null }) {
+    accessScope = "DOCUMENT", redactions = [], excerpt = null, markup = [] }) {
     if (!projectId) throw new HttpError(400, 'A project is required to share a source.');
     if (!objectId) throw new HttpError(400, 'An indexed object is required to share a source.');
     const normalizedScope = normalizeShareScope(accessScope);
@@ -86,6 +87,8 @@ export class ObjectShareService {
     const offered = offeredShareScopes(version.path, version.anchor_json ? JSON.parse(version.anchor_json) : null);
     if (!offered.includes(normalizedScope)) throw new HttpError(422, scopeRefusal(version.path, normalizedScope));
     const normalizedRedactions = normalizeRedactions(redactions, normalizedScope);
+    // A marked copy keeps its strokes where a redacted one keeps its masks.
+    const normalizedMarkup = normalizeMarkup(markup, normalizedScope);
     const normalizedExcerpt = normalizePdfExcerpt(excerpt, normalizedScope);
     const isDrawing = /\.(?:ifc|dxf)$/i.test(version.path ?? '');
     const isPdf = /\.pdf$/i.test(version.path ?? '');
@@ -106,7 +109,7 @@ export class ObjectShareService {
     // Markdown and XML text redactions address structured sections. The layout
     // is recorded so the stored indexes cannot drift to a different segmentation.
     const layout = fullTextLayout(version.path);
-    let storedRedactions = layout
+    let storedRedactions = normalizedScope === 'MARKED' ? normalizedMarkup : layout
       ? normalizedRedactions.map(entry => entry.kind === 'BLOCK' ? { ...entry, layout } : entry)
       : normalizedRedactions;
     // Cells of a semicolon file are addressed in its semicolon columns.
@@ -350,24 +353,27 @@ export class ObjectShareService {
     }));
   }
 }
-const SHARE_SCOPES = new Set(['DOCUMENT', 'INDEXED', 'REDACTED']);
+const SHARE_SCOPES = new Set(['DOCUMENT', 'INDEXED', 'REDACTED', 'MARKED']);
 
 /**
  * The scopes a source can be shared with. Code is never shared with a link.
  * A deck is shared whole or as one slide, the cited one, and has nothing to
- * redact; its whole-deck citation names no slide.
+ * redact; its whole-deck citation names no slide. PDFs, Word documents and
+ * decks can also be shared as a copy with markings drawn on its pages.
  * @param {string} filePath
  * @param {object|null} anchor the cited object's anchor
  * @returns {string[]}
  */
 export function offeredShareScopes(filePath, anchor = null) {
   if (isCodePath(filePath)) return [];
-  if (isPresentationPath(filePath)) return Number.isInteger(anchor?.slideNumber) ? ['DOCUMENT', 'INDEXED'] : ['DOCUMENT'];
-  return [...SHARE_SCOPES];
+  const marked = isMarkablePath(filePath) ? ['MARKED'] : [];
+  if (isPresentationPath(filePath)) return [...(Number.isInteger(anchor?.slideNumber) ? ['DOCUMENT', 'INDEXED'] : ['DOCUMENT']), ...marked];
+  return ['DOCUMENT', 'INDEXED', 'REDACTED', ...marked];
 }
 
 function scopeRefusal(filePath, scope) {
   if (isCodePath(filePath)) return 'Lasso doesn’t make share links for code files. Send a copy of the file instead.';
+  if (scope === 'MARKED') return 'Only PDFs, Word documents and presentations can be shared with markings.';
   if (scope === 'REDACTED') return 'Presentations are shared whole or one slide at a time; there is nothing to redact.';
   return 'This citation names no slide. Share the whole presentation, or cite a slide to share only that slide.';
 }

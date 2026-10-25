@@ -30,6 +30,7 @@ enum ShareClient {
         payload["accessScope"] = configuration.scope.rawValue
         payload["redactions"] = configuration.redactions.map(\.payload)
         if let excerpt = configuration.excerpt { payload["excerpt"] = excerpt.payload }
+        if configuration.scope == .marked { payload["markup"] = configuration.markup.map(\.payload) }
         request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
 
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -225,14 +226,18 @@ enum ShareAccessScope: String {
     case document = "DOCUMENT"
     case indexed = "INDEXED"
     case redacted = "REDACTED"
+    /// A copy of the pages with pen, marker and highlighter strokes on them.
+    case marked = "MARKED"
 
     /// A 3D CAD model has no text to redact. It is shared whole, or as the
     /// cited part with its feature marked when the citation names one part.
     /// A presentation is the same: the whole deck, or the slide the citation
-    /// is on, which `hasCitedPart` then means.
-    static func offered(for kind: ShareSourceKind, hasCitedPart: Bool) -> [ShareAccessScope] {
-        guard kind != .other else { return [.document, .indexed, .redacted] }
-        return hasCitedPart ? [.document, .indexed] : [.document]
+    /// is on, which `hasCitedPart` then means. A PDF, Word document or deck
+    /// can also be shared as a copy with markings drawn on its pages.
+    static func offered(for kind: ShareSourceKind, hasCitedPart: Bool, markable: Bool = false) -> [ShareAccessScope] {
+        let marked: [ShareAccessScope] = markable ? [.marked] : []
+        guard kind != .other else { return [.document, .indexed, .redacted] + marked }
+        return (hasCitedPart ? [.document, .indexed] : [.document]) + marked
     }
 }
 
@@ -246,6 +251,11 @@ enum ShareSourceKind: Equatable {
         case "pptx": self = .presentation
         default: self = .other
         }
+    }
+
+    /// PDFs, Word documents and decks are shown as pages to draw on.
+    static func isMarkable(_ filename: String) -> Bool {
+        ["pdf", "docx", "pptx"].contains((filename as NSString).pathExtension.lowercased())
     }
 }
 
@@ -417,34 +427,34 @@ struct ShareRedactionDrag {
     }
 }
 
-/// ⌘Z takes back the last mask edit, a whole drag or click at a time, and
-/// ⇧⌘Z puts it back. Every document kind keeps its masks in one dictionary,
-/// so one history serves cells, sections, PDF areas and drawing regions.
-struct ShareMaskHistory {
-    typealias Masks = [String: ShareRedaction]
-    private static let limit = 100
-    private var undone: [Masks] = []
-    private var redone: [Masks] = []
+/// ⌘Z takes back the last mask or marking edit, a whole drag or click at a
+/// time, and ⇧⌘Z puts it back. Every document kind keeps its masks in one
+/// dictionary, so one history serves cells, sections, PDF areas and drawing
+/// regions; a marked copy's strokes keep a history of their own.
+struct ShareEditHistory<Value: Equatable> {
+    private static var limit: Int { 100 }
+    private var undone: [Value] = []
+    private var redone: [Value] = []
 
     var canUndo: Bool { !undone.isEmpty }
     var canRedo: Bool { !redone.isEmpty }
 
     /// An edit that changed nothing is not a step.
-    mutating func record(from before: Masks, to after: Masks) {
+    mutating func record(from before: Value, to after: Value) {
         guard before != after else { return }
         undone.append(before)
         if undone.count > Self.limit { undone.removeFirst() }
         redone.removeAll()
     }
 
-    /// The masks before the last edit, or nil with nothing to take back.
-    mutating func undo(from current: Masks) -> Masks? {
+    /// The state before the last edit, or nil with nothing to take back.
+    mutating func undo(from current: Value) -> Value? {
         guard let previous = undone.popLast() else { return nil }
         redone.append(current)
         return previous
     }
 
-    mutating func redo(from current: Masks) -> Masks? {
+    mutating func redo(from current: Value) -> Value? {
         guard let next = redone.popLast() else { return nil }
         undone.append(current)
         return next
@@ -456,10 +466,13 @@ struct ShareMaskHistory {
     }
 }
 
+typealias ShareMaskHistory = ShareEditHistory<[String: ShareRedaction]>
+
 struct ShareConfiguration {
     let scope: ShareAccessScope
     let redactions: [ShareRedaction]
     var excerpt: SharePDFExcerpt? = nil
+    var markup: [ShareMarkStroke] = []
 
     static let entireDocument = ShareConfiguration(scope: .document, redactions: [])
 }

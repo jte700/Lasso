@@ -475,6 +475,46 @@ enum RanchOrder: String, CaseIterable, Identifiable {
     }
 }
 
+/// Directories pinned from their right-click menu sit at the top of their
+/// section, in the chosen directory order among themselves.
+enum RanchPins {
+    static let key = "RanchPinnedDirectories"
+
+    static func saved(defaults: UserDefaults = .standard) -> Set<String> {
+        Set(defaults.stringArray(forKey: key) ?? [])
+    }
+
+    static func save(_ pinned: Set<String>, defaults: UserDefaults = .standard) {
+        defaults.set(pinned.sorted(), forKey: key)
+    }
+
+    static func ordered(_ directories: [RanchDirectory], pinned: Set<String>) -> [RanchDirectory] {
+        directories.filter { pinned.contains($0.id) } + directories.filter { !pinned.contains($0.id) }
+    }
+}
+
+/// The directories the network showed before each click into another, so
+/// Back retraces them; nil is every directory.
+struct RanchNetworkTrail: Equatable {
+    private static let limit = 50
+    private(set) var visited: [String?] = []
+
+    var canGoBack: Bool { !visited.isEmpty }
+
+    mutating func leave(_ shown: String?, for next: String?) {
+        guard shown != next else { return }
+        visited.append(shown)
+        if visited.count > Self.limit { visited.removeFirst() }
+    }
+
+    /// The view before the current one: the last one left, or every directory.
+    mutating func back() -> String? {
+        visited.popLast() ?? nil
+    }
+
+    mutating func clear() { visited.removeAll() }
+}
+
 /// Grey for a file nobody has used, through to green for the most used.
 enum RanchActivityColor {
     private static let hue: CGFloat = 0.37

@@ -1,0 +1,183 @@
+import Foundation
+import AppKit
+import PDFKit
+import QuickLookThumbnailing
+
+// A Word document or a deck as PDF pages to draw on, made without opening
+// Word, PowerPoint or Keynote.
+//
+//   render-document-pages docx <input.docx> <output.pdf>
+//   render-document-pages slides <output.pdf> <slide-1.pptx> <slide-2.pptx> ...
+//
+// A Word document is laid out on its own paper and margins with AppKit's
+// reader. Each slide arrives as a deck of its own, which Quick Look draws as
+// it draws the first slide of any deck.
+func fail(_ message: String) -> Never {
+    FileHandle.standardError.write(Data(message.utf8))
+    exit(2)
+}
+
+let maxPages = 1000
+let letter = CGSize(width: 612, height: 792)
+let defaultMargin: CGFloat = 72
+/// Slides are pages this wide, in points, at their own shape.
+let slideWidth: CGFloat = 960
+let slidePixels: CGFloat = 1920
+let slideTimeout: TimeInterval = 20
+/// Quick Look frames a slide's picture with a band on two sides; no more than this much is trimmed.
+let maxBand: CGFloat = 0.06
+let jpegQuality = 0.85
+
+func pdfContext(_ data: NSMutableData) -> CGContext {
+    var box = CGRect(origin: .zero, size: letter)
+    guard let consumer = CGDataConsumer(data: data as CFMutableData),
+          let context = CGContext(consumer: consumer, mediaBox: &box, [kCGPDFContextCreator as String: "Lasso"] as CFDictionary) else {
+        fail("The pages could not be started.")
+    }
+    return context
+}
+
+func write(_ data: NSMutableData, to path: String) {
+    guard (data as Data).count > 0, (try? (data as Data).write(to: URL(fileURLWithPath: path))) != nil else {
+        fail("The pages could not be saved.")
+    }
+}
+
+// MARK: Word
+
+func wordPages(input: String, output: String) {
+    var attributes: NSDictionary? = nil
+    guard let text = try? NSAttributedString(url: URL(fileURLWithPath: input),
+                                             options: [.documentType: NSAttributedString.DocumentType.officeOpenXML],
+                                             documentAttributes: &attributes) else {
+        fail("The Word document could not be read.")
+    }
+    let documentAttributes = attributes as? [NSAttributedString.DocumentAttributeKey: Any] ?? [:]
+    let paper = (documentAttributes[.paperSize] as? NSSize).flatMap { $0.width > 100 && $0.height > 100 ? $0 : nil } ?? letter
+    func margin(_ key: NSAttributedString.DocumentAttributeKey) -> CGFloat {
+        let value = (documentAttributes[key] as? NSNumber).map { CGFloat($0.doubleValue) } ?? defaultMargin
+        return min(max(0, value), paper.width / 3)
+    }
+    let left = margin(.leftMargin), right = margin(.rightMargin), top = margin(.topMargin), bottom = margin(.bottomMargin)
+    let storage = NSTextStorage(attributedString: text)
+    let layout = NSLayoutManager()
+    storage.addLayoutManager(layout)
+    var containers: [NSTextContainer] = []
+    repeat {
+        let container = NSTextContainer(size: CGSize(width: paper.width - left - right, height: paper.height - top - bottom))
+        layout.addTextContainer(container)
+        containers.append(container)
+    } while NSMaxRange(layout.glyphRange(for: containers.last!)) < layout.numberOfGlyphs && containers.count < maxPages
+
+    let data = NSMutableData()
+    let context = pdfContext(data)
+    var box = CGRect(origin: .zero, size: paper)
+    for container in containers {
+        context.beginPage(mediaBox: &box)
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(box)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        context.translateBy(x: 0, y: paper.height)
+        context.scaleBy(x: 1, y: -1)
+        let range = layout.glyphRange(for: container)
+        layout.drawBackground(forGlyphRange: range, at: CGPoint(x: left, y: top))
+        layout.drawGlyphs(forGlyphRange: range, at: CGPoint(x: left, y: top))
+        NSGraphicsContext.restoreGraphicsState()
+        context.endPage()
+    }
+    context.closePDF()
+    write(data, to: output)
+}
+
+// MARK: Slides
+
+func thumbnail(of path: String) -> CGImage? {
+    let request = QLThumbnailGenerator.Request(fileAt: URL(fileURLWithPath: path),
+                                               size: CGSize(width: slidePixels, height: slidePixels),
+                                               scale: 1, representationTypes: .thumbnail)
+    var image: CGImage?
+    let done = DispatchSemaphore(value: 0)
+    QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { representation, _ in
+        image = representation?.cgImage
+        done.signal()
+    }
+    return done.wait(timeout: .now() + slideTimeout) == .timedOut ? nil : image
+}
+
+/// The slide without the band Quick Look draws along its right and bottom edges.
+func trimmed(_ image: CGImage) -> CGImage {
+    let width = image.width, height = image.height
+    guard width > 8, height > 8,
+          let bitmap = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+          let pixels = bitmap.data?.assumingMemoryBound(to: UInt8.self) else { return image }
+    bitmap.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    // Rows run top down in the bitmap's memory.
+    func pixel(_ x: Int, _ y: Int) -> (Int, Int, Int) {
+        let offset = (y * width + x) * 4
+        return (Int(pixels[offset]), Int(pixels[offset + 1]), Int(pixels[offset + 2]))
+    }
+    let band = pixel(width - 1, height - 1)
+    func matches(_ value: (Int, Int, Int)) -> Bool {
+        abs(value.0 - band.0) <= 6 && abs(value.1 - band.1) <= 6 && abs(value.2 - band.2) <= 6
+    }
+    var right = width
+    while right > Int(CGFloat(width) * (1 - maxBand)), (0..<height).allSatisfy({ matches(pixel(right - 1, $0)) }) { right -= 1 }
+    var bottom = height
+    while bottom > Int(CGFloat(height) * (1 - maxBand)), (0..<right).allSatisfy({ matches(pixel($0, bottom - 1)) }) { bottom -= 1 }
+    // A band as wide as the most trimmed is the slide itself, not a frame.
+    if right == width && bottom == height { return image }
+    if right <= Int(CGFloat(width) * (1 - maxBand)) || bottom <= Int(CGFloat(height) * (1 - maxBand)) { return image }
+    return image.cropping(to: CGRect(x: 0, y: 0, width: right, height: bottom)) ?? image
+}
+
+/// The picture as JPEG, which a PDF keeps compressed; drawn as it is, a long deck would be hundreds of megabytes.
+func compressed(_ image: CGImage) -> CGImage {
+    guard let jpeg = NSBitmapImageRep(cgImage: image).representation(using: .jpeg, properties: [.compressionFactor: jpegQuality]),
+          let provider = CGDataProvider(data: jpeg as CFData),
+          let decoded = CGImage(jpegDataProviderSource: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) else {
+        return image
+    }
+    return decoded
+}
+
+func slidePages(output: String, slides: [String]) {
+    guard !slides.isEmpty, slides.count <= maxPages else { fail("The presentation has no slides to show.") }
+    let data = NSMutableData()
+    let context = pdfContext(data)
+    var shape = CGSize(width: 16, height: 9)
+    var drawn = 0
+    for (index, path) in slides.enumerated() {
+        let image = thumbnail(of: path).map(trimmed).map(compressed)
+        if let image { shape = CGSize(width: image.width, height: image.height) }
+        var box = CGRect(x: 0, y: 0, width: slideWidth, height: (slideWidth * shape.height / shape.width).rounded())
+        context.beginPage(mediaBox: &box)
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(box)
+        if let image {
+            context.interpolationQuality = .high
+            context.draw(image, in: box)
+            drawn += 1
+        } else {
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            let note = NSAttributedString(string: "Slide \(index + 1) couldn\u{2019}t be drawn.", attributes: [
+                .font: NSFont.systemFont(ofSize: 22), .foregroundColor: NSColor(white: 0.45, alpha: 1)])
+            let size = note.size()
+            note.draw(at: CGPoint(x: (box.width - size.width) / 2, y: (box.height - size.height) / 2))
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        context.endPage()
+    }
+    context.closePDF()
+    guard drawn > 0 else { fail("Quick Look couldn\u{2019}t draw the slides.") }
+    write(data, to: output)
+}
+
+let args = CommandLine.arguments
+switch (args.count > 1 ? args[1] : "") {
+case "docx" where args.count == 4: wordPages(input: args[2], output: args[3])
+case "slides" where args.count >= 4: slidePages(output: args[2], slides: Array(args[3...]))
+default: fail("Usage: render-document-pages docx <input> <output> | slides <output> <slide>...")
+}
