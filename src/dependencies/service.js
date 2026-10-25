@@ -38,7 +38,8 @@ import { fileReferenceMatch, isWholeFile, typedAsWritten } from './file-referenc
 import { fieldCue, recordFields } from './record-fields.js';
 import { presentationOutline, presentationPlainText, readPresentation, slideAtLine } from './presentation-extraction.js';
 import {
-  MAX_CODE_LINES, codeOfLines, fileLines, fileNameBefore, lineMentionAtEnd, lineMentionBeforeName, linesLabel,
+  MAX_CODE_LINES, codeOfLines, codeOnOwnLines, fileLines, fileNameBefore, lineMentionAtEnd, lineMentionBeforeName,
+  linesLabel,
 } from './code-lines.js';
 import { currentFileType, isCodePath, isCodeType } from '../history/file-types.js';
 
@@ -3733,9 +3734,9 @@ export class PredictiveProvenanceService {
       .find((object) => object.path === file.path && object.metadata.codeFile) ?? null;
     const result = (completions, notice = null) => ({ dependencyId: named.dependency?.id ?? null,
       source: sourceObject ?? completions[0]?.dependencyCandidate ?? null, completions, notice,
-      heading: `${linesLabel(first, last)} of ${fileName}` });
-    // "lines 10 through 2" is still being typed: nothing yet, and nothing else either.
-    if (last < first) return sourceObject ? result([]) : null;
+      heading: `${linesLabel(first, last ?? first)} of ${fileName}` });
+    // "lines 10 through" or "lines 10 through 2" is still being typed: nothing yet, and nothing else either.
+    if (named.pending || last < first) return sourceObject ? result([]) : null;
     const lines = fileLines(this.timeline.blobs.get(file.contentHash)?.toString('utf8') ?? '');
     if (last > lines.length) {
       return sourceObject ? result([], `${fileName} has ${lines.length} line${lines.length === 1 ? '' : 's'}.`) : null;
@@ -3752,11 +3753,12 @@ export class PredictiveProvenanceService {
     if (!object) return null;
     const code = object.valueText;
     const block = first !== last;
-    const startsLine = /(?:^|\n)$/.test(String(input.text ?? '').slice(0, cursor));
     const firstLine = code.split('\n').find((line) => line.trim()) ?? code;
     return result([{
       id: `${object.id}:lines`,
-      replacementText: block && !startsLine ? `\n${code}` : code,
+      replacementText: block ? codeOnOwnLines(code, String(input.text ?? '').slice(0, cursor)) : code,
+      // Typed key by key, code would meet the host's auto-indent, closing brackets and smart quotes.
+      verbatim: true,
       label: block ? `${firstLine.trim()} \u2026` : code,
       detail: block ? `${last - first + 1} lines` : '',
       category: 'Code',

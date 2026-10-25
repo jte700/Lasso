@@ -38,6 +38,9 @@ struct AssistSuggestion {
     var shareable = true
     /// It has values below it, such as a part's measurements, that fn+Right narrows the card to.
     var narrowable = false
+    /// Code: inserted exactly as written. Its letters are never re-cased, and
+    /// where the host ignores Accessibility writes it is pasted, not typed.
+    var verbatim = false
 
     var isShareable: Bool { objectId != nil && shareable }
 }
@@ -215,16 +218,21 @@ enum AccessibilityReader {
         return nil
     }
 
-    static func focusedContext(allowSelection: Bool = false) -> CaretContext? {
+    /// `extending` widens the window by that many characters, so an
+    /// insertion longer than the usual window reads back whole, with the
+    /// text before it.
+    static func focusedContext(allowSelection: Bool = false, extending extra: Int = 0) -> CaretContext? {
         guard let (field, _) = focusedElement() else {
             return nil
         }
-        return context(of: field, allowSelection: allowSelection)
+        return context(of: field, allowSelection: allowSelection, extending: extra)
     }
 
     /// Read a known editor directly, whichever app is frontmost. Checks made
     /// after an edit use this so switching apps does not hide what landed.
-    static func context(of field: AXUIElement, allowSelection: Bool = false) -> CaretContext? {
+    static func context(of field: AXUIElement, allowSelection: Bool = false,
+                        extending extra: Int = 0) -> CaretContext? {
+        let reach = maxContext + max(0, extra)
         var pid: pid_t = 0
         AXUIElementGetPid(field, &pid)
         AXUIElementSetMessagingTimeout(field, 0.4)
@@ -257,7 +265,7 @@ enum AccessibilityReader {
         // Preferred: ask for just the span before the caret. Works in apps that
         // never expose a whole AXValue (Word, Pages, large documents).
         if caret >= 0 {
-            let start = max(0, caret - maxContext)
+            let start = max(0, caret - reach)
             var span = CFRange(location: start, length: caret - start)
             if span.length > 0, let axSpan = AXValueCreate(.cfRange, &span) {
                 var text: CFTypeRef?
@@ -274,7 +282,7 @@ enum AccessibilityReader {
         if window == nil, let full = attribute(field, kAXValueAttribute as String) as? String {
             let utf16 = Array(full.utf16)
             let position = caret >= 0 ? min(caret, utf16.count) : utf16.count
-            let start = max(0, position - maxContext)
+            let start = max(0, position - reach)
             if start < position {
                 window = String(decoding: utf16[start..<position], as: UTF16.self)
                 windowStart = start
@@ -294,7 +302,7 @@ enum AccessibilityReader {
         // where the character-range path already produced text. Text is only
         // fetched through markers when the range path had none.
         if window == nil || rect == nil {
-            if let reading = WebTextReader.read(from: field, includeText: window == nil) {
+            if let reading = WebTextReader.read(from: field, limit: reach, includeText: window == nil) {
                 if window == nil, let markerText = reading.textBeforeCaret {
                     window = markerText
                     windowStart = reading.textWindowStart ?? -1
@@ -471,7 +479,7 @@ enum AccessibilityReader {
 
     /// Accessibility queue only, where `completion` is called too.
     static func replace(length: Int, at caret: Int, with text: String, in element: AXUIElement,
-                        expected: CaretContext, expectedPrefix: String,
+                        expected: CaretContext, expectedPrefix: String, verbatim: Bool = false,
                         completion: ((Bool) -> Void)? = nil) {
         guard let initial = focusedContext(), CFEqual(initial.element, element),
               initial.windowStart == expected.windowStart, initial.absoluteCaret == caret,
@@ -515,6 +523,16 @@ enum AccessibilityReader {
             }
             // A live selection already covers the partial word.
             SyntheticKeyboard.deleteBackwards(selectedRange ? 0 : expectedPrefix.count)
+            if verbatim || !SyntheticKeyboard.canType(text) {
+                // Typed, code would meet the host's auto-indent, closing brackets
+                // and smart quotes, and line breaks arrive out of order or send
+                // a chat message.
+                RichTextInserter.pastePlainText(text)
+                AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.14) {
+                    RichTextInserter.verifyEventually(verify: { landed(text, in: element) }) { completion?($0) }
+                }
+                return
+            }
             SyntheticKeyboard.type(text)
             // Confirm the typed result rather than assuming it arrived.
             AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.14) {
@@ -552,7 +570,8 @@ enum AccessibilityReader {
         AccessibilityWork.queue.asyncAfter(deadline: .now() + (wrote ? 0.12 : 0.05)) {
             if reverted() { completion(true); return }
             // Type it only over the untouched insertion, never over a late write.
-            guard let current = focusedContext(allowSelection: true), CFEqual(current.element, element),
+            guard let current = focusedContext(allowSelection: true, extending: plan.range.count),
+                  CFEqual(current.element, element),
                   CompletionTransaction.canRetry(before: before,
                     current: CompletionSnapshot(documentStart: current.windowStart, text: Array(current.text.utf16)),
                     selectionLength: current.selectionLength, expectedPrefix: plan.expectedPrefix,
@@ -597,7 +616,7 @@ enum AccessibilityReader {
     /// True when the text now sits immediately before the caret.
     static func landed(_ text: String, in element: AXUIElement) -> Bool {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let context = focusedContext(), context.element == element else { return false }
+              let context = focusedContext(extending: text.utf16.count), context.element == element else { return false }
         return CompletionTransaction.insertionIsAtCaret(text, in: context.text)
     }
 }
@@ -2271,7 +2290,8 @@ final class GlobalAssistant {
                     rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String,
                     previewText: entry["sourceSentence"] as? String ?? insert,
                     shareable: candidate["shareable"] as? Bool ?? true,
-                    narrowable: candidate["narrowable"] as? Bool == true))
+                    narrowable: candidate["narrowable"] as? Bool == true,
+                    verbatim: entry["verbatim"] as? Bool == true))
             }
         }
 
@@ -3313,9 +3333,11 @@ final class GlobalAssistant {
         let window = Array(context.text.utf16)
         // The captured window ends at the caret, so the caret is its length.
         let caret = window.count
-        let cased = Self.matchCasing(of: suggestion.insertText,
-                                     replacing: suggestion.replacement?.expectedText ?? Self.trailingWord(window),
-                                     precededBy: window, upTo: suggestion.replacement?.start ?? window.count)
+        // Code keeps its letters as written.
+        let cased = suggestion.verbatim ? suggestion.insertText
+            : Self.matchCasing(of: suggestion.insertText,
+                               replacing: suggestion.replacement?.expectedText ?? Self.trailingWord(window),
+                               precededBy: window, upTo: suggestion.replacement?.start ?? window.count)
         return CompletionTransaction.plan(document: window, caret: caret, insertText: cased,
                                           replacement: suggestion.replacement,
                                           separateInsertion: !suggestion.sentenceContinuation)
@@ -3375,7 +3397,8 @@ final class GlobalAssistant {
         AccessibilityWork.queue.async { [weak self] in
             AccessibilityReader.replace(length: plan.range.count, at: context.absoluteCaret,
                                         with: plan.insertText, in: element, expected: fresh,
-                                        expectedPrefix: plan.expectedPrefix) { applied in
+                                        expectedPrefix: plan.expectedPrefix,
+                                        verbatim: suggestion.verbatim) { applied in
                 // Something may have been written, so this reports even if a
                 // hide or new typing happened meanwhile.
                 let check = Self.checkInsertion(plan: plan, before: beforeSnapshot, element: element, applied: applied)
@@ -3399,7 +3422,8 @@ final class GlobalAssistant {
     private static func checkInsertion(plan: CompletionPlan, before: CompletionSnapshot,
                                        element: AXUIElement, applied: Bool) -> InsertionCheck {
         guard applied else { return .notApplied }
-        guard let after = AccessibilityReader.focusedContext(), after.element == element else { return .hostLost }
+        guard let after = AccessibilityReader.focusedContext(extending: plan.insertText.utf16.count),
+              after.element == element else { return .hostLost }
         let afterSnapshot = CompletionSnapshot(documentStart: after.windowStart, text: Array(after.text.utf16))
         switch CompletionTransaction.verify(before: before, after: afterSnapshot, plan: plan) {
         case .failure(let failure): return .failed(failure)
@@ -3653,7 +3677,8 @@ final class GlobalAssistant {
         hide()
         isInserting = true
         AccessibilityWork.queue.async { [weak self] in
-            guard let fresh = AccessibilityReader.focusedContext(), CFEqual(fresh.element, insertion.element),
+            guard let fresh = AccessibilityReader.focusedContext(extending: insertion.inserted.utf16.count),
+                  CFEqual(fresh.element, insertion.element),
                   let plan = insertion.revertPlan(windowStart: fresh.windowStart, text: Array(fresh.text.utf16),
                                                   caret: fresh.absoluteCaret) else {
                 SyntheticKeyboard.undo()

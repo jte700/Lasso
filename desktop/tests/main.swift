@@ -966,6 +966,11 @@ do {
           "does not mistake an older overlapping value for a new insertion")
     check(CompletionTransaction.insertionIsAtCaret("40", in: "An earlier value was 400, now 40"),
           "recognizes the value only when it ends at the caret")
+    let code = "\nif record is None:\n    return 404"
+    check(CompletionTransaction.insertionIsAtCaret(code, in: "routes.py lines 9-10\rif record is None:\u{2029}    return 404"),
+          "code lands in a host that reports its line breaks as carriage returns or paragraph separators")
+    check(!CompletionTransaction.insertionIsAtCaret(code, in: "routes.py lines 9-10 if record is None:     return 404"),
+          "a line break is still not a space")
 
     let alreadyTyped = accept("The prior-period value was 310", insert: "310")
     check(alreadyTyped.after == "The prior-period value was 310",
@@ -2436,6 +2441,9 @@ let accented = String(repeating: "e\u{301}", count: 12) + "👩‍🔬 Café"
 let accentedChunks = accented.chunkedForTyping(16)
 check(accentedChunks.allSatisfy { $0.utf16.count <= 16 }, "every typing chunk fits the per-event UTF-16 limit")
 check(accentedChunks.joined() == accented, "chunking keeps decomposed accents and emoji intact")
+check(SyntheticKeyboard.canType("office supplies are up 4%"), "a phrase is typed where the host ignores Accessibility writes")
+check(["\n    allowed = [", "range(31)]\n", "a\r\nb", "one\u{2028}two"].allSatisfy { !SyntheticKeyboard.canType($0) },
+      "text with a line break is pasted, never typed: typed line breaks arrived out of order in the Claude app")
 check(accentedChunks.allSatisfy { $0.unicodeScalars.first?.properties.generalCategory != .nonspacingMark },
       "a chunk never begins with a detached combining accent")
 check("Facilities".chunkedForTyping(16) == ["Facilities"], "short text is typed as one event")
