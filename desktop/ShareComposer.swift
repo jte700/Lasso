@@ -113,8 +113,8 @@ final class ShareComposerController: NSObject {
         view.moveScope(delta)
     }
 
-    func undoRedaction() { if isVisible { view.undoMaskEdit() } }
-    func redoRedaction() { if isVisible { view.redoMaskEdit() } }
+    func undoEdit() { if isVisible { view.undoEdit() } }
+    func redoEdit() { if isVisible { view.redoEdit() } }
 
     func cancel() {
         hide()
@@ -372,7 +372,9 @@ final class ShareComposerController: NSObject {
                 (200..<300).contains(response.statusCode) ? data.flatMap(PDFDocument.init(data:)) : nil
             }
             DispatchQueue.main.async {
-                guard let self, token == self.generation, reviewToken == self.pdfReviewGeneration else { return }
+                // ⌘Z may have taken the excerpt back while it was being prepared.
+                guard let self, token == self.generation, reviewToken == self.pdfReviewGeneration,
+                      self.view.pdfExcerpt == excerpt else { return }
                 self.view.reviewedPDFDocument = document
                 self.view.isPDFExcerptLoading = false
                 self.view.pdfExcerptError = document == nil ? "The excerpt preview could not be prepared. Select the passage again." : nil
@@ -874,6 +876,8 @@ final class ShareComposerView: NSView {
         didSet { if masks != oldValue { clearCopyConfirmation() } }
     }
     private var history = ShareMaskHistory()
+    /// Each passage or area chosen as a PDF's cited part, for ⌘Z.
+    private var excerptHistory = ShareEditHistory<SharePDFExcerpt?>()
     private var markup = ShareMarkupSession() {
         didSet {
             pdfView.draftMark = markup.draft
@@ -907,7 +911,7 @@ final class ShareComposerView: NSView {
     private var pdfSelectionMode: ShareInteractivePDFView.SelectionMode = .text {
         didSet { if oldValue != pdfSelectionMode { pdfView.cancelInteraction() } }
     }
-    private var pdfExcerpt: SharePDFExcerpt?
+    private(set) var pdfExcerpt: SharePDFExcerpt?
     private var isChoosingPDFExcerpt = true
     private var initializedPDFExcerpt = false
     private var pdfMaskLayoutKey = ""
@@ -1074,6 +1078,7 @@ final class ShareComposerView: NSView {
         modelDrag = nil
         masks.removeAll()
         history.clear()
+        excerptHistory.clear()
         gestureMasks = nil
         markup = ShareMarkupSession()
         markupPages = nil
@@ -1452,11 +1457,10 @@ final class ShareComposerView: NSView {
         }
         if scope == .indexed || asExcerpt {
             let excerpt = SharePDFExcerpt(text: text, regions: regions)
-            pdfExcerpt = excerpt
+            // The cited passage found as the source opens is where ⌘Z stops.
+            if !asExcerpt { excerptHistory.record(from: pdfExcerpt, to: excerpt) }
             initializedPDFExcerpt = true
-            isChoosingPDFExcerpt = false
-            clearCopyConfirmation()
-            onReviewPDFExcerpt?(excerpt)
+            showExcerpt(excerpt)
         } else if scope == .redacted {
             guard masks.count + regions.count <= 512 else {
                 notice = "Use up to 512 areas. Click an existing mask to remove it."
@@ -2083,18 +2087,52 @@ final class ShareComposerView: NSView {
         history.record(from: before, to: masks)
     }
 
-    /// ⌘Z: the masks as they were before the last drag or click.
-    func undoMaskEdit() {
+    /// ⌘Z: the masks as they were before the last drag or click, the marks
+    /// before the last stroke, or the PDF excerpt chosen before the last one.
+    func undoEdit() {
         if scope == .marked { if !isCopying, markup.undo() { showMarks() }; return }
+        if scope == .indexed {
+            if readyForExcerptStep(), let previous = excerptHistory.undo(from: pdfExcerpt) { showExcerpt(previous) }
+            return
+        }
         guard readyForMaskStep(), let previous = history.undo(from: masks) else { return }
         showMaskStep(previous)
     }
 
     /// ⇧⌘Z: the edit ⌘Z last took back.
-    func redoMaskEdit() {
+    func redoEdit() {
         if scope == .marked { if !isCopying, markup.redo() { showMarks() }; return }
+        if scope == .indexed {
+            if readyForExcerptStep(), let next = excerptHistory.redo(from: pdfExcerpt) { showExcerpt(next) }
+            return
+        }
         guard readyForMaskStep(), let next = history.redo(from: masks) else { return }
         showMaskStep(next)
+    }
+
+    /// A PDF's cited part is the passage or area chosen on its pages.
+    private func readyForExcerptStep() -> Bool {
+        guard !isCopying, isPDFSource else { return false }
+        pdfView.cancelInteraction()
+        return true
+    }
+
+    /// Shows the recipient preview of `excerpt`, or the pages to choose from
+    /// when nothing was chosen before.
+    private func showExcerpt(_ excerpt: SharePDFExcerpt?) {
+        pdfExcerpt = excerpt
+        clearCopyConfirmation()
+        notice = nil
+        if let excerpt {
+            isChoosingPDFExcerpt = false
+            onReviewPDFExcerpt?(excerpt)
+        } else {
+            isChoosingPDFExcerpt = true
+            reviewedPDFDocument = nil
+            isPDFExcerptLoading = false
+            pdfExcerptError = nil
+        }
+        needsDisplay = true
     }
 
     /// Only the redaction view shows masks, so it alone steps through them.
@@ -2121,8 +2159,8 @@ final class ShareComposerView: NSView {
     }
 
     /// The Edit menu's Undo and Redo, when the composer's own panel has focus.
-    @objc func undo(_ sender: Any?) { undoMaskEdit() }
-    @objc func redo(_ sender: Any?) { redoMaskEdit() }
+    @objc func undo(_ sender: Any?) { undoEdit() }
+    @objc func redo(_ sender: Any?) { redoEdit() }
 
     private func updateRedactionDrag(at point: NSPoint) {
         if !isCopying, scope == .redacted, let drag = drawingDrag, let layout = drawingLayout {
@@ -2423,6 +2461,56 @@ final class ShareComposerView: NSView {
         view.submit()
         require(configuration?.scope == .indexed && configuration?.excerpt?.regions == selectedExcerpt?.regions,
                 "The shared excerpt uses exactly the regions that were reviewed")
+        let firstExcerpt = view.pdfExcerpt
+        view.isChoosingPDFExcerpt = true
+        view.pdfSelectionMode = .area
+        paint()
+        view.pdfView.mouseDown(with: mouse(.leftMouseDown, at: a))
+        view.pdfView.mouseDragged(with: mouse(.leftMouseDragged, at: b))
+        view.pdfView.mouseUp(with: mouse(.leftMouseUp, at: b))
+        require(view.pdfExcerpt?.regions.count == 1 && view.pdfExcerpt != firstExcerpt && !view.isChoosingPDFExcerpt,
+                "A marked area becomes the cited part in place of the passage")
+        view.undoEdit()
+        require(view.pdfExcerpt == firstExcerpt && selectedExcerpt == firstExcerpt && !view.isChoosingPDFExcerpt,
+                "Command+Z brings back the passage chosen before and reviews it again")
+        view.undoEdit()
+        require(view.pdfExcerpt == nil && view.isChoosingPDFExcerpt && view.reviewedPDFDocument == nil && !view.canSubmit,
+                "Command+Z past the first choice shows the pages to choose from")
+        view.undoEdit()
+        require(view.pdfExcerpt == nil, "With nothing left to take back, Command+Z changes nothing")
+        view.redoEdit()
+        view.redoEdit()
+        require(view.pdfExcerpt?.regions.count == 1 && selectedExcerpt == view.pdfExcerpt,
+                "Shift+Command+Z makes the same choices again, in order")
+        view.scope = .redacted
+        view.undoEdit()
+        view.scope = .indexed
+        require(view.pdfExcerpt?.regions.count == 1, "Command+Z in another scope leaves the cited part alone")
+
+        // The passage the source was cited for is where Command+Z stops.
+        guard let secondLine = text.selectionsByLine().first(where: {
+            $0.bounds(for: page).width > 3 && $0.string != firstLine.string
+        }), let cited = firstLine.string, let citation = try? JSONSerialization.data(withJSONObject: [
+            "source": ["filename": "Cedar-Lane-Concept-Plan.pdf"],
+            "preview": ["kind": "pdf", "fileUrl": descriptor.fileUrl, "pageNumber": descriptor.pageNumber, "selectedText": cited],
+        ]) else { preconditionFailure("The PDF fixture must contain two lines of selectable text") }
+        view.reset(label: "Cedar Lane Concept Plan", filename: "Cedar-Lane-Concept-Plan.pdf")
+        view.onReviewPDFExcerpt = { selectedExcerpt = $0 }
+        view.fullDocument = document
+        view.isDocumentLoading = false
+        view.preview = AssistDocumentPreview.parse(citation)
+        view.isLoading = false
+        view.loadedPDFDocument = pdf
+        view.initializePDFExcerpt()
+        let citedExcerpt = view.pdfExcerpt
+        require(citedExcerpt != nil && selectedExcerpt == citedExcerpt, "The cited passage is chosen as the source opens")
+        view.selectPDFText(secondLine)
+        view.undoEdit()
+        view.undoEdit()
+        require(view.pdfExcerpt == citedExcerpt && !view.isChoosingPDFExcerpt,
+                "Command+Z stops at the passage the source was cited for")
+        view.redoEdit()
+        require(view.pdfExcerpt?.text == secondLine.string, "Shift+Command+Z chooses the later passage again")
         view.reset(label: "Another source", filename: "notes.txt")
         require(view.pdfView.document == nil && view.pdfView.isHidden,
                 "Opening another source clears the previous PDF pages")
@@ -2646,15 +2734,15 @@ final class ShareComposerView: NSView {
         view.previewMouseUp(at: single)
         require(view.masks.count == 10, "A click masks one more cell")
         capture("-masked")
-        view.undoMaskEdit()
+        view.undoEdit()
         require(view.masks.count == 9 && view.masks["cell:0:6:1"] == nil, "Command+Z unmasks the last click alone")
-        view.undoMaskEdit()
+        view.undoEdit()
         require(view.masks.isEmpty, "Command+Z then unmasks the whole drag at once")
-        view.undoMaskEdit()
+        view.undoEdit()
         require(view.masks.isEmpty, "With nothing left, Command+Z changes nothing")
         capture("-undone")
-        view.redoMaskEdit()
-        view.redoMaskEdit()
+        view.redoEdit()
+        view.redoEdit()
         require(view.masks.count == 10, "Shift+Command+Z puts both edits back")
 
         view.sheetIndex = 1
@@ -2666,11 +2754,11 @@ final class ShareComposerView: NSView {
         view.sheetIndex = 0
         view.scrollLayoutKey = ""
         capture("")
-        view.undoMaskEdit()
+        view.undoEdit()
         require(view.masks["cell:1:1:1"] == nil && view.sheetIndex == 1,
                 "Undoing a mask on another worksheet brings that worksheet into view")
         view.scope = .document
-        view.undoMaskEdit()
+        view.undoEdit()
         require(view.masks.count == 10, "Masks are only stepped through where they are shown")
         return checks
     }
@@ -2858,9 +2946,9 @@ extension ShareComposerView {
         drag([NSPoint(x: right.x - 4, y: right.y - 60), NSPoint(x: right.x - 4, y: right.y - 50)])
         require(view.markup.hand == .eraser && view.markup.marks.count == 1 && view.markup.marks[0].tool == .pen,
                 "The eraser takes away the stroke it touches")
-        view.undoMaskEdit()
+        view.undoEdit()
         require(view.markup.marks.count == 2, "Command+Z brings an erased stroke back")
-        view.redoMaskEdit()
+        view.redoEdit()
         require(view.markup.marks.count == 1, "Shift+Command+Z erases it again")
         var sent: ShareConfiguration?
         view.onCreate = { sent = $0 }

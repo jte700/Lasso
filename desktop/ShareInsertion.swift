@@ -336,7 +336,7 @@ struct SharePDFRegion: Hashable {
     var payload: [String: Any] { ["page": page, "x": x, "y": y, "width": width, "height": height] }
 }
 
-struct SharePDFExcerpt {
+struct SharePDFExcerpt: Equatable {
     let text: String
     let regions: [SharePDFRegion]
     var payload: [String: Any] { ["kind": "PDF", "text": text, "regions": regions.map(\.payload)] }
@@ -430,7 +430,8 @@ struct ShareRedactionDrag {
 /// ⌘Z takes back the last mask or marking edit, a whole drag or click at a
 /// time, and ⇧⌘Z puts it back. Every document kind keeps its masks in one
 /// dictionary, so one history serves cells, sections, PDF areas and drawing
-/// regions; a marked copy's strokes keep a history of their own.
+/// regions; a marked copy's strokes and a PDF's chosen excerpt keep
+/// histories of their own.
 struct ShareEditHistory<Value: Equatable> {
     private static var limit: Int { 100 }
     private var undone: [Value] = []

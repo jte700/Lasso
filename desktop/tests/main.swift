@@ -3390,6 +3390,13 @@ do {
     check(DirectoryColorPreferences.color(for: "finance", defaults: defaults) == .orange,
           "a folder's own colour wins over the Settings colour")
     check(announced == 1, "highlights redraw once when the colour changes, and not when it stays the same")
+    check(DirectoryColorPreferences.ownColor(for: "finance", defaults: defaults) == .orange
+          && DirectoryColorPreferences.ownColor(for: "research", defaults: defaults) == nil,
+          "a folder's own colour is told apart from the default it shows")
+    DirectoryColorPreferences.set(nil, for: "finance", defaults: defaults)
+    check(DirectoryColorPreferences.ownColor(for: "finance", defaults: defaults) == nil
+          && DirectoryColorPreferences.color(for: "finance", defaults: defaults) == .purple,
+          "taking a colour back puts the folder on the default again, so Undo restores it as it was")
 
     check(LaunchHelper.note(for: .on).contains("log in") && LaunchHelper.note(for: .on).contains("\u{2318}L"),
           "Settings says Lasso starts at login and \u{2318}L starts it again after quitting")

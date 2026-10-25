@@ -1830,9 +1830,9 @@ final class GlobalAssistant {
             focusedSource = narrowed
             refresh()
         case .shareUndo:
-            ShareComposerController.shared.undoRedaction()
+            ShareComposerController.shared.undoEdit()
         case .shareRedo:
-            ShareComposerController.shared.redoRedaction()
+            ShareComposerController.shared.redoEdit()
         case .undoInsertion:
             undoInsertion()
         }
