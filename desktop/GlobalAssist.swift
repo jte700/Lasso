@@ -779,9 +779,6 @@ final class AssistBoxView: NSView {
             if self.mode == .suggestions, point.y >= 0, self.suggestions.indices.contains(index) { self.onSelectRow?(index) }
         }
         suggestionList.documentView = suggestionRows
-        // A wheel notch moves the list one row.
-        suggestionList.verticalLineScroll = suggestionHeight
-        suggestionList.onUserScroll = { [unowned self] in self.listWasScrolled() }
         addSubview(suggestionList)
     }
 
@@ -793,7 +790,7 @@ final class AssistBoxView: NSView {
         suggestionList.isHidden = mode != .suggestions
         let listFrame = NSRect(x: 0, y: bodyTop + navigationHeight, width: leftWidth, height: listHeight)
         if suggestionList.frame != listFrame {
-            suggestionList.withoutUserScroll { suggestionList.frame = listFrame }
+            suggestionList.frame = listFrame
             sizeSuggestionRows()
         }
         placePreviewContent()
@@ -878,12 +875,10 @@ final class AssistBoxView: NSView {
 
     private func sizeSuggestionRows() {
         let height = listGeometry.contentHeight
-        suggestionList.withoutUserScroll {
-            suggestionRows.setFrameSize(NSSize(width: suggestionList.contentSize.width, height: height))
-            // The scroller shows or hides with the list's length, which changes the width the rows have.
-            suggestionList.tile()
-            suggestionRows.setFrameSize(NSSize(width: suggestionList.contentSize.width, height: height))
-        }
+        suggestionRows.setFrameSize(NSSize(width: suggestionList.contentSize.width, height: height))
+        // The scroller shows or hides with the list's length, which changes the width the rows have.
+        suggestionList.tile()
+        suggestionRows.setFrameSize(NSSize(width: suggestionList.contentSize.width, height: height))
         suggestionRows.needsDisplay = true
     }
 
@@ -907,17 +902,6 @@ final class AssistBoxView: NSView {
         let glides = animated && !suggestionList.isGliding && window?.isVisible == true
             && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         suggestionList.scroll(to: origin, glideDuration: glides ? Self.listGlideDuration : nil)
-    }
-
-    /// After the person scrolls, the highlight stays on its row while the row
-    /// is in view, and otherwise moves to the nearest row in view, so Tab
-    /// always inserts a suggestion that can be seen.
-    private func listWasScrolled() {
-        guard mode == .suggestions else { return }
-        // A bounce past either end settles back there, so it counts as that end.
-        listOffset = min(max(0, suggestionList.contentView.bounds.origin.y), listGeometry.maximumOffset)
-        let kept = listGeometry.rowKeepingHighlight(selected, at: listOffset)
-        if kept != selected, suggestions.indices.contains(kept) { onSelectRow?(kept) }
     }
 
     var boxSize: NSSize {
@@ -2852,38 +2836,19 @@ final class GlobalAssistant {
             event?.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
             if let event = event.flatMap(NSEvent.init(cgEvent:)) { viewAt(point)?.scrollWheel(with: event) }
         }
-        // AppKit scrolls only for wheel events from the window server, so the
-        // list is moved as they, or a drag of the scroller, move it.
-        func userScroll(byRows rows: CGFloat) {
-            let clip = list.suggestionList.contentView
-            let target = NSPoint(x: 0, y: clip.bounds.origin.y - rows * list.suggestionRowHeight)
-            // A scroll past an end settles at it.
-            clip.scroll(to: clip.constrainBoundsRect(NSRect(origin: target, size: clip.bounds.size)).origin)
-            list.suggestionList.reflectScrolledClipView(clip)
-        }
         list.onSelectRow = { list.selected = $0 }
         let rowOffset = { list.suggestionList.contentView.bounds.origin.y / list.suggestionRowHeight }
         list.selected = 12
-        checks["a wheel notch scrolls the list one row"] = list.suggestionList.verticalLineScroll == list.suggestionRowHeight
-        userScroll(byRows: 1)
-        checks["scrolling up a row keeps the highlight in view"] = rowOffset() == 8 && list.selected == 11
-        userScroll(byRows: -2)
-        checks["scrolling down stops at the last results instead of wrapping"] =
-            rowOffset() == 9 && list.visibleSuggestionRange == 9..<13 && list.selected == 11
-        userScroll(byRows: 1.5)
-        checks["a two-finger swipe scrolls the rows as far as the fingers move"] =
-            rowOffset() == 7.5 && list.selected == 10 && list.visibleSuggestionRange == 8..<11
-        let clip = list.suggestionList.contentView
-        clip.scroll(to: NSPoint(x: 0, y: -20))
-        checks["a bounce past the top counts as the top"] = list.visibleSuggestionRange == 0..<4 && list.selected == 3
+        wheel(3, at: row); wheel(-1, at: row)
+        checks["scrolling over the list leaves it and its highlight, for ↑ and ↓ to move"] =
+            rowOffset() == 9 && list.selected == 12
         list.suggestionList.scrollerStyle = .overlay
-        checks["the list keeps a scroller beside it"] = list.suggestionList.verticalScroller?.isHidden == false
+        let scroller = list.suggestionList.verticalScroller
+        checks["the scroller shows where the list is, but cannot be dragged"] = scroller?.isHidden == false
             && list.suggestionList.scrollerStyle == .legacy
-        clip.scroll(to: NSPoint(x: 0, y: 5 * list.suggestionRowHeight))
-        let highlighted = list.selected
+            && scroller.map { $0.hitTest(NSPoint(x: $0.frame.midX, y: $0.frame.midY)) == nil } == true
         wheel(-1, at: NSPoint(x: list.leftWidth + 40, y: row.y))
-        checks["scrolling over the preview leaves the list and its highlight"] =
-            highlighted == 5 && list.selected == highlighted && rowOffset() == 5
+        checks["scrolling over the preview leaves the list and its highlight"] = list.selected == 12 && rowOffset() == 9
         list.onSelectRow = savedOnSelect
         if let outputPath {
             list.appearance = NSAppearance(named: .aqua)

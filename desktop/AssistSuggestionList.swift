@@ -26,63 +26,39 @@ class AssistSlimScrollView: NSScrollView {
     }
 }
 
-/// The suggestion card's rows in a scroll view. Two fingers or a wheel scroll
-/// them as any Mac list scrolls, with a slim scroller beside them, and moving
-/// the highlight to a row out of view glides the list there instead of
-/// jumping a row at a time.
+/// The suggestion card's rows in a scroll view that only the card moves: ↑
+/// and ↓ glide it to the highlighted row instead of jumping a row at a time.
+/// Two fingers and a wheel leave it where it is, and its scroller only
+/// shows where the list is.
 final class AssistSuggestionScrollView: AssistSlimScrollView {
-    /// Called whenever the person moves the list, with two fingers, a wheel
-    /// or the scroller, so the highlight can stay in view.
-    var onUserScroll: (() -> Void)?
-    /// Moves the card is making itself, which are not the person's scrolling.
-    private var ownMoves = 0
-    /// When the list's current glide ends; the list moves on its own until then.
+    /// When the list's current glide ends.
     private var glideEnds = Date.distantPast
 
     var isGliding: Bool { Date() < glideEnds }
 
     init() {
         super.init(vertical: true)
-        contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(self, selector: #selector(clipViewMoved),
-                                               name: NSView.boundsDidChangeNotification, object: contentView)
+        verticalScrollElasticity = .none
+        (verticalScroller as? AssistListScroller)?.showsPositionOnly = true
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// The person's scrolling does not move the list; ↑ and ↓ do.
+    override func scrollWheel(with event: NSEvent) {}
 
     /// Scrolls the rows to `origin`, gliding there over `glideDuration`, or at
     /// once when it is nil, which also stops a glide under way.
     func scroll(to origin: NSPoint, glideDuration: TimeInterval?) {
         let clip = contentView
-        if let glideDuration {
-            glideEnds = Date().addingTimeInterval(glideDuration)
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = glideDuration
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                clip.animator().setBoundsOrigin(origin)
-            }
-        } else {
-            glideEnds = .distantPast
-            withoutUserScroll {
-                // Through the animator, so it replaces a glide under way.
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0
-                    clip.animator().setBoundsOrigin(origin)
-                }
-            }
+        glideEnds = glideDuration.map { Date().addingTimeInterval($0) } ?? .distantPast
+        NSAnimationContext.runAnimationGroup { context in
+            // At once, it goes through the animator too, so it replaces a glide under way.
+            context.duration = glideDuration ?? 0
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            clip.animator().setBoundsOrigin(origin)
         }
         reflectScrolledClipView(clip)
-    }
-
-    /// Runs `change`, whose scrolling is the card's and not the person's.
-    func withoutUserScroll(_ change: () -> Void) {
-        ownMoves += 1
-        defer { ownMoves -= 1 }
-        change()
-    }
-
-    @objc private func clipViewMoved() {
-        if ownMoves == 0, !isGliding { onUserScroll?() }
     }
 }
 
@@ -90,6 +66,10 @@ final class AssistSuggestionScrollView: AssistSlimScrollView {
 final class AssistListScroller: NSScroller {
     static let width: CGFloat = 10
     private static let knobInset = NSSize(width: 3, height: 3)
+    /// Shows where the content is without taking clicks or drags.
+    var showsPositionOnly = false
+
+    override func hitTest(_ point: NSPoint) -> NSView? { showsPositionOnly ? nil : super.hitTest(point) }
 
     override class func scrollerWidth(for controlSize: NSControl.ControlSize,
                                       scrollerStyle: NSScroller.Style) -> CGFloat { width }
@@ -125,10 +105,9 @@ final class AssistDrawnView: NSView {
     }
 }
 
-/// Where the rows sit in the scroll view: which are in view, where the list
-/// must scroll to bring one into view, and which row keeps the highlight
-/// when the person scrolls it away. Pure geometry, so the card and its
-/// checks share it.
+/// Where the rows sit in the scroll view: which are in view, and where the
+/// list must scroll to bring one into view. Pure geometry, so the card and
+/// its checks share it.
 struct AssistSuggestionListGeometry {
     let rowCount: Int
     let rowHeight: CGFloat
@@ -159,21 +138,12 @@ struct AssistSuggestionListGeometry {
     /// The offset that brings row `index` into view from `offset`, moving the
     /// list as little as it can; `offset` itself when the row is in view.
     func offset(revealing index: Int, from offset: CGFloat) -> CGFloat {
-        // A row in view leaves the list where it is, even bounced past an end.
-        guard rowCount > 0, !isInView(index, at: offset) else { return rowCount > 0 ? offset : 0 }
+        guard rowCount > 0 else { return 0 }
         let current = min(max(0, offset), maximumOffset)
         guard !isInView(index, at: current) else { return current }
         let top = CGFloat(index) * rowHeight
         let bottom = top + rowHeight + bottomPadding
         let target = top < current ? top : bottom - visibleHeight
         return min(max(0, target), maximumOffset)
-    }
-
-    /// The row that keeps the highlight after a scroll to `offset`: the
-    /// highlighted row while it is in view, else the nearest row in view.
-    func rowKeepingHighlight(_ selected: Int, at offset: CGFloat) -> Int {
-        let inView = rowsInView(at: offset)
-        guard !inView.isEmpty, !inView.contains(selected) else { return selected }
-        return selected < inView.lowerBound ? inView.lowerBound : inView.upperBound - 1
     }
 }
