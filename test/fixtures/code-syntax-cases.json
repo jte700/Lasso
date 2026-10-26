@@ -1,0 +1,147 @@
+[
+  {
+    "about": "Python: declarations, calls, decorators, triple-quoted docstrings, f-strings, comments",
+    "file": "service/ratelimit.py",
+    "text": "@dataclass\nclass Bucket:\n    \"\"\"A token bucket.\"\"\"\n    def allow(self, now: float | None = None) -> bool:\n        tokens = min(self.burst, 3.5e-2)  # cap\n        return f\"{tokens} left\" if tokens >= 1 else False",
+    "tokens": [
+      ["directive", "@dataclass"], ["keyword", "class"], ["variable", "Bucket"],
+      ["string", "\"\"\"A token bucket.\"\"\""], ["keyword", "def"], ["variable", "allow"], ["keyword", "self"],
+      ["type", "float"], ["keyword", "None"], ["keyword", "None"], ["type", "bool"], ["function", "min"],
+      ["keyword", "self"], ["number", "3.5e-2"], ["comment", "# cap"], ["keyword", "return"],
+      ["string", "f\"{tokens} left\""], ["keyword", "if"], ["number", "1"], ["keyword", "else"],
+      ["keyword", "False"]
+    ]
+  },
+  {
+    "about": "TypeScript: for, while, if, const/let declarations, members are not keywords, template strings span lines",
+    "file": "web/src/format.ts",
+    "text": "export function label(items: Item[]): string {\n  const total = items.length;\n  for (let i = 0; i < total; i++) {\n    if (items[i].type === 'x') return `line\n${i}`;\n  }\n  while (true) {}\n  return /* none */ \"\";\n}",
+    "tokens": [
+      ["keyword", "export"], ["keyword", "function"], ["variable", "label"], ["type", "Item"], ["type", "string"],
+      ["keyword", "const"], ["variable", "total"], ["keyword", "for"], ["keyword", "let"], ["variable", "i"],
+      ["number", "0"], ["keyword", "if"], ["string", "'x'"], ["keyword", "return"], ["string", "`line\n${i}`"],
+      ["keyword", "while"], ["keyword", "true"], ["keyword", "return"], ["comment", "/* none */"],
+      ["string", "\"\""]
+    ]
+  },
+  {
+    "about": "TypeScript: a built-in type name is a type only where a type goes, so `number` the variable stays plain",
+    "file": "web/src/TrackingPanel.tsx",
+    "text": "const [number, setNumber] = useState<string | null>(null);\nfetchTracking(number, apiKey);",
+    "tokens": [
+      ["keyword", "const"], ["type", "string"], ["keyword", "null"], ["keyword", "null"],
+      ["function", "fetchTracking"]
+    ]
+  },
+  {
+    "about": "Go: func declarations, builtin types, raw strings, hex numbers; capitalised names are not types",
+    "file": "worker/scheduler.go",
+    "text": "func (s *Scheduler) Run(limit int) error {\n\tvar mask = 0xFF\n\tfmt.Println(`raw \\n`)\n\treturn nil\n}",
+    "tokens": [
+      ["keyword", "func"], ["function", "Run"], ["type", "int"], ["type", "error"], ["keyword", "var"],
+      ["variable", "mask"], ["number", "0xFF"], ["function", "Println"], ["string", "`raw \\n`"],
+      ["keyword", "return"], ["keyword", "nil"]
+    ]
+  },
+  {
+    "about": "Rust: let mut declares through the modifier; attributes are directives",
+    "file": "src/main.rs",
+    "text": "#[derive(Debug)]\nfn main() {\n    let mut count: u32 = 1_000;\n    println!(\"{}\", count);\n}",
+    "tokens": [
+      ["directive", "#[derive(Debug)]"], ["keyword", "fn"], ["variable", "main"], ["keyword", "let"],
+      ["keyword", "mut"], ["variable", "count"], ["type", "u32"], ["number", "1_000"], ["string", "\"{}\""]
+    ]
+  },
+  {
+    "about": "C: preprocessor lines, block comments, escapes in strings",
+    "file": "src/main.c",
+    "text": "#include <stdio.h>\nint main(void) { /* entry */\n  printf(\"say \\\"hi\\\"\\n\");\n  return 0;\n}",
+    "tokens": [
+      ["directive", "#include <stdio.h>"], ["type", "int"], ["function", "main"], ["type", "void"],
+      ["comment", "/* entry */"], ["function", "printf"], ["string", "\"say \\\"hi\\\"\\n\""], ["keyword", "return"],
+      ["number", "0"]
+    ]
+  },
+  {
+    "about": "Shell: variables, raw single quotes, comments, file named without an extension is found by its name",
+    "file": "scripts/deploy.sh",
+    "text": "#!/bin/bash\nif [ -z \"$ENV\" ]; then\n  echo 'no $env' ${HOME}/x $1\nfi",
+    "tokens": [
+      ["comment", "#!/bin/bash"], ["keyword", "if"], ["string", "\"$ENV\""], ["keyword", "then"],
+      ["string", "'no $env'"], ["variable", "${HOME}"], ["variable", "$1"], ["keyword", "fi"]
+    ]
+  },
+  {
+    "about": "SQL: keywords in any case, line comments, types",
+    "file": "db/migrations/001_create_shipments.sql",
+    "text": "-- shipments\nCREATE TABLE shipments (id SERIAL PRIMARY KEY, eta timestamptz NOT NULL);\nselect * from shipments where id = 'a''b';",
+    "tokens": [
+      ["comment", "-- shipments"], ["keyword", "CREATE"], ["keyword", "TABLE"], ["function", "shipments"],
+      ["type", "SERIAL"], ["keyword", "PRIMARY"], ["keyword", "KEY"], ["type", "timestamptz"], ["keyword", "NOT"],
+      ["keyword", "NULL"], ["keyword", "select"], ["keyword", "from"], ["keyword", "where"], ["string", "'a'"],
+      ["string", "'b'"]
+    ]
+  },
+  {
+    "about": "YAML: keys, list items, booleans, comments, quoted strings",
+    "file": "config/limits.yaml",
+    "text": "rate-limit:\n  burst: 20 # per key\n  - name: \"api\"\n    enabled: true\n  url: http://x",
+    "tokens": [
+      ["variable", "rate-limit"], ["variable", "burst"], ["number", "20"], ["comment", "# per key"],
+      ["variable", "name"], ["string", "\"api\""], ["variable", "enabled"], ["keyword", "true"], ["variable", "url"]
+    ]
+  },
+  {
+    "about": "JSON: keys are names, values are strings",
+    "file": "web/package.json",
+    "text": "{\"name\": \"tidewater\", \"private\": true, \"version\": 2}",
+    "tokens": [
+      ["variable", "\"name\""], ["string", "\"tidewater\""], ["variable", "\"private\""], ["keyword", "true"],
+      ["variable", "\"version\""], ["number", "2"]
+    ]
+  },
+  {
+    "about": "Markup: tag names, attributes and their values; quotes between tags are prose",
+    "file": "index.html",
+    "text": "<!-- top -->\n<a href=\"/x\" data-id='1'>Don't</a>",
+    "tokens": [
+      ["comment", "<!-- top -->"], ["keyword", "a"], ["variable", "href"], ["string", "\"/x\""],
+      ["variable", "data-id"], ["string", "'1'"], ["keyword", "a"]
+    ]
+  },
+  {
+    "about": "Dockerfile: found by its name, instructions in capitals",
+    "file": "Dockerfile",
+    "text": "FROM python:3.12-slim AS base\nRUN pip install -r requirements.txt",
+    "tokens": [
+      ["keyword", "FROM"], ["number", "3.12"], ["keyword", "AS"], ["keyword", "RUN"]
+    ]
+  },
+  {
+    "about": "Swift: attributes, multi-line strings, declarations after modifiers",
+    "file": "App.swift",
+    "text": "@MainActor\nstatic let shared = Store()\nlet text = \"\"\"\nhi\n\"\"\"",
+    "tokens": [
+      ["directive", "@MainActor"], ["keyword", "static"], ["keyword", "let"], ["variable", "shared"],
+      ["type", "Store"], ["keyword", "let"], ["variable", "text"], ["string", "\"\"\"\nhi\n\"\"\""]
+    ]
+  },
+  {
+    "about": "CSS: properties, at-rules, numbers with units, custom properties",
+    "file": "style.css",
+    "text": "@media (max-width: 640px) {\n  .card { color: var(--accent); margin: 0 4px; }\n}",
+    "tokens": [
+      ["directive", "@media"], ["variable", "max-width"], ["number", "640px"], ["variable", "color"],
+      ["function", "var"], ["variable", "--accent"], ["variable", "margin"], ["number", "0"], ["number", "4px"]
+    ]
+  },
+  {
+    "about": "TOML: sections and keys",
+    "file": "config/settings.toml",
+    "text": "[service]\nport = 8080\nname = \"tide\"",
+    "tokens": [
+      ["directive", "[service]"], ["variable", "port"], ["number", "8080"], ["variable", "name"],
+      ["string", "\"tide\""]
+    ]
+  }
+]
