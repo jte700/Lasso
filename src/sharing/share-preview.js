@@ -309,12 +309,16 @@ export function findPassage(text, passage) {
   return match ? { start: match.index, end: match.index + match[0].length } : null;
 }
 
+/** Lines around the cited ones, and Markdown blocks before and after them, that a text viewport includes. */
+export const TEXT_PREVIEW_CONTEXT = Object.freeze({ lines: 8, blocksBefore: 12, blocksAfter: 40 });
+
 /**
  * Text viewport for the native assist card, the source inspector and the share
  * composer. Markdown is returned as structured blocks so every surface renders
- * headings, lists and emphasis instead of the raw syntax.
+ * headings, lists and emphasis instead of the raw syntax. `context` widens it
+ * for a surface that scrolls.
  */
-export function buildTextPreview(filePath, value, anchor = {}, metadata = {}, label = '', objectType = '', { matchText = '', outline = null } = {}) {
+export function buildTextPreview(filePath, value, anchor = {}, metadata = {}, label = '', objectType = '', { matchText = '', outline = null, context = TEXT_PREVIEW_CONTEXT } = {}) {
   const text = String(value ?? '').replace(/\r\n?/g, '\n');
   const lines = text.split('\n');
   const range = citedLineRange(text, lines, anchor ?? {}, metadata ?? {}, label, matchText);
@@ -339,8 +343,8 @@ export function buildTextPreview(filePath, value, anchor = {}, metadata = {}, la
     const firstCited = blocks.findIndex(cited);
     let lastCited = firstCited;
     while (lastCited >= 0 && lastCited + 1 < blocks.length && cited(blocks[lastCited + 1])) lastCited += 1;
-    const start = firstCited < 0 ? 0 : Math.max(0, firstCited - 12);
-    const end = Math.min(blocks.length, (lastCited < 0 ? 0 : lastCited) + 40);
+    const start = firstCited < 0 ? 0 : Math.max(0, firstCited - context.blocksBefore);
+    const end = Math.min(blocks.length, (lastCited < 0 ? 0 : lastCited) + context.blocksAfter);
     const section = firstCited < 0 ? null
       : blocks.slice(0, firstCited + 1).reverse().find((block) => block.type === 'heading');
     const citedText = firstCited < 0 ? '' : blocks.slice(firstCited, lastCited + 1)
@@ -358,8 +362,8 @@ export function buildTextPreview(filePath, value, anchor = {}, metadata = {}, la
   }
 
   const selected = range ? range[0] - 1 : -1;
-  const startLine = Math.max(0, (selected < 0 ? 0 : selected) - 8);
-  const endLine = Math.min(lines.length, Math.max(startLine + 24, (range?.[1] ?? 0) + 8));
+  const startLine = Math.max(0, (selected < 0 ? 0 : selected) - context.lines);
+  const endLine = Math.min(lines.length, Math.max(startLine + 24, (range?.[1] ?? 0) + context.lines));
   return {
     kind: 'text', format: extension === '.docx' ? 'document' : 'plain', extracted: extension === '.docx',
     openAt,

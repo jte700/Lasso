@@ -692,19 +692,33 @@ final class AssistBubbleContainer: NSView {
 /// a native Spotlight or password-manager result panel.
 final class AssistBoxView: NSView {
     enum Mode { case suggestions, confirmShare, message }
-    var mode: Mode = .suggestions
+    var mode: Mode = .suggestions {
+        didSet {
+            guard mode != oldValue else { return }
+            needsLayout = true
+            if mode == .suggestions { revealSelectedSuggestion(animated: false) }
+            updatePreviewContent()
+        }
+    }
     var suggestions: [AssistSuggestion] = [] {
-        didSet { revealSelectedSuggestion(); suggestionScroll = 0 }
+        didSet {
+            sizeSuggestionRows()
+            // A shorter list cannot stay scrolled past its end.
+            listOffset = min(max(0, listOffset), listGeometry.maximumOffset)
+            revealSelectedSuggestion(animated: false)
+        }
     }
     var selected: Int = 0 {
-        didSet { revealSelectedSuggestion() }
+        didSet { revealSelectedSuggestion(animated: true) }
     }
-    private(set) var firstVisibleSuggestion = 0
     private let visibleSuggestionCount = 4
-    /// Scrolling over the list not yet a whole step, in steps.
-    private var suggestionScroll: CGFloat = 0
-    /// How far two fingers travel to move the highlight one suggestion.
-    fileprivate let suggestionScrollStep: CGFloat = 36
+    /// Where the list is scrolled to, or gliding to.
+    private var listOffset: CGFloat = 0
+    /// How long the list takes to glide to a highlighted row out of view.
+    private static let listGlideDuration: TimeInterval = 0.22
+    /// The rows scroll under the header, beside a slim scroller.
+    fileprivate let suggestionList = AssistSuggestionScrollView()
+    private let suggestionRows = AssistDrawnView()
     var title: String = "Dependency"
     var confirmChoices: [String] = []
     var messageLines: [String] = []
@@ -716,16 +730,26 @@ final class AssistBoxView: NSView {
     /// nil when it steps back to every directory.
     var stepBackName: String?
     var preview: AssistDocumentPreview? {
-        didSet { modelView = AssistModelView(); modelDrag = nil; tableFirstRow = 0; tableScroll = 0 }
+        didSet {
+            modelView = AssistModelView(); modelDrag = nil; tableGeometryCache = nil
+            previewGeneration += 1
+            updatePreviewContent()
+        }
     }
-    var isPreviewLoading = false
+    var isPreviewLoading = false {
+        didSet { if isPreviewLoading != oldValue { updatePreviewContent() } }
+    }
     var previewError: String?
     /// How a rotatable model preview is turned and zoomed; each new preview starts as sent.
     private(set) var modelView = AssistModelView()
     private var modelDrag: (start: NSPoint, view: AssistModelView)?
-    /// The row a listed column is scrolled to, and scrolling not yet a whole row.
-    private(set) var tableFirstRow = 0
-    private var tableScroll: CGFloat = 0
+    /// A table preview's layout with every row sent, for the place it was worked out for.
+    private var tableGeometryCache: (rect: NSRect, geometry: TableGeometry)?
+    /// A text, table or PDF preview the person scrolls, over the preview's
+    /// place in the card; nil for previews the card draws itself.
+    fileprivate var previewContent: NSView?
+    private var previewGeneration = 0
+    private var shownPreviewGeneration: Int?
     var onSelectRow: ((Int) -> Void)?
     var onInsert: (() -> Void)?
     var onLocalLink: (() -> Void)?
@@ -748,6 +772,17 @@ final class AssistBoxView: NSView {
         closeButton.target = self
         closeButton.action = #selector(dismissSuggestions)
         addSubview(closeButton)
+
+        suggestionRows.drawContent = { [unowned self] dirty in self.drawSuggestionRows(in: dirty) }
+        suggestionRows.onClick = { [unowned self] point in
+            let index = Int(point.y / self.suggestionHeight)
+            if self.mode == .suggestions, point.y >= 0, self.suggestions.indices.contains(index) { self.onSelectRow?(index) }
+        }
+        suggestionList.documentView = suggestionRows
+        // A wheel notch moves the list one row.
+        suggestionList.verticalLineScroll = suggestionHeight
+        suggestionList.onUserScroll = { [unowned self] in self.listWasScrolled() }
+        addSubview(suggestionList)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -755,6 +790,18 @@ final class AssistBoxView: NSView {
     override func layout() {
         super.layout()
         closeButton.frame = NSRect(x: bounds.width - 34, y: bodyTop + 6, width: 24, height: 24)
+        suggestionList.isHidden = mode != .suggestions
+        let listFrame = NSRect(x: 0, y: bodyTop + navigationHeight, width: leftWidth, height: listHeight)
+        if suggestionList.frame != listFrame {
+            suggestionList.withoutUserScroll { suggestionList.frame = listFrame }
+            sizeSuggestionRows()
+        }
+        placePreviewContent()
+    }
+
+    /// The rows draw with the rest of the card.
+    override var needsDisplay: Bool {
+        didSet { if needsDisplay { suggestionRows.needsDisplay = true } }
     }
 
     @objc private func dismissSuggestions() { onDismiss?() }
@@ -763,6 +810,7 @@ final class AssistBoxView: NSView {
     fileprivate let leftWidth: CGFloat = 366
     private let headerHeight: CGFloat = 31
     private let suggestionHeight: CGFloat = 72
+    fileprivate var suggestionRowHeight: CGFloat { suggestionHeight }
     private let choiceHeight: CGFloat = 34
     private let messageHeight: CGFloat = 22
     private let footerHeight: CGFloat = 55
@@ -814,19 +862,62 @@ final class AssistBoxView: NSView {
     }
     private var footerY: CGFloat { bodyTop + bodyHeight - footerHeight }
 
-    var visibleSuggestionRange: Range<Int> {
-        firstVisibleSuggestion..<min(suggestions.count, firstVisibleSuggestion + visibleSuggestionCount)
+    /// The list's height between the header and the footer: four rows.
+    private var listHeight: CGFloat { suggestionBodyHeight - navigationHeight - footerHeight }
+    /// Space under the last row, so its highlight clears the footer line.
+    private let listBottomPadding: CGFloat = 9
+
+    private var listGeometry: AssistSuggestionListGeometry {
+        AssistSuggestionListGeometry(rowCount: suggestions.count, rowHeight: suggestionHeight,
+                                     surfaceTop: 13, surfaceHeight: 63, bottomPadding: listBottomPadding,
+                                     visibleHeight: listHeight)
     }
 
-    private func revealSelectedSuggestion() {
-        let selection = min(max(0, selected), max(0, suggestions.count - 1))
-        let lastStart = max(0, suggestions.count - visibleSuggestionCount)
-        firstVisibleSuggestion = min(firstVisibleSuggestion, lastStart)
-        if selection < firstVisibleSuggestion {
-            firstVisibleSuggestion = selection
-        } else if selection >= firstVisibleSuggestion + visibleSuggestionCount {
-            firstVisibleSuggestion = selection - visibleSuggestionCount + 1
+    /// The rows wholly in view once the list stops where it is going.
+    var visibleSuggestionRange: Range<Int> { listGeometry.rowsInView(at: listOffset) }
+
+    private func sizeSuggestionRows() {
+        let height = listGeometry.contentHeight
+        suggestionList.withoutUserScroll {
+            suggestionRows.setFrameSize(NSSize(width: suggestionList.contentSize.width, height: height))
+            // The scroller shows or hides with the list's length, which changes the width the rows have.
+            suggestionList.tile()
+            suggestionRows.setFrameSize(NSSize(width: suggestionList.contentSize.width, height: height))
         }
+        suggestionRows.needsDisplay = true
+    }
+
+    /// Scrolls the highlighted row into view, gliding when `animated`.
+    private func revealSelectedSuggestion(animated: Bool) {
+        guard mode == .suggestions else { return }
+        let selection = min(max(0, selected), max(0, suggestions.count - 1))
+        scrollList(to: listGeometry.offset(revealing: selection, from: listOffset), animated: animated)
+    }
+
+    private func scrollList(to offset: CGFloat, animated: Bool) {
+        let changed = offset != listOffset
+        listOffset = offset
+        let origin = NSPoint(x: 0, y: offset)
+        // Already gliding there.
+        if animated && !changed { return }
+        guard suggestionList.contentView.bounds.origin != origin || suggestionList.isGliding else { return }
+        // One move glides. A move during a glide, as a held arrow key makes,
+        // goes at once so the list keeps up with the highlight; so does a
+        // hidden list, or one being measured.
+        let glides = animated && !suggestionList.isGliding && window?.isVisible == true
+            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        suggestionList.scroll(to: origin, glideDuration: glides ? Self.listGlideDuration : nil)
+    }
+
+    /// After the person scrolls, the highlight stays on its row while the row
+    /// is in view, and otherwise moves to the nearest row in view, so Tab
+    /// always inserts a suggestion that can be seen.
+    private func listWasScrolled() {
+        guard mode == .suggestions else { return }
+        // A bounce past either end settles back there, so it counts as that end.
+        listOffset = min(max(0, suggestionList.contentView.bounds.origin.y), listGeometry.maximumOffset)
+        let kept = listGeometry.rowKeepingHighlight(selected, at: listOffset)
+        if kept != selected, suggestions.indices.contains(kept) { onSelectRow?(kept) }
     }
 
     var boxSize: NSSize {
@@ -886,45 +977,6 @@ final class AssistBoxView: NSView {
                                    width: leftWidth - 44, height: 17),
                          font: NSFont.systemFont(ofSize: 11), color: .secondaryLabelColor)
             }
-            for (slot, index) in visibleSuggestionRange.enumerated() {
-                let suggestion = suggestions[index]
-                let slotY = bodyTop + navigationHeight + CGFloat(slot) * suggestionHeight
-                let selection = NSRect(x: 10, y: slotY + 13,
-                                       width: leftWidth - 20, height: 63)
-                if index == selected {
-                    drawSelectedSurface(in: selection,
-                        color: DirectoryColorPreferences.color(for: suggestion.projectId)?.color ?? .controlAccentColor)
-                }
-
-                drawSourceIcon(for: suggestion.path,
-                               in: NSRect(x: 22, y: slotY + 26, width: 32, height: 32))
-
-                let detailWidth: CGFloat = suggestion.detail.isEmpty ? 0 : 82
-                drawText(suggestion.label,
-                         in: NSRect(x: 65, y: slotY + 27,
-                                   width: leftWidth - 85 - detailWidth, height: 17),
-                         font: NSFont.systemFont(ofSize: 12.5, weight: .semibold),
-                         color: .labelColor)
-                if !suggestion.detail.isEmpty {
-                    drawText(suggestion.detail,
-                             in: NSRect(x: leftWidth - detailWidth - 20, y: slotY + 27,
-                                       width: detailWidth, height: 17),
-                             font: NSFont.systemFont(ofSize: 11.5, weight: .semibold),
-                             color: .labelColor, alignment: .right)
-                }
-                let source = (suggestion.path as NSString).lastPathComponent
-                let breadcrumb = [suggestion.rankingReason ?? "", source.isEmpty ? "Project workspace" : source, suggestion.location]
-                    .filter { !$0.isEmpty }.joined(separator: "  ·  ")
-                drawText(breadcrumb,
-                         in: NSRect(x: 65, y: slotY + 47,
-                                   width: leftWidth - 87, height: 15),
-                         font: NSFont.systemFont(ofSize: 11),
-                         color: .secondaryLabelColor)
-                if index < visibleSuggestionRange.upperBound - 1 {
-                    drawInsetSeparator(at: bodyTop + navigationHeight + 6 + CGFloat(slot + 1) * suggestionHeight,
-                                       from: 26)
-                }
-            }
 
         case .confirmShare:
             for (index, choice) in confirmChoices.enumerated() {
@@ -954,6 +1006,49 @@ final class AssistBoxView: NSView {
             drawText("↑↓  Move       ↩  Choose       Esc  Cancel",
                      in: NSRect(x: 18, y: footerY + 24, width: leftWidth - 36, height: 18),
                      font: NSFont.systemFont(ofSize: 11), color: .secondaryLabelColor)
+        }
+    }
+
+    /// Every suggestion's row, in the scrolling rows view's coordinates.
+    private func drawSuggestionRows(in dirtyRect: NSRect) {
+        guard mode == .suggestions else { return }
+        for (index, suggestion) in suggestions.enumerated() {
+            let slotY = CGFloat(index) * suggestionHeight
+            guard slotY < dirtyRect.maxY, slotY + suggestionHeight + listBottomPadding > dirtyRect.minY else { continue }
+            let selection = NSRect(x: 10, y: slotY + 13,
+                                   width: leftWidth - 20, height: 63)
+            if index == selected {
+                drawSelectedSurface(in: selection,
+                    color: DirectoryColorPreferences.color(for: suggestion.projectId)?.color ?? .controlAccentColor)
+            }
+
+            drawSourceIcon(for: suggestion.path,
+                           in: NSRect(x: 22, y: slotY + 26, width: 32, height: 32))
+
+            let detailWidth: CGFloat = suggestion.detail.isEmpty ? 0 : 82
+            drawText(suggestion.label,
+                     in: NSRect(x: 65, y: slotY + 27,
+                               width: leftWidth - 85 - detailWidth, height: 17),
+                     font: NSFont.systemFont(ofSize: 12.5, weight: .semibold),
+                     color: .labelColor)
+            if !suggestion.detail.isEmpty {
+                drawText(suggestion.detail,
+                         in: NSRect(x: leftWidth - detailWidth - 20, y: slotY + 27,
+                                   width: detailWidth, height: 17),
+                         font: NSFont.systemFont(ofSize: 11.5, weight: .semibold),
+                         color: .labelColor, alignment: .right)
+            }
+            let source = (suggestion.path as NSString).lastPathComponent
+            let breadcrumb = [suggestion.rankingReason ?? "", source.isEmpty ? "Project workspace" : source, suggestion.location]
+                .filter { !$0.isEmpty }.joined(separator: "  ·  ")
+            drawText(breadcrumb,
+                     in: NSRect(x: 65, y: slotY + 47,
+                               width: leftWidth - 87, height: 15),
+                     font: NSFont.systemFont(ofSize: 11),
+                     color: .secondaryLabelColor)
+            if index < suggestions.count - 1 {
+                drawInsetSeparator(at: 6 + CGFloat(index + 1) * suggestionHeight, from: 26)
+            }
         }
     }
 
@@ -996,7 +1091,9 @@ final class AssistBoxView: NSView {
     /// insertion, Tab and ⌘↩ do the same thing, so ⌘↩ is not shown twice.
     private var footerActions: [FooterAction] {
         let suggestion = suggestions.indices.contains(selected) ? suggestions[selected] : nil
-        let insertTitle = suggestion?.replacement?.expectedText.isEmpty == false ? "Replace" : "Insert"
+        // Spaces that code's colon takes the place of are not words replaced.
+        let replacesWords = suggestion?.replacement?.expectedText.trimmingCharacters(in: .whitespaces).isEmpty == false
+        let insertTitle = replacesWords ? "Replace" : "Insert"
         let shareable = suggestion?.isShareable == true
         let mode = shareable ? InsertionMode.current : .plain
         let tabTitle = mode == .share ? "Share…" : mode == .ask ? "Text or link…" : insertTitle
@@ -1073,23 +1170,107 @@ final class AssistBoxView: NSView {
         return model
     }
 
-    /// Scrolls a listed column under `point` by whole rows, the content
-    /// following the fingers as in a scroll view; a wheel notch moves one row.
-    /// False when the pointer is elsewhere or every row already fits.
-    private func scrollTable(by event: NSEvent, at point: NSPoint) -> Bool {
-        guard mode == .suggestions, !isPreviewLoading, let preview, preview.moreRows != nil,
-              preview.model == nil, preview.pdfPage == nil, documentPreviewRect.contains(point) else { return false }
-        let layout = tableLayout(preview, in: documentPreviewRect)
-        guard layout.lastFirstRow > 0 else { return false }
-        tableScroll -= event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * layout.rowHeight
-        let rows = Int(tableScroll / layout.rowHeight)
-        tableScroll -= CGFloat(rows) * layout.rowHeight
-        let firstRow = min(max(0, tableFirstRow + rows), layout.lastFirstRow)
-        if firstRow != tableFirstRow {
-            tableFirstRow = firstRow
-            needsDisplay = true
+    /// Where a table preview's parts go: its header, fixed at the top of the
+    /// table, and every row sent below it, which scroll as the suggestion
+    /// list does. The columns leave room for the scroller when the rows scroll.
+    fileprivate struct TableGeometry {
+        let layout: AssistTableLayout
+        let table: NSRect
+        let rows: NSRect
+        let contentHeight: CGFloat
+        /// How far down the rows open: where the card showed them before they
+        /// scrolled, around the cited cell or from a column's first row.
+        let openingOffset: CGFloat
+    }
+
+    private func tableGeometry(_ preview: AssistDocumentPreview, in rect: NSRect) -> TableGeometry {
+        if let cached = tableGeometryCache, cached.rect == rect { return cached.geometry }
+        func layout(width: CGFloat, height: CGFloat) -> AssistTableLayout {
+            AssistTableLayout(headers: preview.headers, rows: preview.rows, size: CGSize(width: width, height: height),
+                              listing: preview.moreRows.map { .init(firstRow: 0, moreRows: $0) })
         }
-        return true
+        func rowsHeight(_ all: AssistTableLayout) -> CGFloat {
+            all.rowHeights.reduce(0, +) + (all.rowsBelow > 0 ? AssistTableLayout.moreRowsHeight : 0)
+        }
+        // With room for every row, the layout lays all of them out.
+        var width = rect.width
+        var all = layout(width: width, height: .greatestFiniteMagnitude)
+        if all.headerHeight + rowsHeight(all) > rect.height {
+            width -= AssistListScroller.width
+            all = layout(width: width, height: .greatestFiniteMagnitude)
+        }
+        let height = rowsHeight(all)
+        let table = NSRect(x: rect.minX, y: rect.minY, width: rect.width,
+                           height: min(rect.height, all.headerHeight + height))
+        let rows = NSRect(x: table.minX, y: table.minY + all.headerHeight,
+                          width: table.width, height: max(0, table.height - all.headerHeight))
+        let fitting = layout(width: width, height: rect.height).rowRange.lowerBound
+        let opening = all.rowHeights.prefix(fitting).reduce(0, +)
+        let geometry = TableGeometry(layout: all, table: table, rows: rows, contentHeight: height,
+                                     openingOffset: min(opening, max(0, height - rows.height)))
+        tableGeometryCache = (rect, geometry)
+        return geometry
+    }
+
+    private var showsTable: Bool {
+        guard let preview else { return false }
+        return preview.model == nil && preview.pdfPage == nil && !preview.rows.isEmpty
+    }
+
+    /// The row at the top of a table preview's rows, as far as they are scrolled.
+    var tableFirstRow: Int {
+        guard let preview, showsTable, let table = previewContent as? AssistTableRowsView else { return 0 }
+        let offset = table.contentView.bounds.origin.y
+        var top: CGFloat = 0
+        for (index, height) in tableGeometry(preview, in: documentPreviewRect).layout.rowHeights.enumerated() {
+            if top + height > offset + 0.5 { return index }
+            top += height
+        }
+        return max(0, preview.rows.count - 1)
+    }
+
+    /// Puts the preview's scroll view in its place: a table's rows under its
+    /// header, anything else over the whole preview.
+    private func placePreviewContent() {
+        guard let previewContent else { return }
+        guard let table = previewContent as? AssistTableRowsView, let preview, showsTable else {
+            previewContent.frame = documentPreviewRect
+            return
+        }
+        let geometry = tableGeometry(preview, in: documentPreviewRect)
+        table.frame = geometry.rows
+        table.verticalLineScroll = geometry.layout.rowHeight
+        table.fit(contentHeight: geometry.contentHeight, opening: geometry.openingOffset)
+    }
+
+    /// Puts a scrollable view over the preview's place for a text, code,
+    /// Markdown, Word, slide or PDF source, once it has loaded. The card
+    /// draws tables and models itself.
+    private func updatePreviewContent() {
+        let wanted = mode == .suggestions && !isPreviewLoading ? preview : nil
+        let generation = wanted == nil ? nil : previewGeneration
+        guard generation != shownPreviewGeneration else { return }
+        previewContent?.removeFromSuperview()
+        previewContent = nil
+        shownPreviewGeneration = generation
+        guard let wanted, let content = makePreviewContent(for: wanted) else { return }
+        addSubview(content)
+        previewContent = content
+        placePreviewContent()
+    }
+
+    private func makePreviewContent(for preview: AssistDocumentPreview) -> NSView? {
+        if let page = preview.pdfPage { return AssistPDFPreviewView.showing(page) }
+        if showsTable {
+            let table = AssistTableRowsView()
+            table.rows.drawContent = { [unowned self] dirty in self.drawTableRows(in: dirty) }
+            return table
+        }
+        guard preview.model == nil, preview.rows.isEmpty, !preview.textBlocks.isEmpty else { return nil }
+        let projectId = suggestions.indices.contains(selected) ? suggestions[selected].projectId : nil
+        return AssistTextPreviewView(blocks: preview.textBlocks,
+                                     accent: DirectoryColorPreferences.color(for: projectId)?.color ?? .controlAccentColor,
+                                     wraps: !preview.isCode)
     }
 
     private func zoomModel(by factor: CGFloat, at point: NSPoint) -> Bool {
@@ -1214,6 +1395,12 @@ final class AssistBoxView: NSView {
         let outline = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
         NSColor.controlBackgroundColor.withAlphaComponent(0.3).setFill()
         outline.fill()
+        // The PDF view over it shows the document itself.
+        guard previewContent == nil else {
+            NSColor.separatorColor.withAlphaComponent(0.14).setStroke()
+            outline.stroke()
+            return
+        }
         NSGraphicsContext.current?.saveGraphicsState()
         outline.addClip()
         let available = rect.insetBy(dx: 6, dy: 6)
@@ -1239,48 +1426,53 @@ final class AssistBoxView: NSView {
         let outline = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
         NSColor.textBackgroundColor.withAlphaComponent(0.65).setFill()
         outline.fill()
-        AssistMarkdown.draw(preview.textBlocks, in: rect, accent: sourceColor)
+        // The scrolling text view over it shows the text.
+        if previewContent == nil { AssistMarkdown.draw(preview.textBlocks, in: rect, accent: sourceColor) }
         NSColor.separatorColor.withAlphaComponent(0.14).setStroke()
         outline.stroke()
     }
 
-    /// A whole column is listed from its first row, scrolled to `tableFirstRow`.
-    private func tableLayout(_ preview: AssistDocumentPreview, in rect: NSRect) -> AssistTableLayout {
-        AssistTableLayout(headers: preview.headers, rows: preview.rows, size: rect.size,
-                          listing: preview.moreRows.map { .init(firstRow: tableFirstRow, moreRows: $0) })
-    }
-
-    /// Draws the cited cell with the rows and columns around it, laid out by
-    /// AssistTableLayout: numbers as the sheet shows them, notes overflowing
-    /// into empty cells, and the column letter above each heading. A listed
-    /// column ends with how many of its rows are below the ones shown.
+    /// Draws a table's header with its column letters above each heading,
+    /// laid out by AssistTableLayout. Its rows scroll below it in a view of
+    /// their own (drawTableRows).
     private func drawTablePreview(_ preview: AssistDocumentPreview, in rect: NSRect) {
-        let projectId = suggestions.indices.contains(selected) ? suggestions[selected].projectId : nil
-        let sourceColor = DirectoryColorPreferences.color(for: projectId)?.color ?? .systemGreen
-        let layout = tableLayout(preview, in: rect)
-        let rows = Array(preview.rows[layout.rowRange])
-        let countHeight = layout.rowsBelow > 0 ? AssistTableLayout.moreRowsHeight : 0
-        let tableHeight = layout.headerHeight + layout.rowHeights.reduce(0, +) + countHeight
-        let table = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: tableHeight)
-        let roundedTable = NSBezierPath(roundedRect: table, xRadius: 8, yRadius: 8)
+        let geometry = tableGeometry(preview, in: rect)
+        let roundedTable = NSBezierPath(roundedRect: geometry.table, xRadius: 8, yRadius: 8)
         NSColor.textBackgroundColor.withAlphaComponent(0.65).setFill()
         roundedTable.fill()
         NSGraphicsContext.current?.saveGraphicsState()
         roundedTable.addClip()
-        drawTableHeader(preview, layout: layout, in: table)
-        var y = table.minY + layout.headerHeight
+        drawTableHeader(preview, layout: geometry.layout, in: geometry.table)
+        NSGraphicsContext.current?.restoreGraphicsState()
+        NSColor.separatorColor.withAlphaComponent(0.14).setStroke()
+        roundedTable.lineWidth = 0.65
+        roundedTable.stroke()
+    }
+
+    /// Every row sent, in the scrolling rows view's coordinates: numbers as
+    /// the sheet shows them, notes overflowing into empty cells, the cited
+    /// cell outlined. A listed column ends with how many of its rows the
+    /// server left out.
+    private func drawTableRows(in dirtyRect: NSRect) {
+        guard let preview, showsTable, let table = previewContent as? AssistTableRowsView else { return }
+        let projectId = suggestions.indices.contains(selected) ? suggestions[selected].projectId : nil
+        let sourceColor = DirectoryColorPreferences.color(for: projectId)?.color ?? .systemGreen
+        let layout = tableGeometry(preview, in: documentPreviewRect).layout
+        let width = table.rows.bounds.width
+        var y: CGFloat = 0
         var citedOutlines: [NSRect] = []
-        for (index, row) in rows.enumerated() {
+        for (index, row) in preview.rows.enumerated() where index < layout.rowHeights.count {
             let height = layout.rowHeights[index]
-            let gap = layout.startsAfterGap(preview.rows, at: layout.rowRange.lowerBound + index)
-            citedOutlines += drawTableRow(row, layout: layout, in: NSRect(x: table.minX, y: y, width: table.width,
-                                                                       height: height),
-                                          afterGap: gap, sourceColor: sourceColor)
+            if y < dirtyRect.maxY, y + height > dirtyRect.minY {
+                citedOutlines += drawTableRow(row, layout: layout, in: NSRect(x: 0, y: y, width: width, height: height),
+                                              afterGap: layout.startsAfterGap(preview.rows, at: index),
+                                              sourceColor: sourceColor)
+            }
             y += height
         }
         if layout.rowsBelow > 0 {
-            drawRowsBelow(layout.rowsBelow, scrollable: layout.rowRange.upperBound < preview.rows.count,
-                          in: NSRect(x: table.minX, y: y, width: table.width, height: countHeight))
+            drawRowsBelow(layout.rowsBelow,
+                          in: NSRect(x: 0, y: y, width: width, height: AssistTableLayout.moreRowsHeight))
         }
         for outline in citedOutlines {
             sourceColor.withAlphaComponent(0.65).setStroke()
@@ -1288,10 +1480,6 @@ final class AssistBoxView: NSView {
             path.lineWidth = 0.8
             path.stroke()
         }
-        NSGraphicsContext.current?.restoreGraphicsState()
-        NSColor.separatorColor.withAlphaComponent(0.14).setStroke()
-        roundedTable.lineWidth = 0.65
-        roundedTable.stroke()
     }
 
     private func drawTableHeader(_ preview: AssistDocumentPreview, layout: AssistTableLayout, in table: NSRect) {
@@ -1317,7 +1505,7 @@ final class AssistBoxView: NSView {
         }
     }
 
-    private func drawRowsBelow(_ count: Int, scrollable: Bool, in rect: NSRect) {
+    private func drawRowsBelow(_ count: Int, in rect: NSRect) {
         NSColor.separatorColor.withAlphaComponent(0.11).setStroke()
         let line = NSBezierPath()
         line.lineWidth = 0.5
@@ -1325,7 +1513,7 @@ final class AssistBoxView: NSView {
         line.line(to: NSPoint(x: rect.maxX, y: rect.minY))
         line.stroke()
         let rows = count == 1 ? "1 more row" : "\(count) more rows"
-        drawText(scrollable ? "\(rows) below · scroll to see them" : "\(rows) in the file",
+        drawText("\(rows) in the file",
                  in: NSRect(x: rect.minX + 8, y: rect.minY + 4, width: rect.width - 16, height: 14),
                  font: NSFont.systemFont(ofSize: 10), color: .secondaryLabelColor, alignment: .center)
     }
@@ -1464,14 +1652,11 @@ final class AssistBoxView: NSView {
                 return
             }
             guard point.y >= bodyTop else { return }
-            if point.y < bodyTop + navigationHeight {
-                // The header names where it goes: one level back, or the list of every source.
-                if sourceScoped { stepBackName == nil ? onAllSources?() : onStepBack?() }
-                return
+            // The rows take their own clicks; the header names where it goes:
+            // one level back, or the list of every source.
+            if point.y < bodyTop + navigationHeight, sourceScoped {
+                stepBackName == nil ? onAllSources?() : onStepBack?()
             }
-            let slot = Int((point.y - bodyTop - navigationHeight) / suggestionHeight)
-            let index = firstVisibleSuggestion + slot
-            if visibleSuggestionRange.contains(index) { onSelectRow?(index) }
             return
         }
 
@@ -1495,25 +1680,11 @@ final class AssistBoxView: NSView {
         let away = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
         let speed: CGFloat = event.hasPreciseScrollingDeltas ? 0.01 : 0.1
         let point = convert(event.locationInWindow, from: nil)
-        if !scrollSuggestions(by: event, at: point), !scrollTable(by: event, at: point),
-           !zoomModel(by: exp(away * speed), at: point) { super.scrollWheel(with: event) }
-    }
-
-    /// Over the list, scrolling moves the highlight as ↑ and ↓ do: a row per
-    /// wheel notch, or per short swipe, following the fingers as a scroll
-    /// view's rows would. It stops at either end rather than wrapping, so a
-    /// flick never spins round the list.
-    private func scrollSuggestions(by event: NSEvent, at point: NSPoint) -> Bool {
-        guard mode == .suggestions, point.x < leftWidth,
-              point.y >= bodyTop + navigationHeight, point.y < footerY else { return false }
-        guard suggestions.count > 1 else { return true }
-        suggestionScroll -= event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / suggestionScrollStep : event.scrollingDeltaY
-        let steps = Int(suggestionScroll)
-        guard steps != 0 else { return true }
-        suggestionScroll -= CGFloat(steps)
-        let target = min(max(0, selected + steps), suggestions.count - 1)
-        if target != selected { onSelectRow?(target) }
-        return true
+        // The list and the previews are scroll views, which take their own
+        // scrolling. Over a table's header, its rows scroll.
+        if let table = previewContent as? AssistTableRowsView, documentPreviewRect.contains(point) {
+            table.scrollWheel(with: event)
+        } else if !zoomModel(by: exp(away * speed), at: point) { super.scrollWheel(with: event) }
     }
 
     override func magnify(with event: NSEvent) {
@@ -1607,6 +1778,9 @@ final class GlobalAssistant {
     private var previewKey: String?
     private var previewCache: [String: AssistDocumentPreview] = [:]
     private var previewCacheOrder: [String] = []
+    /// Bytes of whole PDFs the cache keeps, newest first, so a PDF seen again
+    /// still scrolls. Older ones keep only their page image and load again.
+    private static let cachedPDFBudget = 64 * 1024 * 1024
     private var context: CaretContext?
     private var generation = 0
     private var feedbackDismissed = false
@@ -2272,8 +2446,10 @@ final class GlobalAssistant {
                 let insert = (entry["replacementText"] as? String)
                     ?? (entry["insertText"] as? String) ?? ""
                 guard !insert.isEmpty, let projectId = owner(entry, candidate) else { continue }
+                // Code's colon replaces spaces typed after the line numbers.
                 guard let replacement = CompletionReplacement.capture(start: entry["claimStart"] as? Int,
-                    end: entry["claimEnd"] as? Int, in: requestedText) else { continue }
+                    end: entry["claimEnd"] as? Int, in: requestedText,
+                    replacingSpaces: entry["verbatim"] as? Bool == true) else { continue }
                 append(AssistSuggestion(
                     // A code range inserts several lines; the row names its first one.
                     insertText: insert, label: entry["label"] as? String ?? insert,
@@ -2355,7 +2531,8 @@ final class GlobalAssistant {
         let token = previewGeneration
         previewKey = key
         view.previewError = nil
-        if let cached = previewCache[key] {
+        // A PDF cached without its document loads again, to scroll through it.
+        if let cached = previewCache[key], cached.pdfPage == nil || cached.pdfPage?.document != nil {
             previewCacheOrder.removeAll { $0 == key }
             previewCacheOrder.append(key)
             view.preview = cached
@@ -2373,7 +2550,8 @@ final class GlobalAssistant {
                 .appendingPathComponent(objectId)
                 .appendingPathComponent("preview"),
             resolvingAgainstBaseURL: false)
-        var query: [URLQueryItem] = []
+        // The preview scrolls, so it asks for more of the source around the citation.
+        var query = [URLQueryItem(name: "context", value: "wide")]
         if let versionId = suggestion.versionId { query.append(URLQueryItem(name: "version", value: versionId)) }
         // Text sources highlight the matched passage, as PDF pages do.
         if let text = suggestion.previewText, !text.isEmpty,
@@ -2458,10 +2636,24 @@ final class GlobalAssistant {
             while previewCacheOrder.count > 8 {
                 previewCache.removeValue(forKey: previewCacheOrder.removeFirst())
             }
+            trimCachedPDFs()
         }
         view.preview = preview
         view.isPreviewLoading = false
         view.needsDisplay = true
+    }
+
+    /// Lets go of the oldest cached PDFs' documents beyond the budget. The
+    /// one on screen stays whole while its view holds it.
+    private func trimCachedPDFs() {
+        var kept = 0
+        for key in previewCacheOrder.reversed() {
+            guard var entry = previewCache[key], let page = entry.pdfPage, page.document != nil else { continue }
+            kept += page.documentBytes
+            guard kept > Self.cachedPDFBudget else { continue }
+            entry.pdfPage?.document = nil
+            previewCache[key] = entry
+        }
     }
 
     static func parsePreview(_ data: Data) -> AssistDocumentPreview? {
@@ -2640,36 +2832,58 @@ final class GlobalAssistant {
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = list
         list.frame = NSRect(origin: .zero, size: list.boxSize)
+        list.layoutSubtreeIfNeeded()
         var clicked: Int?
         let savedOnSelect = list.onSelectRow
         list.onSelectRow = { clicked = $0 }
-        let point = list.convert(NSPoint(x: 80, y: list.pointerHeight + 32 + 35), to: nil)
-        if let event = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
+        let row = NSPoint(x: 80, y: list.pointerHeight + 32 + 35)
+        func viewAt(_ point: NSPoint) -> NSView? { window.contentView?.hitTest(list.convert(point, to: nil)) }
+        if let event = NSEvent.mouseEvent(with: .leftMouseDown, location: list.convert(row, to: nil), modifierFlags: [],
             timestamp: 0, windowNumber: window.windowNumber, context: nil,
             eventNumber: 0, clickCount: 1, pressure: 1) {
-            list.mouseDown(with: event)
+            viewAt(row)?.mouseDown(with: event)
         }
         checks["clicking a scrolled row selects its actual source"] = clicked == 9
-        func wheel(_ amount: Int32, precise: Bool = false, at point: NSPoint) {
+        func wheel(_ amount: Int32, at point: NSPoint) {
             // The window sits at the screen origin, so screen and window points agree.
-            let event = CGEvent(scrollWheelEvent2Source: nil, units: precise ? .pixel : .line, wheelCount: 1,
+            let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
                                 wheel1: amount, wheel2: 0, wheel3: 0)
             let screen = list.convert(point, to: nil)
             event?.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
-            if let event = event.flatMap(NSEvent.init(cgEvent:)) { list.scrollWheel(with: event) }
+            if let event = event.flatMap(NSEvent.init(cgEvent:)) { viewAt(point)?.scrollWheel(with: event) }
+        }
+        // AppKit scrolls only for wheel events from the window server, so the
+        // list is moved as they, or a drag of the scroller, move it.
+        func userScroll(byRows rows: CGFloat) {
+            let clip = list.suggestionList.contentView
+            let target = NSPoint(x: 0, y: clip.bounds.origin.y - rows * list.suggestionRowHeight)
+            // A scroll past an end settles at it.
+            clip.scroll(to: clip.constrainBoundsRect(NSRect(origin: target, size: clip.bounds.size)).origin)
+            list.suggestionList.reflectScrolledClipView(clip)
         }
         list.onSelectRow = { list.selected = $0 }
-        let row = NSPoint(x: 80, y: list.pointerHeight + 32 + 35)
+        let rowOffset = { list.suggestionList.contentView.bounds.origin.y / list.suggestionRowHeight }
         list.selected = 12
-        wheel(1, at: row)
-        checks["a wheel notch up over the list highlights the result above"] = list.selected == 11
-        wheel(-1, at: row); wheel(-1, at: row)
-        checks["scrolling down stops at the last result instead of wrapping"] = list.selected == 12
-        wheel(Int32(list.suggestionScrollStep * 3), precise: true, at: row)
-        checks["a two-finger swipe moves a result per short step"] = list.selected == 9
-            && list.visibleSuggestionRange.contains(9)
+        checks["a wheel notch scrolls the list one row"] = list.suggestionList.verticalLineScroll == list.suggestionRowHeight
+        userScroll(byRows: 1)
+        checks["scrolling up a row keeps the highlight in view"] = rowOffset() == 8 && list.selected == 11
+        userScroll(byRows: -2)
+        checks["scrolling down stops at the last results instead of wrapping"] =
+            rowOffset() == 9 && list.visibleSuggestionRange == 9..<13 && list.selected == 11
+        userScroll(byRows: 1.5)
+        checks["a two-finger swipe scrolls the rows as far as the fingers move"] =
+            rowOffset() == 7.5 && list.selected == 10 && list.visibleSuggestionRange == 8..<11
+        let clip = list.suggestionList.contentView
+        clip.scroll(to: NSPoint(x: 0, y: -20))
+        checks["a bounce past the top counts as the top"] = list.visibleSuggestionRange == 0..<4 && list.selected == 3
+        list.suggestionList.scrollerStyle = .overlay
+        checks["the list keeps a scroller beside it"] = list.suggestionList.verticalScroller?.isHidden == false
+            && list.suggestionList.scrollerStyle == .legacy
+        clip.scroll(to: NSPoint(x: 0, y: 5 * list.suggestionRowHeight))
+        let highlighted = list.selected
         wheel(-1, at: NSPoint(x: list.leftWidth + 40, y: row.y))
-        checks["scrolling over the preview leaves the highlight"] = list.selected == 9
+        checks["scrolling over the preview leaves the list and its highlight"] =
+            highlighted == 5 && list.selected == highlighted && rowOffset() == 5
         list.onSelectRow = savedOnSelect
         if let outputPath {
             list.appearance = NSAppearance(named: .aqua)
@@ -2732,7 +2946,10 @@ final class GlobalAssistant {
     static func regressionRenderPreview(data: Data, pdfData: Data? = nil, to output: URL) -> Bool {
         guard var preview = parsePreview(data) else { return false }
         if let pdf = preview.pdf {
-            guard let pdfData, let page = AssistPDFPageImage.render(data: pdfData, preview: pdf) else { return false }
+            guard let pdfData, var page = AssistPDFPageImage.render(data: pdfData, preview: pdf) else { return false }
+            // PDFKit draws its view in tiles a capture does not see, so the
+            // capture shows the page image the card draws without the view.
+            page.document = nil
             preview.pdfPage = page
         }
         return writePNG(of: regressionCard(showing: preview), to: output)
@@ -2836,34 +3053,39 @@ final class GlobalAssistant {
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = card
         defer { window.contentView = nil }
-        func scroll(_ pixels: Int32, at point: NSPoint) {
-            // The window sits at the screen origin, so screen and window points agree.
-            let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
-                                wheel1: pixels, wheel2: 0, wheel3: 0)
-            let screen = card.convert(point, to: nil)
-            event?.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
-            if let event = event.flatMap(NSEvent.init(cgEvent:)) { card.scrollWheel(with: event) }
+        guard let table = card.previewContent as? AssistTableRowsView else {
+            return ["the rows scroll under the header": false]
+        }
+        // AppKit scrolls only for wheel events from the window server, so the
+        // rows are moved as they, or a drag of the scroller, move them.
+        let rowHeight = table.verticalLineScroll
+        func scroll(byRows rows: CGFloat) {
+            let clip = table.contentView
+            let target = NSPoint(x: 0, y: clip.bounds.origin.y + rows * rowHeight)
+            clip.scroll(to: clip.constrainBoundsRect(NSRect(origin: target, size: clip.bounds.size)).origin)
+            table.reflectScrolledClipView(clip)
         }
         let save = { (name: String) in
             outputDirectory.map { writePNG(of: card, to: URL(fileURLWithPath: $0).appendingPathComponent(name)) } ?? true
         }
-        let table = NSPoint(x: card.documentPreviewRect.midX, y: card.documentPreviewRect.midY)
         var checks = ["writes the card as sent": save("column-first-rows.png"),
-                      "a column starts at its first row": card.tableFirstRow == 0]
-        // Pushing two fingers up moves the rows up, bringing the ones below into view.
-        let steps = preview.rows.count + 10
-        for _ in 0..<steps { scroll(-60, at: table) }
+                      "a column starts at its first row": card.tableFirstRow == 0,
+                      "a wheel notch scrolls a row": rowHeight > 0,
+                      "the rows keep a scroller beside them": table.verticalScroller?.isHidden == false]
+        scroll(byRows: 0.5)
+        checks["the rows scroll as far as the fingers move, not a row at a time"] =
+            table.contentView.bounds.origin.y == rowHeight / 2 && card.tableFirstRow == 0
+        scroll(byRows: CGFloat(preview.rows.count + 10))
         checks["scrolling up shows the rows below"] = card.tableFirstRow > 0
         checks["writes the card scrolled to the end"] = save("column-last-rows.png")
         let last = card.tableFirstRow
-        scroll(-60, at: table)
+        scroll(byRows: 1)
         checks["scrolling stops at the last row"] = card.tableFirstRow == last
-        scroll(-60, at: NSPoint(x: card.documentPreviewRect.midX, y: card.documentPreviewRect.maxY + 30))
-        checks["scrolling outside the table leaves it"] = card.tableFirstRow == last
-        for _ in 0..<steps { scroll(60, at: table) }
+        scroll(byRows: -CGFloat(preview.rows.count + 10))
         checks["scrolling back returns to the first row"] = card.tableFirstRow == 0
-        scroll(-60, at: table)
+        scroll(byRows: 1)
         card.preview = preview
+        card.layoutSubtreeIfNeeded()
         checks["a new preview starts at its first row"] = card.tableFirstRow == 0
         return checks
     }

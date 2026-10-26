@@ -804,6 +804,16 @@ do {
     } else { check(false, "source verification accepts equivalent spaces within the insertion") }
     check(CompletionReplacement.capture(start: 0, end: 3, in: "dep\n", expectedText: "dep") == nil,
           "replacement never reaches back across a new line")
+    let named = "deploy.sh line 4 to line 15  "
+    let spaces = named.utf16.count - 2
+    check(CompletionReplacement.capture(start: spaces, end: named.utf16.count, in: named) == nil,
+          "a fragment of spaces alone is not a word to replace")
+    if let colon = CompletionReplacement.capture(start: spaces, end: named.utf16.count, in: named, replacingSpaces: true),
+       case .success(let code) = CompletionTransaction.plan(document: units(named), caret: named.utf16.count,
+            insertText: ":\nset -euo pipefail", replacement: colon, separateInsertion: true) {
+        check(string(CompletionTransaction.apply(code, to: units(named))) == "deploy.sh line 4 to line 15:\nset -euo pipefail",
+              "code's colon takes the place of spaces typed after the line numbers")
+    } else { check(false, "code's colon takes the place of spaces typed after the line numbers") }
     let numeric = "  Our rate increased by 2"
     let number = CompletionReplacement.terminalNumber(in: numeric)!
     check(number.expectedText == "2" && number.start == numeric.utf16.count - 1,
