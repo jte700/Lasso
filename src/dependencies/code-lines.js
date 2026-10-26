@@ -1,7 +1,7 @@
 // Lines of a programming file named while writing: "server.js line 42",
 // "lines 10 through 20", "line 10 to line 20", "line 7 of config.yaml". Tab
 // inserts the code itself after the words that named it, every line from the
-// first through the last.
+// first through the last, after a colon and on lines of their own.
 
 /** The most lines one Tab inserts. */
 export const MAX_CODE_LINES = 500;
@@ -72,8 +72,10 @@ export function codeOfLines(fileLines, first, last) {
  * Lines of code as Tab inserts them at the end of `before`, the text up to
  * the caret: on lines of their own, each indented by the writer's current
  * line, so the code sits in the block being written. A caret on a line that
- * holds only indentation starts the code there; otherwise it starts on the
- * next line. Blank lines stay empty.
+ * holds only indentation starts the code there. Otherwise the words that
+ * named the lines end with a colon ("line 4 to line 15:") and the code starts
+ * on the next line; `replaced` is how many spaces after those words the
+ * colon takes the place of. Blank lines stay empty.
  */
 export function codeOnOwnLines(code, before) {
   const written = String(before ?? '');
@@ -81,8 +83,12 @@ export function codeOnOwnLines(code, before) {
   const indent = line.match(/^[ \t]*/)[0];
   const startsLine = indent.length === line.length;
   const indented = code.split('\n')
-    .map((codeLine, index) => (codeLine && (index > 0 || !startsLine) ? indent + codeLine : codeLine));
-  return `${startsLine ? '' : '\n'}${indented.join('\n')}`;
+    .map((codeLine, index) => (codeLine && (index > 0 || !startsLine) ? indent + codeLine : codeLine))
+    .join('\n');
+  if (startsLine) return { text: indented, replaced: 0 };
+  const trailing = line.match(/[ \t]*$/)[0];
+  const colon = line.slice(0, line.length - trailing.length).endsWith(':') ? '' : ':';
+  return { text: `${colon}\n${indented}`, replaced: trailing.length };
 }
 
 /** "Line 42" or "Lines 10–20". */

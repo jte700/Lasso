@@ -206,6 +206,8 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/ModelPreview.swift" \
   "$ROOT/desktop/ModelOrbit.swift" \
   "$ROOT/desktop/AssistTableLayout.swift" \
+  "$ROOT/desktop/AssistSuggestionList.swift" \
+  "$ROOT/desktop/AssistPreviewViews.swift" \
   "$ROOT/desktop/SourceInspectorPanel.swift" \
   "$ROOT/desktop/WebText.swift" \
   "$ROOT/desktop/ShareInsertion.swift" \

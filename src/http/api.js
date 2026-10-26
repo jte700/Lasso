@@ -26,8 +26,12 @@ import { passiveInlineType } from './passive-types.js';
 // Rows on each side of a cited cell in the suggestion card. The card shows as
 // many as fit around the citation, so a footnote still has its table above it.
 const ASSIST_TABLE_RADIUS = 4;
+// With ?context=wide (the card, which scrolls), the rows on each side it scrolls through.
+const ASSIST_SCROLL_TABLE_RADIUS = 30;
 // Rows of a cited column the card can scroll through; it counts the rest.
 const ASSIST_COLUMN_ROWS = 100;
+// With ?context=wide, the lines and Markdown blocks around a cited passage the card scrolls through.
+const ASSIST_TEXT_CONTEXT = Object.freeze({ lines: 400, blocksBefore: 200, blocksAfter: 400 });
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -597,20 +601,24 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const resolved = objectShares.describe(localObjectPreviewParameters[0], versionId);
         if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
         let preview = null;
+        // The suggestion card scrolls, so it asks for more of the source around the citation.
+        const wide = url.searchParams.get('context') === 'wide';
+        const radius = wide ? ASSIST_SCROLL_TABLE_RADIUS : ASSIST_TABLE_RADIUS;
         try {
           const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
           const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null;
           // A table too large to read here previews from the table index.
           const window = file ? dependencies.tableWindow(file, sourceFile.content, resolved.source.anchor ?? {},
-            { before: ASSIST_TABLE_RADIUS, after: Math.max(ASSIST_TABLE_RADIUS, ASSIST_COLUMN_ROWS) }) : null;
+            { before: radius, after: Math.max(radius, ASSIST_COLUMN_ROWS) }) : null;
           preview = path.extname(file?.path ?? '').toLowerCase() === '.pdf'
             ? buildInspectorPreview(sourceFile, resolved.source.anchor, resolved.source.metadata, resolved.source.label, resolved.source.objectType)
-            : buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata, ASSIST_TABLE_RADIUS,
+            : buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata, radius,
               resolved.source.objectType, { display: true, columnRows: ASSIST_COLUMN_ROWS, window });
           // Text, Markdown and Word sources show the cited passage in context.
           if (!preview && isTextPreviewPath(file?.path)) {
             preview = buildInspectorPreview(sourceFile, resolved.source.anchor, resolved.source.metadata,
-              resolved.source.label, resolved.source.objectType, { matchText: url.searchParams.get('text') ?? '' });
+              resolved.source.label, resolved.source.objectType,
+              { matchText: url.searchParams.get('text') ?? '', ...(wide ? { context: ASSIST_TEXT_CONTEXT } : {}) });
           }
           if (preview?.kind === 'pdf') {
             const query = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;

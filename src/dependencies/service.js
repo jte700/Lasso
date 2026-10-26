@@ -3738,8 +3738,8 @@ export class PredictiveProvenanceService {
 
   /**
    * The lines named while writing, as one suggestion whose Tab inserts their
-   * code after the words that named them: one line without its indentation,
-   * or the lines on lines of their own.
+   * code after the words that named them and a colon, on lines of their own:
+   * one line without its indentation, several indented as in the file.
    */
   linesFromCode(projectId, input, cursor, dependency) {
     const named = this.namedCodeLines(projectId, input, cursor, dependency);
@@ -3773,16 +3773,18 @@ export class PredictiveProvenanceService {
     const code = object.valueText;
     const block = first !== last;
     const firstLine = code.split('\n').find((line) => line.trim()) ?? code;
+    const inserted = codeOnOwnLines(code, String(input.text ?? '').slice(0, cursor));
     return result([{
       id: `${object.id}:lines`,
-      replacementText: block ? codeOnOwnLines(code, String(input.text ?? '').slice(0, cursor)) : code,
+      replacementText: inserted.text,
       // Typed key by key, code would meet the host's auto-indent, closing brackets and smart quotes.
       verbatim: true,
       label: block ? `${firstLine.trim()} \u2026` : code,
       detail: block ? `${last - first + 1} lines` : '',
       category: 'Code',
       provenanceLabel: `${fileName} · ${object.label}`,
-      claimStart: cursor, claimEnd: cursor,
+      // The colon takes the place of spaces typed after the line numbers.
+      claimStart: cursor - inserted.replaced, claimEnd: cursor,
       confidence: 0.99,
       dependencyCandidate: this.enrichObject(ownerId, { ...object, score: 0.99, matchTier: 0,
         reasons: [`${object.label} of ${fileName}`] }),

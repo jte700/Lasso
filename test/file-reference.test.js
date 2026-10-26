@@ -22,6 +22,8 @@ const agreement = { objectType: 'PAPER', path: 'Legal/Orchard-Services-Agreement
 const bracket = { objectType: 'DRAWING', path: 'Models/Bracket.step', label: 'Bracket', metadata: { format: 'STEP', title: 'Bracket' } };
 const survey = { objectType: 'DRAWING', path: 'Juniper-Site-Survey.landxml', label: 'Fictional Juniper Hub Site',
   metadata: { format: 'LANDXML', title: 'Fictional Juniper Hub Site' } };
+const code = (filePath) => ({ objectType: 'CODE_BLOCK', path: filePath, label: filePath.split('/').pop(), anchor: null,
+  metadata: { codeFile: true } });
 
 test('a file typed by its literal name completes to that name, with the extension once one is typed', () => {
   assert.equal(label(ledger, 'General-Led'), 'General-Ledger');
@@ -42,6 +44,19 @@ test('a file named in plain words completes to its readable name', () => {
   assert.equal(label(agreement, 'orchard services'), 'Orchard Services Agreement');
   assert.equal(label(sheet, 'cash forecast'), 'Finance Planning · Cash Forecast');
   assert.equal(label(bracket, 'brack'), 'Bracket', 'drawings keep their discovery label');
+});
+
+test('a code file is named from the first word of its name, and completes to the whole name', () => {
+  const deploy = code('scripts/deploy.sh');
+  const api = code('service/tidewater_api.py');
+  assert.equal(label(deploy, 'dep'), 'deploy.sh', 'three letters are enough, as for a drawing');
+  assert.equal(label(deploy, 'deploy'), 'deploy.sh');
+  assert.equal(label(deploy, 'deploy.s'), 'deploy.sh', 'typed as written, as before');
+  assert.equal(label(api, 'tidewater'), 'tidewater_api.py');
+  assert.equal(label(deploy, 'de'), null, 'two letters could be anything');
+  assert.equal(label(deploy, 'ploy'), null, 'a name is named from its start');
+  assert.equal(label(api, 'api'), null);
+  assert.equal(label({ ...deploy, anchor: { kind: 'line-range' } }, 'deploy'), null, 'its lines are not the file');
 });
 
 test('ordinary words, wrong order, passages and other extensions do not name a file', () => {
@@ -66,6 +81,7 @@ function workspace(t) {
   fs.writeFileSync(path.join(root, 'Month-End-Close.md'), '# September month end close\n\nClose the books by Friday.\n');
   fs.writeFileSync(path.join(root, 'Kickoff-Meeting-2026-10-15.txt'), 'Kickoff meeting notes.\nScope agreed with the client.\n');
   fs.writeFileSync(path.join(root, 'Bracket.step'), bracketPart());
+  fs.writeFileSync(path.join(root, 'deploy.sh'), '#!/usr/bin/env bash\nset -euo pipefail\ndocker push "$IMAGE"\n');
   fs.writeFileSync(path.join(root, 'Bracket.SLDPRT'), 'Native part stand-in.\n');
   fs.copyFileSync(new URL('cedar-lane-residence-realistic.dxf', drawings), path.join(root, 'Cedar-Lane-Floor-Plan.dxf'));
   fs.copyFileSync(new URL('cedar-lane-concept-plan.pdf', drawings), path.join(root, 'Cedar-Lane-Concept-Plan.pdf'));
@@ -90,6 +106,7 @@ test('every kind of file can be named while typing, and Tab replaces exactly the
     ['Cedar-Lane-Concept-Plan.pd', 'Cedar-Lane-Concept-Plan.pdf', 'Cedar-Lane-Concept-Plan.pdf'],
     ['Bracket.st', 'Bracket.step', 'Bracket.step'],
     ['Bracket.SL', 'Bracket.SLDPRT', 'Bracket.SLDPRT'],
+    ['the deploy', 'deploy.sh', 'deploy.sh'],
   ];
   for (const [text, file, inserted] of cases) {
     const prediction = await typed(app, text);
@@ -103,6 +120,12 @@ test('every kind of file can be named while typing, and Tab replaces exactly the
     assert.ok(claim.candidates[0].fileReference, `${text}: marked as a file reference for the web editor`);
     assert.equal(prediction.workspaceCompletions.length, 0, text);
   }
+  const early = (await typed(app, 'the depl')).claims;
+  assert.deepEqual([early.length, early[0].start, early[0].candidates[0].label], [1, 4, 'deploy.sh'],
+    'a code file is offered before its name is typed out, and Tab writes its whole name');
+  const shared = (await typed(app, 'the dep')).claims.flatMap(claim => claim.candidates.map(candidate => candidate.path));
+  assert.ok(!shared.includes('deploy.sh') && shared.includes('Bracket.step'),
+    'a measurement whose name starts the same way ("hole depth") goes first, as for any file');
   // The measured STEP model comes before the native file kept only as a pointer.
   const both = (await typed(app, 'The Bracket')).claims[0].candidates.map(candidate => candidate.path);
   assert.deepEqual(both, ['Bracket.step', 'Bracket.SLDPRT']);
