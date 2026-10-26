@@ -3704,6 +3704,67 @@ do {
     check(menu.attentionPath == ["External Drives"], "a review with nothing pending opens the drive list")
 }
 
+print("Code colours")
+do {
+    let syntax = try CodeSyntax(data: Data(contentsOf: URL(fileURLWithPath: "public/code-syntax.json")))
+    // public/code-syntax.js is held to the same cases by test/code-syntax.test.js.
+    let cases = try JSONSerialization.jsonObject(
+        with: Data(contentsOf: URL(fileURLWithPath: "test/fixtures/code-syntax-cases.json"))) as? [[String: Any]] ?? []
+    check(cases.count >= 10, "the shared colouring cases are read")
+    for sample in cases {
+        let file = sample["file"] as? String ?? "", text = sample["text"] as? String ?? ""
+        let expected = sample["tokens"] as? [[String]] ?? []
+        let tokens = syntax.language(forFileName: file)?.tokens(in: text) ?? []
+        let found = tokens.map { [$0.kind.rawValue, (text as NSString).substring(with: $0.range)] }
+        check(found == expected, "colours \(file) as the inspector does: \(sample["about"] as? String ?? "")")
+        if found != expected { print("    found \(found)") }
+    }
+    check(syntax.language(forFileName: "/repo/Dockerfile")?.name == "Dockerfile"
+          && syntax.language(forFileName: "src/App.TSX")?.name == "JavaScript"
+          && syntax.language(forFileName: "C:\\work\\job.PS1")?.name == "PowerShell"
+          && syntax.language(forFileName: "notes.txt") == nil && syntax.language(forFileName: "") == nil,
+          "a language is found by file name before extension, ignoring case and folders")
+
+    let script = syntax.language(forFileName: "a.js")!
+    let spanning = script.lineTokens(["let a = 1; /* one", "two", "three */ b"])
+    check(spanning.map { $0.map(\.kind) } == [[.keyword, .variable, .number, .comment], [.comment], [.comment]]
+          && spanning[0][3].range == NSRange(location: 11, length: 6) && spanning[2][0].range == NSRange(location: 0, length: 8),
+          "a block comment opened on one line colours the lines it runs on")
+
+    func shade(_ color: NSColor, _ name: NSAppearance.Name) -> String {
+        var hex = ""
+        NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
+            let rgb = color.usingColorSpace(.sRGB)!
+            hex = String(format: "#%02X%02X%02X", Int((rgb.redComponent * 255).rounded()),
+                         Int((rgb.greenComponent * 255).rounded()), Int((rgb.blueComponent * 255).rounded()))
+        }
+        return hex
+    }
+    let keyword = syntax.palette.color(for: .keyword)
+    check(shade(keyword, .aqua) == "#9B2393" && shade(keyword, .darkAqua) == "#FC5FA3",
+          "keywords take Xcode's light and dark colours as the appearance changes")
+
+    let payload: [String: Any] = [
+        "source": ["filename": "ratelimit.py", "location": "Line 2"], "path": "service/ratelimit.py",
+        "preview": ["kind": "text", "format": "plain", "lines": [
+            ["value": "def allow(self):", "lineNumber": 1], ["value": "    return True", "lineNumber": 2, "cited": true]]],
+    ]
+    let card = AssistDocumentPreview.parse(try JSONSerialization.data(withJSONObject: payload), syntax: syntax)!
+    check(card.textBlocks.map { $0.codeTokens.map(\.kind) } == [[.keyword, .variable, .keyword], [.keyword, .keyword]],
+          "the suggestion card colours a code file's lines")
+    let drawn = AssistMarkdown.attributed(card.textBlocks[1], baseSize: 11)
+    let returnColor = drawn.attribute(.foregroundColor, at: 4, effectiveRange: nil) as? NSColor
+    let returnFont = drawn.attribute(.font, at: 4, effectiveRange: nil) as? NSFont
+    let plainColor = drawn.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+    check(returnColor.map { shade($0, .aqua) } == "#9B2393" && plainColor == .labelColor
+          && returnFont?.isFixedPitch == true && returnFont?.fontDescriptor.symbolicTraits.contains(.bold) == true,
+          "a coloured line draws its keywords in bold keyword colour and leaves its indent plain")
+    var prose = payload
+    prose["source"] = ["filename": "notes.txt"]
+    let notes = AssistDocumentPreview.parse(try JSONSerialization.data(withJSONObject: prose), syntax: syntax)!
+    check(notes.textBlocks.allSatisfy { $0.codeTokens.isEmpty }, "prose lines are not coloured")
+}
+
 // MARK: The Ranch
 
 do {

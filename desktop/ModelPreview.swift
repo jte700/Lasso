@@ -520,7 +520,8 @@ struct AssistDocumentPreview {
     /// The slide of a presentation the citation is on; nil for the whole deck.
     var slideNumber: Int? = nil
 
-    static func parse(_ data: Data) -> AssistDocumentPreview? {
+    /// `syntax` colours a code file's lines; the app's bundled copy unless a test gives its own.
+    static func parse(_ data: Data, syntax: CodeSyntax? = CodeSyntax.bundled) -> AssistDocumentPreview? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let source = root["source"] as? [String: Any] else { return nil }
         let preview = root["preview"] as? [String: Any] ?? [:]
@@ -569,6 +570,10 @@ struct AssistDocumentPreview {
             result.textBlocks = result.isMarkdown
                 ? (preview["blocks"] as? [[String: Any]] ?? []).map(AssistTextBlock.init(markdown:))
                 : (preview["lines"] as? [[String: Any]] ?? []).map(AssistTextBlock.init(line:))
+            if !result.isMarkdown, let syntax, let language = syntax.language(forFileName: result.filename) {
+                let lineTokens = language.lineTokens(result.textBlocks.map(\.text))
+                result.textBlocks = zip(result.textBlocks, lineTokens).map { block, tokens in block.colored(tokens, palette: syntax.palette) }
+            }
         }
         return result
     }
@@ -584,6 +589,9 @@ struct AssistTextBlock: Equatable {
     var rows: [[String]] = []
     var cited = false
     var lineNumber: Int? = nil
+    /// A code line's coloured stretches, and the colours to paint them in.
+    private(set) var codeTokens: [CodeToken] = []
+    private(set) var codePalette: CodePalette? = nil
 
     init(type: String, text: String, level: Int = 0, marker: String? = nil, cited: Bool = false) {
         self.type = type
@@ -608,6 +616,14 @@ struct AssistTextBlock: Equatable {
         text = json["value"] as? String ?? ""
         cited = json["cited"] as? Bool ?? false
         lineNumber = (json["lineNumber"] as? NSNumber)?.intValue
+    }
+
+    /// This line, coloured as code.
+    func colored(_ tokens: [CodeToken], palette: CodePalette) -> AssistTextBlock {
+        var copy = self
+        copy.codeTokens = tokens
+        copy.codePalette = palette
+        return copy
     }
 }
 
@@ -680,8 +696,10 @@ enum AssistMarkdown {
             paragraph.headIndent = 10
             result = inline(block.text, font: body, color: .secondaryLabelColor)
         case "code", "line":
+            let font = NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular)
             result = NSMutableAttributedString(string: block.text.isEmpty ? " " : block.text, attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular), .foregroundColor: color])
+                .font: font, .foregroundColor: color])
+            block.codePalette?.apply(block.codeTokens, to: result, font: font)
         case "table":
             result = NSMutableAttributedString()
             for (index, row) in block.rows.enumerated() {

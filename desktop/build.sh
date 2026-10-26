@@ -202,6 +202,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/HostTextAdapter.swift" \
   "$ROOT/desktop/DependencyOverlay.swift" \
   "$ROOT/desktop/DependencyHighlighter.swift" \
+  "$ROOT/desktop/CodeSyntax.swift" \
   "$ROOT/desktop/ModelPreview.swift" \
   "$ROOT/desktop/ModelOrbit.swift" \
   "$ROOT/desktop/AssistTableLayout.swift" \

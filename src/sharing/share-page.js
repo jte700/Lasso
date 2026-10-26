@@ -1,5 +1,6 @@
 // Server-rendered recipient pages and the private, native source inspector.
 import { renderModelPlan } from '../../public/model-preview.js';
+import { CODE_SYNTAX_STYLE, highlightCodeLines } from '../../public/code-syntax.js';
 import { renderSharedDrawing } from './shared-drawing.js';
 import { recipientExcerptText, shareDownloadOptions } from './share-download.js';
 import { MARKDOWN_STYLE, isMarkdownPath, markdownBlockHtml, markdownInlineHtml } from './markdown.js';
@@ -112,7 +113,7 @@ function page(title, body, bodyClass = '') {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(title)}</title><style>${STYLE}${MARKDOWN_STYLE}${bodyClass === 'shared-recipient' ? RECIPIENT_STYLE : ''}</style></head>
+<title>${escapeHtml(title)}</title><style>${STYLE}${MARKDOWN_STYLE}${CODE_SYNTAX_STYLE}${bodyClass === 'shared-recipient' ? RECIPIENT_STYLE : ''}</style></head>
 <body class="${escapeHtml(bodyClass)}"><main>${body}</main></body></html>`;
 }
 
@@ -324,9 +325,11 @@ export function renderInspectorPanel(resolved, reference, preview, { shareable =
       markdownBlockHtml(block, { links: false, className: block.cited ? 'cited' : '' })).join('')}</div></div>`;
   } else if (preview?.kind === 'text') {
     previewLabel = preview.extracted ? 'Document text' : 'Source preview';
+    // Code is coloured as The Ranch and the suggestion card colour it.
+    const coloured = preview.extracted ? null : highlightCodeLines(preview.lines.map((line) => line.value), source.filename);
     content = preview.extracted
       ? `<div class="preview-scroll source-document-text">${escapeHtml(preview.lines.map((line) => line.value).join('\n'))}</div>`
-      : `<div class="preview-scroll"><div class="source-lines">${preview.lines.map((line) => `<div class="source-line ${line.cited ? 'cited' : ''}"><span class="line-number">${line.lineNumber}</span><span class="line-content">${escapeHtml(line.value) || '&nbsp;'}</span></div>`).join('')}</div></div>`;
+      : `<div class="preview-scroll"><div class="source-lines">${preview.lines.map((line, index) => `<div class="source-line ${line.cited ? 'cited' : ''}"><span class="line-number">${line.lineNumber}</span><span class="line-content">${(coloured ? coloured[index] : escapeHtml(line.value)) || '&nbsp;'}</span></div>`).join('')}</div></div>`;
   }
   const localPayload = JSON.stringify({ referenceId: reference ?? null, absolutePath: source.absolutePath ?? null,
     openAt: preview?.openAt ?? null }).replace(/</g, '\\u003c');
