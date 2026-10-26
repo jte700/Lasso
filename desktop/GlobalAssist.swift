@@ -863,6 +863,8 @@ final class AssistBoxView: NSView {
     private var listHeight: CGFloat { suggestionBodyHeight - navigationHeight - footerHeight }
     /// Space under the last row, so its highlight clears the footer line.
     private let listBottomPadding: CGFloat = 9
+    /// Space between the rows and the list's scroller, while it shows.
+    private let scrollerGap: CGFloat = 8
 
     private var listGeometry: AssistSuggestionListGeometry {
         AssistSuggestionListGeometry(rowCount: suggestions.count, rowHeight: suggestionHeight,
@@ -996,11 +998,14 @@ final class AssistBoxView: NSView {
     /// Every suggestion's row, in the scrolling rows view's coordinates.
     private func drawSuggestionRows(in dirtyRect: NSRect) {
         guard mode == .suggestions else { return }
+        // While the list has a scroller, the rows end short of it.
+        let hasScroller = suggestionRows.bounds.width < leftWidth
+        let right = hasScroller ? suggestionRows.bounds.width - scrollerGap : leftWidth - 10
         for (index, suggestion) in suggestions.enumerated() {
             let slotY = CGFloat(index) * suggestionHeight
             guard slotY < dirtyRect.maxY, slotY + suggestionHeight + listBottomPadding > dirtyRect.minY else { continue }
             let selection = NSRect(x: 10, y: slotY + 13,
-                                   width: leftWidth - 20, height: 63)
+                                   width: right - 10, height: 63)
             if index == selected {
                 drawSelectedSurface(in: selection,
                     color: DirectoryColorPreferences.color(for: suggestion.projectId)?.color ?? .controlAccentColor)
@@ -1012,12 +1017,12 @@ final class AssistBoxView: NSView {
             let detailWidth: CGFloat = suggestion.detail.isEmpty ? 0 : 82
             drawText(suggestion.label,
                      in: NSRect(x: 65, y: slotY + 27,
-                               width: leftWidth - 85 - detailWidth, height: 17),
+                               width: right - 75 - detailWidth, height: 17),
                      font: NSFont.systemFont(ofSize: 12.5, weight: .semibold),
                      color: .labelColor)
             if !suggestion.detail.isEmpty {
                 drawText(suggestion.detail,
-                         in: NSRect(x: leftWidth - detailWidth - 20, y: slotY + 27,
+                         in: NSRect(x: right - detailWidth - 10, y: slotY + 27,
                                    width: detailWidth, height: 17),
                          font: NSFont.systemFont(ofSize: 11.5, weight: .semibold),
                          color: .labelColor, alignment: .right)
@@ -1027,11 +1032,12 @@ final class AssistBoxView: NSView {
                 .filter { !$0.isEmpty }.joined(separator: "  ·  ")
             drawText(breadcrumb,
                      in: NSRect(x: 65, y: slotY + 47,
-                               width: leftWidth - 87, height: 15),
+                               width: right - 77, height: 15),
                      font: NSFont.systemFont(ofSize: 11),
                      color: .secondaryLabelColor)
             if index < suggestions.count - 1 {
-                drawInsetSeparator(at: 6 + CGFloat(index + 1) * suggestionHeight, from: 26)
+                drawInsetSeparator(at: 6 + CGFloat(index + 1) * suggestionHeight, from: 26,
+                                   to: hasScroller ? right : nil)
             }
         }
     }
@@ -1678,12 +1684,12 @@ final class AssistBoxView: NSView {
 
     private func drawSeparator(at y: CGFloat) { drawInsetSeparator(at: y, from: 0) }
 
-    private func drawInsetSeparator(at y: CGFloat, from x: CGFloat) {
+    private func drawInsetSeparator(at y: CGFloat, from x: CGFloat, to end: CGFloat? = nil) {
         NSColor.separatorColor.setStroke()
         let path = NSBezierPath()
         path.lineWidth = 0.5
         path.move(to: NSPoint(x: x, y: y))
-        path.line(to: NSPoint(x: mode == .suggestions ? leftWidth : bounds.width, y: y))
+        path.line(to: NSPoint(x: end ?? (mode == .suggestions ? leftWidth : bounds.width), y: y))
         path.stroke()
     }
 
