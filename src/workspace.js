@@ -6,7 +6,9 @@ import { transaction } from './db.js';
 import { HttpError } from './history/errors.js';
 import { normalizeProjectRootPath } from './history/service.js';
 import { runSliced, runSync } from './history/work.js';
-import { currentClauseStart, namesFocusedFile, writtenBeforeCaret } from './dependencies/service.js';
+import {
+  currentClauseStart, LINKED_VALUES_SHOWN, namesFocusedFile, SUGGESTIONS_SHOWN, writtenBeforeCaret,
+} from './dependencies/service.js';
 import { directoryIssue, directoryNote } from './directory-issues.js';
 import { offeredShareScopes } from './sharing/object-share.js';
 import { parseCommand } from './terminal/parser.js';
@@ -721,7 +723,7 @@ export class WorkspaceService {
       && claim.candidates?.some((candidate) => candidate.fileReference)
       && (!linkedContext || (claim.start >= linkedContext.anchor.end && !namesFocusedFile(claim, linkedContext)))));
     const pool = naming.length ? naming : scoped.length ? scoped : availablePredictions;
-    const limit = 12;
+    const limit = pool.some(({ prediction }) => prediction.listsEveryValue) ? LINKED_VALUES_SHOWN : SUGGESTIONS_SHOWN;
     const slots = [];
     for (const { project, prediction } of pool) {
       for (const group of ['sourceCompletions', 'workspaceCompletions']) {
