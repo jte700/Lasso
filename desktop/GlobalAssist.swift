@@ -709,7 +709,12 @@ final class AssistBoxView: NSView {
         }
     }
     var selected: Int = 0 {
-        didSet { revealSelectedSuggestion(animated: true) }
+        didSet {
+            // The highlight is drawn in the rows' own view, which a glide only
+            // paints where it brings rows into view.
+            suggestionRows.needsDisplay = true
+            revealSelectedSuggestion(animated: true)
+        }
     }
     private let visibleSuggestionCount = 4
     /// Where the list is scrolled to, or gliding to.
@@ -718,7 +723,7 @@ final class AssistBoxView: NSView {
     private static let listGlideDuration: TimeInterval = 0.22
     /// The rows scroll under the header, beside a slim scroller.
     fileprivate let suggestionList = AssistSuggestionScrollView()
-    private let suggestionRows = AssistDrawnView()
+    fileprivate let suggestionRows = AssistDrawnView()
     var title: String = "Dependency"
     var confirmChoices: [String] = []
     var messageLines: [String] = []
@@ -796,9 +801,17 @@ final class AssistBoxView: NSView {
         placePreviewContent()
     }
 
-    /// The rows draw with the rest of the card.
+    /// The suggestion and table rows draw with the rest of the card. The card
+    /// is layer-backed, so `needsDisplay` reads false straight after it is
+    /// set: the request is passed on as it is made, not read back.
     override var needsDisplay: Bool {
-        didSet { if needsDisplay { suggestionRows.needsDisplay = true } }
+        get { super.needsDisplay }
+        set {
+            super.needsDisplay = newValue
+            guard newValue else { return }
+            suggestionRows.needsDisplay = true
+            (previewContent as? AssistTableRowsView)?.rows.needsDisplay = true
+        }
     }
 
     @objc private func dismissSuggestions() { onDismiss?() }
@@ -2855,6 +2868,32 @@ final class GlobalAssistant {
             && scroller.map { $0.hitTest(NSPoint(x: $0.frame.midX, y: $0.frame.midY)) == nil } == true
         wheel(-1, at: NSPoint(x: list.leftWidth + 40, y: row.y))
         checks["scrolling over the preview leaves the list and its highlight"] = list.selected == 12 && rowOffset() == 9
+        // On screen, each move paints the old highlight away and the new one
+        // in, whether the row is in view or the list glides to it.
+        var painted: [(rect: NSRect, selection: Int)] = []
+        let drawRows = list.suggestionRows.drawContent
+        list.suggestionRows.drawContent = { dirty in painted.append((dirty, list.selected)); drawRows?(dirty) }
+        window.setFrameOrigin(NSPoint(x: -10_000, y: 0))
+        window.orderFrontRegardless()
+        func settle() { RunLoop.current.run(until: Date().addingTimeInterval(0.35)) }
+        settle()
+        var everyMoveRepaints = true
+        for _ in 0..<5 {
+            let from = list.selected
+            painted.removeAll()
+            assistant.move(-1)
+            settle()
+            let to = list.selected
+            let covered = painted.filter { $0.selection == to }.reduce(NSRect.null) { $0.union($1.rect) }
+            everyMoveRepaints = everyMoveRepaints && [from, to].allSatisfy { row in
+                covered.minY <= CGFloat(row) * list.suggestionRowHeight
+                    && covered.maxY >= CGFloat(row + 1) * list.suggestionRowHeight
+            }
+        }
+        checks["each move repaints the old and the new highlight, in view or after a glide"] =
+            everyMoveRepaints && list.selected == 7
+        window.orderOut(nil)
+        list.suggestionRows.drawContent = drawRows
         list.onSelectRow = savedOnSelect
         if let outputPath {
             list.appearance = NSAppearance(named: .aqua)
