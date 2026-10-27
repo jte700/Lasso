@@ -27,11 +27,14 @@ const PAYABLES = [
 ];
 const suppliers = PAYABLES.slice(1, -1).map(([supplier]) => supplier);
 
-async function directory(t, name, contents) {
+// A work directory holding the file, and any others beside it, by name.
+async function directory(t, name, contents, others = {}) {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-value-lists-'));
   const root = path.join(sandbox, 'Accountant');
   fs.mkdirSync(root);
-  fs.writeFileSync(path.join(root, name), contents);
+  for (const [file, text] of Object.entries({ [name]: contents, ...others })) {
+    fs.writeFileSync(path.join(root, file), text);
+  }
   const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
   await app.workspace.add([fs.realpathSync(root)], actor);
   t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
@@ -165,4 +168,37 @@ test('a column with more values than the card lists offers the rest as their dig
   const unlisted = amounts.find(amount => !listed.includes(amount));
   assert.ok(unlisted, 'some amount is past the end of the list');
   assert.equal(offered(await dive(app, `The amount was ${unlisted}`, focusOn(candidate)))[0], unlisted);
+});
+
+// A trial balance is its own document, with its own Credit CAD column; 28500 is in both files.
+const TRIAL_BALANCE = `Account Code,Account,Debit CAD,Credit CAD
+1000,Cash,52000,0
+1100,Accounts receivable,28500,0
+2000,Accounts payable,0,126400
+3000,Retained earnings,0,28500
+4000,Revenue,0,485000
+`;
+
+test('a column in two documents is two suggestions, and each lists only its own values', async t => {
+  const app = await directory(t, 'General-Ledger.csv', LEDGER, { 'Trial-Balance.csv': TRIAL_BALANCE });
+  const claim = (await typed(app, 'The credit ca', [])).claims.find(item => item.candidates.some(c => c.label === 'Credit CAD'));
+  assert.ok(claim, 'Credit CAD is suggested');
+  const columns = claim.candidates.filter(c => c.label === 'Credit CAD');
+  assert.deepEqual(columns.map(c => c.path).toSorted(), ['General-Ledger.csv', 'Trial-Balance.csv']);
+  // Side by side in the card, one row each.
+  const first = claim.candidates.indexOf(columns[0]);
+  assert.equal(claim.candidates[first + 1], columns[1]);
+  const ledger = columns.find(c => c.path === 'General-Ledger.csv');
+  const trial = columns.find(c => c.path === 'Trial-Balance.csv');
+  for (const [column, expected] of [[ledger, CREDITS], [trial, ['0', '126400', '28500', '485000']]]) {
+    const values = await dive(app, 'The credit was ', focusOn(column));
+    assert.deepEqual(offered(values).toSorted(), expected.toSorted(), column.path);
+    assert.deepEqual([...new Set(values.workspaceCompletions.map(item => item.dependencyCandidate.path))], [column.path]);
+  }
+  // Typing digits finds them in the chosen document only: 485000 is the trial balance's.
+  assert.ok(!offered(await dive(app, 'The credit was 4', focusOn(ledger))).includes('485000'));
+  // Accepted with Tab, the ledger's column lists the ledger's values too.
+  const accepted = 'The Credit CAD';
+  const values = await typed(app, `${accepted} was `, [link(ledger, 4, accepted.length)]);
+  assert.deepEqual(offered(values).toSorted(), CREDITS.toSorted());
 });
