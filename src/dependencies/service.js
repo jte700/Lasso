@@ -81,6 +81,11 @@ const TABLE_TAIL_ROWS = TAIL_ROWS;
 const INDEXED_MATCHES_PER_TABLE = 12;
 const INDEXED_ROWS_SHOWN = 8;
 const INDEXED_RELATED_OBJECTS = 64;
+// The suggestions a card offers. A linked source's values (a column's, a
+// row's cells, a part's measurements) are listed whole, up to the second
+// limit; past it, typing a value's first digits brings it to the top.
+export const SUGGESTIONS_SHOWN = 12;
+export const LINKED_VALUES_SHOWN = 100;
 const EDITABLE_DOCUMENT_TYPES = new Set(['markdown', 'text', 'document', 'pdf']);
 // What a code line's key starts with, after its file's id; recorded so later readings keep it.
 const CODE_LINES_KEY = 'lines';
@@ -4100,7 +4105,7 @@ export class PredictiveProvenanceService {
         }),
         generated: false,
       });
-      if (suggestions.length >= 8) break;
+      if (suggestions.length >= LINKED_VALUES_SHOWN) break;
     }
     return {
       dependencyId: dependency.id,
@@ -4122,7 +4127,7 @@ export class PredictiveProvenanceService {
   predict(projectId, input) {
     const prediction = this.predictionCandidates(projectId, input);
     const explicitSearch = input.surface === 'search';
-    const limit = 12;
+    const limit = prediction.listsEveryValue ? LINKED_VALUES_SHOWN : SUGGESTIONS_SHOWN;
     let remaining = limit;
     const take = (items) => {
       const selected = (items ?? []).slice(0, remaining);
@@ -4241,6 +4246,7 @@ export class PredictiveProvenanceService {
         workspaceCompletions: replacingFocusWords(linkedProjectObject.completions, linkedDependency, text, cursor),
         workspaceHeading: linkedProjectObject.heading ?? `Values for ${linkedProjectObject.variable}`,
         notice: linkedProjectObject.notice,
+        listsEveryValue: true,
         sourceContext: {
           dependencyId: linkedProjectObject.dependencyId,
           source: linkedProjectObject.source,

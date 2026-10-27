@@ -211,8 +211,9 @@ test('an accepted CAD part name offers its measurements, ranked by the words aft
   assert.equal(offered(spaced)[0].text, '100 mm');
   assert.ok(!spaced.claims.some(claim => claim.candidates.some(candidate => candidate.id === source.id)));
 
-  // With nothing more to go on, overall sizes come first, then holes and arcs.
-  // Equal values of different features each keep a row: the card names the feature.
+  // With nothing more to go on, overall sizes come first, then holes, arcs and edges,
+  // every measurement of the part. Equal values of different features each keep
+  // a row: the card names the feature.
   const plain = await typed(app, `${accepted} is`, { pendingDependencies });
   assert.equal(plain.workspaceHeading, 'Values for Bracket');
   assert.deepEqual(offered(plain), [
@@ -224,6 +225,11 @@ test('an accepted CAD part name offers its measurements, ranked by the words aft
     { text: '10 mm', label: 'Bracket Ø12 hole depth' },
     { text: '10 mm', label: 'Bracket Ø8 hole depth' },
     { text: '5 mm', label: 'Bracket R5 90° arc radius' },
+    { text: '7.853981634 mm', label: 'Bracket R5 90° arc length' },
+    { text: '10 mm', label: 'Bracket 10 mm straight edge length' },
+    { text: '50 mm', label: 'Bracket 50 mm straight edge length' },
+    { text: '60 mm', label: 'Bracket 60 mm straight edge length' },
+    { text: '95 mm', label: 'Bracket 95 mm straight edge length' },
   ]);
   // The card's feature line ("Ø8 hole depth") is the label after the part name.
   for (const { dependencyCandidate: candidate } of plain.workspaceCompletions) {
