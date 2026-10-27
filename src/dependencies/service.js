@@ -220,6 +220,19 @@ function replacingFocusWords(completions, dependency, text, cursor) {
   return completions.map((completion) => ({ ...completion, claimStart: start, claimEnd }));
 }
 
+// One document: a file, or one sheet of a workbook.
+function sameDocument(left, right) {
+  const sheet = (object) => object.metadata?.sheet ?? object.anchor?.sheet ?? '';
+  return left.path === right.path && sheet(left) === sheet(right);
+}
+
+// Each ranked name followed by the same name in other documents, in its
+// place and ranking, so they stay together and crowd out no other name.
+function withSameNamed(candidates) {
+  return candidates.flatMap(({ sameNamed = [], ...candidate }) => [candidate,
+    ...sameNamed.map((other) => ({ ...other, ranking: candidate.ranking }))]);
+}
+
 // What can have values below it: a CAD part's measurements, a table row's
 // cells or a column's values. Anything else offered is a value itself.
 const VALUE_HOLDERS = new Set(['DRAWING', 'DATASET_ROW', 'VARIABLE']);
@@ -3132,19 +3145,21 @@ export class PredictiveProvenanceService {
         || Number(right.objectType === 'VARIABLE') - Number(left.objectType === 'VARIABLE')
         || left.variable.localeCompare(right.variable)
         || left.path.localeCompare(right.path));
-    const seen = new Set();
-    const output = [];
+    // A name ranks once, as one choice among the names being typed. The same
+    // name in other documents (a trial balance's Credit CAD beside the general
+    // ledger's) is its own suggestion, offered right after it: withSameNamed.
+    const byName = new Map();
     for (const candidate of this.ranking.rank(projectId, this.recordIndexedCandidates(projectId, ranked), {
       query, documentPath: options.documentPath, relatedPaths: options.relatedPaths,
       minimumScore: 0.68, limit: ranked.length, diversify: false,
     })) {
       const key = normalizedVariable(candidate.variable);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      output.push(candidate);
-      if (output.length >= (options.limit ?? 40)) break;
+      const named = byName.get(key) ?? [];
+      // Within one document the name is offered once.
+      if (!named.some((other) => sameDocument(other, candidate))) byName.set(key, [...named, candidate]);
     }
-    return output;
+    return [...byName.values()].slice(0, options.limit ?? 40)
+      .map(([first, ...others]) => (others.length ? { ...first, sameNamed: others } : first));
   }
 
   /**
@@ -3903,8 +3918,16 @@ export class PredictiveProvenanceService {
           || (source.metadata.sectionRow && normalizedVariable(object.metadata.section) === variableKey)
           // A table keyed by row names stores each cell under its row ("Revenue"); its column names the source.
           || (source.anchor?.kind === 'table-column' && normalizedVariable(object.metadata.column) === variableKey);
+    // Another document's column of the same name is a suggestion of its own
+    // (a trial balance's Credit CAD beside the general ledger's), so its cells
+    // are not this column's values. What other files say of the variable by
+    // name, as a results table's row for it, still counts, and so does every
+    // file for a data dictionary's entry, which has no cells of its own.
+    const columnOfAnotherDocument = (object) => source.anchor?.kind === 'table-column' && !source.metadata.dictionary
+      && !sameDocument(object, source)
+      && normalizedVariable(object.metadata.column ?? object.anchor?.column) === variableKey;
     const allRelatedObjects = workspaceObjects
-      .filter((object) => !describesVariable(object))
+      .filter((object) => !describesVariable(object) && !columnOfAnotherDocument(object))
       .filter((object) => (object.id !== source.id || dependencySelectsRow || dependencySelectsColumn
         || dependencyNamesMeasurement) && object.objectType !== 'VARIABLE' && relatesToSource(object));
     // A model with nothing measured (a native CAD file) leaves the sentence to other suggestions.
@@ -4143,11 +4166,11 @@ export class PredictiveProvenanceService {
       const eligible = claim.candidates.filter((candidate) => explicitSearch || candidate.matchTier === 0
         || (candidate.matchStrength ?? candidate.score) >= (claim.type === 'STUDY_VARIABLE' ? 0.68 : 0.4));
       const rankingProjectId = eligible.length ? this.sourceProjectId(eligible[0]) ?? projectId : projectId;
-      return { ...claim, candidates: take(this.ranking.rank(rankingProjectId, eligible, {
+      return { ...claim, candidates: take(withSameNamed(this.ranking.rank(rankingProjectId, eligible, {
         query: claim.text, documentPath: rankingProjectId === projectId ? input.documentPath : null,
         relatedPaths: this.relatedSourcePaths(rankingProjectId, input),
         limit: remaining, diversify: !scoped,
-      })) };
+      }))) };
     });
     if (prediction.completion && remaining <= 0) prediction.completion = null;
     return prediction;

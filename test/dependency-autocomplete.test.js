@@ -353,8 +353,13 @@ test('dependency autocomplete acceptance workflows', async (suite) => {
     assert.equal(partial.candidates[0].completionText, 'Vitamin B1');
     assert.equal(partial.candidates[0].path, 'data/placental_vitamins.csv');
     assert.equal(partial.candidates[0].objectType, 'VARIABLE');
-    assert.deepEqual(partial.candidates.map((candidate) => candidate.label),
-      ['Vitamin B1', 'Vitamin B12', 'Vitamin B2', 'Vitamin B3', 'Vitamin C']);
+    // The results file's own Vitamin B1 and B2 rows follow the data's columns of the same name.
+    assert.deepEqual(partial.candidates.map((candidate) => `${candidate.label} · ${candidate.path}`), [
+      'Vitamin B1 · data/placental_vitamins.csv', 'Vitamin B1 · results/vitamin_effects.csv',
+      'Vitamin B12 · data/placental_vitamins.csv',
+      'Vitamin B2 · data/placental_vitamins.csv', 'Vitamin B2 · results/vitamin_effects.csv',
+      'Vitamin B3 · data/placental_vitamins.csv', 'Vitamin C · data/placental_vitamins.csv',
+    ]);
     assert.ok(partial.candidates.every((candidate) => !['PAPER', 'REFERENCE'].includes(candidate.objectType)));
 
     const alternateWording = 'Our study found that vita';
@@ -363,7 +368,7 @@ test('dependency autocomplete acceptance workflows', async (suite) => {
       context: alternateWording, documentPath: 'manuscript/results.md',
     }).claims[0];
     assert.equal(alternate.text, 'vita');
-    assert.equal(alternate.candidates.length, 5);
+    assert.equal(alternate.candidates.length, partial.candidates.length);
 
     const noTemplate = 'Vitam';
     const direct = application.dependencies.predict(project.id, {
@@ -371,7 +376,7 @@ test('dependency autocomplete acceptance workflows', async (suite) => {
       context: noTemplate, documentPath: 'manuscript/results.md',
     }).claims[0];
     assert.equal(direct.text, 'Vitam');
-    assert.equal(direct.candidates.length, 5);
+    assert.equal(direct.candidates.length, partial.candidates.length);
 
     const exactText = 'We found that vitamin B1';
     const exact = application.dependencies.predict(project.id, {
