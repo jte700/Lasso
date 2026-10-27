@@ -7,22 +7,23 @@
 //   lasso-agent status | stop
 //
 // Common options: --data-dir <dir> (default: LASSO_DATA_DIR, then the desktop
-// app's library), --idle <seconds> (REST only, default 300; 0 never idles).
+// app's library), --idle <seconds> (REST only, default 300; 0 never idles),
+// --tools search,read[,cite] (MCP only; cite is off unless named).
 // The scope can also come from LASSO_AGENT_SCOPE, as a JSON list or separated by ";".
 
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { openEngine, resolveDataDir } from './engine.js';
-import { serveMcp } from './mcp.js';
+import { serveMcp, toolsNamed } from './mcp.js';
 import { readDiscovery, serveAgentApi } from './rest.js';
 import { ensureServer } from './client.js';
 
-const USAGE = `Usage: lasso-agent <mcp|serve|ensure|status|stop> [--data-dir DIR] [--scope FOLDER]... [--idle SECONDS] [--port N]
+const USAGE = `Usage: lasso-agent <mcp|serve|ensure|status|stop> [--data-dir DIR] [--scope FOLDER]... [--idle SECONDS] [--port N] [--tools search,read,cite]
   --scope names a Lasso folder (its name or root path) an agent may read; "*" shares every enabled folder.`;
 
 export function parseArguments(argv, env = process.env) {
   const [command, ...rest] = argv;
-  const options = { command, dataDir: null, scope: [], idleSeconds: 300, port: 0 };
+  const options = { command, dataDir: null, scope: [], idleSeconds: 300, port: 0, tools: null };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
     const value = rest[index + 1];
@@ -31,6 +32,7 @@ export function parseArguments(argv, env = process.env) {
     else if (flag === '--scope') options.scope.push(needs());
     else if (flag === '--idle') options.idleSeconds = Number(needs());
     else if (flag === '--port') options.port = Number(needs());
+    else if (flag === '--tools') options.tools = needs().split(',').map((name) => name.trim()).filter(Boolean);
     else if (flag === '--help' || flag === '-h') options.command = 'help';
     else throw new Error(`Unknown option ${flag}.`);
   }
@@ -60,7 +62,7 @@ async function main(argv) {
       const stop = () => process.stdin.destroy();
       process.on('SIGINT', stop);
       process.on('SIGTERM', stop);
-      await serveMcp({ open });
+      await serveMcp({ open, ...(options.tools ? { tools: toolsNamed(options.tools) } : {}) });
       // The store is closed. Anything still holding the event loop is not
       // a reason to outlive the host that started this process.
       setTimeout(() => process.exit(0), 500).unref();

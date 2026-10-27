@@ -8,15 +8,16 @@ import { fileURLToPath } from 'node:url';
 import { openEngine } from '../src/agent/engine.js';
 import { connect, ensureServer, openLocal } from '../src/agent/client.js';
 import { discoveryPath, Lifecycle, readDiscovery, serveAgentApi } from '../src/agent/rest.js';
+import { formatAnswer } from '../src/agent/render.js';
 import { agentLibrary } from './fixtures/agent-library.js';
 
 const CLI = fileURLToPath(new URL('../src/agent/cli.js', import.meta.url));
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Starts `lasso-agent mcp` the way an AI host does, and speaks JSON-RPC to it. */
-function startMcp(t, dataDir, scope = ['*']) {
+function startMcp(t, dataDir, scope = ['*'], extra = []) {
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', CLI, 'mcp', '--data-dir', dataDir,
-    ...scope.flatMap((folder) => ['--scope', folder])], { stdio: ['pipe', 'pipe', 'pipe'] });
+    ...scope.flatMap((folder) => ['--scope', folder]), ...extra], { stdio: ['pipe', 'pipe', 'pipe'] });
   const pending = new Map();
   const stray = [];
   let stderr = '';
@@ -34,17 +35,20 @@ function startMcp(t, dataDir, scope = ['*']) {
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
     return new Promise((resolve) => pending.set(id, resolve));
   };
+  // JSON for assertions on structure; `text` is what a model would read by default.
   const call = async (name, args) => {
-    const response = await request('tools/call', { name, arguments: args });
+    const response = await request('tools/call', { name, arguments: { ...args, format: 'json' } });
     return { ...response.result, value: JSON.parse(response.result.content[0].text) };
   };
-  return { child, request, call, raw: (line) => child.stdin.write(`${line}\n`), stray, exited, stderr: () => stderr };
+  const read = async (name, args) => (await request('tools/call', { name, arguments: args })).result;
+  return { child, request, call, read, raw: (line) => child.stdin.write(`${line}\n`), stray, exited, stderr: () => stderr };
 }
 
 test('an MCP host starts Lasso on stdio, reads exact lines, and the process exits when the host disconnects', async (t) => {
   // Arrange
   const { app, dataDir } = await agentLibrary(t);
-  const mcp = startMcp(t, dataDir);
+  const mcp = startMcp(t, dataDir, ['*'], ['--tools', 'search,read,cite']);
+  const lean = startMcp(t, dataDir);
 
   // Act
   const started = Date.now();
@@ -52,23 +56,33 @@ test('an MCP host starts Lasso on stdio, reads exact lines, and the process exit
     clientInfo: { name: 'Test Host', version: '1' } });
   mcp.raw(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }));
   const listed = await mcp.request('tools/list', {});
-  const lines = await mcp.call('lasso_inspect', { items: [{ file: 'app.py', folder: 'Api', lines: '5-12' }] });
+  const lines = await mcp.call('lasso_read', { items: [{ file: 'app.py', folder: 'Api', lines: '5-12' }] });
+  const asText = await mcp.read('lasso_read', { items: [{ file: 'app.py', folder: 'Api', lines: '5-12' }] });
   const firstResultMs = Date.now() - started;
-  const ambiguous = await mcp.call('lasso_inspect', { items: [{ file: 'app.py', lines: '1' }] });
-  const suggestion = await mcp.call('lasso_suggest', { queries: [{ text: 'North division', fields: ['Revenue'] }] });
+  const ambiguous = await mcp.call('lasso_read', { items: [{ file: 'app.py', lines: '1' }] });
+  const suggestion = await mcp.call('lasso_search', { queries: [{ text: 'North division', fields: ['Revenue'] }] });
   const revenue = suggestion.value.results[0].candidates.find((candidate) => candidate.fields?.Revenue).fields.Revenue;
-  const bound = await mcp.call('lasso_bind', { task: 'mcp-task', bind: { revenue: revenue.h }, template: 'Revenue: {{revenue}}' });
-  const invalid = await mcp.call('lasso_inspect', { items: 'not a list' });
+  const bound = await mcp.call('lasso_cite', { task: 'mcp-task', bind: { revenue: revenue.h }, template: 'Revenue: {{revenue}}' });
+  const invalid = await mcp.call('lasso_read', { items: 'not a list' });
   const unknownTool = await mcp.request('tools/call', { name: 'lasso_delete', arguments: {} });
   const unknownMethod = await mcp.request('resources/list', {});
   const ping = await mcp.request('ping');
+  await lean.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'Lean' } });
+  const leanTools = await lean.request('tools/list', {});
+  const leanCite = await lean.request('tools/call', { name: 'lasso_cite', arguments: { task: 't' } });
+  lean.child.stdin.end();
+  await lean.exited;
   mcp.child.stdin.end();
   const code = await mcp.exited;
 
   // Assert
   assert.equal(initialized.result.protocolVersion, '2025-06-18');
   assert.equal(initialized.result.serverInfo.name, 'lasso');
-  assert.deepEqual(listed.result.tools.map((tool) => tool.name), ['lasso_suggest', 'lasso_inspect', 'lasso_bind']);
+  assert.deepEqual(listed.result.tools.map((tool) => tool.name), ['lasso_search', 'lasso_read', 'lasso_cite']);
+  assert.deepEqual(leanTools.result.tools.map((tool) => tool.name), ['lasso_search', 'lasso_read'], 'cite is offered only on request');
+  assert.equal(leanCite.error.code, -32602);
+  assert.match(asText.content[0].text, /^s1 = Api\/app\.py @[0-9a-f]{12}\n\[1\] #[0-9A-Z]{10} s1 lines 5-12 of \d+\n```\ndef handle\(request\):/,
+    'by default a model reads compact text with the exact lines fenced');
   assert.equal(lines.isError, undefined);
   assert.equal(lines.value.items[0].text.split('\n').length, 8);
   assert.equal(lines.value.items[0].text.split('\n')[0], 'def handle(request):');
@@ -94,7 +108,7 @@ test('an MCP host is answered in the newest protocol version Lasso knows when it
   // Act
   const initialized = await mcp.request('initialize', { protocolVersion: '1999-01-01', capabilities: {}, clientInfo: { name: 'Old' } });
   mcp.raw([
-    JSON.stringify({ jsonrpc: '2.0', id: 'slow', method: 'tools/call', params: { name: 'lasso_suggest', arguments: { queries: [{ text: 'grant' }] } } }),
+    JSON.stringify({ jsonrpc: '2.0', id: 'slow', method: 'tools/call', params: { name: 'lasso_search', arguments: { queries: [{ text: 'grant' }] } } }),
     JSON.stringify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 'slow' } }),
   ].join('\n'));
   mcp.raw('{not json');
@@ -117,7 +131,7 @@ test('an MCP server launched without a scope explains how to share folders inste
 
   // Act
   await mcp.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'Host' } });
-  const refused = await mcp.call('lasso_suggest', { queries: [{ text: 'grant' }] });
+  const refused = await mcp.call('lasso_search', { queries: [{ text: 'grant' }] });
   mcp.child.stdin.end();
   await mcp.exited;
 
@@ -181,7 +195,10 @@ test('REST, MCP and in-process calls give the same answer for the same request',
   // Act
   const viaRest = await (await fetch(`${served.url}/agent/v1/suggest`, { method: 'POST',
     headers: { authorization: `Bearer ${served.token}`, 'content-type': 'application/json' }, body: JSON.stringify(request) })).json();
-  const viaMcp = (await mcp.call('lasso_suggest', request)).value;
+  const viaMcp = (await mcp.call('lasso_search', request)).value;
+  const mcpText = (await mcp.read('lasso_search', request)).content[0].text;
+  const restText = await (await fetch(`${served.url}/agent/v1/suggest`, { method: 'POST',
+    headers: { authorization: `Bearer ${served.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ ...request, format: 'text' }) })).text();
   const inProcess = local.suggest(request);
   mcp.child.stdin.end();
   await mcp.exited;
@@ -189,6 +206,8 @@ test('REST, MCP and in-process calls give the same answer for the same request',
   // Assert
   assert.deepEqual(viaRest, inProcess);
   assert.deepEqual(viaMcp, inProcess);
+  assert.equal(mcpText, formatAnswer('suggest', inProcess));
+  assert.equal(restText, mcpText);
 });
 
 test('a leased REST server outlives its idle time, then stops by itself and removes its address once released', async (t) => {

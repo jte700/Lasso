@@ -15,6 +15,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { errorBody } from './errors.js';
 import { slugActor } from './identity.js';
+import { formatAnswer } from './render.js';
 
 const BODY_LIMIT = 1024 * 1024;
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -123,6 +124,12 @@ function send(response, status, value) {
   response.end(body);
 }
 
+function sendText(response, text) {
+  response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'content-length': Buffer.byteLength(text),
+    'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+  response.end(text);
+}
+
 function authorized(request, token) {
   const header = String(request.headers.authorization ?? '');
   const given = Buffer.from(header.startsWith('Bearer ') ? header.slice(7) : '');
@@ -158,7 +165,10 @@ export function createAgentHandler({ engine, token, lifecycle, onShutdown = () =
       if (operation) {
         const body = await readBody(request);
         if (body.error) return send(response, body.error[0], { error: { code: 'invalid_request', message: body.error[1] } });
-        return send(response, 200, engine.metrics.measure(operation, 'rest', () => engine.evidence[operation](body.value, actor)));
+        const value = engine.metrics.measure(operation, 'rest', () => engine.evidence[operation](body.value, actor));
+        // JSON is the contract; "format": "text" returns the compact text an MCP host shows a model.
+        if (body.value.format === 'text') return sendText(response, formatAnswer(operation, value));
+        return send(response, 200, value);
       }
       if (route === 'GET /agent/v1/status') {
         return send(response, 200, { ...engine.evidence.status(), server: { pid: process.pid, startedAt,

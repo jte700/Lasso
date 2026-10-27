@@ -1,8 +1,10 @@
 // Live agent benchmark: a real model does the benchmark's tasks through
-// OpenAI's Responses API on the same generated library, in three arms:
-//   direct       ordinary file tools (Read, Grep, Glob)
-//   lasso        those tools plus Lasso's; the model chooses (adaptive routing)
-//   lasso-first  the same, told to prefer Lasso and fall back to the file tools
+// OpenAI's Responses API on the same generated library, in four arms:
+//   direct          ordinary file tools (Read, Grep, Glob)
+//   lasso-v1        those tools plus Lasso's first definitions (JSON results); the model chooses
+//   lasso-v2        the same with the second definitions (when-to-use guidance, compact text)
+//   lasso-v2-first  lasso-v2, told to prefer Lasso and fall back to the file tools
+//   lasso-v3        the current MCP server's defaults (search and read only, no re-checking)
 // Token counts are the provider's own usage records for every model call.
 //
 //   OPENAI_API_KEY=… node scripts/agent-benchmark-live.mjs --model gpt-5.4-mini [--model …]
@@ -17,7 +19,9 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { openLocal } from '../src/agent/client.js';
-import { INSTRUCTIONS as LASSO_INSTRUCTIONS, TOOLS as LASSO_TOOLS } from '../src/agent/mcp.js';
+import { INSTRUCTIONS as LASSO_INSTRUCTIONS, toolsNamed } from '../src/agent/mcp.js';
+import { formatAnswer } from '../src/agent/render.js';
+import { INSTRUCTIONS_V1, INSTRUCTIONS_V2, TOOLS_V1, TOOLS_V2 } from './agent-tools-versions.mjs';
 import { blockRange, definitions } from '../src/agent/evidence.js';
 import { estimateTokens } from '../src/agent/metrics.js';
 import { DIRECT_DEFINITIONS, directTools, prepareLibrary, REPEATED_RANGES, taskPrompts } from './agent-benchmark-corpus.mjs';
@@ -62,11 +66,17 @@ const INSTRUCTIONS = [
 
 // What a person who set Lasso up for their agent might add to its instructions.
 const PREFER_LASSO = 'Prefer the lasso_ tools for finding and reading evidence; use the file tools only when Lasso cannot answer.';
-const ARMS = ['direct', 'lasso', 'lasso-first'];
+const ALL_ARMS = ['direct', 'lasso-v1', 'lasso-v2', 'lasso-v2-first', 'lasso-v3'];
+// --arms direct,lasso-v2 runs a subset; direct must be among them, as every comparison is against it.
+const ARMS = option('--arms', null)?.split(',').filter((name) => ALL_ARMS.includes(name)) ?? ALL_ARMS;
+if (!ARMS.includes('direct')) ARMS.unshift('direct');
 
 const asFunction = ({ name, description, input_schema: parameters }) => ({ type: 'function', name, description, parameters, strict: false });
 const DIRECT_FUNCTIONS = DIRECT_DEFINITIONS.map(asFunction);
-const LASSO_FUNCTIONS = LASSO_TOOLS.map(({ name, description, inputSchema }) => asFunction({ name, description, input_schema: inputSchema }));
+const functionsOf = (tools) => tools.map(({ name, description, inputSchema }) => asFunction({ name, description, input_schema: inputSchema }));
+const LASSO_FUNCTIONS = functionsOf(toolsNamed());
+const V1_FUNCTIONS = functionsOf(TOOLS_V1);
+const V2_FUNCTIONS = functionsOf(TOOLS_V2);
 
 // ── grading ────────────────────────────────────────────────────────────────
 
@@ -299,7 +309,7 @@ function report(summary) {
     for (const [name, comparison] of Object.entries(result.arms)) {
       lines.push(`- **${name}**: S = 1 − ΣT/ΣT_direct over ${comparison.direct.tasks} paired tasks = **${comparison.S}%** (code ${comparison.families.code}%, docs ${comparison.families.docs}%); per-task ratio min ${comparison.perTaskRatio?.min}, median ${comparison.perTaskRatio?.median}, max ${comparison.perTaskRatio?.max}; more tokens than direct on ${comparison.moreTokensThanDirect} of ${comparison.direct.tasks}. Used Lasso on ${comparison.lassoUse.tasksUsingLasso} of ${comparison.lassoUse.tasks} tasks, also needing file tools on ${comparison.lassoUse.fellBack} of those (${Object.entries(comparison.lassoUse.calls).map(([tool, count]) => `${tool} ×${count}`).join(', ')}).`);
     }
-    lines.push(`- First-call input (instructions + tool definitions + request), median: ${Object.entries(result.firstCallInput).map(([name, value]) => `${name} ${value}`).join(', ')} tokens. Lasso's definitions and instructions cost **${result.firstCallInput.lasso - result.firstCallInput.direct} tokens per call** in this model's tokenizer (offline estimate: ${summary.estimatedDefinitionTokens.lasso}).`);
+    lines.push(`- First-call input (instructions + tool definitions + request), median: ${Object.entries(result.firstCallInput).map(([name, value]) => `${name} ${value}`).join(', ')} tokens; so each Lasso version adds ${Object.entries(result.firstCallInput).filter(([name]) => name !== 'direct' && result.firstCallInput.direct != null).map(([name, value]) => `${name} +${value - result.firstCallInput.direct}`).join(', ')} tokens per call.`);
     lines.push(`- Capability tasks (not in S): ${result.capability.map((row) => `${row.task} run ${row.run} ${row.arm} ${row.correct ? 'correct' : 'wrong'}`).join('; ') || 'none run'}.`, '');
     lines.push('| Run | Task | Arm | Correct | Tokens | Cached | Output | Model calls | Tool calls | Tools | Wall s | Stop |');
     lines.push('|---|---|---|---|---|---|---|---|---|---|---|---|');
@@ -354,13 +364,20 @@ async function main() {
       const grade = graders(library);
       const direct = directTools(library.root);
       const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'live-benchmark' });
-      const lassoTools = { lasso_suggest: (input) => lasso.suggest(input), lasso_inspect: (input) => lasso.inspect(input), lasso_bind: (input) => lasso.bind(input) };
+      // What each version of the MCP server would hand the model: v1 answered in JSON, v2 in compact text.
+      const v1Tools = { lasso_suggest: (input) => lasso.suggest(input), lasso_inspect: (input) => lasso.inspect(input), lasso_bind: (input) => lasso.bind(input) };
+      const v2Tools = { lasso_search: (input) => formatAnswer('suggest', lasso.suggest(input)),
+        lasso_read: (input) => formatAnswer('inspect', lasso.inspect(input)), lasso_cite: (input) => formatAnswer('bind', lasso.bind(input)) };
       const arms = {
         direct: { tools: DIRECT_FUNCTIONS, instructions: INSTRUCTIONS, execute: (name, input) => direct[name](input) },
-        lasso: { tools: [...DIRECT_FUNCTIONS, ...LASSO_FUNCTIONS], instructions: `${INSTRUCTIONS}\n\n${LASSO_INSTRUCTIONS}`,
-          execute: (name, input) => (lassoTools[name] ?? direct[name])(input) },
-        'lasso-first': { tools: [...DIRECT_FUNCTIONS, ...LASSO_FUNCTIONS], instructions: `${INSTRUCTIONS}\n\n${LASSO_INSTRUCTIONS} ${PREFER_LASSO}`,
-          execute: (name, input) => (lassoTools[name] ?? direct[name])(input) },
+        'lasso-v1': { tools: [...DIRECT_FUNCTIONS, ...V1_FUNCTIONS], instructions: `${INSTRUCTIONS}\n\n${INSTRUCTIONS_V1}`,
+          execute: (name, input) => (v1Tools[name] ?? direct[name])(input) },
+        'lasso-v2': { tools: [...DIRECT_FUNCTIONS, ...V2_FUNCTIONS], instructions: `${INSTRUCTIONS}\n\n${INSTRUCTIONS_V2}`,
+          execute: (name, input) => (v2Tools[name] ?? direct[name])(input) },
+        'lasso-v2-first': { tools: [...DIRECT_FUNCTIONS, ...V2_FUNCTIONS], instructions: `${INSTRUCTIONS}\n\n${INSTRUCTIONS_V2} ${PREFER_LASSO}`,
+          execute: (name, input) => (v2Tools[name] ?? direct[name])(input) },
+        'lasso-v3': { tools: [...DIRECT_FUNCTIONS, ...LASSO_FUNCTIONS], instructions: `${INSTRUCTIONS}\n\n${LASSO_INSTRUCTIONS}`,
+          execute: (name, input) => (v2Tools[name] ?? direct[name])(input) },
       };
       try {
         for (const [index, task] of TASKS.entries()) {

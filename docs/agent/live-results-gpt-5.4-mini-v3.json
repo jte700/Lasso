@@ -1,0 +1,3669 @@
+{
+  "generatedAt": "2026-10-27T22:46:27.112Z",
+  "effort": "low",
+  "runs": 2,
+  "budgetUsd": 0.4,
+  "spentUsd": 0.3395,
+  "estimatedDefinitionTokens": {
+    "direct": 466,
+    "lasso": 515
+  },
+  "models": {
+    "gpt-5.4-mini": {
+      "arms": {
+        "lasso-v3": {
+          "direct": {
+            "tasks": 31,
+            "correct": 27,
+            "tokens": 204934,
+            "input": 192489,
+            "cached": 91008,
+            "output": 12445,
+            "reasoning": 2428,
+            "modelCalls": 92,
+            "toolCalls": 114,
+            "costUsd": 0.1389,
+            "wallSeconds": 140.6
+          },
+          "arm": {
+            "tasks": 31,
+            "correct": 28,
+            "tokens": 177998,
+            "input": 165738,
+            "cached": 71808,
+            "output": 12260,
+            "reasoning": 2221,
+            "modelCalls": 106,
+            "toolCalls": 92,
+            "costUsd": 0.131,
+            "wallSeconds": 153.1
+          },
+          "S": 13.1,
+          "families": {
+            "code": -97.8,
+            "docs": 39.3
+          },
+          "perTaskRatio": {
+            "min": 0.19,
+            "median": 1.73,
+            "max": 4.92
+          },
+          "moreTokensThanDirect": 26,
+          "lassoUse": {
+            "tasksUsingLasso": 23,
+            "tasks": 32,
+            "fellBack": 8,
+            "calls": {
+              "Read": 21,
+              "Glob": 3,
+              "lasso_search": 43,
+              "lasso_read": 22,
+              "Grep": 14
+            }
+          }
+        }
+      },
+      "capability": [
+        {
+          "run": 1,
+          "arm": "lasso-v3",
+          "task": "code-stale-reference",
+          "correct": true,
+          "tokens": 2245
+        },
+        {
+          "run": 1,
+          "arm": "direct",
+          "task": "code-stale-reference",
+          "correct": false,
+          "tokens": 2654
+        },
+        {
+          "run": 1,
+          "arm": "direct",
+          "task": "doc-history",
+          "correct": false,
+          "tokens": 9585
+        },
+        {
+          "run": 1,
+          "arm": "lasso-v3",
+          "task": "doc-history",
+          "correct": false,
+          "tokens": 6527
+        },
+        {
+          "run": 2,
+          "arm": "lasso-v3",
+          "task": "code-stale-reference",
+          "correct": true,
+          "tokens": 5382
+        },
+        {
+          "run": 2,
+          "arm": "direct",
+          "task": "code-stale-reference",
+          "correct": false,
+          "tokens": 2629
+        },
+        {
+          "run": 2,
+          "arm": "direct",
+          "task": "doc-history",
+          "correct": false,
+          "tokens": 11629
+        },
+        {
+          "run": 2,
+          "arm": "lasso-v3",
+          "task": "doc-history",
+          "correct": true,
+          "tokens": 3704
+        }
+      ],
+      "firstCallInput": {
+        "direct": 424,
+        "lasso-v3": 807
+      }
+    }
+  },
+  "results": [
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-range-known",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2108,\"limit\":12}",
+          "error": false
+        }
+      ],
+      "input": 1067,
+      "cached": 0,
+      "output": 185,
+      "reasoning": 9,
+      "tokens": 1252,
+      "firstInput": 425,
+      "costUsd": 0.0016327499999999999,
+      "wallMs": 2715,
+      "toolMs": 1,
+      "correct": true,
+      "answer": "def apply_discount(order, code):\n    \"\"\"Apply a discount code to an order and return the new total.\"\"\"\n    if not code:\n        return order.total\n    rule = DISCOUNTS.get(code.upper())\n    if rule is None:\n        raise UnknownDiscount(code)\n    if rule.expires and rule.expires < order.placed_at:\n        raise ExpiredDiscount(code)\n    eligible = [line for line in order.lines if line.sku not in rule.excluded]\n    subtotal = sum(line.price * line.quantity for line in eligible)\n    if subtotal < rule.minimum:\nANSWER: Lines 2108-2119 of `Shop/lib/billing.py` are shown exactly above."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-range-known",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2108,\"limit\":12}",
+          "error": false
+        }
+      ],
+      "input": 1844,
+      "cached": 0,
+      "output": 234,
+      "reasoning": 56,
+      "tokens": 2078,
+      "firstInput": 808,
+      "costUsd": 0.002436,
+      "wallMs": 2574,
+      "toolMs": 1,
+      "correct": true,
+      "answer": "def apply_discount(order, code):\n    \"\"\"Apply a discount code to an order and return the new total.\"\"\"\n    if not code:\n        return order.total\n    rule = DISCOUNTS.get(code.upper())\n    if rule is None:\n        raise UnknownDiscount(code)\n    if rule.expires and rule.expires < order.placed_at:\n        raise ExpiredDiscount(code)\n    eligible = [line for line in order.lines if line.sku not in rule.excluded]\n    subtotal = sum(line.price * line.quantity for line in eligible)\n    if subtotal < rule.minimum:\nANSWER: Lines 2108-2119 of `Shop/lib/billing.py` are shown exactly above."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-duplicate-named",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 2,
+      "toolsUsed": {
+        "Glob": 1,
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Glob",
+          "args": "{\"pattern\":\"Admin/**/app.py\",\"path\":\"\"}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Admin/src/app.py\",\"offset\":10,\"limit\":11}",
+          "error": false
+        }
+      ],
+      "input": 2717,
+      "cached": 0,
+      "output": 237,
+      "reasoning": 68,
+      "tokens": 2954,
+      "firstInput": 806,
+      "costUsd": 0.0031042500000000002,
+      "wallMs": 3480,
+      "toolMs": 1,
+      "correct": true,
+      "answer": "ADMIN_SETTING_10 = 27\nADMIN_SETTING_11 = 30\nADMIN_SETTING_12 = 33\nADMIN_SETTING_13 = 36\nADMIN_SETTING_14 = 39\nADMIN_SETTING_15 = 42\nADMIN_SETTING_16 = 45\nADMIN_SETTING_17 = 48\nADMIN_SETTING_18 = 51\nADMIN_SETTING_19 = 54\nADMIN_SETTING_20 = 57\n\nANSWER: Shown lines 10-20 from `Admin/src/app.py`."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-duplicate-named",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 4,
+      "toolCalls": 3,
+      "toolsUsed": {
+        "Read": 2,
+        "Glob": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Admin/app.py\",\"offset\":10,\"limit\":11}",
+          "error": true
+        },
+        {
+          "turn": 1,
+          "name": "Glob",
+          "args": "{\"pattern\":\"Admin/**/app.py\"}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Read",
+          "args": "{\"file_path\":\"Admin/src/app.py\",\"offset\":10,\"limit\":11}",
+          "error": false
+        }
+      ],
+      "input": 2130,
+      "cached": 0,
+      "output": 256,
+      "reasoning": 19,
+      "tokens": 2386,
+      "firstInput": 423,
+      "costUsd": 0.0027495,
+      "wallMs": 4135,
+      "toolMs": 1,
+      "correct": false,
+      "answer": "    10\tADMIN_SETTING_10 = 27\n    11\tADMIN_SETTING_11 = 30\n    12\tADMIN_SETTING_12 = 33\n    13\tADMIN_SETTING_13 = 36\n    14\tADMIN_SETTING_14 = 39\n    15\tADMIN_SETTING_15 = 42\n    16\tADMIN_SETTING_16 = 45\n    17\tADMIN_SETTING_17 = 48\n    18\tADMIN_SETTING_18 = 51\n    19\tADMIN_SETTING_19 = 54\n    20\tADMIN_SETTING_20 = 57\n\nANSWER: Lines 10-20 of `Admin/src/app.py` are shown above."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-duplicate-ambiguous",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Glob": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Glob",
+          "args": "{\"pattern\":\"**/app.py\",\"path\":\".\"}",
+          "error": false
+        }
+      ],
+      "input": 920,
+      "cached": 0,
+      "output": 156,
+      "reasoning": 29,
+      "tokens": 1076,
+      "firstInput": 419,
+      "costUsd": 0.001392,
+      "wallMs": 2918,
+      "toolMs": 0,
+      "correct": true,
+      "answer": "I found multiple `app.py` files in the workspace:\n\n- `Admin/src/app.py`\n- `Shop/server/app.py`\n- `Shop/worker/app.py`\n\nWhich one would you like lines 1-5 from?\n\nANSWER: Multiple `app.py` files exist; please specify which one (`Admin/src/app.py`, `Shop/server/app.py`, or `Shop/worker/app.py`)."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-duplicate-ambiguous",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Glob": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Glob",
+          "args": "{\"pattern\":\"**/app.py\",\"path\":\".\"}",
+          "error": false
+        }
+      ],
+      "input": 1705,
+      "cached": 0,
+      "output": 137,
+      "reasoning": 48,
+      "tokens": 1842,
+      "firstInput": 802,
+      "costUsd": 0.0018952499999999998,
+      "wallMs": 2358,
+      "toolMs": 0,
+      "correct": true,
+      "answer": "There are multiple `app.py` files in the workspace:\n\n- `Admin/src/app.py`\n- `Shop/server/app.py`\n- `Shop/worker/app.py`\n\nWhich one should I show lines 1-5 from?\n\nANSWER: Please specify which `app.py` you mean."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-function-lookup",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 4,
+      "toolCalls": 3,
+      "toolsUsed": {
+        "lasso_search": 1,
+        "lasso_read": 2
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"apply_discount function\",\"kind\":\"code\",\"folder\":\"Shop\"},{\"text\":\"apply_discount function\",\"kind\":\"code\",\"folder\":\"Admin\"},{\"text\":\"apply_discount function\",\"kind\":\"code\",\"folder\":\"Finance\"}],\"limit\":10,\"budget\":4000}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"#VSMX9HH8MZ\"}]}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"file\":\"Shop/lib/billing.py\",\"symbol\":\"apply_discount\"}]}",
+          "error": false
+        }
+      ],
+      "input": 4634,
+      "cached": 1152,
+      "output": 417,
+      "reasoning": 60,
+      "tokens": 5051,
+      "firstInput": 799,
+      "costUsd": 0.0045744,
+      "wallMs": 5731,
+      "toolMs": 187,
+      "correct": true,
+      "answer": "def apply_discount(order, code):\n    \"\"\"Apply a discount code to an order and return the new total.\"\"\"\n    if not code:\n        return order.total\n    rule = DISCOUNTS.get(code.upper())\n    if rule is None:\n        raise UnknownDiscount(code)\n    if rule.expires and rule.expires < order.placed_at:\n        raise ExpiredDiscount(code)\n    eligible = [line for line in order.lines if line.sku not in rule.excluded]\n    subtotal = sum(line.price * line.quantity for line in eligible)\n    if subtotal < rule.minimum:\n        return order.total\n    if rule.kind == \"percent\":\n        saving = subtotal * Decimal(rule.amount) / 100\n    else:\n        saving = min(Decimal(rule.amount), subtotal)\n    saving = saving.quantize(Decimal(\"0.01\"))\n    order.discounts.append((code, saving))\n    return order.total - saving\n\nANSWER: Full `apply_discount` function shown above."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-function-lookup",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 3,
+      "toolsUsed": {
+        "Grep": 2,
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"def\\\\s+apply_discount\\\\b\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"-C\":3,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"apply_discount\\\\b\",\"path\":\".\",\"output_mode\":\"files_with_matches\",\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2108,\"limit\":80}",
+          "error": false
+        }
+      ],
+      "input": 2952,
+      "cached": 0,
+      "output": 375,
+      "reasoning": 36,
+      "tokens": 3327,
+      "firstInput": 416,
+      "costUsd": 0.0039015,
+      "wallMs": 4504,
+      "toolMs": 39,
+      "correct": true,
+      "answer": "def apply_discount(order, code):\n    \"\"\"Apply a discount code to an order and return the new total.\"\"\"\n    if not code:\n        return order.total\n    rule = DISCOUNTS.get(code.upper())\n    if rule is None:\n        raise UnknownDiscount(code)\n    if rule.expires and rule.expires < order.placed_at:\n        raise ExpiredDiscount(code)\n    eligible = [line for line in order.lines if line.sku not in rule.excluded]\n    subtotal = sum(line.price * line.quantity for line in eligible)\n    if subtotal < rule.minimum:\n        return order.total\n    if rule.kind == \"percent\":\n        saving = subtotal * Decimal(rule.amount) / 100\n    else:\n        saving = min(Decimal(rule.amount), subtotal)\n    saving = saving.quantize(Decimal(\"0.01\"))\n    order.discounts.append((code, saving))\n    return order.total - saving\n\nANSWER: The full `apply_discount` function is shown above."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-multi-function",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 6,
+      "toolsUsed": {
+        "Grep": 3,
+        "Read": 3
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"\\\\bnormalize_sku\\\\b\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"\\\\bretry_payment\\\\b\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"\\\\bregisterRoutes\\\\b\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/pkg/mod_07.py\",\"offset\":1,\"limit\":80}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/pkg/mod_19.py\",\"offset\":1,\"limit\":120}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/web/routes.js\",\"offset\":130,\"limit\":80}",
+          "error": false
+        }
+      ],
+      "input": 5029,
+      "cached": 0,
+      "output": 1169,
+      "reasoning": 52,
+      "tokens": 6198,
+      "firstInput": 423,
+      "costUsd": 0.00903225,
+      "wallMs": 7064,
+      "toolMs": 42,
+      "correct": true,
+      "answer": "Here are the definitions I գտed:\n\n```python\ndef normalize_sku(items):\n    \"\"\"normalize sku for the vendor.\"\"\"\n    reserve_0 = 495 * 1.68\n    contract_1 = 694 * 2.82\n    item_2 = 217 * 1.74\n    refund_3 = 754 * 2.98\n    if tax_4 > 65:\n    report_5 = 42 * 2.19\n    forecast_6 = 268 * 2.35\n    reserve_7 = 996 * 2.81\n    approved_8 = 348 * 2.73\n    if refund_9 > 63:\n    ledger_10 = 277 * 0.79\n    total_11 = 687 * 2.99\n    customer_12 = 369 * 0.53\n    schedule_13 = 441 * 0.64\n    if item_14 > 86:\n    account_15 = 114 * 1.79\n    total_16 = 589 * 1.45\n    approved_17 = 105 * 1.49\n    price_18 = 436 * 2.40\n    if quarter_19 > 90:\n    vendor_20 = 926 * 0.71\n    return account_0\n```\n\n```python\ndef retry_payment(items):\n    \"\"\"retry payment for the quarter.\"\"\"\n    margin_0 = 510 * 0.78\n    price_1 = 637 * 1.10\n    approved_2 = 320 * 1.04\n    division_3 = 629 * 2.64\n    if item_4 > 50:\n    reserve_5 = 347 * 2.92\n    refund_6 = 317 * 0.12\n    refund_7 = 943 * 2.74\n    warranty_8 = 22 * 0.80\n    if vendor_9 > 29:\n    region_10 = 180 * 2.29\n    invoice_11 = 981 * 0.90\n    budget_12 = 786 * 0.51\n    return total_0\n```\n\n```javascript\nexport function registerRoutes(app) {\n  app.get('/route/0', route0);\n  app.get('/route/1', route1);\n  app.get('/route/2', route2);\n  app.get('/route/3', route3);\n  app.get('/route/4', route4);\n  app.get('/route/5', route5);\n  app.get('/route/6', route6);\n  app.get('/route/7', route7);\n  app.get('/route/8', route8);\n  app.get('/route/9', route9);\n  app.get('/route/10', route10);\n  app.get('/route/11', route11);\n  app.get('/route/12', route12);\n  app.get('/route/13', route13);\n  app.get('/route/14', route14);\n  app.get('/route/15', route15);\n  app.get('/route/16', route16);\n  app.get('/route/17', route17);\n  app.get('/route/18', route18);\n  app.get('/route/19', route19);\n  app.get('/route/20', route20);\n  app.get('/route/21', route21);\n  app.get('/route/22', route22);\n  app.get('/route/23', route23);\n  app.get('/route/24', route24);\n  app.get('/route/25', route25);\n  app.get('/route/26', route26);\n  app.get('/route/27', route27);\n  app.get('/route/28', route28);\n  app.get('/route/29', route29);\n  return app;\n}\n```\n\nANSWER: `normalize_sku` is defined in `Shop/pkg/mod_07.py`, `retry_payment` is defined in `Shop/pkg/mod_19.py`, and `registerRoutes` is defined in `Shop/web/routes.js` as shown above."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-multi-function",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 6,
+      "toolCalls": 7,
+      "toolsUsed": {
+        "lasso_search": 2,
+        "Grep": 3,
+        "lasso_read": 2
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"normalize_sku\",\"kind\":\"code\"},{\"text\":\"retry_payment\",\"kind\":\"code\"},{\"text\":\"registerRoutes\",\"kind\":\"code\"}],\"limit\":10,\"budget\":20}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"registerRoutes\",\"kind\":\"code\",\"folder\":\".\"}],\"limit\":20,\"budget\":20}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"registerRoutes\",\"path\":\"Shop\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"registerRoutes\",\"path\":\"Admin\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"registerRoutes\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"file\":\"Shop/pkg/mod_07.py\",\"symbol\":\"normalize_sku\"},{\"file\":\"Shop/pkg/mod_19.py\",\"symbol\":\"retry_payment\"},{\"file\":\"Shop/web/routes.js\",\"symbol\":\"registerRoutes\"}]}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"file\":\"Shop/web/routes.js\",\"symbol\":\"registerRoutes\",\"version\":\"disk\"}]}",
+          "error": false
+        }
+      ],
+      "input": 9865,
+      "cached": 5632,
+      "output": 1339,
+      "reasoning": 136,
+      "tokens": 11204,
+      "firstInput": 806,
+      "costUsd": 0.00962265,
+      "wallMs": 10535,
+      "toolMs": 147,
+      "correct": true,
+      "answer": "Here are the definitions:\n\n```python\ndef normalize_sku(items):\n    \"\"\"normalize sku for the vendor.\"\"\"\n    reserve_0 = 495 * 1.68\n    contract_1 = 694 * 2.82\n    item_2 = 217 * 1.74\n    refund_3 = 754 * 2.98\n    if tax_4 > 65:\n    report_5 = 42 * 2.19\n    forecast_6 = 268 * 2.35\n    reserve_7 = 996 * 2.81\n    approved_8 = 348 * 2.73\n    if refund_9 > 63:\n    ledger_10 = 277 * 0.79\n    total_11 = 687 * 2.99\n    customer_12 = 369 * 0.53\n    schedule_13 = 441 * 0.64\n    if item_14 > 86:\n    account_15 = 114 * 1.79\n    total_16 = 589 * 1.45\n    approved_17 = 105 * 1.49\n    price_18 = 436 * 2.40\n    if quarter_19 > 90:\n    vendor_20 = 926 * 0.71\n    return account_0\n```\n\n```python\ndef retry_payment(items):\n    \"\"\"retry payment for the quarter.\"\"\"\n    margin_0 = 510 * 0.78\n    price_1 = 637 * 1.10\n    approved_2 = 320 * 1.04\n    division_3 = 629 * 2.64\n    if item_4 > 50:\n    reserve_5 = 347 * 2.92\n    refund_6 = 317 * 0.12\n    refund_7 = 943 * 2.74\n    warranty_8 = 22 * 0.80\n    if vendor_9 > 29:\n    region_10 = 180 * 2.29\n    invoice_11 = 981 * 0.90\n    budget_12 = 786 * 0.51\n    return total_0\n```\n\n```javascript\nexport function registerRoutes(app) {\n  app.get('/route/0', route0);\n  app.get('/route/1', route1);\n  app.get('/route/2', route2);\n  app.get('/route/3', route3);\n  app.get('/route/4', route4);\n  app.get('/route/5', route5);\n  app.get('/route/6', route6);\n  app.get('/route/7', route7);\n  app.get('/route/8', route8);\n  app.get('/route/9', route9);\n  app.get('/route/10', route10);\n  app.get('/route/11', route11);\n  app.get('/route/12', route12);\n  app.get('/route/13', route13);\n  app.get('/route/14', route14);\n  app.get('/route/15', route15);\n  app.get('/route/16', route16);\n  app.get('/route/17', route17);\n  app.get('/route/18', route18);\n  app.get('/route/19', route19);\n  app.get('/route/20', route20);\n  app.get('/route/21', route21);\n  app.get('/route/22', route22);\n  app.get('/route/23', route23);\n  app.get('/route/24', route24);\n  app.get('/route/25', route25);\n  app.get('/route/26', route26);\n  app.get('/route/27', route27);\n  app.get('/route/28', route28);\n  app.get('/route/29', route29);\n  return app;\n}\n```\n\nANSWER: The definitions of `normalize_sku`, `retry_payment`, and `registerRoutes` are shown above."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-config-key",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "lasso_search": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"MAX_RETRIES defined\",\"kind\":\"code\"},{\"text\":\"MAX_RETRIES\",\"kind\":\"code\"}],\"limit\":10,\"budget\":4000}",
+          "error": false
+        }
+      ],
+      "input": 1809,
+      "cached": 0,
+      "output": 142,
+      "reasoning": 33,
+      "tokens": 1951,
+      "firstInput": 805,
+      "costUsd": 0.00199575,
+      "wallMs": 2446,
+      "toolMs": 78,
+      "correct": true,
+      "answer": "`MAX_RETRIES` is defined in `Shop/config/settings.py` as:\n\n`MAX_RETRIES = 7`\n\nANSWER: `Shop/config/settings.py`, value `7`."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-config-key",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 2,
+      "toolsUsed": {
+        "Grep": 2
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\": \"MAX_RETRIES\", \"path\": \".\", \"output_mode\": \"content\", \"head_limit\": 20, \"-n\": true}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\": \"MAX_RETRIES\", \"path\": \".\", \"output_mode\": \"files_with_matches\", \"head_limit\": 20}",
+          "error": false
+        }
+      ],
+      "input": 977,
+      "cached": 0,
+      "output": 154,
+      "reasoning": 21,
+      "tokens": 1131,
+      "firstInput": 422,
+      "costUsd": 0.00142575,
+      "wallMs": 2825,
+      "toolMs": 37,
+      "correct": true,
+      "answer": "`MAX_RETRIES` is defined in `Shop/config/settings.py`, and its value is `7`.\n\nANSWER: `Shop/config/settings.py` — `MAX_RETRIES = 7`"
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-repeated-inspections",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 5,
+      "toolsUsed": {
+        "Read": 5
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":300,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":900,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":1500,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2400,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2900,\"limit\":11}",
+          "error": false
+        }
+      ],
+      "input": 1920,
+      "cached": 0,
+      "output": 905,
+      "reasoning": 41,
+      "tokens": 2825,
+      "firstInput": 448,
+      "costUsd": 0.0055125,
+      "wallMs": 5404,
+      "toolMs": 3,
+      "correct": true,
+      "answer": "Here are the requested lines from `Shop/lib/billing.py`:\n\n```python\n    total_10 = 50 * 0.99\n    account_11 = 242 * 2.33\n    forecast_12 = 908 * 0.30\n    order_13 = 922 * 2.41\n    return forecast_0\n\ndef helper_0016(context):\n    \"\"\"helper 0016 for the cost.\"\"\"\n    order_0 = 428 * 1.03\n    tax_1 = 930 * 2.19\n    refund_2 = 54 * 0.00\n```\n\n```python\n    \"\"\"helper 0047 for the margin.\"\"\"\n    planning_0 = 198 * 0.90\n    invoice_1 = 548 * 0.92\n    warranty_2 = 598 * 1.31\n    total_3 = 111 * 2.85\n    if payment_4 > 59:\n    item_5 = 166 * 2.88\n    region_6 = 735 * 2.51\n    planning_7 = 717 * 2.68\n    account_8 = 291 * 0.54\n    if schedule_9 > 73:\n```\n\n```python\n    if vendor_9 > 69:\n    warranty_10 = 583 * 1.12\n    budget_11 = 846 * 1.76\n    vendor_12 = 54 * 2.76\n    region_13 = 62 * 0.38\n    if payment_14 > 17:\n    planning_15 = 54 * 1.14\n    vendor_16 = 884 * 0.98\n    ledger_17 = 999 * 1.54\n    planning_18 = 864 * 1.23\n    if tax_19 > 84:\n```\n\n```python\n    if division_4 > 43:\n    budget_5 = 374 * 2.24\n    payment_6 = 119 * 1.50\n    report_7 = 151 * 2.45\n    total_8 = 719 * 1.71\n    if price_9 > 28:\n    reserve_10 = 904 * 0.70\n    tax_11 = 490 * 2.59\n    payment_12 = 261 * 1.09\n    schedule_13 = 414 * 0.64\n    if invoice_14 > 70:\n```\n\n```python\n    if rate_19 > 28:\n    price_20 = 960 * 2.29\n    refund_21 = 879 * 1.75\n    order_22 = 700 * 1.04\n    return balance_0\n\ndef helper_0153(items):\n    \"\"\"helper 0153 for the account.\"\"\"\n    balance_0 = 436 * 0.39\n    customer_1 = 854 * 1.53\n    refund_2 = 598 * 2.25\n```\n\nANSWER: Shown above are lines 300-310, 900-910, 1500-1510, 2400-2410, and 2900-2910 from `Shop/lib/billing.py`."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-repeated-inspections",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 6,
+      "toolCalls": 5,
+      "toolsUsed": {
+        "Read": 5
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":300,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":900,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":1500,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2400,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2900,\"limit\":11}",
+          "error": false
+        }
+      ],
+      "input": 8086,
+      "cached": 3968,
+      "output": 901,
+      "reasoning": 12,
+      "tokens": 8987,
+      "firstInput": 831,
+      "costUsd": 0.0074406,
+      "wallMs": 8864,
+      "toolMs": 3,
+      "correct": false,
+      "answer": "300\t    total_10 = 50 * 0.99\n301\t    account_11 = 242 * 2.33\n302\t    forecast_12 = 908 * 0.30\n303\t    order_13 = 922 * 2.41\n304\t    return forecast_0\n305\t\n306\tdef helper_0016(context):\n307\t    \"\"\"helper 0016 for the cost.\"\"\"\n308\t    order_0 = 428 * 1.03\n309\t    tax_1 = 930 * 2.19\n310\t    refund_2 = 54 * 0.00\n\n900\t    \"\"\"helper 0047 for the margin.\"\"\"\n901\t    planning_0 = 198 * 0.90\n902\t    invoice_1 = 548 * 0.92\n903\t    warranty_2 = 598 * 1.31\n904\t    total_3 = 111 * 2.85\n905\t    if payment_4 > 59:\n906\t    item_5 = 166 * 2.88\n907\t    region_6 = 735 * 2.51\n908\t    planning_7 = 717 * 2.68\n909\t    account_8 = 291 * 0.54\n910\t    if schedule_9 > 73:\n\n1500\t    if vendor_9 > 69:\n1501\t    warranty_10 = 583 * 1.12\n1502\t    budget_11 = 846 * 1.76\n1503\t    vendor_12 = 54 * 2.76\n1504\t    region_13 = 62 * 0.38\n1505\t    if payment_14 > 17:\n1506\t    planning_15 = 54 * 1.14\n1507\t    vendor_16 = 884 * 0.98\n1508\t    ledger_17 = 999 * 1.54\n1509\t    planning_18 = 864 * 1.23\n1510\t    if tax_19 > 84:\n\n2400\t    if division_4 > 43:\n2401\t    budget_5 = 374 * 2.24\n2402\t    payment_6 = 119 * 1.50\n2403\t    report_7 = 151 * 2.45\n2404\t    total_8 = 719 * 1.71\n2405\t    if price_9 > 28:\n2406\t    reserve_10 = 904 * 0.70\n2407\t    tax_11 = 490 * 2.59\n2408\t    payment_12 = 261 * 1.09\n2409\t    schedule_13 = 414 * 0.64\n2410\t    if invoice_14 > 70:\n\n2900\t    if rate_19 > 28:\n2901\t    price_20 = 960 * 2.29\n2902\t    refund_21 = 879 * 1.75\n2903\t    order_22 = 700 * 1.04\n2904\t    return balance_0\n2905\t\n2906\tdef helper_0153(items):\n2907\t    \"\"\"helper 0153 for the account.\"\"\"\n2908\t    balance_0 = 436 * 0.39\n2909\t    customer_1 = 854 * 1.53\n2910\t    refund_2 = 598 * 2.25\nANSWER: Shown the requested line ranges from Shop/lib/billing.py exactly as they appear in the file."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-stale-reference",
+      "family": "code",
+      "capability": true,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "lasso_read": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"file\":\"Shop/lib/billing.py\",\"lines\":\"2106-2117\",\"rev\":\"2067150861b9\"}]}",
+          "error": false
+        }
+      ],
+      "input": 1935,
+      "cached": 0,
+      "output": 310,
+      "reasoning": 89,
+      "tokens": 2245,
+      "firstInput": 826,
+      "costUsd": 0.00284625,
+      "wallMs": 3068,
+      "toolMs": 4,
+      "correct": true,
+      "answer": "```\ndef apply_discount(order, code):\n    \"\"\"Apply a discount code to an order and return the new total.\"\"\"\n    if not code:\n        return order.total\n    rule = DISCOUNTS.get(code.upper())\n    if rule is None:\n        raise UnknownDiscount(code)\n    if rule.expires and rule.expires < order.placed_at:\n        raise ExpiredDiscount(code)\n    eligible = [line for line in order.lines if line.sku not in rule.excluded]\n    subtotal = sum(line.price * line.quantity for line in eligible)\n    if subtotal < rule.minimum:\n```\n\nANSWER: Those are the exact lines 2106-2117 from `Shop/lib/billing.py` at revision `2067150861b9`."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-stale-reference",
+      "family": "code",
+      "capability": true,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 3,
+      "toolsUsed": {
+        "Glob": 1,
+        "Grep": 1,
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Glob",
+          "args": "{\"pattern\":\"Shop/lib/billing.py\"}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"revision 2067150861b9|2067150861b9\",\"path\":\"Shop\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2098,\"limit\":25}",
+          "error": false
+        }
+      ],
+      "input": 2094,
+      "cached": 0,
+      "output": 560,
+      "reasoning": 262,
+      "tokens": 2654,
+      "firstInput": 443,
+      "costUsd": 0.0040905,
+      "wallMs": 5178,
+      "toolMs": 2,
+      "correct": false,
+      "answer": "I can quote the lines currently present in `Shop/lib/billing.py`, but I can’t verify the historical `2067150861b9` revision from the workspace alone.\n\n    return refund_0\n\ndef apply_discount(order, code):\n    \"\"\"Apply a discount code to an order and return the new total.\"\"\"\n    if not code:\n        return order.total\n    rule = DISCOUNTS.get(code.upper())\n    if rule is None:\n        raise UnknownDiscount(code)\n    if rule.expires and rule.expires < order.placed_at:\n        raise ExpiredDiscount(code)\n    eligible = [line for line in order.lines if line.sku not in rule.excluded]\n\nANSWER: I can only confirm these lines in the current workspace; I can’t verify the exact historical text at revision `2067150861b9` from here."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-modified-on-disk",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/web/routes.js\",\"offset\":1,\"limit\":3}",
+          "error": false
+        }
+      ],
+      "input": 945,
+      "cached": 0,
+      "output": 84,
+      "reasoning": 13,
+      "tokens": 1029,
+      "firstInput": 431,
+      "costUsd": 0.00108675,
+      "wallMs": 1978,
+      "toolMs": 1,
+      "correct": true,
+      "answer": "// Routes, rewritten 2026-10-27\nimport express from 'express';\n\nANSWER: Shown lines 1-3 of Shop/web/routes.js exactly as requested."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-modified-on-disk",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "lasso_read": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"file\":\"Shop/web/routes.js\",\"lines\":\"1-3\",\"version\":\"disk\"}]}",
+          "error": false
+        }
+      ],
+      "input": 1761,
+      "cached": 0,
+      "output": 96,
+      "reasoning": 14,
+      "tokens": 1857,
+      "firstInput": 814,
+      "costUsd": 0.00175275,
+      "wallMs": 2054,
+      "toolMs": 3,
+      "correct": true,
+      "answer": "```js\n// Routes, rewritten 2026-10-27\nimport express from 'express';\n\n```\n\nANSWER: `Shop/web/routes.js` lines 1-3 are shown above."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-short-file",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/notes/short_note.md\",\"offset\":1,\"limit\":200}",
+          "error": false
+        }
+      ],
+      "input": 1727,
+      "cached": 0,
+      "output": 67,
+      "reasoning": 14,
+      "tokens": 1794,
+      "firstInput": 809,
+      "costUsd": 0.00159675,
+      "wallMs": 1942,
+      "toolMs": 2,
+      "correct": true,
+      "answer": "The vendor review is scheduled for March 3.\n\nANSWER: March 3"
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-short-file",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/notes/short_note.md\",\"offset\":1,\"limit\":2000}",
+          "error": false
+        }
+      ],
+      "input": 956,
+      "cached": 0,
+      "output": 75,
+      "reasoning": 19,
+      "tokens": 1031,
+      "firstInput": 426,
+      "costUsd": 0.0010544999999999999,
+      "wallMs": 1741,
+      "toolMs": 1,
+      "correct": true,
+      "answer": "The vendor review is scheduled for March 3.\n\nANSWER: March 3"
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-long-fact",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 3,
+      "toolsUsed": {
+        "Grep": 2,
+        "Glob": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"warranty reserve\",\"path\":\"Finance\",\"-i\":true,\"output_mode\":\"content\",\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"annual report\",\"path\":\"Finance\",\"-i\":true,\"output_mode\":\"content\",\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Glob",
+          "args": "{\"pattern\":\"**/*annual*report*\",\"path\":\"Finance\"}",
+          "error": false
+        }
+      ],
+      "input": 1537,
+      "cached": 0,
+      "output": 194,
+      "reasoning": 28,
+      "tokens": 1731,
+      "firstInput": 424,
+      "costUsd": 0.0020257499999999998,
+      "wallMs": 2760,
+      "toolMs": 36,
+      "correct": true,
+      "answer": "According to the annual report, the warranty reserve at year end was \"$4.2 million\", up from \"$3.1 million\" a year earlier.\n\nANSWER: The warranty reserve at year end was $4.2 million."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-long-fact",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 3,
+      "toolsUsed": {
+        "lasso_search": 1,
+        "Grep": 1,
+        "lasso_read": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"warranty reserve year end annual report\",\"kind\":\"passage\"},{\"text\":\"warranty reserve\",\"kind\":\"code\"},{\"text\":\"annual report warranty reserve\",\"kind\":\"passage\"}],\"limit\":10,\"budget\":4000}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"warranty reserve|reserve for warranties|warranty accrual\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"#5E2JNH99VJ\",\"lines\":\"1830-1836\"}]}",
+          "error": false
+        }
+      ],
+      "input": 8243,
+      "cached": 3456,
+      "output": 278,
+      "reasoning": 61,
+      "tokens": 8521,
+      "firstInput": 807,
+      "costUsd": 0.00510045,
+      "wallMs": 5117,
+      "toolMs": 138,
+      "correct": true,
+      "answer": "According to the annual report, \"The warranty reserve at year end was $4.2 million, up from $3.1 million a year earlier.\"\n\nANSWER: $4.2 million"
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-large-table",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "lasso_search": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"Account 104233 ledger balance\",\"kind\":\"value\",\"folder\":\"Finance\",\"limit\":10},{\"text\":\"104233\",\"kind\":\"value\",\"folder\":\"Finance\",\"limit\":20}],\"limit\":10,\"budget\":20}",
+          "error": false
+        }
+      ],
+      "input": 1886,
+      "cached": 0,
+      "output": 146,
+      "reasoning": 35,
+      "tokens": 2032,
+      "firstInput": 805,
+      "costUsd": 0.0020715,
+      "wallMs": 2485,
+      "toolMs": 67,
+      "correct": true,
+      "answer": "The balance of Account 104233 in the ledger is \"566.21\".\n\nANSWER: 566.21"
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-large-table",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 2,
+      "toolsUsed": {
+        "Grep": 2
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"104233\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"ledger\",\"path\":\"Finance\",\"output_mode\":\"files_with_matches\",\"head_limit\":20}",
+          "error": false
+        }
+      ],
+      "input": 1099,
+      "cached": 0,
+      "output": 140,
+      "reasoning": 21,
+      "tokens": 1239,
+      "firstInput": 422,
+      "costUsd": 0.00145425,
+      "wallMs": 2288,
+      "toolMs": 35,
+      "correct": true,
+      "answer": "The balance of Account 104233 in the ledger is \"566.21\".\n\nANSWER: 566.21"
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-identifier",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 2,
+      "toolsUsed": {
+        "Grep": 2
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"INV-2025-00417\",\"path\":\".\",\"output_mode\":\"content\",\"head_limit\":20,\"-n\":true}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"INV-2025-00417\",\"path\":\".\",\"output_mode\":\"files_with_matches\",\"head_limit\":20}",
+          "error": false
+        }
+      ],
+      "input": 1011,
+      "cached": 0,
+      "output": 157,
+      "reasoning": 19,
+      "tokens": 1168,
+      "firstInput": 426,
+      "costUsd": 0.00146475,
+      "wallMs": 2487,
+      "toolMs": 32,
+      "correct": true,
+      "answer": "Invoice INV-2025-00417 is for Customer 29, and the amount is 5629.50.\n\nANSWER: Customer 29; 5629.50"
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-identifier",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "lasso_search": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"INV-2025-00417\",\"kind\":\"value\",\"folder\":\"Finance\"},{\"text\":\"INV-2025-00417\",\"kind\":\"value\",\"folder\":\"Admin\"},{\"text\":\"INV-2025-00417\",\"kind\":\"value\",\"folder\":\"Shop\"}],\"limit\":5,\"budget\":2000}",
+          "error": false
+        }
+      ],
+      "input": 2025,
+      "cached": 0,
+      "output": 169,
+      "reasoning": 26,
+      "tokens": 2194,
+      "firstInput": 809,
+      "costUsd": 0.00227925,
+      "wallMs": 2350,
+      "toolMs": 67,
+      "correct": true,
+      "answer": "Invoice INV-2025-00417 is for **Customer 29** and the amount is **5629.50**.\n\nANSWER: Customer 29; 5629.50"
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-ambiguous-sources",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 5,
+      "toolCalls": 6,
+      "toolsUsed": {
+        "lasso_search": 2,
+        "lasso_read": 2,
+        "Read": 2
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"North division FY2025 revenue\",\"kind\":\"value\",\"fields\":[\"division\",\"FY2025 revenue\"],\"folder\":\"Finance\"}],\"limit\":5,\"budget\":2000}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"s1\"}]}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"s2\"}]}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"North division\",\"kind\":\"value\",\"fields\":[\"Division\",\"FY2025 revenue\"],\"folder\":\"Finance/Approved/budget_2025.csv\"},{\"text\":\"North division\",\"kind\":\"value\",\"fields\":[\"Division\",\"FY2025 revenue\"],\"folder\":\"Finance/Planning/budget_2025.csv\"}],\"limit\":10,\"budget\":2000}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/Approved/budget_2025.csv\",\"offset\":1,\"limit\":10}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/Planning/budget_2025.csv\",\"offset\":1,\"limit\":10}",
+          "error": false
+        }
+      ],
+      "input": 6944,
+      "cached": 3712,
+      "output": 545,
+      "reasoning": 159,
+      "tokens": 7489,
+      "firstInput": 803,
+      "costUsd": 0.0051549000000000005,
+      "wallMs": 6766,
+      "toolMs": 59,
+      "correct": true,
+      "answer": "I found two possible FY2025 revenues for “North division”:\n\n- Finance/Approved/budget_2025.csv: \"11.9\"\n- Finance/Planning/budget_2025.csv: \"13.1\"\n\nWhich one did you mean: Approved or Planning?\n\nANSWER: Clarification needed — North division’s FY2025 revenue is \"11.9\" in Approved and \"13.1\" in Planning."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-ambiguous-sources",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 3,
+      "toolsUsed": {
+        "Grep": 2,
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"North\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"FY2025|FY 2025|2025\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/Approved/budget_2025.csv\",\"offset\":1,\"limit\":5}",
+          "error": false
+        }
+      ],
+      "input": 2909,
+      "cached": 1024,
+      "output": 214,
+      "reasoning": 54,
+      "tokens": 3123,
+      "firstInput": 420,
+      "costUsd": 0.00245355,
+      "wallMs": 3333,
+      "toolMs": 42,
+      "correct": false,
+      "answer": "The North division's FY2025 revenue is \"11.9\".\n\nANSWER: 11.9"
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-related-facts",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 3,
+      "toolsUsed": {
+        "Grep": 3
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"South division|South|approved budget|Revenue|Reporting period|Headcount\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"South division|South|approved budget|Revenue|Reporting period|Headcount\",\"path\":\"Shop\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"South division|South|approved budget|Revenue|Reporting period|Headcount\",\"path\":\"Admin\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        }
+      ],
+      "input": 2035,
+      "cached": 0,
+      "output": 293,
+      "reasoning": 52,
+      "tokens": 2328,
+      "firstInput": 427,
+      "costUsd": 0.00284475,
+      "wallMs": 2998,
+      "toolMs": 16,
+      "correct": true,
+      "answer": "For the South division in the approved budget, the values are:\n\n- Revenue: \"12.6\"\n- Reporting period: \"FY2025\"\n- Headcount: \"129\"\n\nANSWER: Revenue \"12.6\", Reporting period \"FY2025\", Headcount \"129\""
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-related-facts",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 2,
+      "toolsUsed": {
+        "lasso_search": 1,
+        "lasso_read": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"approved budget South division Revenue Reporting period Headcount\",\"kind\":\"value\",\"folder\":\"Finance\"},{\"text\":\"South division approved budget\",\"kind\":\"passage\",\"folder\":\"Finance\"}],\"limit\":10,\"budget\":4000}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"#A7R67F8YZN\"},{\"h\":\"#00XJSPK468\"}]}",
+          "error": false
+        }
+      ],
+      "input": 4832,
+      "cached": 1664,
+      "output": 226,
+      "reasoning": 60,
+      "tokens": 5058,
+      "firstInput": 810,
+      "costUsd": 0.0035177999999999997,
+      "wallMs": 3684,
+      "toolMs": 95,
+      "correct": true,
+      "answer": "For the South division in the approved budget:\n\n- Revenue: 12.6\n- Reporting period: FY2025\n- Headcount: 129\n\nANSWER: Revenue 12.6; Reporting period FY2025; Headcount 129."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-missing",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 4,
+      "toolCalls": 4,
+      "toolsUsed": {
+        "lasso_search": 2,
+        "lasso_read": 2
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"West division revenue\",\"kind\":\"value\",\"folder\":\"Finance\"},{\"text\":\"West division\",\"kind\":\"value\",\"folder\":\"Finance\"},{\"text\":\"revenue by division\",\"kind\":\"passage\",\"folder\":\"Finance\"}],\"limit\":10,\"budget\":4000}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"#ET33CQQRMB\"}]}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"#4E9RT4R248\"}]}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"West division\", \"kind\":\"value\", \"folder\":\"Finance\"},{\"text\":\"West\", \"kind\":\"value\", \"folder\":\"Finance\"}],\"limit\":20,\"budget\":3000}",
+          "error": false
+        }
+      ],
+      "input": 9406,
+      "cached": 4736,
+      "output": 467,
+      "reasoning": 161,
+      "tokens": 9873,
+      "firstInput": 800,
+      "costUsd": 0.0059592000000000004,
+      "wallMs": 6099,
+      "toolMs": 117,
+      "correct": true,
+      "answer": "I couldn’t find any division named “West” in the finance files. The available divisions in the budget files are North division, South division, East division, Central division, Division 05, Division 06, and Division 07.\n\nIf you meant one of those, tell me which one and I’ll give you its revenue.\n\nANSWER: West division is not present in the files."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-missing",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 6,
+      "toolCalls": 11,
+      "toolsUsed": {
+        "Grep": 6,
+        "Read": 4,
+        "Glob": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West division\",\"path\":\".\",\"output_mode\":\"content\",\"head_limit\":20,\"-n\":true}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"revenue\",\"path\":\".\",\"output_mode\":\"content\",\"head_limit\":50,\"-n\":true}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/reports/annual_report.md\",\"offset\":1,\"limit\":120}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West\",\"path\":\"Finance\",\"output_mode\":\"content\",\"head_limit\":50,\"-n\":true}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West division\", \"path\":\"Shop\",\"output_mode\":\"content\",\"head_limit\":20,\"-n\":true}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"division\", \"path\":\"Finance\",\"output_mode\":\"content\",\"head_limit\":80,\"-n\":true}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Glob",
+          "args": "{\"pattern\":\"**/*.csv\",\"path\":\"Finance\"}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West division|West\",\"path\":\"Finance\",\"glob\":\"**/*\",\"output_mode\":\"files_with_matches\",\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/ledger.csv\",\"offset\":1,\"limit\":120}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/invoices.csv\",\"offset\":1,\"limit\":120}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/Approved/budget_2025.csv\",\"offset\":1,\"limit\":20}",
+          "error": false
+        }
+      ],
+      "input": 31000,
+      "cached": 17664,
+      "output": 664,
+      "reasoning": 146,
+      "tokens": 31664,
+      "firstInput": 417,
+      "costUsd": 0.0143148,
+      "wallMs": 8437,
+      "toolMs": 97,
+      "correct": true,
+      "answer": "I couldn’t find any `\"West division\"` in the workspace. The division revenue data I found is in `Finance/Approved/budget_2025.csv`, and it lists `\"North division\"`, `\"South division\"`, `\"East division\"`, `\"Central division\"`, and `\"Division 05\"` onward, but not `\"West division\"`.\n\nANSWER: No West division revenue is listed in the workspace."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-history",
+      "family": "docs",
+      "capability": true,
+      "stop": "answered",
+      "modelCalls": 4,
+      "toolCalls": 9,
+      "toolsUsed": {
+        "Grep": 7,
+        "Glob": 2
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"North division|planning revenue|planning budget\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"North\",\"path\":\"Shop\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"planning budget\",\"path\":\"Admin\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"planning revenue\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Grep",
+          "args": "{\"pattern\":\"budget_2025.csv|planning budget|Latest|change\",\"path\":\"Finance\",\"output_mode\":\"files_with_matches\",\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Grep",
+          "args": "{\"pattern\":\"North division,13\\\\.1|North division,11\\\\.9\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"-C\":1,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Glob",
+          "args": "{\"pattern\":\"Finance/**\"}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Glob",
+          "args": "{\"pattern\":\"**/budget_*.csv\",\"path\":\".\"}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"North division\", \"path\":\".\", \"glob\":\"**/*.csv\",\"output_mode\":\"content\",\"-n\":true,\"-C\":1,\"head_limit\":100}",
+          "error": false
+        }
+      ],
+      "input": 8885,
+      "cached": 4992,
+      "output": 700,
+      "reasoning": 234,
+      "tokens": 9585,
+      "firstInput": 426,
+      "costUsd": 0.006444149999999999,
+      "wallMs": 7371,
+      "toolMs": 72,
+      "correct": false,
+      "answer": "The North division’s revenue in the earlier budget file was \"11.9\" in `Finance/Approved/budget_2025.csv`. The current planning budget shows \"13.1\" in `Finance/Planning/budget_2025.csv`.\n\nANSWER: \"11.9\""
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-history",
+      "family": "docs",
+      "capability": true,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 3,
+      "toolsUsed": {
+        "lasso_search": 1,
+        "lasso_read": 2
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"North division planning revenue planning budget latest change\",\"kind\":\"passage\",\"folder\":\"Finance\"},{\"text\":\"North division planning revenue\",\"kind\":\"value\",\"folder\":\"Finance\"},{\"text\":\"planning budget latest change\",\"kind\":\"passage\",\"folder\":\"Finance\"}],\"limit\":10,\"budget\":4000}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_read",
+          "args": "{\"h\":\"#F4YH0TQ6AK\"}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_read",
+          "args": "{\"h\":\"#VYTGB6MDPG\"}",
+          "error": false
+        }
+      ],
+      "input": 6171,
+      "cached": 2304,
+      "output": 356,
+      "reasoning": 126,
+      "tokens": 6527,
+      "firstInput": 809,
+      "costUsd": 0.00467505,
+      "wallMs": 4604,
+      "toolMs": 104,
+      "correct": false,
+      "answer": "Assuming the “latest change to the planning budget” means the move from `Finance/Approved/budget_2025.csv` to `Finance/Planning/budget_2025.csv`, the North division’s planning revenue before that change was `\"11.9\"`.\n\nANSWER: 11.9"
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-multi-batch",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 10,
+      "toolCalls": 15,
+      "toolsUsed": {
+        "lasso_search": 9,
+        "lasso_read": 3,
+        "Grep": 2,
+        "Read": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"Account 120001 balance\",\"kind\":\"value\",\"fields\":[\"Account\",\"Balance\"],\"limit\":5},{\"text\":\"INV-2025-01200 customer\",\"kind\":\"value\",\"fields\":[\"Invoice\",\"Customer\"],\"limit\":5},{\"text\":\"year-end warranty reserve\",\"kind\":\"passage\",\"limit\":5},{\"text\":\"vendor review date\",\"kind\":\"passage\",\"limit\":5},{\"text\":\"East division approved revenue\",\"kind\":\"value\",\"fields\":[\"Division\",\"Approve",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"East division approved revenue budget 2025\",\"kind\":\"value\",\"fields\":[\"Division\",\"Approved Revenue\"],\"folder\":\"Finance/Approved\",\"limit\":10},{\"text\":\"Central division planning headcount budget 2025\",\"kind\":\"value\",\"fields\":[\"Division\",\"Planning Headcount\"],\"folder\":\"Finance/Approved\",\"limit\":10}],\"budget\":10}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"warranty reserve year end annual report 2025\",\"kind\":\"passage\",\"folder\":\"Finance/reports\",\"limit\":10},{\"text\":\"vendor review date annual report 2025\",\"kind\":\"passage\",\"folder\":\"Finance/reports\",\"limit\":10}],\"budget\":10}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"s1\",\"history\":false},{\"h\":\"s5\",\"history\":false}]}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"review date vendor\",\"kind\":\"passage\",\"folder\":\"Finance\",\"limit\":20},{\"text\":\"vendor review date\",\"kind\":\"value\",\"folder\":\"Finance\",\"limit\":20}],\"budget\":20}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"file\":\"Finance/Approved/budget_2025.csv\",\"lines\":\"1-20\"}]}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"vendor review date\",\"kind\":\"passage\",\"folder\":\"Finance/reports/annual_report.md\",\"limit\":50},{\"text\":\"review date\",\"kind\":\"passage\",\"folder\":\"Finance/reports/annual_report.md\",\"limit\":50},{\"text\":\"vendor\",\"kind\":\"passage\",\"folder\":\"Finance/reports/annual_report.md\",\"limit\":50}],\"budget\":20}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"review date\",\"kind\":\"passage\",\"folder\":\"Finance\",\"limit\":100},{\"text\":\"vendor review\",\"kind\":\"passage\",\"folder\":\"Finance\",\"limit\":100},{\"text\":\"reviewed date vendor\",\"kind\":\"passage\",\"folder\":\"Finance\",\"limit\":100}],\"budget\":30}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"vendor\",\"kind\":\"passage\",\"folder\":\"Finance\",\"limit\":100},{\"text\":\"date\",\"kind\":\"passage\",\"folder\":\"Finance\",\"limit\":100}],\"budget\":20}",
+          "error": false
+        },
+        {
+          "turn": 5,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"#DP76ZVNF5B\"},{\"h\":\"#H50TTGYMFC\"}]}",
+          "error": false
+        },
+        {
+          "turn": 6,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"\\\"review date\\\"\",\"kind\":\"passage\",\"limit\":50},{\"text\":\"vendor review date\",\"kind\":\"passage\",\"limit\":50},{\"text\":\"review date vendor\",\"kind\":\"passage\",\"limit\":50}],\"budget\":30}",
+          "error": false
+        },
+        {
+          "turn": 6,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"vendor review date\",\"kind\":\"value\",\"limit\":50},{\"text\":\"review date\",\"kind\":\"value\",\"limit\":50}],\"budget\":20}",
+          "error": false
+        },
+        {
+          "turn": 7,
+          "name": "Grep",
+          "args": "{\"pattern\":\"vendor review|review date|reviewed on|vendor.*date|date.*vendor\",\"path\":\".\" ,\"output_mode\":\"files_with_matches\",\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 7,
+          "name": "Grep",
+          "args": "{\"pattern\":\"vendor review|review date|reviewed on|vendor.*date|date.*vendor\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"-C\":1,\"head_limit\":100}",
+          "error": false
+        },
+        {
+          "turn": 8,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/notes/short_note.md\",\"offset\":1,\"limit\":20}",
+          "error": false
+        }
+      ],
+      "input": 38394,
+      "cached": 29696,
+      "output": 1682,
+      "reasoning": 466,
+      "tokens": 40076,
+      "firstInput": 855,
+      "costUsd": 0.0163197,
+      "wallMs": 17450,
+      "toolMs": 656,
+      "correct": true,
+      "answer": "(a) Account 120001 balance: 400.37  \n(b) Customer of INV-2025-01200: Customer 36  \n(c) Year-end warranty reserve: $4.2 million  \n(d) Vendor review date: March 3  \n(e) East division approved revenue: 13.3  \n(f) Central division planning headcount: 147  \n\nANSWER: (a) 400.37; (b) Customer 36; (c) $4.2 million; (d) March 3; (e) 13.3; (f) 147"
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-multi-batch",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 10,
+      "toolCalls": 18,
+      "toolsUsed": {
+        "Grep": 10,
+        "Glob": 1,
+        "Read": 7
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"120001|INV-2025-01200|warranty reserve|vendor review date|East division|Central division|approved revenue|planning headcount\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Grep",
+          "args": "{\"pattern\":\"warranty reserve\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Grep",
+          "args": "{\"pattern\":\"vendor review date|review date\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Grep",
+          "args": "{\"pattern\":\"year-end|year end|year-end warranty|warranty reserve\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Glob",
+          "args": "{\"pattern\":\"Finance/**/*\"}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"warranty\",\"path\":\"Finance\",\"glob\":\"*.csv\",\"output_mode\":\"files_with_matches\",\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"review date\",\"path\":\"Finance\",\"glob\":\"*.csv\",\"output_mode\":\"files_with_matches\",\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/notes/short_note.md\",\"offset\":1,\"limit\":200}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/reports/annual_report.md\",\"offset\":1,\"limit\":220}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "Grep",
+          "args": "{\"pattern\":\"warranty reserve\",\"path\":\".\",\"output_mode\":\"files_with_matches\",\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 5,
+          "name": "Grep",
+          "args": "{\"pattern\":\"warranty reserve|reserve\",\"path\":\"Admin\",\"output_mode\":\"content\",\"-n\":true,\"-C\":1,\"head_limit\":30}",
+          "error": false
+        },
+        {
+          "turn": 5,
+          "name": "Grep",
+          "args": "{\"pattern\":\"warranty reserve|reserve\",\"path\":\"Shop\",\"output_mode\":\"content\",\"-n\":true,\"-C\":1,\"head_limit\":30}",
+          "error": false
+        },
+        {
+          "turn": 6,
+          "name": "Grep",
+          "args": "{\"pattern\":\"year-end|year end|warranty reserve|reserve\",\"path\":\"Shop/lib/billing.py\",\"output_mode\":\"content\",\"-n\":true,\"-C\":1,\"head_limit\":100}",
+          "error": false
+        },
+        {
+          "turn": 7,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":380,\"limit\":30}",
+          "error": false
+        },
+        {
+          "turn": 8,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/Approved/budget_2025.csv\",\"offset\":1,\"limit\":10}",
+          "error": false
+        },
+        {
+          "turn": 8,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/Planning/budget_2025.csv\",\"offset\":1,\"limit\":10}",
+          "error": false
+        },
+        {
+          "turn": 8,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/ledger.csv\",\"offset\":20000,\"limit\":5}",
+          "error": false
+        },
+        {
+          "turn": 8,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/invoices.csv\",\"offset\":1200,\"limit\":5}",
+          "error": false
+        }
+      ],
+      "input": 62774,
+      "cached": 39552,
+      "output": 2236,
+      "reasoning": 1198,
+      "tokens": 65010,
+      "firstInput": 472,
+      "costUsd": 0.030444899999999997,
+      "wallMs": 21615,
+      "toolMs": 138,
+      "correct": false,
+      "answer": "I found the following exact values:\n\n- (a) Account 120001 balance: `400.37`\n- (b) INV-2025-01200 customer: `Customer 36`\n- (d) vendor review date: `March 3`\n- (e) East division approved revenue: `13.3`\n- (f) Central division planning headcount: `147`\n\nFor (c) “the year-end warranty reserve,” I found more than one possible warranty-reserve reference in the workspace, so I need you to specify which one you mean before I choose:\n- `Finance/reports/annual_report.md` contains only text mentions of “warranty reserve,” with no numeric value.\n- `Shop/lib/billing.py` has a warranty/reserve calculation in `helper_0020`:\n  - `reserve_2 = 971 * 1.37` = `1329.27`\n\nANSWER: Please clarify which “year-end warranty reserve” source you want; the other five values are `400.37`, `Customer 36`, `March 3`, `13.3`, and `147`."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-range-known",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2108,\"limit\":12}",
+          "error": false
+        }
+      ],
+      "input": 1067,
+      "cached": 0,
+      "output": 183,
+      "reasoning": 9,
+      "tokens": 1250,
+      "firstInput": 425,
+      "costUsd": 0.00162375,
+      "wallMs": 2761,
+      "toolMs": 0,
+      "correct": true,
+      "answer": "def apply_discount(order, code):\n    \"\"\"Apply a discount code to an order and return the new total.\"\"\"\n    if not code:\n        return order.total\n    rule = DISCOUNTS.get(code.upper())\n    if rule is None:\n        raise UnknownDiscount(code)\n    if rule.expires and rule.expires < order.placed_at:\n        raise ExpiredDiscount(code)\n    eligible = [line for line in order.lines if line.sku not in rule.excluded]\n    subtotal = sum(line.price * line.quantity for line in eligible)\n    if subtotal < rule.minimum:\nANSWER: Lines 2108-2119 of Shop/lib/billing.py are shown exactly above."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-range-known",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2108,\"limit\":12}",
+          "error": false
+        }
+      ],
+      "input": 1834,
+      "cached": 0,
+      "output": 187,
+      "reasoning": 10,
+      "tokens": 2021,
+      "firstInput": 808,
+      "costUsd": 0.002217,
+      "wallMs": 2291,
+      "toolMs": 1,
+      "correct": true,
+      "answer": "def apply_discount(order, code):\n    \"\"\"Apply a discount code to an order and return the new total.\"\"\"\n    if not code:\n        return order.total\n    rule = DISCOUNTS.get(code.upper())\n    if rule is None:\n        raise UnknownDiscount(code)\n    if rule.expires and rule.expires < order.placed_at:\n        raise ExpiredDiscount(code)\n    eligible = [line for line in order.lines if line.sku not in rule.excluded]\n    subtotal = sum(line.price * line.quantity for line in eligible)\n    if subtotal < rule.minimum:\n\nANSWER: Shown exactly as requested: lines 2108-2119 of `Shop/lib/billing.py`."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-duplicate-named",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 4,
+      "toolCalls": 3,
+      "toolsUsed": {
+        "Read": 2,
+        "Glob": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Admin/app.py\",\"offset\":10,\"limit\":11}",
+          "error": true
+        },
+        {
+          "turn": 1,
+          "name": "Glob",
+          "args": "{\"pattern\":\"Admin/**/app.py\"}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Read",
+          "args": "{\"file_path\":\"Admin/src/app.py\",\"offset\":10,\"limit\":11}",
+          "error": false
+        }
+      ],
+      "input": 3687,
+      "cached": 0,
+      "output": 275,
+      "reasoning": 34,
+      "tokens": 3962,
+      "firstInput": 806,
+      "costUsd": 0.00400275,
+      "wallMs": 4869,
+      "toolMs": 1,
+      "correct": false,
+      "answer": "    10\tADMIN_SETTING_10 = 27\n    11\tADMIN_SETTING_11 = 30\n    12\tADMIN_SETTING_12 = 33\n    13\tADMIN_SETTING_13 = 36\n    14\tADMIN_SETTING_14 = 39\n    15\tADMIN_SETTING_15 = 42\n    16\tADMIN_SETTING_16 = 45\n    17\tADMIN_SETTING_17 = 48\n    18\tADMIN_SETTING_18 = 51\n    19\tADMIN_SETTING_19 = 54\n    20\tADMIN_SETTING_20 = 57\n\nANSWER: The file is `Admin/src/app.py`; lines 10-20 are shown above."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-duplicate-named",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 4,
+      "toolCalls": 3,
+      "toolsUsed": {
+        "Read": 2,
+        "Glob": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Admin/app.py\",\"offset\":10,\"limit\":11}",
+          "error": true
+        },
+        {
+          "turn": 1,
+          "name": "Glob",
+          "args": "{\"pattern\":\"Admin/**/app.py\"}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Read",
+          "args": "{\"file_path\":\"Admin/src/app.py\",\"offset\":10,\"limit\":11}",
+          "error": false
+        }
+      ],
+      "input": 2164,
+      "cached": 0,
+      "output": 267,
+      "reasoning": 70,
+      "tokens": 2431,
+      "firstInput": 423,
+      "costUsd": 0.0028245,
+      "wallMs": 4298,
+      "toolMs": 1,
+      "correct": true,
+      "answer": "ADMIN_SETTING_10 = 27\nADMIN_SETTING_11 = 30\nADMIN_SETTING_12 = 33\nADMIN_SETTING_13 = 36\nADMIN_SETTING_14 = 39\nADMIN_SETTING_15 = 42\nADMIN_SETTING_16 = 45\nADMIN_SETTING_17 = 48\nADMIN_SETTING_18 = 51\nADMIN_SETTING_19 = 54\nADMIN_SETTING_20 = 57\n\nANSWER: Shown above are lines 10-20 of `Admin/src/app.py`."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-duplicate-ambiguous",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Glob": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Glob",
+          "args": "{\"pattern\":\"**/app.py\",\"path\":\".\"}",
+          "error": false
+        }
+      ],
+      "input": 915,
+      "cached": 0,
+      "output": 143,
+      "reasoning": 33,
+      "tokens": 1058,
+      "firstInput": 419,
+      "costUsd": 0.00132975,
+      "wallMs": 2460,
+      "toolMs": 0,
+      "correct": true,
+      "answer": "There are multiple `app.py` files in the workspace:\n\n- `Admin/src/app.py`\n- `Shop/server/app.py`\n- `Shop/worker/app.py`\n\nWhich one do you want lines 1-5 from?\n\nANSWER: Multiple `app.py` files exist; please specify which one."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-duplicate-ambiguous",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "lasso_search": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"app.py\",\"kind\":\"file\",\"folder\":\".\",\"limit\":20}],\"limit\":20,\"budget\":2000}",
+          "error": false
+        }
+      ],
+      "input": 1807,
+      "cached": 0,
+      "output": 173,
+      "reasoning": 45,
+      "tokens": 1980,
+      "firstInput": 802,
+      "costUsd": 0.0021337500000000002,
+      "wallMs": 2961,
+      "toolMs": 6,
+      "correct": true,
+      "answer": "There are multiple `app.py` files in the workspace:\n\n- `Admin/src/app.py`\n- `Shop/server/app.py`\n- `Shop/worker/app.py`\n\nWhich one do you want the first 5 lines from?\n\nANSWER: Please specify which `app.py` file you mean."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-function-lookup",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 5,
+      "toolCalls": 4,
+      "toolsUsed": {
+        "lasso_search": 1,
+        "lasso_read": 2,
+        "Read": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"apply_discount\",\"kind\":\"code\",\"folder\":\"Shop\"},{\"text\":\"apply_discount\",\"kind\":\"code\",\"folder\":\"Admin\"},{\"text\":\"apply_discount\",\"kind\":\"code\",\"folder\":\"Finance\"}],\"limit\":10,\"budget\":20}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"S28CETBCW5\"}]}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"S28CETBCW5\",\"history\":true}]}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2108,\"limit\":40}",
+          "error": false
+        }
+      ],
+      "input": 6322,
+      "cached": 2304,
+      "output": 473,
+      "reasoning": 84,
+      "tokens": 6795,
+      "firstInput": 799,
+      "costUsd": 0.0053148,
+      "wallMs": 6833,
+      "toolMs": 173,
+      "correct": true,
+      "answer": "def apply_discount(order, code):\n    \"\"\"Apply a discount code to an order and return the new total.\"\"\"\n    if not code:\n        return order.total\n    rule = DISCOUNTS.get(code.upper())\n    if rule is None:\n        raise UnknownDiscount(code)\n    if rule.expires and rule.expires < order.placed_at:\n        raise ExpiredDiscount(code)\n    eligible = [line for line in order.lines if line.sku not in rule.excluded]\n    subtotal = sum(line.price * line.quantity for line in eligible)\n    if subtotal < rule.minimum:\n        return order.total\n    if rule.kind == \"percent\":\n        saving = subtotal * Decimal(rule.amount) / 100\n    else:\n        saving = min(Decimal(rule.amount), subtotal)\n    saving = saving.quantize(Decimal(\"0.01\"))\n    order.discounts.append((code, saving))\n    return order.total - saving\n\nANSWER: The full `apply_discount` function is shown above."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-function-lookup",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 3,
+      "toolsUsed": {
+        "Grep": 2,
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"\\\\bapply_discount\\\\b\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"-C\":3,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"def\\\\s+apply_discount\\\\b|function\\\\s+apply_discount\\\\b|const\\\\s+apply_discount\\\\b\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"-C\":3,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2108,\"limit\":80}",
+          "error": false
+        }
+      ],
+      "input": 3239,
+      "cached": 0,
+      "output": 441,
+      "reasoning": 51,
+      "tokens": 3680,
+      "firstInput": 416,
+      "costUsd": 0.00441375,
+      "wallMs": 5551,
+      "toolMs": 45,
+      "correct": true,
+      "answer": "Here is the full `apply_discount` function from `Shop/lib/billing.py`:\n\n```python\ndef apply_discount(order, code):\n    \"\"\"Apply a discount code to an order and return the new total.\"\"\"\n    if not code:\n        return order.total\n    rule = DISCOUNTS.get(code.upper())\n    if rule is None:\n        raise UnknownDiscount(code)\n    if rule.expires and rule.expires < order.placed_at:\n        raise ExpiredDiscount(code)\n    eligible = [line for line in order.lines if line.sku not in rule.excluded]\n    subtotal = sum(line.price * line.quantity for line in eligible)\n    if subtotal < rule.minimum:\n        return order.total\n    if rule.kind == \"percent\":\n        saving = subtotal * Decimal(rule.amount) / 100\n    else:\n        saving = min(Decimal(rule.amount), subtotal)\n    saving = saving.quantize(Decimal(\"0.01\"))\n    order.discounts.append((code, saving))\n    return order.total - saving\n```\n\nANSWER: The full `apply_discount` function is shown above."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-multi-function",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 6,
+      "toolsUsed": {
+        "Grep": 3,
+        "Read": 3
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"\\\\bnormalize_sku\\\\b\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"\\\\bretry_payment\\\\b\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"\\\\bregisterRoutes\\\\b\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/pkg/mod_07.py\",\"offset\":1,\"limit\":80}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/pkg/mod_19.py\",\"offset\":1,\"limit\":80}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/web/routes.js\",\"offset\":140,\"limit\":80}",
+          "error": false
+        }
+      ],
+      "input": 4643,
+      "cached": 0,
+      "output": 1150,
+      "reasoning": 54,
+      "tokens": 5793,
+      "firstInput": 423,
+      "costUsd": 0.00865725,
+      "wallMs": 7268,
+      "toolMs": 42,
+      "correct": true,
+      "answer": "Here are the definitions:\n\n```python\ndef normalize_sku(items):\n    \"\"\"normalize sku for the vendor.\"\"\"\n    reserve_0 = 495 * 1.68\n    contract_1 = 694 * 2.82\n    item_2 = 217 * 1.74\n    refund_3 = 754 * 2.98\n    if tax_4 > 65:\n    report_5 = 42 * 2.19\n    forecast_6 = 268 * 2.35\n    reserve_7 = 996 * 2.81\n    approved_8 = 348 * 2.73\n    if refund_9 > 63:\n    ledger_10 = 277 * 0.79\n    total_11 = 687 * 2.99\n    customer_12 = 369 * 0.53\n    schedule_13 = 441 * 0.64\n    if item_14 > 86:\n    account_15 = 114 * 1.79\n    total_16 = 589 * 1.45\n    approved_17 = 105 * 1.49\n    price_18 = 436 * 2.40\n    if quarter_19 > 90:\n    vendor_20 = 926 * 0.71\n    return account_0\n```\n\n```python\ndef retry_payment(items):\n    \"\"\"retry payment for the quarter.\"\"\"\n    margin_0 = 510 * 0.78\n    price_1 = 637 * 1.10\n    approved_2 = 320 * 1.04\n    division_3 = 629 * 2.64\n    if item_4 > 50:\n    reserve_5 = 347 * 2.92\n    refund_6 = 317 * 0.12\n    refund_7 = 943 * 2.74\n    warranty_8 = 22 * 0.80\n    if vendor_9 > 29:\n    region_10 = 180 * 2.29\n    invoice_11 = 981 * 0.90\n    budget_12 = 786 * 0.51\n    return total_0\n```\n\n```javascript\nexport function registerRoutes(app) {\n  app.get('/route/0', route0);\n  app.get('/route/1', route1);\n  app.get('/route/2', route2);\n  app.get('/route/3', route3);\n  app.get('/route/4', route4);\n  app.get('/route/5', route5);\n  app.get('/route/6', route6);\n  app.get('/route/7', route7);\n  app.get('/route/8', route8);\n  app.get('/route/9', route9);\n  app.get('/route/10', route10);\n  app.get('/route/11', route11);\n  app.get('/route/12', route12);\n  app.get('/route/13', route13);\n  app.get('/route/14', route14);\n  app.get('/route/15', route15);\n  app.get('/route/16', route16);\n  app.get('/route/17', route17);\n  app.get('/route/18', route18);\n  app.get('/route/19', route19);\n  app.get('/route/20', route20);\n  app.get('/route/21', route21);\n  app.get('/route/22', route22);\n  app.get('/route/23', route23);\n  app.get('/route/24', route24);\n  app.get('/route/25', route25);\n  app.get('/route/26', route26);\n  app.get('/route/27', route27);\n  app.get('/route/28', route28);\n  app.get('/route/29', route29);\n  return app;\n}\n```\n\nANSWER: The definitions are in `Shop/pkg/mod_07.py`, `Shop/pkg/mod_19.py`, and `Shop/web/routes.js` as shown above."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-multi-function",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 6,
+      "toolCalls": 7,
+      "toolsUsed": {
+        "lasso_search": 2,
+        "Grep": 3,
+        "lasso_read": 2
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"normalize_sku\",\"kind\":\"code\"},{\"text\":\"retry_payment\",\"kind\":\"code\"},{\"text\":\"registerRoutes\",\"kind\":\"code\"}],\"limit\":10,\"budget\":4000}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"registerRoutes\",\"kind\":\"code\",\"folder\":\"Admin\"},{\"text\":\"registerRoutes\",\"kind\":\"code\",\"folder\":\"Finance\"},{\"text\":\"registerRoutes\",\"kind\":\"code\",\"folder\":\"Shop\"}],\"limit\":20,\"budget\":4000}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"registerRoutes\",\"path\":\"Admin\",\"output_mode\":\"files_with_matches\",\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"registerRoutes\",\"path\":\"Finance\",\"output_mode\":\"files_with_matches\",\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"registerRoutes\",\"path\":\"Shop\",\"output_mode\":\"files_with_matches\",\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"file\":\"Shop/web/routes.js\",\"symbol\":\"registerRoutes\"},{\"file\":\"Shop/pkg/mod_07.py\",\"symbol\":\"normalize_sku\"},{\"file\":\"Shop/pkg/mod_19.py\",\"symbol\":\"retry_payment\"}]}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"file\":\"Shop/web/routes.js\",\"symbol\":\"registerRoutes\",\"version\":\"disk\"}]}",
+          "error": false
+        }
+      ],
+      "input": 12653,
+      "cached": 7936,
+      "output": 1299,
+      "reasoning": 107,
+      "tokens": 13952,
+      "firstInput": 806,
+      "costUsd": 0.00997845,
+      "wallMs": 10297,
+      "toolMs": 168,
+      "correct": true,
+      "answer": "Here are the definitions I found:\n\n```python\ndef normalize_sku(items):\n    \"\"\"normalize sku for the vendor.\"\"\"\n    reserve_0 = 495 * 1.68\n    contract_1 = 694 * 2.82\n    item_2 = 217 * 1.74\n    refund_3 = 754 * 2.98\n    if tax_4 > 65:\n    report_5 = 42 * 2.19\n    forecast_6 = 268 * 2.35\n    reserve_7 = 996 * 2.81\n    approved_8 = 348 * 2.73\n    if refund_9 > 63:\n    ledger_10 = 277 * 0.79\n    total_11 = 687 * 2.99\n    customer_12 = 369 * 0.53\n    schedule_13 = 441 * 0.64\n    if item_14 > 86:\n    account_15 = 114 * 1.79\n    total_16 = 589 * 1.45\n    approved_17 = 105 * 1.49\n    price_18 = 436 * 2.40\n    if quarter_19 > 90:\n    vendor_20 = 926 * 0.71\n    return account_0\n```\n\n```python\ndef retry_payment(items):\n    \"\"\"retry payment for the quarter.\"\"\"\n    margin_0 = 510 * 0.78\n    price_1 = 637 * 1.10\n    approved_2 = 320 * 1.04\n    division_3 = 629 * 2.64\n    if item_4 > 50:\n    reserve_5 = 347 * 2.92\n    refund_6 = 317 * 0.12\n    refund_7 = 943 * 2.74\n    warranty_8 = 22 * 0.80\n    if vendor_9 > 29:\n    region_10 = 180 * 2.29\n    invoice_11 = 981 * 0.90\n    budget_12 = 786 * 0.51\n    return total_0\n```\n\n```javascript\nexport function registerRoutes(app) {\n  app.get('/route/0', route0);\n  app.get('/route/1', route1);\n  app.get('/route/2', route2);\n  app.get('/route/3', route3);\n  app.get('/route/4', route4);\n  app.get('/route/5', route5);\n  app.get('/route/6', route6);\n  app.get('/route/7', route7);\n  app.get('/route/8', route8);\n  app.get('/route/9', route9);\n  app.get('/route/10', route10);\n  app.get('/route/11', route11);\n  app.get('/route/12', route12);\n  app.get('/route/13', route13);\n  app.get('/route/14', route14);\n  app.get('/route/15', route15);\n  app.get('/route/16', route16);\n  app.get('/route/17', route17);\n  app.get('/route/18', route18);\n  app.get('/route/19', route19);\n  app.get('/route/20', route20);\n  app.get('/route/21', route21);\n  app.get('/route/22', route22);\n  app.get('/route/23', route23);\n  app.get('/route/24', route24);\n  app.get('/route/25', route25);\n  app.get('/route/26', route26);\n  app.get('/route/27', route27);\n  app.get('/route/28', route28);\n  app.get('/route/29', route29);\n  return app;\n}\n```\n\nANSWER: The definitions are shown above."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-config-key",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 2,
+      "toolsUsed": {
+        "lasso_search": 1,
+        "Grep": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"MAX_RETRIES definition\",\"kind\":\"code\"}],\"limit\":5,\"budget\":2000}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"\\\\bMAX_RETRIES\\\\b\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        }
+      ],
+      "input": 1821,
+      "cached": 0,
+      "output": 177,
+      "reasoning": 37,
+      "tokens": 1998,
+      "firstInput": 805,
+      "costUsd": 0.00216225,
+      "wallMs": 2991,
+      "toolMs": 54,
+      "correct": true,
+      "answer": "`MAX_RETRIES` is defined in `Shop/config/settings.py`, and its value is `7`.\n\nANSWER: `Shop/config/settings.py` — `MAX_RETRIES = 7`"
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-config-key",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 2,
+      "toolsUsed": {
+        "Grep": 2
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"MAX_RETRIES\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"MAX_RETRIES\\\\s*=\", \"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":50}",
+          "error": false
+        }
+      ],
+      "input": 993,
+      "cached": 0,
+      "output": 164,
+      "reasoning": 19,
+      "tokens": 1157,
+      "firstInput": 422,
+      "costUsd": 0.0014827500000000001,
+      "wallMs": 2979,
+      "toolMs": 27,
+      "correct": true,
+      "answer": "`MAX_RETRIES` is defined in `Shop/config/settings.py` on line 5, and its value is `7`.\n\nANSWER: `MAX_RETRIES = 7` in `Shop/config/settings.py`"
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-repeated-inspections",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 5,
+      "toolsUsed": {
+        "Read": 5
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":300,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":900,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":1500,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2400,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2900,\"limit\":11}",
+          "error": false
+        }
+      ],
+      "input": 2570,
+      "cached": 0,
+      "output": 902,
+      "reasoning": 43,
+      "tokens": 3472,
+      "firstInput": 448,
+      "costUsd": 0.0059865000000000005,
+      "wallMs": 5924,
+      "toolMs": 4,
+      "correct": true,
+      "answer": "300-310:\n```python\n    total_10 = 50 * 0.99\n    account_11 = 242 * 2.33\n    forecast_12 = 908 * 0.30\n    order_13 = 922 * 2.41\n    return forecast_0\n\ndef helper_0016(context):\n    \"\"\"helper 0016 for the cost.\"\"\"\n    order_0 = 428 * 1.03\n    tax_1 = 930 * 2.19\n    refund_2 = 54 * 0.00\n```\n\n900-910:\n```python\n    \"\"\"helper 0047 for the margin.\"\"\"\n    planning_0 = 198 * 0.90\n    invoice_1 = 548 * 0.92\n    warranty_2 = 598 * 1.31\n    total_3 = 111 * 2.85\n    if payment_4 > 59:\n    item_5 = 166 * 2.88\n    region_6 = 735 * 2.51\n    planning_7 = 717 * 2.68\n    account_8 = 291 * 0.54\n    if schedule_9 > 73:\n```\n\n1500-1510:\n```python\n    if vendor_9 > 69:\n    warranty_10 = 583 * 1.12\n    budget_11 = 846 * 1.76\n    vendor_12 = 54 * 2.76\n    region_13 = 62 * 0.38\n    if payment_14 > 17:\n    planning_15 = 54 * 1.14\n    vendor_16 = 884 * 0.98\n    ledger_17 = 999 * 1.54\n    planning_18 = 864 * 1.23\n    if tax_19 > 84:\n```\n\n2400-2410:\n```python\n    if division_4 > 43:\n    budget_5 = 374 * 2.24\n    payment_6 = 119 * 1.50\n    report_7 = 151 * 2.45\n    total_8 = 719 * 1.71\n    if price_9 > 28:\n    reserve_10 = 904 * 0.70\n    tax_11 = 490 * 2.59\n    payment_12 = 261 * 1.09\n    schedule_13 = 414 * 0.64\n    if invoice_14 > 70:\n```\n\n2900-2910:\n```python\n    if rate_19 > 28:\n    price_20 = 960 * 2.29\n    refund_21 = 879 * 1.75\n    order_22 = 700 * 1.04\n    return balance_0\n\ndef helper_0153(items):\n    \"\"\"helper 0153 for the account.\"\"\"\n    balance_0 = 436 * 0.39\n    customer_1 = 854 * 1.53\n    refund_2 = 598 * 2.25\n```\n\nANSWER: The requested line ranges from `Shop/lib/billing.py` are shown above exactly as they appear in the file."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-repeated-inspections",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 6,
+      "toolCalls": 5,
+      "toolsUsed": {
+        "Read": 5
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":300,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":900,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":1500,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2400,\"limit\":11}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2900,\"limit\":11}",
+          "error": false
+        }
+      ],
+      "input": 8096,
+      "cached": 3968,
+      "output": 824,
+      "reasoning": 14,
+      "tokens": 8920,
+      "firstInput": 831,
+      "costUsd": 0.0071016,
+      "wallMs": 8801,
+      "toolMs": 3,
+      "correct": false,
+      "answer": "300-310:\n    total_10 = 50 * 0.99\n    account_11 = 242 * 2.33\n    forecast_12 = 908 * 0.30\n    order_13 = 922 * 2.41\n    return forecast_0\n     \ndef helper_0016(context):\n    \"\"\"helper 0016 for the cost.\"\"\"\n    order_0 = 428 * 1.03\n    tax_1 = 930 * 2.19\n    refund_2 = 54 * 0.00\n\n900-910:\n    \"\"\"helper 0047 for the margin.\"\"\"\n    planning_0 = 198 * 0.90\n    invoice_1 = 548 * 0.92\n    warranty_2 = 598 * 1.31\n    total_3 = 111 * 2.85\n    if payment_4 > 59:\n    item_5 = 166 * 2.88\n    region_6 = 735 * 2.51\n    planning_7 = 717 * 2.68\n    account_8 = 291 * 0.54\n    if schedule_9 > 73:\n\n1500-1510:\n    if vendor_9 > 69:\n    warranty_10 = 583 * 1.12\n    budget_11 = 846 * 1.76\n    vendor_12 = 54 * 2.76\n    region_13 = 62 * 0.38\n    if payment_14 > 17:\n    planning_15 = 54 * 1.14\n    vendor_16 = 884 * 0.98\n    ledger_17 = 999 * 1.54\n    planning_18 = 864 * 1.23\n    if tax_19 > 84:\n\n2400-2410:\n    if division_4 > 43:\n    budget_5 = 374 * 2.24\n    payment_6 = 119 * 1.50\n    report_7 = 151 * 2.45\n    total_8 = 719 * 1.71\n    if price_9 > 28:\n    reserve_10 = 904 * 0.70\n    tax_11 = 490 * 2.59\n    payment_12 = 261 * 1.09\n    schedule_13 = 414 * 0.64\n    if invoice_14 > 70:\n\n2900-2910:\n    if rate_19 > 28:\n    price_20 = 960 * 2.29\n    refund_21 = 879 * 1.75\n    order_22 = 700 * 1.04\n    return balance_0\n\ndef helper_0153(items):\n    \"\"\"helper 0153 for the account.\"\"\"\n    balance_0 = 436 * 0.39\n    customer_1 = 854 * 1.53\n    refund_2 = 598 * 2.25\nANSWER: Shown above."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-stale-reference",
+      "family": "code",
+      "capability": true,
+      "stop": "answered",
+      "modelCalls": 4,
+      "toolCalls": 4,
+      "toolsUsed": {
+        "lasso_search": 2,
+        "lasso_read": 2
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"Shop/lib/billing.py\",\"kind\":\"file\"}],\"limit\":5,\"budget\":2000}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"2067150861b9\",\"kind\":\"value\"}],\"limit\":20,\"budget\":2000}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"file\":\"Shop/lib/billing.py\",\"lines\":\"2106-2117\",\"rev\":\"2067150861b9\"}]}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"#GM0CQFF2KW\",\"lines\":\"2106-2120\"}]}",
+          "error": false
+        }
+      ],
+      "input": 4758,
+      "cached": 1152,
+      "output": 624,
+      "reasoning": 291,
+      "tokens": 5382,
+      "firstInput": 826,
+      "costUsd": 0.0055989,
+      "wallMs": 7165,
+      "toolMs": 49,
+      "correct": true,
+      "answer": "```python\ndef apply_discount(order, code):\n    \"\"\"Apply a discount code to an order and return the new total.\"\"\"\n    if not code:\n        return order.total\n    rule = DISCOUNTS.get(code.upper())\n    if rule is None:\n        raise UnknownDiscount(code)\n    if rule.expires and rule.expires < order.placed_at:\n        raise ExpiredDiscount(code)\n    eligible = [line for line in order.lines if line.sku not in rule.excluded]\n    subtotal = sum(line.price * line.quantity for line in eligible)\n    if subtotal < rule.minimum:\n```\n\nANSWER: The exact lines 2106-2117 at revision `2067150861b9` are quoted above."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-stale-reference",
+      "family": "code",
+      "capability": true,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 3,
+      "toolsUsed": {
+        "Grep": 2,
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"^.{0,200}$\",\"path\":\"Shop/lib/billing.py\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":5}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"2067150861b9\",\"path\":\".\",\"output_mode\":\"files_with_matches\",\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/lib/billing.py\",\"offset\":2106,\"limit\":12}",
+          "error": false
+        }
+      ],
+      "input": 1992,
+      "cached": 0,
+      "output": 637,
+      "reasoning": 309,
+      "tokens": 2629,
+      "firstInput": 443,
+      "costUsd": 0.0043605,
+      "wallMs": 6535,
+      "toolMs": 24,
+      "correct": false,
+      "answer": "I can quote the current contents of `Shop/lib/billing.py`, but I can’t verify the historical contents of revision `2067150861b9` from the workspace alone.\n\n\"    return refund_0\"\n\"\"\n\"def apply_discount(order, code):\"\n\"    \\\"\\\"\\\"Apply a discount code to an order and return the new total.\\\"\\\"\\\"\"\n\"    if not code:\"\n\"        return order.total\"\n\"    rule = DISCOUNTS.get(code.upper())\"\n\"    if rule is None:\"\n\"        raise UnknownDiscount(code)\"\n\"    if rule.expires and rule.expires < order.placed_at:\"\n\"        raise ExpiredDiscount(code)\"\n\"    eligible = [line for line in order.lines if line.sku not in rule.excluded]\"\n\nANSWER: I can quote the current lines, but I can’t confirm they match revision `2067150861b9` from the workspace alone."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "code-modified-on-disk",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/web/routes.js\",\"offset\":1,\"limit\":3}",
+          "error": false
+        }
+      ],
+      "input": 945,
+      "cached": 0,
+      "output": 83,
+      "reasoning": 13,
+      "tokens": 1028,
+      "firstInput": 431,
+      "costUsd": 0.0010822499999999999,
+      "wallMs": 2022,
+      "toolMs": 1,
+      "correct": true,
+      "answer": "// Routes, rewritten 2026-10-27\nimport express from 'express';\n\nANSWER: `Shop/web/routes.js` lines 1-3 are shown above."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "code-modified-on-disk",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Shop/web/routes.js\",\"offset\":1,\"limit\":3}",
+          "error": false
+        }
+      ],
+      "input": 1708,
+      "cached": 0,
+      "output": 80,
+      "reasoning": 10,
+      "tokens": 1788,
+      "firstInput": 814,
+      "costUsd": 0.001641,
+      "wallMs": 2202,
+      "toolMs": 0,
+      "correct": true,
+      "answer": "// Routes, rewritten 2026-10-27\nimport express from 'express';\n\nANSWER: `Shop/web/routes.js` lines 1-3 are shown above."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-short-file",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "lasso_search": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"vendor review scheduled\",\"kind\":\"passage\",\"folder\":\"Finance/notes\",\"ext\":\"md\"}],\"limit\":5,\"budget\":2000}",
+          "error": false
+        }
+      ],
+      "input": 1858,
+      "cached": 0,
+      "output": 102,
+      "reasoning": 29,
+      "tokens": 1960,
+      "firstInput": 809,
+      "costUsd": 0.0018525,
+      "wallMs": 1918,
+      "toolMs": 7,
+      "correct": true,
+      "answer": "The vendor review is scheduled for March 3.\n\nANSWER: March 3."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-short-file",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/notes/short_note.md\",\"offset\":1,\"limit\":2000}",
+          "error": false
+        }
+      ],
+      "input": 956,
+      "cached": 0,
+      "output": 62,
+      "reasoning": 8,
+      "tokens": 1018,
+      "firstInput": 426,
+      "costUsd": 0.000996,
+      "wallMs": 2310,
+      "toolMs": 1,
+      "correct": true,
+      "answer": "The vendor review is scheduled for March 3.\n\nANSWER: March 3"
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-long-fact",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 4,
+      "toolsUsed": {
+        "Grep": 3,
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"warranty reserve\",\"path\":\"Finance\",\"-i\":true,\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"annual report\",\"path\":\"Finance\",\"-i\":true,\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"reserve\",\"path\":\"Finance\",\"-i\":true,\"output_mode\":\"content\",\"-n\":true,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/reports/annual_report.md\",\"offset\":1828,\"limit\":12}",
+          "error": false
+        }
+      ],
+      "input": 5811,
+      "cached": 2432,
+      "output": 242,
+      "reasoning": 42,
+      "tokens": 6053,
+      "firstInput": 424,
+      "costUsd": 0.00380565,
+      "wallMs": 3825,
+      "toolMs": 39,
+      "correct": true,
+      "answer": "The warranty reserve at year end was \"$4.2 million\".\n\nANSWER: $4.2 million"
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-long-fact",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "lasso_search": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"warranty reserve year end annual report\",\"kind\":\"passage\",\"folder\":\"Finance\"},{\"text\":\"warranty reserve\",\"kind\":\"value\",\"folder\":\"Finance\"}],\"limit\":10,\"budget\":4000}",
+          "error": false
+        }
+      ],
+      "input": 2316,
+      "cached": 0,
+      "output": 189,
+      "reasoning": 63,
+      "tokens": 2505,
+      "firstInput": 807,
+      "costUsd": 0.0025875,
+      "wallMs": 2718,
+      "toolMs": 70,
+      "correct": true,
+      "answer": "According to the annual report, the warranty reserve at year end was \"$4.2 million\" and it was \"up from $3.1 million a year earlier.\"\n\nANSWER: $4.2 million"
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-large-table",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "lasso_search": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"104233 ledger balance\",\"kind\":\"value\",\"fields\":[\"Account\",\"Balance\"],\"folder\":\"Finance\"},{\"text\":\"104233\",\"kind\":\"value\",\"fields\":[\"Account\",\"Balance\",\"Ledger\",\"Amount\"],\"folder\":\"Finance\"}],\"limit\":10,\"budget\":3000}",
+          "error": false
+        }
+      ],
+      "input": 2191,
+      "cached": 0,
+      "output": 135,
+      "reasoning": 31,
+      "tokens": 2326,
+      "firstInput": 805,
+      "costUsd": 0.00225075,
+      "wallMs": 2906,
+      "toolMs": 60,
+      "correct": true,
+      "answer": "The balance of Account 104233 in the ledger is \"566.21\".\n\nANSWER: 566.21"
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-large-table",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 4,
+      "toolsUsed": {
+        "Grep": 4
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"104233\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"ledger\",\"path\":\"Finance\",\"output_mode\":\"files_with_matches\",\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"104233\",\"path\":\"Shop\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"104233\",\"path\":\"Admin\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":20}",
+          "error": false
+        }
+      ],
+      "input": 1201,
+      "cached": 0,
+      "output": 227,
+      "reasoning": 30,
+      "tokens": 1428,
+      "firstInput": 422,
+      "costUsd": 0.00192225,
+      "wallMs": 2863,
+      "toolMs": 34,
+      "correct": true,
+      "answer": "The balance of Account 104233 in the ledger is \"566.21\".\n\nANSWER: 566.21"
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-identifier",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 4,
+      "toolsUsed": {
+        "Grep": 4
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"INV-2025-00417\",\"path\":\".\",\"output_mode\":\"content\",\"head_limit\":20,\"-n\":true}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"INV-2025-00417\",\"path\":\"Finance\",\"output_mode\":\"content\",\"head_limit\":20,\"-n\":true}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"INV-2025-00417\",\"path\":\"Admin\",\"output_mode\":\"content\",\"head_limit\":20,\"-n\":true}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"INV-2025-00417\",\"path\":\"Shop\",\"output_mode\":\"content\",\"head_limit\":20,\"-n\":true}",
+          "error": false
+        }
+      ],
+      "input": 1142,
+      "cached": 0,
+      "output": 241,
+      "reasoning": 19,
+      "tokens": 1383,
+      "firstInput": 426,
+      "costUsd": 0.001941,
+      "wallMs": 2967,
+      "toolMs": 27,
+      "correct": true,
+      "answer": "Invoice `INV-2025-00417` is for `Customer 29`, and the amount is `5629.50`.\n\nANSWER: Customer 29, 5629.50"
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-identifier",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 2,
+      "toolsUsed": {
+        "lasso_search": 1,
+        "lasso_read": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"invoice INV-2025-00417 customer amount\",\"kind\":\"value\",\"folder\":\"Finance\"}],\"limit\":5,\"budget\":2000}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"#5RTEYM6JKP\"}]}",
+          "error": false
+        }
+      ],
+      "input": 3281,
+      "cached": 0,
+      "output": 163,
+      "reasoning": 39,
+      "tokens": 3444,
+      "firstInput": 809,
+      "costUsd": 0.00319425,
+      "wallMs": 3168,
+      "toolMs": 63,
+      "correct": true,
+      "answer": "Invoice INV-2025-00417 is for Customer 29, and the amount is 5629.50.\n\nANSWER: Customer 29; 5629.50"
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-ambiguous-sources",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "lasso_search": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"North division FY2025 revenue\",\"kind\":\"value\",\"folder\":\"Finance\"},{\"text\":\"North division revenue FY2025\",\"kind\":\"value\",\"folder\":\"Finance\"},{\"text\":\"North division\",\"kind\":\"value\",\"folder\":\"Finance\"}],\"limit\":10,\"budget\":4000}",
+          "error": false
+        }
+      ],
+      "input": 2823,
+      "cached": 0,
+      "output": 318,
+      "reasoning": 127,
+      "tokens": 3141,
+      "firstInput": 803,
+      "costUsd": 0.00354825,
+      "wallMs": 6244,
+      "toolMs": 84,
+      "correct": true,
+      "answer": "I found two possible FY2025 revenue values for the North division:\n\n- `Finance/Approved/budget_2025.csv`: `11.9`\n- `Finance/Planning/budget_2025.csv`: `13.1`\n\nWhich one did you mean: Approved or Planning?\n\nANSWER: Need clarification on which budget file to use; North division FY2025 revenue is `11.9` in Finance/Approved/budget_2025.csv and `13.1` in Finance/Planning/budget_2025.csv."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-ambiguous-sources",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 2,
+      "toolsUsed": {
+        "Grep": 1,
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"North.*FY2025|FY2025.*North|North division|division.*North|revenue\",\"path\":\".\",\"glob\":\"**/*\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":200}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/Approved/budget_2025.csv\",\"offset\":1,\"limit\":20}",
+          "error": false
+        }
+      ],
+      "input": 9395,
+      "cached": 4096,
+      "output": 254,
+      "reasoning": 95,
+      "tokens": 9649,
+      "firstInput": 420,
+      "costUsd": 0.00542445,
+      "wallMs": 3628,
+      "toolMs": 20,
+      "correct": false,
+      "answer": "The North division's FY2025 revenue is \"11.9\" in Finance/Approved/budget_2025.csv.\n\nANSWER: \"11.9\""
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-related-facts",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 3,
+      "toolsUsed": {
+        "Grep": 2,
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"South\",\"path\":\".\",\"output_mode\":\"files_with_matches\",\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"approved budget|Approved Budget|budget\",\"path\":\".\",\"output_mode\":\"files_with_matches\",\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/Approved/budget_2025.csv\",\"offset\":1,\"limit\":200}",
+          "error": false
+        }
+      ],
+      "input": 3019,
+      "cached": 0,
+      "output": 217,
+      "reasoning": 38,
+      "tokens": 3236,
+      "firstInput": 427,
+      "costUsd": 0.00324075,
+      "wallMs": 3632,
+      "toolMs": 29,
+      "correct": true,
+      "answer": "Revenue: \"12.6\", Reporting period: \"FY2025\", Headcount: \"129\"\n\nANSWER: South division in the approved budget has Revenue \"12.6\", Reporting period \"FY2025\", and Headcount \"129\"."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-related-facts",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 2,
+      "toolsUsed": {
+        "lasso_search": 1,
+        "lasso_read": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"approved budget South division Revenue Reporting period Headcount\",\"kind\":\"value\",\"folder\":\"Finance\"},{\"text\":\"South division approved budget\",\"kind\":\"passage\",\"folder\":\"Finance\"}],\"limit\":10,\"budget\":20}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"#SR957JJ92G\"}]}",
+          "error": false
+        }
+      ],
+      "input": 3258,
+      "cached": 1024,
+      "output": 219,
+      "reasoning": 52,
+      "tokens": 3477,
+      "firstInput": 810,
+      "costUsd": 0.0027378000000000003,
+      "wallMs": 3682,
+      "toolMs": 81,
+      "correct": true,
+      "answer": "For the South division in the approved budget:\n\n- Revenue: 12.6\n- Reporting period: FY2025\n- Headcount: 129\n\nANSWER: Revenue 12.6; Reporting period FY2025; Headcount 129"
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-missing",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 5,
+      "toolCalls": 6,
+      "toolsUsed": {
+        "lasso_search": 2,
+        "Grep": 4
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"West division revenue\",\"kind\":\"value\",\"fields\":[\"division\",\"revenue\"]},{\"text\":\"West division\", \"kind\":\"value\",\"fields\":[\"division\"]},{\"text\":\"revenue\", \"kind\":\"value\",\"fields\":[\"division\",\"revenue\"]}],\"limit\":10,\"budget\":10}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"West\",\"kind\":\"value\",\"fields\":[\"division\"]},{\"text\":\"West division revenue\",\"kind\":\"passage\",\"under\":\"Finance\"},{\"text\":\"West division\",\"kind\":\"passage\",\"under\":\"Finance\"}],\"limit\":20,\"budget\":20}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"division|revenue\",\"path\":\"Finance/Approved/budget_2025.csv\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West\",\"path\":\".\",\"output_mode\":\"files_with_matches\",\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West division\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":50}",
+          "error": false
+        }
+      ],
+      "input": 6205,
+      "cached": 2560,
+      "output": 563,
+      "reasoning": 130,
+      "tokens": 6768,
+      "firstInput": 800,
+      "costUsd": 0.0054592500000000006,
+      "wallMs": 7268,
+      "toolMs": 153,
+      "correct": true,
+      "answer": "I couldn’t find any “West division” in the workspace files. The finance budget file only lists:\n\n- North division\n- South division\n- East division\n- Central division\n\nSo there’s no West division revenue available to উদ্ধ? If you meant a different file or report, tell me which one.\n\nANSWER: No West division revenue is found in the workspace files."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-missing",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 7,
+      "toolCalls": 9,
+      "toolsUsed": {
+        "Grep": 7,
+        "Glob": 1,
+        "Read": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West division|West|revenue\",\"path\":\".\",\"output_mode\":\"files_with_matches\",\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Glob",
+          "args": "{\"pattern\":\"**/*\",\"path\":\".\"}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/reports/annual_report.md\",\"offset\":1,\"limit\":400}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"division.*West|West.*division\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West\",\"path\":\"Finance\",\"glob\":\"**/*.csv\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Grep",
+          "args": "{\"pattern\":\"division|region\",\"path\":\"Finance\",\"glob\":\"**/*.csv\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":100}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "Grep",
+          "args": "{\"pattern\":\"west\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"-i\":true,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 5,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West division|West\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"-i\":true,\"head_limit\":100}",
+          "error": false
+        }
+      ],
+      "input": 35168,
+      "cached": 26240,
+      "output": 612,
+      "reasoning": 147,
+      "tokens": 35780,
+      "firstInput": 417,
+      "costUsd": 0.011417999999999998,
+      "wallMs": 10914,
+      "toolMs": 105,
+      "correct": true,
+      "answer": "I couldn’t find any file that mentions a \"West division\" or gives its revenue. The finance files list North, South, East, and Central divisions, but not West.\n\nANSWER: West division revenue is not موجود/not found in the workspace files."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-history",
+      "family": "docs",
+      "capability": true,
+      "stop": "answered",
+      "modelCalls": 4,
+      "toolCalls": 8,
+      "toolsUsed": {
+        "Grep": 5,
+        "Read": 2,
+        "Glob": 1
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"North.*planning revenue|planning revenue.*North|planning budget|North division\",\"path\":\"Shop\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"North.*planning revenue|planning revenue.*North|planning budget|North division\",\"path\":\"Admin\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"North.*planning revenue|planning revenue.*North|planning budget|North division\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/Planning/budget_2025.csv\",\"offset\":1,\"limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/Approved/budget_2025.csv\",\"offset\":1,\"limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Grep",
+          "args": "{\"pattern\":\"budget_2025.csv|planning budget|latest change|change to the planning budget\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"-C\":2,\"head_limit\":100}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Glob",
+          "args": "{\"pattern\":\"Finance/Planning/*\",\"path\":\".\"}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"North division,.*Planning|North division,.*Approved\",\"path\":\"Finance\",\"glob\":\"**/*.csv\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        }
+      ],
+      "input": 11012,
+      "cached": 5632,
+      "output": 617,
+      "reasoning": 178,
+      "tokens": 11629,
+      "firstInput": 426,
+      "costUsd": 0.0072339,
+      "wallMs": 6585,
+      "toolMs": 44,
+      "correct": false,
+      "answer": "The North division’s planning revenue before the latest change to the planning budget was \"11.9\".\n\nANSWER: \"11.9\""
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-history",
+      "family": "docs",
+      "capability": true,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 2,
+      "toolsUsed": {
+        "lasso_search": 1,
+        "lasso_read": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"North division planning revenue before latest change to the planning budget\",\"kind\":\"value\"},{\"text\":\"North division planning budget revenue change history planning revenue\",\"kind\":\"value\"},{\"text\":\"North division planning budget\",\"kind\":\"value\"}],\"limit\":5,\"budget\":20}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"#H3J87N8A23\",\"history\":true}]}",
+          "error": false
+        }
+      ],
+      "input": 3420,
+      "cached": 1024,
+      "output": 284,
+      "reasoning": 125,
+      "tokens": 3704,
+      "firstInput": 809,
+      "costUsd": 0.0031517999999999997,
+      "wallMs": 4135,
+      "toolMs": 141,
+      "correct": true,
+      "answer": "North division’s planning revenue before the latest change to the planning budget was \"12.4\".\n\nANSWER: \"12.4\""
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v3",
+      "task": "doc-multi-batch",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 9,
+      "toolCalls": 11,
+      "toolsUsed": {
+        "lasso_search": 9,
+        "lasso_read": 2
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"Account 120001 balance\",\"kind\":\"value\",\"folder\":\"Finance\"},{\"text\":\"INV-2025-01200 customer\",\"kind\":\"value\",\"folder\":\"Finance\"},{\"text\":\"year-end warranty reserve\",\"kind\":\"value\",\"folder\":\"Finance\"},{\"text\":\"vendor review date\",\"kind\":\"value\",\"folder\":\"Finance\"},{\"text\":\"East division approved revenue\",\"kind\":\"value\",\"folder\":\"Admin\"},{\"text\":\"Central division planning headcou",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"120001\",\"kind\":\"value\",\"folder\":\"Finance\",\"limit\":20},{\"text\":\"INV-2025-01200\",\"kind\":\"value\",\"folder\":\"Finance\",\"limit\":20},{\"text\":\"warranty reserve\",\"kind\":\"passage\",\"folder\":\"Finance\",\"limit\":20},{\"text\":\"vendor review\",\"kind\":\"passage\",\"folder\":\"Finance\",\"limit\":20},{\"text\":\"approved revenue\",\"kind\":\"passage\",\"folder\":\"Admin\",\"limit\":20},{\"text\":\"planning headcount\",\"kind",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"Account 120001\",\"kind\":\"passage\",\"folder\":\"Finance\",\"limit\":20},{\"text\":\"INV-2025-01200\",\"kind\":\"passage\",\"folder\":\"Finance\",\"limit\":20}],\"limit\":20,\"budget\":2000}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"East division approved revenue\",\"kind\":\"passage\",\"folder\":\"Admin\",\"limit\":50},{\"text\":\"Central division planning headcount\",\"kind\":\"passage\",\"folder\":\"Admin\",\"limit\":50},{\"text\":\"East division\",\"kind\":\"passage\",\"folder\":\"Admin\",\"limit\":50},{\"text\":\"Central division\",\"kind\":\"passage\",\"folder\":\"Admin\",\"limit\":50}],\"limit\":50,\"budget\":3000}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"approved revenue\",\"kind\":\"passage\",\"folder\":\"Finance\",\"limit\":50},{\"text\":\"planning headcount\",\"kind\":\"passage\",\"folder\":\"Finance\",\"limit\":50}],\"limit\":20,\"budget\":2000}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"East\",\"kind\":\"value\",\"folder\":\"Finance/reports/annual_report.md\",\"limit\":50},{\"text\":\"Central\",\"kind\":\"value\",\"folder\":\"Finance/reports/annual_report.md\",\"limit\":50},{\"text\":\"division approved revenue\",\"kind\":\"passage\",\"folder\":\"Finance/reports/annual_report.md\",\"limit\":50},{\"text\":\"planning headcount\",\"kind\":\"passage\",\"folder\":\"Finance/reports/annual_report.md\",\"limit\":50}],\"",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"headcount\",\"kind\":\"value\",\"folder\":\"Admin\",\"limit\":50},{\"text\":\"headcount\",\"kind\":\"value\",\"folder\":\"Finance\",\"limit\":50},{\"text\":\"East division\",\"kind\":\"value\",\"folder\":\"Finance\",\"limit\":50},{\"text\":\"Central division\",\"kind\":\"value\",\"folder\":\"Finance\",\"limit\":50}],\"limit\":50,\"budget\":3000}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"vendor review date\",\"kind\":\"value\",\"folder\":\"Finance/reports/annual_report.md\",\"limit\":20},{\"text\":\"vendor review date\",\"kind\":\"value\",\"folder\":\"Finance/notes/short_note.md\",\"limit\":20}],\"limit\":20,\"budget\":1500}",
+          "error": false
+        },
+        {
+          "turn": 5,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"#Z86RAVYB23\"},{\"h\":\"#C3XW987FYV\"},{\"h\":\"#K5VYP0WAM0\"},{\"h\":\"#7RVSTSQXPG\"},{\"h\":\"#87NATYFTG9\"},{\"h\":\"#J75VR9V41M\"}]}",
+          "error": false
+        },
+        {
+          "turn": 6,
+          "name": "lasso_search",
+          "args": "{\"queries\":[{\"text\":\"vendor review is scheduled\",\"kind\":\"passage\",\"folder\":\"Finance\",\"limit\":20}],\"limit\":20,\"budget\":1000}",
+          "error": false
+        },
+        {
+          "turn": 7,
+          "name": "lasso_read",
+          "args": "{\"items\":[{\"h\":\"#VHTT8DSA7S\"}]}",
+          "error": false
+        }
+      ],
+      "input": 74903,
+      "cached": 59648,
+      "output": 1664,
+      "reasoning": 495,
+      "tokens": 76567,
+      "firstInput": 855,
+      "costUsd": 0.02340285,
+      "wallMs": 18285,
+      "toolMs": 531,
+      "correct": true,
+      "answer": "(a) Account 120001 balance: \"400.37\"  \n(b) INV-2025-01200 customer: \"Customer 36\"  \n(c) Year-end warranty reserve: \"$4.2 million\"  \n(d) Vendor review date: \"March 3\"  \n(e) East division approved revenue: \"13.3\"  \n(f) Central division planning headcount: \"147\"  \n\nANSWER: (a) \"400.37\"; (b) \"Customer 36\"; (c) \"$4.2 million\"; (d) \"March 3\"; (e) \"13.3\"; (f) \"147\""
+    }
+  ]
+}

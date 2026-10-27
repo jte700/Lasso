@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { openEngine } from '../src/agent/engine.js';
 import { blockRange, definitions, parseLineRange } from '../src/agent/evidence.js';
+import { formatAnswer } from '../src/agent/render.js';
 import { isSecretPath } from '../src/agent/scope.js';
 import { fileLines } from '../src/dependencies/code-lines.js';
 import { actor, agent, agentLibrary, API_APP, WEB_APP } from './fixtures/agent-library.js';
@@ -205,7 +206,7 @@ test('bind records chosen evidence, enforces explicit constraints and inserts th
   // Arrange
   const { app, dataDir } = await agentLibrary(t);
   const engine = engineFor(t, dataDir);
-  const records = engine.evidence.suggest({ queries: [{ text: 'division', fields: ['Revenue', 'Reporting period'] }] })
+  const records = engine.evidence.suggest({ queries: [{ text: 'division', fields: ['Revenue', 'Reporting period'], limit: 10 }] })
     .results[0].candidates.filter((candidate) => candidate.type === 'record');
   const north = records.find((record) => record.row === 'North division' && record.fields.Revenue.value === '12.4');
   const south = records.find((record) => record.row === 'South division');
@@ -388,4 +389,71 @@ test('a definition named without its file is found through the index, or listed 
   assert.equal(exported.text.split('\n')[0], 'export function start(port) {', 'an exported JavaScript function is found too');
   assert.ok(absent.coverage.total > 0, 'rows sharing a word still match');
   assert.equal(absent.coverage.exact, 0, 'and the response says none matched exactly');
+});
+
+test('compact text keeps every handle, exact value and exact line the JSON answer has, in fewer characters', async (t) => {
+  // Arrange
+  const { dataDir } = await agentLibrary(t);
+  const engine = engineFor(t, dataDir);
+  const searched = engine.evidence.suggest({ queries: [{ text: 'North division', fields: ['Revenue', 'Scenario'] }, { text: 'grant', kind: 'passage' },
+    { text: 'app.py', kind: 'file' }] });
+  const read = engine.evidence.inspect({ items: [{ file: 'app.py', folder: 'Api', lines: '1-8' }, { symbol: 'handle' }, { file: 'app.py', lines: '1' },
+    { h: searched.results[0].candidates.find((candidate) => candidate.fields?.Scenario?.value === 'Planning').fields.Revenue.h, context: 1 }] });
+
+  // Act
+  const searchText = formatAnswer('suggest', searched);
+  const readText = formatAnswer('inspect', read);
+
+  // Assert
+  for (const candidate of searched.results.flatMap((result) => result.candidates)) {
+    for (const evidence of [candidate, ...Object.values(candidate.fields ?? {})]) {
+      if (evidence.h) assert.ok(searchText.includes(`#${evidence.h}`), evidence.h);
+      if (evidence.value != null) assert.ok(searchText.includes(JSON.stringify(evidence.value)), evidence.value);
+    }
+  }
+  assert.ok(searchText.length < JSON.stringify(searched).length * 0.8);
+  assert.ok(readText.includes(`\`\`\`\n${API_APP.split('\n').slice(0, 8).join('\n')}\n\`\`\``), 'lines are fenced exactly');
+  assert.match(readText, /\[3\] error ambiguous: 2 shared files match app\.py[^\n]*\n  - Api\/app\.py @/);
+  assert.match(readText, /> 2: North division \| 12\.4 \| FY2025 \| Planning/, 'the cited row is marked in its table');
+  assert.deepEqual(engine.evidence.suggest({ queries: ['grant'] }).results[0].candidates.length > 0, true, 'a plain string is a query');
+});
+
+test('handles copied with their mark, field names in the query and fields asked of passages all still find the row', async (t) => {
+  // Arrange
+  const { dataDir } = await agentLibrary(t);
+  const engine = engineFor(t, dataDir);
+
+  // Act
+  const response = engine.evidence.suggest({ queries: [
+    { id: 'wordy', text: 'South division revenue reporting period', fields: ['Revenue', 'Reporting period'] },
+    { id: 'passage', text: 'North division', kind: 'passage', fields: ['Revenue'] }] });
+  const [wordy, passage] = response.results;
+  const marked = items(engine, { h: `#${wordy.candidates[0].fields.Revenue.h}` })[0];
+
+  // Assert
+  assert.equal(wordy.candidates[0].row, 'South division', 'field names in the text do not blur the row');
+  assert.equal(wordy.coverage.exact > 0, true);
+  assert.deepEqual(passage.notes, ['kind passage has no fields; searched table rows']);
+  assert.equal(passage.candidates[0].type, 'record');
+  assert.equal(marked.value, '9.10');
+});
+
+test('tuning numbers out of range are brought into range, and loosely written folders still resolve', async (t) => {
+  // Arrange
+  const { dataDir } = await agentLibrary(t);
+  const engine = engineFor(t, dataDir);
+
+  // Act
+  const tight = engine.evidence.suggest({ queries: [{ text: 'North division', folder: 'Finance/Planning', fields: ['Revenue'] }], budget: 120, limit: 99 });
+  const everywhere = engine.evidence.suggest({ queries: [{ text: 'app.py', kind: 'file', folder: '.' }] });
+  const [sourceId] = items(engine, { h: 's1', lines: '1-2' });
+  const absent = formatAnswer('suggest', engine.evidence.suggest({ queries: ['West division'] }));
+
+  // Assert
+  assert.equal(tight.results[0].candidates[0].row, 'North division');
+  assert.equal(tight.sources[tight.results[0].candidates[0].src].path, 'Planning/budget.csv', 'Finance/Planning is the Finance folder, under Planning');
+  assert.equal(everywhere.results[0].candidates.length, 2);
+  assert.match(sourceId.error.message, /pass that source's path as file/);
+  assert.match(absent, /none matches exactly in any shared folder/);
+  assert.throws(() => engine.evidence.suggest({ queries: ['x'], budget: 'lots' }), { code: 'invalid_request' });
 });

@@ -8,19 +8,20 @@ import fs from 'node:fs';
 import { performance } from 'node:perf_hooks';
 
 /**
- * A tokenizer-free estimate of how many tokens a text costs a model. Words
- * cost about one token per four letters, numbers one per three digits, and
- * each punctuation mark or symbol about one. Calibrated loosely against BPE
- * tokenizers on JSON and source code; good for ratios, not for billing.
+ * A tokenizer-free estimate of how many tokens a text costs a model. Short
+ * words and runs of punctuation such as `{"` or `":` are usually one token;
+ * longer words about one per six letters, numbers one per three digits.
+ * Checked against provider usage records (gpt-5.4-mini, 2026-10-27): on
+ * Lasso's answers it read 1.10x the real count on average (0.92x to 1.28x).
+ * Good for budgets and comparisons, not for billing.
  */
 export function estimateTokens(text) {
-  const value = String(text ?? '');
   let tokens = 0;
-  for (const match of value.matchAll(/(\p{L}+)|(\p{N}+)|(\s+)|([^\p{L}\p{N}\s])/gu)) {
-    if (match[1]) tokens += Math.ceil(match[1].length / 4);
+  for (const match of String(text ?? '').matchAll(/(\p{L}+)|(\p{N}+)|(\s+)|([^\p{L}\p{N}\s]+)/gu)) {
+    if (match[1]) tokens += match[1].length <= 7 ? 1 : Math.ceil(match[1].length / 6);
     else if (match[2]) tokens += Math.ceil(match[2].length / 3);
-    else if (match[3]) tokens += match[3].includes('\n') ? match[3].split('\n').length - 1 : 0;
-    else tokens += 1;
+    else if (match[3]) tokens += (match[3].match(/\n/g)?.length ?? 0) + Math.floor(match[3].replace(/\n/g, '').length / 8);
+    else tokens += Math.ceil(match[4].length / 2);
   }
   return tokens;
 }

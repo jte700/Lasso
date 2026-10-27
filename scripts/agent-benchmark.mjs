@@ -23,9 +23,10 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { openLocal, connect } from '../src/agent/client.js';
-import { DIRECT_DEFINITIONS, LASSO_DEFINITIONS, LEGACY_DEFINITION, directTools, estimateDense, grepHits, prepareLibrary, readLines, REPEATED_RANGES, taskPrompts }
+import { DIRECT_DEFINITIONS, LASSO_DEFINITIONS, LASSO_DEFINITIONS_WITH_CITE, LEGACY_DEFINITION, directTools, estimateConservative, grepHits, prepareLibrary, readLines, REPEATED_RANGES, taskPrompts }
   from './agent-benchmark-corpus.mjs';
 import { blockRange, definitions } from '../src/agent/evidence.js';
+import { formatAnswer } from '../src/agent/render.js';
 import { estimateTokens } from '../src/agent/metrics.js';
 import { readDiscovery } from '../src/agent/rest.js';
 
@@ -36,6 +37,9 @@ const OUT = path.resolve(ROOT, args.includes('--out') ? args[args.indexOf('--out
 const KEEP = args.includes('--keep');
 // Folder ids are random, so ranking ties and handle strings differ between runs; repeat and report the spread.
 const RUNS = args.includes('--runs') ? Number(args[args.indexOf('--runs') + 1]) : 3;
+// Tool definitions as a provider counted them (scripts/agent-token-probe.mjs), when measured; estimated otherwise.
+const PROBE = path.join(ROOT, 'docs', 'agent', 'token-probe.json');
+const MEASURED = fs.existsSync(PROBE) ? JSON.parse(fs.readFileSync(PROBE, 'utf8')).definitions : null;
 
 // Accounting constants, the same for every arm.
 const SYSTEM_TOKENS = 1000;
@@ -52,6 +56,13 @@ class Trajectory {
     this.task = task;
     this.tools = tools;
     this.definitions = JSON.stringify(definitions);
+    // Measured per-call cost of these definitions, when the probe has measured all of them.
+    const names = definitions.map((definition) => definition.name).filter(Boolean);
+    const lasso = names.some((name) => name.startsWith('lasso_') && name !== 'lasso_find');
+    // The probe measures the default tools; cite, when offered, is added as estimated.
+    const cite = definitions.find((definition) => definition.name === 'lasso_cite');
+    this.measuredDefinitions = MEASURED && !names.includes('lasso_find')
+      ? MEASURED.direct + (lasso ? MEASURED.lassoCurrent : 0) + (cite ? estimateTokens(JSON.stringify(cite)) : 0) : null;
     this.rounds = [];
     this.ms = 0;
     this.answer = null;
@@ -64,9 +75,14 @@ class Trajectory {
     for (const [name, input] of calls) {
       const started = performance.now();
       let output = await this.tools[name](input);
-      if (typeof output !== 'string') output = JSON.stringify(output);
       this.ms += performance.now() - started;
-      results.push(output);
+      if (output?.forModel !== undefined) {
+        results.push(output.value);
+        output = output.forModel;
+      } else {
+        if (typeof output !== 'string') output = JSON.stringify(output);
+        results.push(output);
+      }
       record.push({ name, input, output });
     }
     this.rounds.push(record);
@@ -77,7 +93,8 @@ class Trajectory {
   account(estimate, answer) {
     const callTokens = (call) => estimate(JSON.stringify(call.input)) + estimate(call.name) + CALL_OVERHEAD;
     const resultTokens = (call) => estimate(call.output) + RESULT_OVERHEAD;
-    const fixed = SYSTEM_TOKENS + estimate(this.definitions) + estimate(this.task.prompt);
+    const definitionTokens = this.measuredDefinitions ?? estimate(this.definitions);
+    const fixed = SYSTEM_TOKENS + definitionTokens + estimate(this.task.prompt);
     const invocations = [];
     let history = 0;
     for (let turn = 0; turn <= this.rounds.length; turn += 1) {
@@ -93,20 +110,20 @@ class Trajectory {
     const output = invocations.reduce((sum, item) => sum + item.output, 0);
     const cached = invocations.reduce((sum, item) => sum + item.cached, 0);
     const evidence = this.rounds.flat().reduce((sum, call) => sum + resultTokens(call), 0);
-    return { invocations: invocations.length, input, output, cached, evidence, overhead: invocations.length * (fixed - estimate(this.task.prompt) - SYSTEM_TOKENS) };
+    return { invocations: invocations.length, input, output, cached, evidence, overhead: invocations.length * definitionTokens };
   }
 
   finish(answer) {
     this.answer = answer;
     const { invocations, input, output, cached, evidence, overhead } = this.account(estimateTokens, answer);
-    const dense = this.account(estimateDense, answer);
+    const conservative = this.account(estimateConservative, answer);
     const outputs = this.rounds.flat().map((call) => call.output).join('\n');
     return {
       task: this.task.id, family: this.task.family, arm: this.arm, capability: Boolean(this.task.capability),
       correct: this.task.grade(answer), retrieved: this.task.retrieved ? this.task.retrieved(outputs) : null,
       invocations, rounds: this.rounds.length, calls: this.rounds.flat().length,
       tokens: input + output, input, output, evidence, definitionOverhead: overhead, cachedInput: cached,
-      denseTokens: dense.input + dense.output, denseEvidence: dense.evidence,
+      conservativeTokens: conservative.input + conservative.output, conservativeEvidence: conservative.evidence,
       costUsd: (input * PRICE.input + output * PRICE.output) / 1e6,
       cachedCostUsd: ((input - cached) * PRICE.input + cached * PRICE.cacheRead + output * PRICE.output) / 1e6,
       localMs: Math.round(this.ms * 10) / 10, answer,
@@ -150,7 +167,7 @@ function tasks(truth, oldBillingRev, routesNow) {
       prompt: prompts['code-range-known'],
       grade: (answer) => answer === discountHead, retrieved: (outputs) => outputs.includes('def apply_discount'),
       direct: async (t) => t.finish(readLines((await t.round([['Read', { file_path: 'Shop/lib/billing.py', offset: truth.discount.start, limit: 12 }]]))[0]).join('\n')),
-      lasso: async (t) => t.finish(json((await t.round([['lasso_inspect', { items: [{ file: 'lib/billing.py', folder: 'Shop', lines: discountLines }] }]]))[0]).items[0].text),
+      lasso: async (t) => t.finish(json((await t.round([['lasso_read', { items: [{ file: 'lib/billing.py', folder: 'Shop', lines: discountLines }] }]]))[0]).items[0].text),
     },
     {
       id: 'code-duplicate-named', family: 'code', features: {},
@@ -161,7 +178,7 @@ function tasks(truth, oldBillingRev, routesNow) {
         const [read] = await t.round([['Read', { file_path: found.split('\n')[0], offset: 10, limit: 11 }]]);
         return t.finish(readLines(read).join('\n'));
       },
-      lasso: async (t) => t.finish(json((await t.round([['lasso_inspect', { items: [{ file: 'app.py', folder: 'Admin', lines: '10-20' }] }]]))[0]).items[0].text),
+      lasso: async (t) => t.finish(json((await t.round([['lasso_read', { items: [{ file: 'app.py', folder: 'Admin', lines: '10-20' }] }]]))[0]).items[0].text),
     },
     {
       id: 'code-duplicate-ambiguous', family: 'code', features: { ambiguousName: true },
@@ -173,7 +190,7 @@ function tasks(truth, oldBillingRev, routesNow) {
         return t.finish(`Which app.py do you mean? ${found.split('\n').join(', ')}`);
       },
       lasso: async (t) => {
-        const [result] = await t.round([['lasso_inspect', { items: [{ file: 'app.py', lines: '1-5' }] }]]);
+        const [result] = await t.round([['lasso_read', { items: [{ file: 'app.py', lines: '1-5' }] }]]);
         return t.finish(`Which app.py do you mean? ${json(result).items[0].error.matches.map((match) => `${match.folder}/${match.path}`).join(', ')}`);
       },
     },
@@ -195,11 +212,11 @@ function tasks(truth, oldBillingRev, routesNow) {
         return t.finish(blockFromRead(read, line).text);
       },
       lasso: async (t) => {
-        const [found] = await t.round([['lasso_suggest', { queries: [{ text: 'apply_discount', kind: 'code' }] }]]);
-        const [block] = await t.round([['lasso_inspect', { items: [{ h: candidatesOf(found)[0].h, symbol: true }] }]]);
+        const [found] = await t.round([['lasso_search', { queries: [{ text: 'apply_discount', kind: 'code' }] }]]);
+        const [block] = await t.round([['lasso_read', { items: [{ h: candidatesOf(found)[0].h, symbol: true }] }]]);
         return t.finish(json(block).items[0].text);
       },
-      optimized: async (t) => t.finish(json((await t.round([['lasso_inspect', { items: [{ symbol: 'apply_discount' }] }]]))[0]).items[0].text),
+      optimized: async (t) => t.finish(json((await t.round([['lasso_read', { items: [{ symbol: 'apply_discount' }] }]]))[0]).items[0].text),
     },
     {
       id: 'code-multi-function', family: 'code', features: { multiFact: true },
@@ -213,10 +230,10 @@ function tasks(truth, oldBillingRev, routesNow) {
         return t.finish(reads.map((read, index) => blockFromRead(read, order[index].line).text).join('\n---\n'));
       },
       lasso: async (t) => {
-        const results = await t.round(multiNames.map((name) => ['lasso_inspect', { items: [{ symbol: name }] }]));
+        const results = await t.round(multiNames.map((name) => ['lasso_read', { items: [{ symbol: name }] }]));
         return t.finish(results.map((result) => json(result).items[0].text).join('\n---\n'));
       },
-      optimized: async (t) => t.finish(json((await t.round([['lasso_inspect', { items: multiNames.map((symbol) => ({ symbol })) }]]))[0]).items.map((item) => item.text).join('\n---\n')),
+      optimized: async (t) => t.finish(json((await t.round([['lasso_read', { items: multiNames.map((symbol) => ({ symbol })) }]]))[0]).items.map((item) => item.text).join('\n---\n')),
     },
     {
       id: 'code-config-key', family: 'code', features: {},
@@ -233,7 +250,7 @@ function tasks(truth, oldBillingRev, routesNow) {
         return t.finish(`Shop/${result.ref.path}: ${String(result.value).split('=')[1].trim()}`);
       },
       lasso: async (t) => {
-        const [found] = await t.round([['lasso_suggest', { queries: [{ text: 'MAX_RETRIES', kind: 'code', limit: 3 }] }]]);
+        const [found] = await t.round([['lasso_search', { queries: [{ text: 'MAX_RETRIES', kind: 'code', limit: 3 }] }]]);
         const response = json(found);
         const candidate = response.results[0].candidates.find((entry) => String(entry.value ?? '').includes('='));
         const source = response.sources[candidate.src];
@@ -249,11 +266,11 @@ function tasks(truth, oldBillingRev, routesNow) {
         return t.finish(reads.map((read) => readLines(read).join('\n')).join('\n---\n'));
       },
       lasso: async (t) => {
-        const results = await t.round(repeated.map(([first, last]) => ['lasso_inspect', { items: [{ file: 'lib/billing.py', folder: 'Shop', lines: `${first}-${last}` }] }]));
+        const results = await t.round(repeated.map(([first, last]) => ['lasso_read', { items: [{ file: 'lib/billing.py', folder: 'Shop', lines: `${first}-${last}` }] }]));
         return t.finish(results.map((result) => json(result).items[0].text).join('\n---\n'));
       },
       optimized: async (t) => {
-        const [result] = await t.round([['lasso_inspect', { items: repeated.map(([first, last]) => ({ file: 'lib/billing.py', folder: 'Shop', lines: `${first}-${last}` })) }]]);
+        const [result] = await t.round([['lasso_read', { items: repeated.map(([first, last]) => ({ file: 'lib/billing.py', folder: 'Shop', lines: `${first}-${last}` })) }]]);
         return t.finish(json(result).items.map((item) => item.text).join('\n---\n'));
       },
     },
@@ -262,7 +279,7 @@ function tasks(truth, oldBillingRev, routesNow) {
       prompt: prompts['code-stale-reference'],
       grade: (answer) => answer === discountHead,
       direct: async (t) => t.finish(readLines((await t.round([['Read', { file_path: 'Shop/lib/billing.py', offset: truth.discount.originalStart, limit: 12 }]]))[0]).join('\n')),
-      lasso: async (t) => t.finish(json((await t.round([['lasso_inspect', { items: [{ file: 'lib/billing.py', folder: 'Shop', lines: citedLines, rev: oldBillingRev }] }]]))[0]).items[0].text),
+      lasso: async (t) => t.finish(json((await t.round([['lasso_read', { items: [{ file: 'lib/billing.py', folder: 'Shop', lines: citedLines, rev: oldBillingRev }] }]]))[0]).items[0].text),
     },
     {
       id: 'code-modified-on-disk', family: 'code', features: { fileKnown: true, smallRead: true },
@@ -270,13 +287,13 @@ function tasks(truth, oldBillingRev, routesNow) {
       grade: (answer) => answer === routesNow,
       direct: async (t) => t.finish(readLines((await t.round([['Read', { file_path: 'Shop/web/routes.js', offset: 1, limit: 3 }]]))[0]).join('\n')),
       lasso: async (t) => {
-        const [first] = await t.round([['lasso_inspect', { items: [{ file: 'web/routes.js', folder: 'Shop', lines: '1-3' }] }]]);
+        const [first] = await t.round([['lasso_read', { items: [{ file: 'web/routes.js', folder: 'Shop', lines: '1-3' }] }]]);
         const response = json(first);
         if (response.sources[response.items[0].src].disk !== 'changed') return t.finish(response.items[0].text);
-        const [second] = await t.round([['lasso_inspect', { items: [{ file: 'web/routes.js', folder: 'Shop', lines: '1-3', version: 'disk' }] }]]);
+        const [second] = await t.round([['lasso_read', { items: [{ file: 'web/routes.js', folder: 'Shop', lines: '1-3', version: 'disk' }] }]]);
         return t.finish(json(second).items[0].text);
       },
-      optimized: async (t) => t.finish(json((await t.round([['lasso_inspect', { items: [{ file: 'web/routes.js', folder: 'Shop', lines: '1-3', version: 'disk' }] }]]))[0]).items[0].text),
+      optimized: async (t) => t.finish(json((await t.round([['lasso_read', { items: [{ file: 'web/routes.js', folder: 'Shop', lines: '1-3', version: 'disk' }] }]]))[0]).items[0].text),
     },
     {
       id: 'doc-short-file', family: 'docs', features: { fileKnown: true, smallRead: true },
@@ -287,7 +304,7 @@ function tasks(truth, oldBillingRev, routesNow) {
         return t.finish(read.match(/scheduled for ([A-Z][a-z]+ \d+)/)[1]);
       },
       lasso: async (t) => {
-        const [found] = await t.round([['lasso_suggest', { queries: [{ text: 'vendor review', kind: 'passage', folder: 'Finance', limit: 3 }] }]]);
+        const [found] = await t.round([['lasso_search', { queries: [{ text: 'vendor review', kind: 'passage', folder: 'Finance', limit: 3 }] }]]);
         return t.finish(candidatesOf(found).map((candidate) => candidate.value).join(' ').match(/scheduled for ([A-Z][a-z]+ \d+)/)[1]);
       },
     },
@@ -305,7 +322,7 @@ function tasks(truth, oldBillingRev, routesNow) {
       },
       lasso: async (t) => {
         // Lasso matches terms, not phrases: the question's other words narrow it.
-        const [found] = await t.round([['lasso_suggest', { queries: [{ text: 'warranty reserve year end', kind: 'passage', limit: 3 }] }]]);
+        const [found] = await t.round([['lasso_search', { queries: [{ text: 'warranty reserve year end', kind: 'passage', limit: 3 }] }]]);
         return t.finish(candidatesOf(found).map((candidate) => candidate.value).join(' ').match(/was (\$[\d.]+ million)/)[1]);
       },
     },
@@ -322,7 +339,7 @@ function tasks(truth, oldBillingRev, routesNow) {
         return t.finish(grepHits(grep)[0].text.split(',')[columns.indexOf('Balance')]);
       },
       lasso: async (t) => {
-        const [found] = await t.round([['lasso_suggest', { queries: [{ text: 'Account 104233', fields: ['Balance'], limit: 3 }] }]]);
+        const [found] = await t.round([['lasso_search', { queries: [{ text: 'Account 104233', fields: ['Balance'], limit: 3 }] }]]);
         return t.finish(candidatesOf(found).find((candidate) => candidate.row === 'Account 104233').fields.Balance.value);
       },
     },
@@ -353,7 +370,7 @@ function tasks(truth, oldBillingRev, routesNow) {
         return t.finish(`${field('Customer')}, ${field('Amount')}`);
       },
       lasso: async (t) => {
-        const [found] = await t.round([['lasso_suggest', { queries: [{ text: 'INV-2025-00417', fields: ['Customer', 'Amount'], limit: 3 }] }]]);
+        const [found] = await t.round([['lasso_search', { queries: [{ text: 'INV-2025-00417', fields: ['Customer', 'Amount'], limit: 3 }] }]]);
         const record = candidatesOf(found).find((candidate) => candidate.type === 'record');
         return t.finish(`${record.fields.Customer.value}, ${record.fields.Amount.value}`);
       },
@@ -375,7 +392,7 @@ function tasks(truth, oldBillingRev, routesNow) {
         return t.finish(`Which budget do you mean? ${options.join('; ')}`);
       },
       lasso: async (t) => {
-        const [found] = await t.round([['lasso_suggest', { queries: [{ text: 'North division', fields: ['Revenue', 'Scenario'], limit: 4 }] }]]);
+        const [found] = await t.round([['lasso_search', { queries: [{ text: 'North division', fields: ['Revenue', 'Scenario'], limit: 4 }] }]]);
         const response = json(found);
         const options = response.results[0].candidates.filter((candidate) => candidate.type === 'record' && candidate.row === 'North division')
           .map((record) => `${record.fields.Revenue.value} (${record.fields.Scenario.value}, ${response.sources[record.src].path})`);
@@ -395,16 +412,16 @@ function tasks(truth, oldBillingRev, routesNow) {
         return t.finish(['Revenue', 'Reporting period', 'Headcount'].map((name) => values[columns.indexOf(name)]).join('; '));
       },
       lasso: async (t) => {
-        const [found] = await t.round([['lasso_suggest', { queries: [{ text: 'South division', folder: 'Finance', under: 'Approved', fields: ['Revenue', 'Reporting period', 'Headcount'], limit: 2 }] }]]);
+        const [found] = await t.round([['lasso_search', { queries: [{ text: 'South division', folder: 'Finance', under: 'Approved', fields: ['Revenue', 'Reporting period', 'Headcount'], limit: 2 }] }]]);
         const record = candidatesOf(found).find((candidate) => candidate.row === 'South division');
         return t.finish(['Revenue', 'Reporting period', 'Headcount'].map((name) => record.fields[name].value).join('; '));
       },
       // Deterministic insertion: the values reach the answer through bind, not by copying.
       ablation: async (t) => {
         const fields = ['Revenue', 'Reporting period', 'Headcount'];
-        const [found] = await t.round([['lasso_suggest', { queries: [{ text: 'South division', folder: 'Finance', under: 'Approved', fields, limit: 2 }] }]]);
+        const [found] = await t.round([['lasso_search', { queries: [{ text: 'South division', folder: 'Finance', under: 'Approved', fields, limit: 2 }] }]]);
         const record = candidatesOf(found).find((candidate) => candidate.row === 'South division');
-        const [bound] = await t.round([['lasso_bind', { task: 'bench-south', bind: { revenue: record.fields.Revenue.h, period: record.fields['Reporting period'].h, headcount: record.fields.Headcount.h },
+        const [bound] = await t.round([['lasso_cite', { task: 'bench-south', bind: { revenue: record.fields.Revenue.h, period: record.fields['Reporting period'].h, headcount: record.fields.Headcount.h },
           same_record: [['revenue', 'period', 'headcount']], template: '{{revenue}}; {{period}}; {{headcount}}', cite: 'none' }]]);
         return t.finish(json(bound).text);
       },
@@ -418,7 +435,7 @@ function tasks(truth, oldBillingRev, routesNow) {
         return t.finish(grep === 'No matches found' ? 'not found' : 'found');
       },
       lasso: async (t) => {
-        const [found] = await t.round([['lasso_suggest', { queries: [{ text: 'West division', fields: ['Revenue'], limit: 3 }] }]]);
+        const [found] = await t.round([['lasso_search', { queries: [{ text: 'West division', fields: ['Revenue'], limit: 3 }] }]]);
         // No exact match anywhere in the ranked list, only rows sharing a word.
         const result = json(found).results[0];
         return t.finish(result.coverage.exact === 0 ? 'not found' : 'found');
@@ -433,9 +450,9 @@ function tasks(truth, oldBillingRev, routesNow) {
         return t.finish(grepHits(grep)[0]?.text.split(',')[1] ?? 'unknown');
       },
       lasso: async (t) => {
-        const [found] = await t.round([['lasso_suggest', { queries: [{ text: 'North division', folder: 'Finance', under: 'Planning', fields: ['Revenue'], limit: 2 }] }]]);
+        const [found] = await t.round([['lasso_search', { queries: [{ text: 'North division', folder: 'Finance', under: 'Planning', fields: ['Revenue'], limit: 2 }] }]]);
         const record = candidatesOf(found).find((candidate) => candidate.row === 'North division');
-        const [history] = await t.round([['lasso_inspect', { items: [{ h: record.fields.Revenue.h, history: true }] }]]);
+        const [history] = await t.round([['lasso_read', { items: [{ h: record.fields.Revenue.h, history: true }] }]]);
         return t.finish(json(history).items[0].versions[1]?.value ?? 'unknown');
       },
     },
@@ -465,7 +482,7 @@ function tasks(truth, oldBillingRev, routesNow) {
           { text: 'East division', folder: 'Finance', under: 'Approved', fields: ['Revenue'], limit: 2 },
           { text: 'Central division', folder: 'Finance', under: 'Planning', fields: ['Headcount'], limit: 2 },
         ];
-        const outputs = await t.round(queries.map((query) => ['lasso_suggest', { queries: [query] }]));
+        const outputs = await t.round(queries.map((query) => ['lasso_search', { queries: [query] }]));
         return t.finish(answerMulti(outputs.map((output) => candidatesOf(output))));
       },
       optimized: async (t) => {
@@ -475,7 +492,7 @@ function tasks(truth, oldBillingRev, routesNow) {
           { id: 'e', text: 'East division', folder: 'Finance', under: 'Approved', fields: ['Revenue'], limit: 2 },
           { id: 'f', text: 'Central division', folder: 'Finance', under: 'Planning', fields: ['Headcount'], limit: 2 },
         ];
-        const [output] = await t.round([['lasso_suggest', { queries }]]);
+        const [output] = await t.round([['lasso_search', { queries }]]);
         return t.finish(answerMulti(json(output).results.map((result) => result.candidates)));
       },
     },
@@ -521,9 +538,9 @@ async function mcpStartup(dataDir) {
   });
   await request(1, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'bench' } });
   const initializedMs = performance.now() - started;
-  await request(2, 'tools/call', { name: 'lasso_inspect', arguments: { items: [{ file: 'lib/billing.py', folder: 'Shop', lines: '1-5' }] } });
+  await request(2, 'tools/call', { name: 'lasso_read', arguments: { items: [{ file: 'lib/billing.py', folder: 'Shop', lines: '1-5' }] } });
   const firstResultMs = performance.now() - started;
-  await request(3, 'tools/call', { name: 'lasso_suggest', arguments: { queries: [{ text: 'North division', fields: ['Revenue'] }] } });
+  await request(3, 'tools/call', { name: 'lasso_search', arguments: { queries: [{ text: 'North division', fields: ['Revenue'] }] } });
   const memory = await rssOf(child.pid);
   const closing = performance.now();
   const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)));
@@ -579,8 +596,10 @@ async function runOnce() {
   openLocal({ dataDir, scope: ['*'], client: 'bench' }).close();
   local.warm = performance.now() - opened;
   for (const phase of ['cold', 'warm']) {
-    const toolsOf = (client) => ({ lasso_suggest: (input) => client.suggest(input), lasso_inspect: (input) => client.inspect(input),
-      lasso_bind: (input) => client.bind(input) });
+    // The model is charged for the compact text an MCP host shows it; the scripted policy reads the same answer as JSON.
+    const answer = (operation, value) => ({ forModel: formatAnswer(operation, value), value: JSON.stringify(value) });
+    const toolsOf = (client) => ({ lasso_search: (input) => answer('suggest', client.suggest(input)),
+      lasso_read: (input) => answer('inspect', client.inspect(input)), lasso_cite: (input) => answer('bind', client.bind(input)) });
     const legacyTool = { lasso_find: async ({ command }) => app.workspace.terminalRun(command, actor) };
     for (const task of suite) {
       const arms = {
@@ -588,7 +607,7 @@ async function runOnce() {
         legacy: [task.legacy ?? task.direct, { ...direct, ...legacyTool }, [...DIRECT_DEFINITIONS, LEGACY_DEFINITION]],
         lasso: [task.lasso, { ...direct, ...toolsOf(clients.lasso) }, [...DIRECT_DEFINITIONS, ...LASSO_DEFINITIONS]],
         optimized: [task.optimized ?? task.lasso, { ...direct, ...toolsOf(clients.optimized) }, [...DIRECT_DEFINITIONS, ...LASSO_DEFINITIONS]],
-        ...(task.ablation ? { 'optimized+bind': [task.ablation, { ...direct, ...toolsOf(clients.optimized) }, [...DIRECT_DEFINITIONS, ...LASSO_DEFINITIONS]] } : {}),
+        ...(task.ablation ? { 'optimized+bind': [task.ablation, { ...direct, ...toolsOf(clients.optimized) }, [...DIRECT_DEFINITIONS, ...LASSO_DEFINITIONS_WITH_CITE]] } : {}),
         // A short read of a file the request names goes to direct tools; the rest to Lasso.
         // Lasso's definitions are still sent on those tasks: a connected server's tools are.
         routed: [routesDirect(task) ? task.direct : task.optimized ?? task.lasso, { ...direct, ...toolsOf(clients.optimized) }, [...DIRECT_DEFINITIONS, ...LASSO_DEFINITIONS]],
@@ -641,7 +660,7 @@ async function main() {
       const values = repeats.map((run) => run.savings[arm][key]);
       return { median: median(values), min: Math.min(...values), max: Math.max(...values) };
     };
-    return [arm, { runs: RUNS, S: spread('S'), denseS: spread('denseS'), evidenceS: spread('evidenceS'),
+    return [arm, { runs: RUNS, S: spread('S'), conservativeS: spread('conservativeS'), evidenceS: spread('evidenceS'),
       correct: repeats.map((run) => `${run.totals[arm].correct}/${run.totals[arm].tasks}`) }];
   }));
   fs.mkdirSync(OUT, { recursive: true });
@@ -658,8 +677,8 @@ function summarize(runs, lifecycle, suite) {
   const totals = Object.fromEntries(arms.map((arm) => {
     const rows = of(arm, comparable);
     const sum = (key) => rows.reduce((total, run) => total + (run[key] ?? 0), 0);
-    return [arm, { tasks: rows.length, correct: rows.filter((run) => run.correct).length, tokens: sum('tokens'), denseTokens: sum('denseTokens'),
-      evidence: sum('evidence'), denseEvidence: sum('denseEvidence'), definitionOverhead: sum('definitionOverhead'),
+    return [arm, { tasks: rows.length, correct: rows.filter((run) => run.correct).length, tokens: sum('tokens'), conservativeTokens: sum('conservativeTokens'),
+      evidence: sum('evidence'), conservativeEvidence: sum('conservativeEvidence'), definitionOverhead: sum('definitionOverhead'),
       rounds: sum('rounds'), calls: sum('calls'), costUsd: Math.round(sum('costUsd') * 10000) / 10000,
       cachedCostUsd: Math.round(sum('cachedCostUsd') * 10000) / 10000, localMs: Math.round(sum('localMs')) }];
   }));
@@ -671,7 +690,7 @@ function summarize(runs, lifecycle, suite) {
       return [family, Math.round((1 - pairs.reduce((sum, [, lasso]) => sum + lasso.tokens, 0) / pairs.reduce((sum, [base]) => sum + base.tokens, 0)) * 1000) / 10];
     }));
     return [arm, { S: Math.round((1 - totals[arm].tokens / totals.direct.tokens) * 1000) / 10,
-      denseS: Math.round((1 - totals[arm].denseTokens / totals.direct.denseTokens) * 1000) / 10,
+      conservativeS: Math.round((1 - totals[arm].conservativeTokens / totals.direct.conservativeTokens) * 1000) / 10,
       evidenceS: Math.round((1 - totals[arm].evidence / totals.direct.evidence) * 1000) / 10, families,
       perTaskRatio: { min: Math.round(Math.min(...ratios) * 100) / 100, median: Math.round(median(ratios) * 100) / 100, max: Math.round(Math.max(...ratios) * 100) / 100 },
       regressions: paired.filter(([base, lasso]) => lasso.tokens > base.tokens).map(([base, lasso]) => ({ task: base.task, direct: base.tokens, arm: lasso.tokens })) }];
@@ -680,7 +699,7 @@ function summarize(runs, lifecycle, suite) {
     coldLocalMs: Math.round(runs.filter((run) => run.arm === arm && run.phase === 'cold').reduce((sum, run) => sum + (run.localMs ?? 0), 0)),
     warmLocalMs: Math.round(runs.filter((run) => run.arm === arm && run.phase === 'warm').reduce((sum, run) => sum + (run.localMs ?? 0), 0)) }));
   return { generatedAt: new Date().toISOString(), node: process.version, platform: `${process.platform} ${process.arch}`,
-    constants: { SYSTEM_TOKENS, CALL_OVERHEAD, RESULT_OVERHEAD, toolDefinitionTokens: {
+    constants: { SYSTEM_TOKENS, CALL_OVERHEAD, RESULT_OVERHEAD, measuredDefinitions: MEASURED, toolDefinitionTokens: {
       direct: estimateTokens(JSON.stringify(DIRECT_DEFINITIONS)), lasso: estimateTokens(JSON.stringify(LASSO_DEFINITIONS)),
       legacy: estimateTokens(JSON.stringify(LEGACY_DEFINITION)) }, price: PRICE },
     totals, savings, coldWarm, lifecycle,
@@ -698,26 +717,26 @@ function report(results) {
   lines.push(`Generated ${results.generatedAt} on ${results.platform}, Node ${results.node}. Produced by \`node scripts/agent-benchmark.mjs\`; the numbers below are this run's.`, '');
   lines.push('**Token figures are estimates** (tokenizer-free estimator, same for every arm) of complete-task model input and output under scripted, competent policies. They are not provider-recorded usage, reasoning tokens are not modelled, and a live model may take different steps.', '');
   lines.push('## Complete-task totals (tasks with a direct-tools equivalent)', '');
-  lines.push('| Arm | Correct | Est. tokens T | of which tool definitions | Evidence tokens | T, dense estimate | Rounds J | Tool calls | Est. cost (no cache) | Est. cost (prefix cache) | Local tool time |');
+  lines.push('| Arm | Correct | Est. tokens T | of which tool definitions | Evidence tokens | T, conservative estimate | Rounds J | Tool calls | Est. cost (no cache) | Est. cost (prefix cache) | Local tool time |');
   lines.push('|---|---|---|---|---|---|---|---|---|---|---|');
   for (const [arm, total] of Object.entries(results.totals)) {
     const n = (value) => value.toLocaleString('en-US');
-    lines.push(`| ${arm} | ${total.correct}/${total.tasks} | ${n(total.tokens)} | ${n(total.definitionOverhead)} | ${n(total.evidence)} | ${n(total.denseTokens)} | ${total.rounds} | ${total.calls} | $${total.costUsd.toFixed(4)} | $${total.cachedCostUsd.toFixed(4)} | ${total.localMs} ms |`);
+    lines.push(`| ${arm} | ${total.correct}/${total.tasks} | ${n(total.tokens)} | ${n(total.definitionOverhead)} | ${n(total.evidence)} | ${n(total.conservativeTokens)} | ${total.rounds} | ${total.calls} | $${total.costUsd.toFixed(4)} | $${total.cachedCostUsd.toFixed(4)} | ${total.localMs} ms |`);
   }
   lines.push('', '## Aggregate savings S = 1 − ΣT_L / ΣT_0 against direct tools', '');
   lines.push('Negative S means the arm used more tokens than direct tools.', '');
-  lines.push('| Arm | S (all) | S, dense estimate | S (code) | S (docs) | Evidence-only saving | Per-task T_L/T_0 min / median / max | Tasks with more tokens than direct |');
+  lines.push('| Arm | S (all) | S, conservative estimate | S (code) | S (docs) | Evidence-only saving | Per-task T_L/T_0 min / median / max | Tasks with more tokens than direct |');
   lines.push('|---|---|---|---|---|---|---|---|');
   for (const [arm, saving] of Object.entries(results.savings)) {
-    lines.push(`| ${arm} | ${pct(saving.S)} | ${pct(saving.denseS)} | ${pct(saving.families.code)} | ${pct(saving.families.docs)} | ${pct(saving.evidenceS)} | ${saving.perTaskRatio.min} / ${saving.perTaskRatio.median} / ${saving.perTaskRatio.max} | ${saving.regressions.length} of ${results.totals[arm].tasks} |`);
+    lines.push(`| ${arm} | ${pct(saving.S)} | ${pct(saving.conservativeS)} | ${pct(saving.families.code)} | ${pct(saving.families.docs)} | ${pct(saving.evidenceS)} | ${saving.perTaskRatio.min} / ${saving.perTaskRatio.median} / ${saving.perTaskRatio.max} | ${saving.regressions.length} of ${results.totals[arm].tasks} |`);
   }
   if (results.repeats) {
     lines.push('', `## Spread over ${Object.values(results.repeats)[0].runs} runs`, '');
     lines.push('Folder ids are random, so ranking ties and handle strings differ between runs. The tables above and below are the last run.', '');
-    lines.push('| Arm | S median (min…max) | S dense median (min…max) | Evidence-only median (min…max) | Correct per run |', '|---|---|---|---|---|');
+    lines.push('| Arm | S median (min…max) | S conservative median (min…max) | Evidence-only median (min…max) | Correct per run |', '|---|---|---|---|---|');
     for (const [arm, spread] of Object.entries(results.repeats)) {
       const show = (value) => `${value.median}% (${value.min}…${value.max})`;
-      lines.push(`| ${arm} | ${show(spread.S)} | ${show(spread.denseS)} | ${show(spread.evidenceS)} | ${spread.correct.join(', ')} |`);
+      lines.push(`| ${arm} | ${show(spread.S)} | ${show(spread.conservativeS)} | ${show(spread.evidenceS)} | ${spread.correct.join(', ')} |`);
     }
   }
   lines.push('', '## Per task (warm engine)', '');
@@ -744,6 +763,10 @@ function report(results) {
   lines.push('Cold: the first pass, on engines opened for it. Warm: the same tasks again on the same engines. The routed arms run on the optimized arm\'s engine after it, so their local time is warm.', '');
   for (const row of results.coldWarm) lines.push(`- ${row.arm}: cold ${row.coldLocalMs} ms, warm ${row.warmLocalMs} ms.`);
   lines.push('', '## Constants', '');
+  if (results.constants.measuredDefinitions) {
+    const measured = results.constants.measuredDefinitions;
+    lines.push(`Tool definitions are charged as a provider counted them (docs/agent/token-probe.json, gpt-5.4-mini): direct ${measured.direct}, Lasso +${measured.lassoCurrent} per call. The terminal-find arm is still estimated.`, '');
+  }
   lines.push(`System prompt ${results.constants.SYSTEM_TOKENS} tokens per invocation; ${results.constants.CALL_OVERHEAD} tokens per tool call and ${results.constants.RESULT_OVERHEAD} per tool result of framing; tool definitions: direct ${results.constants.toolDefinitionTokens.direct}, Lasso ${results.constants.toolDefinitionTokens.lasso} (added to the direct tools, never replacing them), terminal find ${results.constants.toolDefinitionTokens.legacy}. Prices: Claude Opus 5.5 list ($${results.constants.price.input}/$${results.constants.price.output} per M input/output, cache reads $${results.constants.price.cacheRead}).`, '');
   return `${lines.join('\n')}\n`;
 }

@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { createApplication } from '../src/server.js';
-import { INSTRUCTIONS as LASSO_INSTRUCTIONS, TOOLS as LASSO_TOOLS } from '../src/agent/mcp.js';
+import { INSTRUCTIONS as LASSO_INSTRUCTIONS, TOOLS as ALL_LASSO_TOOLS, toolsNamed } from '../src/agent/mcp.js';
 
 // ── corpus ─────────────────────────────────────────────────────────────────
 
@@ -150,22 +150,24 @@ export const DIRECT_DEFINITIONS = [
 ];
 export const LEGACY_DEFINITION = { name: 'lasso_find', description: 'Runs Lasso\'s terminal command `find <query> [--source ext] [--directory dir]` over the indexed folders and returns its result.',
   input_schema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } };
-// What a host adds to every call once Lasso is connected: its tools and its instructions.
-export const LASSO_DEFINITIONS = [...LASSO_TOOLS.map(({ name, description, inputSchema }) => ({ name, description, input_schema: inputSchema })),
-  { instructions: LASSO_INSTRUCTIONS }];
+// What a host adds to every call once Lasso is connected: the MCP server's
+// default tools and its instructions; with cite when a server is started with it.
+const asDefinition = ({ name, description, inputSchema }) => ({ name, description, input_schema: inputSchema });
+export const LASSO_DEFINITIONS = [...toolsNamed().map(asDefinition), { instructions: LASSO_INSTRUCTIONS }];
+export const LASSO_DEFINITIONS_WITH_CITE = [...ALL_LASSO_TOOLS.map(asDefinition), { instructions: LASSO_INSTRUCTIONS }];
 
 /**
- * A second, JSON-friendly estimate, for sensitivity: common BPE vocabularies
- * hold short words and runs of punctuation such as `{"` or `":` as single
- * tokens, which the primary estimate charges one per character.
+ * The first, conservative estimate: one token per punctuation mark and per
+ * four letters. Real counts showed it reads JSON at up to 1.8x; it is kept
+ * as a sensitivity check beside the calibrated estimateTokens.
  */
-export function estimateDense(text) {
+export function estimateConservative(text) {
   let tokens = 0;
-  for (const match of String(text ?? '').matchAll(/(\p{L}+)|(\p{N}+)|(\s+)|([^\p{L}\p{N}\s]+)/gu)) {
-    if (match[1]) tokens += match[1].length <= 7 ? 1 : Math.ceil(match[1].length / 6);
+  for (const match of String(text ?? '').matchAll(/(\p{L}+)|(\p{N}+)|(\s+)|([^\p{L}\p{N}\s])/gu)) {
+    if (match[1]) tokens += Math.ceil(match[1].length / 4);
     else if (match[2]) tokens += Math.ceil(match[2].length / 3);
-    else if (match[3]) tokens += (match[3].match(/\n/g)?.length ?? 0) + Math.floor(match[3].replace(/\n/g, '').length / 8);
-    else tokens += Math.ceil(match[4].length / 2);
+    else if (match[3]) tokens += match[3].includes('\n') ? match[3].split('\n').length - 1 : 0;
+    else tokens += 1;
   }
   return tokens;
 }

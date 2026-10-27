@@ -33,7 +33,8 @@ import { AgentError } from './errors.js';
 import { estimateTokens } from './metrics.js';
 
 const MAX_QUERIES = 16;
-const DEFAULT_LIMIT = 8;
+// Five candidates cost about 30% fewer tokens than eight where more match; coverage reports the rest.
+const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 50;
 // Matches ranked per query before paging. Past this a query reports itself capped.
 const SEARCH_CAP = 400;
@@ -100,10 +101,17 @@ function text(value, name, { max = 500, optional = true } = {}) {
   return trimmed || null;
 }
 
+/**
+ * A tuning number (a limit, a budget, lines of context). One out of range is
+ * brought into it rather than refused: live runs showed a refused budget
+ * costs the agent a whole turn and sends it back to grep, and no answer is
+ * wrong for having been given 200 tokens instead of 150.
+ */
 function count(value, name, { min = 1, max, fallback }) {
   if (value == null) return fallback;
-  if (!Number.isInteger(value) || value < min || value > max) throw invalid(`${name} must be a whole number from ${min} to ${max}.`);
-  return value;
+  const number = typeof value === 'string' && value.trim() ? Number(value) : value;
+  if (typeof number !== 'number' || !Number.isFinite(number)) throw invalid(`${name} must be a number.`);
+  return Math.min(max, Math.max(min, Math.round(number)));
 }
 
 function names(value, name, max) {
@@ -296,7 +304,9 @@ export class EvidenceService {
 
   foldersNamed(context, folder) {
     if (folder == null) return context.projects;
-    const wanted = String(folder).trim();
+    const wanted = String(folder).trim().replace(/^\.\/+/, '').replace(/\/+$/, '');
+    // "." or "/" is every shared folder, as a path written from the workspace root would mean.
+    if (!wanted || wanted === '.' || wanted === '/') return context.projects;
     const matches = context.projects.filter((project) => project.id === wanted
       || project.name.toLowerCase() === wanted.toLowerCase()
       || (path.isAbsolute(wanted) && path.resolve(wanted) === path.resolve(project.rootPath)));
@@ -387,8 +397,13 @@ export class EvidenceService {
   }
 
   /** A handle's evidence, re-authorized now. */
-  resolveHandle(context, handle) {
-    if (typeof handle !== 'string' || !HANDLE.test(handle)) throw invalid(`${handle} is not a Lasso evidence handle.`);
+  resolveHandle(context, given) {
+    // Answers show handles as "#ID"; one copied with its mark is the same handle.
+    const handle = typeof given === 'string' ? given.trim().replace(/^#/, '').toUpperCase() : given;
+    if (typeof handle === 'string' && /^S\d+$/.test(handle)) {
+      throw invalid(`${given} names a source within one answer, not evidence; pass that source's path as file.`);
+    }
+    if (typeof handle !== 'string' || !HANDLE.test(handle)) throw invalid(`${given} is not a Lasso evidence handle.`);
     let ref = this.unrecorded.get(handle);
     if (!ref) {
       const row = this.db.prepare('SELECT * FROM agent_evidence WHERE handle = ?').get(handle);
@@ -430,16 +445,32 @@ export class EvidenceService {
     const budget = count(request.budget, 'budget', { min: 200, max: 100_000, fallback: DEFAULT_BUDGET });
     const maxChars = count(request.max_chars, 'max_chars', { min: 20, max: 20_000, fallback: DEFAULT_VALUE_CHARS });
     const ids = new Set();
-    const queries = listed.map((query, index) => {
-      if (!query || typeof query !== 'object') throw invalid('Each query must be an object.');
+    const queries = listed.map((given, index) => {
+      // A bare string is a query of that text, so batching costs nothing to write.
+      const query = typeof given === 'string' ? { text: given } : given;
+      if (!query || typeof query !== 'object') throw invalid('Each query must be a string or an object.');
       const id = text(query.id, 'id', { max: 80 }) ?? `q${index + 1}`;
       if (ids.has(id)) throw invalid(`Two queries share the id ${id}.`);
       ids.add(id);
-      const kind = query.kind ?? 'any';
+      let kind = query.kind ?? 'any';
       if (!KINDS.has(kind)) throw invalid(`kind must be one of ${[...KINDS].join(', ')}.`);
-      return { id, text: text(query.text, 'text', { optional: false }), kind,
-        fields: names(query.fields, 'fields', MAX_FIELDS), folder: text(query.folder, 'folder', { max: 4096 }),
-        under: text(query.under, 'under', { max: 1024 }), ext: text(query.ext, 'ext', { max: 16 }),
+      const fields = names(query.fields, 'fields', MAX_FIELDS);
+      const notes = [];
+      // Fields are columns of table rows; a file or passage has none to give.
+      if (fields?.length && ['file', 'passage', 'code'].includes(kind)) {
+        notes.push(`kind ${kind} has no fields; searched table rows`);
+        kind = 'any';
+      }
+      // "Finance/Approved" as a folder is the Finance folder under its Approved directory.
+      let folder = text(query.folder, 'folder', { max: 4096 });
+      let under = text(query.under, 'under', { max: 1024 });
+      if (folder && !path.isAbsolute(folder) && folder.replace(/^\.\/+/, '').replace(/\/+$/, '').includes('/')) {
+        const [first, ...rest] = folder.replace(/^\.\/+/, '').replace(/\/+$/, '').split('/');
+        folder = first;
+        under = [rest.join('/'), under].filter(Boolean).join('/');
+      }
+      return { id, text: matchText(text(query.text, 'text', { optional: false }), fields), kind, notes,
+        fields, folder, under, ext: text(query.ext, 'ext', { max: 16 }),
         limit: count(query.limit, 'limit', { max: MAX_LIMIT, fallback: limit }),
         cursor: text(query.cursor, 'cursor', { max: 120 }) };
     });
@@ -497,6 +528,7 @@ export class EvidenceService {
         exhausted: !more && !ranked.capped && !pending.length,
         ...(pending.length ? { unindexed: pending } : {}),
       },
+      ...(query.notes?.length ? { notes: query.notes } : {}),
       units: { offset, fingerprint, size: candidates.length },
     };
   }
@@ -1129,8 +1161,8 @@ export class EvidenceService {
       throw invalid(`bind must map up to ${MAX_BINDINGS} field names to handles.`);
     }
     const template = text(request.template, 'template', { max: 100_000 });
-    const cite = request.cite ?? 'numbers';
-    if (!['numbers', 'none'].includes(cite)) throw invalid('cite must be "numbers" or "none".');
+    // Any citation style but "none" gets numbered citations, the one style there is.
+    const cite = request.cite === 'none' || request.cite === false ? 'none' : 'numbers';
     for (const field of Object.keys(chosen)) {
       if (!FIELD_NAME.test(field)) throw invalid(`${field} is not a valid field name (letters, digits, _ . -).`);
     }
@@ -1277,6 +1309,22 @@ export class EvidenceService {
 function render(all, start, end, numbered) {
   const selected = all.slice(start - 1, end);
   return numbered ? selected.map((line, offset) => `${start + offset}\t${line}`).join('\n') : selected.join('\n');
+}
+
+/**
+ * The words that name the row, when a query also names the fields it wants:
+ * "South division revenue headcount" with fields Revenue and Headcount looks
+ * for "South division". Text that is nothing but field names is kept whole.
+ */
+function matchText(value, fields) {
+  if (!fields?.length) return value;
+  let rest = ` ${value} `;
+  for (const field of [...fields].sort((left, right) => right.length - left.length)) {
+    const escaped = field.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+    rest = rest.replace(new RegExp(`(^|[\\s,;:])${escaped}(?=[\\s,;:]|$)`, 'gi'), '$1');
+  }
+  rest = rest.replace(/\s+/g, ' ').trim();
+  return rest || value;
 }
 
 /** A large table's row or cell, shaped as an object: what search would offer, plus its place. */
