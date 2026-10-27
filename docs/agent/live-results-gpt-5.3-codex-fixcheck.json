@@ -1,0 +1,299 @@
+{
+  "generatedAt": "2026-10-27T21:57:17.240Z",
+  "effort": "low",
+  "runs": 1,
+  "budgetUsd": 0.3,
+  "spentUsd": 0.052,
+  "estimatedDefinitionTokens": {
+    "direct": 695,
+    "lasso": 838
+  },
+  "models": {
+    "gpt-5.3-codex": {
+      "arms": {
+        "lasso": {
+          "direct": {
+            "tasks": 1,
+            "correct": 1,
+            "tokens": 1023,
+            "input": 941,
+            "cached": 0,
+            "output": 82,
+            "reasoning": 9,
+            "modelCalls": 2,
+            "toolCalls": 1,
+            "costUsd": 0.0028,
+            "wallSeconds": 2.5
+          },
+          "arm": {
+            "tasks": 1,
+            "correct": 1,
+            "tokens": 1845,
+            "input": 1695,
+            "cached": 0,
+            "output": 150,
+            "reasoning": 68,
+            "modelCalls": 2,
+            "toolCalls": 1,
+            "costUsd": 0.0051,
+            "wallSeconds": 3.1
+          },
+          "S": -80.4,
+          "families": {
+            "code": -80.4,
+            "docs": null
+          },
+          "perTaskRatio": {
+            "min": 1.8,
+            "median": 1.8,
+            "max": 1.8
+          },
+          "moreTokensThanDirect": 1,
+          "lassoUse": {
+            "tasksUsingLasso": 0,
+            "tasks": 1,
+            "fellBack": 0,
+            "calls": {
+              "Read": 1
+            }
+          }
+        },
+        "lasso-first": {
+          "direct": {
+            "tasks": 1,
+            "correct": 1,
+            "tokens": 1023,
+            "input": 941,
+            "cached": 0,
+            "output": 82,
+            "reasoning": 9,
+            "modelCalls": 2,
+            "toolCalls": 1,
+            "costUsd": 0.0028,
+            "wallSeconds": 2.5
+          },
+          "arm": {
+            "tasks": 1,
+            "correct": 1,
+            "tokens": 3225,
+            "input": 2993,
+            "cached": 0,
+            "output": 232,
+            "reasoning": 107,
+            "modelCalls": 3,
+            "toolCalls": 2,
+            "costUsd": 0.0085,
+            "wallSeconds": 5.3
+          },
+          "S": -215.2,
+          "families": {
+            "code": -215.2,
+            "docs": null
+          },
+          "perTaskRatio": {
+            "min": 3.15,
+            "median": 3.15,
+            "max": 3.15
+          },
+          "moreTokensThanDirect": 1,
+          "lassoUse": {
+            "tasksUsingLasso": 1,
+            "tasks": 1,
+            "fellBack": 1,
+            "calls": {
+              "lasso_inspect": 1,
+              "Read": 1
+            }
+          }
+        }
+      },
+      "capability": [
+        {
+          "run": 1,
+          "arm": "lasso",
+          "task": "code-stale-reference",
+          "correct": false,
+          "tokens": 5858
+        },
+        {
+          "run": 1,
+          "arm": "lasso-first",
+          "task": "code-stale-reference",
+          "correct": true,
+          "tokens": 3738
+        },
+        {
+          "run": 1,
+          "arm": "direct",
+          "task": "code-stale-reference",
+          "correct": false,
+          "tokens": 1594
+        }
+      ],
+      "firstCallInput": {
+        "direct": 431,
+        "lasso": 791,
+        "lasso-first": 814
+      }
+    }
+  },
+  "results": [
+    {
+      "run": 1,
+      "model": "gpt-5.3-codex",
+      "arm": "lasso",
+      "task": "code-stale-reference",
+      "family": "code",
+      "capability": true,
+      "stop": "answered",
+      "modelCalls": 4,
+      "toolCalls": 3,
+      "toolsUsed": {
+        "lasso_inspect": 3
+      },
+      "usedLasso": true,
+      "input": 5074,
+      "cached": 1280,
+      "output": 784,
+      "reasoning": 374,
+      "tokens": 5858,
+      "firstInput": 803,
+      "costUsd": 0.0178395,
+      "wallMs": 13309,
+      "toolMs": 13,
+      "correct": false,
+      "answer": "I can quote the exact lines, but I should note: when I requested revision `2067150861b9`, the available source resolved to `Shop/lib/billing.py` at revision `480d8b69ab37`.\n\n```python\n    return refund_0\n\ndef apply_discount(order, code):\n    \"\"\"Apply a discount code to an order and return the new total.\"\"\"\n    if not code:\n        return order.total\n    rule = DISCOUNTS.get(code.upper())\n    if rule is None:\n        raise UnknownDiscount(code)\n    if rule.expires and rule.expires < order.placed_at:\n        raise ExpiredDiscount(code)\n    eligible = [line for line in order.lines if line.sku not in rule.excluded]\n```\n\nANSWER: \n    return refund_0\n\ndef apply_discount(order, code):\n    \"\"\"Apply a discount code to an order and return the new total.\"\"\"\n    if not code:\n        return order.total\n    rule = DISCOUNTS.get(code.upper())\n    if rule is None:\n        raise UnknownDiscount(code)\n    if rule.expires and rule.expires < order.placed_at:\n        raise ExpiredDiscount(code)\n    eligible = [line for line in order.lines if line.sku not in rule.excluded]"
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.3-codex",
+      "arm": "lasso-first",
+      "task": "code-stale-reference",
+      "family": "code",
+      "capability": true,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 2,
+      "toolsUsed": {
+        "lasso_inspect": 2
+      },
+      "usedLasso": true,
+      "input": 3366,
+      "cached": 1024,
+      "output": 372,
+      "reasoning": 106,
+      "tokens": 3738,
+      "firstInput": 826,
+      "costUsd": 0.0094857,
+      "wallMs": 6198,
+      "toolMs": 8,
+      "correct": true,
+      "answer": "```python\ndef apply_discount(order, code):\n    \"\"\"Apply a discount code to an order and return the new total.\"\"\"\n    if not code:\n        return order.total\n    rule = DISCOUNTS.get(code.upper())\n    if rule is None:\n        raise UnknownDiscount(code)\n    if rule.expires and rule.expires < order.placed_at:\n        raise ExpiredDiscount(code)\n    eligible = [line for line in order.lines if line.sku not in rule.excluded]\n    subtotal = sum(line.price * line.quantity for line in eligible)\n    if subtotal < rule.minimum:\n```\nANSWER: The exact contents of `Shop/lib/billing.py` lines 2106–2117 at revision `2067150861b9` are quoted above."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.3-codex",
+      "arm": "direct",
+      "task": "code-stale-reference",
+      "family": "code",
+      "capability": true,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Read": 1
+      },
+      "usedLasso": false,
+      "input": 1141,
+      "cached": 0,
+      "output": 453,
+      "reasoning": 209,
+      "tokens": 1594,
+      "firstInput": 443,
+      "costUsd": 0.008338749999999999,
+      "wallMs": 7160,
+      "toolMs": 1,
+      "correct": false,
+      "answer": "I don’t have access to historical repository state in this workspace, so I can’t verify or retrieve how `Shop/lib/billing.py` looked specifically at revision `2067150861b9`.\n\nWhat I *can* quote is the current content at lines 2106–2117:\n\n```python\n    return refund_0\n\ndef apply_discount(order, code):\n    \"\"\"Apply a discount code to an order and return the new total.\"\"\"\n    if not code:\n        return order.total\n    rule = DISCOUNTS.get(code.upper())\n    if rule is None:\n        raise UnknownDiscount(code)\n    if rule.expires and rule.expires < order.placed_at:\n        raise ExpiredDiscount(code)\n    eligible = [line for line in order.lines if line.sku not in rule.excluded]\n```\n\nANSWER: I can’t access revision `2067150861b9` from here; the lines above are the current `Shop/lib/billing.py` lines 2106–2117."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.3-codex",
+      "arm": "lasso-first",
+      "task": "code-modified-on-disk",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 3,
+      "toolCalls": 2,
+      "toolsUsed": {
+        "lasso_inspect": 1,
+        "Read": 1
+      },
+      "usedLasso": true,
+      "input": 2993,
+      "cached": 0,
+      "output": 232,
+      "reasoning": 107,
+      "tokens": 3225,
+      "firstInput": 814,
+      "costUsd": 0.00848575,
+      "wallMs": 5272,
+      "toolMs": 5,
+      "correct": true,
+      "answer": "```js\n// Routes, rewritten 2026-10-27\nimport express from 'express';\n\n```\nANSWER: \n// Routes, rewritten 2026-10-27\nimport express from 'express';\n"
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.3-codex",
+      "arm": "direct",
+      "task": "code-modified-on-disk",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Read": 1
+      },
+      "usedLasso": false,
+      "input": 941,
+      "cached": 0,
+      "output": 82,
+      "reasoning": 9,
+      "tokens": 1023,
+      "firstInput": 431,
+      "costUsd": 0.0027947500000000004,
+      "wallMs": 2541,
+      "toolMs": 0,
+      "correct": true,
+      "answer": "// Routes, rewritten 2026-10-27\nimport express from 'express';\n\nANSWER: // Routes, rewritten 2026-10-27\nimport express from 'express';"
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.3-codex",
+      "arm": "lasso",
+      "task": "code-modified-on-disk",
+      "family": "code",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "Read": 1
+      },
+      "usedLasso": false,
+      "input": 1695,
+      "cached": 0,
+      "output": 150,
+      "reasoning": 68,
+      "tokens": 1845,
+      "firstInput": 791,
+      "costUsd": 0.00506625,
+      "wallMs": 3072,
+      "toolMs": 0,
+      "correct": true,
+      "answer": "```js\n// Routes, rewritten 2026-10-27\nimport express from 'express';\n\n```\nANSWER:  \n// Routes, rewritten 2026-10-27  \nimport express from 'express';  \n"
+    }
+  ]
+}
