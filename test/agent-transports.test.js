@@ -79,7 +79,7 @@ test('an MCP host starts Lasso on stdio, reads exact lines, and the process exit
   assert.equal(initialized.result.protocolVersion, '2025-06-18');
   assert.equal(initialized.result.serverInfo.name, 'lasso');
   assert.deepEqual(listed.result.tools.map((tool) => tool.name), ['lasso_search', 'lasso_read', 'lasso_cite']);
-  assert.deepEqual(leanTools.result.tools.map((tool) => tool.name), ['lasso_search', 'lasso_read'], 'cite is offered only on request');
+  assert.deepEqual(leanTools.result.tools.map((tool) => tool.name), ['lasso'], 'by default one tool answers every ask');
   assert.equal(leanCite.error.code, -32602);
   assert.match(asText.content[0].text, /^s1 = Api\/app\.py @[0-9a-f]{12}\n\[1\] #[0-9A-Z]{10} s1 lines 5-12 of \d+\n```\ndef handle\(request\):/,
     'by default a model reads compact text with the exact lines fenced');
@@ -108,7 +108,7 @@ test('an MCP host is answered in the newest protocol version Lasso knows when it
   // Act
   const initialized = await mcp.request('initialize', { protocolVersion: '1999-01-01', capabilities: {}, clientInfo: { name: 'Old' } });
   mcp.raw([
-    JSON.stringify({ jsonrpc: '2.0', id: 'slow', method: 'tools/call', params: { name: 'lasso_search', arguments: { queries: [{ text: 'grant' }] } } }),
+    JSON.stringify({ jsonrpc: '2.0', id: 'slow', method: 'tools/call', params: { name: 'lasso', arguments: { ask: ['grant'] } } }),
     JSON.stringify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 'slow' } }),
   ].join('\n'));
   mcp.raw('{not json');
@@ -131,7 +131,7 @@ test('an MCP server launched without a scope explains how to share folders inste
 
   // Act
   await mcp.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'Host' } });
-  const refused = await mcp.call('lasso_search', { queries: [{ text: 'grant' }] });
+  const refused = await mcp.call('lasso', { ask: ['grant'] });
   mcp.child.stdin.end();
   await mcp.exited;
 
@@ -185,14 +185,21 @@ test('REST, MCP and in-process calls give the same answer for the same request',
   const { dataDir } = await agentLibrary(t);
   const request = { queries: [{ id: 'a', text: 'North division', fields: ['Revenue', 'Scenario'] }, { id: 'b', text: 'app.py', kind: 'file' },
     { id: 'c', text: 'grant', kind: 'passage' }] };
+  const asked = { ask: ['North division revenue and scenario', 'app.py lines 1-3 in the Api folder', 'the handle function', 'one-time grant'] };
   const served = await serveAgentApi({ dataDir, scope: ['*'], open: () => openEngine({ dataDir, scope: ['*'] }), idleSeconds: 0, log: () => {} });
   t.after(() => served.stop('test over'));
   const local = openLocal({ dataDir, scope: ['*'] });
   t.after(() => local.close());
-  const mcp = startMcp(t, dataDir);
+  const mcp = startMcp(t, dataDir, ['*'], ['--tools', 'lasso,search']);
   await mcp.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'Host' } });
+  const post = (route, body) => fetch(`${served.url}/agent/v1/${route}`, { method: 'POST',
+    headers: { authorization: `Bearer ${served.token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
   // Act
+  const askRest = await (await post('ask', asked)).json();
+  const askMcp = (await mcp.call('lasso', asked)).value;
+  const askMcpText = (await mcp.read('lasso', asked)).content[0].text;
+  const askLocal = local.ask(asked);
   const viaRest = await (await fetch(`${served.url}/agent/v1/suggest`, { method: 'POST',
     headers: { authorization: `Bearer ${served.token}`, 'content-type': 'application/json' }, body: JSON.stringify(request) })).json();
   const viaMcp = (await mcp.call('lasso_search', request)).value;
@@ -204,6 +211,10 @@ test('REST, MCP and in-process calls give the same answer for the same request',
   await mcp.exited;
 
   // Assert
+  assert.deepEqual(askRest, askLocal);
+  assert.deepEqual(askMcp, askLocal);
+  assert.equal(askMcpText, formatAnswer('ask', askLocal));
+  assert.deepEqual(askLocal.answers.map((answer) => answer.kind), ['record', 'lines', 'definition', 'found']);
   assert.deepEqual(viaRest, inProcess);
   assert.deepEqual(viaMcp, inProcess);
   assert.equal(mcpText, formatAnswer('suggest', inProcess));

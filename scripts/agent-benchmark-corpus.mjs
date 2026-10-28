@@ -8,7 +8,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { createApplication } from '../src/server.js';
+import { blockRange, definitions } from '../src/agent/evidence.js';
 import { INSTRUCTIONS as LASSO_INSTRUCTIONS, TOOLS as ALL_LASSO_TOOLS, toolsNamed } from '../src/agent/mcp.js';
+import { INSTRUCTIONS_V3, TOOLS_V3 } from './agent-tools-versions.mjs';
 
 // ── corpus ─────────────────────────────────────────────────────────────────
 
@@ -150,11 +152,14 @@ export const DIRECT_DEFINITIONS = [
 ];
 export const LEGACY_DEFINITION = { name: 'lasso_find', description: 'Runs Lasso\'s terminal command `find <query> [--source ext] [--directory dir]` over the indexed folders and returns its result.',
   input_schema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } };
-// What a host adds to every call once Lasso is connected: the MCP server's
-// default tools and its instructions; with cite when a server is started with it.
+// What a host adds to every call once Lasso is connected. The scripted
+// search-then-read policies use v3's tools (search and read, cite when
+// started with it); the ask policy uses the MCP server's default, one lasso tool.
 const asDefinition = ({ name, description, inputSchema }) => ({ name, description, input_schema: inputSchema });
-export const LASSO_DEFINITIONS = [...toolsNamed().map(asDefinition), { instructions: LASSO_INSTRUCTIONS }];
-export const LASSO_DEFINITIONS_WITH_CITE = [...ALL_LASSO_TOOLS.map(asDefinition), { instructions: LASSO_INSTRUCTIONS }];
+const CITE = ALL_LASSO_TOOLS.find((tool) => tool.name === 'lasso_cite');
+export const LASSO_DEFINITIONS = [...TOOLS_V3.map(asDefinition), { instructions: INSTRUCTIONS_V3 }];
+export const LASSO_DEFINITIONS_WITH_CITE = [...[...TOOLS_V3, CITE].map(asDefinition), { instructions: INSTRUCTIONS_V3 }];
+export const ASK_DEFINITIONS = [...toolsNamed().map(asDefinition), { instructions: LASSO_INSTRUCTIONS }];
 
 /**
  * The first, conservative estimate: one token per punctuation mark and per
@@ -286,6 +291,93 @@ export function taskPrompts(truth, oldBillingRev) {
 
 /** The ranges the repeated-inspection task asks for. */
 export const REPEATED_RANGES = [[300, 310], [900, 910], [1500, 1510], [2400, 2410], [2900, 2910]];
+
+/**
+ * The ask policy's final answer, offline: what a competent model writes from one
+ * lasso answer. It repeats the evidence it was given, in order, says when
+ * nothing matched, and asks when the files leave the choice open. It is the
+ * same for every task; nothing in it knows which task it is answering.
+ */
+export function composeAnswer(response) {
+  const where = (src) => (response.sources[src] ? `${response.sources[src].folder}/${response.sources[src].path}` : '');
+  const record = (item) => `${where(item.src)} ${item.row}: ${Object.entries(item.fields)
+    .map(([name, field]) => `${name} ${field.value}${field.was?.length ? ` (before the last change: ${field.was[0].value})` : ''}`).join(', ')}`;
+  const parts = [];
+  let open = false;
+  for (const answer of response.answers) {
+    const items = answer.items ?? [];
+    if (answer.kind === 'error' || items.some((item) => item.error?.code === 'ambiguous')) {
+      const error = answer.error ?? items.find((item) => item.error)?.error;
+      const matches = error?.matches ?? [];
+      if (matches.length) { parts.push(`Several match: ${matches.map((match) => `${match.folder}/${match.path}`).join(', ')}.`); open = true; }
+      else parts.push(`Not found: ${error?.message}`);
+    } else if (answer.kind === 'record' && answer.verdict === 'differ') {
+      parts.push(`The sources differ: ${items.map(record).join('; ')}.`);
+      open = true;
+    } else if (answer.kind === 'record') {
+      parts.push(record(items[0]));
+    } else if (answer.kind === 'none') {
+      parts.push(`None of the files has ${answer.looked_for.join(' ')}.`);
+    } else if (answer.kind === 'files') {
+      parts.push(items.map((item) => where(item.src)).join(', '));
+    } else {
+      // lines, definitions, passages, explicit reads: the text itself.
+      parts.push(items.map((item) => (item.type === 'record' ? record(item)
+        : item.symbol && item.lines?.[0] === item.lines?.[1] ? `${where(item.src)}: ${item.text}` : item.text ?? item.value ?? '')).join('\n'));
+    }
+  }
+  return `${parts.join('\n')}${open ? '\nWhich one do you mean?' : ''}`;
+}
+
+// ── grading ────────────────────────────────────────────────────────────────
+
+/**
+ * Graders for an answer a model wrote in its own words: each checks that the
+ * known values or lines are in it, and that it asks when the files leave the
+ * choice open. Shared by the live benchmark and the offline ask policy.
+ */
+export function graders(library) {
+  const { truth, files, routesNow } = library;
+  const lines = (relative) => files[relative].replace(/\n$/, '').split('\n');
+  const block = (name) => {
+    for (const contents of Object.values(files)) {
+      const all = contents.replace(/\n$/, '').split('\n');
+      const found = definitions(all).find((definition) => definition.name === name);
+      if (found) { const range = blockRange(all, found); return all.slice(range.start - 1, range.end).join('\n'); }
+    }
+    return null;
+  };
+  const discountHead = truth.discount.text.split('\n').slice(0, 12).join('\n');
+  const answerLine = (text) => text.split('\n').reverse().find((line) => /^\s*\**ANSWER:?\**/i.test(line)) ?? text;
+  const contains = (text, ...needles) => needles.every((needle) => text.includes(needle));
+  // Asking which source is meant, with or without a question mark ("tell me which budget you mean").
+  const asks = (text) => text.includes('?') || /\b(?:which (?:one|budget|file|source|of these)|tell me which|let me know which|specify which|if you mean[t]?)\b/i.test(text);
+  return {
+    'code-range-known': (text) => contains(text, discountHead),
+    'code-duplicate-named': (text) => contains(text, lines('Admin/src/app.py').slice(9, 20).join('\n')),
+    'code-duplicate-ambiguous': (text) => contains(text, 'Admin', 'server/app.py', 'worker/app.py') && /src\/app\.py/.test(text) && asks(text),
+    'code-function-lookup': (text) => contains(text, truth.discount.text),
+    'code-multi-function': (text) => contains(text, block('normalize_sku'), block('retry_payment'), block('registerRoutes')),
+    'code-config-key': (text) => /settings\.py/.test(answerLine(text)) && /\b7\b/.test(answerLine(text)),
+    'code-repeated-inspections': (text) => REPEATED_RANGES.every(([first, last]) => contains(text, lines('Shop/lib/billing.py').slice(first - 1, last).join('\n'))),
+    'code-stale-reference': (text) => contains(text, discountHead),
+    'code-modified-on-disk': (text) => contains(text, routesNow),
+    'doc-short-file': (text) => contains(answerLine(text), truth.vendorReview),
+    'doc-long-fact': (text) => /\$?4\.2 million/.test(answerLine(text)),
+    'doc-large-table': (text) => contains(answerLine(text), truth.balance104233),
+    'doc-identifier': (text) => contains(answerLine(text), truth.invoice417.Customer, truth.invoice417.Amount),
+    'doc-ambiguous-sources': (text) => contains(text, truth.northPlanningNow, truth.northApproved) && asks(text),
+    'doc-related-facts': (text) => contains(answerLine(text), truth.southApproved.Revenue, truth.southApproved['Reporting period'], truth.southApproved.Headcount),
+    // Says the division is absent, in any wording, and gives it no number.
+    'doc-missing': (text) => {
+      const answer = answerLine(text).replace(/[`*"“”']/g, '');
+      return (/\b(?:no|not|none|n't|cannot|can't|unable|absent|missing)\b/i.test(answer) || /not (?:found|present|available)/i.test(answer))
+        && !/\d+\.\d/.test(answer);
+    },
+    'doc-history': (text) => contains(answerLine(text), truth.northPlanningBefore),
+    'doc-multi-batch': (text) => contains(text, truth.balance120001, truth.invoice1200, truth.vendorReview, truth.eastApprovedRevenue, truth.centralPlanningHeadcount) && /4\.2 million/.test(text),
+  };
+}
 
 // ── the library ────────────────────────────────────────────────────────────
 

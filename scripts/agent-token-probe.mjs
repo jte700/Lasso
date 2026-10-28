@@ -13,7 +13,7 @@ import { formatAnswer } from '../src/agent/render.js';
 import { INSTRUCTIONS, toolsNamed } from '../src/agent/mcp.js';
 import { estimateTokens } from '../src/agent/metrics.js';
 import { DIRECT_DEFINITIONS, prepareLibrary } from './agent-benchmark-corpus.mjs';
-import { INSTRUCTIONS_V1, INSTRUCTIONS_V2, TOOLS_V1, TOOLS_V2 } from './agent-tools-versions.mjs';
+import { INSTRUCTIONS_V1, INSTRUCTIONS_V2, INSTRUCTIONS_V3, TOOLS_V1, TOOLS_V2, TOOLS_V3 } from './agent-tools-versions.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const args = process.argv.slice(2);
@@ -53,6 +53,13 @@ function requests() {
     ['inspect', 'symbol', { items: [{ symbol: 'apply_discount' }] }],
     ['inspect', 'outline', { items: [{ file: 'web/routes.js', folder: 'Shop' }] }],
     ['inspect', 'ambiguous name', { items: [{ file: 'app.py', lines: '1-5' }] }],
+    ['ask', 'six facts in one call', { ask: ['the balance of Account 120001', 'the customer of INV-2025-01200', 'the year-end warranty reserve',
+      'the vendor review date', 'the East division approved revenue', 'the Central division planning headcount'] }],
+    ['ask', 'record', { ask: ['North division revenue in the approved budget'] }],
+    ['ask', 'line range', { ask: ['Shop/lib/billing.py lines 300-310'] }],
+    ['ask', 'definition', { ask: ['the apply_discount function'] }],
+    ['ask', 'config value', { ask: ['where is MAX_RETRIES defined'] }],
+    ['ask', 'ambiguous name', { ask: ['app.py lines 1-5'] }],
   ];
 }
 
@@ -89,13 +96,14 @@ async function main() {
       direct: plain - base,
       lassoV1: (await steady({ input: 'x', tools: asFunctions([...DIRECT_DEFINITIONS, ...TOOLS_V1]), instructions: INSTRUCTIONS_V1 })) - plain,
       lassoV2: (await steady({ input: 'x', tools: asFunctions([...DIRECT_DEFINITIONS, ...TOOLS_V2]), instructions: INSTRUCTIONS_V2 })) - plain,
+      lassoV3: (await steady({ input: 'x', tools: asFunctions([...DIRECT_DEFINITIONS, ...TOOLS_V3]), instructions: INSTRUCTIONS_V3 })) - plain,
       lassoCurrent: (await steady({ input: 'x', tools: asFunctions([...DIRECT_DEFINITIONS, ...toolsNamed()]), instructions: INSTRUCTIONS })) - plain,
     };
     const summary = { model: MODEL, measuredAt: new Date().toISOString(), definitions, answers: rows,
       totals: { json: rows.reduce((sum, row) => sum + row.json, 0), text: rows.reduce((sum, row) => sum + row.text, 0) } };
     fs.mkdirSync(OUT, { recursive: true });
     fs.writeFileSync(path.join(OUT, 'token-probe.json'), `${JSON.stringify(summary, null, 2)}\n`);
-    console.log(`Definitions (real tokens per call): direct ${definitions.direct}, Lasso v1 +${definitions.lassoV1}, v2 +${definitions.lassoV2}, current +${definitions.lassoCurrent}`);
+    console.log(`Definitions (real tokens per call): direct ${definitions.direct}, Lasso v1 +${definitions.lassoV1}, v2 +${definitions.lassoV2}, v3 +${definitions.lassoV3}, current (v4) +${definitions.lassoCurrent}`);
     console.log('Answer | JSON | text | saved | est. JSON | est. text');
     for (const row of rows) console.log(`${row.name} | ${row.json} | ${row.text} | ${Math.round((1 - row.text / row.json) * 100)}% | ${row.estimatedJson} | ${row.estimatedText}`);
     console.log(`All answers: JSON ${summary.totals.json}, text ${summary.totals.text} (${Math.round((1 - summary.totals.text / summary.totals.json) * 100)}% fewer)`);

@@ -29,11 +29,14 @@ function sourceLines(sources = {}) {
   });
 }
 
-const context = (ctx) => (ctx && Object.keys(ctx).length
-  ? ` [${Object.entries(ctx).map(([key, value]) => `${key} ${value}`).join('; ')}]` : '');
+// A title the section already says is not said twice.
+const context = (ctx) => {
+  const entries = Object.entries(ctx ?? {}).filter(([key, value]) => !(key === 'title' && value === ctx.section));
+  return entries.length ? ` [${entries.map(([key, value]) => `${key} ${value}`).join('; ')}]` : '';
+};
 
-function candidateLine(candidate) {
-  const match = candidate.match ? ` (${candidate.match})` : '';
+function candidateLine(candidate, { withMatch = true } = {}) {
+  const match = candidate.match && withMatch ? ` (${candidate.match})` : '';
   if (candidate.type === 'record') {
     const fields = Object.entries(candidate.fields ?? {}).map(([name, field]) => `${name}=${quote(field.value)}${field.trunc ? '…' : ''}`
       + `${field.h ? ` #${field.h}` : ''}${field.at ? ` ${field.at}` : ''}${field.col ? ` (column ${field.col})` : ''}`);
@@ -100,8 +103,9 @@ function itemLines(item, index) {
   const after = revision ? ` (${revision})` : '';
   if (item.text != null && item.lines) {
     const asked = item.asked ? ` (asked ${item.asked[0]}-${item.asked[1]})` : '';
-    const symbol = item.symbol ? ` ${item.symbol}` : '';
-    return [`${prefix}${handle(item.h)}${item.src} lines ${item.lines[0]}-${item.lines[1]} of ${item.total}${symbol}${asked}${after}${item.trunc ? ' (block cut)' : ''}`,
+    const symbol = item.symbol ? ` ${item.symbol}${item.only ? ' (defined nowhere else in the shared folders)' : ''}` : '';
+    const span = item.lines[0] === item.lines[1] ? `line ${item.lines[0]}` : `lines ${item.lines[0]}-${item.lines[1]}`;
+    return [`${prefix}${handle(item.h)}${item.src} ${span} of ${item.total}${symbol}${asked}${after}${item.trunc ? ' (block cut)' : ''}`,
       fence(item.text)];
   }
   if (item.outline) {
@@ -137,7 +141,75 @@ export function renderBind(response) {
   return lines.join('\n');
 }
 
-const RENDERERS = { suggest: renderSuggest, inspect: renderInspect, bind: renderBind };
+function recordLine(item, { handles = true } = {}) {
+  const fields = Object.entries(item.fields).map(([name, field]) => {
+    const history = field.was ? (field.was.length
+      ? ` (v${field.v}; before: ${field.was.map((was) => `${quote(was.value)} v${was.v} ${String(was.at).slice(0, 10)}`).join(', ')})`
+      : ' (no earlier value captured)') : '';
+    return `${name}=${quote(field.value)}${field.h && handles ? ` #${field.h}` : ''}${history}`;
+  });
+  return `${item.src} ${quote(item.row)} ${item.at}: ${fields.join(', ')}${item.more_fields ? `; ${item.more_fields} more columns` : ''}`;
+}
+
+/** An answer's items under its head; several items are numbered n.1, n.2… */
+function answerLines(answer, render) {
+  const echo = answer.ask ? ` ${quote(answer.ask)}:` : '';
+  if (answer.items.length === 1) return render(answer.items[0], `[${answer.n}]${echo}`);
+  return answer.items.flatMap((item, index) => render(item, `[${answer.n}.${index + 1}]${index === 0 ? echo : ''}`));
+}
+
+function evidenceLines(item, head) {
+  if (item.error) return errorLines(`${head} ${item.symbol ? `${item.symbol}: ` : ''}`, item.error);
+  if (item.text != null && item.lines) return itemLines(item, 0).map((line, index) => (index === 0 ? line.replace(/^\[1\]/, head) : line));
+  if (item.outline || item.versions || item.table || item.passages || item.folders) {
+    return itemLines(item, 0).map((line, index) => (index === 0 ? line.replace(/^\[1\]/, head) : line));
+  }
+  return [`${head} ${candidateLine(item, { withMatch: false }).replace(/^- /, '')}`];
+}
+
+export function renderAsk(response) {
+  const lines = sourceLines(response.sources);
+  for (const answer of response.answers) {
+    const head = `[${answer.n}]${answer.ask ? ` ${quote(answer.ask)}:` : ''}`;
+    if (answer.kind === 'error') { lines.push(...errorLines(`${head} `, answer.error)); continue; }
+    if (answer.kind === 'record') {
+      if (!answer.verdict) { lines.push(`${head} ${recordLine(answer.items[0])}`); continue; }
+      if (answer.verdict === 'best') {
+        lines.push(`${head} ${recordLine(answer.items[0])} (matches ${answer.matched.map(quote).join(', ')})`,
+          ...answer.items.slice(1).map((item) => `  other source: ${recordLine(item, { handles: false })}`));
+      } else if (answer.verdict === 'agree') {
+        lines.push(`${head} ${recordLine(answer.items[0])} (same in ${answer.items.length} sources: ${answer.items.map((item) => item.src).join(', ')})`);
+      } else {
+        lines.push(`${head} ${answer.items.length} sources differ; which is meant is not settled by the files:`,
+          ...answer.items.map((item) => `  - ${recordLine(item)}`));
+      }
+      continue;
+    }
+    if (answer.kind === 'none' && answer.named) {
+      lines.push(`${head} none of the ${answer.files} shared files is named ${answer.looked_for.map(quote).join(' or ')}.`);
+      continue;
+    }
+    if (answer.kind === 'none') {
+      const where = answer.file ? answer.file : `the ${answer.files} shared files`;
+      const said = answer.missing?.length
+        ? `no indexed text in ${where} has ${answer.missing.map(quote).join(' or ')} (asked: ${quote(answer.looked_for.join(' '))})`
+        : `nothing in ${where} has ${answer.looked_for.map(quote).join(', ')} together`;
+      // "no row is labelled …" goes without saying when no file has the word that sets the label apart.
+      const unlabelled = answer.like && !answer.missing?.includes(answer.like.word) ? `; no row is labelled ${quote(answer.like.label)}` : '';
+      const like = answer.like?.rows ? `${unlabelled}; rows labelled like it: ${answer.like.rows.map(quote).join(', ')} (${answer.like.src.join(', ')})`
+        : answer.like ? `${unlabelled}; ${answer.like.count} rows are labelled like it` : '';
+      lines.push(`${head} ${said}${like}${answer.items.length ? '; closest:' : '.'}`,
+        ...answer.items.map((item) => `  ${candidateLine(item, { withMatch: false })}`));
+      continue;
+    }
+    if (answer.kind === 'matches') { lines.push(`${head} ${coverageLine({ ...answer, id: 'matches' }).replace(/^matches: /, '')}`, ...answer.candidates.map(candidateLine)); continue; }
+    const more = answer.more ? [`  (${answer.more} other, less focused hits have these words too)`] : [];
+    lines.push(...answerLines(answer, evidenceLines), ...more);
+  }
+  return [...lines, ...notes(response.warnings)].join('\n');
+}
+
+const RENDERERS = { suggest: renderSuggest, inspect: renderInspect, bind: renderBind, ask: renderAsk };
 
 /** An operation's answer in the requested format: compact text, or the JSON contract. */
 export function formatAnswer(operation, response, format = 'text') {

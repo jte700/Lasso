@@ -29,10 +29,25 @@ import { isWholeFile } from '../dependencies/file-reference.js';
 import { isPassage } from '../terminal/graph.js';
 import { sourceLocator } from '../terminal/names.js';
 import { distinctRanked } from '../workspace.js';
+import { normalizedRowSearch } from '../dependencies/row-names.js';
 import { AgentError } from './errors.js';
+import { ANSWER_WORDS, fold as foldAsk, namesHeader, parseAsk, splitAsk, STOPWORDS, words as askWords } from './ask.js';
 import { estimateTokens } from './metrics.js';
 
 const MAX_QUERIES = 16;
+const MAX_ASKS = 16;
+// Passages and values shown whole in an answer, up to this many characters.
+const ANSWER_CHARS = 1200;
+// A small text file named in an ask with nothing else matched is shown whole, up to this size.
+const WHOLE_FILE_CHARS = 6000;
+// The opening lines of a large file that is not code: a table's header and first rows.
+const HEAD_LINES = 12;
+// Row labels listed beside an absence ("North division" for "West division"), before only their number is given.
+const MAX_LABELS = 12;
+// What makes an object ask an explicit search rather than a question.
+const SEARCH_KEYS = ['fields', 'kind', 'under', 'ext', 'cursor', 'limit'];
+// A file-only ask about where a file is, rather than what is in it.
+const LOCATE = /\b(?:where|which|locate|located|location|path|paths|exists?|list|named|called)\b/i;
 // Five candidates cost about 30% fewer tokens than eight where more match; coverage reports the rest.
 const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 50;
@@ -444,8 +459,28 @@ export class EvidenceService {
     const limit = count(request.limit, 'limit', { max: MAX_LIMIT, fallback: DEFAULT_LIMIT });
     const budget = count(request.budget, 'budget', { min: 200, max: 100_000, fallback: DEFAULT_BUDGET });
     const maxChars = count(request.max_chars, 'max_chars', { min: 20, max: 20_000, fallback: DEFAULT_VALUE_CHARS });
+    const queries = this.normalizeQueries(listed, limit);
+
+    const context = this.context();
+    const results = queries.map((query) => {
+      try {
+        return this.page(context, query, maxChars);
+      } catch (error) {
+        if (error instanceof AgentError) return { id: query.id, error: error.toJSON() };
+        throw error;
+      }
+    });
+    this.fitBudget(context, results, budget);
+    const warnings = [...this.diskWarnings(context), ...this.recordHandles(context)];
+    const lagging = context.projects.filter((project) => project.lagging).map((project) => project.name);
+    return { sources: this.sourcesOf(context), results: results.map(({ units, ...result }) => result),
+      ...(lagging.length ? { lagging } : {}), ...(warnings.length ? { warnings } : {}) };
+  }
+
+  /** Queries as strings or objects, checked and given their defaults. */
+  normalizeQueries(listed, limit) {
     const ids = new Set();
-    const queries = listed.map((given, index) => {
+    return listed.map((given, index) => {
       // A bare string is a query of that text, so batching costs nothing to write.
       const query = typeof given === 'string' ? { text: given } : given;
       if (!query || typeof query !== 'object') throw invalid('Each query must be a string or an object.');
@@ -474,21 +509,6 @@ export class EvidenceService {
         limit: count(query.limit, 'limit', { max: MAX_LIMIT, fallback: limit }),
         cursor: text(query.cursor, 'cursor', { max: 120 }) };
     });
-
-    const context = this.context();
-    const results = queries.map((query) => {
-      try {
-        return this.page(context, query, maxChars);
-      } catch (error) {
-        if (error instanceof AgentError) return { id: query.id, error: error.toJSON() };
-        throw error;
-      }
-    });
-    this.fitBudget(context, results, budget);
-    const warnings = [...this.diskWarnings(context), ...this.recordHandles(context)];
-    const lagging = context.projects.filter((project) => project.lagging).map((project) => project.name);
-    return { sources: this.sourcesOf(context), results: results.map(({ units, ...result }) => result),
-      ...(lagging.length ? { lagging } : {}), ...(warnings.length ? { warnings } : {}) };
   }
 
   /** One page of a query's ranked matches, read from the generation's cached ranking. */
@@ -703,20 +723,33 @@ export class EvidenceService {
   }
 
   cellsOfRow(project, snapshotId, rowKey) {
+    return this.rowTable(project, snapshotId).byRow.get(rowKey) ?? [];
+  }
+
+  /** A snapshot's table cells by row, and its labelled rows by their folded label, read once per snapshot. */
+  rowTable(project, snapshotId) {
     let rows = this.rowCells.get(snapshotId);
     if (!rows) {
-      rows = { byRow: new Map(), weight: 0 };
+      rows = { byRow: new Map(), byLabel: new Map(), weight: 0 };
       for (const object of this.dependencies.objectsAt(project.id, snapshotId)) {
         const anchor = object.anchor ?? {};
         if (anchor.kind !== 'table-cell' || !Number.isInteger(anchor.rowIndex)) continue;
         const key = `${object.path}|${object.metadata?.sheet ?? anchor.sheet ?? ''}|${anchor.rowIndex}`;
-        if (!rows.byRow.has(key)) rows.byRow.set(key, []);
+        if (!rows.byRow.has(key)) {
+          rows.byRow.set(key, []);
+          const label = String(anchor.rowKey ?? object.metadata?.row ?? '');
+          if (label && !/^row:\d+$/.test(label)) {
+            const folded = foldAsk(label);
+            if (!rows.byLabel.has(folded)) rows.byLabel.set(folded, []);
+            rows.byLabel.get(folded).push(key);
+          }
+        }
         rows.byRow.get(key).push(object);
         rows.weight += 1;
       }
       this.rowCells.set(snapshotId, rows);
     }
-    return rows.byRow.get(rowKey) ?? [];
+    return rows;
   }
 
   /** A ranked unit as the compact candidate an agent reads. */
@@ -846,15 +879,14 @@ export class EvidenceService {
     let name = relativeName(wanted);
     if (!name) throw invalid('That file name reaches outside the folder.');
     let ranked = this.rankFiles(context, projects, { text: name, kind: 'file' }).units;
-    // "Web/src/app.py": a shared folder's name written as the path's first part.
+    // "Web/src/app.py", "Web/app.py": a shared folder's name written as the path's first part.
     const [first, ...rest] = name.split('/');
-    if (!ranked.length && item.folder == null && rest.length) {
+    if (!ranked.some((unit) => unit.tier <= 2) && item.folder == null && rest.length) {
       const named = projects.filter((project) => project.name.toLowerCase() === first.toLowerCase());
       if (named.length) {
         projects = named;
         name = rest.join('/');
-        ranked = this.rankFiles(context, projects, { text: name, kind: 'file' }).units
-          .filter((unit) => unit.tier === 0);
+        ranked = this.rankFiles(context, projects, { text: name, kind: 'file' }).units;
         item = { ...item, folder: first };
       }
     }
@@ -1044,7 +1076,8 @@ export class EvidenceService {
         { matches: found.slice(0, 20).map((entry) => ({ folder: entry.project.name, path: entry.file.path, line: entry.line })) });
     }
     const [{ project, file, line }] = found;
-    return this.symbol(context, project, file, name, around, numbered, line);
+    // Said, so an agent need not search again to learn there is no other.
+    return { ...this.symbol(context, project, file, name, around, numbered, line), only: true };
   }
 
   /** A code revision's definitions, read once per content hash. */
@@ -1298,6 +1331,472 @@ export class EvidenceService {
     }
     const lines = isTextualType(file.fileType) ? fileLines(this.timeline.blobs.get(file.contentHash).toString('utf8')) : [];
     return lines.slice(evidence.lineStart - 1, evidence.lineEnd).join('\n') === evidence.value ? 'same (file changed)' : 'changed';
+  }
+
+  // ── ask ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Plain-language asks, each resolved here to the evidence that answers it:
+   * exact lines, a whole definition, the named fields of a table row, a
+   * passage, a file, earlier values. Finding and reading happen in this one
+   * call, so an agent spends one round where search-then-read spent two or
+   * three, and every later call re-reads one answer instead of several.
+   * Nothing is chosen between sources that disagree: they come back
+   * together, with what tells them apart.
+   */
+  ask(request = {}) {
+    if (!request || typeof request !== 'object' || Array.isArray(request)) throw invalid('The request must be an object.');
+    const given = request.ask ?? request.asks ?? request.questions ?? request.queries ?? request.items ?? request.text;
+    const listed = Array.isArray(given) ? given : given != null ? [given] : [];
+    const asks = listed.flatMap((item) => (typeof item === 'string'
+      ? splitAsk(item).map((part, index, parts) => ({ text: part, split: parts.length > 1 }))
+      : [{ item }]));
+    if (!asks.length || asks.length > MAX_ASKS) throw invalid(`ask must list 1 to ${MAX_ASKS} questions.`);
+    const context = this.context();
+    const answers = asks.map((entry, index) => {
+      // An ask split out of a longer one is echoed, so its answer can be told apart.
+      const head = { n: index + 1, ...(entry.split ? { ask: entry.text } : {}) };
+      try {
+        return { ...head, ...(entry.item ? this.askItem(context, entry.item) : this.resolveAsk(context, entry.text)) };
+      } catch (error) {
+        if (error instanceof AgentError) return { ...head, kind: 'error', error: error.toJSON() };
+        throw error;
+      }
+    });
+    const warnings = [...this.diskWarnings(context), ...this.recordHandles(context)];
+    return { sources: this.sourcesOf(context), answers, ...(warnings.length ? { warnings } : {}) };
+  }
+
+  /** A structured follow-up: a handle, file or definition to read, or an explicit search. */
+  askItem(context, item) {
+    if (!item || typeof item !== 'object') throw invalid('Each ask is a string or an object.');
+    const phrased = item.ask ?? item.question ?? item.q ?? item.query ?? item.text;
+    if (typeof phrased === 'string' && item.h == null && item.file == null && item.symbol == null) {
+      // An explicit search names what a search takes; anything else is an ask written as an object.
+      if (typeof item.text === 'string' && SEARCH_KEYS.some((key) => item[key] != null)) {
+        const [query] = this.normalizeQueries([item], DEFAULT_LIMIT);
+        const { units, ...result } = this.page(context, query, DEFAULT_VALUE_CHARS);
+        return { kind: 'matches', ...result };
+      }
+      return this.resolveAsk(context, phrased, item.folder);
+    }
+    try {
+      return { kind: 'read', items: [this.inspectItem(context, item)] };
+    } catch (error) {
+      // {symbol: "MAX_RETRIES"}: a name only assigned a value is read from the line the index records.
+      if (!(error instanceof AgentError) || error.code !== 'not_found' || typeof item.symbol !== 'string' || item.h != null || item.file != null) throw error;
+      const assigned = this.namedLines(context, this.foldersNamed(context, item.folder), item.symbol, null);
+      if (!assigned.length) throw error;
+      return { kind: 'definition', items: assigned };
+    }
+  }
+
+  resolveAsk(context, value, folder = null) {
+    const parsed = parseAsk(text(value, 'ask', { max: 2000, optional: false }), context.projects.map((project) => project.name));
+    if (folder != null && parsed.folder == null) parsed.folder = String(folder);
+    const projects = this.foldersNamed(context, parsed.folder);
+    if (parsed.ranges.length) return this.askLines(context, parsed);
+    let asked = parsed;
+    if (parsed.symbols.length) {
+      const found = this.askDefinitions(context, projects, parsed);
+      if (found) return found;
+      // A code-shaped name defined nowhere is still a name to find ("API_TOKEN", "max_pool_size").
+      asked = { ...parsed, content: [...parsed.content, ...parsed.symbols] };
+    }
+    if (asked.fileOnly) return this.askFiles(context, projects, asked);
+    return this.askRecord(context, projects, asked) ?? this.askFind(context, projects, asked);
+  }
+
+  /**
+   * The one file a mention names, as resolveFile settles it. A name written
+   * unquoted with spaces ("Operating budget.xlsx") is tried with the words
+   * before it when the bare name is not found.
+   */
+  resolveMention(context, mention, parsed) {
+    const found = this.mentionedFile(context, mention, parsed);
+    // A file asked for without a revision is the file as it is now: one changed since
+    // indexing is read from disk, and its source says so ("read from disk now, not indexed").
+    if (!parsed.revision && !parsed.disk && !found.file.disk && !found.file.historical && isTextualType(found.file.fileType)
+      && this.diskState(context, found.project, found.file) === 'changed') {
+      try {
+        return { project: found.project, file: this.diskFile(found.project, found.file) };
+      } catch (error) {
+        if (!(error instanceof AgentError)) throw error;
+      }
+    }
+    return found;
+  }
+
+  mentionedFile(context, mention, parsed) {
+    const item = { folder: parsed.folder, ...(parsed.revision ? { rev: parsed.revision } : {}), ...(parsed.disk ? { version: 'disk' } : {}) };
+    try {
+      return this.resolveFile(context, { ...item, file: mention.name });
+    } catch (error) {
+      if (!(error instanceof AgentError)) throw error;
+      if (error.code === 'ambiguous') {
+        // "Admin app.py", "the worker app.py": a word of the ask names one candidate's folder or directory.
+        const said = new Set(askWords(parsed.original).map((word) => word.toLowerCase()));
+        for (const part of askWords(mention.name)) said.delete(part.toLowerCase());
+        const scored = (error.details?.matches ?? []).map((match) => ({ match,
+          hits: [match.folder, ...match.path.split('/').slice(0, -1)].filter((part) => said.has(part.toLowerCase())).length }));
+        const most = Math.max(0, ...scored.map((entry) => entry.hits));
+        const named = scored.filter((entry) => entry.hits === most);
+        if (most > 0 && named.length === 1) {
+          return this.resolveFile(context, { ...item, folder: named[0].match.folder, file: named[0].match.path });
+        }
+        throw error;
+      }
+      if (error.code !== 'not_found') throw error;
+      for (let count = 1; count <= mention.before.length; count += 1) {
+        try { return this.resolveFile(context, { ...item, file: `${mention.before.slice(-count).join(' ')} ${mention.name}` }); }
+        catch (inner) { if (!(inner instanceof AgentError) || inner.code !== 'not_found') throw inner; }
+      }
+      throw error;
+    }
+  }
+
+  askLines(context, parsed) {
+    if (!parsed.files.length) throw invalid('Name the file the lines are in, as in "app.py lines 5-12".');
+    const withRanges = parsed.files.filter((mention) => mention.ranges.length);
+    const mentions = withRanges.length ? withRanges : [{ ...parsed.files[0], ranges: parsed.ranges }];
+    const items = [];
+    for (const mention of mentions) {
+      const { project, file } = this.resolveMention(context, mention, parsed);
+      for (const range of mention.ranges) {
+        try {
+          items.push(this.lines(context, project, file, range, 0, false));
+        } catch (error) {
+          if (!(error instanceof AgentError)) throw error;
+          items.push({ error: error.toJSON() });
+        }
+      }
+    }
+    return { kind: 'lines', items };
+  }
+
+  /** Definitions by name; a name only assigned a value ("MAX_RETRIES = 7") is read from the line the index records. */
+  askDefinitions(context, projects, parsed) {
+    const scoped = parsed.files.length ? this.tryMention(context, parsed.files[0], parsed) : null;
+    const items = [];
+    let found = 0;
+    for (const name of parsed.symbols) {
+      try {
+        items.push(scoped ? this.symbol(context, scoped.project, scoped.file, name, 0, false)
+          : this.symbolAnywhere(context, { symbol: name, folder: parsed.folder }, 0, false));
+        found += 1;
+      } catch (error) {
+        if (!(error instanceof AgentError)) throw error;
+        if (error.code === 'ambiguous') { items.push({ symbol: name, error: error.toJSON() }); found += 1; continue; }
+        const assigned = this.namedLines(context, projects, name, scoped);
+        if (assigned.length) { items.push(...assigned); found += 1; } else items.push({ symbol: name, error: error.toJSON() });
+      }
+    }
+    return found ? { kind: 'definition', items } : null;
+  }
+
+  tryMention(context, mention, parsed) {
+    try { return this.resolveMention(context, mention, parsed); } catch (error) {
+      if (error instanceof AgentError) return null;
+      throw error;
+    }
+  }
+
+  namedLines(context, projects, name, scoped) {
+    const items = [];
+    for (const project of scoped ? [scoped.project] : projects) {
+      if (!project.snapshotId) continue;
+      for (const match of this.graph.search(project.id, name, { snapshotId: project.snapshotId, limit: 20, diversify: false })) {
+        const object = match.object;
+        if (object.anchor?.kind !== 'line' || (object.metadata?.symbol ?? object.label) !== name) continue;
+        if ((scoped && object.path !== scoped.file.path) || !this.allowed(context, project.id, object.path)) continue;
+        const file = this.snapshotFile(context, project, object.path);
+        if (file) items.push({ ...this.lines(context, project, file, [object.anchor.line, object.anchor.line], 0, false), symbol: name });
+      }
+    }
+    return items.slice(0, 5);
+  }
+
+  askFiles(context, projects, parsed) {
+    // One file named, not asked where it is: its text when small, else its outline.
+    if (parsed.files.length === 1 && !LOCATE.test(parsed.original)) {
+      try {
+        return this.askWholeFile(context, this.resolveMention(context, parsed.files[0], parsed));
+      } catch (error) {
+        if (!(error instanceof AgentError) || error.code !== 'not_found') throw error;
+      }
+    }
+    const items = [];
+    for (const mention of parsed.files) {
+      const ranked = this.rankFiles(context, projects, { text: mention.name, kind: 'file' }).units;
+      const named = ranked.filter((unit) => unit.tier <= 2);
+      for (const unit of (named.length ? named : ranked).slice(0, 10)) items.push(this.project(context, unit, {}, DEFAULT_VALUE_CHARS));
+    }
+    return items.length ? { kind: 'files', items }
+      : { kind: 'none', looked_for: parsed.files.map((mention) => mention.name), named: true, files: this.sharedFileCount(context, projects), items: [] };
+  }
+
+  /**
+   * Rows the ask names by their label: every span of its words, longest
+   * first, looked up among labelled table rows (and large tables' row
+   * index). Only the longest spans that name a row are kept.
+   */
+  askEntities(context, projects, parsed) {
+    const tokens = parsed.words;
+    const spans = [];
+    for (let length = Math.min(6, tokens.length); length >= 1; length -= 1) {
+      for (let start = 0; start + length <= tokens.length; start += 1) {
+        const span = tokens.slice(start, start + length);
+        if (span.every((word) => STOPWORDS.has(word.toLowerCase()))) continue;
+        if (length === 1 && (span[0].length < 2 || STOPWORDS.has(span[0].toLowerCase()))) continue;
+        spans.push({ length, text: span.join(' ') });
+      }
+    }
+    const found = new Map();
+    const add = (entity) => {
+      const key = `${entity.project.id}|${entity.path}|${entity.sheet ?? ''}|${entity.rowIndex}`;
+      if (!found.has(key) || found.get(key).span.length < entity.span.length) found.set(key, entity);
+    };
+    for (const project of projects) {
+      if (!project.snapshotId) continue;
+      const table = this.rowTable(project, project.snapshotId);
+      for (const span of spans) {
+        for (const key of table.byLabel.get(foldAsk(span.text)) ?? []) {
+          const cells = table.byRow.get(key);
+          const first = cells[0];
+          if (!this.allowed(context, project.id, first.path)) continue;
+          add({ project, span, cells, path: first.path, sheet: first.metadata?.sheet ?? first.anchor?.sheet ?? null,
+            rowIndex: first.anchor.rowIndex, label: String(first.anchor.rowKey ?? first.metadata?.row) });
+        }
+      }
+      for (const large of this.dependencies.snapshotTables(project.id, project.snapshotId)) {
+        if (!this.allowed(context, project.id, large.file.path)) continue;
+        for (const span of spans) {
+          const wanted = normalizedRowSearch(span.text);
+          if (wanted.length < 3) continue;
+          for (const row of this.dependencies.tables.search(large.meta.id, span.text, 5)) {
+            const label = String(row.cells[large.meta.shape.labelColumn] ?? '').trim();
+            if (normalizedRowSearch(label) !== wanted) continue;
+            const cells = this.dependencies.indexedRowObjects(large, row).map((descriptor) => cellObject(descriptor, project, large))
+              .filter((object) => object.anchor?.kind === 'table-cell');
+            if (cells.length) add({ project, span, cells, path: large.file.path, sheet: large.sheet ?? null, rowIndex: cells[0].anchor.rowIndex, label });
+          }
+        }
+      }
+    }
+    const all = [...found.values()];
+    const longest = Math.max(0, ...all.map((entity) => entity.span.length));
+    return all.filter((entity) => entity.span.length === longest);
+  }
+
+  /**
+   * A table row the ask names, with the columns it names ("balance of
+   * Account 104233"), or the whole row when it names none. Other words are
+   * qualifiers: a row whose file or values match more of them ("approved
+   * budget") is put first, the others are still shown, and rows that match
+   * equally but disagree are said to disagree. Lasso never picks among them.
+   */
+  askRecord(context, projects, parsed) {
+    const entities = this.askEntities(context, projects, parsed);
+    if (!entities.length) return null;
+    const asked = foldAsk(parsed.words.join(' '));
+    const content = [...new Set(parsed.content.map(foldAsk).flatMap((word) => word.split(' ')).filter(Boolean))];
+    const rows = entities.map((entity) => {
+      const label = foldAsk(entity.span.text);
+      const rest = ` ${asked} `.replace(` ${label} `, ' ').trim();
+      const columns = [...new Set(entity.cells.map((cell) => String(cell.anchor?.column ?? cell.metadata?.column ?? '')).filter(Boolean))];
+      const fields = columns.filter((column) => namesHeader(rest, column))
+        .sort((left, right) => rest.indexOf(foldAsk(left)) - rest.indexOf(foldAsk(right)));
+      const used = new Set([...label.split(' '), ...fields.flatMap((field) => foldAsk(field).split(' '))]);
+      const qualifiers = content.filter((word) => !used.has(word) && !used.has(word.replace(/s$/, '')) && !ANSWER_WORDS.has(word));
+      const haystack = ` ${foldAsk([entity.path, entity.sheet ?? '', ...entity.cells.map((cell) => cell.valueText ?? '')].join(' '))} `;
+      return { ...entity, fields, matched: qualifiers.filter((word) => haystack.includes(` ${word} `)) };
+    });
+    const named = rows.filter((row) => row.fields.length);
+    const pool = (named.length ? named : rows)
+      .sort((left, right) => right.matched.length - left.matched.length || right.fields.length - left.fields.length
+        || left.path.localeCompare(right.path) || left.rowIndex - right.rowIndex)
+      .slice(0, 6);
+    const items = pool.map((row) => this.recordItem(context, row, parsed));
+    if (items.length === 1) return { kind: 'record', items };
+    const tied = pool.filter((row) => row.matched.length === pool[0].matched.length).length;
+    const valuesOf = (item) => JSON.stringify(Object.values(item.fields).map((field) => field.value));
+    const verdict = tied === 1 ? 'best'
+      : new Set(items.slice(0, tied).map(valuesOf)).size === 1 ? 'agree' : 'differ';
+    return { kind: 'record', verdict, ...(verdict === 'best' ? { matched: pool[0].matched } : {}), items };
+  }
+
+  recordItem(context, row, parsed) {
+    const { project } = row;
+    const file = this.snapshotFile(context, project, row.path);
+    const src = file ? this.source(context, project, file) : null;
+    const chosen = row.fields.length ? row.fields.map((name) => [name, matchField(row.cells, name)])
+      : row.cells.slice(0, ROW_PREVIEW_COLUMNS).map((cell) => [String(cell.anchor?.column ?? cell.metadata?.column), cell]);
+    const fields = {};
+    for (const [name, cell] of chosen) {
+      if (!cell) continue;
+      const ref = this.objectRef(context, project, cell);
+      const entry = { ...(ref ? { h: this.issue(context, ref) } : {}), value: cell.valueText };
+      // Asked what it was before: the captured versions, newest first, from this one.
+      if (parsed.history && cell.id && !cell.cell) {
+        const versions = this.graph.history(project.id, cell.id);
+        if (versions.length) entry.v = versions[0].projectVersion;
+        if (versions.length > 1) entry.was = versions.slice(1, 4).map((version) => ({ v: version.projectVersion, at: version.recordedAt, value: version.value }));
+        else entry.was = [];
+      }
+      fields[name] = entry;
+    }
+    const first = row.cells[0];
+    return { src, type: 'record', row: row.label, at: locatorOf({ ...first, anchor: { ...first.anchor, kind: 'table-row' } }), fields,
+      ...(!row.fields.length && row.cells.length > ROW_PREVIEW_COLUMNS ? { more_fields: row.cells.length - ROW_PREVIEW_COLUMNS } : {}) };
+  }
+
+  /**
+   * Everything else: the words to find, scoped to a file the ask names.
+   * An answer is a hit that contains every word that says what to find
+   * (not words such as "date" that say what kind of answer is wanted).
+   * When none does, the answer says so, which words were missing, and
+   * shows the closest hits; partial matches are never passed off as the
+   * thing asked about.
+   */
+  askFind(context, projects, parsed) {
+    let scope = projects;
+    let under = null;
+    const named = parsed.files.length ? this.tryMention(context, parsed.files[0], parsed) : null;
+    if (named) { scope = [named.project]; under = named.file.path; }
+    const content = parsed.content;
+    if (!content.length) {
+      if (named) return this.askWholeFile(context, named);
+      throw invalid('Say what to look for: a name, a value, a passage, lines of a file or a definition.');
+    }
+    const words = [...new Set(content.map(foldAsk).flatMap((word) => word.split(' ')).filter(Boolean))];
+    const needed = words.filter((word) => !ANSWER_WORDS.has(word));
+    const required = needed.length ? needed : words;
+    const ranked = this.rank(context, scope, { text: content.join(' '), kind: 'any', under, ext: null, fields: null });
+    const has = (unit, word) => {
+      const object = unit.object ?? {};
+      const haystack = ` ${foldAsk(`${object.searchText ?? ''} ${object.valueText ?? ''} ${object.label ?? ''} ${object.path ?? ''}`)} `;
+      return haystack.includes(` ${word} `) || haystack.includes(` ${word}s `);
+    };
+    const covers = (unit) => required.filter((word) => has(unit, word));
+    // Words asked for together ("vendor review") that a hit also has together outrank the same words scattered.
+    const pairs = required.slice(1).map((word, index) => ` ${required[index]} ${word} `);
+    const together = (unit) => {
+      const object = unit.object ?? {};
+      const haystack = ` ${foldAsk(`${object.valueText ?? ''} ${object.label ?? ''}`)} `;
+      return pairs.filter((pair) => haystack.includes(pair)).length;
+    };
+    const scored = ranked.units.filter((unit) => unit.object).slice(0, 80).map((unit) => ({ unit, hits: covers(unit) }));
+    const full = scored.filter((entry) => entry.hits.length === required.length)
+      .map((entry) => ({ ...entry, together: together(entry.unit) }));
+    if (full.length) {
+      // Then focus: the share of a hit's own words that were asked for. A short sentence about the
+      // thing outranks a long one that merely contains its words; hits less than half as focused as
+      // the best are counted, not shown.
+      const focus = (unit) => required.length / Math.max(required.length, foldAsk(unit.object?.valueText ?? unit.object?.label ?? '').split(' ').length);
+      // A hit that states a figure or date ("was $4.2 million") answers a question about its words more often than one that only uses them.
+      const states = (unit) => (/\d/.test(unit.object?.valueText ?? '') ? 1 : 0);
+      const closest = Math.max(...full.map((entry) => entry.together));
+      const best = full.filter((entry) => entry.together === closest).map((entry) => ({ ...entry, focus: focus(entry.unit), states: states(entry.unit) }))
+        .sort((left, right) => right.states - left.states || right.focus - left.focus);
+      const shown = best.filter((entry) => entry.focus >= best[0].focus / 2).slice(0, 3);
+      return { kind: 'found', items: shown.map(({ unit }) => this.project(context, unit, {}, ANSWER_CHARS)),
+        ...(best.length > shown.length ? { more: best.length - shown.length } : {}) };
+    }
+    if (named) {
+      const whole = this.askWholeFile(context, named, true);
+      if (whole) return whole;
+    }
+    // Which words no shared file has at all is checked word by word, so "none has" is said of the
+    // folders searched, not of the closest hit: a file with "west wing" but nothing else asked for has "west".
+    const seen = new Set(scored.flatMap((entry) => entry.hits));
+    const missing = required.filter((word) => !seen.has(word)
+      && !this.rank(context, scope, { text: word, kind: 'any', under, ext: null, fields: null }).units.slice(0, 80).some((unit) => unit.object && has(unit, word)));
+    const searched = under ? { file: `${named.project.name}/${under}` } : { files: this.sharedFileCount(context, scope) };
+    // A row asked for by a label no row has ("West division"): the rows labelled like it, which is what a reader checks next.
+    const like = this.labelsLike(context, scope, under, parsed.words);
+    // Beside rows labelled like the one asked for, a closest hit is shown only if it has the word that sets that label apart.
+    const listed = new Set(like?.rows?.map(foldAsk) ?? []);
+    const rowOf = (unit) => (['table-cell', 'table-row'].includes(unit.object?.anchor?.kind)
+      ? foldAsk(String(unit.object.anchor.rowKey ?? unit.object.metadata?.row ?? '')) : null);
+    const pool = like?.rows ? scored.filter((entry) => !listed.has(rowOf(entry.unit)) && has(entry.unit, like.word)) : scored;
+    const best = Math.max(0, ...pool.map((entry) => entry.hits.length));
+    const closest = best ? pool.filter((entry) => entry.hits.length === best).slice(0, 3) : [];
+    return { kind: 'none', looked_for: required, ...(missing.length ? { missing } : {}), ...searched, ...(like ? { like } : {}),
+      items: closest.map(({ unit }) => this.project(context, unit, {}, ANSWER_CHARS)) };
+  }
+
+  /** How many shared, indexed files a search covered. */
+  sharedFileCount(context, projects) {
+    let total = 0;
+    for (const project of projects) {
+      if (!project.snapshotId) continue;
+      for (const file of this.timeline.snapshotFiles(project.snapshotId)) if (this.allowed(context, project.id, file.path)) total += 1;
+    }
+    return total;
+  }
+
+  /**
+   * Row labels one word away from a span of the ask: "North division" and
+   * "South division" for "West division". The word that differs must not
+   * name one of the row's columns ("division revenue" is a row and a field,
+   * not a label). The longest such span is kept: up to MAX_LABELS labels with
+   * their sources, or how many there are.
+   */
+  labelsLike(context, projects, under, askWords) {
+    const folded = askWords.flatMap((word) => foldAsk(word).split(' ')).filter(Boolean);
+    const spans = [];
+    for (let length = Math.min(4, folded.length); length >= 2; length -= 1) {
+      for (let start = 0; start + length <= folded.length; start += 1) {
+        const span = folded.slice(start, start + length);
+        if (span.filter((word) => !STOPWORDS.has(word)).length >= 2) spans.push(span);
+      }
+    }
+    if (!spans.length) return null;
+    const bySpan = new Map();
+    for (const project of projects) {
+      if (!project.snapshotId) continue;
+      const table = this.rowTable(project, project.snapshotId);
+      for (const [label, keys] of table.byLabel) {
+        const parts = label.split(' ');
+        for (const span of spans) {
+          if (span.length !== parts.length) continue;
+          const differs = span.filter((word, index) => word !== parts[index]);
+          if (differs.length !== 1 || STOPWORDS.has(differs[0])) continue;
+          const word = differs[0];
+          for (const key of keys) {
+            const cells = table.byRow.get(key);
+            const first = cells[0];
+            if (!this.allowed(context, project.id, first.path) || (under && first.path !== under)) continue;
+            if (cells.some((cell) => namesHeader(word, String(cell.anchor?.column ?? cell.metadata?.column ?? '')))) continue;
+            const name = span.join(' ');
+            if (!bySpan.has(name)) bySpan.set(name, { span, word, labels: new Map(), files: new Map() });
+            const entry = bySpan.get(name);
+            if (!entry.labels.has(label)) entry.labels.set(label, String(first.anchor.rowKey ?? first.metadata?.row));
+            entry.files.set(`${project.id}|${first.path}`, { project, path: first.path });
+          }
+        }
+      }
+    }
+    const best = [...bySpan.values()].sort((left, right) => right.span.length - left.span.length || right.labels.size - left.labels.size)[0];
+    if (!best) return null;
+    const label = best.span.join(' ');
+    if (best.labels.size > MAX_LABELS) return { label, word: best.word, count: best.labels.size };
+    const src = [...best.files.values()].flatMap(({ project, path: filePath }) => {
+      const file = this.snapshotFile(context, project, filePath);
+      return file ? [this.source(context, project, file)] : [];
+    });
+    return { label, word: best.word, rows: [...best.labels.values()], src: [...new Set(src)] };
+  }
+
+  /** A small text file named in an ask, whole; otherwise a code file's outline, or the opening lines (a table's header) of any other. */
+  askWholeFile(context, named, onlyIfSmall = false) {
+    const { project, file } = named;
+    if (!isTextualType(file.fileType)) return onlyIfSmall ? null : { kind: 'files', items: [{ src: this.sourceFor(context, project, file), type: 'file' }] };
+    const all = fileLines(this.textOf(file));
+    if (all.join('\n').length <= WHOLE_FILE_CHARS) return { kind: 'lines', items: [this.lines(context, project, file, [1, Math.max(1, all.length)], 0, false)] };
+    if (onlyIfSmall) return null;
+    return isCodeType(file.fileType) ? { kind: 'outline', items: [this.outline(context, project, file)] }
+      : { kind: 'lines', items: [this.lines(context, project, file, [1, Math.min(HEAD_LINES, all.length)], 0, false)] };
   }
 
   status() {

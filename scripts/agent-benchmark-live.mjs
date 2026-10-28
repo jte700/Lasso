@@ -4,7 +4,8 @@
 //   lasso-v1        those tools plus Lasso's first definitions (JSON results); the model chooses
 //   lasso-v2        the same with the second definitions (when-to-use guidance, compact text)
 //   lasso-v2-first  lasso-v2, told to prefer Lasso and fall back to the file tools
-//   lasso-v3        the current MCP server's defaults (search and read only, no re-checking)
+//   lasso-v3        search and read only, told no re-checking is needed
+//   lasso-v4        the current MCP server's default: one lasso tool that resolves plain-language asks
 // Token counts are the provider's own usage records for every model call.
 //
 //   OPENAI_API_KEY=… node scripts/agent-benchmark-live.mjs --model gpt-5.4-mini [--model …]
@@ -21,10 +22,9 @@ import { fileURLToPath } from 'node:url';
 import { openLocal } from '../src/agent/client.js';
 import { INSTRUCTIONS as LASSO_INSTRUCTIONS, toolsNamed } from '../src/agent/mcp.js';
 import { formatAnswer } from '../src/agent/render.js';
-import { INSTRUCTIONS_V1, INSTRUCTIONS_V2, TOOLS_V1, TOOLS_V2 } from './agent-tools-versions.mjs';
-import { blockRange, definitions } from '../src/agent/evidence.js';
+import { INSTRUCTIONS_V1, INSTRUCTIONS_V2, INSTRUCTIONS_V3, TOOLS_V1, TOOLS_V2, TOOLS_V3 } from './agent-tools-versions.mjs';
 import { estimateTokens } from '../src/agent/metrics.js';
-import { DIRECT_DEFINITIONS, directTools, prepareLibrary, REPEATED_RANGES, taskPrompts } from './agent-benchmark-corpus.mjs';
+import { DIRECT_DEFINITIONS, directTools, graders, prepareLibrary, taskPrompts } from './agent-benchmark-corpus.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const args = process.argv.slice(2);
@@ -66,7 +66,7 @@ const INSTRUCTIONS = [
 
 // What a person who set Lasso up for their agent might add to its instructions.
 const PREFER_LASSO = 'Prefer the lasso_ tools for finding and reading evidence; use the file tools only when Lasso cannot answer.';
-const ALL_ARMS = ['direct', 'lasso-v1', 'lasso-v2', 'lasso-v2-first', 'lasso-v3'];
+const ALL_ARMS = ['direct', 'lasso-v1', 'lasso-v2', 'lasso-v2-first', 'lasso-v3', 'lasso-v4'];
 // --arms direct,lasso-v2 runs a subset; direct must be among them, as every comparison is against it.
 const ARMS = option('--arms', null)?.split(',').filter((name) => ALL_ARMS.includes(name)) ?? ALL_ARMS;
 if (!ARMS.includes('direct')) ARMS.unshift('direct');
@@ -77,51 +77,8 @@ const functionsOf = (tools) => tools.map(({ name, description, inputSchema }) =>
 const LASSO_FUNCTIONS = functionsOf(toolsNamed());
 const V1_FUNCTIONS = functionsOf(TOOLS_V1);
 const V2_FUNCTIONS = functionsOf(TOOLS_V2);
-
-// ── grading ────────────────────────────────────────────────────────────────
-
-function graders(library) {
-  const { truth, files, routesNow } = library;
-  const lines = (relative) => files[relative].replace(/\n$/, '').split('\n');
-  const block = (name) => {
-    for (const contents of Object.values(files)) {
-      const all = contents.replace(/\n$/, '').split('\n');
-      const found = definitions(all).find((definition) => definition.name === name);
-      if (found) { const range = blockRange(all, found); return all.slice(range.start - 1, range.end).join('\n'); }
-    }
-    return null;
-  };
-  const discountHead = truth.discount.text.split('\n').slice(0, 12).join('\n');
-  const answerLine = (text) => text.split('\n').reverse().find((line) => /^\s*\**ANSWER:?\**/i.test(line)) ?? text;
-  const contains = (text, ...needles) => needles.every((needle) => text.includes(needle));
-  // Asking which source is meant, with or without a question mark ("tell me which budget you mean").
-  const asks = (text) => text.includes('?') || /\b(?:which (?:one|budget|file|source|of these)|tell me which|let me know which|specify which|if you mean[t]?)\b/i.test(text);
-  return {
-    'code-range-known': (text) => contains(text, discountHead),
-    'code-duplicate-named': (text) => contains(text, lines('Admin/src/app.py').slice(9, 20).join('\n')),
-    'code-duplicate-ambiguous': (text) => contains(text, 'Admin', 'server/app.py', 'worker/app.py') && /src\/app\.py/.test(text) && asks(text),
-    'code-function-lookup': (text) => contains(text, truth.discount.text),
-    'code-multi-function': (text) => contains(text, block('normalize_sku'), block('retry_payment'), block('registerRoutes')),
-    'code-config-key': (text) => /settings\.py/.test(answerLine(text)) && /\b7\b/.test(answerLine(text)),
-    'code-repeated-inspections': (text) => REPEATED_RANGES.every(([first, last]) => contains(text, lines('Shop/lib/billing.py').slice(first - 1, last).join('\n'))),
-    'code-stale-reference': (text) => contains(text, discountHead),
-    'code-modified-on-disk': (text) => contains(text, routesNow),
-    'doc-short-file': (text) => contains(answerLine(text), truth.vendorReview),
-    'doc-long-fact': (text) => /\$?4\.2 million/.test(answerLine(text)),
-    'doc-large-table': (text) => contains(answerLine(text), truth.balance104233),
-    'doc-identifier': (text) => contains(answerLine(text), truth.invoice417.Customer, truth.invoice417.Amount),
-    'doc-ambiguous-sources': (text) => contains(text, truth.northPlanningNow, truth.northApproved) && asks(text),
-    'doc-related-facts': (text) => contains(answerLine(text), truth.southApproved.Revenue, truth.southApproved['Reporting period'], truth.southApproved.Headcount),
-    // Says the division is absent, in any wording, and gives it no number.
-    'doc-missing': (text) => {
-      const answer = answerLine(text).replace(/[`*"“”']/g, '');
-      return (/\b(?:no|not|none|n't|cannot|can't|unable|absent|missing)\b/i.test(answer) || /not (?:found|present|available)/i.test(answer))
-        && !/\d+\.\d/.test(answer);
-    },
-    'doc-history': (text) => contains(answerLine(text), truth.northPlanningBefore),
-    'doc-multi-batch': (text) => contains(text, truth.balance120001, truth.invoice1200, truth.vendorReview, truth.eastApprovedRevenue, truth.centralPlanningHeadcount) && /4\.2 million/.test(text),
-  };
-}
+const V3_FUNCTIONS = functionsOf(TOOLS_V3);
+const isLasso = (name) => name === 'lasso' || name.startsWith('lasso_');
 
 const TASKS = [
   ['code-range-known', 'code'], ['code-duplicate-named', 'code'], ['code-duplicate-ambiguous', 'code'], ['code-function-lookup', 'code'],
@@ -216,7 +173,7 @@ async function runTask({ model, arm, task, prompt, tools, execute, instructions,
   const sum = (key) => calls.reduce((total, call) => total + call[key], 0);
   return { model, arm, task: task.id, family: task.family, capability: task.capability, stop, final,
     modelCalls: calls.length, toolCalls: Object.values(toolCalls).reduce((total, count) => total + count, 0), toolsUsed: toolCalls,
-    usedLasso: Object.keys(toolCalls).some((name) => name.startsWith('lasso_')), trace,
+    usedLasso: Object.keys(toolCalls).some(isLasso), trace,
     input: sum('input'), cached: sum('cached'), output: sum('output'), reasoning: sum('reasoning'), tokens: sum('input') + sum('output'),
     firstInput: calls[0]?.input ?? null, costUsd: sum('cost'), wallMs: Math.round(performance.now() - started), toolMs: Math.round(toolMs) };
 }
@@ -283,7 +240,7 @@ function compare(rows, armName) {
     moreTokensThanDirect: pairs.filter(([direct, lasso]) => lasso.tokens > direct.tokens).length,
     lassoUse: { tasksUsingLasso: lassoRows.filter((row) => row.usedLasso).length, tasks: lassoRows.length,
       // Tasks that also needed the file tools: the fallback rate f of E[T_L] = c + f·B_f.
-      fellBack: lassoRows.filter((row) => row.usedLasso && Object.keys(row.toolsUsed).some((name) => !name.startsWith('lasso_'))).length,
+      fellBack: lassoRows.filter((row) => row.usedLasso && Object.keys(row.toolsUsed).some((name) => !isLasso(name))).length,
       calls: lassoRows.reduce((counts, row) => {
         for (const [name, count] of Object.entries(row.toolsUsed)) counts[name] = (counts[name] ?? 0) + count;
         return counts;
@@ -376,8 +333,10 @@ async function main() {
           execute: (name, input) => (v2Tools[name] ?? direct[name])(input) },
         'lasso-v2-first': { tools: [...DIRECT_FUNCTIONS, ...V2_FUNCTIONS], instructions: `${INSTRUCTIONS}\n\n${INSTRUCTIONS_V2} ${PREFER_LASSO}`,
           execute: (name, input) => (v2Tools[name] ?? direct[name])(input) },
-        'lasso-v3': { tools: [...DIRECT_FUNCTIONS, ...LASSO_FUNCTIONS], instructions: `${INSTRUCTIONS}\n\n${LASSO_INSTRUCTIONS}`,
+        'lasso-v3': { tools: [...DIRECT_FUNCTIONS, ...V3_FUNCTIONS], instructions: `${INSTRUCTIONS}\n\n${INSTRUCTIONS_V3}`,
           execute: (name, input) => (v2Tools[name] ?? direct[name])(input) },
+        'lasso-v4': { tools: [...DIRECT_FUNCTIONS, ...LASSO_FUNCTIONS], instructions: `${INSTRUCTIONS}\n\n${LASSO_INSTRUCTIONS}`,
+          execute: (name, input) => (name === 'lasso' ? formatAnswer('ask', lasso.ask(input)) : (v2Tools[name] ?? direct[name])(input)) },
       };
       try {
         for (const [index, task] of TASKS.entries()) {

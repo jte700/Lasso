@@ -161,7 +161,8 @@ export function createAgentHandler({ engine, token, lifecycle, onShutdown = () =
       const client = String(request.headers['x-lasso-client'] ?? 'client').slice(0, 60);
       const actor = slugActor(`agent:rest:${client}`, `${client} (REST)`);
       const route = `${request.method} ${pathname}`;
-      const operation = { 'POST /agent/v1/suggest': 'suggest', 'POST /agent/v1/inspect': 'inspect', 'POST /agent/v1/bind': 'bind' }[route];
+      const operation = { 'POST /agent/v1/ask': 'ask', 'POST /agent/v1/suggest': 'suggest', 'POST /agent/v1/inspect': 'inspect',
+        'POST /agent/v1/bind': 'bind' }[route];
       if (operation) {
         const body = await readBody(request);
         if (body.error) return send(response, body.error[0], { error: { code: 'invalid_request', message: body.error[1] } });

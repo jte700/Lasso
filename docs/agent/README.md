@@ -7,12 +7,14 @@ AI agents can read the user's Lasso library through two on-demand interfaces:
 
 Both call the same **evidence service** (`src/agent/evidence.js`), which reads the same snapshots, object versions, blob store and search graph the editor and terminal use. No second index, database or search engine is added. Nothing runs permanently for the integration.
 
+Agents ask in plain words, all of a task's questions in one call: `lasso` with `ask: ["app.py lines 5-12", "Q3 revenue for the North region", …]`. Each ask is resolved on the server to the evidence that answers it: exact lines, a whole definition, a table row's named fields, a passage, an earlier value, or a plain statement that nothing matches. Where files disagree, every source is shown and none is chosen.
+
 There are two sets of measurements, on the same 18 tasks and the same generated library:
 
-- **Live, provider-recorded** ([live runs](#live-model-runs-provider-recorded)). OpenAI models choose their own steps; every model call's usage is recorded. Lasso's first release was ignored by the models and, when they were told to use it, cost more tokens. Three measured iterations ([v1 → v3](#making-models-use-lasso-v1--v3)) changed that. With the current server, gpt-5.4-mini used Lasso on 23 of 32 tasks and spent **13% fewer tokens** than with file tools alone (document tasks −39%, code tasks +98%). Correctness was equal, and it answered revision questions the file tools cannot.
-- **Offline, scripted** ([benchmark-results.md](benchmark-results.md), `node scripts/agent-benchmark.mjs --runs 5`). Fixed, competent call sequences, with tool definitions charged at their measured real size and everything else estimated. The current server saves 7.3% of tokens (documents 14%, code break-even), with 37% less evidence, a third fewer round trips and 60% fewer tool calls. It was correct on every task.
+- **Live, provider-recorded** ([live runs](#live-model-runs-provider-recorded)). OpenAI models choose their own steps; every model call's usage is recorded. Lasso's first release was ignored by the models and, when they were told to use it, cost more tokens. Four measured iterations ([v1 → v4](#making-models-use-lasso-and-spend-less-v1--v4)) changed that. With the current server, gpt-5.4-mini used Lasso on **32 of 32 tasks** and spent **69% fewer tokens** than with file tools alone (code −15%, documents −80%; the median task −18%), at 45% lower cost. It answered all 32 correctly, against 29 with file tools, and answered the revision questions the file tools cannot.
+- **Offline, scripted** ([benchmark-results.md](benchmark-results.md), `node scripts/agent-benchmark.mjs --runs 5`). Fixed, competent call sequences, with tool definitions charged at their measured real size and everything else estimated. The current server saves 21% of tokens against a direct-tools policy that already reads exactly what it needs (code 13%, documents 29%), with half the evidence and one round per task. It was correct on every task.
 
-The savings come from document work: table rows, competing sources, absent values, long reports. On small code reads, Lasso's per-call definitions cost more than they save. Only two live runs per setting were made, on OpenAI models; see [What the benchmark does not show](#what-the-benchmark-does-not-show).
+The savings come from fewer model calls: each call re-sends the host's prompt, the tool definitions and everything said so far, so answering in one call what took a search and a read removes most of a task's cost ([the cost model](#the-cost-model-refined-from-the-live-traces)). On a small read of a file the request already names, both take one call, and Lasso's 149-token definition makes it slightly dearer. Live runs were made on OpenAI models only; see [What the benchmark does not show](#what-the-benchmark-does-not-show).
 
 ---
 
@@ -56,7 +58,7 @@ With Claude Code:
 claude mcp add lasso -- node /path/to/CoLabDry/src/agent/cli.js mcp --scope Finance
 ```
 
-The server offers `lasso_search` and `lasso_read`. Add `--tools search,read,cite` to offer `lasso_cite` as well. It fills templates from recorded values, at 88 more real tokens per model call.
+The server offers one tool, `lasso`, which takes every question of a task in one call and answers each from the index: exact lines, a whole definition, a table row's fields, a passage, an earlier value. Its definition and instructions cost 149 real tokens per model call. `--tools lasso,search,read,cite` also offers the earlier search, read and cite tools.
 
 ### REST
 
@@ -67,9 +69,11 @@ node src/agent/cli.js ensure --scope Finance --idle 300
 `ensure` prints `{"url","token","pid","started"}`. It reuses a server already running for the library; otherwise it starts one in the background.
 
 ```bash
-curl -s "$URL/agent/v1/inspect" -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"items":[{"file":"app.py","folder":"App","lines":"5-12"}]}'
+curl -s "$URL/agent/v1/ask" -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"ask":["App/app.py lines 5-12","North division revenue in the approved budget"]}'
 ```
+
+`/agent/v1/suggest`, `/inspect` and `/bind` take the structured requests described under [Tool contracts](#tool-contracts).
 
 `node src/agent/cli.js status` reports whether a server is running; `stop` stops it.
 
@@ -115,7 +119,9 @@ local files → Lasso app (scanner, capture, extraction, index; unchanged)
                      ↓ same SQLite store + blob store + derived indexes
           src/agent/engine.js   opens the store: no HTTP server, no watchers, no connector sync, drive state untouched
                      ↓
-          src/agent/evidence.js EvidenceService: suggest / inspect / bind  ← src/agent/scope.js authorization
+          src/agent/ask.js      reads a plain-language ask: files, line ranges, names, revision, disk, history
+                     ↓
+          src/agent/evidence.js EvidenceService: ask / suggest / inspect / bind  ← src/agent/scope.js authorization
                      ↓                                      ↓
    src/agent/mcp.js (stdio JSON-RPC)        src/agent/rest.js (loopback HTTP, bearer token)
                      ↓                                      ↓
@@ -150,6 +156,50 @@ g1: 2 of 6; 2 exact; more: cursor "K6ST.FNTD.2"
 ```
 
 **Forgiving where it costs nothing.** Tuning numbers (`limit`, `budget`, `context`) out of range are brought into range rather than refused. A citation style other than `"none"` gives numbered citations. A handle copied with its `#` is accepted. `folder: "."` means every folder, and `"Finance/Approved"` means the Finance folder under `Approved`. Identity inputs (file, revision, handle) stay strict. In live runs, refusing a model's `budget: 150` had cost it a whole turn and sent it back to grep; such refusals were 22 of the 31 failed calls across the two v2 arms.
+
+### `lasso` / `POST /agent/v1/ask`
+
+Every question of a task, in plain words, answered in one call. Strings are read by `src/agent/ask.js`; an enumerated string ("(a) … (b) …") is split into its parts. Objects are structured follow-ups: `{h}`, `{h, history: true}`, `{file, lines}`, `{symbol}`, or an explicit search `{text, fields}`.
+
+```json
+{ "ask": ["Api/app.py lines 5-8", "the approved North division revenue", "North division revenue", "West division revenue"] }
+```
+
+As text over MCP (from the test fixture):
+
+````
+s1 = Api/app.py @83757353ead4
+s2 = Finance/Approved/budget.csv @a1adad958009
+s3 = Finance/Planning/budget.csv @c0cee90b5eab
+[1] #D16826NQ4J s1 lines 5-8 of 19
+```
+def handle(request):
+    """Return every item."""
+    items = load()
+    return json.dumps(items)
+```
+[2] s2 "North division" row 2: Revenue="11.9" #ADE2V0Q3BV (matches "approved")
+  other source: s3 "North division" row 2: Revenue="12.4"
+[3] 2 sources differ; which is meant is not settled by the files:
+  - s2 "North division" row 2: Revenue="11.9" #ADE2V0Q3BV
+  - s3 "North division" row 2: Revenue="12.4" #HDCR3CVABH
+[4] no indexed text in the 7 shared files has "west" (asked: "west division revenue"); rows labelled like it: "North division", "South division" (s2, s3).
+````
+
+The JSON contract is `{sources, answers: [{n, ask?, kind, …}], warnings?}`. An ask is resolved in this order:
+
+| The ask names | `kind` | Answer |
+|---|---|---|
+| A file and lines (`app.py lines 5-12`, `L12-L30`, `app.py:5-12,40-48`) | `lines` | Exactly those lines, each range separately |
+| A definition (`the parse_config function`, `where is TIMEOUT defined`, `normalize_sku`) | `definition` | The whole block, said to be the only one when no other shared file defines the name; a name only assigned a value (`MAX_RETRIES = 7`) is read from the line the index records |
+| Only a file (`Finance/notes.md`) | `lines`, `outline` or `files` | A small text file whole; a large code file's outline, any other large file's first 12 lines (a table's header); asked where it is, its locations |
+| A table row by its label (`Account 104233`, `South division`) | `record` | The fields the ask names, in the order named, or the row. Other words (`approved`, `planning`) rank rows by their file and values, never pick: `best` puts one first and still shows the others, `agree` says they match, `differ` says the files do not settle it |
+| Anything else | `found` or `none` | Hits that contain every word that says what to find (not answer-type words such as "date"), words asked together first, then those that state a figure or date, then the most focused. If none has them all: `none`, with the words no shared file has (checked word by word, not judged from the closest hit), the rows labelled like a label no row has ("North division" for "West division"), and the closest hits |
+
+- `at revision a1b2c3d4` / `@a1b2c3d4` reads that revision. `before the last change`, `previous value` and `history` add earlier captured values to a record's fields. `as the file is now` reads the file from disk.
+- A name several files share is an `ambiguous` error listing each, unless a word of the ask names one of their folders or directories ("the Admin app.py", `Admin/app.py`).
+- A file the ask names that changed on disk since indexing is read as it is now, from disk, and its source says so (`disk: "read"`, `unindexed`). An explicit `{file, lines}` read keeps the indexed revision and warns.
+- Up to 16 asks per call; an ask that fails carries `kind: "error"` and doesn't fail the others.
 
 ### `lasso_search` / `POST /agent/v1/suggest`
 
@@ -225,7 +275,7 @@ Name resolution never guesses. A bare `app.py` that two folders contain is an `a
 ## Versions, freshness and authorization
 
 - **Which version answers.** Each folder answers from its current snapshot once it is indexed, otherwise from its newest indexed snapshot, marked `lagging`. The agent never triggers indexing.
-- **Indexed vs disk.** Every source reports `disk: "changed"` or `"missing"` when the file on disk no longer has the indexed bytes (size and mtime, then hash). `version: "disk"` reads the current file. That works only for a file the index knows, only if its real path stays inside its folder, and the result is marked `unindexed` and gets no handle.
+- **Indexed vs disk.** Every source reports `disk: "changed"` or `"missing"` when the file on disk no longer has the indexed bytes (size and mtime, then hash). `version: "disk"` reads the current file. That works only for a file the index knows, only if its real path stays inside its folder, and the result is marked `unindexed` and gets no handle. An ask that names a changed text file without a revision reads it this way; searches across files answer from the index and warn.
 - **Pinned revisions.** `rev` reads any revision Lasso captured, marked `historical` with the `current` revision named. A revision Lasso never captured is `revision_not_found`, never the current file.
 - **Scope.** Only folders named with `--scope` that are enabled in Lasso. Authorization runs before retrieval: files outside the scope add no names, counts or previews.
 - **Credentials.** `.env*`, keys and certificates (`*.pem`, `*.key`, `id_rsa`, …), `credentials*`, `secrets*`, and anything under `.ssh`, `.aws`, `.gnupg`, `.git` and the like are never returned, even inside a shared folder.
@@ -250,6 +300,32 @@ Name resolution never guesses. A bare `app.py` that two folders contain is an `a
 | Routing `c + f·B_f < B` | benchmark `routed` arms | The rule sends short reads of an already-named file to direct tools. Measured per task, with and without deferred tool loading. |
 | Savings `S = 1 − ΣT_L/ΣT_0` | benchmark summary | Reported overall, per family, per task (min/median/max) and as a count of regressions, never only on successful runs. |
 
+### The cost model, refined from the live traces
+
+Grouping the terms of `T(π)` by what each call re-sends gives a form that the live runs can be read against directly. A task the model finishes in `M` calls costs
+
+```
+T = M·F + Σ_{r=1}^{M−1} (M − r)·e_r + O
+```
+
+- `F` is what every call re-sends: the host's system prompt `S`, the tool definitions `d` and the request.
+- `e_r` is what round `r` adds to the conversation (its tool calls and results), re-read by each of the `M − r` later calls.
+- `O` is all output, reasoning included.
+
+Measured on v3's live run (gpt-5.4-mini, 31 tasks paired with direct tools; `F` is the first call's input, history is the rest):
+
+| Arm | Calls per task `M` | `F` | `M·F` | Re-read evidence `Σ(M−r)e_r` | Output `O` | `T` per task, mean (median) |
+|---|---|---|---|---|---|---|
+| direct | 2.97 | 426 | 1,273 | 4,936 | 401 | 6,611 (2,328) |
+| lasso-v3 | 3.42 | 809 | 2,779 | 2,567 | 395 | 5,742 (3,141) |
+
+v3 halved the evidence term but more than doubled the fixed term: it made more calls (search, then read), and each re-sent 387 tokens of definitions. Four consequences follow from the formula, and v4 is built on them:
+
+1. **Rounds cost `F` each, plus a re-reading of everything before them.** `n` lookups made one per round cost `(n+1)·F + ē·n(n+1)/2`, quadratic in `n`; made in one round, `2F + n·ē`. A search round followed by a read round costs `F + 2s` more than one call that resolves the question (`s` = the search results). So v4 resolves each question on the server, in one call, and takes every question of a task in that call.
+2. **Expand when `p > s_c / (F + H + s_c)`.** Returning a candidate's content now costs its `s_c` tokens, re-read by later calls. Leaving it for a later call costs, with the probability `p` that the model needs it, a whole round: `F`, the history `H` so far, and `s_c`. With `F + H` in the hundreds of tokens and `s_c` tens to a few hundred, the threshold is around 0.1–0.3. In a host with a long system prompt it is near 0. So v4 returns the value, lines or definition rather than a pointer to them, and shows every competing source in full, since the model needs all of them to ask which is meant.
+3. **A definition costs `d·M` on every task, whether or not the tool is used.** Only what makes a model call the tool, and call it well, earns its place: v4's tool and instructions measure 149 tokens per call, against 387 for v3.
+4. **Host overhead scales with `M`.** A host whose system prompt is `S′` tokens rather than the benchmark's `S` costs `T(S′) = T + M·(S′ − S)`. Each call saved therefore saves `S′` tokens too, mostly at the provider's cached-input price. The harness's system prompt is about 100 tokens, so the live runs understate what fewer calls save in a host with a long one.
+
 ---
 
 ## Optimizations, with what was measured
@@ -272,6 +348,10 @@ Name resolution never guesses. A bare `app.py` that two folders contain is an `a
 | Names and when-to-use guidance (v2) | Models never chose `lasso_suggest`/`lasso_inspect` | `lasso_search` / `lasso_read`, descriptions saying when they beat Grep | Tool selection, the precondition for any saving | — | Lasso used on 0 → 20 of 32 tasks (gpt-5.4-mini) | +87 tokens per call |
 | Forgiving tuning inputs | 22 of 31 failed Lasso calls (both v2 arms) were a `budget` under 200; each cost a turn and sent the model to grep | Clamp numbers, default styles, accept `#` handles and loose folders | `J`, fallback rate `f` | Identity inputs stay strict | Failed Lasso calls 14/79 → 2/78; `S` −158% → −74% | — |
 | No second check, cite on request (v3) | Models re-ran Grep beside Lasso; unasked `lasso_cite` calls added turns | Instructions state what answers cover; `lasso_cite` opt-in | `f`, fixed term | Equal (28/31 vs 27/31 direct) | Fallback 17/22 → 8/23 tasks; definitions +451 → +387; `S` −74% → **+13.1%** | Code tasks still cost more |
+| One call per task (v4) | Search, then read: 3.42 calls per task in v3, each re-sending the definitions and every earlier result | `lasso` resolves plain-language asks on the server (lines, definitions, records, passages, absence, history, revisions, disk) and takes every question of a task in one call | `M·F` and `Σ(M−r)e_r` | Answers graded as live ones; 16/16 offline | Offline: 1 round per task, evidence −53%, `S` 7.3% → **21.2%** (code 0% → 12.6%, docs 14.1% → 28.9%), the same in 5 runs. Live: see [v4](#making-models-use-lasso-and-spend-less-v1--v4) | Asks are read lexically ([limits](#other-limitations)) |
+| One lean definition (v4) | 387 tokens per call for search and read (v3) | One tool; the instructions say only "call lasso first" and that results are content | `d·M`, on every task | — | 149 real tokens per call (−61%) | Fewer words to persuade a model to call it; measured live below |
+| Resolved answers instead of candidates | Six facts as v3 search results: 1,642 tokens | Each ask answered with the row's named fields or the passage itself | Evidence term | Same values | 386 real tokens for the same six facts (−76%) | — |
+| Asks read the way models write them | 12 of 104 phrasings of the benchmark tasks failed: a folder named beside a file, `file:1-2,5-6`, `{symbol}` for a constant, a passage that only shares the words | A folder or directory word settles a shared name; range lists; constants by their indexed line; hits that state a figure or date first; a named file read as it is now | Fallback rate `f` | A name still unsettled by the ask is listed, never picked | 104/104 (`node scripts/agent-ask-phrasings.mjs`) | Phrasings written by hand, not sampled from models |
 
 ---
 
@@ -279,10 +359,10 @@ Name resolution never guesses. A bare `app.py` that two folders contain is an `a
 
 `scripts/agent-benchmark-live.mjs` runs the same 18 tasks on the same generated library through OpenAI's Responses API. The arms:
 - **direct:** Read, Grep and Glob.
-- **lasso (v1, v2, v3):** the same plus a version of Lasso's tools and instructions, as an MCP host would add them; the model decides.
+- **lasso (v1 … v4):** the same plus a version of Lasso's tools and instructions, as an MCP host would add them; the model decides.
 - **lasso-first:** the same, plus one instruction to prefer Lasso and fall back to the file tools.
 
-Every model call's `usage` is recorded: input counts the whole context each call, and output includes reasoning. Tasks run in random arm order, at fixed reasoning effort `low`, with a hard spend guard. Answers are graded against the generator's truth. Total spend for all live runs and probes was about $4.05.
+Every model call's `usage` is recorded: input counts the whole context each call, and output includes reasoning. Tasks run in random arm order, at fixed reasoning effort `low`, with a hard spend guard. Answers are graded against the generator's truth. Total spend for all live runs and probes was about $4.75.
 
 The first runs, with the v1 server, paired over 16 tasks × 2 runs (the two capability tasks excluded). Full tables: [gpt-5.4-mini](live-results-gpt-5.4-mini.md), [gpt-5.3-codex](live-results-gpt-5.3-codex.md), [post-fix check](live-results-gpt-5.3-codex-fixcheck.md).
 
@@ -311,25 +391,51 @@ What the runs show:
 
 Grading notes: `doc-missing` answers were regraded from the saved full answers after the grader was found too strict, which changed 4 Codex grades. gpt-5.4-mini answers were saved only in part, and one of its `doc-ambiguous-sources` answers was probably correct but graded wrong. On `code-duplicate-named`, every arm in several runs prefixed line numbers despite the instruction, and is graded wrong. The main live runs predate the two fixes; only the 2-task check ran after them.
 
-### Making models use Lasso: v1 → v3
+### Making models use Lasso, and spend less: v1 → v4
 
-The first runs showed that models don't pick Lasso by themselves, so the next step was getting them to pick it. Each version was changed only where the previous run's call traces showed a cause, then measured live on gpt-5.4-mini: 2 runs each, the model choosing freely (no "prefer Lasso" instruction), against direct tools in the same runs. Full tables: [v1 and v2](live-results-gpt-5.4-mini-v2.md), [v2 with forgiving inputs](live-results-gpt-5.4-mini-v2b.md), [v3](live-results-gpt-5.4-mini-v3.md).
+The first runs showed that models don't pick Lasso by themselves, so the next step was getting them to pick it. Each version was changed only where the previous run's call traces showed a cause, then measured live on gpt-5.4-mini: 2 runs each, the model choosing freely (no "prefer Lasso" instruction), against direct tools in the same runs. Full tables: [v1 and v2](live-results-gpt-5.4-mini-v2.md), [v2 with forgiving inputs](live-results-gpt-5.4-mini-v2b.md), [v3](live-results-gpt-5.4-mini-v3.md), [v4](live-results-gpt-5.4-mini-v4.md).
 
 | Server | What changed | Used Lasso on | Also used file tools on | Failed Lasso calls | Correct (direct) | Tokens vs direct | Cost vs direct |
 |---|---|---|---|---|---|---|---|
 | v1 | first release | 0 of 32 tasks | — | — | 29/32 (29/32) | −73.8% | $0.167 vs $0.123 |
 | v2 | names, when-to-use guidance, compact text, limit 5 | 20 | 15 | 14 of 79 | 27/32 (29/32) | −158.1% | $0.208 vs $0.123 |
 | v2 | + forgiving tuning inputs | 22 | 17 | 2 of 78 | 28/32 (28/32) | −74.1% | $0.173 vs $0.128 |
-| v3 | + "no second check" instructions, cite on request | 23 | 8 | 0 of 75 | 28/31 (27/31) | **+13.1%** | **$0.131 vs $0.139** |
+| v3 | + "no second check" instructions, cite on request | 23 | 8 | 0 of 75 | 28/31 (27/31) | +13.1% | $0.131 vs $0.139 |
+| v4 | one `lasso` tool: plain-language asks resolved on the server, every question in one call; 149-token definition | **32** | 3 | 0 of 36 | **32/32** (29/32) | **+69.2%** | **$0.080 vs $0.145** |
 
 Negative means more tokens than direct. In the v3 run the spend guard stopped the last direct call, so 31 pairs. The v1 and the first v2 row come from one four-arm run, which also tried v2 with "prefer Lasso" (23 of 32 tasks, −120.6%).
 
-In v3 the saving is concentrated:
-- **Document tasks are 39% cheaper.** Proving a division absent fell from 32–36k tokens to 7–10k, now that "none matches exactly in any shared folder" is said in words.
-- **Code tasks cost 98% more.** Lasso's 387 tokens per call outweigh exact reads that are already small with Read.
-- **Per task, Lasso still used more tokens on 26 of 31**, typically about 800 tokens of definitions on a 1–2k-token task. The total is lower because of the large document tasks.
+In v3 the saving was concentrated in document tasks (−39%); code tasks cost 98% more, because 387 tokens of definitions per call outweighed exact reads that are already small with Read, and Lasso used more tokens than direct tools on 26 of 31 tasks.
 
-v3 answered the old-revision task in 2 of 2 runs and the earlier-value task in 1 of 2; direct tools managed 0 of 2 on each.
+v4 changed the terms of the [cost model](#the-cost-model-refined-from-the-live-traces) it was designed against. Per task, means over the 32 paired tasks:
+
+| Arm | Calls `M` | `F` | `M·F` | Re-read evidence | Output (reasoning) | `T` mean (median) |
+|---|---|---|---|---|---|---|
+| direct | 3.06 | 428 | 1,323 | 5,108 | 422 (67) | 6,853 (2,107) |
+| lasso-v4 | 2.16 | 573 | 1,233 | 610 | 265 (51) | 2,107 (1,479) |
+
+- **Every task used Lasso, and 29 of 32 needed nothing else.** The model asked once and answered (`M` = 2 on 29 of 32 tasks), so `M·F` fell even though each call carries 145 more tokens. The evidence re-read fell by 88%, and output by 37%. None of the 36 `lasso` calls failed. The model batched as the description asks: the six-fact task was one call with six asks in both runs, where v3 made 9 separate searches.
+- **Code tasks are now 14.5% cheaper, documents 80.2%.** Whole functions (−48% to −51%), three definitions at once (−37% to −46%), repeated ranges (−18%), competing budgets (−77% to −82%), the long report (−75% to −83%) and the six facts (−96%) gained most.
+- **Lasso still costs more on 14 of 32 tasks**: the seven that direct tools finish in one read (`M` = 2 for both), where the definitions add 2 × 145 tokens to a 1.0–1.3k-token task (ratios 1.02–1.37; 2.53 once, when the model also re-read the lines with Read). This is the floor `d·M`; a host that loads tools on demand removes it. The median task costs 18% less.
+- **Correctness rose to 32/32** from direct tools' 29/32. With direct tools the model copied Read's line numbers into the duplicate-name answer (both runs) and once reported the warranty reserve as not found. Lasso answered both capability tasks in both runs (direct: 0 of 4).
+- **Cost fell 45%, less than tokens.** v4's calls are short, so few cross OpenAI's 1,024-token caching threshold: 7% of input was cached, against 51% for direct tools.
+
+The one task where the model still checked Lasso's answer was proving a division absent: it grepped and read the budgets after "no exact match … none has "west"", to list the divisions that do exist (6.6k and 8.6k tokens; direct tools 30k and 13.7k). That claim was also too strong: it was judged from the closest hit, and "west" does occur in the corpus (`REGION = "eu-west"`). Absence is now checked word by word over the shared index, and a row asked for by a label no row has comes back with the rows labelled like it:
+
+```
+[1] nothing in the 52 shared files has "west", "division", "revenue" together; no row is labelled "west division"; rows labelled like it: "Central division", "East division", "North division", "South division" (s1, s2).
+```
+
+Re-run on that task alone (2 runs, [results](live-results-gpt-5.4-mini-v4-absence.md)): one `lasso` call and an answer, 1,425 and 1,474 tokens, correct both times, naming the four divisions; direct tools took 46.0k and 36.8k.
+
+**gpt-5.3-codex, v4, one run** ([results](live-results-gpt-5.3-codex-v4.md)), with the absence change. The spend guard stopped before direct tools' six-fact task, so 15 tasks are paired:
+
+| Arm | Correct | Tokens T | Calls `M` | Re-read evidence | Output | Cost |
+|---|---|---|---|---|---|---|
+| direct | 13/15 | 127,293 | 2.80 | 6,926 per task | 374 per task | $0.211 |
+| lasso-v4 | **15/15** | **29,777** | 2.07 | 533 per task | 275 per task | **$0.100** |
+
+`S` = **76.6%** (documents −90.8%, code +3.6%); Lasso was used on all 16 tasks it ran, including the six facts in one call (2.0k tokens). Codex reads code with direct tools almost as cheaply as Lasso answers, so code is about even: the median task ratio is 1.02, and 8 of 15 tasks cost more. On documents it read whole files: 39.6k tokens for the long report (Lasso 1.4k), 46.3k to prove a division absent (1.5k). It answered the report question wrongly with direct tools, and asked whether `Admin/app.py` meant `Admin/src/app.py` rather than showing it; with Lasso both were right, as were both capability tasks (direct: 0 of 2). Its one re-check after Lasso was a grep for three definitions Lasso had just returned; answers now say when a definition is the only one in the shared folders (`(defined nowhere else in the shared folders)`), which was not measured live.
 
 Reproduce (spends money; `--budget` caps a run):
 
@@ -337,11 +443,11 @@ Reproduce (spends money; `--budget` caps a run):
 OPENAI_API_KEY=… node scripts/agent-benchmark-live.mjs --model gpt-5.3-codex --runs 2 --effort low --budget 2.5
 ```
 
-`--arms direct,lasso-v3` chooses arms (`lasso-v1`, `lasso-v2`, `lasso-v2-first`, `lasso-v3`), `--tasks id,…` limits the tasks, `--label` names the results file, and `--regrade <file.json>` reapplies the graders without calling the model. Each call's tool arguments and failures are kept in the results' `trace`. Prices are recorded in the script, and a model without a price is refused. `scripts/agent-token-probe.mjs` measures, for a few cents, the real tokens of each version's definitions and of every answer as JSON and as text ([token-probe.json](token-probe.json)). The earlier definitions are kept in `scripts/agent-tools-versions.mjs`.
+`--arms direct,lasso-v4` chooses arms (`lasso-v1`, `lasso-v2`, `lasso-v2-first`, `lasso-v3`, `lasso-v4`), `--tasks id,…` limits the tasks, `--label` names the results file, and `--regrade <file.json>` reapplies the graders without calling the model. Each call's tool arguments and failures are kept in the results' `trace`. Prices are recorded in the script, and a model without a price is refused. `scripts/agent-token-probe.mjs` measures, for a few cents, the real tokens of each version's definitions and of every answer as JSON and as text ([token-probe.json](token-probe.json)). The earlier definitions are kept in `scripts/agent-tools-versions.mjs`.
 
 ## What the benchmark does not show
 
-- **No Claude measurements, and v3 measured on one small model.** The live runs used OpenAI models, so the token counts are provider-recorded for those models and their tokenizer only. v3 was measured only on gpt-5.4-mini; Codex and gpt-5.5 runs of v3, and a Claude run with `count_tokens`, are still to do.
+- **No Claude measurements, and few models.** The live runs used OpenAI models, so the token counts are provider-recorded for those models and their tokenizer only. v4 was measured on gpt-5.4-mini (2 runs) and gpt-5.3-codex (1 run); gpt-5.5 and a Claude run with `count_tokens` are still to do.
 - **Few live runs.** Two runs per setting at one reasoning effort. The same task in the same arm varied up to 30× between runs, so the totals carry wide uncertainty.
 - **Parser parity.** The corpus is text: code, CSV and Markdown, with a long Markdown report standing in for a long PDF. Direct tools read those natively. Binary formats (XLSX, PDF, DOCX, CAD), where a direct agent needs conversion scripts, are where the proposal expects the largest gains; they weren't tested.
 - **Single-task conversations.** In a long session, prompt caching makes definitions cheap in dollars, though not in token volume, and earlier evidence is re-read on every later turn.
@@ -350,7 +456,8 @@ OPENAI_API_KEY=… node scripts/agent-benchmark-live.mjs --model gpt-5.3-codex -
 ## Other limitations
 
 - Search is lexical, matching words rather than phrases, so a query should carry the question's distinguishing words. Code symbols for search come from Lasso's existing indexer, which misses forms such as `export function`; `lasso_read {symbol}` scans definitions itself and finds them.
-- Models still do not batch: the 6-fact task took 9 separate searches in v3, against the description's request.
+- Asks are read lexically. A question has to carry the words of what it is about: "the West division's revenue" finds rows labelled "West division", but "the region that grew most" finds nothing to compute it from. Lasso returns evidence; it does not compute, compare or summarize.
+- Row labels come from the first text column of small tables and from the row index of large ones; a table whose rows are named elsewhere is searched by its values only.
 - A handle that could not be recorded because the store was busy resolves only in the process that issued it.
 - One MCP process per host connection keeps its own caches: about 156 MB RSS measured here. Several hosts at once mean several processes.
 - The REST server is per library and per scope. `ensure` with a different scope than the running server's is refused, not silently widened.
@@ -363,7 +470,7 @@ OPENAI_API_KEY=… node scripts/agent-benchmark-live.mjs --model gpt-5.3-codex -
 | `--scope` (repeatable) / `LASSO_AGENT_SCOPE` (JSON list or `;`-separated) | none: every call fails with `scope_not_configured` | Folders an agent may read; `*` shares every enabled folder |
 | `--idle <seconds>` | 300 (0 never idles) | REST idle shutdown |
 | `--port` | 0 (ephemeral) | REST port, always on 127.0.0.1 |
-| `--tools` | `search,read` | MCP tools offered; add `cite` for `lasso_cite` |
+| `--tools` | `lasso` | MCP tools offered: `lasso`, `search`, `read`, `cite` |
 | `LASSO_AGENT_METRICS=<file>` | off | Appends one JSON line per call: operation, transport, ms, bytes, estimated tokens |
 
 Files: `<data>/agent/rest.json` (address and token, 0600), `rest.lock`, `rest.log`. REST also serves `GET /agent/v1/status`, `GET /agent/v1/metrics` and `POST|PUT|DELETE /agent/v1/leases[/id]`.
@@ -371,10 +478,12 @@ Files: `<data>/agent/rest.json` (address and token, 0600), `rest.lock`, `rest.lo
 ## Tests
 
 ```bash
-node --test test/agent-evidence.test.js test/agent-transports.test.js
+node --test test/agent-ask.test.js test/agent-evidence.test.js test/agent-transports.test.js
 ```
 
 They cover:
+- reading asks: ranges and range lists, definitions, folders, revisions, disk, history, enumerated parts
+- asks answered in one call: lines, definitions, records that agree, differ or rank, absence, passages, history, revisions, the file as it is now, folder words that settle a shared name, object asks
 - exact inclusive ranges, with a literal-parity property test over random ranges
 - duplicate names, pinned and historical revisions, and disk changes
 - credential and exclusion filtering, and scope enforcement

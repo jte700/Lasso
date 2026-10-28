@@ -23,7 +23,7 @@ export function openLocal({ dataDir = null, scope, client = 'node' } = {}) {
   const engine = openEngine({ dataDir: resolveDataDir(dataDir), scope });
   const actor = slugActor(`agent:local:${client}`, `${client} (in process)`);
   const run = (operation) => (body = {}) => engine.metrics.measure(operation, 'local', () => engine.evidence[operation](body, actor));
-  return { suggest: run('suggest'), inspect: run('inspect'), bind: run('bind'), status: () => engine.evidence.status(),
+  return { ask: run('ask'), suggest: run('suggest'), inspect: run('inspect'), bind: run('bind'), status: () => engine.evidence.status(),
     metrics: () => engine.metrics.snapshot(), engine, close: async () => engine.close() };
 }
 
@@ -91,6 +91,7 @@ export async function connect({ dataDir = null, scope, idleSeconds = 300, client
     url: record.url,
     pid: record.pid,
     started: record.started,
+    ask: (body) => call('POST', '/agent/v1/ask', body),
     suggest: (body) => call('POST', '/agent/v1/suggest', body),
     inspect: (body) => call('POST', '/agent/v1/inspect', body),
     bind: (body) => call('POST', '/agent/v1/bind', body),

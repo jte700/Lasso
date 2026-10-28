@@ -8,7 +8,7 @@
 //
 // Common options: --data-dir <dir> (default: LASSO_DATA_DIR, then the desktop
 // app's library), --idle <seconds> (REST only, default 300; 0 never idles),
-// --tools search,read[,cite] (MCP only; cite is off unless named).
+// --tools lasso[,search,read,cite] (MCP only; lasso alone by default).
 // The scope can also come from LASSO_AGENT_SCOPE, as a JSON list or separated by ";".
 
 import fs from 'node:fs';
@@ -18,7 +18,7 @@ import { serveMcp, toolsNamed } from './mcp.js';
 import { readDiscovery, serveAgentApi } from './rest.js';
 import { ensureServer } from './client.js';
 
-const USAGE = `Usage: lasso-agent <mcp|serve|ensure|status|stop> [--data-dir DIR] [--scope FOLDER]... [--idle SECONDS] [--port N] [--tools search,read,cite]
+const USAGE = `Usage: lasso-agent <mcp|serve|ensure|status|stop> [--data-dir DIR] [--scope FOLDER]... [--idle SECONDS] [--port N] [--tools lasso,search,read,cite]
   --scope names a Lasso folder (its name or root path) an agent may read; "*" shares every enabled folder.`;
 
 export function parseArguments(argv, env = process.env) {

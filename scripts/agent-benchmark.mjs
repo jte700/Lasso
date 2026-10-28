@@ -23,8 +23,8 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { openLocal, connect } from '../src/agent/client.js';
-import { DIRECT_DEFINITIONS, LASSO_DEFINITIONS, LASSO_DEFINITIONS_WITH_CITE, LEGACY_DEFINITION, directTools, estimateConservative, grepHits, prepareLibrary, readLines, REPEATED_RANGES, taskPrompts }
-  from './agent-benchmark-corpus.mjs';
+import { ASK_DEFINITIONS, DIRECT_DEFINITIONS, LASSO_DEFINITIONS, LASSO_DEFINITIONS_WITH_CITE, LEGACY_DEFINITION, composeAnswer, directTools, estimateConservative,
+  graders, grepHits, prepareLibrary, readLines, REPEATED_RANGES, taskPrompts } from './agent-benchmark-corpus.mjs';
 import { blockRange, definitions } from '../src/agent/evidence.js';
 import { formatAnswer } from '../src/agent/render.js';
 import { estimateTokens } from '../src/agent/metrics.js';
@@ -58,11 +58,15 @@ class Trajectory {
     this.definitions = JSON.stringify(definitions);
     // Measured per-call cost of these definitions, when the probe has measured all of them.
     const names = definitions.map((definition) => definition.name).filter(Boolean);
-    const lasso = names.some((name) => name.startsWith('lasso_') && name !== 'lasso_find');
-    // The probe measures the default tools; cite, when offered, is added as estimated.
+    const searchRead = names.some((name) => name === 'lasso_search' || name === 'lasso_read');
+    const ask = names.includes('lasso');
+    // The probe measures v3's search and read and the current lasso tool; cite, when offered, is added as estimated.
+    // A probe from before the lasso tool measured v3 as current.
+    const v3 = MEASURED?.lassoV3 ?? MEASURED?.lassoCurrent;
+    const v4 = MEASURED?.lassoV3 != null ? MEASURED.lassoCurrent : null;
     const cite = definitions.find((definition) => definition.name === 'lasso_cite');
-    this.measuredDefinitions = MEASURED && !names.includes('lasso_find')
-      ? MEASURED.direct + (lasso ? MEASURED.lassoCurrent : 0) + (cite ? estimateTokens(JSON.stringify(cite)) : 0) : null;
+    this.measuredDefinitions = MEASURED && !names.includes('lasso_find') && !(ask && v4 == null)
+      ? MEASURED.direct + (searchRead ? v3 : 0) + (ask ? v4 : 0) + (cite ? estimateTokens(JSON.stringify(cite)) : 0) : null;
     this.rounds = [];
     this.ms = 0;
     this.answer = null;
@@ -134,6 +138,12 @@ class Trajectory {
 
 const json = (output) => JSON.parse(output);
 const candidatesOf = (output, index = 0) => json(output).results[index].candidates;
+
+/** One call: the request as the person wrote it, then an answer from what came back. */
+async function askPolicy(t) {
+  const [result] = await t.round([['lasso', { ask: [t.task.prompt] }]]);
+  return t.finish(composeAnswer(json(result)));
+}
 
 // ── tasks ──────────────────────────────────────────────────────────────────
 
@@ -584,6 +594,8 @@ async function runOnce() {
 
   const direct = directTools(root);
   const suite = tasks(truth, oldBillingRev, routesNow);
+  // The ask policy's answers are in a model's own words, so they are graded as live answers are.
+  const graded = graders({ truth, files, routesNow });
   const runs = [];
   const local = { cold: null, warm: null };
   // Each Lasso arm gets its own engine, so one arm's warm caches never speed up another's.
@@ -592,6 +604,7 @@ async function runOnce() {
   const clients = { lasso: openLocal({ dataDir, scope: ['*'], client: 'bench' }) };
   local.cold = performance.now() - opened;
   clients.optimized = openLocal({ dataDir, scope: ['*'], client: 'bench' });
+  clients.ask = openLocal({ dataDir, scope: ['*'], client: 'bench' });
   opened = performance.now();
   openLocal({ dataDir, scope: ['*'], client: 'bench' }).close();
   local.warm = performance.now() - opened;
@@ -601,6 +614,7 @@ async function runOnce() {
     const toolsOf = (client) => ({ lasso_search: (input) => answer('suggest', client.suggest(input)),
       lasso_read: (input) => answer('inspect', client.inspect(input)), lasso_cite: (input) => answer('bind', client.bind(input)) });
     const legacyTool = { lasso_find: async ({ command }) => app.workspace.terminalRun(command, actor) };
+    const askTool = { lasso: (input) => answer('ask', clients.ask.ask(input)) };
     for (const task of suite) {
       const arms = {
         direct: [task.direct, { ...direct }, DIRECT_DEFINITIONS],
@@ -614,14 +628,16 @@ async function runOnce() {
         // The same, if the host loaded Lasso's definitions only when a task used them (the loading call itself is not counted).
         'routed-deferred': [routesDirect(task) ? task.direct : task.optimized ?? task.lasso, { ...direct, ...toolsOf(clients.optimized) },
           routesDirect(task) ? DIRECT_DEFINITIONS : [...DIRECT_DEFINITIONS, ...LASSO_DEFINITIONS]],
+        // v4: every task through one plain-language lasso call.
+        ask: [askPolicy, { ...direct, ...askTool }, [...DIRECT_DEFINITIONS, ...ASK_DEFINITIONS], { ...task, grade: graded[task.id] }],
       };
-      for (const [arm, [policy, tools, definitionsOf]] of Object.entries(arms)) {
+      for (const [arm, [policy, tools, definitionsOf, asTask = task]] of Object.entries(arms)) {
         // Direct and legacy arms do not depend on the Lasso engine's warmth.
         if (phase === 'warm' && ['direct', 'legacy'].includes(arm)) continue;
         if (phase === 'cold' && ['optimized+bind', 'routed', 'routed-deferred'].includes(arm)) continue;
         let outcome;
         try {
-          outcome = await policy(new Trajectory({ arm, task, tools, definitions: definitionsOf }));
+          outcome = await policy(new Trajectory({ arm, task: asTask, tools, definitions: definitionsOf }));
         } catch (error) {
           outcome = { task: task.id, family: task.family, arm, capability: Boolean(task.capability), correct: false, failed: error.message,
             tokens: null, rounds: null, calls: null };
@@ -633,6 +649,7 @@ async function runOnce() {
   }
   await clients.lasso.close();
   await clients.optimized.close();
+  await clients.ask.close();
 
 
   const lifecycle = { indexMs: Math.round(indexMs), engineOpenColdMs: Math.round(local.cold * 10) / 10, engineOpenWarmMs: Math.round(local.warm * 10) / 10 };
@@ -673,7 +690,7 @@ function summarize(runs, lifecycle, suite) {
   const warm = runs.filter((run) => run.phase !== 'cold');
   const of = (arm, filter = () => true) => warm.filter((run) => run.arm === arm && filter(run));
   const comparable = (run) => !run.capability;
-  const arms = ['direct', 'legacy', 'lasso', 'optimized', 'routed', 'routed-deferred'];
+  const arms = ['direct', 'legacy', 'lasso', 'optimized', 'routed', 'routed-deferred', 'ask'];
   const totals = Object.fromEntries(arms.map((arm) => {
     const rows = of(arm, comparable);
     const sum = (key) => rows.reduce((total, run) => total + (run[key] ?? 0), 0);
@@ -695,17 +712,18 @@ function summarize(runs, lifecycle, suite) {
       perTaskRatio: { min: Math.round(Math.min(...ratios) * 100) / 100, median: Math.round(median(ratios) * 100) / 100, max: Math.round(Math.max(...ratios) * 100) / 100 },
       regressions: paired.filter(([base, lasso]) => lasso.tokens > base.tokens).map(([base, lasso]) => ({ task: base.task, direct: base.tokens, arm: lasso.tokens })) }];
   }));
-  const coldWarm = ['lasso', 'optimized'].map((arm) => ({ arm,
+  const coldWarm = ['lasso', 'optimized', 'ask'].map((arm) => ({ arm,
     coldLocalMs: Math.round(runs.filter((run) => run.arm === arm && run.phase === 'cold').reduce((sum, run) => sum + (run.localMs ?? 0), 0)),
     warmLocalMs: Math.round(runs.filter((run) => run.arm === arm && run.phase === 'warm').reduce((sum, run) => sum + (run.localMs ?? 0), 0)) }));
   return { generatedAt: new Date().toISOString(), node: process.version, platform: `${process.platform} ${process.arch}`,
     constants: { SYSTEM_TOKENS, CALL_OVERHEAD, RESULT_OVERHEAD, measuredDefinitions: MEASURED, toolDefinitionTokens: {
       direct: estimateTokens(JSON.stringify(DIRECT_DEFINITIONS)), lasso: estimateTokens(JSON.stringify(LASSO_DEFINITIONS)),
+      ask: estimateTokens(JSON.stringify(ASK_DEFINITIONS)),
       legacy: estimateTokens(JSON.stringify(LEGACY_DEFINITION)) }, price: PRICE },
     totals, savings, coldWarm, lifecycle,
     ablation: runs.filter((run) => run.arm === 'optimized+bind' || (run.task === 'doc-related-facts' && ['direct', 'optimized'].includes(run.arm) && run.phase !== 'cold'))
       .map(({ task, arm, correct, tokens, rounds, calls }) => ({ task, arm, correct, tokens, rounds, calls })),
-    capability: runs.filter((run) => run.capability && run.phase !== 'cold' && ['direct', 'optimized'].includes(run.arm))
+    capability: runs.filter((run) => run.capability && run.phase !== 'cold' && ['direct', 'optimized', 'ask'].includes(run.arm))
       .map(({ task, arm, correct, tokens }) => ({ task, arm, correct, tokens })),
     runs: warm.map(({ answer, ...run }) => ({ ...run, answer: typeof answer === 'string' && answer.length > 160 ? `${answer.slice(0, 157)}…` : answer })) };
 }
@@ -716,6 +734,7 @@ function report(results) {
   lines.push('# Lasso agent benchmark: results', '');
   lines.push(`Generated ${results.generatedAt} on ${results.platform}, Node ${results.node}. Produced by \`node scripts/agent-benchmark.mjs\`; the numbers below are this run's.`, '');
   lines.push('**Token figures are estimates** (tokenizer-free estimator, same for every arm) of complete-task model input and output under scripted, competent policies. They are not provider-recorded usage, reasoning tokens are not modelled, and a live model may take different steps.', '');
+  lines.push('Arms: `lasso` and `optimized` are v3\'s scripted search-then-read policies (search and read tools); `routed` sends short reads of a named file to direct tools; `ask` is v4, one `lasso` call per task with the request as written, answered from what came back by one rule for every task and graded as live answers are (the known values present; a question when the files leave the choice open).', '');
   lines.push('## Complete-task totals (tasks with a direct-tools equivalent)', '');
   lines.push('| Arm | Correct | Est. tokens T | of which tool definitions | Evidence tokens | T, conservative estimate | Rounds J | Tool calls | Est. cost (no cache) | Est. cost (prefix cache) | Local tool time |');
   lines.push('|---|---|---|---|---|---|---|---|---|---|---|');
@@ -765,9 +784,11 @@ function report(results) {
   lines.push('', '## Constants', '');
   if (results.constants.measuredDefinitions) {
     const measured = results.constants.measuredDefinitions;
-    lines.push(`Tool definitions are charged as a provider counted them (docs/agent/token-probe.json, gpt-5.4-mini): direct ${measured.direct}, Lasso +${measured.lassoCurrent} per call. The terminal-find arm is still estimated.`, '');
+    lines.push(measured.lassoV3 != null
+      ? `Tool definitions are charged as a provider counted them (docs/agent/token-probe.json, gpt-5.4-mini): direct ${measured.direct}, Lasso search and read (v3) +${measured.lassoV3}, the lasso tool (v4) +${measured.lassoCurrent} per call. The terminal-find arm is still estimated.`
+      : `Tool definitions are charged as a provider counted them (docs/agent/token-probe.json, gpt-5.4-mini): direct ${measured.direct}, Lasso +${measured.lassoCurrent} per call. The terminal-find arm is still estimated.`, '');
   }
-  lines.push(`System prompt ${results.constants.SYSTEM_TOKENS} tokens per invocation; ${results.constants.CALL_OVERHEAD} tokens per tool call and ${results.constants.RESULT_OVERHEAD} per tool result of framing; tool definitions: direct ${results.constants.toolDefinitionTokens.direct}, Lasso ${results.constants.toolDefinitionTokens.lasso} (added to the direct tools, never replacing them), terminal find ${results.constants.toolDefinitionTokens.legacy}. Prices: Claude Opus 5.5 list ($${results.constants.price.input}/$${results.constants.price.output} per M input/output, cache reads $${results.constants.price.cacheRead}).`, '');
+  lines.push(`System prompt ${results.constants.SYSTEM_TOKENS} tokens per invocation; ${results.constants.CALL_OVERHEAD} tokens per tool call and ${results.constants.RESULT_OVERHEAD} per tool result of framing; estimated tool definitions: direct ${results.constants.toolDefinitionTokens.direct}, Lasso search and read ${results.constants.toolDefinitionTokens.lasso}, the lasso tool ${results.constants.toolDefinitionTokens.ask} (each added to the direct tools, never replacing them), terminal find ${results.constants.toolDefinitionTokens.legacy}. Prices: Claude Opus 5.5 list ($${results.constants.price.input}/$${results.constants.price.output} per M input/output, cache reads $${results.constants.price.cacheRead}).`, '');
   return `${lines.join('\n')}\n`;
 }
 
