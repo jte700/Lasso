@@ -116,19 +116,32 @@ export function typedSentence(text, cursor) {
 }
 
 /**
+ * The word the caret is still in, when it is long enough to begin few words
+ * and is not itself a whole function word: "whe" while "when" is typed.
+ * @param {string} sentence
+ * @returns {string|null}
+ */
+function unfinishedWord(sentence) {
+  const word = String(sentence ?? '').match(/[A-Za-z][A-Za-z0-9]{2,}$/)?.[0].toLowerCase();
+  return word && !FUNCTION_WORDS.has(word) && !STUDY_CUE_WORDS.has(word) ? word : null;
+}
+
+/**
  * The words of a source's text, as written there, that are forms of the
- * words typed: what its preview marks. Each word once, in source order.
+ * words typed, or that the word still being typed begins: what its preview
+ * marks. Each word once, in source order.
  * @param {string} sentence
  * @param {string} sourceText
  * @returns {string[]}
  */
 export function matchedSourceWords(sentence, sourceText) {
   const typed = new Set(typedWordKeys(sentence));
-  if (!typed.size) return [];
+  const unfinished = unfinishedWord(sentence);
+  if (!typed.size && !unfinished) return [];
   const seen = new Set();
   return (String(sourceText ?? '').match(/[A-Za-z][A-Za-z0-9]{2,}/g) ?? []).filter((word) => {
     const lower = word.toLowerCase();
-    if (seen.has(lower) || !typed.has(matchKey(lower))) return false;
+    if (seen.has(lower) || !(typed.has(matchKey(lower)) || (unfinished && lower.startsWith(unfinished)))) return false;
     seen.add(lower);
     return true;
   });

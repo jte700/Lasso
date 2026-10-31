@@ -466,6 +466,8 @@ extension GlobalAssistant {
                     snapshotId: candidate["snapshotId"] as? String,
                     usageObjectId: candidate["id"] as? String, projectId: projectId,
                     rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String,
+                    // A claimed sentence is marked on its slide or page even when no typed word is.
+                    previewText: AssistSuggestionSemantics.passage(of: candidate),
                     shareable: candidate["shareable"] as? Bool ?? true,
                     narrowable: candidate["narrowable"] as? Bool == true), rankedBy: candidate)
             }

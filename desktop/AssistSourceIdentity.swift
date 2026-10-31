@@ -133,4 +133,15 @@ enum AssistSuggestionSemantics {
         if let claimType, labelFirst.contains(claimType), !label.isEmpty { return label }
         return value ?? label
     }
+
+    /// The passage a claim candidate's preview marks: its sentence, when it is
+    /// a sentence of its source. A cell's or column's value is not found as
+    /// text in its preview, so it is none.
+    static func passage(of candidate: [String: Any]) -> String? {
+        let metadata = candidate["metadata"] as? [String: Any] ?? [:]
+        guard metadata["componentType"] as? String == "TEXT_EXCERPT",
+              let sentence = (candidate["valueText"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sentence.isEmpty else { return nil }
+        return sentence
+    }
 }
