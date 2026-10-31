@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createApplication } from '../src/server.js';
 import { matchKey, matchedSourceWords, ownWordKeys, typedWordKeys } from '../src/dependencies/direct-match.js';
+import { detectClaimSpans } from '../src/dependencies/claim-detection.js';
 
 // A ledger's columns and a deck-like note: words that a sentence either
 // names or does not, so a suggestion's presence says whether it matched.
@@ -198,4 +199,63 @@ test('a sheet name or a row’s column headers are not the row’s own words', (
   // Assert
   assert.deepEqual(rowWords, [matchKey('gizmos')]);
   assert.deepEqual(tableWords, [matchKey('products')], 'a whole table is matched by its name');
+});
+
+// A runbook and a readme whose sentences share "numbers" with an earlier
+// paragraph of a message, and nothing with its last line.
+async function runbookWorkspace(t) {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-reference-sentence-'));
+  const root = path.join(temporary, 'tidewater');
+  fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'README.md'),
+    '# Tidewater\n\nEvery shipment gets a tracking number of TW followed by ten digits, such as TW4820193375.\n');
+  fs.writeFileSync(path.join(root, 'docs', 'runbook.md'),
+    '# Runbook\n\n## Customers see "Too many lookups"\n\nEach API key may make 120 requests a minute, with bursts of 30. '
+    + 'A partner polling every tracking number on a timer will hit this; ask them to use the scan webhook instead.\n');
+  const app = createApplication({ dataDir: path.join(temporary, 'state'), watchProjects: false });
+  t.after(async () => { await app.close(); fs.rmSync(temporary, { recursive: true, force: true }); });
+  await app.workspace.add([root], { id: 'system:reference-sentence', displayName: 'Reference sentence test', actorType: 'SYSTEM' });
+  return app;
+}
+
+test('a source named in an earlier paragraph is not offered for the line being typed', async (t) => {
+  // Arrange
+  const app = await runbookWorkspace(t);
+  const message = 'please do the following:\n\n'
+    + 'Grade my essay as a professor or TA would by cross referencing it to the course material and assignment requirements.\n\n'
+    + 'Once you have done this, go through all quotes, sources and page numbers from those sources/ slide numbers or image references.\n\n'
+    + 'Check that the invoice';
+
+  // Act
+  const results = await offered(app, message);
+
+  // Assert
+  assert.deepEqual(results, [], 'no source has "invoice"');
+});
+
+test('a reference being typed is read from its own sentence only', () => {
+  // Arrange
+  const earlier = 'Go through the slide numbers or image references.\n\nCheck that the invoice';
+  const sameLine = 'Check the slides on tracking numb';
+
+  // Act
+  const acrossParagraphs = detectClaimSpans(earlier).filter((claim) => claim.type === 'LITERATURE');
+  const inSentence = detectClaimSpans(sameLine).find((claim) => claim.type === 'LITERATURE');
+
+  // Assert
+  assert.deepEqual(acrossParagraphs, []);
+  assert.equal(inSentence?.value, 'on tracking numb');
+});
+
+test('a document is not named by the folder it is filed in', async (t) => {
+  // Arrange
+  const app = await runbookWorkspace(t);
+
+  // Act
+  const byFolder = await offered(app, 'From the document docs');
+  const byOwnWords = await offered(app, 'From the document on partner polling');
+
+  // Assert
+  assert.deepEqual(byFolder, [], '"docs" is only the folder the runbook is in');
+  assert.ok(byOwnWords.some((label) => /A partner polling/.test(label)), byOwnWords.join(' | '));
 });

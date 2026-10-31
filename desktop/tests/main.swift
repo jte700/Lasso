@@ -1146,60 +1146,6 @@ do {
     check(unknownScreen.frame.minY >= caret.maxY, "prefers above even without a display to fit")
 }
 
-print("the suggestion card stays clear of the text in the window being written in")
-do {
-    let visible = CGRect(x: 0, y: 0, width: 1440, height: 875)
-    let card = CGSize(width: 520, height: 300)
-    func onScreen(_ placement: CaretCardPlacement) -> Bool { visible.contains(placement.frame) }
-
-    // A window in the middle of the display, its editor full of text.
-    let window = CGRect(x: 300, y: 330, width: 700, height: 220)
-    let editor = window.insetBy(dx: 20, dy: 20)
-    let caret = CGRect(x: 600, y: 480, width: 1, height: 18)
-    let outside = CaretCardPlacement.clear(of: window, text: editor, caret: caret, size: card, visible: visible)
-    check(!outside.frame.intersects(window) && onScreen(outside),
-          "goes above or below a window with room for it, covering none of the window")
-    check(outside.frame.minY >= window.maxY && !outside.pointerAtTop,
-          "takes the side of the window nearer the caret")
-    let nearFoot = CGRect(x: 600, y: 360, width: 1, height: 18)
-    let below = CaretCardPlacement.clear(of: window, text: editor, caret: nearFoot, size: card, visible: visible)
-    check(below.frame.maxY <= window.minY && below.pointerAtTop, "and below it when the caret is nearer its foot")
-    check(outside.frame.minX + outside.pointerX == caret.midX, "still points at the caret")
-
-    // The same window low on the display: only below has no room, so above.
-    let low = CGRect(x: 300, y: 20, width: 700, height: 220)
-    let lowCaret = CGRect(x: 600, y: 200, width: 1, height: 18)
-    let aboveLow = CaretCardPlacement.clear(of: low, text: low.insetBy(dx: 20, dy: 20), caret: lowCaret, size: card, visible: visible)
-    check(aboveLow.frame.minY >= low.maxY && onScreen(aboveLow), "goes above a window at the foot of the display")
-
-    // A window filling the display, the caret on the last line of its text.
-    let full = visible
-    let written = CGRect(x: 100, y: 500, width: 1200, height: 340)
-    let lastLine = CGRect(x: 640, y: 500, width: 1, height: 18)
-    let blankBelow = CaretCardPlacement.clear(of: full, text: written, caret: lastLine, size: card, visible: visible)
-    check(blankBelow.frame.maxY <= lastLine.minY && blankBelow.pointerAtTop && onScreen(blankBelow),
-          "with no room outside the window, hangs below the last line written instead of over the text above it")
-    check(!blankBelow.frame.intersects(written), "covers none of the text")
-
-    // Text above and below the caret, and blank room under the text.
-    let middleText = CGRect(x: 100, y: 360, width: 1200, height: 480)
-    let midCaret = CGRect(x: 640, y: 600, width: 1, height: 18)
-    let underText = CaretCardPlacement.clear(of: full, text: middleText, caret: midCaret, size: card, visible: visible)
-    check(underText.frame.maxY <= middleText.minY && onScreen(underText),
-          "moves down past the text rather than cover the lines around the caret")
-
-    // Text everywhere: the card covers as little as it can, never the typed line.
-    let everywhere = CGRect(x: 0, y: 0, width: 1440, height: 875)
-    let highCaret = CGRect(x: 640, y: 700, width: 1, height: 18)
-    let least = CaretCardPlacement.clear(of: full, text: everywhere, caret: highCaret, size: card, visible: visible)
-    check(onScreen(least) && (least.frame.maxY <= highCaret.minY || least.frame.minY >= highCaret.maxY),
-          "leaves the line being typed uncovered when text fills the display")
-
-    let fallback = CaretCardPlacement.clear(of: nil, text: nil, caret: caret, size: card, visible: visible)
-    check(fallback == CaretCardPlacement.beside(caret: caret, size: card, visible: visible),
-          "without a window or text to avoid, sits beside the caret as before")
-}
-
 print("the caret is measured on the line it is drawn on")
 do {
     // Measured in Notes: after "The ou" in a 20pt title, the collapsed range

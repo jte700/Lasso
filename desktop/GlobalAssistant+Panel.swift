@@ -105,14 +105,13 @@ extension GlobalAssistant {
         measuringFor = token
         AccessibilityWork.queue.async { [weak self] in
             let host = Self.popupHost(for: context.element, reusing: previous)
-            let surroundings = host?.visibleSurroundings(caret: AccessibilityReader.caretRect(of:),
-                                                         text: AccessibilityReader.visibleTextFrame(of:))
+            let caret = host?.visibleCaret(using: AccessibilityReader.caretRect(of:))
             DispatchQueue.main.async {
                 guard let self else { return }
                 if self.measuringFor == token { self.measuringFor = nil }
                 guard token == self.generation else { return }
-                guard let host, let surroundings else { self.hide(); return }
-                self.adoptHost(host, surroundings: surroundings)
+                guard let host, let caret else { self.hide(); return }
+                self.adoptHost(host, caret: caret)
                 present()
             }
         }
@@ -129,21 +128,11 @@ extension GlobalAssistant {
         updateHostPosition()
     }
 
-    /// Follows an editor whose caret was measured with the text around it.
-    func adoptHost(_ host: AssistPopupHost, surroundings: HostSurroundings) {
-        adoptHost(host, caret: surroundings.caret)
-        popupSurroundings = surroundings
-        textMeasuredAt = surroundings.caret
-    }
-
-    /// Follows an editor measured off the main thread. Until the text around
-    /// a moved caret is measured, the card keeps clear of where it was.
+    /// Follows an editor measured off the main thread.
     func adoptHost(_ host: AssistPopupHost, caret: CGRect) {
-        let sameHost = popupHost.map { CFEqual($0.element, host.element) } ?? false
-        if !sameHost { hostGeneration += 1 }
+        if popupHost.map({ !CFEqual($0.element, host.element) }) ?? true { hostGeneration += 1 }
         popupHost = host
         popupCaret = caret
-        popupSurroundings = sameHost ? popupSurroundings.map { HostSurroundings(caret: caret, window: $0.window, text: $0.text) } : nil
         if hostTimer == nil {
             let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.updateHostPosition() }
             timer.tolerance = 0.02
@@ -165,29 +154,22 @@ extension GlobalAssistant {
     private func updateHostPosition() {
         guard let host = popupHost, hostReads.begin() else { return }
         let token = hostGeneration
-        let last = popupSurroundings
-        let measuredAt = textMeasuredAt
         AccessibilityWork.queue.async { [weak self] in
-            // The text in view is measured again only once the caret has moved.
-            let surroundings = host.visibleSurroundings(caret: AccessibilityReader.caretRect(of:),
-                                                        text: AccessibilityReader.visibleTextFrame(of:),
-                                                        reuse: { caret in caret == measuredAt && last != nil ? .some(last?.text) : nil })
+            let rect = host.visibleCaret(using: AccessibilityReader.caretRect(of:))
             DispatchQueue.main.async {
                 guard let self else { return }
                 let again = self.hostReads.end()
-                if token == self.hostGeneration { self.followHost(to: surroundings) }
+                if token == self.hostGeneration { self.followHost(to: rect) }
                 if again { self.updateHostPosition() }
             }
         }
     }
 
-    private func followHost(to surroundings: HostSurroundings?) {
-        guard let surroundings else { hide(); return }
-        textMeasuredAt = surroundings.caret
-        guard surroundings != popupSurroundings else { return }
-        popupCaret = surroundings.caret
-        popupSurroundings = surroundings
-        reposition(near: surroundings.caret)
+    private func followHost(to rect: CGRect?) {
+        guard let rect else { hide(); return }
+        guard rect != popupCaret else { return }
+        popupCaret = rect
+        reposition(near: rect)
     }
 
     func stopTrackingHost() {
@@ -200,8 +182,6 @@ extension GlobalAssistant {
         hostObservers.removeAll()
         popupHost = nil
         popupCaret = nil
-        popupSurroundings = nil
-        textMeasuredAt = nil
     }
 
     func reposition(near caret: CGRect?) {
@@ -229,8 +209,7 @@ extension GlobalAssistant {
 
     /// Accessibility reports rectangles with the origin at the top-left of the
     /// primary display; AppKit windows use a bottom-left origin. The card goes
-    /// where it covers the least of the text in the host's window, outside the
-    /// window when there is room (see CaretCardPlacement).
+    /// right at the caret, above it where it fits (see CaretCardPlacement).
     private func anchoredFrame(for caret: CGRect?, size: NSSize) -> NSRect {
         guard let caret else {
             let mouse = NSEvent.mouseLocation
@@ -254,10 +233,7 @@ extension GlobalAssistant {
         let caretOnScreen = NSRect(x: flipped.minX, y: flipped.minY,
                                    width: max(1, flipped.width), height: max(1, flipped.height))
         let screen = self.screen(showing: caretOnScreen) ?? primary ?? NSScreen.main
-        let surroundings = popupSurroundings?.caret == caret ? popupSurroundings : nil
-        let appKit = { (rect: CGRect?) in rect.map { HostGeometryConverter.toAppKit($0, primaryHeight: primary?.frame.maxY ?? 0) } }
-        let placement = CaretCardPlacement.clear(of: appKit(surroundings?.window), text: appKit(surroundings?.text),
-                                                 caret: flipped, size: size, visible: screen?.visibleFrame)
+        let placement = CaretCardPlacement.beside(caret: flipped, size: size, visible: screen?.visibleFrame)
 
         view.pointerAtTop = placement.pointerAtTop
         view.pointerX = placement.pointerX

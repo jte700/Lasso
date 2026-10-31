@@ -3,6 +3,7 @@
 
 import { normalizedVariable } from './tabular.js';
 import { wordTokens } from './text-similarity.js';
+import { writingSourceContext } from './writing-context.js';
 
 function partialReferenceIntent(source) {
   const nouns = '(paper|study|article|publication|reference|document|report|file|note|memo|proposal|manuscript|protocol|spreadsheet|workbook|presentation|slides?)';
@@ -65,11 +66,15 @@ export function detectClaimSpans(text) {
     add(match.index, match.index + match[0].length, 'LITERATURE', match[0]);
   }
   if (!explicitReference) {
-    const partialCitation = partialReferenceIntent(source);
+    // A reference is named in the sentence being typed. Read across a full stop
+    // or a blank line, "slide numbers or image references.\n\nCheck that the
+    // invoice" asked for slides about invoices and numbers alike.
+    const { sentenceStart } = writingSourceContext(source, source.length);
+    const partialCitation = partialReferenceIntent(source.slice(sentenceStart));
     if (partialCitation) {
       explicitReference = true;
       const trailingComma = source.trimEnd().endsWith(',') ? 1 : 0;
-      add(partialCitation.start, source.length - trailingComma, 'LITERATURE', partialCitation.query, {
+      add(sentenceStart + partialCitation.start, source.length - trailingComma, 'LITERATURE', partialCitation.query, {
         partial: true,
         referenceKind: partialCitation.referenceKind,
         referenceMode: partialCitation.referenceMode,

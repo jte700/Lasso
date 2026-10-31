@@ -108,10 +108,6 @@ final class GlobalAssistant {
     var lastTrack = Date.distantPast
     var popupHost: AssistPopupHost?
     var popupCaret: CGRect?
-    /// The host's window and the text showing in its editor, measured with `popupCaret`.
-    var popupSurroundings: HostSurroundings?
-    /// The caret the text in `popupSurroundings` was measured at.
-    var textMeasuredAt: CGRect?
     /// Changes whenever the tracked editor changes or tracking stops, so a
     /// caret read for an earlier editor is never applied.
     var hostGeneration = 0

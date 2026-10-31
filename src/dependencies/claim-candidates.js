@@ -5,14 +5,26 @@ import { buildSentenceCorpus, completeSentence } from './completion.js';
 import { markdownBlocks } from '../sharing/markdown.js';
 import { humanVariable, normalizedVariable } from './tabular.js';
 import { SLIDE_SENTENCE_LIMITS } from './file-objects.js';
+import { matchedSourceWords } from './direct-match.js';
 import { authorSimilarity, referenceSimilarity, referenceTitleSimilarity } from './reference-match.js';
 import { prefixTokenScore, tokenOverlap, wordTokens } from './text-similarity.js';
 import { measurementDescriptor, numericDescriptor, valueMatch } from './value-match.js';
 import { objectMatchingFeatures, variableSimilarity } from './variable-match.js';
 import { isPassageExcerpt } from './workspace-completion.js';
+import { writingSourceContext } from './writing-context.js';
 
 function citedAuthor(text) {
   return String(text ?? '').match(/\b([A-Z][A-Za-z'’-]+)\s+et al\./)?.[1] ?? '';
+}
+
+// A source backs a reference only when it has a word typed for it: in its own
+// text, title, author or file name. The folder it is filed in names nothing.
+function namesReference(typed, object) {
+  const metadata = object.metadata ?? {};
+  const own = [object.label, object.valueText, metadata.author, metadata.title, metadata.subject,
+    metadata.textExcerpt, metadata.fileName, path.basename(String(object.path ?? ''))]
+    .filter((text) => typeof text === 'string').join(' ');
+  return matchedSourceWords(typed, own).length > 0;
 }
 
 export const claimCandidatesMethods = {
@@ -69,6 +81,9 @@ export const claimCandidatesMethods = {
     const expectedVariable = claim.variable ? normalizedVariable(claim.variable) : null;
     const expectedVariableWords = wordTokens(humanVariable(claim.variable));
     const referenceQuery = claim.type === 'LITERATURE' ? (claim.partial ? claim.value : citedAuthor(claim.text)) : '';
+    // A citation cue alone ("studies have") spans the text; only the sentence it ends in is being typed.
+    const cueText = String(claim.text ?? '').replace(/[.!?]["'”’)\]]*\s*$/, '');
+    const referenceWords = referenceQuery || writingSourceContext(cueText, cueText.length).sentence;
     const referenceYear = String(referenceQuery ?? '').match(/\b((?:19|20)\d{2}[a-z]?)\b/i)?.[1]?.toLowerCase() ?? '';
     const claimAuthor = claim.type === 'LITERATURE'
       ? (citedAuthor(claim.text) || (claim.partial ? claim.value : '')) : '';
@@ -187,6 +202,7 @@ export const claimCandidatesMethods = {
     }).filter((object) => object.score >= (options.minimumScore ?? (claim.type === 'LITERATURE' ? 0.08 : 0.2))
       && (object.matchTier === 0 || object.matchStrength >= (options.minimumMatchStrength ?? 0))
       && (!referenceQuery || object.referenceSimilarity >= 0.68 || object.authorSimilarity >= 0.7)
+      && (claim.type !== 'LITERATURE' || object.authorSimilarity >= 0.7 || namesReference(referenceWords, object))
       && (!referenceYear || !object.metadata.year || String(object.metadata.year).toLowerCase() === referenceYear))
       .sort((a, b) => b.score - a.score
         || (Number.parseInt(b.metadata.year, 10) || 0) - (Number.parseInt(a.metadata.year, 10) || 0)

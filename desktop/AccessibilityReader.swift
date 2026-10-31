@@ -218,37 +218,6 @@ enum AccessibilityReader {
                       width: 1, height: field.height)
     }
 
-    /// The lines of text showing in an editor, in Accessibility coordinates:
-    /// as wide as the editor, from the top of its first visible line to the
-    /// foot of its last. The editor's own frame when they cannot be measured.
-    static func visibleTextFrame(of field: AXUIElement) -> CGRect? {
-        guard let editor = fieldFrame(field) else { return nil }
-        guard let value = attribute(field, kAXVisibleCharacterRangeAttribute as String),
-              CFGetTypeID(value) == AXValueGetTypeID() else { return editor }
-        var visible = CFRange()
-        guard AXValueGetValue(value as! AXValue, .cfRange, &visible), visible.length > 0,
-              let first = characterBounds(field, visible.location),
-              let last = characterBounds(field, visible.location + visible.length - 1) else { return editor }
-        let lines = CGRect(x: editor.minX, y: min(first.minY, last.minY), width: editor.width,
-                           height: max(first.maxY, last.maxY) - min(first.minY, last.minY))
-        let shown = lines.intersection(editor)
-        return shown.isNull || shown.isEmpty ? editor : shown
-    }
-
-    private static func characterBounds(_ element: AXUIElement, _ location: Int) -> CGRect? {
-        var range = CFRange(location: location, length: 1)
-        guard let axRange = AXValueCreate(.cfRange, &range) else { return nil }
-        var value: CFTypeRef?
-        guard AXUIElementCopyParameterizedAttributeValue(
-                element, kAXBoundsForRangeParameterizedAttribute as CFString, axRange, &value) == .success,
-              let box = value, CFGetTypeID(box) == AXValueGetTypeID() else { return nil }
-        var rect = CGRect.zero
-        // A line break at the end of the text measures no width; its line still counts.
-        guard AXValueGetValue(box as! AXValue, .cgRect, &rect), rect.origin.x.isFinite, rect.origin.y.isFinite,
-              rect.width.isFinite, rect.height > 0, rect.height < 400 else { return nil }
-        return rect
-    }
-
     /// Measure a known editor after its owner has been validated. Avoid a
     /// second focus lookup that could accidentally measure another window.
     static func caretRect(of field: AXUIElement) -> CGRect? {
