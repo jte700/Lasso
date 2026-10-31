@@ -8,6 +8,7 @@
     "music": "node scripts/make-music.mjs",
     "render": "remotion render src/index.ts LassoTrailer out/lasso-trailer.mp4 --concurrency=4 --crf=16",
     "render:v1": "remotion render src/index.ts LassoTrailerV1 out/lasso-trailer-v1.mp4",
+    "render:og": "remotion render src/index.ts LassoLinkPreview out/link-preview.mp4 --crf=12 && remotion still src/index.ts LassoLinkPreview ../website/og/preview.png --frame=440 && ffmpeg -y -loglevel error -i out/link-preview.mp4 -an -c:v libx264 -preset veryslow -crf 17 -pix_fmt yuv420p -profile:v high -movflags +faststart ../website/og/preview.mp4",
     "render:v2": "remotion render src/index.ts LassoTrailerV2 out/lasso-trailer-v2.mp4 --concurrency=4 --crf=16"
   },
   "dependencies": {
