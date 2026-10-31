@@ -131,7 +131,7 @@ test('snapshots indexed before STEP support gain CAD facts lazily without creati
   app = createApplication(config);
   assert.deepEqual(step().map(object => object.objectKey).sort(), indexed);
   assert.equal(app.dependencies.objectsAt(project.id).find(object => object.id === budget.id).versionId, budget.versionId, 'earlier objects keep their versions');
-  assert.equal(app.db.prepare('SELECT drawing_index_version FROM snapshot_object_indexes WHERE snapshot_id = ?').get(snapshotId).drawing_index_version, 4);
+  assert.equal(app.db.prepare('SELECT drawing_index_version FROM snapshot_object_indexes WHERE snapshot_id = ?').get(snapshotId).drawing_index_version, 5);
   assert.equal(app.timeline.getProject(project.id).currentSnapshotId, snapshotId);
 });
 

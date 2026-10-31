@@ -1,0 +1,916 @@
+{
+ "name": "development",
+ "documents": [
+  {
+   "path": "Research/BRISK trial report.pdf",
+   "type": "pdf",
+   "title": "BRISK trial report",
+   "pages": [
+    [
+     {
+      "heading": "BRISK: a randomised trial of a home exercise programme for knee osteoarthritis"
+     },
+     {
+      "heading": "Abstract"
+     },
+     {
+      "paragraph": "Background: Knee osteoarthritis is a leading cause of pain and disability in older adults. We tested whether a 12-week home exercise programme reduces pain compared with usual care. Methods: We randomised 412 adults aged 50 to 79 with painful knee osteoarthritis to the home exercise programme or usual care at six community clinics. Results: At 12 weeks, pain improved by 2.1 points more with exercise than with usual care on the 20-point WOMAC pain scale. Function also improved. Conclusions: A home exercise programme reduces knee pain in the short term."
+     },
+     {
+      "heading": "1 Introduction"
+     },
+     {
+      "paragraph": "Exercise is recommended for knee osteoarthritis, but supervised classes are costly and many people do not attend them. Home programmes could reach more people at lower cost. Previous trials of home programmes were small and followed participants for less than three months."
+     }
+    ],
+    [
+     {
+      "heading": "2 Methods"
+     },
+     {
+      "paragraph": "Participants were recruited from six community clinics between March 2023 and February 2024. Eligible adults were aged 50 to 79, had knee pain on most days for at least three months, and had radiographic evidence of osteoarthritis. People with a knee replacement planned within six months were excluded."
+     },
+     {
+      "paragraph": "Participants were randomly assigned in a 1:1 ratio, stratified by clinic, to the home exercise programme (n=206) or usual care (n=206). The programme consisted of eight strengthening exercises performed three times a week, with two physiotherapist visits and a printed booklet."
+     },
+     {
+      "paragraph": "The primary outcome was the change in WOMAC pain score (0 to 20, higher is worse) from baseline to 12 weeks. Secondary outcomes were WOMAC function (0 to 68), adherence recorded in exercise diaries, and adverse events. Participants were followed up at 12 and 24 weeks."
+     },
+     {
+      "paragraph": "The minimal clinically important difference for WOMAC pain was taken as 1.5 points. Analyses followed the intention-to-treat principle."
+     },
+     {
+      "heading": "2.4 Sample size"
+     },
+     {
+      "paragraph": "Assuming a standard deviation of 4.2 points for the change in WOMAC pain, 186 participants per group gave 90% power to detect the minimal clinically important difference at a two-sided significance level of 5%. Allowing for 10% loss to follow-up, we planned to randomise 412 participants."
+     },
+     {
+      "heading": "2.5 Statistical analysis"
+     },
+     {
+      "paragraph": "The primary analysis used a linear mixed model with group, clinic and baseline pain as fixed effects. Missing outcomes were handled by multiple imputation with 20 imputed data sets under a missing-at-random assumption, and a complete-case analysis was done as a sensitivity analysis. Pre-specified subgroup analyses examined sex and baseline pain severity. Secondary outcomes were analysed with the same model, without adjustment for multiplicity, and are reported as estimates with confidence intervals."
+     },
+     {
+      "paragraph": "An independent data monitoring committee reviewed safety data after 100 and 250 participants had completed 12 weeks. No interim analysis of effectiveness was planned."
+     }
+    ],
+    [
+     {
+      "heading": "3 Results"
+     },
+     {
+      "paragraph": "We screened 1,083 people, of whom 671 were not eligible or declined: 288 had pain on fewer than half of days, 141 had a joint replacement planned, 97 could not commit to the programme and 145 declined for other reasons."
+     },
+     {
+      "paragraph": "Of 412 participants randomised, 377 (92%) completed the 12-week assessment and 351 (85%) completed the 24-week assessment. Baseline characteristics were similar in the two groups; the mean age was 64 years and 58% were women."
+     },
+     {
+      "paragraph": "At 12 weeks, the mean WOMAC pain score fell by 3.1 points in the exercise group and by 1.4 points in the usual care group, a difference of 1.7 points (95% CI 0.9 to 2.5). This difference exceeded the minimal clinically important difference."
+     },
+     {
+      "paragraph": "Function improved more with exercise than with usual care (Table 2). Adherence to the programme was 71% over 12 weeks, measured as the share of prescribed sessions recorded in diaries."
+     },
+     {
+      "table": {
+       "caption": "Table 1. Baseline characteristics",
+       "header": [
+        "Characteristic",
+        "Exercise (n=206)",
+        "Usual care (n=206)"
+       ],
+       "rows": [
+        [
+         "Age, mean (years)",
+         "64.1",
+         "63.8"
+        ],
+        [
+         "Women (%)",
+         "59",
+         "57"
+        ],
+        [
+         "Body mass index, mean",
+         "29.4",
+         "29.9"
+        ],
+        [
+         "WOMAC pain, mean (0-20)",
+         "10.2",
+         "10.4"
+        ],
+        [
+         "WOMAC function, mean (0-68)",
+         "34.1",
+         "33.6"
+        ]
+       ]
+      }
+     }
+    ],
+    [
+     {
+      "table": {
+       "caption": "Table 2. Secondary outcomes at 12 weeks",
+       "header": [
+        "Outcome",
+        "Exercise",
+        "Usual care",
+        "Difference"
+       ],
+       "rows": [
+        [
+         "WOMAC function change",
+         "-6.2",
+         "-2.9",
+         "-3.3"
+        ],
+        [
+         "Sessions completed (%)",
+         "71",
+         "n/a",
+         "n/a"
+        ],
+        [
+         "Adverse events (n)",
+         "9",
+         "4",
+         "5"
+        ],
+        [
+         "Withdrew (n)",
+         "17",
+         "18",
+         "-1"
+        ]
+       ]
+      }
+     },
+     {
+      "paragraph": "Benefits were smaller among participants aged 70 and over, in whom the difference in pain was 0.6 points. Benefits did not differ by sex. However, the age subgroup analysis was not pre-specified, and its confidence interval included zero."
+     },
+     {
+      "paragraph": "Most adverse events were mild muscle soreness that resolved within a week; one participant in the exercise group had a fall that required a clinic visit."
+     }
+    ],
+    [
+     {
+      "heading": "3.3 Longer-term outcomes"
+     },
+     {
+      "paragraph": "At 24 weeks, the difference in pain between groups had narrowed to 0.8 points (95% CI -0.1 to 1.6) and was no longer statistically significant. Adherence fell to 48% between weeks 12 and 24."
+     },
+     {
+      "heading": "4 Discussion"
+     },
+     {
+      "paragraph": "A home exercise programme reduced knee pain at 12 weeks by more than the minimal clinically important difference, but the effect waned by 24 weeks as adherence declined. Booster sessions might sustain the benefit."
+     },
+     {
+      "paragraph": "Our findings are consistent with a supervised exercise trial by Okafor and colleagues, which reported a 2.4-point reduction in WOMAC pain at 12 weeks, and with a meta-analysis of 31 trials that found a mean difference of 1.9 points."
+     },
+     {
+      "paragraph": "The programme required little staff time: two physiotherapist visits and a booklet. If its short-term benefit can be sustained, it could be offered in primary care at modest cost. Participants who completed most sessions reported the largest improvements, but this comparison is not randomised and may reflect healthier participants adhering more."
+     },
+     {
+      "paragraph": "Our participants were recruited from community clinics in one region and most were White, so the results may not apply to other settings. People with severe pain or planned joint replacement were excluded."
+     }
+    ],
+    [
+     {
+      "heading": "5 Limitations"
+     },
+     {
+      "paragraph": "Participants and physiotherapists were not blinded to group allocation, and pain was self-reported, which may have exaggerated the benefit. Adherence was measured with diaries rather than activity monitors. The trial was not powered to detect differences in adverse events."
+     },
+     {
+      "heading": "Acknowledgements"
+     },
+     {
+      "paragraph": "We thank the clinic staff and participants. The trial was funded by the Northern Health Research Fund, which had no role in the analysis. Statistical analysis used R version 4.3."
+     },
+     {
+      "heading": "References"
+     },
+     {
+      "paragraph": "1. Okafor N, Silva P. Supervised exercise for knee osteoarthritis: a randomised trial. J Musculoskelet Res. 2021;14:233-41. 2. Lindqvist A, et al. Exercise therapy for knee osteoarthritis: a meta-analysis of 31 trials. Osteoarthr Rev. 2022;9:88-102. 3. Bellamy N. WOMAC osteoarthritis index user guide. Brisbane, 2019. 4. Hart D, Moore K. Adherence to home exercise in older adults: a cohort study. Age Ageing. 2020;49:610-7. 5. Ruiz M, et al. Booster sessions after physiotherapy for knee pain: a pilot trial. Physiotherapy. 2023;118:45-52."
+     }
+    ]
+   ]
+  },
+  {
+   "path": "Research/WALK-ON cohort study.pdf",
+   "type": "pdf",
+   "title": "WALK-ON cohort study",
+   "pages": [
+    [
+     {
+      "heading": "WALK-ON: walking and knee pain in a community cohort"
+     },
+     {
+      "heading": "Summary"
+     },
+     {
+      "paragraph": "We followed 1,240 adults with knee osteoarthritis for two years and recorded daily walking with activity monitors. Walking 6,000 or more steps a day was not associated with lower knee pain after adjustment for age, weight and baseline pain (adjusted difference 0.2 points on the WOMAC pain scale, 95% CI -0.3 to 0.7)."
+     }
+    ],
+    [
+     {
+      "heading": "Results"
+     },
+     {
+      "paragraph": "Participants who walked more were younger and lighter. In unadjusted analyses, walkers reported 1.1 points less pain, but this difference disappeared after adjustment."
+     },
+     {
+      "paragraph": "Walking was associated with better function (adjusted difference 2.0 points on WOMAC function)."
+     }
+    ],
+    [
+     {
+      "heading": "Interpretation"
+     },
+     {
+      "paragraph": "Unlike trials of structured strengthening exercise, unstructured walking did not reduce pain in this cohort. Observational data cannot establish cause and effect."
+     }
+    ]
+   ]
+  },
+  {
+   "path": "Research/BRISK briefing memo.docx",
+   "type": "docx",
+   "title": "Briefing: BRISK home exercise trial",
+   "blocks": [
+    {
+     "heading": "Briefing: BRISK home exercise trial"
+    },
+    {
+     "paragraph": "Purpose: to inform the decision on rolling out the home exercise programme to all six clinics."
+    },
+    {
+     "paragraph": "The trial found that pain improved by 2.1 points more with the programme than with usual care at 12 weeks, well above the 1.5-point threshold that patients notice."
+    },
+    {
+     "paragraph": "Adherence was 71%, and adverse events were rare and mostly mild."
+    },
+    {
+     "paragraph": "Recommendation: roll out the programme in all clinics from September, with a booster visit at 12 weeks."
+    },
+    {
+     "heading": "Costs"
+    },
+    {
+     "paragraph": "The programme costs about 140 pounds per patient, mainly for the two physiotherapist visits."
+    }
+   ]
+  },
+  {
+   "path": "Research/BRISK site data.xlsx",
+   "type": "xlsx",
+   "sheets": [
+    {
+     "name": "Sites",
+     "header": [
+      "Site",
+      "Randomised",
+      "Completed 12 weeks",
+      "Adverse events",
+      "Mean pain change (exercise)"
+     ],
+     "rows": [
+      [
+       "Ashford",
+       "72",
+       "68",
+       "3",
+       "-3.4"
+      ],
+      [
+       "Bexley",
+       "65",
+       "58",
+       "2",
+       "-2.9"
+      ],
+      [
+       "Croydon",
+       "81",
+       "76",
+       "1",
+       "-3.3"
+      ],
+      [
+       "Dartford",
+       "58",
+       "51",
+       "4",
+       "-2.6"
+      ],
+      [
+       "Enfield",
+       "70",
+       "63",
+       "2",
+       "-3.1"
+      ],
+      [
+       "Fulham",
+       "66",
+       "61",
+       "1",
+       "-3.0"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "path": "Notes/reading notes.md",
+   "type": "md",
+   "title": "Reading notes",
+   "blocks": [
+    {
+     "heading": "Reading list"
+    },
+    {
+     "paragraph": "Finish the review of falls prevention programmes before the March meeting."
+    },
+    {
+     "paragraph": "BRISK: check how adverse events were defined and whether falls were counted."
+    },
+    {
+     "paragraph": "Unrelated: the clinic car park closes for resurfacing in April."
+    }
+   ]
+  }
+ ],
+ "tasks": [
+  {
+   "id": "brisk-summary",
+   "kind": "summary",
+   "prompt": "Summarize the main results of the BRISK trial.",
+   "facts": [
+    {
+     "id": "f1",
+     "statement": "At 12 weeks pain improved 1.7 points more with exercise (95% CI 0.9 to 2.5).",
+     "all": [
+      "\\b1\\.7\\b",
+      "point"
+     ],
+     "material": true
+    },
+    {
+     "id": "f2",
+     "statement": "That difference exceeded the minimal clinically important difference (1.5 points).",
+     "all": [
+      "exceed|above|more than",
+      "clinically important|MCID|1\\.5"
+     ],
+     "material": true
+    },
+    {
+     "id": "f3",
+     "statement": "Function improved more with exercise (-6.2 vs -2.9).",
+     "all": [
+      "function",
+      "6\\.2"
+     ],
+     "material": true
+    },
+    {
+     "id": "f4",
+     "statement": "By 24 weeks the difference narrowed to 0.8 points and was not significant.",
+     "all": [
+      "0\\.8",
+      "24"
+     ],
+     "material": true
+    },
+    {
+     "id": "f5",
+     "statement": "Adverse events: 9 with exercise, 4 with usual care.",
+     "all": [
+      "adverse",
+      "\\b(?:9|nine)\\b",
+      "\\b(?:4|four)\\b"
+     ],
+     "material": false
+    },
+    {
+     "id": "f6",
+     "statement": "The abstract (and the memo) give 2.1 points.",
+     "all": [
+      "\\b2\\.1\\b",
+      "point"
+     ],
+     "material": false
+    }
+   ],
+   "qualifications": [
+    {
+     "id": "q1",
+     "for": "f1",
+     "statement": "Unblinded, self-reported outcomes.",
+     "all": [
+      "not blinded|unblinded|self-reported"
+     ]
+    }
+   ],
+   "conflicts": [
+    {
+     "between": [
+      "f1",
+      "f6"
+     ],
+     "statement": "The results give 1.7 points; the abstract gives 2.1."
+    }
+   ],
+   "answer": "BRISK (412 adults) found pain improved 1.7 points more with home exercise than usual care at 12 weeks (95% CI 0.9 to 2.5), exceeding the 1.5-point minimal clinically important difference; function also improved (-6.2 vs -2.9). By 24 weeks the difference had narrowed to 0.8 points and was not significant as adherence fell. Adverse events were 9 vs 4, mostly mild soreness. The abstract reports 2.1 points, which differs from the 1.7 in the results; outcomes were self-reported and not blinded.",
+   "asks": [
+    [
+     "BRISK trial results",
+     "BRISK pain difference 12 weeks",
+     "BRISK 24 weeks"
+    ],
+    [
+     "What were the main findings of the BRISK home exercise trial?"
+    ]
+   ]
+  },
+  {
+   "id": "brisk-six-months",
+   "kind": "summary",
+   "prompt": "Did the BRISK exercise programme still help after six months?",
+   "facts": [
+    {
+     "id": "f4",
+     "statement": "At 24 weeks the difference had narrowed to 0.8 points and was not statistically significant.",
+     "all": [
+      "0\\.8",
+      "24|six months|6 months"
+     ],
+     "material": true
+    },
+    {
+     "id": "f7",
+     "statement": "Adherence fell to 48% between weeks 12 and 24.",
+     "all": [
+      "48\\s*%",
+      "adheren"
+     ],
+     "material": false
+    }
+   ],
+   "answer": "Not clearly: at 24 weeks (about six months) the pain difference had narrowed to 0.8 points (95% CI -0.1 to 1.6) and was no longer statistically significant, as adherence fell to 48%.",
+   "asks": [
+    [
+     "BRISK long-term pain",
+     "BRISK 24-week outcome"
+    ],
+    [
+     "Did the benefit of the BRISK programme last after six months?"
+    ]
+   ]
+  },
+  {
+   "id": "brisk-older",
+   "kind": "qualified",
+   "prompt": "Did older participants benefit from the BRISK programme?",
+   "facts": [
+    {
+     "id": "f8",
+     "statement": "Among those aged 70 and over the difference was 0.6 points.",
+     "all": [
+      "0\\.6",
+      "70"
+     ],
+     "material": true
+    }
+   ],
+   "qualifications": [
+    {
+     "id": "q3",
+     "for": "f8",
+     "statement": "The subgroup analysis was not pre-specified and its CI included zero.",
+     "all": [
+      "not pre-?specified|included zero|post hoc"
+     ]
+    }
+   ],
+   "answer": "Less: among participants aged 70 and over the pain difference was only 0.6 points, but that subgroup analysis was not pre-specified and its confidence interval included zero.",
+   "asks": [
+    [
+     "BRISK age 70 subgroup"
+    ],
+    [
+     "Was the BRISK programme effective for older adults?"
+    ]
+   ]
+  },
+  {
+   "id": "brisk-size",
+   "kind": "lookup",
+   "prompt": "How many people took part in the BRISK trial?",
+   "facts": [
+    {
+     "id": "f9",
+     "statement": "412 adults were randomised.",
+     "all": [
+      "\\b412\\b"
+     ],
+     "material": true
+    }
+   ],
+   "answer": "412 adults were randomised (206 per group).",
+   "asks": [
+    [
+     "BRISK number randomised"
+    ],
+    [
+     "How many participants were in BRISK?"
+    ]
+   ]
+  },
+  {
+   "id": "brisk-adverse-total",
+   "kind": "aggregate",
+   "prompt": "How many adverse events were there in BRISK across all sites?",
+   "facts": [
+    {
+     "id": "f5",
+     "statement": "Adverse events: 9 with exercise, 4 with usual care.",
+     "all": [
+      "adverse",
+      "\\b(?:9|nine)\\b",
+      "\\b(?:4|four)\\b"
+     ],
+     "material": false
+    }
+   ],
+   "computed": [
+    {
+     "id": "c1",
+     "statement": "13 adverse events in total.",
+     "value": "13",
+     "from": [
+      "f5"
+     ]
+    }
+   ],
+   "answer": "13 adverse events in total: 9 in the exercise group and 4 with usual care.",
+   "asks": [
+    [
+     "BRISK adverse events total"
+    ],
+    [
+     "How many adverse events were reported in the BRISK trial overall?"
+    ]
+   ]
+  },
+  {
+   "id": "brisk-best-site",
+   "kind": "aggregate",
+   "prompt": "Which BRISK site had the highest share of participants completing the 12-week assessment?",
+   "facts": [
+    {
+     "id": "s1",
+     "statement": "Ashford 68 of 72.",
+     "all": [
+      "Ashford",
+      "\\b72\\b",
+      "\\b68\\b"
+     ],
+     "material": false
+    },
+    {
+     "id": "s2",
+     "statement": "Bexley 58 of 65.",
+     "all": [
+      "Bexley",
+      "\\b65\\b",
+      "\\b58\\b"
+     ],
+     "material": false
+    },
+    {
+     "id": "s3",
+     "statement": "Croydon 76 of 81.",
+     "all": [
+      "Croydon",
+      "\\b81\\b",
+      "\\b76\\b"
+     ],
+     "material": false
+    },
+    {
+     "id": "s4",
+     "statement": "Dartford 51 of 58.",
+     "all": [
+      "Dartford",
+      "\\b58\\b",
+      "\\b51\\b"
+     ],
+     "material": false
+    },
+    {
+     "id": "s5",
+     "statement": "Enfield 63 of 70.",
+     "all": [
+      "Enfield",
+      "\\b70\\b",
+      "\\b63\\b"
+     ],
+     "material": false
+    },
+    {
+     "id": "s6",
+     "statement": "Fulham 61 of 66.",
+     "all": [
+      "Fulham",
+      "\\b66\\b",
+      "\\b61\\b"
+     ],
+     "material": false
+    }
+   ],
+   "computed": [
+    {
+     "id": "c2",
+     "statement": "Ashford, 68 of 72 (94%).",
+     "value": "Ashford",
+     "from": [
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6"
+     ]
+    }
+   ],
+   "answer": "Ashford: 68 of its 72 participants (94%) completed the 12-week assessment, the highest of the six sites.",
+   "asks": [
+    [
+     "BRISK site completion"
+    ],
+    [
+     "Which clinic in BRISK had the best 12-week follow-up?"
+    ]
+   ]
+  },
+  {
+   "id": "brisk-conflict",
+   "kind": "conflict",
+   "prompt": "How much did pain improve with the BRISK programme? The briefing memo and the report seem to give different numbers.",
+   "facts": [
+    {
+     "id": "f1",
+     "statement": "The results section gives 1.7 points.",
+     "all": [
+      "\\b1\\.7\\b",
+      "point"
+     ],
+     "material": true
+    },
+    {
+     "id": "f6",
+     "statement": "The memo (and abstract) give 2.1 points.",
+     "all": [
+      "\\b2\\.1\\b",
+      "point"
+     ],
+     "material": true
+    }
+   ],
+   "conflicts": [
+    {
+     "between": [
+      "f1",
+      "f6"
+     ],
+     "statement": "1.7 in the results; 2.1 in the memo and abstract."
+    }
+   ],
+   "answer": "The report's results section gives a 1.7-point difference at 12 weeks (95% CI 0.9 to 2.5); the briefing memo, like the abstract, says 2.1 points. They disagree; the results section's 1.7 is the detailed figure.",
+   "asks": [
+    [
+     "BRISK pain improvement memo",
+     "BRISK pain difference report"
+    ],
+    [
+     "What pain improvement did BRISK report, and does the memo agree?"
+    ]
+   ]
+  },
+  {
+   "id": "brisk-vs-walkon",
+   "kind": "compare",
+   "prompt": "How do the BRISK trial's findings compare with the WALK-ON study?",
+   "facts": [
+    {
+     "id": "f1",
+     "statement": "BRISK: pain improved 1.7 points more with exercise at 12 weeks.",
+     "all": [
+      "\\b1\\.7\\b",
+      "point"
+     ],
+     "material": true
+    },
+    {
+     "id": "w1",
+     "statement": "WALK-ON: walking was not associated with lower pain after adjustment (0.2 points).",
+     "all": [
+      "0\\.2",
+      "not associated|no association|did not"
+     ],
+     "material": true
+    },
+    {
+     "id": "w2",
+     "statement": "WALK-ON: the unadjusted 1.1-point difference disappeared after adjustment.",
+     "all": [
+      "1\\.1",
+      "disappeared|unadjusted"
+     ],
+     "material": false
+    },
+    {
+     "id": "w3",
+     "statement": "WALK-ON is observational and cannot establish cause.",
+     "all": [
+      "cause|causal|observational"
+     ],
+     "material": false
+    }
+   ],
+   "answer": "BRISK, a randomised trial of structured home strengthening, found pain improved 1.7 points more than usual care at 12 weeks. WALK-ON, an observational cohort of 1,240 walkers, found walking was not associated with lower pain after adjustment (0.2 points); as an observational study it cannot establish cause.",
+   "asks": [
+    [
+     "BRISK results",
+     "WALK-ON results"
+    ],
+    [
+     "Compare BRISK with the WALK-ON walking study."
+    ]
+   ]
+  },
+  {
+   "id": "brisk-depression",
+   "kind": "absent",
+   "prompt": "What did the BRISK trial find about depression?",
+   "facts": [],
+   "absent": true,
+   "answer": "The BRISK report does not mention depression or mood; its outcomes were pain, function, adherence and adverse events.",
+   "asks": [
+    [
+     "BRISK depression"
+    ],
+    [
+     "Did BRISK measure depression or mood?"
+    ]
+   ]
+  },
+  {
+   "id": "brisk-limitations",
+   "kind": "summary",
+   "prompt": "What are the limitations of the BRISK trial?",
+   "facts": [
+    {
+     "id": "l1",
+     "statement": "Participants and physiotherapists were not blinded.",
+     "all": [
+      "not blinded|unblinded"
+     ],
+     "material": true
+    },
+    {
+     "id": "l2",
+     "statement": "Pain was self-reported.",
+     "all": [
+      "self-reported"
+     ],
+     "material": true
+    },
+    {
+     "id": "l3",
+     "statement": "Adherence was measured with diaries.",
+     "all": [
+      "diar"
+     ],
+     "material": true
+    },
+    {
+     "id": "l4",
+     "statement": "Not powered for adverse events.",
+     "all": [
+      "not powered|underpowered",
+      "adverse"
+     ],
+     "material": false
+    }
+   ],
+   "answer": "Participants and physiotherapists were not blinded and pain was self-reported, which may exaggerate the benefit; adherence was measured with diaries rather than monitors; and the trial was not powered to detect differences in adverse events.",
+   "asks": [
+    [
+     "BRISK limitations"
+    ],
+    [
+     "What weaknesses does the BRISK report acknowledge?"
+    ]
+   ]
+  },
+  {
+   "id": "brisk-harms",
+   "kind": "summary",
+   "prompt": "What side effects or harms were reported in BRISK?",
+   "facts": [
+    {
+     "id": "f5",
+     "statement": "Adverse events: 9 with exercise, 4 with usual care.",
+     "all": [
+      "adverse",
+      "\\b(?:9|nine)\\b",
+      "\\b(?:4|four)\\b"
+     ],
+     "material": true
+    },
+    {
+     "id": "h1",
+     "statement": "Most were mild muscle soreness resolving within a week.",
+     "all": [
+      "sore"
+     ],
+     "material": true
+    },
+    {
+     "id": "h2",
+     "statement": "One exercise participant had a fall needing a clinic visit.",
+     "all": [
+      "fall",
+      "clinic"
+     ],
+     "material": true
+    }
+   ],
+   "answer": "Nine adverse events with exercise and four with usual care, mostly mild muscle soreness that resolved within a week; one participant in the exercise group had a fall that needed a clinic visit.",
+   "asks": [
+    [
+     "BRISK adverse events"
+    ],
+    [
+     "Were there any side effects of the BRISK exercises?"
+    ]
+   ]
+  },
+  {
+   "id": "walkon-summary",
+   "kind": "summary",
+   "prompt": "Summarize the WALK-ON study.",
+   "facts": [
+    {
+     "id": "w0",
+     "statement": "1,240 adults followed for two years.",
+     "all": [
+      "1,?240"
+     ],
+     "material": true
+    },
+    {
+     "id": "w1",
+     "statement": "Walking was not associated with lower pain after adjustment (0.2 points).",
+     "all": [
+      "0\\.2",
+      "not associated|no association|did not"
+     ],
+     "material": true
+    },
+    {
+     "id": "w4",
+     "statement": "Walking was associated with better function (2.0 points).",
+     "all": [
+      "function",
+      "2\\.0"
+     ],
+     "material": true
+    },
+    {
+     "id": "w3",
+     "statement": "Observational data cannot establish cause.",
+     "all": [
+      "cause|causal|observational"
+     ],
+     "material": false
+    }
+   ],
+   "answer": "WALK-ON followed 1,240 adults with knee osteoarthritis for two years using activity monitors. Walking 6,000+ steps a day was not associated with lower pain after adjustment (0.2 points; the unadjusted 1.1-point difference disappeared), but was associated with better function (2.0 points). Being observational, it cannot establish cause.",
+   "asks": [
+    [
+     "WALK-ON findings"
+    ],
+    [
+     "What did the WALK-ON cohort find about walking and knee pain?"
+    ]
+   ]
+  }
+ ]
+}

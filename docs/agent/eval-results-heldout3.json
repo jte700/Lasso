@@ -1,0 +1,948 @@
+{
+  "generatedAt": "2026-10-30T22:59:02.779Z",
+  "label": "heldout3",
+  "sets": {
+    "heldout3": {
+      "askSets": 36,
+      "sufficient": 20,
+      "material": "37/62",
+      "tokens": {
+        "median": 864,
+        "p90": 1704,
+        "max": 1958
+      },
+      "relevantShare": 0.14,
+      "fileTokens": {
+        "median": 2494,
+        "max": 3231
+      },
+      "ms": {
+        "median": 10,
+        "max": 61
+      }
+    }
+  },
+  "rows": [
+    {
+      "set": "heldout3",
+      "task": "library-of-things-report-findings",
+      "kind": "summary",
+      "askSet": 1,
+      "ask": [
+        "Library of Things pilot evaluation findings",
+        "Brackenford borrowers loans savings results"
+      ],
+      "ms": 61,
+      "fileTokens": 2849,
+      "files": [
+        "Reviews/Library of Things pilot evaluation.pdf"
+      ],
+      "sufficient": true,
+      "tokens": 1805,
+      "relevantShare": 0.38,
+      "material": "4/4",
+      "facts": "7/7",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\ns2 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\n[1] ranked: 23 sentences, 1/1 matching files; no excerpt has \"findings\"; 2 more matched (4.5 Condition of returned items 2); a larger \"budget\" shows more\n[1.1] s1:\n  p.1 §Abstract: \"The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee. This report evaluates the first two years of the pilot, from April 2023 to March 2025, using membership and loan records, a survey of borrowers and the checks that staff make when items are returned. Almost 2,000 residents registered as borrowers, and loans grew by 64 percent between the first and second years.\" #8VD3T5FXM5\n  p.4 §4.1 Membership and reach: \"By the end of March 2025, 1,936 people had registered as borrowers across the three branches. Just over half registered at Central, which is the largest branch and the only one open on Sundays (Table 1).\" #YDAQ7F9T5K\n  p.4: \"Registered borrowers by branch of registration, April 2023 to March 2025 Branch Registered borrowers Share of registrations Concession members\" #XMGTE4HHYM\n  p.4: \"Of the 1,490 borrowers with a usable home postcode, 611 (41 percent) lived in neighbourhoods in the two most deprived quintiles. This is close to the 40 percent of Brackenford residents who live in those neighbourhoods. The remaining 446 registrations had no usable postcode, mostly because borrowers had registered with a work address, and they are not included in this figure.\" #EP85D0BSK4\n  p.5 §4.2 Loans and repeat use: \"Borrowers made 5,712 loans over the two years, 2,214 in year one and 3,498 in year two. This rise of 58 percent came mostly from Central and Eastgate, where reservations could be collected on the same day from the spring of 2024.\" #RV8D16FYBQ\n  p.5: \"Of the 1,936 registered borrowers, 1,421 made at least one loan. Among these active borrowers, 668 borrowed more than once. That is a repeat borrowing rate of 47 percent, and it was 53 percent among those who joined in year one and 38 percent among those who joined in year two, who had less time to borrow again.\" #W6CYNRF9A9\n  p.5: \"The ten most borrowed items accounted for 45 percent of all loans (Table 2).\" #JES0RV66SW\n  p.5: \"The ten most borrowed items, April 2023 to March 2025 Item Loans Share of all loans\" #P4D4HKFNE9\n  p.6 §4.3 Savings to households: \"Survey respondents estimated that borrowing instead of buying or hiring had saved their household a median of GBP 85 over the previous twelve months. Savings were largest among those who had borrowed decorating equipment, for whom the median was GBP 120.\" #VRWW7DE97Z\n  p.6: \"Asked what they would have done without the scheme, 62 percent of respondents said they would have bought the item, 21 percent would have borrowed it from friends or family, 9 percent would have hired it and 8 percent would have gone without.\" #XTPWGQYPYE\n  p.6 §4.4 Avoided purchases and emissions: \"Applying these answers to the 1,820 combinations of member and item type in the loan records, we estimate that the pilot avoided the purchase of about 1,130 items with a combined weight of 14.6 tonnes. These avoided purchases correspond to around 38 tonnes of carbon dioxide equivalent over the two years, mostly from power tools and garden machinery.\" #D1BGEPTPQE\n  p.7 §4.5 Condition of returned items: \"Staff recorded damage at return on 3.1 percent of loans. A further 19 items were lost or never returned, equal to 0.3 percent of loans.\" #NRPWY3AJ2F\n[2] ranked: 23 sentences, 3/4 matching files; 65 more matched (4.2 Loans and repeat use 14, 4.5 Condition of returned items 9, 4.1 Membership and reach 9, 5 Discussion 6); a larger \"budget\" shows more\n[2.1] s2:\n  p.3 §3.1 The programme: \"Households that went ahead received a grant of GBP 6,000 towards the installed cost and could borrow the remainder through an interest-free loan arranged by the society.\" #8E49Q7WJHX\n  p.4 §3.4 Emissions: \"The same factor for grid electricity was used for both years, so the results do not reflect any further decarbonisation of the grid.\" #GG47CHN8HZ\n  p.5 §4.2 Energy bills: \"For the 52 homes without complete meter data, installers' estimates suggest similar savings, but these could not be checked.\" #FS4C2S8Z75\n  p.6 §4.4 Emissions: \"Across all 214 installations, this amounts to about 490 tonnes a year. These savings were roughly twice as large in oil-heated homes as in gas-heated homes, reflecting the higher carbon content of heating oil.\" #T7MYT9AWH3\n[2.2] s1:\n  p.1: \"Borrowing instead of buying: evaluation of the Brackenford Library of Things pilot, April 2023 to March 2025\" #HMQKT8RRYA\n  p.1 §Abstract: \"The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee. This report evaluates the first two years of the pilot, from April 2023 to March 2025, using membership and loan records, a survey of borrowers and the checks that staff make when items are returned. Almost 2,000 residents registered as borrowers, and loans grew by 64 percent between the first and second years. Borrowers reported modest savings, and most items came back in good condition.\" #8VD3T5FXM5\n  p.3 §3.1 The scheme: \"Standard members paid between GBP 1 and GBP 6 per loan, depending on the item, while members receiving Council Tax Reduction borrowed free of charge.\" #H9AEZKKC80\n  p.3 §3.2 Membership and loan records: \"Membership records held the branch of registration and the home postcode, which we used to assign each borrower to a deprivation quintile of the Index of Multiple Deprivation.\" #X1XXYZFJGE\n  p.3 §3.4 Avoided purchases and emissions: \"We estimated avoided purchases by applying the share of survey respondents who said they would otherwise have bought each type of item to the number of different members who borrowed that type of item, so that repeat loans of the same item by the same member were counted once.\" #KQM8VT02AR\n  p.5 §4.2 Loans and repeat use: \"Borrowers made 5,712 loans over the two years, 2,214 in year one and 3,498 in year two.\" #RV8D16FYBQ\n  p.5: \"Of the 1,936 registered borrowers, 1,421 made at least one loan. Among these active borrowers, 668 borrowed more than once.\" #W6CYNRF9A9\n  p.5: (shown in [1])\n  p.5: (shown in [1])\n  p.6: (shown in [1])\n  p.6: (shown in [1])\n  p.7 §4.5 Condition of returned items: \"Staff recorded damage at return on 3.1 percent of loans.\" #NRPWY3AJ2F\n  p.8 §7 Conclusions: \"We recommend that Brackenford Libraries continue the scheme, record damage throughout an item's life rather than only at return, and use loan data to guide which items are bought.\" #XNVDPTB4G8"
+    },
+    {
+      "set": "heldout3",
+      "task": "library-of-things-report-findings",
+      "kind": "summary",
+      "askSet": 2,
+      "ask": [
+        "What did the study of the library's tool-lending scheme find overall?"
+      ],
+      "ms": 11,
+      "fileTokens": 2849,
+      "files": [
+        "Reviews/Library of Things pilot evaluation.pdf"
+      ],
+      "sufficient": false,
+      "tokens": 946,
+      "relevantShare": 0.1,
+      "material": "1/4",
+      "facts": "1/7",
+      "missing": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\ns2 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] ranked: 18 sentences, 2/4 matching files; 5 more matched (2 Previous studies 2, 3.3 Borrower survey 1, 5 Discussion 1, 3.1 The scheme 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.4 §3.5 Resident survey and temperatures: \"The follow-up survey asked about comfort, running costs, problems and overall satisfaction, and was sent to all households with an installation.\" #12B5RDS34X\n  p.4 §4.1 Uptake: \"Between October 2022 and September 2024, 597 households registered an interest, 318 received a home survey and 214 had a heat pump installed. This conversion rate of 36 percent from registration to installation is above that reported for the Lowmoor scheme.\" #C5TRV3RGNG\n  p.7 §5 Discussion: \"The programme turned a larger share of interested households into installations than comparable community schemes, which suggests that free surveys and a trusted local organisation can overcome some of the barriers to take-up.\" #3WD8MSFZFK\n[1.2] s2:\n  p.1 §Abstract: \"The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee.\" #8VD3T5FXM5\n  p.1: \"We recommend that the scheme continues, with changes to how damage is recorded and how new items are chosen.\" #3HGFAPA35X\n  p.2 §2 Previous studies: \"No published study that we are aware of has followed a scheme in a town of Brackenford's size for more than one year.\" #XY89X2MRQC\n  p.3 §3.1 The scheme: \"At launch the catalogue held 164 items, chosen by library staff after a public consultation, and by March 2025 it had grown to 236 items. Standard members paid between GBP 1 and GBP 6 per loan, depending on the item, while members receiving Council Tax Reduction borrowed free of charge.\" #VAYMM5C5WW\n  p.6 §4.3 Savings to households: \"Asked what they would have done without the scheme, 62 percent of respondents said they would have bought the item, 21 percent would have borrowed it from friends or family, 9 percent would have hired it and 8 percent would have gone without.\" #XTPWGQYPYE\n  p.6 §4.4 Avoided purchases and emissions: \"Applying these answers to the 1,820 combinations of member and item type in the loan records, we estimate that the pilot avoided the purchase of about 1,130 items with a combined weight of 14.6 tonnes. These avoided purchases correspond to around 38 tonnes of carbon dioxide equivalent over the two years, mostly from power tools and garden machinery.\" #D1BGEPTPQE\n  p.7 §4.5 Condition of returned items: \"Damage was most common for power tools and garden equipment (Table 3).\" #0R5BVVWVXZ\n  p.7: Table 3. Loans with damage recorded at return, by item category [Category Loans Returned damaged Damage rate]\n    Power tools 1,240 64 5.2 percent\n  p.7 §5 Discussion: \"Repeat borrowing was higher than in the two schemes reviewed in Section 2, which suggests that a core group of households has made borrowing a habit.\" #GAZHR2K7QZ\n  p.7: \"The scheme's main value to many members may lie less in money saved than in access to equipment they could not store or could not justify buying.\" #SNXB0PN6Q3\n  p.8 §6 Limitations: \"The survey reached only 30 percent of active borrowers, and those who responded may have been more positive about the scheme than those who did not.\" #7T2RBYWFS3\n  p.8 §7 Conclusions: \"We recommend that Brackenford Libraries continue the scheme, record damage throughout an item's life rather than only at return, and use loan data to guide which items are bought.\" #XNVDPTB4G8"
+    },
+    {
+      "set": "heldout3",
+      "task": "heat-pump-report-findings",
+      "kind": "summary",
+      "askSet": 1,
+      "ask": [
+        "Kestle Bay heat pump programme evaluation findings",
+        "heat pump results bills temperature emissions satisfaction"
+      ],
+      "ms": 20,
+      "fileTokens": 2830,
+      "files": [
+        "Reviews/Community heat pump programme evaluation.pdf",
+        "Reviews/Heat pump programme board notes.md"
+      ],
+      "sufficient": false,
+      "tokens": 1717,
+      "relevantShare": 0.32,
+      "material": "3/4",
+      "facts": "5/7",
+      "missing": [
+        "f4"
+      ],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\ns2 = Reviews/Heat pump installations by area.xlsx @9afae54cd502\n[1] ranked: 23 sentences, 1/1 matching files; no row is labelled \"kestle bay\"; rows labelled like it: \"Kestle Moor\" (s2); 4 more matched (4.5 Residents' experience 3, 4.3 Indoor temperatures 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1: \"Evaluation of the Kestle Bay Community Heat Pump Programme, 2022 to 2024\" #BGNKDZBYBQ\n  p.1: \"Tressider Energy Research, for Kestle Bay Community Energy.\" #0JMMH7AHYB\n  p.1 §Abstract: \"Kestle Bay Community Energy, a community benefit society, ran a programme between October 2022 and September 2024 to help owner-occupiers on the Kestle Bay peninsula replace fossil-fuel heating with air-source heat pumps. The programme combined group purchasing, free home surveys and a grant of GBP 6,000 per home.\" #9ANETYPCPM\n  p.1: \"Household energy bills fell by 21 percent on average after installation, and homes were warmer in winter. Emissions from heating fell substantially. Most residents were satisfied with their systems, although around one in ten reported a fault in the first year.\" #S7MRH58BRD\n  p.2 §1 Introduction: \"Kestle Bay Community Energy set out to tackle these barriers locally.\" #YT837X4S9V\n  p.4 §4.1 Uptake: \"Between October 2022 and September 2024, 597 households registered an interest, 318 received a home survey and 214 had a heat pump installed. This conversion rate of 36 percent from registration to installation is above that reported for the Lowmoor scheme.\" #C5TRV3RGNG\n  p.5 §4.2 Energy bills: \"Complete meter data for a full year before and after installation were available for 162 homes. In these homes, mean annual energy spend fell from GBP 2,190 to GBP 1,818, valued at October 2023 prices. This fall of 17 percent, or GBP 372 a year, was larger in homes that had previously used heating oil than in homes that had used mains gas.\" #9NYPSS9EG5\n  p.5: \"Savings also varied with the construction of the home (Table 2). For the 52 homes without complete meter data, installers' estimates suggest similar savings, but these could not be checked.\" #W7WK0Q7CPT\n  p.5: \"Wall type Homes Before (GBP) After (GBP) Change Solid wall, built before 1919 38 2,640 2,455 -7 percent Cavity wall, insulated 81 2,050 1,600 -22 percent Cavity wall, not insulated 27 2,180 1,844 -15 percent Built after 1990 16 1,847 1,365 -26 percent All homes with full meter data 162 2,190 1,818 -17 percent\" #2VQTD8PJCS\n  p.6 §4.3 Indoor temperatures: \"In the 48 homes with temperature loggers, the mean living-room temperature from December to February rose by 1.6 deg C, from 17.9 deg C before installation to 19.5 deg C after. This gain was largest in homes that had relied on electric storage heaters, which had often been the coldest before the programme.\" #Z6KXV7GQEH\n  p.6 §4.4 Emissions: \"Modelled emissions from heating fell by a mean of 2.3 tonnes of carbon dioxide equivalent per home per year, a reduction of 61 percent. Across all 214 installations, this amounts to about 490 tonnes a year. These savings were roughly twice as large in oil-heated homes as in gas-heated homes, reflecting the higher carbon content of heating oil.\" #PMZ09YBKHQ\n  p.7 §5 Discussion: \"The fall in bills is within the range reported in field trials, and the larger savings in oil-heated homes match earlier findings.\" #82WEP5FTQ8\n  p.8 §7 Conclusions: \"The Kestle Bay programme shows that a community energy group can deliver heat pumps at scale in an area with many older and off-grid homes.\" #YVW5FY11NW\n[2] ranked: 22 sentences, 1/4 matching files; 20 more matched (Abstract 3, 3.3 Energy bills 3, 4.3 Indoor temperatures 2, 5 Discussion 2); a larger \"budget\" shows more\n[2.1] s1:\n  p.1: (shown in [1])\n  p.1 §Abstract: \"Emissions from heating fell substantially. Most residents were satisfied with their systems, although around one in ten reported a fault in the first year.\" #3QY5B1C1PR\n  p.1 §1 Introduction: \"Air-source heat pumps can cut both bills and emissions, but take-up has been slow, held back by upfront cost, uncertainty about how well they work in older homes and a shortage of trusted installers.\" #GR8R46W38F\n  p.2: \"Kestle Bay Community Energy set out to tackle these barriers locally. It recruited households through village halls and word of mouth, arranged free home surveys, negotiated a group price with two installers and administered a grant funded by the Coastal Communities Net Zero Fund. This report evaluates the programme's uptake, its effects on energy bills, indoor temperatures and emissions, and residents' experience of their new heating systems.\" #YT837X4S9V\n  p.2 §2 Background and previous studies: \"Field trials of air-source heat pumps in existing homes have reported reductions in annual energy bills of between 8 and 25 percent, with the largest reductions in homes that previously used heating oil or electric storage heaters (Ashworth and Kaur, 2021).\" #Q5X7EVZM81\n  p.3 §3.2 Data sources: \"Temperature loggers were placed in the living rooms of 48 homes that volunteered, recording every thirty minutes for one winter before and one winter after installation.\" #D9FS2TCVMS\n  p.4 §3.4 Emissions: \"Emissions from heating were modelled from metered fuel and electricity use, using the government's 2023 conversion factors for each fuel. The same factor for grid electricity was used for both years, so the results do not reflect any further decarbonisation of the grid.\" #NNQ5FKSCFJ\n  p.4 §3.5 Resident survey and temperatures: \"The follow-up survey asked about comfort, running costs, problems and overall satisfaction, and was sent to all households with an installation. Temperatures were summarised as the mean living-room temperature between 1 December and 28 February in each winter.\" #12B5RDS34X\n  p.4 §4.1 Uptake: \"Between October 2022 and September 2024, 597 households registered an interest, 318 received a home survey and 214 had a heat pump installed.\" #C5TRV3RGNG\n  p.6: (shown in [1])\n  p.6: (shown in [1])\n  p.8 §6 Limitations: \"There was no comparison group of homes that kept their old heating, so changes in bills and temperatures may partly reflect other changes in households. Meter data were complete for only 162 of the 214 homes, and temperature loggers were placed in only 48 volunteer homes, which may not be typical.\" #A7CC4DWHXD\n  p.8 §7 Conclusions: \"Households saved money and were warmer, and emissions from heating fell sharply.\" #QGGQPH31K4"
+    },
+    {
+      "set": "heldout3",
+      "task": "heat-pump-report-findings",
+      "kind": "summary",
+      "askSet": 2,
+      "ask": [
+        "How did the community heat pump scheme work out for the people who got one?"
+      ],
+      "ms": 15,
+      "fileTokens": 2830,
+      "files": [
+        "Reviews/Community heat pump programme evaluation.pdf",
+        "Reviews/Heat pump programme board notes.md"
+      ],
+      "sufficient": false,
+      "tokens": 1036,
+      "relevantShare": 0.14,
+      "material": "2/4",
+      "facts": "3/7",
+      "missing": [
+        "f2",
+        "f3"
+      ],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\ns2 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] ranked: 20 sentences, 2/6 matching files; 27 more matched (4.1 Uptake 3, 3.1 The scheme 3, 2 Previous studies 3, 2 Background and previous studies 3); a larger \"budget\" shows more\n[1.1] s1:\n  p.1: \"Evaluation of the Kestle Bay Community Heat Pump Programme, 2022 to 2024\" #BGNKDZBYBQ\n  p.1 §Abstract: \"Kestle Bay Community Energy, a community benefit society, ran a programme between October 2022 and September 2024 to help owner-occupiers on the Kestle Bay peninsula replace fossil-fuel heating with air-source heat pumps.\" #9ANETYPCPM\n  p.1 §1 Introduction: \"Air-source heat pumps can cut both bills and emissions, but take-up has been slow, held back by upfront cost, uncertainty about how well they work in older homes and a shortage of trusted installers.\" #GR8R46W38F\n  p.2 §2 Background and previous studies: \"In the Lowmoor scheme, 29 percent of households that registered an interest went on to have a heat pump installed (Lowmoor Energy, 2022).\" #DPJQBPEEDJ\n  p.4 §4.1 Uptake: \"Between October 2022 and September 2024, 597 households registered an interest, 318 received a home survey and 214 had a heat pump installed.\" #C5TRV3RGNG\n  p.4: \"Most households that dropped out after the survey cited the cost remaining after the grant, and a smaller number were advised that their home needed insulation work first.\" #1QJJ3XF42Y\n  p.7 §4.5 Residents' experience: \"Among respondents, 84 percent were satisfied or very satisfied with their heat pump, and 77 percent said their home was more comfortable than before. Twenty-three households, 11 percent of those with an installation, reported a fault in the first year (Table 3). Most faults were fixed within a week, but three households were without heating for more than five days.\" #JXKNQVMW56\n  p.7 §5 Discussion: \"The programme turned a larger share of interested households into installations than comparable community schemes, which suggests that free surveys and a trusted local organisation can overcome some of the barriers to take-up.\" #3WD8MSFZFK\n  p.8 §7 Conclusions: \"The Kestle Bay programme shows that a community energy group can deliver heat pumps at scale in an area with many older and off-grid homes.\" #YVW5FY11NW\n[1.2] s2:\n  p.4 §4.1 Membership and reach: \"By the end of March 2025, 1,936 people had registered as borrowers across the three branches.\" #YDAQ7F9T5K\n  p.4: \"The remaining 446 registrations had no usable postcode, mostly because borrowers had registered with a work address, and they are not included in this figure.\" #Y56C4ERNB0\n  p.5 §4.2 Loans and repeat use: \"Borrowers made 5,712 loans over the two years, 2,214 in year one and 3,498 in year two.\" #RV8D16FYBQ\n  p.5: \"Among these active borrowers, 668 borrowed more than once. That is a repeat borrowing rate of 47 percent, and it was 53 percent among those who joined in year one and 38 percent among those who joined in year two, who had less time to borrow again.\" #RBEV11ZYGC\n  p.6 §4.3 Savings to households: \"Asked what they would have done without the scheme, 62 percent of respondents said they would have bought the item, 21 percent would have borrowed it from friends or family, 9 percent would have hired it and 8 percent would have gone without.\" #XTPWGQYPYE\n  p.7 §5 Discussion: \"The pilot reached more people than most schemes of its kind, and registrations were well above the median reported for English schemes after two years.\" #Z4NMS01Q63\n  p.7: \"Repeat borrowing was higher than in the two schemes reviewed in Section 2, which suggests that a core group of households has made borrowing a habit.\" #GAZHR2K7QZ\n  p.8 §6 Limitations: \"The survey reached only 30 percent of active borrowers, and those who responded may have been more positive about the scheme than those who did not.\" #7T2RBYWFS3"
+    },
+    {
+      "set": "heldout3",
+      "task": "library-briefing-findings",
+      "kind": "summary",
+      "askSet": 1,
+      "ask": [
+        "Library of Things committee briefing",
+        "briefing proposals Northfield deposit repair log"
+      ],
+      "ms": 3,
+      "fileTokens": 380,
+      "files": [
+        "Reviews/Library of Things committee briefing.docx"
+      ],
+      "sufficient": true,
+      "tokens": 684,
+      "relevantShare": 0.63,
+      "material": "4/4",
+      "facts": "5/5",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Library of Things committee briefing.docx @890d2aec2552\n[1] s1 text:\n  para 1 Library of Things pilot: briefing for the Communities Committee\n  para 2 From the Head of Libraries, Brackenford Council. For the committee meeting on 18 November 2025.\n  para 4 This briefing summarises the independent evaluation of the Library of Things pilot by Northfold Social Research and sets out the library service's proposals for the scheme's future.\n  para 5 What the evaluation found\n  para 6 The pilot exceeded its target of 1,500 registered borrowers, and use grew in the second year. Borrowers reported that they saved money, and most items came back in good condition. The service accepts the evaluation's findings, with one exception set out below.\n  para 8 Our own repair log records damage on 6.8 percent of loans, more than twice the evaluation's figure. The difference arises because the evaluation counted only damage noted by staff when an item was returned, while the repair log also includes faults found at the next safety check or by the next borrower. We consider the repair log the better measure of the cost of wear and tear.\n  para 10 We propose to continue the scheme for a further three years and to open a fourth collection point at Northfield library from April 2026, at an estimated additional cost of GBP 31,000 a year. From January 2026, borrowers of power tools would pay a refundable deposit of GBP 10, which the service expects to reduce damage and late returns. Members receiving Council Tax Reduction would continue to borrow free of charge.\n  para 12 The committee is asked to approve the continuation and extension of the Library of Things as set out above, funded from the libraries budget and from loan fees.\n[2] ranked: 6 sentences, 1/3 matching files; 1 more matched (Proposals 1); a larger \"budget\" shows more\n[2.1] s1:\n  para 4 §Purpose: \"This briefing summarises the independent evaluation of the Library of Things pilot by Northfold Social Research and sets out the library service's proposals for the scheme's future.\" #KH7KEB1P7H\n  para 8 §Damage to items: \"Our own repair log records damage on 6.8 percent of loans, more than twice the evaluation's figure. The difference arises because the evaluation counted only damage noted by staff when an item was returned, while the repair log also includes faults found at the next safety check or by the next borrower. We consider the repair log the better measure of the cost of wear and tear.\" #SDN07JNB8S\n  para 10 §Proposals: \"We propose to continue the scheme for a further three years and to open a fourth collection point at Northfield library from April 2026, at an estimated additional cost of GBP 31,000 a year. From January 2026, borrowers of power tools would pay a refundable deposit of GBP 10, which the service expects to reduce damage and late returns.\" #4Y9JQSACX3"
+    },
+    {
+      "set": "heldout3",
+      "task": "library-briefing-findings",
+      "kind": "summary",
+      "askSet": 2,
+      "ask": [
+        "What is the library team asking councillors to sign off for the tool-lending scheme, and do they agree with the evaluation?"
+      ],
+      "ms": 13,
+      "fileTokens": 380,
+      "files": [
+        "Reviews/Library of Things committee briefing.docx"
+      ],
+      "sufficient": false,
+      "tokens": 864,
+      "relevantShare": 0,
+      "material": "0/4",
+      "facts": "0/5",
+      "missing": [
+        "f1",
+        "f2",
+        "f3",
+        "f4"
+      ],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] ranked: 17 sentences, 1/5 matching files; no indexed text in the 6 shared files has \"team\" or \"councillors\"; no excerpt has \"asking\"; 6 more matched (2 Previous studies 2, 3.3 Borrower survey 1, 5 Discussion 1, 1 Introduction 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1: \"Borrowing instead of buying: evaluation of the Brackenford Library of Things pilot, April 2023 to March 2025\" #HMQKT8RRYA\n  p.1 §Abstract: \"The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee.\" #8VD3T5FXM5\n  p.1: \"We recommend that the scheme continues, with changes to how damage is recorded and how new items are chosen.\" #3HGFAPA35X\n  p.2 §1 Introduction: \"Items could be reserved online and collected from any of the three branches, and loans lasted up to seven days. This report sets out what the pilot achieved against the aims agreed with the funder: to reach a broad range of residents, to build regular use, to save households money and to reduce waste.\" #DP0V7TPHV9\n  p.2 §2 Previous studies: \"Repeat borrowing, the share of borrowers who borrow more than once, is often used as a sign that a scheme has become part of household routines.\" #NS10WK61KK\n  p.3 §3.1 The scheme: \"At launch the catalogue held 164 items, chosen by library staff after a public consultation, and by March 2025 it had grown to 236 items. Standard members paid between GBP 1 and GBP 6 per loan, depending on the item, while members receiving Council Tax Reduction borrowed free of charge.\" #VAYMM5C5WW\n  p.6 §4.3 Savings to households: \"Asked what they would have done without the scheme, 62 percent of respondents said they would have bought the item, 21 percent would have borrowed it from friends or family, 9 percent would have hired it and 8 percent would have gone without.\" #XTPWGQYPYE\n  p.6 §4.4 Avoided purchases and emissions: \"Applying these answers to the 1,820 combinations of member and item type in the loan records, we estimate that the pilot avoided the purchase of about 1,130 items with a combined weight of 14.6 tonnes. These avoided purchases correspond to around 38 tonnes of carbon dioxide equivalent over the two years, mostly from power tools and garden machinery.\" #D1BGEPTPQE\n  p.7 §4.5 Condition of returned items: \"Damage was most common for power tools and garden equipment (Table 3).\" #0R5BVVWVXZ\n  p.7: Table 3. Loans with damage recorded at return, by item category [Category Loans Returned damaged Damage rate]\n    Power tools 1,240 64 5.2 percent\n  p.7 §5 Discussion: \"The pilot reached more people than most schemes of its kind, and registrations were well above the median reported for English schemes after two years.\" #Z4NMS01Q63\n  p.7: \"Repeat borrowing was higher than in the two schemes reviewed in Section 2, which suggests that a core group of households has made borrowing a habit.\" #GAZHR2K7QZ\n  p.8 §6 Limitations: \"The survey reached only 30 percent of active borrowers, and those who responded may have been more positive about the scheme than those who did not.\" #7T2RBYWFS3\n  p.8 §7 Conclusions: \"We recommend that Brackenford Libraries continue the scheme, record damage throughout an item's life rather than only at return, and use loan data to guide which items are bought.\" #XNVDPTB4G8"
+    },
+    {
+      "set": "heldout3",
+      "task": "heat-pump-board-meeting-findings",
+      "kind": "summary",
+      "askSet": 1,
+      "ask": [
+        "heat pump programme board meeting November 2024",
+        "board notes phase two target installer complaints"
+      ],
+      "ms": 7,
+      "fileTokens": 334,
+      "files": [
+        "Reviews/Heat pump programme board notes.md"
+      ],
+      "sufficient": true,
+      "tokens": 695,
+      "relevantShare": 0.48,
+      "material": "4/4",
+      "facts": "5/5",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Heat pump programme board notes.md @6ea9f935a217\n[1] #9364KVW38W s1 lines 1-25 of 25\n```\n# Kestle Bay heat pump programme: board meeting notes, 14 November 2024\n\n## Kestle Bay heat pump programme: board meeting notes, 14 November 2024\n\nPresent: Rosa Penhallow (chair), Daniel Kitto, Meera Joshi, Tom Rowe and Ellen Vosper (programme manager). Apologies: Gareth Lobb.\n\n## Progress\n\nEllen reported that the first phase closed in September with 214 installations. Installers now report a median of 9 weeks between the home survey and the installation date, down from 14 weeks in the first year of the programme.\n\n## Installers\n\nBrightwater Heating withdrew from the programme in August because of staff shortages, leaving Pellow and Sons as the only appointed installer. The board agreed to run a new tender in January to appoint at least one more installer before phase two begins.\n\n## Complaints\n\nSix formal complaints were received in 2024, four of them about installation delays and two about the condition of gardens after outdoor units were fitted. All have been resolved.\n\n## Phase two\n\nThe board agreed a target of 150 further installations by March 2026, with priority for homes heated by oil or bottled gas. It also agreed to cap the householder contribution at GBP 4,000 for households receiving means-tested benefits, with the society's hardship fund meeting the rest of the cost.\n\n## Actions\n\nEllen to draft the installer tender by 12 December. Daniel to ask the Coastal Communities Net Zero Fund whether the grant can stay at GBP 6,000 per home in phase two. Meera to update the website with the new waiting times.\n```\n[2] ranked: 6 sentences, 1/6 matching files; 2 more matched (Phase two 1, Complaints 1); a larger \"budget\" shows more\n[2.1] s1:\n  line 5 §Kestle Bay heat pump programme: board meeting notes, 14 November 2024: \"Present: Rosa Penhallow (chair), Daniel Kitto, Meera Joshi, Tom Rowe and Ellen Vosper (programme manager).\" #GH9JWXWJDK\n  line 9 §Progress: \"Ellen reported that the first phase closed in September with 214 installations.\" #81TVEF8D0T\n  line 13 §Installers: \"The board agreed to run a new tender in January to appoint at least one more installer before phase two begins.\" #SQ61DYTYQD\n  line 17 §Complaints: \"Six formal complaints were received in 2024, four of them about installation delays and two about the condition of gardens after outdoor units were fitted.\" #ACPMKAQV9W\n  line 21 §Phase two: \"The board agreed a target of 150 further installations by March 2026, with priority for homes heated by oil or bottled gas.\" #SR03BRQ9WN\n  line 25 §Actions: \"Daniel to ask the Coastal Communities Net Zero Fund whether the grant can stay at GBP 6,000 per home in phase two.\" #M54G3HCJ87"
+    },
+    {
+      "set": "heldout3",
+      "task": "heat-pump-board-meeting-findings",
+      "kind": "summary",
+      "askSet": 2,
+      "ask": [
+        "What did the heat pump project's board decide when they last met?"
+      ],
+      "ms": 8,
+      "fileTokens": 334,
+      "files": [
+        "Reviews/Heat pump programme board notes.md"
+      ],
+      "sufficient": false,
+      "tokens": 335,
+      "relevantShare": 0.12,
+      "material": "1/4",
+      "facts": "1/5",
+      "missing": [
+        "f2",
+        "f3",
+        "f4"
+      ],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Heat pump programme board notes.md @6ea9f935a217\ns2 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] ranked: 5 sentences, 2/5 matching files; no indexed text in the 6 shared files has \"project\" or \"decide\"; 1 more matched (Installers 1); a larger \"budget\" shows more\n[1.1] s1:\n  line 5 §Kestle Bay heat pump programme: board meeting notes, 14 November 2024: \"Present: Rosa Penhallow (chair), Daniel Kitto, Meera Joshi, Tom Rowe and Ellen Vosper (programme manager).\" #GH9JWXWJDK\n  line 13 §Installers: \"The board agreed to run a new tender in January to appoint at least one more installer before phase two begins.\" #SQ61DYTYQD\n  line 21 §Phase two: \"The board agreed a target of 150 further installations by March 2026, with priority for homes heated by oil or bottled gas.\" #SR03BRQ9WN\n[1.2] s2:\n  p.2 §1 Introduction: \"Items could be reserved online and collected from any of the three branches, and loans lasted up to seven days.\" #DP0V7TPHV9\n  p.8 §7 Conclusions: \"The Library of Things pilot met its aims for reach and regular use, and it delivered savings and environmental benefits that, while uncertain in size, point in the right direction.\" #0EP74N537M"
+    },
+    {
+      "set": "heldout3",
+      "task": "library-household-savings",
+      "kind": "qualified",
+      "askSet": 1,
+      "ask": [
+        "Library of Things household savings",
+        "borrower survey median saving"
+      ],
+      "ms": 16,
+      "fileTokens": 2849,
+      "files": [
+        "Reviews/Library of Things pilot evaluation.pdf"
+      ],
+      "sufficient": true,
+      "tokens": 1704,
+      "relevantShare": 0.1,
+      "material": "1/1",
+      "facts": "2/2",
+      "missing": [],
+      "qualifications": "1/1",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\ns2 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] ranked: 25 sentences, 2/5 matching files; 30 more matched (4.5 Residents' experience 6, 4.1 Uptake 5, 1 Introduction 4, 3.1 The programme 3); a larger \"budget\" shows more\n[1.1] s1:\n  p.4 §4.1 Uptake: \"Between October 2022 and September 2024, 597 households registered an interest, 318 received a home survey and 214 had a heat pump installed.\" #C5TRV3RGNG\n  p.4: Table 1. Households at each stage, by main heating fuel before the programme [Main heating fuel Registered interest Home survey Installed]\n    Mains gas 392 196 121\n    All households 597 318 214\n  p.5 §4.2 Energy bills: \"Savings also varied with the construction of the home (Table 2). For the 52 homes without complete meter data, installers' estimates suggest similar savings, but these could not be checked.\" #W7WK0Q7CPT\n  p.6 §4.4 Emissions: \"Across all 214 installations, this amounts to about 490 tonnes a year. These savings were roughly twice as large in oil-heated homes as in gas-heated homes, reflecting the higher carbon content of heating oil.\" #T7MYT9AWH3\n  p.7 §4.5 Residents' experience: \"Of the 214 households with an installation, 171 answered the follow-up survey, a response rate of 80 percent.\" #9CSXAPGJTJ\n  p.7: \"Twenty-three households, 11 percent of those with an installation, reported a fault in the first year (Table 3). Most faults were fixed within a week, but three households were without heating for more than five days.\" #EA0M56SE5M\n  p.7: Table 3. Faults reported in the first year after installation, by type [Type of fault Households Median days to fix]\n    Controls or thermostat 9 2\n  p.7 §5 Discussion: \"The programme turned a larger share of interested households into installations than comparable community schemes, which suggests that free surveys and a trusted local organisation can overcome some of the barriers to take-up.\" #3WD8MSFZFK\n  p.7: \"The fall in bills is within the range reported in field trials, and the larger savings in oil-heated homes match earlier findings. Savings in older solid-wall homes were smaller, which supports the case for combining heat pumps with insulation where that is affordable.\" #82WEP5FTQ8\n[1.2] s2:\n  p.1: \"Borrowing instead of buying: evaluation of the Brackenford Library of Things pilot, April 2023 to March 2025\" #HMQKT8RRYA\n  p.1 §Abstract: \"The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee.\" #8VD3T5FXM5\n  p.1: \"Borrowers reported modest savings, and most items came back in good condition.\" #0BZMN7FR8T\n  p.1 §1 Introduction: \"Libraries of things apply the familiar library model to objects that households need only occasionally, such as drills, gazebos and sewing machines.\" #0RB1MMQPKX\n  p.3 §3.4 Avoided purchases and emissions: \"Emissions were then estimated from the weight and main material of each type of item, using published factors for the manufacture of household equipment (Faraday and Mbeki, 2022).\" #H2A2RN0M75\n  p.6 §4.3 Savings to households: \"Survey respondents estimated that borrowing instead of buying or hiring had saved their household a median of GBP 85 over the previous twelve months. Savings were largest among those who had borrowed decorating equipment, for whom the median was GBP 120. These estimates are self-reported, and respondents may have overstated what they would otherwise have spent.\" #VRWW7DE97Z\n  p.6: \"Asked what they would have done without the scheme, 62 percent of respondents said they would have bought the item, 21 percent would have borrowed it from friends or family, 9 percent would have hired it and 8 percent would have gone without.\" #XTPWGQYPYE\n  p.7 §5 Discussion: \"Repeat borrowing was higher than in the two schemes reviewed in Section 2, which suggests that a core group of households has made borrowing a habit.\" #GAZHR2K7QZ\n  p.8 §7 Conclusions: \"The Library of Things pilot met its aims for reach and regular use, and it delivered savings and environmental benefits that, while uncertain in size, point in the right direction.\" #0EP74N537M\n[2] ranked: 12 sentences, 1/6 matching files; 9 more matched (4.2 Loans and repeat use 5, 4.1 Membership and reach 2, 3.3 Borrower survey 1, 5 Discussion 1); a larger \"budget\" shows more\n[2.1] s2:\n  p.1 §Abstract: \"The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee. This report evaluates the first two years of the pilot, from April 2023 to March 2025, using membership and loan records, a survey of borrowers and the checks that staff make when items are returned.\" #8VD3T5FXM5\n  p.2 §2 Previous studies: \"A survey of 14 schemes in England found a median of 1,150 registered borrowers per scheme after two years of operation, with wide variation by town size (Carraway Trust, 2022). The same survey reported a median household saving of GBP 60 a year among borrowers who answered its questionnaire.\" #9A1AJZRVK1\n  p.3 §3.3 Borrower survey: \"In February 2025 we sent an online survey to all 1,421 members who had borrowed at least one item, and paper copies were offered at all three branches. The survey asked what borrowers had used items for, what they would have done without the scheme, and how much they thought they had saved.\" #EHKMW49FSZ\n  p.3 §3.4 Avoided purchases and emissions: \"We estimated avoided purchases by applying the share of survey respondents who said they would otherwise have bought each type of item to the number of different members who borrowed that type of item, so that repeat loans of the same item by the same member were counted once.\" #KQM8VT02AR\n  p.6 §4.3 Savings to households: \"Survey respondents estimated that borrowing instead of buying or hiring had saved their household a median of GBP 85 over the previous twelve months. Savings were largest among those who had borrowed decorating equipment, for whom the median was GBP 120.\" #VRWW7DE97Z\n  p.7 §5 Discussion: \"The pilot reached more people than most schemes of its kind, and registrations were well above the median reported for English schemes after two years.\" #Z4NMS01Q63\n  p.7: \"Borrowers' estimates of what they saved were larger than in the national survey, but they remain small in relation to household budgets.\" #ZXKQG8MCMD\n  p.8 §6 Limitations: \"The survey reached only 30 percent of active borrowers, and those who responded may have been more positive about the scheme than those who did not.\" #7T2RBYWFS3"
+    },
+    {
+      "set": "heldout3",
+      "task": "library-household-savings",
+      "kind": "qualified",
+      "askSet": 2,
+      "ask": [
+        "Did borrowing things from the library actually save people any cash?"
+      ],
+      "ms": 10,
+      "fileTokens": 2849,
+      "files": [
+        "Reviews/Library of Things pilot evaluation.pdf"
+      ],
+      "sufficient": false,
+      "tokens": 508,
+      "relevantShare": 0,
+      "material": "0/1",
+      "facts": "0/2",
+      "missing": [
+        "f1"
+      ],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] ranked: 9 sentences, 1/4 matching files; no indexed text in the 6 shared files has \"actually\" or \"cash\"; no excerpt has \"save\"; 9 more matched (4.2 Loans and repeat use 4, 4.1 Membership and reach 2, 5 Discussion 1, 1 Introduction 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1: \"Borrowing instead of buying: evaluation of the Brackenford Library of Things pilot, April 2023 to March 2025\" #HMQKT8RRYA\n  p.1 §Abstract: \"The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee.\" #8VD3T5FXM5\n  p.1 §1 Introduction: \"Libraries of things apply the familiar library model to objects that households need only occasionally, such as drills, gazebos and sewing machines. Their supporters argue that borrowing saves money, reduces the number of rarely used items that people buy, and brings people into libraries who would not otherwise visit.\" #0RB1MMQPKX\n  p.3 §3.1 The scheme: \"Standard members paid between GBP 1 and GBP 6 per loan, depending on the item, while members receiving Council Tax Reduction borrowed free of charge.\" #H9AEZKKC80\n  p.4 §4.1 Membership and reach: \"By the end of March 2025, 1,936 people had registered as borrowers across the three branches.\" #YDAQ7F9T5K\n  p.5 §4.2 Loans and repeat use: \"Borrowers made 5,712 loans over the two years, 2,214 in year one and 3,498 in year two.\" #RV8D16FYBQ\n  p.7 §5 Discussion: \"The pilot reached more people than most schemes of its kind, and registrations were well above the median reported for English schemes after two years.\" #Z4NMS01Q63\n  p.8 §7 Conclusions: \"The Library of Things pilot met its aims for reach and regular use, and it delivered savings and environmental benefits that, while uncertain in size, point in the right direction.\" #0EP74N537M"
+    },
+    {
+      "set": "heldout3",
+      "task": "heat-pump-indoor-warmth",
+      "kind": "qualified",
+      "askSet": 1,
+      "ask": [
+        "Kestle Bay indoor temperature after heat pump installation",
+        "living-room temperature loggers winter"
+      ],
+      "ms": 11,
+      "fileTokens": 2494,
+      "files": [
+        "Reviews/Community heat pump programme evaluation.pdf"
+      ],
+      "sufficient": true,
+      "tokens": 1206,
+      "relevantShare": 0.28,
+      "material": "1/1",
+      "facts": "2/2",
+      "missing": [],
+      "qualifications": "1/1",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\ns2 = Reviews/Heat pump installations by area.xlsx @9afae54cd502\n[1] ranked: 19 sentences, 1/3 matching files; no row is labelled \"kestle bay\"; rows labelled like it: \"Kestle Moor\" (s2); 9 more matched (4.1 Uptake 3, 2 Background and previous studies 2, 7 Conclusions 1, Abstract 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1: \"Evaluation of the Kestle Bay Community Heat Pump Programme, 2022 to 2024\" #BGNKDZBYBQ\n  p.1 §Abstract: \"Kestle Bay Community Energy, a community benefit society, ran a programme between October 2022 and September 2024 to help owner-occupiers on the Kestle Bay peninsula replace fossil-fuel heating with air-source heat pumps.\" #9ANETYPCPM\n  p.2 §1 Introduction: \"Kestle Bay Community Energy set out to tackle these barriers locally. It recruited households through village halls and word of mouth, arranged free home surveys, negotiated a group price with two installers and administered a grant funded by the Coastal Communities Net Zero Fund. This report evaluates the programme's uptake, its effects on energy bills, indoor temperatures and emissions, and residents' experience of their new heating systems.\" #YT837X4S9V\n  p.3 §3.2 Data sources: \"Temperature loggers were placed in the living rooms of 48 homes that volunteered, recording every thirty minutes for one winter before and one winter after installation.\" #D9FS2TCVMS\n  p.4 §3.5 Resident survey and temperatures: \"The follow-up survey asked about comfort, running costs, problems and overall satisfaction, and was sent to all households with an installation. Temperatures were summarised as the mean living-room temperature between 1 December and 28 February in each winter.\" #12B5RDS34X\n  p.4 §4.1 Uptake: \"Between October 2022 and September 2024, 597 households registered an interest, 318 received a home survey and 214 had a heat pump installed.\" #C5TRV3RGNG\n  p.6 §4.3 Indoor temperatures: \"In the 48 homes with temperature loggers, the mean living-room temperature from December to February rose by 1.6 deg C, from 17.9 deg C before installation to 19.5 deg C after. This gain was largest in homes that had relied on electric storage heaters, which had often been the coldest before the programme. Fewer residents reported shutting off rooms in winter to save money. The comparison is not adjusted for weather, and the second winter was on average 1.1 deg C milder outdoors than the first.\" #Z6KXV7GQEH\n  p.7 §4.5 Residents' experience: \"Among respondents, 84 percent were satisfied or very satisfied with their heat pump, and 77 percent said their home was more comfortable than before. Twenty-three households, 11 percent of those with an installation, reported a fault in the first year (Table 3). Most faults were fixed within a week, but three households were without heating for more than five days.\" #JXKNQVMW56\n  p.8 §6 Limitations: \"There was no comparison group of homes that kept their old heating, so changes in bills and temperatures may partly reflect other changes in households. Meter data were complete for only 162 of the 214 homes, and temperature loggers were placed in only 48 volunteer homes, which may not be typical.\" #A7CC4DWHXD\n  p.8 §7 Conclusions: \"The Kestle Bay programme shows that a community energy group can deliver heat pumps at scale in an area with many older and off-grid homes.\" #YVW5FY11NW\n[2] ranked: 8 sentences, 1/2 matching files; 2 more matched (2 Background and previous studies 1, 4.3 Indoor temperatures 1); a larger \"budget\" shows more\n[2.1] s1:\n  p.1 §Abstract: \"The programme combined group purchasing, free home surveys and a grant of GBP 6,000 per home. This evaluation draws on the society's records, smart meter data, temperature loggers and a follow-up survey of residents.\" #H4X53TW59W\n  p.3: (shown in [1])\n  p.4 §3.5 Resident survey and temperatures: \"Temperatures were summarised as the mean living-room temperature between 1 December and 28 February in each winter.\" #8M0DBM1DK9\n  p.6 §4.3 Indoor temperatures: \"In the 48 homes with temperature loggers, the mean living-room temperature from December to February rose by 1.6 deg C, from 17.9 deg C before installation to 19.5 deg C after. This gain was largest in homes that had relied on electric storage heaters, which had often been the coldest before the programme. Fewer residents reported shutting off rooms in winter to save money.\" #Z6KXV7GQEH\n  p.8 §6 Limitations: \"Meter data were complete for only 162 of the 214 homes, and temperature loggers were placed in only 48 volunteer homes, which may not be typical.\" #RDCH4Q1F8A"
+    },
+    {
+      "set": "heldout3",
+      "task": "heat-pump-indoor-warmth",
+      "kind": "qualified",
+      "askSet": 2,
+      "ask": [
+        "Did people's houses actually get any warmer once the new heating went in?"
+      ],
+      "ms": 10,
+      "fileTokens": 2494,
+      "files": [
+        "Reviews/Community heat pump programme evaluation.pdf"
+      ],
+      "sufficient": false,
+      "tokens": 1094,
+      "relevantShare": 0,
+      "material": "0/1",
+      "facts": "0/2",
+      "missing": [
+        "f1"
+      ],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\ns2 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] ranked: 27 sentences, 2/4 matching files; no indexed text in the 6 shared files has \"actually\"; no excerpt has \"new\"; 23 more matched (1 Introduction 6, 4.5 Residents' experience 5, 4.1 Uptake 3, 5 Discussion 2); a larger \"budget\" shows more\n[1.1] s1:\n  p.1 §Abstract: \"Household energy bills fell by 21 percent on average after installation, and homes were warmer in winter. Emissions from heating fell substantially. Most residents were satisfied with their systems, although around one in ten reported a fault in the first year.\" #S7MRH58BRD\n  p.2 §2 Background and previous studies: \"In the Lowmoor scheme, 29 percent of households that registered an interest went on to have a heat pump installed (Lowmoor Energy, 2022).\" #DPJQBPEEDJ\n  p.3 §3.1 The programme: \"Households could register an interest online or at one of eleven drop-in sessions held in village halls. Each registered household was offered a free home survey by an independent assessor, who checked insulation, radiators and the electricity supply. Households that went ahead received a grant of GBP 6,000 towards the installed cost and could borrow the remainder through an interest-free loan arranged by the society.\" #X5EV5D21P2\n  p.4 §4.1 Uptake: \"Between October 2022 and September 2024, 597 households registered an interest, 318 received a home survey and 214 had a heat pump installed.\" #C5TRV3RGNG\n  p.4: Table 1. Households at each stage, by main heating fuel before the programme [Main heating fuel Registered interest Home survey Installed]\n    Heating oil 128 79 63\n    Electric storage heaters 51 29 21\n    Bottled gas (LPG) 26 14 9\n    All households 597 318 214\n  p.7 §4.5 Residents' experience: \"Of the 214 households with an installation, 171 answered the follow-up survey, a response rate of 80 percent.\" #9CSXAPGJTJ\n  p.7: \"Twenty-three households, 11 percent of those with an installation, reported a fault in the first year (Table 3). Most faults were fixed within a week, but three households were without heating for more than five days.\" #EA0M56SE5M\n  p.7: Table 3. Faults reported in the first year after installation, by type [Type of fault Households Median days to fix]\n    Controls or thermostat 9 2\n    Hot water cylinder 6 4\n  p.7 §5 Discussion: \"The programme turned a larger share of interested households into installations than comparable community schemes, which suggests that free surveys and a trusted local organisation can overcome some of the barriers to take-up.\" #3WD8MSFZFK\n  p.8 §6 Limitations: \"There was no comparison group of homes that kept their old heating, so changes in bills and temperatures may partly reflect other changes in households.\" #A7CC4DWHXD\n  p.8 §7 Conclusions: \"Households saved money and were warmer, and emissions from heating fell sharply.\" #QGGQPH31K4\n[1.2] s2:\n  p.1 §Abstract: \"The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee.\" #8VD3T5FXM5\n  p.3 §3.4 Avoided purchases and emissions: \"Emissions were then estimated from the weight and main material of each type of item, using published factors for the manufacture of household equipment (Faraday and Mbeki, 2022).\" #H2A2RN0M75\n  p.4 §4.1 Membership and reach: \"By the end of March 2025, 1,936 people had registered as borrowers across the three branches.\" #YDAQ7F9T5K\n  p.6 §4.3 Savings to households: \"Survey respondents estimated that borrowing instead of buying or hiring had saved their household a median of GBP 85 over the previous twelve months. Savings were largest among those who had borrowed decorating equipment, for whom the median was GBP 120.\" #VRWW7DE97Z\n  p.7 §5 Discussion: \"Repeat borrowing was higher than in the two schemes reviewed in Section 2, which suggests that a core group of households has made borrowing a habit.\" #GAZHR2K7QZ\n  p.7: \"Borrowers' estimates of what they saved were larger than in the national survey, but they remain small in relation to household budgets.\" #ZXKQG8MCMD"
+    },
+    {
+      "set": "heldout3",
+      "task": "library-carbon-avoided",
+      "kind": "qualified",
+      "askSet": 1,
+      "ask": [
+        "Library of Things carbon emissions avoided",
+        "avoided purchases tonnes carbon dioxide"
+      ],
+      "ms": 14,
+      "fileTokens": 2849,
+      "files": [
+        "Reviews/Library of Things pilot evaluation.pdf"
+      ],
+      "sufficient": true,
+      "tokens": 1035,
+      "relevantShare": 0.22,
+      "material": "1/1",
+      "facts": "2/2",
+      "missing": [],
+      "qualifications": "1/1",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\ns2 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] ranked: 13 sentences, 2/4 matching files; 2 more matched (Abstract 1, 7 Conclusions 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.4 §3.4 Emissions: \"Emissions from heating were modelled from metered fuel and electricity use, using the government's 2023 conversion factors for each fuel.\" #NNQ5FKSCFJ\n  p.6 §4.4 Emissions: \"Modelled emissions from heating fell by a mean of 2.3 tonnes of carbon dioxide equivalent per home per year, a reduction of 61 percent. Across all 214 installations, this amounts to about 490 tonnes a year. These savings were roughly twice as large in oil-heated homes as in gas-heated homes, reflecting the higher carbon content of heating oil.\" #PMZ09YBKHQ\n  p.8 §6 Limitations: \"Emissions were modelled rather than measured.\" #QY24ESYH8H\n[1.2] s2:\n  p.1: \"Borrowing instead of buying: evaluation of the Brackenford Library of Things pilot, April 2023 to March 2025\" #HMQKT8RRYA\n  p.2 §2 Previous studies: \"Faraday and Mbeki (2022) estimated that a large urban scheme avoided 52 tonnes of carbon dioxide equivalent in a year, but noted that the result depended heavily on what borrowers said they would otherwise have bought.\" #RCFBG9V6XX\n  p.3 §3.4 Avoided purchases and emissions: \"We estimated avoided purchases by applying the share of survey respondents who said they would otherwise have bought each type of item to the number of different members who borrowed that type of item, so that repeat loans of the same item by the same member were counted once. Emissions were then estimated from the weight and main material of each type of item, using published factors for the manufacture of household equipment (Faraday and Mbeki, 2022).\" #KQM8VT02AR\n  p.6 §4.4 Avoided purchases and emissions: \"Applying these answers to the 1,820 combinations of member and item type in the loan records, we estimate that the pilot avoided the purchase of about 1,130 items with a combined weight of 14.6 tonnes. These avoided purchases correspond to around 38 tonnes of carbon dioxide equivalent over the two years, mostly from power tools and garden machinery. The estimate is an upper bound, because it assumes that every respondent who said they would have bought an item would in fact have done so.\" #D1BGEPTPQE\n  p.8 §5 Discussion: \"Our estimate of avoided emissions depends on what borrowers said they would otherwise have done, and on factors for manufacturing emissions that are themselves approximate.\" #2MQ4HBW4XY\n[2] ranked: 6 sentences, 2/2 matching files; 3 more matched (3.4 Avoided purchases and emissions 1, 4.4 Avoided purchases and emissions 1, 4.4 Emissions 1); a larger \"budget\" shows more\n[2.1] s1:\n  p.2 §2 Background and previous studies: \"Greaves and Tan (2023) estimated typical savings of 1.8 tonnes of carbon dioxide equivalent per home per year where a heat pump replaces a gas boiler.\" #JD1D3V67SD\n  p.6 §4.4 Emissions: \"Modelled emissions from heating fell by a mean of 2.3 tonnes of carbon dioxide equivalent per home per year, a reduction of 61 percent.\" #PMZ09YBKHQ\n[2.2] s2:\n  p.2: (shown in [1.2])\n  p.3 §3.4 Avoided purchases and emissions: \"We estimated avoided purchases by applying the share of survey respondents who said they would otherwise have bought each type of item to the number of different members who borrowed that type of item, so that repeat loans of the same item by the same member were counted once.\" #KQM8VT02AR\n  p.6 §4.4 Avoided purchases and emissions: \"Applying these answers to the 1,820 combinations of member and item type in the loan records, we estimate that the pilot avoided the purchase of about 1,130 items with a combined weight of 14.6 tonnes. These avoided purchases correspond to around 38 tonnes of carbon dioxide equivalent over the two years, mostly from power tools and garden machinery.\" #D1BGEPTPQE"
+    },
+    {
+      "set": "heldout3",
+      "task": "library-carbon-avoided",
+      "kind": "qualified",
+      "askSet": 2,
+      "ask": [
+        "Was the tool-lending scheme any good for the environment?"
+      ],
+      "ms": 4,
+      "fileTokens": 2849,
+      "files": [
+        "Reviews/Library of Things pilot evaluation.pdf"
+      ],
+      "sufficient": false,
+      "tokens": 790,
+      "relevantShare": 0.12,
+      "material": "1/1",
+      "facts": "2/2",
+      "missing": [],
+      "qualifications": "0/1",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] ranked: 15 sentences, 1/4 matching files; no indexed text in the 6 shared files has \"environment\"; 7 more matched (2 Previous studies 3, Abstract 1, 3.3 Borrower survey 1, 5 Discussion 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1 §Abstract: \"The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee.\" #8VD3T5FXM5\n  p.1: \"Borrowers reported modest savings, and most items came back in good condition.\" #0BZMN7FR8T\n  p.2 §1 Introduction: \"Section 2 summarises earlier evaluations of similar schemes, Section 3 describes our methods, Section 4 presents the results, and Sections 5 to 7 discuss them.\" #W2DJ7KDRFK\n  p.2 §2 Previous studies: \"A survey of 14 schemes in England found a median of 1,150 registered borrowers per scheme after two years of operation, with wide variation by town size (Carraway Trust, 2022).\" #9A1AJZRVK1\n  p.3 §3.1 The scheme: \"At launch the catalogue held 164 items, chosen by library staff after a public consultation, and by March 2025 it had grown to 236 items. Standard members paid between GBP 1 and GBP 6 per loan, depending on the item, while members receiving Council Tax Reduction borrowed free of charge.\" #VAYMM5C5WW\n  p.6 §4.3 Savings to households: \"Asked what they would have done without the scheme, 62 percent of respondents said they would have bought the item, 21 percent would have borrowed it from friends or family, 9 percent would have hired it and 8 percent would have gone without.\" #XTPWGQYPYE\n  p.6 §4.4 Avoided purchases and emissions: \"Applying these answers to the 1,820 combinations of member and item type in the loan records, we estimate that the pilot avoided the purchase of about 1,130 items with a combined weight of 14.6 tonnes. These avoided purchases correspond to around 38 tonnes of carbon dioxide equivalent over the two years, mostly from power tools and garden machinery.\" #D1BGEPTPQE\n  p.7 §4.5 Condition of returned items: \"Damage was most common for power tools and garden equipment (Table 3).\" #0R5BVVWVXZ\n  p.7: Table 3. Loans with damage recorded at return, by item category [Category Loans Returned damaged Damage rate]\n    Power tools 1,240 64 5.2 percent\n  p.7 §5 Discussion: \"The pilot reached more people than most schemes of its kind, and registrations were well above the median reported for English schemes after two years.\" #Z4NMS01Q63\n  p.7: \"Repeat borrowing was higher than in the two schemes reviewed in Section 2, which suggests that a core group of households has made borrowing a habit.\" #GAZHR2K7QZ\n  p.8 §6 Limitations: \"The survey reached only 30 percent of active borrowers, and those who responded may have been more positive about the scheme than those who did not.\" #7T2RBYWFS3\n  p.8 §7 Conclusions: \"We recommend that Brackenford Libraries continue the scheme, record damage throughout an item's life rather than only at return, and use loan data to guide which items are bought.\" #XNVDPTB4G8"
+    },
+    {
+      "set": "heldout3",
+      "task": "library-damage-rate",
+      "kind": "conflict",
+      "askSet": 1,
+      "ask": [
+        "Library of Things damage rate loans",
+        "items returned damaged repair log"
+      ],
+      "ms": 14,
+      "fileTokens": 3231,
+      "files": [
+        "Reviews/Library of Things pilot evaluation.pdf",
+        "Reviews/Library of Things committee briefing.docx"
+      ],
+      "sufficient": true,
+      "tokens": 1318,
+      "relevantShare": 0.15,
+      "material": "2/2",
+      "facts": "4/5",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "1/1",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\ns2 = Reviews/Library of Things committee briefing.docx @890d2aec2552\n[1] ranked: 25 sentences, 1/4 matching files; 25 more matched (4.2 Loans and repeat use 15, 4.5 Condition of returned items 4, 3.2 Membership and loan records 2, Abstract 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1: \"Borrowing instead of buying: evaluation of the Brackenford Library of Things pilot, April 2023 to March 2025\" #HMQKT8RRYA\n  p.1 §Abstract: \"The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee. This report evaluates the first two years of the pilot, from April 2023 to March 2025, using membership and loan records, a survey of borrowers and the checks that staff make when items are returned. Almost 2,000 residents registered as borrowers, and loans grew by 64 percent between the first and second years.\" #8VD3T5FXM5\n  p.2 §2 Previous studies: \"Damage rates reported by tool libraries usually fall between 2 and 5 percent of loans, with power tools at the upper end of that range (Odum, 2020).\" #VENC33XBVH\n  p.3 §3.1 The scheme: \"Standard members paid between GBP 1 and GBP 6 per loan, depending on the item, while members receiving Council Tax Reduction borrowed free of charge. Staff checked each item on return against a written checklist and recorded any damage on the loan record.\" #H9AEZKKC80\n  p.3 §3.2 Membership and loan records: \"Each loan record held the item, the branch, the dates of issue and return, the fee paid and any damage recorded at return.\" #EWSAC5AM5X\n  p.3 §3.3 Borrower survey: \"The survey asked what borrowers had used items for, what they would have done without the scheme, and how much they thought they had saved. It received 426 responses, a response rate of 30 percent.\" #WHRGTSTDJJ\n  p.4 §3.5 Analysis: \"Before analysis we removed 203 loan records that staff had created to test the booking system or that had been recorded twice because of a software fault in the summer of 2023.\" #KP03Q7NH0M\n  p.5 §4.2 Loans and repeat use: \"Borrowers made 5,712 loans over the two years, 2,214 in year one and 3,498 in year two.\" #RV8D16FYBQ\n  p.5: \"Among these active borrowers, 668 borrowed more than once. That is a repeat borrowing rate of 47 percent, and it was 53 percent among those who joined in year one and 38 percent among those who joined in year two, who had less time to borrow again.\" #RBEV11ZYGC\n  p.5: \"The ten most borrowed items accounted for 45 percent of all loans (Table 2).\" #JES0RV66SW\n  p.6 §4.4 Avoided purchases and emissions: \"Applying these answers to the 1,820 combinations of member and item type in the loan records, we estimate that the pilot avoided the purchase of about 1,130 items with a combined weight of 14.6 tonnes.\" #D1BGEPTPQE\n  p.7 §4.5 Condition of returned items: Table 3. Loans with damage recorded at return, by item category [Category Loans Returned damaged Damage rate]\n    Power tools 1,240 64 5.2 percent\n    Garden equipment 1,105 47 4.3 percent\n    Cleaning equipment 1,032 29 2.8 percent\n    Sewing and craft 602 10 1.7 percent\n    Camping and events 894 19 2.1 percent\n    Electronics 839 8 1.0 percent\n    All categories 5,712 177 3.1 percent\n  p.8 §6 Limitations: \"Damage was recorded by staff at the point of return, so faults found later, when items were next checked or lent, are not counted.\" #RCCKDTJTZE\n  p.8 §7 Conclusions: \"We recommend that Brackenford Libraries continue the scheme, record damage throughout an item's life rather than only at return, and use loan data to guide which items are bought.\" #XNVDPTB4G8\n[2] ranked: 10 sentences, 2/3 matching files; 11 more matched (4.5 Condition of returned items 9, Abstract 2); a larger \"budget\" shows more\n[2.1] s2:\n  para 8 §Damage to items: \"Our own repair log records damage on 6.8 percent of loans, more than twice the evaluation's figure. The difference arises because the evaluation counted only damage noted by staff when an item was returned, while the repair log also includes faults found at the next safety check or by the next borrower. We consider the repair log the better measure of the cost of wear and tear.\" #SDN07JNB8S\n  para 10 §Proposals: \"From January 2026, borrowers of power tools would pay a refundable deposit of GBP 10, which the service expects to reduce damage and late returns.\" #1G1MA9W17P\n[2.2] s1:\n  p.3 §3.1 The scheme: \"Staff checked each item on return against a written checklist and recorded any damage on the loan record.\" #6X7XNNZCA6\n  p.3: (shown in [1])\n  p.7 §4.5 Condition of returned items: \"Staff recorded damage at return on 3.1 percent of loans.\" #NRPWY3AJ2F\n  p.7: \"Repairs and replacements cost GBP 2,460 over the two years, or about 43 pence per loan.\" #2JF5VKG5TW\n  p.8: (shown in [1])\n  p.8: (shown in [1])"
+    },
+    {
+      "set": "heldout3",
+      "task": "library-damage-rate",
+      "kind": "conflict",
+      "askSet": 2,
+      "ask": [
+        "How much of the stuff people borrowed came back broken?"
+      ],
+      "ms": 8,
+      "fileTokens": 3231,
+      "files": [
+        "Reviews/Library of Things pilot evaluation.pdf",
+        "Reviews/Library of Things committee briefing.docx"
+      ],
+      "sufficient": false,
+      "tokens": 506,
+      "relevantShare": 0,
+      "material": "0/2",
+      "facts": "0/5",
+      "missing": [
+        "f1",
+        "f2"
+      ],
+      "qualifications": "0/0",
+      "conflicts": "0/1",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Library of Things committee briefing.docx @890d2aec2552\ns2 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\ns3 = Reviews/Rowanbank Toy Library annual summary.docx @c2622a5f26c7\n[1] ranked: 9 sentences, 3/4 matching files; no indexed text in the 6 shared files has \"stuff\" or \"broken\"; 1 more matched (What the evaluation found 1); a larger \"budget\" shows more\n[1.1] s1:\n  para 10 §Proposals: \"From January 2026, borrowers of power tools would pay a refundable deposit of GBP 10, which the service expects to reduce damage and late returns.\" #1G1MA9W17P\n[1.2] s2:\n  p.1 §Abstract: \"Borrowers reported modest savings, and most items came back in good condition.\" #0BZMN7FR8T\n  p.1 §1 Introduction: \"Libraries of things apply the familiar library model to objects that households need only occasionally, such as drills, gazebos and sewing machines. Their supporters argue that borrowing saves money, reduces the number of rarely used items that people buy, and brings people into libraries who would not otherwise visit.\" #0RB1MMQPKX\n  p.4 §4.1 Membership and reach: \"By the end of March 2025, 1,936 people had registered as borrowers across the three branches.\" #YDAQ7F9T5K\n  p.5 §4.2 Loans and repeat use: \"Borrowers made 5,712 loans over the two years, 2,214 in year one and 3,498 in year two. This rise of 58 percent came mostly from Central and Eastgate, where reservations could be collected on the same day from the spring of 2024.\" #RV8D16FYBQ\n  p.7 §5 Discussion: \"The pilot reached more people than most schemes of its kind, and registrations were well above the median reported for English schemes after two years.\" #Z4NMS01Q63\n[1.3] s3:\n  para 6 §Condition of toys: \"Toys came back damaged or with missing pieces after 4.6 percent of loans.\" #489ZF0BRR2"
+    },
+    {
+      "set": "heldout3",
+      "task": "heat-pump-bill-fall",
+      "kind": "conflict",
+      "askSet": 1,
+      "ask": [
+        "heat pump energy bill reduction percent",
+        "Kestle Bay annual energy spend before after installation"
+      ],
+      "ms": 15,
+      "fileTokens": 2494,
+      "files": [
+        "Reviews/Community heat pump programme evaluation.pdf"
+      ],
+      "sufficient": true,
+      "tokens": 1180,
+      "relevantShare": 0.24,
+      "material": "2/2",
+      "facts": "4/4",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "1/1",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\ns2 = Reviews/Heat pump installations by area.xlsx @9afae54cd502\n[1] ranked: 19 sentences, 1/6 matching files; 12 more matched (4.2 Energy bills 3, (no heading) 2, 4.1 Uptake 2, 2 Background and previous studies 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1 §Abstract: \"Kestle Bay Community Energy, a community benefit society, ran a programme between October 2022 and September 2024 to help owner-occupiers on the Kestle Bay peninsula replace fossil-fuel heating with air-source heat pumps.\" #9ANETYPCPM\n  p.1: \"Household energy bills fell by 21 percent on average after installation, and homes were warmer in winter. Emissions from heating fell substantially. Most residents were satisfied with their systems, although around one in ten reported a fault in the first year.\" #S7MRH58BRD\n  p.2 §2 Background and previous studies: \"Field trials of air-source heat pumps in existing homes have reported reductions in annual energy bills of between 8 and 25 percent, with the largest reductions in homes that previously used heating oil or electric storage heaters (Ashworth and Kaur, 2021).\" #Q5X7EVZM81\n  p.2: \"In the Lowmoor scheme, 29 percent of households that registered an interest went on to have a heat pump installed (Lowmoor Energy, 2022).\" #DPJQBPEEDJ\n  p.3 §3.3 Energy bills: \"For homes with a full year of meter data before and after installation, we calculated annual spending on electricity and all heating fuels. To remove the effect of price changes, both years were valued at the unit rates and standing charges in force in October 2023. Use of heating oil and bottled gas was taken from delivery records.\" #F7RJFEY33W\n  p.5 §4.2 Energy bills: \"In these homes, mean annual energy spend fell from GBP 2,190 to GBP 1,818, valued at October 2023 prices. This fall of 17 percent, or GBP 372 a year, was larger in homes that had previously used heating oil than in homes that had used mains gas.\" #44182KKANW\n  p.5: \"For the 52 homes without complete meter data, installers' estimates suggest similar savings, but these could not be checked.\" #FS4C2S8Z75\n  p.5: \"Wall type Homes Before (GBP) After (GBP) Change Solid wall, built before 1919 38 2,640 2,455 -7 percent Cavity wall, insulated 81 2,050 1,600 -22 percent Cavity wall, not insulated 27 2,180 1,844 -15 percent Built after 1990 16 1,847 1,365 -26 percent All homes with full meter data 162 2,190 1,818 -17 percent\" #2VQTD8PJCS\n  p.6 §4.4 Emissions: \"Modelled emissions from heating fell by a mean of 2.3 tonnes of carbon dioxide equivalent per home per year, a reduction of 61 percent.\" #PMZ09YBKHQ\n  p.7 §4.5 Residents' experience: \"Among respondents, 84 percent were satisfied or very satisfied with their heat pump, and 77 percent said their home was more comfortable than before. Twenty-three households, 11 percent of those with an installation, reported a fault in the first year (Table 3). Most faults were fixed within a week, but three households were without heating for more than five days.\" #JXKNQVMW56\n  p.8 §6 Limitations: \"There was no comparison group of homes that kept their old heating, so changes in bills and temperatures may partly reflect other changes in households.\" #A7CC4DWHXD\n  p.8 §7 Conclusions: \"The Kestle Bay programme shows that a community energy group can deliver heat pumps at scale in an area with many older and off-grid homes.\" #YVW5FY11NW\n[2] ranked: 11 sentences, 1/4 matching files; no row is labelled \"kestle bay\"; rows labelled like it: \"Kestle Moor\" (s2); 9 more matched (4.2 Energy bills 4, Abstract 1, (no heading) 1, 1 Introduction 1); a larger \"budget\" shows more\n[2.1] s1:\n  p.1: \"Tressider Energy Research, for Kestle Bay Community Energy.\" #0JMMH7AHYB\n  p.1: (shown in [1])\n  p.1: (shown in [1])\n  p.2: (shown in [1])\n  p.3 §3.3 Energy bills: \"For homes with a full year of meter data before and after installation, we calculated annual spending on electricity and all heating fuels.\" #F7RJFEY33W\n  p.5 §4.2 Energy bills: \"In these homes, mean annual energy spend fell from GBP 2,190 to GBP 1,818, valued at October 2023 prices.\" #44182KKANW\n  p.5: (shown in [1])\n  p.5: \"Mean annual energy spend before and after installation, by wall type, at October\" #1YXB4MEPEH\n  p.8: (shown in [1])"
+    },
+    {
+      "set": "heldout3",
+      "task": "heat-pump-bill-fall",
+      "kind": "conflict",
+      "askSet": 2,
+      "ask": [
+        "How much cheaper did it get to run the house after switching to a heat pump?"
+      ],
+      "ms": 6,
+      "fileTokens": 2494,
+      "files": [
+        "Reviews/Community heat pump programme evaluation.pdf"
+      ],
+      "sufficient": false,
+      "tokens": 839,
+      "relevantShare": 0.08,
+      "material": "1/2",
+      "facts": "1/4",
+      "missing": [
+        "f1"
+      ],
+      "qualifications": "0/0",
+      "conflicts": "0/1",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\ns2 = Reviews/Rowanbank Toy Library annual summary.docx @c2622a5f26c7\n[1] ranked: 21 sentences, 2/5 matching files; no indexed text in the 6 shared files has \"cheaper\" or \"switching\"; 19 more matched (4.5 Residents' experience 6, 4.1 Uptake 3, 5 Discussion 2, 1 Introduction 2); a larger \"budget\" shows more\n[1.1] s1:\n  p.1: \"Evaluation of the Kestle Bay Community Heat Pump Programme, 2022 to 2024\" #BGNKDZBYBQ\n  p.1 §Abstract: \"Household energy bills fell by 21 percent on average after installation, and homes were warmer in winter. Emissions from heating fell substantially. Most residents were satisfied with their systems, although around one in ten reported a fault in the first year.\" #S7MRH58BRD\n  p.2 §2 Background and previous studies: \"In the Lowmoor scheme, 29 percent of households that registered an interest went on to have a heat pump installed (Lowmoor Energy, 2022).\" #DPJQBPEEDJ\n  p.3 §3.1 The programme: \"Households could register an interest online or at one of eleven drop-in sessions held in village halls.\" #X5EV5D21P2\n  p.3: \"Households that went ahead received a grant of GBP 6,000 towards the installed cost and could borrow the remainder through an interest-free loan arranged by the society.\" #8E49Q7WJHX\n  p.4 §4.1 Uptake: \"Between October 2022 and September 2024, 597 households registered an interest, 318 received a home survey and 214 had a heat pump installed.\" #C5TRV3RGNG\n  p.4: Table 1. Households at each stage, by main heating fuel before the programme [Main heating fuel Registered interest Home survey Installed]\n    Mains gas 392 196 121\n    Heating oil 128 79 63\n    Electric storage heaters 51 29 21\n    All households 597 318 214\n  p.7 §4.5 Residents' experience: \"Of the 214 households with an installation, 171 answered the follow-up survey, a response rate of 80 percent.\" #9CSXAPGJTJ\n  p.7: \"Twenty-three households, 11 percent of those with an installation, reported a fault in the first year (Table 3). Most faults were fixed within a week, but three households were without heating for more than five days.\" #EA0M56SE5M\n  p.7: Table 3. Faults reported in the first year after installation, by type [Type of fault Households Median days to fix]\n    Controls or thermostat 9 2\n    Hot water cylinder 6 4\n  p.7 §5 Discussion: \"The programme turned a larger share of interested households into installations than comparable community schemes, which suggests that free surveys and a trusted local organisation can overcome some of the barriers to take-up.\" #3WD8MSFZFK\n  p.8 §6 Limitations: \"There was no comparison group of homes that kept their old heating, so changes in bills and temperatures may partly reflect other changes in households.\" #A7CC4DWHXD\n  p.8 §7 Conclusions: \"Households saved money and were warmer, and emissions from heating fell sharply.\" #QGGQPH31K4\n[1.2] s2:\n  para 2 §Rowanbank Toy Library: annual summary 2024: \"Rowanbank Toy Library is a volunteer-run lending library of toys, games and baby equipment, based at the Rowanbank Family Centre.\" #XSAG7SMS5F"
+    },
+    {
+      "set": "heldout3",
+      "task": "library-loan-growth",
+      "kind": "conflict",
+      "askSet": 1,
+      "ask": [
+        "Library of Things loans year one year two",
+        "loan growth percent second year"
+      ],
+      "ms": 16,
+      "fileTokens": 2849,
+      "files": [
+        "Reviews/Library of Things pilot evaluation.pdf"
+      ],
+      "sufficient": false,
+      "tokens": 1349,
+      "relevantShare": 0.14,
+      "material": "1/2",
+      "facts": "2/3",
+      "missing": [
+        "f1"
+      ],
+      "qualifications": "0/0",
+      "conflicts": "0/1",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\ns2 = Reviews/Library of Things committee briefing.docx @890d2aec2552\n[1] ranked: 16 sentences, 1/5 matching files; 7 more matched (4.2 Loans and repeat use 4, 4.5 Condition of returned items 2, 3.5 Analysis 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1: \"Borrowing instead of buying: evaluation of the Brackenford Library of Things pilot, April 2023 to March 2025\" #HMQKT8RRYA\n  p.1 §Abstract: \"The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee. This report evaluates the first two years of the pilot, from April 2023 to March 2025, using membership and loan records, a survey of borrowers and the checks that staff make when items are returned. Almost 2,000 residents registered as borrowers, and loans grew by 64 percent between the first and second years.\" #8VD3T5FXM5\n  p.2 §2 Previous studies: \"A survey of 14 schemes in England found a median of 1,150 registered borrowers per scheme after two years of operation, with wide variation by town size (Carraway Trust, 2022).\" #9A1AJZRVK1\n  p.3 §3.1 The scheme: \"Standard members paid between GBP 1 and GBP 6 per loan, depending on the item, while members receiving Council Tax Reduction borrowed free of charge.\" #H9AEZKKC80\n  p.4 §3.5 Analysis: \"We report counts and percentages for the whole pilot and for each year, where year one runs from April 2023 to March 2024 and year two from April 2024 to March 2025.\" #HJ4EDCGHGP\n  p.4 §4.1 Membership and reach: \"Of the 1,490 borrowers with a usable home postcode, 611 (41 percent) lived in neighbourhoods in the two most deprived quintiles.\" #EP85D0BSK4\n  p.5 §4.2 Loans and repeat use: \"Borrowers made 5,712 loans over the two years, 2,214 in year one and 3,498 in year two.\" #RV8D16FYBQ\n  p.5: \"Among these active borrowers, 668 borrowed more than once. That is a repeat borrowing rate of 47 percent, and it was 53 percent among those who joined in year one and 38 percent among those who joined in year two, who had less time to borrow again.\" #RBEV11ZYGC\n  p.6 §4.4 Avoided purchases and emissions: \"Applying these answers to the 1,820 combinations of member and item type in the loan records, we estimate that the pilot avoided the purchase of about 1,130 items with a combined weight of 14.6 tonnes. These avoided purchases correspond to around 38 tonnes of carbon dioxide equivalent over the two years, mostly from power tools and garden machinery.\" #D1BGEPTPQE\n  p.7 §4.5 Condition of returned items: \"Repairs and replacements cost GBP 2,460 over the two years, or about 43 pence per loan.\" #2JF5VKG5TW\n  p.7 §5 Discussion: \"The pilot reached more people than most schemes of its kind, and registrations were well above the median reported for English schemes after two years.\" #Z4NMS01Q63\n  p.7: \"Repeat borrowing was higher than in the two schemes reviewed in Section 2, which suggests that a core group of households has made borrowing a habit.\" #GAZHR2K7QZ\n[2] ranked: 16 sentences, 2/5 matching files; no indexed text in the 6 shared files has \"growth\"; 33 more matched (4.2 Loans and repeat use 13, 4.5 Condition of returned items 7, 4.1 Membership and reach 6, Abstract 1); a larger \"budget\" shows more\n[2.1] s2:\n  para 6 §What the evaluation found: \"The pilot exceeded its target of 1,500 registered borrowers, and use grew in the second year.\" #K33HHXTRGB\n  para 8 §Damage to items: \"Our own repair log records damage on 6.8 percent of loans, more than twice the evaluation's figure. The difference arises because the evaluation counted only damage noted by staff when an item was returned, while the repair log also includes faults found at the next safety check or by the next borrower.\" #SDN07JNB8S\n[2.2] s1:\n  p.1 §Abstract: \"Almost 2,000 residents registered as borrowers, and loans grew by 64 percent between the first and second years.\" #KQGJT3XVKP\n  p.2 §2 Previous studies: \"Repeat borrowing, the share of borrowers who borrow more than once, is often used as a sign that a scheme has become part of household routines. It was 34 percent at the Harwick Tool Library in its second year (Pemberton and Shah, 2021) and 39 percent at the Otterburn Share Shed (Lindqvist, 2023).\" #NS10WK61KK\n  p.3: (shown in [1])\n  p.4: (shown in [1])\n  p.5: (shown in [1])\n  p.5: (shown in [1])\n  p.5 §4.2 Loans and repeat use: \"The ten most borrowed items accounted for 45 percent of all loans (Table 2).\" #JES0RV66SW\n  p.7 §4.5 Condition of returned items: \"Staff recorded damage at return on 3.1 percent of loans.\" #NRPWY3AJ2F\n  p.7: (shown in [1])\n  p.7: Table 3. Loans with damage recorded at return, by item category [Category Loans Returned damaged Damage rate]\n    Power tools 1,240 64 5.2 percent\n  p.7 §5 Discussion: \"Use also grew steadily through the second year.\" #J60710ABR4"
+    },
+    {
+      "set": "heldout3",
+      "task": "library-loan-growth",
+      "kind": "conflict",
+      "askSet": 2,
+      "ask": [
+        "Were people using the tool library more in its second year than its first, and by how much?"
+      ],
+      "ms": 10,
+      "fileTokens": 2849,
+      "files": [
+        "Reviews/Library of Things pilot evaluation.pdf"
+      ],
+      "sufficient": false,
+      "tokens": 917,
+      "relevantShare": 0.17,
+      "material": "1/2",
+      "facts": "2/3",
+      "missing": [
+        "f1"
+      ],
+      "qualifications": "0/0",
+      "conflicts": "0/1",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Library of Things committee briefing.docx @890d2aec2552\ns2 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] ranked: 19 sentences, 2/5 matching files; 5 more matched (4.2 Loans and repeat use 2, 3.5 Analysis 1, 4.5 Condition of returned items 1, 2 Previous studies 1); a larger \"budget\" shows more\n[1.1] s1:\n  para 6 §What the evaluation found: \"The pilot exceeded its target of 1,500 registered borrowers, and use grew in the second year.\" #K33HHXTRGB\n  para 10 §Proposals: \"We propose to continue the scheme for a further three years and to open a fourth collection point at Northfield library from April 2026, at an estimated additional cost of GBP 31,000 a year. From January 2026, borrowers of power tools would pay a refundable deposit of GBP 10, which the service expects to reduce damage and late returns.\" #4Y9JQSACX3\n[1.2] s2:\n  p.1 §Abstract: \"The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee. This report evaluates the first two years of the pilot, from April 2023 to March 2025, using membership and loan records, a survey of borrowers and the checks that staff make when items are returned. Almost 2,000 residents registered as borrowers, and loans grew by 64 percent between the first and second years.\" #8VD3T5FXM5\n  p.1 §1 Introduction: \"Libraries of things apply the familiar library model to objects that households need only occasionally, such as drills, gazebos and sewing machines. Their supporters argue that borrowing saves money, reduces the number of rarely used items that people buy, and brings people into libraries who would not otherwise visit.\" #0RB1MMQPKX\n  p.2 §2 Previous studies: \"Repeat borrowing, the share of borrowers who borrow more than once, is often used as a sign that a scheme has become part of household routines. It was 34 percent at the Harwick Tool Library in its second year (Pemberton and Shah, 2021) and 39 percent at the Otterburn Share Shed (Lindqvist, 2023).\" #NS10WK61KK\n  p.3 §3.4 Avoided purchases and emissions: \"Emissions were then estimated from the weight and main material of each type of item, using published factors for the manufacture of household equipment (Faraday and Mbeki, 2022).\" #H2A2RN0M75\n  p.4 §4.1 Membership and reach: \"By the end of March 2025, 1,936 people had registered as borrowers across the three branches.\" #YDAQ7F9T5K\n  p.5 §4.2 Loans and repeat use: \"Borrowers made 5,712 loans over the two years, 2,214 in year one and 3,498 in year two.\" #RV8D16FYBQ\n  p.6 §4.4 Avoided purchases and emissions: \"Applying these answers to the 1,820 combinations of member and item type in the loan records, we estimate that the pilot avoided the purchase of about 1,130 items with a combined weight of 14.6 tonnes. These avoided purchases correspond to around 38 tonnes of carbon dioxide equivalent over the two years, mostly from power tools and garden machinery.\" #D1BGEPTPQE\n  p.7 §4.5 Condition of returned items: \"Damage was most common for power tools and garden equipment (Table 3).\" #0R5BVVWVXZ\n  p.7: Table 3. Loans with damage recorded at return, by item category [Category Loans Returned damaged Damage rate]\n    Power tools 1,240 64 5.2 percent\n  p.7 §5 Discussion: \"The pilot reached more people than most schemes of its kind, and registrations were well above the median reported for English schemes after two years. Use also grew steadily through the second year.\" #Z4NMS01Q63"
+    },
+    {
+      "set": "heldout3",
+      "task": "repeat-borrowing-comparison",
+      "kind": "compare",
+      "askSet": 1,
+      "ask": [
+        "repeat borrowing rate Library of Things",
+        "repeat borrowing other tool libraries previous studies"
+      ],
+      "ms": 18,
+      "fileTokens": 2849,
+      "files": [
+        "Reviews/Library of Things pilot evaluation.pdf"
+      ],
+      "sufficient": true,
+      "tokens": 1231,
+      "relevantShare": 0.17,
+      "material": "3/3",
+      "facts": "3/3",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\ns2 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\n[1] ranked: 11 sentences, 1/4 matching files; 23 more matched (4.2 Loans and repeat use 14, 4.5 Condition of returned items 6, 2 Previous studies 1, Abstract 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1: \"Borrowing instead of buying: evaluation of the Brackenford Library of Things pilot, April 2023 to March 2025\" #HMQKT8RRYA\n  p.3 §3.3 Borrower survey: \"The survey asked what borrowers had used items for, what they would have done without the scheme, and how much they thought they had saved. It received 426 responses, a response rate of 30 percent.\" #WHRGTSTDJJ\n  p.3 §3.4 Avoided purchases and emissions: \"We estimated avoided purchases by applying the share of survey respondents who said they would otherwise have bought each type of item to the number of different members who borrowed that type of item, so that repeat loans of the same item by the same member were counted once.\" #KQM8VT02AR\n  p.5 §4.2 Loans and repeat use: \"Borrowers made 5,712 loans over the two years, 2,214 in year one and 3,498 in year two.\" #RV8D16FYBQ\n  p.5: \"Of the 1,936 registered borrowers, 1,421 made at least one loan. Among these active borrowers, 668 borrowed more than once. That is a repeat borrowing rate of 47 percent, and it was 53 percent among those who joined in year one and 38 percent among those who joined in year two, who had less time to borrow again.\" #W6CYNRF9A9\n  p.5: \"The ten most borrowed items, April 2023 to March 2025 Item Loans Share of all loans\" #P4D4HKFNE9\n  p.7 §4.5 Condition of returned items: Table 3. Loans with damage recorded at return, by item category [Category Loans Returned damaged Damage rate]\n    Power tools 1,240 64 5.2 percent\n  p.7 §5 Discussion: \"Repeat borrowing was higher than in the two schemes reviewed in Section 2, which suggests that a core group of households has made borrowing a habit.\" #GAZHR2K7QZ\n[2] ranked: 20 sentences, 2/4 matching files; 26 more matched (4.2 Loans and repeat use 14, 2 Previous studies 4, 2 Background and previous studies 2, 4.5 Condition of returned items 2); a larger \"budget\" shows more\n[2.1] s2:\n  p.2 §2 Background and previous studies: \"Field trials of air-source heat pumps in existing homes have reported reductions in annual energy bills of between 8 and 25 percent, with the largest reductions in homes that previously used heating oil or electric storage heaters (Ashworth and Kaur, 2021). Results depend strongly on the efficiency achieved in practice, which tends to be lower in homes with small radiators or poor insulation.\" #Q5X7EVZM81\n  p.2: \"In the Lowmoor scheme, 29 percent of households that registered an interest went on to have a heat pump installed (Lowmoor Energy, 2022). Studies of comfort after installation have found mean living-room temperatures rising by between 0.5 and 1.0 deg C (Brennan, 2020). Greaves and Tan (2023) estimated typical savings of 1.8 tonnes of carbon dioxide equivalent per home per year where a heat pump replaces a gas boiler.\" #DPJQBPEEDJ\n  p.5 §4.2 Energy bills: \"In these homes, mean annual energy spend fell from GBP 2,190 to GBP 1,818, valued at October 2023 prices. This fall of 17 percent, or GBP 372 a year, was larger in homes that had previously used heating oil than in homes that had used mains gas.\" #44182KKANW\n[2.2] s1:\n  p.2 §2 Previous studies: \"A survey of 14 schemes in England found a median of 1,150 registered borrowers per scheme after two years of operation, with wide variation by town size (Carraway Trust, 2022). The same survey reported a median household saving of GBP 60 a year among borrowers who answered its questionnaire.\" #9A1AJZRVK1\n  p.2: \"Repeat borrowing, the share of borrowers who borrow more than once, is often used as a sign that a scheme has become part of household routines. It was 34 percent at the Harwick Tool Library in its second year (Pemberton and Shah, 2021) and 39 percent at the Otterburn Share Shed (Lindqvist, 2023). Damage rates reported by tool libraries usually fall between 2 and 5 percent of loans, with power tools at the upper end of that range (Odum, 2020).\" #NS10WK61KK\n  p.3: (shown in [1])\n  p.5: (shown in [1])\n  p.5: (shown in [1])\n  p.5: (shown in [1])\n  p.6 §4.3 Savings to households: \"Survey respondents estimated that borrowing instead of buying or hiring had saved their household a median of GBP 85 over the previous twelve months.\" #VRWW7DE97Z\n  p.7: (shown in [1])"
+    },
+    {
+      "set": "heldout3",
+      "task": "repeat-borrowing-comparison",
+      "kind": "compare",
+      "askSet": 2,
+      "ask": [
+        "Do people come back for a second loan more often here than at similar schemes elsewhere?"
+      ],
+      "ms": 8,
+      "fileTokens": 2849,
+      "files": [
+        "Reviews/Library of Things pilot evaluation.pdf"
+      ],
+      "sufficient": false,
+      "tokens": 1007,
+      "relevantShare": 0,
+      "material": "0/3",
+      "facts": "0/3",
+      "missing": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] ranked: 22 sentences, 1/4 matching files; no indexed text in the 6 shared files has \"come\" or \"elsewhere\"; 36 more matched (4.2 Loans and repeat use 17, 4.5 Condition of returned items 8, 2 Previous studies 3, Abstract 2); a larger \"budget\" shows more\n[1.1] s1:\n  p.1 §Abstract: \"Almost 2,000 residents registered as borrowers, and loans grew by 64 percent between the first and second years. Borrowers reported modest savings, and most items came back in good condition.\" #KQGJT3XVKP\n  p.1 §1 Introduction: \"Libraries of things apply the familiar library model to objects that households need only occasionally, such as drills, gazebos and sewing machines. Their supporters argue that borrowing saves money, reduces the number of rarely used items that people buy, and brings people into libraries who would not otherwise visit.\" #0RB1MMQPKX\n  p.2: \"Section 2 summarises earlier evaluations of similar schemes, Section 3 describes our methods, Section 4 presents the results, and Sections 5 to 7 discuss them.\" #W2DJ7KDRFK\n  p.2 §2 Previous studies: \"Repeat borrowing, the share of borrowers who borrow more than once, is often used as a sign that a scheme has become part of household routines.\" #NS10WK61KK\n  p.3 §3.1 The scheme: \"Standard members paid between GBP 1 and GBP 6 per loan, depending on the item, while members receiving Council Tax Reduction borrowed free of charge. Staff checked each item on return against a written checklist and recorded any damage on the loan record.\" #H9AEZKKC80\n  p.3 §3.2 Membership and loan records: \"We analysed the anonymised membership and loan records for the whole pilot period.\" #9N1HR3SB89\n  p.4 §3.5 Analysis: \"Before analysis we removed 203 loan records that staff had created to test the booking system or that had been recorded twice because of a software fault in the summer of 2023.\" #KP03Q7NH0M\n  p.4 §4.1 Membership and reach: \"By the end of March 2025, 1,936 people had registered as borrowers across the three branches.\" #YDAQ7F9T5K\n  p.5 §4.2 Loans and repeat use: \"Borrowers made 5,712 loans over the two years, 2,214 in year one and 3,498 in year two.\" #RV8D16FYBQ\n  p.5: \"The ten most borrowed items accounted for 45 percent of all loans (Table 2).\" #JES0RV66SW\n  p.6 §4.3 Savings to households: \"Asked what they would have done without the scheme, 62 percent of respondents said they would have bought the item, 21 percent would have borrowed it from friends or family, 9 percent would have hired it and 8 percent would have gone without.\" #XTPWGQYPYE\n  p.6 §4.4 Avoided purchases and emissions: \"Applying these answers to the 1,820 combinations of member and item type in the loan records, we estimate that the pilot avoided the purchase of about 1,130 items with a combined weight of 14.6 tonnes.\" #D1BGEPTPQE\n  p.7 §4.5 Condition of returned items: \"Staff recorded damage at return on 3.1 percent of loans. A further 19 items were lost or never returned, equal to 0.3 percent of loans.\" #NRPWY3AJ2F\n  p.7 §5 Discussion: \"The pilot reached more people than most schemes of its kind, and registrations were well above the median reported for English schemes after two years. Use also grew steadily through the second year. Repeat borrowing was higher than in the two schemes reviewed in Section 2, which suggests that a core group of households has made borrowing a habit.\" #Z4NMS01Q63\n  p.8 §6 Limitations: \"The survey reached only 30 percent of active borrowers, and those who responded may have been more positive about the scheme than those who did not.\" #7T2RBYWFS3\n  p.8 §7 Conclusions: \"We recommend that Brackenford Libraries continue the scheme, record damage throughout an item's life rather than only at return, and use loan data to guide which items are bought.\" #XNVDPTB4G8"
+    },
+    {
+      "set": "heldout3",
+      "task": "most-borrowed-item",
+      "kind": "lookup",
+      "askSet": 1,
+      "ask": [
+        "Library of Things most borrowed items",
+        "top ten items loans"
+      ],
+      "ms": 5,
+      "fileTokens": 2849,
+      "files": [
+        "Reviews/Library of Things pilot evaluation.pdf"
+      ],
+      "sufficient": true,
+      "tokens": 1445,
+      "relevantShare": 0.01,
+      "material": "1/1",
+      "facts": "2/2",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] s1 text:\n  p.1 Borrowing instead of buying: evaluation of the Brackenford Library of Things pilot, April 2023 to March 2025\n  p.1 Northfold Social Research, for Brackenford Libraries. Final report, September 2025.\n  p.1 The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee. This report evaluates the first two years of the pilot, from April 2023 to March 2025, using membership and loan records, a survey of borrowers and the checks that staff make when items are returned. Almost 2,000 residents registered as borrowers, and loans grew by 64 percent between the first and second years. Borrowers reported modest savings, and most items came back in good condition. Registrations from deprived neighbourhoods were roughly in line with their share of the town's population. We recommend that the scheme continues, with changes to how damage is recorded and how new items are chosen.\n  p.1 Libraries of things apply the familiar library model to objects that households need only occasionally, such as drills, gazebos and sewing machines. Their supporters argue that borrowing saves money, reduces the number of rarely used items that people buy, and brings people into libraries who would not otherwise visit.\n  p.1 Brackenford Libraries opened its Library of Things in April 2023 with a grant of GBP 96,000 from the Halden Foundation, which also funded this evaluation. The pilot ran from three of the town's seven branch libraries: Central, Eastgate and Millbrook.\n  p.2 Items could be reserved online and collected from any of the three branches, and loans lasted up to seven days. This report sets out what the pilot achieved against the aims agreed with the funder: to reach a broad range of residents, to build regular use, to save households money and to reduce waste. Section 2 summarises earlier evaluations of similar schemes, Section 3 describes our methods, Section 4 presents the results, and Sections 5 to 7 discuss them.\n  p.2 Published evaluations of libraries of things are few, and most describe a single scheme in its first years. A survey of 14 schemes in England found a median of 1,150 registered borrowers per scheme after two years of operation, with wide variation by town size (Carraway Trust, 2022). The same survey reported a median household saving of GBP 60 a year among borrowers who answered its questionnaire.\n  p.2 Repeat borrowing, the share of borrowers who borrow more than once, is often used as a sign that a scheme has become part of household routines. It was 34 percent at the Harwick Tool Library in its second year (Pemberton and Shah, 2021) and 39 percent at the Otterburn Share Shed (Lindqvist, 2023). Damage rates reported by tool libraries usually fall between 2 and 5 percent of loans, with power tools at the upper end of that range (Odum, 2020).\n  (+36 more passages; ask about a topic in it)\n[2] ranked: 17 sentences, 1/4 matching files; 29 more matched (4.2 Loans and repeat use 10, 4.5 Condition of returned items 7, Abstract 3, 3.3 Borrower survey 2); a larger \"budget\" shows more\n[2.1] s1:\n  p.1 §Abstract: \"The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee. This report evaluates the first two years of the pilot, from April 2023 to March 2025, using membership and loan records, a survey of borrowers and the checks that staff make when items are returned.\" #8VD3T5FXM5\n  p.3 §3.1 The scheme: \"Standard members paid between GBP 1 and GBP 6 per loan, depending on the item, while members receiving Council Tax Reduction borrowed free of charge. Staff checked each item on return against a written checklist and recorded any damage on the loan record.\" #H9AEZKKC80\n  p.3 §3.2 Membership and loan records: \"Each loan record held the item, the branch, the dates of issue and return, the fee paid and any damage recorded at return.\" #EWSAC5AM5X\n  p.3 §3.4 Avoided purchases and emissions: \"We estimated avoided purchases by applying the share of survey respondents who said they would otherwise have bought each type of item to the number of different members who borrowed that type of item, so that repeat loans of the same item by the same member were counted once.\" #KQM8VT02AR\n  p.4 §3.5 Analysis: \"Before analysis we removed 203 loan records that staff had created to test the booking system or that had been recorded twice because of a software fault in the summer of 2023.\" #KP03Q7NH0M\n  p.5 §4.2 Loans and repeat use: \"The ten most borrowed items accounted for 45 percent of all loans (Table 2).\" #JES0RV66SW\n  p.5: \"The ten most borrowed items, April 2023 to March 2025 Item Loans Share of all loans\" #P4D4HKFNE9\n  p.5: Table 2. The ten most borrowed items, April 2023 to March 2025 [Item Loans Share of all loans]\n    Carpet cleaner 418 7.3 percent\n    Pressure washer 377 6.6 percent\n    Hedge trimmer 301 5.3 percent\n  p.6 §4.3 Savings to households: \"Asked what they would have done without the scheme, 62 percent of respondents said they would have bought the item, 21 percent would have borrowed it from friends or family, 9 percent would have hired it and 8 percent would have gone without.\" #XTPWGQYPYE\n  p.6 §4.4 Avoided purchases and emissions: \"Applying these answers to the 1,820 combinations of member and item type in the loan records, we estimate that the pilot avoided the purchase of about 1,130 items with a combined weight of 14.6 tonnes.\" #D1BGEPTPQE\n  p.7 §4.5 Condition of returned items: \"Staff recorded damage at return on 3.1 percent of loans. A further 19 items were lost or never returned, equal to 0.3 percent of loans. Repairs and replacements cost GBP 2,460 over the two years, or about 43 pence per loan.\" #NRPWY3AJ2F"
+    },
+    {
+      "set": "heldout3",
+      "task": "most-borrowed-item",
+      "kind": "lookup",
+      "askSet": 2,
+      "ask": [
+        "What's the most popular thing people take out of the tool library?"
+      ],
+      "ms": 8,
+      "fileTokens": 2849,
+      "files": [
+        "Reviews/Library of Things pilot evaluation.pdf"
+      ],
+      "sufficient": false,
+      "tokens": 662,
+      "relevantShare": 0,
+      "material": "0/1",
+      "facts": "0/2",
+      "missing": [
+        "f1"
+      ],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] ranked: 13 sentences, 1/4 matching files; no indexed text in the 6 shared files has \"popular\"; no excerpt has \"take\"; 3 more matched (2 Previous studies 1, 1 Introduction 1, 3.1 The scheme 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1: \"Borrowing instead of buying: evaluation of the Brackenford Library of Things pilot, April 2023 to March 2025\" #HMQKT8RRYA\n  p.1 §Abstract: \"The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee.\" #8VD3T5FXM5\n  p.1 §1 Introduction: \"Libraries of things apply the familiar library model to objects that households need only occasionally, such as drills, gazebos and sewing machines. Their supporters argue that borrowing saves money, reduces the number of rarely used items that people buy, and brings people into libraries who would not otherwise visit.\" #0RB1MMQPKX\n  p.2 §2 Previous studies: \"Repeat borrowing, the share of borrowers who borrow more than once, is often used as a sign that a scheme has become part of household routines. It was 34 percent at the Harwick Tool Library in its second year (Pemberton and Shah, 2021) and 39 percent at the Otterburn Share Shed (Lindqvist, 2023).\" #NS10WK61KK\n  p.4 §4.1 Membership and reach: \"By the end of March 2025, 1,936 people had registered as borrowers across the three branches.\" #YDAQ7F9T5K\n  p.6 §4.4 Avoided purchases and emissions: \"Applying these answers to the 1,820 combinations of member and item type in the loan records, we estimate that the pilot avoided the purchase of about 1,130 items with a combined weight of 14.6 tonnes. These avoided purchases correspond to around 38 tonnes of carbon dioxide equivalent over the two years, mostly from power tools and garden machinery.\" #D1BGEPTPQE\n  p.7 §4.5 Condition of returned items: \"Damage was most common for power tools and garden equipment (Table 3).\" #0R5BVVWVXZ\n  p.7: Table 3. Loans with damage recorded at return, by item category [Category Loans Returned damaged Damage rate]\n    Power tools 1,240 64 5.2 percent\n  p.7 §5 Discussion: \"The pilot reached more people than most schemes of its kind, and registrations were well above the median reported for English schemes after two years.\" #Z4NMS01Q63\n  p.8 §7 Conclusions: \"The Library of Things pilot met its aims for reach and regular use, and it delivered savings and environmental benefits that, while uncertain in size, point in the right direction.\" #0EP74N537M"
+    },
+    {
+      "set": "heldout3",
+      "task": "survey-to-installation-wait",
+      "kind": "lookup",
+      "askSet": 1,
+      "ask": [
+        "heat pump survey to installation waiting time",
+        "median weeks between survey and installation"
+      ],
+      "ms": 14,
+      "fileTokens": 334,
+      "files": [
+        "Reviews/Heat pump programme board notes.md"
+      ],
+      "sufficient": true,
+      "tokens": 696,
+      "relevantShare": 0.16,
+      "material": "1/1",
+      "facts": "2/2",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Heat pump programme board notes.md @6ea9f935a217\ns2 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\n[1] ranked: 8 sentences, 1/4 matching files; 1 more matched (Installers 1); a larger \"budget\" shows more\n[1.1] s1:\n  line 5 §Kestle Bay heat pump programme: board meeting notes, 14 November 2024: \"Present: Rosa Penhallow (chair), Daniel Kitto, Meera Joshi, Tom Rowe and Ellen Vosper (programme manager).\" #GH9JWXWJDK\n  line 9 §Progress: \"Ellen reported that the first phase closed in September with 214 installations. Installers now report a median of 9 weeks between the home survey and the installation date, down from 14 weeks in the first year of the programme.\" #81TVEF8D0T\n  line 13 §Installers: \"Brightwater Heating withdrew from the programme in August because of staff shortages, leaving Pellow and Sons as the only appointed installer.\" #BBATSEYTSS\n  line 17 §Complaints: \"Six formal complaints were received in 2024, four of them about installation delays and two about the condition of gardens after outdoor units were fitted.\" #ACPMKAQV9W\n  line 21 §Phase two: \"The board agreed a target of 150 further installations by March 2026, with priority for homes heated by oil or bottled gas.\" #SR03BRQ9WN\n  line 25 §Actions: \"Ellen to draft the installer tender by 12 December.\" #6TFB5G6773\n  line 25: \"Meera to update the website with the new waiting times.\" #GD50D1XE07\n[2] ranked: 5 sentences, 2/4 matching files; 10 more matched (4.5 Residents' experience 7, 3.2 Data sources 1, 3.5 Resident survey and temperatures 1, 4.1 Uptake 1); a larger \"budget\" shows more\n[2.1] s2:\n  p.4 §4.1 Uptake: \"Between October 2022 and September 2024, 597 households registered an interest, 318 received a home survey and 214 had a heat pump installed.\" #C5TRV3RGNG\n  p.7 §4.5 Residents' experience: \"Of the 214 households with an installation, 171 answered the follow-up survey, a response rate of 80 percent.\" #9CSXAPGJTJ\n  p.7: \"Most faults were fixed within a week, but three households were without heating for more than five days.\" #WFX9SMJDYH\n  p.7 §5 Discussion: \"The programme turned a larger share of interested households into installations than comparable community schemes, which suggests that free surveys and a trusted local organisation can overcome some of the barriers to take-up.\" #3WD8MSFZFK\n[2.2] s1:\n  line 9 §Progress: \"Installers now report a median of 9 weeks between the home survey and the installation date, down from 14 weeks in the first year of the programme.\" #C0CYC8Y77A"
+    },
+    {
+      "set": "heldout3",
+      "task": "survey-to-installation-wait",
+      "kind": "lookup",
+      "askSet": 2,
+      "ask": [
+        "Once someone's house has been assessed, how long until the heat pump actually goes in?"
+      ],
+      "ms": 10,
+      "fileTokens": 334,
+      "files": [
+        "Reviews/Heat pump programme board notes.md"
+      ],
+      "sufficient": false,
+      "tokens": 390,
+      "relevantShare": 0,
+      "material": "0/1",
+      "facts": "0/2",
+      "missing": [
+        "f1"
+      ],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\ns2 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] ranked: 6 sentences, 2/4 matching files; no indexed text in the 6 shared files has \"someone\" or \"long\" or \"actually\" or \"goes\"; 42 more matched (4.5 Residents' experience 10, 4.1 Uptake 5, 4.3 Savings to households 4, 1 Introduction 4); a larger \"budget\" shows more\n[1.1] s1:\n  p.3 §3.1 The programme: \"Each registered household was offered a free home survey by an independent assessor, who checked insulation, radiators and the electricity supply.\" #4WA765A44Q\n  p.4 §4.1 Uptake: \"Between October 2022 and September 2024, 597 households registered an interest, 318 received a home survey and 214 had a heat pump installed.\" #C5TRV3RGNG\n  p.4: Table 1. Households at each stage, by main heating fuel before the programme [Main heating fuel Registered interest Home survey Installed]\n    Heating oil 128 79 63\n    All households 597 318 214\n  p.7 §4.5 Residents' experience: \"Of the 214 households with an installation, 171 answered the follow-up survey, a response rate of 80 percent.\" #9CSXAPGJTJ\n[1.2] s2:\n  p.7 §5 Discussion: \"Repeat borrowing was higher than in the two schemes reviewed in Section 2, which suggests that a core group of households has made borrowing a habit.\" #GAZHR2K7QZ"
+    },
+    {
+      "set": "heldout3",
+      "task": "solid-wall-bill-change",
+      "kind": "lookup",
+      "askSet": 1,
+      "ask": [
+        "energy spend change by wall type solid wall",
+        "heat pump bills solid wall homes before 1919"
+      ],
+      "ms": 19,
+      "fileTokens": 2494,
+      "files": [
+        "Reviews/Community heat pump programme evaluation.pdf"
+      ],
+      "sufficient": true,
+      "tokens": 431,
+      "relevantShare": 0.23,
+      "material": "1/1",
+      "facts": "3/3",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\n[1] ranked: 5 sentences, 1/2 matching files; 2 more matched (4.2 Energy bills 1, 3.3 Energy bills 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.3 §3.3 Energy bills: \"To remove the effect of price changes, both years were valued at the unit rates and standing charges in force in October 2023.\" #GHAKM3PBB3\n  p.5 §4.2 Energy bills: \"Mean annual energy spend before and after installation, by wall type, at October\" #1YXB4MEPEH\n  p.5: \"Wall type Homes Before (GBP) After (GBP) Change Solid wall, built before 1919 38 2,640 2,455 -7 percent Cavity wall, insulated 81 2,050 1,600 -22 percent Cavity wall, not insulated 27 2,180 1,844 -15 percent Built after 1990 16 1,847 1,365 -26 percent All homes with full meter data 162 2,190 1,818 -17 percent\" #2VQTD8PJCS\n  p.7 §5 Discussion: \"Savings in older solid-wall homes were smaller, which supports the case for combining heat pumps with insulation where that is affordable.\" #GEVR0S8NNG\n  p.8 §7 Conclusions: \"We recommend that the next phase gives priority to oil-heated homes, offers insulation alongside heat pumps in solid-wall homes, and secures more installer capacity.\" #KP2D33RG2N\n[2] ranked: 3 sentences, 1/4 matching files; 1 more matched (4.2 Energy bills 1); a larger \"budget\" shows more\n[2.1] s1:\n  p.5: (shown in [1])\n  p.7: (shown in [1])\n  p.8: (shown in [1])"
+    },
+    {
+      "set": "heldout3",
+      "task": "solid-wall-bill-change",
+      "kind": "lookup",
+      "askSet": 2,
+      "ask": [
+        "Did the really old houses, the ones built before about 1920, save much on their heating?"
+      ],
+      "ms": 7,
+      "fileTokens": 2494,
+      "files": [
+        "Reviews/Community heat pump programme evaluation.pdf"
+      ],
+      "sufficient": true,
+      "tokens": 852,
+      "relevantShare": 0.13,
+      "material": "1/1",
+      "facts": "3/3",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "text": "s1 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\n[1] ranked: 19 sentences, 1/6 matching files; no indexed text in the 6 shared files has \"really\" or \"1920\"; no excerpt has \"ones\", \"save\"; 16 more matched (4.5 Residents' experience 6, 4.1 Uptake 4, 1 Introduction 2, 3.2 Data sources 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1 §Abstract: \"Household energy bills fell by 21 percent on average after installation, and homes were warmer in winter. Emissions from heating fell substantially. Most residents were satisfied with their systems, although around one in ten reported a fault in the first year.\" #S7MRH58BRD\n  p.2 §2 Background and previous studies: \"In the Lowmoor scheme, 29 percent of households that registered an interest went on to have a heat pump installed (Lowmoor Energy, 2022).\" #DPJQBPEEDJ\n  p.3 §3.1 The programme: \"Households could register an interest online or at one of eleven drop-in sessions held in village halls. Each registered household was offered a free home survey by an independent assessor, who checked insulation, radiators and the electricity supply. Households that went ahead received a grant of GBP 6,000 towards the installed cost and could borrow the remainder through an interest-free loan arranged by the society.\" #X5EV5D21P2\n  p.4 §4.1 Uptake: \"Between October 2022 and September 2024, 597 households registered an interest, 318 received a home survey and 214 had a heat pump installed.\" #C5TRV3RGNG\n  p.4: Table 1. Households at each stage, by main heating fuel before the programme [Main heating fuel Registered interest Home survey Installed]\n    Heating oil 128 79 63\n    Electric storage heaters 51 29 21\n    All households 597 318 214\n  p.5 §4.2 Energy bills: \"Wall type Homes Before (GBP) After (GBP) Change Solid wall, built before 1919 38 2,640 2,455 -7 percent Cavity wall, insulated 81 2,050 1,600 -22 percent Cavity wall, not insulated 27 2,180 1,844 -15 percent Built after 1990 16 1,847 1,365 -26 percent All homes with full meter data 162 2,190 1,818 -17 percent\" #2VQTD8PJCS\n  p.7 §4.5 Residents' experience: \"Of the 214 households with an installation, 171 answered the follow-up survey, a response rate of 80 percent.\" #9CSXAPGJTJ\n  p.7: \"Twenty-three households, 11 percent of those with an installation, reported a fault in the first year (Table 3). Most faults were fixed within a week, but three households were without heating for more than five days.\" #EA0M56SE5M\n  p.7: Table 3. Faults reported in the first year after installation, by type [Type of fault Households Median days to fix]\n    Controls or thermostat 9 2\n  p.7 §5 Discussion: \"The programme turned a larger share of interested households into installations than comparable community schemes, which suggests that free surveys and a trusted local organisation can overcome some of the barriers to take-up.\" #3WD8MSFZFK\n  p.8 §6 Limitations: \"There was no comparison group of homes that kept their old heating, so changes in bills and temperatures may partly reflect other changes in households.\" #A7CC4DWHXD\n  p.8 §7 Conclusions: \"Households saved money and were warmer, and emissions from heating fell sharply.\" #QGGQPH31K4"
+    },
+    {
+      "set": "heldout3",
+      "task": "north-shore-installations",
+      "kind": "aggregate",
+      "askSet": 1,
+      "ask": [
+        "heat pump installations by area North Shore",
+        "installations by zone workbook"
+      ],
+      "ms": 10,
+      "fileTokens": 211,
+      "files": [
+        "Reviews/Heat pump installations by area.xlsx"
+      ],
+      "sufficient": true,
+      "tokens": 442,
+      "relevantShare": 0.25,
+      "material": "0/0",
+      "facts": "4/4",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "1/1",
+      "text": "s1 = Reviews/Heat pump installations by area.xlsx @9afae54cd502\n[1] ranked: 1/3 matching files\n[1.1] s1 By area table, 12 rows:\n  Area | Zone | Registered interest | Home surveys | Installations | Mean installed cost (GBP)\n  Harbourside | North Shore | 84 | 44 | 31 | 11,900\n  Polwyn | North Shore | 61 | 33 | 24 | 12,300\n  Treloe Cove | North Shore | 47 | 26 | 19 | 12,050\n  Penmarrow | North Shore | 38 | 21 | 15 | 12,600\n  Gullhaven | South Shore | 66 | 35 | 22 | 12,450\n  Merrow Sands | South Shore | 52 | 27 | 17 | 12,800\n  Lantic Head | South Shore | 41 | 23 | 14 | 13,100\n  Porthwen | South Shore | 29 | 16 | 11 | 12,200\n  Trenance Vale | Inland | 58 | 30 | 20 | 11,650\n  Kestle Moor | Inland | 49 | 26 | 18 | 11,800\n  Bodwin Cross | Inland | 40 | 21 | 13 | 12,150\n  Hallow Down | Inland | 32 | 16 | 10 | 12,500\n[2] ranked: 1/3 matching files\n[2.1] s1 By area table, 12 rows:\n  Area | Zone | Installations | Mean installed cost (GBP)\n  Harbourside | North Shore | 31 | 11,900\n  Polwyn | North Shore | 24 | 12,300\n  Treloe Cove | North Shore | 19 | 12,050\n  Penmarrow | North Shore | 15 | 12,600\n  Gullhaven | South Shore | 22 | 12,450\n  Merrow Sands | South Shore | 17 | 12,800\n  Lantic Head | South Shore | 14 | 13,100\n  Porthwen | South Shore | 11 | 12,200\n  Trenance Vale | Inland | 20 | 11,650\n  Kestle Moor | Inland | 18 | 11,800\n  Bodwin Cross | Inland | 13 | 12,150\n  Hallow Down | Inland | 10 | 12,500"
+    },
+    {
+      "set": "heldout3",
+      "task": "north-shore-installations",
+      "kind": "aggregate",
+      "askSet": 2,
+      "ask": [
+        "How many homes along the north shore ended up with a heat pump?"
+      ],
+      "ms": 5,
+      "fileTokens": 211,
+      "files": [
+        "Reviews/Heat pump installations by area.xlsx"
+      ],
+      "sufficient": true,
+      "tokens": 211,
+      "relevantShare": 0.29,
+      "material": "0/0",
+      "facts": "4/4",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "1/1",
+      "text": "s1 = Reviews/Heat pump installations by area.xlsx @9afae54cd502\n[1] ranked: 1/5 matching files; no indexed text in the 6 shared files has \"along\"\n[1.1] s1 By area table, 8 rows:\n  Area | Zone | Registered interest | Home surveys | Installations | Mean installed cost (GBP)\n  Harbourside | North Shore | 84 | 44 | 31 | 11,900\n  Polwyn | North Shore | 61 | 33 | 24 | 12,300\n  Treloe Cove | North Shore | 47 | 26 | 19 | 12,050\n  Penmarrow | North Shore | 38 | 21 | 15 | 12,600\n  Gullhaven | South Shore | 66 | 35 | 22 | 12,450\n  Merrow Sands | South Shore | 52 | 27 | 17 | 12,800\n  Lantic Head | South Shore | 41 | 23 | 14 | 13,100\n  Porthwen | South Shore | 29 | 16 | 11 | 12,200"
+    },
+    {
+      "set": "heldout3",
+      "task": "south-shore-surveyed-not-installed",
+      "kind": "aggregate",
+      "askSet": 1,
+      "ask": [
+        "home surveys installations South Shore",
+        "surveyed but not installed by area"
+      ],
+      "ms": 13,
+      "fileTokens": 211,
+      "files": [
+        "Reviews/Heat pump installations by area.xlsx"
+      ],
+      "sufficient": true,
+      "tokens": 1369,
+      "relevantShare": 0.08,
+      "material": "0/0",
+      "facts": "4/4",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "1/1",
+      "text": "s1 = Reviews/Heat pump installations by area.xlsx @9afae54cd502\ns2 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\n[1] ranked: 1/4 matching files\n[1.1] s1 By area table, 12 rows:\n  Area | Zone | Registered interest | Home surveys | Installations | Mean installed cost (GBP)\n  Harbourside | North Shore | 84 | 44 | 31 | 11,900\n  Polwyn | North Shore | 61 | 33 | 24 | 12,300\n  Treloe Cove | North Shore | 47 | 26 | 19 | 12,050\n  Penmarrow | North Shore | 38 | 21 | 15 | 12,600\n  Gullhaven | South Shore | 66 | 35 | 22 | 12,450\n  Merrow Sands | South Shore | 52 | 27 | 17 | 12,800\n  Lantic Head | South Shore | 41 | 23 | 14 | 13,100\n  Porthwen | South Shore | 29 | 16 | 11 | 12,200\n  Trenance Vale | Inland | 58 | 30 | 20 | 11,650\n  Kestle Moor | Inland | 49 | 26 | 18 | 11,800\n  Bodwin Cross | Inland | 40 | 21 | 13 | 12,150\n  Hallow Down | Inland | 32 | 16 | 10 | 12,500\n[2] ranked: 22 sentences, 2/4 matching files; 23 more matched (4.5 Residents' experience 7, 4.1 Uptake 4, Abstract 2, 4.2 Energy bills 2); a larger \"budget\" shows more\n[2.1] s1 By area table, 12 rows:\n  Area | Home surveys | Installations | Mean installed cost (GBP)\n  Harbourside | 44 | 31 | 11,900\n  Polwyn | 33 | 24 | 12,300\n  Treloe Cove | 26 | 19 | 12,050\n  Penmarrow | 21 | 15 | 12,600\n  Gullhaven | 35 | 22 | 12,450\n  Merrow Sands | 27 | 17 | 12,800\n  Lantic Head | 23 | 14 | 13,100\n  Porthwen | 16 | 11 | 12,200\n  Trenance Vale | 30 | 20 | 11,650\n  Kestle Moor | 26 | 18 | 11,800\n  Bodwin Cross | 21 | 13 | 12,150\n  Hallow Down | 16 | 10 | 12,500\n[2.2] s2:\n  p.1 §Abstract: \"The programme combined group purchasing, free home surveys and a grant of GBP 6,000 per home.\" #H4X53TW59W\n  p.1: \"Household energy bills fell by 21 percent on average after installation, and homes were warmer in winter. Emissions from heating fell substantially. Most residents were satisfied with their systems, although around one in ten reported a fault in the first year.\" #S7MRH58BRD\n  p.3 §3.1 The programme: \"Households that went ahead received a grant of GBP 6,000 towards the installed cost and could borrow the remainder through an interest-free loan arranged by the society. Two installers were appointed after a tender in the summer of 2022.\" #8E49Q7WJHX\n  p.3 §3.2 Data sources: \"We used four sources: the society's records of registrations, surveys and installations; half-hourly smart meter data for electricity and gas, shared with the householder's consent; installers' records of costs and faults; and a follow-up survey of residents twelve months after installation.\" #3K8QE8H4DX\n  p.4 §3.5 Resident survey and temperatures: \"The follow-up survey asked about comfort, running costs, problems and overall satisfaction, and was sent to all households with an installation.\" #12B5RDS34X\n  p.4 §4.1 Uptake: \"Between October 2022 and September 2024, 597 households registered an interest, 318 received a home survey and 214 had a heat pump installed.\" #C5TRV3RGNG\n  p.4: \"Households at each stage, by main heating fuel before the programme Main heating fuel Registered interest Home survey Installed\" #KY26570K7P\n  p.4: Table 1. Households at each stage, by main heating fuel before the programme [Main heating fuel Registered interest Home survey Installed]\n    Mains gas 392 196 121\n    Heating oil 128 79 63\n    Electric storage heaters 51 29 21\n  p.5 §4.2 Energy bills: \"For the 52 homes without complete meter data, installers' estimates suggest similar savings, but these could not be checked.\" #FS4C2S8Z75\n  p.6 §4.3 Indoor temperatures: \"In the 48 homes with temperature loggers, the mean living-room temperature from December to February rose by 1.6 deg C, from 17.9 deg C before installation to 19.5 deg C after. This gain was largest in homes that had relied on electric storage heaters, which had often been the coldest before the programme.\" #Z6KXV7GQEH\n  p.6 §4.4 Emissions: \"Across all 214 installations, this amounts to about 490 tonnes a year.\" #T7MYT9AWH3\n  p.7 §4.5 Residents' experience: \"Of the 214 households with an installation, 171 answered the follow-up survey, a response rate of 80 percent.\" #9CSXAPGJTJ\n  p.7: \"Twenty-three households, 11 percent of those with an installation, reported a fault in the first year (Table 3). Most faults were fixed within a week, but three households were without heating for more than five days.\" #EA0M56SE5M\n  p.7 §5 Discussion: \"The programme turned a larger share of interested households into installations than comparable community schemes, which suggests that free surveys and a trusted local organisation can overcome some of the barriers to take-up.\" #3WD8MSFZFK\n  p.8 §7 Conclusions: \"The Kestle Bay programme shows that a community energy group can deliver heat pumps at scale in an area with many older and off-grid homes.\" #YVW5FY11NW"
+    },
+    {
+      "set": "heldout3",
+      "task": "south-shore-surveyed-not-installed",
+      "kind": "aggregate",
+      "askSet": 2,
+      "ask": [
+        "How many people down on the south shore got their house checked but never had a heat pump put in?"
+      ],
+      "ms": 6,
+      "fileTokens": 211,
+      "files": [
+        "Reviews/Heat pump installations by area.xlsx"
+      ],
+      "sufficient": false,
+      "tokens": 75,
+      "relevantShare": 0,
+      "material": "0/0",
+      "facts": "0/4",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/1",
+      "text": "s1 = Reviews/Heat pump installations by area.xlsx @9afae54cd502\n[1] no indexed text in the 6 shared files has \"put\" (asked: \"people down south shore house checked never heat pump put\"); no row is labelled \"people down\"; rows labelled like it: \"Hallow Down\" (s1)."
+    },
+    {
+      "set": "heldout3",
+      "task": "library-effect-on-shops",
+      "kind": "absent",
+      "askSet": 1,
+      "ask": [
+        "Library of Things effect on local retailers",
+        "hardware shop sales impact"
+      ],
+      "ms": 10,
+      "fileTokens": 0,
+      "files": [],
+      "sufficient": true,
+      "tokens": 179,
+      "relevantShare": 0,
+      "material": "0/0",
+      "facts": "0/0",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "absentSaid": true,
+      "text": "s1 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] ranked: 2 sentences, 1/4 matching files\n[1.1] s1:\n  p.1: \"Borrowing instead of buying: evaluation of the Brackenford Library of Things pilot, April 2023 to March 2025\" #HMQKT8RRYA\n  p.8 §6 Limitations: \"The evaluation did not assess effects on local retailers, such as hardware and DIY shops, or on commercial hire firms.\" #47T9M4TN6A\n[2] ranked: 1 sentence, 1/1 matching files; no indexed text in the 6 shared files has \"sales\" or \"impact\"\n[2.1] s1:\n  p.8: (shown in [1])"
+    },
+    {
+      "set": "heldout3",
+      "task": "library-effect-on-shops",
+      "kind": "absent",
+      "askSet": 2,
+      "ask": [
+        "Has the tool library taken business away from the hardware stores in town?"
+      ],
+      "ms": 8,
+      "fileTokens": 0,
+      "files": [],
+      "sufficient": true,
+      "tokens": 716,
+      "relevantShare": 0,
+      "material": "0/0",
+      "facts": "0/0",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "absentSaid": true,
+      "text": "s1 = Reviews/Library of Things pilot evaluation.pdf @f920bb864b23\n[1] ranked: 14 sentences, 1/4 matching files; no indexed text in the 6 shared files has \"business\" or \"away\"; no excerpt has \"taken\"; 3 more matched (2 Previous studies 1, (no heading) 1, 7 Conclusions 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1 §Abstract: \"The Brackenford Library of Things lends household tools and equipment from three branch libraries for a small fee.\" #8VD3T5FXM5\n  p.1: \"Registrations from deprived neighbourhoods were roughly in line with their share of the town's population.\" #E96BBDWQBW\n  p.1 §1 Introduction: \"The pilot ran from three of the town's seven branch libraries: Central, Eastgate and Millbrook.\" #2P8FD12NZ6\n  p.2 §2 Previous studies: \"A survey of 14 schemes in England found a median of 1,150 registered borrowers per scheme after two years of operation, with wide variation by town size (Carraway Trust, 2022).\" #9A1AJZRVK1\n  p.2: \"Repeat borrowing, the share of borrowers who borrow more than once, is often used as a sign that a scheme has become part of household routines. It was 34 percent at the Harwick Tool Library in its second year (Pemberton and Shah, 2021) and 39 percent at the Otterburn Share Shed (Lindqvist, 2023).\" #NS10WK61KK\n  p.2: \"No published study that we are aware of has followed a scheme in a town of Brackenford's size for more than one year.\" #XY89X2MRQC\n  p.3 §3.1 The scheme: \"At launch the catalogue held 164 items, chosen by library staff after a public consultation, and by March 2025 it had grown to 236 items.\" #VAYMM5C5WW\n  p.6 §4.4 Avoided purchases and emissions: \"Applying these answers to the 1,820 combinations of member and item type in the loan records, we estimate that the pilot avoided the purchase of about 1,130 items with a combined weight of 14.6 tonnes. These avoided purchases correspond to around 38 tonnes of carbon dioxide equivalent over the two years, mostly from power tools and garden machinery.\" #D1BGEPTPQE\n  p.7 §4.5 Condition of returned items: \"Damage was most common for power tools and garden equipment (Table 3).\" #0R5BVVWVXZ\n  p.7: Table 3. Loans with damage recorded at return, by item category [Category Loans Returned damaged Damage rate]\n    Power tools 1,240 64 5.2 percent\n  p.7 §5 Discussion: \"The scheme's main value to many members may lie less in money saved than in access to equipment they could not store or could not justify buying.\" #SNXB0PN6Q3\n  p.8 §6 Limitations: \"The evaluation did not assess effects on local retailers, such as hardware and DIY shops, or on commercial hire firms.\" #47T9M4TN6A"
+    },
+    {
+      "set": "heldout3",
+      "task": "heat-pump-house-prices",
+      "kind": "absent",
+      "askSet": 1,
+      "ask": [
+        "heat pump house prices property value",
+        "Kestle Bay property values after installation"
+      ],
+      "ms": 15,
+      "fileTokens": 0,
+      "files": [],
+      "sufficient": true,
+      "tokens": 1958,
+      "relevantShare": 0,
+      "material": "0/0",
+      "facts": "0/0",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "absentSaid": true,
+      "text": "s1 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\ns2 = Reviews/Heat pump installations by area.xlsx @9afae54cd502\ns3 = Reviews/Heat pump programme board notes.md @6ea9f935a217\n[1] ranked: 22 sentences, 1/3 matching files; no indexed text in the 6 shared files has \"property\"; 19 more matched (4.5 Residents' experience 6, 4.1 Uptake 3, 5 Discussion 2, 1 Introduction 2); a larger \"budget\" shows more\n[1.1] s1:\n  p.1: \"Evaluation of the Kestle Bay Community Heat Pump Programme, 2022 to 2024\" #BGNKDZBYBQ\n  p.1 §Abstract: \"Household energy bills fell by 21 percent on average after installation, and homes were warmer in winter. Emissions from heating fell substantially. Most residents were satisfied with their systems, although around one in ten reported a fault in the first year.\" #S7MRH58BRD\n  p.2 §2 Background and previous studies: \"In the Lowmoor scheme, 29 percent of households that registered an interest went on to have a heat pump installed (Lowmoor Energy, 2022).\" #DPJQBPEEDJ\n  p.3 §3.1 The programme: \"Households could register an interest online or at one of eleven drop-in sessions held in village halls.\" #X5EV5D21P2\n  p.3: \"Households that went ahead received a grant of GBP 6,000 towards the installed cost and could borrow the remainder through an interest-free loan arranged by the society.\" #8E49Q7WJHX\n  p.3 §3.3 Energy bills: \"To remove the effect of price changes, both years were valued at the unit rates and standing charges in force in October 2023.\" #GHAKM3PBB3\n  p.4 §4.1 Uptake: \"Between October 2022 and September 2024, 597 households registered an interest, 318 received a home survey and 214 had a heat pump installed.\" #C5TRV3RGNG\n  p.4: Table 1. Households at each stage, by main heating fuel before the programme [Main heating fuel Registered interest Home survey Installed]\n    Mains gas 392 196 121\n    Heating oil 128 79 63\n    Electric storage heaters 51 29 21\n    All households 597 318 214\n  p.5 §4.2 Energy bills: \"In these homes, mean annual energy spend fell from GBP 2,190 to GBP 1,818, valued at October 2023 prices.\" #44182KKANW\n  p.7 §4.5 Residents' experience: \"Of the 214 households with an installation, 171 answered the follow-up survey, a response rate of 80 percent.\" #9CSXAPGJTJ\n  p.7: \"Twenty-three households, 11 percent of those with an installation, reported a fault in the first year (Table 3). Most faults were fixed within a week, but three households were without heating for more than five days.\" #EA0M56SE5M\n  p.7: Table 3. Faults reported in the first year after installation, by type [Type of fault Households Median days to fix]\n    Controls or thermostat 9 2\n    Hot water cylinder 6 4\n  p.7 §5 Discussion: \"The programme turned a larger share of interested households into installations than comparable community schemes, which suggests that free surveys and a trusted local organisation can overcome some of the barriers to take-up.\" #3WD8MSFZFK\n  p.8 §6 Limitations: \"There was no comparison group of homes that kept their old heating, so changes in bills and temperatures may partly reflect other changes in households.\" #A7CC4DWHXD\n  p.8 §7 Conclusions: \"Households saved money and were warmer, and emissions from heating fell sharply.\" #QGGQPH31K4\n[2] ranked: 25 sentences, 3/3 matching files; no indexed text in the 6 shared files has \"property\"; no row is labelled \"kestle bay\"; rows labelled like it: \"Kestle Moor\" (s2); 28 more matched (4.5 Residents' experience 7, 4.1 Uptake 6, 1 Introduction 3, Installers 2); a larger \"budget\" shows more\n[2.1] s2 By area table, 12 rows:\n  Area | Zone | Registered interest | Home surveys | Installations | Mean installed cost (GBP)\n  Harbourside | North Shore | 84 | 44 | 31 | 11,900\n  Polwyn | North Shore | 61 | 33 | 24 | 12,300\n  Treloe Cove | North Shore | 47 | 26 | 19 | 12,050\n  Penmarrow | North Shore | 38 | 21 | 15 | 12,600\n  Gullhaven | South Shore | 66 | 35 | 22 | 12,450\n  Merrow Sands | South Shore | 52 | 27 | 17 | 12,800\n  Lantic Head | South Shore | 41 | 23 | 14 | 13,100\n  Porthwen | South Shore | 29 | 16 | 11 | 12,200\n  Trenance Vale | Inland | 58 | 30 | 20 | 11,650\n  Kestle Moor | Inland | 49 | 26 | 18 | 11,800\n  Bodwin Cross | Inland | 40 | 21 | 13 | 12,150\n  Hallow Down | Inland | 32 | 16 | 10 | 12,500\n[2.2] s1:\n  p.1: (shown in [1])\n  p.1: \"Tressider Energy Research, for Kestle Bay Community Energy.\" #0JMMH7AHYB\n  p.1 §Abstract: \"Kestle Bay Community Energy, a community benefit society, ran a programme between October 2022 and September 2024 to help owner-occupiers on the Kestle Bay peninsula replace fossil-fuel heating with air-source heat pumps.\" #9ANETYPCPM\n  p.1: (shown in [1])\n  p.3 §3.1 The programme: \"Households that went ahead received a grant of GBP 6,000 towards the installed cost and could borrow the remainder through an interest-free loan arranged by the society. Two installers were appointed after a tender in the summer of 2022.\" #8E49Q7WJHX\n  p.3 §3.2 Data sources: \"Temperature loggers were placed in the living rooms of 48 homes that volunteered, recording every thirty minutes for one winter before and one winter after installation.\" #D9FS2TCVMS\n  p.4 §4.1 Uptake: \"Between October 2022 and September 2024, 597 households registered an interest, 318 received a home survey and 214 had a heat pump installed. This conversion rate of 36 percent from registration to installation is above that reported for the Lowmoor scheme.\" #C5TRV3RGNG\n  p.5 §4.2 Energy bills: \"Complete meter data for a full year before and after installation were available for 162 homes.\" #9NYPSS9EG5\n  p.5: \"For the 52 homes without complete meter data, installers' estimates suggest similar savings, but these could not be checked.\" #FS4C2S8Z75\n  p.6 §4.3 Indoor temperatures: \"In the 48 homes with temperature loggers, the mean living-room temperature from December to February rose by 1.6 deg C, from 17.9 deg C before installation to 19.5 deg C after. This gain was largest in homes that had relied on electric storage heaters, which had often been the coldest before the programme.\" #Z6KXV7GQEH\n  p.6 §4.4 Emissions: \"Across all 214 installations, this amounts to about 490 tonnes a year.\" #T7MYT9AWH3\n  p.7: (shown in [1])\n  p.7: (shown in [1])\n  p.7: (shown in [1])\n  p.8 §7 Conclusions: \"The Kestle Bay programme shows that a community energy group can deliver heat pumps at scale in an area with many older and off-grid homes.\" #YVW5FY11NW\n[2.3] s3:\n  line 5 §Kestle Bay heat pump programme: board meeting notes, 14 November 2024: \"Present: Rosa Penhallow (chair), Daniel Kitto, Meera Joshi, Tom Rowe and Ellen Vosper (programme manager).\" #GH9JWXWJDK\n  line 9 §Progress: \"Ellen reported that the first phase closed in September with 214 installations.\" #81TVEF8D0T\n  line 21 §Phase two: \"The board agreed a target of 150 further installations by March 2026, with priority for homes heated by oil or bottled gas.\" #SR03BRQ9WN\n  line 25 §Actions: \"Ellen to draft the installer tender by 12 December.\" #6TFB5G6773"
+    },
+    {
+      "set": "heldout3",
+      "task": "heat-pump-house-prices",
+      "kind": "absent",
+      "askSet": 2,
+      "ask": [
+        "Are the houses that got the new heat pumps worth more now?"
+      ],
+      "ms": 8,
+      "fileTokens": 0,
+      "files": [],
+      "sufficient": true,
+      "tokens": 925,
+      "relevantShare": 0,
+      "material": "0/0",
+      "facts": "0/0",
+      "missing": [],
+      "qualifications": "0/0",
+      "conflicts": "0/0",
+      "computed": "0/0",
+      "absentSaid": true,
+      "text": "s1 = Reviews/Community heat pump programme evaluation.pdf @ea32bd3815f3\ns2 = Reviews/Heat pump programme board notes.md @6ea9f935a217\n[1] ranked: 24 sentences, 2/4 matching files; no indexed text in the 6 shared files has \"worth\"; 20 more matched (4.5 Residents' experience 6, 4.1 Uptake 3, 1 Introduction 3, 5 Discussion 2); a larger \"budget\" shows more\n[1.1] s1:\n  p.1: \"Evaluation of the Kestle Bay Community Heat Pump Programme, 2022 to 2024\" #BGNKDZBYBQ\n  p.1 §Abstract: \"Household energy bills fell by 21 percent on average after installation, and homes were warmer in winter. Emissions from heating fell substantially. Most residents were satisfied with their systems, although around one in ten reported a fault in the first year.\" #S7MRH58BRD\n  p.2 §2 Background and previous studies: \"In the Lowmoor scheme, 29 percent of households that registered an interest went on to have a heat pump installed (Lowmoor Energy, 2022).\" #DPJQBPEEDJ\n  p.3 §3.1 The programme: \"Households could register an interest online or at one of eleven drop-in sessions held in village halls.\" #X5EV5D21P2\n  p.3: \"Households that went ahead received a grant of GBP 6,000 towards the installed cost and could borrow the remainder through an interest-free loan arranged by the society.\" #8E49Q7WJHX\n  p.4 §4.1 Uptake: \"Between October 2022 and September 2024, 597 households registered an interest, 318 received a home survey and 214 had a heat pump installed.\" #C5TRV3RGNG\n  p.4: Table 1. Households at each stage, by main heating fuel before the programme [Main heating fuel Registered interest Home survey Installed]\n    Mains gas 392 196 121\n    Heating oil 128 79 63\n    Electric storage heaters 51 29 21\n    All households 597 318 214\n  p.7 §4.5 Residents' experience: \"Of the 214 households with an installation, 171 answered the follow-up survey, a response rate of 80 percent.\" #9CSXAPGJTJ\n  p.7: \"Twenty-three households, 11 percent of those with an installation, reported a fault in the first year (Table 3). Most faults were fixed within a week, but three households were without heating for more than five days.\" #EA0M56SE5M\n  p.7: Table 3. Faults reported in the first year after installation, by type [Type of fault Households Median days to fix]\n    Controls or thermostat 9 2\n    Hot water cylinder 6 4\n  p.7 §5 Discussion: \"The programme turned a larger share of interested households into installations than comparable community schemes, which suggests that free surveys and a trusted local organisation can overcome some of the barriers to take-up.\" #3WD8MSFZFK\n  p.8 §6 Limitations: \"There was no comparison group of homes that kept their old heating, so changes in bills and temperatures may partly reflect other changes in households.\" #A7CC4DWHXD\n  p.8 §7 Conclusions: \"Households saved money and were warmer, and emissions from heating fell sharply.\" #QGGQPH31K4\n[1.2] s2:\n  line 13 §Installers: \"The board agreed to run a new tender in January to appoint at least one more installer before phase two begins.\" #SQ61DYTYQD\n  line 21 §Phase two: \"The board agreed a target of 150 further installations by March 2026, with priority for homes heated by oil or bottled gas. It also agreed to cap the householder contribution at GBP 4,000 for households receiving means-tested benefits, with the society's hardship fund meeting the rest of the cost.\" #SR03BRQ9WN\n  line 25 §Actions: \"Meera to update the website with the new waiting times.\" #GD50D1XE07"
+    }
+  ]
+}

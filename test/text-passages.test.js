@@ -6,6 +6,8 @@ import path from 'node:path';
 import { createApplication } from '../src/server.js';
 import { anchorForSpan } from '../src/dependencies/service.js';
 import { markdownPassages } from '../src/sharing/markdown.js';
+import { extractDocxFullText } from '../src/dependencies/document-extraction.js';
+import { storedZip } from './fixtures/workbook.js';
 
 const writer = { id: 'human:writer', displayName: 'Writer', actorType: 'HUMAN_SELF' };
 
@@ -163,7 +165,39 @@ test('an index made before text passages gains them without changing existing ve
   for (const original of originals) {
     assert.equal(app.dependencies.objectsAt(project.id).find(object => object.id === original.id).versionId, original.versionId);
   }
-  // The upgrade records the current index version (4 adds STEP CAD models).
+  // The upgrade records the current index version (4 adds STEP CAD models, 5 Word passages).
   assert.equal(db.prepare('SELECT drawing_index_version AS version FROM snapshot_object_indexes WHERE snapshot_id = ?')
-    .get(project.currentSnapshotId).version, 4);
+    .get(project.currentSnapshotId).version, 5);
+});
+
+test('a Word document is read a paragraph per line, and an index from before Word passages gains them', t => {
+  // Arrange
+  const memo = storedZip({ 'word/document.xml': '<?xml version="1.0"?><w:document xmlns:w="urn:w"><w:body>'
+    + '<w:p><w:r><w:t>Site visit</w:t></w:r></w:p>'
+    + '<w:p><w:r><w:t>The pump on line 3 was repl</w:t></w:r><w:r><w:t>aced on 2 May after the seal failed.</w:t></w:r></w:p>'
+    + '<w:p><w:r><w:t xml:space="preserve">Flow returned to 42 litres per minute </w:t></w:r><w:r><w:t>by the afternoon.</w:t></w:r></w:p>'
+    + '</w:body></w:document>' });
+  const { app, project } = workspace(t, { 'visit.docx': memo });
+  const db = app.dependencies.db;
+
+  // Act
+  const text = extractDocxFullText(memo);
+  const indexed = excerpts(app.dependencies.objectsAt(project.id), 'visit.docx');
+  const guard = db.prepare("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='scientific_object_versions_immutable_delete'").get().sql;
+  db.exec('DROP TRIGGER scientific_object_versions_immutable_delete');
+  db.exec(`DELETE FROM scientific_object_versions WHERE object_id IN
+    (SELECT id FROM scientific_objects WHERE object_key LIKE '%:text-excerpt:%');
+    DELETE FROM scientific_objects WHERE object_key LIKE '%:text-excerpt:%';`);
+  db.exec(guard);
+  db.prepare('UPDATE snapshot_object_indexes SET drawing_index_version = 4 WHERE snapshot_id = ?').run(project.currentSnapshotId);
+  app.dependencies.objectCache.delete(project.currentSnapshotId);
+  const upgraded = excerpts(app.dependencies.objectsAt(project.id), 'visit.docx');
+
+  // Assert
+  assert.equal(text, 'Site visit\n\nThe pump on line 3 was replaced on 2 May after the seal failed.\n\nFlow returned to 42 litres per minute by the afternoon.',
+    'paragraphs on their own lines, runs joined as written');
+  const cited = (passages) => passages.map((passage) => [passage.anchor.lineStart, passage.valueText]).sort();
+  assert.deepEqual(cited(indexed), [[3, 'The pump on line 3 was replaced on 2 May after the seal failed.'],
+    [5, 'Flow returned to 42 litres per minute by the afternoon.']]);
+  assert.deepEqual(cited(upgraded), cited(indexed), 'an index from before version 5 reads Word passages on upgrade');
 });

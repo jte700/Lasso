@@ -1,0 +1,968 @@
+{
+  "generatedAt": "2026-10-31T06:39:26.256Z",
+  "tasks": 12,
+  "rounds": {
+    "development": {
+      "askSets": 24,
+      "complete": 23,
+      "factsFound": 158,
+      "factsNeeded": 170,
+      "lassoTokens": 279
+    },
+    "held-out 1": {
+      "askSets": 24,
+      "complete": 24,
+      "factsFound": 170,
+      "factsNeeded": 170,
+      "lassoTokens": 242
+    },
+    "held-out 2": {
+      "askSets": 24,
+      "complete": 21,
+      "factsFound": 154,
+      "factsNeeded": 170,
+      "lassoTokens": 285
+    }
+  },
+  "fileTokens": 88073,
+  "rows": [
+    {
+      "id": "q4-revenue-email",
+      "files": [
+        "Finance/Revenue 2025.xlsx",
+        "Finance/Q4 2025 Board Report.pdf",
+        "Finance/Q3 2025 Board Report.pdf"
+      ],
+      "needed": 4,
+      "direct": {
+        "tokens": 443,
+        "facts": 4,
+        "overCap": false
+      },
+      "sets": [
+        {
+          "ask": [
+            "Q4 2025 revenue",
+            "Q3 2025 revenue",
+            "best month in Q4 2025"
+          ],
+          "round": "development",
+          "tokens": 483,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\ns2 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\ns3 = Finance/Q3 2025 Board Report.pdf @93776193c158\n[1] ranked: 2 sentences, 2/5 matching files; 5 more matched (Q4 2025 Board Report 4, Outlook 1); a larger \"budget\" shows more\n[1.1] s1 Monthly table, 3 rows:\n  Month | Revenue\n  October | 538900\n  November | 551300\n  December | 604750\n[1.2] s2:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter. December was the strongest month of the year at $604,750, driven by holiday orders.\" #0DPNJA3PQX\n[2] ranked: 3 sentences, 2/5 matching files; 2 more matched (Q3 2025 Board Report 2); a larger \"budget\" shows more\n[2.1] s1 Monthly table, 3 rows:\n  Month | Revenue\n  July | 501250\n  August | 495800\n  September | 512600\n[2.2] s3:\n  p.1 §Q3 2025 Board Report: \"Third-quarter revenue was $1.51 million, up 6% on the second quarter. Gross margin for the quarter was 38.3%.\" #E504CM44B9\n  p.1: \"Risks: freight costs rose 9% and one large customer delayed its renewal to January.\" #N7GAVJ8Y1E\n[3] ranked: 3 sentences, 2/5 matching files; 3 more matched (Q4 2025 Board Report 3); a larger \"budget\" shows more\n[3.1] s2:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter. December was the strongest month of the year at $604,750, driven by holiday orders. Gross margin for the quarter was 39.0%, the best of the year.\" #0DPNJA3PQX"
+        },
+        {
+          "ask": [
+            "total revenue for Q4 2025 and how it compares with Q3",
+            "which month in Q4 2025 had the highest revenue"
+          ],
+          "round": "development",
+          "tokens": 424,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\ns2 = Finance/Q3 2025 Board Report.pdf @93776193c158\ns3 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 2 sentences, 3/6 matching files; no indexed text in the 11 shared files has \"compares\"; 9 more matched (Q4 2025 Board Report 5, Q3 2025 Board Report 4); a larger \"budget\" shows more\n[1.1] s1 Monthly \"Revenue\" total: 3204600, over 6 of 12 rows (october, november, december, july, august, september) [August 495800; December 604750; July 501250; November 551300; October 538900; September 512600]\n[1.2] s2:\n  p.1 §Q3 2025 Board Report: \"Gross margin for the quarter was 38.3%.\" #KMZDYWF45D\n[1.3] s3:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter.\" #0DPNJA3PQX\n[2] ranked: 2 sentences, 2/5 matching files; 5 more matched (Q4 2025 Board Report 4, Outlook 1); a larger \"budget\" shows more\n[2.1] s1 Monthly \"Revenue\" highest: 604750 (December), over 3 of 12 rows (october, november, december) [December 604750; November 551300; October 538900]\n[2.2] s3:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter. December was the strongest month of the year at $604,750, driven by holiday orders.\" #0DPNJA3PQX"
+        },
+        {
+          "ask": [
+            "Q4 revenue and growth vs Q3"
+          ],
+          "round": "held-out 1",
+          "tokens": 187,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\ns2 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 1 sentence, 3/3 matching files; no indexed text in the 11 shared files has \"growth\"; 1 more matched (Q3 2025 Board Report 1); a larger \"budget\" shows more\n[1.1] s1 Monthly table, 6 rows:\n  Month | Revenue\n  July | 501250\n  August | 495800\n  September | 512600\n  October | 538900\n  November | 551300\n  December | 604750\n[1.2] s2:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter.\" #0DPNJA3PQX"
+        },
+        {
+          "ask": [
+            "October to December 2025 revenue",
+            "fourth quarter results"
+          ],
+          "round": "held-out 1",
+          "tokens": 304,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\ns2 = Finance/Q3 2025 Board Report.pdf @93776193c158\ns3 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1.1] s1 \"October\" Monthly!12:12: Revenue=\"538900\" #MBVBXC2HC3\n[1.2] s1 \"December\" Monthly!14:14: Revenue=\"604750\" #QKSCZA9R4Y\n[2] ranked: 4 sentences, 2/2 matching files; no indexed text in the 11 shared files has \"results\"; 2 more matched (Q3 2025 Board Report 2); a larger \"budget\" shows more\n[2.1] s2:\n  p.1 §Q3 2025 Board Report: \"September was the strongest month of the quarter.\" #H5E4R4JKCR\n[2.2] s3:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter.\" #0DPNJA3PQX\n  p.1: \"Gross margin for the quarter was 39.0%, the best of the year.\" #8VGJED5T6Z\n  p.1: \"We added 170 new customers in the quarter.\" #H0CWRCS54C"
+        },
+        {
+          "ask": [
+            "revenue in the last quarter of 2025",
+            "how did Q4 compare to Q3",
+            "strongest month in Q4"
+          ],
+          "round": "held-out 2",
+          "tokens": 563,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\ns2 = Finance/Q3 2025 Board Report.pdf @93776193c158\ns3 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 4 sentences, 3/5 matching files; no indexed text in the 11 shared files has \"last\"; 5 more matched (Q4 2025 Board Report 3, Q3 2025 Board Report 2); a larger \"budget\" shows more\n[1.1] s1 Monthly table, 3 rows:\n  Month | Revenue\n  October | 538900\n  November | 551300\n  December | 604750\n[1.2] s2:\n  p.1 §Q3 2025 Board Report: \"September was the strongest month of the quarter.\" #H5E4R4JKCR\n[1.3] s3:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter.\" #0DPNJA3PQX\n  p.1: \"Gross margin for the quarter was 39.0%, the best of the year.\" #8VGJED5T6Z\n  p.1: \"We added 170 new customers in the quarter.\" #H0CWRCS54C\n[2] ranked: 3 sentences, 2/2 matching files; no indexed text in the 11 shared files has \"compare\"; 8 more matched (Q4 2025 Board Report 5, Q3 2025 Board Report 3); a larger \"budget\" shows more\n[2.1] s2:\n  p.1 §Q3 2025 Board Report: \"Gross margin for the quarter was 38.3%.\" #KMZDYWF45D\n  p.1: \"Risks: freight costs rose 9% and one large customer delayed its renewal to January.\" #N7GAVJ8Y1E\n[2.2] s3:\n  p.1: (shown in [1.3])\n[3] ranked: 3 sentences, 3/3 matching files; 4 more matched (Q4 2025 Board Report 4); a larger \"budget\" shows more\n[3.1] s2:\n  p.1: (shown in [1.2])\n[3.2] s3:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter. December was the strongest month of the year at $604,750, driven by holiday orders.\" #0DPNJA3PQX"
+        },
+        {
+          "ask": [
+            "Q4 2025 Board Report.pdf",
+            "Revenue 2025.xlsx"
+          ],
+          "round": "held-out 2",
+          "tokens": 411,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\ns2 = Finance/Revenue 2025.xlsx @51582f1c48fd\n[1] s1 text:\n  p.1 Fourth-quarter revenue was $1.69 million, up 12% on the third quarter. December was the strongest month of the year at $604,750, driven by holiday orders. Gross margin for the quarter was 39.0%, the best of the year. The North region grew fastest, at 18%; the South region was flat. We added 170 new customers in the quarter.\n  p.1 Operations: the Leeds warehouse reached full capacity in November.\n  p.2 We expect Q1 2026 revenue of $1.55 million to $1.60 million, reflecting the usual post-holiday slowdown. The 2026 budget was approved by the board on 9 December. Risks: one supplier, Brightline Plastics, is on an improvement plan after quality holds.\n[2] s2 Monthly table, 12 rows:\n  Month | Revenue | Cost of sales | Gross margin | New customers\n  January | 410200 | 262528 | 147672 | 31\n  February | 398750 | 251213 | 147537 | 28\n  March | 455900 | 287217 | 168683 | 36\n  April | 470300 | 291586 | 178714 | 40\n  May | 462100 | 286502 | 175598 | 38\n  June | 488400 | 297924 | 190476 | 44\n  July | 501250 | 310775 | 190475 | 47\n  August | 495800 | 307396 | 188404 | 45\n  September | 512600 | 312686 | 199914 | 49\n  October | 538900 | 334118 | 204782 | 52\n  November | 551300 | 336293 | 215007 | 55\n  December | 604750 | 362850 | 241900 | 63"
+        }
+      ]
+    },
+    {
+      "id": "top-months-newsletter",
+      "files": [
+        "Finance/Revenue 2025.xlsx"
+      ],
+      "needed": 12,
+      "direct": {
+        "tokens": 174,
+        "facts": 12,
+        "overCap": false
+      },
+      "sets": [
+        {
+          "ask": [
+            "2025 monthly revenue"
+          ],
+          "round": "development",
+          "tokens": 205,
+          "facts": 12,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\n[1] s1 Monthly table, 12 rows:\n  Month | Revenue | Cost of sales | Gross margin | New customers\n  January | 410200 | 262528 | 147672 | 31\n  February | 398750 | 251213 | 147537 | 28\n  March | 455900 | 287217 | 168683 | 36\n  April | 470300 | 291586 | 178714 | 40\n  May | 462100 | 286502 | 175598 | 38\n  June | 488400 | 297924 | 190476 | 44\n  July | 501250 | 310775 | 190475 | 47\n  August | 495800 | 307396 | 188404 | 45\n  September | 512600 | 312686 | 199914 | 49\n  October | 538900 | 334118 | 204782 | 52\n  November | 551300 | 336293 | 215007 | 55\n  December | 604750 | 362850 | 241900 | 63"
+        },
+        {
+          "ask": [
+            "which months had the highest revenue in 2025",
+            "Revenue 2025.xlsx"
+          ],
+          "round": "development",
+          "tokens": 281,
+          "facts": 12,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\n[1] s1 Monthly \"Revenue\" highest: 604750 (December), over 12 of 12 rows [April 470300; August 495800; December 604750; February 398750; January 410200; July 501250; June 488400; March 455900; May 462100; November 551300; October 538900; September 512600]\n[2] s1 Monthly table, 12 rows:\n  Month | Revenue | Cost of sales | Gross margin | New customers\n  January | 410200 | 262528 | 147672 | 31\n  February | 398750 | 251213 | 147537 | 28\n  March | 455900 | 287217 | 168683 | 36\n  April | 470300 | 291586 | 178714 | 40\n  May | 462100 | 286502 | 175598 | 38\n  June | 488400 | 297924 | 190476 | 44\n  July | 501250 | 310775 | 190475 | 47\n  August | 495800 | 307396 | 188404 | 45\n  September | 512600 | 312686 | 199914 | 49\n  October | 538900 | 334118 | 204782 | 52\n  November | 551300 | 336293 | 215007 | 55\n  December | 604750 | 362850 | 241900 | 63"
+        },
+        {
+          "ask": [
+            "revenue by month for 2025"
+          ],
+          "round": "held-out 1",
+          "tokens": 205,
+          "facts": 12,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\n[1] s1 Monthly table, 12 rows:\n  Month | Revenue | Cost of sales | Gross margin | New customers\n  January | 410200 | 262528 | 147672 | 31\n  February | 398750 | 251213 | 147537 | 28\n  March | 455900 | 287217 | 168683 | 36\n  April | 470300 | 291586 | 178714 | 40\n  May | 462100 | 286502 | 175598 | 38\n  June | 488400 | 297924 | 190476 | 44\n  July | 501250 | 310775 | 190475 | 47\n  August | 495800 | 307396 | 188404 | 45\n  September | 512600 | 312686 | 199914 | 49\n  October | 538900 | 334118 | 204782 | 52\n  November | 551300 | 336293 | 215007 | 55\n  December | 604750 | 362850 | 241900 | 63"
+        },
+        {
+          "ask": [
+            "best performing months of 2025"
+          ],
+          "round": "held-out 1",
+          "tokens": 231,
+          "facts": 12,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\n[1] no indexed text in Finance/Revenue 2025.xlsx has \"performing\"; what it holds:\n[1.1] s1 Monthly table, 12 rows:\n  Month | Revenue | Cost of sales | Gross margin | New customers\n  January | 410200 | 262528 | 147672 | 31\n  February | 398750 | 251213 | 147537 | 28\n  March | 455900 | 287217 | 168683 | 36\n  April | 470300 | 291586 | 178714 | 40\n  May | 462100 | 286502 | 175598 | 38\n  June | 488400 | 297924 | 190476 | 44\n  July | 501250 | 310775 | 190475 | 47\n  August | 495800 | 307396 | 188404 | 45\n  September | 512600 | 312686 | 199914 | 49\n  October | 538900 | 334118 | 204782 | 52\n  November | 551300 | 336293 | 215007 | 55\n  December | 604750 | 362850 | 241900 | 63"
+        },
+        {
+          "ask": [
+            "monthly revenue figures 2025"
+          ],
+          "round": "held-out 2",
+          "tokens": 205,
+          "facts": 12,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\n[1] s1 Monthly table, 12 rows:\n  Month | Revenue | Cost of sales | Gross margin | New customers\n  January | 410200 | 262528 | 147672 | 31\n  February | 398750 | 251213 | 147537 | 28\n  March | 455900 | 287217 | 168683 | 36\n  April | 470300 | 291586 | 178714 | 40\n  May | 462100 | 286502 | 175598 | 38\n  June | 488400 | 297924 | 190476 | 44\n  July | 501250 | 310775 | 190475 | 47\n  August | 495800 | 307396 | 188404 | 45\n  September | 512600 | 312686 | 199914 | 49\n  October | 538900 | 334118 | 204782 | 52\n  November | 551300 | 336293 | 215007 | 55\n  December | 604750 | 362850 | 241900 | 63"
+        },
+        {
+          "ask": [
+            "Revenue 2025.xlsx Revenue column"
+          ],
+          "round": "held-out 2",
+          "tokens": 230,
+          "facts": 12,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\n[1] no indexed text in Finance/Revenue 2025.xlsx has \"column\"; what it holds:\n[1.1] s1 Monthly table, 12 rows:\n  Month | Revenue | Cost of sales | Gross margin | New customers\n  January | 410200 | 262528 | 147672 | 31\n  February | 398750 | 251213 | 147537 | 28\n  March | 455900 | 287217 | 168683 | 36\n  April | 470300 | 291586 | 178714 | 40\n  May | 462100 | 286502 | 175598 | 38\n  June | 488400 | 297924 | 190476 | 44\n  July | 501250 | 310775 | 190475 | 47\n  August | 495800 | 307396 | 188404 | 45\n  September | 512600 | 312686 | 199914 | 49\n  October | 538900 | 334118 | 204782 | 52\n  November | 551300 | 336293 | 215007 | 55\n  December | 604750 | 362850 | 241900 | 63"
+        }
+      ]
+    },
+    {
+      "id": "quarterly-margin-email",
+      "files": [
+        "Finance/Revenue 2025.xlsx"
+      ],
+      "needed": 24,
+      "direct": {
+        "tokens": 174,
+        "facts": 24,
+        "overCap": false
+      },
+      "sets": [
+        {
+          "ask": [
+            "gross margin by month 2025",
+            "revenue by month 2025"
+          ],
+          "round": "development",
+          "tokens": 489,
+          "facts": 24,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\ns2 = Finance/Q3 2025 Board Report.pdf @93776193c158\ns3 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 4 sentences, 3/6 matching files; 7 more matched (Q4 2025 Board Report 4, Q3 2025 Board Report 3); a larger \"budget\" shows more\n[1.1] s1 Monthly table, 12 rows:\n  Month | Gross margin\n  January | 147672\n  February | 147537\n  March | 168683\n  April | 178714\n  May | 175598\n  June | 190476\n  July | 190475\n  August | 188404\n  September | 199914\n  October | 204782\n  November | 215007\n  December | 241900\n[1.2] s2:\n  p.1 §Q3 2025 Board Report: \"Gross margin for the quarter was 38.3%. September was the strongest month of the quarter.\" #KMZDYWF45D\n[1.3] s3:\n  p.1 §Q4 2025 Board Report: \"December was the strongest month of the year at $604,750, driven by holiday orders. Gross margin for the quarter was 39.0%, the best of the year.\" #D3HGM4D199\n[2] s1 Monthly table, 12 rows:\n  Month | Revenue | Cost of sales | Gross margin | New customers\n  January | 410200 | 262528 | 147672 | 31\n  February | 398750 | 251213 | 147537 | 28\n  March | 455900 | 287217 | 168683 | 36\n  April | 470300 | 291586 | 178714 | 40\n  May | 462100 | 286502 | 175598 | 38\n  June | 488400 | 297924 | 190476 | 44\n  July | 501250 | 310775 | 190475 | 47\n  August | 495800 | 307396 | 188404 | 45\n  September | 512600 | 312686 | 199914 | 49\n  October | 538900 | 334118 | 204782 | 52\n  November | 551300 | 336293 | 215007 | 55\n  December | 604750 | 362850 | 241900 | 63"
+        },
+        {
+          "ask": [
+            "gross margin for each quarter of 2025"
+          ],
+          "round": "development",
+          "tokens": 317,
+          "facts": 12,
+          "missing": [
+            "January revenue",
+            "February revenue",
+            "March revenue",
+            "April revenue",
+            "May revenue",
+            "June revenue",
+            "July revenue",
+            "August revenue",
+            "September revenue",
+            "October revenue",
+            "November revenue",
+            "December revenue"
+          ],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\ns2 = Finance/Q3 2025 Board Report.pdf @93776193c158\ns3 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 5 sentences, 3/6 matching files; 1 more matched (Q4 2025 Board Report 1); a larger \"budget\" shows more\n[1.1] s1 Monthly table, 12 rows:\n  Month | Gross margin\n  January | 147672\n  February | 147537\n  March | 168683\n  April | 178714\n  May | 175598\n  June | 190476\n  July | 190475\n  August | 188404\n  September | 199914\n  October | 204782\n  November | 215007\n  December | 241900\n[1.2] s2:\n  p.1 §Q3 2025 Board Report: \"Third-quarter revenue was $1.51 million, up 6% on the second quarter. Gross margin for the quarter was 38.3%. September was the strongest month of the quarter.\" #E504CM44B9\n[1.3] s3:\n  p.1 §Q4 2025 Board Report: \"Gross margin for the quarter was 39.0%, the best of the year.\" #8VGJED5T6Z\n  p.1: \"We added 170 new customers in the quarter.\" #H0CWRCS54C"
+        },
+        {
+          "ask": [
+            "quarterly gross margin 2025",
+            "quarterly revenue 2025"
+          ],
+          "round": "held-out 1",
+          "tokens": 497,
+          "facts": 24,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\ns2 = Finance/Q3 2025 Board Report.pdf @93776193c158\ns3 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 2 sentences, 3/6 matching files; no indexed text in the 11 shared files has \"quarterly\"; 9 more matched (Q4 2025 Board Report 5, Q3 2025 Board Report 4); a larger \"budget\" shows more\n[1.1] s1 Monthly table, 12 rows:\n  Month | Gross margin\n  January | 147672\n  February | 147537\n  March | 168683\n  April | 178714\n  May | 175598\n  June | 190476\n  July | 190475\n  August | 188404\n  September | 199914\n  October | 204782\n  November | 215007\n  December | 241900\n[1.2] s2:\n  p.1 §Q3 2025 Board Report: \"Gross margin for the quarter was 38.3%.\" #KMZDYWF45D\n[1.3] s3:\n  p.1 §Q4 2025 Board Report: \"Gross margin for the quarter was 39.0%, the best of the year.\" #8VGJED5T6Z\n[2] no indexed text in Finance/Revenue 2025.xlsx has \"quarterly\"; what it holds:\n[2.1] s1 Monthly table, 12 rows:\n  Month | Revenue | Cost of sales | Gross margin | New customers\n  January | 410200 | 262528 | 147672 | 31\n  February | 398750 | 251213 | 147537 | 28\n  March | 455900 | 287217 | 168683 | 36\n  April | 470300 | 291586 | 178714 | 40\n  May | 462100 | 286502 | 175598 | 38\n  June | 488400 | 297924 | 190476 | 44\n  July | 501250 | 310775 | 190475 | 47\n  August | 495800 | 307396 | 188404 | 45\n  September | 512600 | 312686 | 199914 | 49\n  October | 538900 | 334118 | 204782 | 52\n  November | 551300 | 336293 | 215007 | 55\n  December | 604750 | 362850 | 241900 | 63"
+        },
+        {
+          "ask": [
+            "Revenue 2025.xlsx gross margin and revenue"
+          ],
+          "round": "held-out 1",
+          "tokens": 151,
+          "facts": 24,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\n[1] ranked: 1/1 matching files\n[1.1] s1 Monthly table, 12 rows:\n  Month | Revenue | Gross margin\n  January | 410200 | 147672\n  February | 398750 | 147537\n  March | 455900 | 168683\n  April | 470300 | 178714\n  May | 462100 | 175598\n  June | 488400 | 190476\n  July | 501250 | 190475\n  August | 495800 | 188404\n  September | 512600 | 199914\n  October | 538900 | 204782\n  November | 551300 | 215007\n  December | 604750 | 241900"
+        },
+        {
+          "ask": [
+            "margin and revenue per month in 2025"
+          ],
+          "round": "held-out 2",
+          "tokens": 418,
+          "facts": 24,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\ns2 = Finance/Q3 2025 Board Report.pdf @93776193c158\ns3 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 6 sentences, 3/5 matching files; no indexed text in the 11 shared files has \"per\"; 6 more matched (Q4 2025 Board Report 4, Q3 2025 Board Report 2); a larger \"budget\" shows more\n[1.1] s1 Monthly table, 12 rows:\n  Month | Revenue | Gross margin\n  January | 410200 | 147672\n  February | 398750 | 147537\n  March | 455900 | 168683\n  April | 470300 | 178714\n  May | 462100 | 175598\n  June | 488400 | 190476\n  July | 501250 | 190475\n  August | 495800 | 188404\n  September | 512600 | 199914\n  October | 538900 | 204782\n  November | 551300 | 215007\n  December | 604750 | 241900\n[1.2] s2:\n  p.1 §Q3 2025 Board Report: \"Third-quarter revenue was $1.51 million, up 6% on the second quarter. Gross margin for the quarter was 38.3%. September was the strongest month of the quarter.\" #E504CM44B9\n[1.3] s3:\n  p.1 §Q4 2025 Board Report: \"December was the strongest month of the year at $604,750, driven by holiday orders. Gross margin for the quarter was 39.0%, the best of the year.\" #D3HGM4D199\n  p.2 §Outlook: \"We expect Q1 2026 revenue of $1.55 million to $1.60 million, reflecting the usual post-holiday slowdown.\" #EM1JR94RDP"
+        },
+        {
+          "ask": [
+            "Q1 Q2 Q3 Q4 2025 gross margin and revenue"
+          ],
+          "round": "held-out 2",
+          "tokens": 380,
+          "facts": 24,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\ns2 = Finance/Q3 2025 Board Report.pdf @93776193c158\ns3 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 4 sentences, 3/6 matching files; 8 more matched (Q4 2025 Board Report 5, Q3 2025 Board Report 3); a larger \"budget\" shows more\n[1.1] s1 Monthly table, 12 rows:\n  Month | Revenue | Gross margin\n  January | 410200 | 147672\n  February | 398750 | 147537\n  March | 455900 | 168683\n  April | 470300 | 178714\n  May | 462100 | 175598\n  June | 488400 | 190476\n  July | 501250 | 190475\n  August | 495800 | 188404\n  September | 512600 | 199914\n  October | 538900 | 204782\n  November | 551300 | 215007\n  December | 604750 | 241900\n[1.2] s2:\n  p.1 §Q3 2025 Board Report: \"Third-quarter revenue was $1.51 million, up 6% on the second quarter. Gross margin for the quarter was 38.3%.\" #E504CM44B9\n[1.3] s3:\n  p.1 §Q4 2025 Board Report: \"December was the strongest month of the year at $604,750, driven by holiday orders.\" #D3HGM4D199\n  p.2 §Outlook: \"We expect Q1 2026 revenue of $1.55 million to $1.60 million, reflecting the usual post-holiday slowdown.\" #EM1JR94RDP"
+        }
+      ]
+    },
+    {
+      "id": "annual-total-line",
+      "files": [
+        "Finance/Revenue 2025.xlsx"
+      ],
+      "needed": 12,
+      "direct": {
+        "tokens": 174,
+        "facts": 12,
+        "overCap": false
+      },
+      "sets": [
+        {
+          "ask": [
+            "total revenue 2025"
+          ],
+          "round": "development",
+          "tokens": 92,
+          "facts": 12,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\n[1] s1 Monthly \"Revenue\" total: 5890250, over 12 of 12 rows [April 470300; August 495800; December 604750; February 398750; January 410200; July 501250; June 488400; March 455900; May 462100; November 551300; October 538900; September 512600]"
+        },
+        {
+          "ask": [
+            "2025 revenue by month"
+          ],
+          "round": "development",
+          "tokens": 205,
+          "facts": 12,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\n[1] s1 Monthly table, 12 rows:\n  Month | Revenue | Cost of sales | Gross margin | New customers\n  January | 410200 | 262528 | 147672 | 31\n  February | 398750 | 251213 | 147537 | 28\n  March | 455900 | 287217 | 168683 | 36\n  April | 470300 | 291586 | 178714 | 40\n  May | 462100 | 286502 | 175598 | 38\n  June | 488400 | 297924 | 190476 | 44\n  July | 501250 | 310775 | 190475 | 47\n  August | 495800 | 307396 | 188404 | 45\n  September | 512600 | 312686 | 199914 | 49\n  October | 538900 | 334118 | 204782 | 52\n  November | 551300 | 336293 | 215007 | 55\n  December | 604750 | 362850 | 241900 | 63"
+        },
+        {
+          "ask": [
+            "full year 2025 revenue"
+          ],
+          "round": "held-out 1",
+          "tokens": 287,
+          "facts": 12,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\ns2 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 4 sentences, 2/5 matching files; 3 more matched (Q4 2025 Board Report 3); a larger \"budget\" shows more\n[1.1] s1 Monthly table, 12 rows:\n  Month | Revenue\n  January | 410200\n  February | 398750\n  March | 455900\n  April | 470300\n  May | 462100\n  June | 488400\n  July | 501250\n  August | 495800\n  September | 512600\n  October | 538900\n  November | 551300\n  December | 604750\n[1.2] s2:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter. December was the strongest month of the year at $604,750, driven by holiday orders. Gross margin for the quarter was 39.0%, the best of the year.\" #0DPNJA3PQX\n  p.2 §Outlook: \"We expect Q1 2026 revenue of $1.55 million to $1.60 million, reflecting the usual post-holiday slowdown.\" #EM1JR94RDP"
+        },
+        {
+          "ask": [
+            "sum of monthly revenue in 2025"
+          ],
+          "round": "held-out 1",
+          "tokens": 92,
+          "facts": 12,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\n[1] s1 Monthly \"Revenue\" total: 5890250, over 12 of 12 rows [April 470300; August 495800; December 604750; February 398750; January 410200; July 501250; June 488400; March 455900; May 462100; November 551300; October 538900; September 512600]"
+        },
+        {
+          "ask": [
+            "2025 revenue total for the year"
+          ],
+          "round": "held-out 2",
+          "tokens": 281,
+          "facts": 12,
+          "missing": [],
+          "text": "s1 = Finance/Revenue 2025.xlsx @51582f1c48fd\ns2 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 4 sentences, 2/6 matching files; 3 more matched (Q4 2025 Board Report 3); a larger \"budget\" shows more\n[1.1] s1 Monthly \"Revenue\" total: 5890250, over 12 of 12 rows [April 470300; August 495800; December 604750; February 398750; January 410200; July 501250; June 488400; March 455900; May 462100; November 551300; October 538900; September 512600]\n[1.2] s2:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter. December was the strongest month of the year at $604,750, driven by holiday orders. Gross margin for the quarter was 39.0%, the best of the year.\" #0DPNJA3PQX\n  p.2 §Outlook: \"We expect Q1 2026 revenue of $1.55 million to $1.60 million, reflecting the usual post-holiday slowdown.\" #EM1JR94RDP"
+        },
+        {
+          "ask": [
+            "what did we earn in 2025"
+          ],
+          "round": "held-out 2",
+          "tokens": 291,
+          "facts": 1,
+          "missing": [
+            "January revenue",
+            "February revenue",
+            "March revenue",
+            "April revenue",
+            "May revenue",
+            "June revenue",
+            "July revenue",
+            "August revenue",
+            "September revenue",
+            "October revenue",
+            "November revenue"
+          ],
+          "text": "s1 = Finance/Q3 2025 Board Report.pdf @93776193c158\ns2 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 8 sentences, 4/5 matching files; no indexed text in the 11 shared files has \"earn\"; 3 more matched (Q4 2025 Board Report 2, Q3 2025 Board Report 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1 §Q3 2025 Board Report: \"Third-quarter revenue was $1.51 million, up 6% on the second quarter. Gross margin for the quarter was 38.3%. September was the strongest month of the quarter.\" #E504CM44B9\n  p.1: \"Risks: freight costs rose 9% and one large customer delayed its renewal to January.\" #N7GAVJ8Y1E\n[1.2] s2:\n  p.1 §Q4 2025 Board Report: \"December was the strongest month of the year at $604,750, driven by holiday orders. Gross margin for the quarter was 39.0%, the best of the year. The North region grew fastest, at 18%; the South region was flat. We added 170 new customers in the quarter.\" #D3HGM4D199"
+        }
+      ]
+    },
+    {
+      "id": "budget-note",
+      "files": [
+        "Finance/Budget 2026 final.xlsx",
+        "Finance/Budget 2026 draft.xlsx"
+      ],
+      "needed": 6,
+      "direct": {
+        "tokens": 91,
+        "facts": 5,
+        "overCap": false
+      },
+      "sets": [
+        {
+          "ask": [
+            "2026 budget for each department"
+          ],
+          "round": "development",
+          "tokens": 321,
+          "facts": 6,
+          "missing": [],
+          "text": "s1 = Finance/Budget 2026 draft.xlsx @88a059eb0c4d\ns2 = Finance/Budget 2026 final.xlsx @c6fb1fe5a593\ns3 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\ns4 = Operations/Meeting notes 2025-12-04.docx @76388845cb73\n[1] ranked: 3 sentences, 4/5 matching files; 1 more matched ((no heading) 1); a larger \"budget\" shows more\n[1.1] s1 Budget table, 5 rows:\n  Department | Budget\n  Marketing | 120000\n  Engineering | 640000\n  Sales | 310000\n  Operations | 205000\n  Support | 140000\n[1.2] s2 Budget table, 5 rows:\n  Department | Budget\n  Marketing | 95000\n  Engineering | 655000\n  Sales | 310000\n  Operations | 198000\n  Support | 140000\n[1.3] s3:\n  p.2 §Outlook: \"We expect Q1 2026 revenue of $1.55 million to $1.60 million, reflecting the usual post-holiday slowdown. The 2026 budget was approved by the board on 9 December.\" #EM1JR94RDP\n[1.4] s4:\n  para 3: \"Priya Shah will send the final 2026 budget to the department heads by 12 December.\" #7SDEP58CJS"
+        },
+        {
+          "ask": [
+            "Marketing 2026 budget",
+            "Engineering 2026 budget",
+            "Sales 2026 budget",
+            "Operations 2026 budget",
+            "Support 2026 budget"
+          ],
+          "round": "development",
+          "tokens": 324,
+          "facts": 6,
+          "missing": [],
+          "text": "s1 = Finance/Budget 2026 draft.xlsx @88a059eb0c4d\ns2 = Finance/Budget 2026 final.xlsx @c6fb1fe5a593\n[1] 2 sources differ; which is meant is not settled by the files:\n  - s1 \"Marketing\" Budget!3:3: Budget=\"120000\" #5T4SRVQXKY\n  - s2 \"Marketing\" Budget!3:3: Budget=\"95000\" #7G8BX17Z2B\n[2] 2 sources differ; which is meant is not settled by the files:\n  - s1 \"Engineering\" Budget!4:4: Budget=\"640000\" #MDSW8C28YM\n  - s2 \"Engineering\" Budget!4:4: Budget=\"655000\" #2QJDGH4ZE0\n[3] s1 \"Sales\" Budget!5:5: Budget=\"310000\" #M00YBYBFS0 (same in 2 sources: s1, s2)\n[4] 2 sources differ; which is meant is not settled by the files:\n  - s1 \"Operations\" Budget!6:6: Budget=\"205000\" #ZNAT6J14MR\n  - s2 \"Operations\" Budget!6:6: Budget=\"198000\" #YW3H2RZTX8\n[5] s1 \"Support\" Budget!7:7: Budget=\"140000\" #Z719VKA5T5 (same in 2 sources: s1, s2)"
+        },
+        {
+          "ask": [
+            "department budgets for 2026"
+          ],
+          "round": "held-out 1",
+          "tokens": 237,
+          "facts": 6,
+          "missing": [],
+          "text": "s1 = Finance/Budget 2026 draft.xlsx @88a059eb0c4d\ns2 = Finance/Budget 2026 final.xlsx @c6fb1fe5a593\ns3 = Operations/Meeting notes 2025-12-04.docx @76388845cb73\n[1] ranked: 2 sentences, 3/5 matching files\n[1.1] s1 Budget table, 5 rows:\n  Department | Budget\n  Marketing | 120000\n  Engineering | 640000\n  Sales | 310000\n  Operations | 205000\n  Support | 140000\n[1.2] s2 Budget table, 5 rows:\n  Department | Budget\n  Marketing | 95000\n  Engineering | 655000\n  Sales | 310000\n  Operations | 198000\n  Support | 140000\n[1.3] s3:\n  para 3: \"Priya Shah will send the final 2026 budget to the department heads by 12 December.\" #7SDEP58CJS\n  para 6: \"Decision: the spring promotion launches on 3 March 2026.\" #RZJERX8YW6"
+        },
+        {
+          "ask": [
+            "Budget 2026 final.xlsx"
+          ],
+          "round": "held-out 1",
+          "tokens": 78,
+          "facts": 6,
+          "missing": [],
+          "text": "s1 = Finance/Budget 2026 final.xlsx @c6fb1fe5a593\n[1] s1 Budget table, 5 rows:\n  Department | Budget | Headcount\n  Marketing | 95000 | 6\n  Engineering | 655000 | 24\n  Sales | 310000 | 11\n  Operations | 198000 | 9\n  Support | 140000 | 7"
+        },
+        {
+          "ask": [
+            "2026 budgets by department, final version"
+          ],
+          "round": "held-out 2",
+          "tokens": 304,
+          "facts": 6,
+          "missing": [],
+          "text": "s1 = Finance/Budget 2026 final.xlsx @c6fb1fe5a593\ns2 = Finance/Budget 2026 draft.xlsx @88a059eb0c4d\ns3 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\ns4 = Operations/Meeting notes 2025-12-04.docx @76388845cb73\n[1] ranked: 2 sentences, 4/5 matching files; no indexed text in the 11 shared files has \"version\"; 2 more matched ((no heading) 1, Outlook 1); a larger \"budget\" shows more\n[1.1] s1 Budget table, 5 rows:\n  Department | Budget\n  Marketing | 95000\n  Engineering | 655000\n  Sales | 310000\n  Operations | 198000\n  Support | 140000\n[1.2] s2 Budget table, 5 rows:\n  Department | Budget\n  Marketing | 120000\n  Engineering | 640000\n  Sales | 310000\n  Operations | 205000\n  Support | 140000\n[1.3] s3:\n  p.2 §Outlook: \"The 2026 budget was approved by the board on 9 December.\" #GVQDE3CVNM\n[1.4] s4:\n  para 3: \"Priya Shah will send the final 2026 budget to the department heads by 12 December.\" #7SDEP58CJS"
+        },
+        {
+          "ask": [
+            "how much budget does each department get in 2026"
+          ],
+          "round": "held-out 2",
+          "tokens": 237,
+          "facts": 6,
+          "missing": [],
+          "text": "s1 = Finance/Budget 2026 draft.xlsx @88a059eb0c4d\ns2 = Finance/Budget 2026 final.xlsx @c6fb1fe5a593\ns3 = Operations/Meeting notes 2025-12-04.docx @76388845cb73\n[1] ranked: 2 sentences, 3/5 matching files\n[1.1] s1 Budget table, 5 rows:\n  Department | Budget\n  Marketing | 120000\n  Engineering | 640000\n  Sales | 310000\n  Operations | 205000\n  Support | 140000\n[1.2] s2 Budget table, 5 rows:\n  Department | Budget\n  Marketing | 95000\n  Engineering | 655000\n  Sales | 310000\n  Operations | 198000\n  Support | 140000\n[1.3] s3:\n  para 3: \"Priya Shah will send the final 2026 budget to the department heads by 12 December.\" #7SDEP58CJS\n  para 6: \"Decision: the spring promotion launches on 3 March 2026.\" #RZJERX8YW6"
+        }
+      ]
+    },
+    {
+      "id": "q1-outlook-sentence",
+      "files": [
+        "Finance/Q4 2025 Board Report.pdf"
+      ],
+      "needed": 2,
+      "direct": {
+        "tokens": 182,
+        "facts": 2,
+        "overCap": false
+      },
+      "sets": [
+        {
+          "ask": [
+            "Q1 2026 revenue outlook"
+          ],
+          "round": "development",
+          "tokens": 122,
+          "facts": 2,
+          "missing": [],
+          "text": "s1 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 2 sentences, 1/7 matching files; 1 more matched (Outlook 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.2 §Outlook: \"We expect Q1 2026 revenue of $1.55 million to $1.60 million, reflecting the usual post-holiday slowdown. The 2026 budget was approved by the board on 9 December.\" #EM1JR94RDP"
+        },
+        {
+          "ask": [
+            "revenue guidance for the first quarter of 2026"
+          ],
+          "round": "development",
+          "tokens": 275,
+          "facts": 2,
+          "missing": [],
+          "text": "s1 = Finance/Q3 2025 Board Report.pdf @93776193c158\ns2 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 5 sentences, 2/8 matching files; no indexed text in the 11 shared files has \"guidance\"; 3 more matched (Q3 2025 Board Report 2, Q4 2025 Board Report 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1 §Q3 2025 Board Report: \"September was the strongest month of the quarter.\" #H5E4R4JKCR\n[1.2] s2:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter.\" #0DPNJA3PQX\n  p.1: \"Gross margin for the quarter was 39.0%, the best of the year.\" #8VGJED5T6Z\n  p.2 §Outlook: \"We expect Q1 2026 revenue of $1.55 million to $1.60 million, reflecting the usual post-holiday slowdown. The 2026 budget was approved by the board on 9 December.\" #EM1JR94RDP"
+        },
+        {
+          "ask": [
+            "what do we expect for Q1 2026 revenue"
+          ],
+          "round": "held-out 1",
+          "tokens": 92,
+          "facts": 2,
+          "missing": [],
+          "text": "s1 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 1 sentence, 1/7 matching files\n[1.1] s1:\n  p.2 §Outlook: \"We expect Q1 2026 revenue of $1.55 million to $1.60 million, reflecting the usual post-holiday slowdown.\" #EM1JR94RDP"
+        },
+        {
+          "ask": [
+            "outlook section of the Q4 board report"
+          ],
+          "round": "held-out 1",
+          "tokens": 344,
+          "facts": 2,
+          "missing": [],
+          "text": "s1 = Finance/Q3 2025 Board Report.pdf @93776193c158\ns2 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 10 sentences, 2/3 matching files; 4 more matched (Q3 2025 Board Report 2, Q4 2025 Board Report 1, Outlook 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1 §Q3 2025 Board Report: \"September was the strongest month of the quarter. We hired four engineers and opened a second warehouse in Leeds.\" #H5E4R4JKCR\n  p.1: \"Risks: freight costs rose 9% and one large customer delayed its renewal to January.\" #N7GAVJ8Y1E\n[1.2] s2:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter. December was the strongest month of the year at $604,750, driven by holiday orders. Gross margin for the quarter was 39.0%, the best of the year. The North region grew fastest, at 18%; the South region was flat. We added 170 new customers in the quarter.\" #0DPNJA3PQX\n  p.2 §Outlook: \"We expect Q1 2026 revenue of $1.55 million to $1.60 million, reflecting the usual post-holiday slowdown. The 2026 budget was approved by the board on 9 December.\" #EM1JR94RDP"
+        },
+        {
+          "ask": [
+            "Q1 2026 forecast"
+          ],
+          "round": "held-out 2",
+          "tokens": 213,
+          "facts": 2,
+          "missing": [],
+          "text": "s1 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\ns2 = Operations/Supplier review memo.docx @7516b2baa410\n[1] ranked: 4 sentences, 4/5 matching files; no indexed text in the 11 shared files has \"forecast\"\n[1.1] s1:\n  p.2 §Outlook: \"We expect Q1 2026 revenue of $1.55 million to $1.60 million, reflecting the usual post-holiday slowdown. The 2026 budget was approved by the board on 9 December.\" #EM1JR94RDP\n[1.2] s2:\n  para 4: \"Recommendation: renew Acme Castings for 2026 and put Brightline Plastics on a 90-day improvement plan.\" #ZH1CZ05CR7\n  para 5: \"The Acme Castings contract renews on 31 January 2026.\" #7QN5HM48ZQ"
+        },
+        {
+          "ask": [
+            "guidance for next quarter"
+          ],
+          "round": "held-out 2",
+          "tokens": 232,
+          "facts": 0,
+          "missing": [
+            "low end",
+            "high end"
+          ],
+          "text": "s1 = Finance/Q3 2025 Board Report.pdf @93776193c158\ns2 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 5 sentences, 2/2 matching files; no indexed text in the 11 shared files has \"guidance\" or \"next\"; 1 more matched (Q4 2025 Board Report 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1 §Q3 2025 Board Report: \"Third-quarter revenue was $1.51 million, up 6% on the second quarter. Gross margin for the quarter was 38.3%. September was the strongest month of the quarter.\" #E504CM44B9\n[1.2] s2:\n  p.1 §Q4 2025 Board Report: \"Gross margin for the quarter was 39.0%, the best of the year.\" #8VGJED5T6Z\n  p.1: \"We added 170 new customers in the quarter.\" #H0CWRCS54C"
+        }
+      ]
+    },
+    {
+      "id": "west-region-email",
+      "files": [
+        "Finance/Q4 2025 Board Report.pdf"
+      ],
+      "needed": 1,
+      "direct": {
+        "tokens": 182,
+        "facts": 1,
+        "overCap": false
+      },
+      "sets": [
+        {
+          "ask": [
+            "West region sales Q4 2025"
+          ],
+          "round": "development",
+          "tokens": 170,
+          "facts": 1,
+          "missing": [],
+          "text": "s1 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 3 sentences, 1/7 matching files; no indexed text in the 11 shared files has \"west\"; no excerpt has \"sales\"; 3 more matched (Q4 2025 Board Report 3); a larger \"budget\" shows more\n[1.1] s1:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter. December was the strongest month of the year at $604,750, driven by holiday orders.\" #0DPNJA3PQX\n  p.1: \"The North region grew fastest, at 18%; the South region was flat.\" #64K89XVBXY"
+        },
+        {
+          "ask": [
+            "Q4 2025 sales by region"
+          ],
+          "round": "development",
+          "tokens": 158,
+          "facts": 1,
+          "missing": [],
+          "text": "s1 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 3 sentences, 1/7 matching files; no excerpt has \"sales\"; 3 more matched (Q4 2025 Board Report 3); a larger \"budget\" shows more\n[1.1] s1:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter. December was the strongest month of the year at $604,750, driven by holiday orders.\" #0DPNJA3PQX\n  p.1: \"The North region grew fastest, at 18%; the South region was flat.\" #64K89XVBXY"
+        },
+        {
+          "ask": [
+            "West region Q4 2025 revenue"
+          ],
+          "round": "held-out 1",
+          "tokens": 146,
+          "facts": 1,
+          "missing": [],
+          "text": "s1 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 2 sentences, 1/5 matching files; no indexed text in the 11 shared files has \"west\"; 5 more matched (Q4 2025 Board Report 4, Outlook 1); a larger \"budget\" shows more\n[1.1] s1:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter.\" #0DPNJA3PQX\n  p.1: \"The North region grew fastest, at 18%; the South region was flat.\" #64K89XVBXY"
+        },
+        {
+          "ask": [
+            "regional performance in Q4 2025"
+          ],
+          "round": "held-out 1",
+          "tokens": 177,
+          "facts": 1,
+          "missing": [],
+          "text": "s1 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 4 sentences, 1/5 matching files; no indexed text in the 11 shared files has \"performance\"; no excerpt has \"regional\"; 2 more matched (Q4 2025 Board Report 2); a larger \"budget\" shows more\n[1.1] s1:\n  p.1 §Q4 2025 Board Report: \"Fourth-quarter revenue was $1.69 million, up 12% on the third quarter. December was the strongest month of the year at $604,750, driven by holiday orders. Gross margin for the quarter was 39.0%, the best of the year. The North region grew fastest, at 18%; the South region was flat.\" #0DPNJA3PQX"
+        },
+        {
+          "ask": [
+            "West region"
+          ],
+          "round": "held-out 2",
+          "tokens": 94,
+          "facts": 1,
+          "missing": [],
+          "text": "s1 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 1 sentence, 1/1 matching files; no indexed text in the 11 shared files has \"west\"\n[1.1] s1:\n  p.1 §Q4 2025 Board Report: \"The North region grew fastest, at 18%; the South region was flat.\" #64K89XVBXY"
+        },
+        {
+          "ask": [
+            "sales in the western region"
+          ],
+          "round": "held-out 2",
+          "tokens": 303,
+          "facts": 1,
+          "missing": [],
+          "text": "s1 = Finance/Budget 2026 draft.xlsx @88a059eb0c4d\ns2 = Finance/Budget 2026 final.xlsx @c6fb1fe5a593\ns3 = Finance/Revenue 2025.xlsx @51582f1c48fd\ns4 = Finance/Q4 2025 Board Report.pdf @1b5cb3e07c77\n[1] ranked: 1 sentence, 4/4 matching files; no indexed text in the 11 shared files has \"western\"; no excerpt has \"sales\"\n[1.1] s1 Budget table, 1 row:\n  Department | Budget | Headcount\n  Sales | 310000 | 11\n[1.2] s2 Budget table, 1 row:\n  Department | Budget | Headcount\n  Sales | 310000 | 11\n[1.3] s3 Monthly table, 12 rows:\n  Month | Cost of sales\n  January | 262528\n  February | 251213\n  March | 287217\n  April | 291586\n  May | 286502\n  June | 297924\n  July | 310775\n  August | 307396\n  September | 312686\n  October | 334118\n  November | 336293\n  December | 362850\n[1.4] s4:\n  p.1 §Q4 2025 Board Report: \"The North region grew fastest, at 18%; the South region was flat.\" #64K89XVBXY"
+        }
+      ]
+    },
+    {
+      "id": "supplier-bullets",
+      "files": [
+        "Operations/Supplier review memo.docx"
+      ],
+      "needed": 4,
+      "direct": {
+        "tokens": 105,
+        "facts": 4,
+        "overCap": false
+      },
+      "sets": [
+        {
+          "ask": [
+            "supplier review"
+          ],
+          "round": "development",
+          "tokens": 134,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Operations/Supplier review memo.docx @7516b2baa410\n[1] s1 text:\n  para 2 Acme Castings delivered 96% of orders on time this year, above our 95% target.\n  para 3 Brightline Plastics delivered 88% of orders on time and had two quality holds in October.\n  para 4 Recommendation: renew Acme Castings for 2026 and put Brightline Plastics on a 90-day improvement plan.\n  para 5 The Acme Castings contract renews on 31 January 2026.\n  para 6 Prepared by the purchasing team for the operations meeting."
+        },
+        {
+          "ask": [
+            "Supplier review memo.docx"
+          ],
+          "round": "development",
+          "tokens": 134,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Operations/Supplier review memo.docx @7516b2baa410\n[1] s1 text:\n  para 2 Acme Castings delivered 96% of orders on time this year, above our 95% target.\n  para 3 Brightline Plastics delivered 88% of orders on time and had two quality holds in October.\n  para 4 Recommendation: renew Acme Castings for 2026 and put Brightline Plastics on a 90-day improvement plan.\n  para 5 The Acme Castings contract renews on 31 January 2026.\n  para 6 Prepared by the purchasing team for the operations meeting."
+        },
+        {
+          "ask": [
+            "supplier performance review November 2025"
+          ],
+          "round": "held-out 1",
+          "tokens": 162,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Operations/Supplier review memo.docx @7516b2baa410\n[1] no indexed text in Operations/Supplier review memo.docx has \"performance\"; what it holds:\n[1.1] s1 text:\n  para 2 Acme Castings delivered 96% of orders on time this year, above our 95% target.\n  para 3 Brightline Plastics delivered 88% of orders on time and had two quality holds in October.\n  para 4 Recommendation: renew Acme Castings for 2026 and put Brightline Plastics on a 90-day improvement plan.\n  para 5 The Acme Castings contract renews on 31 January 2026.\n  para 6 Prepared by the purchasing team for the operations meeting."
+        },
+        {
+          "ask": [
+            "Acme Castings and Brightline Plastics on-time delivery"
+          ],
+          "round": "held-out 1",
+          "tokens": 182,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Operations/Supplier review memo.docx @7516b2baa410\n[1] ranked: 4 sentences, 1/4 matching files; no indexed text in the 11 shared files has \"delivery\"\n[1.1] s1:\n  para 2: \"Acme Castings delivered 96% of orders on time this year, above our 95% target.\" #EPMZ67S1GM\n  para 3: \"Brightline Plastics delivered 88% of orders on time and had two quality holds in October.\" #CQBCKVD7T4\n  para 4: \"Recommendation: renew Acme Castings for 2026 and put Brightline Plastics on a 90-day improvement plan.\" #ZH1CZ05CR7\n  para 5: \"The Acme Castings contract renews on 31 January 2026.\" #7QN5HM48ZQ"
+        },
+        {
+          "ask": [
+            "supplier review findings and recommendation"
+          ],
+          "round": "held-out 2",
+          "tokens": 96,
+          "facts": 1,
+          "missing": [
+            "Acme on time",
+            "Brightline on time",
+            "renewal date"
+          ],
+          "text": "s1 = Operations/Supplier review memo.docx @7516b2baa410\n[1] ranked: 1 sentence, 1/1 matching files; no indexed text in the 11 shared files has \"findings\"\n[1.1] s1:\n  para 4: \"Recommendation: renew Acme Castings for 2026 and put Brightline Plastics on a 90-day improvement plan.\" #ZH1CZ05CR7"
+        },
+        {
+          "ask": [
+            "Operations/Supplier review memo.docx"
+          ],
+          "round": "held-out 2",
+          "tokens": 134,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Operations/Supplier review memo.docx @7516b2baa410\n[1] s1 text:\n  para 2 Acme Castings delivered 96% of orders on time this year, above our 95% target.\n  para 3 Brightline Plastics delivered 88% of orders on time and had two quality holds in October.\n  para 4 Recommendation: renew Acme Castings for 2026 and put Brightline Plastics on a 90-day improvement plan.\n  para 5 The Acme Castings contract renews on 31 January 2026.\n  para 6 Prepared by the purchasing team for the operations meeting."
+        }
+      ]
+    },
+    {
+      "id": "meeting-actions-email",
+      "files": [
+        "Operations/Meeting notes 2025-12-04.docx"
+      ],
+      "needed": 4,
+      "direct": {
+        "tokens": 97,
+        "facts": 4,
+        "overCap": false
+      },
+      "sets": [
+        {
+          "ask": [
+            "action items from the 4 December meeting"
+          ],
+          "round": "development",
+          "tokens": 128,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Operations/Meeting notes 2025-12-04.docx @76388845cb73\n[1] s1 text:\n  para 2 Attendees: Priya Shah, Tom Okafor, Lena Fischer, Sam Ortiz.\n  para 3 Priya Shah will send the final 2026 budget to the department heads by 12 December.\n  para 4 Tom Okafor will confirm the bracket drawing with Acme Castings by 10 December.\n  para 5 Lena Fischer will book the facilities walkthrough of the new office by 19 December.\n  para 6 Decision: the spring promotion launches on 3 March 2026."
+        },
+        {
+          "ask": [
+            "Meeting notes 2025-12-04.docx"
+          ],
+          "round": "development",
+          "tokens": 128,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Operations/Meeting notes 2025-12-04.docx @76388845cb73\n[1] s1 text:\n  para 2 Attendees: Priya Shah, Tom Okafor, Lena Fischer, Sam Ortiz.\n  para 3 Priya Shah will send the final 2026 budget to the department heads by 12 December.\n  para 4 Tom Okafor will confirm the bracket drawing with Acme Castings by 10 December.\n  para 5 Lena Fischer will book the facilities walkthrough of the new office by 19 December.\n  para 6 Decision: the spring promotion launches on 3 March 2026."
+        },
+        {
+          "ask": [
+            "what was agreed at the operations meeting on 4 December"
+          ],
+          "round": "held-out 1",
+          "tokens": 159,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Operations/Meeting notes 2025-12-04.docx @76388845cb73\n[1] no indexed text in Operations/Meeting notes 2025-12-04.docx has \"agreed\"; what it holds:\n[1.1] s1 text:\n  para 2 Attendees: Priya Shah, Tom Okafor, Lena Fischer, Sam Ortiz.\n  para 3 Priya Shah will send the final 2026 budget to the department heads by 12 December.\n  para 4 Tom Okafor will confirm the bracket drawing with Acme Castings by 10 December.\n  para 5 Lena Fischer will book the facilities walkthrough of the new office by 19 December.\n  para 6 Decision: the spring promotion launches on 3 March 2026."
+        },
+        {
+          "ask": [
+            "who owns what after the December operations meeting"
+          ],
+          "round": "held-out 1",
+          "tokens": 159,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Operations/Meeting notes 2025-12-04.docx @76388845cb73\n[1] no indexed text in Operations/Meeting notes 2025-12-04.docx has \"owns\"; what it holds:\n[1.1] s1 text:\n  para 2 Attendees: Priya Shah, Tom Okafor, Lena Fischer, Sam Ortiz.\n  para 3 Priya Shah will send the final 2026 budget to the department heads by 12 December.\n  para 4 Tom Okafor will confirm the bracket drawing with Acme Castings by 10 December.\n  para 5 Lena Fischer will book the facilities walkthrough of the new office by 19 December.\n  para 6 Decision: the spring promotion launches on 3 March 2026."
+        },
+        {
+          "ask": [
+            "meeting notes from 4 December 2025"
+          ],
+          "round": "held-out 2",
+          "tokens": 128,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Operations/Meeting notes 2025-12-04.docx @76388845cb73\n[1] s1 text:\n  para 2 Attendees: Priya Shah, Tom Okafor, Lena Fischer, Sam Ortiz.\n  para 3 Priya Shah will send the final 2026 budget to the department heads by 12 December.\n  para 4 Tom Okafor will confirm the bracket drawing with Acme Castings by 10 December.\n  para 5 Lena Fischer will book the facilities walkthrough of the new office by 19 December.\n  para 6 Decision: the spring promotion launches on 3 March 2026."
+        },
+        {
+          "ask": [
+            "4 December actions, owners and deadlines"
+          ],
+          "round": "held-out 2",
+          "tokens": 164,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Operations/Meeting notes 2025-12-04.docx @76388845cb73\n[1] no indexed text in Operations/Meeting notes 2025-12-04.docx has \"owners\" or \"deadlines\"; what it holds:\n[1.1] s1 text:\n  para 2 Attendees: Priya Shah, Tom Okafor, Lena Fischer, Sam Ortiz.\n  para 3 Priya Shah will send the final 2026 budget to the department heads by 12 December.\n  para 4 Tom Okafor will confirm the bracket drawing with Acme Castings by 10 December.\n  para 5 Lena Fischer will book the facilities walkthrough of the new office by 19 December.\n  para 6 Decision: the spring promotion launches on 3 March 2026."
+        }
+      ]
+    },
+    {
+      "id": "bracket-spec",
+      "files": [
+        "Engineering/bracket.step"
+      ],
+      "needed": 5,
+      "direct": {
+        "tokens": 8108,
+        "facts": 3,
+        "overCap": false
+      },
+      "sets": [
+        {
+          "ask": [
+            "bracket overall dimensions",
+            "bracket hole diameters"
+          ],
+          "round": "development",
+          "tokens": 390,
+          "facts": 5,
+          "missing": [],
+          "text": "s1 = Engineering/bracket.step @a2d056191acd\ns2 = Engineering/fixture assembly.step @97c188b1a985\n[1] ranked: 2/5 matching files\n[1.1] s1 model:\n  Bracket: overall X extent 100 mm; overall Y extent 60 mm; overall Z extent 10 mm; Ø12 hole diameter 12 mm; Ø12 hole depth 10 mm; Ø8 hole diameter 8 mm; +7 more\n[1.2] s2 model:\n  Bracket: overall X extent 100 mm; overall Y extent 60 mm; overall Z extent 10 mm; Ø12 hole diameter 12 mm; Ø12 hole depth 10 mm; Ø8 hole diameter 8 mm; +7 more\n  Pin: overall X extent 6 mm; overall Y extent 6 mm; overall Z extent 27 mm; Ø6 cylinder diameter 6 mm; Ø6 cylinder length 24 mm\n  Fixture: assembly overall X extent 100 mm; assembly overall Y extent 60 mm; assembly overall Z extent 37 mm\n[2] ranked: 2/4 matching files\n[2.1] s1 model:\n  Bracket: Ø12 hole diameter 12 mm; Ø8 hole diameter 8 mm; Ø12 hole depth 10 mm; Ø8 hole depth 10 mm; overall X extent 100 mm; overall Y extent 60 mm; +7 more\n[2.2] s2 model:\n  Bracket: Ø12 hole diameter 12 mm; Ø8 hole diameter 8 mm; Ø12 hole depth 10 mm; Ø8 hole depth 10 mm; overall X extent 100 mm; overall Y extent 60 mm; +7 more\n  Pin: Ø6 cylinder diameter 6 mm; overall X extent 6 mm; overall Y extent 6 mm; overall Z extent 27 mm; Ø6 cylinder length 24 mm"
+        },
+        {
+          "ask": [
+            "bracket.step"
+          ],
+          "round": "development",
+          "tokens": 114,
+          "facts": 5,
+          "missing": [],
+          "text": "s1 = Engineering/bracket.step @a2d056191acd\n[1] s1 model: AP214 CAD model · AUTOMOTIVE_DESIGN { 1 0 10303 214 3 1 1 } · 1 part · 1 instance · 13 measurements\n  Bracket — 1 instance — 100 × 60 × 10 mm\n  Bracket: overall X extent 100 mm; overall Y extent 60 mm; overall Z extent 10 mm; Ø12 hole diameter 12 mm; Ø8 hole diameter 8 mm; Ø12 hole depth 10 mm; +7 more"
+        },
+        {
+          "ask": [
+            "bracket size and holes"
+          ],
+          "round": "held-out 1",
+          "tokens": 164,
+          "facts": 5,
+          "missing": [],
+          "text": "s1 = Engineering/bracket.step @a2d056191acd\ns2 = Engineering/fixture assembly.step @97c188b1a985\n[1] ranked: 2/5 matching files\n[1.1] s1 model:\n  Bracket: Ø12 hole diameter 12 mm; Ø12 hole depth 10 mm; Ø8 hole diameter 8 mm; Ø8 hole depth 10 mm; overall X extent 100 mm; overall Y extent 60 mm; +7 more\n[1.2] s2 model:\n  Bracket: Ø12 hole diameter 12 mm; Ø12 hole depth 10 mm; Ø8 hole diameter 8 mm; Ø8 hole depth 10 mm; overall X extent 100 mm; overall Y extent 60 mm; +7 more"
+        },
+        {
+          "ask": [
+            "bracket.step overall extents and hole diameters"
+          ],
+          "round": "held-out 1",
+          "tokens": 85,
+          "facts": 5,
+          "missing": [],
+          "text": "s1 = Engineering/bracket.step @a2d056191acd\n[1] ranked: 1/1 matching files\n[1.1] s1 model:\n  Bracket: Ø12 hole diameter 12 mm; Ø8 hole diameter 8 mm; overall X extent 100 mm; overall Y extent 60 mm; overall Z extent 10 mm; Ø12 hole depth 10 mm; +1 more"
+        },
+        {
+          "ask": [
+            "bracket dimensions and hole diameters"
+          ],
+          "round": "held-out 2",
+          "tokens": 201,
+          "facts": 5,
+          "missing": [],
+          "text": "s1 = Engineering/bracket.step @a2d056191acd\ns2 = Engineering/fixture assembly.step @97c188b1a985\n[1] ranked: 2/5 matching files\n[1.1] s1 model:\n  Bracket: Ø12 hole diameter 12 mm; Ø8 hole diameter 8 mm; Ø12 hole depth 10 mm; Ø8 hole depth 10 mm; overall X extent 100 mm; overall Y extent 60 mm; +7 more\n[1.2] s2 model:\n  Bracket: Ø12 hole diameter 12 mm; Ø8 hole diameter 8 mm; Ø12 hole depth 10 mm; Ø8 hole depth 10 mm; overall X extent 100 mm; overall Y extent 60 mm; +7 more\n  Pin: Ø6 cylinder diameter 6 mm; overall X extent 6 mm; overall Y extent 6 mm; overall Z extent 27 mm; Ø6 cylinder length 24 mm"
+        },
+        {
+          "ask": [
+            "Engineering/bracket.step"
+          ],
+          "round": "held-out 2",
+          "tokens": 114,
+          "facts": 5,
+          "missing": [],
+          "text": "s1 = Engineering/bracket.step @a2d056191acd\n[1] s1 model: AP214 CAD model · AUTOMOTIVE_DESIGN { 1 0 10303 214 3 1 1 } · 1 part · 1 instance · 13 measurements\n  Bracket — 1 instance — 100 × 60 × 10 mm\n  Bracket: overall X extent 100 mm; overall Y extent 60 mm; overall Z extent 10 mm; Ø12 hole diameter 12 mm; Ø8 hole diameter 8 mm; Ø12 hole depth 10 mm; +7 more"
+        }
+      ]
+    },
+    {
+      "id": "assembly-parts-email",
+      "files": [
+        "Engineering/fixture assembly.step"
+      ],
+      "needed": 4,
+      "direct": {
+        "tokens": 10205,
+        "facts": 3,
+        "overCap": false
+      },
+      "sets": [
+        {
+          "ask": [
+            "parts in the fixture assembly"
+          ],
+          "round": "development",
+          "tokens": 249,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Engineering/fixture assembly.step @97c188b1a985\n[1] s1 model: AP242 CAD model · AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 } · 2 parts · 3 instances · 21 measurements\n  Bracket — 1 instance — 100 × 60 × 10 mm\n  Pin — 2 instances — 6 × 6 × 27 mm\n  Bracket: overall X extent 100 mm; overall Y extent 60 mm; overall Z extent 10 mm; Ø12 hole diameter 12 mm; Ø8 hole diameter 8 mm; Ø12 hole depth 10 mm; +7 more\n  Fixture: assembly overall X extent 100 mm; assembly overall Y extent 60 mm; assembly overall Z extent 37 mm\n  Pin: overall X extent 6 mm; overall Y extent 6 mm; overall Z extent 27 mm; Ø6 cylinder diameter 6 mm; Ø6 cylinder length 24 mm\n  instances: Bracket:1 at [0, 0, 0]; Pin:1 at [20, 15, 10]; Pin:2 at [70, 45, 10], turned 90° about z"
+        },
+        {
+          "ask": [
+            "fixture assembly.step"
+          ],
+          "round": "development",
+          "tokens": 249,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Engineering/fixture assembly.step @97c188b1a985\n[1] s1 model: AP242 CAD model · AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 } · 2 parts · 3 instances · 21 measurements\n  Bracket — 1 instance — 100 × 60 × 10 mm\n  Pin — 2 instances — 6 × 6 × 27 mm\n  Bracket: overall X extent 100 mm; overall Y extent 60 mm; overall Z extent 10 mm; Ø12 hole diameter 12 mm; Ø8 hole diameter 8 mm; Ø12 hole depth 10 mm; +7 more\n  Fixture: assembly overall X extent 100 mm; assembly overall Y extent 60 mm; assembly overall Z extent 37 mm\n  Pin: overall X extent 6 mm; overall Y extent 6 mm; overall Z extent 27 mm; Ø6 cylinder diameter 6 mm; Ø6 cylinder length 24 mm\n  instances: Bracket:1 at [0, 0, 0]; Pin:1 at [20, 15, 10]; Pin:2 at [70, 45, 10], turned 90° about z"
+        },
+        {
+          "ask": [
+            "bill of materials for the fixture assembly"
+          ],
+          "round": "held-out 1",
+          "tokens": 280,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Engineering/fixture assembly.step @97c188b1a985\n[1] no indexed text in Engineering/fixture assembly.step has \"bill\" or \"materials\"; what it holds:\n[1.1] s1 model: AP242 CAD model · AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 } · 2 parts · 3 instances · 21 measurements\n  Bracket — 1 instance — 100 × 60 × 10 mm\n  Pin — 2 instances — 6 × 6 × 27 mm\n  Bracket: overall X extent 100 mm; overall Y extent 60 mm; overall Z extent 10 mm; Ø12 hole diameter 12 mm; Ø8 hole diameter 8 mm; Ø12 hole depth 10 mm; +7 more\n  Fixture: assembly overall X extent 100 mm; assembly overall Y extent 60 mm; assembly overall Z extent 37 mm\n  Pin: overall X extent 6 mm; overall Y extent 6 mm; overall Z extent 27 mm; Ø6 cylinder diameter 6 mm; Ø6 cylinder length 24 mm\n  instances: Bracket:1 at [0, 0, 0]; Pin:1 at [20, 15, 10]; Pin:2 at [70, 45, 10], turned 90° about z"
+        },
+        {
+          "ask": [
+            "what parts make up the fixture"
+          ],
+          "round": "held-out 1",
+          "tokens": 275,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Engineering/fixture assembly.step @97c188b1a985\n[1] no indexed text in Engineering/fixture assembly.step has \"make\"; what it holds:\n[1.1] s1 model: AP242 CAD model · AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 } · 2 parts · 3 instances · 21 measurements\n  Bracket — 1 instance — 100 × 60 × 10 mm\n  Pin — 2 instances — 6 × 6 × 27 mm\n  Bracket: overall X extent 100 mm; overall Y extent 60 mm; overall Z extent 10 mm; Ø12 hole diameter 12 mm; Ø8 hole diameter 8 mm; Ø12 hole depth 10 mm; +7 more\n  Fixture: assembly overall X extent 100 mm; assembly overall Y extent 60 mm; assembly overall Z extent 37 mm\n  Pin: overall X extent 6 mm; overall Y extent 6 mm; overall Z extent 27 mm; Ø6 cylinder diameter 6 mm; Ø6 cylinder length 24 mm\n  instances: Bracket:1 at [0, 0, 0]; Pin:1 at [20, 15, 10]; Pin:2 at [70, 45, 10], turned 90° about z"
+        },
+        {
+          "ask": [
+            "fixture assembly parts and quantities"
+          ],
+          "round": "held-out 2",
+          "tokens": 276,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Engineering/fixture assembly.step @97c188b1a985\n[1] no indexed text in Engineering/fixture assembly.step has \"quantities\"; what it holds:\n[1.1] s1 model: AP242 CAD model · AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 } · 2 parts · 3 instances · 21 measurements\n  Bracket — 1 instance — 100 × 60 × 10 mm\n  Pin — 2 instances — 6 × 6 × 27 mm\n  Bracket: overall X extent 100 mm; overall Y extent 60 mm; overall Z extent 10 mm; Ø12 hole diameter 12 mm; Ø8 hole diameter 8 mm; Ø12 hole depth 10 mm; +7 more\n  Fixture: assembly overall X extent 100 mm; assembly overall Y extent 60 mm; assembly overall Z extent 37 mm\n  Pin: overall X extent 6 mm; overall Y extent 6 mm; overall Z extent 27 mm; Ø6 cylinder diameter 6 mm; Ø6 cylinder length 24 mm\n  instances: Bracket:1 at [0, 0, 0]; Pin:1 at [20, 15, 10]; Pin:2 at [70, 45, 10], turned 90° about z"
+        },
+        {
+          "ask": [
+            "components of the fixture assembly with sizes"
+          ],
+          "round": "held-out 2",
+          "tokens": 249,
+          "facts": 4,
+          "missing": [],
+          "text": "s1 = Engineering/fixture assembly.step @97c188b1a985\n[1] s1 model: AP242 CAD model · AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 } · 2 parts · 3 instances · 21 measurements\n  Bracket — 1 instance — 100 × 60 × 10 mm\n  Pin — 2 instances — 6 × 6 × 27 mm\n  Bracket: overall X extent 100 mm; overall Y extent 60 mm; overall Z extent 10 mm; Ø12 hole diameter 12 mm; Ø8 hole diameter 8 mm; Ø12 hole depth 10 mm; +7 more\n  Fixture: assembly overall X extent 100 mm; assembly overall Y extent 60 mm; assembly overall Z extent 37 mm\n  Pin: overall X extent 6 mm; overall Y extent 6 mm; overall Z extent 27 mm; Ø6 cylinder diameter 6 mm; Ø6 cylinder length 24 mm\n  instances: Bracket:1 at [0, 0, 0]; Pin:1 at [20, 15, 10]; Pin:2 at [70, 45, 10], turned 90° about z"
+        }
+      ]
+    },
+    {
+      "id": "house-rooms-brochure",
+      "files": [
+        "Facilities/FZK-Haus.ifc"
+      ],
+      "needed": 7,
+      "direct": {
+        "tokens": 1036939,
+        "facts": 0,
+        "overCap": true
+      },
+      "sets": [
+        {
+          "ask": [
+            "rooms and floor areas in the house model"
+          ],
+          "round": "development",
+          "tokens": 636,
+          "facts": 7,
+          "missing": [],
+          "text": "s1 = Facilities/FZK-Haus.ifc @70cc8ff245fc\n[1] ranked: 1/1 matching files; no indexed text in the 11 shared files has \"rooms\" or \"house\"\n[1.1] s1 model:\n  Schlafzimmer · 4: Gross Floor Area 22.0725 m²; Net Floor Area 21.410325 m²; Space Net Floor Area BOMA 21.410325 m²; Space Usable Floor Area BOMA 21.410325 m²; Finish Floor Height 0 m; Gross Ceiling Area 22.0725 m²; +3 more\n  Bad · 3: Gross Floor Area 12.5027 m²; Net Floor Area 12.127619 m²; Space Net Floor Area BOMA 12.127619 m²; Space Usable Floor Area BOMA 12.127619 m²; Finish Floor Height 0 m; Gross Ceiling Area 12.5027 m²; +3 more\n  Buero · 2: Gross Floor Area 12.985 m²; Net Floor Area 12.59545 m²; Space Net Floor Area BOMA 12.59545 m²; Space Usable Floor Area BOMA 12.59545 m²; Finish Floor Height 0 m; Gross Ceiling Area 12.985 m²; +3 more\n  Wohnen · 5: Gross Floor Area 25.98855 m²; Net Floor Area 25.2088935 m²; Space Net Floor Area BOMA 25.2088935 m²; Space Usable Floor Area BOMA 25.2088935 m²; Finish Floor Height 0 m; Gross Ceiling Area 25.98855 m²; +3 more\n  Flur · 1: Gross Floor Area 11.5314 m²; Net Floor Area 11.185458 m²; Space Net Floor Area BOMA 11.185458 m²; Space Usable Floor Area BOMA 11.185458 m²; Finish Floor Height 0 m; Gross Ceiling Area 11.5314 m²; +3 more\n  Küche · 6: Gross Floor Area 16.30545 m²; Net Floor Area 16.30545 m²; Space Net Floor Area BOMA 16.30545 m²; Space Usable Floor Area BOMA 16.30545 m²; Finish Floor Height 0 m; Gross Ceiling Area 16.30545 m²; +3 more\n  Galerie · 7: Gross Floor Area 107.16 m²; Net Floor Area 74.5092415823 m²; Space Net Floor Area BOMA 74.5092415823 m²; Space Usable Floor Area BOMA 74.5092415823 m²; Finish Floor Height 0 m; Gross Ceiling Area 107.16 m²; +3 more\n  Erdgeschoss: Gross Floor Area 119.824049906 m²; Gross Height 2.7 m; Height 2.7 m; Net Height 2.7 m\n  Dachgeschoss: Gross Floor Area 121.673906052 m²; Gross Height 2 m; Height 2 m; Net Height 2 m\n  also: 1 building, 1 site, 16 openingelement, 4 slab, 1 project, 1 beam, 13 wallstandardcase (ask about one by name)"
+        },
+        {
+          "ask": [
+            "FZK-Haus.ifc"
+          ],
+          "round": "development",
+          "tokens": 657,
+          "facts": 7,
+          "missing": [],
+          "text": "s1 = Facilities/FZK-Haus.ifc @70cc8ff245fc\n[1] s1 model: IFC4 · 44249 entities · 3169 measurements\n  Bad · 3: Net Floor Area 12.127619 m²; Space Net Floor Area BOMA 12.127619 m²; Gross Floor Area 12.5027 m²; Space Usable Floor Area BOMA 12.127619 m²; Gross Ceiling Area 12.5027 m²; Gross Wall Area 35.4 m²; +51 more\n  Buero · 2: Net Floor Area 12.59545 m²; Space Net Floor Area BOMA 12.59545 m²; Gross Floor Area 12.985 m²; Space Usable Floor Area BOMA 12.59545 m²; Gross Ceiling Area 12.985 m²; Gross Wall Area 36.05 m²; +51 more\n  Flur · 1: Net Floor Area 11.185458 m²; Space Net Floor Area BOMA 11.185458 m²; Gross Floor Area 11.5314 m²; Space Usable Floor Area BOMA 11.185458 m²; Gross Ceiling Area 11.5314 m²; Gross Wall Area 35.177 m²; +51 more\n  Galerie · 7: Net Floor Area 74.5092415823 m²; Space Net Floor Area BOMA 74.5092415823 m²; Gross Floor Area 107.16 m²; Space Usable Floor Area BOMA 74.5092415823 m²; Gross Ceiling Area 107.16 m²; Gross Wall Area 53.9425006738 m²; +51 more\n  Küche · 6: Net Floor Area 16.30545 m²; Space Net Floor Area BOMA 16.30545 m²; Gross Floor Area 16.30545 m²; Space Usable Floor Area BOMA 16.30545 m²; Gross Ceiling Area 16.30545 m²; Gross Wall Area 29.0125000001 m²; +51 more\n  Schlafzimmer · 4: Net Floor Area 21.410325 m²; Space Net Floor Area BOMA 21.410325 m²; Gross Floor Area 22.0725 m²; Space Usable Floor Area BOMA 21.410325 m²; Gross Ceiling Area 22.0725 m²; Gross Wall Area 47.5 m²; +51 more\n  Wohnen · 5: Net Floor Area 25.2088935 m²; Space Net Floor Area BOMA 25.2088935 m²; Gross Floor Area 25.98855 m²; Space Usable Floor Area BOMA 25.2088935 m²; Gross Ceiling Area 25.98855 m²; Gross Wall Area 37.5124999999 m²; +51 more\n  Dachgeschoss: Gross Floor Area 121.673906052 m²; Gross Height 2 m; Height 2 m; Net Height 2 m\n  Erdgeschoss: Gross Floor Area 119.824049906 m²; Gross Height 2.7 m; Height 2.7 m; Net Height 2.7 m\n  also: 4 slab, 11 window, 1 building, 4 beam, 1 site, 5 door, 1 railing, 1 project, 42 member, 13 wallstandardcase, 1 stair (ask about one by name)"
+        },
+        {
+          "ask": [
+            "floor area of each room in FZK-Haus"
+          ],
+          "round": "held-out 1",
+          "tokens": 632,
+          "facts": 7,
+          "missing": [],
+          "text": "s1 = Facilities/FZK-Haus.ifc @70cc8ff245fc\n[1] ranked: 1/1 matching files; no indexed text in the 11 shared files has \"room\"\n[1.1] s1 model:\n  Schlafzimmer · 4: Gross Floor Area 22.0725 m²; Net Floor Area 21.410325 m²; Space Net Floor Area BOMA 21.410325 m²; Space Usable Floor Area BOMA 21.410325 m²; Finish Floor Height 0 m; Gross Ceiling Area 22.0725 m²; +3 more\n  Bad · 3: Gross Floor Area 12.5027 m²; Net Floor Area 12.127619 m²; Space Net Floor Area BOMA 12.127619 m²; Space Usable Floor Area BOMA 12.127619 m²; Finish Floor Height 0 m; Gross Ceiling Area 12.5027 m²; +3 more\n  Buero · 2: Gross Floor Area 12.985 m²; Net Floor Area 12.59545 m²; Space Net Floor Area BOMA 12.59545 m²; Space Usable Floor Area BOMA 12.59545 m²; Finish Floor Height 0 m; Gross Ceiling Area 12.985 m²; +3 more\n  Wohnen · 5: Gross Floor Area 25.98855 m²; Net Floor Area 25.2088935 m²; Space Net Floor Area BOMA 25.2088935 m²; Space Usable Floor Area BOMA 25.2088935 m²; Finish Floor Height 0 m; Gross Ceiling Area 25.98855 m²; +3 more\n  Flur · 1: Gross Floor Area 11.5314 m²; Net Floor Area 11.185458 m²; Space Net Floor Area BOMA 11.185458 m²; Space Usable Floor Area BOMA 11.185458 m²; Finish Floor Height 0 m; Gross Ceiling Area 11.5314 m²; +3 more\n  Küche · 6: Gross Floor Area 16.30545 m²; Net Floor Area 16.30545 m²; Space Net Floor Area BOMA 16.30545 m²; Space Usable Floor Area BOMA 16.30545 m²; Finish Floor Height 0 m; Gross Ceiling Area 16.30545 m²; +3 more\n  Galerie · 7: Gross Floor Area 107.16 m²; Net Floor Area 74.5092415823 m²; Space Net Floor Area BOMA 74.5092415823 m²; Space Usable Floor Area BOMA 74.5092415823 m²; Finish Floor Height 0 m; Gross Ceiling Area 107.16 m²; +3 more\n  Erdgeschoss: Gross Floor Area 119.824049906 m²; Gross Height 2.7 m; Height 2.7 m; Net Height 2.7 m\n  Dachgeschoss: Gross Floor Area 121.673906052 m²; Gross Height 2 m; Height 2 m; Net Height 2 m\n  also: 1 building, 1 site, 16 openingelement, 4 slab, 1 project, 1 beam, 13 wallstandardcase (ask about one by name)"
+        },
+        {
+          "ask": [
+            "FZK-Haus.ifc rooms"
+          ],
+          "round": "held-out 1",
+          "tokens": 683,
+          "facts": 7,
+          "missing": [],
+          "text": "s1 = Facilities/FZK-Haus.ifc @70cc8ff245fc\n[1] no indexed text in Facilities/FZK-Haus.ifc has \"rooms\"; what it holds:\n[1.1] s1 model: IFC4 · 44249 entities · 3169 measurements\n  Bad · 3: Net Floor Area 12.127619 m²; Space Net Floor Area BOMA 12.127619 m²; Gross Floor Area 12.5027 m²; Space Usable Floor Area BOMA 12.127619 m²; Gross Ceiling Area 12.5027 m²; Gross Wall Area 35.4 m²; +51 more\n  Buero · 2: Net Floor Area 12.59545 m²; Space Net Floor Area BOMA 12.59545 m²; Gross Floor Area 12.985 m²; Space Usable Floor Area BOMA 12.59545 m²; Gross Ceiling Area 12.985 m²; Gross Wall Area 36.05 m²; +51 more\n  Flur · 1: Net Floor Area 11.185458 m²; Space Net Floor Area BOMA 11.185458 m²; Gross Floor Area 11.5314 m²; Space Usable Floor Area BOMA 11.185458 m²; Gross Ceiling Area 11.5314 m²; Gross Wall Area 35.177 m²; +51 more\n  Galerie · 7: Net Floor Area 74.5092415823 m²; Space Net Floor Area BOMA 74.5092415823 m²; Gross Floor Area 107.16 m²; Space Usable Floor Area BOMA 74.5092415823 m²; Gross Ceiling Area 107.16 m²; Gross Wall Area 53.9425006738 m²; +51 more\n  Küche · 6: Net Floor Area 16.30545 m²; Space Net Floor Area BOMA 16.30545 m²; Gross Floor Area 16.30545 m²; Space Usable Floor Area BOMA 16.30545 m²; Gross Ceiling Area 16.30545 m²; Gross Wall Area 29.0125000001 m²; +51 more\n  Schlafzimmer · 4: Net Floor Area 21.410325 m²; Space Net Floor Area BOMA 21.410325 m²; Gross Floor Area 22.0725 m²; Space Usable Floor Area BOMA 21.410325 m²; Gross Ceiling Area 22.0725 m²; Gross Wall Area 47.5 m²; +51 more\n  Wohnen · 5: Net Floor Area 25.2088935 m²; Space Net Floor Area BOMA 25.2088935 m²; Gross Floor Area 25.98855 m²; Space Usable Floor Area BOMA 25.2088935 m²; Gross Ceiling Area 25.98855 m²; Gross Wall Area 37.5124999999 m²; +51 more\n  Dachgeschoss: Gross Floor Area 121.673906052 m²; Gross Height 2 m; Height 2 m; Net Height 2 m\n  Erdgeschoss: Gross Floor Area 119.824049906 m²; Gross Height 2.7 m; Height 2.7 m; Net Height 2.7 m\n  also: 4 slab, 11 window, 1 building, 4 beam, 1 site, 5 door, 1 railing, 1 project, 42 member, 13 wallstandardcase, 1 stair (ask about one by name)"
+        },
+        {
+          "ask": [
+            "FZK-Haus rooms with net floor area"
+          ],
+          "round": "held-out 2",
+          "tokens": 671,
+          "facts": 7,
+          "missing": [],
+          "text": "s1 = Facilities/FZK-Haus.ifc @70cc8ff245fc\n[1] ranked: 1/1 matching files; no indexed text in the 11 shared files has \"rooms\"\n[1.1] s1 model:\n  Schlafzimmer · 4: Net Floor Area 21.410325 m²; Space Net Floor Area BOMA 21.410325 m²; Gross Floor Area 22.0725 m²; Space Usable Floor Area BOMA 21.410325 m²; Net Ceiling Area 21.410325 m²; Net Wall Area 40.92115 m²; +5 more\n  Bad · 3: Net Floor Area 12.127619 m²; Space Net Floor Area BOMA 12.127619 m²; Gross Floor Area 12.5027 m²; Space Usable Floor Area BOMA 12.127619 m²; Net Ceiling Area 12.127619 m²; Net Wall Area 31.22115 m²; +5 more\n  Buero · 2: Net Floor Area 12.59545 m²; Space Net Floor Area BOMA 12.59545 m²; Gross Floor Area 12.985 m²; Space Usable Floor Area BOMA 12.59545 m²; Net Ceiling Area 12.59545 m²; Net Wall Area 29.47115 m²; +5 more\n  Wohnen · 5: Net Floor Area 25.2088935 m²; Space Net Floor Area BOMA 25.2088935 m²; Gross Floor Area 25.98855 m²; Space Usable Floor Area BOMA 25.2088935 m²; Net Ceiling Area 25.2088935 m²; Net Wall Area 27.9387499999 m²; +5 more\n  Flur · 1: Net Floor Area 11.185458 m²; Space Net Floor Area BOMA 11.185458 m²; Gross Floor Area 11.5314 m²; Space Usable Floor Area BOMA 11.185458 m²; Net Ceiling Area 11.185458 m²; Net Wall Area 27.81035 m²; +5 more\n  Küche · 6: Net Floor Area 16.30545 m²; Space Net Floor Area BOMA 16.30545 m²; Gross Floor Area 16.30545 m²; Space Usable Floor Area BOMA 16.30545 m²; Net Ceiling Area 16.30545 m²; Net Wall Area 24.2125000001 m²; +5 more\n  Galerie · 7: Net Floor Area 74.5092415823 m²; Space Net Floor Area BOMA 74.5092415823 m²; Gross Floor Area 107.16 m²; Space Usable Floor Area BOMA 74.5092415823 m²; Net Ceiling Area 74.5092415823 m²; Net Wall Area 51.9425006738 m²; +5 more\n  Erdgeschoss: Gross Floor Area 119.824049906 m²; Net Height 2.7 m; Gross Height 2.7 m; Height 2.7 m\n  Dachgeschoss: Gross Floor Area 121.673906052 m²; Net Height 2 m; Gross Height 2 m; Height 2 m\n  also: 1 building, 4 slab, 1 beam, 13 wallstandardcase, 1 site, 16 openingelement, 1 project (ask about one by name)"
+        },
+        {
+          "ask": [
+            "room areas in the house"
+          ],
+          "round": "held-out 2",
+          "tokens": 641,
+          "facts": 7,
+          "missing": [],
+          "text": "s1 = Facilities/FZK-Haus.ifc @70cc8ff245fc\n[1] ranked: 1/1 matching files; no indexed text in the 11 shared files has \"room\" or \"house\"\n[1.1] s1 model:\n  Schlafzimmer · 4: Gross Floor Area 22.0725 m²; Net Floor Area 21.410325 m²; Gross Ceiling Area 22.0725 m²; Net Ceiling Area 21.410325 m²; Gross Wall Area 47.5 m²; Net Wall Area 40.92115 m²; +2 more\n  Bad · 3: Gross Floor Area 12.5027 m²; Net Floor Area 12.127619 m²; Gross Ceiling Area 12.5027 m²; Net Ceiling Area 12.127619 m²; Gross Wall Area 35.4 m²; Net Wall Area 31.22115 m²; +2 more\n  Buero · 2: Gross Floor Area 12.985 m²; Net Floor Area 12.59545 m²; Gross Ceiling Area 12.985 m²; Net Ceiling Area 12.59545 m²; Gross Wall Area 36.05 m²; Net Wall Area 29.47115 m²; +2 more\n  Wohnen · 5: Gross Floor Area 25.98855 m²; Net Floor Area 25.2088935 m²; Gross Ceiling Area 25.98855 m²; Net Ceiling Area 25.2088935 m²; Gross Wall Area 37.5124999999 m²; Net Wall Area 27.9387499999 m²; +2 more\n  Flur · 1: Gross Floor Area 11.5314 m²; Net Floor Area 11.185458 m²; Gross Ceiling Area 11.5314 m²; Net Ceiling Area 11.185458 m²; Gross Wall Area 35.177 m²; Net Wall Area 27.81035 m²; +2 more\n  Küche · 6: Gross Floor Area 16.30545 m²; Net Floor Area 16.30545 m²; Gross Ceiling Area 16.30545 m²; Net Ceiling Area 16.30545 m²; Gross Wall Area 29.0125000001 m²; Net Wall Area 24.2125000001 m²; +2 more\n  Galerie · 7: Gross Floor Area 107.16 m²; Net Floor Area 74.5092415823 m²; Gross Ceiling Area 107.16 m²; Net Ceiling Area 74.5092415823 m²; Gross Wall Area 53.9425006738 m²; Net Wall Area 51.9425006738 m²; +2 more\n  Erdgeschoss: Gross Floor Area 119.824049906 m²; Gross Height 2.7 m; Height 2.7 m; Net Height 2.7 m\n  Dachgeschoss: Gross Floor Area 121.673906052 m²; Gross Height 2 m; Height 2 m; Net Height 2 m\n  also: 1 site, 16 openingelement, 4 slab, 1 building, 1 project, 1 beam, 13 wallstandardcase (ask about one by name)"
+        }
+      ]
+    }
+  ]
+}
