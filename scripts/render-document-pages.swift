@@ -7,11 +7,14 @@ import QuickLookThumbnailing
 // Word, PowerPoint or Keynote.
 //
 //   render-document-pages docx <input.docx> <output.pdf>
-//   render-document-pages slides <output.pdf> <slide-1.pptx> <slide-2.pptx> ...
+//   render-document-pages slides <output.pdf> <slide-1.pptx|jpg> <slide-2.pptx|jpg> ...
+//   render-document-pages slide-images <output-folder> <slide-1.pptx> <slide-2.pptx> ...
 //
 // A Word document is laid out on its own paper and margins with AppKit's
 // reader. Each slide arrives as a deck of its own, which Quick Look draws as
-// it draws the first slide of any deck.
+// it draws the first slide of any deck, or as the picture slide-images drew
+// of it before: slide-images draws its slides at once and writes each as a
+// JPEG named after its deck (slide-3.pptx becomes slide-3.jpg) in the folder.
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data(message.utf8))
     exit(2)
@@ -132,14 +135,43 @@ func trimmed(_ image: CGImage) -> CGImage {
     return image.cropping(to: CGRect(x: 0, y: 0, width: right, height: bottom)) ?? image
 }
 
+func jpegData(_ image: CGImage) -> Data? {
+    NSBitmapImageRep(cgImage: image).representation(using: .jpeg, properties: [.compressionFactor: jpegQuality])
+}
+
 /// The picture as JPEG, which a PDF keeps compressed; drawn as it is, a long deck would be hundreds of megabytes.
 func compressed(_ image: CGImage) -> CGImage {
-    guard let jpeg = NSBitmapImageRep(cgImage: image).representation(using: .jpeg, properties: [.compressionFactor: jpegQuality]),
-          let provider = CGDataProvider(data: jpeg as CFData),
+    guard let jpeg = jpegData(image), let provider = CGDataProvider(data: jpeg as CFData),
           let decoded = CGImage(jpegDataProviderSource: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) else {
         return image
     }
     return decoded
+}
+
+/// A slide drawn earlier by slide-images, kept compressed as it was written.
+func drawnSlide(at path: String) -> CGImage? {
+    guard let provider = CGDataProvider(url: URL(fileURLWithPath: path) as CFURL) else { return nil }
+    return CGImage(jpegDataProviderSource: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+}
+
+func slideImage(of path: String) -> CGImage? {
+    path.lowercased().hasSuffix(".jpg") ? drawnSlide(at: path) : thumbnail(of: path).map(trimmed).map(compressed)
+}
+
+func slideImages(folder: String, slides: [String]) {
+    guard !slides.isEmpty, slides.count <= maxPages else { fail("The presentation has no slides to show.") }
+    let lock = NSLock()
+    var drawn = 0
+    // Quick Look draws several slides at once, each in its own request.
+    DispatchQueue.concurrentPerform(iterations: slides.count) { index in
+        let name = URL(fileURLWithPath: slides[index]).deletingPathExtension().lastPathComponent + ".jpg"
+        guard let image = thumbnail(of: slides[index]).map(trimmed), let jpeg = jpegData(image),
+              (try? jpeg.write(to: URL(fileURLWithPath: folder).appendingPathComponent(name))) != nil else { return }
+        lock.lock()
+        drawn += 1
+        lock.unlock()
+    }
+    guard drawn > 0 else { fail("Quick Look couldn\u{2019}t draw the slides.") }
 }
 
 func slidePages(output: String, slides: [String]) {
@@ -149,7 +181,7 @@ func slidePages(output: String, slides: [String]) {
     var shape = CGSize(width: 16, height: 9)
     var drawn = 0
     for (index, path) in slides.enumerated() {
-        let image = thumbnail(of: path).map(trimmed).map(compressed)
+        let image = slideImage(of: path)
         if let image { shape = CGSize(width: image.width, height: image.height) }
         var box = CGRect(x: 0, y: 0, width: slideWidth, height: (slideWidth * shape.height / shape.width).rounded())
         context.beginPage(mediaBox: &box)
@@ -179,5 +211,6 @@ let args = CommandLine.arguments
 switch (args.count > 1 ? args[1] : "") {
 case "docx" where args.count == 4: wordPages(input: args[2], output: args[3])
 case "slides" where args.count >= 4: slidePages(output: args[2], slides: Array(args[3...]))
-default: fail("Usage: render-document-pages docx <input> <output> | slides <output> <slide>...")
+case "slide-images" where args.count >= 4: slideImages(folder: args[2], slides: Array(args[3...]))
+default: fail("Usage: render-document-pages docx <input> <output> | slides <output> <slide>... | slide-images <folder> <slide>...")
 }

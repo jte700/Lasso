@@ -15,7 +15,7 @@ import { citedPartModel } from '../sharing/cited-part.js';
 import { buildShareDownload, downloadDisposition } from '../sharing/share-download.js';
 import { drawingDiscovery } from '../dependencies/drawing-discovery.js';
 import { buildSafePdf, markedPdfRequest, pdfShareRequest } from '../sharing/pdf-share.js';
-import { buildPagePdf } from '../sharing/document-pages.js';
+import { buildPagePdf, slideCount, slidePicture } from '../sharing/document-pages.js';
 import { isMarkablePath } from '../sharing/markup.js';
 import { normalizePdfExcerpt, normalizeRedactions, offeredShareScopes } from '../sharing/object-share.js';
 import { isPresentationPath } from '../dependencies/presentation-extraction.js';
@@ -177,7 +177,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
     let preview = null, document = null;
     try {
       const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
-      const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null;
+      const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash), contentHash: file.contentHash } : null;
       preview = buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata);
       // A marked copy is the document's pages with the strokes drawn on, never the file.
       // When it cannot be drawn, nothing else of the document is shown in its place.
@@ -342,6 +342,11 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           if (preview && ['pdf', 'image'].includes(preview.kind)) {
             const query = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
             preview.fileUrl = `/api/dependency-objects/${encodeURIComponent(objectId)}/source${query}`;
+          }
+          // A deck shows its slides' pictures, slide n's at slidesUrl + n + slidesQuery.
+          if (preview?.deck) {
+            preview.slidesUrl = `/api/dependency-objects/${encodeURIComponent(objectId)}/slides/`;
+            preview.slidesQuery = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
           }
         } catch { preview = null; }
         preview = await resolvedModelPreview(resolved) ?? preview;
@@ -566,11 +571,32 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const content = file ? timeline.blobs.get(file.contentHash) : null;
         if (!content) throw new HttpError(404, 'The document is unavailable.');
         let pages;
-        try { pages = await buildPagePdf({ path: file.path, content }); } catch (error) {
+        try { pages = await buildPagePdf({ path: file.path, content, contentHash: file.contentHash }); } catch (error) {
           console.error('Lasso could not lay out %s as pages: %s', resolved.internal.filePath, error.message);
           throw new HttpError(422, 'The document couldn’t be shown as pages to mark up.');
         }
         return sendBinary(response, 200, pages, 'application/pdf', { 'content-disposition': 'inline',
+          'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+      }
+
+      // One slide of a deck as a picture, which the card and the share composer
+      // show as it is scrolled to; the slides beside it are drawn with it.
+      const localSlideParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/slides\/(\d{1,5})$/);
+      if (request.method === 'GET' && localSlideParameters && objectShares) {
+        const resolved = objectShares.describe(localSlideParameters[0], url.searchParams.get('version'));
+        if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
+        if (!isPresentationPath(resolved.internal.filePath)) throw new HttpError(415, 'Only presentations have slides.');
+        const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+        const content = file ? timeline.blobs.get(file.contentHash) : null;
+        if (!content) throw new HttpError(404, 'The presentation is unavailable.');
+        const number = Number(localSlideParameters[1]);
+        if (number < 1 || number > slideCount(content, file.contentHash)) throw new HttpError(404, 'The presentation has no such slide.');
+        let picture;
+        try { picture = await slidePicture(content, number, file.contentHash); } catch (error) {
+          console.error('Lasso could not draw slide %d of %s: %s', number, resolved.internal.filePath, error.message);
+          throw new HttpError(422, 'This slide couldn’t be drawn.');
+        }
+        return sendBinary(response, 200, picture, 'image/jpeg', { 'content-disposition': 'inline',
           'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
       }
 
@@ -623,6 +649,10 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           if (preview?.kind === 'pdf') {
             const query = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
             preview.fileUrl = `/api/dependency-objects/${encodeURIComponent(localObjectPreviewParameters[0])}/source${query}`;
+          }
+          // The card asks for the cited slide's picture next; it is already being drawn.
+          if (preview?.deck && file) {
+            slidePicture(sourceFile.content, preview.slideNumber ?? 1, file.contentHash).catch(() => {});
           }
         } catch { preview = null; }
         preview = await resolvedModelPreview(resolved) ?? preview;

@@ -101,6 +101,38 @@ struct CaretCardPlacement: Equatable {
     /// Keeps the pointer clear of the card's rounded corners.
     static let pointerInset: CGFloat = 32
 
+    /// Clear of the text in the host's window. `window` is the window being
+    /// written in and `text` the lines of text showing in its editor, both in
+    /// AppKit coordinates. The card goes above or below the caret, the text or
+    /// the window, wherever it fits on the display without covering the line
+    /// being typed: covering the least text, then outside the window, then
+    /// nearest the caret. Without either, or when nowhere fits, it goes beside
+    /// the caret as `beside(caret:size:visible:)` puts it.
+    static func clear(of window: CGRect?, text: CGRect?, caret: CGRect, size: CGSize, visible: CGRect?) -> CaretCardPlacement {
+        guard let visible, window != nil || text != nil else { return beside(caret: caret, size: size, visible: visible) }
+        let x = min(max(visible.minX, caret.midX - preferredPointerX), visible.maxX - size.width)
+        let edges = [caret, text, window].compactMap { $0 }
+        let origins = edges.flatMap { [$0.maxY + gap, $0.minY - gap - size.height] }
+        func area(_ rect: CGRect) -> CGFloat { rect.isNull ? 0 : rect.width * rect.height }
+        func distance(_ frame: CGRect) -> CGFloat { frame.minY >= caret.maxY ? frame.minY - caret.maxY : caret.minY - frame.maxY }
+        let fitting = origins.map { CGRect(x: x, y: $0, width: size.width, height: size.height) }.filter { frame in
+            frame.minY >= visible.minY && frame.maxY <= visible.maxY
+                // The line being typed stays in view.
+                && (frame.minY >= caret.maxY || frame.maxY <= caret.minY)
+        }
+        let best = fitting.min { first, second in
+            let covered = (area(first.intersection(text ?? .null)).rounded(), area(second.intersection(text ?? .null)).rounded())
+            if covered.0 != covered.1 { return covered.0 < covered.1 }
+            let inside = (first.intersects(window ?? .null), second.intersects(window ?? .null))
+            if inside.0 != inside.1 { return !inside.0 }
+            if distance(first) != distance(second) { return distance(first) < distance(second) }
+            return first.minY > second.minY
+        }
+        guard let frame = best else { return beside(caret: caret, size: size, visible: visible) }
+        return CaretCardPlacement(frame: frame, pointerAtTop: frame.maxY <= caret.minY,
+                                  pointerX: min(max(caret.midX - x, pointerInset), size.width - pointerInset))
+    }
+
     /// Above the caret by preference, so the card never covers the line being
     /// typed or the lines that follow it. It drops below only when the display
     /// has no room above and more room below. The card is shifted sideways so

@@ -3,7 +3,8 @@
 // with their own pictures, speaker notes, review comments and SmartArt, and
 // document properties that name every slide. Words that must never reach a
 // one-slide share are marked PRIVATE.
-import { writeZip } from '../../src/dependencies/zip-archive.js';
+import fs from 'node:fs';
+import { readZip, writeZip, zipBytes } from '../../src/dependencies/zip-archive.js';
 
 const NS = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"';
 const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -87,6 +88,20 @@ const PRES_PROPS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 const VIEW_PROPS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:viewPr ${NS}><p:normalViewPr><p:restoredLeft sz="15620"/><p:restoredTop sz="94660"/></p:normalViewPr><p:outlineViewPr><p:cViewPr><p:scale><a:sx n="33" d="100"/><a:sy n="33" d="100"/></p:scale><p:origin x="0" y="0"/></p:cViewPr><p:sldLst><p:sld r:id="rId1" collapse="1"/></p:sldLst></p:outlineViewPr></p:viewPr>`;
 
+const CHART = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><c:chart><c:title><c:tx><c:rich><a:bodyPr/>${paragraph('Headcount by quarter')}</c:rich></c:tx></c:title><c:plotArea><c:barChart>${
+  [['Engineering', [4, 6]], ['Sales', [2, 3]]].map(([name, values], series) => `<c:ser><c:idx val="${series}"/><c:tx><c:strRef><c:f>Sheet1!$B$1</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>${name}</c:v></c:pt></c:strCache></c:strRef></c:tx><c:cat><c:strRef><c:strCache><c:ptCount val="2"/><c:pt idx="0"><c:v>Third quarter</c:v></c:pt><c:pt idx="1"><c:v>Fourth quarter</c:v></c:pt></c:strCache></c:strRef></c:cat><c:val><c:numRef><c:numCache><c:ptCount val="2"/>${
+    values.map((value, index) => `<c:pt idx="${index}"><c:v>${value}</c:v></c:pt>`).join('')}</c:numCache></c:numRef></c:val></c:ser>`).join('')
+}</c:barChart><c:valAx><c:title><c:tx><c:rich><a:bodyPr/>${paragraph('People hired')}</c:rich></c:tx></c:title></c:valAx></c:plotArea></c:chart></c:chartSpace>`;
+
+/** Parts that put a headcount chart on the Hiring Plan slide, for `quarterlyReview(overrides)`. */
+export const HEADCOUNT_CHART = Object.freeze({
+  'ppt/slides/_rels/slide3.xml.rels': rels([['rId1', 'slideLayout', '../slideLayouts/slideLayout1.xml'],
+    ['rId2', 'notesSlide', '../notesSlides/notesSlide3.xml'], ['rId3', 'image', '../media/image3.png'],
+    ['rId4', 'chart', '../charts/chart1.xml']]),
+  'ppt/charts/chart1.xml': CHART,
+});
+
 /** A plain deck of titled slides, each a list of bullet lines: `[{ title, lines }]`. */
 export function bulletDeck(slides) {
   const numbers = slides.map((_, index) => index + 1);
@@ -161,4 +176,40 @@ export function quarterlyReview(overrides = {}) {
   };
   return writeZip(Object.entries(parts).filter(([, content]) => content != null)
     .map(([name, content]) => ({ name, content: Buffer.from(content, 'utf8') })));
+}
+
+/** A PowerPoint theme package this Mac has, or null; Quick Look draws decks built on one. */
+export const POWERPOINT_THEME = ['/Applications/Microsoft PowerPoint.app/Contents/Resources/Office Themes/Ion.thmx']
+  .find((candidate) => fs.existsSync(candidate)) ?? null;
+
+/**
+ * A deck PowerPoint's own master and layouts draw: `slides` are `[{ title, lines }]`
+ * on Title and Content slides, built on the theme package at `themePath`.
+ */
+export function themedDeck(slides, themePath = POWERPOINT_THEME) {
+  const theme = readZip(fs.readFileSync(themePath));
+  const parts = new Map();
+  for (const [name, entry] of theme) {
+    if (!name.startsWith('theme/') || /themeManager|Thumbnail|presentation\.xml/.test(name)) continue;
+    parts.set(`ppt/${name.slice('theme/'.length).replace(/^theme\//, 'theme/')}`, zipBytes(entry, 50_000_000));
+  }
+  const themePresentation = zipBytes(theme.get('theme/presentation.xml'), 5_000_000).toString('utf8');
+  const numbers = slides.map((_, index) => index + 1);
+  const text = {
+    '[Content_Types].xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="${CT}.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="${CT}.slideMaster+xml"/>${
+  [...parts.keys()].filter((name) => /slideLayouts\/slideLayout\d+\.xml$/.test(name)).map((name) => `<Override PartName="/${name}" ContentType="${CT}.slideLayout+xml"/>`).join('')
+}<Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>${
+  numbers.map((n) => `<Override PartName="/ppt/slides/slide${n}.xml" ContentType="${CT}.slide+xml"/>`).join('')}</Types>`,
+    '_rels/.rels': rels([['rId1', 'officeDocument', 'ppt/presentation.xml']]),
+    'ppt/presentation.xml': themePresentation.replace(/<\/p:sldMasterIdLst>/,
+      `</p:sldMasterIdLst><p:sldIdLst>${numbers.map((n) => `<p:sldId id="${255 + n}" r:id="rId${n + 1}"/>`).join('')}</p:sldIdLst>`),
+    'ppt/_rels/presentation.xml.rels': rels([['rId1', 'slideMaster', 'slideMasters/slideMaster1.xml'],
+      ...numbers.map((n) => [`rId${n + 1}`, 'slide', `slides/slide${n}.xml`]), [`rId${slides.length + 2}`, 'theme', 'theme/theme1.xml']]),
+    ...Object.fromEntries(slides.flatMap(({ title: heading, lines }, index) => [
+      [`ppt/slides/slide${index + 1}.xml`, slide([title(heading), shape(3, 'Content Placeholder 2', '<p:ph idx="1"/>', lines.map((line) => paragraph(line)))])],
+      [`ppt/slides/_rels/slide${index + 1}.xml.rels`, rels([['rId1', 'slideLayout', '../slideLayouts/slideLayout2.xml']])]])),
+  };
+  for (const [name, content] of Object.entries(text)) parts.set(name, Buffer.from(content, 'utf8'));
+  return writeZip([...parts].map(([name, content]) => ({ name, content })));
 }

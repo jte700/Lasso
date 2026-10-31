@@ -334,6 +334,7 @@ struct RanchFileViewer: View {
     @State private var scene: SCNScene?
     @State private var plan: AssistModelPreview?
     @State private var workbook: RanchWorkbook?
+    @State private var slides: SlideDeckDocument?
     @State private var failed = false
     @State private var reset = 0
     @State private var code: RanchCode?
@@ -387,6 +388,12 @@ struct RanchFileViewer: View {
                 RanchSheetViewer(workbook: workbook, place: citedCell)
             } else {
                 RanchLoading(text: "Reading the cells\u{2026}")
+            }
+        case .slides:
+            if let slides {
+                RanchSlidesView(slides: slides, slide: focus?.anchor?.slideNumber ?? 1)
+            } else {
+                RanchLoading(text: "Reading the slides\u{2026}")
             }
         case .code:
             if let code {
@@ -470,6 +477,10 @@ struct RanchFileViewer: View {
         case .sheet:
             request = store.workbook(source) { book in
                 if let book { workbook = book } else { failed = true }
+            }
+        case .slides:
+            store.slides(source) { deck in
+                if let deck { slides = deck } else { failed = true }
             }
         case .code:
             let file = url

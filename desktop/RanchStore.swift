@@ -532,6 +532,27 @@ final class RanchStore: ObservableObject {
         }.resume()
     }
 
+    /// A deck's slides as the pictures Lasso's server draws, and its slide
+    /// list; nil when Lasso has not indexed the deck, which then shows in Quick Look.
+    func slides(_ source: RanchSource, completion: @escaping (SlideDeckDocument?) -> Void) {
+        shareTarget(for: source) { [weak self] result in
+            guard let self, case .success(let target) = result, let serverURL = self.serverURL,
+                  var components = URLComponents(url: serverURL.appendingPathComponent("api/dependency-objects")
+                    .appendingPathComponent(target.objectId).appendingPathComponent("preview"), resolvingAgainstBaseURL: false)
+            else { return completion(nil) }
+            components.queryItems = target.versionId.map { [URLQueryItem(name: "version", value: $0)] }
+            guard let url = components.url else { return completion(nil) }
+            self.session.dataTask(with: url) { data, response, _ in
+                let deck = (response as? HTTPURLResponse)?.statusCode == 200
+                    ? data.flatMap { AssistDocumentPreview.parse($0, syntax: nil) }?.deck : nil
+                DispatchQueue.main.async {
+                    completion(deck.map { SlideDeckDocument(deck: $0, source: SlidePictureSource(
+                        serverURL: serverURL, objectId: target.objectId, versionId: target.versionId)) })
+                }
+            }.resume()
+        }
+    }
+
     // MARK: Resolving what needs review
 
     /// The document keeps citing the version it linked, and the item leaves the list.

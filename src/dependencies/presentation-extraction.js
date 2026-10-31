@@ -3,7 +3,8 @@
 // slide, then its text, bullets and tables. Everything that cites, previews or
 // shares a deck works from that outline, so a passage's line and slide mean
 // the same thing on the suggestion card, in the share dialog and on the page
-// a recipient opens. Speaker notes and review comments are not read.
+// a recipient opens. A chart's titles and data are read with its slide, as
+// SmartArt's words are. Speaker notes and review comments are not read.
 import path from 'node:path';
 import { decodeXml } from './document-extraction.js';
 import { readZip, zipBytes } from './zip-archive.js';
@@ -14,6 +15,11 @@ const MAX_TEXT_EXCERPT = 20_000;
 const PRESENTATION_PART = 'ppt/presentation.xml';
 const RELATIONSHIP = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
 const DIAGRAM_DATA = `${RELATIONSHIP}diagramData`;
+const CHART = `${RELATIONSHIP}chart`;
+// A chart's data is read as a table of at most this many categories.
+const MAX_CHART_ROWS = 200;
+// PowerPoint's default slide, 13.333 by 7.5 inches, in EMUs.
+const DEFAULT_SLIDE_SIZE = Object.freeze({ width: 12_192_000, height: 6_858_000 });
 // Placeholders PowerPoint repeats on every slide; they are not what a slide says.
 const BOILERPLATE_PLACEHOLDERS = new Set(['dt', 'ftr', 'sldNum', 'hdr']);
 const TITLE_PLACEHOLDERS = new Set(['title', 'ctrTitle']);
@@ -80,11 +86,14 @@ function shapeBlocks(shape) {
   }));
 }
 
-function tableBlock(table) {
-  const rows = [...table.matchAll(/<a:tr\b[^>]*>([\s\S]*?)<\/a:tr>/g)].map((row) =>
+function tableBlock(rows) {
+  return rows.some((row) => row.some(Boolean)) ? [{ type: 'table', rows }] : [];
+}
+
+function tableRows(table) {
+  return [...table.matchAll(/<a:tr\b[^>]*>([\s\S]*?)<\/a:tr>/g)].map((row) =>
     [...row[1].matchAll(/<a:tc\b[^>]*>([\s\S]*?)<\/a:tc>|<a:tc\b[^>]*\/>/g)]
       .map((cell) => paragraphs(cell[1] ?? '').map((paragraph) => paragraph.text).join(' ')));
-  return rows.some((row) => row.some(Boolean)) ? [{ type: 'table', rows }] : [];
 }
 
 /** SmartArt keeps its words in a data part of its own; each is a bullet of the slide. */
@@ -97,13 +106,51 @@ function diagramBlocks(zip, slidePart, slideRelationships) {
     });
 }
 
+/** The values a chart caches for a series, category list or title, by their index; a lone value is index 0. */
+function chartValues(xml) {
+  const text = String(xml ?? '');
+  const clean = (value) => decodeXml(value).replace(/\s+/g, ' ').trim();
+  const points = [...text.matchAll(/<c:pt\b[^>]*\bidx="(\d+)"[^>]*>\s*<c:v>([\s\S]*?)<\/c:v>/g)]
+    .map((match) => ({ index: Number(match[1]), value: clean(match[2]) }));
+  if (points.length) return points;
+  const lone = text.match(/<c:v>([\s\S]*?)<\/c:v>/)?.[1];
+  return lone ? [{ index: 0, value: clean(lone) }] : [];
+}
+
+/** A chart's titles, then its data as a table: a row per category, a column per series. */
+function chartPartBlocks(xml) {
+  // A title is written out, or taken from a cell whose value the chart keeps.
+  const titles = [...xml.matchAll(/<c:title>([\s\S]*?)<\/c:title>/g)]
+    .map((match) => paragraphs(match[1]).map((paragraph) => paragraph.text).join(' ') || chartValues(match[1])[0]?.value)
+    .filter(Boolean).map((text) => ({ type: 'paragraph', text, level: 0 }));
+  const series = [...xml.matchAll(/<c:ser>([\s\S]*?)<\/c:ser>/g)].map(([, body]) => ({
+    name: chartValues(body.match(/<c:tx>([\s\S]*?)<\/c:tx>/)?.[1])[0]?.value ?? '',
+    categories: chartValues(body.match(/<c:(?:cat|xVal)>([\s\S]*?)<\/c:(?:cat|xVal)>/)?.[1]),
+    values: chartValues(body.match(/<c:(?:val|yVal)>([\s\S]*?)<\/c:(?:val|yVal)>/)?.[1]),
+  }));
+  const categories = series.find((entry) => entry.categories.length)?.categories ?? [];
+  const count = Math.min(MAX_CHART_ROWS, Math.max(categories.length, ...series.map((entry) => entry.values.length), 0));
+  if (!count) return titles;
+  const named = (list, index) => list.find((entry) => entry.index === index)?.value ?? '';
+  const rows = [['', ...series.map((entry) => entry.name)],
+    ...Array.from({ length: count }, (_, index) => [named(categories, index), ...series.map((entry) => named(entry.values, index))])];
+  return [...titles, ...tableBlock(rows)];
+}
+
+/** Charts keep their words and numbers in parts of their own, which the slide links to. */
+function chartBlocks(zip, slidePart, slideRelationships) {
+  return slideRelationships.filter((relation) => relation.type === CHART && !relation.external)
+    .flatMap((relation) => chartPartBlocks(partText(zip, relationshipTarget(slidePart, relation.target))));
+}
+
 function slideBlocks(zip, part) {
   // Alternate content repeats a shape for older readers; the first choice is enough.
   const xml = partText(zip, part).replace(/<mc:Fallback\b[\s\S]*?<\/mc:Fallback>/g, '');
   const blocks = [...xml.matchAll(/<p:sp\b[\s\S]*?<\/p:sp>|<a:tbl\b[\s\S]*?<\/a:tbl>/g)]
-    .flatMap(([element]) => element.startsWith('<a:tbl') ? tableBlock(element) : shapeBlocks(element));
+    .flatMap(([element]) => element.startsWith('<a:tbl') ? tableBlock(tableRows(element)) : shapeBlocks(element));
   const own = relationships(partText(zip, relationshipsPart(part)));
-  return { blocks: [...blocks, ...diagramBlocks(zip, part, own)], hidden: /<p:sld\b[^>]*\sshow="0"/.test(xml) };
+  return { blocks: [...blocks, ...diagramBlocks(zip, part, own), ...chartBlocks(zip, part, own)],
+    hidden: /<p:sld\b[^>]*\sshow="0"/.test(xml) };
 }
 
 function coreProperty(xml, name) {
@@ -125,7 +172,15 @@ export function slideParts(zip) {
 }
 
 const UNREADABLE = Object.freeze({ title: null, author: null, subject: null, keywords: null, created: null,
-  slideCount: 0, slides: [], extraction: 'PPTX_UNREADABLE' });
+  slideCount: 0, slides: [], slideSize: DEFAULT_SLIDE_SIZE, extraction: 'PPTX_UNREADABLE' });
+
+/** The shape every slide of the deck has, in EMUs. */
+function slideSize(presentation) {
+  const tag = presentation.match(/<p:sldSz\b[^>]*>/)?.[0] ?? '';
+  const width = Number(attribute(tag, 'cx'));
+  const height = Number(attribute(tag, 'cy'));
+  return width > 0 && height > 0 ? { width, height } : DEFAULT_SLIDE_SIZE;
+}
 
 /**
  * A deck's slides with their text, and its document properties. A deck that
@@ -146,7 +201,8 @@ export function readPresentation(buffer) {
     return {
       title: coreProperty(core, 'dc:title'), author: coreProperty(core, 'dc:creator'),
       subject: coreProperty(core, 'dc:subject'), keywords: coreProperty(core, 'cp:keywords'),
-      created: coreProperty(core, 'dcterms:created'), slideCount: parts.length, slides, extraction: 'PPTX_OOXML',
+      created: coreProperty(core, 'dcterms:created'), slideCount: parts.length, slides,
+      slideSize: slideSize(partText(zip, PRESENTATION_PART)), extraction: 'PPTX_OOXML',
     };
   } catch {
     return UNREADABLE;
@@ -165,15 +221,23 @@ export function slideHeading(slide) {
 }
 
 /**
- * A deck as one Markdown outline, and the lines each slide's part of it covers.
- * @returns {{ text: string, slides: Array<{ number: number, title: string|null, lineStart: number, lineEnd: number }> }}
+ * A deck as one Markdown outline, the lines each slide's part of it covers,
+ * and every piece of text on a slide with the line it is written on: its
+ * title, each bullet, paragraph and table row. Suggestions offer each of them,
+ * however short, citing its line.
+ * @returns {{ text: string, slides: Array<{ number: number, title: string|null, lineStart: number, lineEnd: number }>,
+ *   texts: Array<{ text: string, line: number, kind: 'title'|'item'|'paragraph'|'row', slide: number }>,
+ *   slideSize: { width: number, height: number } }}
  */
 export function presentationOutline(deck) {
   const lines = [];
   const slides = [];
+  const texts = [];
   for (const slide of deck.slides) {
     const lineStart = lines.length + 1;
+    const written = (kind, text) => texts.push({ text, line: lines.length, kind, slide: slide.number });
     lines.push(`## Slide ${slide.number}${slide.title ? ` · ${escapeInline(slide.title)}` : ''}`);
+    if (slide.title) written('title', slide.title);
     let titled = Boolean(slide.title);
     let previous = 'heading';
     let numbers = [];
@@ -184,22 +248,38 @@ export function presentationOutline(deck) {
       if (block.type === 'table') {
         const width = Math.max(...block.rows.map((row) => row.length));
         const padded = block.rows.map((row) => Array.from({ length: width }, (_, index) => tableCell(row[index] ?? '')));
-        lines.push(`| ${padded[0].join(' | ')} |`, `| ${padded[0].map(() => '---').join(' | ')} |`,
-          ...padded.slice(1).map((row) => `| ${row.join(' | ')} |`));
+        padded.forEach((row, index) => {
+          lines.push(`| ${row.join(' | ')} |`);
+          const cells = block.rows[index].map((cell) => cell.trim()).filter(Boolean);
+          if (cells.length) written('row', cells.join(' · '));
+          if (index === 0) lines.push(`| ${row.map(() => '---').join(' | ')} |`);
+        });
       } else if (block.type === 'item') {
         numbers = numbers.slice(0, block.level + 1);
         numbers[block.level] = (previous === 'item' ? numbers[block.level] ?? 0 : 0) + 1;
         const marker = block.ordered ? `${numbers[block.level]}.` : '-';
         lines.push(`${'  '.repeat(block.level)}${marker} ${escapeInline(block.text)}`);
+        written('item', block.text);
       } else {
         lines.push(escapeLine(block.text));
+        written('paragraph', block.text);
       }
       previous = block.type;
     }
     slides.push({ number: slide.number, title: slide.title, lineStart, lineEnd: lines.length });
     lines.push('');
   }
-  return { text: lines.join('\n'), slides };
+  return { text: lines.join('\n'), slides, texts, slideSize: deck.slideSize ?? DEFAULT_SLIDE_SIZE };
+}
+
+/**
+ * What a slide menu lists, and the shape of every slide (width over height),
+ * so a slide not yet drawn is given its place.
+ */
+export function deckSummary(outline) {
+  const size = outline.slideSize ?? DEFAULT_SLIDE_SIZE;
+  return { slides: outline.slides.map(({ number, title }) => ({ number, title })),
+    aspect: Math.round((size.width / size.height) * 10_000) / 10_000 };
 }
 
 /** The slide whose part of the outline holds a line. */
