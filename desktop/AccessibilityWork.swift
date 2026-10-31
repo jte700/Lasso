@@ -44,3 +44,29 @@ struct CoalescingGate {
         isPending = false
     }
 }
+
+/// How long a shown list may wait for an answer once the writer types on.
+/// A slow host drops every read that typing overtakes, so without this the
+/// list found for earlier words would stay up for as long as typing goes on.
+/// Used from the main thread only.
+struct UnansweredTyping {
+    let limit: TimeInterval
+    private var since: Date?
+
+    init(limit: TimeInterval) {
+        self.limit = limit
+    }
+
+    /// When the list should close: returned for the first key over it only,
+    /// so steady typing does not keep putting the close off.
+    mutating func typed(at now: Date) -> Date? {
+        guard since == nil else { return nil }
+        since = now
+        return now.addingTimeInterval(limit)
+    }
+
+    /// An answer arrived, or the list closed: the next key starts a new wait.
+    mutating func answered() {
+        since = nil
+    }
+}

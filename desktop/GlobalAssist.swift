@@ -114,6 +114,11 @@ final class GlobalAssistant {
     var hostTimer: Timer?
     var hostObservers: [NSObjectProtocol] = []
     var contextReads = CoalescingGate()
+    /// Answers normally come back within a key or two; a list that waits
+    /// longer than this while the writer types on is for words behind them.
+    static let unansweredListTime: TimeInterval = 0.5
+    var typedOverList = UnansweredTyping(limit: unansweredListTime)
+    var unansweredListTimer: Timer?
     var rereadsLeft = 0
     var hostReads = CoalescingGate()
     /// The generation a box or message is being measured for, until it shows.
@@ -282,6 +287,7 @@ final class GlobalAssistant {
             // What was typed is now the last change, which the host's own undo takes back.
             undoableInsertion = nil
             if trackCaret { self.trackCaret() }
+            awaitAnswerForTyping()
             scheduleRefresh()
         case .activate:
             if view.mode == .confirmShare { resolveConfirmation() } else { activateSelection() }
@@ -341,7 +347,34 @@ final class GlobalAssistant {
         hide()
     }
 
+    /// Typing over a shown list starts the wait for an answer to the newer text.
+    func awaitAnswerForTyping() {
+        guard panel?.isVisible == true, view.mode == .suggestions, !view.suggestions.isEmpty,
+              let deadline = typedOverList.typed(at: Date()) else { return }
+        unansweredListTimer?.invalidate()
+        unansweredListTimer = Timer.scheduledTimer(withTimeInterval: max(0, deadline.timeIntervalSinceNow),
+                                                   repeats: false) { [weak self] _ in self?.closeUnansweredList() }
+    }
+
+    /// Takes the old list off screen but lets the read and request in flight
+    /// go on, so the answer for the text now at the caret still opens the card.
+    private func closeUnansweredList() {
+        unansweredListTimer = nil
+        typedOverList.answered()
+        guard view.mode == .suggestions, panel?.isVisible == true else { return }
+        panel?.orderOut(nil)
+        publishKeyRouting()
+    }
+
+    /// A list was shown for the text as it is, or the card closed.
+    func endUnansweredWait() {
+        unansweredListTimer?.invalidate()
+        unansweredListTimer = nil
+        typedOverList.answered()
+    }
+
     func hide() {
+        endUnansweredWait()
         generation += 1
         contextReads.dropPending()
         if ShareComposerController.shared.isPresented(in: panel) { ShareComposerController.shared.hide() }
