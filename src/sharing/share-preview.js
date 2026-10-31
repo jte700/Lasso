@@ -10,7 +10,7 @@ import { tabularLayout } from '../dependencies/service.js';
 import { parseDelimited } from '../history/diff.js';
 import { MARKDOWN_LAYOUT, isMarkdownPath, markdownBlocks, markdownPlainText } from './markdown.js';
 import { LINE_LAYOUT, fullTextLayout } from './text-layout.js';
-import { isPresentationPath, presentationOutline, readPresentation, slideAtLine } from '../dependencies/presentation-extraction.js';
+import { deckSummary, isPresentationPath, presentationOutline, readPresentation, slideAtLine } from '../dependencies/presentation-extraction.js';
 import { isCodePath } from '../history/file-types.js';
 
 /// Legacy paragraph blocks are used when any stored text redaction predates
@@ -389,7 +389,7 @@ function slidePreview(text, outline, range, anchor, metadata) {
   const document = slideDocument(text, shown, slide ? range : null);
   return {
     kind: 'text', format: 'markdown', extracted: true, slideNumber: slide?.number ?? null,
-    slideCount: outline.slides.length, openAt: { slide: shown.number },
+    slideCount: outline.slides.length, deck: deckSummary(outline), openAt: { slide: shown.number },
     location: slide ? slideLocation(slide) : 'Entire presentation',
     text: document.styles.filter((block) => block.cited).map((block) => markdownPlainText(block.text)).join('\n').slice(0, 1200),
     firstBlock: 0, blockCount: document.styles.length,
@@ -461,9 +461,10 @@ export function buildFullShareDocument(file, { visualPdf = false, structuredLayo
     // shares created before these layouts keep the paragraph blocks they were made with.
     if (isPresentationPath(file.path)) {
       // A deck reads as its slide outline; it is shared whole or a slide at a time, never redacted.
-      const blocks = markdownBlocks(presentationOutline(readPresentation(file.content)).text);
+      const outline = presentationOutline(readPresentation(file.content));
+      const blocks = markdownBlocks(outline.text);
       return blocks.length ? {
-        kind: 'text', format: 'markdown', layout: MARKDOWN_LAYOUT, presentation: true,
+        kind: 'text', format: 'markdown', layout: MARKDOWN_LAYOUT, presentation: true, deck: deckSummary(outline),
         blocks: blocks.map((block) => block.source),
         styles: blocks.map(({ source, lineStart, lineEnd, ...style }) => style),
       } : null;

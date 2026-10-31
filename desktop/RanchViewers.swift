@@ -42,6 +42,31 @@ struct RanchQuickLookView: NSViewRepresentable {
     }
 }
 
+/// A deck's slides as the pictures Lasso draws of them, under the slide menu
+/// the suggestion card and share composer show; it turns to the slide a review
+/// link cites.
+struct RanchSlidesView: NSViewRepresentable {
+    let slides: SlideDeckDocument
+    var slide: Int
+
+    final class Coordinator {
+        var shown: Int?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> AssistSlidePreviewView {
+        context.coordinator.shown = slide
+        return AssistSlidePreviewView(slides: slides, current: slide, menuAtTop: true)
+    }
+
+    func updateNSView(_ view: AssistSlidePreviewView, context: Context) {
+        guard context.coordinator.shown != slide else { return }
+        context.coordinator.shown = slide
+        view.navigator.go(to: slide)
+    }
+}
+
 /// A PDF in PDFKit, which can turn to the page a review link cites and light
 /// up the cited words; Quick Look cannot be told which page to show.
 struct RanchPDFView: NSViewRepresentable {

@@ -527,6 +527,10 @@ struct AssistDocumentPreview {
     var openTarget: AssistOpenTarget? = nil
     /// The slide of a presentation the citation is on; nil for the whole deck.
     var slideNumber: Int? = nil
+    /// A presentation's slides, for its slide menu and pictures.
+    var deck: AssistSlideDeck? = nil
+    /// The slides' pictures, filled in as they are drawn; set by whoever knows where they are fetched from.
+    var slides: SlideDeckDocument? = nil
 
     /// `syntax` colours a code file's lines; the app's bundled copy unless a test gives its own.
     static func parse(_ data: Data, syntax: CodeSyntax? = CodeSyntax.bundled) -> AssistDocumentPreview? {
@@ -573,6 +577,7 @@ struct AssistDocumentPreview {
         result.openTarget = AssistOpenTarget(json: preview["openAt"])
         result.moreRows = (preview["moreRows"] as? NSNumber)?.intValue
         result.slideNumber = (preview["slideNumber"] as? NSNumber)?.intValue
+        result.deck = AssistSlideDeck(json: preview["deck"])
         if kind == "text" {
             result.isMarkdown = preview["format"] as? String == "markdown"
             result.textBlocks = result.isMarkdown

@@ -314,16 +314,12 @@ test('dependency autocomplete acceptance workflows', async (suite) => {
     assert.equal(cue.claims.length, 0);
     assert.equal(cue.sourceContext.kind, 'PROJECT_DATA');
     assert.equal(cue.sourceContext.exclusive, true);
-    assert.ok(cue.workspaceCompletions.length >= 2);
-    assert.ok(cue.workspaceCompletions.every((suggestion) => suggestion.generated === false));
-    assert.ok(cue.workspaceCompletions.some((suggestion) => suggestion.dependencyCandidate.objectType === 'VARIABLE'));
-    assert.ok(cue.workspaceCompletions.every((suggestion) => suggestion.dependencyCandidate.objectType !== 'VARIABLE'
-      || /[A-Za-z]/.test(suggestion.replacementText)));
+    assert.deepEqual(cue.workspaceCompletions, [], 'words that name no source offer none');
 
+    // Study prose alone names no column: only a word a source contains does.
     const ownWorkspacePrompts = [
       'Our data showed that',
       'The study found a',
-      'In the current analysis, we observed',
       'These results indicate',
       'Our cohort includes',
     ];
@@ -332,14 +328,19 @@ test('dependency autocomplete acceptance workflows', async (suite) => {
         text, cursor: text.length, context: text, documentPath: 'manuscript/results.md',
       });
       assert.equal(contextual.sourceContext.kind, 'PROJECT_DATA', text);
-      assert.ok(contextual.workspaceCompletions.length >= 2, text);
-      assert.ok(contextual.workspaceCompletions.every((suggestion) => suggestion.replacementText
-        && suggestion.dependencyCandidate.path
-        && !['PAPER', 'REFERENCE'].includes(suggestion.dependencyCandidate.objectType)), text);
-      assert.ok(contextual.workspaceCompletions.some((suggestion) => /^(?:data|results|analysis)\//.test(
-        suggestion.dependencyCandidate.path,
-      )), text);
+      assert.deepEqual(contextual.workspaceCompletions, [], text);
     }
+    const currentText = 'In the current analysis, we observed';
+    const current = application.dependencies.predict(project.id, {
+      text: currentText, cursor: currentText.length, context: currentText, documentPath: 'manuscript/results.md',
+    });
+    assert.equal(current.workspaceCompletions[0]?.dependencyCandidate.label, 'Current Period', '"current" names that column');
+    const namedText = 'We found the birth weight ';
+    const named = application.dependencies.predict(project.id, {
+      text: namedText, cursor: namedText.length, context: namedText, documentPath: 'manuscript/results.md',
+    });
+    assert.deepEqual(named.claims.map((claim) => [claim.type, claim.candidates[0]?.label]),
+      [['STUDY_VARIABLE', 'birth_weight_g']], 'a column the sentence names is offered');
 
     const partialText = 'We found that vitam';
     const partial = application.dependencies.predict(project.id, {

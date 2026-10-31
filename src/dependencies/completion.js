@@ -49,7 +49,11 @@ function cleanLine(value) {
     .replace(/\s+/g, ' ').trim();
 }
 
-function sourceSentences(text) {
+// A sentence is offered once it has this much to it. A slide's title or
+// bullet is complete in a few words, so a deck's sources ask for less.
+const SENTENCE_LIMITS = Object.freeze({ minLength: 18, minWords: 4 });
+
+function sourceSentences(text, { minLength, minWords } = SENTENCE_LIMITS) {
   const withoutCode = String(text ?? '').replace(/```[\s\S]*?```/g, '\n');
   const lines = withoutCode.split(/\n+/).map(cleanLine).filter(Boolean);
   const segmenter = new Intl.Segmenter('en', { granularity: 'sentence' });
@@ -58,18 +62,19 @@ function sourceSentences(text) {
     for (const part of segmenter.segment(line)) {
       const sentence = cleanLine(part.segment);
       const wordCount = tokens(sentence).length;
-      if (sentence.length >= 18 && sentence.length <= MAX_SENTENCE_LENGTH && wordCount >= 4
+      if (sentence.length >= minLength && sentence.length <= MAX_SENTENCE_LENGTH && wordCount >= minWords
         && !/^(?:https?:\/\/|www\.)/i.test(sentence)) output.push(sentence);
     }
   }
   return output;
 }
 
+/** `source.limits` may lower how much a sentence needs to be offered, as a deck's do. */
 export function buildSentenceCorpus(sources) {
   const corpus = [];
   const seen = new Set();
   for (const source of sources) {
-    for (const sentence of sourceSentences(source.text)) {
+    for (const sentence of sourceSentences(source.text, source.limits ?? SENTENCE_LIMITS)) {
       // Bibliography entries are independently citable even in one file.
       const sourceKey = source.dependencyCandidate?.objectType === 'REFERENCE'
         ? source.dependencyCandidate.id : source.path;
@@ -82,6 +87,7 @@ export function buildSentenceCorpus(sources) {
         snapshotId: source.snapshotId,
         dependencyCandidate: source.dependencyCandidate ?? null,
         tokens: tokens(sentence),
+        ...(source.limits ? { compact: true } : {}),
       });
       if (corpus.length >= MAX_SENTENCES) return corpus;
     }
@@ -202,7 +208,10 @@ function bestSemanticContinuation(fragment, queryTokens, entry) {
       const insertText = entry.sentence.slice(insertionStart);
       if (insertText.trim().length < 3) continue;
       const semanticOverlap = overlap(queryTokens, candidateTokens);
-      const alignment = length / Math.min(6, Math.max(3, queryTokens.length));
+      // A slide's title or bullet too short to be a sentence elsewhere is
+      // matched as far as it goes: from its first word, all of it is aligned.
+      const short = entry.compact && candidateTokens.length < SENTENCE_LIMITS.minWords;
+      const alignment = length / (short ? start + length : Math.min(6, Math.max(3, queryTokens.length)));
       best = { insertText, score: alignment * 0.62 + semanticOverlap * 0.33, matchedTokens: length };
       break;
     }

@@ -3,6 +3,14 @@
 import Cocoa
 import ApplicationServices
 
+/// Where the caret is in Accessibility coordinates, with the host's window
+/// and the lines of text showing in its editor, which the card avoids.
+struct HostSurroundings: Equatable {
+    let caret: CGRect
+    let window: CGRect?
+    let text: CGRect?
+}
+
 struct AssistPopupHost {
     let element: AXUIElement
     let window: AXUIElement
@@ -40,6 +48,15 @@ struct AssistPopupHost {
     func visibleCaret(using read: (AXUIElement) -> CGRect?) -> CGRect? {
         guard isCurrent else { return nil }
         return caretIfVisible(read(element))
+    }
+
+    /// The caret, and what the card should leave uncovered around it: this
+    /// window, and the text showing in the editor as `readText` measures it.
+    /// `readText` is asked only when `reuse` returns nil for the caret found.
+    func visibleSurroundings(caret read: (AXUIElement) -> CGRect?, text readText: (AXUIElement) -> CGRect?,
+                             reuse: (CGRect) -> CGRect?? = { _ in nil }) -> HostSurroundings? {
+        guard let caret = visibleCaret(using: read) else { return nil }
+        return HostSurroundings(caret: caret, window: Self.frame(window), text: reuse(caret) ?? readText(element))
     }
 
     /// A caret already measured for this editor, kept only if it lies inside

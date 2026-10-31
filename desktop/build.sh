@@ -170,6 +170,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" \
   -framework Cocoa -framework WebKit -framework PDFKit -framework ServiceManagement -framework DiskArbitration \
   -framework EventKit -framework SwiftUI -framework Quartz -framework SceneKit -framework ModelIO -framework Carbon \
+  -framework Vision \
   -o "$CONTENTS/MacOS/Lasso" \
   "$ROOT/desktop/BuildConfig.swift" \
   "$ROOT/desktop/NodeRuntime.swift" \
@@ -207,14 +208,40 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/ModelOrbit.swift" \
   "$ROOT/desktop/AssistTableLayout.swift" \
   "$ROOT/desktop/AssistSuggestionList.swift" \
+  "$ROOT/desktop/PreviewWordMarks.swift" \
   "$ROOT/desktop/AssistPreviewViews.swift" \
+  "$ROOT/desktop/SlideDeckPreview.swift" \
   "$ROOT/desktop/SourceInspectorPanel.swift" \
   "$ROOT/desktop/WebText.swift" \
   "$ROOT/desktop/ShareInsertion.swift" \
   "$ROOT/desktop/ShareMarkup.swift" \
   "$ROOT/desktop/ShareComposer.swift" \
+  "$ROOT/desktop/ShareComposerController.swift" \
+  "$ROOT/desktop/ShareInteractivePDFView.swift" \
+  "$ROOT/desktop/SharePreviewCanvas.swift" \
+  "$ROOT/desktop/ShareComposerView.swift" \
+  "$ROOT/desktop/ShareComposerView+Drawing.swift" \
+  "$ROOT/desktop/ShareComposerView+Documents.swift" \
+  "$ROOT/desktop/ShareComposerView+Scrolling.swift" \
+  "$ROOT/desktop/ShareComposerView+Input.swift" \
+  "$ROOT/desktop/ShareComposerView+Markup.swift" \
+  "$ROOT/desktop/ShareComposerView+Regressions.swift" \
   "$ROOT/desktop/SourceChooser.swift" \
+  "$ROOT/desktop/AssistSuggestion.swift" \
+  "$ROOT/desktop/RecommendationUsageClient.swift" \
+  "$ROOT/desktop/InsertionMode.swift" \
+  "$ROOT/desktop/AssistPermission.swift" \
+  "$ROOT/desktop/AccessibilityReader.swift" \
+  "$ROOT/desktop/AssistBoxView.swift" \
+  "$ROOT/desktop/AssistBoxView+Drawing.swift" \
+  "$ROOT/desktop/AssistBoxView+Preview.swift" \
+  "$ROOT/desktop/AssistBoxView+Input.swift" \
   "$ROOT/desktop/GlobalAssist.swift" \
+  "$ROOT/desktop/GlobalAssistant+Prediction.swift" \
+  "$ROOT/desktop/GlobalAssistant+Preview.swift" \
+  "$ROOT/desktop/GlobalAssistant+Panel.swift" \
+  "$ROOT/desktop/GlobalAssistant+Insertion.swift" \
+  "$ROOT/desktop/GlobalAssistant+Regressions.swift" \
   "$ROOT/desktop/ExternalDrives.swift" \
   "$ROOT/desktop/DriveMenu.swift" \
   "$ROOT/desktop/MainMenu.swift" \

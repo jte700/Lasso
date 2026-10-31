@@ -44,13 +44,15 @@ export function swiftHelper(name, frameworks, unavailable) {
 /**
  * Rendered files kept by key, at most `entries` of them and `bytes` in all.
  * A key asked for again while it renders shares that render; a failed render
- * is forgotten, so the next request tries again.
- * @returns {(key: string, render: () => Promise<Buffer>) => Promise<Buffer>}
+ * is forgotten, so the next request tries again. `has(key)` says whether a
+ * key is kept or rendering.
+ * @returns {((key: string, render: () => Promise<Buffer>) => Promise<Buffer>) & { has: (key: string) => boolean }}
  */
 export function renderCache({ entries, bytes }) {
   const cache = new Map();
   let cachedBytes = 0;
-  return async (key, render) => {
+  const has = (key) => cache.has(key);
+  return Object.assign(async (key, render) => {
     if (cache.has(key)) return cache.get(key).promise;
     const entry = { promise: render(), size: 0 };
     cache.set(key, entry);
@@ -68,5 +70,5 @@ export function renderCache({ entries, bytes }) {
       }
       return result;
     } catch (error) { cache.delete(key); throw error; }
-  };
+  }, { has });
 }

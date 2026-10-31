@@ -74,6 +74,12 @@ enum BrowserGeometryRegression {
                         response["checks"] = ShareComposerView.runPDFPreviewRegression(
                             data: data, pdfData: pdfData, screenshotPath: request["output"] as? String)
                     } else { response["error"] = "PDF document JSON or original PDF path is missing." }
+                } else if request["command"] as? String == "slide-deck" {
+                    let pictures = (request["pictures"] as? [String] ?? []).compactMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) }
+                    let output = request["output"] as? String
+                    response["failures"] = AssistSlidePreviewView.runRegression(pictures: pictures, outputDirectory: output)
+                        + ShareComposerView.runSlideDeckRegression(pictures: pictures,
+                            screenshotPath: output.map { ($0 as NSString).appendingPathComponent("composer.png") })
                 } else if request["command"] as? String == "share-pdf-live" {
                     response.merge(ShareComposerController.shared.regressionPDFComposer(request)) { _, new in new }
                 } else if (request["command"] as? String)?.hasPrefix("inspector-") == true {

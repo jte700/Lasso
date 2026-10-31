@@ -21,13 +21,19 @@ test('caret boundaries resolve after accepted linked text, not inside its final 
 
 // Execute the browser's actual async handlers with controlled network ordering.
 // The DOM surface here only supplies the elements touched by each regression.
-const appSource = fs.readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+// Each handler is found in whichever workbench module declares it.
+const appSources = ['editor-document.js', 'editor-predictions.js', 'dependency-picker.js', 'source-viewer.js',
+  'dependency-sharing.js', 'snapshot-preview.js', 'workspace-shell.js']
+  .map(file => fs.readFileSync(new URL(`../public/${file}`, import.meta.url), 'utf8'));
 function appHandlers(names, globals) {
   const context = vm.createContext({ URLSearchParams, AbortController, clearTimeout, ...globals });
   for (const name of names) {
-    const start = appSource.search(new RegExp(`^(?:async )?function ${name}\\(`, 'm'));
-    assert.notEqual(start, -1);
-    const next = appSource.slice(start + 1).search(/\n(?:async )?function /);
+    const declaration = new RegExp(`^(?:export )?((?:async )?function ${name}\\()`, 'm');
+    const appSource = appSources.find(text => declaration.test(text));
+    assert.ok(appSource, `${name} is declared in a workbench module`);
+    const match = declaration.exec(appSource);
+    const start = match.index + match[0].length - match[1].length;
+    const next = appSource.slice(start + 1).search(/\n(?:export )?(?:async )?function /);
     vm.runInContext(appSource.slice(start, next < 0 ? undefined : start + 1 + next), context);
   }
   return context;

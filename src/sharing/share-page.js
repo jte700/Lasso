@@ -70,6 +70,7 @@ const STYLE = `
   :is(.preview-scroll,.document-table,.shared-context-table)::-webkit-scrollbar{width:10px;height:10px}:is(.preview-scroll,.document-table,.shared-context-table)::-webkit-scrollbar-track,:is(.preview-scroll,.document-table,.shared-context-table)::-webkit-scrollbar-corner{background:var(--paper)}:is(.preview-scroll,.document-table,.shared-context-table)::-webkit-scrollbar-thumb{min-width:24px;min-height:24px;border:2px solid var(--paper);border-radius:8px;background:var(--text2)}:is(.preview-scroll,.document-table,.shared-context-table)::-webkit-scrollbar-thumb:hover{background:var(--text)}:is(.preview-scroll,.document-table,.shared-context-table):focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
   .source-markdown{padding:10px 14px;font-size:12px;line-height:1.55}
   .source-lines{display:table;min-width:100%;margin:0;padding:8px 0;font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}.source-line{display:table-row}.source-line.cited{background:color-mix(in srgb,var(--accent) 12%,var(--paper))}.line-number{display:table-cell;position:sticky;left:0;padding:0 10px;color:var(--text3);background:var(--paper);text-align:right;user-select:none}.line-content{display:table-cell;padding:0 10px;white-space:pre}.source-document-text{padding:16px;font:13px/1.7 Georgia,serif;white-space:pre-wrap;overflow-wrap:anywhere}.source-pdf{display:block;flex:1;width:100%;min-height:0;border:0;background:var(--paper)}.source-image{display:block;max-width:100%;height:auto;margin:auto}.preview-unavailable{padding:18px;color:var(--text2);font-size:12px;line-height:1.6}
+  .slide-picture{display:grid;place-items:center;padding:10px;background:color-mix(in srgb,var(--text) 6%,var(--paper))}.cited-slide{position:relative;width:100%;max-height:100%;margin:0;border-radius:6px;overflow:hidden;background:color-mix(in srgb,var(--text) 10%,var(--paper));box-shadow:0 1px 3px rgba(0,0,0,.14)}.cited-slide img{position:relative;z-index:1;display:block;width:100%;height:100%;object-fit:contain}.cited-slide figcaption{position:absolute;inset:0;display:grid;place-items:center;color:var(--text2);font-size:12px}
   .inspector-spatial .preview-model{display:flex;flex-direction:column}.inspector-spatial .preview-model>.model-plan{display:flex;flex:1 0 auto;min-width:0;min-height:0;flex-direction:column}.inspector-spatial .preview-model .model-plan-head,.inspector-spatial .preview-model .model-plan-foot{flex:0 0 auto}.inspector-spatial .preview-model .model-plan-svg{flex:1 1 80px;height:80px;min-height:80px}.inspector-spatial .preview-image{display:flex}.inspector-spatial .preview-image .source-image{width:100%;height:100%;min-height:0;object-fit:contain}
   .inspector-toolbar{display:flex;min-width:0;min-height:42px;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 12px;border-top:1px solid var(--line);background:color-mix(in srgb,var(--surface) 50%,transparent)}.inspector-toolbar button{display:flex;flex:0 0 auto;height:28px;align-items:center;gap:5px;padding:0 9px;border:1px solid color-mix(in srgb,var(--accent) 20%,transparent);border-radius:6px;background:color-mix(in srgb,var(--accent) 7%,transparent);color:var(--accent-ink);font:500 11px -apple-system,BlinkMacSystemFont,system-ui,sans-serif;cursor:default;-webkit-user-select:none;user-select:none}.inspector-toolbar button:hover{background:color-mix(in srgb,var(--accent) 16%,transparent)}.inspector-toolbar button svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.inspector-toolbar,.source-summary,.preview-heading,.inspector-details dt{-webkit-user-select:none;user-select:none}.inspector-toolbar kbd{padding:1px 4px;border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);border-radius:3px;color:var(--accent-ink);font:10px -apple-system,BlinkMacSystemFont,system-ui,sans-serif}.inspector-toolbar .destructive{margin-left:auto}button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
@@ -299,6 +300,21 @@ export function renderSharePage(resolved, token, preview, document = null) {
   `, 'shared-recipient');
 }
 
+/**
+ * The cited slide, whole, as the picture Lasso draws of it. `preview.slidesUrl`
+ * is where slide n's picture is, n appended.
+ */
+function renderCitedSlide(preview) {
+  const cited = preview.slideNumber ?? preview.openAt?.slide ?? 1;
+  const { slides, aspect } = preview.deck;
+  // A number the deck no longer has shows its first slide rather than a missing picture.
+  const slide = slides.find((entry) => entry.number === cited) ?? slides[0];
+  const label = `Slide ${slide.number} of ${slides.length}${slide.title ? ` · ${slide.title}` : ''}`;
+  return `<div class="preview-scroll slide-picture"><figure class="cited-slide" style="aspect-ratio:${Number(aspect) || 16 / 9}"><figcaption>${
+    escapeHtml(label)}</figcaption><img fetchpriority="high" src="${escapeHtml(`${preview.slidesUrl}${slide.number}${preview.slidesQuery ?? ''}`)}" alt="${
+    escapeHtml(label)}"></figure></div>`;
+}
+
 /** The private source inspector uses original file content and local provenance. */
 export function renderInspectorPanel(resolved, reference, preview, { shareable = true } = {}) {
   const { source } = resolved;
@@ -319,6 +335,9 @@ export function renderInspectorPanel(resolved, reference, preview, { shareable =
     content = `<iframe class="source-pdf" src="${escapeHtml(preview.fileUrl)}#page=${preview.page}&zoom=page-width" title="${escapeHtml(source.filename)}"></iframe>`;
   } else if (preview?.kind === 'image') {
     content = `<div class="preview-scroll preview-image"><img class="source-image" src="${escapeHtml(preview.fileUrl)}" alt="${escapeHtml(source.filename)}"></div>`;
+  } else if (preview?.kind === 'text' && preview.deck && preview.slidesUrl) {
+    previewLabel = 'Slides';
+    content = renderCitedSlide(preview);
   } else if (preview?.kind === 'text' && preview.format === 'markdown') {
     // Links are shown but not followed: the inspector is a local, private view.
     content = `<div class="preview-scroll"><div class="markdown-document source-markdown">${preview.blocks.map((block) =>

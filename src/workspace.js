@@ -11,6 +11,7 @@ import {
 } from './dependencies/service.js';
 import { directoryIssue, directoryNote } from './directory-issues.js';
 import { offeredShareScopes } from './sharing/object-share.js';
+import { matchedSourceWords, typedSentence } from './dependencies/direct-match.js';
 import { parseCommand } from './terminal/parser.js';
 import { failure, result, text, blank, dim } from './terminal/result.js';
 
@@ -761,7 +762,13 @@ export class WorkspaceService {
     const nested = (claim) => claim.type === 'STUDY_VARIABLE' && variables.some((other) => other !== claim
       && other.start <= claim.start && other.end >= claim.end && other.end - other.start > claim.end - claim.start);
     const current = continuing.filter((slot) => slot.group !== 'claim' || !nested(slot.claim));
-    const selected = distinctRanked(current, limit);
+    // Each keeps its place in the one ranked order, which the groups below split
+    // up, and the typed words its source has, which the card's preview marks.
+    const sentence = typedSentence(input.text, cursor);
+    const selected = distinctRanked(current, limit).map((item, rankOrder) => ({ ...item, rankOrder,
+      matchedWords: matchedSourceWords(sentence, [item.sourceSentence, item.replacementText, item.dependencyCandidate?.valueText,
+        item.dependencyCandidate?.label, item.dependencyCandidate?.metadata?.variable, item.valueText, item.label,
+        item.metadata?.variable].filter((text) => typeof text === 'string').join(' ')) }));
     // fn+Right opens a suggestion that has values below it, such as a part's measurements.
     const narrowing = (candidate) => this.dependencies.narrowsTo(candidate.projectId, candidate)
       ? { ...candidate, narrowable: true } : candidate;
