@@ -16,7 +16,7 @@
 export const STOPWORDS = new Set(`a about above according after again all also am an and any are as at be been before being below
 between both but by can could did do does doing done each either every few find for from get give gives given got had has have having
 he her here hers him his how i if in into is it its itself just let lets list look many may me might more most much must my need no nor
-not now of off on once only or other our out over own please quote same see shall she should show shown so some such tell than that the
+not now of off on once only or other our out over own please quote same see shall she should show shown so some such tell than that the vs versus
 their them then there these they this those through to too under until up us very via was we were what when where which while who whom
 why will with within would you your exact exactly value values called named name entire full whole text read give find lookup look
 display print say says said mention mentions mentioned state states stated describe describes described explain explains explained talk
@@ -44,17 +44,97 @@ export function isIdentifier(word) {
 }
 // Words that say what kind of answer is wanted rather than what the source says.
 export const ANSWER_WORDS = new Set(['date', 'dates', 'time', 'day', 'when', 'figure', 'figures', 'number', 'amount', 'count', 'value',
-  'details', 'info', 'information', 'contents', 'content', 'line', 'lines', 'row', 'entry', 'record', 'field', 'fields', 'data']);
+  'details', 'info', 'information', 'contents', 'content', 'line', 'lines', 'row', 'entry', 'record', 'field', 'fields', 'data',
+  // What a draft is made of, asked for while writing: "the action items of the meeting", "the bracket's dimensions".
+  'summary', 'summarise', 'summarize', 'overview', 'points', 'bullet', 'bullets', 'items', 'action', 'actions', 'minutes', 'decisions',
+  'highlights', 'takeaways', 'key', 'main', 'email', 'draft', 'write', 'brochure', 'newsletter', 'dimensions', 'dimension', 'size',
+  'sizes', 'measurements', 'measurement', 'specs', 'spec', 'specification', 'properties', 'parts', 'components',
+  // Sums, rankings and comparisons a model works out from the rows: "total revenue", "the highest months".
+  'total', 'totals', 'sum', 'average', 'mean', 'highest', 'lowest', 'top', 'largest', 'smallest', 'biggest', 'most', 'least',
+  'best', 'worst', 'strongest', 'weakest', 'full', 'whole', 'entire',
+  // How a question points at text rather than what it is about: "find the relevant passage", "the section about".
+  'passage', 'passages', 'sentence', 'sentences', 'section', 'sections', 'excerpt', 'excerpts', 'relevant', 'discuss', 'discusses',
+  'discussed', 'regarding', 'concerning']);
 // Words that say what to do with the evidence ("show the function", "quote the lines you cited earlier").
 const INSTRUCTION_WORDS = new Set(['function', 'functions', 'method', 'methods', 'class', 'classes', 'definition', 'definitions', 'defined',
   'declared', 'implementation', 'implemented', 'code', 'source', 'cited', 'cite', 'earlier', 'edited', 'changed', 'line', 'lines', 'file',
-  'files', 'folder', 'directory', 'quote', 'exactly', 'show', 'open', 'print', 'output', 'reproduce', 'copy', 'paste', 'snippet', 'block']);
+  'files', 'folder', 'directory', 'quote', 'exactly', 'show', 'open', 'print', 'output', 'reproduce', 'copy', 'paste', 'snippet', 'block',
+  // The kind of file, which says where to look rather than what to find.
+  'model', 'models', 'document', 'documents', 'spreadsheet', 'spreadsheets', 'workbook', 'sheet', 'sheets', 'pdf', 'deck', 'presentation']);
 const DEFINITION_WORDS = /\b(?:functions?|methods?|class(?:es)?|definitions?|defined|def|implementations?|declared|declarations?|source code|code for|body|signature)\b/i;
 const FILE_ONLY_WORDS = new Set(['where', 'file', 'files', 'path', 'paths', 'located', 'location', 'locate', 'which', 'named', 'called',
   'open', 'find', 'show', 'list', 'is', 'are', 'the', 'a', 'an', 'of', 'for', 'there', 'any', 'does', 'exist', 'exists', 'outline',
   'structure', 'contents', 'in']);
 
 const fold = (value) => String(value ?? '').toLowerCase().replace(/[’']s\b/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+const QUARTER_MONTHS = { q1: ['january', 'february', 'march'], q2: ['april', 'may', 'june'], q3: ['july', 'august', 'september'],
+  q4: ['october', 'november', 'december'] };
+// Words that name the same thing in the files people keep: periods as reports and monthly sheets
+// write them, and a building model's rooms, which IFC calls spaces. Kept small; each is checked
+// against what Lasso indexes, and a hit still needs every other word of the ask.
+const SYNONYMS = {
+  q1: ['first quarter', ...QUARTER_MONTHS.q1], q2: ['second quarter', ...QUARTER_MONTHS.q2],
+  q3: ['third quarter', ...QUARTER_MONTHS.q3], q4: ['fourth quarter', ...QUARTER_MONTHS.q4],
+  h1: ['first half', ...QUARTER_MONTHS.q1, ...QUARTER_MONTHS.q2], h2: ['second half', ...QUARTER_MONTHS.q3, ...QUARTER_MONTHS.q4],
+  // A quarter's figures are in a monthly sheet's rows: "each quarter of 2025" is answered by its months.
+  quarter: ['quarterly', ...Object.values(QUARTER_MONTHS).flat()], quarterly: ['quarter', ...Object.values(QUARTER_MONTHS).flat()],
+  // So is a year's: "full year 2025 revenue" in the months of a 2025 sheet.
+  year: ['annual', 'yearly', ...Object.values(QUARTER_MONTHS).flat()], annual: ['year', 'yearly', ...Object.values(QUARTER_MONTHS).flat()],
+  monthly: ['month'], month: ['monthly'], yearly: ['annual', 'year'],
+  room: ['space'], outlook: ['expect', 'guidance', 'forecast'], guidance: ['outlook', 'expect', 'forecast'],
+  forecast: ['outlook', 'expect', 'guidance'], headcount: ['employees', 'staff'], employees: ['headcount', 'staff'],
+};
+
+/** Month names, folded: the row labels of a monthly sheet. */
+export const MONTH_NAMES = new Set(Object.values(QUARTER_MONTHS).flat());
+
+const ORDINALS = { first: 0, second: 1, third: 2, fourth: 3 };
+const ORDINAL_WORDS = Object.keys(ORDINALS);
+// "Q4", "the fourth quarter", "the last quarter of 2025"; "H1", "the first half".
+const QUARTER_NAMED = /\bq([1-4])\b|\b(first|second|third|fourth) quarter\b|\b(?:last|final) quarter of (?:the year|\d{4})\b/g;
+const HALF_NAMED = /\bh([12])\b|\b(first|second) half\b|\b(?:last|final) half of (?:the year|\d{4})\b/g;
+
+/**
+ * The periods the ask names, each as `{ forms, months }`: both ways reports
+ * write it ("q4" and "fourth quarter") and the months it covers. Calendar
+ * facts, not synonyms: a board report's "fourth-quarter revenue" is the ask's
+ * "Q4 revenue", and a monthly sheet's October to December rows are its Q4.
+ */
+export function periodsOf(text) {
+  const folded = fold(text);
+  const quarters = [...folded.matchAll(QUARTER_NAMED)].map((match) => (match[1] ? Number(match[1]) - 1 : match[2] ? ORDINALS[match[2]] : 3));
+  const halves = [...folded.matchAll(HALF_NAMED)].map((match) => (match[1] ? Number(match[1]) - 1 : match[2] ? ORDINALS[match[2]] : 1));
+  return [...quarters.map((quarter) => ({ forms: [`q${quarter + 1}`, `${ORDINAL_WORDS[quarter]} quarter`], months: Object.values(QUARTER_MONTHS)[quarter] })),
+    ...halves.map((half) => ({ forms: [`h${half + 1}`, `${ORDINAL_WORDS[half]} half`], months: Object.values(QUARTER_MONTHS).slice(half * 2, half * 2 + 2).flat() }))];
+}
+
+/** The months the periods the ask names cover, applied to a table whose rows are months; null when it names none. */
+export function periodMonths(text) {
+  const months = periodsOf(text).flatMap((period) => period.months);
+  return months.length ? new Set(months) : null;
+}
+
+/**
+ * A longer word's stem, matched as the start of a word: "delivery" and
+ * "delivered" share "deliver", "agreed" and "agreement" share "agre". Words
+ * under six letters are matched whole, so "rate" never finds "rated".
+ */
+export function stemOf(word) {
+  if (word.length < 6 || /\d/.test(word)) return null;
+  const stem = word.replace(/(?:ations?|ments?|ings?|ies|ied|ers?|ed|es|ery|ly|y|s)$/, '');
+  return stem.length >= 4 && stem !== word ? stem : null;
+}
+
+/** The forms of a folded word that count as it in the plain scan: its singular or plural, and its synonyms. */
+export function alternativesOf(word) {
+  const forms = new Set([word]);
+  if (/ies$/.test(word)) forms.add(`${word.slice(0, -3)}y`);
+  else if (/(?:ses|xes|ches|shes)$/.test(word)) forms.add(word.slice(0, -2));
+  else if (/[^s]s$/.test(word) && word.length > 3) forms.add(word.slice(0, -1));
+  for (const form of [...forms]) for (const synonym of SYNONYMS[form] ?? []) forms.add(synonym);
+  return [...forms];
+}
 
 /** The words of a text, possessives dropped: "division's" is "division". */
 export function words(value) {

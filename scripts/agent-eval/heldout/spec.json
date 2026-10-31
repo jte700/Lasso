@@ -1,0 +1,1852 @@
+{
+  "name": "heldout-independent",
+  "documents": [
+    {
+      "path": "Studies/Halden Vale buffer monitoring report 2021-2024.pdf",
+      "type": "pdf",
+      "title": "Riparian Buffer Restoration and Stream Water Quality in the Halden Vale: Final Monitoring Report 2021-2024",
+      "pages": [
+        [
+          {
+            "heading": "Riparian Buffer Restoration and Stream Water Quality in the Halden Vale"
+          },
+          {
+            "paragraph": "Final monitoring report, 2021 to 2024. Prepared by the monitoring team of the Halden Vale Rivers Trust for the Halden Catchment Partnership. Report HVRT-MR-25-02, March 2025."
+          },
+          {
+            "paragraph": "Reviewed by the Partnership's technical group in February 2025. Distribution: Partnership members, participating landowners and the regulator's catchment team."
+          },
+          {
+            "heading": "Abstract"
+          },
+          {
+            "paragraph": "Diffuse pollution from livestock farming is the main pressure on the tributaries of the River Halden. Between January and March 2022 the Halden Catchment Partnership fenced cattle and sheep out of six tributary reaches and planted native broadleaf woodland buffers 10 to 30 metres wide along both banks. We sampled these six restored reaches and six matched control reaches every month from January 2021 to December 2024 in a before-after-control-impact (BACI) design, comparing the 2021 baseline year with 2024, the third growing season after planting. Mean nitrate-N concentrations at restored reaches fell by 31% between 2021 and 2024, while concentrations at control reaches changed little. Total phosphorus and storm-event turbidity also declined at restored reaches, and the mean macroinvertebrate community index rose by 0.7 points. Responses were strongest where buffers were at least 20 metres wide. We conclude that woodland buffers of this width are an effective way to reduce nitrate in lowland livestock catchments, and we recommend widening buffers narrower than 20 metres where land can be secured."
+          },
+          {
+            "paragraph": "Keywords: riparian buffer; diffuse pollution; nitrate; phosphorus; turbidity; stream temperature; macroinvertebrates; BACI design."
+          }
+        ],
+        [
+          {
+            "heading": "1 Introduction"
+          },
+          {
+            "paragraph": "The River Halden drains about 21,000 hectares of lowland farmland, roughly two thirds of it grazed grassland. Its tributaries have failed their nutrient standards in every classification since 2015, mainly because nitrate and phosphorus are washed from fields and released where livestock have direct access to the channel. Riparian buffers, strips of permanent vegetation between farmland and the stream, are widely promoted as a low-cost remedy because they intercept runoff, take up nutrients, stabilise banks and shade the water. Their performance in practice varies a great deal, however, and few schemes have been monitored for long enough, or against suitable controls, to separate the effect of the buffer from changes in weather and farming."
+          },
+          {
+            "paragraph": "In 2021 the Partnership agreed to fund buffer planting on six tributary reaches and asked the Trust to find out whether water quality and stream ecology improved as a result. This report presents the full four years of monitoring. It addresses three questions: whether nutrient concentrations and turbidity fell at restored reaches relative to controls; whether conditions for stream invertebrates improved; and whether the response depended on the width of the buffer."
+          },
+          {
+            "heading": "2 Previous studies"
+          },
+          {
+            "paragraph": "Published evaluations report a wide range of outcomes. In a review of 38 buffer schemes in temperate Europe, Ostrander and Vey (2018) found a median nitrate reduction of 33% in shallow groundwater beneath buffers but only 12% in the receiving streams. On the Kell Water, nitrate-N fell from 6.1 to 4.9 mg/L in the ten years after a 15-metre grass buffer was established, a reduction of 20%, with no change in total phosphorus (Brennan and colleagues, 2017). Wooded buffers in the Ardle uplands, by contrast, reduced total phosphorus by 27% within three years (Haldane and Pike, 2020)."
+          },
+          {
+            "paragraph": "Shading effects are better established. Summer maximum water temperatures beneath a mature riparian canopy are typically 2 to 4 °C lower than in open reaches (Maddox, 2015), and newly planted buffers have lowered summer maxima by 0.8 °C within five years (Ferrar and Quine, 2021). Invertebrate responses tend to lag behind chemical change: Ostrander and Vey (2018) reported that community index scores rose by 0.4 points on average, and only in schemes more than five years old. Several authors conclude that buffers narrower than 10 metres deliver little benefit for nitrate (Brennan and colleagues, 2017; Okoro, 2019)."
+          }
+        ],
+        [
+          {
+            "heading": "3 Methods"
+          },
+          {
+            "heading": "3.1 Study reaches"
+          },
+          {
+            "paragraph": "Twelve reaches, each 500 metres long, were selected on eight first- and second-order tributaries. Six were restored and six served as controls. Control reaches were matched to restored reaches on upstream catchment area, share of grazed grassland and baseline nitrate concentration, and none was fenced or planted during the study. At restored reaches, livestock were excluded with post-and-wire fencing, and the strip between the fence and the bank top was planted at 2,500 trees per hectare with alder, willow, hawthorn and oak. Buffer width, measured from bank top to fence, ranged from 10 to 30 metres and was set by the amount of land each farmer was willing to release (Table 1)."
+          },
+          {
+            "table": {
+              "caption": "Table 1. Characteristics of the study reaches.",
+              "header": [
+                "Reach group",
+                "Reaches",
+                "Buffer width (m)",
+                "Upstream catchment (ha)",
+                "Grazed grassland (%)"
+              ],
+              "rows": [
+                [
+                  "Restored, buffer 20 m or wider",
+                  "4",
+                  "20 to 30",
+                  "640",
+                  "68"
+                ],
+                [
+                  "Restored, buffer under 20 m",
+                  "2",
+                  "10 to 12",
+                  "550",
+                  "71"
+                ],
+                [
+                  "Control",
+                  "6",
+                  "none",
+                  "600",
+                  "69"
+                ]
+              ]
+            }
+          },
+          {
+            "heading": "3.2 Sampling and laboratory analysis"
+          },
+          {
+            "paragraph": "Spot water samples were taken monthly at the downstream end of every reach, giving 48 sampling occasions per reach over the four years. Automatic samplers collected additional samples during up to six storm events per reach each year. Nitrate-N and total phosphorus were analysed by the Trust's accredited laboratory, and turbidity was measured in the field with a calibrated probe. Duplicate samples and field blanks were analysed with every batch, and all batches met the laboratory's acceptance criteria. Temperature loggers recorded water temperature every 15 minutes from May to September. Macroinvertebrates were sampled each October with a three-minute kick sample and scored on the community index used by the regional regulator, on which higher scores indicate cleaner water."
+          },
+          {
+            "heading": "3.3 Statistical analysis"
+          },
+          {
+            "paragraph": "The baseline year (2021) was compared with the third year after planting (2024). Annual means for each reach were analysed with a linear mixed model with reach as a random effect and period (before or after), group (restored or control) and their interaction as fixed effects. The interaction term is the BACI effect: the change at restored reaches over and above the change at control reaches. Group means are reported with the p-value for the interaction, and p < 0.05 was taken as significant. Because only two restored reaches had buffers narrower than 20 metres, the comparison between wide and narrow buffers is descriptive."
+          }
+        ],
+        [
+          {
+            "heading": "4 Results"
+          },
+          {
+            "paragraph": "All twelve reaches were sampled on every scheduled occasion except in February and March 2023, when flooding prevented access to four reaches. Rainfall in 2024 was 9% above the long-term average, while 2021 was close to average. Mean flows in 2024 were about 12% higher than in 2021 at restored and control reaches alike, so dilution does not explain the difference between the two groups. Table 2 summarises the main water-quality variables for the baseline and final years."
+          },
+          {
+            "heading": "4.1 Nitrate"
+          },
+          {
+            "paragraph": "Mean nitrate-N at restored reaches fell from 4.6 mg/L in 2021 to 3.5 mg/L in 2024, a reduction of 24%. At control reaches, mean nitrate-N changed little, falling 5% from 4.4 to 4.2 mg/L. The BACI interaction was significant (p = 0.01). Most of the reduction occurred between 2022 and 2023, as the planted trees became established."
+          },
+          {
+            "table": {
+              "caption": "Table 2. Annual mean water quality at restored and control reaches, 2021 and 2024.",
+              "header": [
+                "Variable",
+                "Restored 2021",
+                "Restored 2024",
+                "Control 2021",
+                "Control 2024",
+                "BACI p"
+              ],
+              "rows": [
+                [
+                  "Nitrate-N (mg/L)",
+                  "4.6",
+                  "3.5",
+                  "4.4",
+                  "4.2",
+                  "0.01"
+                ],
+                [
+                  "Total phosphorus (mg/L)",
+                  "0.118",
+                  "0.096",
+                  "0.112",
+                  "0.101",
+                  "0.21"
+                ],
+                [
+                  "Storm turbidity, median (NTU)",
+                  "46",
+                  "29",
+                  "44",
+                  "39",
+                  "0.04"
+                ]
+              ]
+            }
+          },
+          {
+            "paragraph": "Nitrate concentrations at all reaches followed the usual seasonal cycle, peaking between December and February when field drains run most strongly. The gap between restored and control reaches was widest in these winter months and narrowest in late summer, when concentrations in both groups were lowest. In every month of 2024, concentrations at restored reaches were below those at control reaches."
+          }
+        ],
+        [
+          {
+            "heading": "4.2 Phosphorus and turbidity"
+          },
+          {
+            "paragraph": "Total phosphorus fell by 19% at restored reaches, from 0.118 to 0.096 mg/L, compared with a 10% fall at control reaches, from 0.112 to 0.101 mg/L. The largest decreases at restored reaches came in winter, when trampling of banks by livestock had previously been greatest. However, the difference between restored and control reaches was not statistically significant (p = 0.21), and phosphorus concentrations in both groups remained above the standard for good status."
+          },
+          {
+            "paragraph": "Storm-event turbidity responded more clearly. Median turbidity during sampled storms fell from 46 to 29 NTU at restored reaches and from 44 to 39 NTU at control reaches (p = 0.04). Before fencing, bank poaching by cattle was the main visible source of fine sediment at four of the six restored reaches."
+          },
+          {
+            "heading": "4.3 Water temperature"
+          },
+          {
+            "paragraph": "Loggers were fixed in shaded pools at the downstream end of each reach, about 30 centimetres below the surface. Loggers at two control reaches failed in July 2021 and were replaced within three weeks, and the gaps were not infilled. Summer water temperatures for the two groups of reaches are summarised in Table 3."
+          },
+          {
+            "table": {
+              "caption": "Table 3. Mean summer maximum water temperature (°C), May to September.",
+              "header": [
+                "Reach group",
+                "2021",
+                "2022",
+                "2023",
+                "2024"
+              ],
+              "rows": [
+                [
+                  "Restored",
+                  "19.8",
+                  "19.5",
+                  "18.7",
+                  "18.1"
+                ],
+                [
+                  "Control",
+                  "19.6",
+                  "20.1",
+                  "19.4",
+                  "19.9"
+                ]
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "heading": "4.4 Macroinvertebrates"
+          },
+          {
+            "paragraph": "The mean community index score at restored reaches rose from 4.9 in October 2021 to 5.6 in October 2024, while the score at control reaches moved from 5.0 to 5.1 (BACI p = 0.03). This effect was confined to the four reaches with buffers at least 20 metres wide, with no change at the two narrow-buffer reaches. Mayfly and caddisfly families that are sensitive to pollution were recorded in 2024 at three restored reaches where none had been found in 2021."
+          },
+          {
+            "heading": "4.5 Influence of buffer width"
+          },
+          {
+            "paragraph": "Buffer width made a marked difference to the nitrate response. At the four reaches with buffers 20 metres or wider, mean nitrate-N fell by 31%, from 4.55 to 3.15 mg/L, whereas at the two narrow-buffer reaches, with buffers of 10 and 12 metres, it fell by only 11%, from 4.70 to 4.20 mg/L. With only two narrow-buffer reaches, this comparison is descriptive and was not tested statistically. Values for individual reaches are given in the accompanying spreadsheet."
+          },
+          {
+            "heading": "5 Discussion"
+          },
+          {
+            "paragraph": "Woodland buffers produced a clear reduction in nitrate at restored reaches relative to controls within three years of planting. The size of the reduction is at the upper end of the range reported for receiving streams in the studies reviewed in Section 2, probably because the Halden scheme combined livestock exclusion with dense tree planting rather than grass alone. The temperature results in Table 3 are notable given that the trees were less than four metres tall in 2024, and shading should increase as the canopy closes."
+          }
+        ],
+        [
+          {
+            "paragraph": "The phosphorus results are less conclusive. Phosphorus in these streams is mostly bound to sediment and moves during storms, so annual means of monthly spot samples are a noisy measure of it, and the significant fall in storm turbidity suggests that sediment delivery did decline. The invertebrate response appeared sooner than the literature led us to expect, although only at the wider buffers."
+          },
+          {
+            "paragraph": "For catchment managers, the most practical finding concerns width. Buffers of 20 metres or more achieved nearly three times the nitrate reduction of the 10- and 12-metre buffers, and only the wider buffers improved invertebrate scores. Because farmers chose the width, the wider buffers may also sit on land with different drainage, so this pattern should be confirmed before it is used to set a minimum width."
+          },
+          {
+            "heading": "6 Limitations"
+          },
+          {
+            "paragraph": "The study has several limitations. Reaches were not randomly assigned to restoration: they were chosen where farmers volunteered land, and restored and control reaches may differ in ways the matching did not capture. With six reaches per group, the study had limited power to detect moderate effects, which matters for the phosphorus result. Monthly spot sampling under-represents storm flows, when most phosphorus and sediment are transported. Three post-planting years are too few to capture the full effect of canopy closure. Finally, the study did not survey fish, measure groundwater, or record changes in fertiliser use on the surrounding farms."
+          },
+          {
+            "heading": "7 Conclusions and recommendations"
+          },
+          {
+            "paragraph": "Native woodland buffers combined with livestock exclusion reduced nitrate in Halden tributaries within three years, and buffers at least 20 metres wide performed best. We recommend that the Partnership widen the two narrow buffers to at least 20 metres, continue monitoring until 2027 to capture the effect of canopy closure, and add storm-event phosphorus sampling at all restored reaches."
+          }
+        ],
+        [
+          {
+            "heading": "Acknowledgements"
+          },
+          {
+            "paragraph": "We thank the eleven landowners who gave access to their land, the volunteers of Halden Riverwatch who helped with invertebrate sampling, and the Trust's laboratory staff. Planting was funded by the Halden Catchment Partnership with a grant from the Lowland Streams Fund."
+          },
+          {
+            "heading": "Data availability"
+          },
+          {
+            "paragraph": "Monthly results for every reach are held by the Trust and are available to Partnership members on request. Annual mean nitrate-N for each reach in 2021 and 2024 is provided in the accompanying spreadsheet."
+          },
+          {
+            "heading": "References"
+          },
+          {
+            "paragraph": "Brennan, T., Moss, A. and Clery, J. (2017). A decade of nitrate monitoring below a grass buffer strip on the Kell Water. Catchment Science Letters 12, 201-214."
+          },
+          {
+            "paragraph": "Ferrar, L. and Quine, S. (2021). Early shading effects of riparian tree planting on summer stream temperature. River Restoration Review 8, 45-57."
+          },
+          {
+            "paragraph": "Haldane, R. and Pike, M. (2020). Phosphorus retention by wooded buffers in upland pasture catchments. Freshwater Management 31, 117-130."
+          },
+          {
+            "paragraph": "Maddox, P. (2015). Riparian shade and the thermal regime of small lowland streams. Hydrobiology Notes 44, 9-22."
+          },
+          {
+            "paragraph": "Okoro, C. (2019). How wide is wide enough? Buffer width and nitrate removal in grazed catchments. Catchment Science Letters 14, 77-90."
+          },
+          {
+            "paragraph": "Ostrander, K. and Vey, D. (2018). Riparian buffers in temperate Europe: a review of 38 monitored schemes. Freshwater Management 29, 301-325."
+          }
+        ]
+      ]
+    },
+    {
+      "path": "Studies/Northfold pharmacy stop-smoking trial report.pdf",
+      "type": "pdf",
+      "title": "Evaluation of the Northfold Community Pharmacy Stop-Smoking Programme: Twelve-Month Results of a Cluster-Randomised Trial",
+      "pages": [
+        [
+          {
+            "heading": "Evaluation of the Northfold Community Pharmacy Stop-Smoking Programme"
+          },
+          {
+            "paragraph": "Twelve-month results of a cluster-randomised trial. Final report to Northfold Council Public Health, November 2024. Prepared by the Northfold Health Services Evaluation Unit."
+          },
+          {
+            "heading": "Abstract"
+          },
+          {
+            "paragraph": "Background: Most smokers who try to stop do so without professional help, and specialist stop-smoking clinics reach few of them. Community pharmacies are open long hours and are visited by many smokers, which makes them a promising place to offer structured support."
+          },
+          {
+            "paragraph": "Methods: Twenty-four community pharmacies were randomly allocated to deliver the programme (12 pharmacies) or usual care (12 pharmacies). The programme offered six weekly one-to-one sessions with a trained pharmacy adviser and up to 12 weeks of free varenicline or combination nicotine replacement therapy. Usual care consisted of brief advice and a referral to the council's telephone quitline. The primary outcome was continuous abstinence from smoking at 52 weeks, confirmed by an exhaled carbon monoxide reading below 10 parts per million."
+          },
+          {
+            "paragraph": "Results: Between March 2022 and February 2023, 2,310 adult smokers enrolled, 1,212 at programme pharmacies and 1,098 at usual-care pharmacies. At 52 weeks, 14.2% of programme participants and 8.9% of usual-care participants were abstinent (adjusted odds ratio 1.71, 95% confidence interval 1.26 to 2.32). The programme also increased validated abstinence at four weeks."
+          },
+          {
+            "paragraph": "Conclusions: Structured support from a trained pharmacy adviser, with free stop-smoking medicine, increased long-term quitting compared with brief advice. Community pharmacies are a practical setting for stop-smoking support in Northfold."
+          }
+        ],
+        [
+          {
+            "heading": "1 Background"
+          },
+          {
+            "paragraph": "About 17% of adults in Northfold smoke, above the regional average, and smoking remains the largest single cause of the gap in life expectancy between the most and least deprived parts of the district. The council's specialist stop-smoking clinic sees around 600 smokers a year, a small fraction of those who try to quit. In 2021 the council commissioned a pharmacy-based programme to reach more smokers and asked the Evaluation Unit to test it against usual care before deciding whether to extend it across the district."
+          },
+          {
+            "heading": "2 Previous research"
+          },
+          {
+            "paragraph": "Evidence on pharmacy-delivered support is mixed. A national audit of pharmacy stop-smoking services found an average four-week quit rate of 35%, although fewer than half of the reported quits were confirmed by carbon monoxide testing (Lomax, 2019). In a cluster trial in 16 pharmacies in Tayford, Ridley and colleagues (2020) reported continuous abstinence at 52 weeks of 11.5% with behavioural support plus nicotine replacement therapy, against 7.2% with brief advice."
+          },
+          {
+            "paragraph": "Medication choice matters. In specialist clinics, varenicline has produced 52-week continuous abstinence of around 23%, compared with 16% for combination nicotine replacement (Ashworth and Nair, 2016). Results for heavier smokers are less consistent: one trial found that smokers of 20 or more cigarettes a day were half as likely as lighter smokers to remain abstinent at 52 weeks (Kerr, 2018), while another found no difference by smoking level (Duval and Haas, 2021). Few trials have reported results separately for older smokers."
+          }
+        ],
+        [
+          {
+            "heading": "3 Methods"
+          },
+          {
+            "heading": "3.1 Design and setting"
+          },
+          {
+            "paragraph": "This was a pragmatic cluster-randomised trial. All 41 community pharmacies in Northfold were invited, and 24 agreed to take part. Pharmacies were randomised in pairs matched on monthly prescription volume and local deprivation, with 12 allocated to the programme and 12 to usual care. Randomisation was carried out by a statistician who had no contact with the pharmacies."
+          },
+          {
+            "heading": "3.2 Participants"
+          },
+          {
+            "paragraph": "Pharmacy staff invited customers who smoked to take part. Adults aged 18 or over who smoked at least five cigarettes a day and wanted to stop within the next month were eligible. Pregnant women were not eligible, because they are referred to the specialist maternity stop-smoking service, and people already using a stop-smoking medicine were also excluded."
+          },
+          {
+            "heading": "3.3 Programme and usual care"
+          },
+          {
+            "paragraph": "In programme pharmacies, a trained adviser offered six weekly one-to-one sessions of about 20 minutes, starting one week before the quit date. Advisers were pharmacy staff who had completed a two-day accredited training course. Participants chose either varenicline or combination nicotine replacement therapy (a patch plus a short-acting product), supplied free for up to 12 weeks. In usual-care pharmacies, staff gave brief advice and a written referral to the council's telephone quitline, and customers could buy nicotine replacement products as normal."
+          },
+          {
+            "heading": "3.4 Outcomes and analysis"
+          },
+          {
+            "paragraph": "The primary outcome was self-reported continuous abstinence from two weeks after the quit date to 52 weeks, allowing no more than five cigarettes in total, confirmed by an exhaled carbon monoxide reading below 10 parts per million. Secondary outcomes were carbon monoxide-validated abstinence at four weeks and self-reported seven-day abstinence at 26 weeks. Participants lost to follow-up were counted as smokers. Groups were compared with logistic regression adjusted for pharmacy pair, age, sex and cigarettes per day, with standard errors allowing for clustering by pharmacy. Subgroup analyses by cigarettes per day (fewer than 20, or 20 or more) and by sex were specified in advance."
+          }
+        ],
+        [
+          {
+            "heading": "4 Results"
+          },
+          {
+            "heading": "4.1 Participants"
+          },
+          {
+            "paragraph": "Between March 2022 and February 2023, 2,310 smokers enrolled: 1,212 at programme pharmacies and 1,098 at usual-care pharmacies. The two groups were similar at enrolment (Table 1). Participants had a mean age of 44 years, 52% were women, and they smoked a mean of 17 cigarettes a day. Programme pharmacies enrolled a median of 98 participants each and usual-care pharmacies a median of 89. Follow-up at 52 weeks was completed by 78% of programme participants and 73% of usual-care participants."
+          },
+          {
+            "table": {
+              "caption": "Table 1. Characteristics of participants at enrolment.",
+              "header": [
+                "Characteristic",
+                "Programme (n = 1,212)",
+                "Usual care (n = 1,098)"
+              ],
+              "rows": [
+                [
+                  "Mean age (years)",
+                  "44.3",
+                  "43.8"
+                ],
+                [
+                  "Women (%)",
+                  "53",
+                  "51"
+                ],
+                [
+                  "Aged 60 and over (%)",
+                  "18",
+                  "17"
+                ],
+                [
+                  "Cigarettes per day, mean",
+                  "17.2",
+                  "16.9"
+                ],
+                [
+                  "20 or more cigarettes per day (%)",
+                  "33",
+                  "31"
+                ],
+                [
+                  "Living in the most deprived fifth of areas (%)",
+                  "38",
+                  "36"
+                ]
+              ]
+            }
+          },
+          {
+            "heading": "4.2 Primary outcome"
+          },
+          {
+            "paragraph": "At 52 weeks, 172 of 1,212 programme participants (14.2%) were continuously abstinent with carbon monoxide confirmation, compared with 98 of 1,098 usual-care participants (8.9%). The adjusted odds ratio was 1.71 (95% confidence interval 1.26 to 2.32; p < 0.001), and the absolute difference was 5.3 percentage points. Sensitivity analyses using multiple imputation for missing follow-up gave similar results."
+          }
+        ],
+        [
+          {
+            "heading": "4.3 Secondary outcomes"
+          },
+          {
+            "paragraph": "At four weeks after the quit date, 41.6% of programme participants were abstinent with carbon monoxide confirmation, compared with 27.3% in usual care. At 26 weeks, 22.4% of programme participants and 15.0% of usual-care participants reported that they had not smoked in the previous seven days. These 26-week figures are self-reported, as carbon monoxide was not measured at that point. All outcomes, including the amount smoked by participants who were still smoking at 52 weeks, are shown in Table 2."
+          },
+          {
+            "table": {
+              "caption": "Table 2. Primary and secondary outcomes by trial group.",
+              "header": [
+                "Outcome",
+                "Programme",
+                "Usual care",
+                "Adjusted odds ratio (95% CI)"
+              ],
+              "rows": [
+                [
+                  "Validated abstinence at 4 weeks (%)",
+                  "41.6",
+                  "27.3",
+                  "1.92 (1.55 to 2.38)"
+                ],
+                [
+                  "Self-reported 7-day abstinence at 26 weeks (%)",
+                  "22.4",
+                  "15.0",
+                  "1.63 (1.29 to 2.06)"
+                ],
+                [
+                  "Validated continuous abstinence at 52 weeks (%)",
+                  "14.2",
+                  "8.9",
+                  "1.71 (1.26 to 2.32)"
+                ],
+                [
+                  "Cigarettes per day at 52 weeks among continuing smokers, mean",
+                  "11.4",
+                  "13.6",
+                  "not applicable"
+                ]
+              ]
+            }
+          },
+          {
+            "heading": "4.4 Programme delivery"
+          },
+          {
+            "paragraph": "Programme participants attended a median of five of the six sessions, and 63% attended at least four. Of the 1,212 programme participants, 58% chose varenicline and 42% chose combination nicotine replacement therapy. At 52 weeks, validated abstinence was 16.1% among those who chose varenicline and 11.6% among those who chose nicotine replacement, although participants were not randomised to medication and these groups differed in age and smoking level."
+          }
+        ],
+        [
+          {
+            "heading": "4.5 Subgroup analyses"
+          },
+          {
+            "paragraph": "Among participants who smoked 20 or more cigarettes a day at enrolment (n = 740), 52-week validated abstinence was 10.3% with the programme and 8.1% with usual care. However, this difference was not statistically significant (adjusted odds ratio 1.29, 95% confidence interval 0.78 to 2.14). Among those who smoked fewer than 20 cigarettes a day, abstinence was 16.2% with the programme and 9.3% with usual care. The test for interaction between trial group and smoking level was not significant (p = 0.18). Results for men and women were similar."
+          },
+          {
+            "paragraph": "The programme's effect appeared larger among participants aged 60 and over, of whom 19.8% were abstinent at 52 weeks with the programme compared with 9.6% in usual care. Older participants were also more likely to attend at least four sessions (74%, against 61% of those under 60). This age analysis was not specified in advance and should be treated as exploratory."
+          },
+          {
+            "heading": "4.6 Adverse events"
+          },
+          {
+            "paragraph": "Nausea was the most common adverse event, reported by 18% of participants who used varenicline and 6% of those who used nicotine replacement therapy. Sleep disturbance was reported by 9% of programme participants. No serious adverse event was judged to be related to the programme."
+          }
+        ],
+        [
+          {
+            "heading": "5 Discussion"
+          },
+          {
+            "paragraph": "The programme increased carbon monoxide-validated continuous abstinence at 52 weeks by 5.3 percentage points, a relative increase of about 60% over usual care. This is a larger effect than in the Tayford trial reviewed in Section 2, which may reflect the free choice of varenicline and the requirement that advisers complete accredited training. The four-week quit rate was well above usual care but below the average reported by the national audit, which counted unconfirmed quits."
+          },
+          {
+            "paragraph": "The benefit appeared to be concentrated among lighter smokers. Smokers of 20 or more cigarettes a day gained little from the programme as delivered, which suggests that they may need higher-dose nicotine replacement or longer support. The apparent benefit for participants aged 60 and over is encouraging, but it comes from an unplanned analysis and needs confirmation."
+          },
+          {
+            "paragraph": "If the programme were extended to all 41 pharmacies in Northfold and enrolled smokers at the rate seen in the trial, it would reach around 4,000 smokers a year, several times the number seen by the specialist clinic. At the effect observed in the trial, that would mean roughly 200 more people a year still not smoking after twelve months than with usual care."
+          },
+          {
+            "heading": "6 Limitations"
+          },
+          {
+            "paragraph": "Pharmacies volunteered to take part, and the 24 trial pharmacies may be more motivated than the 17 that declined. Participants and advisers knew their allocation, although the primary outcome was biochemically confirmed. Follow-up at 52 weeks was lower in the usual-care group, and counting those lost to follow-up as smokers may slightly favour the programme. The trial did not collect data on e-cigarette use, which was common during the study period, and it was not designed to assess costs."
+          }
+        ],
+        [
+          {
+            "heading": "7 Conclusions"
+          },
+          {
+            "paragraph": "Structured support from trained pharmacy advisers, with free stop-smoking medicine, increased long-term quitting compared with brief advice and referral. The council should consider extending the programme to all pharmacies in Northfold, with additional support for heavy smokers, and should monitor quit rates in routine delivery."
+          },
+          {
+            "heading": "Acknowledgements"
+          },
+          {
+            "paragraph": "We thank the pharmacists, advisers and customers who took part, the members of the trial steering committee and the council's tobacco control team. The trial was funded by Northfold Council Public Health. The authors declare no competing interests."
+          },
+          {
+            "heading": "Abbreviations"
+          },
+          {
+            "paragraph": "CI, confidence interval; CO, carbon monoxide; NRT, nicotine replacement therapy; ppm, parts per million."
+          },
+          {
+            "heading": "References"
+          },
+          {
+            "paragraph": "Ashworth, J. and Nair, S. (2016). Varenicline and combination nicotine replacement in specialist stop-smoking clinics: twelve-month outcomes. Addiction Practice 22, 310-318."
+          },
+          {
+            "paragraph": "Duval, M. and Haas, E. (2021). Smoking level and success in community stop-smoking support. Cessation Studies Quarterly 9, 55-63."
+          },
+          {
+            "paragraph": "Kerr, A. (2018). Heavy smokers in stop-smoking trials: a pooled analysis. Cessation Studies Quarterly 6, 140-149."
+          },
+          {
+            "paragraph": "Lomax, H. (2019). National audit of pharmacy stop-smoking services. Health Audit Office, Report 4."
+          },
+          {
+            "paragraph": "Ridley, F., Osei, K. and Lund, P. (2020). Behavioural support in community pharmacies: a cluster-randomised trial in Tayford. Pharmacy Practice Research 17, 88-97."
+          }
+        ]
+      ]
+    },
+    {
+      "path": "Studies/Briefing memo - pharmacy stop-smoking programme.docx",
+      "type": "docx",
+      "title": "Briefing memo: pharmacy stop-smoking programme evaluation",
+      "blocks": [
+        {
+          "heading": "Briefing memo: pharmacy stop-smoking programme"
+        },
+        {
+          "paragraph": "To: Director of Public Health. From: Tobacco Control Lead. Date: 9 December 2024."
+        },
+        {
+          "heading": "Purpose"
+        },
+        {
+          "paragraph": "This memo summarises the final evaluation report on the community pharmacy stop-smoking programme and asks you to approve extending the programme to all pharmacies in Northfold from April 2025."
+        },
+        {
+          "heading": "Background"
+        },
+        {
+          "paragraph": "The programme was tested in a cluster-randomised trial in which 12 pharmacies delivered it and 12 provided usual care, meaning brief advice and a referral to the telephone quitline. Programme participants were offered six weekly sessions with a trained pharmacy adviser and up to 12 weeks of free stop-smoking medicine. In total, 2,310 smokers took part between March 2022 and February 2023."
+        },
+        {
+          "heading": "What the evaluation found"
+        },
+        {
+          "paragraph": "The programme substantially increased short-term quitting. Four weeks after their quit date, 41.6% of programme participants had stopped smoking, confirmed by a breath test, against 27.3% in usual care."
+        },
+        {
+          "paragraph": "The longer-term result is the one that matters most. At 12 months, 16.4% of programme participants were still not smoking, confirmed by a carbon monoxide breath test, compared with 8.9% of those who received usual care. The evaluation team's adjusted odds ratio for this comparison was 1.71."
+        },
+        {
+          "paragraph": "Smokers aged 60 and over did especially well, with around one in five still smoke-free at 12 months. Nearly two thirds of participants (63%) attended at least four of the six sessions, and no serious side effects were linked to the programme."
+        },
+        {
+          "paragraph": "The programme also reached the people we most need to reach: 38% of programme participants lived in the most deprived fifth of areas in the district."
+        },
+        {
+          "heading": "Recommendation"
+        },
+        {
+          "paragraph": "Approve extension of the programme to all 41 community pharmacies in Northfold from April 2025. The 17 pharmacies that did not take part in the trial will need their staff trained before then, and the two-day adviser course can be run in February and March 2025."
+        },
+        {
+          "heading": "Risks"
+        },
+        {
+          "paragraph": "Demand for adviser time may exceed capacity in the busiest town-centre pharmacies. Supply arrangements for varenicline need to be confirmed with the local pharmaceutical committee. Quit rates in routine services are usually lower than in trials, so outcomes should be monitored quarterly during the first year."
+        }
+      ]
+    },
+    {
+      "path": "Studies/Halden Vale nitrate by reach.xlsx",
+      "type": "xlsx",
+      "title": "Halden Vale nitrate-N by monitoring reach, 2021 and 2024",
+      "sheets": [
+        {
+          "name": "Reaches",
+          "header": [
+            "Reach",
+            "Group",
+            "Buffer width (m)",
+            "Nitrate-N 2021 (mg/L)",
+            "Nitrate-N 2024 (mg/L)"
+          ],
+          "rows": [
+            [
+              "Ashby Mill",
+              "Restored",
+              "30",
+              "4.9",
+              "3.2"
+            ],
+            [
+              "Bell Farm",
+              "Restored",
+              "25",
+              "4.4",
+              "3.0"
+            ],
+            [
+              "Coldwell Ford",
+              "Restored",
+              "20",
+              "4.7",
+              "3.3"
+            ],
+            [
+              "Dunnock Lane",
+              "Restored",
+              "23",
+              "4.2",
+              "3.1"
+            ],
+            [
+              "Eastwick Bridge",
+              "Restored",
+              "12",
+              "4.8",
+              "4.3"
+            ],
+            [
+              "Fallow Hill",
+              "Restored",
+              "10",
+              "4.6",
+              "4.1"
+            ],
+            [
+              "Gorse Bank",
+              "Control",
+              "0",
+              "4.5",
+              "4.3"
+            ],
+            [
+              "Hatchet Brook",
+              "Control",
+              "0",
+              "4.1",
+              "4.0"
+            ],
+            [
+              "Ivy Bridge",
+              "Control",
+              "0",
+              "4.6",
+              "4.4"
+            ],
+            [
+              "Juniper Wood",
+              "Control",
+              "0",
+              "4.3",
+              "4.2"
+            ],
+            [
+              "Kiln Meadow",
+              "Control",
+              "0",
+              "4.7",
+              "4.3"
+            ],
+            [
+              "Long Acre",
+              "Control",
+              "0",
+              "4.2",
+              "4.0"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "path": "Studies/Halden steering group notes 2025-03-21.md",
+      "type": "md",
+      "title": "Halden steering group notes, 21 March 2025",
+      "blocks": [
+        {
+          "heading": "Halden Catchment Partnership steering group, 21 March 2025"
+        },
+        {
+          "paragraph": "Present: partnership chair, Trust monitoring lead, two farmer representatives and the regulator's catchment officer."
+        },
+        {
+          "heading": "Final monitoring report"
+        },
+        {
+          "paragraph": "The group accepted the final monitoring report. Members welcomed the nitrate result but noted that the two narrow buffers had done much less than the wider ones."
+        },
+        {
+          "heading": "Decisions and actions"
+        },
+        {
+          "paragraph": "The buffers at Eastwick Bridge and Fallow Hill will be widened to 20 metres in winter 2025-26, and both landowners have agreed in principle. The Trust will continue monthly sampling at all twelve reaches until December 2027. Storm samplers for phosphorus will be installed at the six restored reaches by June 2025."
+        },
+        {
+          "paragraph": "Next meeting: 19 September 2025."
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "halden-buffer-findings",
+      "kind": "summary",
+      "prompt": "Can you summarise what the Halden Vale buffer monitoring found?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "In the results, mean nitrate-N at the six restored reaches fell 24%, from 4.6 mg/L in 2021 to 3.5 mg/L in 2024.",
+          "all": [
+            "nitrate",
+            "\\b24\\s*(?:%|per)|3\\.5\\s*mg"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "At control reaches mean nitrate-N changed little, falling 5% from 4.4 to 4.2 mg/L.",
+          "all": [
+            "control",
+            "\\b5\\s*(?:%|per)|4\\.2\\s*mg"
+          ],
+          "material": false
+        },
+        {
+          "id": "f3",
+          "statement": "The abstract says mean nitrate-N at restored reaches fell by 31% between 2021 and 2024.",
+          "all": [
+            "nitrate",
+            "\\b31\\s*(?:%|per)"
+          ],
+          "material": true
+        },
+        {
+          "id": "f4",
+          "statement": "Total phosphorus fell 19% at restored reaches, from 0.118 to 0.096 mg/L.",
+          "all": [
+            "phosph",
+            "\\b19\\s*(?:%|per)|0\\.096"
+          ],
+          "material": true
+        },
+        {
+          "id": "f5",
+          "statement": "Median storm-event turbidity at restored reaches fell from 46 to 29 NTU (controls 44 to 39 NTU, p = 0.04).",
+          "all": [
+            "turbid",
+            "\\b29\\b"
+          ],
+          "material": false
+        },
+        {
+          "id": "f6",
+          "statement": "The mean invertebrate community index at restored reaches rose from 4.9 (2021) to 5.6 (2024), 0.7 points.",
+          "all": [
+            "index|invertebrate|score",
+            "5\\.6|0\\.7\\s*points?"
+          ],
+          "material": true
+        },
+        {
+          "id": "f7",
+          "statement": "Buffers 20 m or wider cut nitrate by 31%, against 11% for the two 10 to 12 m buffers.",
+          "all": [
+            "\\b31\\s*(?:%|per)",
+            "\\b11\\s*(?:%|per)"
+          ],
+          "material": true
+        },
+        {
+          "id": "f8",
+          "statement": "Mean summer maximum water temperature at restored reaches fell from 19.8 °C in 2021 to 18.1 °C in 2024 (Table 3 only).",
+          "all": [
+            "restor|plant|buffer|tree",
+            "18\\.1|1\\.7\\s*(?:°|deg|C\\b)"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f4",
+          "statement": "The phosphorus difference between restored and control reaches was not statistically significant (p = 0.21).",
+          "all": [
+            "n[o']t (?:statistically )?significant|non-?significant|insignificant|p\\s*=\\s*0\\.21"
+          ]
+        },
+        {
+          "id": "q2",
+          "for": "f6",
+          "statement": "The invertebrate improvement was confined to the four reaches with buffers at least 20 m wide; the narrow-buffer reaches showed no change.",
+          "all": [
+            "20\\s*m|wide",
+            "confined|limited to|restricted to|only (?:at|where|in|for|on|the wid)|no change|did not change|unchanged"
+          ]
+        }
+      ],
+      "conflicts": [
+        {
+          "between": [
+            "f1",
+            "f3"
+          ],
+          "statement": "The abstract says nitrate at restored reaches fell 31%, but the results report a 24% fall across all six restored reaches; 31% is the figure for the four wide-buffer reaches only."
+        }
+      ],
+      "computed": [],
+      "absent": false,
+      "answer": "Across 2021 to 2024, mean nitrate-N at the six restored reaches fell 24% (4.6 to 3.5 mg/L), against a 5% fall at control reaches (p = 0.01). The abstract's figure of a 31% nitrate fall conflicts with this; 31% is the result for the four wide-buffer reaches only. Total phosphorus fell 19% at restored reaches against 10% at controls, but the difference was not statistically significant (p = 0.21). Storm turbidity at restored reaches fell from 46 to 29 NTU (controls 44 to 39). The invertebrate index rose from 4.9 to 5.6 (controls 5.0 to 5.1), but only at reaches with buffers at least 20 m wide. Summer maximum water temperature at restored reaches fell from 19.8 to 18.1 °C while controls warmed slightly. By width, nitrate fell 31% at buffers of 20 m or more against 11% at the 10 to 12 m buffers, a descriptive comparison only.",
+      "asks": [
+        [
+          "Halden Vale buffer monitoring findings",
+          "riparian buffer water quality results"
+        ],
+        [
+          "What did the Halden Vale stream buffer monitoring find?"
+        ]
+      ]
+    },
+    {
+      "id": "halden-nitrate-headline",
+      "kind": "conflict",
+      "prompt": "I need one headline number for a slide: by how much did nitrate drop in the Halden streams where the buffers were planted?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "In the results, mean nitrate-N at the six restored reaches fell 24%, from 4.6 mg/L in 2021 to 3.5 mg/L in 2024.",
+          "all": [
+            "nitrate",
+            "\\b24\\s*(?:%|per)|3\\.5\\s*mg"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "The abstract says mean nitrate-N at restored reaches fell by 31% between 2021 and 2024.",
+          "all": [
+            "nitrate",
+            "\\b31\\s*(?:%|per)"
+          ],
+          "material": true
+        },
+        {
+          "id": "f3",
+          "statement": "At the four reaches with buffers 20 m or wider, nitrate-N fell 31% (4.55 to 3.15 mg/L).",
+          "all": [
+            "\\b31\\s*(?:%|per)",
+            "20\\s*m|wide"
+          ],
+          "material": false
+        },
+        {
+          "id": "f4",
+          "statement": "At control reaches mean nitrate-N changed little, falling 5% from 4.4 to 4.2 mg/L.",
+          "all": [
+            "control",
+            "\\b5\\s*(?:%|per)|4\\.2\\s*mg"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [
+        {
+          "between": [
+            "f1",
+            "f2"
+          ],
+          "statement": "The abstract gives a 31% nitrate reduction at restored reaches, while the results section gives 24% (4.6 to 3.5 mg/L) for the same six reaches."
+        }
+      ],
+      "computed": [],
+      "absent": false,
+      "answer": "Use 24%. The results section reports that mean nitrate-N at the six restored reaches fell from 4.6 to 3.5 mg/L between 2021 and 2024, a 24% reduction, against a 5% fall at control reaches. The abstract instead says nitrate fell by 31%, which conflicts with the results; 31% is the reduction at the four reaches with buffers of 20 m or more, not at all restored reaches.",
+      "asks": [
+        [
+          "Halden nitrate reduction buffers",
+          "nitrate percent change restored streams"
+        ],
+        [
+          "How much did nitrate go down where the buffers were planted?"
+        ]
+      ]
+    },
+    {
+      "id": "halden-phosphorus",
+      "kind": "qualified",
+      "prompt": "Did the Halden buffers bring phosphorus levels down?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Total phosphorus fell 19% at restored reaches, from 0.118 to 0.096 mg/L.",
+          "all": [
+            "phosph",
+            "\\b19\\s*(?:%|per)|0\\.096"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "Total phosphorus fell 10% at control reaches, from 0.112 to 0.101 mg/L.",
+          "all": [
+            "control",
+            "\\b10\\s*(?:%|per)|0\\.101"
+          ],
+          "material": false
+        },
+        {
+          "id": "f3",
+          "statement": "Phosphorus concentrations in both groups remained above the standard for good status.",
+          "all": [
+            "above|exceed",
+            "standard|good status"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f1",
+          "statement": "The phosphorus difference between restored and control reaches was not statistically significant (p = 0.21).",
+          "all": [
+            "n[o']t (?:statistically )?significant|non-?significant|insignificant|p\\s*=\\s*0\\.21"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "Not convincingly. Total phosphorus fell 19% at restored reaches (0.118 to 0.096 mg/L) compared with 10% at control reaches, but the difference was not statistically significant (p = 0.21). Phosphorus stayed above the good-status standard in both groups. Storm turbidity, which tracks sediment-bound phosphorus, did fall significantly (46 to 29 NTU).",
+      "asks": [
+        [
+          "Halden phosphorus buffers",
+          "phosphorus change restored versus control streams"
+        ],
+        [
+          "Did phosphorus levels drop in the streams with the new buffers?"
+        ]
+      ]
+    },
+    {
+      "id": "halden-water-temperature",
+      "kind": "lookup",
+      "prompt": "What happened to summer water temperatures in the Halden streams after the trees went in?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Mean summer maximum water temperature at restored reaches fell from 19.8 °C in 2021 to 18.1 °C in 2024 (Table 3 only).",
+          "all": [
+            "restor|plant|buffer|tree",
+            "18\\.1|1\\.7\\s*(?:°|deg|C\\b)"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "At control reaches the mean summer maximum went from 19.6 °C in 2021 to 19.9 °C in 2024 (Table 3 only).",
+          "all": [
+            "control",
+            "19\\.9|0\\.3\\s*(?:°|deg|C\\b)"
+          ],
+          "material": true
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "Summer water got cooler where the trees were planted. Mean summer maximum temperature at the restored reaches fell from 19.8 °C in 2021 to 18.1 °C in 2024, while at control reaches it went from 19.6 °C to 19.9 °C. The report gives these figures only in Table 3.",
+      "asks": [
+        [
+          "Halden summer water temperature",
+          "stream temperature after tree planting"
+        ],
+        [
+          "Did the streams get cooler in summer after the trees were planted?"
+        ]
+      ]
+    },
+    {
+      "id": "halden-buffer-width",
+      "kind": "compare",
+      "prompt": "Does it matter how wide the strip of trees along the stream is?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "At the four reaches with buffers 20 m or wider, nitrate-N fell 31% (4.55 to 3.15 mg/L).",
+          "all": [
+            "\\b31\\s*(?:%|per)",
+            "20\\s*m|wide"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "At the two narrow-buffer reaches (10 and 12 m), nitrate-N fell only 11% (4.70 to 4.20 mg/L).",
+          "all": [
+            "\\b11\\s*(?:%|per)",
+            "narrow|1[02][\\s-]*m"
+          ],
+          "material": true
+        },
+        {
+          "id": "f3",
+          "statement": "Only the buffers 20 m or wider improved invertebrate scores.",
+          "all": [
+            "invertebrate|index|score",
+            "20\\s*m|wide",
+            "only|confined|limited|restricted"
+          ],
+          "material": true
+        },
+        {
+          "id": "f4",
+          "statement": "Because farmers chose the width, the wider buffers may sit on land with different drainage, so the pattern needs confirming.",
+          "all": [
+            "drainage"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f1",
+          "statement": "With only two narrow-buffer reaches, the width comparison is descriptive and was not tested statistically.",
+          "all": [
+            "descriptive|not (?:formally |statistically )?tested|untested|only two|too few"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "It appears to. Nitrate fell 31% at the four reaches with buffers 20 m or wider (4.55 to 3.15 mg/L) but only 11% at the two narrow-buffer reaches of 10 and 12 m (4.70 to 4.20 mg/L). Only the wider buffers improved invertebrate scores. However, with only two narrow-buffer reaches the comparison is descriptive and was not tested statistically, and because farmers chose the widths, the wider buffers may sit on land with different drainage.",
+      "asks": [
+        [
+          "buffer width effect nitrate",
+          "wide versus narrow buffer results"
+        ],
+        [
+          "Do wider strips of trees along streams work better than narrow ones?"
+        ]
+      ]
+    },
+    {
+      "id": "halden-stream-life",
+      "kind": "summary",
+      "prompt": "Is there any sign that the Halden streams became better places for the small creatures living in them after the restoration?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "The mean invertebrate community index at restored reaches rose from 4.9 (2021) to 5.6 (2024), 0.7 points.",
+          "all": [
+            "index|invertebrate|score",
+            "5\\.6|0\\.7\\s*points?"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "At control reaches the index moved only from 5.0 to 5.1 (BACI p = 0.03).",
+          "all": [
+            "control",
+            "5\\.1"
+          ],
+          "material": false
+        },
+        {
+          "id": "f3",
+          "statement": "Pollution-sensitive mayfly and caddisfly families were recorded in 2024 at three restored reaches where none were found in 2021.",
+          "all": [
+            "mayfl|caddis",
+            "three|\\b3\\b"
+          ],
+          "material": true
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f1",
+          "statement": "The invertebrate improvement was confined to the four reaches with buffers at least 20 m wide; the narrow-buffer reaches showed no change.",
+          "all": [
+            "20\\s*m|wide",
+            "confined|limited to|restricted to|only (?:at|where|in|for|on|the wid)|no change|did not change|unchanged"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "Yes, for stream invertebrates. The community index score at restored reaches rose from 4.9 in 2021 to 5.6 in 2024, against 5.0 to 5.1 at control reaches (p = 0.03). The improvement was confined to the four reaches with buffers at least 20 m wide, with no change at the two narrow-buffer reaches. Pollution-sensitive mayfly and caddisfly families also appeared at three restored reaches where none had been found in 2021. Fish were not surveyed.",
+      "asks": [
+        [
+          "Halden invertebrates stream ecology",
+          "aquatic insects restored streams"
+        ],
+        [
+          "Did insect and other stream life improve after the restoration?"
+        ]
+      ]
+    },
+    {
+      "id": "halden-fish",
+      "kind": "absent",
+      "prompt": "Did trout or other fish come back to the restored Halden streams?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "The report states that the study did not survey fish.",
+          "all": [
+            "fish",
+            "\\bnot\\b|\\bno\\b|n't"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "The mean invertebrate community index at restored reaches rose from 4.9 (2021) to 5.6 (2024), 0.7 points.",
+          "all": [
+            "index|invertebrate|score",
+            "5\\.6|0\\.7\\s*points?"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [],
+      "computed": [],
+      "absent": true,
+      "answer": "The documents do not say. The monitoring report states that the study did not survey fish, so there is no evidence either way on trout or other fish. The only biological measure was stream invertebrates: their index rose from 4.9 to 5.6 at restored reaches, but only where buffers were at least 20 m wide.",
+      "asks": [
+        [
+          "Halden fish trout survey",
+          "fish populations restored streams"
+        ],
+        [
+          "Did the Halden study find any change in fish such as trout?"
+        ]
+      ]
+    },
+    {
+      "id": "halden-reach-extremes",
+      "kind": "aggregate",
+      "prompt": "In the per-site nitrate spreadsheet, which site improved the most between 2021 and 2024, and which one still had the highest nitrate in 2024?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Ashby Mill (restored, 30 m buffer): nitrate-N 4.9 mg/L in 2021 and 3.2 mg/L in 2024.",
+          "all": [
+            "Ashby",
+            "4\\.9",
+            "3\\.2"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "Ivy Bridge (control): nitrate-N 4.4 mg/L in 2024, the highest of the twelve reaches.",
+          "all": [
+            "Ivy",
+            "4\\.4"
+          ],
+          "material": true
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [],
+      "computed": [
+        {
+          "id": "c1",
+          "statement": "Ashby Mill had the largest fall of any reach: 4.9 - 3.2 = 1.7 mg/L.",
+          "value": "1.7",
+          "from": [
+            "f1"
+          ]
+        }
+      ],
+      "absent": false,
+      "answer": "Ashby Mill (restored, 30 m buffer) improved most, falling from 4.9 to 3.2 mg/L, a drop of 1.7 mg/L (about 35%). The highest 2024 nitrate was at Ivy Bridge, a control reach, at 4.4 mg/L.",
+      "asks": [
+        [
+          "Halden nitrate by site spreadsheet",
+          "site nitrate 2021 2024"
+        ],
+        [
+          "Which site had the biggest drop in nitrate, and which had the highest nitrate in 2024?"
+        ]
+      ]
+    },
+    {
+      "id": "halden-reach-averages",
+      "kind": "aggregate",
+      "prompt": "From the site spreadsheet, what is the average buffer width at the restored sites, and how does their average 2024 nitrate compare with the control sites?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Ashby Mill: buffer 30 m, nitrate-N 3.2 mg/L in 2024.",
+          "all": [
+            "Ashby",
+            "\\b30\\b",
+            "3\\.2"
+          ],
+          "material": false
+        },
+        {
+          "id": "f2",
+          "statement": "Bell Farm: buffer 25 m, nitrate-N 3.0 mg/L in 2024.",
+          "all": [
+            "Bell Farm",
+            "\\b25\\b",
+            "3\\.0"
+          ],
+          "material": false
+        },
+        {
+          "id": "f3",
+          "statement": "Coldwell Ford: buffer 20 m, nitrate-N 3.3 mg/L in 2024.",
+          "all": [
+            "Coldwell",
+            "\\b20\\b",
+            "3\\.3"
+          ],
+          "material": false
+        },
+        {
+          "id": "f4",
+          "statement": "Dunnock Lane: buffer 23 m, nitrate-N 3.1 mg/L in 2024.",
+          "all": [
+            "Dunnock",
+            "\\b23\\b",
+            "3\\.1"
+          ],
+          "material": false
+        },
+        {
+          "id": "f5",
+          "statement": "Eastwick Bridge: buffer 12 m, nitrate-N 4.3 mg/L in 2024.",
+          "all": [
+            "Eastwick",
+            "\\b12\\b",
+            "4\\.3"
+          ],
+          "material": false
+        },
+        {
+          "id": "f6",
+          "statement": "Fallow Hill: buffer 10 m, nitrate-N 4.1 mg/L in 2024.",
+          "all": [
+            "Fallow",
+            "\\b10\\b",
+            "4\\.1"
+          ],
+          "material": false
+        },
+        {
+          "id": "f7",
+          "statement": "Gorse Bank (control): nitrate-N 4.3 mg/L in 2024.",
+          "all": [
+            "Gorse",
+            "4\\.3"
+          ],
+          "material": false
+        },
+        {
+          "id": "f8",
+          "statement": "Hatchet Brook (control): nitrate-N 4.0 mg/L in 2024.",
+          "all": [
+            "Hatchet",
+            "4\\.0"
+          ],
+          "material": false
+        },
+        {
+          "id": "f9",
+          "statement": "Ivy Bridge (control): nitrate-N 4.4 mg/L in 2024.",
+          "all": [
+            "Ivy",
+            "4\\.4"
+          ],
+          "material": false
+        },
+        {
+          "id": "f10",
+          "statement": "Juniper Wood (control): nitrate-N 4.2 mg/L in 2024.",
+          "all": [
+            "Juniper",
+            "4\\.2"
+          ],
+          "material": false
+        },
+        {
+          "id": "f11",
+          "statement": "Kiln Meadow (control): nitrate-N 4.3 mg/L in 2024.",
+          "all": [
+            "Kiln",
+            "4\\.3"
+          ],
+          "material": false
+        },
+        {
+          "id": "f12",
+          "statement": "Long Acre (control): nitrate-N 4.0 mg/L in 2024.",
+          "all": [
+            "Long Acre",
+            "4\\.0"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [],
+      "computed": [
+        {
+          "id": "c1",
+          "statement": "Average buffer width at the six restored reaches: (30 + 25 + 20 + 23 + 12 + 10) / 6 = 20 m.",
+          "value": "20",
+          "from": [
+            "f1",
+            "f2",
+            "f3",
+            "f4",
+            "f5",
+            "f6"
+          ]
+        },
+        {
+          "id": "c2",
+          "statement": "Average 2024 nitrate-N at the restored reaches: 21.0 / 6 = 3.5 mg/L.",
+          "value": "3.5",
+          "from": [
+            "f1",
+            "f2",
+            "f3",
+            "f4",
+            "f5",
+            "f6"
+          ]
+        },
+        {
+          "id": "c3",
+          "statement": "Average 2024 nitrate-N at the control reaches: 25.2 / 6 = 4.2 mg/L.",
+          "value": "4.2",
+          "from": [
+            "f7",
+            "f8",
+            "f9",
+            "f10",
+            "f11",
+            "f12"
+          ]
+        }
+      ],
+      "absent": false,
+      "answer": "The six restored reaches have buffers of 30, 25, 20, 23, 12 and 10 m, an average of 20 m. Their average nitrate-N in 2024 was 3.5 mg/L, against 4.2 mg/L for the six control reaches, the same group means the report gives.",
+      "asks": [
+        [
+          "Halden site buffer widths",
+          "restored control sites nitrate 2024"
+        ],
+        [
+          "What were the buffer widths and 2024 nitrate levels at each restored and control site?"
+        ]
+      ]
+    },
+    {
+      "id": "halden-narrow-buffer-plans",
+      "kind": "lookup",
+      "prompt": "What has been decided about the two Halden sites with narrow buffers?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "The Eastwick Bridge and Fallow Hill buffers will be widened to 20 metres in winter 2025-26 (steering group, 21 March 2025).",
+          "all": [
+            "widen",
+            "20\\s*m",
+            "2025"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "Both landowners have agreed in principle.",
+          "all": [
+            "in principle"
+          ],
+          "material": false
+        },
+        {
+          "id": "f3",
+          "statement": "At the two narrow-buffer reaches (10 and 12 m), nitrate-N fell only 11% (4.70 to 4.20 mg/L).",
+          "all": [
+            "\\b11\\s*(?:%|per)",
+            "narrow|1[02][\\s-]*m"
+          ],
+          "material": false
+        },
+        {
+          "id": "f4",
+          "statement": "Monthly sampling continues at all twelve reaches until December 2027.",
+          "all": [
+            "2027",
+            "monitor|sampl"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "At the 21 March 2025 steering group it was agreed that the Eastwick Bridge and Fallow Hill buffers will be widened to 20 m in winter 2025-26; both landowners have agreed in principle. This follows the report's finding that those 10 and 12 m buffers cut nitrate by only 11%, against 31% for buffers of 20 m or more, and its recommendation to widen them. Monitoring at all twelve reaches will continue until December 2027.",
+      "asks": [
+        [
+          "Eastwick Bridge Fallow Hill buffers",
+          "narrow buffers decision steering group"
+        ],
+        [
+          "What was decided about the stream sites with narrow buffers?"
+        ]
+      ]
+    },
+    {
+      "id": "northfold-trial-results",
+      "kind": "summary",
+      "prompt": "What were the main results of the Northfold pharmacy stop-smoking trial?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Carbon monoxide-validated continuous abstinence at 52 weeks was 14.2% with the programme and 8.9% with usual care.",
+          "all": [
+            "14\\.2\\s*(?:%|per)",
+            "8\\.9"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "The adjusted odds ratio for the primary outcome was 1.71 (95% CI 1.26 to 2.32).",
+          "all": [
+            "1\\.71"
+          ],
+          "material": false
+        },
+        {
+          "id": "f3",
+          "statement": "Validated abstinence at four weeks was 41.6% with the programme and 27.3% with usual care.",
+          "all": [
+            "41\\.6",
+            "27\\.3"
+          ],
+          "material": true
+        },
+        {
+          "id": "f4",
+          "statement": "At 26 weeks, 22.4% of programme and 15.0% of usual-care participants reported seven-day abstinence.",
+          "all": [
+            "22\\.4",
+            "15(?:\\.0)?\\s*(?:%|per)"
+          ],
+          "material": false
+        },
+        {
+          "id": "f5",
+          "statement": "Among participants smoking 20 or more cigarettes a day, 52-week validated abstinence was 10.3% with the programme and 8.1% with usual care.",
+          "all": [
+            "10\\.3",
+            "8\\.1"
+          ],
+          "material": true
+        },
+        {
+          "id": "f6",
+          "statement": "Among participants aged 60 and over, 52-week abstinence was 19.8% with the programme and 9.6% with usual care.",
+          "all": [
+            "19\\.8",
+            "9\\.6"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f4",
+          "statement": "The 26-week figures are self-reported; carbon monoxide was not measured then.",
+          "all": [
+            "self-?report|not (?:bio\\w* )?(?:confirm|verif|validat|check)|carbon monoxide was not"
+          ]
+        },
+        {
+          "id": "q2",
+          "for": "f5",
+          "statement": "The difference for heavy smokers was not statistically significant (adjusted odds ratio 1.29, 95% CI 0.78 to 2.14).",
+          "all": [
+            "n[o']t (?:statistically )?significant|non-?significant|insignificant"
+          ]
+        },
+        {
+          "id": "q3",
+          "for": "f6",
+          "statement": "The age analysis was not specified in advance and should be treated as exploratory.",
+          "all": [
+            "exploratory|not (?:pre-?)?specified|post[- ]hoc|unplanned|not planned|not pre-?planned"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "The cluster-randomised trial in 24 pharmacies enrolled 2,310 smokers. At 52 weeks, carbon monoxide-validated continuous abstinence was 14.2% with the programme against 8.9% with usual care (adjusted odds ratio 1.71, 95% CI 1.26 to 2.32). At four weeks, validated abstinence was 41.6% against 27.3%. At 26 weeks, 22.4% against 15.0% reported not smoking, but these figures are self-reported and were not checked with carbon monoxide. Among heavy smokers (20 or more a day), abstinence was 10.3% against 8.1%, a difference that was not statistically significant. An exploratory analysis that was not specified in advance suggested a larger effect at age 60 and over (19.8% against 9.6%).",
+      "asks": [
+        [
+          "Northfold pharmacy stop smoking trial results",
+          "quit rates programme versus control"
+        ],
+        [
+          "What did the evaluation of the pharmacy stop-smoking programme find?"
+        ]
+      ]
+    },
+    {
+      "id": "northfold-quit-rate-conflict",
+      "kind": "conflict",
+      "prompt": "The director wants the programme's one-year quit rate for a press release. What figure should we use?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "The trial report gives 52-week carbon monoxide-validated continuous abstinence of 14.2% (172 of 1,212) for programme participants.",
+          "all": [
+            "14\\.2\\s*(?:%|per)",
+            "programme|participants|report|quit|abstinen|smok"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "The briefing memo says 16.4% of programme participants were still not smoking at 12 months, confirmed by a breath test.",
+          "all": [
+            "16\\.4\\s*(?:%|per)",
+            "programme|participants|memo|quit|smok"
+          ],
+          "material": true
+        },
+        {
+          "id": "f3",
+          "statement": "Both give 8.9% for usual care.",
+          "all": [
+            "8\\.9"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [
+        {
+          "between": [
+            "f1",
+            "f2"
+          ],
+          "statement": "The briefing memo states a 12-month validated quit rate of 16.4% for the programme, but the trial report gives 14.2% for the same measure."
+        }
+      ],
+      "computed": [],
+      "absent": false,
+      "answer": "Use 14.2%. The final trial report gives carbon monoxide-validated continuous abstinence at 52 weeks of 14.2% (172 of 1,212) for programme participants, against 8.9% for usual care. The December 2024 briefing memo instead says 16.4% of programme participants were still not smoking at 12 months, which conflicts with the report for the same measure and should be corrected before release.",
+      "asks": [
+        [
+          "pharmacy stop smoking one year quit rate",
+          "12 month quit rate memo"
+        ],
+        [
+          "What share of people on the pharmacy programme were still not smoking after a year?"
+        ]
+      ]
+    },
+    {
+      "id": "northfold-heavy-smokers",
+      "kind": "qualified",
+      "prompt": "Did the pharmacy programme actually help pack-a-day smokers?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Among participants smoking 20 or more cigarettes a day, 52-week validated abstinence was 10.3% with the programme and 8.1% with usual care.",
+          "all": [
+            "10\\.3",
+            "8\\.1"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "Among those smoking fewer than 20 a day, abstinence was 16.2% with the programme and 9.3% with usual care.",
+          "all": [
+            "16\\.2",
+            "9\\.3"
+          ],
+          "material": false
+        },
+        {
+          "id": "f3",
+          "statement": "The test for interaction between trial group and smoking level was not significant (p = 0.18).",
+          "all": [
+            "interaction",
+            "0\\.18"
+          ],
+          "material": false
+        },
+        {
+          "id": "f4",
+          "statement": "The authors suggest heavy smokers may need higher-dose nicotine replacement or longer support.",
+          "all": [
+            "higher[- ]dose|longer support"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f1",
+          "statement": "The difference for heavy smokers was not statistically significant (adjusted odds ratio 1.29, 95% CI 0.78 to 2.14).",
+          "all": [
+            "n[o']t (?:statistically )?significant|non-?significant|insignificant"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "Not clearly. Among participants smoking 20 or more cigarettes a day, 52-week validated abstinence was 10.3% with the programme against 8.1% with usual care, but the difference was not statistically significant (adjusted odds ratio 1.29, 95% CI 0.78 to 2.14). Lighter smokers did better (16.2% against 9.3%), although the interaction test was not significant (p = 0.18). The authors suggest heavy smokers may need higher-dose nicotine replacement or longer support.",
+      "asks": [
+        [
+          "heavy smokers results stop smoking programme",
+          "quit rate by cigarettes per day"
+        ],
+        [
+          "Did the stop-smoking programme work for people who smoke a lot?"
+        ]
+      ]
+    },
+    {
+      "id": "northfold-older-smokers",
+      "kind": "summary",
+      "prompt": "Did the stop-smoking programme work for older smokers, people around retirement age?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Among participants aged 60 and over, 52-week abstinence was 19.8% with the programme and 9.6% with usual care.",
+          "all": [
+            "19\\.8",
+            "9\\.6"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "Participants aged 60 and over were more likely to attend at least four sessions (74% against 61% of those under 60).",
+          "all": [
+            "\\b74\\s*(?:%|per)",
+            "\\b61\\s*(?:%|per)"
+          ],
+          "material": false
+        },
+        {
+          "id": "f3",
+          "statement": "The briefing memo says around one in five smokers aged 60 and over were smoke-free at 12 months.",
+          "all": [
+            "one in five",
+            "60"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f1",
+          "statement": "The age analysis was not specified in advance and should be treated as exploratory.",
+          "all": [
+            "exploratory|not (?:pre-?)?specified|post[- ]hoc|unplanned|not planned|not pre-?planned"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "It looks that way, with a caveat. Among participants aged 60 and over, 19.8% were abstinent at 52 weeks with the programme against 9.6% with usual care, and 74% of them attended at least four sessions, against 61% of younger participants. However, this age analysis was not specified in advance and the report treats it as exploratory, needing confirmation. The briefing memo's figure of around one in five over-60s smoke-free matches the report.",
+      "asks": [
+        [
+          "older smokers quit rate pharmacy programme",
+          "results by age group"
+        ],
+        [
+          "Did the pharmacy quit-smoking programme work for older people?"
+        ]
+      ]
+    },
+    {
+      "id": "northfold-pregnant-smokers",
+      "kind": "absent",
+      "prompt": "How did pregnant smokers get on with the pharmacy programme?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Pregnant women were not eligible for the trial because they are referred to the specialist maternity stop-smoking service.",
+          "all": [
+            "pregnan",
+            "not eligible|excluded|ineligible|maternity"
+          ],
+          "material": true
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [],
+      "computed": [],
+      "absent": true,
+      "absence": [
+        [
+          "pregnant",
+          "not eligible"
+        ]
+      ],
+      "answer": "There are no results for pregnant smokers. The trial report says pregnant women were not eligible because they are referred to the specialist maternity stop-smoking service, so the programme was not tested in pregnancy.",
+      "asks": [
+        [
+          "pregnant smokers pharmacy programme",
+          "pregnancy stop smoking results"
+        ],
+        [
+          "How did pregnant women do on the pharmacy stop-smoking programme?"
+        ]
+      ]
+    },
+    {
+      "id": "northfold-programme-delivery",
+      "kind": "summary",
+      "prompt": "How did the pharmacy programme go in practice: did people keep coming to the sessions, which medicines did they pick, and were there side effects?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Participants attended a median of five of the six sessions, and 63% attended at least four.",
+          "all": [
+            "\\b63\\s*(?:%|per)",
+            "four|\\b4\\b"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "58% of programme participants chose varenicline and 42% combination nicotine replacement therapy.",
+          "all": [
+            "\\b58\\s*(?:%|per)",
+            "varenicline"
+          ],
+          "material": true
+        },
+        {
+          "id": "f3",
+          "statement": "Nausea was the most common adverse event: 18% of varenicline users and 6% of nicotine replacement users.",
+          "all": [
+            "nausea",
+            "\\b18\\s*(?:%|per)"
+          ],
+          "material": true
+        },
+        {
+          "id": "f4",
+          "statement": "No serious adverse event was judged to be related to the programme.",
+          "all": [
+            "serious",
+            "\\bno\\b|none|not"
+          ],
+          "material": true
+        },
+        {
+          "id": "f5",
+          "statement": "Sleep disturbance was reported by 9% of programme participants.",
+          "all": [
+            "sleep",
+            "(?<![\\d.])9\\s*(?:%|per)"
+          ],
+          "material": false
+        },
+        {
+          "id": "f6",
+          "statement": "52-week validated abstinence was 16.1% among those choosing varenicline and 11.6% among those choosing nicotine replacement.",
+          "all": [
+            "16\\.1",
+            "11\\.6"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f6",
+          "statement": "Participants were not randomised to medication and the two groups differed in age and smoking level.",
+          "all": [
+            "not randomi[sz]ed|differed|confound"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "Attendance was good: participants attended a median of five of the six sessions, and 63% attended at least four. 58% chose varenicline and 42% chose combination nicotine replacement therapy. Validated 52-week abstinence was 16.1% with varenicline and 11.6% with nicotine replacement, but medication was not randomised and the groups differed. Nausea was the most common side effect (18% on varenicline, 6% on nicotine replacement), sleep disturbance affected 9%, and no serious adverse event was judged related to the programme.",
+      "asks": [
+        [
+          "session attendance medication choice side effects",
+          "varenicline nicotine patches uptake"
+        ],
+        [
+          "How many sessions did people attend, which quit-smoking medicines did they use, and were there side effects?"
+        ]
+      ]
+    }
+  ]
+}

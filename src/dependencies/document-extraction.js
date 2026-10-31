@@ -403,8 +403,21 @@ export function extractPdfFullText(buffer) {
   return text.trim() ? text.slice(0, MAX_FULL_DOCUMENT_TEXT) : fallback;
 }
 
-/** Selectable PDF passages retain the page on which their source text occurs. */
-export function extractPdfPassages(buffer) {
+// A one-line block that reads as a heading: no sentence punctuation at its end, a few words, a capital or a section number first.
+const HEADING_LINE = /^(?:[A-Z]|\d+(?:\.\d+)*\.?\s+\S)[^]*$/;
+const looksLikeHeading = (block) => HEADING_LINE.test(block) && !/[.!?:;,]$/.test(block) && block.split(/\s+/).length <= 12 && /\p{L}/u.test(block);
+
+const CAPTION = /^(?:table|figure|fig\.?)\s*[A-Z]?\d+[A-Za-z]?\b/i;
+
+/**
+ * Selectable PDF passages retain the page on which their source text occurs.
+ * With `structure`, the page's structure comes back too, at its place in the
+ * page's text: `heading` entries, so a passage can be read under its section,
+ * and a table's `caption`, `table-header` and `table-row` lines (each row
+ * with its caption and header), which are too short to be passages. The
+ * passages themselves are the same either way.
+ */
+export function extractPdfPassages(buffer, { structure = false } = {}) {
   const layout = extractDrawingDocument(buffer);
   const fallback = structuredPdfPages(buffer);
   const pages = layout.pages.some(page => page.text?.trim()) ? layout.pages.map(page => {
@@ -442,35 +455,58 @@ export function extractPdfPassages(buffer) {
     // Blank lines are hard paragraph boundaries. Short standalone headings
     // also start a new block, while lowercase wrapped continuations stay joined.
     const blocks = [];
+    const oneLine = [];
+    const shortHeadings = new Set();
     let current = [];
-    const flush = () => { if (current.length) blocks.push(current.join(' ')); current = []; };
+    const flush = () => { if (current.length) { blocks.push(current.join(' ')); oneLine.push(current.length === 1); } current = []; };
     const lines = text.split('\n').map(line => line.trim());
     let lineCursor = 0;
     let previousBox = null;
+    // A caption opens a table: the next line is its header and the lines after it its rows, to the next gap.
+    let table = null;
+    const tableLines = new Set();
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
-      if (!line) { flush(); continue; }
+      if (!line) { flush(); table = null; continue; }
       const lineStart = normalized.indexOf(line, lineCursor);
       const lineEnd = lineStart + line.length;
       const boxes = wordLocations.filter(word => word.start < lineEnd && word.end > lineStart).map(word => word.bbox).filter(Boolean);
       const lineBox = boxes.length ? { x: Math.min(...boxes.map(box => box.x)), y: Math.min(...boxes.map(box => box.y)),
         bottom: Math.max(...boxes.map(box => box.y + box.height)), height: Math.max(...boxes.map(box => box.height)) } : null;
       if (lineStart >= 0) lineCursor = lineEnd;
-      if (previousBox && lineBox && (lineBox.y - previousBox.bottom > Math.max(previousBox.height, lineBox.height) * 0.75
-        || lineBox.y < previousBox.y - previousBox.height * 0.5)) flush();
+      const gap = previousBox && lineBox && (lineBox.y - previousBox.bottom > Math.max(previousBox.height, lineBox.height) * 0.75
+        || lineBox.y < previousBox.y - previousBox.height * 0.5);
+      if (gap) table = null;
+      if (structure && lineStart >= 0) {
+        const entry = { pageNumber: page.pageNumber, selectedText: line, start: lineStart, end: lineStart + line.length, bbox: null };
+        const words = line.split(/\s+/).length;
+        const figures = (line.match(/(?:^|\s)[-+(]?\d[\d.,%)]*(?=\s|$)/g) ?? []).length;
+        // A row is short, or mostly figures; a wrapped line of prose is neither.
+        const row = /\d/.test(line) && !/[.!?]$/.test(line) && (words <= 10 || figures * 3 >= words);
+        if (CAPTION.test(line)) { table = { caption: line, header: null }; tableLines.add(line); passages.push({ ...entry, excerptType: 'caption' }); }
+        else if (table && !table.header) { table.header = line; tableLines.add(line); passages.push({ ...entry, excerptType: 'table-header', caption: table.caption }); }
+        else if (table && row) {
+          tableLines.add(line);
+          passages.push({ ...entry, excerptType: 'table-row', caption: table.caption, header: table.header });
+        } else table = null;
+      }
+      if (gap) flush();
       previousBox = lineBox;
       const next = lines[index + 1] ?? '';
       const shortHeading = !/[.!?:;]$/.test(line) && !/\b(?:a|an|and|as|at|by|for|from|in|is|of|on|or|the|to|with)$/i.test(line)
         && (line.split(/\s+/).length <= 5 || /^[^a-z]+$/.test(line)) && /^[A-Z]/.test(next);
-      if (shortHeading) { flush(); blocks.push(line); }
+      if (shortHeading) { flush(); shortHeadings.add(blocks.length); blocks.push(line); oneLine.push(true); }
       else current.push(line);
     }
     flush();
     let blockCursor = 0;
-    for (const block of blocks) {
+    for (const [blockIndex, block] of blocks.entries()) {
       const blockStart = normalized.indexOf(block, blockCursor);
       if (blockStart < 0) continue;
       blockCursor = blockStart + block.length;
+      if (structure && !tableLines.has(block) && (shortHeadings.has(blockIndex) || (oneLine[blockIndex] && looksLikeHeading(block)))) {
+        passages.push({ excerptType: 'heading', pageNumber: page.pageNumber, selectedText: block, start: blockStart, end: blockStart + block.length, bbox: null });
+      }
       const sentences = [...segmenter.segment(block)].map(part => ({ text: part.segment.trim(), start: blockStart + part.index
         + (part.segment.match(/^\s*/)?.[0].length ?? 0) }));
       let paragraph = '';
@@ -614,16 +650,43 @@ export function extractDocxDocument(buffer) {
   }
 }
 
+/**
+ * A Word document's text, a paragraph per line with a blank line between,
+ * as previews show it and as its passages cite it. A paragraph's runs are
+ * joined as written: Word splits a word across runs when its formatting changes.
+ */
 export function extractDocxFullText(buffer) {
   try {
     const documentXml = zipEntry(buffer, 'word/document.xml')?.toString('utf8') ?? '';
-    const structured = documentXml.replace(/<w:tab\b[^>]*\/>/gi, '\t')
-      .replace(/<w:br\b[^>]*\/>/gi, '\n').replace(/<\/w:p>/gi, '\n');
-    const text = [...structured.matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/gi)]
-      .map((match) => decodeXml(match[1])).join(' ').replace(/\s+\n/g, '\n');
-    return cleanText(text, MAX_FULL_DOCUMENT_TEXT);
+    return documentXml.split(/<\/w:p>/i).map((paragraph) => cleanText([...paragraph
+      .replace(/<w:tab\b[^>]*\/>/gi, '<w:t>\t</w:t>').replace(/<w:br\b[^>]*\/>/gi, '<w:t> </w:t>')
+      .matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/gi)].map((match) => match[1]).join(''), MAX_FULL_DOCUMENT_TEXT))
+      .filter(Boolean).join('\n\n').slice(0, MAX_FULL_DOCUMENT_TEXT);
   } catch {
     return '';
+  }
+}
+
+/**
+ * A Word document's headings: paragraphs in a heading or title style, each
+ * with its line in extractDocxFullText's text (a paragraph per line, a blank
+ * line between), where the document's passages are cited.
+ */
+export function extractDocxHeadings(buffer) {
+  try {
+    const documentXml = zipEntry(buffer, 'word/document.xml')?.toString('utf8') ?? '';
+    const headings = [];
+    let line = 1;
+    for (const paragraph of documentXml.split(/<\/w:p>/i)) {
+      const text = cleanText([...paragraph.replace(/<w:tab\b[^>]*\/>/gi, '<w:t>\t</w:t>').replace(/<w:br\b[^>]*\/>/gi, '<w:t> </w:t>')
+        .matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/gi)].map((match) => match[1]).join(''), MAX_FULL_DOCUMENT_TEXT);
+      if (!text) continue;
+      if (/<w:pStyle\b[^>]*w:val="(?:heading\s*\d*|title|subtitle)"/i.test(paragraph) || /<w:outlineLvl\b/i.test(paragraph)) headings.push({ line, text });
+      line += 2;
+    }
+    return headings;
+  } catch {
+    return [];
   }
 }
 

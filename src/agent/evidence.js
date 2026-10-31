@@ -31,8 +31,14 @@ import { sourceLocator } from '../terminal/names.js';
 import { distinctRanked } from '../workspace.js';
 import { normalizedRowSearch } from '../dependencies/row-names.js';
 import { AgentError } from './errors.js';
-import { ANSWER_WORDS, fold as foldAsk, namesHeader, parseAsk, splitAsk, STOPWORDS, words as askWords } from './ask.js';
+import { alternativesOf, ANSWER_WORDS, fold as foldAsk, MONTH_NAMES, namesHeader, parseAsk, periodMonths, periodsOf, splitAsk, stemOf, STOPWORDS, words as askWords } from './ask.js';
 import { estimateTokens } from './metrics.js';
+import { TextIndex } from './text-index.js';
+import { hasWord, readingOrder, selectEvidence } from './select.js';
+import { extractDocxHeadings, extractPdfPassages } from '../dependencies/document-extraction.js';
+import { readStepModel } from '../dependencies/step-model.js';
+import { instancesOf, namedInstances, relationOf } from './geometry.js';
+import { StructuralAdapterError } from './structural/adapters.js';
 
 const MAX_QUERIES = 16;
 const MAX_ASKS = 16;
@@ -44,10 +50,50 @@ const WHOLE_FILE_CHARS = 6000;
 const HEAD_LINES = 12;
 // Row labels listed beside an absence ("North division" for "West division"), before only their number is given.
 const MAX_LABELS = 12;
+// What one answer shows of a file that is its subject: a table's first rows, a document's passages
+// or a model's parts, in about this many characters, the rest counted.
+const DIGEST_ROWS = 60;
+// A matched row is shown whole when its table has at most this many columns.
+const WHOLE_ROW_COLUMNS = 8;
+const DIGEST_CHARS = 3000;
+// The tokens of evidence one ask returns by default; `budget` asks for more or less.
+const ASK_BUDGET = 700;
+// How long one ask may spend bringing the full-text index up to date before the plain scan answers instead.
+const SYNC_BUDGET_MS = 1500;
+// Matching rows of one table shown in a search answer, the rest counted.
+const SEARCH_TABLE_ROWS = 12;
+// A search reads files scoring at least this share of the best file's score, and shows sentences scoring at least this
+// share of the best sentence's: below them, matches are counted as left out rather than shown.
+const FILE_SHARE = 0.6;
+const SENTENCE_SHARE = 0.2;
+const ELEMENT_PROPERTIES = 6;
+// How many matching files one found-answer shows, and passages of each.
+const FOUND_FILES = 4;
+const PASSAGES_PER_FILE = 3;
+// A model's measurements in the order people ask for them: a room's floor area before its ceiling
+// finish, a part's overall size and holes before each edge.
+const PROPERTY_ORDER = [/net floor area/i, /gross floor area/i, /floor area/i, /\barea\b/i, /volume/i, /\bheight\b/i,
+  /overall .*extent/i, /diameter/i, /depth/i, /radius/i, /width/i, /length/i];
+const propertyRank = (label) => {
+  const index = PROPERTY_ORDER.findIndex((pattern) => pattern.test(label));
+  return index < 0 ? PROPERTY_ORDER.length : index;
+};
+// Objects that stand for a whole file: they say a file matched, not where in it.
+const isWholeFileObject = (object) => !object?.anchor?.kind || ['cad-model', 'table-summary', 'table-column'].includes(object.anchor.kind);
 // What makes an object ask an explicit search rather than a question.
 const SEARCH_KEYS = ['fields', 'kind', 'under', 'ext', 'cursor', 'limit'];
 // A file-only ask about where a file is, rather than what is in it.
 const LOCATE = /\b(?:where|which|locate|located|location|path|paths|exists?|list|named|called)\b/i;
+const STEP_FILE = /\.(?:step|stp)$/i;
+// An instance named the way assemblies name them: "Pin:2", "Pin #2", "pin 2".
+const INSTANCE_LIKE = /\p{L}[\p{L}\p{N}_.-]*\s*[:#]?\s*\d+\b/u;
+// Words after which the instance named is the one the other is seen from: "Pin:2 relative to Pin:1".
+const SEEN_FROM = /\b(?:relative to|with respect to|from|seen from|in the frame of|wrt)\b/;
+const GEOMETRY_OPS = { pose: 'pose', relative_transform: 'pose', relation: 'pose', angle: 'angle', axis_angle: 'angle' };
+// How many instances an assembly's digest places; the rest are counted.
+const DIGEST_INSTANCES = 12;
+// An assembly larger than this is read only when the ask names its file.
+const UNNAMED_STEP_BYTES = 8 * 1024 * 1024;
 // Five candidates cost about 30% fewer tokens than eight where more match; coverage reports the rest.
 const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 50;
@@ -178,6 +224,11 @@ function evidenceType(object) {
 function locatorOf(object) {
   const anchor = object.anchor ?? {};
   if (anchor.kind === 'pdf-excerpt') return Number.isInteger(anchor.pageNumber) ? `p.${anchor.pageNumber}` : '';
+  // A Word document's passages are cited on its text a paragraph per line, with a blank line between.
+  if (anchor.kind === 'text-excerpt' && Number.isInteger(anchor.lineStart) && object.metadata?.format === 'DOCUMENT') {
+    const [first, last] = [anchor.lineStart, anchor.lineEnd].map((line) => (line + 1) / 2);
+    return first === last ? `para ${first}` : `paras ${first}-${last}`;
+  }
   if (anchor.kind === 'text-excerpt' && Number.isInteger(anchor.lineStart)) {
     return anchor.lineStart === anchor.lineEnd ? `line ${anchor.lineStart}` : `lines ${anchor.lineStart}-${anchor.lineEnd}`;
   }
@@ -290,6 +341,11 @@ export class EvidenceService {
     this.fileDefinitions = new BoundedCache({ maxEntries: 20_000, maxWeight: 2_000_000, weight: (found) => found.length + 1 });
     // A snapshot's table cells by row, for bundling a record's fields.
     this.rowCells = new BoundedCache({ maxEntries: 8, maxWeight: 400_000, weight: (rows) => rows.weight });
+    this.fileObjectCache = new BoundedCache({ maxEntries: 8, maxWeight: 400_000, weight: (byPath) => byPath.weight });
+    // Each file revision's headings and table rows, read once from its bytes.
+    this.structures = new BoundedCache({ maxEntries: 256 });
+    // STEP assemblies' parsed models, by content hash, for their instances' placements.
+    this.stepModels = new BoundedCache({ maxEntries: 16 });
     this.pruneHandles();
   }
 
@@ -1353,16 +1409,19 @@ export class EvidenceService {
       : [{ item }]));
     if (!asks.length || asks.length > MAX_ASKS) throw invalid(`ask must list 1 to ${MAX_ASKS} questions.`);
     const context = this.context();
+    // A budget under 100 reads as a number of results ("budget": 5), not tokens of evidence: the default is used.
+    context.budget = request.budget == null || Number(request.budget) < 100 ? null : count(request.budget, 'budget', { min: 100, max: 8000, fallback: ASK_BUDGET });
     const answers = asks.map((entry, index) => {
       // An ask split out of a longer one is echoed, so its answer can be told apart.
       const head = { n: index + 1, ...(entry.split ? { ask: entry.text } : {}) };
       try {
-        return { ...head, ...(entry.item ? this.askItem(context, entry.item) : this.resolveAsk(context, entry.text)) };
+        return withStatus({ ...head, ...(entry.item ? this.askItem(context, entry.item) : this.resolveAsk(context, entry.text)) });
       } catch (error) {
-        if (error instanceof AgentError) return { ...head, kind: 'error', error: error.toJSON() };
+        if (error instanceof AgentError) return { ...head, kind: 'error', status: error.code === 'ambiguous' ? 'ambiguous' : error.code === 'not_found' ? 'not_found' : 'error', error: error.toJSON() };
         throw error;
       }
     });
+    dedupeAnswers(answers);
     const warnings = [...this.diskWarnings(context), ...this.recordHandles(context)];
     return { sources: this.sourcesOf(context), answers, ...(warnings.length ? { warnings } : {}) };
   }
@@ -1370,6 +1429,13 @@ export class EvidenceService {
   /** A structured follow-up: a handle, file or definition to read, or an explicit search. */
   askItem(context, item) {
     if (!item || typeof item !== 'object') throw invalid('Each ask is a string or an object.');
+    if (item.op != null && GEOMETRY_OPS[String(item.op).toLowerCase()]) return this.askGeometryItem(context, item);
+    if (item.op != null) {
+      if (typeof item.column !== 'string' || !item.column.trim()) throw invalid('An operation names the column it works on: {op, column, file?}.');
+      const answer = this.askAggregate(context, this.foldersNamed(context, item.folder), { original: '', words: [] }, item);
+      if (!answer) throw new AgentError('not_found', `No shared table has a column named ${item.column}${item.file ? ` in ${item.file}` : ''} with values to ${item.op}.`);
+      return answer;
+    }
     const phrased = item.ask ?? item.question ?? item.q ?? item.query ?? item.text;
     if (typeof phrased === 'string' && item.h == null && item.file == null && item.symbol == null) {
       // An explicit search names what a search takes; anything else is an ask written as an object.
@@ -1404,7 +1470,20 @@ export class EvidenceService {
       asked = { ...parsed, content: [...parsed.content, ...parsed.symbols] };
     }
     if (asked.fileOnly) return this.askFiles(context, projects, asked);
-    return this.askRecord(context, projects, asked) ?? this.askFind(context, projects, asked);
+    const placed = this.askGeometry(context, projects, asked);
+    if (placed) return placed;
+    const record = this.askRecord(context, projects, asked);
+    if (record) return record;
+    // A column's total answers that part of the ask exactly; the search answers the rest ("and how it compares with Q3"),
+    // without the same table again, and says what it is (ranked, what it left out, words no file has).
+    const computed = this.askAggregate(context, projects, asked);
+    if (computed) {
+      const search = this.askSearch(context, projects, asked);
+      const sources = new Set(computed.items.map((item) => item.src));
+      const more = (search?.items ?? []).filter((item) => !(item.type === 'table' && sources.has(item.src)));
+      return more.length ? { ...search, kind: 'computed', items: [...computed.items, ...more] } : computed;
+    }
+    return this.askSearch(context, projects, asked) ?? this.askFind(context, projects, asked);
   }
 
   /**
@@ -1494,6 +1573,99 @@ export class EvidenceService {
     return found ? { kind: 'definition', items } : null;
   }
 
+  /** A STEP file revision's parsed model, or null when it cannot be read as one. */
+  stepModel(file) {
+    if (!this.stepModels.has(file.contentHash)) {
+      let model = null;
+      try { model = readStepModel(file.buffer ?? this.timeline.blobs.get(file.contentHash)); } catch { model = null; }
+      this.stepModels.set(file.contentHash, model);
+    }
+    return this.stepModels.get(file.contentHash);
+  }
+
+  /**
+   * Part instances of an assembly the ask names ("Pin:2 relative to Pin:1 in fixture assembly.step", "where is
+   * Pin:2"): two, how the second stands to the first; one, where it sits in the assembly. The assembly is the
+   * file the ask names, or the shared STEP files that have the instances. Null when the ask names no instance.
+   */
+  askGeometry(context, projects, parsed) {
+    if (!INSTANCE_LIKE.test(parsed.original)) return null;
+    const named = parsed.files.length ? this.tryMention(context, parsed.files[0], parsed) : null;
+    if (named && !STEP_FILE.test(named.file.path)) return null;
+    const candidates = named ? [named] : projects.flatMap((project) => (project.snapshotId ? this.timeline.snapshotFiles(project.snapshotId) : [])
+      .filter((file) => STEP_FILE.test(file.path) && file.size <= UNNAMED_STEP_BYTES && this.allowed(context, project.id, file.path))
+      .map((file) => ({ project, file: this.snapshotFile(context, project, file.path) })).filter((entry) => entry.file)).slice(0, 10);
+    const found = [];
+    for (const candidate of candidates) {
+      const model = this.stepModel(candidate.file);
+      if (!model) continue;
+      const instances = instancesOf(model);
+      const { named: mentioned, ambiguous } = namedInstances(instances, parsed.original);
+      if (ambiguous.length) {
+        throw new AgentError('ambiguous', `${ambiguous.map((entry) => `"${entry.label}" names ${entry.paths.length} instances in ${candidate.file.path}: ${entry.paths.join(', ')}`).join('; ')}. Name one by its path.`);
+      }
+      if (mentioned.length) found.push({ ...candidate, model, instances, mentioned });
+    }
+    if (!found.length) return null;
+    if (found.length > 1) {
+      throw new AgentError('ambiguous', `Instances named so are in several assemblies: ${found.map((entry) => entry.file.path).join(', ')}. Name the file.`);
+    }
+    const [{ project, file, model, mentioned }] = found;
+    if (mentioned.length === 1) return { kind: 'geometry', status: 'complete', items: [this.placementItem(context, project, file, model, mentioned[0])] };
+    // The instance right after "relative to" or "from" is the one the other is seen from; otherwise, the first named.
+    const folded = foldAsk(parsed.original);
+    const reference = folded.search(SEEN_FROM);
+    const [first, second] = mentioned;
+    const after = (instance) => folded.indexOf(foldAsk(instance.label), reference) > reference;
+    const [a, b] = reference >= 0 && after(second) && folded.indexOf(foldAsk(first.label)) < reference ? [second, first] : [first, second];
+    return { kind: 'geometry', status: 'complete', items: [this.relationItem(context, project, file, model, a, b)] };
+  }
+
+  /** {op: "pose"|"angle", file, a, b}: two instances of the assembly in file, by label or path. */
+  askGeometryItem(context, item) {
+    if (typeof item.file !== 'string' || !item.file.trim() || typeof item.a !== 'string' || typeof item.b !== 'string') {
+      throw invalid('A placement operation names the assembly and two instances: {op: "pose", file, a, b}.');
+    }
+    const resolved = this.resolveMention(context, { name: item.file.trim() }, { original: item.file, folder: item.folder ?? null });
+    if (!STEP_FILE.test(resolved.file.path)) throw new AgentError('unsupported', `${resolved.file.path} is not a STEP assembly.`);
+    const model = this.stepModel(resolved.file);
+    if (!model) throw new AgentError('unsupported', `${resolved.file.path} could not be read as a STEP model.`);
+    const instances = instancesOf(model);
+    const pick = (name) => {
+      const wanted = foldAsk(name);
+      const matches = instances.filter((instance) => foldAsk(instance.label) === wanted || foldAsk(instance.path) === wanted
+        || foldAsk(instance.path.split('/').slice(1).join('/')) === wanted);
+      if (matches.length === 1) return matches[0];
+      if (matches.length > 1) throw new AgentError('ambiguous', `"${name}" names ${matches.length} instances: ${matches.map((match) => match.path).join(', ')}.`);
+      throw new AgentError('not_found', `No instance "${name}" in ${resolved.file.path}; it has ${instances.slice(0, DIGEST_INSTANCES).map((instance) => instance.label).join(', ')}${instances.length > DIGEST_INSTANCES ? ', …' : ''}.`);
+    };
+    const relation = this.relationItem(context, resolved.project, resolved.file, model, pick(item.a), pick(item.b));
+    return { kind: 'geometry', status: 'complete', items: [GEOMETRY_OPS[String(item.op).toLowerCase()] === 'angle' ? { ...relation, only: 'angles' } : relation] };
+  }
+
+  /** Where one instance sits in its assembly, as the parser placed it; refused when a placement is in doubt. */
+  placementItem(context, project, file, model, instance) {
+    if (!instance.placement) {
+      throw new AgentError('unsupported', `The placement of "${instance.label}" in ${file.path} is not settled (${(model.warnings ?? []).join('; ') || 'not a rotation and a translation'}).`);
+    }
+    return { src: this.sourceFor(context, project, file), type: 'placement', instance: instance.label, path: instance.path, part: instance.part,
+      unit: model.unit.convertedToMm ? 'mm' : model.unit.label, at: instance.placement.at, ...(instance.placement.turn ? { turn: instance.placement.turn } : {}) };
+  }
+
+  /** How instance b stands to instance a, computed by the structural geometry operators over their placements. */
+  relationItem(context, project, file, model, a, b) {
+    let relation;
+    try {
+      relation = relationOf(model, a, b, { id: `${project.id}:${file.path}`, revision: file.contentHash });
+    } catch (error) {
+      if (error instanceof StructuralAdapterError) throw new AgentError('unsupported', `${file.path}: ${error.message}`);
+      throw error;
+    }
+    return { src: this.sourceFor(context, project, file), type: 'relation', a: a.label, b: b.label, unit: relation.unit, offset: relation.offset,
+      distance: relation.distance, ...(relation.turn ? { turn: relation.turn } : {}), angles: relation.angles,
+      ...(a.placement ? { a_at: a.placement.at } : {}), ...(b.placement ? { b_at: b.placement.at } : {}) };
+  }
+
   tryMention(context, mention, parsed) {
     try { return this.resolveMention(context, mention, parsed); } catch (error) {
       if (error instanceof AgentError) return null;
@@ -1559,7 +1731,19 @@ export class EvidenceService {
     for (const project of projects) {
       if (!project.snapshotId) continue;
       const table = this.rowTable(project, project.snapshotId);
+      // Names that share their last words ("North and South division") are each that name: "North division" too.
+      const shared = [];
       for (const span of spans) {
+        if (span.length < 2 || !table.byLabel.has(foldAsk(span.text))) continue;
+        const parts = span.text.split(' ');
+        for (let index = tokens.indexOf(parts[0]) - 1, listed = 0; index >= 0 && listed < 4; index -= 1) {
+          if (/^(?:and|or|&)$/i.test(tokens[index])) continue;
+          if (STOPWORDS.has(tokens[index].toLowerCase())) break;
+          shared.push({ length: span.length, text: [tokens[index], ...parts.slice(1)].join(' ') });
+          listed += 1;
+        }
+      }
+      for (const span of [...spans, ...shared]) {
         for (const key of table.byLabel.get(foldAsk(span.text)) ?? []) {
           const cells = table.byRow.get(key);
           const first = cells[0];
@@ -1609,20 +1793,38 @@ export class EvidenceService {
       const used = new Set([...label.split(' '), ...fields.flatMap((field) => foldAsk(field).split(' '))]);
       const qualifiers = content.filter((word) => !used.has(word) && !used.has(word.replace(/s$/, '')) && !ANSWER_WORDS.has(word));
       const haystack = ` ${foldAsk([entity.path, entity.sheet ?? '', ...entity.cells.map((cell) => cell.valueText ?? '')].join(' '))} `;
-      return { ...entity, fields, matched: qualifiers.filter((word) => haystack.includes(` ${word} `)) };
+      const matched = qualifiers.filter((word) => haystack.includes(` ${word} `));
+      return { ...entity, fields, matched, unmatched: qualifiers.length - matched.length };
     });
-    const named = rows.filter((row) => row.fields.length);
-    const pool = (named.length ? named : rows)
-      .sort((left, right) => right.matched.length - left.matched.length || right.fields.length - left.fields.length
-        || left.path.localeCompare(right.path) || left.rowIndex - right.rowIndex)
-      .slice(0, 6);
+    // A row named by a word the rest of the ask has little to do with ("West region sales", "supplier performance
+    // review November 2025") is not what was asked about: no column named, and more words left over than found in it.
+    const strong = rows.filter((row) => row.fields.length || row.unmatched <= 1 || row.matched.length >= row.unmatched);
+    if (!strong.length) return null;
+    const named = strong.filter((row) => row.fields.length);
+    // Rows with different labels ("October, November and December") are each asked for; only rows with the
+    // same label in different sources can disagree.
+    const groups = new Map();
+    for (const row of named.length ? named : strong) {
+      const label = foldAsk(row.label);
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(row);
+    }
+    const answers = [...groups.entries()].sort(([left], [right]) => asked.indexOf(left) - asked.indexOf(right))
+      .slice(0, MAX_LABELS).map(([, group]) => this.recordGroup(context, group, parsed));
+    return answers.length === 1 ? { kind: 'record', ...answers[0] } : { kind: 'records', groups: answers };
+  }
+
+  /** One label's rows: one row, or the sources that have it, the best-matching first, with whether they agree. */
+  recordGroup(context, group, parsed) {
+    const pool = group.sort((left, right) => right.matched.length - left.matched.length || right.fields.length - left.fields.length
+      || left.path.localeCompare(right.path) || left.rowIndex - right.rowIndex).slice(0, 6);
     const items = pool.map((row) => this.recordItem(context, row, parsed));
-    if (items.length === 1) return { kind: 'record', items };
+    if (items.length === 1) return { items };
     const tied = pool.filter((row) => row.matched.length === pool[0].matched.length).length;
     const valuesOf = (item) => JSON.stringify(Object.values(item.fields).map((field) => field.value));
     const verdict = tied === 1 ? 'best'
       : new Set(items.slice(0, tied).map(valuesOf)).size === 1 ? 'agree' : 'differ';
-    return { kind: 'record', verdict, ...(verdict === 'best' ? { matched: pool[0].matched } : {}), items };
+    return { verdict, ...(verdict === 'best' ? { matched: pool[0].matched } : {}), items };
   }
 
   recordItem(context, row, parsed) {
@@ -1653,8 +1855,13 @@ export class EvidenceService {
   /**
    * Everything else: the words to find, scoped to a file the ask names.
    * An answer is a hit that contains every word that says what to find
-   * (not words such as "date" that say what kind of answer is wanted).
-   * When none does, the answer says so, which words were missing, and
+   * (not words such as "date" that say what kind of answer is wanted), in
+   * any of its forms ("diameters", "Q4" as the fourth quarter or its months).
+   * An ask every word of which a file's name or title has is about that file
+   * and is answered with what it holds. Hits are shown by file: a table's
+   * matching cells as rows, a model's measurements by part or room, a
+   * document's passages. When no hit has every word, the answer says which
+   * words no shared file has, answers the rest if it can, and otherwise
    * shows the closest hits; partial matches are never passed off as the
    * thing asked about.
    */
@@ -1671,58 +1878,744 @@ export class EvidenceService {
     const words = [...new Set(content.map(foldAsk).flatMap((word) => word.split(' ')).filter(Boolean))];
     const needed = words.filter((word) => !ANSWER_WORDS.has(word));
     const required = needed.length ? needed : words;
-    const ranked = this.rank(context, scope, { text: content.join(' '), kind: 'any', under, ext: null, fields: null });
-    const has = (unit, word) => {
-      const object = unit.object ?? {};
-      const haystack = ` ${foldAsk(`${object.searchText ?? ''} ${object.valueText ?? ''} ${object.label ?? ''} ${object.path ?? ''}`)} `;
-      return haystack.includes(` ${word} `) || haystack.includes(` ${word}s `);
+    const forms = new Map(required.map((word) => [word, alternativesOf(word)]));
+    const stems = new Map(required.map((word) => [word, stemOf(word)]));
+    const covered = (haystack, word, rowLabel = null) => forms.get(word).some((form) => (MONTH_NAMES.has(form) && form !== word
+      ? rowLabel === form : haystack.includes(` ${form} `))) || (stems.get(word) != null && haystack.includes(` ${stems.get(word)}`));
+    // Every word of the ask in a file's name or title, the named one if one is named: the ask is about that file.
+    const subjects = named ? this.subjectFiles(context, [named.project], required, covered, named.file.path) : this.subjectFiles(context, scope, required, covered);
+    if (subjects.length) return { kind: 'digest', items: subjects.flatMap((subject) => this.digestItems(context, subject)) };
+    const query = [...content, ...required.flatMap((word) => forms.get(word).slice(1))].join(' ');
+    const ranked = this.rank(context, scope, { text: query, kind: 'any', under, ext: null, fields: null });
+    // A table cell also answers to its table's label column ("Department", "Month"); a building model's element to its type ("space").
+    const labelColumns = new Map();
+    const labelColumnOf = (project, object) => {
+      const key = `${project.id}|${object.path}|${object.anchor.sheet ?? ''}`;
+      if (!labelColumns.has(key)) {
+        labelColumns.set(key, this.objectsOfFile(project, object.path).filter((column) => column.anchor?.kind === 'table-column'
+          && (column.anchor.sheet ?? '') === (object.anchor.sheet ?? '')).sort((left, right) => left.anchor.columnIndex - right.anchor.columnIndex)[0]?.anchor.column ?? '');
+      }
+      return labelColumns.get(key);
     };
-    const covers = (unit) => required.filter((word) => has(unit, word));
-    // Words asked for together ("vendor review") that a hit also has together outrank the same words scattered.
-    const pairs = required.slice(1).map((word, index) => ` ${required[index]} ${word} `);
-    const together = (unit) => {
-      const object = unit.object ?? {};
-      const haystack = ` ${foldAsk(`${object.valueText ?? ''} ${object.label ?? ''}`)} `;
-      return pairs.filter((pair) => haystack.includes(pair)).length;
+    const haystackOf = (object, project) => ` ${foldAsk(`${object.searchText ?? ''} ${object.valueText ?? ''} ${object.label ?? ''} ${object.path ?? ''} ${
+      String(object.metadata?.entityType ?? '').replace(/^ifc/i, '')} ${object.anchor?.kind === 'table-cell' && project ? labelColumnOf(project, object) : ''}`)} `;
+    const rowLabelOf = (object) => (['table-cell', 'table-row'].includes(object.anchor?.kind) ? foldAsk(String(object.anchor.rowKey ?? '')) : null);
+    const has = (unit, word) => unit.object != null && covered(haystackOf(unit.object, unit.project), word, rowLabelOf(unit.object));
+    const coverOf = (unit, wanted) => wanted.filter((word) => has(unit, word));
+    const scored = ranked.units.filter((unit) => unit.object && !isWholeFileObject(unit.object)).slice(0, 400)
+      .map((unit) => ({ unit, hits: coverOf(unit, required) }));
+    const found = (wanted) => {
+      const full = scored.filter((entry) => wanted.every((word) => entry.hits.includes(word)) || coverOf(entry.unit, wanted).length === wanted.length);
+      return full.length ? this.foundAnswer(context, full, wanted) : null;
     };
-    const scored = ranked.units.filter((unit) => unit.object).slice(0, 80).map((unit) => ({ unit, hits: covers(unit) }));
-    const full = scored.filter((entry) => entry.hits.length === required.length)
-      .map((entry) => ({ ...entry, together: together(entry.unit) }));
-    if (full.length) {
-      // Then focus: the share of a hit's own words that were asked for. A short sentence about the
-      // thing outranks a long one that merely contains its words; hits less than half as focused as
-      // the best are counted, not shown.
-      const focus = (unit) => required.length / Math.max(required.length, foldAsk(unit.object?.valueText ?? unit.object?.label ?? '').split(' ').length);
-      // A hit that states a figure or date ("was $4.2 million") answers a question about its words more often than one that only uses them.
-      const states = (unit) => (/\d/.test(unit.object?.valueText ?? '') ? 1 : 0);
-      const closest = Math.max(...full.map((entry) => entry.together));
-      const best = full.filter((entry) => entry.together === closest).map((entry) => ({ ...entry, focus: focus(entry.unit), states: states(entry.unit) }))
-        .sort((left, right) => right.states - left.states || right.focus - left.focus);
-      const shown = best.filter((entry) => entry.focus >= best[0].focus / 2).slice(0, 3);
-      return { kind: 'found', items: shown.map(({ unit }) => this.project(context, unit, {}, ANSWER_CHARS)),
-        ...(best.length > shown.length ? { more: best.length - shown.length } : {}) };
-    }
+    const answer = found(required);
+    if (answer) return answer;
     if (named) {
-      const whole = this.askWholeFile(context, named, true);
+      const whole = this.askWholeFile(context, named, true) ?? (isTextualType(named.file.fileType) ? null : this.fileDigest(context, named.project, named.file));
       if (whole) return whole;
     }
     // Which words no shared file has at all is checked word by word, so "none has" is said of the
     // folders searched, not of the closest hit: a file with "west wing" but nothing else asked for has "west".
     const seen = new Set(scored.flatMap((entry) => entry.hits));
     const missing = required.filter((word) => !seen.has(word)
-      && !this.rank(context, scope, { text: word, kind: 'any', under, ext: null, fields: null }).units.slice(0, 80).some((unit) => unit.object && has(unit, word)));
+      && !this.rank(context, scope, { text: forms.get(word).join(' '), kind: 'any', under, ext: null, fields: null }).units.slice(0, 80)
+        .some((unit) => has(unit, word)));
     const searched = under ? { file: `${named.project.name}/${under}` } : { files: this.sharedFileCount(context, scope) };
     // A row asked for by a label no row has ("West division"): the rows labelled like it, which is what a reader checks next.
     const like = this.labelsLike(context, scope, under, parsed.words);
+    // Otherwise the most of the ask that hits have together is answered, and what they lack is said first:
+    // words no shared file has, or words no hit has with the rest ("rooms" and "floor areas", not "house").
+    if (!like) {
+      const subsets = new Map();
+      for (const entry of scored) {
+        if (entry.hits.length < Math.max(1, required.length - 1 - missing.length) || !entry.hits.length) continue;
+        const key = entry.hits.join(' ');
+        subsets.set(key, (subsets.get(key) ?? 0) + 1);
+      }
+      // Of subsets as large, the one whose words are rarest among the hits says the most: "region" over "sales"
+      // when "sales" is in every cell of a "Cost of sales" column.
+      const frequency = new Map();
+      for (const entry of scored) for (const word of entry.hits) frequency.set(word, (frequency.get(word) ?? 0) + 1);
+      const weight = (key) => key.split(' ').reduce((total, word) => total + Math.log(1 + scored.length / (frequency.get(word) ?? 1)), 0);
+      const [subset] = [...subsets.entries()].sort(([left, leftCount], [right, rightCount]) => right.split(' ').length - left.split(' ').length
+        || weight(right) - weight(left) || rightCount - leftCount)[0] ?? [];
+      const rest = subset ? subset.split(' ') : [];
+      const usable = rest.length && (rest.length >= 2 || rest.length === required.length - missing.length);
+      // What the hits have in common may be a file's name or title ("the operations meeting on 4 December"): that file, whole.
+      const subjects = usable ? (named ? this.subjectFiles(context, [named.project], rest, covered, named.file.path) : this.subjectFiles(context, scope, rest, covered)) : [];
+      const partial = subjects.length ? { kind: 'digest', items: subjects.flatMap((subject) => this.digestItems(context, subject)) }
+        : usable ? found(rest) : null;
+      if (partial) return { ...partial, missing: required.filter((word) => !rest.includes(word)), absent: missing, ...searched };
+    }
     // Beside rows labelled like the one asked for, a closest hit is shown only if it has the word that sets that label apart.
     const listed = new Set(like?.rows?.map(foldAsk) ?? []);
-    const rowOf = (unit) => (['table-cell', 'table-row'].includes(unit.object?.anchor?.kind)
-      ? foldAsk(String(unit.object.anchor.rowKey ?? unit.object.metadata?.row ?? '')) : null);
-    const pool = like?.rows ? scored.filter((entry) => !listed.has(rowOf(entry.unit)) && has(entry.unit, like.word)) : scored;
+    const pool = like?.rows ? scored.filter((entry) => !listed.has(rowLabelOf(entry.unit.object)) && has(entry.unit, like.word)) : scored;
     const best = Math.max(0, ...pool.map((entry) => entry.hits.length));
     const closest = best ? pool.filter((entry) => entry.hits.length === best).slice(0, 3) : [];
     return { kind: 'none', looked_for: required, ...(missing.length ? { missing } : {}), ...searched, ...(like ? { like } : {}),
       items: closest.map(({ unit }) => this.project(context, unit, {}, ANSWER_CHARS)) };
+  }
+
+  /**
+   * Hits that have every word, by file: the files with the best hits first,
+   * at most FOUND_FILES. In each, a table's cells come back as its matching
+   * rows, a model's measurements by part or room, and up to PASSAGES_PER_FILE
+   * passages or lines, words asked together first, then those that state a
+   * figure or date, then the most focused.
+   */
+  foundAnswer(context, full, wanted) {
+    const pairs = wanted.slice(1).map((word, index) => ` ${wanted[index]} ${word} `);
+    const textOf = (unit) => foldAsk(`${unit.object?.valueText ?? ''} ${unit.object?.label ?? ''}`);
+    const together = (unit) => pairs.filter((pair) => ` ${textOf(unit)} `.includes(pair)).length;
+    const focus = (unit) => wanted.length / Math.max(wanted.length, foldAsk(unit.object?.valueText ?? unit.object?.label ?? '').split(' ').length);
+    const states = (unit) => (/\d/.test(unit.object?.valueText ?? '') ? 1 : 0);
+    const ranked = full.map((entry) => ({ ...entry, together: together(entry.unit), focus: focus(entry.unit), states: states(entry.unit) }))
+      .sort((left, right) => right.together - left.together || right.states - left.states || right.focus - left.focus);
+    const files = new Map();
+    for (const entry of ranked) {
+      const key = `${entry.unit.project.id}|${entry.unit.object.path}`;
+      if (!files.has(key)) files.set(key, []);
+      files.get(key).push(entry);
+    }
+    const items = [];
+    let shown = 0;
+    for (const entries of [...files.values()].slice(0, FOUND_FILES)) {
+      const { project } = entries[0].unit;
+      const file = this.snapshotFile(context, project, entries[0].unit.object.path);
+      // A row that matched stands for its cells.
+      const cells = entries.filter((entry) => ['table-cell', 'table-row'].includes(entry.unit.object.anchor?.kind));
+      const properties = entries.filter((entry) => entry.unit.object.anchor?.kind === 'cad-property');
+      const others = entries.filter((entry) => !cells.includes(entry) && !properties.includes(entry));
+      if (file && cells.length > 1) items.push(...this.tableItems(context, project, file, this.wholeRows(project, cells.map((entry) => entry.unit.object))));
+      else others.unshift(...cells);
+      if (file && properties.length) items.push(this.modelItem(context, project, file, this.wholeElements(project, file, properties.map((entry) => entry.unit.object))));
+      const passages = others.filter((entry) => entry.focus >= (others[0]?.focus ?? 0) / 2).slice(0, PASSAGES_PER_FILE);
+      items.push(...passages.map(({ unit }) => this.project(context, unit, {}, ANSWER_CHARS)));
+      shown += (file && cells.length > 1 ? cells.length : 0) + (file ? properties.length : 0) + passages.length;
+    }
+    return { kind: 'found', items, ...(ranked.length > shown ? { more: ranked.length - shown } : {}) };
+  }
+
+  /**
+   * Files every word of the ask names, by their path or title ("the supplier
+   * review", "Revenue 2025"): one or two of them; more say too little to
+   * read any one whole.
+   */
+  subjectFiles(context, projects, required, covered, only = null) {
+    const subjects = [];
+    for (const project of projects) {
+      if (!project.snapshotId) continue;
+      for (const file of only ? [this.snapshotFile(context, project, only)].filter(Boolean) : this.timeline.snapshotFiles(project.snapshotId)) {
+        if (!this.allowed(context, project.id, file.path)) continue;
+        const named = ` ${foldAsk(`${project.name} ${file.path.replace(/\.[^./]+$/, '')}`)} `;
+        const title = () => ` ${foldAsk(this.titleOf(project, file.path))} `;
+        if (required.every((word) => covered(named, word)) || required.every((word) => covered(named, word) || covered(title(), word))) {
+          subjects.push({ project, file });
+          if (subjects.length > 2) return [];
+        }
+      }
+    }
+    return subjects;
+  }
+
+  /** A file's title as its index records it: a document's or model's name. */
+  titleOf(project, filePath) {
+    const whole = this.objectsOfFile(project, filePath).find((object) => isWholeFileObject(object) && object.anchor?.kind !== 'table-column');
+    return [whole?.metadata?.title, whole?.valueText, whole?.label].filter((value) => typeof value === 'string').join(' ');
+  }
+
+  /** A snapshot's indexed objects of one file, read once per snapshot. */
+  objectsOfFile(project, filePath) {
+    return this.snapshotObjects(project).get(filePath) ?? [];
+  }
+
+  /** A snapshot's indexed objects by file path, with `versions`: each object by its version id. */
+  snapshotObjects(project) {
+    let byPath = this.fileObjectCache.get(project.snapshotId);
+    if (!byPath) {
+      byPath = new Map();
+      byPath.versions = new Map();
+      for (const object of this.dependencies.objectsAt(project.id, project.snapshotId)) {
+        if (!byPath.has(object.path)) byPath.set(object.path, []);
+        byPath.get(object.path).push(object);
+        if (object.versionId) byPath.versions.set(object.versionId, object);
+      }
+      byPath.weight = byPath.versions.size || [...byPath.values()].reduce((total, objects) => total + objects.length, 0);
+      this.fileObjectCache.set(project.snapshotId, byPath);
+    }
+    return byPath;
+  }
+
+  /** The library's full-text index (text-index.js), opened on first use; null when it cannot be. */
+  get textIndex() {
+    if (this.index === undefined) {
+      try {
+        this.index = new TextIndex(this.dependencies.db, this.timeline.config.dataDir,
+          (contentHash, filePath) => readStructure(this.timeline.blobs.get(contentHash), filePath));
+      } catch { this.index = null; }
+    }
+    return this.index;
+  }
+
+  close() {
+    this.index?.close();
+  }
+
+  /**
+   * A file revision's structure, read once from its bytes: a PDF's or Word
+   * document's headings (each `{ at, text }`, `at` as readingOrder orders
+   * passages) and a PDF's table rows as passage-like units with their caption
+   * and header. Other files have none.
+   */
+  structureOf(file) {
+    if (!this.structures.has(file.contentHash)) {
+      let parts = null;
+      try {
+        parts = this.textIndex?.partsOf(file.contentHash) ?? null;
+        if (!parts) {
+          const read = readStructure(this.timeline.blobs.get(file.contentHash), file.path);
+          parts = [...read.headings.map((heading) => ({ ...heading, kind: 'heading', body: heading.text })), ...read.rows.map((row) => ({ ...row, kind: 'row', body: row.text }))];
+        }
+      } catch { parts = []; /* no structure can be read: passages stand without headings */ }
+      this.structures.set(file.contentHash, {
+        headings: parts.filter((part) => part.kind === 'heading').map((part) => ({ at: [part.page ?? 0, part.line ?? 0, part.start ?? 0], text: part.body })),
+        rows: parts.filter((part) => part.kind === 'row').map((part) => ({
+          id: `row:${file.contentHash}:${part.page}:${part.start}`, valueText: part.body, path: file.path,
+          anchor: { kind: 'pdf-excerpt', pageNumber: part.page, start: part.start },
+          metadata: { excerptType: 'table-row', caption: part.caption, header: part.header } })),
+      });
+    }
+    return this.structures.get(file.contentHash);
+  }
+
+  /** Shared files Lasso recorded it could not read (damaged, password-protected, a scan without text, too large): at most five. */
+  notSearched(context, projects, under = null) {
+    const found = [];
+    for (const project of projects) {
+      let rows = [];
+      try {
+        rows = this.dependencies.db.prepare('SELECT path, reason FROM index_failures WHERE project_id = ? AND resolved_at IS NULL ORDER BY path').all(project.id);
+      } catch { /* a library without the table has recorded none */ }
+      for (const row of rows) {
+        if (!this.allowed(context, project.id, row.path) || (under && row.path !== under)) continue;
+        found.push({ path: `${project.name}/${row.path}`, reason: String(row.reason ?? 'not readable').split(/[.;]/)[0].slice(0, 60) });
+      }
+    }
+    return found.slice(0, 5);
+  }
+
+  /**
+   * A total, mean, maximum, minimum or count over a table column, worked out
+   * from every row: complete for that table, with the rows it covers and,
+   * for a small table, each row's value, so it can be checked. Each table
+   * with such a column is answered; none is chosen. `explicit` is
+   * `{ op, column, file?, where? }`; otherwise the operation and column are
+   * read from the ask ("total adverse events", "average revenue in Q4").
+   */
+  askAggregate(context, projects, parsed, explicit = null) {
+    const op = explicit?.op ? String(explicit.op).toLowerCase() : operationOf(parsed.original);
+    if (!['sum', 'mean', 'max', 'min', 'count'].includes(op)) return null;
+    const asked = foldAsk(explicit?.column ?? parsed.words.join(' '));
+    const months = periodMonths(parsed.original);
+    const named = (filePath) => !explicit?.file || `/${filePath}`.toLowerCase().endsWith(`/${String(explicit.file).toLowerCase().replace(/^\/+/, '')}`);
+    const tables = new Map();
+    for (const project of projects) {
+      if (!project.snapshotId) continue;
+      for (const [key, cells] of this.rowTable(project, project.snapshotId).byRow) {
+        const first = cells[0];
+        if (!this.allowed(context, project.id, first.path) || !named(first.path)) continue;
+        const table = `${project.id}|${first.path}|${first.anchor?.sheet ?? ''}`;
+        if (!tables.has(table)) tables.set(table, { project, path: first.path, sheet: first.anchor?.sheet ?? null, rows: [] });
+        tables.get(table).rows.push({ key, label: String(first.anchor?.rowKey ?? ''), cells });
+      }
+      // The index holds only a table's first rows as cells; the table index holds every row. A table with more rows
+      // there than cells here is read from it, so an operation covers the whole table and not its first rows.
+      for (const indexed of this.dependencies.snapshotTables(project.id, project.snapshotId)) {
+        if (!this.allowed(context, project.id, indexed.file.path) || !named(indexed.file.path)) continue;
+        const table = `${project.id}|${indexed.file.path}|${indexed.sheet ?? ''}`;
+        const dataRows = indexed.meta.rowCount - (indexed.meta.shape?.dataStart ?? 0);
+        if ((tables.get(table)?.rows.length ?? 0) < dataRows) tables.set(table, { project, path: indexed.file.path, sheet: indexed.sheet ?? null, rows: this.indexedRows(indexed) });
+      }
+    }
+    const items = [];
+    for (const table of tables.values()) {
+      const columns = [...new Set(table.rows.flatMap((row) => row.cells.map((cell) => String(cell.anchor?.column ?? ''))))].filter(Boolean);
+      const cellOf = (row, name) => row.cells.find((cell) => cell.anchor?.column === name)?.valueText ?? null;
+      // A column the operation can work on: one with figures, unless it only counts rows.
+      const figures = (name) => op === 'count' || table.rows.some((row) => numberOf(cellOf(row, name)) != null);
+      const column = explicit?.column ? columns.find((name) => foldAsk(name) === asked)
+        : columns.filter((name) => namesHeader(asked, name) && figures(name)).sort((left, right) => right.length - left.length)[0];
+      if (!column) continue;
+      let rows = table.rows;
+      if (months && rows.some((row) => MONTH_NAMES.has(foldAsk(row.label)))) rows = rows.filter((row) => months.has(foldAsk(row.label)));
+      // "the total Amount for the West region": the ask names another column and one of its values, and only those rows
+      // count, as {where: {Region: "West"}} asks. Both the column and the value must be named; nothing is guessed.
+      const where = { ...(explicit?.where ?? {}) };
+      if (!explicit) {
+        const said = ` ${asked} `;
+        for (const name of columns.filter((other) => other !== column && namesHeader(asked, other) && !figures(other))) {
+          const values = [...new Set(table.rows.map((row) => cellOf(row, name)).filter(Boolean))];
+          const named = values.filter((value) => foldAsk(value) && said.includes(` ${foldAsk(value)} `));
+          if (named.length === 1) where[name] = named[0];
+        }
+      }
+      // {where: {Region: "North"}}: rows whose cell in that column (or whose label, for the label column) is that value.
+      for (const [name, wanted] of Object.entries(where)) {
+        rows = rows.filter((row) => {
+          const cell = row.cells.find((candidate) => foldAsk(String(candidate.anchor?.column ?? '')) === foldAsk(name));
+          return foldAsk(String(cell ? cell.valueText : row.label)) === foldAsk(String(wanted));
+        });
+      }
+      const values = rows.map((row) => ({ label: row.label, text: row.cells.find((cell) => cell.anchor?.column === column)?.valueText ?? null }))
+        .map((entry) => ({ ...entry, number: numberOf(entry.text) }));
+      const numeric = values.filter((entry) => entry.number != null);
+      if (op !== 'count' && !numeric.length) continue;
+      const decimals = Math.max(0, ...numeric.map((entry) => (String(entry.text).split('.')[1]?.replace(/\D.*$/, '').length ?? 0)));
+      const round = (value) => Number(value.toFixed(Math.min(6, decimals + (op === 'mean' ? 2 : 0))));
+      const extreme = op === 'max' ? numeric.reduce((best, entry) => (entry.number > best.number ? entry : best), numeric[0])
+        : op === 'min' ? numeric.reduce((best, entry) => (entry.number < best.number ? entry : best), numeric[0]) : null;
+      const value = op === 'count' ? values.length : op === 'sum' ? round(numeric.reduce((total, entry) => total + entry.number, 0))
+        : op === 'mean' ? round(numeric.reduce((total, entry) => total + entry.number, 0) / numeric.length) : extreme.number;
+      const file = this.snapshotFile(context, table.project, table.path);
+      items.push({ src: file ? this.source(context, table.project, file) : null, type: 'computed', op, column, ...(table.sheet ? { sheet: table.sheet } : {}),
+        ...(Object.keys(where).length ? { where } : {}),
+        value, rows: op === 'count' ? values.length : numeric.length, of: table.rows.length, ...(extreme ? { row: extreme.label } : {}),
+        ...(months ? { period: [...months].join(', ') } : {}),
+        ...(values.length - numeric.length && op !== 'count' ? { skipped: values.length - numeric.length } : {}),
+        ...(values.length <= 15 ? { values: values.map((entry) => [entry.label, entry.text]) } : {}) });
+      if (items.length >= 3) break;
+    }
+    return items.length ? { kind: 'computed', status: 'complete', items } : null;
+  }
+
+  /**
+   * Every data row of a table in the table index, shaped as askAggregate reads rows: its label (the label
+   * column's cell) and its other cells, each with its column's name.
+   */
+  indexedRows({ meta }) {
+    const headers = meta.shape?.headers ?? [];
+    const labelColumn = meta.shape?.labelColumn ?? 0;
+    const rows = [];
+    for (let from = meta.shape?.dataStart ?? 0; from < meta.rowCount; from += 10_000) {
+      for (const row of this.dependencies.tables.rows(meta.id, from, Math.min(meta.rowCount, from + 10_000))) {
+        if (!row.cells.some((cell) => String(cell ?? '').trim())) continue;
+        rows.push({ key: `${meta.id}:${row.ordinal}`, label: String(row.cells[labelColumn] ?? ''),
+          cells: row.cells.map((cell, index) => ({ valueText: String(cell ?? ''), anchor: { column: String(headers[index] ?? '') } }))
+            .filter((_, index) => index !== labelColumn && headers[index]) });
+      }
+    }
+    return rows;
+  }
+
+  /** The files of the folders' current snapshots by content hash, for placing a revision's parts. */
+  filesByHash(project) {
+    const snapshot = this.snapshotObjects(project);
+    if (!snapshot.byHash) {
+      snapshot.byHash = new Map();
+      for (const file of this.timeline.snapshotFiles(project.snapshotId)) {
+        if (!snapshot.byHash.has(file.contentHash)) snapshot.byHash.set(file.contentHash, []);
+        snapshot.byHash.get(file.contentHash).push(file);
+      }
+    }
+    return snapshot.byHash;
+  }
+
+  /**
+   * Plain-language search over the full-text index. Candidates are versions
+   * of the shared folders' current snapshots that BM25 ranks for the ask's
+   * words, no word required; each word counts by how rare it is. The best
+   * files (at most FOUND_FILES) are read in order, and from them the fewest
+   * sentences and table rows that cover the ask are chosen within the budget,
+   * each with the context it needs (select.js); a table's matching rows and a
+   * model's matching measurements come back whole. The answer is ranked, not
+   * exhaustive, and says how much it left out and which words no shared file
+   * has. Null when the index cannot be used, and the plain scan answers.
+   */
+  askSearch(context, projects, parsed) {
+    const index = this.textIndex;
+    if (!index || !parsed.content.length) return null;
+    if (!index.sync(SYNC_BUDGET_MS)) return null;
+    let scope = projects;
+    let under = null;
+    const named = parsed.files.length ? this.tryMention(context, parsed.files[0], parsed) : null;
+    if (named) { scope = [named.project]; under = named.file.path; }
+    const terms = [...new Set(parsed.content.map(foldAsk).flatMap((word) => word.split(' ')).filter((word) => word.length > 1 || /\d/.test(word)))];
+    if (!terms.length) return null;
+    const coveredBy = hasWord;
+    const inScope = (versionId) => {
+      for (const project of scope) {
+        if (!project.snapshotId) continue;
+        const object = this.snapshotObjects(project).versions.get(versionId);
+        if (object && this.allowed(context, project.id, object.path) && (!under || object.path === under)) return { project, object };
+      }
+      return null;
+    };
+    // A heading's or table row's file revision, placed in the folders searched.
+    const partInScope = (part) => {
+      for (const project of scope) {
+        if (!project.snapshotId) continue;
+        const file = (this.filesByHash(project).get(part.contentHash) ?? [])
+          .find((candidate) => this.allowed(context, project.id, candidate.path) && (!under || candidate.path === under));
+        if (file) return { project, file };
+      }
+      return null;
+    };
+    const phrases = terms.slice(1).map((term, at) => `${terms[at]} ${term}`);
+    // A period the ask names is looked for both ways reports write it ("Q4", "fourth quarter"), and read as the months
+    // it covers. Its words, and words that say what form the answer takes ("total", "summary"), are not what the ask
+    // is about: never said to be missing, nor needed for a passage to have every word of the ask.
+    const periods = periodsOf(parsed.original);
+    const unsought = new Set([...periods.flatMap((named) => named.forms).flatMap((form) => form.split(' ')), ...terms.filter((term) => ANSWER_WORDS.has(term))]);
+    const forms = [...new Set(periods.flatMap((named) => named.forms))].filter((form) => !terms.includes(form) && !phrases.includes(form));
+    let hits = index.search([...terms, ...phrases, ...forms], 4000).flatMap((hit) => {
+      const found = inScope(hit.versionId);
+      return found ? [{ ...found, score: hit.score }] : [];
+    });
+    let partHits = index.searchParts([...terms, ...phrases, ...forms], 400).flatMap((part) => {
+      const found = partInScope(part);
+      return found ? [{ project: found.project, object: { path: found.file.path, anchor: null }, score: part.score, part }] : [];
+    });
+    // A word no version or part in scope has is said, and the ask is answered for the rest.
+    const absent = terms.filter((term) => !unsought.has(term) && !index.search([term], 400).some((hit) => inScope(hit.versionId))
+      && !index.searchParts([term], 400).some((part) => partInScope(part)));
+    // Every other word of the ask in a file's name or title ("vendor memo.docx", "parts in the fixture assembly", "bill of
+    // materials for the fixture assembly"): the ask is about that file, answered with what it holds, within the digest's
+    // size. Words that say what form the answer takes ("parts", "summary") and words no file has are not looked for in names.
+    const naming = terms.filter((term) => !ANSWER_WORDS.has(term) && !absent.includes(term));
+    // An ask for what one document found that names it ("the main results of the School Streets pilot evaluation") is
+    // answered from that document, and the words that name it pick the document rather than rank its sentences.
+    const asked = sectionsAskedAbout(parsed.original);
+    const focus = asked.findings ? this.focusDocument(context, [...hits, ...partHits], naming, coveredBy) : null;
+    if (focus) {
+      hits = hits.filter((hit) => hit.project.id === focus.project.id && hit.object.path === focus.file.path);
+      partHits = partHits.filter((hit) => hit.project.id === focus.project.id && hit.object.path === focus.file.path);
+    }
+    const searched = under ? { file: `${named.project.name}/${under}` } : { files: this.sharedFileCount(context, scope) };
+    // What a named file lacks of the ask: its absent words, less those of its folder and path, which say where to look.
+    // When the file has none of what the ask is about ("the annual review … carbon emissions"), that is the answer.
+    const placeWords = named ? new Set(foldAsk(`${named.project.name} ${named.file.path}`).split(' ')) : new Set();
+    const lacking = absent.filter((term) => !placeWords.has(term));
+    const topic = terms.filter((term) => !unsought.has(term) && !placeWords.has(term));
+    const noneOfTopic = lacking.length > 0 && topic.every((term) => lacking.includes(term));
+    if (naming.length) {
+      const subjects = named ? this.subjectFiles(context, [named.project], naming, coveredBy, named.file.path) : this.subjectFiles(context, scope, naming, coveredBy);
+      if (subjects.length === 1 && noneOfTopic) return this.namedWithout(context, subjects[0], terms, lacking);
+      if (subjects.length && !focus) {
+        return { kind: 'digest', items: subjects.flatMap((subject) => this.digestItems(context, subject)),
+          ...(lacking.length ? { missing: lacking, absent: lacking, file: subjects.length === 1 ? `${subjects[0].project.name}/${subjects[0].file.path}` : `the ${subjects.length} files` } : {}) };
+      }
+    }
+    if (named && lacking.length && !hits.length && !partHits.length) return this.namedWithout(context, named, terms, lacking);
+    // Nothing in the index: the plain scan, which also reads large tables' row index, answers (and says what is missing).
+    if (!hits.length && !partHits.length) return null;
+    const size = Math.max(1, index.size());
+    const weights = new Map([...terms.filter((term) => !absent.includes(term) && !focus?.words.has(term)), ...forms]
+      .map((term) => [term, Math.log(1 + size / Math.max(1, index.frequency(term)))]));
+    // Files by their three best hits; a whole-file object (a title, a file name) counts toward its file without being evidence.
+    const files = new Map();
+    for (const hit of [...hits, ...partHits]) {
+      const key = `${hit.project.id}|${hit.object.path}`;
+      if (!files.has(key)) files.set(key, { project: hit.project, path: hit.object.path, hits: [] });
+      files.get(key).hits.push(hit);
+    }
+    // A file ranks by its best hit, then a little for the next two: one passage with the ask's rarest word
+    // outranks a table whose many cells share a common one.
+    const ranked = [...files.values()].map((entry) => {
+      const scores = entry.hits.map((hit) => hit.score).sort((left, right) => right - left);
+      return { ...entry, score: scores[0] + 0.3 * ((scores[1] ?? 0) + (scores[2] ?? 0)) };
+    }).sort((left, right) => right.score - left.score);
+    // Files whose best passage has every word of the ask are never cut by the relative score: a short note's one exact
+    // sentence is kept beside a long report whose sentences repeat some of the words.
+    const textOf = (object) => ` ${foldAsk(`${object?.label ?? ''} ${object?.valueText ?? ''}`)} `;
+    const coversAll = (hit) => terms.filter((term) => !absent.includes(term) && !unsought.has(term))
+      .every((term) => hasWord(textOf(hit.object), term));
+    const complete = new Set(ranked.filter((entry) => entry.hits.some(coversAll)));
+    const chosen = [...ranked.filter((entry) => complete.has(entry)), ...ranked.filter((entry) => !complete.has(entry) && entry.score >= ranked[0].score * FILE_SHARE)]
+      .slice(0, FOUND_FILES).sort((left, right) => right.score - left.score);
+    // A search for something mostly not here (half or more of the words it seeks in no file) answers briefly. A question
+    // in plain words always has some words no file uses ("went", "instead"), and those are no reason to show less.
+    const sought = terms.filter((term) => !unsought.has(term));
+    const mostlyAbsent = sought.length > 0 && absent.length * 2 >= sought.length;
+    const budget = mostlyAbsent ? Math.min(150, context.budget ?? ASK_BUDGET) : context.budget ?? ASK_BUDGET;
+    const textFiles = [];
+    const items = [];
+    for (const entry of chosen) {
+      const file = this.snapshotFile(context, entry.project, entry.path);
+      if (!file) continue;
+      const objects = this.objectsOfFile(entry.project, entry.path);
+      // A cell, row or measurement is evidence when its own words match, not only its file's name.
+      const matchesIn = (text) => {
+        const words = ` ${foldAsk(text)} `;
+        return [...weights.keys()].some((term) => hasWord(words, term));
+      };
+      const own = (object) => matchesIn(`${object.label ?? ''} ${object.valueText ?? ''} ${object.anchor?.column ?? ''} ${object.metadata?.entityName ?? ''}`);
+      const evidence = entry.hits.map((hit) => hit.object).filter((object) => object.anchor && !isWholeFileObject(object) && own(object));
+      const structure = ['pdf', 'document'].includes(file.fileType) ? this.structureOf(file) : { headings: [], rows: [] };
+      // A passage that repeats a heading, or that the reader made of a table's rows run together, is read as those instead.
+      const headingTexts = new Set(structure.headings.map((heading) => foldAsk(heading.text)));
+      const passages = objects.filter((object) => ['pdf-excerpt', 'text-excerpt'].includes(object.anchor?.kind) && isPassage(object)
+        && !headingTexts.has(foldAsk(object.valueText)) && !structure.rows.some((row) => String(object.valueText ?? '').includes(row.valueText)));
+      if (passages.length || structure.rows.length) {
+        textFiles.push({ key: `${entry.project.id}|${entry.path}`, entry, file, sentences: readingOrder([...passages, ...structure.rows], structure.headings) });
+      } else if (evidence.some((object) => ['table-cell', 'table-row'].includes(object.anchor?.kind))) {
+        const cells = evidence.filter((object) => ['table-cell', 'table-row'].includes(object.anchor?.kind));
+        // Rows the ask names (by a label or value) come back whole; a match on column names alone is those columns.
+        const labelled = cells.some((object) => matchesIn(`${object.anchor?.rowKey ?? ''} ${object.valueText ?? ''}`));
+        let rows = labelled ? this.wholeRows(entry.project, cells) : cells.filter((object) => object.anchor?.kind === 'table-cell');
+        // A period the ask names ("Q4") keeps a month-labelled table's rows to its months.
+        const months = periodMonths(parsed.original);
+        const label = (object) => foldAsk(String(object.anchor?.rowKey ?? ''));
+        if (months && rows.some((object) => MONTH_NAMES.has(label(object)))) rows = rows.filter((object) => months.has(label(object)));
+        items.push(...this.tableItems(context, entry.project, file, rows).map((table) => ({ ...table,
+          ...(table.rows.length > SEARCH_TABLE_ROWS ? { rows: table.rows.slice(0, SEARCH_TABLE_ROWS), more_rows: table.rows.length - SEARCH_TABLE_ROWS + (table.more_rows ?? 0) } : {}) })));
+      } else if (evidence.some((object) => object.anchor?.kind === 'cad-property')) {
+        items.push(this.modelItem(context, entry.project, file, this.wholeElements(entry.project, file, evidence.filter((object) => object.anchor?.kind === 'cad-property'))));
+      } else if (evidence.length) {
+        items.push(...evidence.slice(0, PASSAGES_PER_FILE).map((object) => this.project(context, { project: entry.project, object }, {}, ANSWER_CHARS)));
+      }
+    }
+    let selection = null;
+    if (textFiles.length) {
+      selection = selectEvidence(textFiles, weights, { budget, minShare: SENTENCE_SHARE, sectionsAsked: asked });
+      for (const { key, excerpts } of selection.files) {
+        const { entry, file } = textFiles.find((candidate) => candidate.key === key);
+        const src = this.sourceFor(context, entry.project, file);
+        const real = (object) => !String(object.id).startsWith('row:');
+        items.push({ src, type: 'excerpts', excerpts: excerpts.map((excerpt) => {
+          const first = excerpt.objects.find(real);
+          const ref = first ? this.objectRef(context, entry.project, first) : null;
+          return { at: locatorOf(excerpt.objects[0]) || null, ...(excerpt.heading ? { section: excerpt.heading } : {}),
+            ...(excerpt.rows ? { caption: excerpt.caption, header: excerpt.header, rows: excerpt.rows } : { text: excerpt.text }),
+            ...(ref ? { h: this.issue(context, ref) } : {}) };
+        }) });
+      }
+    }
+    // A row asked for by a label no row has ("West division"): the rows labelled like it, which is what a reader checks next.
+    const like = this.labelsLike(context, scope, under, parsed.words);
+    // What a search cannot have seen: files in scope Lasso could not read.
+    const unreadable = this.notSearched(context, scope, under);
+    const blind = unreadable.length ? { not_searched: unreadable } : {};
+    if (!items.length) return null;
+    // A row asked for by a label no table has, that no excerpt names and no indexed passage in scope has every word of:
+    // that absence is the answer, and rows or sentences about other labels are not evidence for it.
+    const shownText = ` ${foldAsk(JSON.stringify(items))} `;
+    if (like && !shownText.includes(` ${like.label} `) && !index.search(terms, 400, { all: true }).some((hit) => inScope(hit.versionId))
+      && !index.searchParts(terms, 400, { all: true }).some((part) => partInScope(part))) {
+      return { kind: 'none', status: 'not_found', looked_for: terms, ...(absent.length ? { missing: absent } : {}), ...searched, like, ...blind, items: [] };
+    }
+    // An asked-for word that only names a file shown is not missing from its excerpts.
+    const fileNames = ` ${foldAsk(chosen.map((entry) => entry.path).join(' '))} `;
+    const unmatched = (selection?.missingTerms ?? []).filter((term) => !absent.includes(term) && !unsought.has(term) && !forms.includes(term)
+      && !hasWord(fileNames, term));
+    return { kind: 'found', status: 'ranked', items, ...searched, ...(like ? { like } : {}), ...blind,
+      counts: { files: chosen.length, matching_files: ranked.length, ...(selection ? { sentences: selection.shownSentences, left_out: selection.leftOut } : {}) },
+      ...(selection?.leftOutSections?.length ? { left_out_in: selection.leftOutSections } : {}),
+      ...(absent.length ? { missing: absent, absent } : {}), ...(unmatched.length ? { unmatched } : {}) };
+  }
+
+  /**
+   * A file the ask names, without some of its words ("what does the annual review say about carbon emissions"):
+   * that is said first. A document then shows its sections, which say what it does cover, rather than its text;
+   * a model or table shows its digest, which may answer in its own terms (an IFC model's rooms are its spaces).
+   */
+  namedWithout(context, { project, file }, terms, absent) {
+    const where = `${project.name}/${file.path}`;
+    if (['pdf', 'document', 'presentation', 'markdown', 'text'].includes(file.fileType)) {
+      const headings = ['pdf', 'document'].includes(file.fileType) ? this.structureOf(file).headings.map((heading) => heading.text) : [];
+      this.sourceFor(context, project, file);
+      return { kind: 'none', status: 'not_found', looked_for: terms, missing: absent, file: where, ...(headings.length ? { sections: headings.slice(0, 40) } : {}),
+        ...(headings.length > 40 ? { more_sections: headings.length - 40 } : {}), items: [] };
+    }
+    return { kind: 'digest', status: 'partial', items: this.digestItems(context, { project, file }), missing: absent, absent, file: where };
+  }
+
+  /**
+   * The one document an ask names among those a search hit: the one whose name or title has two or more of the ask's
+   * words, more than any other. With the words of its file name, which pick it rather than rank its sentences.
+   */
+  focusDocument(context, hits, naming, coveredBy) {
+    const files = new Map();
+    for (const hit of hits) {
+      const key = `${hit.project.id}|${hit.object.path}`;
+      if (!files.has(key)) files.set(key, { project: hit.project, path: hit.object.path });
+    }
+    const scored = [...files.values()].flatMap(({ project, path: filePath }) => {
+      const file = this.snapshotFile(context, project, filePath);
+      if (!file || !['pdf', 'document', 'presentation', 'markdown', 'text'].includes(file.fileType)) return [];
+      // Its name and title pick it; only the words of its file name are dropped from ranking its sentences, since a
+      // title often says what the document is about ("WALK-ON: walking and knee pain").
+      const titled = ` ${foldAsk(`${filePath.replace(/\.[^./]+$/, '')} ${this.titleOf(project, filePath)}`)} `;
+      const fileName = ` ${foldAsk(filePath.replace(/\.[^./]+$/, ''))} `;
+      return [{ project, file, picked: naming.filter((word) => coveredBy(titled, word)).length, words: new Set(naming.filter((word) => coveredBy(fileName, word))) }];
+    }).sort((left, right) => right.picked - left.picked);
+    const [best, next] = scored;
+    return best && best.picked >= 2 && best.picked > (next?.picked ?? 0) ? best : null;
+  }
+
+  /** What a subject file holds: a text file's text (or outline), any other file's digest. */
+  digestItems(context, { project, file }) {
+    const answer = isTextualType(file.fileType) ? this.askWholeFile(context, { project, file }) : this.fileDigest(context, project, file);
+    return answer?.items ?? [{ src: this.sourceFor(context, project, file), type: 'file' }];
+  }
+
+  /**
+   * A file that is not text, as its index has it: a workbook's tables, a
+   * document's passages in order, a CAD or building model's parts or rooms
+   * and their measurements.
+   */
+  fileDigest(context, project, file) {
+    const objects = this.objectsOfFile(project, file.path);
+    const large = this.dependencies.snapshotTables(project.id, project.snapshotId).filter((table) => table.file.path === file.path);
+    const cells = objects.filter((object) => object.anchor?.kind === 'table-cell');
+    if (large.length || cells.length) {
+      return { kind: 'digest', items: [...this.tableItems(context, project, file, cells.filter((cell) => !large.some((table) => (table.sheet ?? '') === (cell.anchor.sheet ?? '')))),
+        ...large.map((table) => this.largeTableItem(context, project, file, table))] };
+    }
+    const properties = objects.filter((object) => object.anchor?.kind === 'cad-property');
+    const model = objects.find((object) => object.anchor?.kind === 'cad-model');
+    if (model || properties.length) {
+      const item = this.modelItem(context, project, file, properties, model);
+      // An assembly's instances, where each sits: what a relation between two of them is asked by.
+      const assembly = STEP_FILE.test(file.path) ? this.stepModel(file) : null;
+      if (assembly?.occurrences?.length > 1) {
+        const instances = instancesOf(assembly);
+        item.instances = instances.slice(0, DIGEST_INSTANCES).map((instance) => ({ label: instance.label,
+          ...(instance.placement ? { at: instance.placement.at, ...(instance.placement.turn ? { turn: instance.placement.turn } : {}) } : {}) }));
+        if (instances.length > DIGEST_INSTANCES) item.more_instances = instances.length - DIGEST_INSTANCES;
+      }
+      return { kind: 'digest', items: [item] };
+    }
+    const passages = objects.filter((object) => ['pdf-excerpt', 'text-excerpt'].includes(object.anchor?.kind));
+    if (passages.length) return { kind: 'digest', items: [this.textItem(context, project, file, passages)] };
+    return null;
+  }
+
+  /**
+   * The rows hit cells and rows are in, whole when the table is narrow: a draft that gives a month's margin
+   * also gives its revenue, at a few tokens a row. A wide table keeps only the columns that matched.
+   */
+  wholeRows(project, objects) {
+    const table = this.rowTable(project, project.snapshotId);
+    const cells = new Map();
+    for (const object of objects) {
+      const key = `${object.path}|${object.metadata?.sheet ?? object.anchor?.sheet ?? ''}|${object.anchor?.rowIndex}`;
+      const row = table.byRow.get(key) ?? [];
+      const narrow = new Set(row.map((cell) => cell.anchor?.columnIndex)).size <= WHOLE_ROW_COLUMNS;
+      for (const cell of narrow ? row : object.anchor?.kind === 'table-cell' ? [object] : row.slice(0, WHOLE_ROW_COLUMNS)) {
+        if (cell.anchor?.kind === 'table-cell') cells.set(`${key}|${cell.anchor.columnIndex}`, cell);
+      }
+    }
+    return [...cells.values()];
+  }
+
+  /**
+   * The matched measurements of each part or room, then its others in the order people ask for them, up to
+   * ELEMENT_PROPERTIES in all: "the bracket's size and holes" gets its extents beside its holes.
+   */
+  wholeElements(project, file, matched) {
+    const names = new Set(matched.map((property) => property.metadata?.entityName));
+    const others = this.objectsOfFile(project, file.path).filter((object) => object.anchor?.kind === 'cad-property'
+      && names.has(object.metadata?.entityName) && !matched.includes(object))
+      .sort((left, right) => propertyRank(String(left.label)) - propertyRank(String(right.label)));
+    const chosen = [...matched];
+    for (const name of names) {
+      const count = matched.filter((property) => property.metadata?.entityName === name).length;
+      chosen.push(...others.filter((object) => object.metadata?.entityName === name).slice(0, Math.max(0, ELEMENT_PROPERTIES - count)));
+    }
+    return chosen;
+  }
+
+  /** Table cells as the rows they are in, one table per sheet: the row's label, then the cells' columns in order. */
+  tableItems(context, project, file, cells) {
+    const src = this.sourceFor(context, project, file);
+    const sheets = new Map();
+    for (const cell of cells) {
+      const sheet = cell.anchor.sheet ?? '';
+      if (!sheets.has(sheet)) sheets.set(sheet, []);
+      sheets.get(sheet).push(cell);
+    }
+    const columnsOf = this.objectsOfFile(project, file.path).filter((object) => object.anchor?.kind === 'table-column');
+    return [...sheets.entries()].map(([sheet, group]) => {
+      const columns = [...new Map(group.map((cell) => [cell.anchor.columnIndex, cell.anchor.column])).entries()].sort(([left], [right]) => left - right);
+      const known = new Set(columns.map(([index]) => index));
+      const label = columnsOf.filter((column) => (column.anchor.sheet ?? '') === sheet && !known.has(column.anchor.columnIndex))
+        .sort((left, right) => left.anchor.columnIndex - right.anchor.columnIndex)[0]?.anchor.column ?? '';
+      const rows = new Map();
+      for (const cell of group) {
+        if (!rows.has(cell.anchor.rowIndex)) rows.set(cell.anchor.rowIndex, { label: String(cell.anchor.rowKey ?? ''), values: new Map() });
+        rows.get(cell.anchor.rowIndex).values.set(cell.anchor.columnIndex, cell.valueText ?? '');
+      }
+      const ordered = [...rows.entries()].sort(([left], [right]) => left - right)
+        .map(([, row]) => [row.label, ...columns.map(([index]) => row.values.get(index) ?? '')]);
+      return { src, type: 'table', ...(sheet ? { sheet } : {}), header: [label, ...columns.map(([, name]) => name)],
+        rows: ordered.slice(0, DIGEST_ROWS), ...(ordered.length > DIGEST_ROWS ? { more_rows: ordered.length - DIGEST_ROWS } : {}) };
+    });
+  }
+
+  /** A large table's first rows from its row index, with how many it has. */
+  largeTableItem(context, project, file, table) {
+    const rows = this.dependencies.tables.rows(table.meta.id, 0, DIGEST_ROWS - 1).map((row) => row.cells.map((cell) => String(cell ?? '')));
+    return { src: this.sourceFor(context, project, file), type: 'table', ...(table.sheet ? { sheet: table.sheet } : {}),
+      header: (table.meta.shape?.headers ?? []).map(String), rows, rows_total: table.meta.rowCount };
+  }
+
+  /** A model's parts or rooms and their measurements, rooms first and the measurements people ask for first. */
+  modelItem(context, project, file, properties, model = null, keepOrder = !model) {
+    const elements = new Map();
+    for (const property of properties) {
+      const name = String(property.metadata?.entityName ?? '');
+      const type = String(property.metadata?.entityType ?? '');
+      if (!elements.has(name)) elements.set(name, { name, type, room: type === 'IFCSPACE', properties: [] });
+      const label = String(property.label ?? '');
+      elements.get(name).properties.push([label.startsWith(`${name} `) ? label.slice(name.length + 1) : label, property.valueText ?? '']);
+    }
+    // A building model is described by its rooms and storeys; its walls, windows and slabs are counted.
+    const all = [...elements.values()];
+    const rooms = all.some((element) => element.room);
+    const described = rooms ? all.filter((element) => ['IFCSPACE', 'IFCBUILDINGSTOREY'].includes(element.type)) : all;
+    const counted = {};
+    for (const element of all) {
+      if (described.includes(element)) continue;
+      const kind = element.type.replace(/^IFC/i, '').toLowerCase() || 'other';
+      counted[kind] = (counted[kind] ?? 0) + 1;
+    }
+    const ordered = described.sort((left, right) => Number(right.room) - Number(left.room));
+    const shown = [];
+    let size = 0;
+    for (const element of ordered) {
+      const sorted = element.properties.map((property, index) => [property, index]).sort(([[left], leftIndex], [[right], rightIndex]) =>
+        (keepOrder ? leftIndex - rightIndex : propertyRank(left) - propertyRank(right) || leftIndex - rightIndex)).map(([property]) => property);
+      const entry = { name: element.name === '@assembly' ? 'assembly' : element.name, properties: sorted.slice(0, ELEMENT_PROPERTIES),
+        ...(sorted.length > ELEMENT_PROPERTIES ? { more: sorted.length - ELEMENT_PROPERTIES } : {}) };
+      size += JSON.stringify(entry).length;
+      if (size > DIGEST_CHARS && shown.length) break;
+      shown.push(entry);
+    }
+    const summary = String(model?.metadata?.textExcerpt ?? '').split('\n').filter(Boolean).slice(0, 12);
+    return { src: this.sourceFor(context, project, file), type: 'model', ...(summary.length ? { summary } : {}), elements: shown,
+      ...(ordered.length > shown.length ? { more_elements: ordered.length - shown.length } : {}),
+      ...(Object.keys(counted).length ? { other_elements: counted } : {}) };
+  }
+
+  /** A document's passages in reading order: paragraphs, and sentences no paragraph already holds. */
+  textItem(context, project, file, passages) {
+    const paragraphs = passages.filter((passage) => passage.metadata?.excerptType === 'paragraph');
+    const kept = passages.filter((passage) => passage.metadata?.excerptType === 'paragraph' || !paragraphs.some((paragraph) =>
+      paragraph.anchor.pageNumber === passage.anchor.pageNumber && String(paragraph.valueText ?? '').includes(String(passage.valueText ?? ''))));
+    const position = (passage) => [passage.anchor.pageNumber ?? 0, passage.anchor.lineStart ?? 0, passage.anchor.start ?? 0];
+    kept.sort((left, right) => {
+      const [a, b] = [position(left), position(right)];
+      return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+    });
+    const shown = [];
+    let size = 0;
+    for (const passage of kept) {
+      size += String(passage.valueText ?? '').length;
+      if (size > DIGEST_CHARS && shown.length) break;
+      shown.push({ at: locatorOf(passage), text: passage.valueText ?? '' });
+    }
+    return { src: this.sourceFor(context, project, file), type: 'text', passages: shown,
+      ...(kept.length > shown.length ? { more: kept.length - shown.length } : {}) };
   }
 
   /** How many shared, indexed files a search covered. */
@@ -1791,7 +2684,9 @@ export class EvidenceService {
   /** A small text file named in an ask, whole; otherwise a code file's outline, or the opening lines (a table's header) of any other. */
   askWholeFile(context, named, onlyIfSmall = false) {
     const { project, file } = named;
-    if (!isTextualType(file.fileType)) return onlyIfSmall ? null : { kind: 'files', items: [{ src: this.sourceFor(context, project, file), type: 'file' }] };
+    if (!isTextualType(file.fileType)) {
+      return onlyIfSmall ? null : this.fileDigest(context, project, file) ?? { kind: 'files', items: [{ src: this.sourceFor(context, project, file), type: 'file' }] };
+    }
     const all = fileLines(this.textOf(file));
     if (all.join('\n').length <= WHOLE_FILE_CHARS) return { kind: 'lines', items: [this.lines(context, project, file, [1, Math.max(1, all.length)], 0, false)] };
     if (onlyIfSmall) return null;
@@ -1802,6 +2697,87 @@ export class EvidenceService {
   status() {
     const context = this.context();
     return { scope: this.scope.describe(), gen: context.generation, folders: this.folders(context) };
+  }
+}
+
+/**
+ * Every answer says what it is: `complete` (an exact lookup, or an operation
+ * over every row of a table), `ranked` (a search's selection, never all there
+ * is), `partial` (shown in part: a cut digest, a word no file has),
+ * `ambiguous` (sources or candidates the files do not settle between),
+ * `not_found` (this search found nothing, which is not proof of absence).
+ */
+function withStatus(answer) {
+  if (answer.status) return answer;
+  const ambiguous = (answer.kind === 'record' && answer.verdict === 'differ') || (answer.kind === 'records' && answer.groups.some((group) => group.verdict === 'differ'))
+    || (answer.items ?? []).some((item) => item.error?.code === 'ambiguous');
+  const partial = (answer.items ?? []).some((item) => item.more || item.more_rows || item.more_elements || item.trunc) || answer.missing?.length;
+  const status = ambiguous ? 'ambiguous' : answer.kind === 'none' ? 'not_found' : ['found', 'matches'].includes(answer.kind) ? 'ranked' : partial ? 'partial' : 'complete';
+  return { ...answer, status };
+}
+
+/** "total", "average", "highest" … in an ask: the operation it asks of a column, or null. */
+function operationOf(text) {
+  const folded = String(text ?? '').toLowerCase();
+  if (/\b(?:total|sum|altogether|in all|overall number)\b/.test(folded) || /\bhow many\b/.test(folded)) return 'sum';
+  if (/\b(?:average|mean)\b/.test(folded)) return 'mean';
+  if (/\b(?:highest|largest|maximum|max|most|biggest|top)\b/.test(folded)) return 'max';
+  if (/\b(?:lowest|smallest|minimum|min|least|fewest)\b/.test(folded)) return 'min';
+  return null;
+}
+
+/** A cell's number as written ("1,234", "12%", "-3.4", "$1.2"), or null. */
+function numberOf(text) {
+  const match = String(text ?? '').replace(/,/g, '').match(/^[\s$€£]*(-?\d+(?:\.\d+)?)\s*%?\s*$/);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Which kinds of report section the ask is about: other work, a report's apparatus, or what it found as a whole
+ * ("the main results of the pilot", "what did the evaluation find", "Halden monitoring findings").
+ */
+function sectionsAskedAbout(text) {
+  const asked = String(text ?? '');
+  return { background: /\b(?:previous|prior|earlier|other|existing) (?:stud|research|work|trial|evidence|review)|\bliterature\b|\bbackground\b|\bintroduction\b/i.test(asked),
+    apparatus: /\b(?:reference|bibliograph|acknowledg|fund|ethic|conflicts? of interest|competing interest|data availab|citation)/i.test(asked),
+    findings: /\b(?:main|key|overall|headline|principal|top) (?:results?|findings?|outcomes?)\b|\bresults of (?:the|this|their|its)\b|\bfindings\b|\bwhat (?:did|does|do) (?:it|they|the [\w-]+(?: [\w-]+){0,3}) (?:find|show|conclude)\b|\bsummar(?:ise|ize)\b|\bsummary of\b|\b(?:a|the|brief|short|quick) summary\b(?! (?:row|table|statistic|line|sheet|column))|\bconclusions?\b|\bkey points\b/i.test(asked) };
+}
+
+/**
+ * A PDF's or Word document's headings and a PDF's table rows, read from its
+ * bytes with the app's own extraction: `{ headings, rows }`, positioned as
+ * its passages are (a PDF by page and offset, a Word document by line).
+ */
+function readStructure(buffer, filePath) {
+  if (/\.pdf$/i.test(filePath)) {
+    const parts = extractPdfPassages(buffer, { structure: true });
+    return {
+      headings: parts.filter((part) => part.excerptType === 'heading').map((part) => ({ page: part.pageNumber, start: part.start, line: 0, text: part.selectedText })),
+      rows: parts.filter((part) => part.excerptType === 'table-row').map((part) => ({ page: part.pageNumber, start: part.start, text: part.selectedText,
+        caption: part.caption, header: part.header })),
+    };
+  }
+  if (/\.docx$/i.test(filePath)) return { headings: extractDocxHeadings(buffer).map((heading) => ({ page: 0, start: -1, line: heading.line, text: heading.text })), rows: [] };
+  return { headings: [], rows: [] };
+}
+
+/**
+ * Within one response, an excerpt already shown for an earlier ask is not
+ * sent again: it becomes a pointer to where it was shown.
+ */
+function dedupeAnswers(answers) {
+  const shown = new Map();
+  for (const answer of answers) {
+    for (const [index, item] of (answer.items ?? []).entries()) {
+      if (item.type !== 'excerpts') continue;
+      const label = answer.items.length > 1 ? `${answer.n}.${index + 1}` : `${answer.n}`;
+      item.excerpts = item.excerpts.map((excerpt) => {
+        const key = `${item.src}|${excerpt.text ?? excerpt.rows?.join('\n')}`;
+        if (shown.has(key)) return { at: excerpt.at, same: shown.get(key) };
+        shown.set(key, label);
+        return excerpt;
+      });
+    }
   }
 }
 

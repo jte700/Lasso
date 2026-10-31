@@ -6,7 +6,7 @@ import { normalizeActor } from '../history/service.js';
 import { HttpError, VersionConflictError } from '../history/errors.js';
 import { csvDelimiter, diffInternals, parseDelimited } from '../history/diff.js';
 import {
-  MAX_IN_MEMORY_PART_BYTES, extractDocxDocument, extractPdfDocument, extractPdfFullText, extractPdfPassages,
+  MAX_IN_MEMORY_PART_BYTES, extractDocxDocument, extractDocxFullText, extractPdfDocument, extractPdfFullText, extractPdfPassages,
   extractSpreadsheetTables, extractTaggedReferences, isLargeSpreadsheet,
 } from './document-extraction.js';
 import {
@@ -52,7 +52,7 @@ const STATUS_TYPES = new Set(['PREDICTED', 'LINKED', 'NEEDS_REVIEW', 'STALE', 'B
 // Up to this many new objects are looked up one by one; larger batches look
 // up only the keys being indexed, not every historical object in the folder.
 const INDIVIDUAL_OBJECT_LOOKUPS = 200;
-const INDEX_VERSION = 4;
+const INDEX_VERSION = 5;
 // The object types a whole file can be named as while typing.
 const WHOLE_FILE_TYPES = ['DRAWING', 'DATASET', 'DOCUMENT', 'PAPER', 'CODE_BLOCK', 'MODEL'];
 const STEP_FILE = /\.(?:step|stp)$/i;
@@ -1438,6 +1438,8 @@ function objectsFromFile(file, buffer, report = () => {}) {
     }));
     objects.push(...documentComponentDescriptors(file, extracted.textExcerpt, parentMetadata, base));
     if (file.fileType === 'pdf') objects.push(...pdfPassageDescriptors(file, buffer, parentMetadata));
+    // A Word document's sentences and paragraphs, cited by the lines previews show (a paragraph per line).
+    else objects.push(...textPassageDescriptors(file, extractDocxFullText(buffer), parentMetadata));
   } else if (file.fileType === 'presentation') {
     objects.push(...presentationDescriptors(file, buffer, fileName, report));
   } else if (file.fileType === 'markdown' || (file.fileType === 'text' && path.extname(file.path).toLowerCase() === '.txt')) {
@@ -2171,10 +2173,10 @@ export class PredictiveProvenanceService {
   /** The files an index pass reads, in the order their objects are indexed. */
   indexableFiles(snapshot, indexed) {
     // An upgrade pass reads only what its index lacks: PDF and drawing passages
-    // (2), Markdown and text passages (3), STEP models (4) and worksheet rows.
+    // (2), Markdown and text passages (3), STEP models (4), Word passages (5) and worksheet rows.
     const version = indexed.drawing_index_version ?? 0;
     const upgrades = (file, design, prose) => (version < 2 && (file.fileType === 'pdf' || design))
-      || (version < 3 && prose) || (version < 4 && STEP_FILE.test(file.path))
+      || (version < 3 && prose) || (version < 4 && STEP_FILE.test(file.path)) || (version < 5 && file.fileType === 'document')
       || (!(indexed.spreadsheet_index_version >= 2) && file.fileType === 'spreadsheet');
     return [...snapshot.files].sort((left, right) => dependencyFilePriority(right) - dependencyFilePriority(left)
       || left.path.localeCompare(right.path)).filter((file) => {
@@ -3341,6 +3343,8 @@ export class PredictiveProvenanceService {
       .filter((object) => (!options.documentPath || object.path !== options.documentPath)
         && (!options.sourcePath || object.path === options.sourcePath)
         && (!typePreference.size || typePreference.has(object.objectType))
+        // "The file …", "the document …" cites a document, not one of its passages.
+        && !(documentReference && isTextPassage(object))
         && (options.sourcePath ? true : permitted(object)));
     const variableDefinitions = new Map(objects
       .filter((object) => object.objectType === 'VARIABLE' && object.metadata.dictionary)

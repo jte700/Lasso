@@ -3,7 +3,7 @@
 
 import { deflateRawSync } from 'node:zlib';
 
-function storedZip(entries, { deflate = false } = {}) {
+export function storedZip(entries, { deflate = false } = {}) {
   const localParts = [];
   const centralParts = [];
   let localOffset = 0;

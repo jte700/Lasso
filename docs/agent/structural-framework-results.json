@@ -1,0 +1,259 @@
+{
+  "protocolVersion": 1,
+  "tokenizer": {
+    "package": "js-tiktoken",
+    "encoding": "o200k_base",
+    "measurement": "local serialized payload tokens, not provider usage"
+  },
+  "objective": "tokens",
+  "generatedAt": "2026-10-30T17:08:11.888Z",
+  "scope": "Deterministic synthetic normalized graphs; real STEP parser covered separately by unit tests; no model answering or end-to-end MCP calls.",
+  "exclusions": [
+    "tool schemas",
+    "request messages",
+    "MCP transport framing",
+    "conversation replay",
+    "model output",
+    "indexing cost",
+    "network cost",
+    "semantic retrieval errors"
+  ],
+  "cases": [
+    {
+      "name": "document-study",
+      "variants": {
+        "full_context": {
+          "bytes": 33458,
+          "tokens": 7768
+        },
+        "dependency_complete_inputs": {
+          "bytes": 1672,
+          "tokens": 366
+        },
+        "direct_local_results": {
+          "bytes": 1682,
+          "tokens": 362
+        },
+        "compiled": {
+          "bytes": 2147,
+          "tokens": 478
+        },
+        "greedy": {
+          "bytes": 2147,
+          "tokens": 478
+        }
+      },
+      "savingsPercent": {
+        "full_context": 93.85,
+        "dependency_complete_inputs": -30.6,
+        "direct_local_results": -32.04
+      },
+      "correctness": {
+        "retainedRequiredRecords": 6,
+        "unrelatedRecordsExcluded": 120,
+        "semanticCompleteness": "only_declared_dependencies_checked"
+      },
+      "byteLimitedStatus": "partial",
+      "staleRevisionStatus": "partial",
+      "selectedAlternatives": [
+        "document:alternative:%5B%22primary-finding%22%2C%22primary%22%5D",
+        "document:alternative:%5B%22safety-finding%22%2C%22safety%22%5D",
+        "document:alternative:%5B%22secondary-finding%22%2C%22secondary%22%5D"
+      ],
+      "compileMs": 10.004
+    },
+    {
+      "name": "spreadsheet-240",
+      "variants": {
+        "full_context": {
+          "bytes": 25719,
+          "tokens": 7651
+        },
+        "dependency_complete_inputs": {
+          "bytes": 20776,
+          "tokens": 6151
+        },
+        "direct_local_results": {
+          "bytes": 950,
+          "tokens": 237
+        },
+        "compiled": {
+          "bytes": 1190,
+          "tokens": 298
+        },
+        "greedy": {
+          "bytes": 1190,
+          "tokens": 298
+        }
+      },
+      "savingsPercent": {
+        "full_context": 96.11,
+        "dependency_complete_inputs": 95.16,
+        "direct_local_results": -25.74
+      },
+      "correctness": {
+        "total": 28920,
+        "margin": 0.5850622406639004,
+        "operandCellsValidatedLocally": 244
+      },
+      "byteLimitedStatus": "partial",
+      "staleRevisionStatus": "partial",
+      "selectedAlternatives": [
+        "spreadsheet:alternative:margin",
+        "spreadsheet:alternative:revenue"
+      ],
+      "compileMs": 1.4
+    },
+    {
+      "name": "geometry-80-occurrences",
+      "variants": {
+        "full_context": {
+          "bytes": 13079,
+          "tokens": 5923
+        },
+        "dependency_complete_inputs": {
+          "bytes": 578,
+          "tokens": 229
+        },
+        "direct_local_results": {
+          "bytes": 859,
+          "tokens": 223
+        },
+        "compiled": {
+          "bytes": 1101,
+          "tokens": 280
+        },
+        "greedy": {
+          "bytes": 1101,
+          "tokens": 280
+        }
+      },
+      "savingsPercent": {
+        "full_context": 95.27,
+        "dependency_complete_inputs": -22.27,
+        "direct_local_results": -25.56
+      },
+      "correctness": {
+        "translationInA": [
+          -25,
+          75,
+          0
+        ],
+        "directedAxisAngleDegrees": 90,
+        "retainedOccurrences": 2,
+        "totalOccurrences": 80
+      },
+      "byteLimitedStatus": "partial",
+      "staleRevisionStatus": "partial",
+      "selectedAlternatives": [
+        "geometry:alternative:axis-angle",
+        "geometry:alternative:relative-pose"
+      ],
+      "compileMs": 0.688
+    }
+  ],
+  "selection": {
+    "exact": {
+      "bytes": 336,
+      "tokens": 86
+    },
+    "greedy": {
+      "bytes": 372,
+      "tokens": 93
+    },
+    "exactSelected": [
+      "small",
+      "wide"
+    ],
+    "greedySelected": [
+      "trap",
+      "wide"
+    ],
+    "savingsPercent": 7.53,
+    "interpretation": "deliberately adversarial fixture, not a representative workload"
+  },
+  "refinement": {
+    "turns": [
+      {
+        "turn": 1,
+        "kind": "full",
+        "full": {
+          "bytes": 1541,
+          "tokens": 338
+        },
+        "sent": {
+          "bytes": 1541,
+          "tokens": 338
+        }
+      },
+      {
+        "turn": 2,
+        "kind": "patch",
+        "full": {
+          "bytes": 1849,
+          "tokens": 411
+        },
+        "sent": {
+          "bytes": 663,
+          "tokens": 207
+        }
+      },
+      {
+        "turn": 3,
+        "kind": "patch",
+        "full": {
+          "bytes": 2147,
+          "tokens": 478
+        },
+        "sent": {
+          "bytes": 673,
+          "tokens": 198
+        }
+      }
+    ],
+    "repeatedFullTotal": 1227,
+    "retainedClientTotal": 743,
+    "unit": "tokens",
+    "savingsPercent": 39.45,
+    "missingReceipt": "full",
+    "limitation": "new tool payloads only; old conversation tokens, client reconstruction and provider billing excluded"
+  },
+  "scaling": [
+    {
+      "inputCells": 10,
+      "full": {
+        "bytes": 1016,
+        "tokens": 318
+      },
+      "compiled": {
+        "bytes": 817,
+        "tokens": 199
+      },
+      "locallyValidatedRecords": 13
+    },
+    {
+      "inputCells": 100,
+      "full": {
+        "bytes": 8492,
+        "tokens": 2568
+      },
+      "compiled": {
+        "bytes": 823,
+        "tokens": 200
+      },
+      "locallyValidatedRecords": 103
+    },
+    {
+      "inputCells": 1000,
+      "full": {
+        "bytes": 85898,
+        "tokens": 25074
+      },
+      "compiled": {
+        "bytes": 829,
+        "tokens": 204
+      },
+      "locallyValidatedRecords": 1003
+    }
+  ]
+}

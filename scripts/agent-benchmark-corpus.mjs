@@ -9,6 +9,7 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { createApplication } from '../src/server.js';
 import { blockRange, definitions } from '../src/agent/evidence.js';
+import { extractDocxFullText, extractPdfFullText, extractSpreadsheetTables } from '../src/dependencies/document-extraction.js';
 import { INSTRUCTIONS as LASSO_INSTRUCTIONS, TOOLS as ALL_LASSO_TOOLS, toolsNamed } from '../src/agent/mcp.js';
 import { INSTRUCTIONS_V3, TOOLS_V3 } from './agent-tools-versions.mjs';
 
@@ -150,6 +151,26 @@ export const DIRECT_DEFINITIONS = [
   { name: 'Glob', description: 'Finds files by name pattern such as "**/*.py" or "src/**/app.py", relative to the workspace root. Returns matching paths, one per line.',
     input_schema: { type: 'object', properties: { pattern: { type: 'string' }, path: { type: 'string' } }, required: ['pattern'] } },
 ];
+// For tasks over PDF, Word and Excel files: Read and Grep see their text, as an agent with a document converter does.
+export const CONVERTING_DEFINITIONS = DIRECT_DEFINITIONS.map((definition) => (definition.name === 'Read'
+  ? { ...definition, description: `${definition.description} PDF, Word and Excel files are read as their extracted text (a workbook as comma-separated rows under each sheet's name).` }
+  : definition));
+
+const csvCell = (value) => {
+  const text = String(value ?? '');
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
+
+/** What a document converter gives an agent: a PDF's or Word file's text, a workbook's sheets as comma-separated rows; null for other files. */
+export function convertedText(buffer, filePath) {
+  if (/\.pdf$/i.test(filePath)) return extractPdfFullText(buffer);
+  if (/\.docx$/i.test(filePath)) return extractDocxFullText(buffer);
+  if (/\.xlsx$/i.test(filePath)) {
+    return extractSpreadsheetTables(buffer).map((sheet) => [`Sheet: ${sheet.name}`, ...sheet.rows.map((row) => row.map(csvCell).join(','))].join('\n')).join('\n\n');
+  }
+  return null;
+}
+
 export const LEGACY_DEFINITION = { name: 'lasso_find', description: 'Runs Lasso\'s terminal command `find <query> [--source ext] [--directory dir]` over the indexed folders and returns its result.',
   input_schema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } };
 // What a host adds to every call once Lasso is connected. The scripted
@@ -189,7 +210,7 @@ export function globToRegExp(glob) {
   return new RegExp(`^${pattern}$`);
 }
 
-export function directTools(root) {
+export function directTools(root, { convert = false } = {}) {
   const all = [];
   const walk = (directory) => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -208,7 +229,10 @@ export function directTools(root) {
     return name === '.' ? '' : name;
   };
   const text = (relative) => {
-    if (!contents.has(relative)) contents.set(relative, fs.readFileSync(path.join(root, relative), 'utf8'));
+    if (!contents.has(relative)) {
+      const buffer = fs.readFileSync(path.join(root, relative));
+      contents.set(relative, (convert ? convertedText(buffer, relative) : null) ?? buffer.toString('utf8'));
+    }
     return contents.get(relative);
   };
   return {
@@ -216,7 +240,7 @@ export function directTools(root) {
       const file_path = clean(asked);
       if (!file_path || file_path.split('/').includes('..') || !fs.existsSync(path.join(root, file_path))
         || !fs.statSync(path.join(root, file_path)).isFile()) return `File does not exist: ${asked}`;
-      const lines = fs.readFileSync(path.join(root, file_path), 'utf8').replace(/\n$/, '').split('\n');
+      const lines = text(file_path).replace(/\n$/, '').split('\n');
       return lines.slice(offset - 1, offset - 1 + limit).map((line, index) => `${String(offset + index).padStart(6)}\t${line.slice(0, 2000)}`).join('\n');
     },
     Grep({ pattern, path: asked = '', glob = null, output_mode = 'files_with_matches', '-n': numbers = true, '-C': around = 0, '-i': insensitive = false, head_limit = 0 }) {
@@ -323,7 +347,11 @@ export function composeAnswer(response) {
     } else {
       // lines, definitions, passages, explicit reads: the text itself.
       parts.push(items.map((item) => (item.type === 'record' ? record(item)
-        : item.symbol && item.lines?.[0] === item.lines?.[1] ? `${where(item.src)}: ${item.text}` : item.text ?? item.value ?? '')).join('\n'));
+        // A search's excerpts: each sentence (or a table's rows) as shown; a total with what it was worked out from.
+        : item.type === 'excerpts' ? item.excerpts.map((excerpt) => excerpt.text ?? [excerpt.caption, excerpt.header, ...(excerpt.rows ?? [])].filter(Boolean).join('\n')).join('\n')
+          : item.type === 'computed' ? `${where(item.src)} ${item.column} ${item.op}: ${item.value}${item.row ? ` (${item.row})` : ''}`
+            : item.type === 'table' ? [item.header.join(' | '), ...item.rows.map((row) => row.join(' | '))].join('\n')
+              : item.symbol && item.lines?.[0] === item.lines?.[1] ? `${where(item.src)}: ${item.text}` : item.text ?? item.value ?? '')).join('\n'));
     }
   }
   return `${parts.join('\n')}${open ? '\nWhich one do you mean?' : ''}`;

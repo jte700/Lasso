@@ -785,7 +785,7 @@ function report(results) {
   if (results.constants.measuredDefinitions) {
     const measured = results.constants.measuredDefinitions;
     lines.push(measured.lassoV3 != null
-      ? `Tool definitions are charged as a provider counted them (docs/agent/token-probe.json, gpt-5.4-mini): direct ${measured.direct}, Lasso search and read (v3) +${measured.lassoV3}, the lasso tool (v4) +${measured.lassoCurrent} per call. The terminal-find arm is still estimated.`
+      ? `Tool definitions are charged as a provider counted them (docs/agent/token-probe.json, gpt-5.4-mini): direct ${measured.direct}, Lasso search and read (v3) +${measured.lassoV3}, the lasso tool (${measured.lassoV4 != null ? 'current' : 'v4'}) +${measured.lassoCurrent} per call. The terminal-find arm is still estimated.`
       : `Tool definitions are charged as a provider counted them (docs/agent/token-probe.json, gpt-5.4-mini): direct ${measured.direct}, Lasso +${measured.lassoCurrent} per call. The terminal-find arm is still estimated.`, '');
   }
   lines.push(`System prompt ${results.constants.SYSTEM_TOKENS} tokens per invocation; ${results.constants.CALL_OVERHEAD} tokens per tool call and ${results.constants.RESULT_OVERHEAD} per tool result of framing; estimated tool definitions: direct ${results.constants.toolDefinitionTokens.direct}, Lasso search and read ${results.constants.toolDefinitionTokens.lasso}, the lasso tool ${results.constants.toolDefinitionTokens.ask} (each added to the direct tools, never replacing them), terminal find ${results.constants.toolDefinitionTokens.legacy}. Prices: Claude Opus 5.5 list ($${results.constants.price.input}/$${results.constants.price.output} per M input/output, cache reads $${results.constants.price.cacheRead}).`, '');

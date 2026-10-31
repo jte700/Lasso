@@ -338,3 +338,26 @@ export function fixtureAssembly({ schema = 'AP242_MANAGED_MODEL_BASED_3D_ENGINEE
   place(writer, root, pinPart, 'Pin:2', [70, 45, 10], [0, 0, 1], [0, 1, 0]);
   return `${header(schema)}${writer.lines.join('\n')}\nENDSEC;\nEND-ISO-10303-21;\n`;
 }
+
+/**
+ * A base plate with eight bolts on a 25 mm bolt circle about its centre
+ * (50, 30), each turned to face outwards (Bolt:k at (k − 1) × 45°), and a
+ * sensor tilted 30° about x at (90, 30, 20). Bolt:1 and Bolt:5 are 50 mm
+ * apart; Bolt:3, seen from Bolt:1, is at (−25, 25, 0) turned 90° about z; the
+ * sensor's z axis is 30° from every bolt's.
+ */
+export function flangeAssembly() {
+  const writer = new StepWriter();
+  const context = units(writer, 'mm');
+  const root = product(writer, context, 'Flange', []);
+  const base = product(writer, context, 'Base', [plate(writer, BRACKET)]);
+  const bolt = product(writer, context, 'Bolt', [pin(writer, { radius: 3, length: 20 })]);
+  const sensor = product(writer, context, 'Sensor', [pin(writer, { radius: 5, length: 12, tip: 'dome' })]);
+  place(writer, root, base, 'Base:1', [0, 0, 0]);
+  for (let index = 0; index < 8; index += 1) {
+    const angle = index * Math.PI / 4;
+    place(writer, root, bolt, `Bolt:${index + 1}`, [50 + 25 * Math.cos(angle), 30 + 25 * Math.sin(angle), 10], [0, 0, 1], [Math.cos(angle), Math.sin(angle), 0]);
+  }
+  place(writer, root, sensor, 'Sensor:1', [90, 30, 20], [0, -Math.sin(Math.PI / 6), Math.cos(Math.PI / 6)], [1, 0, 0]);
+  return `${header('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 }')}${writer.lines.join('\n')}\nENDSEC;\nEND-ISO-10303-21;\n`;
+}

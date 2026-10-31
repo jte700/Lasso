@@ -26,5 +26,8 @@
     "pdfjs-dist": "6.4.299",
     "polygon-clipping": "0.15.7",
     "web-ifc": "0.0.78"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "1.3.0"
   }
 }

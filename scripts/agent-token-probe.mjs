@@ -1,9 +1,14 @@
 // Real token counts for design choices, read from a provider's usage records.
 // Each probe sends one text with a minimal call and reads input_tokens back,
 // less the same call's count for a one-character input. A full probe of the
-// benchmark's answers costs a few cents.
+// benchmark's answers costs a few cents with OpenAI; for Claude models it uses
+// count_tokens, which generates nothing.
 //
 //   OPENAI_API_KEY=… node scripts/agent-token-probe.mjs [--model gpt-5.4-mini] [--key-file f] [--out docs/agent]
+//   ANTHROPIC_API_KEY=… node scripts/agent-token-probe.mjs --model claude-sonnet-5-5 [--anthropic-key-file f]
+//
+// gpt-5.4-mini's counts are written to token-probe.json, which the offline benchmark charges; other models'
+// to token-probe-<model>.json.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,16 +18,32 @@ import { formatAnswer } from '../src/agent/render.js';
 import { INSTRUCTIONS, toolsNamed } from '../src/agent/mcp.js';
 import { estimateTokens } from '../src/agent/metrics.js';
 import { DIRECT_DEFINITIONS, prepareLibrary } from './agent-benchmark-corpus.mjs';
-import { INSTRUCTIONS_V1, INSTRUCTIONS_V2, INSTRUCTIONS_V3, TOOLS_V1, TOOLS_V2, TOOLS_V3 } from './agent-tools-versions.mjs';
+import { INSTRUCTIONS_V1, INSTRUCTIONS_V2, INSTRUCTIONS_V3, INSTRUCTIONS_V4, TOOLS_V1, TOOLS_V2, TOOLS_V3, TOOLS_V4 } from './agent-tools-versions.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const args = process.argv.slice(2);
 const option = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
 const MODEL = option('--model', 'gpt-5.4-mini');
 const OUT = path.resolve(ROOT, option('--out', 'docs/agent'));
-const KEY = process.env.OPENAI_API_KEY ?? (option('--key-file', null) && fs.readFileSync(option('--key-file'), 'utf8').trim());
+const CLAUDE = MODEL.startsWith('claude-');
+const keyFile = (name) => (option(name, null) ? fs.readFileSync(option(name), 'utf8').trim() : undefined);
+// Without one, the Anthropic SDK finds the person's own credentials (ANTHROPIC_API_KEY, an `ant auth login` profile).
+const KEY = CLAUDE ? keyFile('--anthropic-key-file') : process.env.OPENAI_API_KEY ?? keyFile('--key-file');
 
-async function inputTokens(body) {
+let anthropic = null;
+/** The input tokens of one request: `input` as the user's message, with `tools` (definitions) and `instructions` when given. */
+async function inputTokens({ input, tools, instructions }) {
+  if (CLAUDE) {
+    if (!anthropic) {
+      const { default: Anthropic } = await import('@anthropic-ai/sdk');
+      anthropic = new Anthropic({ ...(KEY ? { apiKey: KEY } : {}), maxRetries: 4 });
+    }
+    const counted = await anthropic.messages.countTokens({ model: MODEL, messages: [{ role: 'user', content: input }],
+      ...(tools ? { tools: tools.map(({ name, description, inputSchema, input_schema: schema }) => ({ name, description, input_schema: inputSchema ?? schema })) } : {}),
+      ...(instructions ? { system: instructions } : {}) });
+    return counted.input_tokens;
+  }
+  const body = { input, ...(tools ? { tools: asFunctions(tools) } : {}), ...(instructions ? { instructions } : {}) };
   for (let attempt = 0; ; attempt += 1) {
     const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST',
       headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
@@ -64,7 +85,7 @@ function requests() {
 }
 
 async function main() {
-  if (!KEY) throw new Error('Set OPENAI_API_KEY or pass --key-file.');
+  if (!KEY && !CLAUDE) throw new Error('Set OPENAI_API_KEY or pass --key-file.');
   const library = await prepareLibrary();
   const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'probe' });
   const base = await inputTokens({ input: 'x' });
@@ -91,19 +112,20 @@ async function main() {
       }
       return counts.sort((left, right) => left - right)[Math.floor((counts.length - 1) / 2)];
     };
-    const plain = await steady({ input: 'x', tools: asFunctions(DIRECT_DEFINITIONS) });
+    const plain = await steady({ input: 'x', tools: DIRECT_DEFINITIONS });
     const definitions = {
       direct: plain - base,
-      lassoV1: (await steady({ input: 'x', tools: asFunctions([...DIRECT_DEFINITIONS, ...TOOLS_V1]), instructions: INSTRUCTIONS_V1 })) - plain,
-      lassoV2: (await steady({ input: 'x', tools: asFunctions([...DIRECT_DEFINITIONS, ...TOOLS_V2]), instructions: INSTRUCTIONS_V2 })) - plain,
-      lassoV3: (await steady({ input: 'x', tools: asFunctions([...DIRECT_DEFINITIONS, ...TOOLS_V3]), instructions: INSTRUCTIONS_V3 })) - plain,
-      lassoCurrent: (await steady({ input: 'x', tools: asFunctions([...DIRECT_DEFINITIONS, ...toolsNamed()]), instructions: INSTRUCTIONS })) - plain,
+      lassoV1: (await steady({ input: 'x', tools: [...DIRECT_DEFINITIONS, ...TOOLS_V1], instructions: INSTRUCTIONS_V1 })) - plain,
+      lassoV2: (await steady({ input: 'x', tools: [...DIRECT_DEFINITIONS, ...TOOLS_V2], instructions: INSTRUCTIONS_V2 })) - plain,
+      lassoV3: (await steady({ input: 'x', tools: [...DIRECT_DEFINITIONS, ...TOOLS_V3], instructions: INSTRUCTIONS_V3 })) - plain,
+      lassoV4: (await steady({ input: 'x', tools: [...DIRECT_DEFINITIONS, ...TOOLS_V4], instructions: INSTRUCTIONS_V4 })) - plain,
+      lassoCurrent: (await steady({ input: 'x', tools: [...DIRECT_DEFINITIONS, ...toolsNamed()], instructions: INSTRUCTIONS })) - plain,
     };
     const summary = { model: MODEL, measuredAt: new Date().toISOString(), definitions, answers: rows,
       totals: { json: rows.reduce((sum, row) => sum + row.json, 0), text: rows.reduce((sum, row) => sum + row.text, 0) } };
     fs.mkdirSync(OUT, { recursive: true });
-    fs.writeFileSync(path.join(OUT, 'token-probe.json'), `${JSON.stringify(summary, null, 2)}\n`);
-    console.log(`Definitions (real tokens per call): direct ${definitions.direct}, Lasso v1 +${definitions.lassoV1}, v2 +${definitions.lassoV2}, v3 +${definitions.lassoV3}, current (v4) +${definitions.lassoCurrent}`);
+    fs.writeFileSync(path.join(OUT, MODEL === 'gpt-5.4-mini' ? 'token-probe.json' : `token-probe-${MODEL}.json`), `${JSON.stringify(summary, null, 2)}\n`);
+    console.log(`Definitions (real tokens per call): direct ${definitions.direct}, Lasso v1 +${definitions.lassoV1}, v2 +${definitions.lassoV2}, v3 +${definitions.lassoV3}, v4 +${definitions.lassoV4}, current +${definitions.lassoCurrent}`);
     console.log('Answer | JSON | text | saved | est. JSON | est. text');
     for (const row of rows) console.log(`${row.name} | ${row.json} | ${row.text} | ${Math.round((1 - row.text / row.json) * 100)}% | ${row.estimatedJson} | ${row.estimatedText}`);
     console.log(`All answers: JSON ${summary.totals.json}, text ${summary.totals.text} (${Math.round((1 - summary.totals.text / summary.totals.json) * 100)}% fewer)`);

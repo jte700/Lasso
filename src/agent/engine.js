@@ -62,6 +62,7 @@ export function openEngine({ dataDir, scope = [], metrics = new AgentMetrics() }
       if (closed) return;
       closed = true;
       workspace.closed = true;
+      evidence.close();
       terminal.close();
       dependencies.close();
       timeline.close();

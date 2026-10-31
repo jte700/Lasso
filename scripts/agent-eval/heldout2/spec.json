@@ -1,0 +1,2268 @@
+{
+  "name": "heldout-2",
+  "documents": [
+    {
+      "path": "Evaluations/School Streets pilot evaluation report.pdf",
+      "type": "pdf",
+      "title": "School Streets Pilot Evaluation: Traffic, Air Quality and Travel to School",
+      "pages": [
+        [
+          {
+            "heading": "School Streets Pilot Evaluation: Traffic, Air Quality and Travel to School"
+          },
+          {
+            "paragraph": "Final report, October 2025. Prepared by the Transport Policy and Research Team, Brackenford Borough Council, with the Centre for Urban Air Research, University of Westmoor."
+          },
+          {
+            "heading": "Abstract"
+          },
+          {
+            "paragraph": "Background. School Streets are timed road closures that restrict motor traffic on the street outside a school at the start and end of the school day. Brackenford Borough Council piloted School Streets at 12 primary schools during the 2024 to 2025 school year."
+          },
+          {
+            "paragraph": "Methods. We compared the pilot period, January to June 2025, with a baseline period covering the same months of 2024. Motor traffic was counted by automatic number plate recognition cameras, nitrogen dioxide (NO2) was measured with diffusion tubes at each school gate and on nearby boundary roads, and travel to school was recorded in hands-up surveys of pupils."
+          },
+          {
+            "paragraph": "Results. Motor traffic on the closed streets fell by 76% during the restriction hours. Mean NO2 at the school gates fell by 14.3%, and the share of pupils walking, cycling or scooting to school rose by nine percentage points. Traffic on the boundary roads rose slightly."
+          },
+          {
+            "paragraph": "Conclusions. The pilot reduced traffic and air pollution outside the schools with little evidence of displacement onto other roads. We recommend that the scheme be made permanent at all 12 sites."
+          },
+          {
+            "paragraph": "Keywords: school streets; timed road closure; nitrogen dioxide; active travel; traffic displacement."
+          }
+        ],
+        [
+          {
+            "heading": "1 Introduction"
+          },
+          {
+            "paragraph": "Traffic outside schools at drop-off and pick-up times raises concerns about road danger, congestion and children's exposure to air pollution. Children may be particularly vulnerable to traffic-related pollution because they breathe faster than adults and spend time close to the height of vehicle exhausts. Brackenford's 2023 Transport Strategy committed the council to test measures that make the journey to school safer and healthier."
+          },
+          {
+            "paragraph": "This report evaluates the School Streets pilot, which began in September 2024. It sets out the effects of the pilot on motor traffic in the closed streets, on NO2 concentrations, on how pupils travel to school and on traffic in the wider road network, and it reports the views of parents and residents. The report is intended to inform the council's decision on whether to make the scheme permanent."
+          },
+          {
+            "paragraph": "The pilot forms part of a wider programme to reduce car use for short journeys in the borough. Most primary pupils in Brackenford live within walking distance of their school, yet many are driven, and head teachers have reported repeated complaints about parking on pavements and across driveways at the start and end of the school day."
+          },
+          {
+            "heading": "2 Background and previous studies"
+          },
+          {
+            "paragraph": "School Streets have spread rapidly since 2017, and a growing number of evaluations have been published. In a study of 37 schemes in a large capital city, Rowland and Tait (2021) reported that NO2 at the school gate fell by up to 23% during the morning drop-off period. Kerrigan and colleagues (2022) studied 18 sites in northern England and found that traffic on boundary roads rose by 4% on average, with no measurable change in NO2 on those roads."
+          },
+          {
+            "paragraph": "Effects on travel behaviour have also varied. Abbott (2020) reported that the share of pupils driven to school fell from 31% to 24% across a programme of 22 schools, while Pereira and Lund (2022) found no change in car use at schools where the closures were staffed by volunteers rather than enforced by cameras. Daley and Moss (2023) reviewed 14 evaluations and found that parental support for making schemes permanent ranged from 63% to 81%."
+          },
+          {
+            "paragraph": "Most published studies have been short, have lacked a comparison period in the same months of the year, or have measured air quality at only one or two sites. The present evaluation was designed to address these gaps by using a full baseline period and by monitoring at every pilot school."
+          }
+        ],
+        [
+          {
+            "heading": "3 Methods"
+          },
+          {
+            "heading": "3.1 Design and sites"
+          },
+          {
+            "paragraph": "The evaluation used a before-and-after design with matched calendar months. The baseline period ran from January to June 2024 and the pilot period from January to June 2025, so that seasonal differences in weather and traffic were balanced. The 12 participating primary schools were selected from 31 schools that applied, on the basis of traffic volume, road layout and the agreement of the head teacher."
+          },
+          {
+            "heading": "3.2 The intervention"
+          },
+          {
+            "paragraph": "At each school, the street outside the main entrance was closed to motor traffic from 08:15 to 09:15 and from 14:45 to 15:45 on school days. Residents, blue badge holders and essential services could apply for an exemption. The closures were enforced by automatic number plate recognition cameras, and drivers without an exemption received a warning letter during the first four weeks and a penalty charge notice after that. Signs and planters marked the closure points, and school staff were asked not to act as marshals."
+          },
+          {
+            "heading": "3.3 Measurements"
+          },
+          {
+            "paragraph": "Motor vehicles entering each closed street during the restriction hours were counted by the enforcement cameras on every school day. Traffic on eight boundary roads, the main roads to which diverted vehicles were expected to move, was counted with pneumatic tube counters for two weeks in each month. The tube counters were checked against manual counts on one morning in each month."
+          },
+          {
+            "paragraph": "NO2 was measured with passive diffusion tubes exposed for one month at a time at the gate of each school, at the eight boundary road sites and at three urban background sites away from main roads. Results were bias-adjusted using a co-location study at the council's reference monitoring station. Continuous monitors that record hourly NO2 values were also installed at four schools."
+          },
+          {
+            "paragraph": "Pupils' usual mode of travel to school was recorded with a hands-up survey in each class in March 2024 and March 2025. Parents, and residents living within 200 metres of a pilot school, were invited to complete an online survey in May 2025."
+          },
+          {
+            "heading": "3.4 Analysis"
+          },
+          {
+            "paragraph": "Changes are reported as differences between the pilot and baseline period means. To separate the effect of the pilot from borough-wide trends, the change at the school gates was adjusted for the change at the urban background sites using a ratio method. Confidence intervals were obtained by bootstrapping over sites. Survey results are reported as percentages of the pupils present on the survey day, and no weighting was applied."
+          }
+        ],
+        [
+          {
+            "heading": "3.5 Ethics and data protection"
+          },
+          {
+            "paragraph": "The council's research governance group approved the evaluation. Camera data were used only as anonymous counts, and the surveys did not collect names or addresses."
+          },
+          {
+            "heading": "4 Results"
+          },
+          {
+            "heading": "4.1 Traffic on the closed streets"
+          },
+          {
+            "paragraph": "Compliance with the closures improved steadily once penalty charge notices were introduced. Across the 12 sites, the mean number of motor vehicles entering the closed streets during the restriction hours fell from 214 to 62 per school day, a reduction of 71%. This reduction was achieved at every site, although the vehicles that remained were mostly exempt at some schools and mostly non-exempt at others."
+          },
+          {
+            "paragraph": "Table 1 shows that the morning and afternoon restriction hours saw similar reductions. Exempt vehicles made up 38% of the traffic that remained during the pilot."
+          },
+          {
+            "table": {
+              "caption": "Table 1. Mean motor vehicles entering the closed streets per school day, all 12 sites",
+              "header": [
+                "Restriction period",
+                "Baseline 2024",
+                "Pilot 2025",
+                "Change (%)"
+              ],
+              "rows": [
+                [
+                  "Morning, 08:15 to 09:15",
+                  "118",
+                  "33",
+                  "-72"
+                ],
+                [
+                  "Afternoon, 14:45 to 15:45",
+                  "96",
+                  "29",
+                  "-70"
+                ],
+                [
+                  "Both periods",
+                  "214",
+                  "62",
+                  "-71"
+                ]
+              ]
+            }
+          },
+          {
+            "heading": "4.2 Nitrogen dioxide at the school gates"
+          },
+          {
+            "paragraph": "NO2 fell at all 12 school gates. Mean NO2 at the school gates fell from 31.4 micrograms per cubic metre (ug/m3) in the baseline period to 26.9 ug/m3 in the pilot period, a reduction of 14.3%. Concentrations also fell at the urban background sites, reflecting changes in the vehicle fleet and other borough-wide trends."
+          },
+          {
+            "paragraph": "After adjustment for the change at the urban background sites, the reduction in NO2 at the school gates attributable to the pilot was estimated at 10.6% (95% CI 5.2 to 15.7)."
+          }
+        ],
+        [
+          {
+            "paragraph": "Table 2 compares the school gates with the boundary road and urban background monitoring sites."
+          },
+          {
+            "table": {
+              "caption": "Table 2. Mean NO2 concentration by monitoring location, January to June, ug/m3",
+              "header": [
+                "Location type",
+                "Sites",
+                "Baseline 2024",
+                "Pilot 2025",
+                "Change (%)"
+              ],
+              "rows": [
+                [
+                  "School gate",
+                  "12",
+                  "31.4",
+                  "26.9",
+                  "-14.3"
+                ],
+                [
+                  "Boundary road",
+                  "8",
+                  "35.2",
+                  "35.8",
+                  "+1.7"
+                ],
+                [
+                  "Urban background",
+                  "3",
+                  "21.6",
+                  "20.7",
+                  "-4.2"
+                ]
+              ]
+            }
+          },
+          {
+            "paragraph": "No school gate site exceeded the annual mean objective of 40 ug/m3 in either period, although two were within 5 ug/m3 of it at baseline."
+          },
+          {
+            "paragraph": "The fall at the school gates was seen in every month of the pilot period. It was largest in February and smallest in June, when concentrations are lowest at all types of site."
+          },
+          {
+            "heading": "4.3 Hourly patterns"
+          },
+          {
+            "paragraph": "Continuous monitors at four schools recorded hourly NO2 concentrations. During the morning restriction hour, mean NO2 at these four schools was 21% lower than in the baseline period. The afternoon restriction hour showed a smaller fall of 12%, and outside the restriction hours the fall was 6%. Because continuous monitors were installed at only four of the twelve schools, these hourly results may not be representative of all pilot sites."
+          },
+          {
+            "paragraph": "The concentration of the fall in the restriction hours is consistent with the pilot being its cause, rather than a general improvement in air quality across the borough."
+          }
+        ],
+        [
+          {
+            "heading": "4.4 Travel to school"
+          },
+          {
+            "paragraph": "The share of pupils who usually walked, cycled or scooted to school rose from 58% in the baseline survey to 67% in the pilot survey. These gains were concentrated among pupils living within one kilometre of the school, while travel by pupils living further away changed little."
+          },
+          {
+            "paragraph": "The follow-up survey was completed at only 10 of the 12 schools, because two schools were unable to run it before the end of term. Baseline results are therefore shown for the same 10 schools."
+          },
+          {
+            "table": {
+              "caption": "Table 3. Usual mode of travel to school, percentage of pupils, 10 schools",
+              "header": [
+                "Mode",
+                "Baseline March 2024",
+                "Pilot March 2025"
+              ],
+              "rows": [
+                [
+                  "Walk",
+                  "49",
+                  "55"
+                ],
+                [
+                  "Cycle",
+                  "3",
+                  "5"
+                ],
+                [
+                  "Scooter",
+                  "6",
+                  "7"
+                ],
+                [
+                  "Car",
+                  "34",
+                  "25"
+                ],
+                [
+                  "Bus",
+                  "6",
+                  "6"
+                ],
+                [
+                  "Other",
+                  "2",
+                  "2"
+                ]
+              ]
+            }
+          },
+          {
+            "paragraph": "Parents who had stopped driving most often said that the closure made walking feel safer or that parking near the school had become more difficult. Some parents reported parking further away and walking the last part of the journey, which the survey recorded as walking."
+          }
+        ],
+        [
+          {
+            "heading": "4.5 Traffic on boundary roads"
+          },
+          {
+            "paragraph": "Some drivers who previously used the closed streets diverted to the surrounding main roads. Across the eight boundary roads, traffic during the restriction hours increased by 6.2% compared with the baseline period. However, this increase was within the range of normal year-to-year variation recorded at the borough's permanent traffic counters, which is plus or minus 8%."
+          },
+          {
+            "paragraph": "The largest increase, 11%, was on Mill Road next to Crossley Road Primary, where the closed street had previously carried the most traffic. Outside the restriction hours, traffic on the boundary roads was unchanged."
+          },
+          {
+            "heading": "4.6 Views of parents and residents"
+          },
+          {
+            "paragraph": "The online survey received 1,206 responses from parents and 388 from residents. Among parents, 73% supported making the School Street at their child's school permanent, and 18% were opposed. Among residents, 54% supported a permanent scheme and 37% were opposed."
+          },
+          {
+            "paragraph": "The resident survey had a response rate of 23%, so these results may not reflect the views of all residents. Residents who opposed the scheme most often mentioned difficulty with deliveries and visitors, while supporters most often mentioned quieter streets."
+          },
+          {
+            "heading": "4.7 Enforcement"
+          },
+          {
+            "paragraph": "Penalty charge notices were issued throughout the pilot, but most were issued in the first half term, and the number fell steadily as drivers became familiar with the closures. Exemption permits were most often held by residents of the closed streets."
+          }
+        ],
+        [
+          {
+            "heading": "5 Discussion"
+          },
+          {
+            "paragraph": "The pilot achieved large reductions in motor traffic on the closed streets and a measurable improvement in air quality at the school gates. The adjusted reduction in NO2 of 10.6% is smaller than the 23% reported by Rowland and Tait (2021), but their figure referred to the morning peak only, and our hourly data for the morning restriction hour show a comparable fall."
+          },
+          {
+            "paragraph": "The rise in active travel was smaller than in some earlier programmes but was achieved without volunteer marshals. The evidence of traffic displacement was weak: traffic on boundary roads rose by a modest amount, and NO2 on those roads was essentially unchanged. Parental support of 73% is within the range reported by Daley and Moss (2023)."
+          },
+          {
+            "paragraph": "For the council, the main practical lessons concern enforcement and exemptions. Camera enforcement allowed the closures to operate without staff at the barriers, and a simple online exemption process kept complaints from residents to a manageable level. Schools on busier roads, where a closure would divert large volumes of traffic, may need a different approach."
+          },
+          {
+            "heading": "6 Limitations"
+          },
+          {
+            "paragraph": "The evaluation has several limitations. It used a before-and-after design without control schools, so other changes between 2024 and 2025 may have contributed to the results, although the adjustment for background NO2 addresses part of this. Diffusion tubes give monthly averages and cannot show exposure during the restriction hours at most sites."
+          },
+          {
+            "paragraph": "The study did not measure health outcomes, such as asthma symptoms or hospital admissions among pupils, and the pilot period was too short to assess changes in road traffic collisions. The travel survey relied on pupils' reports of their usual mode of travel and was not completed at all schools."
+          }
+        ],
+        [
+          {
+            "heading": "7 Conclusions and recommendations"
+          },
+          {
+            "paragraph": "School Streets reduced motor traffic and NO2 outside the 12 pilot schools and were associated with more pupils walking, cycling or scooting to school. We recommend that the council makes the scheme permanent at all 12 schools, continues monitoring on the boundary roads for a further year, and extends School Streets to suitable schools on the waiting list."
+          },
+          {
+            "heading": "Acknowledgements"
+          },
+          {
+            "paragraph": "We thank the head teachers, staff, pupils and parents of the 12 pilot schools, the council's parking enforcement team, and the volunteers who helped to change the diffusion tubes each month."
+          },
+          {
+            "heading": "Funding"
+          },
+          {
+            "paragraph": "The evaluation was funded by a grant from the Regional Active Travel Fund. The funder had no role in the design of the evaluation, the analysis or the decision to publish."
+          },
+          {
+            "heading": "References"
+          },
+          {
+            "paragraph": "Abbott J (2020). Changing the school run: results from a 22-school programme. Urban Mobility Review 6: 100-112."
+          },
+          {
+            "paragraph": "Daley R, Moss K (2023). Public support for School Streets: a review of 14 evaluations. Urban Mobility Review 9: 44-58."
+          },
+          {
+            "paragraph": "Kerrigan P, Shaw L, Udeh C (2022). Traffic displacement near School Streets in northern England. Transport Policy Studies 31: 210-224."
+          },
+          {
+            "paragraph": "Pereira A, Lund M (2022). Volunteer-staffed and camera-enforced school streets compared. Local Transport Research 7: 15-29."
+          },
+          {
+            "paragraph": "Rowland S, Tait H (2021). Air quality at the school gate: evidence from 37 School Streets. City Air Quality Journal 4: 77-90."
+          },
+          {
+            "heading": "Data availability"
+          },
+          {
+            "paragraph": "Anonymised traffic counts and diffusion tube results are available from the Transport Policy and Research Team on request."
+          },
+          {
+            "heading": "Appendix A. Pilot schools"
+          },
+          {
+            "paragraph": "The 12 pilot schools were Ashgrove Primary, Beckside Primary, Crossley Road Primary, Dunmore Infant School, Elmfield Primary, Fairholme Junior School, Greystone Primary, Hollins Lane Primary, Ivydale Primary, Juniper Hill Primary, Kingsmead Primary and Larkrise Primary. Site-level traffic and NO2 results are held in the accompanying site data workbook."
+          }
+        ]
+      ]
+    },
+    {
+      "path": "Evaluations/Nurse-led discharge planning evaluation.pdf",
+      "type": "pdf",
+      "title": "Nurse-Led Discharge Planning on Acute Medical Wards: A Stepped-Wedge Evaluation",
+      "pages": [
+        [
+          {
+            "heading": "Nurse-Led Discharge Planning on Acute Medical Wards: A Stepped-Wedge Evaluation"
+          },
+          {
+            "paragraph": "Evaluation report, September 2025. Department of Nursing Research and Practice Development, Calderbrook General Hospital."
+          },
+          {
+            "heading": "Abstract"
+          },
+          {
+            "paragraph": "Background. Delays in discharging patients who are well enough to leave hospital lengthen hospital stays and reduce the number of beds available for new admissions. We evaluated a nurse-led discharge planning model on six acute medical wards."
+          },
+          {
+            "paragraph": "Methods. The model combined a dedicated discharge coordinator nurse on each ward, an expected date of discharge set within 24 hours of admission, daily board rounds and criteria-led discharge. Wards moved from usual care to the new model in a stepped-wedge sequence between April 2024 and March 2025. The primary outcome was length of stay."
+          },
+          {
+            "paragraph": "Results. The evaluation included 6,948 admissions. Mean length of stay fell from 7.9 to 7.1 days, an adjusted reduction of 0.8 days. Emergency readmission within 30 days was slightly lower in the intervention period, and more patients left hospital before noon."
+          },
+          {
+            "paragraph": "Conclusions. Nurse-led discharge planning shortened hospital stays without an increase in readmissions or deaths. The model could be extended to other wards."
+          }
+        ],
+        [
+          {
+            "heading": "1 Introduction"
+          },
+          {
+            "paragraph": "Calderbrook General Hospital has operated at more than 95% bed occupancy for most of the past three years. On the acute medical wards, a large share of bed-days is used by patients who are medically fit to leave but are waiting for tests, medicines, transport or support at home. Discharges are often left until late in the day, which delays admissions from the emergency department."
+          },
+          {
+            "paragraph": "National guidance encourages hospitals to plan discharge from the point of admission, to set an expected date of discharge for every patient and to discharge patients earlier in the day. Earlier attempts at Calderbrook to introduce these practices relied on ward managers and medical teams and were not sustained."
+          },
+          {
+            "paragraph": "In 2023 the nursing directorate proposed a nurse-led model of discharge planning, in which a dedicated nurse would take responsibility for preparing each patient's discharge from the day of admission. This report presents the evaluation of that model on six acute medical wards over twelve months."
+          },
+          {
+            "heading": "2 Literature review"
+          },
+          {
+            "paragraph": "Discharge planning has been studied extensively. A review of 30 randomised trials by Marlow and Ince (2018) found that structured discharge planning reduced mean length of stay by 0.7 days and reduced readmissions at three months, although the effect on readmissions within 30 days was uncertain. Okafor and colleagues (2020) reported that criteria-led discharge reduced mean length of stay by 0.5 days in a cluster trial in eight hospitals, with emergency readmission within 30 days of 12.8% in both arms."
+          },
+          {
+            "paragraph": "Other studies have focused on the timing of discharge. Lindqvist (2021) found that the share of patients discharged before noon rose from 15% to 24% after daily board rounds were introduced in a teaching hospital. The workload implications are less clear: Prescott (2019) estimated that nurse-led discharge required 31 minutes of additional registered nurse time per patient, while Haddad and Byrne (2022) found no change in overtime hours."
+          },
+          {
+            "paragraph": "Few studies have evaluated a combined model in a district general hospital, and fewer still have measured both patient outcomes and nursing time."
+          }
+        ],
+        [
+          {
+            "heading": "3 Methods"
+          },
+          {
+            "heading": "3.1 Setting and design"
+          },
+          {
+            "paragraph": "The evaluation took place on six acute medical wards with a total of 168 beds. We used a stepped-wedge design: all wards began in the control period, and one ward moved to the intervention every two months, in an order chosen by lottery, until all six wards were using the new model."
+          },
+          {
+            "heading": "3.2 The intervention"
+          },
+          {
+            "paragraph": "Each ward appointed a discharge coordinator, a band 6 registered nurse working on weekdays, funded at 1.0 whole-time equivalent per ward. The coordinator set an expected date of discharge within 24 hours of admission, led a daily board round at 09:00, arranged medicines, transport and community referrals, and authorised criteria-led discharge when agreed clinical criteria were met. Ward managers and coordinators received two half-day training sessions before each ward moved to the intervention."
+          },
+          {
+            "heading": "3.3 Outcomes"
+          },
+          {
+            "paragraph": "The primary outcome was length of stay in days. Secondary outcomes were emergency readmission within 30 days, death within 30 days of discharge, the proportion of patients discharged before noon, and bed-days lost to delayed discharge. Patients completed a readiness for discharge questionnaire, scored from 0 to 10, on the day of discharge."
+          },
+          {
+            "paragraph": "Nursing time was measured by work sampling on two randomly chosen days each month. Ward staff nurses were invited to complete an anonymous workload survey in March 2025."
+          },
+          {
+            "heading": "3.4 Analysis"
+          },
+          {
+            "paragraph": "Outcomes were compared between control and intervention periods using mixed-effects models with a random effect for ward and a fixed effect for calendar month, to allow for seasonal trends. Results are reported with 95% confidence intervals (CI), and a significance level of 0.05 was specified in advance."
+          },
+          {
+            "heading": "3.5 Data sources"
+          },
+          {
+            "paragraph": "Admission, discharge and readmission data were taken from the hospital's patient administration system. Deaths after discharge were identified through the national death register, and delayed discharges were taken from the daily ward status return."
+          },
+          {
+            "heading": "3.6 Patient and public involvement"
+          },
+          {
+            "paragraph": "Two former patients and a carer sat on the evaluation steering group. They helped to word the readiness for discharge questionnaire and advised on how to approach patients on the day of discharge."
+          }
+        ],
+        [
+          {
+            "heading": "4 Results"
+          },
+          {
+            "heading": "4.1 Participants"
+          },
+          {
+            "paragraph": "The evaluation included 6,948 admissions of adults aged 18 and over: 3,302 during control periods and 3,646 during intervention periods. Patient characteristics were similar in the two periods (Table 1)."
+          },
+          {
+            "table": {
+              "caption": "Table 1. Characteristics of admissions by study period",
+              "header": [
+                "Characteristic",
+                "Control period",
+                "Intervention period"
+              ],
+              "rows": [
+                [
+                  "Admissions",
+                  "3,302",
+                  "3,646"
+                ],
+                [
+                  "Mean age, years",
+                  "74.1",
+                  "73.8"
+                ],
+                [
+                  "Women, %",
+                  "52",
+                  "51"
+                ],
+                [
+                  "Admitted through the emergency department, %",
+                  "88",
+                  "89"
+                ],
+                [
+                  "Living alone, %",
+                  "34",
+                  "33"
+                ],
+                [
+                  "Aged 80 and over, %",
+                  "32",
+                  "32"
+                ]
+              ]
+            }
+          },
+          {
+            "heading": "4.2 Length of stay"
+          },
+          {
+            "paragraph": "Mean length of stay was 7.9 days in the control period and 7.1 days in the intervention period. After adjustment for ward and calendar month, the new model reduced mean length of stay by 0.8 days (95% CI 0.5 to 1.1). Table 2 summarises the primary and secondary outcomes."
+          },
+          {
+            "table": {
+              "caption": "Table 2. Primary and secondary outcomes by study period",
+              "header": [
+                "Outcome",
+                "Control period",
+                "Intervention period",
+                "Adjusted effect (95% CI)"
+              ],
+              "rows": [
+                [
+                  "Mean length of stay, days",
+                  "7.9",
+                  "7.1",
+                  "-0.8 days (-1.1 to -0.5)"
+                ],
+                [
+                  "Emergency readmission within 30 days, %",
+                  "15.1",
+                  "14.2",
+                  "OR 0.93 (0.79 to 1.09)"
+                ],
+                [
+                  "Discharged before noon, %",
+                  "18.6",
+                  "29.3",
+                  "OR 1.84 (1.58 to 2.14)"
+                ],
+                [
+                  "Death within 30 days of discharge, %",
+                  "5.4",
+                  "5.2",
+                  "OR 0.97 (0.80 to 1.18)"
+                ],
+                [
+                  "Readiness for discharge score, 0 to 10",
+                  "6.8",
+                  "7.4",
+                  "+0.6 (0.3 to 0.9)"
+                ]
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "heading": "4.3 Readmissions and mortality"
+          },
+          {
+            "paragraph": "Emergency readmission within 30 days occurred after 14.2% of discharges in the intervention period and 15.1% of discharges in the control period (adjusted odds ratio 0.93, 95% CI 0.79 to 1.09). However, the difference was not statistically significant. Mortality within 30 days of discharge was similar in the two periods (Table 2). The most common reasons for readmission in both periods were respiratory infection, heart failure and urinary infection."
+          },
+          {
+            "heading": "4.4 Discharge timing and delays"
+          },
+          {
+            "paragraph": "The proportion of patients leaving hospital before noon rose under the new model (Table 2). Bed-days lost to delayed discharge, counted from the day a patient was recorded as medically fit to leave, fell from 1,184 in the control period to 902 in the intervention period. This fall was driven mainly by quicker arrangement of medicines to take home and of transport."
+          },
+          {
+            "heading": "4.5 Readiness for discharge"
+          },
+          {
+            "paragraph": "Patients discharged under the new model reported feeling better prepared to leave hospital. The mean readiness for discharge score rose from 6.8 to 7.4 out of 10. Questionnaires were returned by 61% of patients, and the return rate was lower among patients aged 80 and over."
+          }
+        ],
+        [
+          {
+            "heading": "4.6 Results by age group"
+          },
+          {
+            "paragraph": "The effect of the new model differed by age (Table 3). Among patients aged 80 years and over, mean length of stay fell by 1.4 days, from 10.4 to 9.0 days. This effect was almost three times the reduction seen in patients under 80, whose length of stay fell by 0.5 days. The subgroup analysis was exploratory and had not been specified in the study protocol."
+          },
+          {
+            "table": {
+              "caption": "Table 3. Mean length of stay in days by age group and study period",
+              "header": [
+                "Age group",
+                "Control period",
+                "Intervention period",
+                "Difference"
+              ],
+              "rows": [
+                [
+                  "18 to 64",
+                  "5.6",
+                  "5.3",
+                  "-0.3"
+                ],
+                [
+                  "65 to 79",
+                  "7.6",
+                  "6.9",
+                  "-0.7"
+                ],
+                [
+                  "80 and over",
+                  "10.4",
+                  "9.0",
+                  "-1.4"
+                ],
+                [
+                  "All ages",
+                  "7.9",
+                  "7.1",
+                  "-0.8"
+                ]
+              ]
+            }
+          },
+          {
+            "paragraph": "Patients aged 80 and over made up 32% of admissions but accounted for 42% of bed-days in the control period. Most of the additional reduction in this group came from fewer days spent waiting for care packages at home."
+          }
+        ],
+        [
+          {
+            "heading": "4.7 Nursing time and workload"
+          },
+          {
+            "paragraph": "Work sampling showed that discharge coordinators spent a mean of 26 minutes on each discharge, covering board rounds, referrals, medicines and contact with families. Time spent by ward staff nurses on discharge paperwork fell from 52 to 34 minutes per shift."
+          },
+          {
+            "paragraph": "In the staff survey, 64% of ward nurses said that their workload was about the same as or lighter than before the new model, and 22% said it was heavier. Only 41% of ward nurses returned the survey, so these views may not be representative of all ward staff."
+          },
+          {
+            "heading": "4.8 Implementation"
+          },
+          {
+            "paragraph": "An expected date of discharge was recorded within 24 hours for 87% of admissions in the intervention period, and board rounds took place on 94% of weekdays. Criteria-led discharge was used for 19% of discharges, most often at weekends when no senior doctor was on the ward."
+          },
+          {
+            "heading": "5 Discussion"
+          },
+          {
+            "paragraph": "The nurse-led model shortened hospital stays by a margin similar to that reported in earlier trials, and the largest gains were among patients aged 80 and over, who occupy the most bed-days. These gains came without an increase in readmissions or deaths."
+          },
+          {
+            "paragraph": "The reduction of 0.8 days is close to the 0.7 days reported in the review by Marlow and Ince (2018), and larger than the 0.5 days found for criteria-led discharge alone by Okafor and colleagues (2020). The rise in discharges before noon was larger than in earlier reports, which suggests that the daily board round was an important part of the model."
+          },
+          {
+            "paragraph": "The workload findings need careful interpretation. The time saved by ward staff nurses was largely offset by the time spent by the coordinators, so the model redistributed discharge work to a dedicated role rather than reducing total nursing time."
+          }
+        ],
+        [
+          {
+            "heading": "6 Limitations"
+          },
+          {
+            "paragraph": "This was a single-site evaluation, and ward staff could not be blinded to the intervention. Although the stepped-wedge design and adjustment for calendar month reduce the influence of seasonal trends, other changes during the year, such as new community care contracts, may have contributed to shorter stays. We did not undertake an economic evaluation, so the costs of the coordinator posts have not been compared with the value of the bed-days saved."
+          },
+          {
+            "heading": "7 Conclusions"
+          },
+          {
+            "paragraph": "Nurse-led discharge planning reduced length of stay on acute medical wards without increasing readmissions. The hospital should consider extending the model to the remaining medical wards, with continued monitoring of readmissions and staff workload."
+          },
+          {
+            "heading": "Acknowledgements"
+          },
+          {
+            "paragraph": "We thank the ward managers, discharge coordinators and patients who took part, and the hospital's information team for extracting admission data."
+          },
+          {
+            "heading": "Ethics and data availability"
+          },
+          {
+            "paragraph": "The evaluation was registered as a service evaluation with the hospital's clinical audit department, and research ethics committee review was not required. Patients could decline the readiness questionnaire without any effect on their care. Aggregate data are available from the Department of Nursing Research on request."
+          },
+          {
+            "heading": "Funding and conflicts of interest"
+          },
+          {
+            "paragraph": "The evaluation was funded by the Calderbrook Hospital Charity. The authors are employed by the hospital, and two of the authors helped to design the nurse-led model."
+          },
+          {
+            "heading": "References"
+          },
+          {
+            "paragraph": "Haddad N, Byrne S (2022). Overtime and discharge planning on medical wards. Nursing Workforce Journal 12: 88-97."
+          },
+          {
+            "paragraph": "Lindqvist E (2021). Board rounds and the timing of hospital discharge. Hospital Flow Quarterly 5: 31-40."
+          },
+          {
+            "paragraph": "Marlow T, Ince G (2018). Structured discharge planning: a review of 30 randomised trials. Review of Hospital Care 22: 140-161."
+          },
+          {
+            "paragraph": "Okafor U, Brennan J, Silva M (2020). Criteria-led discharge in eight hospitals: a cluster trial. Acute Medicine Research 14: 201-213."
+          },
+          {
+            "paragraph": "Prescott D (2019). Measuring the nursing time cost of discharge. Journal of Ward Practice 9: 57-66."
+          }
+        ]
+      ]
+    },
+    {
+      "path": "Evaluations/Board briefing - nurse-led discharge planning.docx",
+      "type": "docx",
+      "title": "Board Briefing: Nurse-Led Discharge Planning",
+      "blocks": [
+        {
+          "heading": "Board Briefing: Nurse-Led Discharge Planning on Acute Medical Wards"
+        },
+        {
+          "paragraph": "For the Trust Board meeting on 6 November 2025. Prepared by the Office of the Chief Nurse. For decision."
+        },
+        {
+          "heading": "Purpose"
+        },
+        {
+          "paragraph": "This paper summarises the evaluation of the nurse-led discharge planning model that ran on six acute medical wards between April 2024 and March 2025, and asks the Board to approve extending the model."
+        },
+        {
+          "heading": "Background"
+        },
+        {
+          "paragraph": "The acute medical wards have run at more than 95% bed occupancy for most of the last three years, and delays in discharge are a major cause of long waits for beds in the emergency department. The nurse-led model was designed to plan each discharge from the day of admission, with a dedicated coordinator nurse on every ward."
+        },
+        {
+          "heading": "Key findings"
+        },
+        {
+          "paragraph": "The evaluation covered 6,948 admissions. Under the new model, the average hospital stay was 1.2 days shorter, which is equivalent to freeing several beds every day across the six wards."
+        },
+        {
+          "paragraph": "Readmissions within 30 days fell from 15.1% to 14.2%, and patients reported feeling better prepared to go home. Patients aged 80 and over benefited most."
+        },
+        {
+          "paragraph": "Ward nurses now spend less time on discharge paperwork, and most nurses who responded to the staff survey said their workload was the same or lighter."
+        },
+        {
+          "heading": "Resources"
+        },
+        {
+          "paragraph": "The model requires one discharge coordinator nurse per ward. The six coordinator posts are funded from the hospital charity grant until March 2026. No savings have yet been calculated, and Finance will develop the economic case for the Board in early 2026."
+        },
+        {
+          "heading": "Recommendation"
+        },
+        {
+          "paragraph": "The Board is asked to approve extending nurse-led discharge planning to the four remaining medical wards from April 2026, subject to the economic case."
+        },
+        {
+          "heading": "Risks"
+        },
+        {
+          "paragraph": "The main risks are recruiting experienced band 6 nurses to the coordinator posts and keeping daily board rounds going during periods of high demand."
+        },
+        {
+          "heading": "Next steps"
+        },
+        {
+          "paragraph": "If the Board approves the extension, recruitment to the four new coordinator posts will begin in January 2026, and the Chief Nurse will report progress to the Quality Committee every quarter."
+        }
+      ]
+    },
+    {
+      "path": "Evaluations/School Streets site data.xlsx",
+      "type": "xlsx",
+      "title": "School Streets pilot: site-level data",
+      "sheets": [
+        {
+          "name": "Sites",
+          "header": [
+            "School",
+            "Pupils on roll",
+            "Vehicles per day, baseline",
+            "Vehicles per day, pilot",
+            "Gate NO2 baseline (ug/m3)",
+            "Gate NO2 pilot (ug/m3)"
+          ],
+          "rows": [
+            [
+              "Ashgrove Primary",
+              "412",
+              "236",
+              "64",
+              "32.1",
+              "27.2"
+            ],
+            [
+              "Beckside Primary",
+              "236",
+              "148",
+              "38",
+              "27.4",
+              "23.8"
+            ],
+            [
+              "Crossley Road Primary",
+              "618",
+              "352",
+              "121",
+              "38.6",
+              "33.9"
+            ],
+            [
+              "Dunmore Infant School",
+              "182",
+              "120",
+              "29",
+              "25.9",
+              "22.7"
+            ],
+            [
+              "Elmfield Primary",
+              "395",
+              "205",
+              "55",
+              "30.8",
+              "26.4"
+            ],
+            [
+              "Fairholme Junior School",
+              "344",
+              "190",
+              "52",
+              "29.7",
+              "25.8"
+            ],
+            [
+              "Greystone Primary",
+              "427",
+              "248",
+              "71",
+              "33.5",
+              "28.5"
+            ],
+            [
+              "Hollins Lane Primary",
+              "289",
+              "166",
+              "47",
+              "28.2",
+              "24.8"
+            ],
+            [
+              "Ivydale Primary",
+              "503",
+              "274",
+              "80",
+              "34.9",
+              "28.0"
+            ],
+            [
+              "Juniper Hill Primary",
+              "210",
+              "131",
+              "33",
+              "25.3",
+              "21.2"
+            ],
+            [
+              "Kingsmead Primary",
+              "461",
+              "289",
+              "92",
+              "36.7",
+              "31.6"
+            ],
+            [
+              "Larkrise Primary",
+              "318",
+              "209",
+              "62",
+              "33.7",
+              "28.9"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "path": "Evaluations/School Streets monitoring notes.md",
+      "type": "md",
+      "title": "School Streets pilot: data review meeting notes",
+      "blocks": [
+        {
+          "heading": "School Streets pilot: data review meeting notes"
+        },
+        {
+          "paragraph": "Meeting held on 14 August 2025. Present: transport research team, air quality officer, parking enforcement manager."
+        },
+        {
+          "heading": "Air quality data"
+        },
+        {
+          "paragraph": "Diffusion tube results have been bias-adjusted with a local factor of 0.87 from the co-location study at the Station Road reference site."
+        },
+        {
+          "paragraph": "The tube at the Hollins Lane Primary gate went missing in March 2025. The March value has been replaced with the mean of the February and April results, as agreed with the air quality officer."
+        },
+        {
+          "heading": "Traffic counts"
+        },
+        {
+          "paragraph": "The pneumatic tube counter on Mill Road was damaged in the second week of May 2025, and that week has been left out of the boundary road totals."
+        },
+        {
+          "heading": "Enforcement"
+        },
+        {
+          "paragraph": "Parking enforcement confirmed that 3,416 penalty charge notices were issued across the 12 sites during the pilot. About 61% of them were issued in the first half term (September and October 2024), and numbers fell steadily after that as drivers got used to the closures."
+        },
+        {
+          "paragraph": "A further 1,980 warning letters were sent in the first four weeks, before penalty charge notices began."
+        },
+        {
+          "heading": "Actions"
+        },
+        {
+          "paragraph": "Send the final site table to the report authors by 22 August. Ask the two schools that missed the March travel survey whether they can run it in the autumn term."
+        }
+      ]
+    },
+    {
+      "path": "Evaluations/Discharge lounge guidance for ward staff.docx",
+      "type": "docx",
+      "title": "Discharge Lounge: Guidance for Ward Staff",
+      "blocks": [
+        {
+          "heading": "Discharge Lounge: Guidance for Ward Staff"
+        },
+        {
+          "paragraph": "Version 3, issued by the Patient Flow Team, June 2025."
+        },
+        {
+          "heading": "Purpose of the lounge"
+        },
+        {
+          "paragraph": "The discharge lounge is a supervised waiting area for adult patients who have been discharged and are waiting for transport, medicines or a relative to collect them. Moving patients to the lounge frees their ward bed earlier in the day."
+        },
+        {
+          "heading": "Opening hours and capacity"
+        },
+        {
+          "paragraph": "The lounge is on the ground floor of the Rowan Building. It is open from 08:00 to 20:00 on weekdays and from 10:00 to 18:00 at weekends and on bank holidays. It has 14 reclining chairs and 4 trolley spaces, and it is staffed by a registered nurse and two healthcare assistants."
+        },
+        {
+          "heading": "Which patients can be transferred"
+        },
+        {
+          "paragraph": "Patients can be transferred once a discharge decision has been made and recorded. Patients who need end of life care, who are confused and at risk of leaving unaccompanied, or who need isolation for infection control should stay on the ward."
+        },
+        {
+          "heading": "Before transfer"
+        },
+        {
+          "paragraph": "The ward nurse should confirm that medicines to take home have been requested, that the discharge letter has been completed or is in progress, and that transport has been booked if needed. Transport for the same day must be booked before 15:00."
+        },
+        {
+          "heading": "Medicines to take home"
+        },
+        {
+          "paragraph": "Pharmacy aims to supply medicines to take home within two hours of the request. Patients waiting for medicines should be transferred with their prescription chart so that the lounge nurse can check the medicines on arrival."
+        },
+        {
+          "heading": "Contact"
+        },
+        {
+          "paragraph": "Call the lounge on extension 4410 before sending a patient, and give a verbal handover on arrival."
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "ss-main-findings",
+      "kind": "summary",
+      "prompt": "Can you summarise the main results of the School Streets pilot evaluation?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Motor vehicles entering the closed streets during restriction hours fell from 214 to 62 per school day, a 71% reduction.",
+          "all": [
+            "71\\s*(%|per\\s*cent|percent)|214\\D{1,40}62",
+            "vehicle|traffic"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "Mean NO2 at the school gates fell from 31.4 to 26.9 ug/m3, a 14.3% reduction.",
+          "all": [
+            "14\\.3\\s*(%|per\\s*cent|percent)|31\\.4\\D{1,40}26\\.9",
+            "NO[2\\u2082]|nitrogen dioxide|pollut"
+          ],
+          "material": true
+        },
+        {
+          "id": "f3",
+          "statement": "After adjusting for the background trend, the NO2 reduction attributable to the pilot was 10.6%.",
+          "all": [
+            "10\\.6\\s*(%|per\\s*cent|percent)"
+          ],
+          "material": false
+        },
+        {
+          "id": "f4",
+          "statement": "The share of pupils walking, cycling or scooting to school rose from 58% to 67%.",
+          "all": [
+            "67\\s*(%|per\\s*cent|percent)",
+            "walk|cycl|scoot|active"
+          ],
+          "material": true
+        },
+        {
+          "id": "f5",
+          "statement": "Traffic on the eight boundary roads rose by 6.2% during the restriction hours.",
+          "all": [
+            "6\\.2\\s*(%|per\\s*cent|percent)",
+            "boundary|surrounding|nearby|neighbo|main road|adjacent"
+          ],
+          "material": true
+        },
+        {
+          "id": "f6",
+          "statement": "73% of parents supported making the scheme permanent.",
+          "all": [
+            "73\\s*(%|per\\s*cent|percent)",
+            "parent"
+          ],
+          "material": false
+        },
+        {
+          "id": "f7",
+          "statement": "54% of residents supported a permanent scheme.",
+          "all": [
+            "54\\s*(%|per\\s*cent|percent)",
+            "resident"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f5",
+          "statement": "The boundary-road increase was within normal year-to-year variation of plus or minus 8%.",
+          "all": [
+            "normal|usual|typical|natural",
+            "variation|fluctuat|range"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "The pilot cut motor traffic on the closed streets sharply: across the 12 sites, vehicles entering during restriction hours fell from 214 to 62 per school day, a 71% reduction. Mean NO2 at the school gates fell from 31.4 to 26.9 ug/m3 (14.3%), or about 10.6% after adjusting for the borough-wide background trend. The share of pupils walking, cycling or scooting to school rose from 58% to 67%. Traffic on the eight boundary roads rose by 6.2%, but this was within normal year-to-year variation (plus or minus 8%). Support for making the scheme permanent was 73% among parents and 54% among residents. Note that the abstract gives a 76% traffic reduction, which does not match the 71% in the results.",
+      "asks": [
+        [
+          "school streets pilot results traffic NO2",
+          "school streets walking cycling boundary roads"
+        ],
+        [
+          "What were the main findings of the School Streets pilot evaluation?"
+        ]
+      ]
+    },
+    {
+      "id": "ss-cleaner-air",
+      "kind": "summary",
+      "prompt": "Did shutting the roads at drop-off time actually make the air any cleaner for the kids outside school?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Mean NO2 at the school gates fell from 31.4 to 26.9 ug/m3, a 14.3% reduction.",
+          "all": [
+            "14\\.3\\s*(%|per\\s*cent|percent)|31\\.4\\D{1,40}26\\.9",
+            "NO[2\\u2082]|nitrogen dioxide|pollut"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "After adjusting for the change at urban background sites, the reduction attributable to the pilot was 10.6% (95% CI 5.2 to 15.7).",
+          "all": [
+            "10\\.6\\s*(%|per\\s*cent|percent)"
+          ],
+          "material": true
+        },
+        {
+          "id": "f3",
+          "statement": "At the schools with continuous monitors, NO2 in the morning restriction hour was 21% lower than at baseline.",
+          "all": [
+            "21\\s*(%|per\\s*cent|percent)",
+            "morning"
+          ],
+          "material": true
+        },
+        {
+          "id": "f4",
+          "statement": "The afternoon restriction hour showed a 12% fall and hours outside the restrictions a 6% fall.",
+          "all": [
+            "12\\s*(%|per\\s*cent|percent)",
+            "afternoon"
+          ],
+          "material": false
+        },
+        {
+          "id": "f5",
+          "statement": "No school gate exceeded the 40 ug/m3 annual mean objective in either period.",
+          "all": [
+            "40",
+            "objective"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f3",
+          "statement": "Continuous monitors were installed at only four of the twelve schools, so the hourly results may not be representative.",
+          "all": [
+            "(four|4)\\s+(of\\s+the\\s+)?(twelve|12)|only\\s+(four|4)|(four|4)\\s+schools"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "Yes, the air at the school gates got cleaner. Mean NO2 at the gates dropped from 31.4 to 26.9 ug/m3, a 14.3% reduction, with falls at all 12 gates. Part of that reflects a borough-wide downward trend; after adjusting for the urban background sites, the reduction attributable to the pilot was about 10.6% (95% CI 5.2 to 15.7). The effect was strongest while the roads were closed: NO2 in the morning restriction hour was 21% lower than at baseline (12% lower in the afternoon hour and 6% lower outside restriction hours), but these hourly figures come from continuous monitors at only four of the twelve schools, so they may not be representative. No gate exceeded the 40 ug/m3 annual objective in either period.",
+      "asks": [
+        [
+          "school gate NO2 change pilot",
+          "hourly air quality restriction hours"
+        ],
+        [
+          "Did air pollution outside the schools go down when the streets were closed?"
+        ]
+      ]
+    },
+    {
+      "id": "ss-more-walking",
+      "kind": "summary",
+      "prompt": "Has the scheme got more children getting to school under their own steam?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "The share of pupils walking, cycling or scooting to school rose from 58% to 67%.",
+          "all": [
+            "67\\s*(%|per\\s*cent|percent)",
+            "walk|cycl|scoot|active"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "The gains were concentrated among pupils living within one kilometre of the school.",
+          "all": [
+            "(one|1)\\s*(kilomet|km)|1,?000\\s*m",
+            "concentrat|mainly|mostly|largely|most of"
+          ],
+          "material": true
+        },
+        {
+          "id": "f3",
+          "statement": "Travel by car fell from 34% to 25% of pupils.",
+          "all": [
+            "(?<!\\d)34(?!\\d)",
+            "(?<!\\d)25(?!\\d)",
+            "\\bcars?\\b|driven|drove|driving"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f1",
+          "statement": "The follow-up survey was completed at only 10 of the 12 schools.",
+          "all": [
+            "(10|ten)\\s+of\\s+(the\\s+)?(12|twelve)|(10|ten)\\s+schools|two\\s+schools"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "Yes, according to the hands-up surveys. The share of pupils who usually walked, cycled or scooted to school rose from 58% to 67%, and travel by car fell from 34% to 25%. The increase was concentrated among pupils living within one kilometre of the school; travel by pupils living further away changed little. One caveat: the follow-up survey was completed at only 10 of the 12 schools.",
+      "asks": [
+        [
+          "active travel mode share school streets",
+          "hands-up survey walking cycling"
+        ],
+        [
+          "Did more pupils walk, cycle or scoot to school after the School Streets started?"
+        ]
+      ]
+    },
+    {
+      "id": "ss-traffic-moved",
+      "kind": "qualified",
+      "prompt": "Did the cars just end up on the roads around the schools instead?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Traffic on the eight boundary roads rose by 6.2% during the restriction hours.",
+          "all": [
+            "6\\.2\\s*(%|per\\s*cent|percent)",
+            "boundary|surrounding|nearby|neighbo|main road|adjacent"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "NO2 on the boundary roads went from 35.2 to 35.8 ug/m3 (+1.7%).",
+          "all": [
+            "1\\.7|35\\.8",
+            "boundary"
+          ],
+          "material": false
+        },
+        {
+          "id": "f3",
+          "statement": "The largest increase, 11%, was on Mill Road next to Crossley Road Primary.",
+          "all": [
+            "11\\s*(%|per\\s*cent|percent)",
+            "Mill Road"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f1",
+          "statement": "The increase was within the normal year-to-year variation of plus or minus 8% at the permanent counters.",
+          "all": [
+            "normal|usual|typical|natural",
+            "variation|fluctuat|range"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "Only to a small extent. Traffic on the eight boundary roads rose by 6.2% during the restriction hours, but the report notes that this is within the normal year-to-year variation of plus or minus 8% seen at the borough's permanent counters, so the evidence of displacement is weak. The biggest rise was 11% on Mill Road next to Crossley Road Primary, and NO2 on the boundary roads was essentially unchanged (35.2 to 35.8 ug/m3, +1.7%).",
+      "asks": [
+        [
+          "traffic displacement boundary roads",
+          "diverted traffic nearby roads school streets"
+        ],
+        [
+          "Did traffic increase on the roads surrounding the School Streets?"
+        ]
+      ]
+    },
+    {
+      "id": "ss-traffic-cut-conflict",
+      "kind": "conflict",
+      "prompt": "By how much did traffic fall on the closed school streets?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "The abstract says motor traffic on the closed streets fell by 76% during the restriction hours.",
+          "all": [
+            "76\\s*(%|per\\s*cent|percent)",
+            "traffic|vehicle"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "The results section says vehicles entering the closed streets fell from 214 to 62 per school day, a 71% reduction.",
+          "all": [
+            "71\\s*(%|per\\s*cent|percent)|214\\D{1,40}62",
+            "vehicle|traffic"
+          ],
+          "material": true
+        },
+        {
+          "id": "f3",
+          "statement": "Table 1 gives a 72% fall in the morning restriction hour and a 70% fall in the afternoon.",
+          "all": [
+            "72",
+            "morning"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [
+        {
+          "between": [
+            "f1",
+            "f2"
+          ],
+          "statement": "The abstract reports a 76% fall in traffic, while the results section and Table 1 report a fall from 214 to 62 vehicles per school day, which is 71%."
+        }
+      ],
+      "computed": [],
+      "absent": false,
+      "answer": "The report is inconsistent. The results section and Table 1 say the mean number of motor vehicles entering the closed streets during restriction hours fell from 214 to 62 per school day across the 12 sites, a 71% reduction (72% in the morning hour and 70% in the afternoon). The abstract, however, states that motor traffic fell by 76%. The 71% figure is the one supported by the detailed results and the site-level data, so the abstract's 76% looks like an error.",
+      "asks": [
+        [
+          "closed streets traffic reduction percent",
+          "vehicle counts restriction hours school streets"
+        ],
+        [
+          "How much did motor traffic on the closed streets drop during the School Streets pilot?"
+        ]
+      ]
+    },
+    {
+      "id": "ss-gates-vs-boundary",
+      "kind": "compare",
+      "prompt": "How did NO2 change at the school gates compared with the main roads nearby?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "At the 12 school gates mean NO2 fell from 31.4 to 26.9 ug/m3 (-14.3%).",
+          "all": [
+            "14\\.3|26\\.9",
+            "gate"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "On the eight boundary roads mean NO2 rose from 35.2 to 35.8 ug/m3 (+1.7%).",
+          "all": [
+            "1\\.7|35\\.8",
+            "boundary"
+          ],
+          "material": true
+        },
+        {
+          "id": "f3",
+          "statement": "At the three urban background sites NO2 fell from 21.6 to 20.7 ug/m3 (-4.2%).",
+          "all": [
+            "4\\.2|20\\.7",
+            "background"
+          ],
+          "material": false
+        },
+        {
+          "id": "f4",
+          "statement": "The gate reduction attributable to the pilot, adjusted for background, was 10.6%.",
+          "all": [
+            "10\\.6\\s*(%|per\\s*cent|percent)"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "NO2 fell at the school gates but not on the boundary roads. At the 12 school gates the mean fell from 31.4 to 26.9 ug/m3 (-14.3%), while on the eight boundary roads it rose slightly from 35.2 to 35.8 ug/m3 (+1.7%), which the report describes as essentially unchanged. For context, the three urban background sites fell from 21.6 to 20.7 ug/m3 (-4.2%), and the gate reduction attributable to the pilot after adjusting for that trend was 10.6%.",
+      "asks": [
+        [
+          "NO2 school gate boundary road comparison",
+          "nitrogen dioxide by monitoring location"
+        ],
+        [
+          "Was the change in air pollution at the school gates different from the change on nearby main roads?"
+        ]
+      ]
+    },
+    {
+      "id": "ss-car-dropoff",
+      "kind": "lookup",
+      "prompt": "What share of pupils were still being driven to school once the scheme was running?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "In the March 2025 survey 25% of pupils usually travelled to school by car, down from 34% in March 2024 (10 schools).",
+          "all": [
+            "(?<!\\d)34(?!\\d)",
+            "(?<!\\d)25(?!\\d)",
+            "\\bcars?\\b|driven|drove|driving"
+          ],
+          "material": true
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "About a quarter: in the March 2025 hands-up survey, 25% of pupils usually travelled to school by car, down from 34% in March 2024 (Table 3 of the evaluation report, based on the 10 schools that completed both surveys).",
+      "asks": [
+        [
+          "car mode share pupils pilot survey",
+          "school run by car percentage"
+        ],
+        [
+          "What percentage of children travelled to school by car during the pilot?"
+        ]
+      ]
+    },
+    {
+      "id": "ss-fines",
+      "kind": "lookup",
+      "prompt": "How many fines were handed out to drivers who went into the closed streets?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "3,416 penalty charge notices were issued across the 12 sites during the pilot.",
+          "all": [
+            "3,?416",
+            "penalt|PCN|fine|notice"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "About 61% of the notices were issued in the first half term (September and October 2024).",
+          "all": [
+            "61\\s*(%|per\\s*cent|percent)",
+            "first half term|September|October"
+          ],
+          "material": false
+        },
+        {
+          "id": "f3",
+          "statement": "1,980 warning letters were sent in the first four weeks, before penalty charge notices began.",
+          "all": [
+            "1,?980",
+            "warning"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "Parking enforcement issued 3,416 penalty charge notices across the 12 sites during the pilot, about 61% of them in the first half term (September and October 2024), with numbers falling after that. Before the penalty notices started, 1,980 warning letters were sent during the first four weeks.",
+      "asks": [
+        [
+          "school streets penalty charge notices issued",
+          "enforcement camera fines closures"
+        ],
+        [
+          "How many penalty notices were issued to drivers entering the School Streets?"
+        ]
+      ]
+    },
+    {
+      "id": "ss-total-pupils",
+      "kind": "aggregate",
+      "prompt": "How many pupils attend the pilot schools altogether, and how big is the average school?",
+      "facts": [
+        {
+          "id": "r1",
+          "statement": "Ashgrove Primary has 412 pupils on roll.",
+          "all": [
+            "Ashgrove",
+            "(?<![\\d.])412(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r2",
+          "statement": "Beckside Primary has 236 pupils on roll.",
+          "all": [
+            "Beckside",
+            "(?<![\\d.])236(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r3",
+          "statement": "Crossley Road Primary has 618 pupils on roll.",
+          "all": [
+            "Crossley",
+            "(?<![\\d.])618(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r4",
+          "statement": "Dunmore Infant School has 182 pupils on roll.",
+          "all": [
+            "Dunmore",
+            "(?<![\\d.])182(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r5",
+          "statement": "Elmfield Primary has 395 pupils on roll.",
+          "all": [
+            "Elmfield",
+            "(?<![\\d.])395(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r6",
+          "statement": "Fairholme Junior School has 344 pupils on roll.",
+          "all": [
+            "Fairholme",
+            "(?<![\\d.])344(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r7",
+          "statement": "Greystone Primary has 427 pupils on roll.",
+          "all": [
+            "Greystone",
+            "(?<![\\d.])427(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r8",
+          "statement": "Hollins Lane Primary has 289 pupils on roll.",
+          "all": [
+            "Hollins",
+            "(?<![\\d.])289(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r9",
+          "statement": "Ivydale Primary has 503 pupils on roll.",
+          "all": [
+            "Ivydale",
+            "(?<![\\d.])503(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r10",
+          "statement": "Juniper Hill Primary has 210 pupils on roll.",
+          "all": [
+            "Juniper",
+            "(?<![\\d.])210(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r11",
+          "statement": "Kingsmead Primary has 461 pupils on roll.",
+          "all": [
+            "Kingsmead",
+            "(?<![\\d.])461(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r12",
+          "statement": "Larkrise Primary has 318 pupils on roll.",
+          "all": [
+            "Larkrise",
+            "(?<![\\d.])318(?![\\d.])"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [],
+      "computed": [
+        {
+          "id": "c1",
+          "statement": "Total pupils on roll across the 12 pilot schools.",
+          "value": "4395",
+          "from": [
+            "r1",
+            "r2",
+            "r3",
+            "r4",
+            "r5",
+            "r6",
+            "r7",
+            "r8",
+            "r9",
+            "r10",
+            "r11",
+            "r12"
+          ]
+        },
+        {
+          "id": "c2",
+          "statement": "Average pupils on roll per pilot school (4395 / 12 = 366.25).",
+          "value": "366",
+          "from": [
+            "r1",
+            "r2",
+            "r3",
+            "r4",
+            "r5",
+            "r6",
+            "r7",
+            "r8",
+            "r9",
+            "r10",
+            "r11",
+            "r12"
+          ]
+        }
+      ],
+      "absent": false,
+      "answer": "The 12 pilot schools have 4395 pupils on roll in total, an average of about 366 per school, ranging from 182 at Dunmore Infant School to 618 at Crossley Road Primary.",
+      "asks": [
+        [
+          "pupils on roll pilot schools",
+          "school streets site data"
+        ],
+        [
+          "How many pupils are on roll at each of the School Streets pilot schools?"
+        ]
+      ]
+    },
+    {
+      "id": "ss-no2-highest-lowest",
+      "kind": "aggregate",
+      "prompt": "During the pilot, which school had the most polluted air at its gate, and which had the least?",
+      "facts": [
+        {
+          "id": "r1",
+          "statement": "Ashgrove Primary had a mean gate NO2 of 27.2 ug/m3 in the pilot period (32.1 at baseline).",
+          "all": [
+            "Ashgrove",
+            "(?<![\\d.])27\\.2(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r2",
+          "statement": "Beckside Primary had a mean gate NO2 of 23.8 ug/m3 in the pilot period (27.4 at baseline).",
+          "all": [
+            "Beckside",
+            "(?<![\\d.])23\\.8(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r3",
+          "statement": "Crossley Road Primary had a mean gate NO2 of 33.9 ug/m3 in the pilot period (38.6 at baseline).",
+          "all": [
+            "Crossley",
+            "(?<![\\d.])33\\.9(?![\\d.])"
+          ],
+          "material": true
+        },
+        {
+          "id": "r4",
+          "statement": "Dunmore Infant School had a mean gate NO2 of 22.7 ug/m3 in the pilot period (25.9 at baseline).",
+          "all": [
+            "Dunmore",
+            "(?<![\\d.])22\\.7(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r5",
+          "statement": "Elmfield Primary had a mean gate NO2 of 26.4 ug/m3 in the pilot period (30.8 at baseline).",
+          "all": [
+            "Elmfield",
+            "(?<![\\d.])26\\.4(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r6",
+          "statement": "Fairholme Junior School had a mean gate NO2 of 25.8 ug/m3 in the pilot period (29.7 at baseline).",
+          "all": [
+            "Fairholme",
+            "(?<![\\d.])25\\.8(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r7",
+          "statement": "Greystone Primary had a mean gate NO2 of 28.5 ug/m3 in the pilot period (33.5 at baseline).",
+          "all": [
+            "Greystone",
+            "(?<![\\d.])28\\.5(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r8",
+          "statement": "Hollins Lane Primary had a mean gate NO2 of 24.8 ug/m3 in the pilot period (28.2 at baseline).",
+          "all": [
+            "Hollins",
+            "(?<![\\d.])24\\.8(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r9",
+          "statement": "Ivydale Primary had a mean gate NO2 of 28.0 ug/m3 in the pilot period (34.9 at baseline).",
+          "all": [
+            "Ivydale",
+            "(?<![\\d.])28\\.0(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r10",
+          "statement": "Juniper Hill Primary had a mean gate NO2 of 21.2 ug/m3 in the pilot period (25.3 at baseline).",
+          "all": [
+            "Juniper",
+            "(?<![\\d.])21\\.2(?![\\d.])"
+          ],
+          "material": true
+        },
+        {
+          "id": "r11",
+          "statement": "Kingsmead Primary had a mean gate NO2 of 31.6 ug/m3 in the pilot period (36.7 at baseline).",
+          "all": [
+            "Kingsmead",
+            "(?<![\\d.])31\\.6(?![\\d.])"
+          ],
+          "material": false
+        },
+        {
+          "id": "r12",
+          "statement": "Larkrise Primary had a mean gate NO2 of 28.9 ug/m3 in the pilot period (33.7 at baseline).",
+          "all": [
+            "Larkrise",
+            "(?<![\\d.])28\\.9(?![\\d.])"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [],
+      "computed": [
+        {
+          "id": "c1",
+          "statement": "Highest mean gate NO2 in the pilot period (Crossley Road Primary).",
+          "value": "33.9",
+          "from": [
+            "r1",
+            "r2",
+            "r3",
+            "r4",
+            "r5",
+            "r6",
+            "r7",
+            "r8",
+            "r9",
+            "r10",
+            "r11",
+            "r12"
+          ]
+        },
+        {
+          "id": "c2",
+          "statement": "Lowest mean gate NO2 in the pilot period (Juniper Hill Primary).",
+          "value": "21.2",
+          "from": [
+            "r1",
+            "r2",
+            "r3",
+            "r4",
+            "r5",
+            "r6",
+            "r7",
+            "r8",
+            "r9",
+            "r10",
+            "r11",
+            "r12"
+          ]
+        }
+      ],
+      "absent": false,
+      "answer": "From the site data, Crossley Road Primary had the highest NO2 at its gate during the pilot, 33.9 ug/m3 (down from 38.6 at baseline), and Juniper Hill Primary had the lowest, 21.2 ug/m3 (down from 25.3). All 12 schools stayed below the 40 ug/m3 annual objective.",
+      "asks": [
+        [
+          "gate NO2 by school pilot period",
+          "highest lowest NO2 school site"
+        ],
+        [
+          "Which pilot school had the highest and which the lowest nitrogen dioxide at the gate in 2025?"
+        ]
+      ]
+    },
+    {
+      "id": "ss-asthma-absent",
+      "kind": "absent",
+      "prompt": "Did the School Streets scheme cut asthma attacks among the pupils?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "The study did not measure health outcomes such as asthma symptoms or hospital admissions among pupils.",
+          "all": [
+            "did not measure|not measured|were not measured",
+            "health|asthma"
+          ],
+          "material": false
+        },
+        {
+          "id": "f2",
+          "statement": "Mean NO2 at the school gates fell by 14.3%.",
+          "all": [
+            "14\\.3\\s*%",
+            "NO2|nitrogen dioxide"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [],
+      "computed": [],
+      "absent": true,
+      "absence": [
+        [
+          "did not measure",
+          "asthma"
+        ]
+      ],
+      "answer": "The documents don't answer this. The evaluation did not measure health outcomes such as asthma symptoms or hospital admissions among pupils, so there is no evidence either way on asthma. What it did measure was air quality: mean NO2 at the school gates fell by 14.3%, from 31.4 to 26.9 ug/m3.",
+      "asks": [
+        [
+          "school streets asthma pupils",
+          "children health outcomes respiratory"
+        ],
+        [
+          "Did the School Streets evaluation report any effect on children's asthma?"
+        ]
+      ]
+    },
+    {
+      "id": "dp-main-findings",
+      "kind": "summary",
+      "prompt": "What did the evaluation of nurse-led discharge planning find?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Mean length of stay fell from 7.9 to 7.1 days, an adjusted reduction of 0.8 days (95% CI 0.5 to 1.1).",
+          "all": [
+            "0\\.8[\\s-]*(of a\\s*)?days?|7\\.9\\D{1,40}7\\.1",
+            "stay|\\bLOS\\b"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "Emergency readmission within 30 days was 14.2% in the intervention period against 15.1% in the control period.",
+          "all": [
+            "14\\.2",
+            "readmi"
+          ],
+          "material": true
+        },
+        {
+          "id": "f3",
+          "statement": "The share of patients discharged before noon rose from 18.6% to 29.3%.",
+          "all": [
+            "29\\.3",
+            "noon|midday|morning"
+          ],
+          "material": true
+        },
+        {
+          "id": "f4",
+          "statement": "Ward staff nurses' time on discharge paperwork fell from 52 to 34 minutes per shift.",
+          "all": [
+            "52\\D{1,20}34|34\\s*min",
+            "paperwork|minutes"
+          ],
+          "material": true
+        },
+        {
+          "id": "f5",
+          "statement": "Bed-days lost to delayed discharge fell from 1,184 to 902.",
+          "all": [
+            "1,?184|902",
+            "delay"
+          ],
+          "material": false
+        },
+        {
+          "id": "f6",
+          "statement": "The mean readiness for discharge score rose from 6.8 to 7.4 out of 10.",
+          "all": [
+            "7\\.4",
+            "readiness|prepared"
+          ],
+          "material": false
+        },
+        {
+          "id": "f7",
+          "statement": "Death within 30 days of discharge was 5.2% against 5.4%.",
+          "all": [
+            "5\\.2",
+            "death|mortality"
+          ],
+          "material": false
+        },
+        {
+          "id": "f8",
+          "statement": "Among patients aged 80 and over, length of stay fell by 1.4 days.",
+          "all": [
+            "1\\.4[\\s-]*days?",
+            "80"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f2",
+          "statement": "The difference in readmissions was not statistically significant.",
+          "all": [
+            "not\\s+(statistically\\s+)?significant|n't\\s+(statistically\\s+)?significant|non-?significant|insignificant|no\\s+(statistically\\s+)?significant|chance"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "Across 6,948 admissions on six acute medical wards, the nurse-led model shortened hospital stays: mean length of stay fell from 7.9 to 7.1 days, an adjusted reduction of 0.8 days (95% CI 0.5 to 1.1). Emergency readmission within 30 days was 14.2% under the new model against 15.1% before, but the difference was not statistically significant, and death within 30 days of discharge was similar (5.2% against 5.4%). The share of patients discharged before noon rose from 18.6% to 29.3%, bed-days lost to delayed discharge fell from 1,184 to 902, and the readiness for discharge score rose from 6.8 to 7.4 out of 10. Ward staff nurses' time on discharge paperwork fell from 52 to 34 minutes per shift, although this was largely offset by the coordinators' time. An exploratory subgroup analysis found the largest effect in patients aged 80 and over, whose stay fell by 1.4 days.",
+      "asks": [
+        [
+          "nurse-led discharge evaluation results",
+          "length of stay readmission discharge coordinator"
+        ],
+        [
+          "What were the main results of the nurse-led discharge planning evaluation?"
+        ]
+      ]
+    },
+    {
+      "id": "dp-nurse-workload",
+      "kind": "summary",
+      "prompt": "Did the new discharge approach pile more work onto the ward nurses?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Discharge coordinators spent a mean of 26 minutes on each discharge.",
+          "all": [
+            "26\\s*min",
+            "coordinator"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "Ward staff nurses' time on discharge paperwork fell from 52 to 34 minutes per shift.",
+          "all": [
+            "52\\D{1,20}34|34\\s*min",
+            "paperwork|minutes"
+          ],
+          "material": true
+        },
+        {
+          "id": "f3",
+          "statement": "64% of ward nurses said their workload was about the same or lighter, and 22% said it was heavier.",
+          "all": [
+            "64\\s*(%|per\\s*cent|percent)",
+            "workload|same|lighter"
+          ],
+          "material": true
+        },
+        {
+          "id": "f4",
+          "statement": "The time saved by ward nurses was largely offset by coordinator time, so the model redistributed discharge work rather than reducing total nursing time.",
+          "all": [
+            "offset|redistribut|shift|moved|transferr",
+            "total|overall|net"
+          ],
+          "material": true
+        },
+        {
+          "id": "f5",
+          "statement": "Each ward's discharge coordinator was funded at 1.0 whole-time equivalent.",
+          "all": [
+            "1\\.0\\s*(whole[- ]time|WTE)|one\\s+(full[- ]time|whole[- ]time)",
+            "ward"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f3",
+          "statement": "Only 41% of ward nurses returned the survey, so the views may not be representative.",
+          "all": [
+            "41\\s*(%|per\\s*cent|percent)"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "Not for the ward staff nurses, on the evidence given, but the work moved rather than disappeared. Ward staff nurses' time on discharge paperwork fell from 52 to 34 minutes per shift, while the new discharge coordinators (one 1.0 whole-time equivalent nurse per ward) spent a mean of 26 minutes on each discharge. In the staff survey 64% of ward nurses said their workload was about the same or lighter and 22% said it was heavier, but only 41% of nurses returned the survey, so these views may not be representative. The report concludes that the time saved on the wards was largely offset by the coordinators' time, so the model redistributed discharge work rather than reducing total nursing time.",
+      "asks": [
+        [
+          "nurse workload discharge coordinator time",
+          "staff survey workload ward nurses"
+        ],
+        [
+          "How did nurse-led discharge planning affect the ward nurses' workload and time?"
+        ]
+      ]
+    },
+    {
+      "id": "dp-readmissions",
+      "kind": "qualified",
+      "prompt": "Were fewer patients bouncing back into hospital within a month of going home?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Emergency readmission within 30 days was 14.2% in the intervention period and 15.1% in the control period (adjusted odds ratio 0.93, 95% CI 0.79 to 1.09).",
+          "all": [
+            "14\\.2",
+            "15\\.1"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "The board briefing presents readmissions as falling from 15.1% to 14.2%.",
+          "all": [
+            "15\\.1\\D{1,20}14\\.2",
+            "fell|readmi"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f1",
+          "statement": "The difference was not statistically significant.",
+          "all": [
+            "not\\s+(statistically\\s+)?significant|n't\\s+(statistically\\s+)?significant|non-?significant|insignificant|no\\s+(statistically\\s+)?significant|chance"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "Slightly fewer, but not convincingly. Emergency readmission within 30 days was 14.2% of discharges under the nurse-led model against 15.1% in the control period (adjusted odds ratio 0.93, 95% CI 0.79 to 1.09). However, the difference was not statistically significant, so the evaluation shows no clear reduction, although readmissions did not rise either. The board briefing reports the same figures as a fall without mentioning this caveat.",
+      "asks": [
+        [
+          "30-day readmission nurse-led discharge",
+          "readmission rate control intervention"
+        ],
+        [
+          "Did emergency readmissions within 30 days change under nurse-led discharge planning?"
+        ]
+      ]
+    },
+    {
+      "id": "dp-oldest-patients",
+      "kind": "qualified",
+      "prompt": "Did it make more of a difference for the very old patients?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "Among patients aged 80 and over, mean length of stay fell by 1.4 days, from 10.4 to 9.0 days.",
+          "all": [
+            "1\\.4[\\s-]*days?|10\\.4\\D{1,30}9\\.0",
+            "80"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "Patients under 80 had a 0.5 day reduction in length of stay.",
+          "all": [
+            "0\\.5\\s*(-\\s*)?days?",
+            "under\\s*80|younger|below\\s*80|less than 80"
+          ],
+          "material": true
+        },
+        {
+          "id": "f3",
+          "statement": "Patients aged 80 and over made up 32% of admissions but 42% of bed-days.",
+          "all": [
+            "42\\s*(%|per\\s*cent|percent)",
+            "bed-?days"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [
+        {
+          "id": "q1",
+          "for": "f1",
+          "statement": "The subgroup analysis was exploratory and had not been specified in the study protocol.",
+          "all": [
+            "exploratory|not\\s+(been\\s+)?(pre-?)?specified|post[- ]?hoc"
+          ]
+        }
+      ],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "Yes, the reduction in length of stay was largest in the oldest group. Among patients aged 80 and over, mean length of stay fell by 1.4 days (from 10.4 to 9.0 days), almost three times the reduction of 0.5 days in patients under 80. These patients made up 32% of admissions but 42% of bed-days. The report notes that this subgroup analysis was exploratory and had not been specified in the study protocol, so the finding should be treated with caution.",
+      "asks": [
+        [
+          "length of stay age 80 subgroup",
+          "older patients discharge planning effect"
+        ],
+        [
+          "Did nurse-led discharge planning have a bigger effect for the oldest patients?"
+        ]
+      ]
+    },
+    {
+      "id": "dp-stay-conflict",
+      "kind": "conflict",
+      "prompt": "How much shorter did hospital stays get with nurse-led discharge planning?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "The evaluation report gives mean length of stay of 7.9 days before and 7.1 days after, an adjusted reduction of 0.8 days (95% CI 0.5 to 1.1).",
+          "all": [
+            "0\\.8[\\s-]*(of a\\s*)?days?|7\\.9\\D{1,40}7\\.1",
+            "stay|\\bLOS\\b"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "The board briefing says the average hospital stay was 1.2 days shorter.",
+          "all": [
+            "1\\.2[\\s-]*days?",
+            "stay|shorter"
+          ],
+          "material": true
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [
+        {
+          "between": [
+            "f1",
+            "f2"
+          ],
+          "statement": "The evaluation report gives an adjusted reduction of 0.8 days (7.9 to 7.1 days), but the board briefing says stays were 1.2 days shorter."
+        }
+      ],
+      "computed": [],
+      "absent": false,
+      "answer": "The evaluation report says mean length of stay fell from 7.9 to 7.1 days, an adjusted reduction of 0.8 days (95% CI 0.5 to 1.1). The board briefing prepared for the Trust Board instead says the average stay was 1.2 days shorter, which does not match the report and lies outside its confidence interval. The report's 0.8 days is the figure supported by the analysis.",
+      "asks": [
+        [
+          "length of stay reduction days nurse-led discharge",
+          "board briefing length of stay"
+        ],
+        [
+          "By how many days did average length of stay fall under the nurse-led discharge model?"
+        ]
+      ]
+    },
+    {
+      "id": "dp-before-noon",
+      "kind": "lookup",
+      "prompt": "What share of patients went home before midday once the new model was in place?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "29.3% of patients were discharged before noon in the intervention period.",
+          "all": [
+            "29\\.3",
+            "noon|midday|morning"
+          ],
+          "material": true
+        },
+        {
+          "id": "f2",
+          "statement": "18.6% were discharged before noon in the control period.",
+          "all": [
+            "18\\.6",
+            "noon|midday"
+          ],
+          "material": false
+        },
+        {
+          "id": "f3",
+          "statement": "The adjusted odds ratio was 1.84 (95% CI 1.58 to 2.14).",
+          "all": [
+            "1\\.84"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [],
+      "computed": [],
+      "absent": false,
+      "answer": "Under the nurse-led model, 29.3% of patients were discharged before noon, compared with 18.6% in the control period (adjusted odds ratio 1.84, 95% CI 1.58 to 2.14; Table 2 of the evaluation report).",
+      "asks": [
+        [
+          "discharged before noon percentage",
+          "discharge timing intervention period"
+        ],
+        [
+          "What proportion of patients were discharged before noon under the new model?"
+        ]
+      ]
+    },
+    {
+      "id": "dp-savings-absent",
+      "kind": "absent",
+      "prompt": "How much money did nurse-led discharge planning save the hospital?",
+      "facts": [
+        {
+          "id": "f1",
+          "statement": "The evaluation did not undertake an economic evaluation, so coordinator costs were not compared with the value of bed-days saved.",
+          "all": [
+            "economic evaluation",
+            "did not|not\\s+undertake|\\bno\\b"
+          ],
+          "material": false
+        },
+        {
+          "id": "f2",
+          "statement": "The board briefing says no savings have yet been calculated and Finance will develop the economic case in early 2026.",
+          "all": [
+            "no savings|not yet been calculated|savings have not",
+            "calculated|economic case"
+          ],
+          "material": false
+        }
+      ],
+      "qualifications": [],
+      "conflicts": [],
+      "computed": [],
+      "absent": true,
+      "absence": [
+        [
+          "no savings",
+          "calculated"
+        ],
+        [
+          "did not undertake an economic evaluation"
+        ]
+      ],
+      "answer": "The documents don't give a savings figure. The evaluation report says no economic evaluation was undertaken, so the cost of the coordinator posts was not compared with the value of the bed-days saved, and the board briefing says no savings have yet been calculated, with Finance due to develop the economic case in early 2026.",
+      "asks": [
+        [
+          "cost savings nurse-led discharge",
+          "economic evaluation coordinator posts cost"
+        ],
+        [
+          "Did nurse-led discharge planning save the hospital money, and how much?"
+        ]
+      ]
+    }
+  ]
+}
