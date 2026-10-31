@@ -3115,6 +3115,17 @@ do {
     check(!gate.end(), "dismissing the box drops a follow-up that would reopen it")
 }
 
+print("a list the writer types past without a new answer closes")
+do {
+    var typing = UnansweredTyping(limit: 0.5)
+    let start = Date(timeIntervalSinceReferenceDate: 1000)
+    check(typing.typed(at: start) == start.addingTimeInterval(0.5), "the first key over a list starts the wait")
+    check(typing.typed(at: start.addingTimeInterval(0.3)) == nil, "later keys do not put the close off")
+    typing.answered()
+    check(typing.typed(at: start.addingTimeInterval(2)) == start.addingTimeInterval(2.5),
+          "an answer for the newer text starts the wait over")
+}
+
 print("accepting a suggestion reads and writes the host off the main thread")
 do {
     // The main thread waits on a semaphore throughout, so any step that

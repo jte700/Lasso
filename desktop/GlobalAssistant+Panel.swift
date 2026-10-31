@@ -84,6 +84,7 @@ extension GlobalAssistant {
         guard view.mode == .suggestions else { return }
         guard context != nil, popupHost != nil, popupCaret != nil else { hide(); return }
         let panel = existingPanel()
+        endUnansweredWait()
         view.suggestions = suggestions
         view.selected = min(view.selected, max(0, suggestions.count - 1))
         loadPreviewForSelection()

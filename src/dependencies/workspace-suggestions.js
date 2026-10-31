@@ -6,7 +6,7 @@ import { variableTokens } from './text-similarity.js';
 import {
   contextualCompletionRange, workspaceCompletionText, workspaceSuggestionCategory,
 } from './workspace-completion.js';
-import { writingSourceContext } from './writing-context.js';
+import { currentClauseStart, writingSourceContext } from './writing-context.js';
 
 export const workspaceSuggestionsMethods = {
   workspaceRetrievalObjects(projectId, snapshotId = null) {
@@ -87,13 +87,18 @@ export const workspaceSuggestionsMethods = {
     const lastWord = typedWords.at(-1);
     const shared = new Uint16Array(retrievable.length);
     for (const word of typedWords) for (const position of places.get(word) ?? []) shared[position] += 1;
+    // Earlier words still order what is offered, but one of the clause being
+    // written must be in it: after "no issues and everything is how it is
+    // now" the writer has moved past "issues".
+    const clauseWords = typedWordKeys(input.text.slice(currentClauseStart(input.text, cursor), cursor));
+    const atCaret = new Set(clauseWords.flatMap((word) => places.get(word) ?? []));
     const endsOnMatch = new Set(places.get(lastWord) ?? []);
     const reasons = ['direct word match', resultIntent ? 'study-data context' : methodIntent ? 'methods context' : 'project context'];
     // Ranking keeps only objects that reach its minimum, so the rest are not sorted for it.
     const minimumScore = options.minimumScore ?? 0.54;
     const scored = [];
     retrievable.forEach((object, position) => {
-      if (!shared[position]) return;
+      if (!shared[position] || !atCaret.has(position)) return;
       if (input.documentPath && object.path === input.documentPath) return;
       if (!permitted(object)) return;
       const { resultType, methodType, identifier, priority } = features[position];

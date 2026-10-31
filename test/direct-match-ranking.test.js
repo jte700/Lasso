@@ -259,3 +259,39 @@ test('a document is not named by the folder it is filed in', async (t) => {
   assert.deepEqual(byFolder, [], '"docs" is only the folder the runbook is in');
   assert.ok(byOwnWords.some((label) => /A partner polling/.test(label)), byOwnWords.join(' | '));
 });
+
+// A design register whose lines share "issue" with a message, and nothing else.
+async function registerWorkspace(t) {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-current-clause-'));
+  const root = path.join(temporary, 'Juniper Hub');
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, 'Design-Decision-Register.txt'),
+    'Decision D-07: drawing set A-101 issued for permit on 2026-10-02.\n'
+    + 'Open issue AR-12: verify the stair headroom on site.\n');
+  const app = createApplication({ dataDir: path.join(temporary, 'state'), watchProjects: false });
+  t.after(async () => { await app.close(); fs.rmSync(temporary, { recursive: true, force: true }); });
+  await app.workspace.add([root], { id: 'system:current-clause', displayName: 'Current clause test', actorType: 'SYSTEM' });
+  return app;
+}
+
+async function everythingOffered(app, text) {
+  const prediction = await app.workspace.predict({ text, cursor: text.length, blockIndex: 0 });
+  return [...prediction.sourceCompletions, ...await offered(app, text)]
+    .map((item) => typeof item === 'string' ? item : item.dependencyCandidate?.label ?? item.replacementText ?? '');
+}
+
+test('a word the writer has typed past no longer picks the sources', async (t) => {
+  // Arrange
+  const app = await registerWorkspace(t);
+  const start = 'yes remove the trailer from our main uncommited and merge into main so there are no issues';
+
+  // Act
+  const atTheWord = await everythingOffered(app, start);
+  const nextClause = await everythingOffered(app, `${start} and `);
+  const typedOn = await everythingOffered(app, `${start} and everything is how it is now`);
+
+  // Assert
+  assert.ok(atTheWord.length > 0, '"issues" at the caret names the register');
+  assert.deepEqual(nextClause, [], 'a new clause has begun after "issues"');
+  assert.deepEqual(typedOn, [], 'nothing in "everything is how it is now" is in the register');
+});
