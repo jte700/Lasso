@@ -5,11 +5,17 @@ import { humanVariable } from './tabular.js';
 import { STOP_WORDS } from './text-similarity.js';
 
 // The values of a focus chosen on the words being typed replace those words
-// and anything typed after them ("brac" → "100 mm"). Trailing spaces stay,
-// including the no-break space browser editors leave at the caret.
+// and a word typed after them to narrow the list ("brac ho" → "100 mm").
+// Trailing spaces stay, including the no-break space browser editors leave
+// at the caret. A sentence written on after them ("nist the hole diameter
+// is") is the writer's own: it stays, and the value goes at the caret.
 export function replacingFocusWords(completions, dependency, text, cursor) {
   if (!dependency?.replacesText) return completions;
-  const { start } = dependency.anchor;
+  const { start, end } = dependency.anchor;
+  const after = text.slice(end, cursor).trim().split(/\s+/).filter(Boolean);
+  if (after.length > 1 || (after.length === 1 && CONTEXTUAL_INSERTION_CUES.has(after[0].toLowerCase()))) {
+    return completions.map((completion) => ({ ...completion, claimStart: cursor, claimEnd: cursor }));
+  }
   const claimEnd = start + text.slice(start, cursor).replace(/[^\S\r\n]+$/, '').length;
   return completions.map((completion) => ({ ...completion, claimStart: start, claimEnd }));
 }
