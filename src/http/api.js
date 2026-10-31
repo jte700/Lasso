@@ -13,6 +13,7 @@ import { buildModelPreview } from '../dependencies/model-preview.js';
 import { redactModelPlan } from '../sharing/model-redaction.js';
 import { citedPartModel } from '../sharing/cited-part.js';
 import { buildShareDownload, downloadDisposition } from '../sharing/share-download.js';
+import { conversionFormat, convertedShareDownload, shareConversions } from '../sharing/share-conversion.js';
 import { drawingDiscovery } from '../dependencies/drawing-discovery.js';
 import { buildSafePdf, markedPdfRequest, pdfShareRequest } from '../sharing/pdf-share.js';
 import { buildPagePdf, slideCount, slidePicture } from '../sharing/document-pages.js';
@@ -102,6 +103,19 @@ function sendBinary(response, status, content, contentType, headers = {}) {
     ...headers,
   });
   response.end(content);
+}
+
+/** A share's download in the format its recipient chose, or why it cannot be. */
+function sendConversion(response, converted) {
+  if (converted.status !== 'OK') {
+    return sendHtml(response, converted.status === 'CONVERSION_FAILED' ? 500 : 422,
+      renderUnavailable(converted.status), SHARE_PAGE_HEADERS);
+  }
+  return sendBinary(response, 200, converted.content, converted.contentType, {
+    'content-disposition': downloadDisposition(converted.filename),
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+  });
 }
 
 function actorFrom(body) {
@@ -198,12 +212,18 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       }
       // A deck is shared whole, or as the slide the citation is on and nothing else.
       if (isPresentationPath(resolved.internal.filePath)) {
-        if (resolved.share.accessScope === 'DOCUMENT') return { preview: null, document: buildFullShareDocument(sourceFile) };
+        if (resolved.share.accessScope === 'DOCUMENT') {
+          // A deck of one slide may also be downloaded as that slide's picture.
+          return { preview: null, document: { ...buildFullShareDocument(sourceFile),
+            slideCount: slideCount(sourceFile.content, sourceFile.contentHash),
+            slidePicture: () => slidePicture(sourceFile.content, 1, sourceFile.contentHash) } };
+        }
         if (resolved.share.accessScope !== 'INDEXED') return { preview: null, document: null };
         const slide = buildSlideShareDocument(sourceFile, resolved.source.anchor, resolved.source.metadata);
         return { preview: null, document: slide && { ...slide,
           // Made only when the slide is downloaded.
-          slideFile: () => singleSlidePresentation(sourceFile.content, slide.slide) } };
+          slideFile: () => singleSlidePresentation(sourceFile.content, slide.slide),
+          slidePicture: () => slidePicture(sourceFile.content, slide.slide, sourceFile.contentHash) } };
       }
       const pdfRequest = pdfShareRequest(resolved);
       if (pdfRequest && sourceFile?.content) {
@@ -265,6 +285,10 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const { preview, document } = await sharedContent(resolved);
         const excerpt = buildShareDownload(resolved, preview, document);
         if (!excerpt) return sendHtml(response, 422, renderUnavailable('EXCERPT_UNAVAILABLE'), SHARE_PAGE_HEADERS);
+        if (url.searchParams.has('as')) {
+          return sendConversion(response, await convertedShareDownload('excerpt', conversionFormat(url.searchParams.get('as')),
+            shareConversions(resolved, preview, document), { excerpt, document }));
+        }
         return sendBinary(response, 200, excerpt.content, excerpt.contentType, {
           'content-disposition': downloadDisposition(excerpt.filename),
           'cache-control': 'no-store',
@@ -310,6 +334,12 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         if (file.status !== 'OK') {
           const status = file.status === 'NOT_FOUND' ? 404 : file.status === 'SCOPE_RESTRICTED' ? 403 : 410;
           return sendHtml(response, status, renderUnavailable(file.status), SHARE_PAGE_HEADERS);
+        }
+        if (url.searchParams.has('as')) {
+          const resolved = objectShares.resolveShare(shareParameters[0]);
+          const { preview, document } = await sharedContent(resolved);
+          return sendConversion(response, await convertedShareDownload('original', conversionFormat(url.searchParams.get('as')),
+            shareConversions(resolved, preview, document), { original: file, document }));
         }
         // Only the basename is ever published, and quotes/newlines are stripped
         // so the header cannot be split.

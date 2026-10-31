@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createApplication } from '../src/server.js';
-import { matchKey, ownWordKeys, typedWordKeys } from '../src/dependencies/direct-match.js';
+import { matchKey, matchedSourceWords, ownWordKeys, typedWordKeys } from '../src/dependencies/direct-match.js';
 
 // A ledger's columns and a deck-like note: words that a sentence either
 // names or does not, so a suggestion's presence says whether it matched.
@@ -118,6 +118,42 @@ test('each suggestion names the typed words it matched, as its source spells the
 
   // Assert
   assert.deepEqual(pool?.matchedWords, ['Pool', 'raised']);
+});
+
+test('a word still being typed marks the source word it begins', () => {
+  // Arrange
+  const fix = 'Alert when more than 75% of the pool is in use';
+
+  // Assert
+  assert.deepEqual(matchedSourceWords('the slide whe', fix), ['when']);
+  assert.deepEqual(matchedSourceWords('We raised the poo', 'Pool raised from 40 to 80 connections'), ['Pool', 'raised']);
+  assert.deepEqual(matchedSourceWords('the slide whe ', fix), [], 'a finished word is matched whole or not at all');
+  assert.deepEqual(matchedSourceWords('the pool alerts the', fix), ['Alert', 'pool'], 'a finished function word marks nothing');
+  assert.deepEqual(matchedSourceWords('the slide wh', fix), [], 'two letters begin too many words');
+});
+
+test('every suggestion for a half-typed word names a word its preview can mark', async (t) => {
+  // Arrange
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-direct-match-prefix-'));
+  const root = path.join(temporary, 'Incidents');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'Fixes.md'),
+    '# Fixes\n\n- Pool raised from 40 to 80 connections\n- Alert when more than 75% of the pool is in use\n');
+  const app = createApplication({ dataDir: path.join(temporary, 'state'), watchProjects: false });
+  t.after(async () => { await app.close(); fs.rmSync(temporary, { recursive: true, force: true }); });
+  await app.workspace.add([root], { id: 'system:direct-match', displayName: 'Direct match test', actorType: 'SYSTEM' });
+
+  // Act
+  const text = 'the slide whe';
+  const prediction = await app.workspace.predict({ text, cursor: text.length, blockIndex: 0 });
+  const suggestions = [...(prediction.completion ? [prediction.completion] : []), ...prediction.workspaceCompletions,
+    ...prediction.claims.flatMap((claim) => claim.candidates ?? [])];
+
+  // Assert
+  assert.ok(suggestions.some((item) => /^Alert when/.test(item.label ?? '')), 'the alert is offered for the word being typed');
+  for (const suggestion of suggestions) {
+    assert.ok(suggestion.matchedWords?.length, `${suggestion.label ?? suggestion.insertText} names a word to mark`);
+  }
 });
 
 test('a typed word naming a column offers that column first', async (t) => {

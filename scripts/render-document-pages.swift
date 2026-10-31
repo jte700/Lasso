@@ -9,6 +9,7 @@ import QuickLookThumbnailing
 //   render-document-pages docx <input.docx> <output.pdf>
 //   render-document-pages slides <output.pdf> <slide-1.pptx|jpg> <slide-2.pptx|jpg> ...
 //   render-document-pages slide-images <output-folder> <slide-1.pptx> <slide-2.pptx> ...
+//   render-document-pages pdf-docx <input.pdf> <output.docx> <picture-folder> <marker>
 //
 // A Word document is laid out on its own paper and margins with AppKit's
 // reader. Each slide arrives as a deck of its own, which Quick Look draws as
@@ -207,10 +208,80 @@ func slidePages(output: String, slides: [String]) {
     write(data, to: output)
 }
 
+// MARK: PDF to Word
+
+/// A page with no text is drawn at this many pixels a point, and no more than this many pixels long.
+let picturePixelsPerPoint: CGFloat = 2
+let maxPicturePixels: CGFloat = 2400
+
+/// The page as a reader sees it, turned as the PDF says, in points.
+func shownSize(_ page: PDFPage) -> CGSize {
+    let box = page.bounds(for: .cropBox).size
+    return page.rotation % 180 == 0 ? box : CGSize(width: box.height, height: box.width)
+}
+
+func pagePicture(_ page: PDFPage) -> Data? {
+    let size = shownSize(page)
+    let scale = min(picturePixelsPerPoint, maxPicturePixels / max(size.width, size.height, 1))
+    let width = Int((size.width * scale).rounded()), height = Int((size.height * scale).rounded())
+    guard width > 0, height > 0,
+          let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+    context.setFillColor(CGColor(gray: 1, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    context.interpolationQuality = .high
+    context.scaleBy(x: scale, y: scale)
+    page.draw(with: .cropBox, to: context)
+    return context.makeImage().flatMap(jpegData)
+}
+
+/// A PDF as a Word document, a page to a page: each page's text as PDFKit
+/// reads it, with its fonts, sizes and colours. A page with no text, such as a
+/// scan or a copy Lasso drew as pixels, is written to the folder as
+/// page-<n>.jpg and stands in the text as the marker and its number, for the
+/// caller to put the picture in its place: Cocoa's Word writer leaves pictures
+/// out. The folder's pictures.json gives the paper and each picture's size.
+func pdfWord(input: String, output: String, folder: String, marker: String) {
+    guard let document = PDFDocument(url: URL(fileURLWithPath: input)), !document.isLocked,
+          document.pageCount > 0, let first = document.page(at: 0) else { fail("The PDF could not be read.") }
+    guard document.pageCount <= maxPages else { fail("The PDF has too many pages to convert.") }
+    let text = NSMutableAttributedString()
+    var pictures: [[String: Any]] = []
+    for index in 0..<document.pageCount {
+        guard let page = document.page(at: index) else { continue }
+        if index > 0 { text.append(NSAttributedString(string: "\u{0C}")) }
+        if let words = page.attributedString, !words.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            text.append(words)
+            if !words.string.hasSuffix("\n") { text.append(NSAttributedString(string: "\n")) }
+            continue
+        }
+        let name = "page-\(index + 1).jpg"
+        guard let jpeg = pagePicture(page),
+              (try? jpeg.write(to: URL(fileURLWithPath: folder).appendingPathComponent(name))) != nil else {
+            fail("Page \(index + 1) could not be drawn.")
+        }
+        let size = shownSize(page)
+        pictures.append(["page": index + 1, "file": name, "width": size.width, "height": size.height])
+        text.append(NSAttributedString(string: "\(marker)\(index + 1)\n"))
+    }
+    let paper = shownSize(first)
+    let attributes: [NSAttributedString.DocumentAttributeKey: Any] = [
+        .documentType: NSAttributedString.DocumentType.officeOpenXML, .paperSize: paper,
+        .leftMargin: defaultMargin, .rightMargin: defaultMargin, .topMargin: defaultMargin, .bottomMargin: defaultMargin]
+    let manifest: [String: Any] = ["paper": ["width": paper.width, "height": paper.height], "margin": defaultMargin, "pictures": pictures]
+    guard let word = try? text.data(from: NSRange(location: 0, length: text.length), documentAttributes: attributes),
+          (try? word.write(to: URL(fileURLWithPath: output))) != nil,
+          let listing = try? JSONSerialization.data(withJSONObject: manifest),
+          (try? listing.write(to: URL(fileURLWithPath: folder).appendingPathComponent("pictures.json"))) != nil else {
+        fail("The Word document could not be saved.")
+    }
+}
+
 let args = CommandLine.arguments
 switch (args.count > 1 ? args[1] : "") {
 case "docx" where args.count == 4: wordPages(input: args[2], output: args[3])
+case "pdf-docx" where args.count == 6: pdfWord(input: args[2], output: args[3], folder: args[4], marker: args[5])
 case "slides" where args.count >= 4: slidePages(output: args[2], slides: Array(args[3...]))
 case "slide-images" where args.count >= 4: slideImages(folder: args[2], slides: Array(args[3...]))
-default: fail("Usage: render-document-pages docx <input> <output> | slides <output> <slide>... | slide-images <folder> <slide>...")
+default: fail("Usage: render-document-pages docx <input> <output> | slides <output> <slide>... | slide-images <folder> <slide>... | pdf-docx <input> <output> <folder> <marker>")
 }

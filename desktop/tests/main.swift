@@ -1533,6 +1533,15 @@ do {
     check(AssistSuggestionSemantics.insertionText(
         claimType: "STUDY_VARIABLE", label: "Revenue", value: "revenue; inferred numeric variable; examples 41, 5") == "Revenue",
           "variable acceptance inserts its name, never indexing diagnostics")
+    let alert = "Alert when more than 75% of the pool is in use"
+    check(AssistSuggestionSemantics.passage(of: ["valueText": alert, "label": "Alert when more than 75% of the pool is ",
+                                                  "metadata": ["componentType": "TEXT_EXCERPT"]]) == alert,
+          "a claimed sentence is the passage its preview marks, whole")
+    check(AssistSuggestionSemantics.passage(of: ["valueText": "190000", "label": "October forecast CAD",
+                                                  "metadata": ["componentType": "DATASET_CELL"]]) == nil,
+          "a cell's value is not a passage to find in its preview")
+    check(AssistSuggestionSemantics.passage(of: ["valueText": "  ", "metadata": ["componentType": "TEXT_EXCERPT"]]) == nil,
+          "a blank sentence is no passage")
     check(AssistSuggestionSemantics.insertionText(
         claimType: "ENTITY", label: "Bad Debts/Losses and Thefts", value: "25") ==
           "Bad Debts/Losses and Thefts",

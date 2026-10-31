@@ -3,6 +3,7 @@ import { renderModelPlan } from '../../public/model-preview.js';
 import { CODE_SYNTAX_STYLE, highlightCodeLines } from '../../public/code-syntax.js';
 import { renderSharedDrawing } from './shared-drawing.js';
 import { recipientExcerptText, shareDownloadOptions } from './share-download.js';
+import { shareConversions } from './share-conversion.js';
 import { MARKDOWN_STYLE, isMarkdownPath, markdownBlockHtml, markdownInlineHtml } from './markdown.js';
 import { isPresentationPath } from '../dependencies/presentation-extraction.js';
 
@@ -126,6 +127,8 @@ export function renderUnavailable(status) {
     SOURCE_MISSING: 'The source for this dependency is no longer available.',
     SCOPE_RESTRICTED: 'This link does not permit downloading the original document.',
     EXCERPT_UNAVAILABLE: 'An excerpt could not be generated for this source.',
+    CONVERSION_UNAVAILABLE: 'This link does not offer a download in that format.',
+    CONVERSION_FAILED: 'The download could not be converted to that format. Try the original format instead.',
   }[status] ?? 'This dependency link is invalid or no longer available.';
   return page('Shared source unavailable · Lasso', `
     <article class="shared-window"><header class="shared-toolbar"><div class="shared-brand">${icon('lasso')}<span>Lasso</span></div><span class="shared-toolbar-label">Shared source</span></header>
@@ -265,14 +268,20 @@ export function renderSharePage(resolved, token, preview, document = null) {
   const options = shareDownloadOptions(resolved, preview, document);
   const base = `/d/${encodeURIComponent(token)}`;
   const originalType = String(source.filename ?? '').match(/\.([a-z\d]{1,10})$/i)?.[1].toUpperCase() || 'File';
+  // Each other format sits beside the download it is made from.
+  const conversions = shareConversions(resolved, preview, document);
+  const converted = (of) => conversions.filter((entry) => entry.of === of).map(({ format, label }) =>
+    `<a class="action" href="${base}/${of === 'excerpt' ? 'excerpt' : 'download'}?as=${format.toLowerCase()}" download>${icon('download')}<span>${escapeHtml(label)}</span><small>${format}</small></a>`);
   const actions = [
     options ? `<a class="action primary" href="${base}/excerpt" download>${icon('download')}<span>${options.label}</span><small>${options.format}</small></a>` : '',
+    ...(options ? converted('excerpt') : []),
     scope === 'DOCUMENT' ? `<a class="action${options ? '' : ' primary'}" href="${base}/download" download>${icon('download')}<span>Download original</span><small>${escapeHtml(originalType)}</small></a>` : '',
+    ...converted('original'),
   ].filter(Boolean).join('');
   const downloadDetail = options?.format === 'ZIP' ? 'All worksheets are included as separate CSV files.'
     : redacted ? 'The downloaded copy includes these redactions.'
       : marked ? 'The downloaded copy includes these markings.'
-      : options?.type === 'slide' ? 'Download this slide as a presentation of its own.'
+      : options?.type === 'slide' ? 'Download this slide as a presentation of its own, or as a picture.'
         : options ? 'Download the excerpt shown above.' : scope === 'DOCUMENT' ? 'Download the complete source file.' : '';
   const scopeLabel = scope === 'INDEXED' ? (deck ? 'Cited slide only' : 'Cited part only') : redacted ? 'Redacted copy'
     : scope === 'MARKED' ? 'Marked-up copy' : 'Entire document';
