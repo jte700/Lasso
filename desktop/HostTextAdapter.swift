@@ -142,7 +142,7 @@ final class AccessibilityTextAdapter: HostTextAdapter {
         AXUIElementSetMessagingTimeout(applicationElement, Self.messagingTimeout)
         guard let focused = attribute(applicationElement, kAXFocusedUIElementAttribute as String),
               CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
-        let element = focused as! AXUIElement
+        let element = FocusedTextElement.resolve(focused as! AXUIElement)
         AXUIElementSetMessagingTimeout(element, Self.messagingTimeout)
         let role = attribute(element, kAXRoleAttribute as String) as? String
         let subrole = attribute(element, kAXSubroleAttribute as String) as? String

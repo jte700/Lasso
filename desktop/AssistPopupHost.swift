@@ -31,7 +31,7 @@ struct AssistPopupHost {
         let application = AXUIElementCreateApplication(processIdentifier)
         AXUIElementSetMessagingTimeout(application, 0.15)
         guard let focused = Self.elementAttribute(application, kAXFocusedUIElementAttribute as String),
-              CFEqual(focused, element),
+              CFEqual(FocusedTextElement.resolve(focused), element),
               let focusedWindow = Self.elementAttribute(application, kAXFocusedWindowAttribute as String),
               CFEqual(focusedWindow, window) else { return false }
         return true
