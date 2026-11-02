@@ -201,6 +201,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/AccessibilityWork.swift" \
   "$ROOT/desktop/HostAccessibilityMode.swift" \
   "$ROOT/desktop/HostTextAdapter.swift" \
+  "$ROOT/desktop/FocusedTextElement.swift" \
   "$ROOT/desktop/DependencyOverlay.swift" \
   "$ROOT/desktop/DependencyHighlighter.swift" \
   "$ROOT/desktop/CodeSyntax.swift" \

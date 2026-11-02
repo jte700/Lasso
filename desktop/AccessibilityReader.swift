@@ -24,7 +24,7 @@ enum AccessibilityReader {
             _ = HostAccessibilityMode.shared.prime(pid: pid, application: application)
             if let focused = attribute(application, kAXFocusedUIElementAttribute as String),
                CFGetTypeID(focused) == AXUIElementGetTypeID() {
-                return (focused as! AXUIElement, pid)
+                return (FocusedTextElement.resolve(focused as! AXUIElement), pid)
             }
         }
         let system = AXUIElementCreateSystemWide()
@@ -33,7 +33,7 @@ enum AccessibilityReader {
            CFGetTypeID(focused) == AXUIElementGetTypeID() {
             var pid: pid_t = 0
             AXUIElementGetPid(focused as! AXUIElement, &pid)
-            return (focused as! AXUIElement, pid)
+            return (FocusedTextElement.resolve(focused as! AXUIElement), pid)
         }
         return nil
     }

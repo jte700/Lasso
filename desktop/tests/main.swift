@@ -3193,6 +3193,29 @@ do {
           "the insertion point is checked, and the refusal reported, on the Accessibility queue")
 }
 
+print("focused text element")
+do {
+    // A tree shaped like Word 16.114's: the pane reports focus, and the text
+    // area holding the caret sits several groups below it.
+    struct Node { let name: String; let focusedText: Bool; let children: [Node] }
+    func leaf(_ name: String, focusedText: Bool = false) -> Node { Node(name: name, focusedText: focusedText, children: []) }
+    func group(_ name: String, _ children: [Node]) -> Node { Node(name: name, focusedText: false, children: children) }
+    func search(_ root: Node, visits: Int = FocusedTextElement.maxVisits) -> String? {
+        FocusedTextElement.search(from: root, children: { $0.children }, isFocusedText: { $0.focusedText },
+                                  maxVisits: visits)?.name
+    }
+
+    let word = group("split", [group("group", [group("scroll", [
+        leaf("scroll bar"),
+        group("layout", [group("page", [group("body", [leaf("text", focusedText: true)])])]),
+    ])])])
+    check(search(word) == "text", "a focused text area below a focused pane is found")
+    check(search(group("split", [leaf("button"), leaf("label")])) == nil,
+          "a pane with no focused text below it finds nothing")
+    check(search(leaf("field", focusedText: true)) == "field", "an element that is itself the text is kept")
+    check(search(word, visits: 3) == nil, "the search stops after its visit budget")
+}
+
 print("host accessibility mode")
 do {
     check(!HostAccessibilityMode.needsEnhancedInterface(manualAccepted: true, chromiumBased: true),
