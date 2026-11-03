@@ -86,7 +86,19 @@
   .pill.green { background: var(--green); color: #fff; }
   .pill.green:hover { background: #22b84c; transform: translateY(-1px); }
 
-  header.top { padding: 150px 16px 64px; text-align: center; background: var(--sand); }
+  /* header: a soft blur of colour that drifts slowly and fades into the page */
+  header.top { position: relative; isolation: isolate; overflow: hidden; padding: 150px 16px 64px; text-align: center; background: var(--bg); --glow: .9; }
+  header.top::before { content: ""; position: absolute; inset: -30% -15% 5%; z-index: -2; filter: blur(70px); opacity: var(--glow);
+    background:
+      radial-gradient(38% 46% at 26% 38%, rgba(41, 204, 87, .55), transparent 70%),
+      radial-gradient(34% 42% at 74% 30%, rgba(80, 160, 255, .42), transparent 70%),
+      radial-gradient(40% 44% at 56% 74%, rgba(246, 196, 69, .38), transparent 70%),
+      radial-gradient(30% 36% at 12% 80%, rgba(120, 220, 200, .35), transparent 70%);
+    animation: glowDrift 22s ease-in-out infinite alternate; }
+  header.top::after { content: ""; position: absolute; inset: auto 0 0; height: 55%; z-index: -1; background: linear-gradient(transparent, var(--bg) 80%); }
+  @keyframes glowDrift { 50% { transform: translate3d(4%, -3%, 0) scale(1.06) rotate(3deg); } 100% { transform: translate3d(-3%, 2%, 0) scale(1.1) rotate(-2deg); } }
+  @media (prefers-color-scheme: dark) { header.top { --glow: .85; } }
+  @media (prefers-reduced-motion: reduce) { header.top::before { animation: none; } }
   .chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border-radius: 999px; background: var(--surface); box-shadow: 0 0 0 1px var(--line); font-size: 14px; font-weight: 500; color: var(--ink-2); }
   .chip b { padding: 2px 8px; border-radius: 999px; background: var(--green-bg); color: var(--green-d); font-weight: 600; font-size: 12.5px; }
   h1 { margin: 22px 0 16px; font-weight: 600; font-size: clamp(48px, 8vw, 88px); line-height: 1; letter-spacing: -.035em; }
@@ -129,8 +141,8 @@
   .plot { position: relative; height: 30px; }
   .plot .gl { position: absolute; top: -7px; bottom: -7px; width: 1px; background: var(--grid); }
   .plot .ref { position: absolute; top: -7px; bottom: -7px; width: 1px; background: var(--ink-3); }
-  .plot .bar { position: absolute; left: 0; top: 50%; height: 22px; transform: translateY(-50%); background: var(--bar); border-radius: 0 4px 4px 0; min-width: 3px; transition: filter .15s; }
-  .row:hover .bar, .row:focus-visible .bar { filter: brightness(1.12); }
+  .plot::before { content: ""; position: absolute; left: 0; right: 0; top: 0; bottom: 0; height: 22px; margin: auto 0; border-radius: 7px; background: var(--sand); }
+  .plot .bar { position: absolute; left: 0; top: 0; bottom: 0; height: 22px; margin: auto 0; background: var(--bar); border-radius: 7px; min-width: 6px; }
   .plot .val { position: absolute; top: 50%; transform: translateY(-50%); padding: 1px 4px; border-radius: 4px; background: var(--surface); font-size: 13.5px; font-weight: 600; color: var(--ink); white-space: nowrap; }
   .plot .val.inside { background: none; color: #fff; }
   .axis { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 16px; margin-top: 6px; }
@@ -160,24 +172,31 @@
 
   /* worked examples */
   .examples { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-  .ex { display: flex; flex-direction: column; gap: 14px; padding: 22px; border-radius: 20px; background: var(--sand); min-width: 0; }
-  .ex-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-  .ex .kind { padding: 3px 10px; border-radius: 999px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
-  .ex .verdict { font-size: 13px; font-weight: 500; color: var(--ink-3); }
-  .ex .q { margin: 0; font-size: 17px; font-weight: 500; line-height: 1.4; letter-spacing: -.005em; }
-  .ex .why { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-3); }
+  .plot .val { background: var(--sand); }
+  .ex { --ring-gap: var(--surface); display: flex; flex-direction: column; gap: 14px; padding: 8px; border-radius: 26px; background: var(--sand); min-width: 0; }
+  .ex-head, .ex .q, .ex .why { margin-inline: 14px; }
+  .ex-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+  .ex .kind { padding: 4px 11px; border-radius: 999px; background: var(--surface); font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+  .ex .verdict { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500; color: var(--ink-3); }
+  .ex .verdict::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .ex .q { margin-block: 0; font-size: 18px; font-weight: 500; line-height: 1.4; letter-spacing: -.01em; }
+  .ex .why { margin-block: 0; font-size: 14px; line-height: 1.55; color: var(--ink-3); }
   .ex .why b { color: var(--ink-2); font-weight: 600; }
-  .ex .got { border-radius: 14px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
-  .ex .got .lbl { display: flex; justify-content: space-between; gap: 8px; padding: 9px 14px; border-bottom: 1px solid var(--line); font-size: 12.5px; font-weight: 600; color: var(--ink-3); }
-  .ex .got .lbl b { color: var(--green-d); font-weight: 600; }
-  .ex .got pre { margin: 0; padding: 12px 14px; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
-  .ex .got pre em { font-style: normal; color: var(--ink); font-weight: 600; background: var(--green-bg); border-radius: 3px; padding: 0 2px; }
-  .ex .bars .row { grid-template-columns: 150px minmax(0, 1fr); padding: 4px 0; }
-  .ex .bars .name { font-size: 14px; }
-  .ex .bars .name small { font-size: 12.5px; }
-  .ex .plot { height: 24px; }
-  .ex .plot .bar { height: 16px; }
-  .ex .tokens-lbl { margin: 0 0 -6px; font-size: 12.5px; font-weight: 600; color: var(--ink-3); }
+  .ex .got { margin-top: auto; padding: 18px 18px 16px; border-radius: 20px; background: var(--surface); box-shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 8px 24px rgba(0, 0, 0, .05); }
+  .ex .got .lbl { font-size: 12.5px; font-weight: 500; color: var(--ink-3); }
+  .ex .ans { margin: 6px 0 10px; font-size: 34px; font-weight: 600; line-height: 1.05; letter-spacing: -.03em; color: var(--ink); }
+  .ex .got pre { margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--ink-3); white-space: pre-wrap; word-break: break-word; }
+  .ex .got pre em { font-style: normal; font-weight: 600; color: var(--green-d); }
+  .ex .tok { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .ex .tokens-lbl { margin: 0 0 4px; font-size: 12.5px; font-weight: 500; color: var(--ink-3); }
+  /* slim bars: name and count on one line, the bar under them */
+  .ex .bars .row { grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 6px 0; }
+  .ex .bars .name { display: flex; align-items: baseline; gap: 8px; font-size: 14px; }
+  .ex .bars .name small { display: inline; margin: 0; font-size: 12.5px; }
+  .ex .bars .name .val { position: static; margin-left: auto; padding: 0; background: none; transform: none; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .ex .plot { height: 8px; }
+  .ex .plot .bar, .ex .plot::before { height: 8px; border-radius: 4px; }
+  .ex .bars .row:not(:first-child) .bar { background: var(--ink-3); opacity: .55; }
 
   /* table view */
   .table-wrap { overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
@@ -211,9 +230,44 @@
   footer a { text-decoration: none; color: var(--ink-2); }
   footer a:hover { color: var(--ink); }
 
-  .tip { position: fixed; z-index: 80; max-width: 300px; padding: 10px 12px; border-radius: 12px; background: var(--contrast); color: var(--on-contrast); font-size: 13px; line-height: 1.5; pointer-events: none; box-shadow: var(--shadow); }
-  .tip b { font-weight: 600; }
-  .tip .muted { opacity: .7; }
+  .tip { position: fixed; left: 0; top: 0; z-index: 80; max-width: 300px; padding: 10px 13px; border-radius: 14px; background: var(--surface); color: var(--ink-2); font-size: 13px; line-height: 1.55; pointer-events: none;
+    box-shadow: 0 0 0 1px var(--line), 0 10px 30px rgba(0, 0, 0, .12); opacity: 0; scale: .96; transition: opacity .16s, scale .2s, translate .32s cubic-bezier(.2, .9, .25, 1); }
+  .tip.on { opacity: 1; scale: 1; }
+  .tip.jump { transition: opacity .16s, scale .2s; }
+  .tip b { font-weight: 600; color: var(--ink); }
+  .tip .muted { color: var(--ink-3); }
+
+  /* motion, after bencho.dev: numbers roll like an odometer, bars grow in one after another,
+     hover dims the other rows and rings the bar, cards blur in as they scroll into view */
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .od { display: inline-flex; align-items: flex-start; line-height: 1.1; margin: -.05em 0; font-variant-numeric: tabular-nums; white-space: pre; }
+  .od > span:not(.sr) { height: 1.1em; }
+  .od-w { overflow: hidden; }
+  .od-c { display: flex; flex-direction: column; transition: transform 1.25s cubic-bezier(.2, .85, .2, 1) calc(var(--k) * 70ms + var(--d0, 0ms)); }
+  .od-c span { height: 1.1em; }
+  .rv { opacity: 0; transform: translateY(16px); filter: blur(8px); transition: opacity .7s ease, transform .8s cubic-bezier(.2, .9, .25, 1), filter .7s ease; transition-delay: calc(var(--i, 0) * 90ms); }
+  .rv.in { opacity: 1; transform: none; filter: none; }
+  .plot .bar { transform: scaleX(0); transform-origin: left center; transition: transform 1s cubic-bezier(.25, 1.2, .4, 1) calc(var(--i) * 90ms), box-shadow .2s; }
+  .bars.in .bar { transform: none; }
+  .plot .val { opacity: 0; translate: -6px 0; transition: opacity .4s, translate .5s cubic-bezier(.2, .9, .25, 1); transition-delay: calc(var(--i) * 90ms + .3s); }
+  .bars.in .val { opacity: 1; translate: 0; }
+  .bars .row { transition: opacity .25s; }
+  .bars:has(.row:hover) .row:not(:hover), .bars:has(.row:focus-visible) .row:not(:focus-visible) { opacity: .35; }
+  .row:hover .bar, .row:focus-visible .bar { box-shadow: 0 0 0 2px var(--ring-gap, var(--surface)), 0 0 0 3.5px var(--bar); }
+  /* tile meters: Lasso's tokens against file tools', as rows of ticks that light up */
+  .vs { display: grid; gap: 7px; margin-top: 16px; }
+  .vs-r { display: grid; grid-template-columns: 66px minmax(0, 1fr) 52px; align-items: center; gap: 10px; font-size: 12.5px; color: var(--ink-3); }
+  .vs-r b { font-weight: 600; color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; }
+  .vs-t { position: relative; height: 14px; }
+  .vs-t::before, .vs-t i { content: ""; position: absolute; left: 0; top: 0; bottom: 0; -webkit-mask: repeating-linear-gradient(90deg, #000 0 3px, transparent 3px 6px); mask: repeating-linear-gradient(90deg, #000 0 3px, transparent 3px 6px); }
+  .vs-t::before { right: 0; background: var(--line-2); opacity: .55; }
+  .vs-t i { width: 0; min-width: 3px; background: var(--ink-3); transition: width 1.2s cubic-bezier(.2, .85, .2, 1) calc(var(--d, 0) * 1ms + .25s); }
+  .vs-r.lasso .vs-t i { background: var(--green); }
+  .vs-r.lasso span { color: var(--green-d); font-weight: 600; }
+  .tile.in .vs-t i { width: var(--w); }
+  @media (prefers-reduced-motion: reduce) {
+    .rv, .od-c, .plot .bar, .plot .val, .vs-t i, .tip { transition: none !important; }
+  }
 
   @media (max-width: 1020px) {
     .nav-links { display: none; }
@@ -234,8 +288,10 @@
     .bars .row, .axis { grid-template-columns: minmax(0, 1fr); gap: 6px; }
     .axis .spacer { display: none; }
     .steps { grid-template-columns: minmax(0, 1fr); }
-    .ex { padding: 18px 16px; }
-    .ex .bars .row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+    .ex-head, .ex .q, .ex .why { margin-inline: 8px; }
+    .ex .ans { font-size: 28px; }
+    .ex .bars .name { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; }
+    .ex .bars .name small { grid-row: 2; grid-column: 1 / -1; }
     .ba .item { grid-template-columns: minmax(0, 1fr); gap: 6px; }
     .axis .long { display: none; }
   }
@@ -283,24 +339,28 @@
           <div class="label">Excel workbook, 5,000 rows</div>
           <div class="value">98%</div>
           <div class="unit">fewer tokens than file tools</div>
+          <div class="vs" data-a="5974" data-b="369647"></div>
           <div class="note"><b>4 of 4</b> right with Lasso, 2 of 4 with file tools</div>
         </div>
         <div class="tile">
           <div class="label">PDF report, 40 pages</div>
           <div class="value">84%</div>
           <div class="unit">fewer tokens than file tools</div>
+          <div class="vs" data-a="10882" data-b="69085"></div>
           <div class="note"><b>3 of 3</b> right, the same as with file tools</div>
         </div>
         <div class="tile">
           <div class="label">3D assemblies (STEP)</div>
           <div class="value">83%</div>
           <div class="unit">fewer tokens than file tools</div>
+          <div class="vs" data-a="29229" data-b="167941"></div>
           <div class="note"><b>7 of 7</b> right with Lasso, 6 of 7 with file tools</div>
         </div>
         <div class="tile">
           <div class="label">Code and document lookups</div>
           <div class="value">69%</div>
           <div class="unit">fewer tokens than file tools</div>
+          <div class="vs" data-a="30.8" data-b="100" data-unit="%"></div>
           <div class="note"><b>32 of 32</b> right with Lasso, 29 of 32 with file tools</div>
         </div>
       </div>
@@ -322,34 +382,50 @@
               <div class="ex-head"><span class="kind">3D model · STEP assembly</span><span class="verdict">Right with all three</span></div>
               <p class="q">“In Engineering/Flange assembly.step, what is the angle in degrees between the z axis of Sensor:1 and the z axis of Bolt:3?”</p>
               <p class="why"><b>Why it needs the whole assembly.</b> Each part's axes are stored in its own coordinates. The sensor is tilted and the bolts are turned around a bolt circle, so the angle only exists once both placements are composed through the assembly.</p>
-              <div class="got"><div class="lbl"><span>Lasso returned, in one call</span><b>Answer: 30°</b></div><pre>"Bolt:3" from "Sensor:1": 48.2183 mm apart; … axes x 90°, y 90°, <em>z 30° apart</em> (assembly frame: "Sensor:1" at [90, 30, 20], "Bolt:3" at [50, 55, 10])</pre></div>
-              <p class="tokens-lbl">Tokens for the task</p>
-              <div class="bars" data-ex="0" role="list" aria-label="Tokens for this question"></div>
+              <div class="got">
+                <div class="lbl">Answer · Lasso, in one call</div>
+                <div class="ans">30°</div>
+                <pre>"Bolt:3" from "Sensor:1": 48.2183 mm apart; … axes x 90°, y 90°, <em>z 30° apart</em> (assembly frame: "Sensor:1" at [90, 30, 20], "Bolt:3" at [50, 55, 10])</pre>
+                <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
+                <div class="bars" data-ex="0" role="list" aria-label="Tokens for this question"></div></div>
+              </div>
             </article>
             <article class="ex">
               <div class="ex-head"><span class="kind">3D model · STEP assembly</span><span class="verdict">Right with all three</span></div>
               <p class="q">“In Engineering/fixture assembly.step, how far apart are the origins of Pin:1 and Pin:2, in mm?”</p>
               <p class="why"><b>Why it needs the whole assembly.</b> Each pin's origin is 0, 0, 0 in its own part. Where the two pins sit, and so how far apart they are, is only defined by the assembly that places them.</p>
-              <div class="got"><div class="lbl"><span>Lasso returned, in one call</span><b>Answer: 58.31 mm</b></div><pre>"Pin:2" from "Pin:1": <em>58.3095 mm apart</em>; in "Pin:1"'s frame at [50, 30, 0], turned 90° about z (assembly frame: "Pin:1" at [20, 15, 10], "Pin:2" at [70, 45, 10])</pre></div>
-              <p class="tokens-lbl">Tokens for the task</p>
-              <div class="bars" data-ex="1" role="list" aria-label="Tokens for this question"></div>
+              <div class="got">
+                <div class="lbl">Answer · Lasso, in one call</div>
+                <div class="ans">58.31 mm</div>
+                <pre>"Pin:2" from "Pin:1": <em>58.3095 mm apart</em>; in "Pin:1"'s frame at [50, 30, 0], turned 90° about z (assembly frame: "Pin:1" at [20, 15, 10], "Pin:2" at [70, 45, 10])</pre>
+                <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
+                <div class="bars" data-ex="1" role="list" aria-label="Tokens for this question"></div></div>
+              </div>
             </article>
             <article class="ex">
               <div class="ex-head"><span class="kind">Excel · 5,000 rows</span><span class="verdict">Only Lasso answered</span></div>
               <p class="q">“What is the total Amount for the West region in Finance/Transactions 2025.xlsx?”</p>
               <p class="why"><b>Why it needs the whole table.</b> 1,014 of the 5,000 rows are in the West. The total needs every one of them, picked out by another column. With file tools and with the file attached, the model said it could not work it out.</p>
-              <div class="got"><div class="lbl"><span>Lasso returned, in one call</span><b>Answer: 4,867,231.76</b></div><pre>Transactions "Amount" total where Region is "West": <em>4867231.76</em>, over 1014 of 5000 rows</pre></div>
-              <p class="tokens-lbl">Tokens for the task</p>
-              <div class="bars" data-ex="2" role="list" aria-label="Tokens for this question"></div>
+              <div class="got">
+                <div class="lbl">Answer · Lasso, in one call</div>
+                <div class="ans">4,867,231.76</div>
+                <pre>Transactions "Amount" total where Region is "West": <em>4867231.76</em>, over 1014 of 5000 rows</pre>
+                <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
+                <div class="bars" data-ex="2" role="list" aria-label="Tokens for this question"></div></div>
+              </div>
             </article>
             <article class="ex">
               <div class="ex-head"><span class="kind">PDF · 40 pages</span><span class="verdict">Right with all three</span></div>
               <p class="q">“According to Reports/Annual review 2025.pdf, what was the warranty reserve at the end of 2025?”</p>
               <p class="why"><b>Why it needs the whole report.</b> The report gives the reserve twice, half a year apart, in the same words. Lasso returns both with their page and section, so the model can tell which one is year end.</p>
-              <div class="got"><div class="lbl"><span>Lasso returned, in one call</span><b>Answer: $4.2 million</b></div><pre>p.9 §9. Products: "At the end of June, the warranty reserve stood at $3.6 million, …"
-p.23 §23. Products: "The warranty reserve <em>at year end was $4.2 million</em>, up from $3.1 million a year earlier, …"</pre></div>
-              <p class="tokens-lbl">Tokens for the task</p>
-              <div class="bars" data-ex="3" role="list" aria-label="Tokens for this question"></div>
+              <div class="got">
+                <div class="lbl">Answer · Lasso, in one call</div>
+                <div class="ans">$4.2 million</div>
+                <pre>p.9 §9. Products: "At the end of June, the warranty reserve stood at $3.6 million, …"
+p.23 §23. Products: "The warranty reserve <em>at year end was $4.2 million</em>, up from $3.1 million a year earlier, …"</pre>
+                <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
+                <div class="bars" data-ex="3" role="list" aria-label="Tokens for this question"></div></div>
+              </div>
             </article>
           </div>
           <p class="foot">gpt-5.4-mini, live, 30 October 2026. Lasso's answers are shown as the model received them, shortened where marked “…”.</p>
@@ -499,22 +575,39 @@ p.23 §23. Products: "The warranty reserve <em>at year end was $4.2 million</em>
   const compact = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n));
   const signed = (p) => `${p > 0 ? '+' : '−'}${Math.abs(p).toFixed(0)}%`;
 
+  // Odometer: each digit becomes a wheel that spins through 0–9 once and stops on its value; the rest of the text stays put.
+  const WHEEL = '0123456789'.repeat(2).split('').map((d) => `<span>${d}</span>`).join('');
+  function odometer(el) {
+    const text = el.textContent;
+    let k = 0;
+    el.classList.add('od');
+    el.innerHTML = `<span class="sr">${text}</span>` + [...text].map((ch) => (/\d/.test(ch)
+      ? `<span class="od-w" aria-hidden="true"><span class="od-c" data-d="${ch}" style="--k:${k++}">${WHEEL}</span></span>`
+      : `<span aria-hidden="true">${ch}</span>`)).join('');
+  }
+  // a number spins with the chart, tile or list it belongs to, not with the card around them
+  function spin(root) {
+    for (const c of root.querySelectorAll('.od-c')) if (c.closest('.bars, .ba, .tile, .ans') === root) c.style.transform = `translateY(${-(10 + Number(c.dataset.d)) * 5}%)`;
+  }
+
   function axis(el, ticks, domain, refAt) {
     const box = el.querySelector('.ticks');
     box.innerHTML = ticks.map((t, i) => `<span class="${i === 0 ? 'first' : ''}${t.value === refAt ? ' ref-l' : ''}" style="left:${(t.value / domain) * 100}%">${t.label}</span>`).join('');
   }
 
-  function rows(el, items, { domain, value, label, tip, grid = [], ref = null }) {
+  function rows(el, items, { domain, value, label, tip, grid = [], ref = null, stacked = false }) {
     el.innerHTML = items.map((item, i) => {
       const v = value(item);
       const lines = grid.map((g) => `<i class="gl" style="left:${(g / domain) * 100}%"></i>`).join('')
         + (ref != null ? `<i class="ref" style="left:${(ref / domain) * 100}%"></i>` : '');
-      return `<div class="row" role="listitem" tabindex="0" data-i="${i}" aria-label="${item.name}, ${item.sub}: ${label(item)}">
-        <div class="name${item.lead ? ' lead-row' : ''}">${item.name}<small>${item.sub}</small></div>
-        <div class="plot">${lines}<i class="bar" style="width:${Math.min(v, domain) / domain * 100}%"></i><span class="val">${label(item)}</span></div>
+      const val = `<span class="val">${label(item)}</span>`;
+      return `<div class="row" role="listitem" tabindex="0" data-i="${i}" style="--i:${i}" aria-label="${item.name}, ${item.sub}: ${label(item)}">
+        <div class="name${item.lead ? ' lead-row' : ''}">${item.name}<small>${item.sub}</small>${stacked ? val : ''}</div>
+        <div class="plot">${lines}<i class="bar" style="width:${Math.min(v, domain) / domain * 100}%"></i>${stacked ? '' : val}</div>
       </div>`;
     }).join('');
     el._tip = (i) => tip(items[i]);
+    for (const val of el.querySelectorAll('.val')) odometer(val);
     place(el);
   }
 
@@ -523,6 +616,7 @@ p.23 §23. Products: "The warranty reserve <em>at year end was $4.2 million</em>
     for (const plot of el.querySelectorAll('.plot')) {
       const bar = plot.querySelector('.bar');
       const val = plot.querySelector('.val');
+      if (!val) continue;
       const width = plot.clientWidth;
       const end = bar.offsetWidth;
       const room = val.offsetWidth + 8;
@@ -534,7 +628,7 @@ p.23 §23. Products: "The warranty reserve <em>at year end was $4.2 million</em>
   const kindChart = document.getElementById('kindChart');
   const share = (k) => (k.share != null ? k.share : (k.lasso / k.direct) * 100);
   rows(kindChart, KINDS, {
-    domain: 130, value: share, ref: 100, grid: [25, 50, 75],
+    domain: 130, value: share, ref: 100,
     label: (k) => signed(share(k) - 100),
     tip: (k) => `<b>${k.name}</b> · ${k.sub}<br>`
       + (k.lasso ? `Lasso: ${fmt(k.lasso)} tokens, ${k.right} right<br>File tools: ${fmt(k.direct)} tokens, ${k.rightDirect} right`
@@ -545,7 +639,7 @@ p.23 §23. Products: "The warranty reserve <em>at year end was $4.2 million</em>
 
   const freshChart = document.getElementById('freshChart');
   rows(freshChart, FRESH, {
-    domain: 100000, value: (f) => f.tokens, grid: [25000, 50000, 75000],
+    domain: 100000, value: (f) => f.tokens,
     label: (f) => compact(f.tokens),
     tip: (f) => `<b>${f.name}</b> · ${f.sub}<br>${fmt(f.tokens)} tokens for 18 tasks<br><span class="muted">gpt-5.4-mini · 31 Oct</span>`,
   });
@@ -556,7 +650,7 @@ p.23 §23. Products: "The warranty reserve <em>at year end was $4.2 million</em>
     const items = EXAMPLES[Number(chart.dataset.ex)];
     const most = Math.max(...items.map((item) => item.tokens));
     rows(chart, items, {
-      domain: most * 1.02, value: (item) => item.tokens,
+      domain: most, value: (item) => item.tokens, stacked: true,
       label: (item) => fmt(item.tokens),
       tip: (item) => `<b>${item.name}</b> · ${item.sub}<br>${fmt(item.tokens)} tokens for the task<br><span class="muted">gpt-5.4-mini · 30 Oct</span>`,
     });
@@ -564,25 +658,57 @@ p.23 §23. Products: "The warranty reserve <em>at year end was $4.2 million</em>
 
   addEventListener('resize', () => { for (const chart of [kindChart, freshChart, ...exampleCharts]) place(chart); });
 
-  // Tooltip: the whole row is the target, by pointer or keyboard.
+  // Tooltip: the whole row is the target, by pointer or keyboard. It sits beside the row's value and glides between rows.
   const tipEl = document.getElementById('tip');
-  function show(row, x, y) {
+  let tipRow = null;
+  function show(row) {
+    if (row === tipRow) return;
     const chart = row.closest('.bars');
-    tipEl.innerHTML = chart._tip(Number(row.dataset.i));
+    const fresh = !tipEl.classList.contains('on');
     tipEl.hidden = false;
-    const r = tipEl.getBoundingClientRect();
-    const left = Math.min(innerWidth - r.width - 12, Math.max(12, x + 14));
-    const top = y + 16 + r.height > innerHeight - 8 ? y - r.height - 12 : y + 16;
-    tipEl.style.left = `${left}px`;
-    tipEl.style.top = `${top}px`;
+    tipEl.innerHTML = chart._tip(Number(row.dataset.i));
+    const t = tipEl.getBoundingClientRect(), v = row.querySelector('.val').getBoundingClientRect(), r = row.getBoundingClientRect();
+    const left = v.right + 14 + t.width <= innerWidth - 12 ? v.right + 14 : Math.max(12, v.left - t.width - 14);
+    const top = Math.min(innerHeight - t.height - 8, Math.max(8, r.top + r.height / 2 - t.height / 2));
+    tipEl.classList.toggle('jump', fresh);
+    tipEl.style.translate = `${left}px ${top}px`;
+    tipEl.classList.add('on');
+    tipRow = row;
   }
+  function hide() { tipEl.classList.remove('on'); tipRow = null; }
   for (const chart of [kindChart, freshChart, ...exampleCharts]) {
-    chart.addEventListener('mousemove', (e) => { const row = e.target.closest('.row'); if (row) show(row, e.clientX, e.clientY); else tipEl.hidden = true; });
-    chart.addEventListener('mouseleave', () => { tipEl.hidden = true; });
-    chart.addEventListener('focusin', (e) => { const row = e.target.closest('.row'); if (!row) return; const r = row.querySelector('.plot').getBoundingClientRect(); show(row, r.left + 20, r.bottom); });
-    chart.addEventListener('focusout', () => { tipEl.hidden = true; });
+    chart.addEventListener('mousemove', (e) => { const row = e.target.closest('.row'); if (row) show(row); else hide(); });
+    chart.addEventListener('mouseleave', hide);
+    chart.addEventListener('focusin', (e) => { const row = e.target.closest('.row'); if (row) show(row); });
+    chart.addEventListener('focusout', hide);
   }
-  addEventListener('scroll', () => { tipEl.hidden = true; }, { passive: true });
+  addEventListener('scroll', hide, { passive: true });
+
+  // Tiles: the headline number rolls in, and two rows of ticks compare Lasso's tokens with file tools'.
+  for (const tile of document.querySelectorAll('.tile')) {
+    odometer(tile.querySelector('.value'));
+    const vs = tile.querySelector('.vs'), a = Number(vs.dataset.a), b = Number(vs.dataset.b), pct = vs.dataset.unit === '%';
+    const show = (n) => (pct ? `${n}%` : compact(n));
+    vs.setAttribute('aria-label', `Lasso ${show(a)}, file tools ${show(b)}`);
+    vs.innerHTML = `<div class="vs-r lasso" aria-hidden="true"><span>Lasso</span><div class="vs-t"><i style="--w:${(a / b) * 100}%"></i></div><b>${show(a)}</b></div>`
+      + `<div class="vs-r" aria-hidden="true"><span>File tools</span><div class="vs-t"><i style="--w:100%;--d:150"></i></div><b>${show(b)}</b></div>`;
+  }
+  for (const b of document.querySelectorAll('.ba .nums b, .ex .ans')) odometer(b);
+
+  // Reveal: cards and tiles blur in one after another; charts, meters and numbers start when they are on screen.
+  document.querySelectorAll('#benchmarks .tile, #benchmarks .card, #wins .card').forEach((el, i) => {
+    el.classList.add('rv');
+    if (el.classList.contains('tile')) el.style.setProperty('--i', i);
+  });
+  const seen = new IntersectionObserver((entries) => {
+    for (const en of entries) {
+      if (!en.isIntersecting) continue;
+      en.target.classList.add('in');
+      spin(en.target);
+      seen.unobserve(en.target);
+    }
+  }, { rootMargin: '0px 0px -12% 0px' });
+  document.querySelectorAll('.rv, .bars, .ba, .ans').forEach((el) => seen.observe(el));
 
   for (const button of document.querySelectorAll('.copy')) {
     button.addEventListener('click', async () => {
