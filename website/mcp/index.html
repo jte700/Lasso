@@ -171,16 +171,34 @@
   .when .item.lose b::before { background: var(--orange); }
 
   /* worked examples */
-  .examples { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .examples { display: flex; gap: 8px; height: 420px; transition: height .5s cubic-bezier(.2, .9, .25, 1), gap .4s; }
   .plot .val { background: var(--sand); }
-  .ex { --ring-gap: var(--surface); display: flex; flex-direction: column; gap: 14px; padding: 8px; border-radius: 26px; background: var(--sand); min-width: 0; }
-  .ex-head, .ex .q, .ex .why { margin-inline: 14px; }
-  .ex-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
-  .ex .kind { padding: 4px 11px; border-radius: 999px; background: var(--surface); font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
-  .ex .verdict { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500; color: var(--ink-3); }
-  .ex .verdict::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
-  .ex .q { margin-block: 0; font-size: 18px; font-weight: 500; line-height: 1.4; letter-spacing: -.01em; }
-  .ex .why { margin-block: 0; font-size: 14px; line-height: 1.55; color: var(--ink-3); }
+  /* worked examples: an image accordion (after bencho.dev). Hover widens a panel while its neighbours give way;
+     a click opens it across the row with the full example beside its picture. */
+  .ex { --ring-gap: var(--surface); --pic: 38%; position: relative; flex: 1 1 0; min-width: 0; border-radius: 24px; background: var(--sand); overflow: hidden;
+    transition: flex-grow .7s cubic-bezier(.3, 1.3, .45, 1), opacity .35s; }
+  .ex .heat { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block;  transition: width .65s cubic-bezier(.2, .9, .25, 1); }
+  .acc-open { position: absolute; inset: 0; z-index: 2; width: 100%; padding: 0; border: 0; border-radius: inherit; background: none; color: transparent; font-size: 0; cursor: pointer; }
+  .acc-open:focus-visible { outline: 2px solid var(--green); outline-offset: -3px; }
+  .acc-cap { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; display: grid; gap: 2px; padding: 56px 18px 16px; background: linear-gradient(transparent, var(--sand) 58%); pointer-events: none; transition: opacity .3s; }
+  .acc-cap small { font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .acc-cap b { font-size: 16px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .acc-v, .acc-eyebrow span { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: var(--green-d); white-space: nowrap; }
+  .acc-v::before, .acc-eyebrow span::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .acc-x { position: absolute; top: 14px; right: 14px; z-index: 3; display: none; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 999px; background: var(--surface); color: var(--ink-2); cursor: pointer; box-shadow: 0 0 0 1px var(--line); }
+  .acc-x:hover { color: var(--ink); }
+  .acc-body { display: none; flex-direction: column; gap: 14px; margin-left: var(--pic); padding: 28px 28px 24px; }
+  .acc-eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0; padding-right: 40px; font-size: 12.5px; color: var(--ink-3); }
+  .examples.open { gap: 0; }
+  .examples.open .ex { flex-grow: 0; opacity: 0; pointer-events: none; }
+  .examples.open .ex.on { flex-grow: 1; opacity: 1; pointer-events: auto; }
+  .ex.on .heat { width: var(--pic); }
+  .ex.on .acc-cap, .ex.on .acc-open { opacity: 0; visibility: hidden; }
+  .ex.on .acc-x { display: grid; }
+  .ex.shown .acc-body { display: flex; animation: accIn .45s cubic-bezier(.2, .9, .25, 1) both; }
+  @keyframes accIn { from { opacity: 0; transform: translateY(10px); filter: blur(4px); } }
+  .ex .q { margin: 0; font-size: 19px; font-weight: 500; line-height: 1.4; letter-spacing: -.01em; }
+  .ex .why { margin: 0; font-size: 14px; line-height: 1.55; color: var(--ink-3); }
   .ex .why b { color: var(--ink-2); font-weight: 600; }
   .ex .got { margin-top: auto; padding: 18px 18px 16px; border-radius: 20px; background: var(--surface); box-shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 8px 24px rgba(0, 0, 0, .05); }
   .ex .got .lbl { font-size: 12.5px; font-weight: 500; color: var(--ink-3); }
@@ -269,6 +287,14 @@
     .rv, .od-c, .plot .bar, .plot .val, .vs-t i, .tip { transition: none !important; }
   }
 
+  /* phones and narrow windows: the panels stack, and a tap opens one under its picture */
+  @media (max-width: 760px) {
+    .examples, .examples.open { flex-direction: column; height: auto !important; gap: 8px; }
+    .ex, .examples.open .ex { flex: none; height: 240px; opacity: 1; pointer-events: auto; }
+    .examples.open .ex.on { height: auto; }
+    .ex.on .heat { position: relative; width: 100%; height: 170px; }
+    .acc-body { margin-left: 0; padding: 4px 16px 18px; }
+  }
   @media (max-width: 1020px) {
     .nav-links { display: none; }
     .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -288,7 +314,6 @@
     .bars .row, .axis { grid-template-columns: minmax(0, 1fr); gap: 6px; }
     .axis .spacer { display: none; }
     .steps { grid-template-columns: minmax(0, 1fr); }
-    .ex-head, .ex .q, .ex .why { margin-inline: 8px; }
     .ex .ans { font-size: 28px; }
     .ex .bars .name { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; }
     .ex .bars .name small { grid-row: 2; grid-column: 1 / -1; }
@@ -318,7 +343,6 @@
 </div>
 
 <header class="top">
-  <span class="chip"><b>MCP</b> For AI agents · runs on your Mac</span>
   <h1>Lasso MCP</h1>
   <p class="sub">Give Claude, ChatGPT and other agents your local files through one tool. They ask in plain words; Lasso answers with <b>the exact lines, rows, passages and part placements</b>, each with its source, in a fraction of the tokens it takes to read the files.</p>
   <div class="cta-row">
@@ -376,55 +400,79 @@
 
         <div class="card" id="examples">
           <h3>What the model was asked</h3>
-          <p class="desc">Four questions from the live runs, word for word, with what Lasso returned and what each way of reaching the files cost. None can be answered from one line of one file: each needs the structure around the part, the row or the sentence.</p>
+          <p class="desc">Four questions from the live runs, word for word. Open one to see what Lasso returned and what each way of reaching the files cost. None can be answered from one line of one file: each needs the structure around the part, the row or the sentence.</p>
           <div class="examples">
-            <article class="ex">
-              <div class="ex-head"><span class="kind">3D model · STEP assembly</span><span class="verdict">Right with all three</span></div>
-              <p class="q">“In Engineering/Flange assembly.step, what is the angle in degrees between the z axis of Sensor:1 and the z axis of Bolt:3?”</p>
-              <p class="why"><b>Why it needs the whole assembly.</b> Each part's axes are stored in its own coordinates. The sensor is tilted and the bolts are turned around a bolt circle, so the angle only exists once both placements are composed through the assembly.</p>
-              <div class="got">
-                <div class="lbl">Answer · Lasso, in one call</div>
-                <div class="ans">30°</div>
-                <pre>"Bolt:3" from "Sensor:1": 48.2183 mm apart; … axes x 90°, y 90°, <em>z 30° apart</em> (assembly frame: "Sensor:1" at [90, 30, 20], "Bolt:3" at [50, 55, 10])</pre>
-                <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
-                <div class="bars" data-ex="0" role="list" aria-label="Tokens for this question"></div></div>
+            <article class="ex" data-art="flange">
+              <canvas class="heat" aria-hidden="true"></canvas>
+              <div class="acc-cap" aria-hidden="true"><small>3D model · STEP assembly</small><b>Angle between two parts</b><span class="acc-v">Right with all three</span></div>
+              <button class="acc-open" type="button" aria-expanded="false">Open example: Angle between two parts</button>
+              <button class="acc-x" type="button" aria-label="Close example"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+              <div class="acc-body">
+                <p class="acc-eyebrow">3D model · STEP assembly<span>Right with all three</span></p>
+                <p class="q">“In Engineering/Flange assembly.step, what is the angle in degrees between the z axis of Sensor:1 and the z axis of Bolt:3?”</p>
+                <p class="why"><b>Why it needs the whole assembly.</b> Each part's axes are stored in its own coordinates. The sensor is tilted and the bolts are turned around a bolt circle, so the angle only exists once both placements are composed through the assembly.</p>
+                <div class="got">
+                  <div class="lbl">Answer · Lasso, in one call</div>
+                  <div class="ans">30°</div>
+                  <pre>"Bolt:3" from "Sensor:1": 48.2183 mm apart; … axes x 90°, y 90°, <em>z 30° apart</em> (assembly frame: "Sensor:1" at [90, 30, 20], "Bolt:3" at [50, 55, 10])</pre>
+                  <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
+                  <div class="bars" data-ex="0" role="list" aria-label="Tokens for this question"></div></div>
+                </div>
               </div>
             </article>
-            <article class="ex">
-              <div class="ex-head"><span class="kind">3D model · STEP assembly</span><span class="verdict">Right with all three</span></div>
-              <p class="q">“In Engineering/fixture assembly.step, how far apart are the origins of Pin:1 and Pin:2, in mm?”</p>
-              <p class="why"><b>Why it needs the whole assembly.</b> Each pin's origin is 0, 0, 0 in its own part. Where the two pins sit, and so how far apart they are, is only defined by the assembly that places them.</p>
-              <div class="got">
-                <div class="lbl">Answer · Lasso, in one call</div>
-                <div class="ans">58.31 mm</div>
-                <pre>"Pin:2" from "Pin:1": <em>58.3095 mm apart</em>; in "Pin:1"'s frame at [50, 30, 0], turned 90° about z (assembly frame: "Pin:1" at [20, 15, 10], "Pin:2" at [70, 45, 10])</pre>
-                <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
-                <div class="bars" data-ex="1" role="list" aria-label="Tokens for this question"></div></div>
+            <article class="ex" data-art="pins">
+              <canvas class="heat" aria-hidden="true"></canvas>
+              <div class="acc-cap" aria-hidden="true"><small>3D model · STEP assembly</small><b>Distance between two pins</b><span class="acc-v">Right with all three</span></div>
+              <button class="acc-open" type="button" aria-expanded="false">Open example: Distance between two pins</button>
+              <button class="acc-x" type="button" aria-label="Close example"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+              <div class="acc-body">
+                <p class="acc-eyebrow">3D model · STEP assembly<span>Right with all three</span></p>
+                <p class="q">“In Engineering/fixture assembly.step, how far apart are the origins of Pin:1 and Pin:2, in mm?”</p>
+                <p class="why"><b>Why it needs the whole assembly.</b> Each pin's origin is 0, 0, 0 in its own part. Where the two pins sit, and so how far apart they are, is only defined by the assembly that places them.</p>
+                <div class="got">
+                  <div class="lbl">Answer · Lasso, in one call</div>
+                  <div class="ans">58.31 mm</div>
+                  <pre>"Pin:2" from "Pin:1": <em>58.3095 mm apart</em>; in "Pin:1"'s frame at [50, 30, 0], turned 90° about z (assembly frame: "Pin:1" at [20, 15, 10], "Pin:2" at [70, 45, 10])</pre>
+                  <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
+                  <div class="bars" data-ex="1" role="list" aria-label="Tokens for this question"></div></div>
+                </div>
               </div>
             </article>
-            <article class="ex">
-              <div class="ex-head"><span class="kind">Excel · 5,000 rows</span><span class="verdict">Only Lasso answered</span></div>
-              <p class="q">“What is the total Amount for the West region in Finance/Transactions 2025.xlsx?”</p>
-              <p class="why"><b>Why it needs the whole table.</b> 1,014 of the 5,000 rows are in the West. The total needs every one of them, picked out by another column. With file tools and with the file attached, the model said it could not work it out.</p>
-              <div class="got">
-                <div class="lbl">Answer · Lasso, in one call</div>
-                <div class="ans">4,867,231.76</div>
-                <pre>Transactions "Amount" total where Region is "West": <em>4867231.76</em>, over 1014 of 5000 rows</pre>
-                <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
-                <div class="bars" data-ex="2" role="list" aria-label="Tokens for this question"></div></div>
+            <article class="ex" data-art="sheet">
+              <canvas class="heat" aria-hidden="true"></canvas>
+              <div class="acc-cap" aria-hidden="true"><small>Excel · 5,000 rows</small><b>Total for one region</b><span class="acc-v">Only Lasso answered</span></div>
+              <button class="acc-open" type="button" aria-expanded="false">Open example: Total for one region</button>
+              <button class="acc-x" type="button" aria-label="Close example"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+              <div class="acc-body">
+                <p class="acc-eyebrow">Excel · 5,000 rows<span>Only Lasso answered</span></p>
+                <p class="q">“What is the total Amount for the West region in Finance/Transactions 2025.xlsx?”</p>
+                <p class="why"><b>Why it needs the whole table.</b> 1,014 of the 5,000 rows are in the West. The total needs every one of them, picked out by another column. With file tools and with the file attached, the model said it could not work it out.</p>
+                <div class="got">
+                  <div class="lbl">Answer · Lasso, in one call</div>
+                  <div class="ans">4,867,231.76</div>
+                  <pre>Transactions "Amount" total where Region is "West": <em>4867231.76</em>, over 1014 of 5000 rows</pre>
+                  <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
+                  <div class="bars" data-ex="2" role="list" aria-label="Tokens for this question"></div></div>
+                </div>
               </div>
             </article>
-            <article class="ex">
-              <div class="ex-head"><span class="kind">PDF · 40 pages</span><span class="verdict">Right with all three</span></div>
-              <p class="q">“According to Reports/Annual review 2025.pdf, what was the warranty reserve at the end of 2025?”</p>
-              <p class="why"><b>Why it needs the whole report.</b> The report gives the reserve twice, half a year apart, in the same words. Lasso returns both with their page and section, so the model can tell which one is year end.</p>
-              <div class="got">
-                <div class="lbl">Answer · Lasso, in one call</div>
-                <div class="ans">$4.2 million</div>
-                <pre>p.9 §9. Products: "At the end of June, the warranty reserve stood at $3.6 million, …"
+            <article class="ex" data-art="pdf">
+              <canvas class="heat" aria-hidden="true"></canvas>
+              <div class="acc-cap" aria-hidden="true"><small>PDF · 40 pages</small><b>Year-end warranty reserve</b><span class="acc-v">Right with all three</span></div>
+              <button class="acc-open" type="button" aria-expanded="false">Open example: Year-end warranty reserve</button>
+              <button class="acc-x" type="button" aria-label="Close example"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+              <div class="acc-body">
+                <p class="acc-eyebrow">PDF · 40 pages<span>Right with all three</span></p>
+                <p class="q">“According to Reports/Annual review 2025.pdf, what was the warranty reserve at the end of 2025?”</p>
+                <p class="why"><b>Why it needs the whole report.</b> The report gives the reserve twice, half a year apart, in the same words. Lasso returns both with their page and section, so the model can tell which one is year end.</p>
+                <div class="got">
+                  <div class="lbl">Answer · Lasso, in one call</div>
+                  <div class="ans">$4.2 million</div>
+                  <pre>p.9 §9. Products: "At the end of June, the warranty reserve stood at $3.6 million, …"
 p.23 §23. Products: "The warranty reserve <em>at year end was $4.2 million</em>, up from $3.1 million a year earlier, …"</pre>
-                <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
-                <div class="bars" data-ex="3" role="list" aria-label="Tokens for this question"></div></div>
+                  <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
+                  <div class="bars" data-ex="3" role="list" aria-label="Tokens for this question"></div></div>
+                </div>
               </div>
             </article>
           </div>
@@ -709,6 +757,145 @@ p.23 §23. Products: "The warranty reserve <em>at year end was $4.2 million</em>
     }
   }, { rootMargin: '0px 0px -12% 0px' });
   document.querySelectorAll('.rv, .bars, .ba, .ans').forEach((el) => seen.observe(el));
+
+  // Worked examples: an image accordion. Hover widens a panel and its neighbours give way;
+  // a click opens it across the row, and × or Esc closes it.
+  const acc = document.querySelector('.examples');
+  const panels = [...acc.querySelectorAll('.ex')];
+  const narrow = matchMedia('(max-width: 760px)');
+  let openPanel = null;
+  function lean(h) {
+    if (openPanel || narrow.matches) return;
+    panels.forEach((p, j) => { p.style.flexGrow = h < 0 ? '' : j === h ? 2.6 : Math.abs(j - h) === 1 ? 1.25 : 1; });
+  }
+  panels.forEach((p, i) => p.addEventListener('pointerenter', () => lean(i)));
+  acc.addEventListener('pointerleave', () => lean(-1));
+  function open(p) {
+    if (openPanel) close(false);
+    openPanel = p;
+    panels.forEach((q) => { q.style.flexGrow = ''; q.toggleAttribute('inert', q !== p && !narrow.matches); });
+    acc.classList.add('open'); p.classList.add('on');
+    p.querySelector('.acc-open').setAttribute('aria-expanded', 'true');
+    const reveal = () => {
+      if (openPanel !== p) return;
+      p.classList.add('shown');
+      p.querySelector('.acc-x').focus({ preventScroll: true });
+    };
+    // let the panel finish widening before the text lays out, so it doesn't reflow as it grows
+    if (narrow.matches || REDUCED) reveal(); else setTimeout(reveal, 520);
+  }
+  function close(refocus = true) {
+    const p = openPanel; if (!p) return;
+    openPanel = null;
+    p.classList.remove('on', 'shown');
+    panels.forEach((q) => q.removeAttribute('inert'));
+    acc.classList.remove('open'); acc.style.height = '';
+    const b = p.querySelector('.acc-open'); b.setAttribute('aria-expanded', 'false');
+    if (refocus) b.focus({ preventScroll: true });
+  }
+  for (const p of panels) {
+    p.querySelector('.acc-open').addEventListener('click', () => open(p));
+    p.querySelector('.acc-x').addEventListener('click', () => close());
+  }
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && openPanel) close(); });
+  // the row follows the open example's height as it settles, and when the window changes size
+  const fit = new ResizeObserver(() => { if (openPanel && !narrow.matches) acc.style.height = `${Math.max(420, openPanel.querySelector('.acc-body').offsetHeight)}px`; });
+  panels.forEach((p) => fit.observe(p.querySelector('.acc-body')));
+
+  // Heat map pictures (after bencho.dev): a real preview of each test's file, in flat greys; under the pointer
+  // the picture takes on a thermal tint, hot where the pointer is, and cools back to grey when it leaves.
+  // The previews are renders of the benchmark's own files: the two STEP assemblies from their authored
+  // coordinates, the first rows of Transactions 2025.xlsx and the year-end paragraph on page 23 of Annual review 2025.pdf.
+  const PICS = { flange: { fit: 'contain' }, pins: { fit: 'contain' }, sheet: { fit: 'contain' }, pdf: { fit: 'contain' } };
+  const DW = 360, DH = 480, RES = .25; // design size of every preview, and the heat grid's resolution in it
+  const RAMP = [[.14, [70, 120, 255]], [.36, [115, 200, 255]], [.62, [255, 214, 100]], [.85, [255, 150, 60]], [1, [255, 236, 150]]];
+  function heatColor(h) {
+    let prev = [0, RAMP[0][1]];
+    for (const stop of RAMP) {
+      if (h <= stop[0]) { const u = (h - prev[0]) / (stop[0] - prev[0] || 1); return prev[1].map((v, k) => v + (stop[1][k] - v) * u); }
+      prev = stop;
+    }
+    return RAMP[RAMP.length - 1][1];
+  }
+  const DARK = matchMedia('(prefers-color-scheme: dark)');
+  const heats = panels.map((p) => {
+    const cv = p.querySelector('.heat'), ctx = cv.getContext('2d'), pic = PICS[p.dataset.art];
+    const gw = DW * RES, gh = DH * RES;
+    const H = { img: new Image(), heat: new Float32Array(gw * gh), buf: document.createElement('canvas'), tint: document.createElement('canvas'), ptr: null, w: 0, h: 0, box: null, hot: false };
+    H.buf.width = gw; H.buf.height = gh;
+    const bctx = H.buf.getContext('2d'), data = bctx.createImageData(gw, gh), tctx = H.tint.getContext('2d');
+    H.img.onload = layout;
+    H.img.src = `img/${p.dataset.art}.png`;
+    // where the preview sits in the panel: whole, above the caption.
+    // Heat lives in the picture's own grid, so the picture can grow and shrink with its panel without losing it.
+    function layout() {
+      const r = cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+      if (!r.width || !r.height) return;
+      H.w = r.width; H.h = r.height; cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const open = p.classList.contains('on'), room = open || narrow.matches ? H.h : H.h - 70;
+      if (pic.fit === 'cover') { const k = Math.max(H.w / DW, H.h / DH); H.box = [0, 0, DW * k, DH * k]; }
+      else { const k = Math.min(H.w * .96 / DW, room / DH); H.box = [(H.w - DW * k) / 2, (room - DH * k) / 2, DW * k, DH * k]; }
+      draw();
+    }
+    function draw() {
+      if (!H.box || !H.img.complete) return;
+      const [x, y, w, h] = H.box;
+      ctx.clearRect(0, 0, H.w, H.h);
+      ctx.globalAlpha = DARK.matches ? .8 : 1; ctx.drawImage(H.img, x, y, w, h); ctx.globalAlpha = 1;
+      if (!H.warm) return;
+      const d = data.data;
+      for (let i = 0; i < gw * gh; i++) {
+        const t = H.heat[i], o = i * 4;
+        if (t < .01) { d[o + 3] = 0; continue; }
+        const c = heatColor(t); d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255 * Math.min(1, t * 1.6);
+      }
+      bctx.putImageData(data, 0, 0);
+      // the heat is cut to the picture's own shape by compositing, which never reads its pixels (so it also works from file://)
+      const tw = Math.ceil(w), th = Math.ceil(h);
+      if (H.tint.width !== tw || H.tint.height !== th) { H.tint.width = tw; H.tint.height = th; }
+      tctx.globalCompositeOperation = 'copy'; tctx.imageSmoothingQuality = 'high'; tctx.drawImage(H.buf, 0, 0, tw, th);
+      tctx.globalCompositeOperation = 'destination-in'; tctx.drawImage(H.img, 0, 0, tw, th);
+      // the tint takes the picture's hue and keeps its light and shade, so the detail stays sharp under the heat
+      ctx.globalCompositeOperation = 'color'; ctx.drawImage(H.tint, x, y, w, h);
+      ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = .55; ctx.drawImage(H.tint, x, y, w, h);
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    }
+    // one step of heating and cooling in the picture's own grid, so a resize never resets it
+    function step() {
+      if (!H.box || !H.img.complete) return false;
+      const [x, y, w, h] = H.box, R = gw * .22, k = 1 / (2 * R * R);
+      let px = -1e9, py = -1e9;
+      if (H.ptr) { const r = cv.getBoundingClientRect(); px = (H.ptr[0] - r.left - x) / w * gw; py = (H.ptr[1] - r.top - y) / h * gh; }
+      let warm = false;
+      for (let gy = 0, i = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++, i++) {
+        const dx = gx - px, dy = gy - py, target = H.ptr ? Math.exp(-(dx * dx + dy * dy) * k) : 0;
+        H.heat[i] += (target - H.heat[i]) * (target > H.heat[i] ? .16 : .045);
+        if (H.heat[i] > .01) warm = true;
+      }
+      H.warm = warm; draw();
+      return warm || !!H.ptr;
+    }
+    new ResizeObserver(layout).observe(cv);
+    p.addEventListener('pointermove', (e) => { H.ptr = [e.clientX, e.clientY]; H.hot = true; wake(); });
+    p.addEventListener('pointerleave', () => { H.ptr = null; });
+    H.step = () => (H.hot = step());
+    H.draw = draw;
+    return H;
+  });
+  // only pictures that are warm or under the pointer are redrawn each frame; the rest stay as they are
+  let ticking = false;
+  function wake() {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(function frame() {
+      let any = false;
+      // one picture failing must not stop the others, or the loop, for good
+      for (const H of heats) if (H.hot) { try { any = H.step() || any; } catch (err) { H.hot = false; console.error(err); } }
+      if (any) requestAnimationFrame(frame); else ticking = false;
+    });
+  }
+  DARK.addEventListener('change', () => heats.forEach((H) => H.draw()));
+  const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   for (const button of document.querySelectorAll('.copy')) {
     button.addEventListener('click', async () => {
