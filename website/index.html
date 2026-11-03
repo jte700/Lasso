@@ -159,26 +159,11 @@
   .sub b { color: var(--ink-2); font-weight: 500; }
   .cta-row { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
   .cta-stack { display: inline-flex; flex-direction: column; gap: 12px; max-width: 100%; }
-  .pill.mcp-wide { width: 100%; justify-content: flex-start; gap: 12px; padding: 12px 14px 12px 12px; background: var(--contrast); color: var(--on-contrast); box-shadow: 0 4px 7px rgba(0, 0, 0, .05); }
+  .pill.mcp-wide { align-self: center; gap: 12px; padding: 12px 14px 12px 12px; background: var(--contrast); color: var(--on-contrast); box-shadow: 0 4px 7px rgba(0, 0, 0, .05); }
   .pill.mcp-wide:hover { background: var(--contrast-h); transform: translateY(-1px); }
   .mcp-tag { padding: 4px 10px; border-radius: 999px; background: var(--green); color: #fff; font-size: 13px; font-weight: 600; letter-spacing: .02em; }
-  .mcp-go { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; padding-right: 8px; font-size: 16px; opacity: .7; }
+  .mcp-go { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; padding-right: 8px; font-size: 16px; opacity: .7; }
   .pill.mcp-wide:hover .mcp-go { opacity: 1; }
-  .proof { display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; margin-top: 26px; font-size: 13.5px; color: var(--ink-3); font-weight: 500; }
-  .proof span { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 6px; border-radius: 999px; background: var(--sand); background: color-mix(in srgb, var(--sand) 85%, transparent); }
-  .proof svg { width: 16px; height: 16px; }
-  .ledger { position: absolute; left: clamp(16px, 3vw, 32px); bottom: clamp(20px, 4vw, 40px); z-index: 3; width: min(430px, calc(100% - 32px)); background: var(--surface); border-radius: 20px; box-shadow: var(--shadow), 0 0 0 1px rgba(0, 0, 0, .04); overflow: hidden; }
-  .ledger-h { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px 8px; font-size: 13px; font-weight: 600; }
-  .ledger-h span { display: inline-flex; align-items: center; gap: 7px; }
-  .ledger-h span i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-bg); }
-  .ledger-h b { font-weight: 500; color: var(--ink-3); font-size: 12.5px; }
-  .ledger ol { list-style: none; margin: 0; padding: 0 8px 8px; height: 112px; overflow: hidden; }
-  .ledger li { display: grid; grid-template-columns: 44px 74px minmax(0, 1fr) 24px; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); animation: lin .6s ease-out; }
-  .ledger li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ledger li .v { color: var(--ink); font-weight: 600; }
-  .ledger li .ver { color: var(--blue); text-align: right; }
-  .ledger li:first-child { background: var(--green-bg); }
-  .ledger li:first-child .v { color: var(--green-d); }
   @keyframes lin { from { opacity: 0; transform: translateY(-8px); } }
 
   /* ---------- stats ---------- */
@@ -861,8 +846,6 @@
     .tab { padding: 9px 14px; font-size: 14px; }
     .hero { display: flex; flex-direction: column; justify-content: center; height: auto; min-height: max(100vh, 780px); min-height: max(100svh, 780px); padding: 96px 16px 110px; }
     .hero-c { position: relative; left: auto; top: auto; transform: none; width: 100%; margin: 0 auto; }
-    .ledger { display: none; }
-    .proof { display: none; }
     .feature + .feature { margin-top: 90px; }
     .cta { padding: 110px 16px; }
     .posse-bar .hint { margin-left: 0; width: 100%; }
@@ -1016,16 +999,7 @@
       </div>
       <a class="pill big mcp-wide" href="mcp/"><span class="mcp-tag">MCP</span><span class="mcp-t">Lasso for AI agents</span><span class="mcp-go">See the benchmarks<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span></a>
     </div>
-    <div class="proof">
-      <span><svg><use href="#tick"/></svg>Exact locations</span>
-      <span><svg><use href="#tick"/></svg>Pinned versions</span>
-      <span><svg><use href="#tick"/></svg>Nothing guessed</span>
-    </div>
   </div>
-  <aside class="ledger" id="ledger" aria-label="Live index (illustrative)">
-    <div class="ledger-h"><span><i></i>Live index</span><b><span id="ledgerCount">0</span> captured</b></div>
-    <ol id="ledgerRows"></ol>
-  </aside>
 </header>
 
 <div style="padding:0 16px">
@@ -1384,7 +1358,7 @@
   ];
   const FILLER = ['snapshot sha256:9f2c…e1', 'indexed 14:02:11', 'watcher +3 files', 'v3 → v4', 'passage 118/402', 'ranked 0.91', 'cells 1,980', '¶ 22–24', 'units m', 'linked ↳ site-report.md', 'IfcQuantityArea', 'no guess: ambiguous', 'pinned', 'BibTeX', 'row 1–260', 'diff ±2', 'scope project', 'local', 'OOXML'];
 
-  function createField(canvas, { host, content, ledger, theme, events }) {
+  function createField(canvas, { host, content, theme, events }) {
     const ctx = canvas.getContext('2d');
     const T = {}, applyTheme = () => Object.assign(T, typeof theme === 'function' ? theme() : theme);
     applyTheme(); if (typeof theme === 'function') DARK_MQ.addEventListener('change', applyTheme);
@@ -1465,7 +1439,6 @@
       const hr = host.getBoundingClientRect();
       const box = (el, pad) => { const b = el.getBoundingClientRect(); return { x0: b.left - hr.left - pad, y0: b.top - hr.top - pad, x1: b.right - hr.left + pad, y1: b.bottom - hr.top + pad }; };
       const narrow = W < 700, z = [box(content, narrow ? 12 : 26), { x0: 0, y0: 0, x1: W, y1: narrow ? 76 : 90 }];
-      if (ledger && ledger.el.offsetParent) z.push(box(ledger.el, 18));
       return z;
     }
     const overlaps = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
@@ -1496,7 +1469,7 @@
         if (threadHits(cx + popW, cy + lh * 1.9, tok.col * cw + tok.len * cw / 2, tok.row * lh + lh / 2, zs)) continue;
         recent.push(s); if (recent.length > 6) recent.shift();
         const others = []; while (others.length < 2) { const o = pick(SOURCES); if (o !== s && !others.includes(o)) others.push(o); }
-        evs.push({ t0: now, tok, s, cx, cy, others, box: cb, tbox: tb, id: ++idxSeq, rot: rng(-.18, .18), seed: Math.random() * 10, logged: false });
+        evs.push({ t0: now, tok, s, cx, cy, others, box: cb, tbox: tb, id: ++idxSeq, rot: rng(-.18, .18), seed: Math.random() * 10 });
         return;
       }
     }
@@ -1573,7 +1546,6 @@
         }
       }
       ctx.restore();
-      if (accepted && !e.logged) { e.logged = true; ledger && ledger.log(e.id, s); }
       return t < end;
     }
     const LEVELS = 14, buckets = Array.from({ length: LEVELS }, () => []), acc = Array.from({ length: 6 }, () => []);
@@ -1614,27 +1586,14 @@
     ticks.add((now) => { if (visible && !document.hidden && now - lastFrame > 30) { draw(now); lastFrame = now; } });
   }
 
-  const ledgerRows = $('#ledgerRows'), ledgerCount = $('#ledgerCount');
-  let captured = 0;
-  const ledger = {
-    el: $('#ledger'),
-    log(id, s) {
-      captured++; ledgerCount.textContent = captured;
-      const li = document.createElement('li');
-      li.innerHTML = `<span>#${String(id).padStart(4, '0')}</span><span class="v">${esc(s.val)}</span><span>${esc(s.file)} › ${esc(s.loc)}</span><span class="ver">v${s.v}</span>`;
-      ledgerRows.prepend(li);
-      while (ledgerRows.children.length > 6) ledgerRows.lastChild.remove();
-    },
-  };
-  [SOURCES[0], SOURCES[2], SOURCES[1]].forEach((s, i) => ledger.log(397 + i, s));
   const LIGHT = { bg: '#f5f3f1', text: [0, 0, 0], accent: [31, 157, 85], pulse: [41, 204, 87], pin: [59, 108, 246], base: .05, inside: .03, rope: .42, dimFloor: .12,
     okBg: '#eafaf0', markBg: '#fff4cc', popup: '#ffffff', popupLine: 'rgba(0,0,0,.08)', shadow: 'rgba(0,0,0,.14)' };
   const DARK = { bg: '#000000', text: [255, 255, 255], accent: [41, 204, 87], pulse: [41, 204, 87], pin: [120, 160, 255], base: .06, inside: .03, rope: .4, dimFloor: .1,
     okBg: '#0f2a18', markBg: '#2a2614', popup: '#111', popupLine: 'rgba(255,255,255,.1)', shadow: 'rgba(0,0,0,.5)' };
   const HERO_DARK = { ...DARK, bg: '#161615', base: .07, popup: '#1b1b1a' };
   const startFields = () => {
-    createField($('#heroField'), { host: $('#top'), content: $('#heroC'), ledger, theme: () => (DARK_MQ.matches ? HERO_DARK : LIGHT), events: true });
-    createField($('#ctaField'), { host: $('#run'), content: $('#ctaIn'), ledger: null, theme: DARK, events: false });
+    createField($('#heroField'), { host: $('#top'), content: $('#heroC'), theme: () => (DARK_MQ.matches ? HERO_DARK : LIGHT), events: true });
+    createField($('#ctaField'), { host: $('#run'), content: $('#ctaIn'), theme: DARK, events: false });
   };
   // The fields draw in the system monospaced font, which is always installed.
   startFields();
