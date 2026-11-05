@@ -14,7 +14,7 @@ const readJson = (name) => JSON.parse(fs.readFileSync(path.join(outputDirectory,
 const typing = readJson('results.json');
 const mcp = readJson('mcp-summary.json');
 
-const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
+const FONT = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
 const WIDTH = 760;
 const LEFT = 24;
 const BAR = 14;
@@ -31,18 +31,18 @@ const STYLE = `
   .grid { stroke: #e6e5e1; stroke-width: 1; }
   .axis { stroke: #a8a7a1; stroke-width: 1; }
   .reference { stroke: #52514e; stroke-width: 1.5; stroke-dasharray: 4 4; }
-  .series-1 { fill: #2a78d6; }
-  .series-2 { fill: #eb6834; }
+  .series-1 { fill: #1f9d4c; }
+  .series-1-light { fill: #6abd86; }
   .muted-bar { fill: #c9c8c2; }
-  .hero { fill: #0b0b0b; font: 700 30px ${FONT}; }
-  .hero-label { fill: #52514e; font: 13px ${FONT}; }
-  .accent { fill: #2a78d6; }
-  .line-1 { fill: none; stroke: #2a78d6; stroke-width: 2.5; stroke-linejoin: round; }
+  .hero { fill: #0b0b0b; font: 700 30px ${FONT}; letter-spacing: -0.5px; }
+  .hero-label { fill: #52514e; font: 12.5px ${FONT}; }
+  .accent { fill: #1f9d4c; }
+  .line-1 { fill: none; stroke: #1f9d4c; stroke-width: 2.5; stroke-linejoin: round; }
   .line-base { fill: none; stroke: #8f8e88; stroke-width: 2; stroke-linejoin: round; }
-  .dot-1 { fill: #2a78d6; stroke: #fcfcfb; stroke-width: 2; }
+  .dot-1 { fill: #1f9d4c; stroke: #fcfcfb; stroke-width: 2; }
   .dot-base { fill: #8f8e88; stroke: #fcfcfb; stroke-width: 2; }
-  .area-1 { fill: #2a78d6; fill-opacity: 0.08; }
-  .callout { fill: #2a78d6; font: 700 15px ${FONT}; }
+  .area-1 { fill: #1f9d4c; fill-opacity: 0.08; }
+  .callout { fill: #0b0b0b; font: 700 15px ${FONT}; }
   .footnote { fill: #8f8e88; font: 11px ${FONT}; }
   @media (prefers-color-scheme: dark) {
     .surface { fill: #1a1a19; stroke: #333330; }
@@ -52,15 +52,15 @@ const STYLE = `
     .grid { stroke: #333330; }
     .axis { stroke: #6f6e69; }
     .reference { stroke: #c3c2b7; }
-    .series-1, .accent { fill: #3987e5; }
-    .series-2 { fill: #d95926; }
+    .series-1, .accent { fill: #28a752; }
+    .series-1-light { fill: #1a6534; }
     .muted-bar { fill: #5c5b56; }
-    .line-1 { stroke: #3987e5; }
+    .line-1 { stroke: #28a752; }
     .line-base { stroke: #7d7c76; }
-    .dot-1 { fill: #3987e5; stroke: #1a1a19; }
+    .dot-1 { fill: #28a752; stroke: #1a1a19; }
     .dot-base { fill: #7d7c76; stroke: #1a1a19; }
-    .area-1 { fill: #3987e5; }
-    .callout { fill: #3987e5; }
+    .area-1 { fill: #28a752; }
+    .callout { fill: #f0efec; }
     .footnote { fill: #7d7c76; }
   }`;
 
@@ -113,20 +113,21 @@ function summaryCard() {
   const toolsCorrect = mcp.models.reduce((sum, model) => sum + model.fileTools.correct, 0);
   const range = (values) => `${percent(Math.min(...values)).slice(0, -1)}–${percent(Math.max(...values))}`;
   const tiles = [
-    { value: range(savings), label: 'fewer agent tokens (MCP)' },
-    { value: range(costs), label: 'lower model cost' },
-    { value: `${lassoCorrect}/${tasks}`, label: `answers correct (${toolsCorrect} without)` },
-    { value: `${ms(typing.wholeLibrary.score.latency.p50)} ms`, label: 'per keystroke, typing' },
+    { value: range(savings), lines: ['fewer agent tokens', 'with Lasso MCP'] },
+    { value: range(costs), lines: ['lower model cost', 'on the same tasks'] },
+    { value: `${lassoCorrect}/${tasks}`, lines: ['answers correct', `vs ${toolsCorrect}/${tasks} file tools`] },
+    { value: `${ms(typing.wholeLibrary.score.latency.p50)} ms`, lines: ['median per keystroke', 'while typing'] },
   ];
   const tileWidth = (WIDTH - 2 * LEFT) / tiles.length;
   const body = tiles.map((tile, index) => {
     const x = LEFT + index * tileWidth;
-    return `<rect class="accent" x="${x}" y="78" width="3" height="44" rx="1.5"/>` +
-      text(x + 14, 106, tile.value, 'hero') + text(x + 14, 128, tile.label, 'hero-label');
+    return `<rect class="accent" x="${x}" y="80" width="3" height="62" rx="1.5"/>` +
+      text(x + 14, 108, tile.value, 'hero') +
+      tile.lines.map((line, row) => text(x + 14, 128 + row * 16, line, 'hero-label')).join('');
   }).join('\n');
-  write('summary.svg', frame(148, 'Measured results',
+  write('summary.svg', frame(166, 'Measured results',
     'Agent figures: live model runs with provider-recorded token usage. Typing: local benchmark, Apple M3.', body,
-    tiles.map((tile) => `${tile.value} ${tile.label}`).join('; ')));
+    tiles.map((tile) => `${tile.value} ${tile.lines.join(' ')}`).join('; ')));
 }
 
 // Savings by kind of file, positive where Lasso used fewer tokens.
@@ -150,10 +151,10 @@ function mcpByFileChart() {
     const positive = row.saving >= 0;
     const label = positive ? `${percent(row.saving)} fewer` : `${percent(-row.saving)} more`;
     return text(labelRight, y + BAR - 2, `${row.kind} · ${row.tasks} tasks`, 'label', 'end') +
-      bar(zero, y, width, BAR, positive ? 'series-1' : 'series-2') +
+      bar(zero, y, width, BAR, positive ? 'series-1' : 'muted-bar') +
       text(positive ? zero + width + 8 : zero + 8, y + BAR - 2, label, 'value');
   }).join('\n');
-  const body = `${swatch(LEFT, 76, 'series-1', 'Fewer tokens than file tools')}${swatch(230, 76, 'series-2', 'More tokens than file tools')}
+  const body = `${swatch(LEFT, 76, 'series-1', 'Fewer tokens than file tools')}${swatch(230, 76, 'muted-bar', 'More tokens than file tools')}
 ${grid}
 <line class="axis" x1="${zero}" x2="${zero}" y1="${top - 6}" y2="${top + rows.length * rowHeight}"/>
 ${bars}
@@ -246,11 +247,11 @@ function latencyChart() {
   const bars = rows.map((row, index) => {
     const y = top + index * rowHeight + 5;
     return text(plotLeft - 12, y + 18, row.name, 'label', 'end') +
-      bar(plotLeft, y, scale(row.latency.p50), 11, 'series-1') + bar(plotLeft, y + 13, scale(row.latency.p95), 11, 'series-2') +
+      bar(plotLeft, y, scale(row.latency.p50), 11, 'series-1') + bar(plotLeft, y + 13, scale(row.latency.p95), 11, 'series-1-light') +
       text(plotLeft + scale(Math.max(row.latency.p50, row.latency.p95)) + 8, y + 18,
         `${ms(row.latency.p50)} / ${ms(row.latency.p95)} ms`, 'value');
   }).join('\n');
-  const body = `${swatch(LEFT, 76, 'series-1', 'Median')}${swatch(110, 76, 'series-2', '95th percentile')}
+  const body = `${swatch(LEFT, 76, 'series-1', 'Median')}${swatch(110, 76, 'series-1-light', '95th percentile')}
 ${grid}
 <line class="reference" x1="${reference}" x2="${reference}" y1="${top - 8}" y2="${top + rows.length * rowHeight}"/>
 ${text(reference - 6, 76, '100 ms: feels instant', 'tick', 'end')}

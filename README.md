@@ -30,26 +30,26 @@ Lasso reads the folders you choose (spreadsheets, PDFs, Word, PowerPoint, CAD mo
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/lasso-cad-value-dark.png">
-    <img src="docs/images/lasso-cad-value-light.png" width="760" alt="Typing 'The plate is 100' in a document shows Lasso's card offering Bracket overall X extent, 100 mm, with a wireframe of the part">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/lasso-excel-value-dark.png">
+    <img src="docs/images/lasso-excel-value-light.png" width="760" alt="Typing 'Office supplies spending was 12' in a document shows Lasso's card offering 1,250 from two Excel workbooks, with the matched cell highlighted in its sheet">
   </picture>
-  <br><sub>Typing <code>The plate is 100</code> offers the measured 100 mm extent from <code>Bracket.step</code>. <code>Tab</code> inserts it.</sub>
+  <br><sub>Typing <code>Office supplies spending was 12</code> offers the 1,250 recorded in both workbooks, with the cell shown in its sheet. <code>Tab</code> inserts it.</sub>
 </p>
 
 <details>
-<summary><b>More examples</b>: a slide sentence, a spreadsheet cell, how it works</summary>
+<summary><b>More examples</b>: a CAD measurement, a slide sentence, how it works</summary>
 <br>
 <picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/lasso-cad-value-dark.png">
+  <img src="docs/images/lasso-cad-value-light.png" width="760" alt="Typing 'The plate is 100' offers Bracket overall X extent, 100 mm, measured from a STEP model, with a wireframe of the part">
+</picture>
+<p><sub>Typing <code>The plate is 100</code> offers the 100 mm extent measured from <code>Bracket.step</code>.</sub></p>
+<picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/lasso-deck-sentence-dark.png">
-  <img src="docs/images/lasso-deck-sentence-light.png" width="680" alt="Typing 'Rate limit of 1' completes the sentence from slide 3 of a PowerPoint deck">
+  <img src="docs/images/lasso-deck-sentence-light.png" width="760" alt="Typing 'Rate limit of 1' completes the sentence from slide 3 of a PowerPoint deck">
 </picture>
 <p><sub>Typing <code>Rate limit of 1</code> completes the sentence from slide 3 of a PowerPoint deck.</sub></p>
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/lasso-spreadsheet-dark.png">
-  <img src="docs/images/lasso-spreadsheet-light.png" width="680" alt="Typing 'Net income was 46' offers 46,350 from the accounting workbook, with the cell shown in its sheet">
-</picture>
-<p><sub>Typing <code>Net income was 46</code> offers the value from an Excel workbook, with the cell shown in its sheet.</sub></p>
-<img src="docs/images/architecture.svg" width="680" alt="How Lasso works: the Mac app reads text before the caret and asks a local index server that watches your folders">
+<img src="docs/images/architecture.svg" width="760" alt="How Lasso works: the Mac app reads text before the caret and asks a local index server that watches your folders">
 </details>
 
 ## System requirements
