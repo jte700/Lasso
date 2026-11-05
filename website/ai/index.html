@@ -1,0 +1,816 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lasso with your AI</title>
+<meta name="description" content="Supercharge Lasso's Tab suggestions with the AI you already use, and let your AI read your files through Lasso in a fraction of the tokens.">
+<!-- A trial page: kept out of search results and not linked from the homepage yet. -->
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<style>
+  :root {
+    --bg: #ffffff; --sand: #f5f3f1; --sand-2: #ebe8e4;
+    --ink: #000000; --ink-2: rgba(0, 0, 0, .62); --ink-3: rgba(0, 0, 0, .42);
+    --line: #e7e4e0; --line-2: #d9d5d0;
+    --green: #29cc57; --green-d: #1f9d55; --green-bg: #eafaf0;
+    --blue: #3b6cf6; --blue-bg: #eef3ff; --orange: #e8590c;
+    --surface: #ffffff; --contrast: #000000; --contrast-h: #222222; --on-contrast: #ffffff;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 12px 32px rgba(0, 0, 0, .07);
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c0c0d; --sand: #161615; --sand-2: #201f1d;
+      --ink: #f5f4f2; --ink-2: rgba(255, 255, 255, .7); --ink-3: rgba(255, 255, 255, .48);
+      --line: #2b2a28; --line-2: #3b3a37;
+      --green-d: #3fd977; --green-bg: rgba(41, 204, 87, .15); --blue: #7b9dff; --blue-bg: rgba(59, 108, 246, .18); --orange: #ff8a4c;
+      --surface: #1b1b1a; --contrast: #ffffff; --contrast-h: #dddddd; --on-contrast: #000000;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 12px 32px rgba(0, 0, 0, .45);
+      color-scheme: dark;
+    }
+    /* the app windows stay light, like screenshots of the app, as on the homepage */
+    .app {
+      --bg: #ffffff; --sand: #f5f3f1; --sand-2: #ebe8e4; --ink: #000000; --ink-2: rgba(0, 0, 0, .62); --ink-3: rgba(0, 0, 0, .42);
+      --line: #e7e4e0; --line-2: #d9d5d0; --green-d: #1f9d55; --green-bg: #eafaf0; --blue: #3b6cf6; --blue-bg: #eef3ff; --surface: #ffffff;
+      color: #000; color-scheme: light;
+    }
+    .nav { box-shadow: 0 0 0 1px var(--line), 0 0 15px rgba(0, 0, 0, .5); }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; overflow-x: clip; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  a { color: inherit; }
+  button { font: inherit; color: inherit; }
+  ::selection { background: #c9f2d5; }
+  :is(a, button):focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+  .nav-wrap { position: fixed; top: 16px; left: 0; right: 0; z-index: 50; padding: 0 16px; pointer-events: none; }
+  .nav { pointer-events: auto; max-width: 1180px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 8px 8px 18px; background: var(--surface); border-radius: 9999px; box-shadow: 0 0 15px rgba(0, 0, 0, .1); }
+  .brand { display: flex; align-items: center; gap: 9px; text-decoration: none; font-weight: 600; font-size: 20px; letter-spacing: -.02em; white-space: nowrap; }
+  .brand svg { width: 26px; height: 26px; flex: none; color: var(--green); }
+  .brand small { padding: 2px 8px; border-radius: 999px; background: var(--sand); font-size: 12px; font-weight: 600; color: var(--ink-2); letter-spacing: 0; }
+  .nav-links { display: flex; gap: 4px; font-size: 15px; font-weight: 500; }
+  .nav-links a { text-decoration: none; padding: 8px 12px; border-radius: 999px; color: var(--ink-2); transition: background .2s, color .2s; }
+  .nav-links a:hover { background: var(--sand); color: var(--ink); }
+  .pill { display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; font-weight: 500; font-size: 16px; padding: 8px 16px; border-radius: 9999px; border: 0; cursor: pointer; transition: transform .15s, background .2s; white-space: nowrap; }
+  .pill.black { background: var(--contrast); color: var(--on-contrast); }
+  .pill.black:hover { background: var(--contrast-h); }
+  .pill.big { font-size: 19px; padding: 14px 26px; }
+  .pill.green { background: var(--green); color: #fff; }
+  .pill.green:hover { background: #22b84c; transform: translateY(-1px); }
+  .pill.ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+  .pill.ghost:hover { background: var(--sand); }
+
+  /* ---------- hero ---------- */
+  header.top { position: relative; isolation: isolate; overflow: hidden; padding: 170px 16px 96px; text-align: center; }
+  header.top::before { content: ""; position: absolute; inset: -30% -15% 5%; z-index: -2; filter: blur(70px); opacity: .85;
+    background:
+      radial-gradient(36% 44% at 24% 40%, rgba(41, 204, 87, .5), transparent 70%),
+      radial-gradient(32% 40% at 76% 30%, rgba(120, 110, 255, .42), transparent 70%),
+      radial-gradient(38% 42% at 56% 76%, rgba(255, 150, 90, .36), transparent 70%);
+    animation: drift 22s ease-in-out infinite alternate; }
+  header.top::after { content: ""; position: absolute; inset: auto 0 0; height: 55%; z-index: -1; background: linear-gradient(transparent, var(--bg) 80%); }
+  @keyframes drift { 50% { transform: translate3d(4%, -3%, 0) scale(1.06) rotate(3deg); } 100% { transform: translate3d(-3%, 2%, 0) scale(1.1) rotate(-2deg); } }
+  h1 { margin: 0 0 22px; font-family: var(--display); font-weight: 600; font-size: clamp(52px, 9vw, 118px); line-height: 1.02; letter-spacing: -.045em; }
+  .sub { margin: 0 auto 34px; max-width: 640px; font-size: 21px; line-height: 1.5; color: var(--ink-3); }
+  .sub b { color: var(--ink-2); font-weight: 500; }
+  .cta-row { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+
+  /* the rotating name: each model arrives its own way; the slot eases to the new word's width */
+  .ai-slot { position: relative; display: inline-block; vertical-align: bottom; height: 1.12em; transition: width .55s cubic-bezier(.3, 1.2, .45, 1); }
+  .ai-word { position: absolute; left: 0; bottom: 0; white-space: nowrap; }
+  .ai-word i { font-style: normal; display: inline-block; }
+  .ai-word.out { animation: wordOut .38s cubic-bezier(.4, 0, .6, 1) forwards; }
+  @keyframes wordOut { to { opacity: 0; transform: translateY(-.18em); filter: blur(8px); } }
+  .w-yours { color: var(--ink-3); }
+  .w-yours i { animation: softIn .6s both; }
+  /* ChatGPT: typed out, with a caret */
+  .w-chatgpt { color: #10a37f; }
+  .w-chatgpt::after { content: ""; display: inline-block; width: .06em; height: .8em; margin-left: .04em; background: currentColor; vertical-align: -.04em; animation: caret .9s steps(1) infinite; }
+  @keyframes caret { 50% { opacity: 0; } }
+  /* Claude: warm serif letters that soften into focus */
+  .w-claude { color: #d97757; font-family: ui-serif, "New York", Georgia, "Times New Roman", serif; font-weight: 500; letter-spacing: -.02em; }
+  .w-claude i { animation: softIn .7s cubic-bezier(.2, .8, .2, 1) both calc(var(--i) * 55ms); }
+  @keyframes softIn { from { opacity: 0; filter: blur(10px); transform: translateY(.12em); } }
+  /* Gemini: letters bloom in under a flowing blue-violet-rose gradient */
+  /* gradient words paint the gradient letter by letter (a gradient clipped to a whole word can't reach letters animated on
+     their own); each letter shows its own slice, so the word still reads as one sweep */
+  .ai-word.grad i { background-image: var(--grad); background-size: calc(var(--n) * 100%) 100%; background-position: calc(var(--i) * 100% / (var(--n) - 1)) 0; -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .w-gemini { --grad: linear-gradient(90deg, #4285f4, #9b72cb, #d96570); }
+  .w-gemini i { animation: bloom .6s cubic-bezier(.2, 1.4, .4, 1) both calc(var(--i) * 45ms); }
+  @keyframes bloom { from { opacity: 0; transform: scale(.4) rotate(-12deg); } }
+  @keyframes pan { to { background-position: 300% 0; } }
+  /* Grok: a monospace scramble that settles letter by letter */
+  .w-grok { font-family: var(--mono); font-weight: 700; letter-spacing: -.06em; color: var(--ink); }
+  /* Llama: letters spring up from below */
+  .w-llama { color: #0866ff; }
+  .w-llama i { animation: springUp .75s cubic-bezier(.3, 1.8, .45, 1) both calc(var(--i) * 60ms); }
+  @keyframes springUp { from { opacity: 0; transform: translateY(.6em) scaleY(.6); } }
+  /* Mistral: a warm stripe wipe across the word */
+  .w-mistral { --grad: linear-gradient(90deg, #ffd800, #ffaf00, #ff8205, #fa500f, #e10500); animation: wipe .7s cubic-bezier(.6, 0, .2, 1) both; }
+  @keyframes wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 -5% 0 0); } }
+  /* DeepSeek: letters dive in and ripple */
+  .w-deepseek { color: #4d6bfe; }
+  .w-deepseek i { transform-origin: 50% 0; animation: dive .7s cubic-bezier(.2, 1.2, .4, 1) both calc(var(--i) * 50ms); }
+  @keyframes dive { from { opacity: 0; transform: translateY(-.5em) rotateX(80deg); } }
+  @media (prefers-color-scheme: dark) { .w-chatgpt { color: #19c37d; } .w-llama { color: #4d8dff; } .w-deepseek { color: #7a8cff; } }
+
+  /* "Supercharge": a flowing spectrum with a glint running through it */
+  .super { position: relative; font-weight: 650; background: linear-gradient(90deg, #29cc57, #12b5cb, #4285f4, #9b72cb, #e5487a, #ff8a00, #f6c445, #29cc57); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: pan 6s linear infinite; }
+  .super::after { content: "Supercharge"; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 40%, rgba(255, 255, 255, .9) 50%, transparent 60%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: glint 3.4s ease-in-out infinite; }
+  @keyframes glint { 0%, 55% { background-position: 150% 0; } 100% { background-position: -100% 0; } }
+
+  /* ---------- sections ---------- */
+  section { padding: 92px 16px; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  .kicker { display: inline-block; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--green-d); }
+  h2 { margin: 0 0 14px; font-weight: 500; font-size: clamp(32px, 4.4vw, 52px); line-height: 1.08; letter-spacing: -.03em; }
+  .lead { margin: 0 0 36px; max-width: 700px; font-size: 18px; line-height: 1.55; color: var(--ink-3); }
+  .lead b { color: var(--ink-2); font-weight: 500; }
+  .note { margin: 14px 0 0; font-size: 13px; line-height: 1.5; color: var(--ink-3); }
+
+  /* app windows */
+  .app { position: relative; border-radius: 20px; background: var(--surface); box-shadow: 0 0 0 1px rgba(0, 0, 0, .06), 0 18px 48px rgba(0, 0, 0, .12); color: var(--ink); }
+  .app-bar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--ink-3); }
+  .app-bar .dots { display: flex; gap: 6px; margin-right: 6px; }
+  .app-bar .dots i { width: 11px; height: 11px; border-radius: 50%; background: var(--line-2); }
+  .app-bar b { color: var(--ink-2); font-weight: 600; }
+
+  /* ---------- Tab suggestions demo ---------- */
+  .tabdemo { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; align-items: start; }
+  .mode { display: inline-grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 3px; margin-bottom: 14px; border-radius: 999px; background: var(--sand-2); }
+  .mode button { position: relative; padding: 8px 16px; border: 0; border-radius: 999px; background: none; font-size: 14px; font-weight: 600; color: var(--ink-3); cursor: pointer; transition: color .25s; }
+  .mode button.on { color: var(--ink); }
+  .mode .knob { grid-row: 1; grid-column: 1; border-radius: 999px; background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); transition: transform .45s cubic-bezier(.3, 1.3, .45, 1); z-index: 0; }
+  .mode button { grid-row: 1; z-index: 1; }
+  .mode button[data-mode="plain"] { grid-column: 1; }
+  .mode button[data-mode="ai"] { grid-column: 2; }
+  .mode.ai .knob { transform: translateX(calc(100% + 2px)); }
+  .mode.ai button.ai-b .super-sm { animation-play-state: running; }
+  .super-sm { background: linear-gradient(90deg, #29cc57, #4285f4, #9b72cb, #e5487a, #ff8a00, #29cc57); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: pan 5s linear infinite; }
+  .doc { padding: 26px 30px 30px; min-height: 400px; font-size: 17px; line-height: 1.7; }
+  .doc h4 { margin: 0 0 10px; font-size: 22px; font-weight: 650; letter-spacing: -.02em; }
+  .doc p { margin: 0 0 12px; color: var(--ink-2); }
+  .doc .live { color: var(--ink); }
+  .caret { display: inline-block; width: 2px; height: 1.1em; margin-left: 1px; background: var(--blue); vertical-align: -.2em; animation: caret 1s steps(1) infinite; }
+  .ins { padding: 0 3px; border-radius: 5px; background: var(--green-bg); color: var(--green-d); font-weight: 600; box-shadow: inset 0 -2px 0 var(--green); animation: insIn .4s cubic-bezier(.2, 1.3, .4, 1); }
+  .cite { display: inline-block; margin-left: 3px; padding: 0 6px; border-radius: 6px; background: var(--sand); font-family: var(--mono); font-size: 11.5px; font-weight: 500; color: var(--ink-3); vertical-align: 2px; line-height: 1.6; animation: insIn .4s .1s both; }
+  .ghost { color: var(--ink-3); }
+  .ghost kbd { margin-left: 6px; padding: 1px 6px; border-radius: 6px; background: var(--sand); font-family: var(--mono); font-size: 11px; color: var(--ink-2); vertical-align: 2px; }
+  @keyframes insIn { from { opacity: 0; transform: translateY(4px) scale(.96); } }
+  .pop { position: absolute; z-index: 4; width: min(340px, calc(100% - 24px)); padding: 6px; border-radius: 14px; background: var(--surface); box-shadow: 0 0 0 1px rgba(0, 0, 0, .08), 0 24px 56px rgba(0, 0, 0, .18); font-size: 13px; line-height: 1.35; opacity: 0; transform: translateY(-6px) scale(.98); transform-origin: top left; transition: opacity .18s, transform .18s; pointer-events: none; }
+  .pop.show { opacity: 1; transform: none; }
+  .pop-rows { position: relative; }
+  .prow { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 9px; border-radius: 9px; color: var(--ink-2); transition: transform .5s cubic-bezier(.3, 1.2, .45, 1), background .2s; }
+  .prow svg { width: 18px; height: 18px; justify-self: center; }
+  .prow b { display: block; font-size: 14px; font-weight: 650; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .prow small { display: block; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prow em { font-style: normal; font-family: var(--mono); font-size: 11px; color: var(--blue); }
+  .prow.on { background: var(--green-bg); }
+  .prow.on b { color: var(--green-d); }
+  .prow .why { display: block; max-height: 0; overflow: hidden; font-size: 11.5px; font-weight: 600; opacity: 0; transition: max-height .35s, opacity .35s, margin .35s; }
+  .prow .why span { background: linear-gradient(90deg, #4285f4, #9b72cb, #e5487a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .prow.reason .why { max-height: 20px; margin-top: 2px; opacity: 1; }
+  .pop-foot { display: flex; gap: 10px; margin-top: 4px; padding: 7px 9px 3px; border-top: 1px solid var(--line); font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+  .pop-foot .go { color: var(--green-d); font-weight: 600; }
+  .pop-foot .go.hit { padding: 0 5px; border-radius: 5px; background: var(--green); color: #fff; }
+  .side { display: grid; gap: 10px; }
+  .side .item { padding: 14px 16px; border-radius: 16px; background: var(--sand); font-size: 14px; line-height: 1.5; color: var(--ink-2); transition: opacity .3s, box-shadow .3s; opacity: .45; }
+  .side .item b { display: block; margin-bottom: 2px; font-size: 14.5px; color: var(--ink); }
+  .side .item.on { opacity: 1; box-shadow: inset 0 0 0 1.5px var(--green); }
+
+  /* ---------- agent trail (after BoardUI's web search) ---------- */
+  .trail { padding: 20px 20px 18px; border-radius: 20px; background: var(--surface); box-shadow: 0 0 0 1px var(--line); font-size: 14px; }
+  .t-head { display: flex; align-items: center; gap: 9px; color: var(--ink-2); font-weight: 500; }
+  .t-head svg { width: 16px; height: 16px; color: var(--green); flex: none; }
+  .t-steps { position: relative; margin: 4px 0 0 7px; padding-left: 20px; }
+  .t-step { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 6px 0; opacity: 0; transform: translateY(4px); transition: opacity .35s, transform .35s; }
+  .t-step.in { opacity: 1; transform: none; }
+  /* the curved guide from the call to each step */
+  .t-step::before { content: ""; position: absolute; left: -20px; top: -6px; width: 12px; height: 20px; border-left: 1.5px solid var(--line-2); border-bottom: 1.5px solid var(--line-2); border-bottom-left-radius: 9px; }
+  .t-step:not(:last-child)::after { content: ""; position: absolute; left: -20px; top: 12px; bottom: -8px; border-left: 1.5px solid var(--line-2); }
+  .t-step .what { color: var(--ink-2); line-height: 1.45; }
+  .t-step .what b { color: var(--ink); font-weight: 600; }
+  .t-step code { padding: 1px 6px; border-radius: 6px; background: var(--sand); font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); }
+  .t-step .n { font-size: 13px; color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .t-src { display: flex; align-items: center; gap: 8px; margin: 2px 0 0; font-size: 13px; color: var(--ink-3); }
+  .fmark { display: inline-grid; place-items: center; min-width: 30px; height: 20px; padding: 0 5px; border-radius: 6px; font-family: var(--mono); font-size: 10px; font-weight: 700; color: #fff; }
+  .fmark.xlsx { background: #1f9d55; }
+  .fmark.pdf { background: #e5484d; }
+  .t-work { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--ink-3); }
+  .t-work .shim { background: linear-gradient(90deg, var(--ink-3) 30%, var(--ink) 50%, var(--ink-3) 70%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shim 1.4s linear infinite; }
+  .t-work.done .shim { animation: none; color: var(--green-d); background: none; }
+  @keyframes shim { from { background-position: 125% 0; } to { background-position: -125% 0; } }
+  .t-answer { margin-top: 14px; padding: 14px 16px; border-radius: 14px; background: var(--sand); line-height: 1.5; color: var(--ink-2); opacity: 0; transform: translateY(6px); transition: opacity .4s, transform .4s; }
+  .t-answer.in { opacity: 1; transform: none; }
+  .t-answer b { color: var(--ink); }
+
+  /* ---------- context window card (after BoardUI's agent limits card) ---------- */
+  .ctx { position: sticky; top: 96px; padding: 18px 18px 6px; border-radius: 20px; background: var(--surface); box-shadow: 0 0 0 1px var(--line), var(--shadow); font-size: 14px; }
+  .ctx-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; font-weight: 600; color: var(--ink-2); }
+  .ctx-h .read { font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .ctx-h .read b { color: var(--ink); font-weight: 650; }
+  .ctx-bar { display: flex; gap: 2px; height: 10px; padding: 0; border-radius: 4px; background: var(--sand-2); overflow: hidden; }
+  .ctx-bar i { flex: 0 0 0%; height: 100%; border-radius: 3px; transition: flex-basis .9s cubic-bezier(.2, .85, .2, 1), background .5s, opacity .5s; }
+  .ctx-bar .s-pdf { background: #e5484d; min-width: 0; }
+  .ctx-bar .s-xlsx { background: #1f9d55; }
+  /* what attaching the whole files would have taken: hatched while it's only a "would have", solid when shown */
+  .ctx-bar .s-whole { background: repeating-linear-gradient(135deg, var(--line-2) 0 3px, transparent 3px 6px); }
+  .ctx.whole .ctx-bar .s-whole { background: var(--ink-3); }
+  .ctx.whole .ctx-bar .s-pdf, .ctx.whole .ctx-bar .s-xlsx { opacity: .25; }
+  .ctx-key { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 10px 0 14px; font-size: 12.5px; color: var(--ink-3); }
+  .ctx-key span::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 2px; background: var(--c); vertical-align: 0; }
+  .ctx-key .k-whole::before { background: repeating-linear-gradient(135deg, var(--ink-3) 0 2px, transparent 2px 4px); }
+  .ctx-sw { display: inline-grid; grid-template-columns: 1fr 1fr; gap: 2px; width: 100%; margin-bottom: 12px; padding: 3px; border-radius: 12px; background: var(--sand-2); }
+  .ctx-sw button { padding: 6px 8px; border: 0; border-radius: 9px; background: none; font-size: 12.5px; font-weight: 600; color: var(--ink-3); cursor: pointer; transition: background .25s, color .25s; }
+  .ctx-sw button.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .1); }
+  .ctx-row { padding: 11px 0 12px; border-top: 1px solid var(--line); opacity: .4; transition: opacity .4s; }
+  .ctx-row.in { opacity: 1; }
+  .ctx-row .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .ctx-row .top b { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+  .ctx-row .top em { font-style: normal; font-weight: 650; color: var(--green-d); font-variant-numeric: tabular-nums; }
+  .ctx-row .pair { display: grid; grid-template-columns: 74px minmax(0, 1fr) 58px; gap: 8px; align-items: center; font-size: 12.5px; color: var(--ink-3); }
+  .ctx-row .pair + .pair { margin-top: 5px; }
+  .ctx-row .pair span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .ctx-row .track { height: 6px; border-radius: 3px; background: var(--sand-2); overflow: hidden; }
+  .ctx-row .track i { display: block; height: 100%; width: 0; border-radius: 3px; background: var(--ink-3); transition: width 1s cubic-bezier(.2, .85, .2, 1); }
+  .ctx-row .pair.lasso .track i { background: var(--green); }
+  .ctx-row .pair.lasso span:first-child { color: var(--green-d); font-weight: 600; }
+
+  /* ---------- the chat thread ---------- */
+  .chatgrid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+  .thread { display: grid; gap: 14px; min-height: 0; margin-bottom: 14px; }
+  .bubble { max-width: 86%; padding: 12px 16px; border-radius: 18px; line-height: 1.5; animation: insIn .45s cubic-bezier(.2, 1.2, .4, 1) both; }
+  .bubble.me { justify-self: end; border-bottom-right-radius: 6px; background: var(--contrast); color: var(--on-contrast); }
+  .bubble.me .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .bubble.me .chips span { padding: 2px 8px; border-radius: 999px; background: rgba(128, 128, 128, .28); font-size: 12px; }
+  .reply { display: grid; gap: 10px; animation: insIn .45s both; }
+  .reply .who { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+  .reply .who i { width: 22px; height: 22px; border-radius: 50%; background: conic-gradient(from 90deg, #29cc57, #4285f4, #9b72cb, #e5487a, #ff8a00, #29cc57); }
+  .reply .trail { position: relative; padding-left: 66px; box-shadow: 0 0 0 1px var(--line); }
+
+  /* ---------- chat composer (after BoardUI's composer attachments) ---------- */
+  .composer { padding: 10px; border-radius: 26px; background: var(--sand); }
+  .c-strip { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 10px 10px; font-size: 13px; color: var(--ink-3); }
+  .c-strip .l { display: flex; align-items: center; gap: 12px; }
+  .c-strip svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 4px; }
+  .c-strip .ringc { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+  .c-box { padding: 12px; border-radius: 20px; background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 6px 20px rgba(0, 0, 0, .06); }
+  .c-atts { display: flex; flex-wrap: wrap; gap: 8px; min-height: 0; }
+  .att { display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 8px; border-radius: 14px; background: var(--sand); box-shadow: inset 0 0 0 1px var(--line); font-size: 12.5px; animation: attIn .5s cubic-bezier(.3, 1.4, .45, 1) both; }
+  .att .ic { position: relative; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; background: var(--surface); }
+  .att .ic svg.r { position: absolute; inset: -3px; width: 42px; height: 42px; transform: rotate(-90deg); }
+  .att .ic svg.r circle { fill: none; stroke: var(--green); stroke-width: 2.5; stroke-dasharray: 126; stroke-dashoffset: 126; transition: stroke-dashoffset .9s cubic-bezier(.2, .8, .2, 1); }
+  .att.ready .ic svg.r { opacity: 0; transition: opacity .3s .2s; }
+  .att b { display: block; font-weight: 600; color: var(--ink); }
+  .att small { color: var(--ink-3); }
+  @keyframes attIn { from { opacity: 0; transform: translateY(14px) scale(.8); } }
+  .c-text { min-height: 52px; padding: 10px 6px 6px; font-size: 16.5px; line-height: 1.55; color: var(--ink); }
+  .c-text .ph { color: var(--ink-3); }
+  .c-text .mention { padding: 0 4px; border-radius: 6px; background: var(--green-bg); color: var(--green-d); font-weight: 600; }
+  .c-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 2px 0; }
+  .c-foot .l, .c-foot .r { display: flex; align-items: center; gap: 8px; }
+  .c-plus, .c-send { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--sand); color: var(--ink-2); }
+  .c-send { background: var(--contrast); color: var(--on-contrast); }
+  .c-model { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; font-size: 13.5px; font-weight: 600; color: var(--ink-2); }
+  .c-model .m { display: inline-block; min-width: 4.5em; transition: opacity .3s; }
+  .keycap { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 5px 10px; border-radius: 8px; background: var(--sand); box-shadow: inset 0 -2px 0 var(--line-2); font-family: var(--mono); font-size: 12px; color: var(--ink-2); transition: transform .12s, background .12s; }
+  .keycap.press { transform: translateY(2px); background: var(--green-bg); color: var(--green-d); box-shadow: none; }
+
+  .final { text-align: center; }
+  .final h2 { margin-bottom: 10px; }
+  .final p { margin: 0 auto 28px; max-width: 560px; font-size: 18px; line-height: 1.55; color: var(--ink-3); }
+  footer { padding: 40px 16px 56px; border-top: 1px solid var(--line); }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; font-size: 14px; color: var(--ink-3); }
+  footer a { text-decoration: none; color: var(--ink-2); }
+
+  .rv { opacity: 0; transform: translateY(16px); filter: blur(8px); transition: opacity .7s, transform .8s cubic-bezier(.2, .9, .25, 1), filter .7s; }
+  .rv.in { opacity: 1; transform: none; filter: none; }
+
+  /* ---------- the mascot, as a dev: his eyes are a < and a >, with a / between, so his face reads </> ---------- */
+  .hx-wrap { position: relative; display: inline-block; }
+  .hx-wrap .word { position: relative; z-index: 1; }
+  /* the hero mascot peeks over the word: his body behind the letters, his hands gripping their top edge in front */
+  .mascot { position: absolute; overflow: visible; pointer-events: none; }
+  .mascot.back { z-index: 0; }
+  .mascot.front { z-index: 2; }
+  .dev .ink { fill: none; stroke: #1b1b1b; stroke-width: 6.5; stroke-linecap: round; stroke-linejoin: round; }
+  .dev .eyes { transform-box: fill-box; transform-origin: center; animation: blink 4.6s infinite; }
+  @keyframes blink { 0%, 93%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.12); } }
+  /* mini helpers in the demos */
+  .mini { position: absolute; z-index: 6; width: 54px; height: 60px; pointer-events: none; opacity: 0; transform: translateY(10px) scale(.5);
+    transition: opacity .3s, transform .5s cubic-bezier(.3, 1.7, .45, 1), top .55s cubic-bezier(.3, 1.3, .45, 1), left .55s cubic-bezier(.3, 1.3, .45, 1); }
+  .mini.in { opacity: 1; transform: none; }
+  .mini svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  .mini .hop { transform-box: fill-box; transform-origin: 50% 100%; animation: hop 1.1s ease-in-out infinite; }
+  .mini.happy .hop { animation: cheer .55s cubic-bezier(.3, 1.6, .45, 1) 2; }
+  @keyframes hop { 50% { transform: translateY(-4px) scaleY(1.04); } }
+  @keyframes cheer { 50% { transform: translateY(-14px) rotate(-7deg); } }
+  .trail .mini { left: 8px; top: 0; }
+  @media (prefers-reduced-motion: reduce) { .dev .eyes, .mini .hop, .mini.happy .hop { animation: none; } }
+
+  @media (max-width: 1020px) {
+    .nav-links { display: none; }
+    .tabdemo, .chatgrid { grid-template-columns: minmax(0, 1fr); }
+    .ctx { position: static; }
+  }
+  @media (max-width: 640px) {
+    header.top { padding: 128px 16px 64px; }
+    .ai-line { display: block; }
+    .sub { font-size: 18px; }
+    .pill.big { font-size: 17px; padding: 13px 20px; }
+    section { padding: 64px 16px; }
+    .doc { padding: 20px 18px 24px; font-size: 16px; }
+    .t-step { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    header.top::before, .super, .super::after, .super-sm { animation: none; }
+    .rv { transition: none; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="lassoMark" viewBox="0 0 32 32"><ellipse cx="15" cy="12" rx="11" ry="7.5" transform="rotate(-10 15 12)" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M19.5 18.6c1.6 3.2 4.6 4.6 7.6 9.4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="19.3" cy="18.4" r="2.2" fill="currentColor"/></symbol>
+  <symbol id="sheetIc" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 9.5h18M9 9.5V20" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="docIc" viewBox="0 0 24 24"><path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M14 3v5h5M8.5 13h7M8.5 16.5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+</svg>
+
+<div class="nav-wrap">
+  <nav class="nav" aria-label="Lasso with your AI">
+    <a class="brand" href="../" aria-label="Lasso home"><svg aria-hidden="true"><use href="#lassoMark"/></svg>Lasso <small>AI</small></a>
+    <div class="nav-links">
+      <a href="#tab">Smarter Tab</a>
+      <a href="#chat">Chat with your files</a>
+    </div>
+    <a class="pill black" href="../#waitlist">Join the waitlist</a>
+  </nav>
+</div>
+
+<header class="top">
+  <h1 aria-label="Lasso with your AI"><span class="hx-wrap" id="hxWrap"><svg class="mascot back" id="heroDev" viewBox="-72 -152 150 166" aria-hidden="true"></svg><span class="word" id="hxWord">Lasso</span><svg class="mascot front" id="heroHands" viewBox="-72 -152 150 166" aria-hidden="true"></svg></span> with <span class="ai-line"><span class="ai-slot" id="aiSlot" aria-hidden="true"></span></span></h1>
+  <p class="sub"><span class="super">Supercharge</span> Lasso's Tab suggestions with the AI you already use. Lasso still finds the exact source; <b>your AI helps pick the right one and finish the sentence</b>.</p>
+  <div class="cta-row">
+    <a class="pill big green" href="../#waitlist">Join the waitlist</a>
+    <a class="pill big ghost" href="#tab">See it work</a>
+  </div>
+</header>
+
+<main>
+  <!-- Tab suggestions, with and without the AI -->
+  <section id="tab">
+    <div class="wrap">
+      <span class="kicker">Tab suggestions</span>
+      <h2>The right value, not just a matching one</h2>
+      <p class="lead">Switch your AI on and Tab reads the sentence you're writing, not just the words: <b>which quarter, which version, what comes next</b>. It puts the right source first, tells you why, and offers to finish the thought, still with every value cited.</p>
+      <div class="tabdemo rv">
+        <div>
+          <div class="mode" id="mode" role="group" aria-label="Suggestion mode">
+            <span class="knob" aria-hidden="true"></span>
+            <button type="button" data-mode="plain" class="on">Lasso alone</button>
+            <button type="button" data-mode="ai" class="ai-b"><span class="super-sm">Lasso + your AI</span></button>
+          </div>
+          <div class="app" id="tabApp">
+            <div class="app-bar"><span class="dots"><i></i><i></i><i></i></span><b>Q4 board update.md</b><span>· Finance</span></div>
+            <div class="doc" id="doc">
+              <h4>Q4 board update</h4>
+              <p>Every region closed the year ahead of plan, led by the North and the West.</p>
+              <p class="live" id="line"></p>
+            </div>
+            <div class="mini" id="tabMini" aria-hidden="true"></div>
+            <div class="pop" id="pop" aria-hidden="true">
+              <div class="pop-rows" id="popRows"></div>
+              <div class="pop-foot"><span class="go" id="popGo">⇥ accept</span><span>↑↓ next</span><span>esc dismiss</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="side" aria-live="polite">
+          <div class="item" data-step="plain"><b>Without your AI</b>Three values match "North revenue". The draft budget comes first.</div>
+          <div class="item" data-step="ai"><b>With your AI</b>The sentence says <i>Q4</i> in a board update, so the approved Q4 actual moves to the top, with the reason.</div>
+          <div class="item" data-step="more"><b>Then it finishes the thought</b>A second Tab adds how that compares with budget, citing the budget sheet.</div>
+        </div>
+      </div>
+      <p class="note">Illustrative: a preview of AI-assisted Tab. The files and values are made up.</p>
+    </div>
+  </section>
+
+  <!-- Chat with your files: Tab attaches, your AI asks Lasso, the context window stays nearly empty -->
+  <section id="chat" style="background:var(--sand)">
+    <div class="wrap">
+      <span class="kicker">Chat with your files</span>
+      <h2>Your AI gets the passage, not the whole file</h2>
+      <p class="lead">Mention a file while you chat and Tab attaches it. When your AI answers, it asks Lasso for exactly the part it needs, so <b>your context window stays free for the conversation</b> instead of filling up with files.</p>
+      <div class="chatgrid rv">
+        <div class="app" style="padding:16px;border-radius:26px">
+          <div class="thread" id="thread"></div>
+          <div class="composer" id="composer">
+            <div class="c-strip"><span class="l"><span><svg aria-hidden="true"><use href="#lassoMark"/></svg>Lasso</span><span>Finance · Reports</span></span><span class="ringc" id="cCount">0 attached</span></div>
+            <div class="c-box">
+              <div class="c-atts" id="cAtts"></div>
+              <div class="c-text" id="cText"><span class="ph">Ask anything…</span></div>
+              <div class="c-foot">
+                <span class="l"><button class="c-plus" type="button" tabindex="-1" aria-hidden="true">+</button><span class="keycap" id="cKey">⇥ Tab to attach</span></span>
+                <span class="r"><span class="c-model"><span class="m" id="cModel">ChatGPT</span>▾</span><button class="c-send" id="cSend" type="button" tabindex="-1" aria-hidden="true">↑</button></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <aside class="ctx" id="ctx" aria-label="Context window">
+          <div class="ctx-sw" role="group" aria-label="Show"><button type="button" class="on" data-v="lasso">With Lasso</button><button type="button" data-v="whole">Whole files</button></div>
+          <div class="ctx-h"><span>Context window</span><span class="read"><b id="ctxUsed">0</b> / 200K (<span id="ctxPct">0%</span>)</span></div>
+          <div class="ctx-bar"><i class="s-pdf"></i><i class="s-xlsx"></i><i class="s-whole"></i></div>
+          <div class="ctx-key"><span style="--c:#e5484d">Annual review, p. 23</span><span style="--c:#1f9d55">Transactions, West rows</span><span class="k-whole">Whole files instead</span></div>
+          <div class="ctx-row" data-file="pdf"><div class="top"><b><span class="fmark pdf">PDF</span>Annual review 2025</b><em>−88%</em></div>
+            <div class="pair"><span>Whole file</span><span class="track"><i data-w="100"></i></span><span>13.8K</span></div>
+            <div class="pair lasso"><span>With Lasso</span><span class="track"><i data-w="11.7"></i></span><span>1.6K</span></div></div>
+          <div class="ctx-row" data-file="xlsx"><div class="top"><b><span class="fmark xlsx">XLSX</span>Transactions 2025</b><em>−99%</em></div>
+            <div class="pair"><span>Whole file</span><span class="track"><i data-w="100"></i></span><span>141.7K</span></div>
+            <div class="pair lasso"><span>With Lasso</span><span class="track"><i data-w="1.06"></i></span><span>1.5K</span></div></div>
+        </aside>
+      </div>
+      <p class="note">Tokens each answer took in Lasso's live runs with gpt-5.4-mini, with the whole file attached against through Lasso; shown in a 200K window for scale. The chat is illustrative.</p>
+    </div>
+  </section>
+
+  <section class="final">
+    <div class="wrap">
+      <h2>Lasso, with your AI</h2>
+      <p>We're letting people in in small batches. Join the waitlist and we'll send you a download link when your spot opens.</p>
+      <a class="pill big green" href="../#waitlist">Join the waitlist</a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="../"><svg aria-hidden="true"><use href="#lassoMark"/></svg>Lasso</a>
+    <span>Lasso with your AI · a preview</span>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, REDUCED ? 0 : ms));
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const fmt = (n) => Math.round(n).toLocaleString('en-US');
+  // run a section's animation when it comes into view, once
+  const whenSeen = (el, fn) => new IntersectionObserver((ens, io) => { if (ens.some((e) => e.isIntersecting)) { io.disconnect(); fn(); } }, { threshold: .35 }).observe(el);
+
+  /* ---------- the mascot as a dev: the homepage's lime pebble in his hat and scarf, with bracket eyes ---------- */
+  const DEV = { body: '#d4f75c', hat: '#a06d43', band: '#3a2618', scarf: '#e03b1f', dots: '#fff4e6' };
+  const f1 = (v) => Math.round(v * 10) / 10;
+  function rounded(pts, r) {
+    const n = pts.length; let d = '';
+    for (let i = 0; i < n; i++) {
+      const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n];
+      const d1 = Math.hypot(p0[0] - p1[0], p0[1] - p1[1]), d2 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]), rr = Math.min(p1[2] ?? r, d1 / 2, d2 / 2);
+      const a = [p1[0] + (p0[0] - p1[0]) / d1 * rr, p1[1] + (p0[1] - p1[1]) / d1 * rr], b = [p1[0] + (p2[0] - p1[0]) / d2 * rr, p1[1] + (p2[1] - p1[1]) / d2 * rr];
+      d += `${i ? 'L' : 'M'}${f1(a[0])} ${f1(a[1])}Q${f1(p1[0])} ${f1(p1[1])} ${f1(b[0])} ${f1(b[1])}`;
+    }
+    return d + 'Z';
+  }
+  // the same lopsided pebble as on the homepage
+  const BODY_D = rounded([[-48, -20, 22], [-58, -60, 30], [-44, -101, 24], [-12, -115, 18], [24, -104, 20], [54, -86, 13], [60, -44, 22], [52, -15, 7], [0, -11, 34]], 24);
+  const SHOULDER = { x: 46, y: -62 };
+  const armD = (h) => `M${SHOULDER.x} ${SHOULDER.y}Q${f1((SHOULDER.x + h.x) / 2 + 8)} ${f1((SHOULDER.y + h.y) / 2 + 8)} ${f1(h.x)} ${f1(h.y)}`;
+  // his face: < / > when he's working, ^ ^ with a smile when something lands
+  function devFace(mood) {
+    if (mood === 'happy') return '<path class="ink" d="M-27 -61L-20 -70L-13 -61M13 -61L20 -70L27 -61"/><path class="ink" d="M-7 -49Q0 -42 7 -49"/>';
+    return '<g class="eyes"><path class="ink" d="M-15 -76L-25 -66L-15 -56M15 -76L25 -66L15 -56"/></g><path class="ink" d="M4.5 -75L-4.5 -57"/>';
+  }
+  function devSVG({ mood = 'normal', hand = { x: 68, y: -34 } } = {}) {
+    return '<g class="dev">'
+      + `<ellipse fill="${DEV.body}" cx="-21" cy="-8" rx="14" ry="8.5"/><ellipse fill="${DEV.body}" cx="23" cy="-8" rx="14" ry="8.5"/>`
+      + `<path fill="${DEV.body}" d="${BODY_D}"/>`
+      + `<path fill="${DEV.scarf}" d="M-30 -40Q0 -33 30 -40L5 -15Q0 -11 -5 -15Z"/><circle fill="${DEV.dots}" cx="-13" cy="-33" r="2"/><circle fill="${DEV.dots}" cx="9" cy="-32" r="2"/><circle fill="${DEV.dots}" cx="-1" cy="-23" r="2"/>`
+      + `<path class="arm" fill="none" stroke="${DEV.body}" stroke-width="15" stroke-linecap="round" d="${armD(hand)}"/>`
+      + `<circle class="hand" fill="${DEV.body}" cx="${f1(hand.x)}" cy="${f1(hand.y)}" r="9.5"/>`
+      + `<g class="look">${devFace(mood)}</g>`
+      + `<g transform="translate(3 -106) rotate(8)"><path fill="${DEV.hat}" d="M-26 2L-22 -30Q-12 -38 0 -31Q12 -38 22 -30L26 2Z"/><path fill="${DEV.band}" d="M-25.4 -8H25.4L26 0H-26Z"/><path fill="${DEV.hat}" d="M-62 -3Q-56 8 -30 9Q0 12 30 9Q56 8 62 -3Q64 4 58 11Q40 20 0 20Q-40 20 -58 11Q-64 4 -62 -3Z"/></g>`
+      + '</g>';
+  }
+  const miniSVG = (mood) => `<svg viewBox="-72 -152 150 166"><g class="hop">${devSVG({ mood, hand: mood === 'happy' ? { x: 70, y: -112 } : { x: 68, y: -34 } })}</g></svg>`;
+
+  /* ---------- hero: the mascot peeks over "Lasso", gripping the tops of the letters, and watches the pointer ---------- */
+  const hxWrap = $('#hxWrap'), hxWord = $('#hxWord'), heroDev = $('#heroDev'), heroHands = $('#heroHands'), hero = $('header.top');
+  const SH = { l: { x: -48, y: -64 }, r: { x: 52, y: -64 } };
+  // behind the letters: body, scarf, both arms, face and hat (his feet are hidden below the letters' tops anyway)
+  heroDev.innerHTML = '<g class="dev">'
+    + `<path fill="${DEV.body}" d="${BODY_D}"/>`
+    + `<path fill="${DEV.scarf}" d="M-30 -40Q0 -33 30 -40L5 -15Q0 -11 -5 -15Z"/>`
+    + `<path class="armL" fill="none" stroke="${DEV.body}" stroke-width="15" stroke-linecap="round"/><path class="armR" fill="none" stroke="${DEV.body}" stroke-width="15" stroke-linecap="round"/>`
+    + `<g class="look">${devFace('normal')}</g>`
+    + `<g transform="translate(3 -106) rotate(8)"><path fill="${DEV.hat}" d="M-26 2L-22 -30Q-12 -38 0 -31Q12 -38 22 -30L26 2Z"/><path fill="${DEV.band}" d="M-25.4 -8H25.4L26 0H-26Z"/><path fill="${DEV.hat}" d="M-62 -3Q-56 8 -30 9Q0 12 30 9Q56 8 62 -3Q64 4 58 11Q40 20 0 20Q-40 20 -58 11Q-64 4 -62 -3Z"/></g>`
+    + '</g>';
+  // in front of the letters: his two hands, curled over the top edge
+  // each hand is a mitten with two knuckle creases, curled over the edge
+  const mitten = (cls) => `<g class="${cls}"><ellipse fill="${DEV.body}" stroke="rgba(0,0,0,.18)" stroke-width="2" rx="15" ry="12"/><path d="M-5 -3v8M4 -3v8" stroke="#7aa21f" stroke-width="2.4" stroke-linecap="round"/></g>`;
+  heroHands.innerHTML = mitten('hL') + mitten('hR');
+  const armL = $('.armL', heroDev), armR = $('.armR', heroDev), heroLook = $('.look', heroDev), hL = $('.hL', heroHands), hR = $('.hR', heroHands);
+  // where the tops of the lowercase letters are, measured from the font itself
+  let xTop = null;
+  function measure() {
+    const cs = getComputedStyle(hxWord), c = document.createElement('canvas').getContext('2d');
+    c.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const m = c.measureText('asso'), h = hxWrap.offsetHeight;
+    xTop = m.fontBoundingBoxAscent ? (h - (m.fontBoundingBoxAscent + m.fontBoundingBoxDescent)) / 2 + m.fontBoundingBoxAscent - m.actualBoundingBoxAscent : h * .42;
+  }
+  addEventListener('resize', () => { xTop = null; });
+  let ptr = null, lookX = 0, lookY = 0;
+  addEventListener('pointermove', (e) => { ptr = [e.clientX, e.clientY]; }, { passive: true });
+  function heroFrame(t) {
+    if (xTop === null) measure();
+    const w = hxWrap.offsetWidth, fs = parseFloat(getComputedStyle(hxWrap).fontSize), wr = hxWrap.getBoundingClientRect();
+    const mh = fs * 1.4, mw = mh * 150 / 166, k = mh / 166;
+    // he rises and settles a little, as if pulling himself up; his hands stay put on the letters
+    const lift = REDUCED ? 0 : (Math.sin(t / 760) * .5 + .5) * fs * .07;
+    // his chest sits at the letters' tops, over the "as"
+    const mx = w * .46 - mw * .52, my = xTop - (112 * k) - lift;
+    const box = `left:${f1(mx)}px;top:${f1(my)}px;width:${f1(mw)}px;height:${f1(mh)}px`;
+    heroDev.style.cssText = box; heroHands.style.cssText = box;
+    // hands at the top edge of the letters, in his own units
+    const hy = (xTop + fs * .02 - my) / k - 152;
+    const hands = { l: { x: -70, y: hy }, r: { x: 74, y: hy } };
+    const arm = (sh, hd) => `M${sh.x} ${sh.y}Q${f1((sh.x + hd.x) / 2 + Math.sign(sh.x) * 6)} ${f1(Math.min(sh.y, hd.y) - 10)} ${f1(hd.x)} ${f1(hd.y)}`;
+    armL.setAttribute('d', arm(SH.l, hands.l)); armR.setAttribute('d', arm(SH.r, hands.r));
+    hL.setAttribute('transform', `translate(${hands.l.x} ${f1(hands.l.y)}) rotate(-8)`);
+    hR.setAttribute('transform', `translate(${hands.r.x} ${f1(hands.r.y)}) rotate(8)`);
+    // his face turns toward the pointer
+    const fx = wr.left + mx + mw / 2, fy = wr.top + my + mh * .5;
+    const tx = ptr ? Math.max(-6, Math.min(6, (ptr[0] - fx) / 50)) : 0, ty = ptr ? Math.max(-4, Math.min(4, (ptr[1] - fy) / 60)) : 0;
+    lookX += (tx - lookX) * .12; lookY += (ty - lookY) * .12;
+    heroLook.setAttribute('transform', `translate(${f1(lookX)} ${f1(lookY)})`);
+  }
+  (function heroLoop(t) {
+    const r = hero.getBoundingClientRect();
+    if (!document.hidden && r.bottom > 0 && r.top < innerHeight) heroFrame(t);
+    requestAnimationFrame(heroLoop);
+  })(0);
+
+  /* ---------- hero: "your AI" becomes each model in turn ---------- */
+  const NAMES = [
+    ['your AI', 'yours'], ['ChatGPT', 'chatgpt'], ['Claude', 'claude'], ['Gemini', 'gemini'],
+    ['Grok', 'grok'], ['Llama', 'llama'], ['Mistral', 'mistral'], ['DeepSeek', 'deepseek'],
+  ];
+  const slot = $('#aiSlot');
+  const listeners = [];
+  function word(text, kind) {
+    const w = document.createElement('span');
+    w.className = `ai-word w-${kind}${kind === 'gemini' || kind === 'mistral' ? ' grad' : ''}`;
+    w.style.setProperty('--n', Math.max(2, text.length));
+    w.innerHTML = [...text].map((ch, i) => `<i style="--i:${i}">${ch === ' ' ? '&nbsp;' : ch}</i>`).join('');
+    return w;
+  }
+  // Grok's letters scramble through glyphs before settling, one after another
+  function scramble(w, text) {
+    if (REDUCED) return;
+    const glyphs = '#%&/\\<>01▓▒░{}';
+    [...w.children].forEach((el, i) => {
+      const final = el.textContent, start = performance.now(), settle = 260 + i * 90;
+      (function tick(now) {
+        if (now - start >= settle) { el.textContent = final; return; }
+        el.textContent = glyphs[Math.floor(Math.random() * glyphs.length)];
+        requestAnimationFrame(tick);
+      })(start);
+    });
+  }
+  // ChatGPT's letters are typed in one at a time, the caret following the last one
+  function typeOut(w) {
+    if (REDUCED) return;
+    const letters = [...w.children];
+    letters.forEach((el) => el.remove());
+    letters.forEach((el, i) => setTimeout(() => w.append(el), 120 + i * 75));
+  }
+  let current = null, idx = 0;
+  function show(i) {
+    const [text, kind] = NAMES[i];
+    const w = word(text, kind);
+    w.style.visibility = 'hidden'; slot.append(w);
+    slot.style.width = `${w.offsetWidth}px`;
+    w.style.visibility = '';
+    if (kind === 'grok') scramble(w, text);
+    if (kind === 'chatgpt') typeOut(w);
+    if (current) { const old = current; old.classList.add('out'); setTimeout(() => old.remove(), 420); }
+    current = w;
+    listeners.forEach((fn) => fn(text, kind));
+  }
+  show(0);
+  if (!REDUCED) setInterval(() => { idx = idx % (NAMES.length - 1) + 1; show(idx); }, 2300);
+  addEventListener('resize', () => { if (current) slot.style.width = `${current.offsetWidth}px`; });
+
+  /* ---------- Tab suggestions: Lasso alone, then with the AI ---------- */
+  const SHEET = '<svg aria-hidden="true" style="color:#1f9d55"><use href="#sheetIc"/></svg>';
+  const SUGGEST = [
+    { id: 'budget', val: '€1.92 M', what: 'North revenue, Q4 · budget_2026.xlsx › Q4!C14', ver: 'v2 draft' },
+    { id: 'actual', val: '€2.07 M', what: 'North revenue, Q4 actual · forecast_2026.xlsx › P&L!D12', ver: 'v5', why: 'AI: the sentence is about Q4 actuals, and v5 is approved' },
+    { id: 'q3', val: '€1.88 M', what: 'North revenue, Q3 · forecast_2026.xlsx › P&L!C12', ver: 'v5' },
+  ];
+  const tabMini = $('#tabMini');
+  const line = $('#line'), pop = $('#pop'), rows = $('#popRows'), go = $('#popGo'), mode = $('#mode'), tabApp = $('#tabApp');
+  const SENTENCE = 'Revenue for the North region in Q4 was ';
+  rows.innerHTML = SUGGEST.map((s) => `<div class="prow" data-id="${s.id}">${SHEET}<span><b>${s.val}</b><small>${s.what}</small>${s.why ? `<span class="why"><span>✦ ${s.why}</span></span>` : ''}</span><em>${s.ver}</em></div>`).join('');
+  const rowEls = Object.fromEntries($$('.prow', rows).map((r) => [r.dataset.id, r]));
+  // rows slide into a new order (FLIP)
+  function order(ids) {
+    const first = Object.fromEntries(ids.map((id) => [id, rowEls[id].getBoundingClientRect().top]));
+    ids.forEach((id) => rows.append(rowEls[id]));
+    ids.forEach((id) => {
+      const el = rowEls[id], d = first[id] - el.getBoundingClientRect().top;
+      el.style.transition = 'none'; el.style.transform = `translateY(${d}px)`;
+      requestAnimationFrame(() => { el.style.transition = ''; el.style.transform = ''; });
+    });
+  }
+  function placePop() {
+    const caret = $('.caret', line); if (!caret) return;
+    const a = tabApp.getBoundingClientRect(), c = caret.getBoundingClientRect();
+    pop.style.left = `${Math.max(12, Math.min(c.left - a.left - 14, a.width - pop.offsetWidth - 12))}px`;
+    pop.style.top = `${c.bottom - a.top + 10}px`;
+  }
+  function setMode(m) {
+    mode.classList.toggle('ai', m === 'ai');
+    $$('button', mode).forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
+  }
+  function note(step) { $$('.side .item').forEach((el) => el.classList.toggle('on', el.dataset.step === step)); }
+  async function type(el, text, speed = 38) {
+    for (const ch of text) { el.insertAdjacentText('beforeend', ch); await sleep(ch === ' ' ? speed * 1.6 : speed + Math.random() * 30); }
+  }
+  async function hitTab() { go.classList.add('hit'); await sleep(280); go.classList.remove('hit'); }
+  let run = 0;
+  async function playTab(m) {
+    const me = ++run, alive = () => me === run;
+    setMode(m); note(m === 'ai' ? 'ai' : 'plain');
+    line.innerHTML = '<span class="typed"></span><span class="caret"></span>';
+    pop.classList.remove('show'); Object.values(rowEls).forEach((r) => r.classList.remove('on', 'reason'));
+    order(['budget', 'actual', 'q3']);
+    tabMini.classList.remove('in', 'happy');
+    await sleep(500); if (!alive()) return;
+    await type($('.typed', line), SENTENCE); if (!alive()) return;
+    placePop(); pop.classList.add('show'); rowEls.budget.classList.add('on');
+    await sleep(1100); if (!alive()) return;
+    let pick = 'budget';
+    if (m === 'ai') {
+      // the AI reads the sentence and brings the approved Q4 actual to the top, saying why
+      rowEls.budget.classList.remove('on'); order(['actual', 'budget', 'q3']);
+      await sleep(450); rowEls.actual.classList.add('on', 'reason'); pick = 'actual';
+      tabMini.innerHTML = miniSVG('happy');
+      tabMini.style.left = `${pop.offsetLeft + pop.offsetWidth - 44}px`; tabMini.style.top = `${pop.offsetTop - 52}px`;
+      tabMini.classList.add('in', 'happy');
+      await sleep(1800); if (!alive()) return;
+    }
+    await hitTab(); pop.classList.remove('show'); tabMini.classList.remove('in', 'happy');
+    const s = SUGGEST.find((x) => x.id === pick);
+    $('.caret', line).insertAdjacentHTML('beforebegin', `<span class="ins">${s.val}</span><span class="cite">${s.what.split(' · ')[1]} · ${s.ver}</span>`);
+    if (m !== 'ai') return;
+    await sleep(700); if (!alive()) return;
+    note('more');
+    $('.caret', line).insertAdjacentHTML('beforebegin', '<span class="ghost" id="ghost">, 7.8% above budget<kbd>⇥</kbd></span>');
+    await sleep(1500); if (!alive()) return;
+    $('#ghost').remove();
+    $('.caret', line).insertAdjacentHTML('beforebegin', '<span class="ins">, 7.8% above budget</span><span class="cite">budget_2026.xlsx › Q4!C14 · v2</span>.');
+  }
+  async function loopTab() {
+    for (;;) { const me = run + 1; await playTab('plain'); await sleep(2600); if (run !== me) return; await playTab('ai'); await sleep(4200); if (run !== me + 1) return; }
+  }
+  $$('button', mode).forEach((b) => b.addEventListener('click', () => { playTab(b.dataset.mode); }));
+  addEventListener('resize', () => pop.classList.contains('show') && placePop());
+  whenSeen(tabApp, () => (REDUCED ? playTab('ai') : loopTab()));
+
+  /* ---------- chat: Tab attaches, your AI asks Lasso, the context window barely moves ---------- */
+  const thread = $('#thread'), cText = $('#cText'), cAtts = $('#cAtts'), cKey = $('#cKey'), cCount = $('#cCount'), cModel = $('#cModel'), cSend = $('#cSend');
+  const ctx = $('#ctx'), used = $('#ctxUsed'), pct = $('#ctxPct');
+  const WINDOW = 200000;
+  // tokens each answer took in Lasso's live runs: the file attached whole, against asking Lasso
+  const COST = { pdf: { lasso: 1605, whole: 13775 }, xlsx: { lasso: 1495, whole: 141658 } };
+  let model = 'ChatGPT';
+  // the composer's model follows the name in the hero
+  listeners.push((text, kind) => {
+    if (kind === 'yours') return;
+    model = text; cModel.style.opacity = 0;
+    setTimeout(() => { cModel.textContent = text; cModel.style.opacity = 1; const r = $('#reply .mname', thread); if (r) r.textContent = text; }, 250);
+  });
+  const ATTACH = [
+    { key: 'pdf', before: 'What was our warranty reserve at year end in the ', partial: 'annual re', ghost: 'view 2025.pdf', name: 'Annual review 2025.pdf', part: 'p. 23 · one paragraph', icon: 'docIc', color: '#e5484d' },
+    { key: 'xlsx', before: ', and the West total in ', partial: 'trans', ghost: 'actions 2025.xlsx', name: 'Transactions 2025.xlsx', part: 'column F · West rows', icon: 'sheetIc', color: '#1f9d55' },
+  ];
+  // the context window: what's in it with Lasso, and what whole files would have put there instead
+  let inCtx = { pdf: false, xlsx: false }, view = 'lasso', shownTotal = 0;
+  const kfmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(Math.round(n)));
+  function paintCtx() {
+    const lasso = (inCtx.pdf ? COST.pdf.lasso : 0) + (inCtx.xlsx ? COST.xlsx.lasso : 0);
+    const whole = (inCtx.pdf ? COST.pdf.whole : 0) + (inCtx.xlsx ? COST.xlsx.whole : 0);
+    $('.s-pdf', ctx).style.flexBasis = `${inCtx.pdf ? Math.max(.6, COST.pdf.lasso / WINDOW * 100) : 0}%`;
+    $('.s-xlsx', ctx).style.flexBasis = `${inCtx.xlsx ? Math.max(.6, COST.xlsx.lasso / WINDOW * 100) : 0}%`;
+    $('.s-whole', ctx).style.flexBasis = `${(whole - lasso) / WINDOW * 100}%`;
+    ctx.classList.toggle('whole', view === 'whole');
+    $$('.ctx-sw button', ctx).forEach((b) => b.classList.toggle('on', b.dataset.v === view));
+    $$('.ctx-row', ctx).forEach((r) => {
+      const on = inCtx[r.dataset.file];
+      r.classList.toggle('in', on);
+      $$('.track i', r).forEach((i) => { i.style.width = on ? `${i.dataset.w}%` : '0'; });
+    });
+    countTo(view === 'whole' ? whole : lasso);
+  }
+  function countTo(target) {
+    const from = shownTotal, st = performance.now();
+    shownTotal = target;
+    (function tick(now) {
+      const u = REDUCED ? 1 : Math.min(1, (now - st) / 900), eased = 1 - Math.pow(1 - u, 3), v = from + (target - from) * eased;
+      used.textContent = kfmt(v);
+      pct.textContent = `${(v / WINDOW * 100).toFixed(v && v / WINDOW < .1 ? 1 : 0)}%`;
+      if (u < 1) requestAnimationFrame(tick);
+    })(st);
+  }
+  $$('.ctx-sw button', ctx).forEach((b) => b.addEventListener('click', () => { view = b.dataset.v; paintCtx(); }));
+
+  const TRAIL = `<div class="reply" id="reply">
+      <span class="who"><i></i><span class="mname"></span></span>
+      <div class="trail">
+        <div class="mini" id="trailMini" aria-hidden="true"></div>
+        <div class="t-head"><svg aria-hidden="true"><use href="#lassoMark"/></svg>Asked Lasso, in one call<span style="margin-left:auto;font-size:13px;font-weight:400;color:var(--ink-3)">2 questions</span></div>
+        <div class="t-steps">
+          <div class="t-step"><span class="what">Looked up <code>warranty reserve at year end</code> in <b>Annual review 2025</b></span><span class="n">2 passages</span></div>
+          <div class="t-step"><span class="what">Returned both with page and section: p. 9 (end of June) and p. 23 (year end)</span><span class="n">no full pages</span></div>
+          <div class="t-step"><span class="what">Read the <b>Transactions</b> table and matched <code>Region</code> is <code>"West"</code></span><span class="n">1,014 of 5,000 rows</span></div>
+          <div class="t-step"><span class="what">Added up <code>Amount</code>: <b>4,867,231.76</b></span><span class="n">column F</span></div>
+          <div class="t-step"><span class="t-src">Sources <span class="fmark pdf">PDF</span>p. 23 <span class="fmark xlsx">XLSX</span>column F</span><span></span></div>
+        </div>
+        <div class="t-work"><span class="shim">Working</span><span class="t-time">0.0s</span></div>
+      </div>
+      <div class="bubble" id="answer" style="max-width:100%;background:var(--sand);border-bottom-left-radius:6px;opacity:0">The warranty reserve at year end was <b>$4.2 million</b>, up from $3.1 million a year earlier (Annual review 2025, p. 23). The West region's total is <b>4,867,231.76</b>, over 1,014 of the 5,000 rows (Transactions 2025, column F).</div>
+    </div>`;
+
+  async function playChat() {
+    for (;;) {
+      thread.innerHTML = ''; cAtts.innerHTML = ''; cCount.textContent = '0 attached';
+      inCtx = { pdf: false, xlsx: false }; view = 'lasso'; paintCtx();
+      cText.innerHTML = '<span class="typed"></span><span class="caret"></span>';
+      const typed = $('.typed', cText);
+      await sleep(700);
+      for (let k = 0; k < ATTACH.length; k++) {
+        const a = ATTACH[k];
+        await type(typed, a.before + a.partial, 32);
+        $('.caret', cText).insertAdjacentHTML('beforebegin', `<span class="ghost" id="cGhost">${a.ghost}<kbd>⇥</kbd></span>`);
+        await sleep(1000);
+        cKey.classList.add('press'); await sleep(240); cKey.classList.remove('press');
+        $('#cGhost').remove();
+        typed.normalize(); // the typed letters are separate text nodes until merged
+        // the mention takes the place of what was typed so far
+        typed.lastChild.textContent = typed.lastChild.textContent.slice(0, -a.partial.length);
+        typed.insertAdjacentHTML('beforeend', `<span class="mention">${a.name.replace(/\.(pdf|xlsx)$/, '')}</span>`);
+        cAtts.insertAdjacentHTML('beforeend', `<div class="att"><span class="ic"><svg width="18" height="18" aria-hidden="true" style="color:${a.color}"><use href="#${a.icon}"/></svg><svg class="r" viewBox="0 0 42 42" aria-hidden="true"><circle cx="21" cy="21" r="20"/></svg></span><span><b>${a.name}</b><small>${a.part}</small></span></div>`);
+        const att = cAtts.lastElementChild;
+        requestAnimationFrame(() => requestAnimationFrame(() => { $('circle', att).style.strokeDashoffset = 0; }));
+        await sleep(900); att.classList.add('ready');
+        cCount.textContent = `${k + 1} attached`;
+      }
+      typed.insertAdjacentText('beforeend', '?');
+      await sleep(900);
+      // send: the message moves into the thread and the composer empties
+      cSend.style.transform = 'scale(.9)'; await sleep(160); cSend.style.transform = '';
+      const msg = typed.innerHTML;
+      thread.insertAdjacentHTML('beforeend', `<div class="bubble me">${msg}<div class="chips">${ATTACH.map((a) => `<span>${a.name}</span>`).join('')}</div></div>`);
+      cAtts.innerHTML = ''; cCount.textContent = '0 attached'; cText.innerHTML = '<span class="ph">Ask anything…</span>';
+      await sleep(500);
+      // your AI asks Lasso, one step at a time, and the context window takes only the passages
+      thread.insertAdjacentHTML('beforeend', TRAIL);
+      const reply = $('#reply', thread);
+      $('.mname', reply).textContent = model;
+      const steps = $$('.t-step', reply), time = $('.t-time', reply), t0 = performance.now();
+      const helper = $('#trailMini', reply), trailBox = $('.trail', reply);
+      helper.innerHTML = miniSVG('normal');
+      const beside = (el) => { helper.style.top = `${f1(el.getBoundingClientRect().top - trailBox.getBoundingClientRect().top + el.offsetHeight / 2 - 34)}px`; };
+      const clock = setInterval(() => { time.textContent = `${((performance.now() - t0) / 1000).toFixed(1)}s`; }, 100);
+      for (let i = 0; i < steps.length; i++) {
+        await sleep(620); steps[i].classList.add('in'); beside(steps[i]); helper.classList.add('in');
+        if (i === 1) { inCtx.pdf = true; paintCtx(); }
+        if (i === 3) { inCtx.xlsx = true; paintCtx(); }
+      }
+      await sleep(450); clearInterval(clock);
+      $('.t-work', reply).classList.add('done'); $('.shim', reply).textContent = 'Answered'; time.textContent = '· 1 call';
+      helper.innerHTML = miniSVG('happy'); beside($('.t-work', reply)); helper.classList.add('happy');
+      await sleep(250);
+      const ans = $('#answer', reply); ans.style.transition = 'opacity .4s'; ans.style.opacity = 1;
+      if (REDUCED) return;
+      // then show what attaching the whole files would have taken
+      await sleep(2600); view = 'whole'; paintCtx();
+      await sleep(2600); view = 'lasso'; paintCtx();
+      await sleep(3600);
+    }
+  }
+  whenSeen($('#composer'), playChat);
+
+  /* ---------- cards blur in as they arrive ---------- */
+  const io = new IntersectionObserver((ens) => ens.forEach((en) => { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } }), { rootMargin: '0px 0px -10% 0px' });
+  $$('.rv').forEach((el) => io.observe(el));
+})();
+</script>
+</body>
+</html>
