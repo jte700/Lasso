@@ -461,11 +461,14 @@ extension GlobalAssistant {
                     claimType: claimType, label: label, value: value,
                     completionText: candidate["completionText"] as? String)
                 guard !insert.isEmpty, let projectId = owner(candidate, claim) else { continue }
-                append(AssistSuggestion(
-                    insertText: insert, label: label,
+                // A quote is rewritten from its opening mark, so its link covers the whole quoted sentence and citation.
+                let wholeQuote = claimType == "QUOTED_PHRASE"
+                    ? CompletionReplacement.capture(start: claimStart, end: requestedText.utf16.count, in: requestedText) : nil
+                var suggestion = AssistSuggestion(
+                    insertText: wholeQuote.map { $0.expectedText + insert } ?? insert, label: label,
                     detail: value ?? (candidate["objectType"] as? String ?? ""),
                     path: candidate["path"] as? String ?? "", location: sourceLocation(candidate),
-                    replacement: replacement, objectId: candidate["id"] as? String,
+                    replacement: wholeQuote ?? replacement, objectId: candidate["id"] as? String,
                     versionId: candidate["versionId"] as? String,
                     snapshotId: candidate["snapshotId"] as? String,
                     usageObjectId: candidate["id"] as? String, projectId: projectId,
@@ -473,7 +476,10 @@ extension GlobalAssistant {
                     // A claimed sentence is marked on its slide or page even when no typed word is.
                     previewText: AssistSuggestionSemantics.passage(of: candidate),
                     shareable: candidate["shareable"] as? Bool ?? true,
-                    narrowable: candidate["narrowable"] as? Bool == true), rankedBy: candidate)
+                    narrowable: candidate["narrowable"] as? Bool == true)
+                suggestion.videoTime = AssistVideoPreview.seconds((candidate["anchor"] as? [String: Any])?["time"])
+                suggestion.joinsTyping = claimType == "QUOTED_PHRASE"
+                append(suggestion, rankedBy: candidate)
             }
         }
         // The server ranks every suggestion in one order, which its groups only

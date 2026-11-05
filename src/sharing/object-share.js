@@ -5,7 +5,7 @@ import { fullTextLayout } from './text-layout.js';
 import { csvDelimiter } from '../history/diff.js';
 import { correctedDocumentLabel } from '../dependencies/authors.js';
 import { shareExpiry } from './expiry.js';
-import { isCodePath } from '../history/file-types.js';
+import { detectFileType, isCodePath } from '../history/file-types.js';
 import { isPresentationPath } from '../dependencies/presentation-extraction.js';
 import { isMarkablePath, normalizeMarkup } from './markup.js';
 
@@ -366,6 +366,8 @@ const SHARE_SCOPES = new Set(['DOCUMENT', 'INDEXED', 'REDACTED', 'MARKED']);
  */
 export function offeredShareScopes(filePath, anchor = null) {
   if (isCodePath(filePath)) return [];
+  // A video is sent whole: a sentence of it is a moment to start at, not a part to cut out.
+  if (detectFileType(filePath) === 'video') return ['DOCUMENT'];
   const marked = isMarkablePath(filePath) ? ['MARKED'] : [];
   if (isPresentationPath(filePath)) return [...(Number.isInteger(anchor?.slideNumber) ? ['DOCUMENT', 'INDEXED'] : ['DOCUMENT']), ...marked];
   return ['DOCUMENT', 'INDEXED', 'REDACTED', ...marked];
@@ -373,6 +375,7 @@ export function offeredShareScopes(filePath, anchor = null) {
 
 function scopeRefusal(filePath, scope) {
   if (isCodePath(filePath)) return 'Lasso doesn’t make share links for code files. Send a copy of the file instead.';
+  if (detectFileType(filePath) === 'video') return 'A video is shared whole, from the moment it is cited.';
   if (scope === 'MARKED') return 'Only PDFs, Word documents and presentations can be shared with markings.';
   if (scope === 'REDACTED') return 'Presentations are shared whole or one slide at a time; there is nothing to redact.';
   return 'This citation names no slide. Share the whole presentation, or cite a slide to share only that slide.';

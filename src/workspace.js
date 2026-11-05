@@ -765,8 +765,9 @@ export class WorkspaceService {
     // Each keeps its place in the one ranked order, which the groups below split
     // up, and the typed words its source has, which the card's preview marks.
     const sentence = typedSentence(input.text, cursor);
+    // A video's moment marks the quoted words only, not every word of the sentence around them.
     const selected = distinctRanked(current, limit).map((item, rankOrder) => ({ ...item, rankOrder,
-      matchedWords: matchedSourceWords(sentence, [item.sourceSentence, item.replacementText, item.dependencyCandidate?.valueText,
+      matchedWords: matchedSourceWords(item.quotedPhrase ?? sentence, [item.sourceSentence, item.replacementText, item.dependencyCandidate?.valueText,
         item.dependencyCandidate?.label, item.dependencyCandidate?.metadata?.variable, item.valueText, item.label,
         item.metadata?.variable].filter((text) => typeof text === 'string').join(' ')) }));
     // fn+Right opens a suggestion that has values below it, such as a part's measurements.

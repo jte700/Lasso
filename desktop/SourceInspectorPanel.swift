@@ -109,6 +109,10 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
             URLQueryItem(name: "reference", value: reference.id),
             URLQueryItem(name: "accent", value: sourceAccentHex),
         ]
+        // A cited video plays, and opens, from the second its quoted words start.
+        if let time = reference.videoTime {
+            components?.queryItems?.append(URLQueryItem(name: "time", value: String(time)))
+        }
         if let url = components?.url { pendingNavigation = webView?.load(URLRequest(url: url)) }
 
         panel.setFrame(NSRect(origin: placement(for: rect), size: size), display: true)
