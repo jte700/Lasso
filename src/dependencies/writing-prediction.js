@@ -87,6 +87,13 @@ export const writingPredictionMethods = {
   predictionCandidates(projectId, input) {
     const text = String(input.text ?? '');
     const cursor = Number.isInteger(input.cursor) ? input.cursor : text.length;
+    // A phrase just closed in quotes is something said: a video that says it
+    // word for word is the source. Without one, the words are read as usual.
+    const spoken = this.quotedVideoMoments(projectId, input, cursor);
+    if (spoken) {
+      return { claims: [spoken], completion: null, sourceCompletions: [], workspaceCompletions: [],
+        sourceContext: null, deterministic: true, generatedText: false };
+    }
     // An explicit model/file reference starts a new source even after another
     // source was linked. It must not depend on scientific-writing intent.
     // The name just accepted ("The Bracket ") is not a new reference to it,

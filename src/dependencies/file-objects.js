@@ -201,7 +201,8 @@ export function objectsFromFile(file, buffer, report = () => {}) {
     ];
   }
 
-  // Tables and workbooks are read by tableObjectSteps, which can index them whole.
+  // Tables and workbooks are read by tableObjectSteps, which can index them whole,
+  // and videos by videoObjectSteps, from their transcripts (video-extraction.js).
   if (isCodeType(file.fileType)) {
     objects.push(objectDescriptor({
       key: `${base}:code`, type: /model|analysis/i.test(fileName) ? 'MODEL' : 'CODE_BLOCK', path: file.path,

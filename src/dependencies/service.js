@@ -29,6 +29,8 @@ import { tableReadingMethods } from './table-reading.js';
 import { isPassageExcerpt } from './workspace-completion.js';
 import { workspaceSuggestionsMethods } from './workspace-suggestions.js';
 import { writingPredictionMethods } from './writing-prediction.js';
+import { TRANSCRIPT_VERSION } from './video-extraction.js';
+import { videoTranscriptMethods } from './video-transcripts.js';
 
 export { SUGGESTIONS_SHOWN, LINKED_VALUES_SHOWN, OBJECT_TYPES, EXTRACTOR_VERSION } from './constants.js';
 export { currentClauseStart, writtenBeforeCaret, namesFocusedFile } from './writing-context.js';
@@ -80,6 +82,11 @@ export class PredictiveProvenanceService {
     this.retrievalIndexes = new WeakMap();
     // PDFs' text outlives the process, so a restart does not read every PDF again.
     this.textStore = new TextStore(path.join(timeline.config.dataDir, 'derived', 'text'), EXTRACTOR_VERSION);
+    // So are videos' transcripts, which take the speech model a while each.
+    this.transcriptStore = new TextStore(path.join(timeline.config.dataDir, 'derived', 'transcripts'), TRANSCRIPT_VERSION);
+    this.transcriptCache = new BoundedCache({ maxEntries: 64, maxWeight: 32 * 1024 * 1024,
+      weight: (transcript) => transcript.segments.reduce((bytes, segment) => bytes + segment.text.length * 2 + segment.words.length * 64, 64) });
+    this.videoHearings = new Map();
     // So are IFC plans, which can take the geometry engine several seconds each.
     keepIfcModelsIn(new TextStore(path.join(timeline.config.dataDir, 'derived', 'ifc-models'), IFC_MODEL_VERSION));
     // A drawing PDF keeps one entry per page, so the bound is on bytes.
@@ -110,7 +117,7 @@ export class PredictiveProvenanceService {
     this.ranking.close();
     for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache,
       this.objectCache, this.typedObjectCache, this.extractionCache, this.sourceTextCache, this.figurePreviewCache,
-      this.indexedHere, this.tableReadings, this.snapshotTableCache, this.deepObjects]) cache.clear();
+      this.indexedHere, this.tableReadings, this.snapshotTableCache, this.deepObjects, this.transcriptCache]) cache.clear();
     this.tables.close();
   }
 
@@ -216,6 +223,7 @@ installMethods(PredictiveProvenanceService.prototype,
   linkedFieldsMethods,
   linkedValuesMethods,
   writingPredictionMethods,
+  videoTranscriptMethods,
   sourceSearchMethods,
   documentEditingMethods,
   dependencyLinksMethods,

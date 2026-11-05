@@ -170,7 +170,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" \
   -framework Cocoa -framework WebKit -framework PDFKit -framework ServiceManagement -framework DiskArbitration \
   -framework EventKit -framework SwiftUI -framework Quartz -framework SceneKit -framework ModelIO -framework Carbon \
-  -framework Vision \
+  -framework Vision -framework AVFoundation -framework AVKit \
   -o "$CONTENTS/MacOS/Lasso" \
   "$ROOT/desktop/BuildConfig.swift" \
   "$ROOT/desktop/NodeRuntime.swift" \
@@ -206,6 +206,8 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/DependencyHighlighter.swift" \
   "$ROOT/desktop/CodeSyntax.swift" \
   "$ROOT/desktop/ModelPreview.swift" \
+  "$ROOT/desktop/VideoPreview.swift" \
+  "$ROOT/desktop/AssistVideoPreviewView.swift" \
   "$ROOT/desktop/ModelOrbit.swift" \
   "$ROOT/desktop/AssistTableLayout.swift" \
   "$ROOT/desktop/AssistSuggestionList.swift" \
@@ -369,6 +371,10 @@ echo "==> Compiling document page renderer for marked-up shares"
 swiftc -O -target "$SWIFT_TARGET" -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework AppKit -framework PDFKit -framework QuickLookThumbnailing -o "$RESOURCES/app/scripts/render-document-pages" \
   "$ROOT/scripts/render-document-pages.swift"
 
+echo "==> Compiling on-device video transcriber"
+swiftc -O -target "$SWIFT_TARGET" -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework AVFoundation -framework Speech -o "$RESOURCES/app/scripts/transcribe-video" \
+  "$ROOT/scripts/transcribe-video.swift"
+
 echo "==> Drawing the app icon"
 # The icon is drawn from scripts/render-app-icon.swift and cached by that
 # script's hash, so ordinary rebuilds reuse it instead of redrawing.
@@ -431,7 +437,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <!-- Open file asks the source's app (Excel, Numbers, Word, Acrobat) to go to
        the cited cell, passage or page. The file opens even when this is denied. -->
   <key>NSAppleEventsUsageDescription</key>
-  <string>Lasso asks the app that opens a source to go to the cited cell, page or passage.</string>
+  <string>Lasso asks the app that opens a source to go to the cited cell, page, passage or moment in a video.</string>
   <!-- Connecting the Calendar app in Connect 3rd Party Apps reads its events. -->
   <key>NSCalendarsFullAccessUsageDescription</key>
   <string>Lasso reads the events in the calendars you choose so it can suggest and cite them.</string>
@@ -466,7 +472,7 @@ echo "==> Signing"
 # second prompt.
 codesign --force --sign "$SIGNING_IDENTITY" "$BUNDLED_NODE" \
   "$RESOURCES/app/scripts/extract-drawing-layout" "$RESOURCES/app/scripts/render-shared-pdf" \
-  "$RESOURCES/app/scripts/render-document-pages" "$LAUNCHER" "$BUILD_APP"
+  "$RESOURCES/app/scripts/render-document-pages" "$RESOURCES/app/scripts/transcribe-video" "$LAUNCHER" "$BUILD_APP"
 codesign --verify --deep --strict "$BUILD_APP"
 if [ "$("$BUNDLED_NODE" --version 2>/dev/null || true)" != "$NODE_VERSION" ]; then
   echo "error: the signed bundled Node.js does not run. The previous app has been preserved." >&2

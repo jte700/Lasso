@@ -362,7 +362,9 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         }
         let preview = null;
         try {
-          const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+          const found = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+          // A video has no page to show here, and its bytes are too many to read for none.
+          const file = found?.fileType === 'video' ? null : found;
           const content = file ? timeline.blobs.get(file.contentHash) : null;
           preview = buildInspectorPreview(
             file ? { path: file.path, content } : null,
@@ -662,6 +664,13 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const radius = wide ? ASSIST_SCROLL_TABLE_RADIUS : ASSIST_TABLE_RADIUS;
         try {
           const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+          // A video plays from its own file, at the quoted moment; its bytes are not read here.
+          if (file?.fileType === 'video') {
+            return sendJson(response, 200, { source: resolved.source, path: resolved.internal.filePath,
+              preview: dependencies.videoPreview(file, resolved.source, url.searchParams.get('text') ?? '',
+                dependencies.videoLocalPath(resolved.internal.snapshotId, file.path)),
+              citedPart: null, shareScopes: offeredShareScopes(resolved.internal.filePath, resolved.source.anchor) });
+          }
           const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null;
           // A table too large to read here previews from the table index.
           const window = file ? dependencies.tableWindow(file, sourceFile.content, resolved.source.anchor ?? {},

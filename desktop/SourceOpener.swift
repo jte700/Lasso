@@ -21,13 +21,17 @@ enum AssistSourceOpener {
         // CAD software, opens in the Mac's text editor instead of failing.
         let textEditor = workspace.urlForApplication(toOpen: fileURL) == nil && isText(fileURL)
             ? workspace.urlForApplication(toOpen: .plainText) : nil
-        let appURL = textEditor ?? workspace.urlForApplication(toOpen: fileURL)
+        // A moment in a video opens in QuickTime Player, which can be told the time.
+        let player = target?.time == nil ? nil
+            : workspace.urlForApplication(withBundleIdentifier: AssistOpenScript.quickTime.appBundleID)
+        let chosenApp = textEditor ?? player
+        let appURL = chosenApp ?? workspace.urlForApplication(toOpen: fileURL)
         let appBundleID = appURL.flatMap { Bundle(url: $0)?.bundleIdentifier }
         let plan = AssistOpenPlanner.plan(fileURL: fileURL, target: target, appBundleID: appBundleID)
         return AssistSourceOpening.perform(plan, fileURL: fileURL, actions: AssistOpenActions(
             openFile: { url in
-                guard let textEditor else { return workspace.open(url) }
-                workspace.open([url], withApplicationAt: textEditor, configuration: NSWorkspace.OpenConfiguration())
+                guard let chosenApp else { return workspace.open(url) }
+                workspace.open([url], withApplicationAt: chosenApp, configuration: NSWorkspace.OpenConfiguration())
                 return true
             },
             openURL: { workspace.open($0) },

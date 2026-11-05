@@ -3496,6 +3496,42 @@ do {
     check(AssistOpenTarget(json: ["sheet": "Bad\u{0007}Sheet", "cell": "B3"]) == AssistOpenTarget(cell: "B3"),
           "a sheet name with control characters is dropped, keeping its cell")
 
+    // A quoted phrase's video opens at the moment it is said, in QuickTime Player.
+    check(AssistOpenTarget(json: ["time": 2.34])?.time == 2.34 && AssistOpenTarget(json: ["time": 0])?.time == 0
+          && AssistOpenTarget(json: ["time": -1]) == nil && AssistOpenTarget(json: ["time": "2"]) == nil
+          && AssistOpenTarget(json: ["time": true]) == nil && AssistOpenTarget(json: ["time": Double.infinity]) == nil,
+          "a video time is a finite, non-negative number of seconds")
+    let clip = URL(fileURLWithPath: "/tmp/Site Visit/site-visit.mp4")
+    check(AssistOpenPlanner.plan(fileURL: clip, target: AssistOpenTarget(time: 2.34), appBundleID: "com.apple.QuickTimePlayerX")
+            == .script(.quickTime, arguments: ["site-visit.mp4", "2340"])
+          && AssistOpenPlanner.plan(fileURL: clip, target: AssistOpenTarget(page: 2), appBundleID: "com.apple.QuickTimePlayerX") == .plain,
+          "QuickTime Player is told the quoted moment in whole milliseconds")
+    check(AssistOpenScript.quickTime.source.contains("set current time of targetDocument")
+          && AssistOpenScript.quickTime.source.contains("play targetDocument"),
+          "the QuickTime script cues the moment and plays from it")
+    check(AssistVideoTime.label(2.34) == "0:02" && AssistVideoTime.label(754.9) == "12:34"
+          && AssistVideoTime.label(3723) == "1:02:03" && AssistVideoTime.milliseconds(6.1805) == "6181",
+          "video times read as a player shows them")
+    let videoPreview = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: [
+        "path": "site-visit.mp4", "source": ["filename": "site-visit.mp4"],
+        "preview": ["kind": "video", "localPath": "/tmp/Site Visit/site-visit.mp4", "startTime": 2.34, "duration": 10.5,
+                    "location": "Said at 0:02", "openAt": ["time": 2.34],
+                    "lines": [["value": "[0:00] Welcome.", "cited": false],
+                              ["value": "[0:01] The concrete pour starts.", "cited": true]]]]))!
+    check(videoPreview.video?.fileURL.path == "/tmp/Site Visit/site-visit.mp4" && videoPreview.video?.startTime == 2.34
+          && videoPreview.openTarget?.time == 2.34 && videoPreview.textBlocks.count == 2
+          && videoPreview.textBlocks[1].cited && videoPreview.location == "Said at 0:02",
+          "a video preview plays its own file from the quoted moment over its transcript")
+    check(AssistVideoPreview(json: ["kind": "video", "localPath": "relative.mp4", "startTime": 1]) == nil
+          && AssistVideoPreview(json: ["kind": "text", "localPath": "/a.mp4", "startTime": 1]) == nil,
+          "a video preview needs the video's full path")
+    check(AssistSuggestionSemantics.insertionText(claimType: "QUOTED_PHRASE", label: "The concrete pour starts.",
+                                                  value: "The concrete pour starts.", completionText: " (site-visit.mp4, 0:02)")
+            == " (site-visit.mp4, 0:02)"
+          && AssistSuggestionSemantics.passage(of: ["quotedPhrase": "concrete pour starts",
+                                                    "metadata": ["componentType": "VIDEO_SEGMENT"]]) == "concrete pour starts",
+          "accepting a quoted phrase cites its video and moment, and its preview looks for the quoted words")
+
     // A PDF card opens at the page it rendered, which can follow the cited
     // text to a later page than the indexed one.
     var shownPDF = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: [

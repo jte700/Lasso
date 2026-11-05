@@ -293,10 +293,11 @@ export const indexLifecycleMethods = {
   /** The files an index pass reads, in the order their objects are indexed. */
   indexableFiles(snapshot, indexed) {
     // An upgrade pass reads only what its index lacks: PDF and drawing passages
-    // (2), Markdown and text passages (3), STEP models (4) and worksheet rows.
+    // (2), Markdown and text passages (3), STEP models (4), video transcripts
+    // (5) and worksheet rows.
     const version = indexed.drawing_index_version ?? 0;
     const upgrades = (file, design, prose) => (version < 2 && (file.fileType === 'pdf' || design))
-      || (version < 3 && prose) || (version < 4 && STEP_FILE.test(file.path))
+      || (version < 3 && prose) || (version < 4 && STEP_FILE.test(file.path)) || (version < 5 && file.fileType === 'video')
       || (!(indexed.spreadsheet_index_version >= 2) && file.fileType === 'spreadsheet');
     return [...snapshot.files].sort((left, right) => dependencyFilePriority(right) - dependencyFilePriority(left)
       || left.path.localeCompare(right.path)).filter((file) => {
@@ -305,10 +306,11 @@ export const indexLifecycleMethods = {
       if (indexed.indexed && !upgrades(file, design, prose)) return false;
       // Tables of any size are read a batch of rows at a time (table-index.js).
       // A deck's size is mostly its pictures; only its slides' text is read.
-      const packaged = ['image', 'pdf', 'document', 'presentation', 'table', 'spreadsheet'].includes(file.fileType);
+      // A video's sound is heard from the file; its bytes are not read here.
+      const packaged = ['image', 'pdf', 'document', 'presentation', 'table', 'spreadsheet', 'video'].includes(file.fileType);
       if (file.size > 5_000_000 && !design && !packaged) return false;
       if (!design && !['table', 'spreadsheet', 'code', 'yaml', 'notebook', 'image', 'json', 'text', 'markdown', 'pdf',
-        'document', 'presentation'].includes(file.fileType)) return false;
+        'document', 'presentation', 'video'].includes(file.fileType)) return false;
       return !(file.fileType === 'text' && !['.txt', '.bib', '.ris', '.enw', '.nbib'].includes(path.extname(file.path).toLowerCase()));
     });
   },

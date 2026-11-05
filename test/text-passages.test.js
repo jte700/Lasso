@@ -6,6 +6,7 @@ import path from 'node:path';
 import { createApplication } from '../src/server.js';
 import { anchorForSpan } from '../src/dependencies/service.js';
 import { markdownPassages } from '../src/sharing/markdown.js';
+import { INDEX_VERSION } from '../src/dependencies/constants.js';
 
 const writer = { id: 'human:writer', displayName: 'Writer', actorType: 'HUMAN_SELF' };
 
@@ -165,5 +166,5 @@ test('an index made before text passages gains them without changing existing ve
   }
   // The upgrade records the current index version (4 adds STEP CAD models).
   assert.equal(db.prepare('SELECT drawing_index_version AS version FROM snapshot_object_indexes WHERE snapshot_id = ?')
-    .get(project.currentSnapshotId).version, 4);
+    .get(project.currentSnapshotId).version, INDEX_VERSION);
 });
