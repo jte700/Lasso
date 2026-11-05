@@ -4,7 +4,7 @@
 
 <h1 align="center">Lasso</h1>
 
-<p align="center"><b>Autocomplete from your own files, in any Mac app. And a token-saving MCP server for AI agents.</b></p>
+<p align="center"><b>Autocomplete from your own files in any Mac app, and an MCP server that answers AI agents from the same index.</b></p>
 
 <p align="center">
   <a href="#what-it-is">What it is</a> ·
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/benchmarks/summary.svg" width="760" alt="Lasso by the numbers: 69 to 77% fewer agent tokens with the MCP, 45 to 52% lower model cost, 47 of 47 answers correct, 7 ms per keystroke">
+  <img src="docs/benchmarks/summary.svg" width="760" alt="Measured results: 69 to 77% fewer agent tokens with the MCP, 45 to 52% lower model cost, 47 of 47 answers correct, 7 ms per keystroke">
 </p>
 
 ## What it is
@@ -30,8 +30,8 @@ Lasso reads the folders you choose (spreadsheets, PDFs, Word, PowerPoint, CAD mo
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/card-cad-value-dark.png">
-    <img src="docs/images/card-cad-value-light.png" width="680" alt="Typing 'The plate is 100' in any app shows Lasso's card offering Bracket overall X extent, 100 mm, with a wireframe of the part">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/lasso-cad-value-dark.png">
+    <img src="docs/images/lasso-cad-value-light.png" width="760" alt="Typing 'The plate is 100' in a document shows Lasso's card offering Bracket overall X extent, 100 mm, with a wireframe of the part">
   </picture>
   <br><sub>Typing <code>The plate is 100</code> offers the measured 100 mm extent from <code>Bracket.step</code>. <code>Tab</code> inserts it.</sub>
 </p>
@@ -40,13 +40,13 @@ Lasso reads the folders you choose (spreadsheets, PDFs, Word, PowerPoint, CAD mo
 <summary><b>More examples</b>: a slide sentence, a spreadsheet cell, how it works</summary>
 <br>
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/card-deck-sentence-dark.png">
-  <img src="docs/images/card-deck-sentence-light.png" width="680" alt="Typing 'Rate limit of 1' completes the sentence from slide 3 of a PowerPoint deck">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/lasso-deck-sentence-dark.png">
+  <img src="docs/images/lasso-deck-sentence-light.png" width="680" alt="Typing 'Rate limit of 1' completes the sentence from slide 3 of a PowerPoint deck">
 </picture>
 <p><sub>Typing <code>Rate limit of 1</code> completes the sentence from slide 3 of a PowerPoint deck.</sub></p>
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/card-spreadsheet-dark.png">
-  <img src="docs/images/card-spreadsheet-light.png" width="680" alt="Typing 'Net income was 46' offers 46,350 from the accounting workbook, with the cell shown in its sheet">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/lasso-spreadsheet-dark.png">
+  <img src="docs/images/lasso-spreadsheet-light.png" width="680" alt="Typing 'Net income was 46' offers 46,350 from the accounting workbook, with the cell shown in its sheet">
 </picture>
 <p><sub>Typing <code>Net income was 46</code> offers the value from an Excel workbook, with the cell shown in its sheet.</sub></p>
 <img src="docs/images/architecture.svg" width="680" alt="How Lasso works: the Mac app reads text before the caret and asks a local index server that watches your folders">
@@ -150,7 +150,7 @@ claude mcp add lasso -- node /path/to/Lasso/src/agent/cli.js mcp --scope Finance
 
 The same models answered the same tasks twice: once with only file tools (Read, Grep, Glob), once with Lasso's MCP server added. Token counts are OpenAI's own usage records for every call, including the prompt, tool definitions and reasoning.
 
-<p align="center"><img src="docs/benchmarks/mcp-tokens.svg" width="760" alt="gpt-5.4-mini: 219,302 tokens with file tools versus 67,439 with Lasso, 69% fewer. gpt-5.3-codex: 127,293 versus 29,777, 77% fewer. Lasso answered every task correctly."></p>
+<p align="center"><img src="docs/benchmarks/mcp-cumulative.svg" width="760" alt="Running token totals per task. gpt-5.4-mini: 219,302 tokens with file tools versus 67,439 with Lasso, 69% fewer. gpt-5.3-codex: 127,293 versus 29,777, 77% fewer."></p>
 
 | Model | Tokens, file tools | Tokens, Lasso MCP | Saved | Cost | Correct |
 | --- | --- | --- | --- | --- | --- |

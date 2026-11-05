@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const outputDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'benchmarks');
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const outputDirectory = path.join(repoRoot, 'docs', 'benchmarks');
 const readJson = (name) => JSON.parse(fs.readFileSync(path.join(outputDirectory, name), 'utf8'));
 const typing = readJson('results.json');
 const mcp = readJson('mcp-summary.json');
@@ -36,6 +37,13 @@ const STYLE = `
   .hero { fill: #0b0b0b; font: 700 30px ${FONT}; }
   .hero-label { fill: #52514e; font: 13px ${FONT}; }
   .accent { fill: #2a78d6; }
+  .line-1 { fill: none; stroke: #2a78d6; stroke-width: 2.5; stroke-linejoin: round; }
+  .line-base { fill: none; stroke: #8f8e88; stroke-width: 2; stroke-linejoin: round; }
+  .dot-1 { fill: #2a78d6; stroke: #fcfcfb; stroke-width: 2; }
+  .dot-base { fill: #8f8e88; stroke: #fcfcfb; stroke-width: 2; }
+  .area-1 { fill: #2a78d6; fill-opacity: 0.08; }
+  .callout { fill: #2a78d6; font: 700 15px ${FONT}; }
+  .footnote { fill: #8f8e88; font: 11px ${FONT}; }
   @media (prefers-color-scheme: dark) {
     .surface { fill: #1a1a19; stroke: #333330; }
     .title, .label, .strong, .value, .hero { fill: #f0efec; }
@@ -47,6 +55,13 @@ const STYLE = `
     .series-1, .accent { fill: #3987e5; }
     .series-2 { fill: #d95926; }
     .muted-bar { fill: #5c5b56; }
+    .line-1 { stroke: #3987e5; }
+    .line-base { stroke: #7d7c76; }
+    .dot-1 { fill: #3987e5; stroke: #1a1a19; }
+    .dot-base { fill: #7d7c76; stroke: #1a1a19; }
+    .area-1 { fill: #3987e5; }
+    .callout { fill: #3987e5; }
+    .footnote { fill: #7d7c76; }
   }`;
 
 const escape = (value) => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -109,41 +124,9 @@ function summaryCard() {
     return `<rect class="accent" x="${x}" y="78" width="3" height="44" rx="1.5"/>` +
       text(x + 14, 106, tile.value, 'hero') + text(x + 14, 128, tile.label, 'hero-label');
   }).join('\n');
-  write('summary.svg', frame(148, 'Lasso by the numbers',
-    'AI agents: live OpenAI runs, provider-recorded usage. Typing: local benchmark on an Apple M3.', body,
+  write('summary.svg', frame(148, 'Measured results',
+    'Agent figures: live model runs with provider-recorded token usage. Typing: local benchmark, Apple M3.', body,
     tiles.map((tile) => `${tile.value} ${tile.label}`).join('; ')));
-}
-
-// Total tokens for each model's run, file tools against Lasso.
-function mcpTokensChart() {
-  const plotLeft = LEFT + 150;
-  const plotWidth = WIDTH - plotLeft - 230;
-  const max = Math.max(...mcp.models.map((model) => model.fileTools.tokens));
-  const scale = (value) => plotWidth * value / max;
-  const groupHeight = 88;
-  const top = 92;
-  const groups = mcp.models.map((model, index) => {
-    const y = top + index * groupHeight;
-    const rows = [
-      { run: model.fileTools, className: 'muted-bar' },
-      { run: model.lasso, className: 'series-1' },
-    ];
-    const bars = rows.map((row, rowIndex) => {
-      const barY = y + 8 + rowIndex * 22;
-      const width = scale(row.run.tokens);
-      return bar(plotLeft, barY, width, BAR, row.className) +
-        text(plotLeft + width + 8, barY + BAR - 2, `${thousands(row.run.tokens)} tokens · ${row.run.correct}/${model.tasks} correct`, 'value');
-    }).join('');
-    const cut = percent(saving(model.lasso.tokens, model.fileTools.tokens));
-    return text(LEFT, y + 20, model.model, 'strong') + text(LEFT, y + 36, `${model.tasks} tasks`, 'tick') +
-      text(LEFT, y + 60, `${cut} fewer`, 'title') + bars;
-  }).join('\n');
-  const height = top + mcp.models.length * groupHeight + 20;
-  const body = `${swatch(LEFT, 76, 'muted-bar', 'File tools only (Read, Grep, Glob)')}${swatch(250, 76, 'series-1', 'With the Lasso MCP server')}
-<line class="axis" x1="${plotLeft}" x2="${plotLeft}" y1="${top}" y2="${height - 24}"/>
-${groups}`;
-  write('mcp-tokens.svg', frame(height, 'Tokens an AI agent spends to answer from your files', '', body,
-    mcp.models.map((model) => `${model.model}: file tools ${model.fileTools.tokens} tokens, Lasso ${model.lasso.tokens} tokens`).join('; ')));
 }
 
 // Savings by kind of file, positive where Lasso used fewer tokens.
@@ -155,7 +138,7 @@ function mcpByFileChart() {
   const scale = (fraction) => (plotRight - zero) * fraction;
   const top = 92;
   const rowHeight = 32;
-  const height = top + rows.length * rowHeight + 38;
+  const height = top + rows.length * rowHeight + 58;
   const grid = [0, 0.25, 0.5, 0.75, 1].map((fraction) => {
     const x = zero + scale(fraction);
     return `<line class="grid" x1="${x}" x2="${x}" y1="${top - 6}" y2="${top + rows.length * rowHeight}"/>` +
@@ -173,9 +156,72 @@ function mcpByFileChart() {
   const body = `${swatch(LEFT, 76, 'series-1', 'Fewer tokens than file tools')}${swatch(230, 76, 'series-2', 'More tokens than file tools')}
 ${grid}
 <line class="axis" x1="${zero}" x2="${zero}" y1="${top - 6}" y2="${top + rows.length * rowHeight}"/>
-${bars}`;
+${bars}
+${text(LEFT, height - 14, 'Tokens with Lasso against file tools on the same tasks, one live run. Small files cost less to read directly.', 'footnote')}`;
   write('mcp-by-file.svg', frame(height, `Where the MCP saves tokens, by file (${mcp.byFileKind.model})`, '', body,
     rows.map((row) => `${row.kind}: ${percent(row.saving)} saving`).join('; ')));
+}
+
+// Running token totals over a run's tasks, file tools against Lasso, one
+// panel per model on a shared scale.
+function cumulativeRun(model) {
+  const { results } = JSON.parse(fs.readFileSync(path.join(repoRoot, model.records), 'utf8'));
+  const tasks = new Map();
+  for (const result of results) {
+    if (result.capability) continue;
+    const key = `${result.run}:${result.task}`;
+    const side = result.arm === 'direct' ? 'fileTools' : 'lasso';
+    tasks.set(key, { ...tasks.get(key), [side]: result.input + result.output });
+  }
+  const paired = [...tasks.values()].filter((task) => task.fileTools != null && task.lasso != null);
+  const running = (side) => paired.reduce((sums, task) => [...sums, (sums.at(-1) ?? 0) + task[side]], [0]);
+  return { fileTools: running('fileTools'), lasso: running('lasso') };
+}
+
+function cumulativeChart() {
+  const runs = mcp.models.map((model) => ({ model, ...cumulativeRun(model) }));
+  const STEP = 50000;
+  const axisMax = Math.ceil(Math.max(...runs.map((run) => run.fileTools.at(-1))) / STEP) * STEP;
+  const gap = 36;
+  const panelLeft = LEFT + 42;
+  const panelWidth = (WIDTH - panelLeft - LEFT - gap - 42) / 2;
+  const plotTop = 126;
+  const plotHeight = 196;
+  const plotBottom = plotTop + plotHeight;
+  const y = (value) => plotBottom - plotHeight * value / axisMax;
+  const panels = runs.map((run, index) => {
+    const left = panelLeft + index * (panelWidth + gap + 42);
+    const count = run.fileTools.length - 1;
+    const x = (task) => left + panelWidth * task / count;
+    const points = (series) => series.map((value, task) => `${x(task).toFixed(1)},${y(value).toFixed(1)}`).join(' ');
+    const grid = [];
+    for (let value = 0; value <= axisMax; value += STEP) {
+      grid.push(`<line class="${value ? 'grid' : 'axis'}" x1="${left}" x2="${left + panelWidth}" y1="${y(value)}" y2="${y(value)}"/>`,
+        text(left - 8, y(value) + 4, value ? `${value / 1000}K` : '0', 'tick', 'end'));
+    }
+    const endX = x(count);
+    const base = run.fileTools.at(-1);
+    const lasso = run.lasso.at(-1);
+    const area = `${points(run.lasso)} ${endX},${plotBottom} ${left},${plotBottom}`;
+    return `${grid.join('')}
+${text(left, plotTop - 22, `${run.model.model} · ${count} tasks`, 'strong')}
+${text(left + panelWidth, plotTop - 22, `${percent(saving(lasso, base))} fewer tokens`, 'callout', 'end')}
+<polygon class="area-1" points="${area}"/>
+<polyline class="line-base" points="${points(run.fileTools)}"/>
+<polyline class="line-1" points="${points(run.lasso)}"/>
+<circle class="dot-base" cx="${endX}" cy="${y(base)}" r="4.5"/>
+<circle class="dot-1" cx="${endX}" cy="${y(lasso)}" r="4.5"/>
+${text(endX - 8, y(base) - 10, thousands(base), 'value', 'end')}
+${text(endX - 8, y(lasso) - 10, thousands(lasso), 'value', 'end')}
+${text(left, plotBottom + 18, '0', 'tick', 'middle')}${text(endX, plotBottom + 18, String(count), 'tick', 'middle')}
+${text(left + panelWidth / 2, plotBottom + 18, 'tasks completed', 'tick', 'middle')}`;
+  }).join('\n');
+  const height = plotBottom + 56;
+  const body = `${swatch(LEFT, 76, 'dot-base', 'File tools only (Read, Grep, Glob)')}${swatch(250, 76, 'series-1', 'With the Lasso MCP server')}
+${panels}
+${text(LEFT, height - 14, 'Running total of tokens per run (input, including tool definitions and conversation, plus output). Provider usage records in docs/agent.', 'footnote')}`;
+  write('mcp-cumulative.svg', frame(height, 'Tokens an agent spends answering from your files', '', body,
+    runs.map((run) => `${run.model.model}: ${run.fileTools.at(-1)} tokens with file tools, ${run.lasso.at(-1)} with Lasso`).join('; ')));
 }
 
 function latencyChart() {
@@ -190,7 +236,7 @@ function latencyChart() {
   const scale = (value) => plotWidth * Math.min(value, axisMax) / axisMax;
   const top = 96;
   const rowHeight = 34;
-  const height = top + rows.length * rowHeight + 38;
+  const height = top + rows.length * rowHeight + 58;
   const grid = [0, 20, 40, 60, 80, 100].map((value) => {
     const x = plotLeft + scale(value);
     return `<line class="grid" x1="${x}" x2="${x}" y1="${top - 4}" y2="${top + rows.length * rowHeight}"/>` +
@@ -209,12 +255,13 @@ ${grid}
 <line class="reference" x1="${reference}" x2="${reference}" y1="${top - 8}" y2="${top + rows.length * rowHeight}"/>
 ${text(reference - 6, 76, '100 ms: feels instant', 'tick', 'end')}
 <line class="axis" x1="${plotLeft}" x2="${plotLeft}" y1="${top - 4}" y2="${top + rows.length * rowHeight}"/>
-${bars}`;
+${bars}
+${text(LEFT, height - 14, `${typing.wholeLibrary.score.latency.samples} keystrokes replayed one at a time, in process. ${typing.machine.cpu}, Node.js ${typing.machine.node}.`, 'footnote')}`;
   write('latency.svg', frame(height, 'Time to show suggestions, per keystroke', '', body,
     rows.map((row) => `${row.name}: median ${row.latency.p50} ms, p95 ${row.latency.p95} ms`).join('; ')));
 }
 
 summaryCard();
-mcpTokensChart();
+cumulativeChart();
 mcpByFileChart();
 latencyChart();
