@@ -159,8 +159,8 @@ export const claimCandidatesMethods = {
       if (publicationYear) reasons.push('matching publication year');
       if (claim.referenceMode === 'title' && titleReference >= 0.68) reasons.push('matching title');
       else if (claim.referenceMode === 'author' && author >= 0.7 && !reasons.some((reason) => reason.includes('author'))) reasons.push('matching author');
-      else if (reference >= 0.9) reasons.push('matching reference prefix');
-      else if (reference >= 0.68) reasons.push('similar reference metadata');
+      else if (reference >= 0.9) reasons.push('matching reference');
+      else if (reference >= 0.68) reasons.push('similar reference');
       if (component >= 0.9) reasons.push(`matching ${claim.type === 'TABLE_REFERENCE' ? 'table' : 'figure'} identifier`);
       else if (component >= 0.68) reasons.push(`similar ${claim.type === 'TABLE_REFERENCE' ? 'table' : 'figure'} reference`);
       if (variable >= 0.7) reasons.push(object.metadata.dictionary || (definition?.metadata.dictionary && dictionaryVariable >= 0.7)
