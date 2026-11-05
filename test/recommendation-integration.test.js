@@ -235,3 +235,21 @@ test('usage API validates identity and records only explicit actions', async (t)
   assert.equal((await renamed.json()).usage.path, 'renamed.csv');
   assert.equal(app.dependencies.ranking.usage(project.id)[0].path, 'renamed.csv');
 });
+
+test('A citation whose typed words start a paper title explains itself in plain words', (t) => {
+  // Arrange
+  const { application: app, project, root } = fixture(t);
+  fs.writeFileSync(path.join(root, 'references.bib'),
+    '@article{sharedWork,\n title={Shared evidence study},\n author={Researcher, Anne},\n year={2024}\n}');
+  app.timeline.capture(project.id, writer);
+
+  // Act
+  const candidates = app.dependencies.candidatesForClaim(project.id, {
+    type: 'LITERATURE', text: 'Shared evidence', value: 'Shared evidence', partial: true,
+  });
+
+  // Assert
+  const reasons = candidates.find((candidate) => candidate.path === 'references.bib')?.reasons ?? [];
+  assert.ok(reasons.includes('matching reference'), `reasons were ${reasons.join(', ')}`);
+  assert.ok(!reasons.some((reason) => /prefix|metadata/.test(reason)));
+});
