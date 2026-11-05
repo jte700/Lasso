@@ -28,17 +28,18 @@ export const videoTranscriptMethods = {
     const kept = this.keptTranscript(file.contentHash);
     if (kept) return kept;
     const blobPath = this.timeline.blobs.pathFor(file.contentHash);
-    let transcript = yield { share: 0, offThread: () => this.hearVideo(file.contentHash, blobPath) };
-    transcript ??= transcribeVideoNow(blobPath);
+    const extension = path.posix.extname(file.path);
+    let transcript = yield { share: 0, offThread: () => this.hearVideo(file.contentHash, blobPath, extension) };
+    transcript ??= transcribeVideoNow(blobPath, extension);
     if (isKeptTranscript(transcript)) this.keepTranscript(file.contentHash, transcript);
     return transcript;
   },
 
   /** One transcription per video content at a time; a second asker shares it. */
-  hearVideo(contentHash, blobPath) {
+  hearVideo(contentHash, blobPath, extension) {
     let pending = this.videoHearings.get(contentHash);
     if (!pending) {
-      pending = transcribeVideo(blobPath).finally(() => this.videoHearings.delete(contentHash));
+      pending = transcribeVideo(blobPath, extension).finally(() => this.videoHearings.delete(contentHash));
       this.videoHearings.set(contentHash, pending);
     }
     return pending;

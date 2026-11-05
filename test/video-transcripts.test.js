@@ -15,15 +15,17 @@ import { transcriptionRuns } from '../src/dependencies/video-extraction.js';
 //   4.62 "The contractor's crane arrives at noon."        ("crane" at 6.18)
 //   7.68 "We found cracks near the north stairwell."      ("north" at about 9.5)
 const FIXTURE = fileURLToPath(new URL('./fixtures/videos/site-visit.mp4', import.meta.url));
+// The same clip in a QuickTime movie, which macOS tells apart only by its extension.
+const MOVIE_FIXTURE = fileURLToPath(new URL('./fixtures/videos/site-visit.mov', import.meta.url));
 // On-device transcription needs macOS 26 (Darwin 25) and its speech model.
 const canTranscribe = process.platform === 'darwin' && Number(os.release().split('.')[0]) >= 25;
 const TIME_TOLERANCE = 0.35;
 
-async function videoFolder(t, { dataDir = null, extra = {} } = {}) {
+async function videoFolder(t, { dataDir = null, extra = {}, video = FIXTURE } = {}) {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-video-'));
   const root = path.join(temporary, 'Site Visits');
   fs.mkdirSync(root, { recursive: true });
-  fs.copyFileSync(FIXTURE, path.join(root, 'site-visit.mp4'));
+  fs.copyFileSync(video, path.join(root, `site-visit${path.extname(video)}`));
   for (const [name, text] of Object.entries(extra)) fs.writeFileSync(path.join(root, name), text);
   const state = dataDir ?? path.join(temporary, 'state');
   const app = createApplication({ dataDir: state, watchProjects: false });
@@ -109,6 +111,21 @@ test('A short video is transcribed into timed segments', { skip: !canTranscribe 
   }
   assert.ok(Math.abs(segments[1].anchor.start - 1.56) < TIME_TOLERANCE, String(segments[1].anchor.start));
   assert.ok(segments.every((segment, index) => index === 0 || segment.anchor.start >= segments[index - 1].anchor.end - 0.01));
+});
+
+test('A QuickTime movie is transcribed like an MPEG-4 video', { skip: !canTranscribe }, async (t) => {
+  // Arrange
+  const { app } = await videoFolder(t, { video: MOVIE_FIXTURE });
+
+  // Act
+  const segments = segmentsOf(app);
+  const { quoted } = await candidates(app, "Then: 'crane arrives at noon'");
+
+  // Assert
+  assert.equal(segments.length, 4, segments.map((segment) => segment.valueText).join(' | '));
+  assert.ok(segments.every((segment) => segment.path === 'site-visit.mov'));
+  assert.equal(quoted.length, 1);
+  assert.ok(Math.abs(quoted[0].anchor.time - 6.18) < TIME_TOLERANCE, String(quoted[0].anchor.time));
 });
 
 test('A phrase typed in double quotes suggests the video at the moment it is said', { skip: !canTranscribe }, async (t) => {
