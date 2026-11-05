@@ -1,0 +1,31 @@
+{
+  "about": "Provider-recorded token usage from live runs of the Lasso MCP server (v4, one `lasso` tool) against the same model using only file tools (Read, Grep, Glob). Copied from the run records in docs/agent; see each entry's source.",
+  "models": [
+    {
+      "model": "gpt-5.4-mini",
+      "tasks": 32,
+      "source": "docs/agent/live-results-gpt-5.4-mini-v4.md",
+      "fileTools": { "tokens": 219302, "correct": 29, "cost": 0.1449, "modelCalls": 98 },
+      "lasso": { "tokens": 67439, "correct": 32, "cost": 0.0798, "modelCalls": 69 }
+    },
+    {
+      "model": "gpt-5.3-codex",
+      "tasks": 15,
+      "source": "docs/agent/live-results-gpt-5.3-codex-v4.md",
+      "fileTools": { "tokens": 127293, "correct": 13, "cost": 0.2108, "modelCalls": 42 },
+      "lasso": { "tokens": 29777, "correct": 15, "cost": 0.1003, "modelCalls": 31 }
+    }
+  ],
+  "byFileKind": {
+    "model": "gpt-5.4-mini",
+    "source": "docs/agent/live-results-gpt-5.4-mini-geometry+scale+writing+documents.md",
+    "rows": [
+      { "kind": "Excel, 5,000 rows", "tasks": 4, "lasso": 5974, "fileTools": 369647, "lassoCorrect": 4, "fileToolsCorrect": 2 },
+      { "kind": "PDF, 40 pages", "tasks": 3, "lasso": 10882, "fileTools": 69085, "lassoCorrect": 3, "fileToolsCorrect": 3 },
+      { "kind": "STEP parts and assemblies", "tasks": 7, "lasso": 29229, "fileTools": 167941, "lassoCorrect": 7, "fileToolsCorrect": 6 },
+      { "kind": "Excel, 6 to 12 rows", "tasks": 7, "lasso": 41632, "fileTools": 43554, "lassoCorrect": 7, "fileToolsCorrect": 4 },
+      { "kind": "PDF, 8 to 9 pages", "tasks": 19, "lasso": 121491, "fileTools": 114841, "lassoCorrect": 10, "fileToolsCorrect": 9 },
+      { "kind": "PDF, 1 to 2 pages", "tasks": 2, "lasso": 6875, "fileTools": 6049, "lassoCorrect": 1, "fileToolsCorrect": 1 }
+    ]
+  }
+}

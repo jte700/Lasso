@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="304" viewBox="0 0 760 304" role="img" aria-labelledby="t d">
+<title id="t">Time to show suggestions, per keystroke</title><desc id="d">Mechanical CAD: median 0.74 ms, p95 2.49 ms; Software engineering: median 0.78 ms, p95 1.18 ms; Finance: median 1 ms, p95 3.74 ms; Accounting: median 0.72 ms, p95 5.11 ms; All 10 folders on: median 6.99 ms, p95 18.94 ms</desc>
+<style>
+  .surface { fill: #fcfcfb; stroke: #e6e5e1; }
+  .title { fill: #0b0b0b; font: 600 17px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .subtitle { fill: #52514e; font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .label { fill: #0b0b0b; font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .strong { fill: #0b0b0b; font: 600 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .value { fill: #0b0b0b; font: 600 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .tick { fill: #6f6e69; font: 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .grid { stroke: #e6e5e1; stroke-width: 1; }
+  .axis { stroke: #a8a7a1; stroke-width: 1; }
+  .reference { stroke: #52514e; stroke-width: 1.5; stroke-dasharray: 4 4; }
+  .series-1 { fill: #2a78d6; }
+  .series-2 { fill: #eb6834; }
+  .muted-bar { fill: #c9c8c2; }
+  .hero { fill: #0b0b0b; font: 700 30px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .hero-label { fill: #52514e; font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .accent { fill: #2a78d6; }
+  @media (prefers-color-scheme: dark) {
+    .surface { fill: #1a1a19; stroke: #333330; }
+    .title, .label, .strong, .value, .hero { fill: #f0efec; }
+    .subtitle, .hero-label { fill: #c3c2b7; }
+    .tick { fill: #9d9c95; }
+    .grid { stroke: #333330; }
+    .axis { stroke: #6f6e69; }
+    .reference { stroke: #c3c2b7; }
+    .series-1, .accent { fill: #3987e5; }
+    .series-2 { fill: #d95926; }
+    .muted-bar { fill: #5c5b56; }
+  }</style>
+<rect class="surface" x="0.5" y="0.5" width="759" height="303" rx="12"/>
+<text x="24" y="34" class="title" text-anchor="start">Time to show suggestions, per keystroke</text>
+
+<rect class="series-1" x="24" y="66" width="12" height="12" rx="3"/><text x="42" y="76" class="tick" text-anchor="start">Median</text><rect class="series-2" x="110" y="66" width="12" height="12" rx="3"/><text x="128" y="76" class="tick" text-anchor="start">95th percentile</text>
+<line class="grid" x1="210" x2="210" y1="92" y2="266"/><text x="210" y="282" class="tick" text-anchor="middle">0 ms</text><line class="grid" x1="300.8" x2="300.8" y1="92" y2="266"/><text x="300.8" y="282" class="tick" text-anchor="middle">20 ms</text><line class="grid" x1="391.6" x2="391.6" y1="92" y2="266"/><text x="391.6" y="282" class="tick" text-anchor="middle">40 ms</text><line class="grid" x1="482.4" x2="482.4" y1="92" y2="266"/><text x="482.4" y="282" class="tick" text-anchor="middle">60 ms</text><line class="grid" x1="573.2" x2="573.2" y1="92" y2="266"/><text x="573.2" y="282" class="tick" text-anchor="middle">80 ms</text><line class="grid" x1="664" x2="664" y1="92" y2="266"/><text x="664" y="282" class="tick" text-anchor="middle">100 ms</text>
+<line class="reference" x1="664" x2="664" y1="88" y2="266"/>
+<text x="658" y="76" class="tick" text-anchor="end">100 ms: feels instant</text>
+<line class="axis" x1="210" x2="210" y1="92" y2="266"/>
+<text x="198" y="119" class="label" text-anchor="end">Mechanical CAD</text><path class="series-1" d="M210,101 h1.6798 a1.6798,1.6798 0 0 1 1.6798,1.6798 v7.6404 a1.6798,1.6798 0 0 1 -1.6798,1.6798 h-1.6798 z"/><path class="series-2" d="M210,114 h7.304600000000001 a4,4 0 0 1 4,4 v3 a4,4 0 0 1 -4,4 h-7.304600000000001 z"/><text x="229.3046" y="119" class="value" text-anchor="start">0.7 / 2.5 ms</text>
+<text x="198" y="153" class="label" text-anchor="end">Software engineering</text><path class="series-1" d="M210,135 h1.7706 a1.7706,1.7706 0 0 1 1.7706,1.7706 v7.4588 a1.7706,1.7706 0 0 1 -1.7706,1.7706 h-1.7706 z"/><path class="series-2" d="M210,148 h2.6786000000000003 a2.6786000000000003,2.6786000000000003 0 0 1 2.6786000000000003,2.6786000000000003 v5.642799999999999 a2.6786000000000003,2.6786000000000003 0 0 1 -2.6786000000000003,2.6786000000000003 h-2.6786000000000003 z"/><text x="223.3572" y="153" class="value" text-anchor="start">0.8 / 1.2 ms</text>
+<text x="198" y="187" class="label" text-anchor="end">Finance</text><path class="series-1" d="M210,169 h2.27 a2.27,2.27 0 0 1 2.27,2.27 v6.46 a2.27,2.27 0 0 1 -2.27,2.27 h-2.27 z"/><path class="series-2" d="M210,182 h12.979600000000001 a4,4 0 0 1 4,4 v3 a4,4 0 0 1 -4,4 h-12.979600000000001 z"/><text x="234.9796" y="187" class="value" text-anchor="start">1.0 / 3.7 ms</text>
+<text x="198" y="221" class="label" text-anchor="end">Accounting</text><path class="series-1" d="M210,203 h1.6344 a1.6344,1.6344 0 0 1 1.6344,1.6344 v7.731199999999999 a1.6344,1.6344 0 0 1 -1.6344,1.6344 h-1.6344 z"/><path class="series-2" d="M210,216 h19.1994 a4,4 0 0 1 4,4 v3 a4,4 0 0 1 -4,4 h-19.1994 z"/><text x="241.1994" y="221" class="value" text-anchor="start">0.7 / 5.1 ms</text>
+<text x="198" y="255" class="label" text-anchor="end">All 10 folders on</text><path class="series-1" d="M210,237 h27.7346 a4,4 0 0 1 4,4 v3 a4,4 0 0 1 -4,4 h-27.7346 z"/><path class="series-2" d="M210,250 h81.9876 a4,4 0 0 1 4,4 v3 a4,4 0 0 1 -4,4 h-81.9876 z"/><text x="303.9876" y="255" class="value" text-anchor="start">7.0 / 19 ms</text>
+</svg>

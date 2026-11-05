@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="330" viewBox="0 0 760 330" role="img" aria-labelledby="t d">
+<title id="t">How Lasso works</title>
+<desc id="d">The app you write in sends the text before the caret to the Lasso Mac app, which asks a local index server for suggestions. The server reads your watched folders. Tab inserts source-backed text and keeps a link to the exact source version. Nothing leaves the Mac.</desc>
+<style>
+  .surface { fill: #fcfcfb; stroke: #e6e5e1; }
+  .box { fill: #ffffff; stroke: #c9c8c2; stroke-width: 1.2; }
+  .box-accent { fill: #ffffff; stroke: #2a78d6; stroke-width: 1.6; }
+  .title { fill: #0b0b0b; font: 600 17px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .head { fill: #0b0b0b; font: 600 14px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .line { fill: #52514e; font: 12.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .edge { fill: #6f6e69; font: italic 11.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .arrow { stroke: #6f6e69; stroke-width: 1.5; fill: none; }
+  .head-fill { fill: #6f6e69; }
+  .boundary { fill: none; stroke: #2a78d6; stroke-width: 1.2; stroke-dasharray: 5 5; }
+  .boundary-label { fill: #2a78d6; font: 600 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  @media (prefers-color-scheme: dark) {
+    .surface { fill: #1a1a19; stroke: #333330; }
+    .box, .box-accent { fill: #222221; }
+    .box { stroke: #4a4945; }
+    .box-accent { stroke: #3987e5; }
+    .title, .head { fill: #f0efec; }
+    .line { fill: #c3c2b7; }
+    .edge { fill: #9d9c95; }
+    .arrow { stroke: #9d9c95; }
+    .head-fill { fill: #9d9c95; }
+    .boundary { stroke: #3987e5; }
+    .boundary-label { fill: #3987e5; }
+  }
+</style>
+<defs>
+  <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path class="head-fill" d="M0,0 L10,5 L0,10 z"/>
+  </marker>
+</defs>
+<rect class="surface" x="0.5" y="0.5" width="759" height="329" rx="12"/>
+<text x="24" y="34" class="title">How Lasso works</text>
+
+<rect class="boundary" x="226" y="56" width="518" height="258" rx="12"/>
+<text x="242" y="76" class="boundary-label">Lasso, on your Mac: no model, no API key, nothing uploaded</text>
+
+<rect class="box" x="24" y="102" width="150" height="118" rx="10"/>
+<text x="40" y="128" class="head">Any app you write in</text>
+<text x="40" y="152" class="line">Mail, Notes, Word,</text>
+<text x="40" y="170" class="line">Messages, Chrome</text>
+<text x="40" y="188" class="line">and other apps</text>
+
+<rect class="box-accent" x="244" y="92" width="214" height="138" rx="10"/>
+<text x="258" y="118" class="head">Lasso for Mac (Swift)</text>
+<text x="258" y="142" class="line">Reads the text before the caret</text>
+<text x="258" y="160" class="line">through macOS Accessibility</text>
+<text x="258" y="184" class="line">Draws the suggestion card</text>
+<text x="258" y="208" class="line">Tab inserts and keeps the link</text>
+
+<rect class="box-accent" x="500" y="92" width="228" height="138" rx="10"/>
+<text x="516" y="118" class="head">Local index server (Node.js)</text>
+<text x="516" y="142" class="line">Reads PDF, Office, CAD, video</text>
+<text x="516" y="160" class="line">Ranks exact matches first</text>
+<text x="516" y="178" class="line">Versions every file it reads</text>
+<text x="516" y="196" class="line">Makes redacted share links</text>
+<text x="516" y="214" class="line">SQLite, content-addressed</text>
+
+<rect class="box" x="500" y="258" width="228" height="44" rx="10"/>
+<text x="516" y="285" class="head">Your folders, watched</text>
+
+<path class="arrow" d="M174,145 H242" marker-end="url(#arrowhead)"/>
+<path class="arrow" d="M242,180 H176" marker-end="url(#arrowhead)"/>
+<text x="180" y="138" class="edge">typing</text>
+<text x="180" y="196" class="edge">Tab</text>
+
+<path class="arrow" d="M458,145 H498" marker-end="url(#arrowhead)"/>
+<path class="arrow" d="M498,180 H460" marker-end="url(#arrowhead)"/>
+<text x="462" y="138" class="edge">text</text>
+<text x="462" y="196" class="edge">ranked</text>
+
+<path class="arrow" d="M614,256 V232" marker-end="url(#arrowhead)"/>
+<text x="622" y="250" class="edge">changes</text>
+</svg>
