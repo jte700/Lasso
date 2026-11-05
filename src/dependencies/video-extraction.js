@@ -4,6 +4,8 @@
 // transcript depends only on the file's bytes, so it is kept by content hash
 // and a video is heard once however often its folder is read again.
 
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { execute, swiftHelper } from '../sharing/swift-helper.js';
@@ -11,7 +13,8 @@ import { sha } from './basics.js';
 import { objectDescriptor } from './object-descriptors.js';
 
 // Bumped when the helper hears differently enough that kept transcripts should be heard again.
-export const TRANSCRIPT_VERSION = 1;
+// 2: QuickTime movies are heard; stored without their extension, they read as having no sound.
+export const TRANSCRIPT_VERSION = 2;
 // Speech is heard about twenty to thirty times faster than it plays, so an
 // hour of video takes two or three minutes; this stops a stuck reading.
 const TRANSCRIBE_TIMEOUT_MS = 30 * 60_000;
@@ -42,29 +45,51 @@ export function isKeptTranscript(transcript) {
 }
 
 /**
+ * The stored bytes under a name with the video's own extension. Stored files
+ * have none, and macOS tells a QuickTime movie only by its extension; an
+ * MPEG-4 file it recognises either way.
+ * @returns {{ path: string, remove: () => void }}
+ */
+function namedLink(blobPath, extension) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-video-'));
+  const link = path.join(directory, `video${/^\.[a-z0-9]{1,8}$/i.test(extension) ? extension.toLowerCase() : ''}`);
+  fs.symlinkSync(blobPath, link);
+  return { path: link, remove: () => fs.rmSync(directory, { recursive: true, force: true }) };
+}
+
+/**
  * Hears a video's sound track off this thread.
- * @param {string} filePath the video's bytes; no extension is needed
+ * @param {string} blobPath the video's stored bytes
+ * @param {string} extension the video's own, such as ".mov"
  * @returns {Promise<Transcript>}
  */
-export async function transcribeVideo(filePath) {
+export async function transcribeVideo(blobPath, extension) {
   runs += 1;
+  let named = null;
   try {
+    named = namedLink(blobPath, extension);
     const executable = await helper();
-    const { stdout } = await execute(executable, [filePath], { timeout: TRANSCRIBE_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES });
+    const { stdout } = await execute(executable, [named.path], { timeout: TRANSCRIBE_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES });
     return normalizedTranscript(JSON.parse(stdout));
   } catch (error) {
     return failed(error);
+  } finally {
+    named?.remove();
   }
 }
 
 /** The same, for a caller that must have the transcript now. */
-export function transcribeVideoNow(filePath) {
+export function transcribeVideoNow(blobPath, extension) {
   runs += 1;
+  let named = null;
   try {
-    const stdout = execFileSync(helper.sync(), [filePath], { timeout: TRANSCRIBE_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES });
+    named = namedLink(blobPath, extension);
+    const stdout = execFileSync(helper.sync(), [named.path], { timeout: TRANSCRIBE_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES });
     return normalizedTranscript(JSON.parse(String(stdout)));
   } catch (error) {
     return failed(error);
+  } finally {
+    named?.remove();
   }
 }
 
