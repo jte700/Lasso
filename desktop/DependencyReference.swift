@@ -200,6 +200,9 @@ struct DependencyReference: Codable, Equatable {
     var sourceLocation: String
     /// Stable palette slot shared by every dependency from the same source file.
     var sourceColorSlot: Int? = nil
+    /// Seconds into a video where the cited words are said; nil for every other source.
+    /// Links saved before videos were cited decode without it.
+    var videoTime: Double? = nil
     let createdAt: Date
     var updatedAt: Date
 

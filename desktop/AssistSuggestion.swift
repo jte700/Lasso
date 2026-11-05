@@ -31,6 +31,11 @@ struct AssistSuggestion {
     var verbatim = false
     /// The typed words its source has, as the source spells them, which its preview marks.
     var matchedWords: [String] = []
+    /// Seconds into a video where the quoted words are said, which its link and inspector start at.
+    var videoTime: Double? = nil
+    /// Typed at the caret exactly as the server spells it, with no space put before it:
+    /// the rest of a quoted word, its closing quote and the citation.
+    var joinsTyping = false
 
     var isShareable: Bool { objectId != nil && shareable }
 }

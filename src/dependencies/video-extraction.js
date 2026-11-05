@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { execute, swiftHelper } from '../sharing/swift-helper.js';
 import { sha } from './basics.js';
 import { objectDescriptor } from './object-descriptors.js';
+import { videoTimestamp } from './quoted-phrase.js';
 
 // Bumped when the helper hears differently enough that kept transcripts should be heard again.
 // 2: QuickTime movies are heard; stored without their extension, they read as having no sound.
@@ -23,6 +24,14 @@ const MAX_SEGMENTS = 20_000;
 const MAX_SEGMENT_TEXT = 2_000;
 const MAX_WORDS_PER_SEGMENT = 400;
 const LABEL_LENGTH = 110;
+// Excerpts are this many seconds of a video up to a minute long, and the longer length past it.
+const SHORT_VIDEO_SECONDS = 60;
+const SHORT_EXCERPT_SECONDS = 5;
+const LONG_EXCERPT_SECONDS = 10;
+// A pause at least this long between spoken sentences is shown as a stretch with no speech.
+const SILENT_STRETCH_SECONDS = 5;
+// Lines shown on each side of the cited sentence.
+const DISPLAY_CONTEXT_LINES = 6;
 // Readings that hold for these bytes on this Mac: kept. A missing speech model
 // or a failed run may succeed later, so those are heard again next time.
 const KEPT_STATUSES = new Set(['ok', 'no-audio']);
@@ -140,15 +149,88 @@ function seconds(value) {
 }
 
 /**
+ * The transcript cut into fixed stretches of time, as it is indexed and
+ * shown: five seconds each for a video up to a minute long, ten past it.
+ * Each holds the words that start in it; a stretch with none has no excerpt.
+ * @param {Transcript} transcript
+ * @returns {{ start: number, end: number, text: string, words: SpokenWord[] }[]}
+ */
+export function transcriptExcerpts(transcript) {
+  const words = transcript.segments.flatMap((segment) => segment.words.length ? segment.words
+    : [{ text: segment.text, start: segment.start, end: segment.end }]);
+  const lastHeard = Math.max(0, ...words.map((word) => word.end));
+  const duration = transcript.duration || lastHeard;
+  const length = duration <= SHORT_VIDEO_SECONDS ? SHORT_EXCERPT_SECONDS : LONG_EXCERPT_SECONDS;
+  const windows = new Map();
+  for (const word of words) {
+    const start = Math.floor(word.start / length) * length;
+    if (!windows.has(start)) windows.set(start, []);
+    windows.get(start).push(word);
+  }
+  return [...windows.entries()].sort(([left], [right]) => left - right).map(([start, spoken]) => ({
+    start, end: Math.min(start + length, Math.max(duration, lastHeard)), words: spoken,
+    text: spoken.map((word) => word.text).join(' ').slice(0, MAX_SEGMENT_TEXT),
+  }));
+}
+
+/**
+ * Why a reading has no spoken sentences, as one sentence; null when it has some.
+ * @param {Transcript} transcript
+ * @returns {string | null}
+ */
+export function transcriptProblem(transcript) {
+  if (transcript.status === 'ok') return transcript.segments.length ? null : 'No speech was heard in this video.';
+  if (transcript.status === 'no-audio') return 'This video has no sound track to transcribe.';
+  return transcript.reason ?? 'This video could not be transcribed.';
+}
+
+/**
  * Why a reading offers nothing, in the words `index failures` reports.
  * @param {Transcript} transcript
  * @param {(code: string, reason: string) => void} report
  */
 export function reportTranscriptProblem(transcript, report) {
-  if (transcript.status === 'ok' && transcript.segments.length) return;
-  if (transcript.status === 'ok') report('UNREADABLE_CONTENT', 'No speech was heard in this video.');
-  else if (transcript.status === 'no-audio') report('UNREADABLE_CONTENT', 'This video has no sound track to transcribe.');
-  else report('UNREADABLE_CONTENT', transcript.reason ?? 'This video could not be transcribed.');
+  const problem = transcriptProblem(transcript);
+  if (problem) report('UNREADABLE_CONTENT', problem);
+}
+
+/**
+ * The line a preview shows in place of a transcript a video does not have.
+ * @param {string} reason
+ */
+export function untranscribableLine(reason) {
+  const sentence = String(reason || 'This video could not be transcribed.');
+  return { timestamp: '', start: 0, text: `Not transcribable: ${sentence[0].toLowerCase()}${sentence.slice(1)}`,
+    cited: false, spoken: false };
+}
+
+/**
+ * The lines a preview shows of a transcript, around the sentence at
+ * `citedIndex` (-1 for none, from the start): each spoken sentence at its
+ * time, and each long pause, or stretch the speech model heard nothing in,
+ * as a line that says so.
+ * @param {Transcript} transcript
+ * @param {number} citedIndex
+ * @returns {{ timestamp: string, start: number, text: string, cited: boolean, spoken: boolean }[]}
+ */
+export function transcriptDisplayLines(transcript, citedIndex, { context = DISPLAY_CONTEXT_LINES, segments = transcript.segments } = {}) {
+  const lines = [];
+  const silence = (from, to) => {
+    if (to - from < SILENT_STRETCH_SECONDS) return;
+    lines.push({ timestamp: videoTimestamp(from), start: from,
+      text: `No speech could be transcribed from ${videoTimestamp(from)} to ${videoTimestamp(to)}.`, cited: false, spoken: false });
+  };
+  let heardUntil = 0;
+  segments.forEach((segment, index) => {
+    silence(heardUntil, segment.start);
+    lines.push({ timestamp: videoTimestamp(segment.start), start: segment.start, text: segment.text,
+      cited: index === citedIndex, spoken: true });
+    heardUntil = Math.max(heardUntil, segment.end);
+  });
+  if (transcript.duration) silence(heardUntil, transcript.duration);
+  const cited = lines.findIndex((line) => line.cited);
+  const centre = Math.max(0, cited);
+  return lines.slice(Math.max(0, centre - context), centre + context + 1);
 }
 
 /**
@@ -161,15 +243,16 @@ export function videoDescriptors(file, transcript) {
   const fileName = path.posix.basename(file.path, path.posix.extname(file.path));
   const format = path.posix.extname(file.path).slice(1).toUpperCase();
   const base = file.projectFileId;
-  const segments = transcript.status === 'ok' ? transcript.segments : [];
+  const segments = transcript.status === 'ok' ? transcriptExcerpts(transcript) : [];
   const repeats = new Map();
   return [
+    // The video itself is named by its file; its words belong to its timed sentences.
     objectDescriptor({
-      key: `${base}:video`, type: 'DOCUMENT', path: file.path, label: fileName,
-      value: segments.slice(0, 3).map((segment) => segment.text).join(' ') || null,
+      key: `${base}:video`, type: 'DOCUMENT', path: file.path, label: fileName, value: null,
       contentHash: file.contentHash,
       metadata: { format, componentType: 'VIDEO', fileName: path.posix.basename(file.path),
-        duration: transcript.duration ?? null, locale: transcript.locale ?? null, segmentCount: segments.length },
+        duration: transcript.duration ?? null, locale: transcript.locale ?? null, segmentCount: segments.length,
+        transcriptStatus: transcript.status, transcriptProblem: transcriptProblem(transcript) },
     }),
     ...segments.map((segment) => {
       const fingerprint = sha(segment.text.toLowerCase()).slice(0, 24);

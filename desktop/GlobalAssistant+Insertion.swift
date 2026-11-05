@@ -113,13 +113,13 @@ extension GlobalAssistant {
         // The captured window ends at the caret, so the caret is its length.
         let caret = window.count
         // Code keeps its letters as written.
-        let cased = suggestion.verbatim ? suggestion.insertText
+        let cased = suggestion.verbatim || suggestion.joinsTyping ? suggestion.insertText
             : Self.matchCasing(of: suggestion.insertText,
                                replacing: suggestion.replacement?.expectedText ?? Self.trailingWord(window),
                                precededBy: window, upTo: suggestion.replacement?.start ?? window.count)
         return CompletionTransaction.plan(document: window, caret: caret, insertText: cased,
                                           replacement: suggestion.replacement,
-                                          separateInsertion: !suggestion.sentenceContinuation)
+                                          separateInsertion: !suggestion.sentenceContinuation && !suggestion.joinsTyping)
     }
 
     /// The run of characters before the caret, used only to decide casing.
@@ -267,7 +267,7 @@ extension GlobalAssistant {
             label: suggestion.label, valueText: suggestion.detail,
             sourcePath: suggestion.path, sourceLocation: suggestion.detail,
             document: afterUnits, range: sourceRange,
-            documentOffset: after.windowStart, element: element)
+            documentOffset: after.windowStart, element: element, videoTime: suggestion.videoTime)
     }
 
     /// A share link on its way into the host, planned against `before`.

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { URL } from 'node:url';
 import { buildPreview } from '../history/preview.js';
+import { sendFileRange } from './file-range.js';
 import { HttpError } from '../history/errors.js';
 import { DEFAULT_EVENT_PAGE } from '../history/service.js';
 import { renderSharePage, renderUnavailable, renderInspectorPanel } from '../sharing/share-page.js';
@@ -363,10 +364,13 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         let preview = null;
         try {
           const found = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
-          // A video has no page to show here, and its bytes are too many to read for none.
-          const file = found?.fileType === 'video' ? null : found;
+          // A video plays from its stored file, at the moment the link cites; its bytes are not read here.
+          const video = found?.fileType === 'video' ? found : null;
+          const file = video ? null : found;
           const content = file ? timeline.blobs.get(file.contentHash) : null;
-          preview = buildInspectorPreview(
+          preview = video ? dependencies.videoInspectorPreview(video, resolved.source, url.searchParams.get('time'),
+            `/api/dependency-objects/${encodeURIComponent(objectId)}/video?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`)
+            : buildInspectorPreview(
             file ? { path: file.path, content } : null,
             resolved.source.anchor, resolved.source.metadata, resolved.source.label, resolved.source.objectType,
             { matchText: url.searchParams.get('text') ?? '',
@@ -651,6 +655,18 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         try { pdf = await buildSafePdf(content, pdfRequest); } catch { throw new HttpError(422, 'The selected PDF excerpt could not be rendered. Select the text or area again.'); }
         return sendBinary(response, 200, pdf, 'application/pdf', { 'content-disposition': 'inline',
           'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+      }
+
+      // A linked video, in the byte ranges the inspector's player asks for.
+      const localVideoParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/video$/);
+      if (['GET', 'HEAD'].includes(request.method) && localVideoParameters && objectShares) {
+        const resolved = objectShares.describe(localVideoParameters[0], url.searchParams.get('version'));
+        if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
+        const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+        if (file?.fileType !== 'video') throw new HttpError(404, 'This source is not a video.');
+        const types = { '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/x-m4v' };
+        return sendFileRange(request, response, timeline.blobs.pathFor(file.contentHash),
+          types[path.extname(file.path).toLowerCase()] ?? 'application/octet-stream');
       }
 
       const localObjectPreviewParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/preview$/);

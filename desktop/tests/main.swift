@@ -1374,6 +1374,17 @@ do {
         createdAt: Date(), updatedAt: Date())
     reference.projectId = "directory-finance"
 
+    // A cited video keeps its moment; a link saved before videos were cited has none.
+    var videoReference = reference
+    videoReference.videoTime = 4.92
+    let encoded = try! JSONEncoder().encode(videoReference)
+    var older = try! JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+    older.removeValue(forKey: "videoTime")
+    check(try! JSONDecoder().decode(DependencyReference.self, from: encoded).videoTime == 4.92
+          && (try? JSONDecoder().decode(DependencyReference.self,
+                from: JSONSerialization.data(withJSONObject: older)))?.videoTime == nil,
+          "a link remembers the second its video is cited at, and older links still load")
+
     store.add(reference)
     check(store.references.count == 1, "stores a reference")
     check(store.hasReferences(bundleIdentifier: "com.google.Chrome"),

@@ -5,13 +5,18 @@
 import path from 'node:path';
 import { phraseMoments, phraseTokens, quotedPhraseAtCaret, videoTimestamp } from './quoted-phrase.js';
 import {
-  isKeptTranscript, reportTranscriptProblem, transcribeVideo, transcribeVideoNow, transcriptKey, videoDescriptors,
+  isKeptTranscript, reportTranscriptProblem, transcribeVideo, transcribeVideoNow, transcriptDisplayLines, transcriptExcerpts, transcriptKey,
+  transcriptProblem, untranscribableLine, videoDescriptors,
 } from './video-extraction.js';
 
 // The moments one quoted phrase offers, at most; one per segment.
 const MAX_MOMENTS = 8;
 // Transcript lines shown around the quoted one in a preview.
 const PREVIEW_CONTEXT_SEGMENTS = 6;
+// The mark that closes each opening quote, so a citation closes the quote the writer opened.
+const CLOSING_QUOTES = Object.freeze({ '"': '"', '“': '”', '„': '“', "'": "'", '‘': '’' });
+// A time asked for past this is not a moment of any video: a day.
+const MAX_VIDEO_SECONDS = 86_400;
 
 export const videoTranscriptMethods = {
   /**
@@ -79,24 +84,26 @@ export const videoTranscriptMethods = {
     if (!videos.length) return null;
     const segments = this.objectsAt(projectId, project.currentSnapshotId, ['DOCUMENT'])
       .filter((object) => object.metadata.componentType === 'VIDEO_SEGMENT');
+    const typed = String(input.text ?? '').slice(0, cursor);
     const candidates = [];
-    // The citation follows the closing quote with one space between them.
-    const spaced = /\s$/.test(String(input.text ?? '').slice(0, cursor));
     for (const file of videos) {
       const transcript = this.keptTranscript(file.contentHash);
       if (!transcript) continue;
       const objects = segments.filter((object) => object.path === file.path);
-      for (const moment of phraseMoments(wanted, transcript.segments)) {
-        const spoken = transcript.segments[moment.segmentIndex];
-        const object = objects.find((candidate) => candidate.anchor?.start === spoken.start && candidate.valueText === spoken.text);
+      const excerpts = transcriptExcerpts(transcript);
+      for (const moment of phraseMoments(wanted, transcript.segments, { partialLast: quoted.partialLast })) {
+        const excerpt = excerpts.find((candidate) => candidate.start <= moment.time && moment.time < candidate.end);
+        const object = excerpt && objects.find((candidate) => candidate.anchor?.start === excerpt.start && candidate.valueText === excerpt.text);
         if (!object || candidates.some((candidate) => candidate.id === object.id)) continue;
-        candidates.push(videoMoment(object, file, quoted.phrase, moment.time, spaced));
+        const citation = `(${path.posix.basename(file.path)}, ${videoTimestamp(moment.time)})`;
+        candidates.push(videoMoment(object, quoted.phrase, moment.time,
+          quotedCompletion(quoted, typed, wanted, moment, citation, transcript.segments[moment.endSegmentIndex])));
       }
     }
     if (!candidates.length) return null;
     return {
       type: 'QUOTED_PHRASE', text: quoted.phrase, value: quoted.phrase, start: quoted.start, end: quoted.end,
-      quote: quoted.quote, candidates: candidates.slice(0, MAX_MOMENTS),
+      quote: quoted.quote, open: quoted.open, candidates: candidates.slice(0, MAX_MOMENTS),
     };
   },
 
@@ -108,6 +115,27 @@ export const videoTranscriptMethods = {
   },
 
   /**
+   * The transcript around a spoken sentence: its segments, the sentence's
+   * place among them (-1 when the source is the video itself), and the lines
+   * shown. A video with no transcript shows one line saying why.
+   */
+  videoTranscriptLines(file, source) {
+    const transcript = this.keptTranscript(file.contentHash);
+    const start = Number(source.anchor?.start) || 0;
+    const segments = transcript?.segments ?? [];
+    if (!segments.length) {
+      const reason = transcript ? transcriptProblem(transcript)
+        : source.metadata?.transcriptProblem ?? 'This video has not been transcribed yet.';
+      return { transcript, segments, index: -1, start, lines: [untranscribableLine(reason)] };
+    }
+    const excerpts = transcriptExcerpts(transcript);
+    const index = source.anchor?.kind === 'video-time'
+      ? excerpts.findIndex((excerpt) => excerpt.start === start && excerpt.text === source.valueText) : -1;
+    return { transcript, segments, excerpt: excerpts[index] ?? null, index, start,
+      lines: transcriptDisplayLines(transcript, index, { segments: excerpts }) };
+  },
+
+  /**
    * The card's preview of a spoken sentence: the transcript around it, the
    * quoted words, and the time the player starts at.
    * @param {{ path: string, contentHash: string }} file
@@ -116,42 +144,67 @@ export const videoTranscriptMethods = {
    * @param {string | null} localPath where the video is on this Mac
    */
   videoPreview(file, source, matchText, localPath) {
-    const transcript = this.keptTranscript(file.contentHash);
-    const start = Number(source.anchor?.start) || 0;
-    const segments = transcript?.segments ?? [];
-    const index = Math.max(0, segments.findIndex((segment) => segment.start === start && segment.text === source.valueText));
+    const { transcript, segments, excerpt, start, lines } = this.videoTranscriptLines(file, source);
     const wanted = phraseTokens(matchText);
-    const moment = wanted.length
-      ? phraseMoments(wanted, segments).find((candidate) => candidate.segmentIndex === index) : null;
+    // The card asks with the words typed so far, so the last may be unfinished.
+    const moment = wanted.length && excerpt ? phraseMoments(wanted, segments, { partialLast: true })
+      .find((candidate) => excerpt.start <= candidate.time && candidate.time < excerpt.end) : null;
     const time = moment?.time ?? start;
-    const shown = segments.slice(Math.max(0, index - PREVIEW_CONTEXT_SEGMENTS), index + PREVIEW_CONTEXT_SEGMENTS + 1);
-    const lines = shown.map((segment) => ({ value: `[${videoTimestamp(segment.start)}] ${segment.text}`,
-      cited: segment === segments[index] }));
-    const text = lines.map((line) => line.value).join('\n');
+    const shown = lines.map((line) => ({ value: line.timestamp ? `[${line.timestamp}] ${line.text}` : line.text, cited: line.cited }));
+    const text = shown.map((line) => line.value).join('\n');
     const selectedText = moment ? matchText.trim() : String(source.valueText ?? '');
     return {
       kind: 'video', format: path.posix.extname(file.path).slice(1).toUpperCase(),
-      text, lines, selectedText, selectedStart: text.toLowerCase().indexOf(selectedText.toLowerCase()),
+      text, lines: shown, selectedText,
+      selectedStart: text.toLowerCase().indexOf(selectedText.toLowerCase()),
       startTime: time, segmentStart: start, segmentEnd: Number(source.anchor?.end) || start,
       duration: transcript?.duration ?? null, localPath,
       location: `Said at ${videoTimestamp(time)}`, openAt: { time },
     };
   },
+
+  /**
+   * The source inspector's video: played from `fileUrl` at the moment a link
+   * cites (`time`, the exact second the quoted words start), or at its
+   * sentence's start when the link has none, over the transcript around it.
+   */
+  videoInspectorPreview(file, source, time, fileUrl) {
+    const { transcript, start, lines } = this.videoTranscriptLines(file, source);
+    const latest = transcript?.duration || MAX_VIDEO_SECONDS;
+    const asked = time == null || time === '' ? NaN : Number(time);
+    const moment = Number.isFinite(asked) && asked >= 0 && asked <= latest ? Math.round(asked * 1000) / 1000 : start;
+    return {
+      kind: 'video', fileUrl, startTime: moment, duration: transcript?.duration ?? null,
+      lines: lines.map(({ timestamp, text, cited }) => ({ timestamp, text, cited })),
+      location: `Said at ${videoTimestamp(moment)}`, openAt: { time: moment },
+    };
+  },
 };
 
+/**
+ * What accepting a moment types at the caret: the rest of a word still being
+ * typed and the quote's closing mark when it is open, then the citation.
+ */
+function quotedCompletion(quoted, typed, wanted, moment, citation, sentence) {
+  if (!quoted.open) return `${/\s$/.test(typed) ? '' : ' '}${citation}`;
+  // The rest of a word still being typed, then the rest of the sentence it is said in.
+  const word = quoted.partialLast ? moment.lastWord.slice(wanted.at(-1).length) : '';
+  const following = (sentence?.words ?? []).slice(moment.endWordIndex + 1).map((spoken) => spoken.text).join(' ');
+  const joiner = following && (quoted.partialLast || !/\s$/.test(typed)) ? ' ' : '';
+  return `${word}${joiner}${following}${CLOSING_QUOTES[typed[quoted.start]] ?? '"'} ${citation}`;
+}
+
 /** A spoken sentence offered for the phrase, at the moment the phrase starts. */
-function videoMoment(object, file, phrase, time, spaced) {
-  const timestamp = videoTimestamp(time);
-  const fileName = path.posix.basename(file.path);
+function videoMoment(object, phrase, time, completionText) {
   return {
     ...object,
     anchor: { ...object.anchor, time },
     quotedPhrase: phrase,
-    // Accepting cites the moment after the closing quote, linked to the video.
-    completionText: `${spaced ? '' : ' '}(${fileName}, ${timestamp})`,
+    // Accepting cites the moment, linked to the video.
+    completionText,
     matchTier: 0,
     matchStrength: 1,
     score: 1,
-    reasons: [`Said at ${timestamp}`],
+    reasons: [`Said at ${videoTimestamp(time)}`],
   };
 }
