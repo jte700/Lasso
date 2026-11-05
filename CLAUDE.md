@@ -12,6 +12,7 @@ Read only what a task needs. Files are split by feature and mostly under 500 lin
 | Which typed words count as a match | `dependencies/direct-match.js`; claim spans in `claim-detection.js`; value, variable, reference matching in `*-match.js` | |
 | Order of suggestions | `dependencies/ranking.js` (tier, band, usage), merged across folders in `workspace.js` `predict` (sets `rankOrder`, `matchedWords`) | `parse` sorts by `rankOrder` |
 | Sentence completion | `dependencies/completion.js` | |
+| Videos: transcripts, a phrase typed in quotes | `dependencies/video-extraction.js` (helper `scripts/transcribe-video.swift`, on-device Speech, macOS 26), `video-transcripts.js` (kept by content hash in `derived/transcripts`, quoted search, card preview), `quoted-phrase.js` | `VideoPreview.swift`, `AssistVideoPreviewView.swift` (AVKit player cued to the moment); QuickTime jump in `SourceOpenTarget.swift` |
 | File named while typing | `dependencies/file-reference.js` | |
 | Readers: PDF, Word, xlsx/csv, pptx, DXF, IFC, STEP, LandXML | `dependencies/*-extraction.js`, `step-model.js`, `tabular.js`, `table-index.js`; objects per file in `file-objects.js`, `tabular-objects.js` | |
 | Indexing a folder's objects | `dependencies/index-lifecycle.js`, `object-extraction.js`, `object-access.js`; `service.js` is only the class shell that installs these method groups | |

@@ -529,6 +529,8 @@ struct AssistDocumentPreview {
     var slideNumber: Int? = nil
     /// A presentation's slides, for its slide menu and pictures.
     var deck: AssistSlideDeck? = nil
+    /// A video, played in the card from the quoted moment.
+    var video: AssistVideoPreview? = nil
     /// The slides' pictures, filled in as they are drawn; set by whoever knows where they are fetched from.
     var slides: SlideDeckDocument? = nil
 
@@ -578,6 +580,10 @@ struct AssistDocumentPreview {
         result.moreRows = (preview["moreRows"] as? NSNumber)?.intValue
         result.slideNumber = (preview["slideNumber"] as? NSNumber)?.intValue
         result.deck = AssistSlideDeck(json: preview["deck"])
+        if kind == "video" {
+            result.video = AssistVideoPreview(json: preview)
+            result.textBlocks = (preview["lines"] as? [[String: Any]] ?? []).map(AssistTextBlock.init(line:))
+        }
         if kind == "text" {
             result.isMarkdown = preview["format"] as? String == "markdown"
             result.textBlocks = result.isMarkdown

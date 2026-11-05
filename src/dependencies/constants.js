@@ -6,7 +6,8 @@ export const OBJECT_TYPES = new Set([
   'PARAMETER', 'PROTOCOL', 'ANALYSIS_RUN', 'DOCUMENT', 'VARIABLE', 'DRAWING', 'DRAWING_ANNOTATION',
 ]);
 
-export const INDEX_VERSION = 4;
+// 5: videos are transcribed, so folders indexed before read their videos.
+export const INDEX_VERSION = 5;
 // The object types a whole file can be named as while typing.
 export const WHOLE_FILE_TYPES = ['DRAWING', 'DATASET', 'DOCUMENT', 'PAPER', 'CODE_BLOCK', 'MODEL'];
 

@@ -27,10 +27,11 @@ export const objectExtractionMethods = {
     if (!extracted) {
       let problem = null;
       const report = (code, reason) => { problem ??= { code, reason }; };
-      const buffer = this.timeline.blobs.get(file.contentHash);
-      const objects = ['table', 'spreadsheet'].includes(file.fileType)
-        ? yield* this.tableObjectSteps(file, buffer, report)
-        : objectsFromFile(file, buffer, report);
+      // A video is heard from its file where it lies; its bytes are not read into memory.
+      const objects = file.fileType === 'video' ? yield* this.videoObjectSteps(file, report)
+        : ['table', 'spreadsheet'].includes(file.fileType)
+          ? yield* this.tableObjectSteps(file, this.timeline.blobs.get(file.contentHash), report)
+          : objectsFromFile(file, this.timeline.blobs.get(file.contentHash), report);
       extracted = { objects, problem, bytes: JSON.stringify(objects).length * 2 };
       this.extractionCache.set(key, extracted);
     }

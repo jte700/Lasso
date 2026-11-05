@@ -340,6 +340,10 @@ extension GlobalAssistant {
             return sheet.isEmpty ? rowKey : sheet + " · " + rowKey
         }
         if let slide = (anchor["slideNumber"] as? NSNumber)?.intValue { return "Slide " + String(slide) }
+        if anchor["kind"] as? String == "video-time",
+           let time = AssistVideoPreview.seconds(anchor["time"]) ?? AssistVideoPreview.seconds(anchor["start"]) {
+            return AssistVideoTime.label(time)
+        }
         if anchor["kind"] as? String == "line-range", let first = (anchor["lineStart"] as? NSNumber)?.intValue {
             let last = (anchor["lineEnd"] as? NSNumber)?.intValue ?? first
             return last > first ? "Lines \(first)–\(last)" : "Line \(first)"

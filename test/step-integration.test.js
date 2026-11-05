@@ -6,6 +6,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createApplication } from '../src/server.js';
 import { anchorForSpan } from '../src/dependencies/service.js';
+import { INDEX_VERSION } from '../src/dependencies/constants.js';
 import { BRACKET, bracketPart, fixtureAssembly } from './fixtures/step-models.js';
 
 const actor = { id: 'human:cad-reviewer', displayName: 'CAD reviewer', actorType: 'HUMAN_SELF' };
@@ -131,7 +132,7 @@ test('snapshots indexed before STEP support gain CAD facts lazily without creati
   app = createApplication(config);
   assert.deepEqual(step().map(object => object.objectKey).sort(), indexed);
   assert.equal(app.dependencies.objectsAt(project.id).find(object => object.id === budget.id).versionId, budget.versionId, 'earlier objects keep their versions');
-  assert.equal(app.db.prepare('SELECT drawing_index_version FROM snapshot_object_indexes WHERE snapshot_id = ?').get(snapshotId).drawing_index_version, 4);
+  assert.equal(app.db.prepare('SELECT drawing_index_version FROM snapshot_object_indexes WHERE snapshot_id = ?').get(snapshotId).drawing_index_version, INDEX_VERSION);
   assert.equal(app.timeline.getProject(project.id).currentSnapshotId, snapshotId);
 });
 

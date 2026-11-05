@@ -6,6 +6,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createApplication } from '../src/server.js';
 import { anchorForSpan } from '../src/dependencies/service.js';
+import { INDEX_VERSION } from '../src/dependencies/constants.js';
 
 const actor = { id: 'human:drawing-reviewer', displayName: 'Drawing reviewer', actorType: 'HUMAN_SELF' };
 const spaceGuid = '0YvctVUKr0kugbFTf53O9L';
@@ -176,7 +177,7 @@ test('drawing migration adds facts to an existing snapshot without replacing ear
   assert.equal(preserved.versionId, existing.versionId, 'historical CSV object version is retained');
   assert.equal(preserved.valueText, existing.valueText);
   assert.ok(after.some((object) => object.metadata.globalId === spaceGuid && object.metadata.propertyName === 'NetFloorArea'));
-  assert.equal(state.app.db.prepare('SELECT drawing_index_version AS version FROM snapshot_object_indexes WHERE snapshot_id=?').get(snapshotId).version, 4, 'the marker records the current drawing reader (4 adds STEP)');
+  assert.equal(state.app.db.prepare('SELECT drawing_index_version AS version FROM snapshot_object_indexes WHERE snapshot_id=?').get(snapshotId).version, INDEX_VERSION, 'the marker records the current drawing reader');
   assert.equal(state.app.timeline.getProject(state.project.id).currentSnapshotId, snapshotId, 'index upgrades do not create timeline edits');
   assert.throws(() => state.app.db.prepare('DELETE FROM scientific_object_versions WHERE id=?').run(existing.versionId), /immutable/);
   const count = after.length;

@@ -22,6 +22,8 @@ struct AssistOpenTarget: Equatable {
     var occurrence: Int? = nil
     /// A presentation's slide, counted as the app shows them.
     var slide: Int? = nil
+    /// Seconds into a video: where the quoted words are said.
+    var time: Double? = nil
 
     private static let maximumPage = 1_000_000
     private static let maximumLine = 100_000_000
@@ -31,7 +33,7 @@ struct AssistOpenTarget: Equatable {
     private static let maximumSlide = 100_000
 
     init(sheet: String? = nil, cell: String? = nil, page: Int? = nil, line: Int? = nil,
-         text: String? = nil, occurrence: Int? = nil, slide: Int? = nil) {
+         text: String? = nil, occurrence: Int? = nil, slide: Int? = nil, time: Double? = nil) {
         self.sheet = sheet
         self.cell = cell
         self.page = page
@@ -39,6 +41,7 @@ struct AssistOpenTarget: Equatable {
         self.text = text
         self.occurrence = occurrence
         self.slide = slide
+        self.time = time
     }
 
     /// Reads the server's `openAt`. Malformed values are dropped, and nil means
@@ -52,7 +55,8 @@ struct AssistOpenTarget: Equatable {
             .flatMap { $0.isEmpty ? nil : $0 }
         occurrence = Self.integer(json["occurrence"], maximum: Self.maximumOccurrence)
         slide = Self.integer(json["slide"], maximum: Self.maximumSlide)
-        guard cell != nil || page != nil || line != nil || text != nil || slide != nil else { return nil }
+        time = AssistVideoPreview.seconds(json["time"])
+        guard cell != nil || page != nil || line != nil || text != nil || slide != nil || time != nil else { return nil }
         sheet = (json["sheet"] as? String).flatMap { name in
             let valid = !name.isEmpty && name.count <= Self.maximumSheetLength
                 && !name.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
@@ -86,7 +90,7 @@ extension AssistDocumentPreview {
 /// Scripts sent to the apps that open sources. Each reads its file, sheet,
 /// cell or words from its arguments; nothing is spliced into the source.
 enum AssistOpenScript: String, CaseIterable {
-    case excel, numbers, word, acrobat, adobeReader, powerPoint, keynote
+    case excel, numbers, word, acrobat, adobeReader, powerPoint, keynote, quickTime
 
     /// The app each script addresses.
     var appBundleID: String {
@@ -98,6 +102,7 @@ enum AssistOpenScript: String, CaseIterable {
         case .adobeReader: return "com.adobe.Reader"
         case .powerPoint: return "com.microsoft.Powerpoint"
         case .keynote: return "com.apple.iWork.Keynote"
+        case .quickTime: return "com.apple.QuickTimePlayerX"
         }
     }
 
@@ -277,6 +282,19 @@ enum AssistOpenScript: String, CaseIterable {
 
             \(Self.isNamedAfter)
             """
+        case .quickTime:
+            // The time arrives in whole milliseconds, read the same in every language.
+            return """
+            on run argv
+                set {documentName, millisecondsText} to argv
+                tell application id "\(appBundleID)"
+                    \(Self.waitFor("document documentName"))
+                    set targetDocument to document documentName
+                    set current time of targetDocument to (millisecondsText as integer) / 1000
+                    play targetDocument
+                end tell
+            end run
+            """
         }
     }
 }
@@ -333,6 +351,9 @@ enum AssistOpenPlanner {
         case "com.apple.iWork.Keynote":
             guard let slide = target.slide else { return .plain }
             return .script(.keynote, arguments: [name, fileURL.deletingPathExtension().lastPathComponent, String(slide)])
+        case AssistOpenScript.quickTime.appBundleID:
+            guard let time = target.time else { return .plain }
+            return .script(.quickTime, arguments: [name, AssistVideoTime.milliseconds(time)])
         case "com.adobe.Acrobat.Pro", "com.adobe.Reader":
             guard let page = target.page else { return .plain }
             return .script(appBundleID == "com.adobe.Reader" ? .adobeReader : .acrobat, arguments: [name, String(page)])

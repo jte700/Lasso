@@ -121,6 +121,9 @@ extension AssistBoxView {
         let words = selectedSuggestion?.matchedWords ?? []
         let accent = DirectoryColorPreferences.color(for: selectedSuggestion?.projectId)?.color ?? .controlAccentColor
         if let page = preview.pdfPage { return AssistPDFPreviewView.showing(page, marking: words) }
+        if let video = preview.video {
+            return AssistVideoPreviewView(video: video, blocks: preview.textBlocks, accent: accent, marking: words)
+        }
         if let slides = preview.slides {
             return AssistSlidePreviewView(slides: slides, current: preview.slideNumber ?? slides.numbers.first ?? 1,
                                           marking: words, in: selectedSuggestion?.previewText, accent: accent)
