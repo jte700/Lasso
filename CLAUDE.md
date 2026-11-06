@@ -21,12 +21,14 @@ Read only what a task needs. Files are split by feature and mostly under 500 lin
 | Suggestion card itself, Tab, keys | | `GlobalAssist.swift` (controller state, keys), `GlobalAssistant+Panel.swift` (showing, placement), `GlobalAssistant+Insertion.swift` (Tab, links, undo), `AssistBoxView*.swift` (the drawn card), `AssistSuggestion.swift`, `AssistSuggestionList.swift`, `KeyRouting.swift`, `AccessibilityReader.swift`, `CompletionTransaction.swift` |
 | Source Inspector (web page in a panel) | `sharing/share-page.js` `renderInspectorPanel` | `SourceInspectorPanel.swift` |
 | Share links and recipient pages | `sharing/object-share.js`, `share-page.js`, `share-preview.js`, `dependencies/dependency-sharing.js` | `ShareComposerController.swift`, `ShareComposerView*.swift`, `ShareInteractivePDFView.swift`, `ShareInsertion.swift`, `ShareMarkup.swift` |
-| The Ranch (library window) | `ranch/` | `Ranch*.swift` |
+| The Ranch (library window) | `ranch/` | `Ranch*.swift`; colours and controls in `RanchTheme.swift` |
 | Folder history, snapshots | `history/` | |
 | Links in documents, re-anchoring after edits | `dependencies/dependency-links.js`, `reconciliation.js`, `source-updates.js`, `document-editing.js` | `DependencyHighlighter.swift`, `DependencyReference.swift` |
 | Browser workbench (older web UI) | `public/app.js` wires `public/editor-*.js`, `workspace-*.js`, `dependency-*.js` modules; shared state in `public/state.js` | |
 | Terminal commands (`ask`, `find`, `index`) | `terminal/` | |
-| Menu bar panel, Settings | | `Lasso.swift`, `StatusPopover.swift`, `DirectoryMenu.swift`, `SettingsWindow.swift` |
+| Menu bar panel, Settings | | `Lasso.swift` (`rebuildMenu`), `StatusPopover.swift`, `StatusHeader.swift` (name, status, Suggest While Typing switch), `DirectoryMenu.swift`, `SettingsWindow.swift`, `SettingsPanes.swift` (SwiftUI grouped forms: General with Advanced collapsed, Apps) |
+| Apps Lasso stays quiet in | | `SuggestionApps.swift` (bundle IDs in UserDefaults), checked in `GlobalAssistant+Prediction.swift` `refresh` |
+| Liquid Glass and system look | | `NativeMaterial.swift` (AppKit), `RanchGlass.swift` (SwiftUI), every glass call behind `#available(macOS 26.0, *)` |
 | Reading text and caret from other apps | | `HostTextAdapter.swift`, `WebText.swift`, `HostGeometry.swift` |
 
 The ranking rules are written up in `docs/lasso-ranking-algorithm.pdf`: a direct match (exact name, value, filename prefix) is tier 0 and always beats relevance bands, relationships and usage. Since 2026-10-30 a suggestion must share a real typed word with the source's own text (not its folder, format or extraction labels); study phrases like "we found that" name nothing.

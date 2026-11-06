@@ -1,6 +1,8 @@
-// The Ranch's look: flat, warm off-white surfaces split by hairlines, rows
-// as soft cards, and pill-shaped controls, in light and dark. Every view in
-// the window draws with these colours and pieces rather than system chrome.
+// The Ranch's look, built from the system's own colours so it follows light
+// and dark, the accent colour and Liquid Glass (RanchGlass.swift) as macOS
+// does: a sidebar on the system's sidebar surface, rows as soft cards on the
+// content background, and capsule controls. Every view in the window draws
+// with these colours and pieces.
 
 import Cocoa
 import SwiftUI
@@ -8,33 +10,35 @@ import SwiftUI
 enum RanchTheme {
     // MARK: Colours
 
-    /// The sidebar, a shade under the columns beside it.
-    static let sidebar = color(0xF6F6F4, 0x1A1A19)
+    /// Behind the sidebar's rows: clear, so its glass or material shows.
+    static let sidebar = Color.clear
     /// The list and file columns, and the window behind them.
-    static let surface = color(0xFCFCFB, 0x1F1F1E)
-    static let nsSurface = nsColor(0xFCFCFB, 0x1F1F1E)
+    static let surface = Color(nsColor: nsSurface)
+    static let nsSurface = NSColor.controlBackgroundColor
     /// A row at rest, and the ground under models and drawings.
-    static let card = color(0xF2F2F0, 0x292928)
-    static let cardHover = color(0xEBEBE8, 0x30302F)
-    /// The chosen row: a soft lavender, never the accent's solid blue.
-    static let selection = color(0xE4E6F1, 0x31354A)
-    static let hairline = color(0xE5E5E2, 0x323231)
-    /// Buttons, menus and the search field.
-    static let control = color(0xFFFFFF, 0x2A2A29)
-    static let controlEdge = color(0xDEDEDB, 0x3B3B3A)
+    static let card = tint(light: 0.04, dark: 0.06)
+    static let cardHover = tint(light: 0.07, dark: 0.1)
+    /// The chosen row, tinted with the accent colour chosen in System Settings.
+    static let selection = Color(nsColor: NSColor(name: nil) { appearance in
+        NSColor.controlAccentColor.withAlphaComponent(isDark(appearance) ? 0.32 : 0.18)
+    })
+    static let hairline = Color(nsColor: .separatorColor)
+    /// Fields and menus where glass is not used.
+    static let control = Color(nsColor: .controlBackgroundColor)
+    static let controlEdge = Color(nsColor: .separatorColor)
     /// The groove a segmented control's choices sit in.
-    static let track = color(0xEEEEEC, 0x262625)
-    static let ink = color(0x1D1D1F, 0xF2F2F0)
-    static let secondaryInk = color(0x6E6E73, 0xA1A1A5)
-    static let tertiaryInk = color(0xA3A3A7, 0x6D6D71)
+    static let track = tint(light: 0.05, dark: 0.08)
+    static let ink = Color(nsColor: .labelColor)
+    static let secondaryInk = Color(nsColor: .secondaryLabelColor)
+    static let tertiaryInk = Color(nsColor: .tertiaryLabelColor)
     /// The one strong button, and what is written on it.
-    static let strong = color(0x1D1D1F, 0xF2F2F0)
-    static let onStrong = color(0xFFFFFF, 0x1D1D1F)
+    static let strong = Color.accentColor
+    static let onStrong = Color.white
     /// Notes that float over a view, such as what the pointer is on.
     static let tooltip = color(0x1D1D1F, 0x3A3A3C)
     static let onTooltip = Color.white
     static let onTooltipSecondary = Color.white.opacity(0.62)
-    static let warning = color(0xD9730D, 0xF0913A)
+    static let warning = Color(nsColor: .systemOrange)
 
     // MARK: Type
 
@@ -48,9 +52,20 @@ enum RanchTheme {
     /// The column headers' height: the window's buttons sit halfway down the sidebar's.
     static let headerHeight: CGFloat = 52
     /// The title bar band at the top of the sidebar, where the window's buttons are.
-    static let titlebarHeight: CGFloat = 32
+    static var titlebarHeight: CGFloat { RanchGlass.isAvailable ? RanchGlass.sidebarTitlebarHeight : 32 }
 
     private static func color(_ light: Int, _ dark: Int) -> Color { Color(nsColor: nsColor(light, dark)) }
+
+    private static func isDark(_ appearance: NSAppearance) -> Bool {
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    /// The label colour faded to a wash, as the system's fill colours are.
+    private static func tint(light: CGFloat, dark: CGFloat) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            isDark(appearance) ? NSColor.white.withAlphaComponent(dark) : NSColor.black.withAlphaComponent(light)
+        })
+    }
 
     private static func nsColor(_ light: Int, _ dark: Int) -> NSColor {
         NSColor(name: nil) { appearance in
@@ -82,7 +97,7 @@ struct RanchColumnHeader<Trailing: View>: View {
         HStack(spacing: 10) {
             if let showSidebar {
                 // Clear of the window's own buttons.
-                Spacer().frame(width: 62)
+                Spacer().frame(width: RanchGlass.isAvailable ? RanchGlass.windowButtonsWidth : 62)
                 Button(action: showSidebar) { Image(systemName: "sidebar.left") }
                     .buttonStyle(RanchIconButtonStyle())
                     .help("Show Sidebar (\u{2303}\u{2318}S)")
@@ -94,7 +109,7 @@ struct RanchColumnHeader<Trailing: View>: View {
             }
             .layoutPriority(1)
             Spacer(minLength: 8)
-            trailing
+            trailing.environment(\.ranchToolbar, true)
         }
         .padding(.horizontal, 16)
         .frame(height: RanchTheme.headerHeight)
@@ -118,6 +133,7 @@ struct RanchFilterBar<Content: View>: View {
             content
             Spacer(minLength: 0)
         }
+        .environment(\.ranchToolbar, true)
         .padding(.horizontal, 12)
         .frame(height: 42)
         .overlay(alignment: .bottom) { RanchHairline() }
@@ -135,10 +151,13 @@ struct RanchHairline: View {
 struct RanchColumnDivider: View {
     @Binding var width: Double
     let range: ClosedRange<Double>
+    /// Off beside the floating glass sidebar, whose own edge parts the columns.
+    var showsLine = true
     @State private var start: Double?
 
     var body: some View {
         RanchHairline(vertical: true)
+            .opacity(showsLine ? 1 : 0)
             .overlay {
                 Color.clear
                     .frame(width: 9)
@@ -174,55 +193,42 @@ extension EnvironmentValues {
 
 // MARK: Controls
 
-/// A white pill with a hairline edge, or, prominent, the window's one black button.
-struct RanchPillButtonStyle: ButtonStyle {
+/// A capsule button: glass in a column header on macOS 26, bordered elsewhere;
+/// prominent, the window's one accent-coloured button.
+struct RanchPillButtonStyle: PrimitiveButtonStyle {
     var prominent = false
     var height: CGFloat = 28
 
     func makeBody(configuration: Configuration) -> some View {
-        RanchPillBody(configuration: configuration, prominent: prominent, height: height)
-    }
-}
-
-private struct RanchPillBody: View {
-    let configuration: ButtonStyleConfiguration
-    let prominent: Bool
-    let height: CGFloat
-    @Environment(\.isEnabled) private var isEnabled
-    @State private var hovering = false
-
-    var body: some View {
-        configuration.label
-            .font(RanchTheme.controlFont)
+        Button(configuration)
             .labelStyle(RanchPillLabelStyle())
-            .foregroundStyle(prominent ? RanchTheme.onStrong : RanchTheme.ink)
-            .padding(.horizontal, 11)
-            .frame(height: height)
-            .background(RanchPillShape(prominent: prominent, hovering: hovering || configuration.isPressed))
-            .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.45)
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .onHover { hovering = $0 }
+            .modifier(RanchNativeButton(prominent: prominent))
+            .controlSize(height > 30 ? .large : .regular)
     }
 }
 
-/// The pill a button or menu sits on.
+/// The capsule a menu's label sits on: glass on macOS 26, a bordered pill before.
 struct RanchPillShape: View {
     var prominent = false
     var hovering = false
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
-        if prominent {
-            shape.fill(RanchTheme.strong).opacity(hovering ? 0.88 : 1)
+        if #available(macOS 26.0, *) {
+            Capsule().fill(Color.clear)
+                .glassEffect(prominent ? .regular.tint(.accentColor) : .regular, in: Capsule())
         } else {
-            shape.fill(hovering ? RanchTheme.card : RanchTheme.control)
-                .overlay(shape.strokeBorder(RanchTheme.controlEdge, lineWidth: 1))
-                .shadow(color: .black.opacity(0.03), radius: 1, y: 1)
+            let shape = Capsule()
+            if prominent {
+                shape.fill(RanchTheme.strong).opacity(hovering ? 0.88 : 1)
+            } else {
+                shape.fill(hovering ? RanchTheme.cardHover : RanchTheme.control)
+                    .overlay(shape.strokeBorder(RanchTheme.controlEdge, lineWidth: 1))
+            }
         }
     }
 }
 
-/// Icon and title close together, as the pills in the reference read.
+/// Icon and title close together.
 struct RanchPillLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 6) {
@@ -232,9 +238,35 @@ struct RanchPillLabelStyle: LabelStyle {
     }
 }
 
-/// A borderless square icon that greys in on hover, for header actions.
-struct RanchIconButtonStyle: ButtonStyle {
+/// A square icon for header actions: a glass circle in a column header on
+/// macOS 26, otherwise borderless and greyed in on hover.
+struct RanchIconButtonStyle: PrimitiveButtonStyle {
     var size: CGFloat = 28
+
+    func makeBody(configuration: Configuration) -> some View {
+        RanchIconButton(configuration: configuration, size: size)
+    }
+}
+
+private struct RanchIconButton: View {
+    let configuration: PrimitiveButtonStyleConfiguration
+    let size: CGFloat
+    @Environment(\.ranchToolbar) private var toolbar
+
+    var body: some View {
+        if #available(macOS 26.0, *), toolbar {
+            Button(configuration)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+        } else {
+            Button(configuration).buttonStyle(RanchBorderlessIconStyle(size: size))
+        }
+    }
+}
+
+private struct RanchBorderlessIconStyle: ButtonStyle {
+    let size: CGFloat
 
     func makeBody(configuration: Configuration) -> some View {
         RanchIconBody(configuration: configuration, size: size)
@@ -261,7 +293,7 @@ private struct RanchIconBody: View {
     }
 }
 
-/// A pill that opens a menu: its icon, what is chosen, and a chevron.
+/// A capsule that opens a menu: its icon, what is chosen, and a chevron.
 struct RanchPillMenu<Items: View>: View {
     let title: String
     var symbol: String? = nil
@@ -281,10 +313,10 @@ struct RanchPillMenu<Items: View>: View {
             }
             .font(RanchTheme.controlFont)
             .foregroundStyle(RanchTheme.ink)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 11)
             .frame(height: 28)
-            .background(RanchPillShape(hovering: hovering))
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .ranchControlBackground(hovering: hovering)
+            .contentShape(Capsule())
         }
         .modifier(RanchPlainMenuStyle())
         .menuIndicator(.hidden)
@@ -306,40 +338,22 @@ struct RanchPlainMenuStyle: ViewModifier {
     }
 }
 
-/// Choices side by side in a groove, the chosen one raised in white.
+/// Choices side by side: the system's segmented control.
 struct RanchSegmented<Value: Hashable>: View {
     @Binding var selection: Value
     let options: [(value: Value, title: String)]
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(options, id: \.value) { option in
-                let chosen = option.value == selection
-                Button { selection = option.value } label: {
-                    Text(option.title)
-                        .font(RanchTheme.controlFont)
-                        .foregroundStyle(chosen ? RanchTheme.ink : RanchTheme.secondaryInk)
-                        .lineLimit(1)
-                        .padding(.horizontal, 10)
-                        .frame(height: 24)
-                        .background {
-                            if chosen {
-                                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(RanchTheme.control)
-                                    .shadow(color: .black.opacity(0.08), radius: 1.5, y: 1)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(chosen ? .isSelected : [])
-            }
+        Picker("", selection: $selection) {
+            ForEach(options, id: \.value) { option in Text(option.title).tag(option.value) }
         }
-        .padding(2)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(RanchTheme.track))
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
     }
 }
 
-/// The sidebar's search field: a rounded white box with a magnifier.
+/// The sidebar's search field: a glass capsule on macOS 26, a rounded field before.
 struct RanchSearchField: View {
     @Binding var text: String
     var focused: FocusState<Bool>.Binding
@@ -347,7 +361,7 @@ struct RanchSearchField: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(RanchTheme.tertiaryInk)
+            Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(RanchTheme.secondaryInk)
             TextField(prompt, text: $text)
                 .textFieldStyle(.plain)
                 .font(RanchTheme.bodyFont)
@@ -364,14 +378,22 @@ struct RanchSearchField: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 30)
-        .background {
-            let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
-            shape.fill(RanchTheme.control)
-                .overlay(shape.strokeBorder(focused.wrappedValue ? Color.accentColor.opacity(0.55) : RanchTheme.controlEdge,
-                                            lineWidth: focused.wrappedValue ? 1.5 : 1))
-        }
+        .background { field }
         .contentShape(Rectangle())
         .onTapGesture { focused.wrappedValue = true }
+    }
+
+    @ViewBuilder private var field: some View {
+        let ring = focused.wrappedValue ? Color.accentColor.opacity(0.55) : Color.clear
+        if #available(macOS 26.0, *) {
+            Capsule().fill(RanchTheme.card)
+                .overlay(Capsule().strokeBorder(ring, lineWidth: 1.5))
+        } else {
+            let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
+            shape.fill(RanchTheme.card)
+                .overlay(shape.strokeBorder(focused.wrappedValue ? ring : RanchTheme.controlEdge,
+                                            lineWidth: focused.wrappedValue ? 1.5 : 0.5))
+        }
     }
 }
 

@@ -315,6 +315,9 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         web.layer?.cornerRadius = InspectorWindow.cornerRadius
         web.layer?.masksToBounds = true
         web.underPageBackgroundColor = .clear
+        // The page is transparent where it has no panel of its own, so the
+        // glass behind it shows instead of a white page.
+        web.setValue(false, forKey: "drawsBackground")
         web.navigationDelegate = self
         webView = web
 

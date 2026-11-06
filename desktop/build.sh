@@ -176,6 +176,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/NodeRuntime.swift" \
   "$ROOT/desktop/WorkspaceAPI.swift" \
   "$ROOT/desktop/AssistActivation.swift" \
+  "$ROOT/desktop/SuggestionApps.swift" \
   "$ROOT/desktop/TransientDismissal.swift" \
   "$ROOT/desktop/DirectoryColors.swift" \
   "$ROOT/desktop/LaunchHelper.swift" \
@@ -183,6 +184,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/NativeMaterial.swift" \
   "$ROOT/desktop/DirectoryMenu.swift" \
   "$ROOT/desktop/StatusPopover.swift" \
+  "$ROOT/desktop/StatusHeader.swift" \
   "$ROOT/desktop/NotchMotion.swift" \
   "$ROOT/desktop/NotchPanel.swift" \
   "$ROOT/desktop/SyntheticKeyboard.swift" \
@@ -250,12 +252,14 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/MainMenu.swift" \
   "$ROOT/desktop/ShortcutCatalog.swift" \
   "$ROOT/desktop/ShortcutsPane.swift" \
+  "$ROOT/desktop/SettingsPanes.swift" \
   "$ROOT/desktop/SettingsWindow.swift" \
   "$ROOT/desktop/ConnectApps.swift" \
   "$ROOT/desktop/RanchModels.swift" \
   "$ROOT/desktop/RanchNetworkLayout.swift" \
   "$ROOT/desktop/RanchTypeIcon.swift" \
   "$ROOT/desktop/RanchTheme.swift" \
+  "$ROOT/desktop/RanchGlass.swift" \
   "$ROOT/desktop/RanchStore.swift" \
   "$ROOT/desktop/RanchEditors.swift" \
   "$ROOT/desktop/RanchViewers.swift" \

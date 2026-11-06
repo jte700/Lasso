@@ -29,6 +29,9 @@ final class AssistBubbleContainer: NSView {
         }
         bodyEffect.layer?.cornerRadius = content.bubbleCornerRadius
         bodyEffect.layer?.masksToBounds = true
+        // A blurred arrow beside clear glass reads as a different material, so
+        // a glass card floats by the caret without one.
+        pointerEffect.isHidden = NativeMaterial.usesGlass
 
         // The card always fills the panel. Callers size the panel, never the card.
         content.frame = bounds

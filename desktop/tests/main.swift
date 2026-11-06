@@ -4153,5 +4153,45 @@ do {
           "selected lines are named the way they are written")
 }
 
+// MARK: Apps Lasso suggests in
+
+do {
+    let suite = "lasso-tests-suggestion-apps-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let apps = SuggestionApps(defaults: defaults, ownBundleID: "com.jte700.lasso", limit: 3)
+
+    check(apps.allows("com.apple.Notes") && apps.listed.isEmpty, "every app gets suggestions until one is switched off")
+
+    apps.noteTyping(in: "com.apple.Notes")
+    apps.noteTyping(in: "com.apple.mail")
+    apps.noteTyping(in: "com.apple.Notes")
+    check(apps.listed == ["com.apple.Notes", "com.apple.mail"], "an app typed in is listed once, in the order first seen")
+
+    apps.noteTyping(in: "com.jte700.lasso")
+    check(!apps.listed.contains("com.jte700.lasso"), "Lasso does not list itself")
+
+    apps.setAllowed(false, for: "com.tinyspeck.slackmacgap")
+    check(!apps.allows("com.tinyspeck.slackmacgap") && apps.listed.last == "com.tinyspeck.slackmacgap",
+          "an app switched off before it was typed in is listed and gets no suggestions")
+    check(apps.allows("com.apple.Notes"), "switching one app off leaves the others on")
+
+    apps.setAllowed(true, for: "com.tinyspeck.slackmacgap")
+    check(apps.allows("com.tinyspeck.slackmacgap") && apps.listed.contains("com.tinyspeck.slackmacgap"),
+          "switching an app back on keeps it in the list")
+
+    apps.setAllowed(false, for: "com.apple.Notes")
+    apps.noteTyping(in: "com.microsoft.Word")
+    apps.noteTyping(in: "com.apple.Safari")
+    check(apps.listed.count <= 4 && apps.listed.contains("com.apple.Notes") && !apps.allows("com.apple.Notes"),
+          "the list forgets the oldest apps typed in, never one that is switched off")
+    check(apps.listed.contains("com.apple.Safari"), "the newest app typed in is kept")
+
+    let reread = SuggestionApps(defaults: defaults, ownBundleID: "com.jte700.lasso", limit: 3)
+    check(!reread.allows("com.apple.Notes") && reread.listed == apps.listed, "choices survive a restart")
+    apps.noteTyping(in: "")
+    check(!apps.listed.contains(""), "an app with no bundle identifier is not listed")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)
