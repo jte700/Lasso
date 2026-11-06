@@ -3228,6 +3228,38 @@ do {
     check(search(word, visits: 3) == nil, "the search stops after its visit budget")
 }
 
+print("popup host window")
+do {
+    // Chrome in full screen, as read on macOS 26: the address bar names the
+    // group holding the toolbar overlay as its window, and the browser window
+    // sits above that group.
+    final class Node {
+        let role: String; let parent: Node?
+        init(_ role: String, parent: Node?) { self.role = role; self.parent = parent }
+    }
+    func owner(of editor: Node, named reported: Node, maxDepth: Int = AssistPopupHost.maxWindowDepth) -> Node? {
+        AssistPopupHost.owningWindow(named: reported, above: editor, parent: { $0.parent }, role: { $0.role },
+                                     maxDepth: maxDepth)
+    }
+    let application = Node("AXApplication", parent: nil)
+    let browser = Node("AXWindow", parent: application)
+    let overlay = Node("AXGroup", parent: browser)
+    var toolbar = overlay
+    for role in ["AXGroup", "AXGroup", "AXGroup", "AXToolbar", "AXGroup"] { toolbar = Node(role, parent: toolbar) }
+    let addressBar = Node("AXTextField", parent: toolbar)
+    check(owner(of: addressBar, named: overlay) === browser,
+          "an address bar in Chrome's full-screen overlay belongs to the browser window above it")
+
+    let window = Node("AXWindow", parent: application)
+    let field = Node("AXTextField", parent: Node("AXGroup", parent: window))
+    check(owner(of: field, named: window) === window, "an editor that names its window keeps it")
+    check(owner(of: field, named: Node("AXGroup", parent: nil)) === window,
+          "a named container that is not a window gives way to the window above the editor")
+    let loose = Node("AXTextField", parent: Node("AXGroup", parent: application))
+    check(owner(of: loose, named: Node("AXGroup", parent: nil)) == nil, "an editor with no window above it has none")
+    check(owner(of: addressBar, named: overlay, maxDepth: 3) == nil, "the walk up stops after its depth budget")
+}
+
 print("host accessibility mode")
 do {
     check(!HostAccessibilityMode.needsEnhancedInterface(manualAccepted: true, chromiumBased: true),
