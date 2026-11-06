@@ -36,28 +36,37 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 
 function drawingCompletionHarness(text, fragment, candidate, claimDetails = {}) {
   const block = { isConnected: true, textContent: text,
-    dataset: { blockIndex: '0', blockType: 'paragraph' } };
+    dataset: { blockIndex: '0', blockType: 'paragraph' }, contains(node) { return node === this; } };
   const claim = { start: text.lastIndexOf(fragment), end: text.length, text: fragment,
     type: 'ENTITY', partial: true, candidates: [candidate], ...claimDetails };
   const state = { workspace: { revision: 1 }, editor: {
     document: { path: 'Draft.md', projectId: 'one' }, activeBlock: block,
   } };
   const links = [], history = [], caret = [], errors = [];
-  const context = appHandlers(['predictForBlock', 'predictionEdit', 'acceptPrediction', 'namesWholeFile'], {
+  const selection = { isCollapsed: true, focusNode: block, focusOffset: text.length };
+  const context = appHandlers(['predictForBlock', 'predictionEdit', 'acceptPrediction', 'namesWholeFile',
+    'predictionContextIsCurrent', 'handleEditorSelectionChange', 'handleEditorShortcuts'], {
     state, AUTOMATIC_SUGGESTION_LIMIT: 40,
     document: { querySelectorAll() { return [block]; } },
+    window: { getSelection: () => selection },
     api: async () => ({ prediction: { claims: [claim] } }),
-    caretOffsetWithin: () => block.textContent.length,
+    caretOffsetWithin: () => selection.focusOffset,
     pendingDependenciesForPrediction: () => [],
     showPredictionCompletion() {}, editorAssistStatus() {}, contextualCompletionCase,
-    clearPrediction() { state.editor.prediction = null; },
+    clearPrediction() {
+      state.editor.predictionController?.abort();
+      state.editor.predictionController = null;
+      state.editor.predictionRequestContext = null;
+      state.editor.prediction = null;
+    },
+    projectIsOffline: () => false, editorBlockFromSelection: () => selection.focusNode,
     recordEditorHistory(...args) { history.push(args); },
     focusEditorBlock(_, offset) { caret.push(offset); },
     markEditorDirty() { state.editor.dirty = true; },
     async linkCandidate(...args) { links.push(args); },
     toast(message) { errors.push(message); },
   });
-  return { context, state, block, links, history, caret, errors, candidate };
+  return { context, state, block, links, history, caret, errors, candidate, selection };
 }
 
 test('Tab replaces a partial drawing keyword even when it matches inside the source label', async () => {
@@ -129,6 +138,105 @@ test('drawing completion refuses to replace text after the user keeps typing', a
   assert.equal(h.links.length, 0);
   assert.equal(h.history.length, 0);
   assert.equal(h.state.editor.prediction, null);
+});
+
+
+test('Tab refuses a displayed completion after the caret moves without editing text', async () => {
+  for (const move of ['same paragraph', 'another paragraph', 'selection', 'document']) {
+    const h = drawingCompletionHarness('I checked the Rev', 'Rev', {
+      id: 'revenue', objectType: 'DRAWING', label: 'Revenue',
+    });
+    await h.context.predictForBlock(h.block);
+    assert.ok(h.state.editor.prediction);
+    if (move === 'same paragraph') h.selection.focusOffset = 2;
+    if (move === 'another paragraph') h.selection.focusNode = { isConnected: true };
+    if (move === 'selection') h.selection.isCollapsed = false;
+    if (move === 'document') h.state.editor.document = { path: 'Other.md', projectId: 'one' };
+    await h.context.acceptPrediction();
+    assert.equal(h.block.textContent, 'I checked the Rev', move);
+    assert.equal(h.links.length, 0, move);
+    assert.equal(h.history.length, 0, move);
+    assert.equal(h.state.editor.prediction, null, move);
+  }
+});
+
+test('late predictions cannot reopen at an obsolete caret, even before selectionchange fires', async () => {
+  const h = drawingCompletionHarness('I checked the Rev', 'Rev', {
+    id: 'revenue', objectType: 'DRAWING', label: 'Revenue',
+  });
+  const response = await h.context.api();
+  let resolve;
+  h.context.api = () => new Promise(done => { resolve = done; });
+  const pending = h.context.predictForBlock(h.block);
+  h.selection.focusOffset = 2;
+  resolve(response);
+  await pending;
+  assert.equal(h.state.editor.prediction, undefined);
+  assert.equal(h.state.editor.predictionController, null);
+  assert.equal(h.state.editor.predictionRequestContext, null);
+});
+
+test('selection changes dismiss displayed suggestions and cancel pending requests', async () => {
+  for (const pending of [false, true]) {
+    const h = drawingCompletionHarness('I checked the Rev', 'Rev', {
+      id: 'revenue', objectType: 'DRAWING', label: 'Revenue',
+    });
+    const response = await h.context.api();
+    let resolve;
+    if (pending) h.context.api = () => new Promise(done => { resolve = done; });
+    const prediction = h.context.predictForBlock(h.block);
+    if (!pending) await prediction;
+    const controller = h.state.editor.predictionController;
+    h.context.handleEditorSelectionChange();
+    assert.ok(h.state.editor.prediction ?? h.state.editor.predictionRequestContext,
+      'an unchanged caret leaves the current suggestion/request alone');
+    h.selection.focusOffset = 2;
+    h.context.handleEditorSelectionChange();
+    assert.equal(h.state.editor.prediction, null);
+    assert.equal(h.state.editor.predictionRequestContext, null);
+    if (pending) {
+      assert.equal(controller.signal.aborted, true);
+      resolve(response);
+      await prediction;
+      assert.equal(h.state.editor.prediction, null);
+    }
+  }
+});
+
+test('link-only predictions also refuse an obsolete caret', async () => {
+  const h = drawingCompletionHarness('I reviewed AC20', 'AC20', {
+    id: 'model', objectType: 'MODEL', label: 'AC20 model',
+  }, { partial: false });
+  await h.context.predictForBlock(h.block);
+  assert.equal(h.state.editor.prediction.mode, 'LINK');
+  h.selection.focusOffset = 0;
+  await h.context.acceptPrediction();
+  assert.equal(h.links.length, 0);
+  assert.equal(h.state.editor.prediction, null);
+});
+
+test('modified navigation and IME keys do not accept or browse suggestions', async () => {
+  const h = drawingCompletionHarness('I checked the Rev', 'Rev', {
+    id: 'revenue', objectType: 'DRAWING', label: 'Revenue',
+  });
+  await h.context.predictForBlock(h.block);
+  let accepted = 0, consumed = 0;
+  h.context.acceptPrediction = () => { accepted += 1; };
+  const event = (key, modifiers = {}) => ({ key, preventDefault() { consumed += 1; }, ...modifiers });
+  for (const key of ['Tab', 'ArrowUp', 'ArrowDown']) {
+    h.context.handleEditorShortcuts(event(key, { shiftKey: true }));
+    h.context.handleEditorShortcuts(event(key, { ctrlKey: true }));
+    h.context.handleEditorShortcuts(event(key, { isComposing: true }));
+  }
+  assert.equal(accepted, 0);
+  assert.equal(consumed, 0);
+  h.context.handleEditorShortcuts(event('Tab'));
+  assert.equal(accepted, 1);
+  assert.equal(consumed, 1);
+  h.selection.focusOffset = 0;
+  h.context.handleEditorShortcuts(event('Tab'));
+  assert.equal(accepted, 1, 'an obsolete suggestion leaves Tab to the editor');
+  assert.equal(consumed, 1);
 });
 
 function editorHarness() {

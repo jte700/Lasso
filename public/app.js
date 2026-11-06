@@ -30,7 +30,7 @@ const state = {
   view: 'timeline',
   editor: {
     documents: [], document: null, dirty: false, prediction: null, predictionIndex: 0,
-    predictionTimer: null, predictionController: null,
+    predictionTimer: null, predictionController: null, predictionRequestContext: null,
     activeBlock: null, manualClaim: null, pickerMode: 'link',
     revealDependencyId: null, revealTimer: null,
     pendingLinks: [], autosaveTimer: null, savePromise: null, editRevision: 0,
@@ -1214,15 +1214,34 @@ function caretOffsetWithin(block) {
   return textOffset(block, selection.focusNode, selection.focusOffset);
 }
 
+// Text alone is not enough: a click or arrow key can move the insertion point
+// without changing the paragraph while a prediction is still in flight.
+function predictionContextIsCurrent(context) {
+  if (!context) return false;
+  const { block, requestedText, requestedDocument, cursor } = context;
+  const selection = window.getSelection();
+  return block?.isConnected && state.editor.document === requestedDocument
+    && block.textContent === requestedText && selection?.isCollapsed
+    && block.contains(selection.focusNode) && caretOffsetWithin(block) === cursor;
+}
+
+function handleEditorSelectionChange() {
+  const context = state.editor.prediction?.requestContext ?? state.editor.predictionRequestContext;
+  if (context && !predictionContextIsCurrent(context)) clearPrediction();
+}
+
 async function predictForBlock(block) {
   if (!block?.isConnected || !block.textContent.trim()) return;
   const requestedText = block.textContent;
   const requestedDocument = state.editor.document;
+  const cursor = caretOffsetWithin(block);
+  const requestContext = { block, requestedText, requestedDocument, cursor };
+  if (!predictionContextIsCurrent(requestContext)) return;
   const controller = new AbortController();
   state.editor.predictionController?.abort();
   state.editor.predictionController = controller;
+  state.editor.predictionRequestContext = requestContext;
   try {
-    const cursor = caretOffsetWithin(block);
     const blocks = [...document.querySelectorAll('.manuscript-block')];
     const blockIndex = Number(block.dataset.blockIndex);
     const section = blocks.slice(0, blockIndex + 1).reverse()
@@ -1242,7 +1261,7 @@ async function predictForBlock(block) {
       }), signal: controller.signal,
     });
     if (controller.signal.aborted || state.editor.predictionController !== controller
-      || !block.isConnected || block.textContent !== requestedText) return;
+      || !predictionContextIsCurrent(requestContext)) return;
     if (prediction.workspaceRevision != null && prediction.workspaceRevision !== state.workspace.revision) {
       clearPrediction();
       const refreshController = new AbortController();
@@ -1254,8 +1273,7 @@ async function predictForBlock(block) {
           renderProjectContext();
           dependencyShell.reset();
         }
-        if (block.isConnected && block.textContent === requestedText
-          && state.editor.document === requestedDocument && state.editor.activeBlock === block) {
+        if (predictionContextIsCurrent(requestContext)) {
           state.editor.predictionTimer = setTimeout(() => predictForBlock(block), 45);
         }
       } finally {
@@ -1268,7 +1286,7 @@ async function predictForBlock(block) {
         .map((finding) => ({ ...finding, block, requestedText }));
       const first = findings[0];
       state.editor.prediction = {
-        mode: 'SOURCE_FINDINGS',
+        requestContext, mode: 'SOURCE_FINDINGS',
         completion: { kind: 'SOURCE_FINDING', block, requestedText },
         findings,
         sourceContext: prediction.sourceContext,
@@ -1289,7 +1307,7 @@ async function predictForBlock(block) {
         .map((suggestion) => ({ ...suggestion, block, requestedText }));
       const first = workspaceSuggestions[0];
       state.editor.prediction = {
-        mode: 'WORKSPACE_SUGGESTIONS',
+        requestContext, mode: 'WORKSPACE_SUGGESTIONS',
         completion: { kind: 'WORKSPACE', block, requestedText },
         workspaceSuggestions,
         workspaceHeading: prediction.workspaceHeading,
@@ -1309,7 +1327,7 @@ async function predictForBlock(block) {
       const completion = { ...prediction.completion, kind: 'SENTENCE', block, requestedText };
       const start = completion.claimStart;
       state.editor.prediction = {
-        mode: 'COMPLETE_AND_LINK', completion, blockIndex, blockType: block.dataset.blockType, block,
+        requestContext, mode: 'COMPLETE_AND_LINK', completion, blockIndex, blockType: block.dataset.blockType, block,
         claim: {
           start, end: requestedText.length, type: 'PROJECT_SENTENCE',
           text: `${requestedText.slice(start)}${completion.insertText}`,
@@ -1333,7 +1351,7 @@ async function predictForBlock(block) {
       const completesDrawingReference = claim.type === 'ENTITY' && claim.partial
         && claim.candidates.some((candidate) => namesWholeFile(candidate) && candidate.label);
       state.editor.prediction = {
-        mode: completesCitation || completesStudyVariable || completesReferenceComponent || completesDrawingReference
+        requestContext, mode: completesCitation || completesStudyVariable || completesReferenceComponent || completesDrawingReference
           ? 'COMPLETE_AND_LINK' : 'LINK',
         completion: completesCitation
           ? { kind: 'CITATION', block, requestedText }
@@ -1351,7 +1369,10 @@ async function predictForBlock(block) {
   } catch (error) {
     if (error.name !== 'AbortError') toast(error.message, 'error');
   } finally {
-    if (state.editor.predictionController === controller) state.editor.predictionController = null;
+    if (state.editor.predictionController === controller) {
+      state.editor.predictionController = null;
+      state.editor.predictionRequestContext = null;
+    }
   }
 }
 
@@ -1599,6 +1620,7 @@ function clearPrediction() {
   clearTimeout(state.editor.predictionTimer);
   state.editor.predictionController?.abort();
   state.editor.predictionController = null;
+  state.editor.predictionRequestContext = null;
   const block = state.editor.prediction?.block;
   block?.classList.remove('has-prediction', 'has-text-completion');
   if (block) delete block.dataset.completion;
@@ -1645,6 +1667,10 @@ function openPredictionPicker() {
 async function acceptPrediction() {
   const prediction = state.editor.prediction;
   if (!prediction) return;
+  if (!predictionContextIsCurrent(prediction.requestContext)) {
+    clearPrediction();
+    return;
+  }
   const candidate = prediction.claim.candidates[state.editor.predictionIndex];
   let claim = { ...prediction.claim, blockIndex: prediction.blockIndex, blockType: prediction.blockType };
   const edit = predictionEdit(prediction, candidate, state.editor.predictionIndex);
@@ -2031,7 +2057,9 @@ function focusDocumentEnd() {
 }
 
 function handleEditorShortcuts(event) {
-  if (projectIsOffline()) return;
+  if (projectIsOffline() || event.isComposing) return;
+  if (state.editor.prediction && !predictionContextIsCurrent(state.editor.prediction.requestContext)) clearPrediction();
+  const unmodified = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
     event.preventDefault();
     if (event.shiftKey) redoEditor(); else undoEditor();
@@ -2049,17 +2077,18 @@ function handleEditorShortcuts(event) {
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key === 'Enter') {
     event.preventDefault(); endSourceContext(); return;
   }
-  if (state.editor.prediction && (event.key === 'Tab' || (event.altKey && event.key === 'Enter'))) {
+  if (state.editor.prediction && ((event.key === 'Tab' && unmodified)
+    || (event.altKey && event.key === 'Enter' && !event.metaKey && !event.ctrlKey && !event.shiftKey))) {
     event.preventDefault(); acceptPrediction();
     return;
   }
-  if (state.editor.prediction && event.key === 'ArrowDown') {
+  if (state.editor.prediction && event.key === 'ArrowDown' && unmodified) {
     event.preventDefault();
     state.editor.predictionIndex = (state.editor.predictionIndex + 1) % state.editor.prediction.claim.candidates.length;
     showPredictionCompletion();
     return;
   }
-  if (state.editor.prediction && event.key === 'ArrowUp') {
+  if (state.editor.prediction && event.key === 'ArrowUp' && unmodified) {
     event.preventDefault();
     const completionCount = state.editor.prediction.claim.candidates.length;
     state.editor.predictionIndex = (state.editor.predictionIndex - 1 + completionCount) % completionCount;
@@ -2979,6 +3008,8 @@ window.dismissLassoOverlays = () => dismissLassoOverlays({
     state.editor.activeDependencyId = null;
   },
 });
+document.addEventListener('selectionchange', handleEditorSelectionChange);
+
 // A native overlay can consume Escape's keydown while the workspace browser
 // still has focus. Keyup also dismisses browser overlays, idempotently.
 window.addEventListener('keyup', (event) => {

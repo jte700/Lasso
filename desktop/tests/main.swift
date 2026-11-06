@@ -507,6 +507,36 @@ do {
           "without a prediction a plain insertion sets no selection")
 }
 
+print("selection follows suggestion identity only within the same query")
+do {
+    func suggestion(_ object: String?, _ text: String, project: String = "finance") -> AssistSuggestionSelection.Identity {
+        .init(projectId: project, objectId: object, insertText: text)
+    }
+    let revenue = suggestion("revenue", "Revenue")
+    let returns = suggestion("returns", "Returns")
+    let result = suggestion("result", "Result")
+    let before = [revenue, returns, result]
+    let reordered = [returns, result, revenue]
+    check(AssistSuggestionSelection.index(keeping: before[2], in: reordered, sameQuery: false) == 0,
+          "new typing resets a previously selected third row to the strongest result")
+    check(AssistSuggestionSelection.index(keeping: before[2], in: reordered, sameQuery: true) == 1,
+          "refreshing the same query follows the chosen source to its new rank")
+    check(AssistSuggestionSelection.index(keeping: result, in: [returns, revenue], sameQuery: true) == 0,
+          "a disappeared choice returns to the strongest result rather than the old row number")
+    check(AssistSuggestionSelection.index(keeping: result,
+          in: [returns, suggestion("other", "Result")], sameQuery: true) == 0,
+          "equal wording from another source does not inherit the selection")
+    check(AssistSuggestionSelection.index(keeping: result,
+          in: [returns, suggestion("result", "Result", project: "other")], sameQuery: true) == 0,
+          "a source from another directory does not inherit the selection")
+    check(AssistSuggestionSelection.index(keeping: result,
+          in: [returns, suggestion("result", "A different result")], sameQuery: true) == 0,
+          "a different insertion from the same source does not inherit the selection")
+    check(AssistSuggestionSelection.index(keeping: nil, in: reordered, sameQuery: true) == 0
+          && AssistSuggestionSelection.index(keeping: result, in: [], sameQuery: true) == 0,
+          "new and empty cards have a valid first selection")
+}
+
 print("canonical source identity")
 do {
     let workbook = AssistSourceIdentity.canonicalPath(
@@ -736,6 +766,204 @@ do {
         separateInsertion: true) else { fatalError("manual insertion plan") }
     check(string(CompletionTransaction.apply(chosen, to: units(manual))) == manual + " supplies",
           "manually chosen sources do not consume an unrelated matching letter")
+}
+
+print("an accepted name is written in the sentence's case")
+do {
+    func cased(_ label: String, _ typed: String, after before: String) -> String {
+        InsertionCasing.match(label, replacing: typed, after: before)
+    }
+    check(cased("Office Supplies", "office sup", after: "We spent on ") == "office supplies"
+          && cased("Office Supplies", "office sup", after: "Done. ") == "Office Supplies"
+          && cased("Office Supplies", "Office sup", after: "We spent on ") == "Office Supplies",
+          "a title-case name is lowered mid-sentence after lower-case words, as before")
+    check(cased("OPERATING EXPENSES", "operating expenses", after: "The other ") == "operating expenses"
+          && cased("NET INCOME", "net inc", after: "Our ") == "net income"
+          && cased("REVENUES", "revenues", after: "Total ") == "revenues",
+          "a heading in capitals is written as words mid-sentence")
+    check(cased("OPERATING EXPENSES", "operating expenses", after: "") == "Operating Expenses"
+          && cased("OPERATING EXPENSES", "Operating expenses", after: "Costs rose. ") == "Operating Expenses"
+          && cased("INTEREST (INCOME), EXPENSE & TAXES", "interest", after: "") == "Interest (Income), Expense & Taxes",
+          "at the start of a sentence a heading in capitals is written in title case")
+    check(cased("OPERATING EXPENSES", "OPERATING", after: "The other ") == "OPERATING EXPENSES",
+          "capitals the writer typed themselves are kept")
+    check(cased("NASA", "nasa", after: "Ask ") == "NASA" && cased("US GAAP", "us gaap", after: "Under ") == "US GAAP"
+          && cased("EBITDA", "ebitda", after: "The ") == "EBITDA" && cased("Q3 REVENUE 2026", "q3 rev", after: "The ") == "Q3 revenue 2026",
+          "acronyms keep their capitals; words with digits keep their form")
+    check(cased("THE SYSTEM SHALL COMPLY", "", after: "It says ") == "THE SYSTEM SHALL COMPLY",
+          "a value or passage added after the words is written as the source has it")
+}
+
+print("saying \"tab\" while dictating accepts the card")
+do {
+    func snap(_ text: String, at start: Int = 0) -> CompletionSnapshot {
+        CompletionSnapshot(documentStart: start, text: units(text))
+    }
+    func spoken(_ card: String, _ current: String) -> Int? {
+        SpokenAccept.spokenLength(card: snap(card), current: snap(current))
+    }
+    let card = "I need the brac"
+    check(spoken(card, card + " tab") == 4, "the word tab after the card's text is the command")
+    check(spoken(card, card + " Tab.") == 5 && spoken(card, card + ". Tab.") == 6
+          && spoken(card, card + " tab, ") == 6 && spoken(card, card + " TAB!") == 5,
+          "dictation's capitals, punctuation and spacing around it are part of the command")
+    check(spoken(card, card + " tab key") == 8 && spoken(card, card + "\t") == 1 && spoken(card, card + " \t") == 2,
+          "tab key, which Dictation writes as a tab character, is the command too")
+    check(spoken(card + " ", card + " tab") == 3, "after a space dictation already wrote, the word alone is the command")
+    check(spoken(card, card + " tablet") == nil && spoken(card, card + " table") == nil
+          && spoken(card, card + " stab") == nil && spoken(card, card + " tab tab") == nil
+          && spoken(card, card + " new tab") == nil,
+          "other words, or tab among them, are text")
+    check(spoken(card, card + "tab") == nil, "tab written straight onto the last word is part of that word")
+    check(spoken(card, card + "\ntab") == nil && spoken(card, card + " tab\n") == nil
+          && spoken(card, card + "\t\t") == nil,
+          "a line break or a second tab is text the writer asked for")
+    check(spoken(card, card) == nil && spoken(card, String(card.dropLast())) == nil,
+          "nothing new, or text taken away, is not the command")
+    check(spoken(card, "I need thy brac tab") == nil && spoken("the bracket", "the brackets tab") == nil,
+          "a word dictation revised near the end since the card showed makes the card out of date")
+    let opening = "So looking at last quarter in some detail, we saw that "
+    check(spoken(opening + card, "so looking at last quarter in some detail, we saw that " + card + " Tab.") == 5,
+          "words dictation revised further back than the card's last words do not stop it")
+    check(spoken(opening + card, "So looking at last quarter in some detail we saw that " + card + " Tab.") == nil,
+          "a word revised among the card's last words does")
+    check(spoken(card, "brac tab") == nil && spoken(card, "the brac tab") == nil,
+          "a field holding only the last few of the card's words is not the card's")
+    check(spoken(card, card + String(repeating: " ", count: 14) + "tab") == nil,
+          "a long run of new text is not the command alone")
+    let window = String(repeating: "x", count: 40) + " the brac"
+    let slid = String(window.dropFirst(4)) + " tab"
+    check(SpokenAccept.spokenLength(card: snap(window, at: 100), current: snap(slid, at: 104)) == 4
+          && SpokenAccept.spokenLength(card: snap(window, at: -1), current: snap(slid, at: 100)) == 4,
+          "the card lines up by its end, wherever the host says its text starts")
+    check(SpokenAccept.nearMiss(units(card + " tap")) == "tap" && SpokenAccept.nearMiss(units(card + " Tabs.")) == "tabs"
+          && SpokenAccept.nearMiss(units(card + " tab")) == nil && SpokenAccept.nearMiss(units(card + " laptop")) == nil,
+          "a word recognition wrote for tab is named for the log, and nothing else is")
+    check(SpokenAccept.change(from: "The other revenue was", to: "The other revenue. Was.") == "only punctuation or capitals"
+          && SpokenAccept.change(from: "The other revenue", to: "The other revenue was") == "1 words added"
+          && SpokenAccept.change(from: "The other revenue", to: "The outer revenue") == "earlier words changed"
+          && SpokenAccept.change(from: card, to: card) == "nothing",
+          "how the text changed since the card showed is described without the text")
+
+    /// Plans Tab on the card's text, stretches it over the spoken word, and
+    /// applies it to the field as it is now, checked as an insertion would be.
+    func acceptSpoken(card: String, current: String, insert: String,
+                      replacement: CompletionReplacement? = nil, separate: Bool = false,
+                      cardStart: Int = 0, currentStart: Int = 0) -> (text: String, inserted: String)? {
+        let cardSnap = snap(card, at: cardStart), currentSnap = snap(current, at: currentStart)
+        guard let length = SpokenAccept.spokenLength(card: cardSnap, current: currentSnap),
+              case .success(let planned) = CompletionTransaction.plan(document: units(card), caret: units(card).count,
+                  insertText: insert, replacement: replacement, separateInsertion: separate),
+              let plan = SpokenAccept.plan(planned, card: cardSnap, current: currentSnap, spokenLength: length),
+              CompletionTransaction.validate(plan, against: units(current), caret: units(current).count) == nil
+        else { return nil }
+        let after = CompletionTransaction.apply(plan, to: units(current))
+        guard case .success(let verified) = CompletionTransaction.verify(
+            before: currentSnap, after: CompletionSnapshot(documentStart: currentStart, text: after), plan: plan)
+        else { return nil }
+        let source = plan.sourceRange ?? 0..<plan.insertText.utf16.count
+        let inserted = Array(after[(verified.snapshotRange.lowerBound + source.lowerBound)
+                                   ..< (verified.snapshotRange.lowerBound + source.upperBound)])
+        return (string(after), string(inserted))
+    }
+
+    let keyword = CompletionReplacement.capture(start: 11, end: card.utf16.count, in: card, expectedText: "brac")!
+    let replaced = acceptSpoken(card: card, current: card + " Tab.", insert: "Bracket", replacement: keyword)
+    check(replaced?.text == "I need the Bracket" && replaced?.inserted == "Bracket",
+          "one edit takes the word back out and replaces the typed fragment, as Tab would have")
+    check(acceptSpoken(card: card, current: card + "\t", insert: "Bracket", replacement: keyword)?.text
+          == "I need the Bracket", "tab key's tab character is taken back out too")
+    let value = "The bracket is"
+    let append = CompletionReplacement(start: value.utf16.count, expectedText: "")
+    check(acceptSpoken(card: value, current: value + " tab", insert: "100 mm", replacement: append, separate: true)?.text
+          == "The bracket is 100 mm", "a value or sentence continuation is spaced from the words before it")
+    check(acceptSpoken(card: "office sup", current: "office sup tab", insert: "office supplies")?.text
+          == "office supplies", "an inferred completion still rewrites only what was said towards it")
+    let spaced = "for our dep "
+    let kept = CompletionReplacement.capture(start: 8, end: 11, in: spaced, expectedText: "dep")!
+    check(acceptSpoken(card: spaced, current: spaced + "tab", insert: "department", replacement: kept)?.text
+          == "for our department ", "the space written before the word stays after the insertion")
+    let longCard = String(repeating: "y", count: 40) + " the brac"
+    let longKeyword = CompletionReplacement.capture(start: 45, end: longCard.utf16.count, in: longCard, expectedText: "brac")!
+    check(acceptSpoken(card: longCard, current: String(longCard.dropFirst(4)) + " tab", insert: "Bracket",
+                       replacement: longKeyword, cardStart: 100, currentStart: 104)?.text
+          == String(repeating: "y", count: 36) + " the Bracket", "a moving window is written in its own offsets")
+    if case .success(let planned) = CompletionTransaction.plan(document: units(card), caret: units(card).count,
+                                                               insertText: "Bracket", replacement: keyword) {
+        check(SpokenAccept.plan(planned, card: snap(card), current: snap("I need the brak tab"), spokenLength: 4) == nil,
+              "the stretched edit refuses a field whose typed fragment changed")
+        check(SpokenAccept.plan(planned, card: snap(card), current: snap(card + " tab"), spokenLength: 3) == nil,
+              "the stretched edit must end exactly where the card's text did, plus the word")
+    } else { check(false, "the stretched edit refuses a field whose typed fragment changed") }
+
+    func pause(_ text: String) -> Int { SpokenAccept.pauseMarkLength(units(text)) }
+    check(pause("Other revenue.") == 1 && pause("We spent on supplies, ") == 2 && pause("Is it net income?") == 1
+          && pause("Revenue was 400.") == 1,
+          "the mark dictation puts after a word at a pause is left out of the question")
+    check(pause("Other revenue") == 0 && pause("Other revenue ") == 0 && pause("See (Revenue).") == 0
+          && pause("Wait...") == 0 && pause("Total:\n") == 0 && pause(".") == 0,
+          "anything but one mark straight after a word stays in the question")
+    /// Tab on a card asked without the pause mark, written into the field that has it.
+    func acceptAfterPause(_ field: String, insert: String, replacement: CompletionReplacement,
+                          separate: Bool = false) -> String? {
+        let length = pause(field)
+        let answered = String(decoding: units(field).dropLast(length), as: UTF16.self)
+        guard length > 0, case .success(let planned) = CompletionTransaction.plan(document: units(answered),
+                caret: units(answered).count, insertText: insert, replacement: replacement, separateInsertion: separate),
+              let plan = SpokenAccept.plan(planned, card: snap(answered), current: snap(field), spokenLength: length,
+                                           keeping: String(decoding: units(field).suffix(length), as: UTF16.self)),
+              CompletionTransaction.validate(plan, against: units(field), caret: units(field).count) == nil
+        else { return nil }
+        return string(CompletionTransaction.apply(plan, to: units(field)))
+    }
+    let other = "Other revenue"
+    let otherName = CompletionReplacement.capture(start: 0, end: 13, in: other, expectedText: other)!
+    check(acceptAfterPause(other + ".", insert: "Other Revenue", replacement: otherName) == "Other Revenue.",
+          "Tab after a pause replaces the name and keeps dictation's mark after it")
+    let was = "Other revenue was"
+    check(acceptAfterPause(was + ". ", insert: "400", replacement: CompletionReplacement(start: 17, expectedText: ""),
+                           separate: true) == "Other revenue was 400. ",
+          "a value goes before the mark, not after it")
+    if case .success(let planned) = CompletionTransaction.plan(document: units(other), caret: 13, insertText: "Other Revenue",
+                                                               replacement: otherName),
+       let plan = SpokenAccept.plan(planned, card: snap(other), current: snap(other + "."), spokenLength: 1, keeping: ".") {
+        check(plan.sourceRange == 0..<13, "the link covers the name, not the mark kept after it")
+    } else { check(false, "the link covers the name, not the mark kept after it") }
+    check(acceptSpoken(card: other, current: other + ". Tab.", insert: "Other Revenue", replacement: otherName)?.text
+          == "Other Revenue", "saying tab after a pause takes the mark out with the word, as the sentence goes on")
+
+    var shortcut = DictationShortcut()
+    check(shortcut.keyDown(176, flags: []) && shortcut.keyDown(176, flags: .maskSecondaryFn)
+          && !shortcut.keyDown(176, flags: .maskCommand) && !shortcut.keyDown(96, flags: [])
+          && !shortcut.keyDown(0, flags: []),
+          "the 🎤 key starts Dictation, alone or with fn; ⌘🎤, F5 and letters do not")
+    func taps(_ steps: [(CGEventFlags, TimeInterval)]) -> [Bool] {
+        var detector = DictationShortcut()
+        return steps.map { detector.flagsChanged($0.0, at: $0.1) }
+    }
+    check(taps([(.maskSecondaryFn, 0), ([], 0.08), (.maskSecondaryFn, 0.2), ([], 0.28)]) == [false, false, false, true]
+          && taps([(.maskControl, 0), ([], 0.1), (.maskControl, 0.2), ([], 0.3)]).last == true
+          && taps([(.maskCommand, 0), ([], 0.1), (.maskCommand, 0.25), ([], 0.35)]).last == true,
+          "fn, Control or Command pressed twice is a Dictation shortcut")
+    check(taps([(.maskSecondaryFn, 0), ([], 0.1), (.maskSecondaryFn, 0.7), ([], 0.8)]).last == false
+          && taps([(.maskSecondaryFn, 0), ([], 0.1), (.maskControl, 0.2), ([], 0.3)]).last == false
+          && taps([(.maskShift, 0), ([], 0.1), (.maskShift, 0.2), ([], 0.3)]).last == false
+          && taps([(.maskCommand, 0), ([.maskCommand, .maskShift], 0.05), ([], 0.1), (.maskCommand, 0.2), ([], 0.3)]).last == false,
+          "slow taps, two different modifiers, Shift and chords are not")
+    var typedBetween = DictationShortcut()
+    _ = typedBetween.flagsChanged(.maskCommand, at: 0)
+    _ = typedBetween.flagsChanged([], at: 0.1)
+    _ = typedBetween.keyDown(8, flags: [])
+    _ = typedBetween.flagsChanged(.maskCommand, at: 0.2)
+    check(!typedBetween.flagsChanged([], at: 0.3), "a key typed between the taps breaks the shortcut")
+
+    let element = AXUIElementCreateApplication(getpid())
+    let before = card + " tab"
+    let after = units("I need the Bracket")
+    let insertion = AcceptedInsertion(element: element, caret: after.count, inserted: "Bracket", replaced: "brac tab")
+    check(insertion.revertPlan(windowStart: 0, text: after, caret: after.count)
+              .map { string(CompletionTransaction.apply($0, to: after)) } == before,
+          "⌘Z puts back the spoken word with the fragment, as the field was")
 }
 
 print("inferred completion replacement stays bounded by the insertion")
@@ -2429,6 +2657,59 @@ do {
           "the page's pinch speed turns a forwarded spread back into exactly the pinch's scale")
 }
 
+print("some of a line's words are chosen like a text field's, a word at a time")
+do {
+    // A sentence's continuation starts with the space after the typed words.
+    let line = " 6061 aluminium with a 3 mm wall, anodised black."
+    check(!AssistWordChoice.offers("Office supplies budget") && !AssistWordChoice.offers("first line\nsecond line here"),
+          "names and several lines do not open into words")
+    check(AssistWordChoice.offers(line) && AssistWordChoice.offers("const total = await fetchTotal(id);"),
+          "sentences and lines of code do")
+    var words = AssistWordChoice(text: line)!
+    check(words.words.count == 9 && words.isWhole && words.chosenText == line && !words.startsMidLine,
+          "the line opens with every word selected, inserting exactly what Tab would")
+
+    words.move(.backward, selecting: true)
+    words.move(.backward, selecting: true)
+    check(words.chosenText == " 6061 aluminium with a 3 mm wall", "⇧← takes words off the end, and the comma before them")
+    words.move(.forward, selecting: true)
+    check(words.chosenText == " 6061 aluminium with a 3 mm wall, anodised", "⇧→ gives a word back")
+
+    var fromStart = AssistWordChoice(text: line, movingStart: true)!
+    fromStart.move(.forward, selecting: true)
+    fromStart.move(.forward, selecting: true)
+    check(fromStart.chosenText == "with a 3 mm wall, anodised black." && fromStart.startsMidLine,
+          "opened with ⇧fn←, ⇧→ takes words off the start, without the space they followed")
+
+    // The middle: collapse to the start, move to the first word, select to the last.
+    var middle = AssistWordChoice(text: line)!
+    middle.move(.backward, selecting: false)
+    check(middle.selection.isEmpty && middle.caret == 0 && middle.chosenText == nil,
+          "← collapses the selection to its start, leaving nothing to insert")
+    middle.move(.forward, selecting: false)
+    middle.move(.forward, selecting: false)
+    for _ in 0..<5 { middle.move(.forward, selecting: true) }
+    check(middle.chosenText == "with a 3 mm wall", "words from the middle are moved to, then selected")
+    middle.move(.backward, selecting: true, toEnd: true)
+    check(middle.chosenText == " 6061 aluminium", "⇧⌘← selects from where the selection started back to the start")
+    middle.move(.forward, selecting: true, toEnd: true)
+    check(middle.chosenText == "with a 3 mm wall, anodised black.", "⇧⌘→ selects on to the end")
+    middle.move(.forward, selecting: false)
+    middle.move(.forward, selecting: false)
+    check(middle.caret == 9 && middle.selection.isEmpty, "the caret stops at the end of the line")
+
+    var dragged = AssistWordChoice(text: line)!
+    dragged.select(from: 6, to: 3)
+    check(dragged.chosenText == "a 3 mm wall", "dragging back over words selects them too")
+    dragged.select(from: 4, to: 4)
+    check(dragged.chosenText == "3", "a click selects one word")
+
+    let code = AssistWordChoice(text: "if (total > limit) { return limit; }")!
+    var condition = code
+    condition.select(from: 0, to: 3)
+    check(condition.chosenText == "if (total > limit)", "code is chosen by the runs between its spaces")
+}
+
 print("keystrokes are routed from a published snapshot")
 do {
     func route(_ keyCode: Int64, _ state: KeyRoutingState) -> KeyDecision {
@@ -2536,6 +2817,45 @@ do {
           "a message beside the inspector does not take its Tab")
     check(route(48, KeyRoutingState(transientOpen: true)) == .pass(.followTyping(trackCaret: false)),
           "an inspector still loading or showing an error leaves Tab to the host")
+
+    // ⇧fn+arrows arrive as Shift+Home and Shift+End.
+    let shiftFn: CGEventFlags = [.maskSecondaryFn, .maskShift]
+    let line = KeyRoutingState(transientOpen: true, popup: .suggestions, highlightsLine: true)
+    check(chord(119, shiftFn, line) == .swallow(.openWords(movingStart: false))
+          && chord(115, shiftFn, line) == .swallow(.openWords(movingStart: true)),
+          "⇧fn+Right and ⇧fn+Left open a highlighted line's words")
+    check(chord(115, shiftFn, open) == .pass(.followTyping(trackCaret: true)),
+          "on any other row ⇧fn+Left still selects to the start in the host")
+    check(chord(119, fnArrow, line) == .swallow(.focusIn) && chord(115, fnArrow, line) == .swallow(.focusOut),
+          "fn+Left and fn+Right keep narrowing and stepping back on a line")
+    check(chord(119, [.maskSecondaryFn, .maskShift, .maskCommand], line) == .pass(.hide),
+          "Shift+Command+End is not taken for a line")
+    let words = KeyRoutingState(transientOpen: true, popup: .suggestions, highlightsLine: true, choosingWords: true)
+    let arrowFlags: CGEventFlags = [.maskNumericPad, .maskSecondaryFn]
+    check(chord(124, arrowFlags, words) == .swallow(.moveInWords(forward: true, selecting: false, toEnd: false))
+          && chord(123, arrowFlags, words) == .swallow(.moveInWords(forward: false, selecting: false, toEnd: false)),
+          "among a line's words the arrows move a word, not the host's caret")
+    check(chord(123, arrowFlags.union(.maskShift), words) == .swallow(.moveInWords(forward: false, selecting: true, toEnd: false))
+          && chord(124, arrowFlags.union([.maskShift, .maskAlternate]), words)
+            == .swallow(.moveInWords(forward: true, selecting: true, toEnd: false)),
+          "Shift+arrows select a word at a time, with or without Option")
+    check(chord(124, arrowFlags.union([.maskShift, .maskCommand]), words)
+            == .swallow(.moveInWords(forward: true, selecting: true, toEnd: true))
+          && chord(115, shiftFn, words) == .swallow(.moveInWords(forward: false, selecting: true, toEnd: true)),
+          "Shift+Command+arrows and ⇧fn+arrows select to the start or end")
+    check(chord(115, fnArrow, words) == .swallow(.focusOut) && chord(119, fnArrow, words) == .swallow(.focusIn),
+          "fn+Left and fn+Right still step and narrow the card from a line's words")
+    check(route(53, words) == .swallow(.closeWords) && route(53, line) == .swallow(.dismissTransient),
+          "Escape goes back from a line's words to the list, then closes the card")
+    check(route(48, words) == .swallow(.activate) && chord(36, .maskCommand, words) == .swallow(.acceptPlain)
+          && route(125, words) == .swallow(.move(1)),
+          "Tab and Command+Return insert the words, and Down goes on to the next row")
+    check(chord(124, arrowFlags.union(.maskControl), words) == .pass(.hide)
+          && route(0, words) == .pass(.followTyping(trackCaret: true)),
+          "Control+arrows and typing still reach macOS and the host")
+    check(chord(124, arrowFlags, KeyRoutingState(shareComposerOpen: true, popup: .suggestions, choosingWords: true))
+            == .swallow(.shareScope(1)),
+          "the share options keep their arrows over a line's words")
 
     let box = KeyRoutingStateBox()
     box.value = open

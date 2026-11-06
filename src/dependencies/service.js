@@ -16,7 +16,7 @@ import { renderPdfFigurePage } from './figure-preview.js';
 import { columnLetter } from './table-preview.js';
 import { markdownBlocks, markdownPassages } from '../sharing/markdown.js';
 import { shareExpiry } from '../sharing/expiry.js';
-import { RecommendationRanking, directRecommendationMatch } from './ranking.js';
+import { RecommendationRanking, directRecommendationMatch, recommendationRelevanceBand } from './ranking.js';
 import { correctedDocumentLabel, firstAuthorFamily } from './authors.js';
 import { BoundedCache } from '../cache.js';
 import { drawingDescriptors, drawingContext, isDesignFile, measurementOrder, measurementRelevance } from './drawing-objects.js';
@@ -519,6 +519,22 @@ const CONTEXTUAL_INSERTION_CUES = new Set([
   'indicates', 'demonstrate', 'demonstrated', 'estimate', 'estimated', 'include', 'included',
   'includes', 'increased', 'decreased',
 ]);
+
+// Words that only say a sentence reports the writer's own work ("these results
+// indicate", "in the current analysis we observed") or where data sits ("the
+// marketing rows"). They ask for project data without naming any of it, so no
+// source matches on them.
+const REPORTING_WORDS = new Set([...CONTEXTUAL_INSERTION_CUES, ...FRAGMENT_FUNCTION_WORDS,
+  'current', 'present', 'work', 'studies', 'finding', 'findings', 'outcome', 'outcomes',
+  'row', 'rows', 'column', 'columns', 'cell', 'cells', 'record', 'records', 'value', 'values',
+  'table', 'tables', 'sheet', 'sheets', 'field', 'fields', 'entry', 'entries']);
+
+/** The words a sentence is about, and the word still being typed at its end, which is left out of them. */
+function sentenceSubject(sentence) {
+  const typing = sentence.match(/[A-Za-z][A-Za-z0-9-]*$/)?.[0].toLowerCase() ?? '';
+  return { typing, words: wordTokens(sentence.slice(0, sentence.length - typing.length))
+    .filter((word) => !REPORTING_WORDS.has(word)) };
+}
 
 function normalizedCompletionPhrase(value) {
   return String(value ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()
@@ -3053,6 +3069,11 @@ export class PredictiveProvenanceService {
     if (normalizedVariable(query).length < 2) return [];
     const normalizedQuery = normalizedVariable(query);
     const queryWords = variableTokens(humanVariable(query));
+    // The name decides eligibility. Earlier words in this sentence distinguish
+    // identically named columns/rows before duplicate names are collapsed.
+    const contextWords = wordTokens(options.sentenceContext)
+      .filter((word) => !REPORTING_WORDS.has(word) && !queryWords.includes(word));
+    const directoryWords = contextWords.length ? wordTokens(this.timeline.getProject(projectId).name) : [];
     const permitted = this.autocompleteFilter(projectId);
     const known = this.studyVariables(projectId, options.snapshotId);
     const indexed = this.indexedStudyVariables(projectId, options.snapshotId, query, this.keysOf(known));
@@ -3070,29 +3091,44 @@ export class PredictiveProvenanceService {
       // extent"), so it waits until the drawing itself can be named and offered first.
       .filter(({ object }) => object.objectType !== 'DRAWING_ANNOTATION'
         || normalizedQuery.length >= DRAWING_NAME_MIN_LETTERS)
-      .map(({ object, match }) => {
+      .flatMap(({ object, match }) => {
         const { exact, prefix, contains, tokenPrefix, partMeasurement } = match;
         const variableObject = object.objectType === 'VARIABLE' ? 1 : 0;
         const rowObject = object.objectType === 'DATASET_ROW' && !object.namedRow ? 1 : 0;
+        // Words that each begin a word of the name, in any order, are how a
+        // column is abbreviated ("cur per"). They do not name a row or a value:
+        // "Quebec district 30002" would otherwise match every district.
+        if (!exact && !prefix && !contains && !partMeasurement && !variableObject && !rowObject) return [];
         // Named rows rank below variables and line items that match as well.
         const namedRow = object.namedRow ? 1 : 0;
         const dictionary = object.metadata.dictionary ? 1 : 0;
         const dataPath = /(^|\/)(?:data|datasets?|results?|outputs?|tables?|metabolomics)(\/|$)/i.test(object.path) ? 1 : 0;
-        const base = exact ? 0.91 : prefix ? 0.82 : contains ? 0.74 : partMeasurement ? 0.72 : tokenPrefix ? 0.68 : 0;
+        const base = exact ? 0.95 : prefix ? 0.82 : contains ? 0.74 : partMeasurement ? 0.72 : tokenPrefix ? 0.68 : 0;
         const profileQuality = object.metadata.range ? 0.025
           : object.metadata.samples?.length ? 0.012 : object.metadata.dictionary ? 0.01 : -0.015;
-        const score = Math.min(0.99, base + variableObject * 0.04 + rowObject * 0.065
-          + dictionary * 0.03 + dataPath * 0.02 + profileQuality - namedRow * 0.03);
+        const preference = variableObject * 0.04 + rowObject * 0.065
+          + dictionary * 0.03 + dataPath * 0.02 + profileQuality - namedRow * 0.03;
+        // How the typed words match the name sets the relevance band (exact,
+        // begins, contains, out of order). What kind of object it is and which
+        // folder holds it (-0.045 to 0.14, a fifth of that here) only order names
+        // that match alike: a column whose name merely contains the words never
+        // passes a row or column whose name begins with them.
+        const score = Math.min(0.99, base + 0.2 * (preference + 0.045));
+        // A name with the typed words further in ("Peak Pressure" for "pres") is
+        // a name match, not one the words begin.
         const reasons = namedRow ? [exact ? 'Exact row name' : 'Matching row name']
-          : [exact ? 'Exact variable name' : prefix || tokenPrefix ? 'Matching variable prefix' : 'Matching variable name'];
+          : [exact ? 'Exact variable name' : prefix || (tokenPrefix && !contains) ? 'Matching variable prefix' : 'Matching variable name'];
         if (dictionary) reasons.push('data dictionary definition');
         else if (rowObject || namedRow) reasons.push('named dataset row');
         else if (variableObject) reasons.push('inferred from dataset column');
-        return {
+        const sourceWords = contextWords.length
+          ? new Set([...directoryWords, ...wordTokens(`${object.label} ${object.searchText}`)]) : null;
+        return [{
           ...object,
           label: object.variable,
           completionText: object.variable,
           score: Number(score.toFixed(3)),
+          contextScore: sourceWords ? contextWords.filter((word) => sourceWords.has(word)).length / contextWords.length : 0,
           matchTier: exact ? 0 : 1,
           reasons,
           variableDefinition: object.objectType === 'VARIABLE' ? {
@@ -3102,9 +3138,13 @@ export class PredictiveProvenanceService {
             path: object.path,
             inferred: !object.metadata.dictionary,
           } : null,
-        };
+        }];
       }).filter((object) => object.score >= 0.68)
-      .sort((left, right) => right.score - left.score
+      // Only eight deep rows become indexed objects. Apply sentence context
+      // within their relevance bands before that cap can discard the right file.
+      .sort((left, right) => recommendationRelevanceBand(right.score) - recommendationRelevanceBand(left.score)
+        || right.contextScore - left.contextScore
+        || right.score - left.score
         || Number(right.objectType === 'DATASET_ROW' && !right.namedRow) - Number(left.objectType === 'DATASET_ROW' && !left.namedRow)
         || Number(right.objectType === 'VARIABLE') - Number(left.objectType === 'VARIABLE')
         || left.variable.localeCompare(right.variable)
@@ -3152,6 +3192,7 @@ export class PredictiveProvenanceService {
     for (const fragment of progressiveVariableFragments(input.text, cursor, settledAt)) {
       const candidates = this.candidatesForStudyVariable(projectId, fragment, {
         documentPath: input.documentPath,
+        sentenceContext: input.text.slice(Math.max(context.sentenceStart, settledAt), fragment.start),
         relatedPaths: this.relatedSourcePaths(projectId, input),
         limit: 40,
       });
@@ -3171,9 +3212,13 @@ export class PredictiveProvenanceService {
     for (const fragment of fragments) {
       const candidates = files.flatMap(object => {
         const match = fileReferenceMatch(object, fragment.text);
+        // "floor plan" or "3D model" names what kind of drawing a file is, read
+        // from its format. A file whose own name or title has the words comes first.
+        const kindOnly = match?.matchedBy === 'drawing-alias';
         return match ? [this.enrichObject(projectId, {
-          ...object, label: match.label, score: match.score, matchTier: 0, fileReference: true,
-          reasons: [object.objectType === 'DRAWING' ? 'Matching drawing reference' : 'Matching file name'],
+          ...object, label: match.label, score: match.score, matchTier: kindOnly ? 1 : 0, fileReference: true,
+          reasons: [kindOnly ? 'Matching drawing type'
+            : object.objectType === 'DRAWING' ? 'Matching drawing reference' : 'Matching file name'],
         })] : [];
       }).sort((left, right) => right.score - left.score);
       if (candidates.length) return { ...fragment, type: 'ENTITY', partial: true,
@@ -3193,11 +3238,19 @@ export class PredictiveProvenanceService {
     ]);
     const objects = this.objectsAt(projectId, target, retrievableTypes)
       .filter((object) => retrievableTypes.has(object.objectType))
-      .map((object) => ({
-        ...object,
-        retrievalText: workspaceCompletionText(object),
-        retrievalTokens: wordTokens(`${object.searchText} ${workspaceCompletionText(object)}`),
-      })).filter((object) => object.retrievalText
+      .map((object) => {
+        const retrievalText = workspaceCompletionText(object);
+        return {
+          ...object,
+          retrievalText,
+          retrievalTokens: wordTokens(`${object.searchText} ${retrievalText}`),
+          // Its own words: the name, the words Tab inserts and the value, or a
+          // column's values. Not its path, its file type or the description
+          // Lasso writes of a column ("inferred numeric variable").
+          ownTokens: wordTokens(`${object.label} ${retrievalText} ${object.objectType === 'VARIABLE'
+            ? (object.metadata.samples ?? []).join(' ') : object.valueText ?? ''}`),
+        };
+      }).filter((object) => object.retrievalText
         && (object.objectType !== 'VARIABLE' || /[A-Za-z]/.test(object.retrievalText)));
     this.workspaceRetrievalCache.set(target, objects);
     return objects;
@@ -3212,10 +3265,15 @@ export class PredictiveProvenanceService {
     let index = this.retrievalIndexes.get(objects);
     if (index) return index;
     const places = new Map();
+    const ownPlaces = new Map();
     const features = objects.map((object, position) => {
       for (const token of object.retrievalTokens) {
         if (!places.has(token)) places.set(token, []);
         places.get(token).push(position);
+      }
+      for (const token of object.ownTokens) {
+        if (!ownPlaces.has(token)) ownPlaces.set(token, []);
+        ownPlaces.get(token).push(position);
       }
       return {
         resultType: ['VARIABLE', 'RESULT', 'VALUE', 'DATASET_ROW', 'DATASET_VALUE', 'DATASET', 'TABLE'].includes(object.objectType),
@@ -3225,7 +3283,9 @@ export class PredictiveProvenanceService {
         priority: dependencyFilePriority({ path: object.path }),
       };
     });
-    index = { places, features };
+    // In order, so the words a partly typed word begins are one range.
+    const ownWords = [...ownPlaces.keys()].sort();
+    index = { places, ownPlaces, ownWords, features };
     this.retrievalIndexes.set(objects, index);
     return index;
   }
@@ -3253,12 +3313,35 @@ export class PredictiveProvenanceService {
       || /\bmethods?\b/i.test(input.section);
     const permitted = this.autocompleteFilter(projectId);
     const retrievable = this.workspaceRetrievalObjects(projectId, options.snapshotId);
-    const { places, features } = this.retrievalIndexOf(retrievable);
+    const { places, ownPlaces, ownWords, features } = this.retrievalIndexOf(retrievable);
     // How many of the sentence's words each object has, as overlapScore counts them.
     const queryWords = wordTokens(query);
     const shared = new Uint16Array(retrievable.length);
     for (const word of queryWords) for (const position of places.get(word) ?? []) shared[position] += 1;
-    const reasons = ['contextual workspace match', resultIntent ? 'study-data context' : methodIntent ? 'methods context' : 'project context'];
+    // The words the sentence is about, and how many of them each object's own
+    // name, value or prose has. Its path, file type and section do not count.
+    const { typing, words: subjectWords } = sentenceSubject(context.sentence);
+    const ownShared = new Uint16Array(retrievable.length);
+    for (const word of subjectWords) for (const position of ownPlaces.get(word) ?? []) ownShared[position] += 1;
+    // The word being typed counts once it begins a word some source has.
+    if (typing.length >= 3 && !REPORTING_WORDS.has(typing) && !subjectWords.includes(typing)) {
+      const begun = new Set();
+      let low = 0;
+      for (let high = ownWords.length; low < high;) {
+        const middle = (low + high) >>> 1;
+        if (ownWords[middle] < typing) low = middle + 1; else high = middle;
+      }
+      for (let at = low; at < ownWords.length && ownWords[at].startsWith(typing); at += 1) {
+        for (const position of ownPlaces.get(ownWords[at])) begun.add(position);
+      }
+      // An unknown topic is still a topic. Dropping it would make "Our results
+      // showed geomembrane" offer generic data until the next space is typed.
+      subjectWords.push(typing);
+      for (const position of begun) ownShared[position] += 1;
+    }
+    // A long sentence needs more than one of its words in common.
+    const fewestShared = Math.ceil(subjectWords.length / 4);
+    const contextReason = resultIntent ? 'study-data context' : methodIntent ? 'methods context' : 'project context';
     // Ranking keeps only objects that reach its minimum, so the rest are not sorted for it.
     const minimumScore = options.minimumScore ?? 0.54;
     const scored = [];
@@ -3267,22 +3350,39 @@ export class PredictiveProvenanceService {
       if (!permitted(object)) return;
       const { resultType, methodType, identifier, dataPath, priority } = features[position];
       const overlap = queryWords.length ? shared[position] / Math.max(2, queryWords.length) : 0;
-      let score = 0.18 + overlap * 0.52;
-      if (resultIntent && resultType) score += object.objectType === 'RESULT' ? 0.32 : object.objectType === 'VARIABLE' ? 0.28 : 0.16;
-      if (methodIntent && methodType) score += 0.36;
-      if (!resultIntent && !methodIntent && object.objectType === 'VARIABLE') score += 0.2;
-      if (object.metadata.dictionary) score += 0.08;
-      if (object.objectType === 'VARIABLE') {
-        if (object.metadata.range) score += 0.08;
-        else if (object.metadata.samples?.length) score += 0.035;
-        else if (!object.metadata.dictionary) score -= 0.06;
+      let score;
+      if (subjectWords.length) {
+        // A sentence about something offers only what has its words. Each word
+        // in common is a relevance band; the surrounding text, the folder and
+        // the kind of data (together under one band) order those that share as many.
+        if (ownShared[position] < Math.max(1, fewestShared)) return;
+        const kindFits = (resultIntent && resultType) || (methodIntent && methodType);
+        score = 0.56 + 0.08 * Math.min(4, ownShared[position])
+          + overlap * 0.03 + (kindFits ? 0.02 : 0) + (dataPath ? 0.01 : 0);
+      } else {
+        // "We found that" names nothing: offer the project's results or
+        // methods, as the sentence asks, ranked after anything matching words.
+        score = 0.18 + overlap * 0.52;
+        if (resultIntent && resultType) score += object.objectType === 'RESULT' ? 0.32 : object.objectType === 'VARIABLE' ? 0.28 : 0.16;
+        if (methodIntent && methodType) score += 0.36;
+        if (!resultIntent && !methodIntent && object.objectType === 'VARIABLE') score += 0.2;
+        if (object.metadata.dictionary) score += 0.08;
+        if (object.objectType === 'VARIABLE') {
+          if (object.metadata.range) score += 0.08;
+          else if (object.metadata.samples?.length) score += 0.035;
+          else if (!object.metadata.dictionary) score -= 0.06;
+        }
+        if (dataPath) score += 0.06;
       }
-      if (dataPath) score += 0.06;
       if (object.metadata.metric === 'row-count' && !sampleSizeIntent) score -= 0.32;
       if (identifier) score *= 0.38;
       score = Number(Math.min(0.98, score).toFixed(3));
       // The reasons go with the object into ranking, which then has no fallback score to work out.
-      if (score >= 0.34 && score >= minimumScore) scored.push({ object: { ...object, score, reasons }, priority });
+      if (score >= 0.34 && score >= minimumScore) {
+        scored.push({ object: { ...object, score, matchTier: subjectWords.length ? 1 : 2,
+          reasons: [subjectWords.length ? 'Matching words in your sentence' : 'contextual workspace match', contextReason] },
+        priority });
+      }
     });
     const objects = scored.sort((left, right) => right.object.score - left.object.score
         || Number(right.object.objectType === 'RESULT') - Number(left.object.objectType === 'RESULT')
@@ -4246,7 +4346,12 @@ export class PredictiveProvenanceService {
     if (studyPrediction) {
       const { fragment, candidates } = studyPrediction;
       const hasVariableChoices = Boolean(fragment && candidates.length);
-      const preferWorkspace = !hasVariableChoices && !hasSpecificCompletionTail(studyPrediction.context.sentence);
+      // A sentence that names something ("soil moisture in plot B rose by")
+      // tries to continue its own words first; one that only reports ("We
+      // found that") is answered with the project's data.
+      const { sentence } = studyPrediction.context;
+      const preferWorkspace = !hasVariableChoices && !hasSpecificCompletionTail(sentence)
+        && !sentenceSubject(sentence).words.length;
       const resultLimit = input.surface === 'search' ? 12 : 8;
       const initialWorkspaceCompletions = preferWorkspace
         ? this.workspaceSuggestions(projectId, input, cursor, { limit: resultLimit }) : [];
@@ -4376,10 +4481,12 @@ export class PredictiveProvenanceService {
           ...object,
           diversityKey: object.objectType === 'REFERENCE' ? object.id : object.path,
           ...(drawing ? { label: drawing.label, searchAliases: drawingDiscovery(object).aliases } : {}),
-          ...((drawing || direct && normalizedQuery) ? { matchTier: 0 }
-            : drawingPaths.has(object.path) ? { matchTier: 1 } : {}),
+          // A drawing found by its type ("floor plan") follows those found by name.
+          ...((drawing && drawing.matchedBy !== 'drawing-alias') || direct && normalizedQuery ? { matchTier: 0 }
+            : drawing || drawingPaths.has(object.path) ? { matchTier: 1 } : {}),
           ...(!normalizedQuery && contextTerms.length ? { matchTier: contextScore ? 1 : 3 } : {}),
-          reasons: aliasMatch ? ['Exact alias match'] : drawing ? ['Matches a drawing name or topic']
+          reasons: aliasMatch ? ['Exact alias match'] : drawing?.matchedBy === 'drawing-alias' ? ['Matches a drawing type']
+            : drawing ? ['Matches a drawing name or topic']
             : direct && normalizedQuery ? [match.reason]
               : aliasScore ? ['Matches a source alias'] : contextScore ? ['Matches current context'] : [],
           score: drawing ? Math.max(drawing.score, direct ? score : 0)

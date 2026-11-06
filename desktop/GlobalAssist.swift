@@ -16,7 +16,7 @@ import UniformTypeIdentifiers
 // MARK: - Model
 
 struct AssistSuggestion {
-    let insertText: String       // what gets typed into the focused app
+    var insertText: String       // what gets typed into the focused app
     let label: String            // headline shown in the box
     let detail: String           // value or context, shown dim
     let path: String             // originating source file
@@ -38,8 +38,27 @@ struct AssistSuggestion {
     var shareable = true
     /// It has values below it, such as a part's measurements, that fn+Right narrows the card to.
     var narrowable = false
+    /// Words chosen from after the line's first, set apart from the typed
+    /// text even when the line continued the sentence.
+    var startsMidLine = false
 
     var isShareable: Bool { objectId != nil && shareable }
+
+    var selectionIdentity: AssistSuggestionSelection.Identity {
+        .init(projectId: projectId, objectId: objectId ?? usageObjectId, insertText: insertText)
+    }
+
+    /// A line long enough that ⇧fn+Left and ⇧fn+Right open it to choose some of its words.
+    var offersWords: Bool { !narrowable && AssistWordChoice.offers(insertText) }
+
+    /// The suggestion with only the words chosen from its line, or nil when none are.
+    func choosing(_ words: AssistWordChoice) -> AssistSuggestion? {
+        guard let text = words.chosenText else { return nil }
+        var part = self
+        part.insertText = text
+        part.startsMidLine = words.startsMidLine
+        return part
+    }
 }
 
 /// Records successful, intentional source interactions. The session is stable
@@ -692,6 +711,17 @@ final class AssistBoxView: NSView {
     /// The focus fn+Left steps a focused card back to, named in its header;
     /// nil when it steps back to every directory.
     var stepBackName: String?
+    /// The highlighted line's words, opened with ⇧fn+Right or ⇧fn+Left, in place of the list.
+    var wordChoice: AssistWordChoice? {
+        didSet {
+            if wordChoice?.text != oldValue?.text { wordScroll = 0 }
+            if wordChoice != oldValue { revealWordCaret() }
+            needsDisplay = true
+        }
+    }
+    /// How far a long line's words are scrolled, and the word a drag across them started on.
+    private var wordScroll: CGFloat = 0
+    private var wordDrag: Int?
     var preview: AssistDocumentPreview? {
         didSet { modelView = AssistModelView(); modelDrag = nil; tableFirstRow = 0; tableScroll = 0 }
     }
@@ -710,6 +740,8 @@ final class AssistBoxView: NSView {
     var onOpenSource: (() -> Void)?
     var onAllSources: (() -> Void)?
     var onStepBack: (() -> Void)?
+    var onOpenWords: (() -> Void)?
+    var onCloseWords: (() -> Void)?
     var onDismiss: (() -> Void)?
     fileprivate let closeButton = NSButton()
 
@@ -833,6 +865,10 @@ final class AssistBoxView: NSView {
         var y = bodyTop + (mode == .suggestions ? 0 : headerHeight)
         switch mode {
         case .suggestions:
+            if let words = wordChoice, suggestions.indices.contains(selected) {
+                drawWordChoice(words, from: suggestions[selected])
+                break
+            }
             let navigationFont = NSFont.systemFont(ofSize: 11, weight: .medium)
             // Clear of the row counter when it shows.
             let width = suggestions.count > visibleSuggestionCount ? leftWidth - 170 : leftWidth - 40
@@ -892,9 +928,15 @@ final class AssistBoxView: NSView {
                 let source = (suggestion.path as NSString).lastPathComponent
                 let breadcrumb = [suggestion.rankingReason ?? "", source.isEmpty ? "Project workspace" : source, suggestion.location]
                     .filter { !$0.isEmpty }.joined(separator: "  ·  ")
+                // A highlighted line names the keys that open its words.
+                let wordsHint = index == selected && suggestion.offersWords ? wordsHintRect(slot: slot) : nil
+                if let wordsHint {
+                    drawLabel(Self.wordsHintLabel, key: Self.wordsHintKey, in: wordsHint,
+                              font: Self.wordsHintFont, color: .secondaryLabelColor)
+                }
                 drawText(breadcrumb,
                          in: NSRect(x: 65, y: slotY + 47,
-                                   width: leftWidth - 87, height: 15),
+                                   width: (wordsHint?.minX ?? leftWidth - 22) - 65 - (wordsHint == nil ? 0 : 10), height: 15),
                          font: NSFont.systemFont(ofSize: 11),
                          color: .secondaryLabelColor)
                 if index < visibleSuggestionRange.upperBound - 1 {
@@ -1187,6 +1229,160 @@ final class AssistBoxView: NSView {
         !suggestions.indices.contains(selected) || suggestions[selected].shareable
     }
 
+    // MARK: A line's words
+
+    private static let wordsHintLabel = "Choose words"
+    private static let wordsHintKey = "⇧fn →"
+    private static let wordsHintFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+    private let wordFont = NSFont.systemFont(ofSize: 13.5)
+    private let wordLineSpacing: CGFloat = 4
+
+    /// Where a highlighted line's row names the keys that open its words, at
+    /// the end of its breadcrumb.
+    private func wordsHintRect(slot: Int) -> NSRect {
+        let font = Self.wordsHintFont
+        let width = ceil((Self.wordsHintLabel + "  " + Self.wordsHintKey).size(withAttributes: [.font: font]).width) + 1
+        let slotY = bodyTop + navigationHeight + CGFloat(slot) * suggestionHeight
+        return NSRect(x: leftWidth - 22 - width, y: slotY + 47, width: width, height: 15)
+    }
+
+    /// The line's words, below its source and above the keys that choose them.
+    private var wordTextRect: NSRect {
+        let top = bodyTop + navigationHeight + 34
+        return NSRect(x: 22, y: top, width: leftWidth - 44, height: footerY - 58 - top)
+    }
+
+    private struct WordLayout {
+        let storage: NSTextStorage
+        let manager: NSLayoutManager
+        let container: NSTextContainer
+        /// Where the laid-out words start in the line, whose leading spaces are not shown.
+        let offset: Int
+    }
+
+    /// The line from its first word to its last, wrapped to the card, with the
+    /// words that Tab inserts in full colour.
+    private func wordLayout(_ words: AssistWordChoice) -> WordLayout {
+        let first = words.words.first?.lowerBound ?? 0, last = words.words.last?.upperBound ?? 0
+        let shown = (words.text as NSString).substring(with: NSRange(location: first, length: last - first))
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineSpacing = wordLineSpacing
+        let storage = NSTextStorage(string: shown, attributes: [
+            .font: wordFont, .foregroundColor: NSColor.tertiaryLabelColor, .paragraphStyle: paragraph,
+        ])
+        if let chosen = words.chosenRange {
+            storage.addAttribute(.foregroundColor, value: NSColor.labelColor,
+                                 range: NSRange(location: chosen.lowerBound - first, length: chosen.count))
+        }
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: wordTextRect.width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        manager.addTextContainer(container)
+        storage.addLayoutManager(manager)
+        manager.ensureLayout(for: container)
+        return WordLayout(storage: storage, manager: manager, container: container, offset: first)
+    }
+
+    /// The caret between words, in the layout's own coordinates.
+    private func wordCaretRect(_ words: AssistWordChoice, in layout: WordLayout) -> NSRect {
+        let length = layout.storage.length
+        guard length > 0 else { return .zero }
+        let atEnd = words.caret >= words.words.count
+        let character = atEnd ? length - 1 : min(length - 1, max(0, words.caretOffset - layout.offset))
+        let glyph = layout.manager.glyphIndexForCharacter(at: character)
+        let box = layout.manager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: layout.container)
+        let line = layout.manager.lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil)
+        let x = atEnd ? box.maxX + 1 : box.minX - 2
+        return NSRect(x: x, y: line.minY, width: 1.5, height: max(1, line.height - wordLineSpacing))
+    }
+
+    /// Keeps the caret in view as it moves through a line longer than the card shows.
+    private func revealWordCaret() {
+        guard let words = wordChoice else { return }
+        let layout = wordLayout(words)
+        let area = wordTextRect
+        let caret = wordCaretRect(words, in: layout)
+        if caret.maxY - wordScroll > area.height { wordScroll = caret.maxY - area.height }
+        if caret.minY < wordScroll { wordScroll = caret.minY }
+        let height = layout.manager.usedRect(for: layout.container).height
+        wordScroll = min(max(0, wordScroll), max(0, height - area.height))
+    }
+
+    /// The word under a point in the line, or the nearest one before it.
+    private func word(at point: NSPoint) -> Int? {
+        guard let words = wordChoice else { return nil }
+        let layout = wordLayout(words)
+        let area = wordTextRect
+        let inLayout = NSPoint(x: point.x - area.minX, y: min(max(point.y, area.minY), area.maxY) - area.minY + wordScroll)
+        let character = layout.manager.characterIndex(for: inLayout, in: layout.container,
+                                                      fractionOfDistanceBetweenInsertionPoints: nil) + layout.offset
+        return words.words.lastIndex { $0.lowerBound <= character } ?? 0
+    }
+
+    private func scrollWords(by event: NSEvent, at point: NSPoint) -> Bool {
+        guard let words = wordChoice, wordTextRect.contains(point) else { return false }
+        let layout = wordLayout(words)
+        let height = layout.manager.usedRect(for: layout.container).height
+        let delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * 17
+        wordScroll = min(max(0, wordScroll - delta), max(0, height - wordTextRect.height))
+        needsDisplay = true
+        return true
+    }
+
+    /// In place of the list: where Escape goes back to, how many words are
+    /// selected, the line with its selection and caret, and the keys.
+    private func drawWordChoice(_ words: AssistWordChoice, from suggestion: AssistSuggestion) {
+        let navigationFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+        drawLabel("‹ Suggestions", key: "esc",
+                  in: NSRect(x: 20, y: bodyTop + 10, width: leftWidth - 170, height: 16),
+                  font: navigationFont, color: .controlAccentColor)
+        let count = words.selection.count
+        drawText(count == 0 ? "No words selected" : "\(count) of \(words.words.count) words",
+                 in: NSRect(x: leftWidth - 150, y: bodyTop + 10, width: 130, height: 16),
+                 font: .systemFont(ofSize: 10.5), color: .secondaryLabelColor, alignment: .right)
+
+        let sourceY = bodyTop + navigationHeight + 6
+        drawSourceIcon(for: suggestion.path, in: NSRect(x: 22, y: sourceY, width: 18, height: 18))
+        let source = (suggestion.path as NSString).lastPathComponent
+        drawText([source.isEmpty ? "Project workspace" : source, suggestion.location]
+                    .filter { !$0.isEmpty }.joined(separator: "  ·  "),
+                 in: NSRect(x: 47, y: sourceY + 2, width: leftWidth - 69, height: 15),
+                 font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+
+        let area = wordTextRect
+        let layout = wordLayout(words)
+        let color = DirectoryColorPreferences.color(for: suggestion.projectId)?.color ?? .controlAccentColor
+        let origin = NSPoint(x: area.minX, y: area.minY - wordScroll)
+        NSGraphicsContext.current?.saveGraphicsState()
+        // Highlights reach a little past the text, so the clip does too.
+        area.insetBy(dx: -4, dy: -2).clip()
+        if let chosen = words.chosenRange {
+            let characters = NSRange(location: chosen.lowerBound - layout.offset, length: chosen.count)
+            let glyphs = layout.manager.glyphRange(forCharacterRange: characters, actualCharacterRange: nil)
+            color.withAlphaComponent(NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 0.34 : 0.2).setFill()
+            layout.manager.enumerateEnclosingRects(forGlyphRange: glyphs,
+                                                   withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+                                                   in: layout.container) { rect, _ in
+                let line = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height - self.wordLineSpacing)
+                NSBezierPath(roundedRect: line.offsetBy(dx: origin.x, dy: origin.y).insetBy(dx: -3, dy: -1),
+                             xRadius: 4, yRadius: 4).fill()
+            }
+        }
+        layout.manager.drawGlyphs(forGlyphRange: layout.manager.glyphRange(for: layout.container), at: origin)
+        color.setFill()
+        wordCaretRect(words, in: layout).offsetBy(dx: origin.x, dy: origin.y).fill()
+        NSGraphicsContext.current?.restoreGraphicsState()
+
+        let hintFont = NSFont.systemFont(ofSize: 10.5)
+        drawText("← →  Move a word        ⇧← ⇧→  Select a word",
+                 in: NSRect(x: 22, y: footerY - 44, width: leftWidth - 44, height: 15),
+                 font: hintFont, color: .secondaryLabelColor)
+        drawText("⇧⌘← ⇧⌘→  Select to the start or end, or drag",
+                 in: NSRect(x: 22, y: footerY - 26, width: leftWidth - 44, height: 15),
+                 font: hintFont, color: .secondaryLabelColor)
+    }
+
     private func drawPDFPreview(_ page: AssistPDFPageImage, in rect: NSRect) {
         let outline = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
         NSColor.controlBackgroundColor.withAlphaComponent(0.3).setFill()
@@ -1443,11 +1639,25 @@ final class AssistBoxView: NSView {
             guard point.y >= bodyTop else { return }
             if point.y < bodyTop + navigationHeight {
                 // The header names where it goes: one level back, or the list of every source.
-                if sourceScoped { stepBackName == nil ? onAllSources?() : onStepBack?() }
+                if wordChoice != nil { onCloseWords?() }
+                else if sourceScoped { stepBackName == nil ? onAllSources?() : onStepBack?() }
+                return
+            }
+            if wordChoice != nil {
+                // Clicking a word selects it, and dragging selects every word to the one let go on.
+                if wordTextRect.contains(point), let word = word(at: point) {
+                    wordDrag = word
+                    wordChoice?.select(from: word, to: word)
+                }
                 return
             }
             let slot = Int((point.y - bodyTop - navigationHeight) / suggestionHeight)
             let index = firstVisibleSuggestion + slot
+            if index == selected, visibleSuggestionRange.contains(index), suggestions[index].offersWords,
+               wordsHintRect(slot: slot).insetBy(dx: -4, dy: -4).contains(point) {
+                onOpenWords?()
+                return
+            }
             if visibleSuggestionRange.contains(index) { onSelectRow?(index) }
             return
         }
@@ -1458,13 +1668,17 @@ final class AssistBoxView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if let first = wordDrag {
+            if let last = word(at: convert(event.locationInWindow, from: nil)) { wordChoice?.select(from: first, to: last) }
+            return
+        }
         guard let drag = modelDrag, let sent = preview?.model?.orbit?.camera else { return }
         let point = convert(event.locationInWindow, from: nil)
         modelView = drag.view.dragged(by: CGSize(width: point.x - drag.start.x, height: point.y - drag.start.y), from: sent)
         needsDisplay = true
     }
 
-    override func mouseUp(with event: NSEvent) { modelDrag = nil }
+    override func mouseUp(with event: NSEvent) { modelDrag = nil; wordDrag = nil }
 
     override func scrollWheel(with event: NSEvent) {
         // Rolling a wheel away, or pushing two fingers away, zooms in, whatever
@@ -1472,6 +1686,7 @@ final class AssistBoxView: NSView {
         let away = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
         let speed: CGFloat = event.hasPreciseScrollingDeltas ? 0.01 : 0.1
         let point = convert(event.locationInWindow, from: nil)
+        if scrollWords(by: event, at: point) { return }
         if !scrollTable(by: event, at: point), !zoomModel(by: exp(away * speed), at: point) { super.scrollWheel(with: event) }
     }
 
@@ -1525,8 +1740,9 @@ final class GlobalAssistant {
         LassoTransientUI.shared.register(self, priority: 70,
             // Only a box on screen counts. A pending prediction, or a host being
             // tracked for one, is not open: claiming it would swallow Escape in
-            // vim, dialogs and search fields.
-            isOpen: { [weak self] in self?.panel?.isVisible == true },
+            // vim, dialogs and search fields. Among a line's words the keyboard
+            // tap takes Escape back to the list, and the card stays open.
+            isOpen: { [weak self] in self?.panel?.isVisible == true && self?.view.wordChoice == nil },
             dismiss: { [weak self] in self?.dismissForEscape() })
         LassoTransientUI.shared.start()
     }
@@ -1540,7 +1756,7 @@ final class GlobalAssistant {
     func updateWorkspace(projectIds: [String], revision: String) {
         let updated = Array(Set(projectIds)).sorted()
         guard updated != self.projectIds || revision != workspaceRevision else { return }
-        hide()
+        dismiss()
         self.projectIds = updated
         workspaceRevision = revision
         linkedSources.keep(projectIds: updated)
@@ -1549,7 +1765,7 @@ final class GlobalAssistant {
 
     /// Pause retrieval immediately while the directory selection is changing.
     func suspendWorkspace() {
-        hide()
+        dismiss()
         projectIds = []
     }
 
@@ -1567,6 +1783,8 @@ final class GlobalAssistant {
     private var previewCache: [String: AssistDocumentPreview] = [:]
     private var previewCacheOrder: [String] = []
     private var context: CaretContext?
+    /// The query the visible rows answer; `context` may already hold newer typing.
+    private var displayedPrediction: (context: CaretContext, source: LinkedSourceMemory.Source?)?
     private var generation = 0
     private var feedbackDismissed = false
     private var sawEvent = false
@@ -1574,7 +1792,11 @@ final class GlobalAssistant {
     /// Monitoring also missing, that means macOS is withholding keystrokes.
     private(set) var isAwaitingInput = false
     private var isInserting = false {
-        didSet { publishKeyRouting() }
+        didSet {
+            // The field reports the link or undo just written a moment later.
+            if !isInserting { markOwnWrite() }
+            publishKeyRouting()
+        }
     }
     private var pendingShare: AssistSuggestion?
     /// Lasso's last verified insertion, while ⌘Z can still take it back.
@@ -1616,6 +1838,48 @@ final class GlobalAssistant {
     /// The generation a box or message is being measured for, until it shows.
     private var measuringFor: Int?
 
+    // Dictation writes without keys, so its words are followed through the
+    // field's own change reports instead of the keyboard tap.
+    private let dictation = DictationWatch()
+    /// When a key the editor turns into text was last typed. The field's
+    /// report of that change is the keyboard's, already followed.
+    private var lastTypedAt = Date.distantPast
+    /// Lasso's own edits change the field too; changes until then are its own.
+    private var ownWriteUntil = Date.distantPast
+    private var dictationDebounce: Timer?
+    /// Reads the focused field while a microphone is live, for hosts such as
+    /// Chrome's web editors that do not always report their changes.
+    private var dictationPoll: Timer?
+    private var dictationReads = CoalescingGate()
+    private static let dictationPollTime: TimeInterval = 0.2
+    /// The focused field as last read, so a change report that left its text
+    /// as it was asks for nothing.
+    private var lastRead: (element: AXUIElement, text: String, caret: Int)?
+    /// Elements whose changes were not the focused field's, until focus moves.
+    private var unrelatedElements: [AXUIElement] = []
+    /// The card last on screen, kept a moment after it closes: dictation can
+    /// briefly write a different word ("tap") before settling on "tab".
+    private var spokenCard: SpokenCard?
+    private var spokenTimer: Timer?
+    /// When a spoken "tab" was taken as the key, to log how long writing took.
+    private var spokenHeardAt: Date?
+    private static let keyEchoTime: TimeInterval = 0.6
+    private static let ownWriteTime: TimeInterval = 0.6
+    /// Web editors report one edit several times in a row; their reports are read once.
+    private static let dictationSettleTime: TimeInterval = 0.05
+    /// Dictation may still revise the word it just wrote ("tab" → "Tab.").
+    /// The field is read again before writing, so this only needs to be long
+    /// enough for the revision that comes straight after the word.
+    private static let spokenSettleTime: TimeInterval = 0.1
+    private static let spokenCardLifetime: TimeInterval = 6
+
+    /// A card as the writer saw it: the text it answered and what Tab would insert.
+    private struct SpokenCard {
+        let context: CaretContext
+        let suggestion: AssistSuggestion
+        let seen: Date
+    }
+
     var onStateChange: (() -> Void)?
     var onWorkspaceChange: (() -> Void)?
     /// The source inspector, whose Share Link takes Tab while it is open.
@@ -1654,7 +1918,8 @@ final class GlobalAssistant {
 
         let created = KeyEventTap(
             perform: { [weak self] action in self?.perform(action) },
-            onFirstKey: { [weak self] in self?.firstKeyArrived() })
+            onFirstKey: { [weak self] in self?.firstKeyArrived() },
+            onDictationShortcut: { [weak self] in self?.dictation.shortcutPressed() })
         guard created.start() else {
             if !input && requestPermissions { AssistPermission.requestInputMonitoring() }
             lastProblem = PermissionProblem(service: "Input Monitoring",
@@ -1673,6 +1938,10 @@ final class GlobalAssistant {
         AssistPermission.rememberTrusted()
         isEnabled = true
         sawEvent = false
+        dictation.onValueChange = { [weak self] element in self?.fieldValueChanged(element) }
+        dictation.onFocusChange = { [weak self] in self?.unrelatedElements.removeAll() }
+        dictation.onListeningChange = { [weak self] in self?.listeningChanged() }
+        dictation.start()
         publishKeyRouting()
         // If nothing arrives the tap exists but is not receiving; that is the
         // real signal that Input Monitoring is required.
@@ -1686,7 +1955,14 @@ final class GlobalAssistant {
     }
 
     func disable() {
-        hide()
+        dismiss()
+        dictation.stop()
+        dictationDebounce?.invalidate()
+        dictationDebounce = nil
+        dictationPoll?.invalidate()
+        dictationPoll = nil
+        lastRead = nil
+        unrelatedElements = []
         keyTap?.stop()
         keyTap = nil
         if let routingObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), routingObserver, .commonModes) }
@@ -1742,6 +2018,8 @@ final class GlobalAssistant {
             inspectorCanShare: inspector?.canShareFromKeyboard == true,
             popup: popup,
             offersChoices: !view.suggestions.isEmpty,
+            highlightsLine: view.mode == .suggestions && currentSuggestion?.offersWords == true,
+            choosingWords: view.mode == .suggestions && view.wordChoice != nil,
             canUndoInsertion: undoableInsertion != nil)
     }
 
@@ -1765,17 +2043,15 @@ final class GlobalAssistant {
         case .escapePassed:
             // A prediction or presentation already pending is dropped, so it
             // cannot reopen the menu the user just dismissed.
-            if debounce != nil || request != nil || popupHost != nil || measuringFor == generation { hide() }
+            if debounce != nil || request != nil || popupHost != nil || measuringFor == generation { dismiss() }
+            spokenCard = nil
+            // Escape in the app ends Dictation too.
+            dictation.endSession()
         case .hide:
-            hide()
+            dismiss()
         case .followTyping(let trackCaret):
-            // Typing on ends a move, so a card the move left empty closes as usual.
-            linkedSources.endMove()
-            focusLanding = nil
-            // What was typed is now the last change, which the host's own undo takes back.
-            undoableInsertion = nil
-            if trackCaret { self.trackCaret() }
-            scheduleRefresh()
+            lastTypedAt = Date()
+            followTextChange(trackCaret: trackCaret)
         case .activate:
             if view.mode == .confirmShare { resolveConfirmation() } else { activateSelection() }
         case .acceptPlain:
@@ -1793,8 +2069,11 @@ final class GlobalAssistant {
         case .inspectorShare:
             inspector?.shareFromKeyboard()
         case .focusOut:
+            // fn+Left and fn+Right keep their meaning among a line's words.
+            view.wordChoice = nil
             stepBack()
         case .focusIn:
+            view.wordChoice = nil
             // A value has nothing below it, so there fn+Right does nothing.
             let choice = narrowingChoice, highlighted = highlightedSource
             guard linkedSources.canMoveIn(focusedOn: focusedSource, selected: choice?.source,
@@ -1813,8 +2092,237 @@ final class GlobalAssistant {
             ShareComposerController.shared.redoRedaction()
         case .undoInsertion:
             undoInsertion()
+        case .openWords(let movingStart):
+            openWords(movingStart: movingStart)
+        case .moveInWords(let forward, let selecting, let toEnd):
+            view.wordChoice?.move(forward ? .forward : .backward, selecting: selecting, toEnd: toEnd)
+        case .closeWords:
+            view.wordChoice = nil
         }
         publishKeyRouting()
+    }
+
+    /// New text in the field, typed or dictated: suggestions follow it.
+    private func followTextChange(trackCaret: Bool) {
+        view.wordChoice = nil
+        // Typing on ends a move, so a card the move left empty closes as usual.
+        linkedSources.endMove()
+        focusLanding = nil
+        // What was typed is now the last change, which the host's own undo takes back.
+        undoableInsertion = nil
+        if trackCaret { self.trackCaret() }
+        scheduleRefresh()
+    }
+
+    // MARK: Dictation
+
+    /// The frontmost app changed a value while a microphone is live. Typing
+    /// is followed by the keyboard tap, and Lasso's own edits by the edit
+    /// itself; anything else may be dictation, once the field is read.
+    private func fieldValueChanged(_ element: AXUIElement) {
+        guard mayFollowDictation, !unrelatedElements.contains(where: { CFEqual($0, element) }) else { return }
+        dictationDebounce?.invalidate()
+        dictationDebounce = Timer.scheduledTimer(withTimeInterval: Self.dictationSettleTime, repeats: false) { [weak self] _ in
+            self?.dictationDebounce = nil
+            self?.readDictatedText(reportedBy: element)
+        }
+    }
+
+    /// Nothing typed for a moment, nothing Lasso is writing, and no Lasso
+    /// surface that takes the keys.
+    private var mayFollowDictation: Bool {
+        let now = Date()
+        return isEnabled && serverURL != nil && !projectIds.isEmpty && !isInserting
+            && !ShareComposerController.shared.isVisible && !SourceChooserController.shared.isVisible
+            && view.mode != .confirmShare
+            && now.timeIntervalSince(lastTypedAt) > Self.keyEchoTime && now >= ownWriteUntil
+    }
+
+    /// While a microphone is live the focused field is also read on a timer:
+    /// not every host reports a change dictation makes.
+    private func listeningChanged() {
+        guard isEnabled, dictation.isListening else {
+            dictationPoll?.invalidate()
+            dictationPoll = nil
+            return
+        }
+        guard dictationPoll == nil else { return }
+        let timer = Timer(timeInterval: Self.dictationPollTime, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            guard self.dictation.isListening else { self.listeningChanged(); return }
+            if self.mayFollowDictation { self.readDictatedText(reportedBy: nil) }
+        }
+        timer.tolerance = 0.05
+        RunLoop.main.add(timer, forMode: .common)
+        dictationPoll = timer
+    }
+
+    /// Reads the focused field and follows it only if its text moved on.
+    /// `element` is what reported a change, or nil for a timed read.
+    private func readDictatedText(reportedBy element: AXUIElement?) {
+        guard dictationReads.begin() else { return }
+        let typedAt = lastTypedAt
+        AccessibilityWork.queue.async { [weak self] in
+            let context = AccessibilityReader.focusedContext()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let again = self.dictationReads.end()
+                defer { if again { self.readDictatedText(reportedBy: element) } }
+                // A key typed meanwhile is the keyboard tap's to follow.
+                guard self.isEnabled, typedAt == self.lastTypedAt, Date() >= self.ownWriteUntil else { return }
+                guard let context else {
+                    if element != nil { dictationLog.debug("read: no focused text field") }
+                    return
+                }
+                let sameField = self.lastRead.map { CFEqual($0.element, context.element) } ?? false
+                if sameField, let last = self.lastRead, last.text == context.text, last.caret == context.absoluteCaret {
+                    // The field is as it was: something else in the app changed.
+                    if let element, !CFEqual(context.element, element), self.unrelatedElements.count < 32 {
+                        self.unrelatedElements.append(element)
+                    }
+                    return
+                }
+                // A timed read of a field not read before is where it starts:
+                // its text may be older than the microphone. A change report
+                // while dictating is followed even then, since dictation may
+                // write a whole phrase in one change.
+                guard sameField || element != nil else {
+                    dictationLog.debug("read: new field, noted")
+                    self.lastRead = (context.element, context.text, context.absoluteCaret)
+                    return
+                }
+                dictationLog.debug("read: dictated text, \(element == nil ? "timed" : "reported", privacy: .public)")
+                self.dictation.wordsArrived()
+                // "tab" is taken as the key from this reading, without a second one.
+                self.lastRead = (context.element, context.text, context.absoluteCaret)
+                if self.acceptsSpokenTab(in: context) { return }
+                self.followTextChange(trackCaret: true)
+                self.publishKeyRouting()
+            }
+        }
+    }
+
+    /// The words in the field are dictation's: a microphone is live and
+    /// nothing has been typed for a moment.
+    private var isDictating: Bool {
+        dictation.isListening && Date().timeIntervalSince(lastTypedAt) > Self.keyEchoTime
+    }
+
+    /// The field without its last `length` UTF-16 units, as a card asked
+    /// without them saw it.
+    private static func trimmed(_ context: CaretContext, by length: Int) -> CaretContext {
+        let units = Array(context.text.utf16)
+        guard length > 0, length <= units.count else { return context }
+        return CaretContext(text: String(decoding: units.dropLast(length), as: UTF16.self),
+                            cursor: units.count - length, windowStart: context.windowStart,
+                            absoluteCaret: context.absoluteCaret >= 0 ? context.absoluteCaret - length : -1,
+                            selectionLength: context.selectionLength, caretRect: context.caretRect,
+                            element: context.element, diagnosis: context.diagnosis)
+    }
+
+    /// The edit that writes `suggestion` into the field as it is now. A card
+    /// asked without the mark dictation put at a pause ("Other revenue.") is
+    /// written before the mark, which stays after it.
+    private func fieldPlan(for suggestion: AssistSuggestion, in context: CaretContext) -> CompletionPlan? {
+        if case .success(let plan) = planInsertion(for: suggestion, in: context) { return plan }
+        let units = Array(context.text.utf16)
+        let pause = SpokenAccept.pauseMarkLength(units)
+        let answered = Self.trimmed(context, by: pause)
+        guard pause > 0, case .success(let planned) = planInsertion(for: suggestion, in: answered) else { return nil }
+        return SpokenAccept.plan(planned, card: Self.snapshot(answered), current: Self.snapshot(context),
+                                 spokenLength: pause, keeping: String(decoding: units.suffix(pause), as: UTF16.self))
+    }
+
+    /// The card on screen, as Tab would accept it now.
+    private var shownCard: SpokenCard? {
+        guard panel?.isVisible == true, view.mode == .suggestions, let shown = displayedPrediction,
+              let suggestion = acceptedSuggestion else { return nil }
+        return SpokenCard(context: shown.context, suggestion: suggestion, seen: Date())
+    }
+
+    private static func snapshot(_ context: CaretContext) -> CompletionSnapshot {
+        CompletionSnapshot(documentStart: max(0, context.windowStart), text: Array(context.text.utf16))
+    }
+
+    /// Saying "tab" while dictating: the field holds the text the card answered
+    /// followed by the word. Once dictation has settled on it, one edit
+    /// replaces the word with what Tab inserts as plain text. True when that
+    /// is under way, so the word is not looked up as text.
+    private func acceptsSpokenTab(in current: CaretContext) -> Bool {
+        guard isDictating, view.mode == .suggestions else { return false }
+        let units = Array(current.text.utf16)
+        guard SpokenAccept.commandLength(units) != nil else {
+            if let heard = SpokenAccept.nearMiss(units) { dictationLog.debug("spoken tab: heard \(heard, privacy: .public) instead") }
+            return false
+        }
+        // Why a "tab" said at the end of the field was not taken as the key,
+        // without what else was written.
+        func declined(_ reason: StaticString) -> Bool {
+            dictationLog.debug("spoken tab: \(reason, privacy: .public)")
+            return false
+        }
+        guard let card = shownCard ?? spokenCard else { return declined("no card shown or kept") }
+        guard Date().timeIntervalSince(card.seen) < Self.spokenCardLifetime else { return declined("card closed too long ago") }
+        guard CFEqual(card.context.element, current.element), card.context.diagnosis == current.diagnosis else {
+            return declined("card was for another field")
+        }
+        let cardSnapshot = Self.snapshot(card.context), currentSnapshot = Self.snapshot(current)
+        guard let spoken = SpokenAccept.spokenLength(card: cardSnapshot, current: currentSnapshot) else {
+            return declined("the words before it are not the card's")
+        }
+        guard case .success(let planned) = planInsertion(for: card.suggestion, in: card.context),
+              let plan = SpokenAccept.plan(planned, card: cardSnapshot, current: currentSnapshot,
+                                           spokenLength: spoken) else { return declined("the card's words changed") }
+        dictationLog.debug("spoken tab: accepting")
+        spokenHeardAt = Date()
+        // Nothing asked about the text before the word may replace the card meanwhile.
+        generation += 1
+        let token = generation
+        request?.cancel()
+        request = nil
+        spokenTimer?.invalidate()
+        spokenTimer = Timer.scheduledTimer(withTimeInterval: Self.spokenSettleTime, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.spokenTimer = nil
+            // Typing, Escape or a newer word since make this out of date.
+            guard token == self.generation, self.isEnabled else {
+                dictationLog.debug("spoken tab: newer words came first")
+                self.spokenHeardAt = nil
+                return
+            }
+            self.spokenCard = nil
+            self.context = current
+            self.undoableInsertion = nil
+            // The write reads the field once more and stops if dictation
+            // revised it meanwhile, so no separate read is needed first.
+            self.writePlain(card.suggestion, plan: plan, context: current, fresh: current)
+        }
+        return true
+    }
+
+    /// Lasso is writing to the field, whose reports of it are not dictation.
+    private func markOwnWrite() {
+        ownWriteUntil = Date().addingTimeInterval(Self.ownWriteTime)
+    }
+
+    /// The card, as the writer last saw it, is no longer theirs to accept by voice.
+    private func dismiss() {
+        hide()
+        spokenCard = nil
+    }
+
+    /// ⇧fn+Right or ⇧fn+Left on a highlighted line: its words, every one
+    /// selected, for Tab to insert only some of them.
+    private func openWords(movingStart: Bool) {
+        guard view.mode == .suggestions, let suggestion = currentSuggestion, suggestion.offersWords,
+              let words = AssistWordChoice(text: suggestion.insertText, movingStart: movingStart) else { return }
+        // An answer still coming for the words typed before must not replace the line.
+        generation += 1
+        debounce?.invalidate()
+        debounce = nil
+        request?.cancel()
+        request = nil
+        view.wordChoice = words
     }
 
     /// fn+Left: one level back. The list it returns to opens on the row
@@ -1954,6 +2462,7 @@ final class GlobalAssistant {
     private func didReadHost(_ reading: HostReading) {
         guard isEnabled, let serverURL, !projectIds.isEmpty,
               let captured = reading.context else { hide(); return }
+        lastRead = (captured.element, captured.text, captured.absoluteCaret)
         // Two characters are enough to ask, so the first word of an empty
         // field ("Re" → Revenue) is not skipped. The server decides whether
         // the typed fragment is long enough to match.
@@ -1966,11 +2475,16 @@ final class GlobalAssistant {
             linkedSources.forget()
         }
         context = captured
-        guard let host = reading.host, let caret = reading.caret else { hide(); return }
+        guard let host = reading.host, let caret = reading.caret else {
+            if isDictating { dictationLog.debug("read: no caret to show the card at") }
+            hide()
+            return
+        }
         adoptHost(host, caret: caret)
         // Track the caret straight away. Waiting for the response would leave
         // the box behind whenever fast typing cancels requests.
         if panel?.isVisible == true, view.mode == .suggestions { reposition(near: popupCaret) }
+        if acceptsSpokenTab(in: captured) { return }
         requestPrediction(for: captured, serverURL: serverURL)
     }
 
@@ -1984,15 +2498,24 @@ final class GlobalAssistant {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.timeoutInterval = 2.5
+        // Dictated words are asked about without the mark dictation put at a
+        // pause, and the server may read a name said in full as accepted.
+        let dictated = isDictating
+        let pause = dictated ? SpokenAccept.pauseMarkLength(Array(captured.text.utf16)) : 0
+        let query = Self.trimmed(captured, by: pause)
         var body: [String: Any] = [
-            "text": captured.text,
-            "cursor": captured.cursor,
+            "text": query.text,
+            "cursor": query.cursor,
             "blockIndex": 0,
         ]
+        if dictated {
+            body["dictated"] = true
+            dictationLog.debug("asking about dictated words\(pause > 0 ? ", without a pause mark" : "", privacy: .public)")
+        }
         // Accepted phrases are located inside the window actually being sent,
         // so the offsets the server receives match the text it is given. One
         // deleted since it was accepted takes the card's focus back a step.
-        linkedSources.observe(captured.text, reachesStart: captured.windowStart == 0)
+        linkedSources.observe(query.text, reachesStart: query.windowStart == 0)
         body.merge(linkedSources.requestFields) { _, focus in focus }
         let activeProjectIds = Set(projectIds)
         let expectedRevision = workspaceRevision
@@ -2007,7 +2530,7 @@ final class GlobalAssistant {
                 }
                 return
             }
-            let parsed = Self.parse(data, requestedText: captured.text, activeProjectIds: activeProjectIds)
+            let parsed = Self.parse(data, requestedText: query.text, activeProjectIds: activeProjectIds)
             let heading = Self.heading(data)
             let focus = Self.focusedSource(data)
             let returnedRevision = Self.predictionRevision(data)
@@ -2022,7 +2545,7 @@ final class GlobalAssistant {
                     return
                 }
                 self.deliverPrediction(parsed, heading: heading, sourceScoped: focus != nil, focus: focus,
-                                       captured: captured, token: token)
+                                       captured: captured, pause: pause, token: token)
             }
         }
         self.request = task
@@ -2074,10 +2597,20 @@ final class GlobalAssistant {
     /// A response may arrive after Escape, an edit, or a window closing. Only
     /// deliver to the same still-current editor, using its current caret bounds.
     /// The editor is checked off the main thread; typing meanwhile drops it.
+    /// `pause` is the length of the mark dictation put at a pause, which the
+    /// card was asked about without: the card answers the words before it.
     private func deliverPrediction(_ suggestions: [AssistSuggestion], heading: String?, sourceScoped: Bool,
-                                   focus: LinkedSourceMemory.Source? = nil, captured: CaretContext, token: Int) {
+                                   focus: LinkedSourceMemory.Source? = nil, captured: CaretContext,
+                                   pause: Int = 0, token: Int) {
         guard token == generation, isEnabled else { return }
         request = nil
+        if isDictating {
+            dictationLog.debug("answer: \(suggestions.count, privacy: .public) rows")
+            if suggestions.isEmpty, panel?.isVisible == true, let shown = displayedPrediction {
+                let change = SpokenAccept.change(from: shown.context.text, to: captured.text)
+                dictationLog.debug("card closing: \(change, privacy: .public) since it showed")
+            }
+        }
         // Right after fn+Left or fn+Right an empty card stays, so the move can be undone.
         guard !suggestions.isEmpty || linkedSources.keepsEmptyCard(focusedOn: focus),
               let host = popupHost else { hide(); return }
@@ -2106,6 +2639,16 @@ final class GlobalAssistant {
                     return
                 }
                 guard let current else { self.hide(); return }
+                let answered = Self.trimmed(current.context, by: pause)
+                let sameQuery = self.displayedPrediction.map { previous in
+                    previous.source == focus && CFEqual(previous.context.element, answered.element)
+                        && previous.context.diagnosis == answered.diagnosis
+                        && previous.context.text == answered.text
+                        && previous.context.cursor == answered.cursor
+                        && previous.context.absoluteCaret == answered.absoluteCaret
+                        && previous.context.windowStart == answered.windowStart
+                } ?? false
+                let selectedIdentity = self.currentSuggestion?.selectionIdentity
                 self.context = current.context
                 self.adoptHost(host, caret: current.caret)
                 self.view.sourceScoped = sourceScoped
@@ -2117,8 +2660,13 @@ final class GlobalAssistant {
                 if let landing = self.focusLanding {
                     self.focusLanding = nil
                     self.view.selected = landing.index(in: suggestions.map(\.objectId))
+                } else {
+                    self.view.selected = AssistSuggestionSelection.index(keeping: selectedIdentity,
+                        in: suggestions.map(\.selectionIdentity), sameQuery: sameQuery)
                 }
+                self.displayedPrediction = (answered, focus)
                 self.view.title = heading ?? "dependency"
+                self.view.wordChoice = nil
                 self.show(suggestions)
                 self.publishKeyRouting()
             }
@@ -2428,6 +2976,7 @@ final class GlobalAssistant {
 
     private func selectRow(_ index: Int) {
         guard index >= 0, index < view.suggestions.count else { return }
+        view.wordChoice = nil
         if view.preview?.unavailableReason != nil { previewKey = nil }
         view.selected = index
         view.needsDisplay = true
@@ -3156,7 +3705,9 @@ final class GlobalAssistant {
         view.onOpenSource = { [weak self] in self?.openCurrentSource() }
         view.onAllSources = { [weak self] in self?.chooseSource(allDocuments: true) }
         view.onStepBack = { [weak self] in self?.stepBack(); self?.publishKeyRouting() }
-        view.onDismiss = { [weak self] in self?.hide() }
+        view.onOpenWords = { [weak self] in self?.openWords(movingStart: false); self?.publishKeyRouting() }
+        view.onCloseWords = { [weak self] in self?.view.wordChoice = nil; self?.publishKeyRouting() }
+        view.onDismiss = { [weak self] in self?.dismiss() }
         created.contentView = AssistBubbleContainer(content: view)
         panel = created
         return created
@@ -3175,8 +3726,9 @@ final class GlobalAssistant {
 
     /// `Tab`. Follows the insertion preference; sharing is never implicit.
     private func activateSelection() {
+        guard !choosesNoWords else { return }
         guard view.mode == .suggestions,
-              let suggestion = currentSuggestion else { hide(); return }
+              let suggestion = acceptedSuggestion else { hide(); return }
         switch InsertionMode.current {
         case .plain:
             acceptPlain()
@@ -3192,8 +3744,23 @@ final class GlobalAssistant {
         return view.suggestions[view.selected]
     }
 
+    /// What Tab inserts: the highlighted suggestion, or only the words chosen from its line.
+    private var acceptedSuggestion: AssistSuggestion? {
+        guard let suggestion = currentSuggestion else { return nil }
+        guard let words = view.wordChoice else { return suggestion }
+        return suggestion.choosing(words)
+    }
+
+    /// A line is open with no word selected. Inserting then does nothing, and
+    /// the card stays for words to be selected.
+    private var choosesNoWords: Bool {
+        guard view.wordChoice?.chosenText == nil else { return false }
+        NSSound.beep()
+        return true
+    }
+
     private func askBeforeSharing() {
-        pendingShare = currentSuggestion
+        pendingShare = acceptedSuggestion
         view.mode = .confirmShare
         view.title = "Insert as plain text or a share link?"
         view.confirmChoices = ["Plain text", "Share link…"]
@@ -3211,13 +3778,14 @@ final class GlobalAssistant {
     }
 
     private func acceptPlain() {
-        guard let suggestion = currentSuggestion else { hide(); return }
+        guard !choosesNoWords else { return }
+        guard let suggestion = acceptedSuggestion else { hide(); return }
         insertPlain(suggestion)
     }
 
     /// Explicit Share action (or `⇧⌘⏎`). Never reached by the local-link shortcut.
     private func acceptShared() {
-        guard view.mode == .suggestions, let suggestion = currentSuggestion else { return }
+        guard view.mode == .suggestions, !choosesNoWords, let suggestion = acceptedSuggestion else { return }
         guard suggestion.isShareable else {
             flash([suggestion.objectId == nil ? "This suggestion has no linkable source."
                    : "Lasso doesn\u{2019}t make share links for code. Tab inserts it as text."])
@@ -3276,7 +3844,7 @@ final class GlobalAssistant {
                                      precededBy: window, upTo: suggestion.replacement?.start ?? window.count)
         return CompletionTransaction.plan(document: window, caret: caret, insertText: cased,
                                           replacement: suggestion.replacement,
-                                          separateInsertion: !suggestion.sentenceContinuation)
+                                          separateInsertion: !suggestion.sentenceContinuation || suggestion.startsMidLine)
     }
 
     /// The run of characters before the caret, used only to decide casing.
@@ -3294,12 +3862,18 @@ final class GlobalAssistant {
         undoableInsertion = nil
         guard let context else { hide(); return }
 
-        guard case .success(let plan) = planInsertion(for: suggestion, in: context) else {
+        guard let plan = fieldPlan(for: suggestion, in: context) else {
             hide()
             flash(["Could not insert here.", "Nothing was changed."])
             return
         }
+        insert(suggestion, plan: plan, context: context)
+    }
 
+    /// Writes a planned insertion once a fresh read shows `context` is still
+    /// what the field holds.
+    private func insert(_ suggestion: AssistSuggestion, plan: CompletionPlan, context: CaretContext) {
+        undoableInsertion = nil
         // Stage A: confirm the plan is still current against a fresh read.
         let token = generation
         AccessibilityWork.queue.async { [weak self] in
@@ -3317,6 +3891,10 @@ final class GlobalAssistant {
         guard let fresh, CFEqual(fresh.element, context.element),
               fresh.windowStart == context.windowStart, fresh.absoluteCaret == context.absoluteCaret,
               CompletionTransaction.equivalentHostText(Array(fresh.text.utf16), Array(context.text.utf16)) else {
+            if spokenHeardAt != nil {
+                dictationLog.debug("spoken tab: the field changed before writing")
+                spokenHeardAt = nil
+            }
             hide()
             return
         }
@@ -3329,6 +3907,8 @@ final class GlobalAssistant {
         }
 
         hide()
+        spokenCard = nil
+        markOwnWrite()
         let element = context.element
         AccessibilityWork.queue.async { [weak self] in
             AccessibilityReader.replace(length: plan.range.count, at: context.absoluteCaret,
@@ -3368,6 +3948,13 @@ final class GlobalAssistant {
     /// Records a dependency only for an insertion proved by `checkInsertion`.
     private func reportInsertion(_ check: InsertionCheck, plan: CompletionPlan,
                                  suggestion: AssistSuggestion, element: AXUIElement) {
+        markOwnWrite()
+        if let heard = spokenHeardAt {
+            let verified: Bool
+            if case .verified = check { verified = true } else { verified = false }
+            dictationLog.debug("spoken tab: \(verified ? "inserted" : "not verified", privacy: .public) \(Int(Date().timeIntervalSince(heard) * 1000), privacy: .public) ms after it was read")
+            spokenHeardAt = nil
+        }
         switch check {
         case .notApplied:
             flash(["The insertion could not be verified.", "No source reference was recorded."])
@@ -3454,7 +4041,7 @@ final class GlobalAssistant {
             flash(["Sharing is unavailable right now."])
             return
         }
-        guard case .success(let planned) = planInsertion(for: suggestion, in: context) else {
+        guard let planned = fieldPlan(for: suggestion, in: context) else {
             flash(["Could not insert here.", "Nothing was changed."])
             return
         }
@@ -3682,36 +4269,27 @@ final class GlobalAssistant {
         panel.setFrame(mainFrame, display: true)
     }
 
-    /// Source labels are stored in title case ("Office Supplies"). Dropped into
-    /// the middle of a sentence after a lower-case word, that reads wrong, so
-    /// plainly capitalised words are lowered. Acronyms, mixed-case words and
-    /// anything containing digits keep their original form.
+    /// The case the insertion is written in, from what it replaces and what
+    /// comes before (see `InsertionCasing`).
     private static func matchCasing(of insertion: String, replacing typed: String,
                                     precededBy window: [UInt16], upTo index: Int) -> String {
-        guard !typed.isEmpty, typed == typed.lowercased() else { return insertion }
         let before = String(decoding: window[0..<min(window.count, max(0, index))], as: UTF16.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        // Start of a sentence keeps its capital.
-        guard let last = before.last, !".!?:".contains(last) else { return insertion }
-
-        func lowerIfPlainTitleCase(_ word: Substring) -> String {
-            guard let first = word.first, first.isUppercase else { return String(word) }
-            let rest = word.dropFirst()
-            guard word.count > 1,
-                  rest.allSatisfy({ $0.isLowercase || $0 == "'" || $0 == "-" }) else { return String(word) }
-            return first.lowercased() + rest
-        }
-        return insertion.split(separator: " ", omittingEmptySubsequences: false)
-            .map(lowerIfPlainTitleCase)
-            .joined(separator: " ")
+        return InsertionCasing.match(insertion, replacing: typed, after: before)
     }
 
     private func dismissForEscape() {
         feedbackDismissed = true
-        hide()
+        dismiss()
     }
 
     func hide() {
+        // A card that closes on its own, because the next words found nothing
+        // or dictation wrote a word it then corrected, can still be accepted by
+        // saying "tab" a moment later. Dismissing it forgets it.
+        if let shown = shownCard { spokenCard = shown }
+        if spokenTimer != nil { spokenHeardAt = nil }
+        spokenTimer?.invalidate()
+        spokenTimer = nil
         generation += 1
         contextReads.dropPending()
         if ShareComposerController.shared.isPresented(in: panel) { ShareComposerController.shared.hide() }
@@ -3724,6 +4302,7 @@ final class GlobalAssistant {
         previewRequest?.cancel()
         previewGeneration += 1
         previewKey = nil
+        displayedPrediction = nil
         view.selected = 0
         view.mode = .suggestions
         view.title = "dependency"
@@ -3733,6 +4312,7 @@ final class GlobalAssistant {
         view.sourceScoped = false
         view.returnFocusName = nil
         view.stepBackName = nil
+        view.wordChoice = nil
         focusedSource = nil
         focusLanding = nil
         linkedSources.endMove()

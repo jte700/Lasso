@@ -32,9 +32,13 @@ function stem(word) {
   return CONCEPTS.get(value) ?? value;
 }
 
-function tokens(value) {
-  return [...String(value ?? '').matchAll(/[A-Za-z][A-Za-z0-9'’-]*/g)].map((match) => ({
-    raw: match[0], key: stem(match[0]), start: match.index, end: match.index + match[0].length,
+function tokens(value, includeNumbers = false) {
+  const pattern = includeNumbers
+    ? /[A-Za-z][A-Za-z0-9'’-]*|[+−-]?\d+(?:[,.]\d+)*%?/g
+    : /[A-Za-z][A-Za-z0-9'’-]*/g;
+  return [...String(value ?? '').matchAll(pattern)].map((match) => ({
+    raw: match[0], key: /^[+−-]?\d/.test(match[0]) ? `#${match[0].replace('−', '-')}` : stem(match[0]),
+    start: match.index, end: match.index + match[0].length,
   }));
 }
 
@@ -81,7 +85,7 @@ export function buildSentenceCorpus(sources) {
         path: source.path,
         snapshotId: source.snapshotId,
         dependencyCandidate: source.dependencyCandidate ?? null,
-        tokens: tokens(sentence),
+        tokens: tokens(sentence, true),
       });
       if (corpus.length >= MAX_SENTENCES) return corpus;
     }
@@ -89,15 +93,24 @@ export function buildSentenceCorpus(sources) {
   return corpus;
 }
 
+function lastSentenceBoundary(before) {
+  let period = before.lastIndexOf('.');
+  // Decimal values are part of the claim, including when the writer continues
+  // with a unit or a result after the value.
+  while (period > 0 && /\d/.test(before[period - 1]) && /\d/.test(before[period + 1] ?? '')) {
+    period = before.lastIndexOf('.', period - 1);
+  }
+  return Math.max(period, before.lastIndexOf('!'), before.lastIndexOf('?'), before.lastIndexOf('\n'));
+}
+
 function trailingSentence(text, cursor) {
   const before = String(text ?? '').slice(0, cursor);
-  const boundary = Math.max(before.lastIndexOf('.'), before.lastIndexOf('!'), before.lastIndexOf('?'), before.lastIndexOf('\n'));
-  return before.slice(boundary + 1).replace(/^\s+/, '');
+  return before.slice(lastSentenceBoundary(before) + 1).replace(/^\s+/, '');
 }
 
 function trailingSentenceStart(text, cursor) {
   const before = String(text ?? '').slice(0, cursor);
-  const boundary = Math.max(before.lastIndexOf('.'), before.lastIndexOf('!'), before.lastIndexOf('?'), before.lastIndexOf('\n'));
+  const boundary = lastSentenceBoundary(before);
   const remainder = before.slice(boundary + 1);
   return boundary + 1 + (remainder.match(/^\s+/)?.[0].length ?? 0);
 }
@@ -181,9 +194,33 @@ function overlap(left, right) {
   return shared / Math.max(2, Math.min(a.size, b.size));
 }
 
+// A shared suffix is insufficient evidence for a whole-sentence completion:
+// "the treated group had lower levels" must not borrow the control group's
+// result. Allow conventional reporting introductions to differ, but retain
+// the specific subjects, numbers and negation already stated on either side.
+const REPORTING_CONTEXT_KEYS = new Set([
+  'result', 'analyze', 'show', 'found', 'report', 'researcher', 'investigator',
+  'author', 'study', 'paper', 'article', 'record', 'data', 'evidence', 'do', 'does', 'did',
+]);
+
+function compatibleContinuationContext(query, candidate) {
+  // Sets alone would accept swapped quantities ("10 and 20" / "20 and 10").
+  const numbers = (items) => items.filter((item) => item.key.startsWith('#')).map((item) => item.key);
+  const queryNumbers = numbers(query);
+  const candidateNumbers = numbers(candidate);
+  if (queryNumbers.length !== candidateNumbers.length
+    || queryNumbers.some((value, index) => value !== candidateNumbers[index])) return false;
+  const specific = (items) => new Set(items.map((item) => item.key)
+    .filter((key) => !SEMANTIC_STOP_WORDS.has(key) && !REPORTING_CONTEXT_KEYS.has(key)));
+  const left = specific(query);
+  const right = specific(candidate);
+  return left.size > 0 && left.size === right.size && [...left].every((key) => right.has(key));
+}
+
 function bestSemanticContinuation(fragment, queryTokens, entry) {
   const candidateTokens = entry.tokens;
   const maximum = Math.min(6, queryTokens.length, candidateTokens.length);
+  const unfinishedWord = !/\s$/.test(fragment);
   let best = null;
   for (let length = maximum; length >= 2 && !best; length -= 1) {
     const query = queryTokens.slice(-length);
@@ -191,17 +228,21 @@ function bestSemanticContinuation(fragment, queryTokens, entry) {
       const candidate = candidateTokens.slice(start, start + length);
       const last = length - 1;
       const matches = candidate.every((token, index) => token.key === query[index].key
-        || (index === last && query[index].raw.length >= 3
+        || (index === last && unfinishedWord && !query[index].key.startsWith('#') && query[index].raw.length >= 3
           && token.raw.toLowerCase().startsWith(query[index].raw.toLowerCase())));
       if (!matches) continue;
-      const partialLastToken = candidate[last].raw.toLowerCase().startsWith(query[last].raw.toLowerCase())
+      const partialLastToken = unfinishedWord && candidate[last].raw.toLowerCase().startsWith(query[last].raw.toLowerCase())
         && candidate[last].raw.length > query[last].raw.length;
       const insertionStart = partialLastToken
         ? candidate[last].start + query[last].raw.length
         : candidate[last].end;
-      const insertText = entry.sentence.slice(insertionStart);
+      const alignedQuery = partialLastToken
+        ? [...queryTokens.slice(0, -1), candidate[last]] : queryTokens;
+      if (!compatibleContinuationContext(alignedQuery, candidateTokens.slice(0, start + length))) continue;
+      let insertText = entry.sentence.slice(insertionStart);
+      if (/\s$/.test(fragment)) insertText = insertText.replace(/^\s+/, '');
       if (insertText.trim().length < 3) continue;
-      const semanticOverlap = overlap(queryTokens, candidateTokens);
+      const semanticOverlap = overlap(alignedQuery, candidateTokens);
       const alignment = length / Math.min(6, Math.max(3, queryTokens.length));
       best = { insertText, score: alignment * 0.62 + semanticOverlap * 0.33, matchedTokens: length };
       break;
@@ -251,7 +292,7 @@ export function completeSentence(corpus, input, options = {}) {
   const cursor = Number.isInteger(input.cursor) ? input.cursor : text.length;
   if (cursor !== text.length || /[.!?]\s*$/.test(text)) return null;
   const fragment = trailingSentence(text, cursor);
-  const queryTokens = tokens(fragment);
+  const queryTokens = tokens(fragment, true);
   if (fragment.length < 8 || queryTokens.length < 2) return null;
 
   let best = null;

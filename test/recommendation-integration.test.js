@@ -36,6 +36,56 @@ function fixture(t) {
   return { application, project, source, link, root, temporary };
 }
 
+function siteFixture(t) {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-text-first-'));
+  const root = path.join(temporary, 'site');
+  for (const directory of ['notes', 'results', 'data']) fs.mkdirSync(path.join(root, directory), { recursive: true });
+  fs.writeFileSync(path.join(root, 'notes', 'site-visit.md'),
+    '# Site visit\n\nThe retaining wall drainage was blocked near the north culvert.\n\nCrews replaced the fabric behind the wall.\n');
+  // Data whose only tie to the sentences typed below is its folder and kind.
+  fs.writeFileSync(path.join(root, 'results', 'lab_results.csv'), 'variable,estimate\nCompressive strength,41.2\nSlump,95\n');
+  fs.writeFileSync(path.join(root, 'data', 'pressure_log.csv'), 'Day,Peak Pressure,Flow Rate\nMon,12,4\nTue,14,5\n');
+  fs.writeFileSync(path.join(root, 'notes', 'equipment.csv'), 'Item,Count\nPressure gauge,2\nValve,4\n');
+  fs.writeFileSync(path.join(root, 'notes', 'draft.md'), '# Draft\n');
+  const application = createApplication({ dataDir: path.join(temporary, 'history'), watchProjects: false });
+  const project = application.timeline.importProject(root, writer, { watch: false }).project;
+  application.dependencies.ensureIndex(project.id);
+  t.after(async () => {
+    await application.close();
+    fs.rmSync(temporary, { recursive: true, force: true });
+  });
+  const predict = (text) => application.dependencies.predict(project.id, { text, documentPath: 'notes/draft.md' });
+  return { application, project, predict };
+}
+
+test('a sentence is answered by sources sharing its words, not by data that only fits its folder or kind', (t) => {
+  const { predict } = siteFixture(t);
+  const named = predict('The retaining wall drainage results showed').workspaceCompletions;
+  assert.equal(named[0].replacementText, 'The retaining wall drainage was blocked near the north culvert.');
+  assert.equal(named[0].dependencyCandidate.ranking.reason, 'Matching words in your sentence');
+  assert.ok(named.every((suggestion) => suggestion.dependencyCandidate.path === 'notes/site-visit.md'),
+    named.map((suggestion) => suggestion.replacementText).join(', '));
+  // A sentence that names nothing is still offered the project's data, ranked
+  // below anything that matches words, in this directory or another.
+  const reporting = predict('Our results showed that').workspaceCompletions;
+  assert.ok(reporting.length > 0);
+  assert.ok(reporting.every((suggestion) => suggestion.dependencyCandidate.ranking.tier === 2));
+  // A word with no source at all keeps the box closed rather than offering unrelated data.
+  assert.deepEqual(predict('The geomembrane results showed').workspaceCompletions, []);
+});
+
+test('a column or row is matched by its own name, never by the name of its file', (t) => {
+  const { application, project, predict } = siteFixture(t);
+  const [claim] = predict('The pres').claims;
+  assert.deepEqual(claim.candidates.map((candidate) => candidate.label), ['Pressure gauge', 'Peak Pressure']);
+  const contained = claim.candidates[1];
+  assert.equal(contained.ranking.tier, 1, 'a name with the word further in follows one it begins');
+  assert.notEqual(contained.ranking.reason, 'Name starts with your query');
+  const found = application.dependencies.search(project.id, 'pres');
+  assert.ok(found.every((object) => object.ranking.tier > 0 || /^pres/i.test(object.label)),
+    found.filter((object) => object.ranking.tier === 0).map((object) => object.label).join(', '));
+});
+
 test('accepted human links record usage atomically and influence project suggestions', async (t) => {
   const { application: app, project, link } = fixture(t);
   const { dependencies, timeline } = app;

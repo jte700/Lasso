@@ -314,6 +314,31 @@ test('exact values and identifiers remain ahead of popular content and name pref
   assert.equal(directRecommendationMatch({ valueText: '-12.5%' }, '12.5%').direct, false);
 });
 
+test('a file name names the file, not each row, column or cell inside it', () => {
+  const inFile = (extra) => ({ path: 'data/pressure_log.csv', ...extra });
+  assert.equal(directRecommendationMatch(inFile({ objectType: 'DATASET', label: 'pressure_log' }), 'pres').direct, true);
+  for (const part of [
+    { objectType: 'VARIABLE', label: 'Day' },
+    { objectType: 'DATASET_VALUE', label: 'Mon · Flow Rate' },
+    { objectType: 'RESULT', label: 'pressure_log · included rows' },
+  ]) assert.equal(directRecommendationMatch(inFile(part), 'pres').direct, false, part.label);
+  assert.equal(directRecommendationMatch(inFile({ objectType: 'VARIABLE', label: 'Peak Pressure' }), 'peak pres').reason,
+    'Name starts with your query');
+  // Underscores are spelling: the typed words name the column exactly.
+  assert.equal(directRecommendationMatch(inFile({ objectType: 'VARIABLE', label: 'birth_weight_g' }), 'birth weight g').exact, true);
+  assert.equal(directRecommendationMatch({ label: '12.5% growth' }, '-12.5%').direct, false);
+});
+
+test('only exact matches are most specific; a match only its caller vouches for ranks with name prefixes', (t) => {
+  const f = fixture(t);
+  const vouched = candidate('beta.csv', 0.99, { label: 'Beta', matchTier: 0, reasons: ['matching value'] });
+  const results = f.rank([vouched, candidate('alpha.csv', 0.81)], { query: 'alpha' });
+  assert.deepEqual(results.map((item) => item.path), ['alpha.csv', 'beta.csv']);
+  assert.equal(results[0].ranking.directSpecificity, 2);
+  assert.equal(results[1].ranking.directSpecificity, 1);
+  assert.equal(results[1].ranking.reason, 'Matching value', 'a reason is shown capitalised');
+});
+
 test('ranking rejects invented paths and foreign identities while preserving indexed historical scope', (t) => {
   const f = fixture(t);
   const otherRoot = path.join(f.sandbox, 'other');
@@ -365,4 +390,68 @@ test('historical source usage follows file identity when a renamed path is reuse
   ], { query: 'result', limit: 6 });
   assert.equal(mixedVersions.filter((item) => ['beta.csv', 'renamed.csv'].includes(item.path)).length, 2);
   assert.ok(mixedVersions.some((item) => item.path === 'alpha.csv'));
+});
+
+test('name spelling keeps signs, decimals and meaningful punctuation distinct', (t) => {
+  const f = fixture(t);
+  f.popular('alpha.csv');
+  const differentNames = [
+    ['12 mg', '-12 mg'],
+    ['12 mg', '+12 mg'],
+    ['Dose 12 mg', 'Dose -12 mg'],
+    ['Dose 12 mg', 'Dose +12 mg'],
+    ['Dose 1.5 mg', 'Dose 1 5 mg'],
+    ['Report 2026-10-31', 'Report 2026 10 31'],
+    ['C++', 'C'],
+    ['C#', 'C'],
+    ['mg/mL', 'mg mL'],
+    ['m-2', 'm 2'],
+    ['Dose-12 mg', 'Dose 12 mg'],
+  ];
+  for (const [label, query] of differentNames) {
+    assert.equal(directRecommendationMatch({ label }, query).exact, undefined, `${label} is not ${query}`);
+    assert.equal(directRecommendationMatch({ label: query }, label).exact, undefined, `${query} is not ${label}`);
+    // A popular, higher-scored lookalike must not tie the name actually typed.
+    const result = f.rank([
+      candidate('alpha.csv', 0.99, { label }),
+      candidate('beta.csv', 0.81, { label: query }),
+    ], { query });
+    assert.equal(result[0].path, 'beta.csv', query);
+    assert.equal(result[0].ranking.reason, 'Exact name match', query);
+  }
+  for (const [label, query] of [
+    ['birth_weight_g', 'birth weight g'],
+    ['birth-weight-g', 'birth weight g'],
+    ['birth.weight.g', 'birth weight g'],
+    ['phase2-results', 'phase2 results'],
+    ['Dose_-12.5_mg', 'Dose -12.5 mg'],
+  ]) {
+    assert.equal(directRecommendationMatch({ label }, query).exact, true, label);
+  }
+  assert.equal(directRecommendationMatch({ label: 'birth_weight_g' }, 'birth wei').direct, true);
+});
+
+
+test('current sentence context beats history only among similarly relevant matches', (t) => {
+  const f = fixture(t);
+  f.popular('alpha.csv');
+  const popular = candidate('alpha.csv', 0.86, { label: 'Revenue' });
+  const contextual = candidate('beta.csv', 0.82, { label: 'Revenue', contextScore: 0.5 });
+  const result = f.rank([popular, contextual], { query: 'Revenue', relatedPaths: ['alpha.csv'] });
+  assert.equal(result[0].path, 'beta.csv');
+  assert.equal(result[0].ranking.contextScore, 0.5);
+  assert.equal(result[0].ranking.reason, 'Exact name match');
+  assert.equal(f.rank([popular, { ...contextual, label: 'Revenue growth' }], { query: 'Revenue' })[0].path,
+    'alpha.csv', 'sentence context cannot override an exact name with a prefix');
+  assert.equal(f.rank([{ ...popular, score: 0.9 }, contextual], { query: 'Revenue' })[0].path,
+    'alpha.csv', 'sentence context cannot override a stronger relevance band');
+  assert.equal(f.rank([popular, contextual])[0].path,
+    'alpha.csv', 'browsing without a query still uses project history');
+  const broader = f.rank([popular, contextual], { query: 'forecast' });
+  assert.equal(broader[0].path, 'beta.csv');
+  assert.equal(broader[0].ranking.reason, 'Matches your sentence context');
+  for (const [contextScore, expected] of [[undefined, 0], [-1, 0], [NaN, 0], [Infinity, 0], [3, 1]]) {
+    assert.equal(f.rank([{ ...contextual, contextScore }], { query: 'Revenue' })[0].ranking.contextScore,
+      expected, String(contextScore));
+  }
 });
