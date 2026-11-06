@@ -51,7 +51,6 @@ final class StatusHeaderRow: NSView {
         toggle.autoresizingMask = [.minXMargin]
         addSubview(toggle)
         progress.indeterminate = true
-        progress.accent = .controlAccentColor
         progress.isHidden = !busy
         progress.autoresizingMask = [.width]
         progress.setAccessibilityLabel(subtitle)
