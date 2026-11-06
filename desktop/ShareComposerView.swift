@@ -9,8 +9,15 @@ final class ShareComposerView: NSView {
     var copyState: CopyState = .idle
     var isCopying: Bool { copyState == .copying }
     var actionTitle = "Copy link"
-    /// Native selection colour: the folder colour is kept for the suggestion card and document highlights.
+    /// Native selection colour for the composer's own controls.
     var accentColor: NSColor { .controlAccentColor }
+    /// The cited passage is marked as on the suggestion card, in the source folder's colour.
+    var highlightColor: NSColor = .systemGreen {
+        didSet {
+            needsDisplay = true
+            previewCanvas.needsDisplay = true
+        }
+    }
     var localOnly = true
     var scope: ShareAccessScope = .indexed {
         didSet {

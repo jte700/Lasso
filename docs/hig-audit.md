@@ -58,7 +58,7 @@ Before and after screenshots live in [`docs/hig-audit/before`](hig-audit/before)
 | S3 | **Em dash as the "no value" placeholder.** Missing dates render as an em dash. | `src/sharing/share-page.js` | writing; project rule | Fixed (shows "Unknown") |
 | S4 | **Inspector toolbar is app chrome but behaves like a web page.** Pointing-hand cursor, sentence-case labels, text glyph icons, selectable labels. | `src/sharing/share-page.js` (`renderInspectorPanel`) | pointing-devices; buttons; sf-symbols | Fixed (see A3, A8, A9) |
 | S5 | **Dark mode, focus rings, Reduce Motion.** The page follows `prefers-color-scheme`, shows a visible focus ring on links and buttons, and disables smooth scrolling under Reduce Motion. | `src/sharing/share-page.js` | dark-mode; accessibility | Kept (already correct) |
-| S6 | **Fixed blue accent on the recipient page.** | `src/sharing/share-page.js` | color (App accent colors) | Kept. The recipient page is Lasso's branded public page, viewed in any browser, so it keeps Lasso's blue. The private inspector already takes the source folder's color. |
+| S6 | **Fixed blue accent on the recipient page.** | `src/sharing/share-page.js` | color (App accent colors) | Kept. The recipient page is Lasso's branded public page, viewed in any browser, so it keeps Lasso's blue, and marks cited cells in green whoever shared them. The private inspector and the share composer mark the cited cell in the source folder's colour, drawn as the suggestion card draws it; their buttons stay grey. |
 
 ## Website
 

@@ -63,27 +63,32 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
             isOpen: { [weak self] in self?.isVisible == true },
             dismiss: { [weak self] in self?.hide() })
         LassoTransientUI.shared.start()
-        NotificationCenter.default.addObserver(self, selector: #selector(updateAccent),
-            name: NSColor.systemColorsDidChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(updateHighlight),
+            name: .directoryColorsDidChange, object: nil)
     }
 
     deinit { NotificationCenter.default.removeObserver(self) }
 
-    /// The folder colour belongs to the suggestion card and the document's
-    /// highlights; the inspector marks its cited cell in the system accent.
-    private var accentHex: String {
-        var hex = "#007AFF"
-        (panel?.effectiveAppearance ?? NSApp.effectiveAppearance).performAsCurrentDrawingAppearance {
-            guard let color = NSColor.controlAccentColor.usingColorSpace(.sRGB) else { return }
-            hex = String(format: "#%02X%02X%02X", Int((color.redComponent * 255).rounded()),
-                Int((color.greenComponent * 255).rounded()), Int((color.blueComponent * 255).rounded()))
-        }
-        return hex
+    /// The colour the link is highlighted in within the document, for references made before folders had colours.
+    private var fallbackHighlightColor: NSColor {
+        DependencyStyle.stroke(for: .healthy, sourceSlot: reference?.sourceColorSlot ?? 0, hovered: true)
     }
 
-    @objc private func updateAccent() {
+    /// The cited cell is marked as on the suggestion card, in the source folder's colour.
+    /// The inspector's buttons and close X stay grey.
+    private var highlightColor: NSColor {
+        DirectoryColorPreferences.color(for: reference?.projectId)?.color ?? fallbackHighlightColor
+    }
+
+    private var highlightHex: String {
+        guard let color = highlightColor.usingColorSpace(.sRGB) else { return "#34C759" }
+        return String(format: "#%02X%02X%02X", Int((color.redComponent * 255).rounded()),
+            Int((color.greenComponent * 255).rounded()), Int((color.blueComponent * 255).rounded()))
+    }
+
+    @objc private func updateHighlight() {
         guard reference != nil else { return }
-        webView?.evaluateJavaScript("document.documentElement.style.setProperty('--accent', '\(accentHex)')")
+        webView?.evaluateJavaScript("document.documentElement.style.setProperty('--cited', '\(highlightHex)')")
     }
 
     func show(_ reference: DependencyReference, near rect: CGRect, serverURL: URL) {
@@ -98,7 +103,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         regressionActions = []
         #endif
         let panel = existingPanel()
-        updateAccent()
+        updateHighlight()
 
         var components = URLComponents(url: serverURL.appendingPathComponent("inspect"),
                                        resolvingAgainstBaseURL: false)
@@ -106,7 +111,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
             URLQueryItem(name: "object", value: reference.objectId),
             URLQueryItem(name: "version", value: reference.versionId),
             URLQueryItem(name: "reference", value: reference.id),
-            URLQueryItem(name: "accent", value: accentHex),
+            URLQueryItem(name: "accent", value: highlightHex),
         ]
         // A cited video plays, and opens, from the second its quoted words start.
         if let time = reference.videoTime {
@@ -276,6 +281,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
             objectId: reference.objectId, versionId: reference.versionId,
             label: reference.label, sourcePath: reference.sourcePath,
             near: panel.frame, serverURL: serverURL, hostPanel: panel,
+            projectId: reference.projectId, fallbackHighlightColor: fallbackHighlightColor,
             copyAction: completion)
     }
 
@@ -385,7 +391,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         guard navigation === pendingNavigation else { return }
         pendingNavigation = nil
         guard resolvedSuccessfully, isVisible, let serverURL, let reference else { return }
-        updateAccent()
+        updateHighlight()
         RecommendationUsageClient.recordResolvedOpen(serverURL: serverURL, objectId: reference.objectId)
     }
 

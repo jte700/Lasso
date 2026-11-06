@@ -60,6 +60,8 @@ enum RanchFormat {
 }
 
 extension RanchDirectory {
+    var color: Color { Color(nsColor: DirectoryColorPreferences.color(for: id)?.color ?? .controlAccentColor) }
+
     /// The connected app's own symbol, a drive while it is disconnected, or a folder.
     var sidebarSymbol: String {
         if isApp, let symbol, NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil { return symbol }
@@ -374,7 +376,7 @@ struct RanchSidebar: View {
                   open: branch.tree.isEmpty ? nil : { toggle(key) }) {
             HStack(spacing: 4) {
                 RanchDisclosure(open: branch.open, hidden: branch.tree.isEmpty || !store.canToggleFolders) { toggle(key) }
-                RanchDirectoryRow(directory: directory, pinned: store.isPinned(directory.id))
+                RanchDirectoryRow(directory: directory, color: directory.color, pinned: store.isPinned(directory.id))
             }
         }
         .accessibilityAction(named: branch.open ? "Collapse" : "Expand") { toggle(key) }
@@ -475,7 +477,8 @@ struct RanchSidebar: View {
             Button(action: actions.addDirectories) {
                 Label("Add Work Directories\u{2026}", systemImage: "plus").frame(maxWidth: .infinity)
             }
-            .buttonStyle(RanchPillButtonStyle(prominent: true, height: 32))
+            // Grey like every other action button; only folders and highlights carry colour.
+            .buttonStyle(RanchPillButtonStyle(prominent: false, height: 32))
             .help("Choose folders for Lasso to read; their files appear here")
             HStack(spacing: 7) {
                 Circle().fill(status.color).frame(width: 7, height: 7)
@@ -603,11 +606,14 @@ struct RanchDirectoryMenu: View {
 
 struct RanchDirectoryRow: View {
     let directory: RanchDirectory
+    /// Passed in rather than read here: the row only redraws when its inputs
+    /// change, so a colour picked while the window is open must be one of them.
+    let color: Color
     var pinned = false
 
     var body: some View {
         HStack(spacing: 9) {
-            Image(systemName: directory.sidebarSymbol).font(.system(size: 13)).foregroundStyle(RanchTheme.secondaryInk).frame(width: 18)
+            Image(systemName: directory.sidebarSymbol).font(.system(size: 13)).foregroundStyle(color).frame(width: 18)
             Text(directory.name).font(RanchTheme.bodyFont).foregroundStyle(RanchTheme.ink).lineLimit(1)
             if pinned {
                 Image(systemName: "pin.fill").font(.system(size: 9)).foregroundStyle(RanchTheme.tertiaryInk)

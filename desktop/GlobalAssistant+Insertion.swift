@@ -87,6 +87,7 @@ extension GlobalAssistant {
             objectId: objectId, versionId: suggestion.versionId,
             label: suggestion.label, sourcePath: suggestion.path, near: anchor, serverURL: serverURL, actionTitle: "Insert link",
             hostPanel: existingPanel(),
+            projectId: suggestion.projectId,
             onCancel: { [weak self] in
                 guard let self else { return }
                 self.view.mode = .suggestions

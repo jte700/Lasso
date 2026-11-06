@@ -28,6 +28,9 @@ final class ShareComposerController: NSObject {
     private var copyServerURL: URL?
     private var cancellation: (() -> Void)?
     private var colorObserver: NSObjectProtocol?
+    private var folderColorObserver: NSObjectProtocol?
+    private var projectId: String?
+    private var fallbackHighlightColor: NSColor = .systemGreen
     var isVisible: Bool { active && (hostPanel ?? panel)?.isVisible == true }
 
     func isPresented(in panel: NSPanel?) -> Bool {
@@ -67,6 +70,10 @@ final class ShareComposerController: NSObject {
         colorObserver = NotificationCenter.default.addObserver(
             forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
                 self?.view.needsDisplay = true
+            }
+        folderColorObserver = NotificationCenter.default.addObserver(
+            forName: .directoryColorsDidChange, object: nil, queue: .main) { [weak self] _ in
+                self?.updateHighlightColor()
             }
         view.onCancel = { [weak self] in self?.cancel() }
         view.onCreate = { [weak self] configuration in
@@ -117,6 +124,7 @@ final class ShareComposerController: NSObject {
     func show(objectId: String, versionId: String?, label: String, sourcePath: String,
               near anchor: NSRect, serverURL: URL, actionTitle: String = "Copy link",
               hostPanel: NSPanel? = nil,
+              projectId: String? = nil, fallbackHighlightColor: NSColor = .systemGreen,
               copyAction: ((ShareConfiguration, @escaping (Result<DependencyShare, Error>) -> Void) -> Void)? = nil,
               onCancel: (() -> Void)? = nil,
               completion: ((ShareConfiguration) -> Void)? = nil) {
@@ -135,6 +143,9 @@ final class ShareComposerController: NSObject {
         self.copyAction = copyAction
         copyServerURL = serverURL
         cancellation = onCancel
+        self.projectId = projectId
+        self.fallbackHighlightColor = fallbackHighlightColor
+        updateHighlightColor()
         active = true
         generation += 1
         let token = generation
@@ -409,6 +420,11 @@ final class ShareComposerController: NSObject {
         created.contentView = ShareComposerSurface(content: view)
         panel = created
         return created
+    }
+
+    /// Cited cells and text are marked in the source folder's colour, as on the suggestion card.
+    private func updateHighlightColor() {
+        view.highlightColor = DirectoryColorPreferences.color(for: projectId)?.color ?? fallbackHighlightColor
     }
 
     private func placement(near anchor: NSRect) -> NSPoint {

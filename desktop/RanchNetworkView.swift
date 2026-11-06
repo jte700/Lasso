@@ -171,10 +171,10 @@ struct RanchNetworkView: View {
                 if node.role == .hub {
                     context.fill(Path(ellipseIn: rect), with: .color(RanchTheme.surface))
                     context.stroke(Path(ellipseIn: rect), with: .color(fill), lineWidth: 3)
-                    // Grey, as in the sidebar: the folder colour is kept for the suggestion card and highlights.
+                    // In the directory's own Lasso colour, as in the sidebar.
                     let directory = store.directory(node.directoryId)
                     var glyph = context.resolve(Image(systemName: directory?.sidebarSymbol ?? "folder"))
-                    glyph.shading = .color(RanchTheme.secondaryInk)
+                    glyph.shading = .color(directory?.color ?? .secondary)
                     context.draw(glyph, at: center)
                 } else {
                     context.fill(Path(ellipseIn: rect), with: .color(fill))

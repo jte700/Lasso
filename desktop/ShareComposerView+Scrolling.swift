@@ -104,6 +104,18 @@ extension ShareComposerView {
         previewCanvas.needsDisplay = true
     }
 
+    /// A cited cell is outlined as on the suggestion card: thin, in the source folder's colour, above the grid.
+    private func strokeCitedOutlines(_ outlines: [NSRect]) {
+        highlightColor.withAlphaComponent(0.65).setStroke()
+        for outline in outlines {
+            let path = NSBezierPath(rect: outline.insetBy(dx: 0.5, dy: 0.5))
+            path.lineWidth = 0.8
+            path.stroke()
+        }
+    }
+
+    private var citedScrollFont: NSFont { .systemFont(ofSize: scrollFont.pointSize, weight: .medium) }
+
     func drawScrollablePreview(_ dirtyRect: NSRect) {
         targets.removeAll()
         let visible = previewCanvas.visibleRect
@@ -124,13 +136,16 @@ extension ShareComposerView {
                 x += width
             }
             var y = headerHeight
+            let citedRows = Set(scrollCitations.compactMap { $0.split(separator: ":").first.flatMap { Int($0) } })
+            var citedOutlines: [NSRect] = []
             for (rowIndex, row) in scrollRows.enumerated() {
                 let height = scrollRowHeights[rowIndex + 1]
                 defer { y += height }
                 guard y < visible.maxY && y + height > visible.minY else { continue }
                 drawText(rowIndex < scrollRowNumbers.count ? scrollRowNumbers[rowIndex] : String(rowIndex + 1),
                     in: NSRect(x: 1, y: y + 8, width: rowHeader - 7, height: 16),
-                    font: .systemFont(ofSize: 10), color: .secondaryLabelColor, alignment: .right)
+                    font: .systemFont(ofSize: 10), color: citedRows.contains(rowIndex) ? highlightColor : .secondaryLabelColor,
+                    alignment: .right)
                 x = rowHeader
                 for column in scrollColumns.indices {
                     let cellRect = NSRect(x: x, y: y, width: scrollColumnWidths[column], height: height)
@@ -144,9 +159,13 @@ extension ShareComposerView {
                     if scope == .redacted, scrollCanRedact, let mask = masks[target.key] {
                         drawMask(mask.effect, in: cellRect, value: value)
                     } else {
-                        if cited { accentColor.withAlphaComponent(0.12).setFill(); cellRect.fill() }
+                        if cited {
+                            highlightColor.withAlphaComponent(0.025).setFill()
+                            cellRect.fill()
+                            citedOutlines.append(cellRect)
+                        }
                         drawText(value, in: cellRect.insetBy(dx: 8, dy: 8),
-                                 font: scrollFont, color: .labelColor, wrap: true)
+                                 font: cited ? citedScrollFont : scrollFont, color: .labelColor, wrap: true)
                     }
                     NSColor.separatorColor.withAlphaComponent(0.15).setStroke()
                     line(from: NSPoint(x: cellRect.minX, y: cellRect.maxY),
@@ -159,6 +178,7 @@ extension ShareComposerView {
                 line(from: NSPoint(x: x, y: visible.minY), to: NSPoint(x: x, y: visible.maxY))
                 x += width
             }
+            strokeCitedOutlines(citedOutlines)
         } else {
             var y: CGFloat = 0
             for (index, block) in scrollBlocks.enumerated() {

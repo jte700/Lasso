@@ -149,7 +149,7 @@ extension ShareComposerView {
             drawRotatable(citedPart, in: content)
         } else if isPresentation, let preview, !preview.textBlocks.isEmpty {
             // The whole cited slide is what the recipient gets, with the cited passage marked.
-            AssistMarkdown.draw(preview.textBlocks, in: content, accent: accentColor, baseSize: 11.5)
+            AssistMarkdown.draw(preview.textBlocks, in: content, accent: highlightColor, baseSize: 11.5)
         } else if isLoading {
             drawCentered("Loading source preview…", in: content)
         } else if let preview, !preview.rows.isEmpty {
@@ -264,20 +264,14 @@ extension ShareComposerView {
 
     private func drawButton(_ title: String, in rect: NSRect, prominent: Bool, enabled: Bool,
                             confirmed: Bool = false, showsShortcut: Bool = true) {
-        let fill = prominent
-            // A default push button: the system accent, a shade deeper once the link is copied.
-            ? (confirmed ? accentColor.blended(withFraction: 0.18, of: .black) ?? accentColor : accentColor)
-                .withAlphaComponent(enabled ? 1 : 0.3)
-            : NSColor.labelColor.withAlphaComponent(0.07)
-        fill.setFill()
+        // Grey, as the suggestion card's buttons: the main action is told apart by a
+        // deeper grey and a semibold title, not by colour.
+        NSColor.labelColor.withAlphaComponent(prominent ? 0.12 : 0.07).setFill()
         NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
-        if !prominent {
-            NSColor.separatorColor.setStroke()
-            NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7).stroke()
-        }
+        NSColor.separatorColor.setStroke()
+        NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7).stroke()
         let font = NSFont.systemFont(ofSize: 12, weight: prominent ? .semibold : .regular)
-        let color = prominent ? NSColor.white.withAlphaComponent(enabled ? 1 : 0.7)
-            : enabled ? NSColor.labelColor : .disabledControlTextColor
+        let color: NSColor = enabled ? .labelColor : .disabledControlTextColor
         let titleSize = (title as NSString).size(withAttributes: [.font: font])
         let hasSymbol = prominent && showsShortcut
         let groupWidth = titleSize.width + (hasSymbol ? 22 : 0)

@@ -1478,7 +1478,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard isServerReady, let url = server.url else { return }
         ShareComposerController.shared.show(
             objectId: target.objectId, versionId: target.versionId, label: target.label, sourcePath: target.path,
-            near: anchor, serverURL: url,
+            near: anchor, serverURL: url, projectId: target.projectId,
             copyAction: { [weak self] configuration, finished in
                 ShareClient.createShare(serverURL: url, projectId: target.projectId, objectId: target.objectId,
                                         versionId: target.versionId, configuration: configuration) { result in
