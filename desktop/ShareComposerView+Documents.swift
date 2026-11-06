@@ -227,7 +227,7 @@ extension ShareComposerView {
             }
         }
         NSGraphicsContext.current?.restoreGraphicsState()
-        sourceColor.withAlphaComponent(0.8).setStroke()
+        accentColor.withAlphaComponent(0.8).setStroke()
         let border = NSBezierPath(rect: rect)
         border.lineWidth = 1
         border.stroke()
@@ -262,8 +262,8 @@ extension ShareComposerView {
         if arrowWidth > 0 {
             let previous = NSRect(x: rect.minX, y: rect.minY, width: arrowWidth, height: rect.height)
             let next = NSRect(x: rect.maxX - arrowWidth, y: rect.minY, width: arrowWidth, height: rect.height)
-            drawSymbol("chevron.left", in: previous, color: sourceInkColor)
-            drawSymbol("chevron.right", in: next, color: sourceInkColor)
+            drawSymbol("chevron.left", in: previous, color: .secondaryLabelColor)
+            drawSymbol("chevron.right", in: next, color: .secondaryLabelColor)
             sheetTabTargets.append((previous, max(0, sheetIndex - 1)))
             sheetTabTargets.append((next, min(sheets.count - 1, sheetIndex + 1)))
         }
@@ -273,12 +273,12 @@ extension ShareComposerView {
             let tab = NSRect(x: rect.minX + arrowWidth + CGFloat(position) * width,
                              y: rect.minY, width: width, height: rect.height - 3)
             if index == sheetIndex {
-                sourceColor.withAlphaComponent(0.12).setFill()
+                accentColor.withAlphaComponent(0.12).setFill()
                 NSBezierPath(roundedRect: tab, xRadius: 5, yRadius: 5).fill()
             }
             drawText(sheets[index].name, in: tab.insetBy(dx: 5, dy: 5),
                      font: .systemFont(ofSize: 10, weight: index == sheetIndex ? .semibold : .regular),
-                     color: index == sheetIndex ? sourceInkColor : .secondaryLabelColor,
+                     color: index == sheetIndex ? .labelColor : .secondaryLabelColor,
                      alignment: .center)
             sheetTabTargets.append((tab, index))
         }

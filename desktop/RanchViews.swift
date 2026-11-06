@@ -60,8 +60,6 @@ enum RanchFormat {
 }
 
 extension RanchDirectory {
-    var color: Color { Color(nsColor: DirectoryColorPreferences.color(for: id)?.color ?? .controlAccentColor) }
-
     /// The connected app's own symbol, a drive while it is disconnected, or a folder.
     var sidebarSymbol: String {
         if isApp, let symbol, NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil { return symbol }
@@ -609,7 +607,7 @@ struct RanchDirectoryRow: View {
 
     var body: some View {
         HStack(spacing: 9) {
-            Image(systemName: directory.sidebarSymbol).font(.system(size: 13)).foregroundStyle(directory.color).frame(width: 18)
+            Image(systemName: directory.sidebarSymbol).font(.system(size: 13)).foregroundStyle(RanchTheme.secondaryInk).frame(width: 18)
             Text(directory.name).font(RanchTheme.bodyFont).foregroundStyle(RanchTheme.ink).lineLimit(1)
             if pinned {
                 Image(systemName: "pin.fill").font(.system(size: 9)).foregroundStyle(RanchTheme.tertiaryInk)

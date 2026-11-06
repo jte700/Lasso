@@ -63,28 +63,27 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
             isOpen: { [weak self] in self?.isVisible == true },
             dismiss: { [weak self] in self?.hide() })
         LassoTransientUI.shared.start()
-        NotificationCenter.default.addObserver(self, selector: #selector(updateSourceAccent),
-            name: .directoryColorsDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(updateAccent),
+            name: NSColor.systemColorsDidChangeNotification, object: nil)
     }
 
     deinit { NotificationCenter.default.removeObserver(self) }
 
-    private var fallbackSourceColor: NSColor {
-        DependencyStyle.stroke(for: .healthy, sourceSlot: reference?.sourceColorSlot ?? 0, hovered: true)
+    /// The folder colour belongs to the suggestion card and the document's
+    /// highlights; the inspector marks its cited cell in the system accent.
+    private var accentHex: String {
+        var hex = "#007AFF"
+        (panel?.effectiveAppearance ?? NSApp.effectiveAppearance).performAsCurrentDrawingAppearance {
+            guard let color = NSColor.controlAccentColor.usingColorSpace(.sRGB) else { return }
+            hex = String(format: "#%02X%02X%02X", Int((color.redComponent * 255).rounded()),
+                Int((color.greenComponent * 255).rounded()), Int((color.blueComponent * 255).rounded()))
+        }
+        return hex
     }
 
-    private var sourceAccentHex: String {
-        let color = (DirectoryColorPreferences.color(for: reference?.projectId)?.color
-            ?? fallbackSourceColor).usingColorSpace(.sRGB)!
-        return String(format: "#%02X%02X%02X", Int((color.redComponent * 255).rounded()),
-            Int((color.greenComponent * 255).rounded()), Int((color.blueComponent * 255).rounded()))
-    }
-
-    @objc private func updateSourceAccent() {
+    @objc private func updateAccent() {
         guard reference != nil else { return }
-        closeButton?.contentTintColor = DirectoryColorPreferences.color(for: reference?.projectId)?.color
-            ?? fallbackSourceColor
-        webView?.evaluateJavaScript("document.documentElement.style.setProperty('--accent', '\(sourceAccentHex)')")
+        webView?.evaluateJavaScript("document.documentElement.style.setProperty('--accent', '\(accentHex)')")
     }
 
     func show(_ reference: DependencyReference, near rect: CGRect, serverURL: URL) {
@@ -99,7 +98,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         regressionActions = []
         #endif
         let panel = existingPanel()
-        updateSourceAccent()
+        updateAccent()
 
         var components = URLComponents(url: serverURL.appendingPathComponent("inspect"),
                                        resolvingAgainstBaseURL: false)
@@ -107,7 +106,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
             URLQueryItem(name: "object", value: reference.objectId),
             URLQueryItem(name: "version", value: reference.versionId),
             URLQueryItem(name: "reference", value: reference.id),
-            URLQueryItem(name: "accent", value: sourceAccentHex),
+            URLQueryItem(name: "accent", value: accentHex),
         ]
         // A cited video plays, and opens, from the second its quoted words start.
         if let time = reference.videoTime {
@@ -277,7 +276,6 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
             objectId: reference.objectId, versionId: reference.versionId,
             label: reference.label, sourcePath: reference.sourcePath,
             near: panel.frame, serverURL: serverURL, hostPanel: panel,
-            projectId: reference.projectId, fallbackColor: fallbackSourceColor,
             copyAction: completion)
     }
 
@@ -325,8 +323,9 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         content.addSubview(web)
         let close = InspectorCloseButton(frame: NSRect(x: size.width - 39, y: size.height - 39,
                                                        width: 23, height: 23))
-        close.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")?
-            .withSymbolConfiguration(.init(pointSize: 13, weight: .semibold))
+        // Grey and regular weight, as the suggestion card's own X.
+        close.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")
+        close.contentTintColor = .secondaryLabelColor
         close.imagePosition = .imageOnly
         close.isBordered = false
         close.bezelStyle = .regularSquare
@@ -386,7 +385,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         guard navigation === pendingNavigation else { return }
         pendingNavigation = nil
         guard resolvedSuccessfully, isVisible, let serverURL, let reference else { return }
-        updateSourceAccent()
+        updateAccent()
         RecommendationUsageClient.recordResolvedOpen(serverURL: serverURL, objectId: reference.objectId)
     }
 

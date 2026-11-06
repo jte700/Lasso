@@ -144,7 +144,7 @@ extension ShareComposerView {
                     if scope == .redacted, scrollCanRedact, let mask = masks[target.key] {
                         drawMask(mask.effect, in: cellRect, value: value)
                     } else {
-                        if cited { sourceColor.withAlphaComponent(0.12).setFill(); cellRect.fill() }
+                        if cited { accentColor.withAlphaComponent(0.12).setFill(); cellRect.fill() }
                         drawText(value, in: cellRect.insetBy(dx: 8, dy: 8),
                                  font: scrollFont, color: .labelColor, wrap: true)
                     }

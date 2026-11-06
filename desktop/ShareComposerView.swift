@@ -9,7 +9,8 @@ final class ShareComposerView: NSView {
     var copyState: CopyState = .idle
     var isCopying: Bool { copyState == .copying }
     var actionTitle = "Copy link"
-    var sourceColor: NSColor = .controlAccentColor { didSet { needsDisplay = true } }
+    /// Native selection colour: the folder colour is kept for the suggestion card and document highlights.
+    var accentColor: NSColor { .controlAccentColor }
     var localOnly = true
     var scope: ShareAccessScope = .indexed {
         didSet {
@@ -159,11 +160,6 @@ final class ShareComposerView: NSView {
     static let linkLifetimeNote = "Link expires in 48 hours."
     static let blurContext = CIContext(options: [.cacheIntermediates: false])
     var blurredMasks: [String: NSImage] = [:]
-
-    var sourceInkColor: NSColor {
-        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        return sourceColor.blended(withFraction: dark ? 0.18 : 0.35, of: dark ? .white : .black) ?? sourceColor
-    }
 
     var actionButtonRect: NSRect {
         NSRect(x: bounds.width - 132, y: bounds.height - footerHeight / 2 - 18, width: 116, height: 36)

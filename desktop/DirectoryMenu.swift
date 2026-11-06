@@ -1,10 +1,10 @@
 import Cocoa
 
-/// Draws its tint directly, so an enabled menu switch stays colored even when
-/// its menu window is inactive. NSButton supplies state, keyboard and AX actions.
-final class DirectoryTintSwitch: NSButton {
-    var tint: DirectoryToggleColor = .blue { didSet { needsDisplay = true } }
-
+/// Draws the system accent directly, so an enabled menu switch stays colored
+/// even when its menu window is inactive. The folder colour is kept for the
+/// suggestion card and document highlights. NSButton supplies state, keyboard
+/// and AX actions.
+final class MenuAccentSwitch: NSButton {
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 40, height: 24))
         setButtonType(.switch)
@@ -25,7 +25,7 @@ final class DirectoryTintSwitch: NSButton {
         let opacity: CGFloat = isEnabled ? 1 : 0.45
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let offColor = dark ? NSColor(white: 1, alpha: 0.16) : NSColor(white: 0, alpha: 0.1)
-        (state == .on ? tint.color : offColor).withAlphaComponent((state == .on ? 1 : offColor.alphaComponent) * opacity).setFill()
+        (state == .on ? NSColor.controlAccentColor : offColor).withAlphaComponent((state == .on ? 1 : offColor.alphaComponent) * opacity).setFill()
         NSBezierPath(roundedRect: track, xRadius: track.height / 2, yRadius: track.height / 2).fill()
         let knob = NSRect(x: state == .on ? track.maxX - 16 : track.minX + 1,
                           y: track.minY + 1, width: 15, height: 15)
@@ -242,7 +242,6 @@ final class NativeMenuProgressRow: NSView {
         titleLabel.toolTip = item.title
         addSubview(titleLabel)
         progress.indeterminate = true
-        progress.accent = .controlAccentColor
         progress.frame = NSRect(x: 14, y: 27, width: 252, height: 9)
         progress.autoresizingMask = [.width]
         progress.setAccessibilityLabel(item.title)
@@ -302,7 +301,7 @@ final class DirectoryIssueBadge: NSView {
     override func mouseDown(with event: NSEvent) { onHover?(true) }
 }
 
-/// A track of shaded blocks that fills in the folder's colour, after Loading
+/// A track of shaded blocks that fills in the system accent, after Loading
 /// UI's accordion loader: a solid block leads, a dark and a light shade trail
 /// it, and they spread apart as the bar moves and close up when it rests. The
 /// solid block is where the work has got to; the fill settles behind the
@@ -319,9 +318,6 @@ final class DirectoryProgressBar: NSView {
     /// One sweep there and back while nothing reports a percentage.
     static let sweepSeconds: Double = 2.8
 
-    var tint: DirectoryToggleColor = .blue { didSet { needsDisplay = true } }
-    /// Drawn instead of the folder colour, for a bar that belongs to no folder.
-    var accent: NSColor? { didSet { needsDisplay = true } }
     /// From 0 to 100: where the leading block is.
     var value: Double = 0 {
         didSet {
@@ -492,7 +488,7 @@ final class DirectoryProgressBar: NSView {
         let trackColor = NSColor.labelColor.withAlphaComponent(dark ? 0.42 : 0.34)
         let (font, size, block) = glyphMetrics
         let origin = (bounds.height - size.height) / 2
-        let fill = accent ?? tint.color
+        let fill = NSColor.controlAccentColor
         // Solid blocks are filled as one rectangle where their ink would be,
         // since glyphs side by side leave hairline seams; the shades are drawn
         // as glyphs, a run of one at a time at the font's own spacing.
@@ -605,12 +601,12 @@ final class NativeMenuToggleRow: NSView {
     private var item: NSMenuItem
     private let titleLabel: NSTextField
     private var icon: NSImageView?
-    private let toggle = DirectoryTintSwitch()
+    private let toggle = MenuAccentSwitch()
     private let colorButton: DirectoryColorButton
     private let onColorChange: (DirectoryToggleColor) -> Void
     private var palette: DirectoryColorPaletteRow?
     private(set) var isPaletteVisible = false
-    var currentColor: DirectoryToggleColor { toggle.tint }
+    var currentColor: DirectoryToggleColor { colorButton.tint }
     var actionItem: NSMenuItem { item }
     var onSizeChange: (() -> Void)?
     var onReveal: (() -> Void)?
@@ -706,7 +702,6 @@ final class NativeMenuToggleRow: NSView {
         title.lineBreakMode = .byTruncatingMiddle
         title.setAccessibilityElement(false)
         title.sizeToFit()
-        toggle.tint = color
         toggle.state = item.state
         toggle.isEnabled = item.isEnabled
         toggle.setAccessibilityLabel(item.title)
@@ -762,7 +757,6 @@ final class NativeMenuToggleRow: NSView {
         }
         addSubview(issueBadge)
         // A bar under the name, with the count where the switch is.
-        progressBar.tint = color
         progressBar.autoresizingMask = [.width]
         progressBar.setAccessibilityLabel("Indexing \(item.title)")
         progressBar.isHidden = true
@@ -900,8 +894,6 @@ final class NativeMenuToggleRow: NSView {
         icon?.image = item.image
         refreshColors()
         toggle.state = item.state
-        toggle.tint = color
-        progressBar.tint = color
         toggle.isEnabled = item.isEnabled
         toggle.setAccessibilityLabel(item.title)
         toggle.setAccessibilityHelp(item.toolTip)
@@ -920,17 +912,15 @@ final class NativeMenuToggleRow: NSView {
         guard visible != isPaletteVisible else { return }
         isPaletteVisible = visible
         if visible {
-            let palette = DirectoryColorPaletteRow(selected: toggle.tint) { [weak self] color in
+            let palette = DirectoryColorPaletteRow(selected: colorButton.tint) { [weak self] color in
                 guard let self, self.item.isEnabled else { return }
-                self.toggle.tint = color
                 self.colorButton.tint = color
-                self.progressBar.tint = color
                 self.palette?.update(selected: color, isEnabled: self.item.isEnabled)
                 self.onColorChange(color)
             }
             palette.frame = NSRect(x: 0, y: 32, width: frame.width, height: 32)
             palette.autoresizingMask = [.width]
-            palette.update(selected: toggle.tint, isEnabled: item.isEnabled)
+            palette.update(selected: colorButton.tint, isEnabled: item.isEnabled)
             self.palette = palette
             addSubview(palette)
         } else {
