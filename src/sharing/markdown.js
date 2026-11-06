@@ -353,5 +353,5 @@ export const MARKDOWN_STYLE = `
   .markdown-document .md-image,.markdown-document .md-link{color:var(--accent)}
   .markdown-document a{color:var(--accent)}
   .markdown-document .cited{margin-left:-6px;margin-right:-6px;padding-left:6px;padding-right:6px;border-radius:5px;
-    background:color-mix(in srgb,var(--accent) 14%,transparent);box-shadow:inset 3px 0 0 var(--accent)}
+    background:color-mix(in srgb,var(--cited,var(--accent)) 14%,transparent);box-shadow:inset 2.5px 0 0 var(--cited,var(--accent))}
 `;
