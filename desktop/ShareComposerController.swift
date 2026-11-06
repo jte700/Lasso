@@ -27,8 +27,6 @@ final class ShareComposerController: NSObject {
     private var copyAction: ((ShareConfiguration, @escaping (Result<DependencyShare, Error>) -> Void) -> Void)?
     private var copyServerURL: URL?
     private var cancellation: (() -> Void)?
-    private var projectId: String?
-    private var fallbackColor: NSColor = .controlAccentColor
     private var colorObserver: NSObjectProtocol?
     var isVisible: Bool { active && (hostPanel ?? panel)?.isVisible == true }
 
@@ -67,8 +65,8 @@ final class ShareComposerController: NSObject {
             dismiss: { [weak self] in self?.dismissForEscape() })
         LassoTransientUI.shared.start()
         colorObserver = NotificationCenter.default.addObserver(
-            forName: .directoryColorsDidChange, object: nil, queue: .main) { [weak self] _ in
-                self?.updateSourceColor()
+            forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.view.needsDisplay = true
             }
         view.onCancel = { [weak self] in self?.cancel() }
         view.onCreate = { [weak self] configuration in
@@ -119,7 +117,6 @@ final class ShareComposerController: NSObject {
     func show(objectId: String, versionId: String?, label: String, sourcePath: String,
               near anchor: NSRect, serverURL: URL, actionTitle: String = "Copy link",
               hostPanel: NSPanel? = nil,
-              projectId: String? = nil, fallbackColor: NSColor = .controlAccentColor,
               copyAction: ((ShareConfiguration, @escaping (Result<DependencyShare, Error>) -> Void) -> Void)? = nil,
               onCancel: (() -> Void)? = nil,
               completion: ((ShareConfiguration) -> Void)? = nil) {
@@ -138,9 +135,6 @@ final class ShareComposerController: NSObject {
         self.copyAction = copyAction
         copyServerURL = serverURL
         cancellation = onCancel
-        self.projectId = projectId
-        self.fallbackColor = fallbackColor
-        updateSourceColor()
         active = true
         generation += 1
         let token = generation
@@ -415,10 +409,6 @@ final class ShareComposerController: NSObject {
         created.contentView = ShareComposerSurface(content: view)
         panel = created
         return created
-    }
-
-    private func updateSourceColor() {
-        view.sourceColor = DirectoryColorPreferences.color(for: projectId)?.color ?? fallbackColor
     }
 
     private func placement(near anchor: NSRect) -> NSPoint {

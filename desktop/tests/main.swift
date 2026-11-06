@@ -1701,6 +1701,32 @@ do {
     wide.stop()
 }
 
+print("a folder's switch is drawn in the system accent, not the folder's own colour")
+do {
+    _ = NSApplication.shared
+    func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+    func distance(_ first: NSColor, _ second: NSColor) -> CGFloat {
+        guard let a = first.usingColorSpace(.sRGB), let b = second.usingColorSpace(.sRGB) else { return .infinity }
+        return abs(a.redComponent - b.redComponent) + abs(a.greenComponent - b.greenComponent)
+            + abs(a.blueComponent - b.blueComponent)
+    }
+    let accent = NSColor.controlAccentColor
+    // The folder colour least like the system accent, so the two cannot be mistaken.
+    let folder = DirectoryToggleColor.allCases.max { distance($0.color, accent) < distance($1.color, accent) }!
+    let item = NSMenuItem(title: "Budget", action: nil, keyEquivalent: "")
+    item.state = .on
+    let row = NativeMenuToggleRow(item: item, color: folder) { _ in }
+    let toggle = descendants(row).first { ($0 as? NSButton)?.accessibilitySubrole() == .switch }!
+    toggle.appearance = NSAppearance(named: .aqua)
+    let picture = toggle.bitmapImageRepForCachingDisplay(in: toggle.bounds)!
+    toggle.cacheDisplay(in: toggle.bounds, to: picture)
+    let scale = CGFloat(picture.pixelsWide) / toggle.bounds.width
+    // Left of the knob, inside the track of a switch that is on.
+    let track = picture.colorAt(x: Int(10 * scale), y: Int(toggle.bounds.midY * scale))!
+    check(distance(track, accent) < distance(track, folder.color),
+          "the on switch reads as the system accent (\(track)), not \(folder.title)")
+}
+
 print("a folder's row shows its progress in place of its switch, then gives the switch back")
 do {
     _ = NSApplication.shared
@@ -1710,7 +1736,7 @@ do {
     item.isEnabled = false
     let row = NativeMenuToggleRow(item: item, color: .blue) { _ in }
     row.frame.size.width = 296
-    let toggle = descendants(row).first { $0 is DirectoryTintSwitch }!
+    let toggle = descendants(row).first { $0 is MenuAccentSwitch }!
     check(!row.isShowingProgress && !toggle.isHidden, "a folder at rest shows its switch")
     row.progress = DirectoryProgress(percent: 0, phase: "waiting", kind: "adding")
     let bar = row.progressBarView

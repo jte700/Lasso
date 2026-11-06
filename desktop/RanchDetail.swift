@@ -536,9 +536,9 @@ struct RanchDirectorySummary: View {
             VStack(spacing: 8) {
                 Image(systemName: directory.sidebarSymbol)
                     .font(.system(size: 26))
-                    .foregroundStyle(directory.color)
+                    .foregroundStyle(RanchTheme.secondaryInk)
                     .frame(width: 60, height: 60)
-                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(directory.color.opacity(0.12)))
+                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(RanchTheme.track))
                 Text(directory.name).font(.system(size: 18, weight: .semibold)).foregroundStyle(RanchTheme.ink)
                 Text(directory.rootPath).font(RanchTheme.captionFont).foregroundStyle(RanchTheme.secondaryInk)
                     .textSelection(.enabled).multilineTextAlignment(.center)

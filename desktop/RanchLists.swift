@@ -103,7 +103,7 @@ struct RanchSourcesList: View {
                                 Section {
                                     rows(sources, flagged: flagged)
                                 } header: {
-                                    RanchSectionHeader(title: directory.name, symbol: directory.sidebarSymbol, tint: directory.color) {
+                                    RanchSectionHeader(title: directory.name, symbol: directory.sidebarSymbol) {
                                         RanchCount(value: sources.count)
                                     }
                                 }

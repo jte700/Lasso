@@ -61,18 +61,18 @@ extension ShareComposerView {
         for (index, entry) in entries.enumerated() {
             let row = scopeRect(index)
             if scope == entry.0 {
-                sourceColor.withAlphaComponent(0.12).setFill()
+                accentColor.withAlphaComponent(0.12).setFill()
                 NSBezierPath(roundedRect: row, xRadius: 9, yRadius: 9).fill()
             }
             let radio = NSRect(x: row.minX + 10, y: row.minY + 9, width: 14, height: 14)
             NSColor.separatorColor.withAlphaComponent(scope == entry.0 ? 0.5 : 0.25).setStroke()
             NSBezierPath(ovalIn: radio).stroke()
             if scope == entry.0 {
-                sourceColor.setFill()
+                accentColor.setFill()
                 NSBezierPath(ovalIn: radio.insetBy(dx: 4, dy: 4)).fill()
             }
             drawText(entry.1, in: NSRect(x: row.minX + 31, y: row.minY + 7, width: row.width - 40, height: 18),
-                     font: .systemFont(ofSize: 12, weight: .medium), color: scope == entry.0 ? sourceInkColor : .labelColor)
+                     font: .systemFont(ofSize: 12, weight: .medium), color: .labelColor)
             drawText(entry.2, in: NSRect(x: row.minX + 31, y: row.minY + 26, width: row.width - 40, height: 15),
                      font: .systemFont(ofSize: 10.5), color: .secondaryLabelColor)
         }
@@ -146,7 +146,7 @@ extension ShareComposerView {
             drawRotatable(citedPart, in: content)
         } else if isPresentation, let preview, !preview.textBlocks.isEmpty {
             // The whole cited slide is what the recipient gets, with the cited passage marked.
-            AssistMarkdown.draw(preview.textBlocks, in: content, accent: sourceColor, baseSize: 11.5)
+            AssistMarkdown.draw(preview.textBlocks, in: content, accent: accentColor, baseSize: 11.5)
         } else if isLoading {
             drawCentered("Loading source preview…", in: content)
         } else if let preview, !preview.rows.isEmpty {
@@ -194,7 +194,8 @@ extension ShareComposerView {
         case .marked: detail = markup.marks.isEmpty ? "Draw on the pages to mark them up."
             : "A copy with \(markup.marks.count) mark\(markup.marks.count == 1 ? "" : "s") is shared, not the original."
         }
-        drawSymbol("lock.shield", in: NSRect(x: 18, y: centerY - 8, width: 16, height: 16), fraction: 0.8)
+        drawSymbol("lock.shield", in: NSRect(x: 18, y: centerY - 8, width: 16, height: 16), fraction: 0.8,
+                   color: .secondaryLabelColor)
         let availability = localOnly ? "Only on this Mac. Email recipients need hosted sharing." : detail
         let message = notice ?? availability
         let font = NSFont.systemFont(ofSize: 11)
@@ -261,7 +262,9 @@ extension ShareComposerView {
     private func drawButton(_ title: String, in rect: NSRect, prominent: Bool, enabled: Bool,
                             confirmed: Bool = false, showsShortcut: Bool = true) {
         let fill = prominent
-            ? (sourceColor.blended(withFraction: confirmed ? 0.45 : 0.35, of: .black) ?? sourceColor).withAlphaComponent(enabled ? 1 : 0.3)
+            // A default push button: the system accent, a shade deeper once the link is copied.
+            ? (confirmed ? accentColor.blended(withFraction: 0.18, of: .black) ?? accentColor : accentColor)
+                .withAlphaComponent(enabled ? 1 : 0.3)
             : NSColor.labelColor.withAlphaComponent(0.07)
         fill.setFill()
         NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
@@ -286,7 +289,7 @@ extension ShareComposerView {
 
     func drawSymbol(_ name: String, in rect: NSRect, fraction: CGFloat, color: NSColor? = nil) {
         guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil),
-              let image = symbol.withSymbolConfiguration(.init(paletteColors: [color ?? sourceInkColor])) else { return }
+              let image = symbol.withSymbolConfiguration(.init(paletteColors: [color ?? .secondaryLabelColor])) else { return }
         image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: fraction,
                    respectFlipped: true, hints: nil)
     }
