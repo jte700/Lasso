@@ -110,6 +110,8 @@ extension GlobalAssistant {
 
     func refresh() {
         guard isEnabled, serverURL != nil, !projectIds.isEmpty else { hide(); return }
+        // An app switched off in Settings gets no card, and its text is not read.
+        if let app = Self.frontmostBundleID, !SuggestionApps.shared.allows(app) { hide(); return }
         // One read at a time: a slow host must not pile up reads behind it.
         guard contextReads.begin() else { return }
         let token = generation
@@ -126,6 +128,14 @@ extension GlobalAssistant {
         }
     }
 
+    static var frontmostBundleID: String? { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
+
+    static func bundleID(owning element: AXUIElement) -> String? {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success else { return nil }
+        return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+    }
+
     private func didReadHost(_ reading: HostReading) {
         guard isEnabled, let serverURL, !projectIds.isEmpty,
               let captured = reading.context else { hide(); return }
@@ -133,6 +143,13 @@ extension GlobalAssistant {
         // field ("Re" → Revenue) is not skipped. The server decides whether
         // the typed fragment is long enough to match.
         guard Self.trimmedLength(captured) >= Self.minimumTypedCharacters else { hide(); return }
+        // The field read may belong to another app than the frontmost one, such
+        // as a floating search panel, so its owner decides. Settings lists the
+        // apps people write in, each with its own switch.
+        if let app = Self.bundleID(owning: captured.element) {
+            guard SuggestionApps.shared.allows(app) else { hide(); return }
+            SuggestionApps.shared.noteTyping(in: app)
+        }
         if let host = popupHost, !CFEqual(host.element, captured.element) { hide() }
         // Linked sources belong to one surface only.
         if linkedContext != captured.diagnosis || linkedElement.map({ !CFEqual($0, captured.element) }) != false {

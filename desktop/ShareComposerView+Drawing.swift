@@ -28,11 +28,14 @@ extension ShareComposerView {
 
     private func drawChrome() {
         let body = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 14, yRadius: 14)
-        NSColor.windowBackgroundColor.withAlphaComponent(0.94).setFill()
+        NSColor.windowBackgroundColor.withAlphaComponent(NativeMaterial.surfaceOpacity(classic: 0.94)).setFill()
         body.fill()
-        NSColor.separatorColor.withAlphaComponent(0.14).setStroke()
-        body.lineWidth = 0.65
-        body.stroke()
+        // Liquid Glass draws its own edge.
+        if !NativeMaterial.usesGlass {
+            NSColor.separatorColor.withAlphaComponent(0.14).setStroke()
+            body.lineWidth = 0.65
+            body.stroke()
+        }
 
         NSColor.separatorColor.withAlphaComponent(0.09).setStroke()
         line(from: NSPoint(x: 0, y: bounds.height - footerHeight),

@@ -149,28 +149,33 @@ struct RanchRootView: View {
             HStack(spacing: 0) {
                 if !store.sidebarHidden {
                     RanchSidebar(store: store, actions: actions, search: $searchFocused, hide: toggleSidebar)
+                        .ranchSidebarSurface()
                         .frame(width: sidebarWidth)
                         .transition(.move(edge: .leading))
-                    RanchColumnDivider(width: $sidebarWidth, range: Self.sidebarWidths)
+                    RanchColumnDivider(width: $sidebarWidth, range: Self.sidebarWidths, showsLine: !RanchGlass.isAvailable)
                 }
                 // The network needs room, so it takes the whole width and shows
                 // the chosen file beside it instead of in a third column.
-                if store.section == .network {
-                    RanchNetworkPane(store: store, actions: actions)
-                        .environment(\.ranchShowSidebar, showSidebar)
-                } else {
-                    RanchContent(store: store)
-                        .environment(\.ranchShowSidebar, showSidebar)
-                        .frame(width: min(listWidth, listRoom))
-                    RanchColumnDivider(width: $listWidth, range: Self.listMinimum...listRoom)
-                    RanchDetail(store: store, actions: actions)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                HStack(spacing: 0) {
+                    if store.section == .network {
+                        RanchNetworkPane(store: store, actions: actions)
+                            .environment(\.ranchShowSidebar, showSidebar)
+                    } else {
+                        RanchContent(store: store)
+                            .environment(\.ranchShowSidebar, showSidebar)
+                            .frame(width: min(listWidth, listRoom))
+                        RanchColumnDivider(width: $listWidth, range: Self.listMinimum...listRoom)
+                        RanchDetail(store: store, actions: actions)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
+                // Files are read on a solid page; only the sidebar side is glass.
+                .background(RanchTheme.surface)
             }
         }
         // The columns run up under the window's buttons.
         .ignoresSafeArea(.container, edges: .top)
-        .background(RanchTheme.surface)
+        .background { RanchWindowBackdrop() }
         .frame(minWidth: 860, minHeight: 520)
         .background { shortcuts }
         .alert("Something Didn\u{2019}t Work", isPresented: Binding(get: { store.actionError != nil },
@@ -319,7 +324,6 @@ struct RanchSidebar: View {
             }
             footer
         }
-        .background(RanchTheme.sidebar)
     }
 
     private func library(_ selection: Binding<RanchSidebarItem?>, quiet: Bool) -> some View {

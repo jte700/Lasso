@@ -2,6 +2,7 @@
 //  Built and run by `npm run desktop:test` — no framework, no dependencies.
 
 import Cocoa
+import SwiftUI
 import PDFKit
 import CoreText
 
@@ -3227,6 +3228,38 @@ do {
     check(search(word, visits: 3) == nil, "the search stops after its visit budget")
 }
 
+print("popup host window")
+do {
+    // Chrome in full screen, as read on macOS 26: the address bar names the
+    // group holding the toolbar overlay as its window, and the browser window
+    // sits above that group.
+    final class Node {
+        let role: String; let parent: Node?
+        init(_ role: String, parent: Node?) { self.role = role; self.parent = parent }
+    }
+    func owner(of editor: Node, named reported: Node, maxDepth: Int = AssistPopupHost.maxWindowDepth) -> Node? {
+        AssistPopupHost.owningWindow(named: reported, above: editor, parent: { $0.parent }, role: { $0.role },
+                                     maxDepth: maxDepth)
+    }
+    let application = Node("AXApplication", parent: nil)
+    let browser = Node("AXWindow", parent: application)
+    let overlay = Node("AXGroup", parent: browser)
+    var toolbar = overlay
+    for role in ["AXGroup", "AXGroup", "AXGroup", "AXToolbar", "AXGroup"] { toolbar = Node(role, parent: toolbar) }
+    let addressBar = Node("AXTextField", parent: toolbar)
+    check(owner(of: addressBar, named: overlay) === browser,
+          "an address bar in Chrome's full-screen overlay belongs to the browser window above it")
+
+    let window = Node("AXWindow", parent: application)
+    let field = Node("AXTextField", parent: Node("AXGroup", parent: window))
+    check(owner(of: field, named: window) === window, "an editor that names its window keeps it")
+    check(owner(of: field, named: Node("AXGroup", parent: nil)) === window,
+          "a named container that is not a window gives way to the window above the editor")
+    let loose = Node("AXTextField", parent: Node("AXGroup", parent: application))
+    check(owner(of: loose, named: Node("AXGroup", parent: nil)) == nil, "an editor with no window above it has none")
+    check(owner(of: addressBar, named: overlay, maxDepth: 3) == nil, "the walk up stops after its depth budget")
+}
+
 print("host accessibility mode")
 do {
     check(!HostAccessibilityMode.needsEnhancedInterface(manualAccepted: true, chromiumBased: true),
@@ -4151,6 +4184,67 @@ do {
           "a selection covers the lines it touches, not the line after its last line break")
     check(RanchCodeLines.label(4...4) == "Line 4" && RanchCodeLines.label(10...20) == "Lines 10\u{2013}20",
           "selected lines are named the way they are written")
+}
+
+// MARK: The glass card's outline
+
+do {
+    let rect = CGRect(x: 0, y: 0, width: 300, height: 112)
+    func outline(pointerX: CGFloat, atTop: Bool) -> Path {
+        AssistBubbleShape(geometry: AssistBubbleGeometry(cornerRadius: 18, pointerWidth: 21, pointerHeight: 12,
+                                                         pointerX: pointerX, pointerAtTop: atTop)).path(in: rect)
+    }
+    let above = outline(pointerX: 84, atTop: true)
+    check(above.contains(CGPoint(x: 84, y: 4)) && !above.contains(CGPoint(x: 60, y: 4)),
+          "a glass card below the caret points up at it from its top edge")
+    check(above.contains(CGPoint(x: 150, y: 60)) && !above.contains(CGPoint(x: 150, y: 4)),
+          "the glass outline covers the card's body and nothing past it")
+    let below = outline(pointerX: 84, atTop: false)
+    check(below.contains(CGPoint(x: 84, y: 108)) && !below.contains(CGPoint(x: 60, y: 108)),
+          "a glass card above the caret points down at it from its bottom edge")
+    let nearEdge = outline(pointerX: 2, atTop: true)
+    check(nearEdge.contains(CGPoint(x: 28.5, y: 4)) && !nearEdge.contains(CGPoint(x: 4, y: 4)),
+          "an arrow near the card's edge stays clear of the rounded corner")
+}
+
+// MARK: Apps Lasso suggests in
+
+do {
+    let suite = "lasso-tests-suggestion-apps-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let apps = SuggestionApps(defaults: defaults, ownBundleID: "com.jte700.lasso", limit: 3)
+
+    check(apps.allows("com.apple.Notes") && apps.listed.isEmpty, "every app gets suggestions until one is switched off")
+
+    apps.noteTyping(in: "com.apple.Notes")
+    apps.noteTyping(in: "com.apple.mail")
+    apps.noteTyping(in: "com.apple.Notes")
+    check(apps.listed == ["com.apple.Notes", "com.apple.mail"], "an app typed in is listed once, in the order first seen")
+
+    apps.noteTyping(in: "com.jte700.lasso")
+    check(!apps.listed.contains("com.jte700.lasso"), "Lasso does not list itself")
+
+    apps.setAllowed(false, for: "com.tinyspeck.slackmacgap")
+    check(!apps.allows("com.tinyspeck.slackmacgap") && apps.listed.last == "com.tinyspeck.slackmacgap",
+          "an app switched off before it was typed in is listed and gets no suggestions")
+    check(apps.allows("com.apple.Notes"), "switching one app off leaves the others on")
+
+    apps.setAllowed(true, for: "com.tinyspeck.slackmacgap")
+    check(apps.allows("com.tinyspeck.slackmacgap") && apps.listed.contains("com.tinyspeck.slackmacgap"),
+          "switching an app back on keeps it in the list")
+
+    apps.setAllowed(false, for: "com.apple.Notes")
+    apps.noteTyping(in: "com.microsoft.Word")
+    apps.noteTyping(in: "com.apple.Safari")
+    check(apps.listed.count <= 4 && apps.listed.contains("com.apple.Notes") && !apps.allows("com.apple.Notes"),
+          "the list forgets the oldest apps typed in, never one that is switched off")
+    check(apps.listed.contains("com.apple.Safari"), "the newest app typed in is kept")
+
+    let reread = SuggestionApps(defaults: defaults, ownBundleID: "com.jte700.lasso", limit: 3)
+    check(!reread.allows("com.apple.Notes") && reread.listed == apps.listed, "choices survive a restart")
+    apps.noteTyping(in: "")
+    check(!apps.listed.contains(""), "an app with no bundle identifier is not listed")
 }
 
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")

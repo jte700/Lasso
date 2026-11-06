@@ -144,12 +144,13 @@ extension AssistBoxView {
 
     private func drawBubbleChrome() {
         // Keep the system glass visible; an opaque painted gradient defeats it.
-        // A semantic content tint keeps text readable over every host document.
-        // Glass still provides the edge, depth, and surrounding material.
-        let opacity: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ? 1 : 0.88
+        // Liquid Glass gets only a faint wash and draws its own edge; the
+        // earlier material keeps a semantic tint and an outline for contrast.
+        let opacity = NativeMaterial.surfaceOpacity(classic: 0.88)
         NSColor.windowBackgroundColor.withAlphaComponent(opacity).setFill()
         NSBezierPath(roundedRect: bodyRect, xRadius: bubbleCornerRadius,
                      yRadius: bubbleCornerRadius).fill()
+        guard !NativeMaterial.usesGlass else { return }
         NSColor.separatorColor.setStroke()
         let outline = NSBezierPath(roundedRect: bodyRect.insetBy(dx: 0.5, dy: 0.5),
                                    xRadius: bubbleCornerRadius, yRadius: bubbleCornerRadius)
