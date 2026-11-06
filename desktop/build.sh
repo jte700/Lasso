@@ -237,6 +237,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/InsertionMode.swift" \
   "$ROOT/desktop/AssistPermission.swift" \
   "$ROOT/desktop/AccessibilityReader.swift" \
+  "$ROOT/desktop/AssistGlassBubble.swift" \
   "$ROOT/desktop/AssistBoxView.swift" \
   "$ROOT/desktop/AssistBoxView+Drawing.swift" \
   "$ROOT/desktop/AssistBoxView+Preview.swift" \

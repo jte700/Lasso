@@ -2,6 +2,7 @@
 //  Built and run by `npm run desktop:test` — no framework, no dependencies.
 
 import Cocoa
+import SwiftUI
 import PDFKit
 import CoreText
 
@@ -4151,6 +4152,27 @@ do {
           "a selection covers the lines it touches, not the line after its last line break")
     check(RanchCodeLines.label(4...4) == "Line 4" && RanchCodeLines.label(10...20) == "Lines 10\u{2013}20",
           "selected lines are named the way they are written")
+}
+
+// MARK: The glass card's outline
+
+do {
+    let rect = CGRect(x: 0, y: 0, width: 300, height: 112)
+    func outline(pointerX: CGFloat, atTop: Bool) -> Path {
+        AssistBubbleShape(geometry: AssistBubbleGeometry(cornerRadius: 18, pointerWidth: 21, pointerHeight: 12,
+                                                         pointerX: pointerX, pointerAtTop: atTop)).path(in: rect)
+    }
+    let above = outline(pointerX: 84, atTop: true)
+    check(above.contains(CGPoint(x: 84, y: 4)) && !above.contains(CGPoint(x: 60, y: 4)),
+          "a glass card below the caret points up at it from its top edge")
+    check(above.contains(CGPoint(x: 150, y: 60)) && !above.contains(CGPoint(x: 150, y: 4)),
+          "the glass outline covers the card's body and nothing past it")
+    let below = outline(pointerX: 84, atTop: false)
+    check(below.contains(CGPoint(x: 84, y: 108)) && !below.contains(CGPoint(x: 60, y: 108)),
+          "a glass card above the caret points down at it from its bottom edge")
+    let nearEdge = outline(pointerX: 2, atTop: true)
+    check(nearEdge.contains(CGPoint(x: 28.5, y: 4)) && !nearEdge.contains(CGPoint(x: 4, y: 4)),
+          "an arrow near the card's edge stays clear of the rounded corner")
 }
 
 // MARK: Apps Lasso suggests in

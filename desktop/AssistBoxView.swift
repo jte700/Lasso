@@ -11,27 +11,28 @@ final class AssistBubbleContainer: NSView {
     private let bodyEffect: NSView
     private let pointerEffect = NSVisualEffectView()
     private let overlay: AssistBoxView
+    /// On macOS 26, one glass outline for the body and its arrow; nil before.
+    private let glassBubble: ((AssistBubbleGeometry) -> Void)?
 
     init(content: AssistBoxView) {
         overlay = content
-        bodyEffect = NativeMaterial.glassContainer(content: NSView(frame: content.frame),
-                                                    cornerRadius: content.bubbleCornerRadius)
+        let glass = AssistGlassBubble.make(Self.geometry(of: content))
+        glassBubble = glass?.update
+        bodyEffect = glass?.view ?? NativeMaterial.glassContainer(content: NSView(frame: content.frame),
+                                                                  cornerRadius: content.bubbleCornerRadius)
         super.init(frame: content.frame)
         wantsLayer = true
 
         addSubview(bodyEffect)
-        for effect in [pointerEffect] {
-            effect.material = .popover
-            effect.blendingMode = .behindWindow
-            effect.state = .active
-            effect.wantsLayer = true
-            addSubview(effect)
+        if glass == nil {
+            pointerEffect.material = .popover
+            pointerEffect.blendingMode = .behindWindow
+            pointerEffect.state = .active
+            pointerEffect.wantsLayer = true
+            addSubview(pointerEffect)
+            bodyEffect.layer?.cornerRadius = content.bubbleCornerRadius
+            bodyEffect.layer?.masksToBounds = true
         }
-        bodyEffect.layer?.cornerRadius = content.bubbleCornerRadius
-        bodyEffect.layer?.masksToBounds = true
-        // A blurred arrow beside clear glass reads as a different material, so
-        // a glass card floats by the caret without one.
-        pointerEffect.isHidden = NativeMaterial.usesGlass
 
         // The card always fills the panel. Callers size the panel, never the card.
         content.frame = bounds
@@ -41,8 +42,19 @@ final class AssistBubbleContainer: NSView {
 
     required init?(coder: NSCoder) { nil }
 
+    private static func geometry(of card: AssistBoxView) -> AssistBubbleGeometry {
+        AssistBubbleGeometry(cornerRadius: card.bubbleCornerRadius, pointerWidth: card.pointerWidth,
+                             pointerHeight: card.pointerHeight, pointerX: card.pointerX,
+                             pointerAtTop: card.pointerAtTop)
+    }
+
     override func layout() {
         super.layout()
+        if let glassBubble {
+            bodyEffect.frame = bounds
+            glassBubble(Self.geometry(of: overlay))
+            return
+        }
         let pointerHeight = overlay.pointerHeight
         let bodyHeight = max(0, bounds.height - pointerHeight)
         bodyEffect.frame = overlay.pointerAtTop
