@@ -1,10 +1,11 @@
 import Cocoa
 
-/// Draws the system accent directly, so an enabled menu switch stays colored
-/// even when its menu window is inactive. The folder colour is kept for the
-/// suggestion card and document highlights. NSButton supplies state, keyboard
-/// and AX actions.
-final class MenuAccentSwitch: NSButton {
+/// Draws its folder's colour directly, so an enabled menu switch stays
+/// colored even when its menu window is inactive, and each folder's switch
+/// matches its colour dot. NSButton supplies state, keyboard and AX actions.
+final class DirectoryTintSwitch: NSButton {
+    var tint: DirectoryToggleColor = .blue { didSet { needsDisplay = true } }
+
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 40, height: 24))
         setButtonType(.switch)
@@ -25,7 +26,7 @@ final class MenuAccentSwitch: NSButton {
         let opacity: CGFloat = isEnabled ? 1 : 0.45
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let offColor = dark ? NSColor(white: 1, alpha: 0.16) : NSColor(white: 0, alpha: 0.1)
-        (state == .on ? NSColor.controlAccentColor : offColor).withAlphaComponent((state == .on ? 1 : offColor.alphaComponent) * opacity).setFill()
+        (state == .on ? tint.color : offColor).withAlphaComponent((state == .on ? 1 : offColor.alphaComponent) * opacity).setFill()
         NSBezierPath(roundedRect: track, xRadius: track.height / 2, yRadius: track.height / 2).fill()
         let knob = NSRect(x: state == .on ? track.maxX - 16 : track.minX + 1,
                           y: track.minY + 1, width: 15, height: 15)
@@ -601,7 +602,7 @@ final class NativeMenuToggleRow: NSView {
     private var item: NSMenuItem
     private let titleLabel: NSTextField
     private var icon: NSImageView?
-    private let toggle = MenuAccentSwitch()
+    private let toggle = DirectoryTintSwitch()
     private let colorButton: DirectoryColorButton
     private let onColorChange: (DirectoryToggleColor) -> Void
     private var palette: DirectoryColorPaletteRow?
@@ -702,6 +703,7 @@ final class NativeMenuToggleRow: NSView {
         title.lineBreakMode = .byTruncatingMiddle
         title.setAccessibilityElement(false)
         title.sizeToFit()
+        toggle.tint = color
         toggle.state = item.state
         toggle.isEnabled = item.isEnabled
         toggle.setAccessibilityLabel(item.title)
@@ -893,6 +895,7 @@ final class NativeMenuToggleRow: NSView {
         titleLabel.stringValue = item.title
         icon?.image = item.image
         refreshColors()
+        toggle.tint = color
         toggle.state = item.state
         toggle.isEnabled = item.isEnabled
         toggle.setAccessibilityLabel(item.title)
@@ -915,6 +918,7 @@ final class NativeMenuToggleRow: NSView {
             let palette = DirectoryColorPaletteRow(selected: colorButton.tint) { [weak self] color in
                 guard let self, self.item.isEnabled else { return }
                 self.colorButton.tint = color
+                self.toggle.tint = color
                 self.palette?.update(selected: color, isEnabled: self.item.isEnabled)
                 self.onColorChange(color)
             }

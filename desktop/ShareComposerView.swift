@@ -36,6 +36,8 @@ final class ShareComposerView: NSView {
         }
     }
     var preview: AssistDocumentPreview? { didSet { previewRevision += 1; targets.removeAll() } }
+    /// The table "Cited part only" publishes, when it is narrower than the preview: a cited column alone.
+    var sharedExcerpt: AssistDocumentPreview? { didSet { previewRevision += 1; targets.removeAll() } }
     /// What "Cited part only" publishes for a 3D CAD model: the cited part
     /// alone, its feature marked. Nil when the citation names no single part.
     var citedPart: AssistModelPreview?
@@ -285,6 +287,7 @@ final class ShareComposerView: NSView {
         slideNavigator = nil
         slideDecks = nil
         citedPart = nil
+        sharedExcerpt = nil
         blurredMasks.removeAll()
         redactionDrag = nil
         drawingDrag = nil

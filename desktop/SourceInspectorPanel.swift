@@ -47,6 +47,8 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
     /// The server says so with each page: code is never shared with a link.
     private var sourceShareable = true
     private var pinchTap: PinchEventTap?
+    /// Watches for the inspector's app or space being left, while it shows.
+    private var hostObservers: [NSObjectProtocol] = []
     #if BROWSER_GEOMETRY_TEST
     private var regressionActions: [String] = []
     #endif
@@ -122,6 +124,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         panel.setFrame(NSRect(origin: placement(for: rect), size: size), display: true)
         panel.invalidateShadow()
         panel.orderFrontRegardless()
+        followHostAway()
         // macOS gives pinches to the active app, which the inspector never
         // makes Lasso, so a tap takes the ones made over the panel.
         if pinchTap == nil {
@@ -145,9 +148,34 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         panel?.orderOut(nil)
         pinchTap?.stop()
         pinchTap = nil
+        stopFollowingHost()
     }
 
     @objc private func closeInspector(_ sender: Any?) { hide() }
+
+    /// The inspector belongs to the link it was opened from. Swiping to
+    /// another space or full-screen app, or bringing another app forward,
+    /// closes it, so it never floats over something else. Lasso coming
+    /// forward (its share composer) and the link's own app do not.
+    private func followHostAway() {
+        stopFollowingHost()
+        let hostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let center = NSWorkspace.shared.notificationCenter
+        hostObservers.append(center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
+                                                object: nil, queue: .main) { [weak self] _ in self?.hide() })
+        hostObservers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
+                                                object: nil, queue: .main) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            guard let app, app.processIdentifier != hostPID,
+                  app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+            self?.hide()
+        })
+    }
+
+    private func stopFollowingHost() {
+        hostObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
+        hostObservers.removeAll()
+    }
 
     /// Keeps the tap's region on the panel as it moves, resizes, or the
     /// primary display it is measured from changes.

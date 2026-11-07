@@ -23,6 +23,7 @@ extension AssistBoxView {
                 case .tab: onInsert?()
                 case .insertText: onLocalLink?()
                 case .share: onShare?()
+                case .dismiss: onDismiss?()
                 case nil: break
                 }
                 return

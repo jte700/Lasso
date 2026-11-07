@@ -1702,7 +1702,7 @@ do {
     wide.stop()
 }
 
-print("a folder's switch is drawn in the system accent, not the folder's own colour")
+print("a folder's switch is drawn in the folder's own colour, which follows a new pick")
 do {
     _ = NSApplication.shared
     func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
@@ -1724,8 +1724,13 @@ do {
     let scale = CGFloat(picture.pixelsWide) / toggle.bounds.width
     // Left of the knob, inside the track of a switch that is on.
     let track = picture.colorAt(x: Int(10 * scale), y: Int(toggle.bounds.midY * scale))!
-    check(distance(track, accent) < distance(track, folder.color),
-          "the on switch reads as the system accent (\(track)), not \(folder.title)")
+    check(distance(track, folder.color) < distance(track, accent),
+          "the on switch reads as \(folder.title) (\(track)), not the system accent")
+    row.update(item: item, color: .blue)
+    toggle.cacheDisplay(in: toggle.bounds, to: picture)
+    let repicked = picture.colorAt(x: Int(10 * scale), y: Int(toggle.bounds.midY * scale))!
+    check(distance(repicked, DirectoryToggleColor.blue.color) < distance(repicked, folder.color),
+          "a folder given a new colour has its switch redrawn in it")
 }
 
 print("a folder's row shows its progress in place of its switch, then gives the switch back")
@@ -1737,7 +1742,7 @@ do {
     item.isEnabled = false
     let row = NativeMenuToggleRow(item: item, color: .blue) { _ in }
     row.frame.size.width = 296
-    let toggle = descendants(row).first { $0 is MenuAccentSwitch }!
+    let toggle = descendants(row).first { $0 is DirectoryTintSwitch }!
     check(!row.isShowingProgress && !toggle.isHidden, "a folder at rest shows its switch")
     row.progress = DirectoryProgress(percent: 0, phase: "waiting", kind: "adding")
     let bar = row.progressBarView
@@ -1908,6 +1913,19 @@ do {
           "skipped empty rows between 20 and 24 are marked")
     let mixed = layout.cells(in: row(30, ["Rent", "", "$18,000", "", "", ""]))
     check(mixed.map(\.span) == [1, 1, 1, 1], "a short label does not claim its empty neighbours")
+
+    // The way into a lone cited cell: its row from the number up to it, its column from the letter down to it.
+    let ledger = [row(4, ["North Ridge", "35000", "Due"]), row(5, ["Cedar Packaging", "17250", "Due"], cited: 1),
+                  row(6, ["Pine Facilities", "32500", "Due"])]
+    let both = TableCitationMarks(rows: ledger, visibleColumns: [0, 1, 2])
+    check(both.cell?.row == 1 && both.cell?.column == 1, "a lone cited cell is found among the shown columns")
+    check(both.markedRows == [1] && both.markedColumns == [1], "its row number and column letter are both marked")
+    let hidden = TableCitationMarks(rows: ledger, visibleColumns: [0, 2])
+    check(hidden.cell == nil && hidden.markedColumns.isEmpty, "a cited cell in a column not shown leads nowhere")
+    let wholeColumn = [row(1, ["Supplier", "Outstanding"], cited: 1), row(2, ["Maple", "22000"], cited: 1)]
+    let several = TableCitationMarks(rows: wholeColumn, visibleColumns: [0, 1])
+    check(several.cell == nil && several.markedRows == [0, 1] && several.markedColumns == [1],
+          "a whole column cited has no single way in, so only its headers are marked")
 
     let wideHeaders = (0..<10).map { "H\($0)" }
     let wide = AssistTableLayout(headers: wideHeaders, rows: [row(5, (0..<10).map { "\($0 * 1000)" }, cited: 8)],

@@ -242,6 +242,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/AssistBoxView+Drawing.swift" \
   "$ROOT/desktop/AssistBoxView+Preview.swift" \
   "$ROOT/desktop/AssistBoxView+Input.swift" \
+  "$ROOT/desktop/AssistBoxView+Footer.swift" \
   "$ROOT/desktop/GlobalAssist.swift" \
   "$ROOT/desktop/GlobalAssistant+Prediction.swift" \
   "$ROOT/desktop/GlobalAssistant+Preview.swift" \

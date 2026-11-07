@@ -76,12 +76,10 @@ extension AssistBoxView {
         guard mode != .message else { return }
         drawSeparator(at: footerY)
         if mode == .suggestions {
-            drawFooterActions()
+            drawKeyHints(footerHints)
             drawDocumentPreview(footerY: footerY)
         } else {
-            drawText("↑↓  Move       ↩  Choose       Esc  Cancel",
-                     in: NSRect(x: 18, y: footerY + 24, width: leftWidth - 36, height: 18),
-                     font: NSFont.systemFont(ofSize: 11), color: .secondaryLabelColor)
+            drawKeyHints(choiceHints)
         }
     }
 
@@ -132,6 +130,9 @@ extension AssistBoxView {
         }
     }
 
+    /// How much of the window colour lies over the card's Liquid Glass.
+    static let cardGlassWash: CGFloat = 0.04
+
     private func drawSelectedSurface(in rect: NSRect, color: NSColor = .controlAccentColor) {
         color.withAlphaComponent(
             NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 0.30 : 0.16).setFill()
@@ -144,9 +145,10 @@ extension AssistBoxView {
 
     private func drawBubbleChrome() {
         // Keep the system glass visible; an opaque painted gradient defeats it.
-        // Liquid Glass gets only a faint wash and draws its own edge; the
+        // Liquid Glass gets the faintest wash and draws its own edge; the
         // earlier material keeps a semantic tint and an outline for contrast.
-        let opacity = NativeMaterial.surfaceOpacity(classic: 0.88)
+        // These are plain fills, so a clearer card costs nothing to draw.
+        let opacity = NativeMaterial.surfaceOpacity(classic: 0.88, glass: Self.cardGlassWash)
         NSColor.windowBackgroundColor.withAlphaComponent(opacity).setFill()
         NSBezierPath(roundedRect: bodyRect, xRadius: bubbleCornerRadius,
                      yRadius: bubbleCornerRadius).fill()
@@ -156,56 +158,6 @@ extension AssistBoxView {
                                    xRadius: bubbleCornerRadius, yRadius: bubbleCornerRadius)
         outline.lineWidth = 0.5
         outline.stroke()
-    }
-
-    enum FooterCommand { case tab, insertText, share }
-    private struct FooterAction {
-        let symbol: String
-        let symbolWidth: CGFloat
-        let title: String
-        let command: FooterCommand
-    }
-
-    /// Only shortcuts that do something different are listed. With plain-text
-    /// insertion, Tab and ⌘↩ do the same thing, so ⌘↩ is not shown twice.
-    private var footerActions: [FooterAction] {
-        let suggestion = suggestions.indices.contains(selected) ? suggestions[selected] : nil
-        // Spaces that code's colon takes the place of are not words replaced.
-        let replacesWords = suggestion?.replacement?.expectedText.trimmingCharacters(in: .whitespaces).isEmpty == false
-        let insertTitle = replacesWords ? "Replace" : "Insert"
-        let shareable = suggestion?.isShareable == true
-        let mode = shareable ? InsertionMode.current : .plain
-        let tabTitle = mode == .share ? "Share…" : mode == .ask ? "Text or link…" : insertTitle
-        var actions = [FooterAction(symbol: "⇥", symbolWidth: 18, title: tabTitle, command: .tab)]
-        if mode != .plain {
-            actions.append(FooterAction(symbol: "⌘↩", symbolWidth: 29, title: insertTitle, command: .insertText))
-        }
-        if shareable && mode != .share {
-            actions.append(FooterAction(symbol: "⇧⌘↩", symbolWidth: 36, title: "Share…", command: .share))
-        }
-        return actions
-    }
-
-    private func drawFooterActions() {
-        for (action, x) in zip(footerActions, footerSlots) {
-            drawShortcut(action.symbol, title: action.title, x: x, y: footerY + 18, symbolWidth: action.symbolWidth)
-        }
-    }
-
-    func footerCommand(at x: CGFloat) -> FooterCommand? {
-        let actions = footerActions
-        let slot = footerSlots.lastIndex(where: { x >= $0 }) ?? 0
-        return actions.indices.contains(slot) ? actions[slot].command : nil
-    }
-
-    private func drawShortcut(_ symbol: String, title: String, x: CGFloat, y: CGFloat,
-                              symbolWidth: CGFloat) {
-        drawText(symbol, in: NSRect(x: x, y: y - 1, width: symbolWidth, height: 17),
-                 font: NSFont.systemFont(ofSize: 12.5),
-                 color: .tertiaryLabelColor, alignment: .center)
-        drawText(title, in: NSRect(x: x + symbolWidth + 6, y: y, width: 88, height: 17),
-                 font: NSFont.systemFont(ofSize: 11),
-                 color: .secondaryLabelColor)
     }
 
     func drawSourceIcon(for path: String, in rect: NSRect) {

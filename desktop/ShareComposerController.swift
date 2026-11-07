@@ -203,6 +203,11 @@ final class ShareComposerController: NSObject {
                     .appendingPathComponent(objectId).appendingPathComponent(endpoint),
                 resolvingAgainstBaseURL: false)
             if let versionId { components?.queryItems = [URLQueryItem(name: "version", value: versionId)] }
+            // The preview also brings the table a cited-part share publishes.
+            if endpoint == "preview" {
+                let items = components?.queryItems ?? []
+                components?.queryItems = items + [URLQueryItem(name: "shared", value: "1")]
+            }
             guard let url = components?.url else { continue }
             var urlRequest = URLRequest(url: url)
             urlRequest.timeoutInterval = 20
@@ -213,6 +218,7 @@ final class ShareComposerController: NSObject {
                         self.view.preview = data.flatMap(GlobalAssistant.parsePreview)
                         self.view.showSlides(from: SlidePictureSource(serverURL: serverURL, objectId: objectId, versionId: versionId))
                         self.view.citedPart = data.flatMap(Self.citedPart)
+                        self.view.sharedExcerpt = data.flatMap(Self.sharedExcerpt)
                         self.view.isLoading = false
                         self.view.keepOfferedScope()
                         self.view.initializePDFExcerpt()
@@ -232,6 +238,14 @@ final class ShareComposerController: NSObject {
     }
 
     /// The part a cited-part link of a 3D model would publish, as the server prepared it.
+    /// The table a cited-part share publishes, as the server builds it for the recipient.
+    static func sharedExcerpt(_ data: Data) -> AssistDocumentPreview? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let source = root["source"], let excerpt = root["sharedExcerpt"],
+              let json = try? JSONSerialization.data(withJSONObject: ["source": source, "preview": excerpt]) else { return nil }
+        return AssistDocumentPreview.parse(json)
+    }
+
     static func citedPart(_ data: Data) -> AssistModelPreview? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let part = root["citedPart"] as? [String: Any] else { return nil }

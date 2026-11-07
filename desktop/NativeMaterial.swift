@@ -17,10 +17,11 @@ enum NativeMaterial {
     /// How opaque a surface drawn over the material may be. Glass reads as
     /// glass only when what sits on it is nearly clear; the earlier material
     /// keeps the stronger wash it was designed with. Reduce Transparency makes
-    /// both solid.
-    static func surfaceOpacity(classic: CGFloat) -> CGFloat {
+    /// both solid. A surface that must stay steadier under text, such as a
+    /// table, passes its own `glass` opacity.
+    static func surfaceOpacity(classic: CGFloat, glass: CGFloat = glassSurfaceOpacity) -> CGFloat {
         if NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency { return 1 }
-        return usesGlass ? glassSurfaceOpacity : classic
+        return usesGlass ? glass : classic
     }
 
     static func glassContainer(

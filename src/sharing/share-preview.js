@@ -104,6 +104,33 @@ export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, 
     })) })) };
 }
 
+/** How many of a shared column's rows its excerpt lists, from the heading down. */
+const SHARED_COLUMN_ROWS = 1000;
+
+/**
+ * What a cited-part share of a table holds, and what its recipient sees and
+ * downloads: the rows around a cited cell, or a cited column alone from its
+ * heading down. A column's neighbours are not part of its citation, so they
+ * are not shared.
+ * @param {{ path: string, content: Buffer|string }} file
+ * @param {object} anchor
+ * @param {object} metadata
+ */
+export function buildSharedExcerpt(file, anchor = {}, metadata = {}) {
+  const context = buildSharePreview(file, anchor, metadata, 2, '', { columnRows: SHARED_COLUMN_ROWS });
+  return context?.columnCitation ? citedColumnsOnly(context) : context;
+}
+
+/** The context narrowed to the columns that hold a cited cell. */
+function citedColumnsOnly(context) {
+  const keep = context.columns.map((_, index) => index)
+    .filter((index) => context.rows.some((row) => row.cells[index]?.cited));
+  if (!keep.length) return context;
+  const pick = (values) => keep.map((index) => values?.[index]);
+  return { ...context, columns: pick(context.columns), headers: pick(context.headers),
+    rows: context.rows.map((row) => ({ ...row, cells: pick(row.cells) })) };
+}
+
 const spreadsheetColumnIndex = (value) => [...value]
   .reduce((index, letter) => index * 26 + letter.charCodeAt(0) - 64, 0) - 1;
 

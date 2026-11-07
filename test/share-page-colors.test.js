@@ -49,6 +49,55 @@ test("The inspector marks a cited cell as the suggestion card does, in the colou
   assert.match(table, /<th class="row-number cited" scope="row">6<\/th>/);
 });
 
+test("The inspector washes the way into a cited cell, from its row number and column letter up to the cell and no further", () => {
+  // Arrange: E5 cited in a sheet that runs on past it to the right and below
+  const cell = (value, cited = false) => ({ value, ...(cited ? { cited } : {}) });
+  const preview = { kind: 'table', columns: ['D', 'E', 'F'], rows: [
+    { rowNumber: 4, cells: [cell('North Ridge Technology'), cell('35000'), cell('Not yet due')] },
+    { rowNumber: 5, cells: [cell('Cedar Packaging'), cell('17250', true), cell('Not yet due')] },
+    { rowNumber: 6, cells: [cell('Pine Facilities Supply'), cell('32500'), cell('Not yet due')] },
+  ] };
+
+  // Act
+  const html = renderInspectorPanel({ source: { label: 'Cedar Packaging', filename: 'Accounts-Payable.csv' } }, 'reference', preview);
+  const rowNumber = ruleBody(html, ':is(.inspector-preview,.shared-recipient .shared-context-table) .row-number.cited');
+  const letter = ruleBody(html, '.inspector-preview thead th.cited');
+  const way = ruleBody(html, ':is(.inspector-preview,.shared-recipient .shared-context-table) td.on-path');
+  const classOf = (value) => html.match(new RegExp(`<td class="([^"]*)"[^>]*>${value}</td>`))?.[1];
+
+  // Assert
+  assert.match(html, /<th scope="col">D<\/th><th scope="col" class="cited">E<\/th><th scope="col">F<\/th>/);
+  assert.match(html, /<th class="row-number cited" scope="row">5<\/th>/);
+  assert.equal(classOf('Cedar Packaging'), 'on-path', 'the row is washed from its number to the cell');
+  assert.equal(classOf('35000'), 'on-path', 'the column is washed from its letter to the cell');
+  assert.equal(classOf('17250'), 'cited');
+  assert.equal(classOf('Pine Facilities Supply'), '', 'nothing below the cell');
+  assert.equal(classOf('32500'), '', 'nothing below the cell in its column');
+  assert.ok(!/class="on-path"[^>]*>Not yet due/.test(html), 'nothing past the cell to its right');
+  for (const [name, rule] of [['row number', rowNumber], ['column letter', letter], ['way in', way]]) {
+    assert.match(rule, /background:color-mix\(in srgb,var\(--cited\) 14%,var\(--paper\)\)/, `the ${name} is one wash`);
+    assert.doesNotMatch(rule, /box-shadow/, `the ${name} has no bar breaking it off`);
+  }
+  assert.match(rowNumber, /color:var\(--cited\);/);
+  assert.match(letter, /color:var\(--cited\);/);
+  assert.match(html, /querySelector\('\.cited:not\(th\)'\)/, 'the preview scrolls to the cell, not its marked headers');
+});
+
+test('A citation of a whole row or column has no single way in, so only its headers are marked', () => {
+  // Arrange
+  const preview = { kind: 'table', columns: ['A', 'B'], rows: [
+    { rowNumber: 1, cells: [{ value: 'Supplier' }, { value: 'Outstanding CAD', cited: true }] },
+    { rowNumber: 2, cells: [{ value: 'Maple Paper' }, { value: '22000', cited: true }] },
+  ] };
+
+  // Act
+  const html = renderInspectorPanel({ source: { label: 'Outstanding CAD', filename: 'Accounts-Payable.csv' } }, 'reference', preview);
+
+  // Assert
+  assert.doesNotMatch(html, /<td class="on-path"/);
+  assert.match(html, /<th scope="col" class="cited">B<\/th>/);
+});
+
 test('Cited Markdown blocks take the highlight colour with the card\'s 2.5 point bar', () => {
   const cited = ruleBody(MARKDOWN_STYLE, '.markdown-document .cited');
 
@@ -67,7 +116,18 @@ test("A share link's recipient sees every highlight in green, never the sharer's
   assert.match(html, /prefers-color-scheme:dark\)\{:root\{[^}]*--cited:#30d158/, 'and in dark mode');
   assert.doesNotMatch(html, /get\('accent'\)/, 'the page takes no colour from its address');
   assert.match(ruleBody(html, '.shared-recipient td.cited'), /\.8px color-mix\(in srgb,var\(--cited\) 65%/);
-  assert.match(ruleBody(html, '.shared-recipient .shared-context-table .selected-column'), /color:var\(--cited\)/);
+  const column = ruleBody(html, '.shared-recipient .shared-context-table .selected-column');
+  assert.match(column, /color:var\(--cited\)/);
+  assert.match(column, /background:color-mix\(in srgb,var\(--cited\) 14%,var\(--surface\)\)/, 'the cited column\'s heading is washed in green');
+  assert.doesNotMatch(column, /box-shadow/, 'with no bar breaking it off');
+  const lone = renderSharePage({ source: { label: 'Inventory', filename: 'General-Ledger.csv' },
+    share: { accessScope: 'INDEXED', redactions: [] } }, 'token',
+  { headers: ['Account', 'Debit'], columns: ['A', 'B'], rows: [
+    { rowNumber: 5, cells: [{ value: 'Cash' }, { value: '900' }] },
+    { rowNumber: 6, cells: [{ value: 'Inventory' }, { value: '400', cited: true }] },
+  ] });
+  assert.match(lone, /<td class="on-path">Inventory<\/td>/, 'the row is washed up to the shared cell');
+  assert.match(lone, /<td class="on-path">900<\/td>/, 'and the column down to it');
   assert.match(ruleBody(html, '.shared-selection-key i'), /var\(--cited\)/);
 });
 
