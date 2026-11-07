@@ -241,8 +241,6 @@ final class AssistBoxView: NSView {
     }
     private let suggestionBodyHeight: CGFloat = 384
     let navigationHeight: CGFloat = 32
-    /// Left edges of the footer slots; a click belongs to the slot it falls in.
-    let footerSlots: [CGFloat] = [18, 108, 237]
 
     private var bodyRows: Int {
         switch mode {

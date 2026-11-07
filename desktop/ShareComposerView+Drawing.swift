@@ -63,15 +63,20 @@ extension ShareComposerView {
         }
         for (index, entry) in entries.enumerated() {
             let row = scopeRect(index)
+            // The chosen scope is grey, like the card's own buttons: a faint fill and hairline edge.
             if scope == entry.0 {
-                accentColor.withAlphaComponent(0.12).setFill()
-                NSBezierPath(roundedRect: row, xRadius: 9, yRadius: 9).fill()
+                let card = NSBezierPath(roundedRect: row.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
+                NSColor.labelColor.withAlphaComponent(0.07).setFill()
+                card.fill()
+                NSColor.labelColor.withAlphaComponent(0.14).setStroke()
+                card.lineWidth = 0.75
+                card.stroke()
             }
             let radio = NSRect(x: row.minX + 10, y: row.minY + 9, width: 14, height: 14)
-            NSColor.separatorColor.withAlphaComponent(scope == entry.0 ? 0.5 : 0.25).setStroke()
+            NSColor.labelColor.withAlphaComponent(scope == entry.0 ? 0.55 : 0.25).setStroke()
             NSBezierPath(ovalIn: radio).stroke()
             if scope == entry.0 {
-                accentColor.setFill()
+                NSColor.labelColor.withAlphaComponent(0.85).setFill()
                 NSBezierPath(ovalIn: radio.insetBy(dx: 4, dy: 4)).fill()
             }
             drawText(entry.1, in: NSRect(x: row.minX + 31, y: row.minY + 7, width: row.width - 40, height: 18),
@@ -153,7 +158,7 @@ extension ShareComposerView {
         } else if isLoading {
             drawCentered("Loading source preview…", in: content)
         } else if let preview, !preview.rows.isEmpty {
-            drawTable(preview, in: content)
+            drawTable(sharedExcerpt.flatMap { $0.rows.isEmpty ? nil : $0 } ?? preview, in: content)
         } else if let preview, preview.model != nil {
             let context = [preview.valueText, preview.context].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
             drawTextBlocks(context, in: NSRect(x: content.minX, y: content.minY, width: content.width, height: max(50, content.height - 48)))

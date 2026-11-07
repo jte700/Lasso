@@ -83,7 +83,8 @@ test('public share routes', async (suite) => {
     assert.deepEqual(body.preview.rows.flatMap(row => row.cells.filter(cell => cell.cited).map(cell => cell.value)), ['Current Period']);
     const html = await (await fetch(`${base}/inspect?object=${variable.id}&version=${variable.versionId}`)).text();
     assert.match(html, /B1 \(column header\)/);
-    assert.equal((html.match(/class="cited"/g) ?? []).length, 1);
+    assert.equal((html.match(/<td class="cited"/g) ?? []).length, 1);
+    assert.match(html, /<th scope="col" class="cited">B<\/th>/, 'its column letter is marked beside it');
     assert.match(html, /class="cited"[^>]*>Current Period<\/td>/);
     const share = application.objectShares.createShare({ projectId: project.id, objectId: variable.id,
       versionId: variable.versionId, actor: maya, accessScope: 'INDEXED' });
@@ -91,6 +92,17 @@ test('public share routes', async (suite) => {
     assert.match(shared, /class="cited">400<\/td>/);
     assert.match(shared, /class="cited">225<\/td>/);
     assert.doesNotMatch(shared, /class="cited">Current Period<\/td>/);
+    // The cited part of a column is that column alone: no account names, no other period.
+    for (const other of ['Office Supplies', 'Payroll taxes', 'Prior Period', '384', '218']) {
+      assert.ok(!shared.includes(other), `${other} is not shared with the Current Period column`);
+    }
+    const excerpt = await (await fetch(`${base}/d/${share.token}/excerpt`)).text();
+    assert.match(excerpt, /Current Period/);
+    assert.match(excerpt, /400/);
+    assert.ok(!/Office Supplies|Prior Period|384/.test(excerpt), `the downloaded excerpt holds the column alone: ${excerpt}`);
+    const composer = await (await fetch(`${base}/api/dependency-objects/${variable.id}/preview?version=${variable.versionId}&shared=1`)).json();
+    assert.deepEqual(composer.sharedExcerpt.headers, ['Current Period'], 'the share composer is shown the same column');
+    assert.deepEqual(composer.sharedExcerpt.rows.map((row) => row.cells.map((cell) => cell.value)), [['400'], ['225']]);
   });
 
   await suite.test('select and redact loads the complete source document', async () => {

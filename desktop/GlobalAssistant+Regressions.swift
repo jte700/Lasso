@@ -237,6 +237,33 @@ extension GlobalAssistant {
         return checks
     }
 
+    /// The footer's keys: what Tab does, then Choose and Dismiss, each whole
+    /// inside the list's column, and a click on a key or its title doing
+    /// what that key does. Hints that do not fit go from the end.
+    static func regressionFooterKeys() -> [String: Bool] {
+        let card = AssistBoxView()
+        card.suggestions = [AssistSuggestion(
+            insertText: "Net income", label: "Net income", detail: "", path: "Statement.xlsx", location: "",
+            replacement: CompletionReplacement(start: 0, expectedText: "Net inc"), objectId: nil, versionId: nil,
+            snapshotId: nil, usageObjectId: nil, projectId: "", rankingReason: nil)]
+        card.frame = NSRect(origin: .zero, size: card.boxSize)
+        let layout = card.footerHintLayout(card.footerHints)
+        let placed = layout.placed
+        var checks: [String: Bool] = [:]
+        checks["typed words being replaced still show Insert, Choose and Dismiss"] = placed.map(\.hint.title) == ["Insert", "Choose", "Dismiss"]
+        checks["every hint ends inside the list's column"] = placed.allSatisfy { $0.title.maxX <= card.leftWidth - 14 }
+        checks["the arrows are a keycap each"] = placed.count == 3 && placed[1].keycaps.count == 2
+        checks["the keys sit level with the preview's buttons"] = placed.allSatisfy { abs($0.keycaps[0].midY - (card.footerY + 23.5)) < 0.5 }
+        guard placed.count == 3 else { return checks }
+        checks["a click on Tab's key inserts"] = card.footerCommand(at: placed[0].keycaps[0].midX) == .tab
+        checks["a click on Insert inserts"] = card.footerCommand(at: placed[0].title.midX) == .tab
+        checks["a click on Choose does nothing"] = card.footerCommand(at: placed[1].title.midX) == nil
+        checks["a click on Dismiss dismisses"] = card.footerCommand(at: placed[2].keycaps[0].midX) == .dismiss
+        let narrow = AssistKeyHintLayout(card.footerHints, from: 18, to: placed[1].title.maxX + 1, centeredOn: 20)
+        checks["hints that do not fit go from the end"] = narrow.placed.map(\.hint.title) == ["Insert", "Choose"]
+        return checks
+    }
+
     /// Captures the real panel renderer from an actual API response without
     /// moving focus, synthesizing a room, or touching the user's host document.
     static func regressionRenderPreview(data: Data, pdfData: Data? = nil, to output: URL) -> Bool {

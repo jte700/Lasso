@@ -47,7 +47,7 @@ const STYLE = `
   table{width:100%;margin-top:16px;border-collapse:separate;border-spacing:0;overflow:hidden;border:1px solid var(--line);
     border-radius:10px;font-size:11px}th,td{padding:7px 9px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
   th:last-child,td:last-child{border-right:0}tr:last-child td{border-bottom:0}th{color:var(--text3);font-weight:650}
-  td.cited{background:color-mix(in srgb,var(--cited) 2.5%,var(--paper));box-shadow:inset 0 0 0 .8px color-mix(in srgb,var(--cited) 65%,transparent);font-weight:500}:is(.inspector-preview,.shared-recipient .shared-context-table) .row-number.cited{color:var(--cited)}
+  td.cited{background:color-mix(in srgb,var(--cited) 2.5%,var(--paper));box-shadow:inset 0 0 0 .8px color-mix(in srgb,var(--cited) 65%,transparent);font-weight:500}:is(.inspector-preview,.shared-recipient .shared-context-table) .row-number.cited{color:var(--cited);background:color-mix(in srgb,var(--cited) 14%,var(--paper));font-weight:600}.inspector-preview thead th.cited{color:var(--cited);background:color-mix(in srgb,var(--cited) 14%,var(--paper));font-weight:600}:is(.inspector-preview,.shared-recipient .shared-context-table) td.on-path{background:color-mix(in srgb,var(--cited) 14%,var(--paper))}
   .notice{margin-top:20px;color:var(--text3);font-size:11px}.unavailable{color:var(--red)}
   .privacy-preview{display:flex;flex-wrap:wrap;gap:5px;margin-top:16px;padding:13px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
   .privacy-block{padding:3px 5px;border-radius:5px;background:var(--paper);font-size:11px}
@@ -99,7 +99,7 @@ const RECIPIENT_STYLE = `
   .shared-content-heading{display:flex;min-width:0;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--surface)}.shared-content-heading h2{margin:0;font-size:12px;font-weight:600}.shared-content-heading p{min-width:0;margin:2px 0 0;color:var(--text2);font-size:11px;overflow-wrap:anywhere}.shared-content-heading small{flex:0 0 auto;color:var(--text3);font-size:10px}
   .shared-recipient .shared-context-table{max-height:560px;max-height:min(65vh,560px);min-height:0;max-width:100%;margin:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;border:0;border-radius:0}
   .shared-recipient .shared-context-table table{width:max-content;min-width:100%;margin:0;border:0;border-radius:0;font-size:12px}.shared-recipient .shared-context-table th,.shared-recipient .shared-context-table td{min-width:94px;max-width:300px;padding:8px 10px;white-space:pre-wrap;overflow-wrap:anywhere;vertical-align:top;line-height:1.45}
-  .shared-recipient .shared-context-table thead th{position:sticky;top:0;z-index:2;background:var(--surface);color:var(--text2);font-size:11px;font-weight:600}.shared-recipient .shared-context-table .column-letter{display:block;margin-bottom:3px;color:var(--text3);font-size:10px;font-weight:500}.shared-recipient .shared-context-table .selected-column{color:var(--cited)}
+  .shared-recipient .shared-context-table thead th{position:sticky;top:0;z-index:2;background:var(--surface);color:var(--text2);font-size:11px;font-weight:600}.shared-recipient .shared-context-table .column-letter{display:block;margin-bottom:3px;color:var(--text3);font-size:10px;font-weight:500}.shared-recipient .shared-context-table .selected-column{color:var(--cited);background:color-mix(in srgb,var(--cited) 14%,var(--surface))}
   .shared-recipient .shared-context-table .row-number{position:sticky;left:0;z-index:1;min-width:37px;width:37px;max-width:37px;padding:8px 9px;text-align:right;background:var(--paper);color:var(--text3);font-size:10px;font-weight:400;white-space:nowrap;user-select:none}.shared-recipient .shared-context-table thead .row-number{z-index:3;background:var(--surface)}
   .shared-recipient td.cited{background:color-mix(in srgb,var(--cited) 2.5%,var(--paper));box-shadow:inset 0 0 0 .8px color-mix(in srgb,var(--cited) 65%,transparent);font-weight:500}.shared-selection-key{display:flex;align-items:center;gap:6px;margin:0;padding:8px 12px;border-top:1px solid var(--line);color:var(--text3);font-size:10px}.shared-selection-key i{width:9px;height:9px;border:.8px solid color-mix(in srgb,var(--cited) 65%,transparent);border-radius:2px;background:color-mix(in srgb,var(--cited) 2.5%,var(--paper))}
   .shared-recipient .full-document{margin:0;padding:12px;min-width:0}.shared-recipient .full-document section+section{margin-top:16px}.shared-recipient .full-document h2{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--text2)}.shared-recipient .full-document .document-table{max-height:560px;margin:0;border-radius:6px}.shared-recipient .full-document table{font-size:12px}.shared-recipient .document-table th{min-width:94px;padding:7px 10px;font-size:10px}.shared-recipient .document-table .row-number{position:sticky;left:0;z-index:1;min-width:37px;max-width:37px;padding:8px;text-align:right;background:var(--paper);font-size:10px;font-weight:400}.shared-recipient .document-table thead .row-number{z-index:3;background:var(--surface)}.shared-recipient .full-document td{padding:8px 10px}.shared-recipient .full-document.document-text{gap:0;padding:18px 20px}.shared-recipient .full-document .document-block{padding:9px 0;border:0;background:transparent;line-height:1.65}.shared-recipient .full-document.document-lines .document-block{padding:1px 0;line-height:1.5}.shared-recipient .drawing-document{padding:0}.shared-recipient .drawing-document .model-plan{border:0;border-radius:0}.shared-recipient .drawing-document .model-plan-svg{height:min(65vh,580px);min-height:260px}
@@ -221,13 +221,32 @@ function columnLetter(index) {
   return result;
 }
 
+/**
+ * The one cited cell of a table, when a single cell is cited. Its row is
+ * washed from the row number up to it and its column from the letter down
+ * to it, as one path that stops at the cell. A whole row or column cited has
+ * no single cell, so only its headers are marked.
+ * @param {{ cells: { cited?: boolean }[] }[]} rows
+ * @returns {(row: number, column: number) => boolean} whether a cell lies on the way in
+ */
+function wayIntoCitedCell(rows) {
+  const cited = rows.flatMap((row, rowIndex) => row.cells.flatMap((cell, column) => (cell.cited ? [{ rowIndex, column }] : [])));
+  if (cited.length !== 1) return () => false;
+  const [cell] = cited;
+  return (rowIndex, column) => (rowIndex === cell.rowIndex && column < cell.column)
+    || (column === cell.column && rowIndex < cell.rowIndex);
+}
+
+const cellClass = (cell, onPath) => (cell.cited ? 'cited' : onPath ? 'on-path' : '');
+
 function recipientTable(preview) {
   const selected = column => preview.rows.some(row => row.cells[column]?.cited);
+  const onPath = wayIntoCitedCell(preview.rows);
   return `<div class="shared-context-table" tabindex="0" role="region" aria-label="Shared worksheet excerpt"><table>
     <thead><tr><th class="row-number" aria-label="Row number"></th>${preview.headers.map((header, index) =>
       `<th scope="col" class="${selected(index) ? 'selected-column' : ''}"><small class="column-letter">${escapeHtml(preview.columns?.[index] ?? columnLetter(index))}</small>${escapeHtml(header || `Column ${preview.columns?.[index] ?? columnLetter(index)}`)}</th>`).join('')}</tr></thead>
-    <tbody>${preview.rows.map((row, index) => `<tr><th class="row-number${row.cells.some(cell => cell.cited) ? ' cited' : ''}" scope="row">${escapeHtml(row.rowNumber ?? index + 1)}</th>${row.cells.map(cell =>
-      `<td class="${cell.cited ? 'cited' : ''}">${escapeHtml(cell.value)}</td>`).join('')}</tr>`).join('')}</tbody>
+    <tbody>${preview.rows.map((row, index) => `<tr><th class="row-number${row.cells.some(cell => cell.cited) ? ' cited' : ''}" scope="row">${escapeHtml(row.rowNumber ?? index + 1)}</th>${row.cells.map((cell, column) =>
+      `<td class="${cellClass(cell, onPath(index, column))}">${escapeHtml(cell.value)}</td>`).join('')}</tr>`).join('')}</tbody>
     </table></div>${preview.rows.some(row => row.cells.some(cell => cell.cited)) ? '<p class="shared-selection-key"><i aria-hidden="true"></i>Highlighted cells are the shared selection.</p>' : ''}`;
 }
 
@@ -339,8 +358,11 @@ export function renderInspectorPanel(resolved, reference, preview, { shareable =
     previewLabel = 'Model preview';
     content = `<div class="preview-unavailable">${escapeHtml(preview.reason ?? 'No displayable geometry was found for this indexed element.')}</div>`;
   } else if (preview?.kind === 'table') {
-    content = `<div class="preview-scroll"><table aria-label="Source worksheet"><thead><tr><th class="row-number" aria-label="Row number"></th>${preview.columns.map((column) => `<th scope="col">${escapeHtml(column)}</th>`).join('')}</tr></thead>
-      <tbody>${preview.rows.map((row) => `<tr><th class="row-number${row.cells.some((cell) => cell.cited) ? ' cited' : ''}" scope="row">${row.rowNumber}</th>${row.cells.filter((cell) => !cell.covered).map((cell) => `<td class="${cell.cited ? 'cited' : ''}" rowspan="${cell.rowSpan ?? 1}" colspan="${cell.colSpan ?? 1}">${escapeHtml(cell.value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    // The cited cell's column letter and row number are marked, and the way from them into the cell.
+    const citedColumn = (index) => preview.rows.some((row) => row.cells[index]?.cited);
+    const onPath = wayIntoCitedCell(preview.rows);
+    content = `<div class="preview-scroll"><table aria-label="Source worksheet"><thead><tr><th class="row-number" aria-label="Row number"></th>${preview.columns.map((column, index) => `<th scope="col"${citedColumn(index) ? ' class="cited"' : ''}>${escapeHtml(column)}</th>`).join('')}</tr></thead>
+      <tbody>${preview.rows.map((row, rowIndex) => `<tr><th class="row-number${row.cells.some((cell) => cell.cited) ? ' cited' : ''}" scope="row">${row.rowNumber}</th>${row.cells.map((cell, column) => ({ cell, column })).filter(({ cell }) => !cell.covered).map(({ cell, column }) => `<td class="${cellClass(cell, onPath(rowIndex, column))}" rowspan="${cell.rowSpan ?? 1}" colspan="${cell.colSpan ?? 1}">${escapeHtml(cell.value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   } else if (preview?.kind === 'video') {
     previewLabel = 'Video';
     // The player starts at the cited moment (#t=), and its transcript lines carry their times.
@@ -413,15 +435,19 @@ export function renderInspectorPanel(resolved, reference, preview, { shareable =
       // Move only the source viewport. scrollIntoView can also scroll hidden
       // ancestor overflow and push the inspector's heading and actions away.
       requestAnimationFrame(() => {
-        const selected = document.querySelector('.cited');
+        // The cited cell or passage itself, not the row number or column letter marked beside it.
+        const selected = document.querySelector('.cited:not(th)');
         const viewport = selected?.closest('.preview-scroll');
         if (!viewport) return;
         const target = selected.getBoundingClientRect();
         const frame = viewport.getBoundingClientRect();
         const rowHeader = viewport.querySelector('.row-number')?.getBoundingClientRect().width ?? 0;
         const columnHeader = viewport.querySelector('thead')?.getBoundingClientRect().height ?? 0;
-        viewport.scrollLeft += target.left - frame.left - rowHeader
-          - Math.max(0, (viewport.clientWidth - rowHeader - target.width) / 2);
+        // Sideways it moves only as far as the cell needs, so the row's name stays in view where it can.
+        const visibleLeft = frame.left + rowHeader;
+        const visibleRight = frame.left + viewport.clientWidth;
+        if (target.left < visibleLeft) viewport.scrollLeft += target.left - visibleLeft;
+        else if (target.right > visibleRight) viewport.scrollLeft += Math.min(target.right - visibleRight, target.left - visibleLeft);
         viewport.scrollTop += target.top - frame.top - columnHeader
           - Math.max(0, (viewport.clientHeight - columnHeader - target.height) / 2);
       });

@@ -116,6 +116,15 @@ extension ShareComposerView {
 
     private var citedScrollFont: NSFont { .systemFont(ofSize: scrollFont.pointSize, weight: .medium) }
 
+    /// The table's citation marks, read from its few "row:column" citations.
+    private var scrollCitationMarks: TableCitationMarks {
+        let cited = scrollCitations.compactMap { key -> (row: Int, column: Int)? in
+            let parts = key.split(separator: ":").compactMap { Int($0) }
+            return parts.count == 2 ? (parts[0], parts[1]) : nil
+        }
+        return TableCitationMarks(cited: cited)
+    }
+
     func drawScrollablePreview(_ dirtyRect: NSRect) {
         targets.removeAll()
         let visible = previewCanvas.visibleRect
@@ -126,26 +135,44 @@ extension ShareComposerView {
             let headerHeight = scrollRowHeights.first ?? 28
             NSColor.quaternaryLabelColor.withAlphaComponent(0.08).setFill()
             NSRect(x: 0, y: 0, width: previewCanvas.bounds.width, height: headerHeight).fill()
+            let marks = scrollCitationMarks
+            // The way into a lone cited cell, from its row number and its column heading up to the cell's edge.
+            if let cell = marks.cell, cell.row + 1 < scrollRowHeights.count, cell.column < scrollColumnWidths.count {
+                let top = headerHeight + scrollRowHeights.dropFirst().prefix(cell.row).reduce(0, +)
+                let left = rowHeader + scrollColumnWidths.prefix(cell.column).reduce(0, +)
+                TableCitationMarks.wash(NSRect(x: 0, y: top, width: left, height: scrollRowHeights[cell.row + 1]),
+                                        color: highlightColor)
+                TableCitationMarks.wash(NSRect(x: left, y: 0, width: scrollColumnWidths[cell.column], height: top),
+                                        color: highlightColor)
+            }
             var x = rowHeader
             for column in scrollColumns.indices {
                 let width = scrollColumnWidths[column]
                 let title = scrollHeaders.flatMap { column < $0.count ? $0[column] : nil } ?? scrollColumns[column]
+                let marked = marks.markedColumns.contains(column)
+                // Without a single cell to lead to, a cited column's heading is washed on its own.
+                if marked && marks.cell == nil {
+                    TableCitationMarks.wash(NSRect(x: x, y: 0, width: width, height: headerHeight), color: highlightColor)
+                }
                 drawText(title.isEmpty ? scrollColumns[column] : title,
                     in: NSRect(x: x + 8, y: 8, width: width - 16, height: headerHeight - 12),
-                    font: .systemFont(ofSize: 11, weight: .semibold), color: .secondaryLabelColor, wrap: true)
+                    font: .systemFont(ofSize: 11, weight: .semibold), color: marked ? highlightColor : .secondaryLabelColor, wrap: true)
                 x += width
             }
             var y = headerHeight
-            let citedRows = Set(scrollCitations.compactMap { $0.split(separator: ":").first.flatMap { Int($0) } })
             var citedOutlines: [NSRect] = []
             for (rowIndex, row) in scrollRows.enumerated() {
                 let height = scrollRowHeights[rowIndex + 1]
                 defer { y += height }
                 guard y < visible.maxY && y + height > visible.minY else { continue }
+                let citedRow = marks.markedRows.contains(rowIndex)
+                if citedRow && marks.cell == nil {
+                    TableCitationMarks.wash(NSRect(x: 0, y: y, width: rowHeader, height: height), color: highlightColor)
+                }
                 drawText(rowIndex < scrollRowNumbers.count ? scrollRowNumbers[rowIndex] : String(rowIndex + 1),
                     in: NSRect(x: 1, y: y + 8, width: rowHeader - 7, height: 16),
-                    font: .systemFont(ofSize: 10), color: citedRows.contains(rowIndex) ? highlightColor : .secondaryLabelColor,
-                    alignment: .right)
+                    font: .systemFont(ofSize: 10, weight: citedRow ? .semibold : .regular),
+                    color: citedRow ? highlightColor : .secondaryLabelColor, alignment: .right)
                 x = rowHeader
                 for column in scrollColumns.indices {
                     let cellRect = NSRect(x: x, y: y, width: scrollColumnWidths[column], height: height)

@@ -151,7 +151,8 @@ extension AssistBoxView {
         NSGraphicsContext.current?.saveGraphicsState()
         NSBezierPath(roundedRect: bodyRect,
                      xRadius: bubbleCornerRadius, yRadius: bubbleCornerRadius).addClip()
-        NSColor.controlBackgroundColor.withAlphaComponent(0.32).setFill()
+        // On glass the preview's side is only a shade apart from the list's.
+        NSColor.controlBackgroundColor.withAlphaComponent(NativeMaterial.surfaceOpacity(classic: 0.32, glass: 0.14)).setFill()
         NSRect(x: rightX, y: bodyRect.minY,
                width: rightWidth, height: bodyRect.height).fill()
         NSGraphicsContext.current?.restoreGraphicsState()
@@ -304,7 +305,7 @@ extension AssistBoxView {
         let projectId = suggestions.indices.contains(selected) ? suggestions[selected].projectId : nil
         let sourceColor = DirectoryColorPreferences.color(for: projectId)?.color ?? .controlAccentColor
         let outline = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
-        NSColor.textBackgroundColor.withAlphaComponent(0.65).setFill()
+        NSColor.textBackgroundColor.withAlphaComponent(Self.sheetOpacity).setFill()
         outline.fill()
         // The scrolling text view over it shows the text.
         if previewContent == nil { AssistMarkdown.draw(preview.textBlocks, in: rect, accent: sourceColor) }
@@ -318,7 +319,7 @@ extension AssistBoxView {
     private func drawTablePreview(_ preview: AssistDocumentPreview, in rect: NSRect) {
         let geometry = tableGeometry(preview, in: rect)
         let roundedTable = NSBezierPath(roundedRect: geometry.table, xRadius: 8, yRadius: 8)
-        NSColor.textBackgroundColor.withAlphaComponent(0.65).setFill()
+        NSColor.textBackgroundColor.withAlphaComponent(Self.sheetOpacity).setFill()
         roundedTable.fill()
         NSGraphicsContext.current?.saveGraphicsState()
         roundedTable.addClip()
@@ -335,18 +336,32 @@ extension AssistBoxView {
     /// server left out.
     private func drawTableRows(in dirtyRect: NSRect) {
         guard let preview, showsTable, let table = previewContent as? AssistTableRowsView else { return }
-        let projectId = suggestions.indices.contains(selected) ? suggestions[selected].projectId : nil
-        let sourceColor = DirectoryColorPreferences.color(for: projectId)?.color ?? .systemGreen
+        let sourceColor = tableSourceColor
         let layout = tableGeometry(preview, in: documentPreviewRect).layout
         let width = table.rows.bounds.width
+        let marks = citationMarks(preview, layout: layout)
+        // The way into a lone cited cell, under the rows' text: along its row
+        // from the number, and down its column from the letter, to the cell's edge.
+        if let cell = marks.cell, cell.row < layout.rowHeights.count {
+            let top = layout.rowHeights.prefix(cell.row).reduce(0, +)
+            let left = AssistTableLayout.rowHeaderWidth + layout.offset(of: cell.column)
+            TableCitationMarks.wash(NSRect(x: 0, y: top, width: left, height: layout.rowHeights[cell.row]), color: sourceColor)
+            TableCitationMarks.wash(NSRect(x: left, y: 0, width: layout.columnWidths[cell.column], height: top), color: sourceColor)
+        }
         var y: CGFloat = 0
         var citedOutlines: [NSRect] = []
         for (index, row) in preview.rows.enumerated() where index < layout.rowHeights.count {
             let height = layout.rowHeights[index]
             if y < dirtyRect.maxY, y + height > dirtyRect.minY {
+                let numberMarked = marks.markedRows.contains(index)
+                // Without a single cell to lead to, a cited row's number is washed on its own.
+                if numberMarked && marks.cell == nil {
+                    TableCitationMarks.wash(NSRect(x: 0, y: y, width: AssistTableLayout.rowHeaderWidth, height: height),
+                                            color: sourceColor)
+                }
                 citedOutlines += drawTableRow(row, layout: layout, in: NSRect(x: 0, y: y, width: width, height: height),
                                               afterGap: layout.startsAfterGap(preview.rows, at: index),
-                                              sourceColor: sourceColor)
+                                              sourceColor: sourceColor, numberMarked: numberMarked)
             }
             y += height
         }
@@ -366,6 +381,8 @@ extension AssistBoxView {
         NSColor.controlBackgroundColor.withAlphaComponent(0.10).setFill()
         NSRect(x: table.minX, y: table.minY, width: table.width, height: layout.headerHeight).fill()
         let padding = AssistTableLayout.cellPadding
+        // The cited cell's column letter is marked; its wash leads down into the cell.
+        let marked = citationMarks(preview, layout: layout).markedColumns
         for (index, column) in layout.visibleColumns.enumerated() {
             let letter = column < preview.columns.count ? preview.columns[column] : spreadsheetColumn(column)
             let heading = column < preview.headers.count ? preview.headers[column] : ""
@@ -373,8 +390,14 @@ extension AssistBoxView {
             let x = table.minX + AssistTableLayout.rowHeaderWidth + layout.offset(of: index)
             let width = layout.columnWidths[index] - 2 * padding
             let top = table.minY + AssistTableLayout.headerTopPadding
+            let isMarked = marked.contains(index)
+            if isMarked {
+                TableCitationMarks.wash(NSRect(x: x, y: table.minY, width: layout.columnWidths[index], height: layout.headerHeight),
+                                        color: tableSourceColor)
+            }
             drawText(letter, in: NSRect(x: x + padding, y: top, width: width, height: AssistTableLayout.letterHeight),
-                     font: AssistTableLayout.letterFont, color: .tertiaryLabelColor, alignment: alignment)
+                     font: isMarked ? AssistTableLayout.markedLetterFont : AssistTableLayout.letterFont,
+                     color: isMarked ? tableSourceColor : .tertiaryLabelColor, alignment: alignment)
             let headingTop = top + AssistTableLayout.letterHeight
             drawMultilineText(heading.isEmpty ? "Column \(letter)" : heading,
                               in: NSRect(x: x + padding, y: headingTop, width: width,
@@ -398,22 +421,17 @@ extension AssistBoxView {
                  font: NSFont.systemFont(ofSize: 10), color: .secondaryLabelColor, alignment: .center)
     }
 
-    /// Draws one row and returns the outline of its cited cell, if any.
+    /// Draws one row and returns the outline of its cited cell, if any, with
+    /// its number in the source's colour when `numberMarked`.
     private func drawTableRow(_ row: AssistPreviewRow, layout: AssistTableLayout, in rect: NSRect,
-                              afterGap: Bool, sourceColor: NSColor) -> [NSRect] {
+                              afterGap: Bool, sourceColor: NSColor, numberMarked: Bool) -> [NSRect] {
         let padding = AssistTableLayout.cellPadding
         let dataX = rect.minX + AssistTableLayout.rowHeaderWidth
         let cells = layout.cells(in: row)
-        let cited = cells.filter { row.cells.indices.contains(layout.visibleColumns[$0.column])
-            && row.cells[layout.visibleColumns[$0.column]].cited }
         drawText(row.rowNumber.map(String.init) ?? "\u{2014}",
                  in: NSRect(x: rect.minX, y: rect.minY + 7, width: AssistTableLayout.rowHeaderWidth - 8, height: 14),
-                 font: NSFont.systemFont(ofSize: 11), color: cited.isEmpty ? .secondaryLabelColor : sourceColor,
-                 alignment: .right)
-        if let first = cells.first, !cited.isEmpty {
-            sourceColor.withAlphaComponent(0.075).setFill()
-            NSRect(x: dataX, y: rect.minY, width: layout.width(of: first), height: rect.height).fill()
-        }
+                 font: NSFont.systemFont(ofSize: 11, weight: numberMarked ? .semibold : .regular),
+                 color: numberMarked ? sourceColor : .secondaryLabelColor, alignment: .right)
         var outlines: [NSRect] = []
         for cell in cells {
             let column = layout.visibleColumns[cell.column]
@@ -456,6 +474,20 @@ extension AssistBoxView {
         line.move(to: NSPoint(x: x, y: top))
         line.line(to: NSPoint(x: x, y: bottom))
         line.stroke()
+    }
+
+    /// How solid a table or text preview's page is: steady under small text,
+    /// and on glass a little clearer so the card still reads as glass.
+    static var sheetOpacity: CGFloat { NativeMaterial.surfaceOpacity(classic: 0.65, glass: 0.5) }
+
+    /// The colour cited cells are marked in: their directory's.
+    private var tableSourceColor: NSColor {
+        DirectoryColorPreferences.color(for: selectedSuggestion?.projectId)?.color ?? .systemGreen
+    }
+
+    /// The table's citation marks: the row and the column leading into a lone cited cell.
+    private func citationMarks(_ preview: AssistDocumentPreview, layout: AssistTableLayout) -> TableCitationMarks {
+        TableCitationMarks(rows: Array(preview.rows.prefix(layout.rowHeights.count)), visibleColumns: layout.visibleColumns)
     }
 
     private func spreadsheetColumn(_ index: Int) -> String {

@@ -7,7 +7,7 @@ import { sendFileRange } from './file-range.js';
 import { HttpError } from '../history/errors.js';
 import { DEFAULT_EVENT_PAGE } from '../history/service.js';
 import { renderSharePage, renderUnavailable, renderInspectorPanel } from '../sharing/share-page.js';
-import { buildFullShareDocument, buildInspectorPreview, buildSharePreview, buildSlideShareDocument, isTextPreviewPath, usesStructuredLayout, detectsCsvDelimiter } from '../sharing/share-preview.js';
+import { buildFullShareDocument, buildInspectorPreview, buildSharedExcerpt, buildSharePreview, buildSlideShareDocument, isTextPreviewPath, usesStructuredLayout, detectsCsvDelimiter } from '../sharing/share-preview.js';
 import { fullTextLayout } from '../sharing/text-layout.js';
 import { isMarkdownPath } from '../sharing/markdown.js';
 import { buildModelPreview } from '../dependencies/model-preview.js';
@@ -193,7 +193,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
     try {
       const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
       const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash), contentHash: file.contentHash } : null;
-      preview = buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata);
+      preview = buildSharedExcerpt(sourceFile, resolved.source.anchor, resolved.source.metadata);
       // A marked copy is the document's pages with the strokes drawn on, never the file.
       // When it cannot be drawn, nothing else of the document is shown in its place.
       const marked = markedPdfRequest(resolved);
@@ -674,7 +674,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const versionId = url.searchParams.get('version');
         const resolved = objectShares.describe(localObjectPreviewParameters[0], versionId);
         if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
-        let preview = null;
+        let preview = null, sharedExcerpt = null;
         // The suggestion card scrolls, so it asks for more of the source around the citation.
         const wide = url.searchParams.get('context') === 'wide';
         const radius = wide ? ASSIST_SCROLL_TABLE_RADIUS : ASSIST_TABLE_RADIUS;
@@ -705,6 +705,10 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
             const query = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
             preview.fileUrl = `/api/dependency-objects/${encodeURIComponent(localObjectPreviewParameters[0])}/source${query}`;
           }
+          // The share composer is shown the table its "Cited part only" publishes.
+          if (url.searchParams.get('shared') === '1' && sourceFile) {
+            sharedExcerpt = buildSharedExcerpt(sourceFile, resolved.source.anchor, resolved.source.metadata);
+          }
           // The card asks for the cited slide's picture next; it is already being drawn.
           if (preview?.deck && file) {
             slidePicture(sourceFile.content, preview.slideNumber ?? 1, file.contentHash).catch(() => {});
@@ -715,6 +719,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           source: resolved.source, path: resolved.internal.filePath, preview,
           // What the share composer's "Cited part only" would publish.
           citedPart: citedPartModel(preview),
+          ...(sharedExcerpt?.rows ? { sharedExcerpt } : {}),
           shareScopes: offeredShareScopes(resolved.internal.filePath, resolved.source.anchor),
         });
       }
