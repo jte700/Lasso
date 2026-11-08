@@ -310,7 +310,9 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
             label: reference.label, sourcePath: reference.sourcePath,
             near: panel.frame, serverURL: serverURL, hostPanel: panel,
             projectId: reference.projectId, fallbackHighlightColor: fallbackHighlightColor,
-            copyAction: completion)
+            copyAction: completion,
+            citedIn: CitingSentence.around(reference.anchor.text, before: reference.anchor.prefixContext,
+                                           after: reference.anchor.suffixContext))
     }
 
     /// Beside the words when there is room, otherwise left, below or above —

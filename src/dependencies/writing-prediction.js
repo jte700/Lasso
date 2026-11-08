@@ -44,8 +44,11 @@ export const writingPredictionMethods = {
     const scoped = Boolean(prediction.sourceContext?.source);
     prediction.sourceCompletions = take(this.rankCompletions(projectId,
       prediction.sourceCompletions, input, { limit, diversify: !scoped }));
-    prediction.workspaceCompletions = take(this.rankCompletions(projectId,
-      prediction.workspaceCompletions, input, { limit, diversify: !scoped }));
+    // Ranking still fills in each value's reasons; a list that set its own order keeps it.
+    const listed = new Map((prediction.workspaceCompletions ?? []).map((item, index) => [item.id, index]));
+    const rankedWorkspace = this.rankCompletions(projectId, prediction.workspaceCompletions, input, { limit, diversify: !scoped });
+    prediction.workspaceCompletions = take(prediction.listsInOrder
+      ? rankedWorkspace.toSorted((left, right) => listed.get(left.id) - listed.get(right.id)) : rankedWorkspace);
     prediction.claims = prediction.claims.map((claim) => {
       const eligible = claim.candidates.filter((candidate) => explicitSearch || candidate.matchTier === 0
         || (candidate.matchStrength ?? candidate.score) >= (claim.type === 'STUDY_VARIABLE' ? 0.68 : 0.4));
@@ -161,6 +164,7 @@ export const writingPredictionMethods = {
         workspaceHeading: linkedProjectObject.heading ?? `Values for ${linkedProjectObject.variable}`,
         notice: linkedProjectObject.notice,
         listsEveryValue: true,
+        listsInOrder: linkedProjectObject.listsInOrder === true,
         sourceContext: {
           dependencyId: linkedProjectObject.dependencyId,
           source: linkedProjectObject.source,

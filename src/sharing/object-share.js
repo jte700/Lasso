@@ -50,6 +50,28 @@ function columnLetter(index) {
  * version. Tokens are never derived from database identifiers, resolution is an
  * exact token match, and the real filesystem path is never exposed.
  */
+/** The longest sentence a share keeps as the one it backs. */
+const CITED_IN_LENGTH = 600;
+
+/**
+ * What a share remembers about its citation: the sentence it backs, shown to
+ * the recipient, and whether a cited cell brings the rows around it.
+ * @returns {{ citedIn: string|null, nearbyRows: boolean }}
+ */
+function shareContext(citedIn, nearbyRows) {
+  const sentence = typeof citedIn === 'string' ? citedIn.replace(/\s+/g, ' ').trim().slice(0, CITED_IN_LENGTH) : '';
+  return { citedIn: sentence || null, nearbyRows: nearbyRows === true };
+}
+
+function savedShareContext(json) {
+  try {
+    const saved = JSON.parse(json ?? '{}');
+    return shareContext(saved?.citedIn, saved?.nearbyRows);
+  } catch {
+    return shareContext(null, false);
+  }
+}
+
 export class ObjectShareService {
   constructor(db, timeline, config) {
     this.db = db;
@@ -75,7 +97,7 @@ export class ObjectShareService {
    * recipient always sees the source as it was at the moment of sharing.
    */
   createShare({ projectId, objectId, versionId, actor, expiresAt = null,
-    accessScope = "DOCUMENT", redactions = [], excerpt = null, markup = [] }) {
+    accessScope = "DOCUMENT", redactions = [], excerpt = null, markup = [], citedIn = null, nearbyRows = false }) {
     if (!projectId) throw new HttpError(400, 'A project is required to share a source.');
     if (!objectId) throw new HttpError(400, 'An indexed object is required to share a source.');
     const normalizedScope = normalizeShareScope(accessScope);
@@ -122,6 +144,7 @@ export class ObjectShareService {
       }
     }
 
+    const context = shareContext(citedIn, nearbyRows);
     const normalizedActor = actor?.id ? actor : { id: 'human-self:local', displayName: 'Local user', actorType: 'HUMAN_SELF' };
     this.timeline.upsertActor(normalizedActor);
 
@@ -136,11 +159,13 @@ export class ObjectShareService {
     this.db.prepare(`
       INSERT INTO object_share_grants(
         id, project_id, object_id, object_version_id, token,
-        created_by_actor_id, created_at, expires_at, revoked_at, access_scope, redactions_json, excerpt_json, snapshot_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
+        created_by_actor_id, created_at, expires_at, revoked_at, access_scope, redactions_json, excerpt_json, snapshot_id,
+        context_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
     `).run(record.id, projectId, objectId, version.id, token,
       normalizedActor.id, record.createdAt, record.expiresAt, normalizedScope,
-      JSON.stringify(storedRedactions), normalizedExcerpt ? JSON.stringify(normalizedExcerpt) : null, version.snapshot_id);
+      JSON.stringify(storedRedactions), normalizedExcerpt ? JSON.stringify(normalizedExcerpt) : null, version.snapshot_id,
+      JSON.stringify(context));
 
     return {
       id: record.id,
@@ -153,6 +178,7 @@ export class ObjectShareService {
       accessScope: normalizedScope,
       redactions: storedRedactions,
       excerpt: normalizedExcerpt,
+      context,
     };
   }
 
@@ -235,6 +261,7 @@ export class ObjectShareService {
         accessScope: grant.access_scope ?? 'DOCUMENT',
         redactions: JSON.parse(grant.redactions_json ?? '[]'),
         excerpt: grant.excerpt_json ? JSON.parse(grant.excerpt_json) : null,
+        context: savedShareContext(grant.context_json),
       },
       source: {
         label: correctedDocumentLabel(version.object_type, version.label, metadata),

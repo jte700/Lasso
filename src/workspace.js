@@ -113,14 +113,15 @@ function tag(value, project, projects = null) {
     ...(value.dependencyCandidate ? { dependencyCandidate: tag(value.dependencyCandidate, project, projects) } : {}) };
 }
 
-function distinctRanked(items, limit) {
+function distinctRanked(items, limit, { keepOrder = false } = {}) {
   const seen = new Set();
   // Full ties keep each directory's own ranked order, which already settles
   // them by source order (a row's columns left to right). Object ids are
   // random, so comparing them would shuffle equal suggestions between runs.
-  return items.map((item, order) => ({ item, order }))
+  const ordered = keepOrder ? items : items.map((item, order) => ({ item, order }))
     .sort((left, right) => compare(left.item, right.item) || left.order - right.order)
-    .map(({ item }) => item)
+    .map(({ item }) => item);
+  return ordered
     .filter((item) => {
       const key = `${item.projectId}:${item.id ?? item.objectId ?? item.dependencyCandidate?.id}:${item.insertText ?? item.text ?? ''}`;
       if (seen.has(key)) return false;
@@ -766,8 +767,11 @@ export class WorkspaceService {
     // up, and the typed words its source has, which the card's preview marks.
     const sentence = typedSentence(input.text, cursor);
     // A video's moment marks the quoted words only, not every word of the sentence around them.
-    const selected = distinctRanked(current, limit).map((item, rankOrder) => ({ ...item, rankOrder,
-      matchedWords: matchedSourceWords(item.quotedPhrase ?? sentence, [item.sourceSentence, item.replacementText, item.dependencyCandidate?.valueText,
+    // A file named by its name is matched as a whole, so its preview marks no words in it.
+    const namesWholeFile = (item) => Boolean(item.fileReference ?? item.dependencyCandidate?.fileReference);
+    const keepOrder = pool.length > 0 && pool.every(({ prediction }) => prediction.listsInOrder);
+    const selected = distinctRanked(current, limit, { keepOrder }).map((item, rankOrder) => ({ ...item, rankOrder,
+      matchedWords: namesWholeFile(item) ? [] : matchedSourceWords(item.quotedPhrase ?? sentence, [item.sourceSentence, item.replacementText, item.dependencyCandidate?.valueText,
         item.dependencyCandidate?.label, item.dependencyCandidate?.metadata?.variable, item.valueText, item.label,
         item.metadata?.variable].filter((text) => typeof text === 'string').join(' ')) }));
     // fn+Right opens a suggestion that has values below it, such as a part's measurements.

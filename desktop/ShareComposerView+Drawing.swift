@@ -100,6 +100,8 @@ extension ShareComposerView {
             drawMarkupPalette()
         } else if scope == .redacted {
             drawSegmentedControl([("Blur", effect == .blur, blurEffectRect), ("Redact", effect == .blank, redactEffectRect)])
+        } else if offersNearbyRows {
+            drawNearbyRowsSwitch()
         } else {
             let badge = scope == .document ? "Original available" : "Original protected"
             drawPill(badge, in: NSRect(x: bounds.width - 125, y: 105, width: 109, height: 20))
@@ -158,7 +160,7 @@ extension ShareComposerView {
         } else if isLoading {
             drawCentered("Loading source preview…", in: content)
         } else if let preview, !preview.rows.isEmpty {
-            drawTable(sharedExcerpt.flatMap { $0.rows.isEmpty ? nil : $0 } ?? preview, in: content)
+            drawTable(publishedTable ?? preview, in: content)
         } else if let preview, preview.model != nil {
             let context = [preview.valueText, preview.context].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
             drawTextBlocks(context, in: NSRect(x: content.minX, y: content.minY, width: content.width, height: max(50, content.height - 48)))
@@ -324,5 +326,32 @@ extension ShareComposerView {
         NSAttributedString(string: value, attributes: [
             .font: font, .foregroundColor: color, .paragraphStyle: paragraph,
         ]).draw(with: rect, options: [.usesLineFragmentOrigin, .usesFontLeading])
+    }
+}
+
+extension ShareComposerView {
+    /// Where the "Nearby rows" switch sits: the heading line's right end, in place of the scope's badge.
+    var nearbyRowsRect: NSRect { NSRect(x: bounds.width - 150, y: 103, width: 134, height: 24) }
+
+    /// A cited cell or row can bring the rows around it; a column or a passage cannot.
+    var offersNearbyRows: Bool { scope == .indexed && nearbyExcerpt?.rows.isEmpty == false }
+
+    /// The table "Cited part only" publishes as the switch stands, when the server sent one.
+    var publishedTable: AssistDocumentPreview? {
+        let table = offersNearbyRows && includesNearbyRows ? nearbyExcerpt : sharedExcerpt
+        return table.flatMap { $0.rows.isEmpty ? nil : $0 }
+    }
+
+    /// A small grey switch, like the rest of the composer's chrome, with its title before it.
+    func drawNearbyRowsSwitch() {
+        let rect = nearbyRowsRect
+        drawText("Nearby rows", in: NSRect(x: rect.minX, y: rect.minY + 4, width: rect.width - 38, height: 16),
+                 font: .systemFont(ofSize: 11, weight: .medium), color: .secondaryLabelColor, alignment: .right)
+        let track = NSRect(x: rect.maxX - 30, y: rect.minY + 4, width: 28, height: 16)
+        NSColor.labelColor.withAlphaComponent(includesNearbyRows ? 0.55 : 0.14).setFill()
+        NSBezierPath(roundedRect: track, xRadius: 8, yRadius: 8).fill()
+        let knob = NSRect(x: includesNearbyRows ? track.maxX - 15 : track.minX + 1, y: track.minY + 1, width: 14, height: 14)
+        NSColor.white.setFill()
+        NSBezierPath(ovalIn: knob).fill()
     }
 }

@@ -2,6 +2,7 @@
 // ..."): each value inserted is left out of the next list, so the values not
 // yet written are the ones offered, down to the last, in any table source.
 
+import { typedValueCloseness } from '../src/dependencies/workspace-completion.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -127,7 +128,12 @@ const LEDGER = `Date,Journal ID,Account Code,Account,Debit CAD,Credit CAD,Refere
 2026-09-30,JE-0907,6400,Bank fees,1250,0,BANK-09,Bank fees
 2026-09-30,JE-0907,1000,Cash,0,1250,BANK-09,Bank fees
 `;
-const CREDITS = ['0', '38500', '32000', '18400', '21000', '47500', '28500', '4500', '1250'];
+// Every cell of a column has its own place in the list, equal values included, so the arrows reach each one.
+const columnCells = (csv, heading) => {
+  const [header, ...rows] = csv.trim().split('\n').map((line) => line.split(','));
+  return rows.map((row) => row[header.indexOf(heading)]);
+};
+const CREDITS = columnCells(LEDGER, 'Credit CAD');
 
 // fn+Right on a suggestion, as the card sends it, resting on the words typed to find it when there are any.
 const focusOn = (candidate, start, end) => ({ projectId: candidate.projectId, sourceObjectId: candidate.id,
@@ -190,7 +196,7 @@ test('a column in two documents is two suggestions, and each lists only its own 
   assert.equal(claim.candidates[first + 1], columns[1]);
   const ledger = columns.find(c => c.path === 'General-Ledger.csv');
   const trial = columns.find(c => c.path === 'Trial-Balance.csv');
-  for (const [column, expected] of [[ledger, CREDITS], [trial, ['0', '126400', '28500', '485000']]]) {
+  for (const [column, expected] of [[ledger, CREDITS], [trial, columnCells(TRIAL_BALANCE, 'Credit CAD')]]) {
     const values = await dive(app, 'The credit was ', focusOn(column));
     assert.deepEqual(offered(values).toSorted(), expected.toSorted(), column.path);
     assert.deepEqual([...new Set(values.workspaceCompletions.map(item => item.dependencyCandidate.path))], [column.path]);
@@ -201,4 +207,150 @@ test('a column in two documents is two suggestions, and each lists only its own 
   const accepted = 'The Credit CAD';
   const values = await typed(app, `${accepted} was `, [link(ledger, 4, accepted.length)]);
   assert.deepEqual(offered(values).toSorted(), CREDITS.toSorted());
+});
+
+// Sheet order is neither alphabetical by supplier nor by value, so a sorted list cannot pass by chance.
+const OPEN_BILLS = `Supplier,Invoice,Outstanding CAD
+Maple Paper,BILL-1160,22000
+Harbour Office,BILL-1174,18400
+North Ridge,BILL-1181,35000
+Cedar Packaging,BILL-1188,17250
+`;
+
+test('fn+Right with nothing typed after it lists a column from top to bottom', async t => {
+  // Arrange
+  const app = await directory(t, 'Accounts-Payable.csv', OPEN_BILLS);
+  const { claim, candidate } = await suggested(app, 'invoice', 'Invoice');
+
+  // Act
+  const values = await dive(app, 'invoice', focusOn(candidate, claim.start, claim.end));
+
+  // Assert
+  assert.deepEqual(offered(values), ['BILL-1160', 'BILL-1174', 'BILL-1181', 'BILL-1188']);
+  assert.deepEqual(values.workspaceCompletions.map(item => item.rankOrder), [0, 1, 2, 3], 'the card sorts by this');
+});
+
+test('fn+Right on a row with nothing typed after it lists its cells from left to right', async t => {
+  // Arrange
+  const app = await directory(t, 'Accounts-Payable.csv', OPEN_BILLS);
+  const { claim, candidate } = await suggested(app, 'Cedar Pack', 'Cedar Packaging');
+
+  // Act
+  const values = await dive(app, 'Cedar Pack', focusOn(candidate, claim.start, claim.end));
+
+  // Assert
+  assert.deepEqual(offered(values), ['BILL-1188', '17250']);
+});
+
+test('digits typed in a dive still bring the values they begin to the top', async t => {
+  // Arrange
+  const app = await directory(t, 'Accounts-Payable.csv', OPEN_BILLS);
+  const { candidate } = await suggested(app, 'outstanding', 'Outstanding CAD');
+
+  // Act
+  const values = await dive(app, 'The outstanding was 3', focusOn(candidate));
+
+  // Assert
+  assert.equal(offered(values)[0], '35000');
+});
+
+test('after Tab a column lists from top to bottom, and a word like "was" narrows nothing', async t => {
+  // Arrange
+  const app = await directory(t, 'Accounts-Payable.csv', OPEN_BILLS);
+  const column = await acceptName(app, 'invoice', 'Invoice', []);
+
+  // Act, Assert
+  for (const text of [column.text, `${column.text} `, `${column.text} was `]) {
+    assert.deepEqual(offered(await typed(app, text, column.links)),
+      ['BILL-1160', 'BILL-1174', 'BILL-1181', 'BILL-1188'], JSON.stringify(text));
+  }
+});
+
+test('after Tab a row lists its cells from left to right', async t => {
+  // Arrange
+  const app = await directory(t, 'Accounts-Payable.csv', OPEN_BILLS);
+  const row = await acceptName(app, 'Cedar Pack', 'Cedar Packaging', []);
+
+  // Act
+  const values = await typed(app, `${row.text} was `, row.links);
+
+  // Assert
+  assert.deepEqual(offered(values), ['BILL-1188', '17250']);
+});
+
+test('more typed narrows the list, after Tab or in a dive', async t => {
+  // Arrange
+  const app = await directory(t, 'Accounts-Payable.csv', OPEN_BILLS, { 'Bill-Status.csv':
+    'Bill,Status\nBILL-1160,Not yet due\nBILL-1174,Due soon\nBILL-1181,Overdue\nBILL-1188,Paid\n' });
+  const amounts = await acceptName(app, 'outstanding', 'Outstanding CAD', []);
+  const statuses = await acceptName(app, 'status', 'Status', []);
+  const { claim, candidate } = await suggested(app, 'status', 'Status');
+
+  // Act
+  const digits = offered(await typed(app, `${amounts.text} was 3`, amounts.links));
+  const wordList = await typed(app, `${statuses.text} overd`, statuses.links);
+  const word = offered(wordList);
+  const dived = offered(await dive(app, 'status overd', focusOn(candidate, claim.start, claim.end)));
+
+  // Assert
+  assert.equal(digits[0], '35000', 'digits bring the values they begin first');
+  assert.equal(word[0], 'Overdue', 'a word brings the value it begins first');
+  assert.equal(dived[0], 'Overdue', 'in a dive as well');
+  assert.equal(wordList.workspaceCompletions[0].claimStart, statuses.text.length + 1, 'and takes the place of the word typed');
+  assert.equal(word.length, 4, 'with the other values still in the list');
+});
+
+test('what is typed reorders the list whatever its punctuation: the values it begins, then those it is inside', () => {
+  // Arrange
+  const closeness = (typed, value) => typedValueCloseness(typed, value);
+
+  // Assert
+  assert.equal(closeness(' BILL-117', 'BILL-1174'), 2, 'a code with its hyphen');
+  assert.equal(closeness(' bill 117', 'BILL-1174'), 2, 'or with a space for it');
+  assert.equal(closeness(' 117', 'BILL-1174'), 1, 'digits inside a code');
+  assert.equal(closeness(' 2026-09', '2026-09-25'), 2, 'the start of a date');
+  assert.equal(closeness(' $46,3', '46350'), 2, 'an amount with its currency and comma');
+  assert.equal(closeness(' Not y', 'Not yet due'), 2, 'words of a phrase');
+  assert.equal(closeness(' BILL-117 was ', 'BILL-1174'), 2, 'a finished cue after it changes nothing');
+  assert.equal(closeness(' was ', 'Washington'), 0, 'a cue alone names nothing');
+  assert.equal(closeness('', 'BILL-1174'), 0, 'nor does nothing');
+  assert.equal(closeness(' BILL-119', 'BILL-1174'), 0);
+});
+
+test('a code typed after a dive or Tab brings its value to the top, the rest staying in sheet order', async t => {
+  // Arrange
+  const app = await directory(t, 'Accounts-Payable.csv', OPEN_BILLS);
+  const { claim, candidate } = await suggested(app, 'invoice', 'Invoice');
+  const focus = focusOn(candidate, claim.start, claim.end);
+  const column = await acceptName(app, 'invoice', 'Invoice', []);
+
+  // Act
+  const dived = offered(await dive(app, 'invoice BILL-117', focus));
+  const inside = offered(await dive(app, 'invoice 1181', focus));
+  const several = offered(await dive(app, 'invoice bill 118', focus));
+  const tabbed = await typed(app, `${column.text} BILL-117`, column.links);
+
+  // Assert
+  assert.deepEqual(dived, ['BILL-1174', 'BILL-1160', 'BILL-1181', 'BILL-1188']);
+  assert.equal(inside[0], 'BILL-1181');
+  assert.deepEqual(several, ['BILL-1181', 'BILL-1188', 'BILL-1160', 'BILL-1174']);
+  assert.deepEqual(offered(tabbed), dived);
+  const first = tabbed.workspaceCompletions[0];
+  assert.equal(`${column.text} BILL-117`.slice(0, first.claimStart) + first.replacementText, `${column.text} BILL-1174`);
+});
+
+test('a typed date or amount reorders its column too', async t => {
+  // Arrange
+  const app = await directory(t, 'Due.csv',
+    'Bill,Due Date,Amount CAD\nA-1,2026-09-17,46350\nA-2,2026-10-12,18400\nA-3,2026-10-20,46900\nA-4,2026-11-01,5000\n');
+  const dates = await suggested(app, 'due date', 'Due Date');
+  const amounts = await suggested(app, 'amount', 'Amount CAD');
+
+  // Act
+  const date = offered(await dive(app, 'due date 2026-10', focusOn(dates.candidate, dates.claim.start, dates.claim.end)));
+  const amount = offered(await dive(app, 'amount $46,3', focusOn(amounts.candidate, amounts.claim.start, amounts.claim.end)));
+
+  // Assert
+  assert.deepEqual(date, ['2026-10-12', '2026-10-20', '2026-09-17', '2026-11-01']);
+  assert.equal(amount[0], '46350');
 });

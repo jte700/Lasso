@@ -306,6 +306,11 @@ extension GlobalAssistant {
                 self.view.stepBackName = focus == nil ? nil : self.linkedSources.stepBack?.text
                 self.view.returnFocusName = focus == nil && self.linkedSources.canMoveIn(focusedOn: nil, selected: nil)
                     ? self.linkedSources.recent?.text : nil
+                let identity = { (suggestion: AssistSuggestion) in "\(suggestion.objectId ?? "")|\(suggestion.insertText)" }
+                self.view.selected = CardHighlight.afterAnswer(
+                    selected: self.view.selected, previous: self.view.suggestions.map(identity),
+                    next: suggestions.map(identity), textChanged: self.answeredText != current.context.text)
+                self.answeredText = current.context.text
                 if let landing = self.focusLanding {
                     self.focusLanding = nil
                     self.view.selected = landing.index(in: suggestions.map(\.objectId))

@@ -110,7 +110,9 @@ test('markdown and text sources index passages that previews and indexed shares 
   const page = await (await fetch(`${base}/d/${share.token}`)).text();
   assert.match(page, /Soil moisture in plot B rose by eighteen percent after the second irrigation cycle\./);
   assert.match(page, /lines 5–6/);
-  assert.doesNotMatch(page, /Field notes|sensor log|Root depth|example\.com/, 'only the indexed passage is published');
+  // The sentence is shared inside its paragraph, marked there; nothing past the paragraph is.
+  assert.match(page, /<mark class="shared-cited">Soil moisture in plot B rose by eighteen percent after the second irrigation cycle\.<\/mark> The sensor log confirms the trend\./);
+  assert.doesNotMatch(page, /Field notes|Root depth|example\.com/, 'nothing past its paragraph is published');
   const excerpt = await (await fetch(`${base}/d/${share.token}/excerpt`)).text();
   assert.equal(excerpt.trim(), sentence.valueText);
 });

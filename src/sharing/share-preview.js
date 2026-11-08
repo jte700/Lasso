@@ -109,16 +109,61 @@ const SHARED_COLUMN_ROWS = 1000;
 
 /**
  * What a cited-part share of a table holds, and what its recipient sees and
- * downloads: the rows around a cited cell, or a cited column alone from its
- * heading down. A column's neighbours are not part of its citation, so they
- * are not shared.
+ * downloads: exactly what the sentence cites, with only what it takes to
+ * read it. A cell comes with its row label and column heading; a row is
+ * that row under its headings; a column is that column alone, from its
+ * heading down. With `nearbyRows`, a cell or row keeps the rows around it
+ * and every column, for when the sharer wants that context.
  * @param {{ path: string, content: Buffer|string }} file
  * @param {object} anchor
  * @param {object} metadata
+ * @param {{ nearbyRows?: boolean }} options
  */
-export function buildSharedExcerpt(file, anchor = {}, metadata = {}) {
+export function buildSharedExcerpt(file, anchor = {}, metadata = {}, { nearbyRows = false } = {}) {
   const context = buildSharePreview(file, anchor, metadata, 2, '', { columnRows: SHARED_COLUMN_ROWS });
-  return context?.columnCitation ? citedColumnsOnly(context) : context;
+  if (!context?.rows) return context;
+  if (context.columnCitation) return citedColumnsOnly(context);
+  return nearbyRows ? context : citedRowOnly(context, anchor);
+}
+
+/**
+ * What a cited-part share of a text source holds: the paragraph the cited
+ * passage sits in, which the share page shows with the passage marked.
+ * Nothing past that paragraph is shared.
+ * @returns {{ kind: 'passage', paragraph: string } | null}
+ */
+export function buildSharedPassage(file, anchor = {}, metadata = {}, label = '', objectType = '') {
+  const preview = buildInspectorPreview(file, anchor, metadata, label, objectType);
+  if (preview?.kind !== 'text' || preview.deck || preview.presentation) return null;
+  if (preview.blocks) {
+    const cited = preview.blocks.filter((block) => block.cited && block.type !== 'heading');
+    const paragraph = cited.map((block) => markdownPlainText(block.text)).join(' ').replace(/\s+/g, ' ').trim();
+    return paragraph ? { kind: 'passage', paragraph } : null;
+  }
+  const lines = preview.lines ?? [];
+  let start = lines.findIndex((line) => line.cited);
+  if (start < 0) return null;
+  let end = lines.findLastIndex((line) => line.cited);
+  // A paragraph of plain text runs between blank lines.
+  while (start > 0 && lines[start - 1].value.trim()) start -= 1;
+  while (end < lines.length - 1 && lines[end + 1].value.trim()) end += 1;
+  const paragraph = lines.slice(start, end + 1).map((line) => line.value.trim()).join(' ').trim();
+  return paragraph ? { kind: 'passage', paragraph } : null;
+}
+
+/** The cited row alone: every cell of a cited row, or a cited cell with its row's label. */
+function citedRowOnly(context, anchor) {
+  const row = context.rows.find((entry) => entry.cells.some((cell) => cell.cited));
+  if (!row) return context;
+  const cited = row.cells.flatMap((cell, index) => (cell.cited ? [index] : []));
+  const rowKey = String(anchor.rowKey ?? '').trim();
+  const named = rowKey ? row.cells.findIndex((cell) => String(cell.value ?? '').trim() === rowKey) : -1;
+  const label = named >= 0 ? named : row.cells.findIndex((cell) => String(cell.value ?? '').trim());
+  const keep = cited.length === row.cells.length ? cited
+    : [...new Set([label, ...cited])].filter((index) => index >= 0).sort((left, right) => left - right);
+  const pick = (values) => keep.map((index) => values?.[index]);
+  return { ...context, columns: pick(context.columns), headers: pick(context.headers),
+    rows: [{ ...row, cells: pick(row.cells) }] };
 }
 
 /** The context narrowed to the columns that hold a cited cell. */

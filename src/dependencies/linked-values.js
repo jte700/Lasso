@@ -1,5 +1,6 @@
 // The values listed below a linked source: a column's values, a row's cells, a part's measurements.
 
+import { matchedSourceWords } from './direct-match.js';
 import { measurementOrder, measurementRelevance } from './drawing-objects.js';
 import { canonicalRowReference, normalizedRowSearch, rowSearchAliases } from './row-names.js';
 import { humanVariable, normalizedVariable } from './tabular.js';
@@ -11,7 +12,47 @@ import {
 import {
   comparableNumber, contextualStoredValue, missingMeasurement, numericDescriptor, typedNumberPrefix,
 } from './value-match.js';
-import { contextualCompletionRange, sameDocument } from './workspace-completion.js';
+import { contextualCompletionRange, sameDocument, typedValueCloseness } from './workspace-completion.js';
+
+/**
+ * Table cells as their sheet has them: rows top to bottom, each row's cells
+ * left to right, with the linked source's own table first. Anything that is
+ * not a cell keeps its place after them.
+ * @param {object[]} objects
+ * @param {object} source
+ * @returns {object[]}
+ */
+function inSheetOrder(objects, source) {
+  const end = Number.MAX_SAFE_INTEGER;
+  const elsewhere = (object) => Number(!sameDocument(object, source));
+  const table = (object) => `${object.path}\u0000${object.metadata.sheet ?? object.anchor?.sheet ?? ''}`;
+  return objects.toSorted((left, right) => elsewhere(left) - elsewhere(right)
+    || table(left).localeCompare(table(right))
+    || (left.anchor?.rowIndex ?? end) - (right.anchor?.rowIndex ?? end)
+    || (left.anchor?.columnIndex ?? end) - (right.anchor?.columnIndex ?? end));
+}
+
+/**
+ * The values what was typed names first, closest first, each group keeping
+ * the order it came in: a value it begins, one it is inside, then one whose row
+ * or column has a typed word. A word every value shares ties them all, so it
+ * moves nothing, and so does a word none has.
+ * @param {object[]} objects
+ * @param {string} typed the text since the source was taken
+ * @returns {object[]}
+ */
+function typedFirst(objects, typed) {
+  if (!typed.trim()) return objects;
+  const closeness = (object) => {
+    const inValue = typedValueCloseness(typed, object.contextualText);
+    if (inValue) return inValue + 1;
+    const names = [object.valueText, object.anchor?.rowKey ?? object.metadata.row, object.metadata.column ?? object.anchor?.column];
+    return matchedSourceWords(typed, names.filter(Boolean).join(' ')).length ? 1 : 0;
+  };
+  return objects.map((object) => ({ object, near: closeness(object) }))
+    .sort((left, right) => right.near - left.near)
+    .map(({ object }) => object);
+}
 
 export const linkedValuesMethods = {
   valuesFromLinkedProjectObject(projectId, input, cursor, dependency) {
@@ -245,13 +286,23 @@ export const linkedValuesMethods = {
         || measurementOrder(left) - measurementOrder(right)
         || left.path.localeCompare(right.path)
         || String(left.anchor?.rowKey ?? '').localeCompare(String(right.anchor?.rowKey ?? '')));
+    // A table's values are listed where the sheet has them, with whatever the
+    // words typed since name brought to the top; none are hidden. A named row
+    // or field, or a word about a change, asks ranking for particular values.
+    const listsInOrder = !requestedRows.size && !explicitFields.size && !changeIntent
+      && objects.some((object) => object.anchor?.kind === 'table-cell');
     const suggestions = [];
     const seen = new Set();
-    for (const object of objects) {
-      // The card names a CAD measurement's feature ("Ø8 hole depth"), so equal
-      // values of different features stay apart; other equal values show once.
-      const feature = object.anchor?.kind === 'cad-property' ? object.label : '';
-      const fingerprint = `${object.contextualText.toLowerCase()}|${object.path}|${object.metadata.sheet ?? ''}|${feature}`;
+    for (const object of listsInOrder ? typedFirst(inSheetOrder(objects, source), tail) : objects) {
+      // Every cell of a row or column is listed, so the arrows reach each one:
+      // equal values in two cells keep two places. The card names a CAD
+      // measurement's feature ("Ø8 hole depth"), which keeps those apart too.
+      // Two objects read from the same cell still show once.
+      const anchor = object.anchor ?? {};
+      const feature = anchor.kind === 'cad-property' ? object.label : '';
+      const cell = anchor.kind === 'table-cell'
+        ? `${anchor.rowIndex ?? anchor.rowKey ?? ''}:${anchor.columnIndex ?? anchor.column ?? ''}` : '';
+      const fingerprint = `${object.contextualText.toLowerCase()}|${object.path}|${object.metadata.sheet ?? ''}|${feature}|${cell}`;
       if (seen.has(fingerprint)) continue;
       seen.add(fingerprint);
       suggestions.push({
@@ -281,6 +332,7 @@ export const linkedValuesMethods = {
       variable,
       changeIntent,
       requestedRows: [...requestedRows],
+      listsInOrder,
       heading: (dependencySelectsColumn || explicitFields.size) && scopedObjects.length
         && new Set(scopedObjects.map((object) => normalizedVariable(object.metadata.column ?? object.anchor?.column))).size === 1
         ? `Value for ${variable} · ${scopedObjects[0].metadata.column ?? scopedObjects[0].anchor?.column}`

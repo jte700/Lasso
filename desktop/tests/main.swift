@@ -1702,6 +1702,29 @@ do {
     wide.stop()
 }
 
+print("the card's highlight after a new answer")
+do {
+    let shown = ["BILL-1160", "BILL-1174", "BILL-1181"]
+    let reordered = ["BILL-1174", "BILL-1160", "BILL-1181"]
+    check(CardHighlight.afterAnswer(selected: 1, previous: shown, next: reordered, textChanged: true) == 0,
+          "typing starts the highlight again at the top, where the closest match is")
+    check(CardHighlight.afterAnswer(selected: 1, previous: shown, next: reordered, textChanged: false) == 0,
+          "an answer to the same text keeps the highlighted suggestion wherever it moved")
+    check(CardHighlight.afterAnswer(selected: 2, previous: shown, next: shown, textChanged: false) == 2,
+          "an unchanged list keeps its highlighted row")
+    check(CardHighlight.afterAnswer(selected: 2, previous: shown, next: ["BILL-1160"], textChanged: false) == 0,
+          "a shorter list without it keeps the highlight in range")
+    check(CardHighlight.afterAnswer(selected: 0, previous: [], next: [], textChanged: false) == 0, "nothing to highlight stays at the top")
+}
+
+print("a share keeps the sentence its citation sits in")
+check(CitingSentence.around("$46,350", before: "Revenue rose. Net income was ", after: " for September. Costs fell.")
+      == "Net income was $46,350 for September.", "the sentence runs from the last sentence end to the next")
+check(CitingSentence.around("17250", before: "Cedar Packaging is owed ", after: "")
+      == "Cedar Packaging is owed 17250", "a sentence still being written ends at the citation")
+check(CitingSentence.around("BILL-1192", before: "Notes\nInvoice ", after: " is paid\nNext")
+      == "Invoice BILL-1192 is paid", "a line break ends a sentence too")
+
 print("a folder's switch is drawn in the folder's own colour, which follows a new pick")
 do {
     _ = NSApplication.shared

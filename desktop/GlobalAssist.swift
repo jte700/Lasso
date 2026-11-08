@@ -91,6 +91,8 @@ final class GlobalAssistant {
     var focusedSource: LinkedSourceMemory.Source?
     /// The row the list a focus move asked for opens on.
     var focusLanding: FocusLanding?
+    /// The field text the card last answered, so an answer can tell whether typing has moved on since.
+    var answeredText: String?
     var linkedContext: String?
     var linkedElement: AXUIElement?
     var flashTimer: Timer?

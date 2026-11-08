@@ -156,6 +156,8 @@ export function openDatabase(config) {
   // the one it was made from. Existing shares read NULL and use their version's.
   const shareColumns = new Set(db.prepare('PRAGMA table_info(object_share_grants)').all().map((column) => column.name));
   if (!shareColumns.has('snapshot_id')) db.exec('ALTER TABLE object_share_grants ADD COLUMN snapshot_id TEXT REFERENCES snapshots(id)');
+  // The sentence a share backs, and whether a cited cell brings its nearby rows.
+  if (!shareColumns.has('context_json')) db.exec('ALTER TABLE object_share_grants ADD COLUMN context_json TEXT');
   allowMarkedShares(db);
   // Rows and cells of large tables become objects only when they are offered
   // or linked (see dependencies/table-index.js). Each later reading of their

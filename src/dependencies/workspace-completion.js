@@ -46,6 +46,37 @@ const CONTEXTUAL_INSERTION_CUES = new Set([
   'includes', 'increased', 'decreased',
 ]);
 
+/** How many words at the end of what was typed can name one value. */
+const TYPED_VALUE_WORDS = 4;
+/** Letters this short begin too many values to say anything. */
+const SHORTEST_TYPED_WORD = 2;
+/** Fragments this short are found inside too many values to say anything. */
+const SHORTEST_TYPED_INSIDE = 3;
+
+/**
+ * How closely the words at the end of what was typed name a value, whatever
+ * their case or punctuation: 2 when the value begins with them ("BILL-117",
+ * "bill 117", "2026-09", "$46,3", "Not y"), 1 when they are inside it ("117"
+ * in BILL-1174), 0 otherwise. Cue words such as "was" name nothing.
+ * @param {string} typed
+ * @param {string} value
+ * @returns {0|1|2}
+ */
+export function typedValueCloseness(typed, value) {
+  const compact = (text) => normalizedCompletionPhrase(text).replaceAll(' ', '');
+  const target = compact(value);
+  const words = String(typed ?? '').trim().split(/\s+/).filter(Boolean);
+  while (words.length && CONTEXTUAL_INSERTION_CUES.has(words.at(-1).toLowerCase())) words.pop();
+  let closeness = 0;
+  for (let count = Math.min(words.length, TYPED_VALUE_WORDS); count > 0; count -= 1) {
+    const phrase = compact(words.slice(-count).join(' '));
+    if (!phrase || (phrase.length < SHORTEST_TYPED_WORD && !/^\p{N}/u.test(phrase))) continue;
+    if (target.startsWith(phrase)) return 2;
+    if (phrase.length >= SHORTEST_TYPED_INSIDE && target.includes(phrase)) closeness = 1;
+  }
+  return closeness;
+}
+
 export function normalizedCompletionPhrase(value) {
   return String(value ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
