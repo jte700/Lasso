@@ -106,6 +106,9 @@ export const claimCandidatesMethods = {
       .filter((object) => (!options.documentPath || object.path !== options.documentPath)
         && (!options.sourcePath || object.path === options.sourcePath)
         && (!typePreference.size || typePreference.has(object.objectType))
+        // "The file …", "the document …" names a document. One of its passages
+        // answers only with a typed word of its own, not on its file's name.
+        && !(documentReference && isPassageExcerpt(object) && !matchedSourceWords(claim.text, object.valueText).length)
         && (options.sourcePath ? true : permitted(object)));
     const variableDefinitions = new Map(objects
       .filter((object) => object.objectType === 'VARIABLE' && object.metadata.dictionary)

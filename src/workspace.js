@@ -113,7 +113,7 @@ function tag(value, project, projects = null) {
     ...(value.dependencyCandidate ? { dependencyCandidate: tag(value.dependencyCandidate, project, projects) } : {}) };
 }
 
-function distinctRanked(items, limit, { keepOrder = false } = {}) {
+export function distinctRanked(items, limit, { keepOrder = false } = {}) {
   const seen = new Set();
   // Full ties keep each directory's own ranked order, which already settles
   // them by source order (a row's columns left to right). Object ids are

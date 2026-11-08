@@ -1,0 +1,920 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lasso MCP · Benchmarks</title>
+<meta name="description" content="Lasso MCP gives AI agents your local files through one tool: exact lines, rows, passages and part placements, with sources. Live benchmarks against ordinary file tools and uploads.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<style>
+  :root {
+    --bg: #ffffff;
+    --sand: #f5f3f1;
+    --sand-2: #ebe8e4;
+    --ink: #000000;
+    --ink-2: rgba(0, 0, 0, .62);
+    --ink-3: rgba(0, 0, 0, .42);
+    --line: #e7e4e0;
+    --line-2: #d9d5d0;
+    --green: #29cc57;
+    --green-d: #1f9d55;
+    --green-bg: #eafaf0;
+    --orange: #e8590c;
+    --orange-bg: #fff1e8;
+    --surface: #ffffff;
+    --contrast: #000000;
+    --contrast-h: #222222;
+    --on-contrast: #ffffff;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 12px 32px rgba(0, 0, 0, .07);
+    /* charts: one measure each, so one mark color; gridlines and the axis recede */
+    --bar: #1f9d55;
+    --grid: #ebe8e4;
+    --axis: #c3c2b7;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c0c0d;
+      --sand: #161615;
+      --sand-2: #201f1d;
+      --ink: #f5f4f2;
+      --ink-2: rgba(255, 255, 255, .7);
+      --ink-3: rgba(255, 255, 255, .48);
+      --line: #2b2a28;
+      --line-2: #3b3a37;
+      --green-d: #3fd977;
+      --green-bg: rgba(41, 204, 87, .15);
+      --orange: #ff8a4c;
+      --orange-bg: rgba(232, 89, 12, .18);
+      --surface: #1b1b1a;
+      --contrast: #ffffff;
+      --contrast-h: #dddddd;
+      --on-contrast: #000000;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 12px 32px rgba(0, 0, 0, .45);
+      --bar: #20a95b;
+      --grid: #2c2c2a;
+      --axis: #3b3a37;
+      color-scheme: dark;
+    }
+    .nav { box-shadow: 0 0 0 1px var(--line), 0 0 15px rgba(0, 0, 0, .5); }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; overflow-x: clip; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  a { color: inherit; }
+  button { font: inherit; color: inherit; }
+  ::selection { background: #c9f2d5; }
+
+  .nav-wrap { position: fixed; top: 16px; left: 0; right: 0; z-index: 50; padding: 0 16px; pointer-events: none; }
+  .nav { pointer-events: auto; max-width: 1180px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 8px 8px 18px; background: var(--surface); border-radius: 9999px; box-shadow: 0 0 15px rgba(0, 0, 0, .1); }
+  .brand { display: flex; align-items: center; gap: 9px; text-decoration: none; font-weight: 600; font-size: 20px; letter-spacing: -.02em; white-space: nowrap; }
+  .brand svg { width: 26px; height: 26px; flex: none; color: var(--green); }
+  .brand small { padding: 2px 8px; border-radius: 999px; background: var(--sand); font-size: 12px; font-weight: 600; color: var(--ink-2); letter-spacing: 0; }
+  .nav-links { display: flex; gap: 4px; align-items: center; font-size: 15px; font-weight: 500; }
+  .nav-links a { text-decoration: none; padding: 8px 12px; border-radius: 999px; color: var(--ink-2); transition: background .2s, color .2s; }
+  .nav-links a:hover { background: var(--sand); color: var(--ink); }
+  .pill { display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; font-weight: 500; font-size: 16px; padding: 8px 16px; border-radius: 9999px; border: 0; cursor: pointer; transition: transform .15s, background .2s, box-shadow .2s; white-space: nowrap; }
+  .pill.ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+  .pill.ghost:hover { background: var(--sand); }
+  .pill.black { background: var(--contrast); color: var(--on-contrast); }
+  .pill.black:hover { background: var(--contrast-h); }
+  .pill.big { font-size: 19px; padding: 14px 26px; box-shadow: 0 4px 7px rgba(0, 0, 0, .05); }
+  .pill.green { background: var(--green); color: #fff; }
+  .pill.green:hover { background: #22b84c; transform: translateY(-1px); }
+
+  /* header: a soft blur of colour that drifts slowly and fades into the page */
+  header.top { position: relative; isolation: isolate; overflow: hidden; padding: 150px 16px 64px; text-align: center; background: var(--bg); --glow: .9; }
+  header.top::before { content: ""; position: absolute; inset: -30% -15% 5%; z-index: -2; filter: blur(70px); opacity: var(--glow);
+    background:
+      radial-gradient(38% 46% at 26% 38%, rgba(41, 204, 87, .55), transparent 70%),
+      radial-gradient(34% 42% at 74% 30%, rgba(80, 160, 255, .42), transparent 70%),
+      radial-gradient(40% 44% at 56% 74%, rgba(246, 196, 69, .38), transparent 70%),
+      radial-gradient(30% 36% at 12% 80%, rgba(120, 220, 200, .35), transparent 70%);
+    animation: glowDrift 22s ease-in-out infinite alternate; }
+  header.top::after { content: ""; position: absolute; inset: auto 0 0; height: 55%; z-index: -1; background: linear-gradient(transparent, var(--bg) 80%); }
+  @keyframes glowDrift { 50% { transform: translate3d(4%, -3%, 0) scale(1.06) rotate(3deg); } 100% { transform: translate3d(-3%, 2%, 0) scale(1.1) rotate(-2deg); } }
+  @media (prefers-color-scheme: dark) { header.top { --glow: .85; } }
+  @media (prefers-reduced-motion: reduce) { header.top::before { animation: none; } }
+  .chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border-radius: 999px; background: var(--surface); box-shadow: 0 0 0 1px var(--line); font-size: 14px; font-weight: 500; color: var(--ink-2); }
+  .chip b { padding: 2px 8px; border-radius: 999px; background: var(--green-bg); color: var(--green-d); font-weight: 600; font-size: 12.5px; }
+  h1 { margin: 22px 0 16px; font-weight: 600; font-size: clamp(48px, 8vw, 88px); line-height: 1; letter-spacing: -.035em; }
+  .sub { margin: 0 auto 30px; max-width: 640px; font-size: 20px; line-height: 1.5; color: var(--ink-3); }
+  .sub b { color: var(--ink-2); font-weight: 500; }
+  .cta-row { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+
+  section { padding: 84px 16px; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  .kicker { display: inline-block; font-size: 14px; font-weight: 600; color: var(--green-d); margin-bottom: 12px; }
+  h2 { margin: 0 0 14px; font-weight: 500; font-size: clamp(32px, 4.2vw, 48px); line-height: 1.1; letter-spacing: -.025em; }
+  .lead { font-size: 18px; line-height: 1.55; color: var(--ink-3); margin: 0 0 32px; max-width: 720px; }
+  .lead b { color: var(--ink-2); font-weight: 500; }
+
+  /* stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+  .tile { padding: 22px 22px 20px; border-radius: 24px; background: var(--sand); }
+  .tile .label { font-size: 14px; font-weight: 500; color: var(--ink-2); }
+  .tile .value { margin: 10px 0 2px; font-size: 52px; font-weight: 600; line-height: 1; letter-spacing: -.03em; }
+  .tile .unit { font-size: 15px; font-weight: 500; color: var(--ink-2); }
+  .tile .note { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13.5px; line-height: 1.45; color: var(--ink-3); }
+  .tile .note b { color: var(--ink-2); font-weight: 600; }
+
+  /* cards */
+  .grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; }
+  .card { grid-column: span 12; padding: 26px 26px 22px; border-radius: 24px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); min-width: 0; }
+  .card.half { grid-column: span 6; }
+  .card h3 { margin: 0 0 4px; font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+  .card .desc { margin: 0 0 22px; font-size: 14.5px; line-height: 1.5; color: var(--ink-3); max-width: 760px; }
+  .card .foot { margin: 18px 0 0; font-size: 13px; line-height: 1.5; color: var(--ink-3); }
+  .tag { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; background: var(--sand); font-size: 12px; font-weight: 600; color: var(--ink-2); vertical-align: 2px; letter-spacing: 0; }
+
+  /* horizontal bar chart */
+  .bars { position: relative; }
+  .bars .row { display: grid; grid-template-columns: 250px minmax(0, 1fr); align-items: center; gap: 16px; padding: 7px 0; border-radius: 10px; outline: none; }
+  .bars .row:focus-visible { box-shadow: 0 0 0 2px var(--green); }
+  .bars .name { font-size: 15px; font-weight: 500; line-height: 1.3; }
+  .bars .name small { display: block; margin-top: 2px; font-size: 13px; font-weight: 400; color: var(--ink-3); }
+  .bars .name.lead-row { font-weight: 650; }
+  .plot { position: relative; height: 30px; }
+  .plot .gl { position: absolute; top: -7px; bottom: -7px; width: 1px; background: var(--grid); }
+  .plot .ref { position: absolute; top: -7px; bottom: -7px; width: 1px; background: repeating-linear-gradient(to bottom, var(--ink-3) 0 4px, transparent 4px 8px); }
+  .plot::before { content: ""; position: absolute; left: 0; right: 0; top: 0; bottom: 0; height: 22px; margin: auto 0; border-radius: 7px; background: var(--sand); }
+  .plot .bar { position: absolute; left: 0; top: 0; bottom: 0; height: 22px; margin: auto 0; background: var(--bar); border-radius: 7px; min-width: 6px; }
+  .plot .val { position: absolute; top: 50%; transform: translateY(-50%); padding: 1px 4px; border-radius: 4px; background: var(--surface); font-size: 13.5px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+  .plot .val.inside { background: none; color: #fff; }
+  .axis { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 16px; margin-top: 6px; }
+  /* axis titles: the categories above the labels, the measure under the ticks; the reference line is named at its top */
+  .chart-head, .axis-title { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 16px; font-size: 12.5px; font-weight: 600; color: var(--ink-3); }
+  .chart-head { align-items: end; margin-bottom: 6px; }
+  .chart-head .ref-at { position: relative; height: 18px; }
+  .chart-head .ref-at span { position: absolute; bottom: 0; transform: translateX(-50%); white-space: nowrap; color: var(--ink-2); }
+  .axis-title { margin-top: 8px; }
+  .axis-title span:last-child { text-align: center; }
+  .axis .ticks { position: relative; height: 18px; border-top: 1px solid var(--axis); }
+  .axis .ticks > span { position: absolute; top: 4px; transform: translateX(-50%); font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .axis .ticks > span.first { transform: none; }
+  .axis .ticks > span.ref-l { color: var(--ink-2); font-weight: 600; }
+  .code { box-shadow: inset 0 0 0 1px var(--line); }
+
+  /* before → after */
+  .ba { display: grid; gap: 10px; }
+  .ba .item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 14px 16px; border-radius: 16px; background: var(--sand); }
+  .ba .what { font-size: 15px; font-weight: 500; line-height: 1.35; }
+  .ba .what small { display: block; font-size: 13px; font-weight: 400; color: var(--ink-3); }
+  .ba .nums { display: flex; align-items: baseline; gap: 10px; font-size: 15px; color: var(--ink-3); white-space: nowrap; }
+  .ba .nums b { font-size: 26px; font-weight: 600; color: var(--ink); letter-spacing: -.02em; }
+  .ba .nums .was { text-decoration: line-through; text-decoration-color: var(--ink-3); }
+  .ba .nums .arrow { color: var(--ink-3); }
+
+  /* where it doesn't win */
+  .when { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .when .item { padding: 14px 16px; border-radius: 16px; background: var(--sand); font-size: 14.5px; line-height: 1.5; color: var(--ink-2); }
+  .when .item b { display: block; margin-bottom: 2px; font-size: 15px; font-weight: 600; color: var(--ink); }
+  .when .item.win b::before, .when .item.lose b::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; vertical-align: 1px; }
+  .when .item.win b::before { background: var(--green); }
+  .when .item.lose b::before { background: var(--orange); }
+
+  /* worked examples */
+  .examples { display: flex; gap: 8px; height: 420px; transition: height .5s cubic-bezier(.2, .9, .25, 1), gap .4s; }
+  .plot .val { background: var(--sand); }
+  /* worked examples: an image accordion (after bencho.dev). Hover widens a panel while its neighbours give way;
+     a click opens it across the row with the full example beside its picture. */
+  .ex { --ring-gap: var(--surface); --pic: 38%; position: relative; flex: 1 1 0; min-width: 0; border-radius: 24px; background: var(--sand); overflow: hidden;
+    transition: flex-grow .7s cubic-bezier(.3, 1.3, .45, 1), opacity .35s; }
+  .ex .heat { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block;  transition: width .65s cubic-bezier(.2, .9, .25, 1); }
+  .acc-open { position: absolute; inset: 0; z-index: 2; width: 100%; padding: 0; border: 0; border-radius: inherit; background: none; color: transparent; font-size: 0; cursor: pointer; }
+  .acc-open:focus-visible { outline: 2px solid var(--green); outline-offset: -3px; }
+  .acc-cap { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; display: grid; gap: 2px; padding: 56px 18px 16px; background: linear-gradient(transparent, var(--sand) 58%); pointer-events: none; transition: opacity .3s; }
+  .acc-cap small { font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .acc-cap b { font-size: 16px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .acc-v, .acc-eyebrow span { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: var(--green-d); white-space: nowrap; }
+  .acc-v::before, .acc-eyebrow span::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .acc-x { position: absolute; top: 14px; right: 14px; z-index: 3; display: none; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 999px; background: var(--surface); color: var(--ink-2); cursor: pointer; box-shadow: 0 0 0 1px var(--line); }
+  .acc-x:hover { color: var(--ink); }
+  .acc-body { display: none; flex-direction: column; gap: 14px; margin-left: var(--pic); padding: 28px 28px 24px; }
+  .acc-eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0; padding-right: 40px; font-size: 12.5px; color: var(--ink-3); }
+  .examples.open { gap: 0; }
+  .examples.open .ex { flex-grow: 0; opacity: 0; pointer-events: none; }
+  .examples.open .ex.on { flex-grow: 1; opacity: 1; pointer-events: auto; }
+  .ex.on .heat { width: var(--pic); }
+  .ex.on .acc-cap, .ex.on .acc-open { opacity: 0; visibility: hidden; }
+  .ex.on .acc-x { display: grid; }
+  .ex.shown .acc-body { display: flex; animation: accIn .45s cubic-bezier(.2, .9, .25, 1) both; }
+  @keyframes accIn { from { opacity: 0; transform: translateY(10px); filter: blur(4px); } }
+  .ex .q { margin: 0; font-size: 19px; font-weight: 500; line-height: 1.4; letter-spacing: -.01em; }
+  .ex .why { margin: 0; font-size: 14px; line-height: 1.55; color: var(--ink-3); }
+  .ex .why b { color: var(--ink-2); font-weight: 600; }
+  .ex .got { margin-top: auto; padding: 18px 18px 16px; border-radius: 20px; background: var(--surface); box-shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 8px 24px rgba(0, 0, 0, .05); }
+  .ex .got .lbl { font-size: 12.5px; font-weight: 500; color: var(--ink-3); }
+  .ex .ans { margin: 6px 0 10px; font-size: 34px; font-weight: 600; line-height: 1.05; letter-spacing: -.03em; color: var(--ink); }
+  .ex .got pre { margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--ink-3); white-space: pre-wrap; word-break: break-word; }
+  .ex .got pre em { font-style: normal; font-weight: 600; color: var(--green-d); }
+  .ex .tok { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .ex .tokens-lbl { margin: 0 0 4px; font-size: 12.5px; font-weight: 500; color: var(--ink-3); }
+  /* slim bars: name and count on one line, the bar under them */
+  .ex .bars .row { grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 6px 0; }
+  .ex .bars .name { display: flex; align-items: baseline; gap: 8px; font-size: 14px; }
+  .ex .bars .name small { display: inline; margin: 0; font-size: 12.5px; }
+  .ex .bars .name .val { position: static; margin-left: auto; padding: 0; background: none; transform: none; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .ex .plot { height: 8px; }
+  .ex .plot .bar, .ex .plot::before { height: 8px; border-radius: 4px; }
+  .ex .bars .row:not(:first-child) .bar { background: var(--ink-3); opacity: .55; }
+
+  /* table view */
+  .table-wrap { overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 720px; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12.5px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: .04em; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td small { display: block; color: var(--ink-3); font-size: 12.5px; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td .gain { font-weight: 600; color: var(--green-d); }
+  td .loss { font-weight: 600; color: var(--orange); }
+
+  /* connect */
+  .steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .code { position: relative; margin: 0; padding: 18px; border-radius: 16px; background: #111110; color: #e9e7e3; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; overflow-x: auto; white-space: pre; }
+  .code .k { color: #8fd9a8; }
+  .code .s { color: #f2c38b; }
+  .copy { position: absolute; top: 10px; right: 10px; padding: 5px 11px; border: 0; border-radius: 999px; background: rgba(255, 255, 255, .1); color: #e9e7e3; font-size: 12.5px; font-weight: 500; cursor: pointer; }
+  .copy:hover { background: rgba(255, 255, 255, .18); }
+  .notes { margin: 18px 0 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+  .notes li { display: flex; gap: 10px; font-size: 14.5px; line-height: 1.5; color: var(--ink-2); }
+  .notes svg { width: 16px; height: 16px; flex: none; margin-top: 3px; }
+  .notes code { font-family: var(--mono); font-size: 13px; padding: 1px 6px; border-radius: 6px; background: var(--sand); }
+
+  .method { font-size: 14px; line-height: 1.6; color: var(--ink-3); max-width: 900px; }
+  .method p { margin: 0 0 10px; }
+  .method b { color: var(--ink-2); font-weight: 600; }
+
+  footer { padding: 40px 16px 56px; border-top: 1px solid var(--line); }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; font-size: 14px; color: var(--ink-3); }
+  footer a { text-decoration: none; color: var(--ink-2); }
+  footer a:hover { color: var(--ink); }
+
+  .tip { position: fixed; left: 0; top: 0; z-index: 80; max-width: 300px; padding: 10px 13px; border-radius: 14px; background: var(--surface); color: var(--ink-2); font-size: 13px; line-height: 1.55; pointer-events: none;
+    box-shadow: 0 0 0 1px var(--line), 0 10px 30px rgba(0, 0, 0, .12); opacity: 0; scale: .96; transition: opacity .16s, scale .2s, translate .32s cubic-bezier(.2, .9, .25, 1); }
+  .tip.on { opacity: 1; scale: 1; }
+  .tip.jump { transition: opacity .16s, scale .2s; }
+  .tip b { font-weight: 600; color: var(--ink); }
+  .tip .muted { color: var(--ink-3); }
+
+  /* motion, after bencho.dev: numbers roll like an odometer, bars grow in one after another,
+     hover dims the other rows and rings the bar, cards blur in as they scroll into view */
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .od { display: inline-flex; align-items: flex-start; line-height: 1.1; margin: -.05em 0; font-variant-numeric: tabular-nums; white-space: pre; }
+  .od > span:not(.sr) { height: 1.1em; }
+  .od-w { overflow: hidden; }
+  .od-c { display: flex; flex-direction: column; transition: transform 1.25s cubic-bezier(.2, .85, .2, 1) calc(var(--k) * 70ms + var(--d0, 0ms)); }
+  .od-c span { height: 1.1em; }
+  .rv { opacity: 0; transform: translateY(16px); filter: blur(8px); transition: opacity .7s ease, transform .8s cubic-bezier(.2, .9, .25, 1), filter .7s ease; transition-delay: calc(var(--i, 0) * 90ms); }
+  .rv.in { opacity: 1; transform: none; filter: none; }
+  .plot .bar { transform: scaleX(0); transform-origin: left center; transition: transform 1s cubic-bezier(.25, 1.2, .4, 1) calc(var(--i) * 90ms), box-shadow .2s; }
+  .bars.in .bar { transform: none; }
+  .plot .val { opacity: 0; translate: -6px 0; transition: opacity .4s, translate .5s cubic-bezier(.2, .9, .25, 1); transition-delay: calc(var(--i) * 90ms + .3s); }
+  .bars.in .val { opacity: 1; translate: 0; }
+  .bars .row { transition: opacity .25s; }
+  .bars:has(.row:hover) .row:not(:hover), .bars:has(.row:focus-visible) .row:not(:focus-visible) { opacity: .35; }
+  .row:hover .bar, .row:focus-visible .bar { box-shadow: 0 0 0 2px var(--ring-gap, var(--surface)), 0 0 0 3.5px var(--bar); }
+  /* tile meters: Lasso's tokens against file tools', as rows of ticks that light up */
+  .vs { display: grid; gap: 7px; margin-top: 16px; }
+  .vs-r { display: grid; grid-template-columns: 66px minmax(0, 1fr) 52px; align-items: center; gap: 10px; font-size: 12.5px; color: var(--ink-3); }
+  .vs-r b { font-weight: 600; color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; }
+  .vs-t { position: relative; height: 14px; }
+  .vs-t::before, .vs-t i { content: ""; position: absolute; left: 0; top: 0; bottom: 0; -webkit-mask: repeating-linear-gradient(90deg, #000 0 3px, transparent 3px 6px); mask: repeating-linear-gradient(90deg, #000 0 3px, transparent 3px 6px); }
+  .vs-t::before { right: 0; background: var(--line-2); opacity: .55; }
+  .vs-t i { width: 0; min-width: 3px; background: var(--ink-3); transition: width 1.2s cubic-bezier(.2, .85, .2, 1) calc(var(--d, 0) * 1ms + .25s); }
+  .vs-r.lasso .vs-t i { background: var(--green); }
+  .vs-r.lasso span { color: var(--green-d); font-weight: 600; }
+  .tile.in .vs-t i { width: var(--w); }
+  @media (prefers-reduced-motion: reduce) {
+    .rv, .od-c, .plot .bar, .plot .val, .vs-t i, .tip { transition: none !important; }
+  }
+
+  /* phones and narrow windows: the panels stack, and a tap opens one under its picture */
+  @media (max-width: 760px) {
+    .examples, .examples.open { flex-direction: column; height: auto !important; gap: 8px; }
+    .ex, .examples.open .ex { flex: none; height: 240px; opacity: 1; pointer-events: auto; }
+    .examples.open .ex.on { height: auto; }
+    .ex.on .heat { position: relative; width: 100%; height: 170px; }
+    .acc-body { margin-left: 0; padding: 4px 16px 18px; }
+  }
+  @media (max-width: 1020px) {
+    .nav-links { display: none; }
+    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card.half { grid-column: span 12; }
+    .examples, .when { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 640px) {
+    .brand { font-size: 17px; }
+    header.top { padding: 118px 16px 52px; }
+    .sub { font-size: 17px; }
+    .pill.big { font-size: 17px; padding: 13px 20px; }
+    .cta-row { flex-direction: column; align-items: stretch; max-width: 300px; margin: 0 auto; }
+    section { padding: 64px 16px; }
+    .tiles { grid-template-columns: minmax(0, 1fr); }
+    .tile .value { font-size: 44px; }
+    .card { padding: 20px 18px 18px; }
+    .bars .row, .axis, .chart-head, .axis-title { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+    .axis .spacer, .axis-title .spacer { display: none; }
+    .steps { grid-template-columns: minmax(0, 1fr); }
+    .ex .ans { font-size: 28px; }
+    .ex .bars .name { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; }
+    .ex .bars .name small { grid-row: 2; grid-column: 1 / -1; }
+    .ba .item { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="tick" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7.5" fill="#29cc57"/><path d="M4.8 8.3l2.1 2.1 4.3-4.6" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="lassoMark" viewBox="0 0 32 32"><ellipse cx="15" cy="12" rx="11" ry="7.5" transform="rotate(-10 15 12)" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M19.5 18.6c1.6 3.2 4.6 4.6 7.6 9.4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="19.3" cy="18.4" r="2.2" fill="currentColor"/></symbol>
+</svg>
+
+<div class="nav-wrap">
+  <nav class="nav" aria-label="Lasso MCP">
+    <a class="brand" href="../" aria-label="Lasso home"><svg aria-hidden="true"><use href="#lassoMark"/></svg>Lasso <small>MCP</small></a>
+    <div class="nav-links">
+      <a href="#benchmarks">Benchmarks</a>
+      <a href="#examples">Examples</a>
+      <a href="#wins">Where it wins</a>
+      <a href="#connect">Connect</a>
+      <a href="#method">Method</a>
+    </div>
+    <a class="pill black" href="../">Lasso home</a>
+  </nav>
+</div>
+
+<header class="top">
+  <h1>Lasso MCP</h1>
+  <p class="sub">Give Claude, ChatGPT and other agents your local files through one tool. They ask in plain words; Lasso answers with <b>the exact lines, rows, passages and part placements</b>, each with its source, in a fraction of the tokens it takes to read the files.</p>
+  <div class="cta-row">
+    <a class="pill big green" href="#connect">Connect an agent</a>
+    <a class="pill big ghost" href="#benchmarks">See the benchmarks</a>
+  </div>
+</header>
+
+<main>
+  <section id="benchmarks" style="padding-bottom:12px">
+    <div class="wrap">
+      <span class="kicker">Benchmarks · measured live</span>
+      <h2>Fewer tokens, as many right answers</h2>
+      <p class="lead">A real model, <b>gpt-5.4-mini</b>, did each task three ways: with Lasso, with ordinary file tools (read, search, list), and with the files uploaded. Token counts are OpenAI's own usage records for every call of the task.</p>
+
+      <div class="tiles">
+        <div class="tile">
+          <div class="label">Excel workbook, 5,000 rows</div>
+          <div class="value">98%</div>
+          <div class="unit">fewer tokens than file tools</div>
+          <div class="vs" data-a="5974" data-b="369647"></div>
+          <div class="note"><b>4 of 4</b> right with Lasso, 2 of 4 with file tools</div>
+        </div>
+        <div class="tile">
+          <div class="label">PDF report, 40 pages</div>
+          <div class="value">84%</div>
+          <div class="unit">fewer tokens than file tools</div>
+          <div class="vs" data-a="10882" data-b="69085"></div>
+          <div class="note"><b>3 of 3</b> right, the same as with file tools</div>
+        </div>
+        <div class="tile">
+          <div class="label">3D assemblies (STEP)</div>
+          <div class="value">83%</div>
+          <div class="unit">fewer tokens than file tools</div>
+          <div class="vs" data-a="29229" data-b="167941"></div>
+          <div class="note"><b>7 of 7</b> right with Lasso, 6 of 7 with file tools</div>
+        </div>
+        <div class="tile">
+          <div class="label">Code and document lookups</div>
+          <div class="value">69%</div>
+          <div class="unit">fewer tokens than file tools</div>
+          <div class="vs" data-a="30.8" data-b="100" data-unit="%"></div>
+          <div class="note"><b>32 of 32</b> right with Lasso, 29 of 32 with file tools</div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h3>Tokens per task with Lasso, by kind of file</h3>
+          <p class="desc">Each bar is what the model spent with Lasso, as a share of what it spent on the same tasks with ordinary file tools. Shorter is better; past the line, Lasso cost more.</p>
+          <div class="chart-head" aria-hidden="true"><span>Kind of file</span><div class="ref-at"><span id="kindRef">Without Lasso</span></div></div>
+          <div class="bars" id="kindChart" role="list" aria-label="Lasso's tokens as a share of file tools' tokens, by kind of file"></div>
+          <div class="axis" id="kindAxis" aria-hidden="true"><span class="spacer"></span><div class="ticks"></div></div>
+          <div class="axis-title" aria-hidden="true"><span class="spacer"></span><span>Tokens with Lasso, as a % of tokens without it</span></div>
+          <p class="foot">gpt-5.4-mini, live, 30–31 October 2026; lookups over two runs in October. Hover a bar for tokens and right answers. The full numbers are in the table below.</p>
+        </div>
+
+        <div class="card" id="examples">
+          <h3>What the model was asked</h3>
+          <p class="desc">Four questions from the live runs, word for word. Open one to see what Lasso returned and what each way of reaching the files cost. None can be answered from one line of one file: each needs the structure around the part, the row or the sentence.</p>
+          <div class="examples">
+            <article class="ex" data-art="flange">
+              <canvas class="heat" aria-hidden="true"></canvas>
+              <div class="acc-cap" aria-hidden="true"><small>3D model · STEP assembly</small><b>Angle between two parts</b><span class="acc-v">Right with all three</span></div>
+              <button class="acc-open" type="button" aria-expanded="false">Open example: Angle between two parts</button>
+              <button class="acc-x" type="button" aria-label="Close example"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+              <div class="acc-body">
+                <p class="acc-eyebrow">3D model · STEP assembly<span>Right with all three</span></p>
+                <p class="q">“In Engineering/Flange assembly.step, what is the angle in degrees between the z axis of Sensor:1 and the z axis of Bolt:3?”</p>
+                <p class="why"><b>Why it needs the whole assembly.</b> Each part's axes are stored in its own coordinates. The sensor is tilted and the bolts are turned around a bolt circle, so the angle only exists once both placements are composed through the assembly.</p>
+                <div class="got">
+                  <div class="lbl">Answer · Lasso, in one call</div>
+                  <div class="ans">30°</div>
+                  <pre>"Bolt:3" from "Sensor:1": 48.2183 mm apart; … axes x 90°, y 90°, <em>z 30° apart</em> (assembly frame: "Sensor:1" at [90, 30, 20], "Bolt:3" at [50, 55, 10])</pre>
+                  <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
+                  <div class="bars" data-ex="0" role="list" aria-label="Tokens for this question"></div></div>
+                </div>
+              </div>
+            </article>
+            <article class="ex" data-art="pins">
+              <canvas class="heat" aria-hidden="true"></canvas>
+              <div class="acc-cap" aria-hidden="true"><small>3D model · STEP assembly</small><b>Distance between two pins</b><span class="acc-v">Right with all three</span></div>
+              <button class="acc-open" type="button" aria-expanded="false">Open example: Distance between two pins</button>
+              <button class="acc-x" type="button" aria-label="Close example"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+              <div class="acc-body">
+                <p class="acc-eyebrow">3D model · STEP assembly<span>Right with all three</span></p>
+                <p class="q">“In Engineering/fixture assembly.step, how far apart are the origins of Pin:1 and Pin:2, in mm?”</p>
+                <p class="why"><b>Why it needs the whole assembly.</b> Each pin's origin is 0, 0, 0 in its own part. Where the two pins sit, and so how far apart they are, is only defined by the assembly that places them.</p>
+                <div class="got">
+                  <div class="lbl">Answer · Lasso, in one call</div>
+                  <div class="ans">58.31 mm</div>
+                  <pre>"Pin:2" from "Pin:1": <em>58.3095 mm apart</em>; in "Pin:1"'s frame at [50, 30, 0], turned 90° about z (assembly frame: "Pin:1" at [20, 15, 10], "Pin:2" at [70, 45, 10])</pre>
+                  <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
+                  <div class="bars" data-ex="1" role="list" aria-label="Tokens for this question"></div></div>
+                </div>
+              </div>
+            </article>
+            <article class="ex" data-art="sheet">
+              <canvas class="heat" aria-hidden="true"></canvas>
+              <div class="acc-cap" aria-hidden="true"><small>Excel · 5,000 rows</small><b>Total for one region</b><span class="acc-v">Only Lasso answered</span></div>
+              <button class="acc-open" type="button" aria-expanded="false">Open example: Total for one region</button>
+              <button class="acc-x" type="button" aria-label="Close example"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+              <div class="acc-body">
+                <p class="acc-eyebrow">Excel · 5,000 rows<span>Only Lasso answered</span></p>
+                <p class="q">“What is the total Amount for the West region in Finance/Transactions 2025.xlsx?”</p>
+                <p class="why"><b>Why it needs the whole table.</b> 1,014 of the 5,000 rows are in the West. The total needs every one of them, picked out by another column. With file tools and with the file attached, the model said it could not work it out.</p>
+                <div class="got">
+                  <div class="lbl">Answer · Lasso, in one call</div>
+                  <div class="ans">4,867,231.76</div>
+                  <pre>Transactions "Amount" total where Region is "West": <em>4867231.76</em>, over 1014 of 5000 rows</pre>
+                  <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
+                  <div class="bars" data-ex="2" role="list" aria-label="Tokens for this question"></div></div>
+                </div>
+              </div>
+            </article>
+            <article class="ex" data-art="pdf">
+              <canvas class="heat" aria-hidden="true"></canvas>
+              <div class="acc-cap" aria-hidden="true"><small>PDF · 40 pages</small><b>Year-end warranty reserve</b><span class="acc-v">Right with all three</span></div>
+              <button class="acc-open" type="button" aria-expanded="false">Open example: Year-end warranty reserve</button>
+              <button class="acc-x" type="button" aria-label="Close example"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+              <div class="acc-body">
+                <p class="acc-eyebrow">PDF · 40 pages<span>Right with all three</span></p>
+                <p class="q">“According to Reports/Annual review 2025.pdf, what was the warranty reserve at the end of 2025?”</p>
+                <p class="why"><b>Why it needs the whole report.</b> The report gives the reserve twice, half a year apart, in the same words. Lasso returns both with their page and section, so the model can tell which one is year end.</p>
+                <div class="got">
+                  <div class="lbl">Answer · Lasso, in one call</div>
+                  <div class="ans">$4.2 million</div>
+                  <pre>p.9 §9. Products: "At the end of June, the warranty reserve stood at $3.6 million, …"
+p.23 §23. Products: "The warranty reserve <em>at year end was $4.2 million</em>, up from $3.1 million a year earlier, …"</pre>
+                  <div class="tok"><p class="tokens-lbl">Tokens for the task</p>
+                  <div class="bars" data-ex="3" role="list" aria-label="Tokens for this question"></div></div>
+                </div>
+              </div>
+            </article>
+          </div>
+          <p class="foot">gpt-5.4-mini, live, 30 October 2026. Lasso's answers are shown as the model received them, shortened where marked “…”.</p>
+        </div>
+
+        <div class="card half">
+          <h3>Mid-size reports, before and after the fix <span class="tag">31 Oct</span></h3>
+          <p class="desc">On 8–9-page reports, Lasso first did no better than file tools: the model often asked Lasso, then read the report anyway. The same 18 tasks, a day apart:</p>
+          <div class="ba">
+            <div class="item"><div class="what">Model read the report itself after asking Lasso<small>tasks of 18</small></div><div class="nums"><span class="was">10</span><span class="arrow">→</span><b>1</b></div></div>
+            <div class="item"><div class="what">Tokens for the 18 tasks<small>54% fewer; file tools used 90,547 the same day</small></div><div class="nums"><span class="was">147.8K</span><span class="arrow">→</span><b>68.5K</b></div></div>
+            <div class="item"><div class="what">Right answers<small>of 18; file tools got 8</small></div><div class="nums"><span class="was">7</span><span class="arrow">→</span><b>9</b></div></div>
+          </div>
+        </div>
+
+        <div class="card half">
+          <h3>A fresh set of 8–9-page reports <span class="tag">31 Oct</span></h3>
+          <p class="desc">Eighteen questions written after the fix by a separate author, run live for the first time. Tokens for all 18 tasks:</p>
+          <div class="chart-head" aria-hidden="true"><span>Way of reaching the files</span></div>
+          <div class="bars" id="freshChart" role="list" aria-label="Tokens on the fresh report set, by way of reaching the files"></div>
+          <div class="axis" id="freshAxis" aria-hidden="true"><span class="spacer"></span><div class="ticks"></div></div>
+          <div class="axis-title" aria-hidden="true"><span class="spacer"></span><span>Tokens for all 18 tasks</span></div>
+          <p class="foot">Uploading the reports was cheapest here and got the most right. On short and mid-size documents, attaching them is hard to beat; Lasso's lead grows with the size of the file.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="wins" style="padding-top:0">
+    <div class="wrap">
+      <div class="grid">
+        <div class="card">
+          <h3>When to use Lasso, and when to attach the file</h3>
+          <p class="desc">Lasso against uploading the files with the question.</p>
+          <div class="when">
+            <div class="item win"><b>Large files and 3D models</b>Uploads send the whole file on every call. Lasso used 99% fewer tokens on the 5,000-row workbook, 74% fewer on the 40-page PDF and 59% fewer on the STEP assemblies, and was never less accurate.</div>
+            <div class="item lose"><b>A page or two, a small sheet</b>Attaching costs less than one tool call: two 1–2-page PDF tasks took 755 tokens uploaded against 6,875 with Lasso. On small sheets Lasso still got more right (7 of 7 against 4 of 7).</div>
+            <div class="item lose"><b>Mid-size reports</b>On the fresh 8–9-page set, uploading got 14 of 18 right in 60.5K tokens; Lasso 12 of 18 in 69.4K.</div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Every live result, by kind of file</h3>
+          <p class="desc">Right answers and total tokens for each way of reaching the files. Savings are Lasso's, over the tasks both ran.</p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Kind of file</th><th class="num">Tasks</th><th class="num">Lasso</th><th class="num">File tools</th><th class="num">Upload</th><th class="num">Lasso vs file tools</th><th class="num">Lasso vs upload</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>3D model<small>STEP parts and assemblies</small></td><td class="num">7</td><td class="num">7/7<small>29,229</small></td><td class="num">6/7<small>167,941</small></td><td class="num">7/7<small>71,166</small></td><td class="num"><span class="gain">−82.6%</span></td><td class="num"><span class="gain">−58.9%</span></td></tr>
+                <tr><td>3D model<small>IFC building, 4 MB; both arms wrong</small></td><td class="num">1</td><td class="num">0/1<small>3,040</small></td><td class="num">0/1<small>70,261</small></td><td class="num">too large<small>to attach</small></td><td class="num">−95.7%</td><td class="num">–</td></tr>
+                <tr><td>Excel<small>5,000 rows</small></td><td class="num">4</td><td class="num">4/4<small>5,974</small></td><td class="num">2/4<small>369,647</small></td><td class="num">2/4<small>566,456</small></td><td class="num"><span class="gain">−98.4%</span></td><td class="num"><span class="gain">−98.9%</span></td></tr>
+                <tr><td>Excel<small>6–12 rows</small></td><td class="num">7</td><td class="num">7/7<small>41,632</small></td><td class="num">4/7<small>43,554</small></td><td class="num">4/7<small>4,141</small></td><td class="num"><span class="gain">−4.4%</span></td><td class="num"><span class="loss">+905%</span></td></tr>
+                <tr><td>PDF<small>40 pages</small></td><td class="num">3</td><td class="num">3/3<small>10,882</small></td><td class="num">3/3<small>69,085</small></td><td class="num">3/3<small>41,354</small></td><td class="num"><span class="gain">−84.2%</span></td><td class="num"><span class="gain">−73.7%</span></td></tr>
+                <tr><td>PDF<small>8–9 pages, after the fix (31 Oct)</small></td><td class="num">36</td><td class="num">21/36<small>137,921</small></td><td class="num">17/36<small>185,796</small></td><td class="num">14/18<small>60,520 · fresh set only</small></td><td class="num"><span class="gain">−25.8%</span></td><td class="num"><span class="loss">+14.6%</span><small>fresh set</small></td></tr>
+                <tr><td>PDF<small>8–9 pages, before the fix (30 Oct)</small></td><td class="num">19</td><td class="num">10/19<small>121,491</small></td><td class="num">9/19<small>114,841</small></td><td class="num">13/19<small>74,065</small></td><td class="num"><span class="loss">+5.8%</span></td><td class="num"><span class="loss">+64.0%</span></td></tr>
+                <tr><td>PDF<small>1–2 pages</small></td><td class="num">2</td><td class="num">1/2<small>6,875</small></td><td class="num">1/2<small>6,049</small></td><td class="num">2/2<small>755</small></td><td class="num"><span class="loss">+13.7%</span></td><td class="num"><span class="loss">+811%</span></td></tr>
+                <tr><td>Code and document lookups<small>two runs, October</small></td><td class="num">32</td><td class="num">32/32</td><td class="num">29/32</td><td class="num">–</td><td class="num"><span class="gain">−69.2%</span></td><td class="num">–</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="connect" style="background:var(--sand)">
+    <div class="wrap">
+      <span class="kicker">Connect an agent</span>
+      <h2>One tool, on your machine</h2>
+      <p class="lead">Lasso's MCP server reads the library the Lasso app keeps. Add your folders in Lasso first, then point your agent at it and name the folders it may read.</p>
+      <div class="steps">
+        <div>
+          <p class="desc" style="margin:0 0 10px;color:var(--ink-2);font-weight:500">Claude Desktop and other MCP hosts</p>
+<pre class="code" id="cfg"><button class="copy" type="button" data-copy="cfg">Copy</button>{
+  <span class="k">"mcpServers"</span>: {
+    <span class="k">"lasso"</span>: {
+      <span class="k">"command"</span>: <span class="s">"/Applications/Lasso.app/Contents/MacOS/node"</span>,
+      <span class="k">"args"</span>: [
+        <span class="s">"/Applications/Lasso.app/Contents/Resources/app/src/agent/cli.js"</span>,
+        <span class="s">"mcp"</span>, <span class="s">"--scope"</span>, <span class="s">"Finance"</span>
+      ]
+    }
+  }
+}</pre>
+        </div>
+        <div>
+          <p class="desc" style="margin:0 0 10px;color:var(--ink-2);font-weight:500">Claude Code</p>
+<pre class="code" id="cc"><button class="copy" type="button" data-copy="cc">Copy</button>claude mcp add lasso -- \
+  /Applications/Lasso.app/Contents/MacOS/node \
+  /Applications/Lasso.app/Contents/Resources/app/src/agent/cli.js \
+  mcp --scope Finance</pre>
+          <ul class="notes">
+            <li><svg aria-hidden="true"><use href="#tick"/></svg><span>An agent sees only the folders you name with <code>--scope</code>: a folder's name as Lasso shows it, its path, or <code>"*"</code> for every enabled folder.</span></li>
+            <li><svg aria-hidden="true"><use href="#tick"/></svg><span>Credential files and anything you've excluded from Lasso's suggestions stay out.</span></li>
+            <li><svg aria-hidden="true"><use href="#tick"/></svg><span>It runs locally over stdio: no port, no account, no API key. The agent gets only the evidence it asks for.</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="method">
+    <div class="wrap">
+      <span class="kicker">Method</span>
+      <h2>How these were measured</h2>
+      <div class="method">
+        <p><b>Live runs.</b> OpenAI's gpt-5.4-mini at low reasoning effort, through the Responses API, choosing its own steps. In each task it had either ordinary file tools (read, search and list, with PDF, Word and Excel files converted to text), those tools plus Lasso's one tool, or no tools and the files attached to the question. Tokens are the provider's usage records: every input and output token of every call in the task.</p>
+        <p><b>Tasks.</b> Generated libraries whose answers are known: code and documents for lookups, 3D models, workbooks and reports for the rest. Answers are graded against the facts the files were written with, including whether conflicting sources and caveats were reported.</p>
+        <p><b>Runs.</b> Lookups: two runs per arm, October 2026. Kinds of file: one run on 30 October ($1.01). Mid-size reports: one run on 31 October ($0.47). The same task can vary a lot between runs, so small single-task differences are noise; the differences on large files and 3D models are not. The lookups were measured with an earlier version of the tool; the changes since kept every lookup answer right offline.</p>
+        <p>The benchmark code, every task and the full reports are in the repository: <a href="https://github.com/jte700/Lasso/blob/main/docs/agent/README.md">docs/agent/README.md</a>.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="../"><svg aria-hidden="true"><use href="#lassoMark"/></svg>Lasso</a>
+    <span>Lasso MCP · local-first retrieval for AI agents · <a href="https://github.com/jte700/Lasso">GitHub</a></span>
+  </div>
+</footer>
+
+<div class="tip" id="tip" role="tooltip" hidden></div>
+
+<script>
+  // One measure per chart, one row per category: labels carry identity, the bar its value, the tooltip the detail.
+  const KINDS = [
+    { name: 'Excel workbook', sub: '5,000 rows · 4 tasks', lasso: 5974, direct: 369647, right: '4/4', rightDirect: '2/4', when: '30 Oct' },
+    { name: 'PDF report', sub: '40 pages · 3 tasks', lasso: 10882, direct: 69085, right: '3/3', rightDirect: '3/3', when: '30 Oct' },
+    { name: '3D assemblies', sub: 'STEP · 7 tasks', lasso: 29229, direct: 167941, right: '7/7', rightDirect: '6/7', when: '30 Oct' },
+    { name: 'Code and document lookups', sub: '32 tasks · two runs', share: 30.8, right: '32/32', rightDirect: '29/32', when: 'October' },
+    { name: 'PDF reports, 8–9 pages', sub: 'after the fix · 36 tasks', lasso: 137921, direct: 185796, right: '21/36', rightDirect: '17/36', when: '31 Oct' },
+    { name: 'Excel sheets', sub: '6–12 rows · 7 tasks', lasso: 41632, direct: 43554, right: '7/7', rightDirect: '4/7', when: '30 Oct' },
+    { name: 'PDF documents', sub: '1–2 pages · 2 tasks', lasso: 6875, direct: 6049, right: '1/2', rightDirect: '1/2', when: '30 Oct' },
+  ];
+  const FRESH = [
+    { name: 'Lasso', sub: '12 of 18 right', tokens: 69386, lead: true },
+    { name: 'File tools', sub: '9 of 18 right', tokens: 95249 },
+    { name: 'Upload', sub: '14 of 18 right', tokens: 60520 },
+  ];
+  const EXAMPLES = [
+    [{ name: 'Lasso', sub: '1 call · right', tokens: 1575, lead: true }, { name: 'File tools', sub: '5 searches, 3 reads · right', tokens: 49169 }, { name: 'Upload', sub: 'file attached · right', tokens: 11354 }],
+    [{ name: 'Lasso', sub: '1 call · right', tokens: 1493, lead: true }, { name: 'File tools', sub: '3 tool calls · right', tokens: 3045 }, { name: 'Upload', sub: 'file attached · right', tokens: 8936 }],
+    [{ name: 'Lasso', sub: '1 call · right', tokens: 1495, lead: true }, { name: 'File tools', sub: '5 tool calls · no answer', tokens: 133507 }, { name: 'Upload', sub: 'file attached · no answer', tokens: 141658 }],
+    [{ name: 'Lasso', sub: '1 call · right', tokens: 1605, lead: true }, { name: 'File tools', sub: '1 read · right', tokens: 17374 }, { name: 'Upload', sub: 'file attached · right', tokens: 13775 }],
+  ];
+  const fmt = (n) => n.toLocaleString('en-US');
+  const compact = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n));
+  const signed = (p) => `${p > 0 ? '+' : '−'}${Math.abs(p).toFixed(0)}%`;
+
+  // Odometer: each digit becomes a wheel that spins through 0–9 once and stops on its value; the rest of the text stays put.
+  const WHEEL = '0123456789'.repeat(2).split('').map((d) => `<span>${d}</span>`).join('');
+  function odometer(el) {
+    const text = el.textContent;
+    let k = 0;
+    el.classList.add('od');
+    el.innerHTML = `<span class="sr">${text}</span>` + [...text].map((ch) => (/\d/.test(ch)
+      ? `<span class="od-w" aria-hidden="true"><span class="od-c" data-d="${ch}" style="--k:${k++}">${WHEEL}</span></span>`
+      : `<span aria-hidden="true">${ch}</span>`)).join('');
+  }
+  // a number spins with the chart, tile or list it belongs to, not with the card around them
+  function spin(root) {
+    for (const c of root.querySelectorAll('.od-c')) if (c.closest('.bars, .ba, .tile, .ans') === root) c.style.transform = `translateY(${-(10 + Number(c.dataset.d)) * 5}%)`;
+  }
+
+  function axis(el, ticks, domain, refAt) {
+    const box = el.querySelector('.ticks');
+    box.innerHTML = ticks.map((t, i) => `<span class="${i === 0 ? 'first' : ''}${t.value === refAt ? ' ref-l' : ''}" style="left:${(t.value / domain) * 100}%">${t.label}</span>`).join('');
+  }
+
+  function rows(el, items, { domain, value, label, tip, grid = [], ref = null, stacked = false }) {
+    el.innerHTML = items.map((item, i) => {
+      const v = value(item);
+      const lines = grid.map((g) => `<i class="gl" style="left:${(g / domain) * 100}%"></i>`).join('')
+        + (ref != null ? `<i class="ref" style="left:${(ref / domain) * 100}%"></i>` : '');
+      const val = `<span class="val">${label(item)}</span>`;
+      return `<div class="row" role="listitem" tabindex="0" data-i="${i}" style="--i:${i}" aria-label="${item.name}, ${item.sub}: ${label(item)}">
+        <div class="name${item.lead ? ' lead-row' : ''}">${item.name}<small>${item.sub}</small>${stacked ? val : ''}</div>
+        <div class="plot">${lines}<i class="bar" style="width:${Math.min(v, domain) / domain * 100}%"></i>${stacked ? '' : val}</div>
+      </div>`;
+    }).join('');
+    el._tip = (i) => tip(items[i]);
+    for (const val of el.querySelectorAll('.val')) odometer(val);
+    place(el);
+  }
+
+  // A value sits just past its bar's end, or inside the bar's end when there is no room past it.
+  function place(el) {
+    for (const plot of el.querySelectorAll('.plot')) {
+      const bar = plot.querySelector('.bar');
+      const val = plot.querySelector('.val');
+      if (!val) continue;
+      const width = plot.clientWidth;
+      const end = bar.offsetWidth;
+      const room = val.offsetWidth + 8;
+      if (end + room <= width) { val.classList.remove('inside'); val.style.left = `${end + 8}px`; val.style.right = ''; }
+      else { val.classList.add('inside'); val.style.left = `${Math.max(4, end - room)}px`; }
+    }
+  }
+
+  const kindChart = document.getElementById('kindChart');
+  const share = (k) => (k.share != null ? k.share : (k.lasso / k.direct) * 100);
+  rows(kindChart, KINDS, {
+    domain: 130, value: share, ref: 100,
+    label: (k) => signed(share(k) - 100),
+    tip: (k) => `<b>${k.name}</b> · ${k.sub}<br>`
+      + (k.lasso ? `Lasso: ${fmt(k.lasso)} tokens, ${k.right} right<br>File tools: ${fmt(k.direct)} tokens, ${k.rightDirect} right`
+        : `Lasso: ${k.right} right · File tools: ${k.rightDirect} right<br>Tokens: ${share(k).toFixed(1)}% of file tools'`)
+      + `<br><span class="muted">gpt-5.4-mini · ${k.when}</span>`,
+  });
+  axis(document.getElementById('kindAxis'), [0, 25, 50, 75, 100].map((v) => ({ value: v, label: `${v}%` })), 130, 100);
+  document.getElementById('kindRef').style.left = `${(100 / 130) * 100}%`; // over the reference line, on the same scale
+
+  const freshChart = document.getElementById('freshChart');
+  rows(freshChart, FRESH, {
+    domain: 100000, value: (f) => f.tokens,
+    label: (f) => compact(f.tokens),
+    tip: (f) => `<b>${f.name}</b> · ${f.sub}<br>${fmt(f.tokens)} tokens for 18 tasks<br><span class="muted">gpt-5.4-mini · 31 Oct</span>`,
+  });
+  axis(document.getElementById('freshAxis'), [0, 25000, 50000, 75000, 100000].map((v) => ({ value: v, label: v ? `${v / 1000}K` : '0' })), 100000, null);
+
+  const exampleCharts = [...document.querySelectorAll('.ex .bars')];
+  for (const chart of exampleCharts) {
+    const items = EXAMPLES[Number(chart.dataset.ex)];
+    const most = Math.max(...items.map((item) => item.tokens));
+    rows(chart, items, {
+      domain: most, value: (item) => item.tokens, stacked: true,
+      label: (item) => fmt(item.tokens),
+      tip: (item) => `<b>${item.name}</b> · ${item.sub}<br>${fmt(item.tokens)} tokens for the task<br><span class="muted">gpt-5.4-mini · 30 Oct</span>`,
+    });
+  }
+
+  addEventListener('resize', () => { for (const chart of [kindChart, freshChart, ...exampleCharts]) place(chart); });
+
+  // Tooltip: the whole row is the target, by pointer or keyboard. It sits beside the row's value and glides between rows.
+  const tipEl = document.getElementById('tip');
+  let tipRow = null;
+  function show(row) {
+    if (row === tipRow) return;
+    const chart = row.closest('.bars');
+    const fresh = !tipEl.classList.contains('on');
+    tipEl.hidden = false;
+    tipEl.innerHTML = chart._tip(Number(row.dataset.i));
+    const t = tipEl.getBoundingClientRect(), v = row.querySelector('.val').getBoundingClientRect(), r = row.getBoundingClientRect();
+    const left = v.right + 14 + t.width <= innerWidth - 12 ? v.right + 14 : Math.max(12, v.left - t.width - 14);
+    const top = Math.min(innerHeight - t.height - 8, Math.max(8, r.top + r.height / 2 - t.height / 2));
+    tipEl.classList.toggle('jump', fresh);
+    tipEl.style.translate = `${left}px ${top}px`;
+    tipEl.classList.add('on');
+    tipRow = row;
+  }
+  function hide() { tipEl.classList.remove('on'); tipRow = null; }
+  for (const chart of [kindChart, freshChart, ...exampleCharts]) {
+    chart.addEventListener('mousemove', (e) => { const row = e.target.closest('.row'); if (row) show(row); else hide(); });
+    chart.addEventListener('mouseleave', hide);
+    chart.addEventListener('focusin', (e) => { const row = e.target.closest('.row'); if (row) show(row); });
+    chart.addEventListener('focusout', hide);
+  }
+  addEventListener('scroll', hide, { passive: true });
+
+  // Tiles: the headline number rolls in, and two rows of ticks compare Lasso's tokens with file tools'.
+  for (const tile of document.querySelectorAll('.tile')) {
+    odometer(tile.querySelector('.value'));
+    const vs = tile.querySelector('.vs'), a = Number(vs.dataset.a), b = Number(vs.dataset.b), pct = vs.dataset.unit === '%';
+    const show = (n) => (pct ? `${n}%` : compact(n));
+    vs.setAttribute('aria-label', `Lasso ${show(a)}, file tools ${show(b)}`);
+    vs.innerHTML = `<div class="vs-r lasso" aria-hidden="true"><span>Lasso</span><div class="vs-t"><i style="--w:${(a / b) * 100}%"></i></div><b>${show(a)}</b></div>`
+      + `<div class="vs-r" aria-hidden="true"><span>File tools</span><div class="vs-t"><i style="--w:100%;--d:150"></i></div><b>${show(b)}</b></div>`;
+  }
+  for (const b of document.querySelectorAll('.ba .nums b, .ex .ans')) odometer(b);
+
+  // Reveal: cards and tiles blur in one after another; charts, meters and numbers start when they are on screen.
+  document.querySelectorAll('#benchmarks .tile, #benchmarks .card, #wins .card').forEach((el, i) => {
+    el.classList.add('rv');
+    if (el.classList.contains('tile')) el.style.setProperty('--i', i);
+  });
+  const seen = new IntersectionObserver((entries) => {
+    for (const en of entries) {
+      if (!en.isIntersecting) continue;
+      en.target.classList.add('in');
+      spin(en.target);
+      seen.unobserve(en.target);
+    }
+  }, { rootMargin: '0px 0px -12% 0px' });
+  document.querySelectorAll('.rv, .bars, .ba, .ans').forEach((el) => seen.observe(el));
+
+  // Worked examples: an image accordion. Hover widens a panel and its neighbours give way;
+  // a click opens it across the row, and × or Esc closes it.
+  const acc = document.querySelector('.examples');
+  const panels = [...acc.querySelectorAll('.ex')];
+  const narrow = matchMedia('(max-width: 760px)');
+  let openPanel = null;
+  function lean(h) {
+    if (openPanel || narrow.matches) return;
+    panels.forEach((p, j) => { p.style.flexGrow = h < 0 ? '' : j === h ? 2.6 : Math.abs(j - h) === 1 ? 1.25 : 1; });
+  }
+  panels.forEach((p, i) => p.addEventListener('pointerenter', () => lean(i)));
+  acc.addEventListener('pointerleave', () => lean(-1));
+  function open(p) {
+    if (openPanel) close(false);
+    openPanel = p;
+    panels.forEach((q) => { q.style.flexGrow = ''; q.toggleAttribute('inert', q !== p && !narrow.matches); });
+    acc.classList.add('open'); p.classList.add('on');
+    p.querySelector('.acc-open').setAttribute('aria-expanded', 'true');
+    const reveal = () => {
+      if (openPanel !== p) return;
+      p.classList.add('shown');
+      p.querySelector('.acc-x').focus({ preventScroll: true });
+    };
+    // let the panel finish widening before the text lays out, so it doesn't reflow as it grows
+    if (narrow.matches || REDUCED) reveal(); else setTimeout(reveal, 520);
+  }
+  function close(refocus = true) {
+    const p = openPanel; if (!p) return;
+    openPanel = null;
+    p.classList.remove('on', 'shown');
+    panels.forEach((q) => q.removeAttribute('inert'));
+    acc.classList.remove('open'); acc.style.height = '';
+    const b = p.querySelector('.acc-open'); b.setAttribute('aria-expanded', 'false');
+    if (refocus) b.focus({ preventScroll: true });
+  }
+  for (const p of panels) {
+    p.querySelector('.acc-open').addEventListener('click', () => open(p));
+    p.querySelector('.acc-x').addEventListener('click', () => close());
+  }
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && openPanel) close(); });
+  // the row follows the open example's height as it settles, and when the window changes size
+  const fit = new ResizeObserver(() => { if (openPanel && !narrow.matches) acc.style.height = `${Math.max(420, openPanel.querySelector('.acc-body').offsetHeight)}px`; });
+  panels.forEach((p) => fit.observe(p.querySelector('.acc-body')));
+
+  // Heat map pictures (after bencho.dev): a real preview of each test's file, in flat greys; under the pointer
+  // the picture takes on a thermal tint, hot where the pointer is, and cools back to grey when it leaves.
+  // The previews are renders of the benchmark's own files: the two STEP assemblies from their authored
+  // coordinates, the first rows of Transactions 2025.xlsx and the year-end paragraph on page 23 of Annual review 2025.pdf.
+  const PICS = { flange: { fit: 'contain' }, pins: { fit: 'contain' }, sheet: { fit: 'contain' }, pdf: { fit: 'contain' } };
+  const DW = 360, DH = 480, RES = .25; // design size of every preview, and the heat grid's resolution in it
+  const RAMP = [[.14, [70, 120, 255]], [.36, [115, 200, 255]], [.62, [255, 214, 100]], [.85, [255, 150, 60]], [1, [255, 236, 150]]];
+  function heatColor(h) {
+    let prev = [0, RAMP[0][1]];
+    for (const stop of RAMP) {
+      if (h <= stop[0]) { const u = (h - prev[0]) / (stop[0] - prev[0] || 1); return prev[1].map((v, k) => v + (stop[1][k] - v) * u); }
+      prev = stop;
+    }
+    return RAMP[RAMP.length - 1][1];
+  }
+  const DARK = matchMedia('(prefers-color-scheme: dark)');
+  const heats = panels.map((p) => {
+    const cv = p.querySelector('.heat'), ctx = cv.getContext('2d'), pic = PICS[p.dataset.art];
+    const gw = DW * RES, gh = DH * RES;
+    const H = { img: new Image(), heat: new Float32Array(gw * gh), buf: document.createElement('canvas'), tint: document.createElement('canvas'), ptr: null, w: 0, h: 0, box: null, hot: false };
+    H.buf.width = gw; H.buf.height = gh;
+    const bctx = H.buf.getContext('2d'), data = bctx.createImageData(gw, gh), tctx = H.tint.getContext('2d');
+    H.img.onload = layout;
+    H.img.src = `img/${p.dataset.art}.png`;
+    // where the preview sits in the panel: whole, above the caption.
+    // Heat lives in the picture's own grid, so the picture can grow and shrink with its panel without losing it.
+    function layout() {
+      const r = cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+      if (!r.width || !r.height) return;
+      H.w = r.width; H.h = r.height; cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const open = p.classList.contains('on'), room = open || narrow.matches ? H.h : H.h - 70;
+      if (pic.fit === 'cover') { const k = Math.max(H.w / DW, H.h / DH); H.box = [0, 0, DW * k, DH * k]; }
+      else { const k = Math.min(H.w * .96 / DW, room / DH); H.box = [(H.w - DW * k) / 2, (room - DH * k) / 2, DW * k, DH * k]; }
+      draw();
+    }
+    function draw() {
+      if (!H.box || !H.img.complete) return;
+      const [x, y, w, h] = H.box;
+      ctx.clearRect(0, 0, H.w, H.h);
+      ctx.globalAlpha = DARK.matches ? .8 : 1; ctx.drawImage(H.img, x, y, w, h); ctx.globalAlpha = 1;
+      if (!H.warm) return;
+      const d = data.data;
+      for (let i = 0; i < gw * gh; i++) {
+        const t = H.heat[i], o = i * 4;
+        if (t < .01) { d[o + 3] = 0; continue; }
+        const c = heatColor(t); d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255 * Math.min(1, t * 1.6);
+      }
+      bctx.putImageData(data, 0, 0);
+      // the heat is cut to the picture's own shape by compositing, which never reads its pixels (so it also works from file://)
+      const tw = Math.ceil(w), th = Math.ceil(h);
+      if (H.tint.width !== tw || H.tint.height !== th) { H.tint.width = tw; H.tint.height = th; }
+      tctx.globalCompositeOperation = 'copy'; tctx.imageSmoothingQuality = 'high'; tctx.drawImage(H.buf, 0, 0, tw, th);
+      tctx.globalCompositeOperation = 'destination-in'; tctx.drawImage(H.img, 0, 0, tw, th);
+      // the tint takes the picture's hue and keeps its light and shade, so the detail stays sharp under the heat
+      ctx.globalCompositeOperation = 'color'; ctx.drawImage(H.tint, x, y, w, h);
+      ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = .55; ctx.drawImage(H.tint, x, y, w, h);
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    }
+    // one step of heating and cooling in the picture's own grid, so a resize never resets it
+    function step() {
+      if (!H.box || !H.img.complete) return false;
+      const [x, y, w, h] = H.box, R = gw * .22, k = 1 / (2 * R * R);
+      let px = -1e9, py = -1e9;
+      if (H.ptr) { const r = cv.getBoundingClientRect(); px = (H.ptr[0] - r.left - x) / w * gw; py = (H.ptr[1] - r.top - y) / h * gh; }
+      let warm = false;
+      for (let gy = 0, i = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++, i++) {
+        const dx = gx - px, dy = gy - py, target = H.ptr ? Math.exp(-(dx * dx + dy * dy) * k) : 0;
+        H.heat[i] += (target - H.heat[i]) * (target > H.heat[i] ? .16 : .045);
+        if (H.heat[i] > .01) warm = true;
+      }
+      H.warm = warm; draw();
+      return warm || !!H.ptr;
+    }
+    new ResizeObserver(layout).observe(cv);
+    p.addEventListener('pointermove', (e) => { H.ptr = [e.clientX, e.clientY]; H.hot = true; wake(); });
+    p.addEventListener('pointerleave', () => { H.ptr = null; });
+    H.step = () => (H.hot = step());
+    H.draw = draw;
+    return H;
+  });
+  // only pictures that are warm or under the pointer are redrawn each frame; the rest stay as they are
+  let ticking = false;
+  function wake() {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(function frame() {
+      let any = false;
+      // one picture failing must not stop the others, or the loop, for good
+      for (const H of heats) if (H.hot) { try { any = H.step() || any; } catch (err) { H.hot = false; console.error(err); } }
+      if (any) requestAnimationFrame(frame); else ticking = false;
+    });
+  }
+  DARK.addEventListener('change', () => heats.forEach((H) => H.draw()));
+  const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  for (const button of document.querySelectorAll('.copy')) {
+    button.addEventListener('click', async () => {
+      const text = document.getElementById(button.dataset.copy).innerText.replace(/^Copy\s*/, '').replace(/^Copied\s*/, '');
+      try { await navigator.clipboard.writeText(text); button.textContent = 'Copied'; } catch { button.textContent = 'Select and copy'; }
+      setTimeout(() => { button.textContent = 'Copy'; }, 1600);
+    });
+  }
+</script>
+</body>
+</html>

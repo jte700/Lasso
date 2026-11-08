@@ -910,3 +910,31 @@ test('income statement suggestions retain alternatives, physical cells and linke
     assert.ok(!app.dependencies.predict(project.id, { text, cursor: text.length, blockIndex: 0 }).claims[0].candidates.some(c => c.id === 'legacy-revenue'));
   } finally { app.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('a PDF read for its structure reports headings and table rows with their caption and header, and the same passages', async () => {
+  // Arrange
+  const { pdfFile, docxFile } = await import('../scripts/agent-eval/build.mjs');
+  const { extractPdfPassages, extractDocxHeadings } = await import('../src/dependencies/document-extraction.js');
+  const pdf = pdfFile('Field report', [[
+    { heading: '2 Results' },
+    { paragraph: 'Nitrate levels fell at every site after the buffer strips were planted.' },
+    { table: { caption: 'Table 3. Nitrate by site (mg/L)', header: ['Site', '2023', '2024'], rows: [['Upper weir', '11.2', '7.9'], ['Lower weir', '9.8', '8.1']] } },
+    { heading: '3 Limitations' },
+    { paragraph: 'Only two seasons were sampled, so year-to-year rainfall may explain part of the fall.' },
+  ]]);
+  const memo = docxFile('Memo', [{ heading: 'Summary' }, { paragraph: 'Buffer strips cut nitrate at both weirs.' }, { heading: 'Next steps' }, { paragraph: 'Extend sampling to a third season.' }]);
+
+  // Act
+  const plain = extractPdfPassages(pdf);
+  const structured = extractPdfPassages(pdf, { structure: true });
+  const extra = structured.filter((entry) => !['sentence', 'paragraph'].includes(entry.excerptType));
+
+  // Assert
+  assert.deepEqual(structured.filter((entry) => ['sentence', 'paragraph'].includes(entry.excerptType)), plain);
+  assert.deepEqual(extra.map((entry) => [entry.excerptType, entry.selectedText]), [
+    ['caption', 'Table 3. Nitrate by site (mg/L)'], ['table-header', 'Site 2023 2024'],
+    ['table-row', 'Upper weir 11.2 7.9'], ['table-row', 'Lower weir 9.8 8.1'],
+    ['heading', '2 Results'], ['heading', '3 Limitations']]);
+  assert.equal(extra.find((entry) => entry.selectedText === 'Upper weir 11.2 7.9').header, 'Site 2023 2024');
+  assert.deepEqual(extractDocxHeadings(memo), [{ line: 1, text: 'Summary' }, { line: 5, text: 'Next steps' }]);
+});

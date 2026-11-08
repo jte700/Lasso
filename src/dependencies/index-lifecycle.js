@@ -294,10 +294,10 @@ export const indexLifecycleMethods = {
   indexableFiles(snapshot, indexed) {
     // An upgrade pass reads only what its index lacks: PDF and drawing passages
     // (2), Markdown and text passages (3), STEP models (4), video transcripts
-    // (5) and worksheet rows.
+    // (5), Word passages (6) and worksheet rows.
     const version = indexed.drawing_index_version ?? 0;
     const upgrades = (file, design, prose) => (version < 2 && (file.fileType === 'pdf' || design))
-      || (version < 3 && prose) || (version < 4 && STEP_FILE.test(file.path)) || (version < 5 && file.fileType === 'video')
+      || (version < 3 && prose) || (version < 4 && STEP_FILE.test(file.path)) || (version < 5 && file.fileType === 'video') || (version < 6 && file.fileType === 'document')
       || (!(indexed.spreadsheet_index_version >= 2) && file.fileType === 'spreadsheet');
     return [...snapshot.files].sort((left, right) => dependencyFilePriority(right) - dependencyFilePriority(left)
       || left.path.localeCompare(right.path)).filter((file) => {

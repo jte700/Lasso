@@ -4,7 +4,7 @@
 import path from 'node:path';
 import { diffInternals } from '../history/diff.js';
 import {
-  extractDocxDocument, extractPdfDocument, extractPdfPassages, extractTaggedReferences,
+  extractDocxDocument, extractDocxFullText, extractPdfDocument, extractPdfPassages, extractTaggedReferences,
 } from './document-extraction.js';
 import { markdownPassages } from '../sharing/markdown.js';
 import { firstAuthorFamily } from './authors.js';
@@ -293,6 +293,8 @@ export function objectsFromFile(file, buffer, report = () => {}) {
     }));
     objects.push(...documentComponentDescriptors(file, extracted.textExcerpt, parentMetadata, base));
     if (file.fileType === 'pdf') objects.push(...pdfPassageDescriptors(file, buffer, parentMetadata));
+    // A Word document's sentences and paragraphs, cited by the lines previews show (a paragraph per line).
+    else objects.push(...textPassageDescriptors(file, extractDocxFullText(buffer), parentMetadata));
   } else if (file.fileType === 'presentation') {
     objects.push(...presentationDescriptors(file, buffer, fileName, report));
   } else if (file.fileType === 'markdown' || (file.fileType === 'text' && path.extname(file.path).toLowerCase() === '.txt')) {

@@ -1,0 +1,178 @@
+{
+  "model": "gpt-5.4-mini",
+  "measuredAt": "2026-10-30T18:17:32.972Z",
+  "definitions": {
+    "direct": 276,
+    "lassoV1": 364,
+    "lassoV2": 451,
+    "lassoV3": 387,
+    "lassoV4": 149,
+    "lassoCurrent": 173
+  },
+  "answers": [
+    {
+      "kind": "answer",
+      "name": "suggest: record with fields",
+      "json": 438,
+      "text": 311,
+      "estimatedJson": 557,
+      "estimatedText": 320
+    },
+    {
+      "kind": "answer",
+      "name": "suggest: record with fields (limit 5)",
+      "json": 438,
+      "text": 311,
+      "estimatedJson": 557,
+      "estimatedText": 320
+    },
+    {
+      "kind": "answer",
+      "name": "suggest: six facts batched",
+      "json": 2270,
+      "text": 1631,
+      "estimatedJson": 2803,
+      "estimatedText": 1604
+    },
+    {
+      "kind": "answer",
+      "name": "suggest: six facts batched (limit 5)",
+      "json": 2270,
+      "text": 1631,
+      "estimatedJson": 2803,
+      "estimatedText": 1604
+    },
+    {
+      "kind": "answer",
+      "name": "suggest: code name",
+      "json": 101,
+      "text": 64,
+      "estimatedJson": 126,
+      "estimatedText": 60
+    },
+    {
+      "kind": "answer",
+      "name": "suggest: code name (limit 5)",
+      "json": 101,
+      "text": 64,
+      "estimatedJson": 126,
+      "estimatedText": 60
+    },
+    {
+      "kind": "answer",
+      "name": "suggest: passage",
+      "json": 428,
+      "text": 325,
+      "estimatedJson": 508,
+      "estimatedText": 314
+    },
+    {
+      "kind": "answer",
+      "name": "suggest: passage (limit 5)",
+      "json": 428,
+      "text": 325,
+      "estimatedJson": 508,
+      "estimatedText": 314
+    },
+    {
+      "kind": "answer",
+      "name": "suggest: file name",
+      "json": 172,
+      "text": 109,
+      "estimatedJson": 220,
+      "estimatedText": 107
+    },
+    {
+      "kind": "answer",
+      "name": "suggest: file name (limit 5)",
+      "json": 172,
+      "text": 109,
+      "estimatedJson": 220,
+      "estimatedText": 107
+    },
+    {
+      "kind": "answer",
+      "name": "inspect: line range",
+      "json": 182,
+      "text": 157,
+      "estimatedJson": 184,
+      "estimatedText": 141
+    },
+    {
+      "kind": "answer",
+      "name": "inspect: symbol",
+      "json": 283,
+      "text": 241,
+      "estimatedJson": 329,
+      "estimatedText": 285
+    },
+    {
+      "kind": "answer",
+      "name": "inspect: outline",
+      "json": 231,
+      "text": 244,
+      "estimatedJson": 283,
+      "estimatedText": 219
+    },
+    {
+      "kind": "answer",
+      "name": "inspect: ambiguous name",
+      "json": 94,
+      "text": 63,
+      "estimatedJson": 126,
+      "estimatedText": 69
+    },
+    {
+      "kind": "answer",
+      "name": "ask: six facts in one call",
+      "json": 935,
+      "text": 594,
+      "estimatedJson": 1183,
+      "estimatedText": 587
+    },
+    {
+      "kind": "answer",
+      "name": "ask: record",
+      "json": 175,
+      "text": 99,
+      "estimatedJson": 227,
+      "estimatedText": 101
+    },
+    {
+      "kind": "answer",
+      "name": "ask: line range",
+      "json": 198,
+      "text": 157,
+      "estimatedJson": 206,
+      "estimatedText": 141
+    },
+    {
+      "kind": "answer",
+      "name": "ask: definition",
+      "json": 299,
+      "text": 241,
+      "estimatedJson": 351,
+      "estimatedText": 285
+    },
+    {
+      "kind": "answer",
+      "name": "ask: config value",
+      "json": 86,
+      "text": 48,
+      "estimatedJson": 111,
+      "estimatedText": 49
+    },
+    {
+      "kind": "answer",
+      "name": "ask: ambiguous name",
+      "json": 107,
+      "text": 63,
+      "estimatedJson": 143,
+      "estimatedText": 69
+    }
+  ],
+  "totals": {
+    "json": 9408,
+    "text": 6787
+  }
+}

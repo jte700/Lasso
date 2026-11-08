@@ -1,0 +1,391 @@
+{
+  "generatedAt": "2026-10-28T00:22:14.992Z",
+  "effort": "low",
+  "runs": 2,
+  "budgetUsd": 0.15,
+  "spentUsd": 0.0356,
+  "estimatedDefinitionTokens": {
+    "direct": 466,
+    "lasso": 219
+  },
+  "models": {
+    "gpt-5.4-mini": {
+      "arms": {
+        "lasso-v4": {
+          "direct": {
+            "tasks": 2,
+            "correct": 2,
+            "tokens": 82759,
+            "input": 80930,
+            "cached": 54400,
+            "output": 1829,
+            "reasoning": 528,
+            "modelCalls": 13,
+            "toolCalls": 32,
+            "costUsd": 0.0322,
+            "wallSeconds": 21
+          },
+          "arm": {
+            "tasks": 2,
+            "correct": 2,
+            "tokens": 2899,
+            "input": 2573,
+            "cached": 0,
+            "output": 326,
+            "reasoning": 168,
+            "modelCalls": 4,
+            "toolCalls": 2,
+            "costUsd": 0.0034,
+            "wallSeconds": 5.7
+          },
+          "S": 96.5,
+          "families": {
+            "code": null,
+            "docs": 96.5
+          },
+          "perTaskRatio": {
+            "min": 0.03,
+            "median": 0.03,
+            "max": 0.04
+          },
+          "moreTokensThanDirect": 0,
+          "lassoUse": {
+            "tasksUsingLasso": 2,
+            "tasks": 2,
+            "fellBack": 0,
+            "calls": {
+              "lasso": 2
+            }
+          }
+        }
+      },
+      "capability": [],
+      "firstCallInput": {
+        "direct": 417,
+        "lasso-v4": 562
+      }
+    }
+  },
+  "results": [
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-missing",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 7,
+      "toolCalls": 17,
+      "toolsUsed": {
+        "Grep": 7,
+        "Glob": 6,
+        "Read": 4
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"revenue\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West|west\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":100}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Grep",
+          "args": "{\"pattern\":\"division\", \"path\":\"Finance/reports/annual_report.md\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":100}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West division|west division|West Division|WEST DIVISION\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Grep",
+          "args": "{\"pattern\":\"division.*revenue|revenue.*division\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":100}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Glob",
+          "args": "{\"pattern\":\"Finance/**\"}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Glob",
+          "args": "{\"pattern\":\"Shop/**\"}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Glob",
+          "args": "{\"pattern\":\"Admin/**\"}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "Glob",
+          "args": "{\"pattern\":\"**/*\",\"path\":\"Finance\"}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "Glob",
+          "args": "{\"pattern\":\"**/*\",\"path\":\"Shop\"}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "Glob",
+          "args": "{\"pattern\":\"**/*\",\"path\":\"Admin\"}",
+          "error": false
+        },
+        {
+          "turn": 5,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West|west\",\"path\":\"Finance\",\"glob\":\"*.csv\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":100}",
+          "error": false
+        },
+        {
+          "turn": 5,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/Approved/budget_2025.csv\",\"offset\":1,\"limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 5,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/Planning/budget_2025.csv\",\"offset\":1,\"limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 5,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/invoices.csv\",\"offset\":1,\"limit\":30}",
+          "error": false
+        },
+        {
+          "turn": 5,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/ledger.csv\",\"offset\":1,\"limit\":30}",
+          "error": false
+        }
+      ],
+      "input": 44924,
+      "cached": 31744,
+      "output": 1080,
+      "reasoning": 390,
+      "tokens": 46004,
+      "firstInput": 417,
+      "costUsd": 0.0171258,
+      "wallMs": 12218,
+      "toolMs": 107,
+      "correct": true,
+      "answer": "I couldn’t find any division named \"West\" in the workspace. The finance CSVs list \"North division\", \"South division\", \"East division\", and \"Central division\", but no \"West division\".\n\nIf you meant one of those, tell me which one and I’ll give the revenue.\n\nANSWER: No \"West division\" appears in the available files."
+    },
+    {
+      "run": 1,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v4",
+      "task": "doc-missing",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "lasso": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso",
+          "args": "{\"ask\":[\"West division's revenue\"]}",
+          "error": false
+        }
+      ],
+      "input": 1290,
+      "cached": 0,
+      "output": 135,
+      "reasoning": 56,
+      "tokens": 1425,
+      "firstInput": 562,
+      "costUsd": 0.001575,
+      "wallMs": 2418,
+      "toolMs": 247,
+      "correct": true,
+      "answer": "I couldn’t find a row or label for a “West division” in the budget files. The files I checked only have divisions like Central, East, North, and South.\n\nANSWER: No West division revenue is listed in the available files."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "direct",
+      "task": "doc-missing",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 6,
+      "toolCalls": 15,
+      "toolsUsed": {
+        "Grep": 8,
+        "Glob": 3,
+        "Read": 4
+      },
+      "usedLasso": false,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"division.*revenue|revenue.*division|West division\",\"path\":\"Shop\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 0,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West\",\"path\":\"Admin\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Glob",
+          "args": "{\"pattern\":\"**/*\",\"path\":\"Finance\"}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Glob",
+          "args": "{\"pattern\":\"**/*\",\"path\":\"Shop\"}",
+          "error": false
+        },
+        {
+          "turn": 1,
+          "name": "Glob",
+          "args": "{\"pattern\":\"**/*\",\"path\":\"Admin\"}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/reports/annual_report.md\",\"offset\":1,\"limit\":300}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/ledger.csv\",\"offset\":1,\"limit\":200}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/Approved/budget_2025.csv\",\"offset\":1,\"limit\":200}",
+          "error": false
+        },
+        {
+          "turn": 2,
+          "name": "Read",
+          "args": "{\"file_path\":\"Finance/Planning/budget_2025.csv\",\"offset\":1,\"limit\":200}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West division\",\"path\":\"Finance\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West division\",\"path\":\"Shop\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 3,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West division\",\"path\":\"Admin\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":20}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "Grep",
+          "args": "{\"pattern\":\"West\",\"path\":\".\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":50}",
+          "error": false
+        },
+        {
+          "turn": 4,
+          "name": "Grep",
+          "args": "{\"pattern\":\"division\",\"path\":\"Finance/reports/annual_report.md\",\"output_mode\":\"content\",\"-n\":true,\"head_limit\":30}",
+          "error": false
+        }
+      ],
+      "input": 36006,
+      "cached": 22656,
+      "output": 749,
+      "reasoning": 138,
+      "tokens": 36755,
+      "firstInput": 417,
+      "costUsd": 0.0150822,
+      "wallMs": 8743,
+      "toolMs": 88,
+      "correct": true,
+      "answer": "I couldn’t find any file in the workspace that mentions a “West division,” so I can’t determine its revenue from the available data.\n\nANSWER: West division revenue is not موجود in the workspace files."
+    },
+    {
+      "run": 2,
+      "model": "gpt-5.4-mini",
+      "arm": "lasso-v4",
+      "task": "doc-missing",
+      "family": "docs",
+      "capability": false,
+      "stop": "answered",
+      "modelCalls": 2,
+      "toolCalls": 1,
+      "toolsUsed": {
+        "lasso": 1
+      },
+      "usedLasso": true,
+      "trace": [
+        {
+          "turn": 0,
+          "name": "lasso",
+          "args": "{\"ask\":[\"West division's revenue\"]}",
+          "error": false
+        }
+      ],
+      "input": 1283,
+      "cached": 0,
+      "output": 191,
+      "reasoning": 112,
+      "tokens": 1474,
+      "firstInput": 562,
+      "costUsd": 0.00182175,
+      "wallMs": 3273,
+      "toolMs": 222,
+      "correct": true,
+      "answer": "I couldn’t find any row or label for a “West division” in the available budget files. The indexed files only show divisions like Central, East, North, and South.\n\nANSWER: No West division revenue is listed in the available files."
+    }
+  ]
+}

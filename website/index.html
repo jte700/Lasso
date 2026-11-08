@@ -5,6 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lasso · Writing with evidence</title>
 <meta name="description" content="Lasso is a local-first source library and writing assistant. It retrieves the exact document, cell or passage you need and ties every value you write back to it.">
+<!-- Link previews: Messages downloads og:video and plays it in the bubble; elsewhere the still stands in. Made by `npm run render:og` in trailer/. -->
+<meta property="og:type" content="video.other">
+<meta property="og:site_name" content="Lasso">
+<meta property="og:url" content="https://www.mylasso.ca/">
+<meta property="og:title" content="Lasso · Writing with evidence">
+<meta property="og:description" content="A local-first source library and writing assistant. It retrieves the exact document, cell or passage you need and ties every value you write back to it.">
+<meta property="og:image" content="https://www.mylasso.ca/og/preview.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Lasso cowboy has lassoed the Lasso wordmark while the cowgirl twirls her rope">
+<meta property="og:video" content="https://www.mylasso.ca/og/preview.mp4">
+<meta property="og:video:secure_url" content="https://www.mylasso.ca/og/preview.mp4">
+<meta property="og:video:type" content="video/mp4">
+<meta property="og:video:width" content="1200">
+<meta property="og:video:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://www.mylasso.ca/og/preview.png">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -131,30 +149,19 @@
   .hero { position: relative; background: var(--sand); overflow: hidden; height: 100vh; height: 100svh; min-height: 720px; }
   .field { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   .hero::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 120px; background: linear-gradient(transparent, var(--sand)); pointer-events: none; }
-  .hero-c { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -48%); z-index: 2; width: min(760px, calc(100% - 32px)); text-align: center; pointer-events: none; }
+  .hero-c { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -56%); z-index: 2; width: min(760px, calc(100% - 32px)); text-align: center; pointer-events: none; }
   .hero-c > * { pointer-events: auto; }
-  .eyebrow-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 8px; border-radius: 999px; background: var(--surface); box-shadow: 0 0 0 1px var(--line); font-size: 14px; font-weight: 500; color: var(--ink-2); }
-  .eyebrow-chip b { padding: 2px 8px; border-radius: 999px; background: var(--green-bg); color: var(--green-d); font-weight: 600; font-size: 12.5px; }
   h1 { margin: 18px 0 8px; font-family: var(--serif); font-weight: 600; font-size: clamp(104px, 17vw, 210px); line-height: .9; letter-spacing: -.04em; font-variation-settings: "opsz" 60; text-shadow: 0 0 40px var(--sand), 0 0 80px var(--sand); }
   h1 sup { position: relative; top: 1.3em; vertical-align: top !important; margin-left: 4px; padding: 3px 8px; border-radius: 999px; background: var(--green-bg); color: var(--green-d); font-family: var(--mono); font-size: 13px; letter-spacing: 0; }
   .sub { margin: 0 auto 30px; font-size: 20px; line-height: 1.5; color: var(--ink-3); max-width: 560px; text-shadow: 0 0 18px var(--sand), 0 0 6px var(--sand); }
   .sub b { color: var(--ink-2); font-weight: 500; }
   .cta-row { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
-  .proof { display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; margin-top: 26px; font-size: 13.5px; color: var(--ink-3); font-weight: 500; }
-  .proof span { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 6px; border-radius: 999px; background: var(--sand); background: color-mix(in srgb, var(--sand) 85%, transparent); }
-  .proof svg { width: 16px; height: 16px; }
-  .ledger { position: absolute; left: clamp(16px, 3vw, 32px); bottom: clamp(20px, 4vw, 40px); z-index: 3; width: min(430px, calc(100% - 32px)); background: var(--surface); border-radius: 20px; box-shadow: var(--shadow), 0 0 0 1px rgba(0, 0, 0, .04); overflow: hidden; }
-  .ledger-h { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px 8px; font-size: 13px; font-weight: 600; }
-  .ledger-h span { display: inline-flex; align-items: center; gap: 7px; }
-  .ledger-h span i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-bg); }
-  .ledger-h b { font-weight: 500; color: var(--ink-3); font-size: 12.5px; }
-  .ledger ol { list-style: none; margin: 0; padding: 0 8px 8px; height: 112px; overflow: hidden; }
-  .ledger li { display: grid; grid-template-columns: 44px 74px minmax(0, 1fr) 24px; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); animation: lin .6s ease-out; }
-  .ledger li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ledger li .v { color: var(--ink); font-weight: 600; }
-  .ledger li .ver { color: var(--blue); text-align: right; }
-  .ledger li:first-child { background: var(--green-bg); }
-  .ledger li:first-child .v { color: var(--green-d); }
+  .cta-stack { display: inline-flex; flex-direction: column; gap: 12px; max-width: 100%; }
+  .pill.mcp-wide { align-self: center; gap: 12px; padding: 12px 14px 12px 12px; background: var(--contrast); color: var(--on-contrast); box-shadow: 0 4px 7px rgba(0, 0, 0, .05); }
+  .pill.mcp-wide:hover { background: var(--contrast-h); transform: translateY(-1px); }
+  .mcp-tag { padding: 4px 10px; border-radius: 999px; background: var(--green); color: #fff; font-size: 13px; font-weight: 600; letter-spacing: .02em; }
+  .mcp-go { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; padding-right: 8px; font-size: 16px; opacity: .7; }
+  .pill.mcp-wide:hover .mcp-go { opacity: 1; }
   @keyframes lin { from { opacity: 0; transform: translateY(-8px); } }
 
   /* ---------- stats ---------- */
@@ -837,12 +844,14 @@
     .tab { padding: 9px 14px; font-size: 14px; }
     .hero { display: flex; flex-direction: column; justify-content: center; height: auto; min-height: max(100vh, 780px); min-height: max(100svh, 780px); padding: 96px 16px 110px; }
     .hero-c { position: relative; left: auto; top: auto; transform: none; width: 100%; margin: 0 auto; }
-    .ledger { display: none; }
-    .proof { display: none; }
     .feature + .feature { margin-top: 90px; }
     .cta { padding: 110px 16px; }
     .posse-bar .hint { margin-left: 0; width: 100%; }
     .hero .cta-row, .cta .cta-row { flex-direction: column; align-items: stretch; gap: 10px; max-width: 300px; margin: 0 auto; }
+    .cta-stack { display: flex; gap: 10px; max-width: 300px; margin: 0 auto; }
+    .hero .cta-stack .cta-row { max-width: none; margin: 0; }
+    .pill.mcp-wide { flex-wrap: wrap; justify-content: center; gap: 4px 10px; padding: 13px 16px; }
+    .mcp-go { margin-left: 0; padding-right: 0; font-size: 14px; }
     .hero .cta-row .pill.ghost { box-shadow: none; background: none; padding: 6px; font-size: 15px; color: var(--ink-3); text-decoration: underline; text-underline-offset: 4px; }
     .keys { display: none; }
     #wTabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 320px; }
@@ -869,6 +878,80 @@
   :is(a, button, [role="button"], [role="tab"], [tabindex], input, select, textarea, summary):focus-visible {
     outline: 2px solid var(--blue); outline-offset: 2px;
   }
+
+  /* waitlist: the download buttons open this card while Lasso is in early access.
+     The card follows easyui's nested panels; the button is easyui's rainbow button without its glow. */
+  .wl {
+    --wl-tray: #f1f1f2; --wl-panel: #ffffff; --wl-field: #ffffff; --wl-edge: rgba(0, 0, 0, .1); --wl-edge-2: rgba(0, 0, 0, .18);
+    --wl-ink: #09090b; --wl-ink-2: #52525b; --wl-ink-3: #a1a1aa; --wl-seg: #e4e4e7;
+    width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); margin: auto; padding: 10px; border: 0; border-radius: 26px;
+    background: var(--wl-tray); color: var(--wl-ink); font-family: var(--sans); overflow: auto;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 24px 64px rgba(0, 0, 0, .18);
+  }
+  @media (prefers-color-scheme: dark) {
+    .wl {
+      --wl-tray: #18181b; --wl-panel: #0f0f11; --wl-field: #1c1c1f; --wl-edge: rgba(255, 255, 255, .1); --wl-edge-2: rgba(255, 255, 255, .2);
+      --wl-ink: #f2f2f3; --wl-ink-2: #a1a1aa; --wl-ink-3: #71717a; --wl-seg: #27272a;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, .06), 0 24px 64px rgba(0, 0, 0, .6);
+    }
+  }
+  .wl::backdrop { background: rgba(9, 9, 11, .45); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  .wl[open] { animation: wlIn .28s cubic-bezier(.2, .9, .3, 1.15); }
+  .wl[open]::backdrop { animation: wlFade .2s ease-out; }
+  @keyframes wlIn { from { opacity: 0; transform: translateY(12px) scale(.97); } }
+  @keyframes wlFade { from { opacity: 0; } }
+  .wl-panel { position: relative; padding: 26px 24px 22px; border-radius: 18px; background: var(--wl-panel); box-shadow: 0 0 0 1px var(--wl-edge); }
+  .wl-x { position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--wl-ink-3); cursor: pointer; transition: background .15s, color .15s; }
+  .wl-x:hover { background: var(--wl-seg); color: var(--wl-ink); }
+  .wl-eyebrow { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--wl-ink-3); }
+  .wl-eyebrow svg { width: 18px; height: 18px; color: var(--green); }
+  .wl h2 { margin: 0; font-family: var(--serif); font-size: 28px; font-weight: 600; line-height: 1.1; letter-spacing: -.03em; }
+  .wl-lede { margin: 8px 0 20px; font-size: 14.5px; line-height: 1.5; color: var(--wl-ink-2); }
+  .wl-form { display: grid; gap: 14px; }
+  .wl-f { display: grid; gap: 6px; }
+  .wl-f > span { font-size: 13px; font-weight: 500; color: var(--wl-ink-2); }
+  .wl-f > span small { font-weight: 400; color: var(--wl-ink-3); }
+  .wl input[type="email"], .wl input[type="text"] {
+    width: 100%; box-sizing: border-box; height: 42px; padding: 0 14px; border: 1px solid var(--wl-edge); border-radius: 14px;
+    background: var(--wl-field); color: var(--wl-ink); font: 15px var(--sans); transition: border-color .15s, box-shadow .15s;
+  }
+  .wl input::placeholder { color: var(--wl-ink-3); }
+  .wl input[type="email"]:focus, .wl input[type="text"]:focus { outline: none; border-color: var(--wl-edge-2); box-shadow: 0 0 0 3px rgba(56, 189, 248, .25); }
+  .wl-plat { min-width: 0; padding: 0; margin: 0; border: 0; }
+  .wl-plat legend { padding: 0; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--wl-ink-2); }
+  .wl-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 3px; border-radius: 14px; background: var(--wl-seg); }
+  .wl-seg label { position: relative; }
+  .wl-seg input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .wl-seg label span { display: flex; align-items: center; justify-content: center; gap: 6px; height: 34px; border-radius: 11px; font-size: 13.5px; font-weight: 500; color: var(--wl-ink-2); transition: background .15s, color .15s, box-shadow .15s; }
+  .wl-seg label svg { width: 14px; height: 14px; }
+  .wl-seg input:checked + span { background: var(--wl-panel); color: var(--wl-ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .12), 0 0 0 1px var(--wl-edge); }
+  .wl-seg input:focus-visible + span { outline: 2px solid var(--blue); outline-offset: 1px; }
+  .wl-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  .wl-err { margin: -4px 0 0; min-height: 0; font-size: 13px; color: #ef4444; }
+  .wl-err:empty { display: none; }
+  .wl-fine { margin: 2px 0 0; font-size: 12px; text-align: center; color: var(--wl-ink-3); }
+  /* rainbow button (easyui), glow off: a dark face over a rainbow border that fades out toward the top */
+  .rainbow-btn {
+    --c1: hsl(0 100% 63%); --c2: hsl(270 100% 63%); --c3: hsl(210 100% 63%); --c4: hsl(195 100% 63%); --c5: hsl(90 100% 63%);
+    position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 48px; padding: 0 32px;
+    border: 2px solid transparent; border-radius: 16px; color: #fff; font: 600 16px var(--sans); white-space: nowrap; cursor: pointer; user-select: none;
+    background: linear-gradient(#0c0d0e, #0c0d0e), linear-gradient(#0c0d0e 50%, rgba(12, 13, 14, .6) 80%, rgba(12, 13, 14, 0)), linear-gradient(90deg, var(--c1), var(--c5), var(--c3), var(--c4), var(--c2));
+    background-size: 200%; background-clip: padding-box, border-box, border-box; background-origin: border-box;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .05); transition: filter .2s, transform .2s;
+    animation: rainbowPan 3s linear infinite;
+  }
+  .rainbow-btn:hover { filter: brightness(1.1); }
+  .rainbow-btn:active { transform: scale(.98); }
+  .rainbow-btn:disabled { opacity: .5; pointer-events: none; }
+  .rainbow-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(56, 189, 248, .5); }
+  .rainbow-btn svg { width: 16px; height: 16px; }
+  @keyframes rainbowPan { from { background-position: 0% 50%; } to { background-position: 200% 50%; } }
+  @media (prefers-reduced-motion: reduce) { .rainbow-btn { animation: none; } .wl[open], .wl[open]::backdrop { animation: none; } }
+  .wl-done { display: none; text-align: center; padding: 10px 4px 4px; }
+  .wl.sent .wl-head, .wl.sent .wl-form { display: none; }
+  .wl.sent .wl-done { display: block; }
+  .wl-done .wl-check { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto 14px; border-radius: 999px; background: var(--green-bg); color: var(--green-d); }
+  .wl-done p { margin: 8px 0 20px; font-size: 14.5px; line-height: 1.5; color: var(--wl-ink-2); }
 </style>
 </head>
 <body>
@@ -893,7 +976,7 @@
       <a href="#posse-sec">The posse</a>
     </div>
     <div class="nav-right">
-      <a class="pill black" href="#run">Download</a>
+      <a class="pill black" href="#waitlist">Download</a>
     </div>
   </nav>
 </div>
@@ -903,24 +986,17 @@
 <header class="hero" id="top" data-label="Lasso">
   <canvas class="field" id="heroField" aria-hidden="true"></canvas>
   <div class="hero-c" id="heroC">
-    <span class="eyebrow-chip"><b>New</b> Local-first retrieval · no API key</span>
     <h1 class="hx" id="hx" aria-label="Introducing Lasso"><span class="hx-line"><span class="hx-size" aria-hidden="true">Introducing <span class="hx-wl">Lasso<sup>v1</sup></span></span><span class="hx-live"><span class="hx-t"></span><a class="hx-wl hx-w" href="#find" title="See what Lasso does">Lasso<sup>v1</sup></a><i class="hx-c" aria-hidden="true"></i></span><span class="hx-pop" aria-hidden="true"><span class="hx-row on"><svg viewBox="0 0 32 32" style="color:#29cc57"><use href="#lassoMark"/></svg><span><b>Lasso</b><small>writing with evidence</small></span><em>v1</em></span><span class="hx-row"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.28-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.78.74 2.99.72 1.24-.02 2.02-1.12 2.77-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.39-3.69ZM14.1 5.85c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28Z"/></svg><span><b>Lasso for Mac</b><small>macOS app</small></span><em>.dmg</em></span><span class="hx-row"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 4.3 10 3.2v7.7H2V4.3Zm9-1.2L22 1.5v9.4H11V3.1ZM2 12h8v7.8l-8-1.1V12Zm9 0h11v9.5l-11-1.5V12Z"/></svg><span><b>Lasso for Windows</b><small>Windows x64 app</small></span><em>.zip</em></span><span class="hx-foot"><span class="go">⇥ accept</span><span>↑↓ next</span><span>esc dismiss</span></span></span></span></h1>
     <p class="sub">Stop digging through folders. Lasso <b>retrieves the exact document, cell or passage</b> you need and ties every value you write back to it.</p>
-    <div class="cta-row">
-      <a class="pill big green" href="downloads/Lasso-mac.dmg" download><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.28-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.78.74 2.99.72 1.24-.02 2.02-1.12 2.77-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.39-3.69ZM14.1 5.85c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28Z"/></svg>Download for Mac</a>
-      <a class="pill big white" href="downloads/Lasso-win-x64.zip" download><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 4.3 10 3.2v7.7H2V4.3Zm9-1.2L22 1.5v9.4H11V3.1ZM2 12h8v7.8l-8-1.1V12Zm9 0h11v9.5l-11-1.5V12Z"/></svg>Download for Windows</a>
-      <a class="pill big ghost" href="#find">See it work</a>
-    </div>
-    <div class="proof">
-      <span><svg><use href="#tick"/></svg>Exact locations</span>
-      <span><svg><use href="#tick"/></svg>Pinned versions</span>
-      <span><svg><use href="#tick"/></svg>Nothing guessed</span>
+    <div class="cta-stack">
+      <div class="cta-row">
+        <a class="pill big green" href="#waitlist" data-waitlist="mac"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.28-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.78.74 2.99.72 1.24-.02 2.02-1.12 2.77-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.39-3.69ZM14.1 5.85c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28Z"/></svg>Download for Mac</a>
+        <a class="pill big white" href="#waitlist" data-waitlist="windows"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 4.3 10 3.2v7.7H2V4.3Zm9-1.2L22 1.5v9.4H11V3.1ZM2 12h8v7.8l-8-1.1V12Zm9 0h11v9.5l-11-1.5V12Z"/></svg>Download for Windows</a>
+        <a class="pill big ghost" href="#find">See it work</a>
+      </div>
+      <a class="pill big mcp-wide" href="mcp/"><span class="mcp-tag">MCP</span><span class="mcp-t">Lasso for AI agents</span><span class="mcp-go">See the benchmarks<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span></a>
     </div>
   </div>
-  <aside class="ledger" id="ledger" aria-label="Live index (illustrative)">
-    <div class="ledger-h"><span><i></i>Live index</span><b><span id="ledgerCount">0</span> captured</b></div>
-    <ol id="ledgerRows"></ol>
-  </aside>
 </header>
 
 <div style="padding:0 16px">
@@ -1124,8 +1200,8 @@
     <h2>Catch the value.<br>Keep the rope.</h2>
     <p>Download Lasso, choose “Index a project” and point it at a local folder.</p>
     <div class="cta-row">
-      <a class="pill big green" href="downloads/Lasso-mac.dmg" download><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.28-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.78.74 2.99.72 1.24-.02 2.02-1.12 2.77-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.39-3.69ZM14.1 5.85c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28Z"/></svg>Download for Mac</a>
-      <a class="pill big white" href="downloads/Lasso-win-x64.zip" download><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 4.3 10 3.2v7.7H2V4.3Zm9-1.2L22 1.5v9.4H11V3.1ZM2 12h8v7.8l-8-1.1V12Zm9 0h11v9.5l-11-1.5V12Z"/></svg>Download for Windows</a>
+      <a class="pill big green" href="#waitlist" data-waitlist="mac"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.28-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.78.74 2.99.72 1.24-.02 2.02-1.12 2.77-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.39-3.69ZM14.1 5.85c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28Z"/></svg>Download for Mac</a>
+      <a class="pill big white" href="#waitlist" data-waitlist="windows"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 4.3 10 3.2v7.7H2V4.3Zm9-1.2L22 1.5v9.4H11V3.1ZM2 12h8v7.8l-8-1.1V12Zm9 0h11v9.5l-11-1.5V12Z"/></svg>Download for Windows</a>
     </div>
   </div>
 </section>
@@ -1144,6 +1220,87 @@
     <div class="fine">Demo projects, values and people on this page are illustrative. Retrieval, ranking, extraction and provenance run locally.</div>
   </div>
 </footer>
+
+<!-- Waitlist: every download button opens this. Signups go to api/waitlist.mjs, which stores them in Upstash Redis. -->
+<dialog class="wl" id="waitlist" aria-labelledby="wlTitle">
+  <div class="wl-panel">
+    <button class="wl-x" type="button" aria-label="Close" data-close><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+    <div class="wl-head">
+      <p class="wl-eyebrow"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#lassoMark"/></svg>Early access</p>
+      <h2 id="wlTitle">Get Lasso first</h2>
+      <p class="wl-lede">We’re letting people in in small batches. Leave your email and we’ll send you a download link when your spot opens.</p>
+    </div>
+    <form class="wl-form" id="wlForm" data-endpoint="/api/waitlist" novalidate>
+      <label class="wl-f"><span>Email</span><input type="email" name="email" placeholder="you@example.com" autocomplete="email" required></label>
+      <fieldset class="wl-plat">
+        <legend>Platform</legend>
+        <div class="wl-seg">
+        <label><input type="radio" name="platform" value="mac" checked><span><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.28-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.78.74 2.99.72 1.24-.02 2.02-1.12 2.77-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.39-3.69ZM14.1 5.85c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28Z"/></svg>Mac</span></label>
+        <label><input type="radio" name="platform" value="windows"><span><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 4.3 10 3.2v7.7H2V4.3Zm9-1.2L22 1.5v9.4H11V3.1ZM2 12h8v7.8l-8-1.1V12Zm9 0h11v9.5l-11-1.5V12Z"/></svg>Windows</span></label>
+        <label><input type="radio" name="platform" value="both"><span>Both</span></label>
+        </div>
+      </fieldset>
+      <label class="wl-f"><span>What would you use it for? <small>(optional)</small></span><input type="text" name="use" placeholder="e.g. engineering reports, legal research" maxlength="200"></label>
+      <label class="wl-hp" aria-hidden="true">Leave this empty<input type="text" name="company" tabindex="-1" autocomplete="off"></label>
+      <p class="wl-err" id="wlErr" role="alert"></p>
+      <button class="rainbow-btn" type="submit">Join the waitlist</button>
+      <p class="wl-fine">One email when it’s ready. No spam.</p>
+    </form>
+    <div class="wl-done" role="status">
+      <div class="wl-check"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <h2>You’re on the list</h2>
+      <p>We’ll email you a download link when your spot opens.</p>
+      <button class="rainbow-btn" type="button" data-close>Back to the site</button>
+    </div>
+  </div>
+</dialog>
+<script>
+/* waitlist: download buttons open the card with their platform picked; #waitlist links open it too */
+(() => {
+  const dlg = document.getElementById('waitlist'), form = document.getElementById('wlForm'), err = document.getElementById('wlErr');
+  if (!dlg || !dlg.showModal) return;
+  const submit = form.querySelector('[type="submit"]');
+  let source = 'link';
+  const open = (platform, from) => {
+    if (platform) { const r = form.querySelector(`input[name="platform"][value="${platform}"]`); if (r) r.checked = true; }
+    source = from || 'link';
+    if (!dlg.open) dlg.showModal();
+    if (!dlg.classList.contains('sent')) form.email.focus();
+  };
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('[data-waitlist], a[href="#waitlist"]'); if (!a) return;
+    e.preventDefault();
+    open(a.dataset.waitlist || document.documentElement.dataset.os, a.closest('section, header, nav')?.id || 'page');
+  });
+  dlg.addEventListener('click', (e) => { if (e.target === dlg || e.target.closest('[data-close]')) dlg.close(); });
+  dlg.addEventListener('close', () => { if (location.hash === '#waitlist') history.replaceState(null, '', location.pathname + location.search); });
+  if (location.hash === '#waitlist') open(document.documentElement.dataset.os, 'url');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    err.textContent = '';
+    const email = form.email.value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err.textContent = 'Enter a valid email address.'; form.email.focus(); return; }
+    if (form.company.value) { dlg.classList.add('sent'); return; }
+    const endpoint = form.dataset.endpoint;
+    if (!endpoint) { err.textContent = 'The waitlist isn’t connected yet. Please try again soon.'; return; }
+    submit.disabled = true; submit.textContent = 'Joining…';
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ email, platform: form.platform.value, use: form.use.value.trim(), source, os: document.documentElement.dataset.os, page: location.pathname }),
+      });
+      if (res.status === 429) { err.textContent = 'Too many signups from this network. Try again in an hour.'; return; }
+      if (!res.ok) throw new Error(res.status);
+      dlg.classList.add('sent');
+      dlg.querySelector('.wl-done [data-close]').focus();
+    } catch {
+      err.textContent = 'That didn’t go through. Check your connection and try again.';
+    } finally {
+      submit.disabled = false; submit.textContent = 'Join the waitlist';
+    }
+  });
+})();
+</script>
 <script>
 (() => {
   // the demos run even when the OS asks for reduced motion: Windows asks whenever its "Animation effects"
@@ -1198,7 +1355,7 @@
   ];
   const FILLER = ['snapshot sha256:9f2c…e1', 'indexed 14:02:11', 'watcher +3 files', 'v3 → v4', 'passage 118/402', 'ranked 0.91', 'cells 1,980', '¶ 22–24', 'units m', 'linked ↳ site-report.md', 'IfcQuantityArea', 'no guess: ambiguous', 'pinned', 'BibTeX', 'row 1–260', 'diff ±2', 'scope project', 'local', 'OOXML'];
 
-  function createField(canvas, { host, content, ledger, theme, events }) {
+  function createField(canvas, { host, content, theme, events }) {
     const ctx = canvas.getContext('2d');
     const T = {}, applyTheme = () => Object.assign(T, typeof theme === 'function' ? theme() : theme);
     applyTheme(); if (typeof theme === 'function') DARK_MQ.addEventListener('change', applyTheme);
@@ -1279,7 +1436,6 @@
       const hr = host.getBoundingClientRect();
       const box = (el, pad) => { const b = el.getBoundingClientRect(); return { x0: b.left - hr.left - pad, y0: b.top - hr.top - pad, x1: b.right - hr.left + pad, y1: b.bottom - hr.top + pad }; };
       const narrow = W < 700, z = [box(content, narrow ? 12 : 26), { x0: 0, y0: 0, x1: W, y1: narrow ? 76 : 90 }];
-      if (ledger && ledger.el.offsetParent) z.push(box(ledger.el, 18));
       return z;
     }
     const overlaps = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
@@ -1310,7 +1466,7 @@
         if (threadHits(cx + popW, cy + lh * 1.9, tok.col * cw + tok.len * cw / 2, tok.row * lh + lh / 2, zs)) continue;
         recent.push(s); if (recent.length > 6) recent.shift();
         const others = []; while (others.length < 2) { const o = pick(SOURCES); if (o !== s && !others.includes(o)) others.push(o); }
-        evs.push({ t0: now, tok, s, cx, cy, others, box: cb, tbox: tb, id: ++idxSeq, rot: rng(-.18, .18), seed: Math.random() * 10, logged: false });
+        evs.push({ t0: now, tok, s, cx, cy, others, box: cb, tbox: tb, id: ++idxSeq, rot: rng(-.18, .18), seed: Math.random() * 10 });
         return;
       }
     }
@@ -1387,7 +1543,6 @@
         }
       }
       ctx.restore();
-      if (accepted && !e.logged) { e.logged = true; ledger && ledger.log(e.id, s); }
       return t < end;
     }
     const LEVELS = 14, buckets = Array.from({ length: LEVELS }, () => []), acc = Array.from({ length: 6 }, () => []);
@@ -1428,27 +1583,14 @@
     ticks.add((now) => { if (visible && !document.hidden && now - lastFrame > 30) { draw(now); lastFrame = now; } });
   }
 
-  const ledgerRows = $('#ledgerRows'), ledgerCount = $('#ledgerCount');
-  let captured = 0;
-  const ledger = {
-    el: $('#ledger'),
-    log(id, s) {
-      captured++; ledgerCount.textContent = captured;
-      const li = document.createElement('li');
-      li.innerHTML = `<span>#${String(id).padStart(4, '0')}</span><span class="v">${esc(s.val)}</span><span>${esc(s.file)} › ${esc(s.loc)}</span><span class="ver">v${s.v}</span>`;
-      ledgerRows.prepend(li);
-      while (ledgerRows.children.length > 6) ledgerRows.lastChild.remove();
-    },
-  };
-  [SOURCES[0], SOURCES[2], SOURCES[1]].forEach((s, i) => ledger.log(397 + i, s));
   const LIGHT = { bg: '#f5f3f1', text: [0, 0, 0], accent: [31, 157, 85], pulse: [41, 204, 87], pin: [59, 108, 246], base: .05, inside: .03, rope: .42, dimFloor: .12,
     okBg: '#eafaf0', markBg: '#fff4cc', popup: '#ffffff', popupLine: 'rgba(0,0,0,.08)', shadow: 'rgba(0,0,0,.14)' };
   const DARK = { bg: '#000000', text: [255, 255, 255], accent: [41, 204, 87], pulse: [41, 204, 87], pin: [120, 160, 255], base: .06, inside: .03, rope: .4, dimFloor: .1,
     okBg: '#0f2a18', markBg: '#2a2614', popup: '#111', popupLine: 'rgba(255,255,255,.1)', shadow: 'rgba(0,0,0,.5)' };
   const HERO_DARK = { ...DARK, bg: '#161615', base: .07, popup: '#1b1b1a' };
   const startFields = () => {
-    createField($('#heroField'), { host: $('#top'), content: $('#heroC'), ledger, theme: () => (DARK_MQ.matches ? HERO_DARK : LIGHT), events: true });
-    createField($('#ctaField'), { host: $('#run'), content: $('#ctaIn'), ledger: null, theme: DARK, events: false });
+    createField($('#heroField'), { host: $('#top'), content: $('#heroC'), theme: () => (DARK_MQ.matches ? HERO_DARK : LIGHT), events: true });
+    createField($('#ctaField'), { host: $('#run'), content: $('#ctaIn'), theme: DARK, events: false });
   };
   // The fields draw in the system monospaced font, which is always installed.
   startFields();
@@ -2699,7 +2841,7 @@
 
   /* ================= page ================= */
   if (WIN) $$('.cta-row').forEach(row => {
-    const mac = $('a[href$=".dmg"]', row), pc = $('a[href$=".zip"]', row);
+    const mac = $('[data-waitlist="mac"]', row), pc = $('[data-waitlist="windows"]', row);
     if (!mac || !pc) return;
     row.insertBefore(pc, mac); mac.classList.replace('green', 'white'); pc.classList.replace('white', 'green');
   });

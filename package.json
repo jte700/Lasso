@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Local-first source library and writing assistant with versioned evidence",
+  "description": "Source-backed autocomplete for any Mac app, with versioned provenance and no language model",
   "engines": {
     "node": ">=24.0.0"
   },
@@ -11,6 +11,8 @@
     "start": "node --disable-warning=ExperimentalWarning src/server.js",
     "test": "node --disable-warning=ExperimentalWarning --test",
     "test:watch": "node --disable-warning=ExperimentalWarning --test --watch",
+    "bench": "node --disable-warning=ExperimentalWarning scripts/benchmark.mjs && node scripts/render-benchmark-charts.mjs",
+    "bench:charts": "node scripts/render-benchmark-charts.mjs",
     "desktop": "bash desktop/build.sh",
     "desktop:test:browser": "LASSO_BROWSER_GEOMETRY_TEST=1 npm run desktop && node desktop/tests/browser-geometry.mjs",
     "desktop:test": "swiftc -O -module-cache-path /tmp/lasso-swift-module-cache -framework Cocoa -framework WebKit -framework PDFKit -framework ServiceManagement -o /tmp/lasso-anchor-tests desktop/ShareInsertion.swift desktop/ShareMarkup.swift desktop/SyntheticKeyboard.swift desktop/WorkspaceAPI.swift desktop/NativeMaterial.swift desktop/NotchMotion.swift desktop/NotchPanel.swift desktop/AssistActivation.swift desktop/TransientDismissal.swift desktop/DirectoryColors.swift desktop/DirectoryMenu.swift desktop/StatusPopover.swift desktop/StatusHeader.swift desktop/DriveMenu.swift desktop/Appearance.swift desktop/LaunchHelper.swift desktop/CompletionTransaction.swift desktop/InsertionUndo.swift desktop/HostSelection.swift desktop/AssistSourceIdentity.swift desktop/VideoPreview.swift desktop/SourceOpenTarget.swift desktop/SourceOpener.swift desktop/CodeSyntax.swift desktop/ModelPreview.swift desktop/SlideDeckPreview.swift desktop/ModelOrbit.swift desktop/AssistTableLayout.swift desktop/DependencyReference.swift desktop/LinkedSourceMemory.swift desktop/DependencyOverlay.swift desktop/HostGeometry.swift desktop/WebText.swift desktop/HostTextAdapter.swift desktop/FocusedTextElement.swift desktop/AssistPopupHost.swift desktop/NodeRuntime.swift desktop/KeyRouting.swift desktop/PinchRouting.swift desktop/AccessibilityWork.swift desktop/HostAccessibilityMode.swift desktop/MainMenu.swift desktop/ShortcutCatalog.swift desktop/RanchModels.swift desktop/RanchNetworkLayout.swift desktop/RanchTypeIcon.swift desktop/SuggestionApps.swift desktop/AssistGlassBubble.swift desktop/tests/main.swift && /tmp/lasso-anchor-tests",
@@ -26,5 +28,8 @@
     "pdfjs-dist": "6.4.299",
     "polygon-clipping": "0.15.7",
     "web-ifc": "0.0.78"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "1.3.0"
   }
 }

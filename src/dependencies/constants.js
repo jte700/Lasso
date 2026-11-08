@@ -7,7 +7,8 @@ export const OBJECT_TYPES = new Set([
 ]);
 
 // 5: videos are transcribed, so folders indexed before read their videos.
-export const INDEX_VERSION = 5;
+// 6: Word documents' sentences and paragraphs are indexed as passages.
+export const INDEX_VERSION = 6;
 // The object types a whole file can be named as while typing.
 export const WHOLE_FILE_TYPES = ['DRAWING', 'DATASET', 'DOCUMENT', 'PAPER', 'CODE_BLOCK', 'MODEL'];
 

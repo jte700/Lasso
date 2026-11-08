@@ -168,7 +168,7 @@ function findingQuality(sentence, clause) {
   return 1;
 }
 
-function findingSignal(sentence) {
+export function findingSignal(sentence) {
   const signals = String(sentence ?? '').match(/\b(?:found|show\w*|observ\w*|demonstrat\w*|reveal\w*|indicat\w*|suggest\w*|associat\w*|correlat\w*|increas\w*|decreas\w*|higher|lower|elevat\w*|reduc\w*|significant\w*|majority|compared|risk|effect|difference|levels?|fold|odds|ratio)\b/gi)?.length ?? 0;
   if (!signals) return 0;
   return Math.min(1, signals * 0.32 + (/\d/.test(sentence) ? 0.22 : 0) + (tokens(sentence).length >= 8 ? 0.12 : 0));
