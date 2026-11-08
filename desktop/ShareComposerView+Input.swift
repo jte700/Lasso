@@ -12,6 +12,10 @@ extension ShareComposerView {
         if NSRect(x: bounds.width - 40, y: 7, width: 30, height: 30).contains(point) {
             onCancel?(); return
         }
+        if offersNearbyRows && nearbyRowsRect.contains(point) {
+            includesNearbyRows.toggle()
+            return
+        }
         if NSRect(x: 0, y: 0, width: bounds.width - 50, height: headerHeight).contains(point) {
             window?.performDrag(with: event)
             return
@@ -99,7 +103,9 @@ extension ShareComposerView {
         let redactions = scope == .redacted ? Array(masks.values) : []
         onCreate?(ShareConfiguration(scope: scope, redactions: redactions,
                                      excerpt: scope == .indexed ? pdfExcerpt : nil,
-                                     markup: scope == .marked ? markup.marks : []))
+                                     markup: scope == .marked ? markup.marks : [],
+                                     nearbyRows: offersNearbyRows && includesNearbyRows,
+                                     citedIn: citedIn))
     }
 
     override func scrollWheel(with event: NSEvent) {

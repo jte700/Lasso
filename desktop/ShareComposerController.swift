@@ -127,6 +127,7 @@ final class ShareComposerController: NSObject {
               projectId: String? = nil, fallbackHighlightColor: NSColor = .systemGreen,
               copyAction: ((ShareConfiguration, @escaping (Result<DependencyShare, Error>) -> Void) -> Void)? = nil,
               onCancel: (() -> Void)? = nil,
+              citedIn: String? = nil,
               completion: ((ShareConfiguration) -> Void)? = nil) {
         hide()
         let drawing = ["dxf", "ifc"].contains((sourcePath as NSString).pathExtension.lowercased())
@@ -152,6 +153,7 @@ final class ShareComposerController: NSObject {
         requests.forEach { $0.cancel() }
         requests.removeAll()
         view.reset(label: label, filename: (sourcePath as NSString).lastPathComponent)
+        view.citedIn = citedIn
         view.onReviewPDFExcerpt = { [weak self] excerpt in
             self?.loadPDFExcerpt(excerpt, serverURL: serverURL, token: token)
         }
@@ -218,7 +220,8 @@ final class ShareComposerController: NSObject {
                         self.view.preview = data.flatMap(GlobalAssistant.parsePreview)
                         self.view.showSlides(from: SlidePictureSource(serverURL: serverURL, objectId: objectId, versionId: versionId))
                         self.view.citedPart = data.flatMap(Self.citedPart)
-                        self.view.sharedExcerpt = data.flatMap(Self.sharedExcerpt)
+                        self.view.sharedExcerpt = data.flatMap { Self.excerpt($0, named: "sharedExcerpt") }
+                        self.view.nearbyExcerpt = data.flatMap { Self.excerpt($0, named: "nearbyExcerpt") }
                         self.view.isLoading = false
                         self.view.keepOfferedScope()
                         self.view.initializePDFExcerpt()
@@ -238,10 +241,11 @@ final class ShareComposerController: NSObject {
     }
 
     /// The part a cited-part link of a 3D model would publish, as the server prepared it.
-    /// The table a cited-part share publishes, as the server builds it for the recipient.
-    static func sharedExcerpt(_ data: Data) -> AssistDocumentPreview? {
+    /// A table a cited-part share publishes, as the server builds it for the
+    /// recipient: `sharedExcerpt`, or `nearbyExcerpt` with the rows around it.
+    static func excerpt(_ data: Data, named key: String) -> AssistDocumentPreview? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let source = root["source"], let excerpt = root["sharedExcerpt"],
+              let source = root["source"], let excerpt = root[key],
               let json = try? JSONSerialization.data(withJSONObject: ["source": source, "preview": excerpt]) else { return nil }
         return AssistDocumentPreview.parse(json)
     }

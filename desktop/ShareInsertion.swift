@@ -31,6 +31,8 @@ enum ShareClient {
         payload["redactions"] = configuration.redactions.map(\.payload)
         if let excerpt = configuration.excerpt { payload["excerpt"] = excerpt.payload }
         if configuration.scope == .marked { payload["markup"] = configuration.markup.map(\.payload) }
+        if configuration.nearbyRows { payload["nearbyRows"] = true }
+        if let citedIn = configuration.citedIn, !citedIn.isEmpty { payload["citedIn"] = citedIn }
         request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
 
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -485,6 +487,28 @@ struct ShareConfiguration {
     let redactions: [ShareRedaction]
     var excerpt: SharePDFExcerpt? = nil
     var markup: [ShareMarkStroke] = []
+    /// A cited cell or row brings the rows around it and every column.
+    var nearbyRows = false
+    /// The sentence the share backs, shown to its recipient.
+    var citedIn: String? = nil
 
     static let entireDocument = ShareConfiguration(scope: .document, redactions: [])
+}
+
+/// The sentence a citation sits in, read from the text around it: back to
+/// the last sentence end before it, and on to the next one after it. A line
+/// break ends a sentence too.
+enum CitingSentence {
+    private static let enders: Set<Character> = [".", "!", "?"]
+
+    static func around(_ text: String, before: String, after: String) -> String {
+        let head = before.split(omittingEmptySubsequences: false) { enders.contains($0) || $0.isNewline }.last.map(String.init) ?? ""
+        var tail = ""
+        for character in after {
+            if character.isNewline { break }
+            tail.append(character)
+            if enders.contains(character) { break }
+        }
+        return (head + text + tail).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
 }

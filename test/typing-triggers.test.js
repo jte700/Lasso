@@ -155,14 +155,14 @@ test('a cell tabbed after its row and column ends the source focus', async (t) =
   assert.equal(released.workspaceHeading, undefined);
 });
 
-test('equal values in one table row show once after an accepted name', async (t) => {
+test('every cell of an accepted row is listed, equal values included, so the arrows reach each one', async (t) => {
   const app = await fixture(t);
   const { accepted, pendingDependencies } = await accept(app, 'Secur');
   assert.equal(accepted, 'Security');
   const values = await completions(app, `${accepted} was `, pendingDependencies);
   assert.equal(values.heading, 'Values for Security');
-  // Its budget and actual are both 9000. Only CAD measurements keep a row per feature.
-  assert.deepEqual(values.items, ['9000']);
+  // Its budget and actual are both 9000: two cells, two places in the list.
+  assert.deepEqual(values.items, ['9000', '9000']);
 });
 
 test('an accepted supplier row offers its invoice and outstanding amount', async (t) => {

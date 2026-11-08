@@ -94,13 +94,25 @@ extension GlobalAssistant {
                 self.view.selected = savedSelection
                 self.view.sourceScoped = savedScope
                 self.showMeasuringHost(self.view.suggestions)
-            }
+            },
+            citedIn: Self.citingSentence(for: suggestion, in: savedContext)
         ) { [weak self] configuration in
             self?.insertShared(suggestion, configuration: configuration, context: savedContext, serverURL: serverURL)
         }
         // The composer grows down from the card's top edge. With the card above
         // the caret that would cover the typed line, so place it as the card is.
         if let popupCaret { reposition(near: popupCaret) }
+    }
+
+    /// The sentence the shared value will sit in once inserted: what was typed
+    /// before it, the value in place of the words it replaces, and what follows.
+    static func citingSentence(for suggestion: AssistSuggestion, in context: CaretContext) -> String {
+        let units = Array(context.text.utf16)
+        let caret = min(max(0, context.cursor), units.count)
+        let start = min(max(0, suggestion.replacement?.start ?? caret), caret)
+        return CitingSentence.around(suggestion.insertText,
+                                     before: String(decoding: units[..<start], as: UTF16.self),
+                                     after: String(decoding: units[caret...], as: UTF16.self))
     }
 
     // MARK: Insertion

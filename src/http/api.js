@@ -6,8 +6,8 @@ import { buildPreview } from '../history/preview.js';
 import { sendFileRange } from './file-range.js';
 import { HttpError } from '../history/errors.js';
 import { DEFAULT_EVENT_PAGE } from '../history/service.js';
-import { renderSharePage, renderUnavailable, renderInspectorPanel } from '../sharing/share-page.js';
-import { buildFullShareDocument, buildInspectorPreview, buildSharedExcerpt, buildSharePreview, buildSlideShareDocument, isTextPreviewPath, usesStructuredLayout, detectsCsvDelimiter } from '../sharing/share-preview.js';
+import { renderSharePage, renderUnavailable, renderInspectorPanel, renderMenuBarHome } from '../sharing/share-page.js';
+import { buildFullShareDocument, buildInspectorPreview, buildSharedExcerpt, buildSharedPassage, buildSharePreview, buildSlideShareDocument, isTextPreviewPath, usesStructuredLayout, detectsCsvDelimiter } from '../sharing/share-preview.js';
 import { fullTextLayout } from '../sharing/text-layout.js';
 import { isMarkdownPath } from '../sharing/markdown.js';
 import { buildModelPreview } from '../dependencies/model-preview.js';
@@ -140,6 +140,11 @@ function match(pathname, pattern) {
   return result ? result.slice(1).map(decodePathSegment) : null;
 }
 
+/** Whether the old browser workbench is wanted: by the Windows app, which asks for it, or on Windows. */
+function opensWorkbench(url) {
+  return process.platform === 'win32' || url.searchParams.get('platform') === 'windows';
+}
+
 function serveStatic(publicDir, pathname, response) {
   const relative = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   const target = path.resolve(publicDir, relative);
@@ -193,7 +198,13 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
     try {
       const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
       const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash), contentHash: file.contentHash } : null;
-      preview = buildSharedExcerpt(sourceFile, resolved.source.anchor, resolved.source.metadata);
+      preview = buildSharedExcerpt(sourceFile, resolved.source.anchor, resolved.source.metadata,
+        { nearbyRows: resolved.share.context?.nearbyRows === true });
+      // A passage from a text source is shared inside its paragraph.
+      if (!preview && resolved.share.accessScope === 'INDEXED' && sourceFile) {
+        preview = buildSharedPassage(sourceFile, resolved.source.anchor, resolved.source.metadata,
+          resolved.source.label, resolved.source.objectType);
+      }
       // A marked copy is the document's pages with the strokes drawn on, never the file.
       // When it cannot be drawn, nothing else of the document is shown in its place.
       const marked = markedPdfRequest(resolved);
@@ -674,7 +685,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const versionId = url.searchParams.get('version');
         const resolved = objectShares.describe(localObjectPreviewParameters[0], versionId);
         if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
-        let preview = null, sharedExcerpt = null;
+        let preview = null, sharedExcerpt = null, nearbyExcerpt = null;
         // The suggestion card scrolls, so it asks for more of the source around the citation.
         const wide = url.searchParams.get('context') === 'wide';
         const radius = wide ? ASSIST_SCROLL_TABLE_RADIUS : ASSIST_TABLE_RADIUS;
@@ -708,6 +719,9 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           // The share composer is shown the table its "Cited part only" publishes.
           if (url.searchParams.get('shared') === '1' && sourceFile) {
             sharedExcerpt = buildSharedExcerpt(sourceFile, resolved.source.anchor, resolved.source.metadata);
+            // A cited cell or row may also be shared with the rows around it, which the composer can switch on.
+            const nearby = buildSharedExcerpt(sourceFile, resolved.source.anchor, resolved.source.metadata, { nearbyRows: true });
+            if (nearby?.rows && JSON.stringify(nearby) !== JSON.stringify(sharedExcerpt)) nearbyExcerpt = nearby;
           }
           // The card asks for the cited slide's picture next; it is already being drawn.
           if (preview?.deck && file) {
@@ -720,6 +734,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           // What the share composer's "Cited part only" would publish.
           citedPart: citedPartModel(preview),
           ...(sharedExcerpt?.rows ? { sharedExcerpt } : {}),
+          ...(nearbyExcerpt ? { nearbyExcerpt } : {}),
           shareScopes: offeredShareScopes(resolved.internal.filePath, resolved.source.anchor),
         });
       }
@@ -1004,6 +1019,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
             redactions: body.redactions ?? [],
             excerpt: body.excerpt ?? null,
             markup: body.markup ?? [],
+            citedIn: body.citedIn ?? null,
+            nearbyRows: body.nearbyRows === true,
           }),
         });
       }
@@ -1075,6 +1092,10 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         return sendJson(response, 201, dependencies.revise(parameters[0], actorFrom(body), body));
       }
 
+      // The old browser workbench is the Windows app's window; on a Mac, Lasso is in the menu bar.
+      if (request.method === 'GET' && ['/', '/index.html'].includes(pathname) && !opensWorkbench(url)) {
+        return sendHtml(response, 200, renderMenuBarHome(), WORKSPACE_PAGE_HEADERS);
+      }
       if (request.method === 'GET' && serveStatic(config.publicDir, pathname, response)) return;
       sendJson(response, 404, { error: { message: 'Not found.' } });
     } catch (error) {

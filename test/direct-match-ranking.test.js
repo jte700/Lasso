@@ -295,3 +295,23 @@ test('a word the writer has typed past no longer picks the sources', async (t) =
   assert.deepEqual(nextClause, [], 'a new clause has begun after "issues"');
   assert.deepEqual(typedOn, [], 'nothing in "everything is how it is now" is in the register');
 });
+
+test('a file named by its name marks nothing in its preview: the whole file is the match', async (t) => {
+  // Arrange
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-file-name-'));
+  const root = path.join(temporary, 'Books');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'General-Ledger.csv'), 'Account,Debit CAD\nCash,120\nRent,80\n');
+  const app = createApplication({ dataDir: path.join(temporary, 'state'), watchProjects: false });
+  t.after(async () => { await app.close(); fs.rmSync(temporary, { recursive: true, force: true }); });
+  await app.workspace.add([root], { id: 'system:file-name', displayName: 'File name test', actorType: 'SYSTEM' });
+
+  // Act
+  const text = 'We checked the general ledger';
+  const prediction = await app.workspace.predict({ text, cursor: text.length, blockIndex: 0 });
+  const file = prediction.claims.flatMap((claim) => claim.candidates ?? []).find((candidate) => candidate.fileReference);
+
+  // Assert
+  assert.ok(file, 'General-Ledger.csv is offered by name');
+  assert.deepEqual(file.matchedWords, []);
+});

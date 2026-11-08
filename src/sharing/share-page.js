@@ -92,14 +92,14 @@ const RECIPIENT_STYLE = `
   .shared-brand{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:650;letter-spacing:-.01em}.shared-brand svg{width:21px;height:21px;color:var(--text2)}
   .shared-recipient :is(.shared-brand,.shared-toolbar-label,.shared-source-icon,.shared-scope,.action) svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}.shared-toolbar-label{display:flex;align-items:center;gap:6px;color:var(--text2);font-size:11px}.shared-toolbar-label svg{width:13px;height:13px}
   .shared-source{display:flex;min-width:0;align-items:flex-start;justify-content:space-between;gap:20px;padding:24px 24px 20px}.shared-source-identity{display:grid;min-width:0;grid-template-columns:38px minmax(0,1fr);gap:12px;align-items:start}
-  .shared-source-icon{display:grid;width:38px;height:42px;place-items:center;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text2)}.shared-source-icon svg{width:22px;height:25px}
+  .shared-source-icon{display:grid;width:38px;height:42px;place-items:center;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text2)}.shared-source-icon svg{width:22px;height:25px}.shared-source-icon.file-type{border:0;background:none}.shared-source-icon.file-type svg{width:34px;height:40px;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.2))}
   .shared-file-type{margin:0 0 4px;color:var(--text3);font-size:11px;font-weight:500}.shared-recipient h1{margin:0;color:var(--text);font-size:20px;line-height:1.3;font-weight:650;letter-spacing:-.025em;overflow-wrap:anywhere}
   .shared-file-name{margin:5px 0 0;color:var(--text2);font-size:12px;overflow-wrap:anywhere}.shared-scope{display:inline-flex;max-width:100%;flex:0 0 auto;align-items:center;gap:5px;margin-top:1px;padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--text2);font-size:11px;line-height:1.4}.shared-scope svg{width:13px;height:13px;flex:0 0 auto}
   .shared-content{min-width:0;padding:0 24px 24px}.shared-content-card{min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
   .shared-content-heading{display:flex;min-width:0;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--surface)}.shared-content-heading h2{margin:0;font-size:12px;font-weight:600}.shared-content-heading p{min-width:0;margin:2px 0 0;color:var(--text2);font-size:11px;overflow-wrap:anywhere}.shared-content-heading small{flex:0 0 auto;color:var(--text3);font-size:10px}
   .shared-recipient .shared-context-table{max-height:560px;max-height:min(65vh,560px);min-height:0;max-width:100%;margin:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;border:0;border-radius:0}
   .shared-recipient .shared-context-table table{width:max-content;min-width:100%;margin:0;border:0;border-radius:0;font-size:12px}.shared-recipient .shared-context-table th,.shared-recipient .shared-context-table td{min-width:94px;max-width:300px;padding:8px 10px;white-space:pre-wrap;overflow-wrap:anywhere;vertical-align:top;line-height:1.45}
-  .shared-recipient .shared-context-table thead th{position:sticky;top:0;z-index:2;background:var(--surface);color:var(--text2);font-size:11px;font-weight:600}.shared-recipient .shared-context-table .column-letter{display:block;margin-bottom:3px;color:var(--text3);font-size:10px;font-weight:500}.shared-recipient .shared-context-table .selected-column{color:var(--cited);background:color-mix(in srgb,var(--cited) 14%,var(--surface))}
+  .shared-recipient .shared-context-table thead th{position:sticky;top:0;z-index:2;background:var(--surface);color:var(--text2);font-size:11px;font-weight:600}.shared-recipient .shared-context-table .column-letter{display:block;margin-bottom:3px;color:var(--text3);font-size:10px;font-weight:500}.shared-recipient .shared-passage{color:var(--text2)}.shared-claim{margin:0 24px 18px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--text) 3%,var(--surface))}.shared-claim-label{margin:0 0 6px;color:var(--text3);font-size:11px;font-weight:600;letter-spacing:.02em;text-transform:uppercase}.shared-claim blockquote{margin:0;color:var(--text);font-size:15px;line-height:1.55;font-weight:500}.shared-claim blockquote::before{content:"“"}.shared-claim blockquote::after{content:"”"}.shared-claim-check{display:flex;align-items:center;gap:6px;margin:10px 0 0;color:var(--text3);font-size:12px}.shared-claim-check.verified{color:var(--text2)}.shared-claim-check svg{flex:none;width:14px;height:14px;fill:none;stroke:var(--cited);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.shared-recipient mark.shared-cited{padding:1px 2px;border-radius:3px;background:color-mix(in srgb,var(--cited) 18%,transparent);box-shadow:inset 0 -1.5px 0 var(--cited);color:var(--text);font-weight:500}.shared-recipient .shared-context-table .selected-column{color:var(--cited);background:color-mix(in srgb,var(--cited) 14%,var(--surface))}
   .shared-recipient .shared-context-table .row-number{position:sticky;left:0;z-index:1;min-width:37px;width:37px;max-width:37px;padding:8px 9px;text-align:right;background:var(--paper);color:var(--text3);font-size:10px;font-weight:400;white-space:nowrap;user-select:none}.shared-recipient .shared-context-table thead .row-number{z-index:3;background:var(--surface)}
   .shared-recipient td.cited{background:color-mix(in srgb,var(--cited) 2.5%,var(--paper));box-shadow:inset 0 0 0 .8px color-mix(in srgb,var(--cited) 65%,transparent);font-weight:500}.shared-selection-key{display:flex;align-items:center;gap:6px;margin:0;padding:8px 12px;border-top:1px solid var(--line);color:var(--text3);font-size:10px}.shared-selection-key i{width:9px;height:9px;border:.8px solid color-mix(in srgb,var(--cited) 65%,transparent);border-radius:2px;background:color-mix(in srgb,var(--cited) 2.5%,var(--paper))}
   .shared-recipient .full-document{margin:0;padding:12px;min-width:0}.shared-recipient .full-document section+section{margin-top:16px}.shared-recipient .full-document h2{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--text2)}.shared-recipient .full-document .document-table{max-height:560px;margin:0;border-radius:6px}.shared-recipient .full-document table{font-size:12px}.shared-recipient .document-table th{min-width:94px;padding:7px 10px;font-size:10px}.shared-recipient .document-table .row-number{position:sticky;left:0;z-index:1;min-width:37px;max-width:37px;padding:8px;text-align:right;background:var(--paper);font-size:10px;font-weight:400}.shared-recipient .document-table thead .row-number{z-index:3;background:var(--surface)}.shared-recipient .full-document td{padding:8px 10px}.shared-recipient .full-document.document-text{gap:0;padding:18px 20px}.shared-recipient .full-document .document-block{padding:9px 0;border:0;background:transparent;line-height:1.65}.shared-recipient .full-document.document-lines .document-block{padding:1px 0;line-height:1.5}.shared-recipient .drawing-document{padding:0}.shared-recipient .drawing-document .model-plan{border:0;border-radius:0}.shared-recipient .drawing-document .model-plan-svg{height:min(65vh,580px);min-height:260px}
@@ -121,6 +121,18 @@ function page(title, body, bodyClass = '') {
 }
 
 /// Distinct wording per state, with no hint that other tokens exist.
+/**
+ * What a Mac browser sees at the server's own address. Lasso lives in the
+ * menu bar there; the old browser workbench is kept only for the Windows app.
+ */
+export function renderMenuBarHome() {
+  return page('Lasso', `
+    <article class="shared-window"><header class="shared-toolbar"><div class="shared-brand">${icon('lasso')}<span>Lasso</span></div></header>
+    <section class="shared-content shared-unavailable"><h1>Lasso runs from the menu bar</h1>
+      <p>Suggestions appear while you type in any app. Open The Ranch from the menu bar, or press Shift-Command-R, to see your sources.</p></section></article>
+  `, 'shared-recipient');
+}
+
 export function renderUnavailable(status) {
   const message = {
     REVOKED: 'This dependency link has been revoked.',
@@ -201,6 +213,7 @@ function icon(name) {
   // Use the same mark as the main website, with the toolbar's theme color.
   if (name === 'lasso') return '<svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><g stroke-width="2"><ellipse cx="15" cy="12" rx="11" ry="7.5" transform="rotate(-10 15 12)"/><path d="M19.5 18.6c1.6 3.2 4.6 4.6 7.6 9.4"/><circle cx="19.3" cy="18.4" r="2" fill="currentColor" stroke="none"/></g></svg>';
   const paths = {
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
     document: '<path d="M6 3.5h8l4 4V21H6Z"/><path d="M14 3.5v4h4M9 12h6M9 16h6"/>',
     table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11M15 9v11M3 14h18"/>',
     drawing: '<path d="M4 20V4h16M8 20V8h12M8 14h7v6M15 8v6"/>',
@@ -221,6 +234,37 @@ function columnLetter(index) {
   return result;
 }
 
+// A source's type as The Ranch shows it: a white page with the type on a
+// band in the type's colour. The Ranch draws Office files with macOS's own
+// icons, which a page cannot show, so those take their app's colour here.
+const FILE_TYPE_COLOURS = [
+  ['#107C41', ['xlsx', 'xlsm', 'xls', 'numbers']], ['#188038', ['csv', 'tsv']],
+  ['#185ABD', ['docx', 'doc', 'pages']], ['#C43E1C', ['pptx', 'ppt', 'key']], ['#D93025', ['pdf']],
+  ['#8E8E93', ['txt', 'rtf', 'log']], ['#46566B', ['md', 'markdown']],
+  ['#8E44AD', ['json', 'yaml', 'yml', 'xml', 'toml']],
+  ['#5856D6', ['js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'py', 'swift', 'java', 'kt', 'c', 'h', 'cpp', 'hpp',
+    'cs', 'go', 'rs', 'rb', 'php', 'sh', 'sql', 'css', 'scss']],
+  ['#E8710A', ['step', 'stp', 'iges', 'igs', 'stl', 'obj', 'ply', '3mf', 'usd', 'usdz', 'f3d', 'sldprt', 'dxf', 'dwg', 'ifc']],
+  ['#D6336C', ['png', 'jpg', 'jpeg', 'gif', 'heic', 'tif', 'tiff', 'webp', 'bmp', 'svg']],
+  ['#5E5CE6', ['mp4', 'mov', 'm4v']],
+];
+const SHORT_TYPE_LABELS = { jpeg: 'JPG', markdown: 'MD', sldprt: 'SLD', tiff: 'TIF' };
+
+/** @param {string} filename @returns {string} the type's page icon as SVG */
+function fileTypeIcon(filename) {
+  const name = String(filename ?? '');
+  const extension = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+  const colour = FILE_TYPE_COLOURS.find(([, extensions]) => extensions.includes(extension))?.[0] ?? '#8E8E93';
+  const label = SHORT_TYPE_LABELS[extension] ?? (extension.toUpperCase().slice(0, 5) || 'FILE');
+  const size = label.length >= 4 ? 7.5 : 9;
+  return `<svg class="file-type-icon" viewBox="0 0 32 38" aria-hidden="true">`
+    + `<path d="M5 1.5h15l9.5 9.5v22.5a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3v-29a3 3 0 0 1 3-3z" fill="#fff" stroke="rgba(0,0,0,.18)" stroke-width="1"/>`
+    + `<path d="M20 1.5v6.5a3 3 0 0 0 3 3h6.5" fill="#dcdce0" stroke="rgba(0,0,0,.18)" stroke-width="1"/>`
+    + `<rect x="0.5" y="19" width="31" height="12.5" rx="2" fill="${colour}" stroke="none"/>`
+    + `<text x="16" y="28.6" text-anchor="middle" font-size="${size}" font-weight="800" fill="#fff" stroke="none"`
+    + ` font-family="-apple-system,BlinkMacSystemFont,system-ui,sans-serif">${escapeHtml(label)}</text></svg>`;
+}
+
 /**
  * The one cited cell of a table, when a single cell is cited. Its row is
  * washed from the row number up to it and its column from the letter down
@@ -238,6 +282,36 @@ function wayIntoCitedCell(rows) {
 }
 
 const cellClass = (cell, onPath) => (cell.cited ? 'cited' : onPath ? 'on-path' : '');
+
+/** Numbers and words compared as written, whatever their commas, currency or case. */
+const comparable = (value) => String(value ?? '').toLowerCase().replace(/[\s,$€£¥]/g, '');
+
+/**
+ * The sentence the share backs, as the sender wrote it, and whether the
+ * cited value is in it. The value comes from the pinned version, so the
+ * check holds whatever happens to the file later. A redacted share shows no
+ * sentence: it could repeat what was hidden.
+ */
+function citedInPanel(citedIn, source, share, redacted) {
+  if (!citedIn || redacted) return '';
+  const value = comparable(source.valueText);
+  const matches = value.length > 0 && comparable(citedIn).includes(value);
+  const pinned = `version ${escapeHtml(source.snapshotVersion)} of ${escapeHtml(source.filename)}, ${escapeHtml(formatDate(share.createdAt))}`;
+  return `<section class="shared-claim" aria-label="Where this source is cited">
+        <p class="shared-claim-label">Cited in</p>
+        <blockquote>${escapeHtml(citedIn)}</blockquote>
+        <p class="shared-claim-check${matches ? ' verified' : ''}">${matches ? `${icon('check')}<span>The cited value matches ${pinned}.</span>`
+          : `<span>Cited from ${pinned}.</span>`}</p>
+      </section>`;
+}
+
+/** A cited passage inside its paragraph, the passage marked where it is found. */
+function sharedPassage(paragraph, cited) {
+  const at = cited ? paragraph.indexOf(cited) : -1;
+  const body = at < 0 ? escapeHtml(paragraph)
+    : `${escapeHtml(paragraph.slice(0, at))}<mark class="shared-cited">${escapeHtml(cited)}</mark>${escapeHtml(paragraph.slice(at + cited.length))}`;
+  return `<blockquote class="shared-quote shared-passage">${body}</blockquote>`;
+}
 
 function recipientTable(preview) {
   const selected = column => preview.rows.some(row => row.cells[column]?.cited);
@@ -271,6 +345,7 @@ export function renderSharePage(resolved, token, preview, document = null) {
   const excerpt = pdfExcerpt || scope === 'MARKED' ? '' : recipientExcerptText(source);
   const content = hasTable ? recipientTable(preview)
     : hasDocument ? renderFullDocument(document, redactions, redacted)
+      : preview?.kind === 'passage' && scope === 'INDEXED' ? sharedPassage(preview.paragraph, excerpt)
       : scope === 'MARKED' ? '<p class="shared-empty">The marked copy couldn’t be prepared. Ask the sender for a new link.</p>'
       : excerpt ? isMarkdownPath(source.filename)
         ? `<blockquote class="shared-quote"><div class="markdown-document"><p class="md-paragraph">${markdownInlineHtml(excerpt)}</p></div></blockquote>`
@@ -280,7 +355,8 @@ export function renderSharePage(resolved, token, preview, document = null) {
     : scope === 'INDEXED' ? 'Shared excerpt' : deck ? 'Slides' : 'Source preview';
   const location = !redacted && (document?.safe || document?.citedSlide) && document.location ? document.location
     : !redacted && scope !== 'MARKED' && source.location && source.location !== '—' ? source.location : '';
-  const stats = hasTable ? `${preview.rows.length} rows · ${preview.headers.length} columns`
+  const counted = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`;
+  const stats = hasTable ? `${counted(preview.rows.length, 'row')} · ${counted(preview.headers.length, 'column')}`
     : redacted && document?.kind === 'table' ? `${document.sheets?.length ?? 0} worksheets`
       : drawing && document?.kind === 'model-plan' ? 'Plan view'
         : model && document?.kind === 'model-plan' ? escapeHtml(document.view ?? '')
@@ -315,10 +391,11 @@ export function renderSharePage(resolved, token, preview, document = null) {
     <article class="shared-window">
       <header class="shared-toolbar"><div class="shared-brand">${icon('lasso')}<span>Lasso</span></div><span class="shared-toolbar-label">${icon('link')}Shared source</span></header>
       <section class="shared-source">
-        <div class="shared-source-identity"><span class="shared-source-icon">${icon(table ? 'table' : drawing || model ? 'drawing' : 'document')}</span>
+        <div class="shared-source-identity"><span class="shared-source-icon file-type">${fileTypeIcon(source.filename)}</span>
           <div><p class="shared-file-type">${type}</p><h1>${escapeHtml(title)}</h1>${title !== source.filename ? `<p class="shared-file-name">${escapeHtml(source.filename)}</p>` : ''}</div></div>
         <span class="shared-scope" title="${escapeHtml(shareScopeName(scope))}">${icon('lock')}${scopeLabel}</span>
       </section>
+      ${citedInPanel(share.context?.citedIn, source, share, redacted)}
       <section class="shared-content">
         <div class="shared-content-card"><header class="shared-content-heading"><div><h2>${heading}</h2>${location ? `<p>${escapeHtml(location)}</p>` : ''}</div>${stats ? `<small>${stats}</small>` : ''}</header>${content}</div>
         ${actions ? `<div class="shared-downloads"><p>${downloadDetail}</p><nav class="actions" aria-label="Download shared content">${actions}</nav></div>` : ''}

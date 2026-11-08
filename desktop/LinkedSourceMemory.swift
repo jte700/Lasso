@@ -422,3 +422,15 @@ enum FocusLanding: Equatable {
         return objectIds.firstIndex(of: objectId) ?? 0
     }
 }
+
+/// Which row the card highlights once a new answer arrives. Typing changes
+/// what the list is for, so the highlight starts again at the top, where the
+/// closest match is. An answer to the same text keeps the highlighted
+/// suggestion, wherever it has moved to.
+enum CardHighlight {
+    static func afterAnswer(selected: Int, previous: [String], next: [String], textChanged: Bool) -> Int {
+        if textChanged { return 0 }
+        if previous.indices.contains(selected), let kept = next.firstIndex(of: previous[selected]) { return kept }
+        return min(max(0, selected), max(0, next.count - 1))
+    }
+}
