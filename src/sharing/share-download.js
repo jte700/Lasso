@@ -17,8 +17,10 @@ export function shareDownloadOptions(resolved, preview, document) {
   const redacted = resolved.share.accessScope === 'REDACTED';
   // A failed PDF crop must never fall back to a different indexed passage or
   // source summary. Only renderer-produced pixels can fulfill a PDF excerpt.
-  if (resolved.share.accessScope === 'INDEXED' && /\.pdf$/i.test(resolved.source.filename)
-      && !(document?.kind === 'pdf' && document.safe === true && Buffer.isBuffer(document.content))) return null;
+  const safePdf = document?.kind === 'pdf' && document.safe === true && Buffer.isBuffer(document.content);
+  if (resolved.share.accessScope === 'INDEXED' && /\.pdf$/i.test(resolved.source.filename) && !safePdf) return null;
+  // Only the drawn copy is a marked copy; it never falls back to the cited text.
+  if (resolved.share.accessScope === 'MARKED' && !safePdf) return null;
   let type, format;
   if (document?.kind === 'pdf' && document.safe === true && Buffer.isBuffer(document.content)) {
     type = 'pdf'; format = 'PDF';
@@ -40,7 +42,8 @@ export function shareDownloadOptions(resolved, preview, document) {
   } else if (recipientExcerptText(resolved.source)) {
     type = 'text'; format = 'TXT';
   }
-  return type ? { type, format, label: redacted ? 'Download redacted copy' : 'Download excerpt' } : null;
+  const label = redacted ? 'Download redacted copy' : resolved.share.accessScope === 'MARKED' ? 'Download marked copy' : 'Download excerpt';
+  return type ? { type, format, label } : null;
 }
 
 function safeStem(value) {
@@ -108,7 +111,7 @@ export function buildShareDownload(resolved, preview, document) {
     content = Buffer.from(`${text}\n`, 'utf8');
   }
   const version = Number.isSafeInteger(resolved.source.snapshotVersion) ? `-v${resolved.source.snapshotVersion}` : '';
-  const suffix = resolved.share.accessScope === 'REDACTED' ? 'redacted' : options.type === 'slide' ? `slide-${document.slide}` : 'excerpt';
+  const suffix = resolved.share.accessScope === 'REDACTED' ? 'redacted' : resolved.share.accessScope === 'MARKED' ? 'marked' : options.type === 'slide' ? `slide-${document.slide}` : 'excerpt';
   const contentType = { PPTX: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', PDF: 'application/pdf', CSV: 'text/csv; charset=utf-8', ZIP: 'application/zip', TXT: 'text/plain; charset=utf-8', MD: 'text/markdown; charset=utf-8', SVG: 'image/svg+xml; charset=utf-8' }[options.format];
   return { ...options, content, contentType,
     filename: `${safeStem(resolved.source.filename)}-${suffix}${version}.${options.format.toLowerCase()}` };

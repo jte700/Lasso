@@ -208,9 +208,10 @@ struct RanchAnchor: Decodable, Equatable {
     var pageNumber: Int? = nil
     var line: Int? = nil
     var elementId: String? = nil
+    var slideNumber: Int? = nil
 
     private enum Keys: String, CodingKey {
-        case kind, sheet, rowIndex, columnIndex, rowKey, pageNumber, page, line, lineStart, elementId
+        case kind, sheet, rowIndex, columnIndex, rowKey, pageNumber, page, line, lineStart, elementId, slideNumber
     }
 
     init(kind: String? = nil, sheet: String? = nil, rowIndex: Int? = nil, columnIndex: Int? = nil, rowKey: String? = nil,
@@ -235,6 +236,7 @@ struct RanchAnchor: Decodable, Equatable {
         pageNumber = (try? container.decode(Int.self, forKey: .pageNumber)) ?? (try? container.decode(Int.self, forKey: .page))
         line = (try? container.decode(Int.self, forKey: .line)) ?? (try? container.decode(Int.self, forKey: .lineStart))
         elementId = try? container.decode(String.self, forKey: .elementId)
+        slideNumber = try? container.decode(Int.self, forKey: .slideNumber)
     }
 }
 
@@ -475,6 +477,46 @@ enum RanchOrder: String, CaseIterable, Identifiable {
     }
 }
 
+/// Directories pinned from their right-click menu sit at the top of their
+/// section, in the chosen directory order among themselves.
+enum RanchPins {
+    static let key = "RanchPinnedDirectories"
+
+    static func saved(defaults: UserDefaults = .standard) -> Set<String> {
+        Set(defaults.stringArray(forKey: key) ?? [])
+    }
+
+    static func save(_ pinned: Set<String>, defaults: UserDefaults = .standard) {
+        defaults.set(pinned.sorted(), forKey: key)
+    }
+
+    static func ordered(_ directories: [RanchDirectory], pinned: Set<String>) -> [RanchDirectory] {
+        directories.filter { pinned.contains($0.id) } + directories.filter { !pinned.contains($0.id) }
+    }
+}
+
+/// The directories the network showed before each click into another, so
+/// Back retraces them; nil is every directory.
+struct RanchNetworkTrail: Equatable {
+    private static let limit = 50
+    private(set) var visited: [String?] = []
+
+    var canGoBack: Bool { !visited.isEmpty }
+
+    mutating func leave(_ shown: String?, for next: String?) {
+        guard shown != next else { return }
+        visited.append(shown)
+        if visited.count > Self.limit { visited.removeFirst() }
+    }
+
+    /// The view before the current one: the last one left, or every directory.
+    mutating func back() -> String? {
+        visited.popLast() ?? nil
+    }
+
+    mutating func clear() { visited.removeAll() }
+}
+
 /// Grey for a file nobody has used, through to green for the most used.
 enum RanchActivityColor {
     private static let hue: CGFloat = 0.37
@@ -501,6 +543,8 @@ enum RanchViewerKind: Equatable {
     case plan
     /// Workbooks, as cells Lasso reads, with Quick Look's layout a click away.
     case sheet
+    /// PowerPoint decks, as the pictures Lasso draws of each slide, under a slide menu.
+    case slides
 
     private static let sheetExtensions: Set<String> = ["xlsx", "xlsm", "xls"]
     private static let meshExtensions: Set<String> = ["stl", "obj", "ply", "usdz", "usd", "usda", "usdc", "abc", "dae", "scn"]
@@ -518,6 +562,7 @@ enum RanchViewerKind: Equatable {
         case "dxf", "ifc": return .plan
         case let other where meshExtensions.contains(other): return .mesh
         case let other where sheetExtensions.contains(other): return .sheet
+        case "pptx": return .slides
         default: return .quickLook
         }
     }
@@ -526,7 +571,7 @@ enum RanchViewerKind: Equatable {
         switch self {
         case .wireframe, .mesh: return "Drag to rotate \u{00B7} Pinch or scroll to zoom \u{00B7} Option-drag to pan"
         case .plan: return "Pinch or scroll to zoom \u{00B7} Drag to pan"
-        case .quickLook, .code, .sheet: return nil
+        case .quickLook, .code, .sheet, .slides: return nil
         }
     }
 }

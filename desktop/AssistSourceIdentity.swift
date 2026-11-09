@@ -121,6 +121,8 @@ enum AssistSourceLocation {
 enum AssistSuggestionSemantics {
     static func insertionText(claimType: String?, label: String, value: String?,
                               completionText: String? = nil) -> String {
+        // A quoted phrase is already typed; acceptance adds its citation, the video and the moment.
+        if claimType == "QUOTED_PHRASE" { return completionText ?? "" }
         if claimType == "STUDY_VARIABLE" {
             // The value describes the column for the preview. Acceptance types
             // its name, matching the server's explicit completion and web UI.
@@ -132,6 +134,20 @@ enum AssistSuggestionSemantics {
         let labelFirst = Set(["ENTITY", "DATASET_REFERENCE", "FIGURE", "TABLE_REFERENCE", "METHOD"])
         if let claimType, labelFirst.contains(claimType), !label.isEmpty { return label }
         return value ?? label
+    }
+
+    /// The passage a claim candidate's preview marks: its sentence, when it is
+    /// a sentence of its source. A cell's or column's value is not found as
+    /// text in its preview, so it is none.
+    static func passage(of candidate: [String: Any]) -> String? {
+        // A video's preview finds the quoted words in its transcript, and starts where they are said.
+        if let quoted = (candidate["quotedPhrase"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !quoted.isEmpty { return quoted }
+        let metadata = candidate["metadata"] as? [String: Any] ?? [:]
+        guard metadata["componentType"] as? String == "TEXT_EXCERPT",
+              let sentence = (candidate["valueText"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sentence.isEmpty else { return nil }
+        return sentence
     }
 }
 

@@ -6,22 +6,51 @@ import ApplicationServices
 struct AssistPopupHost {
     let element: AXUIElement
     let window: AXUIElement
+    /// What the editor names as its window. It is the window itself, except
+    /// in Chrome's full screen: the toolbar is drawn in overlay windows there,
+    /// and the address bar names the group that holds it, below the window.
+    let container: AXUIElement
     let processIdentifier: pid_t
+
+    /// Parents walked from the editor to its window; Chrome's address bar is
+    /// about eight levels below.
+    static let maxWindowDepth = 40
 
     init?(element: AXUIElement) {
         var pid: pid_t = 0
         guard AXUIElementGetPid(element, &pid) == .success,
-              let window = Self.elementAttribute(element, kAXWindowAttribute as String) else { return nil }
+              let container = Self.elementAttribute(element, kAXWindowAttribute as String),
+              let window = Self.owningWindow(named: container, above: element,
+                                             parent: { Self.elementAttribute($0, kAXParentAttribute as String) },
+                                             role: { Self.attribute($0, kAXRoleAttribute as String) as? String })
+        else { return nil }
         self.element = element
         self.window = window
+        self.container = container
         processIdentifier = pid
         AXUIElementSetMessagingTimeout(element, 0.15)
         AXUIElementSetMessagingTimeout(window, 0.15)
+        AXUIElementSetMessagingTimeout(container, 0.15)
+    }
+
+    /// The window an editor belongs to: the one it names, or, when it names
+    /// something that is not a window, the nearest window above it.
+    static func owningWindow<Node>(named reported: Node, above editor: Node, parent: (Node) -> Node?,
+                                   role: (Node) -> String?, maxDepth: Int = maxWindowDepth) -> Node? {
+        if role(reported) == kAXWindowRole as String { return reported }
+        var current = parent(editor)
+        for _ in 0..<maxDepth {
+            guard let node = current else { return nil }
+            if role(node) == kAXWindowRole as String { return node }
+            current = parent(node)
+        }
+        return nil
     }
 
     /// Check ownership before reading the caret, including after a network
     /// response. Closed compose boxes, minimized windows, and other apps must
-    /// never inherit the old popup.
+    /// never inherit the old popup. While someone types in Chrome's full-screen
+    /// address bar, Chrome reports the browser window as focused.
     var isCurrent: Bool {
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == processIdentifier,
               let running = NSRunningApplication(processIdentifier: processIdentifier),
@@ -31,7 +60,7 @@ struct AssistPopupHost {
         let application = AXUIElementCreateApplication(processIdentifier)
         AXUIElementSetMessagingTimeout(application, 0.15)
         guard let focused = Self.elementAttribute(application, kAXFocusedUIElementAttribute as String),
-              CFEqual(focused, element),
+              CFEqual(FocusedTextElement.resolve(focused), element),
               let focusedWindow = Self.elementAttribute(application, kAXFocusedWindowAttribute as String),
               CFEqual(focusedWindow, window) else { return false }
         return true
@@ -43,12 +72,14 @@ struct AssistPopupHost {
     }
 
     /// A caret already measured for this editor, kept only if it lies inside
-    /// the editor and its window. Callers check `isCurrent` first.
+    /// the editor and its window. Callers check `isCurrent` first. Chrome's
+    /// full-screen window starts below its toolbar, so the address bar is
+    /// measured against the overlay that holds it.
     func caretIfVisible(_ caret: CGRect?) -> CGRect? {
         guard let caret,
               caret.minX.isFinite, caret.minY.isFinite,
               caret.width.isFinite, caret.height > 0, caret.height < 400,
-              let windowFrame = Self.frame(window), let editorFrame = Self.frame(element),
+              let windowFrame = Self.frame(container), let editorFrame = Self.frame(element),
               windowFrame.intersects(caret.insetBy(dx: -1, dy: 0)),
               editorFrame.insetBy(dx: -2, dy: -2).intersects(caret.insetBy(dx: -1, dy: 0)) else { return nil }
         return caret

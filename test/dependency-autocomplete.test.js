@@ -314,16 +314,12 @@ test('dependency autocomplete acceptance workflows', async (suite) => {
     assert.equal(cue.claims.length, 0);
     assert.equal(cue.sourceContext.kind, 'PROJECT_DATA');
     assert.equal(cue.sourceContext.exclusive, true);
-    assert.ok(cue.workspaceCompletions.length >= 2);
-    assert.ok(cue.workspaceCompletions.every((suggestion) => suggestion.generated === false));
-    assert.ok(cue.workspaceCompletions.some((suggestion) => suggestion.dependencyCandidate.objectType === 'VARIABLE'));
-    assert.ok(cue.workspaceCompletions.every((suggestion) => suggestion.dependencyCandidate.objectType !== 'VARIABLE'
-      || /[A-Za-z]/.test(suggestion.replacementText)));
+    assert.deepEqual(cue.workspaceCompletions, [], 'words that name no source offer none');
 
+    // Study prose alone names no column: only a word a source contains does.
     const ownWorkspacePrompts = [
       'Our data showed that',
       'The study found a',
-      'In the current analysis, we observed',
       'These results indicate',
       'Our cohort includes',
     ];
@@ -332,14 +328,19 @@ test('dependency autocomplete acceptance workflows', async (suite) => {
         text, cursor: text.length, context: text, documentPath: 'manuscript/results.md',
       });
       assert.equal(contextual.sourceContext.kind, 'PROJECT_DATA', text);
-      assert.ok(contextual.workspaceCompletions.length >= 2, text);
-      assert.ok(contextual.workspaceCompletions.every((suggestion) => suggestion.replacementText
-        && suggestion.dependencyCandidate.path
-        && !['PAPER', 'REFERENCE'].includes(suggestion.dependencyCandidate.objectType)), text);
-      assert.ok(contextual.workspaceCompletions.some((suggestion) => /^(?:data|results|analysis)\//.test(
-        suggestion.dependencyCandidate.path,
-      )), text);
+      assert.deepEqual(contextual.workspaceCompletions, [], text);
     }
+    const currentText = 'In the current analysis, we observed';
+    const current = application.dependencies.predict(project.id, {
+      text: currentText, cursor: currentText.length, context: currentText, documentPath: 'manuscript/results.md',
+    });
+    assert.equal(current.workspaceCompletions[0]?.dependencyCandidate.label, 'Current Period', '"current" names that column');
+    const namedText = 'We found the birth weight ';
+    const named = application.dependencies.predict(project.id, {
+      text: namedText, cursor: namedText.length, context: namedText, documentPath: 'manuscript/results.md',
+    });
+    assert.deepEqual(named.claims.map((claim) => [claim.type, claim.candidates[0]?.label]),
+      [['STUDY_VARIABLE', 'birth_weight_g']], 'a column the sentence names is offered');
 
     const partialText = 'We found that vitam';
     const partial = application.dependencies.predict(project.id, {
@@ -353,8 +354,13 @@ test('dependency autocomplete acceptance workflows', async (suite) => {
     assert.equal(partial.candidates[0].completionText, 'Vitamin B1');
     assert.equal(partial.candidates[0].path, 'data/placental_vitamins.csv');
     assert.equal(partial.candidates[0].objectType, 'VARIABLE');
-    assert.deepEqual(partial.candidates.map((candidate) => candidate.label),
-      ['Vitamin B1', 'Vitamin B12', 'Vitamin B2', 'Vitamin B3', 'Vitamin C']);
+    // The results file's own Vitamin B1 and B2 rows follow the data's columns of the same name.
+    assert.deepEqual(partial.candidates.map((candidate) => `${candidate.label} · ${candidate.path}`), [
+      'Vitamin B1 · data/placental_vitamins.csv', 'Vitamin B1 · results/vitamin_effects.csv',
+      'Vitamin B12 · data/placental_vitamins.csv',
+      'Vitamin B2 · data/placental_vitamins.csv', 'Vitamin B2 · results/vitamin_effects.csv',
+      'Vitamin B3 · data/placental_vitamins.csv', 'Vitamin C · data/placental_vitamins.csv',
+    ]);
     assert.ok(partial.candidates.every((candidate) => !['PAPER', 'REFERENCE'].includes(candidate.objectType)));
 
     const alternateWording = 'Our study found that vita';
@@ -363,7 +369,7 @@ test('dependency autocomplete acceptance workflows', async (suite) => {
       context: alternateWording, documentPath: 'manuscript/results.md',
     }).claims[0];
     assert.equal(alternate.text, 'vita');
-    assert.equal(alternate.candidates.length, 5);
+    assert.equal(alternate.candidates.length, partial.candidates.length);
 
     const noTemplate = 'Vitam';
     const direct = application.dependencies.predict(project.id, {
@@ -371,7 +377,7 @@ test('dependency autocomplete acceptance workflows', async (suite) => {
       context: noTemplate, documentPath: 'manuscript/results.md',
     }).claims[0];
     assert.equal(direct.text, 'Vitam');
-    assert.equal(direct.candidates.length, 5);
+    assert.equal(direct.candidates.length, partial.candidates.length);
 
     const exactText = 'We found that vitamin B1';
     const exact = application.dependencies.predict(project.id, {

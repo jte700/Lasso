@@ -44,6 +44,14 @@ struct RanchNetworkView: View {
         VStack(spacing: 0) {
             RanchColumnHeader(title: "Network", subtitle: subtitle(layout))
             RanchFilterBar {
+                // Retraces clicks into directories, one at a time, back to every directory.
+                Button { focusNetwork(); store.networkBack() } label: {
+                    Label("Back", systemImage: "chevron.left")
+                }
+                .buttonStyle(RanchPillButtonStyle())
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(!store.canGoBackInNetwork)
+                .help("Back (\u{2318}[)")
                 RanchPillMenu(title: store.networkDirectory.map(store.directoryName) ?? "All Directories", symbol: "folder",
                               help: "Show every directory, or one and what it connects to") {
                     Picker("Show", selection: $store.networkDirectory) {
@@ -95,7 +103,7 @@ struct RanchNetworkView: View {
     /// One offer at a time, named for what is on screen now, as the Edit menu shows it.
     private func offerWholeNetwork() {
         forgetWholeNetwork()
-        store.undoManager.registerUndo(withTarget: store) { store in
+        store.undoManager.registerUndo(withTarget: store.networkUndoTarget) { _ in
             store.networkDirectory = nil
             resetView()
         }
@@ -105,7 +113,7 @@ struct RanchNetworkView: View {
 
     /// Back at the whole network, or out of sight: ⌘Z has nothing here to undo.
     private func forgetWholeNetwork() {
-        store.undoManager.removeAllActions(withTarget: store)
+        store.undoManager.removeAllActions(withTarget: store.networkUndoTarget)
     }
 
     /// A click, pinch or drag on the network takes focus from the search
@@ -163,7 +171,7 @@ struct RanchNetworkView: View {
                 if node.role == .hub {
                     context.fill(Path(ellipseIn: rect), with: .color(RanchTheme.surface))
                     context.stroke(Path(ellipseIn: rect), with: .color(fill), lineWidth: 3)
-                    // In the directory's own Lasso colour, as in the sidebar and the menu bar panel.
+                    // In the directory's own Lasso colour, as in the sidebar.
                     let directory = store.directory(node.directoryId)
                     var glyph = context.resolve(Image(systemName: directory?.sidebarSymbol ?? "folder"))
                     glyph.shading = .color(directory?.color ?? .secondary)

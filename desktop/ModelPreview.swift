@@ -392,6 +392,10 @@ struct AssistPDFPageImage {
     let highlighted: Bool
     /// The part of the page shown, in page space, or nil for the whole page.
     var focus: CGRect? = nil
+    /// The document the page is from, its citation highlighted, for a
+    /// preview that scrolls through it, and the size of its file.
+    var document: PDFDocument? = nil
+    var documentBytes = 0
 
     /// Shown around a citation: at least this share of the page width, with
     /// room beside and above it so the surrounding text or drawing reads too.
@@ -485,12 +489,14 @@ struct AssistPDFPageImage {
            let region = focusRegion(around: cited, page: page.bounds(for: .cropBox), aspect: size.width / size.height) {
             let zoomedSize = NSSize(width: size.width, height: (size.width * region.height / region.width).rounded())
             if let zoomed = image(of: page, region: region, size: zoomedSize) {
-                return AssistPDFPageImage(image: zoomed, pageNumber: pageIndex + 1, highlighted: true, focus: region)
+                return AssistPDFPageImage(image: zoomed, pageNumber: pageIndex + 1, highlighted: true, focus: region,
+                                          document: document, documentBytes: data.count)
             }
         }
         let image = page.thumbnail(of: size, for: .cropBox)
         guard image.size.width > 0, image.size.height > 0 else { return nil }
-        return AssistPDFPageImage(image: image, pageNumber: pageIndex + 1, highlighted: selected != nil)
+        return AssistPDFPageImage(image: image, pageNumber: pageIndex + 1, highlighted: selected != nil,
+                                  document: document, documentBytes: data.count)
     }
 }
 
@@ -515,12 +521,21 @@ struct AssistDocumentPreview {
     /// Markdown blocks or plain text lines around the cited passage.
     var textBlocks: [AssistTextBlock] = []
     var isMarkdown = false
+    /// True for a code file's lines, coloured as code; they scroll sideways rather than wrap.
+    var isCode: Bool { !isMarkdown && textBlocks.contains { $0.codePalette != nil } }
     /// The cell, page or line that Open file lands on.
     var openTarget: AssistOpenTarget? = nil
     /// The slide of a presentation the citation is on; nil for the whole deck.
     var slideNumber: Int? = nil
+    /// A presentation's slides, for its slide menu and pictures.
+    var deck: AssistSlideDeck? = nil
+    /// A video, played in the card from the quoted moment.
+    var video: AssistVideoPreview? = nil
+    /// The slides' pictures, filled in as they are drawn; set by whoever knows where they are fetched from.
+    var slides: SlideDeckDocument? = nil
 
-    static func parse(_ data: Data) -> AssistDocumentPreview? {
+    /// `syntax` colours a code file's lines; the app's bundled copy unless a test gives its own.
+    static func parse(_ data: Data, syntax: CodeSyntax? = CodeSyntax.bundled) -> AssistDocumentPreview? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let source = root["source"] as? [String: Any] else { return nil }
         let preview = root["preview"] as? [String: Any] ?? [:]
@@ -564,11 +579,20 @@ struct AssistDocumentPreview {
         result.openTarget = AssistOpenTarget(json: preview["openAt"])
         result.moreRows = (preview["moreRows"] as? NSNumber)?.intValue
         result.slideNumber = (preview["slideNumber"] as? NSNumber)?.intValue
+        result.deck = AssistSlideDeck(json: preview["deck"])
+        if kind == "video" {
+            result.video = AssistVideoPreview(json: preview)
+            result.textBlocks = (preview["lines"] as? [[String: Any]] ?? []).map(AssistTextBlock.init(line:))
+        }
         if kind == "text" {
             result.isMarkdown = preview["format"] as? String == "markdown"
             result.textBlocks = result.isMarkdown
                 ? (preview["blocks"] as? [[String: Any]] ?? []).map(AssistTextBlock.init(markdown:))
                 : (preview["lines"] as? [[String: Any]] ?? []).map(AssistTextBlock.init(line:))
+            if !result.isMarkdown, let syntax, let language = syntax.language(forFileName: result.filename) {
+                let lineTokens = language.lineTokens(result.textBlocks.map(\.text))
+                result.textBlocks = zip(result.textBlocks, lineTokens).map { block, tokens in block.colored(tokens, palette: syntax.palette) }
+            }
         }
         return result
     }
@@ -584,6 +608,9 @@ struct AssistTextBlock: Equatable {
     var rows: [[String]] = []
     var cited = false
     var lineNumber: Int? = nil
+    /// A code line's coloured stretches, and the colours to paint them in.
+    private(set) var codeTokens: [CodeToken] = []
+    private(set) var codePalette: CodePalette? = nil
 
     init(type: String, text: String, level: Int = 0, marker: String? = nil, cited: Bool = false) {
         self.type = type
@@ -608,6 +635,14 @@ struct AssistTextBlock: Equatable {
         text = json["value"] as? String ?? ""
         cited = json["cited"] as? Bool ?? false
         lineNumber = (json["lineNumber"] as? NSNumber)?.intValue
+    }
+
+    /// This line, coloured as code.
+    func colored(_ tokens: [CodeToken], palette: CodePalette) -> AssistTextBlock {
+        var copy = self
+        copy.codeTokens = tokens
+        copy.codePalette = palette
+        return copy
     }
 }
 
@@ -680,8 +715,10 @@ enum AssistMarkdown {
             paragraph.headIndent = 10
             result = inline(block.text, font: body, color: .secondaryLabelColor)
         case "code", "line":
+            let font = NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular)
             result = NSMutableAttributedString(string: block.text.isEmpty ? " " : block.text, attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular), .foregroundColor: color])
+                .font: font, .foregroundColor: color])
+            block.codePalette?.apply(block.codeTokens, to: result, font: font)
         case "table":
             result = NSMutableAttributedString()
             for (index, row) in block.rows.enumerated() {

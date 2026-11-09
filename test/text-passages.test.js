@@ -6,6 +6,7 @@ import path from 'node:path';
 import { createApplication } from '../src/server.js';
 import { anchorForSpan } from '../src/dependencies/service.js';
 import { markdownPassages } from '../src/sharing/markdown.js';
+import { INDEX_VERSION } from '../src/dependencies/constants.js';
 import { extractDocxFullText } from '../src/dependencies/document-extraction.js';
 import { storedZip } from './fixtures/workbook.js';
 
@@ -111,7 +112,9 @@ test('markdown and text sources index passages that previews and indexed shares 
   const page = await (await fetch(`${base}/d/${share.token}`)).text();
   assert.match(page, /Soil moisture in plot B rose by eighteen percent after the second irrigation cycle\./);
   assert.match(page, /lines 5–6/);
-  assert.doesNotMatch(page, /Field notes|sensor log|Root depth|example\.com/, 'only the indexed passage is published');
+  // The sentence is shared inside its paragraph, marked there; nothing past the paragraph is.
+  assert.match(page, /<mark class="shared-cited">Soil moisture in plot B rose by eighteen percent after the second irrigation cycle\.<\/mark> The sensor log confirms the trend\./);
+  assert.doesNotMatch(page, /Field notes|Root depth|example\.com/, 'nothing past its paragraph is published');
   const excerpt = await (await fetch(`${base}/d/${share.token}/excerpt`)).text();
   assert.equal(excerpt.trim(), sentence.valueText);
 });
@@ -167,7 +170,7 @@ test('an index made before text passages gains them without changing existing ve
   }
   // The upgrade records the current index version (4 adds STEP CAD models, 5 Word passages).
   assert.equal(db.prepare('SELECT drawing_index_version AS version FROM snapshot_object_indexes WHERE snapshot_id = ?')
-    .get(project.currentSnapshotId).version, 5);
+    .get(project.currentSnapshotId).version, INDEX_VERSION);
 });
 
 test('a Word document is read a paragraph per line, and an index from before Word passages gains them', t => {
@@ -189,7 +192,7 @@ test('a Word document is read a paragraph per line, and an index from before Wor
     (SELECT id FROM scientific_objects WHERE object_key LIKE '%:text-excerpt:%');
     DELETE FROM scientific_objects WHERE object_key LIKE '%:text-excerpt:%';`);
   db.exec(guard);
-  db.prepare('UPDATE snapshot_object_indexes SET drawing_index_version = 4 WHERE snapshot_id = ?').run(project.currentSnapshotId);
+  db.prepare('UPDATE snapshot_object_indexes SET drawing_index_version = 5 WHERE snapshot_id = ?').run(project.currentSnapshotId);
   app.dependencies.objectCache.delete(project.currentSnapshotId);
   const upgraded = excerpts(app.dependencies.objectsAt(project.id), 'visit.docx');
 
@@ -199,5 +202,5 @@ test('a Word document is read a paragraph per line, and an index from before Wor
   const cited = (passages) => passages.map((passage) => [passage.anchor.lineStart, passage.valueText]).sort();
   assert.deepEqual(cited(indexed), [[3, 'The pump on line 3 was replaced on 2 May after the seal failed.'],
     [5, 'Flow returned to 42 litres per minute by the afternoon.']]);
-  assert.deepEqual(cited(upgraded), cited(indexed), 'an index from before version 5 reads Word passages on upgrade');
+  assert.deepEqual(cited(upgraded), cited(indexed), 'an index from before version 6 reads Word passages on upgrade');
 });

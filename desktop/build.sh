@@ -170,11 +170,13 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" \
   -framework Cocoa -framework WebKit -framework PDFKit -framework ServiceManagement -framework DiskArbitration \
   -framework EventKit -framework SwiftUI -framework Quartz -framework SceneKit -framework ModelIO -framework Carbon \
+  -framework Vision -framework AVFoundation -framework AVKit \
   -o "$CONTENTS/MacOS/Lasso" \
   "$ROOT/desktop/BuildConfig.swift" \
   "$ROOT/desktop/NodeRuntime.swift" \
   "$ROOT/desktop/WorkspaceAPI.swift" \
   "$ROOT/desktop/AssistActivation.swift" \
+  "$ROOT/desktop/SuggestionApps.swift" \
   "$ROOT/desktop/TransientDismissal.swift" \
   "$ROOT/desktop/DirectoryColors.swift" \
   "$ROOT/desktop/LaunchHelper.swift" \
@@ -182,6 +184,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/NativeMaterial.swift" \
   "$ROOT/desktop/DirectoryMenu.swift" \
   "$ROOT/desktop/StatusPopover.swift" \
+  "$ROOT/desktop/StatusHeader.swift" \
   "$ROOT/desktop/NotchMotion.swift" \
   "$ROOT/desktop/NotchPanel.swift" \
   "$ROOT/desktop/SyntheticKeyboard.swift" \
@@ -204,28 +207,65 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/HostAccessibilityMode.swift" \
   "$ROOT/desktop/DictationWatch.swift" \
   "$ROOT/desktop/HostTextAdapter.swift" \
+  "$ROOT/desktop/FocusedTextElement.swift" \
   "$ROOT/desktop/DependencyOverlay.swift" \
   "$ROOT/desktop/DependencyHighlighter.swift" \
+  "$ROOT/desktop/CodeSyntax.swift" \
   "$ROOT/desktop/ModelPreview.swift" \
+  "$ROOT/desktop/VideoPreview.swift" \
+  "$ROOT/desktop/AssistVideoPreviewView.swift" \
   "$ROOT/desktop/ModelOrbit.swift" \
   "$ROOT/desktop/AssistTableLayout.swift" \
+  "$ROOT/desktop/AssistSuggestionList.swift" \
+  "$ROOT/desktop/PreviewWordMarks.swift" \
+  "$ROOT/desktop/AssistPreviewViews.swift" \
+  "$ROOT/desktop/SlideDeckPreview.swift" \
   "$ROOT/desktop/SourceInspectorPanel.swift" \
   "$ROOT/desktop/WebText.swift" \
   "$ROOT/desktop/ShareInsertion.swift" \
+  "$ROOT/desktop/ShareMarkup.swift" \
   "$ROOT/desktop/ShareComposer.swift" \
+  "$ROOT/desktop/ShareComposerController.swift" \
+  "$ROOT/desktop/ShareInteractivePDFView.swift" \
+  "$ROOT/desktop/SharePreviewCanvas.swift" \
+  "$ROOT/desktop/ShareComposerView.swift" \
+  "$ROOT/desktop/ShareComposerView+Drawing.swift" \
+  "$ROOT/desktop/ShareComposerView+Documents.swift" \
+  "$ROOT/desktop/ShareComposerView+Scrolling.swift" \
+  "$ROOT/desktop/ShareComposerView+Input.swift" \
+  "$ROOT/desktop/ShareComposerView+Markup.swift" \
+  "$ROOT/desktop/ShareComposerView+Regressions.swift" \
   "$ROOT/desktop/SourceChooser.swift" \
+  "$ROOT/desktop/AssistSuggestion.swift" \
+  "$ROOT/desktop/RecommendationUsageClient.swift" \
+  "$ROOT/desktop/InsertionMode.swift" \
+  "$ROOT/desktop/AssistPermission.swift" \
+  "$ROOT/desktop/AccessibilityReader.swift" \
+  "$ROOT/desktop/AssistGlassBubble.swift" \
+  "$ROOT/desktop/AssistBoxView.swift" \
+  "$ROOT/desktop/AssistBoxView+Drawing.swift" \
+  "$ROOT/desktop/AssistBoxView+Preview.swift" \
+  "$ROOT/desktop/AssistBoxView+Input.swift" \
+  "$ROOT/desktop/AssistBoxView+Footer.swift" \
   "$ROOT/desktop/GlobalAssist.swift" \
+  "$ROOT/desktop/GlobalAssistant+Prediction.swift" \
+  "$ROOT/desktop/GlobalAssistant+Preview.swift" \
+  "$ROOT/desktop/GlobalAssistant+Panel.swift" \
+  "$ROOT/desktop/GlobalAssistant+Insertion.swift" \
+  "$ROOT/desktop/GlobalAssistant+Regressions.swift" \
   "$ROOT/desktop/ExternalDrives.swift" \
   "$ROOT/desktop/DriveMenu.swift" \
   "$ROOT/desktop/MainMenu.swift" \
   "$ROOT/desktop/ShortcutCatalog.swift" \
   "$ROOT/desktop/ShortcutsPane.swift" \
+  "$ROOT/desktop/SettingsPanes.swift" \
   "$ROOT/desktop/SettingsWindow.swift" \
   "$ROOT/desktop/ConnectApps.swift" \
   "$ROOT/desktop/RanchModels.swift" \
   "$ROOT/desktop/RanchNetworkLayout.swift" \
   "$ROOT/desktop/RanchTypeIcon.swift" \
   "$ROOT/desktop/RanchTheme.swift" \
+  "$ROOT/desktop/RanchGlass.swift" \
   "$ROOT/desktop/RanchStore.swift" \
   "$ROOT/desktop/RanchEditors.swift" \
   "$ROOT/desktop/RanchViewers.swift" \
@@ -337,6 +377,14 @@ echo "==> Compiling safe PDF sharing renderer"
 swiftc -O -target "$SWIFT_TARGET" -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework PDFKit -framework AppKit -o "$RESOURCES/app/scripts/render-shared-pdf" \
   "$ROOT/scripts/render-shared-pdf.swift"
 
+echo "==> Compiling document page renderer for marked-up shares"
+swiftc -O -target "$SWIFT_TARGET" -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework AppKit -framework PDFKit -framework QuickLookThumbnailing -o "$RESOURCES/app/scripts/render-document-pages" \
+  "$ROOT/scripts/render-document-pages.swift"
+
+echo "==> Compiling on-device video transcriber"
+swiftc -O -target "$SWIFT_TARGET" -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework AVFoundation -framework Speech -o "$RESOURCES/app/scripts/transcribe-video" \
+  "$ROOT/scripts/transcribe-video.swift"
+
 echo "==> Drawing the app icon"
 # The icon is drawn from scripts/render-app-icon.swift and cached by that
 # script's hash, so ordinary rebuilds reuse it instead of redrawing.
@@ -399,7 +447,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <!-- Open file asks the source's app (Excel, Numbers, Word, Acrobat) to go to
        the cited cell, passage or page. The file opens even when this is denied. -->
   <key>NSAppleEventsUsageDescription</key>
-  <string>Lasso asks the app that opens a source to go to the cited cell, page or passage.</string>
+  <string>Lasso asks the app that opens a source to go to the cited cell, page, passage or moment in a video.</string>
   <!-- Connecting the Calendar app in Connect 3rd Party Apps reads its events. -->
   <key>NSCalendarsFullAccessUsageDescription</key>
   <string>Lasso reads the events in the calendars you choose so it can suggest and cite them.</string>
@@ -434,7 +482,7 @@ echo "==> Signing"
 # second prompt.
 codesign --force --sign "$SIGNING_IDENTITY" "$BUNDLED_NODE" \
   "$RESOURCES/app/scripts/extract-drawing-layout" "$RESOURCES/app/scripts/render-shared-pdf" \
-  "$LAUNCHER" "$BUILD_APP"
+  "$RESOURCES/app/scripts/render-document-pages" "$RESOURCES/app/scripts/transcribe-video" "$LAUNCHER" "$BUILD_APP"
 codesign --verify --deep --strict "$BUILD_APP"
 if [ "$("$BUNDLED_NODE" --version 2>/dev/null || true)" != "$NODE_VERSION" ]; then
   echo "error: the signed bundled Node.js does not run. The previous app has been preserved." >&2

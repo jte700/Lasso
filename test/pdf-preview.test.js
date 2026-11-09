@@ -6,6 +6,7 @@ import path from 'node:path';
 import { createApplication } from '../src/server.js';
 import { extractPdfFullText, extractPdfPassages } from '../src/dependencies/document-extraction.js';
 import { buildFullShareDocument, buildInspectorPreview, buildSharePreview } from '../src/sharing/share-preview.js';
+import { INDEX_VERSION } from '../src/dependencies/constants.js';
 
 const writer = { id: 'human:pdf-preview', displayName: 'PDF writer', actorType: 'HUMAN_SELF' };
 const nativePdf = process.platform === 'darwin';
@@ -118,7 +119,7 @@ test('older PDF indexes gain passages without replacing existing objects or vers
   assert.throws(() => app.dependencies.db.prepare('DELETE FROM scientific_object_versions WHERE id = ?').run(originals[0].versionId), /immutable/);
   // The upgrade records the current index version (4 adds STEP CAD models).
   assert.equal(app.dependencies.db.prepare('SELECT drawing_index_version AS version FROM snapshot_object_indexes WHERE snapshot_id = ?')
-    .get(project.currentSnapshotId).version, 5);
+    .get(project.currentSnapshotId).version, INDEX_VERSION);
 });
 
 test('visual PDF documents preserve original layout while redaction keeps safe extracted blocks', () => {

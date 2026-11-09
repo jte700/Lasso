@@ -5,6 +5,25 @@
 import Cocoa
 
 enum NativeMaterial {
+    /// Whether surfaces draw as Liquid Glass: macOS 26, unless Reduce Transparency is on.
+    static var usesGlass: Bool {
+        guard #available(macOS 26.0, *) else { return false }
+        return !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+    }
+
+    /// A wash light enough for the glass to show, and still steady under text.
+    static let glassSurfaceOpacity: CGFloat = 0.1
+
+    /// How opaque a surface drawn over the material may be. Glass reads as
+    /// glass only when what sits on it is nearly clear; the earlier material
+    /// keeps the stronger wash it was designed with. Reduce Transparency makes
+    /// both solid. A surface that must stay steadier under text, such as a
+    /// table, passes its own `glass` opacity.
+    static func surfaceOpacity(classic: CGFloat, glass: CGFloat = glassSurfaceOpacity) -> CGFloat {
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency { return 1 }
+        return usesGlass ? glass : classic
+    }
+
     static func glassContainer(
         content: NSView,
         cornerRadius: CGFloat,

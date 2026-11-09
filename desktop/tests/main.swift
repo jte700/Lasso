@@ -2,6 +2,7 @@
 //  Built and run by `npm run desktop:test` — no framework, no dependencies.
 
 import Cocoa
+import SwiftUI
 import PDFKit
 import CoreText
 
@@ -15,6 +16,12 @@ final class MemoryDirectoryDefaults: UserDefaults {
     }
     override func string(forKey defaultName: String) -> String? {
         values[defaultName] as? String
+    }
+    override func object(forKey defaultName: String) -> Any? {
+        values[defaultName]
+    }
+    override func stringArray(forKey defaultName: String) -> [String]? {
+        values[defaultName] as? [String]
     }
     override func set(_ value: Any?, forKey defaultName: String) {
         values[defaultName] = value
@@ -178,6 +185,80 @@ do {
           "a whole-deck citation is shared as the deck")
     check(ShareSourceKind(filename: "Review.PPTX") == .presentation && ShareSourceKind(filename: "Bracket.stp") == .cadModel
           && ShareSourceKind(filename: "Budget.xlsx") == .other, "a source's kind comes from its extension")
+    check(ShareAccessScope.offered(for: .other, hasCitedPart: false, markable: true) == [.document, .indexed, .redacted, .marked]
+          && ShareAccessScope.offered(for: .presentation, hasCitedPart: false, markable: true) == [.document, .marked]
+          && ShareAccessScope.offered(for: .presentation, hasCitedPart: true, markable: true) == [.document, .indexed, .marked],
+          "PDFs, Word documents and decks can also be shared marked up")
+    check(ShareSourceKind.isMarkable("Plan.PDF") && ShareSourceKind.isMarkable("Notes/Memo.docx") && ShareSourceKind.isMarkable("Deck.pptx")
+          && !ShareSourceKind.isMarkable("Budget.xlsx") && !ShareSourceKind.isMarkable("Bracket.step"),
+          "only documents shown as pages can be marked up")
+}
+
+print("Marking up a copy to share")
+do {
+    let crop = NSRect(x: 0, y: 0, width: 600, height: 800)
+    var session = ShareMarkupSession()
+    session.begin(page: 2, at: NSPoint(x: 60, y: 720), crop: crop, reach: 4)
+    session.move(to: NSPoint(x: 60.4, y: 720), page: 2, crop: crop, reach: 4)
+    session.move(to: NSPoint(x: 300, y: 720), page: 2, crop: crop, reach: 4)
+    session.move(to: NSPoint(x: 300, y: 900), page: 2, crop: crop, reach: 4)
+    check(session.marks.isEmpty && session.draft?.points.count == 3, "a stroke is drawn as a draft until the pointer lifts")
+    session.end()
+    let line = session.marks.first
+    check(session.marks.count == 1 && line?.tool == .pen && line?.color == .red
+          && line?.points == [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.5, y: 0.1), CGPoint(x: 0.5, y: 0)],
+          "a pen stroke keeps points from the page's top left, skips ones too close to see, and stays on its page")
+    check(line?.payload["points"] as? [Double] == [0.1, 0.1, 0.5, 0.1, 0.5, 0] && line?.payload["tool"] as? String == "PEN"
+          && line?.payload["color"] as? String == "#E5372B" && line?.payload["page"] as? Int == 2,
+          "a stroke is sent as the server reads it")
+
+    session.hand = .tool(.highlighter)
+    check(session.color == .yellow, "the highlighter starts yellow")
+    session.choose(.green)
+    check(session.color(for: .highlighter) == .green && session.color(for: .pen) == .red, "each tool keeps its own colour")
+    session.hand = .eraser
+    check(session.color == nil, "the eraser has no colour")
+    session.choose(.blue)
+    check(session.hand == .tool(.pen) && session.color == .blue, "choosing a colour with the eraser in hand picks the pen back up")
+
+    session.hand = .eraser
+    session.begin(page: 1, at: NSPoint(x: 180, y: 722), crop: crop, reach: 4)
+    session.end()
+    check(session.marks.count == 1, "the eraser leaves marks on other pages")
+    session.begin(page: 2, at: NSPoint(x: 590, y: 20), crop: crop, reach: 4)
+    session.move(to: NSPoint(x: 180, y: 722), page: 2, crop: crop, reach: 4)
+    session.end()
+    check(session.marks.isEmpty, "dragging the eraser across a stroke takes it away")
+    check(session.undo() && session.marks.count == 1 && session.redo() && session.marks.isEmpty && !session.redo(),
+          "an erasing drag is one step for Command+Z and Shift+Command+Z")
+
+    session.hand = .tool(.marker)
+    session.begin(page: 1, at: NSPoint(x: 10, y: 10), crop: crop, reach: 4)
+    session.cancel()
+    check(session.marks.isEmpty && session.draft == nil, "a stroke under way is dropped when the composer changes what it shows")
+    for _ in 0..<ShareMarkupSession.maxStrokes {
+        session.begin(page: 1, at: NSPoint(x: 10, y: 10), crop: crop, reach: 4)
+        session.end()
+    }
+    check(session.marks.count == ShareMarkupSession.maxStrokes && session.marks.last?.points.count == 1
+          && !session.begin(page: 1, at: NSPoint(x: 20, y: 20), crop: crop, reach: 4),
+          "a click draws a dot, and the copy stops taking strokes at the server's limit")
+
+    var detailed = ShareMarkupSession()
+    for stroke in 0..<(ShareMarkupSession.maxPoints / ShareMarkStroke.maxPoints) {
+        detailed.begin(page: 1, at: .zero, crop: crop, reach: 4)
+        for step in 1..<ShareMarkStroke.maxPoints {
+            detailed.move(to: NSPoint(x: CGFloat(step * 2 % 600), y: CGFloat(step * 2 / 600 + stroke) * 4), page: 1, crop: crop, reach: 4)
+        }
+        detailed.end()
+    }
+    check(detailed.marks.reduce(0, { $0 + $1.points.count }) == ShareMarkupSession.maxPoints
+          && !detailed.begin(page: 1, at: .zero, crop: crop, reach: 4),
+          "the copy stops taking strokes once they hold as many points as the server takes")
+
+    var full = ShareMarkStroke(tool: .pen, color: .black, page: 1, start: .zero, crop: crop)
+    for step in 1...(ShareMarkStroke.maxPoints + 10) { full.extend(to: NSPoint(x: CGFloat(step * 2 % 600), y: CGFloat(step * 2 / 600) * 4), crop: crop) }
+    check(full.points.count == ShareMarkStroke.maxPoints, "a stroke ends at the server's limit of points")
 }
 
 print("Command+Z takes back what Tab or a link inserted")
@@ -754,6 +835,16 @@ do {
     } else { check(false, "source verification accepts equivalent spaces within the insertion") }
     check(CompletionReplacement.capture(start: 0, end: 3, in: "dep\n", expectedText: "dep") == nil,
           "replacement never reaches back across a new line")
+    let named = "deploy.sh line 4 to line 15  "
+    let spaces = named.utf16.count - 2
+    check(CompletionReplacement.capture(start: spaces, end: named.utf16.count, in: named) == nil,
+          "a fragment of spaces alone is not a word to replace")
+    if let colon = CompletionReplacement.capture(start: spaces, end: named.utf16.count, in: named, replacingSpaces: true),
+       case .success(let code) = CompletionTransaction.plan(document: units(named), caret: named.utf16.count,
+            insertText: ":\nset -euo pipefail", replacement: colon, separateInsertion: true) {
+        check(string(CompletionTransaction.apply(code, to: units(named))) == "deploy.sh line 4 to line 15:\nset -euo pipefail",
+              "code's colon takes the place of spaces typed after the line numbers")
+    } else { check(false, "code's colon takes the place of spaces typed after the line numbers") }
     let numeric = "  Our rate increased by 2"
     let number = CompletionReplacement.terminalNumber(in: numeric)!
     check(number.expectedText == "2" && number.start == numeric.utf16.count - 1,
@@ -1114,6 +1205,11 @@ do {
           "does not mistake an older overlapping value for a new insertion")
     check(CompletionTransaction.insertionIsAtCaret("40", in: "An earlier value was 400, now 40"),
           "recognizes the value only when it ends at the caret")
+    let code = "\nif record is None:\n    return 404"
+    check(CompletionTransaction.insertionIsAtCaret(code, in: "routes.py lines 9-10\rif record is None:\u{2029}    return 404"),
+          "code lands in a host that reports its line breaks as carriage returns or paragraph separators")
+    check(!CompletionTransaction.insertionIsAtCaret(code, in: "routes.py lines 9-10 if record is None:     return 404"),
+          "a line break is still not a space")
 
     let alreadyTyped = accept("The prior-period value was 310", insert: "310")
     check(alreadyTyped.after == "The prior-period value was 310",
@@ -1507,6 +1603,17 @@ do {
         createdAt: Date(), updatedAt: Date())
     reference.projectId = "directory-finance"
 
+    // A cited video keeps its moment; a link saved before videos were cited has none.
+    var videoReference = reference
+    videoReference.videoTime = 4.92
+    let encoded = try! JSONEncoder().encode(videoReference)
+    var older = try! JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+    older.removeValue(forKey: "videoTime")
+    check(try! JSONDecoder().decode(DependencyReference.self, from: encoded).videoTime == 4.92
+          && (try? JSONDecoder().decode(DependencyReference.self,
+                from: JSONSerialization.data(withJSONObject: older)))?.videoTime == nil,
+          "a link remembers the second its video is cited at, and older links still load")
+
     store.add(reference)
     check(store.references.count == 1, "stores a reference")
     check(store.hasReferences(bundleIdentifier: "com.google.Chrome"),
@@ -1612,6 +1719,15 @@ do {
     check(AssistSuggestionSemantics.insertionText(
         claimType: "STUDY_VARIABLE", label: "Revenue", value: "revenue; inferred numeric variable; examples 41, 5") == "Revenue",
           "variable acceptance inserts its name, never indexing diagnostics")
+    let alert = "Alert when more than 75% of the pool is in use"
+    check(AssistSuggestionSemantics.passage(of: ["valueText": alert, "label": "Alert when more than 75% of the pool is ",
+                                                  "metadata": ["componentType": "TEXT_EXCERPT"]]) == alert,
+          "a claimed sentence is the passage its preview marks, whole")
+    check(AssistSuggestionSemantics.passage(of: ["valueText": "190000", "label": "October forecast CAD",
+                                                  "metadata": ["componentType": "DATASET_CELL"]]) == nil,
+          "a cell's value is not a passage to find in its preview")
+    check(AssistSuggestionSemantics.passage(of: ["valueText": "  ", "metadata": ["componentType": "TEXT_EXCERPT"]]) == nil,
+          "a blank sentence is no passage")
     check(AssistSuggestionSemantics.insertionText(
         claimType: "ENTITY", label: "Bad Debts/Losses and Thefts", value: "25") ==
           "Bad Debts/Losses and Thefts",
@@ -1814,6 +1930,60 @@ do {
     wide.stop()
 }
 
+print("the card's highlight after a new answer")
+do {
+    let shown = ["BILL-1160", "BILL-1174", "BILL-1181"]
+    let reordered = ["BILL-1174", "BILL-1160", "BILL-1181"]
+    check(CardHighlight.afterAnswer(selected: 1, previous: shown, next: reordered, textChanged: true) == 0,
+          "typing starts the highlight again at the top, where the closest match is")
+    check(CardHighlight.afterAnswer(selected: 1, previous: shown, next: reordered, textChanged: false) == 0,
+          "an answer to the same text keeps the highlighted suggestion wherever it moved")
+    check(CardHighlight.afterAnswer(selected: 2, previous: shown, next: shown, textChanged: false) == 2,
+          "an unchanged list keeps its highlighted row")
+    check(CardHighlight.afterAnswer(selected: 2, previous: shown, next: ["BILL-1160"], textChanged: false) == 0,
+          "a shorter list without it keeps the highlight in range")
+    check(CardHighlight.afterAnswer(selected: 0, previous: [], next: [], textChanged: false) == 0, "nothing to highlight stays at the top")
+}
+
+print("a share keeps the sentence its citation sits in")
+check(CitingSentence.around("$46,350", before: "Revenue rose. Net income was ", after: " for September. Costs fell.")
+      == "Net income was $46,350 for September.", "the sentence runs from the last sentence end to the next")
+check(CitingSentence.around("17250", before: "Cedar Packaging is owed ", after: "")
+      == "Cedar Packaging is owed 17250", "a sentence still being written ends at the citation")
+check(CitingSentence.around("BILL-1192", before: "Notes\nInvoice ", after: " is paid\nNext")
+      == "Invoice BILL-1192 is paid", "a line break ends a sentence too")
+
+print("a folder's switch is drawn in the folder's own colour, which follows a new pick")
+do {
+    _ = NSApplication.shared
+    func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+    func distance(_ first: NSColor, _ second: NSColor) -> CGFloat {
+        guard let a = first.usingColorSpace(.sRGB), let b = second.usingColorSpace(.sRGB) else { return .infinity }
+        return abs(a.redComponent - b.redComponent) + abs(a.greenComponent - b.greenComponent)
+            + abs(a.blueComponent - b.blueComponent)
+    }
+    let accent = NSColor.controlAccentColor
+    // The folder colour least like the system accent, so the two cannot be mistaken.
+    let folder = DirectoryToggleColor.allCases.max { distance($0.color, accent) < distance($1.color, accent) }!
+    let item = NSMenuItem(title: "Budget", action: nil, keyEquivalent: "")
+    item.state = .on
+    let row = NativeMenuToggleRow(item: item, color: folder) { _ in }
+    let toggle = descendants(row).first { ($0 as? NSButton)?.accessibilitySubrole() == .switch }!
+    toggle.appearance = NSAppearance(named: .aqua)
+    let picture = toggle.bitmapImageRepForCachingDisplay(in: toggle.bounds)!
+    toggle.cacheDisplay(in: toggle.bounds, to: picture)
+    let scale = CGFloat(picture.pixelsWide) / toggle.bounds.width
+    // Left of the knob, inside the track of a switch that is on.
+    let track = picture.colorAt(x: Int(10 * scale), y: Int(toggle.bounds.midY * scale))!
+    check(distance(track, folder.color) < distance(track, accent),
+          "the on switch reads as \(folder.title) (\(track)), not the system accent")
+    row.update(item: item, color: .blue)
+    toggle.cacheDisplay(in: toggle.bounds, to: picture)
+    let repicked = picture.colorAt(x: Int(10 * scale), y: Int(toggle.bounds.midY * scale))!
+    check(distance(repicked, DirectoryToggleColor.blue.color) < distance(repicked, folder.color),
+          "a folder given a new colour has its switch redrawn in it")
+}
+
 print("a folder's row shows its progress in place of its switch, then gives the switch back")
 do {
     _ = NSApplication.shared
@@ -1994,6 +2164,19 @@ do {
           "skipped empty rows between 20 and 24 are marked")
     let mixed = layout.cells(in: row(30, ["Rent", "", "$18,000", "", "", ""]))
     check(mixed.map(\.span) == [1, 1, 1, 1], "a short label does not claim its empty neighbours")
+
+    // The way into a lone cited cell: its row from the number up to it, its column from the letter down to it.
+    let ledger = [row(4, ["North Ridge", "35000", "Due"]), row(5, ["Cedar Packaging", "17250", "Due"], cited: 1),
+                  row(6, ["Pine Facilities", "32500", "Due"])]
+    let both = TableCitationMarks(rows: ledger, visibleColumns: [0, 1, 2])
+    check(both.cell?.row == 1 && both.cell?.column == 1, "a lone cited cell is found among the shown columns")
+    check(both.markedRows == [1] && both.markedColumns == [1], "its row number and column letter are both marked")
+    let hidden = TableCitationMarks(rows: ledger, visibleColumns: [0, 2])
+    check(hidden.cell == nil && hidden.markedColumns.isEmpty, "a cited cell in a column not shown leads nowhere")
+    let wholeColumn = [row(1, ["Supplier", "Outstanding"], cited: 1), row(2, ["Maple", "22000"], cited: 1)]
+    let several = TableCitationMarks(rows: wholeColumn, visibleColumns: [0, 1])
+    check(several.cell == nil && several.markedRows == [0, 1] && several.markedColumns == [1],
+          "a whole column cited has no single way in, so only its headers are marked")
 
     let wideHeaders = (0..<10).map { "H\($0)" }
     let wide = AssistTableLayout(headers: wideHeaders, rows: [row(5, (0..<10).map { "\($0 * 1000)" }, cited: 8)],
@@ -2584,6 +2767,9 @@ let accented = String(repeating: "e\u{301}", count: 12) + "👩‍🔬 Café"
 let accentedChunks = accented.chunkedForTyping(16)
 check(accentedChunks.allSatisfy { $0.utf16.count <= 16 }, "every typing chunk fits the per-event UTF-16 limit")
 check(accentedChunks.joined() == accented, "chunking keeps decomposed accents and emoji intact")
+check(SyntheticKeyboard.canType("office supplies are up 4%"), "a phrase is typed where the host ignores Accessibility writes")
+check(["\n    allowed = [", "range(31)]\n", "a\r\nb", "one\u{2028}two"].allSatisfy { !SyntheticKeyboard.canType($0) },
+      "text with a line break is pasted, never typed: typed line breaks arrived out of order in the Claude app")
 check(accentedChunks.allSatisfy { $0.unicodeScalars.first?.properties.generalCategory != .nonspacingMark },
       "a chunk never begins with a detached combining accent")
 check("Facilities".chunkedForTyping(16) == ["Facilities"], "short text is typed as one event")
@@ -3328,6 +3514,17 @@ do {
     check(!gate.end(), "dismissing the box drops a follow-up that would reopen it")
 }
 
+print("a list the writer types past without a new answer closes")
+do {
+    var typing = UnansweredTyping(limit: 0.5)
+    let start = Date(timeIntervalSinceReferenceDate: 1000)
+    check(typing.typed(at: start) == start.addingTimeInterval(0.5), "the first key over a list starts the wait")
+    check(typing.typed(at: start.addingTimeInterval(0.3)) == nil, "later keys do not put the close off")
+    typing.answered()
+    check(typing.typed(at: start.addingTimeInterval(2)) == start.addingTimeInterval(2.5),
+          "an answer for the newer text starts the wait over")
+}
+
 print("accepting a suggestion reads and writes the host off the main thread")
 do {
     // The main thread waits on a semaphore throughout, so any step that
@@ -3393,6 +3590,61 @@ do {
           "an insertion point that cannot be confirmed pastes nothing and leaves the clipboard alone")
     check(validations == [true] && reportedOnQueue,
           "the insertion point is checked, and the refusal reported, on the Accessibility queue")
+}
+
+print("focused text element")
+do {
+    // A tree shaped like Word 16.114's: the pane reports focus, and the text
+    // area holding the caret sits several groups below it.
+    struct Node { let name: String; let focusedText: Bool; let children: [Node] }
+    func leaf(_ name: String, focusedText: Bool = false) -> Node { Node(name: name, focusedText: focusedText, children: []) }
+    func group(_ name: String, _ children: [Node]) -> Node { Node(name: name, focusedText: false, children: children) }
+    func search(_ root: Node, visits: Int = FocusedTextElement.maxVisits) -> String? {
+        FocusedTextElement.search(from: root, children: { $0.children }, isFocusedText: { $0.focusedText },
+                                  maxVisits: visits)?.name
+    }
+
+    let word = group("split", [group("group", [group("scroll", [
+        leaf("scroll bar"),
+        group("layout", [group("page", [group("body", [leaf("text", focusedText: true)])])]),
+    ])])])
+    check(search(word) == "text", "a focused text area below a focused pane is found")
+    check(search(group("split", [leaf("button"), leaf("label")])) == nil,
+          "a pane with no focused text below it finds nothing")
+    check(search(leaf("field", focusedText: true)) == "field", "an element that is itself the text is kept")
+    check(search(word, visits: 3) == nil, "the search stops after its visit budget")
+}
+
+print("popup host window")
+do {
+    // Chrome in full screen, as read on macOS 26: the address bar names the
+    // group holding the toolbar overlay as its window, and the browser window
+    // sits above that group.
+    final class Node {
+        let role: String; let parent: Node?
+        init(_ role: String, parent: Node?) { self.role = role; self.parent = parent }
+    }
+    func owner(of editor: Node, named reported: Node, maxDepth: Int = AssistPopupHost.maxWindowDepth) -> Node? {
+        AssistPopupHost.owningWindow(named: reported, above: editor, parent: { $0.parent }, role: { $0.role },
+                                     maxDepth: maxDepth)
+    }
+    let application = Node("AXApplication", parent: nil)
+    let browser = Node("AXWindow", parent: application)
+    let overlay = Node("AXGroup", parent: browser)
+    var toolbar = overlay
+    for role in ["AXGroup", "AXGroup", "AXGroup", "AXToolbar", "AXGroup"] { toolbar = Node(role, parent: toolbar) }
+    let addressBar = Node("AXTextField", parent: toolbar)
+    check(owner(of: addressBar, named: overlay) === browser,
+          "an address bar in Chrome's full-screen overlay belongs to the browser window above it")
+
+    let window = Node("AXWindow", parent: application)
+    let field = Node("AXTextField", parent: Node("AXGroup", parent: window))
+    check(owner(of: field, named: window) === window, "an editor that names its window keeps it")
+    check(owner(of: field, named: Node("AXGroup", parent: nil)) === window,
+          "a named container that is not a window gives way to the window above the editor")
+    let loose = Node("AXTextField", parent: Node("AXGroup", parent: application))
+    check(owner(of: loose, named: Node("AXGroup", parent: nil)) == nil, "an editor with no window above it has none")
+    check(owner(of: addressBar, named: overlay, maxDepth: 3) == nil, "the walk up stops after its depth budget")
 }
 
 print("host accessibility mode")
@@ -3630,6 +3882,13 @@ do {
     check(DirectoryColorPreferences.color(for: "finance", defaults: defaults) == .orange,
           "a folder's own colour wins over the Settings colour")
     check(announced == 1, "highlights redraw once when the colour changes, and not when it stays the same")
+    check(DirectoryColorPreferences.ownColor(for: "finance", defaults: defaults) == .orange
+          && DirectoryColorPreferences.ownColor(for: "research", defaults: defaults) == nil,
+          "a folder's own colour is told apart from the default it shows")
+    DirectoryColorPreferences.set(nil, for: "finance", defaults: defaults)
+    check(DirectoryColorPreferences.ownColor(for: "finance", defaults: defaults) == nil
+          && DirectoryColorPreferences.color(for: "finance", defaults: defaults) == .purple,
+          "taking a colour back puts the folder on the default again, so Undo restores it as it was")
 
     check(LaunchHelper.note(for: .on).contains("log in") && LaunchHelper.note(for: .on).contains("\u{2318}L"),
           "Settings says Lasso starts at login and \u{2318}L starts it again after quitting")
@@ -3667,6 +3926,42 @@ do {
           "malformed cells, pages and lines name no place to open")
     check(AssistOpenTarget(json: ["sheet": "Bad\u{0007}Sheet", "cell": "B3"]) == AssistOpenTarget(cell: "B3"),
           "a sheet name with control characters is dropped, keeping its cell")
+
+    // A quoted phrase's video opens at the moment it is said, in QuickTime Player.
+    check(AssistOpenTarget(json: ["time": 2.34])?.time == 2.34 && AssistOpenTarget(json: ["time": 0])?.time == 0
+          && AssistOpenTarget(json: ["time": -1]) == nil && AssistOpenTarget(json: ["time": "2"]) == nil
+          && AssistOpenTarget(json: ["time": true]) == nil && AssistOpenTarget(json: ["time": Double.infinity]) == nil,
+          "a video time is a finite, non-negative number of seconds")
+    let clip = URL(fileURLWithPath: "/tmp/Site Visit/site-visit.mp4")
+    check(AssistOpenPlanner.plan(fileURL: clip, target: AssistOpenTarget(time: 2.34), appBundleID: "com.apple.QuickTimePlayerX")
+            == .script(.quickTime, arguments: ["site-visit.mp4", "2340"])
+          && AssistOpenPlanner.plan(fileURL: clip, target: AssistOpenTarget(page: 2), appBundleID: "com.apple.QuickTimePlayerX") == .plain,
+          "QuickTime Player is told the quoted moment in whole milliseconds")
+    check(AssistOpenScript.quickTime.source.contains("set current time of targetDocument")
+          && AssistOpenScript.quickTime.source.contains("play targetDocument"),
+          "the QuickTime script cues the moment and plays from it")
+    check(AssistVideoTime.label(2.34) == "0:02" && AssistVideoTime.label(754.9) == "12:34"
+          && AssistVideoTime.label(3723) == "1:02:03" && AssistVideoTime.milliseconds(6.1805) == "6181",
+          "video times read as a player shows them")
+    let videoPreview = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: [
+        "path": "site-visit.mp4", "source": ["filename": "site-visit.mp4"],
+        "preview": ["kind": "video", "localPath": "/tmp/Site Visit/site-visit.mp4", "startTime": 2.34, "duration": 10.5,
+                    "location": "Said at 0:02", "openAt": ["time": 2.34],
+                    "lines": [["value": "[0:00] Welcome.", "cited": false],
+                              ["value": "[0:01] The concrete pour starts.", "cited": true]]]]))!
+    check(videoPreview.video?.fileURL.path == "/tmp/Site Visit/site-visit.mp4" && videoPreview.video?.startTime == 2.34
+          && videoPreview.openTarget?.time == 2.34 && videoPreview.textBlocks.count == 2
+          && videoPreview.textBlocks[1].cited && videoPreview.location == "Said at 0:02",
+          "a video preview plays its own file from the quoted moment over its transcript")
+    check(AssistVideoPreview(json: ["kind": "video", "localPath": "relative.mp4", "startTime": 1]) == nil
+          && AssistVideoPreview(json: ["kind": "text", "localPath": "/a.mp4", "startTime": 1]) == nil,
+          "a video preview needs the video's full path")
+    check(AssistSuggestionSemantics.insertionText(claimType: "QUOTED_PHRASE", label: "The concrete pour starts.",
+                                                  value: "The concrete pour starts.", completionText: " (site-visit.mp4, 0:02)")
+            == " (site-visit.mp4, 0:02)"
+          && AssistSuggestionSemantics.passage(of: ["quotedPhrase": "concrete pour starts",
+                                                    "metadata": ["componentType": "VIDEO_SEGMENT"]]) == "concrete pour starts",
+          "accepting a quoted phrase cites its video and moment, and its preview looks for the quoted words")
 
     // A PDF card opens at the page it rendered, which can follow the cited
     // text to a later page than the indexed one.
@@ -3929,6 +4224,67 @@ do {
     check(menu.attentionPath == ["External Drives"], "a review with nothing pending opens the drive list")
 }
 
+print("Code colours")
+do {
+    let syntax = try CodeSyntax(data: Data(contentsOf: URL(fileURLWithPath: "public/code-syntax.json")))
+    // public/code-syntax.js is held to the same cases by test/code-syntax.test.js.
+    let cases = try JSONSerialization.jsonObject(
+        with: Data(contentsOf: URL(fileURLWithPath: "test/fixtures/code-syntax-cases.json"))) as? [[String: Any]] ?? []
+    check(cases.count >= 10, "the shared colouring cases are read")
+    for sample in cases {
+        let file = sample["file"] as? String ?? "", text = sample["text"] as? String ?? ""
+        let expected = sample["tokens"] as? [[String]] ?? []
+        let tokens = syntax.language(forFileName: file)?.tokens(in: text) ?? []
+        let found = tokens.map { [$0.kind.rawValue, (text as NSString).substring(with: $0.range)] }
+        check(found == expected, "colours \(file) as the inspector does: \(sample["about"] as? String ?? "")")
+        if found != expected { print("    found \(found)") }
+    }
+    check(syntax.language(forFileName: "/repo/Dockerfile")?.name == "Dockerfile"
+          && syntax.language(forFileName: "src/App.TSX")?.name == "JavaScript"
+          && syntax.language(forFileName: "C:\\work\\job.PS1")?.name == "PowerShell"
+          && syntax.language(forFileName: "notes.txt") == nil && syntax.language(forFileName: "") == nil,
+          "a language is found by file name before extension, ignoring case and folders")
+
+    let script = syntax.language(forFileName: "a.js")!
+    let spanning = script.lineTokens(["let a = 1; /* one", "two", "three */ b"])
+    check(spanning.map { $0.map(\.kind) } == [[.keyword, .variable, .number, .comment], [.comment], [.comment]]
+          && spanning[0][3].range == NSRange(location: 11, length: 6) && spanning[2][0].range == NSRange(location: 0, length: 8),
+          "a block comment opened on one line colours the lines it runs on")
+
+    func shade(_ color: NSColor, _ name: NSAppearance.Name) -> String {
+        var hex = ""
+        NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
+            let rgb = color.usingColorSpace(.sRGB)!
+            hex = String(format: "#%02X%02X%02X", Int((rgb.redComponent * 255).rounded()),
+                         Int((rgb.greenComponent * 255).rounded()), Int((rgb.blueComponent * 255).rounded()))
+        }
+        return hex
+    }
+    let keyword = syntax.palette.color(for: .keyword)
+    check(shade(keyword, .aqua) == "#9B2393" && shade(keyword, .darkAqua) == "#FC5FA3",
+          "keywords take Xcode's light and dark colours as the appearance changes")
+
+    let payload: [String: Any] = [
+        "source": ["filename": "ratelimit.py", "location": "Line 2"], "path": "service/ratelimit.py",
+        "preview": ["kind": "text", "format": "plain", "lines": [
+            ["value": "def allow(self):", "lineNumber": 1], ["value": "    return True", "lineNumber": 2, "cited": true]]],
+    ]
+    let card = AssistDocumentPreview.parse(try JSONSerialization.data(withJSONObject: payload), syntax: syntax)!
+    check(card.textBlocks.map { $0.codeTokens.map(\.kind) } == [[.keyword, .variable, .keyword], [.keyword, .keyword]],
+          "the suggestion card colours a code file's lines")
+    let drawn = AssistMarkdown.attributed(card.textBlocks[1], baseSize: 11)
+    let returnColor = drawn.attribute(.foregroundColor, at: 4, effectiveRange: nil) as? NSColor
+    let returnFont = drawn.attribute(.font, at: 4, effectiveRange: nil) as? NSFont
+    let plainColor = drawn.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+    check(returnColor.map { shade($0, .aqua) } == "#9B2393" && plainColor == .labelColor
+          && returnFont?.isFixedPitch == true && returnFont?.fontDescriptor.symbolicTraits.contains(.bold) == true,
+          "a coloured line draws its keywords in bold keyword colour and leaves its indent plain")
+    var prose = payload
+    prose["source"] = ["filename": "notes.txt"]
+    let notes = AssistDocumentPreview.parse(try JSONSerialization.data(withJSONObject: prose), syntax: syntax)!
+    check(notes.textBlocks.allSatisfy { $0.codeTokens.isEmpty }, "prose lines are not coloured")
+}
+
 // MARK: The Ranch
 
 do {
@@ -4043,6 +4399,27 @@ do {
               && narrowed.index(of: nil) == nil,
               "a node in focus is found again by its id after the network is redrawn, not by where it was")
         check(layout.labelledFiles(limit: 1).count == 1, "only the busiest file labels are drawn")
+
+        let ordered = RanchOrder.lastEdited.sorted(overview.directories)
+        check(names(RanchPins.ordered(ordered, pinned: ["d1"])) == ["Finance", "Models", "Outlook"]
+              && names(RanchPins.ordered(ordered, pinned: ["d1", "d3"])) == ["Finance", "Outlook", "Models"]
+              && names(RanchPins.ordered(ordered, pinned: [])) == names(ordered),
+              "pinned directories go first, in the chosen order among themselves, and the rest keep theirs")
+        let pinDefaults = MemoryDirectoryDefaults(suiteName: nil)!
+        RanchPins.save(["d2", "d1"], defaults: pinDefaults)
+        check(RanchPins.saved(defaults: pinDefaults) == ["d1", "d2"] && RanchPins.saved(defaults: MemoryDirectoryDefaults(suiteName: nil)!).isEmpty,
+              "pins are remembered between launches, and none are pinned at first")
+
+        var trail = RanchNetworkTrail()
+        check(!trail.canGoBack && trail.back() == nil, "the whole network has nothing to go back to")
+        trail.leave(nil, for: "d1")
+        trail.leave("d1", for: "d1")
+        trail.leave("d1", for: "d2")
+        check(trail.visited == [nil, "d1"] && trail.canGoBack, "each click into another directory is retraced, staying put is not")
+        check(trail.back() == "d1" && trail.back() == nil && !trail.canGoBack,
+              "Back returns to the directory before, then to every directory")
+        for index in 0..<60 { trail.leave("d\(index)", for: "d\(index + 1)") }
+        check(trail.visited.count == 50 && trail.visited.last == "d59", "the trail keeps the latest fifty steps")
         check(overview.sources.filter(RanchKindFilter.spreadsheets.includes).count == 4
               && overview.sources.filter(RanchKindFilter.models.includes).isEmpty
               && overview.sources.filter(RanchKindFilter.all.includes).count == 4
@@ -4168,6 +4545,10 @@ do {
           && RanchViewerKind.choose(for: "dxf") == .plan && RanchViewerKind.choose(for: "xlsx") == .sheet
           && RanchViewerKind.choose(for: "XLS") == .sheet && RanchViewerKind.choose(for: "csv") == .quickLook,
           "models turn, drawings pan, and documents scroll in Quick Look")
+    check(RanchViewerKind.choose(for: "PPTX") == .slides && RanchViewerKind.choose(for: "key") == .quickLook,
+          "a PowerPoint deck shows its slides' pictures under a slide menu")
+    let slideAnchor = try? JSONDecoder().decode(RanchAnchor.self, from: Data(#"{"kind":"text-excerpt","slideNumber":3}"#.utf8))
+    check(slideAnchor?.slideNumber == 3, "a link into a deck names its slide")
 
     let codeJSON = """
     {"id": "c", "directoryId": "d1", "path": "src/server.js", "name": "server.js", "kind": "code", "fileType": "code",
@@ -4190,6 +4571,67 @@ do {
           "a selection covers the lines it touches, not the line after its last line break")
     check(RanchCodeLines.label(4...4) == "Line 4" && RanchCodeLines.label(10...20) == "Lines 10\u{2013}20",
           "selected lines are named the way they are written")
+}
+
+// MARK: The glass card's outline
+
+do {
+    let rect = CGRect(x: 0, y: 0, width: 300, height: 112)
+    func outline(pointerX: CGFloat, atTop: Bool) -> Path {
+        AssistBubbleShape(geometry: AssistBubbleGeometry(cornerRadius: 18, pointerWidth: 21, pointerHeight: 12,
+                                                         pointerX: pointerX, pointerAtTop: atTop)).path(in: rect)
+    }
+    let above = outline(pointerX: 84, atTop: true)
+    check(above.contains(CGPoint(x: 84, y: 4)) && !above.contains(CGPoint(x: 60, y: 4)),
+          "a glass card below the caret points up at it from its top edge")
+    check(above.contains(CGPoint(x: 150, y: 60)) && !above.contains(CGPoint(x: 150, y: 4)),
+          "the glass outline covers the card's body and nothing past it")
+    let below = outline(pointerX: 84, atTop: false)
+    check(below.contains(CGPoint(x: 84, y: 108)) && !below.contains(CGPoint(x: 60, y: 108)),
+          "a glass card above the caret points down at it from its bottom edge")
+    let nearEdge = outline(pointerX: 2, atTop: true)
+    check(nearEdge.contains(CGPoint(x: 28.5, y: 4)) && !nearEdge.contains(CGPoint(x: 4, y: 4)),
+          "an arrow near the card's edge stays clear of the rounded corner")
+}
+
+// MARK: Apps Lasso suggests in
+
+do {
+    let suite = "lasso-tests-suggestion-apps-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let apps = SuggestionApps(defaults: defaults, ownBundleID: "com.jte700.lasso", limit: 3)
+
+    check(apps.allows("com.apple.Notes") && apps.listed.isEmpty, "every app gets suggestions until one is switched off")
+
+    apps.noteTyping(in: "com.apple.Notes")
+    apps.noteTyping(in: "com.apple.mail")
+    apps.noteTyping(in: "com.apple.Notes")
+    check(apps.listed == ["com.apple.Notes", "com.apple.mail"], "an app typed in is listed once, in the order first seen")
+
+    apps.noteTyping(in: "com.jte700.lasso")
+    check(!apps.listed.contains("com.jte700.lasso"), "Lasso does not list itself")
+
+    apps.setAllowed(false, for: "com.tinyspeck.slackmacgap")
+    check(!apps.allows("com.tinyspeck.slackmacgap") && apps.listed.last == "com.tinyspeck.slackmacgap",
+          "an app switched off before it was typed in is listed and gets no suggestions")
+    check(apps.allows("com.apple.Notes"), "switching one app off leaves the others on")
+
+    apps.setAllowed(true, for: "com.tinyspeck.slackmacgap")
+    check(apps.allows("com.tinyspeck.slackmacgap") && apps.listed.contains("com.tinyspeck.slackmacgap"),
+          "switching an app back on keeps it in the list")
+
+    apps.setAllowed(false, for: "com.apple.Notes")
+    apps.noteTyping(in: "com.microsoft.Word")
+    apps.noteTyping(in: "com.apple.Safari")
+    check(apps.listed.count <= 4 && apps.listed.contains("com.apple.Notes") && !apps.allows("com.apple.Notes"),
+          "the list forgets the oldest apps typed in, never one that is switched off")
+    check(apps.listed.contains("com.apple.Safari"), "the newest app typed in is kept")
+
+    let reread = SuggestionApps(defaults: defaults, ownBundleID: "com.jte700.lasso", limit: 3)
+    check(!reread.allows("com.apple.Notes") && reread.listed == apps.listed, "choices survive a restart")
+    apps.noteTyping(in: "")
+    check(!apps.listed.contains(""), "an app with no bundle identifier is not listed")
 }
 
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")

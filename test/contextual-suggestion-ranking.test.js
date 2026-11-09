@@ -38,7 +38,9 @@ test('the current sentence selects the right source before equal names are dedup
   assert.equal(selected[0].completionText, 'Revenue');
   assert.equal(selected[0].path, 'south/sales.csv');
   assert.ok(selected[0].ranking.contextScore > 0);
-  assert.equal(selected.filter((candidate) => candidate.completionText === 'Revenue').length, 1);
+  // The same name in another document follows it as its own suggestion.
+  assert.deepEqual(selected.filter((candidate) => candidate.completionText === 'Revenue')
+    .map((candidate) => candidate.path), ['south/sales.csv', 'north/sales.csv']);
   assert.equal(candidates(predict('The north region Rev'))[0].path, 'north/sales.csv');
   assert.equal(candidates(predict('The south region was reviewed. The Rev'))[0].path, 'north/sales.csv',
     'an earlier sentence must not override the current sentence and usage preference');
@@ -59,8 +61,8 @@ test('sentence context remains ahead of popularity when suggestions merge across
 test('an unknown topic keeps contextual suggestions quiet before and after the word boundary', async (t) => {
   const { app, north } = await fixture(t);
   const predict = (text) => app.dependencies.predict(north.id, { text });
-  assert.ok(predict('Our results showed that').workspaceCompletions.length,
-    'generic reporting cues still offer project data');
+  // Reporting cues name no source, so they offer nothing either.
+  assert.deepEqual(predict('Our results showed that').workspaceCompletions, []);
   for (const text of ['Our results showed geomembrane', 'Our results showed geomembrane ',
     'Our results showed geomembr']) {
     const prediction = predict(text);

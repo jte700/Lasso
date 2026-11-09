@@ -163,7 +163,8 @@ enum KeyRouter {
     }
 
     private static func shareDecision(_ keyCode: Int64, flags: CGEventFlags, commandLike: Bool) -> KeyDecision {
-        // ⌘Z and ⇧⌘Z step through the masks, never the document behind them.
+        // ⌘Z and ⇧⌘Z step through the masks, marks or chosen excerpt, never
+        // the document behind them.
         if keyCode == z, flags.contains(.maskCommand), flags.intersection([.maskControl, .maskAlternate]).isEmpty {
             return .swallow(flags.contains(.maskShift) ? .shareRedo : .shareUndo)
         }

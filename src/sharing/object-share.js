@@ -5,8 +5,9 @@ import { fullTextLayout } from './text-layout.js';
 import { csvDelimiter } from '../history/diff.js';
 import { correctedDocumentLabel } from '../dependencies/authors.js';
 import { shareExpiry } from './expiry.js';
-import { isCodePath } from '../history/file-types.js';
+import { detectFileType, isCodePath } from '../history/file-types.js';
 import { isPresentationPath } from '../dependencies/presentation-extraction.js';
+import { isMarkablePath, normalizeMarkup } from './markup.js';
 
 const MIME_TYPES = {
   '.pdf': 'application/pdf',
@@ -49,6 +50,28 @@ function columnLetter(index) {
  * version. Tokens are never derived from database identifiers, resolution is an
  * exact token match, and the real filesystem path is never exposed.
  */
+/** The longest sentence a share keeps as the one it backs. */
+const CITED_IN_LENGTH = 600;
+
+/**
+ * What a share remembers about its citation: the sentence it backs, shown to
+ * the recipient, and whether a cited cell brings the rows around it.
+ * @returns {{ citedIn: string|null, nearbyRows: boolean }}
+ */
+function shareContext(citedIn, nearbyRows) {
+  const sentence = typeof citedIn === 'string' ? citedIn.replace(/\s+/g, ' ').trim().slice(0, CITED_IN_LENGTH) : '';
+  return { citedIn: sentence || null, nearbyRows: nearbyRows === true };
+}
+
+function savedShareContext(json) {
+  try {
+    const saved = JSON.parse(json ?? '{}');
+    return shareContext(saved?.citedIn, saved?.nearbyRows);
+  } catch {
+    return shareContext(null, false);
+  }
+}
+
 export class ObjectShareService {
   constructor(db, timeline, config) {
     this.db = db;
@@ -74,7 +97,7 @@ export class ObjectShareService {
    * recipient always sees the source as it was at the moment of sharing.
    */
   createShare({ projectId, objectId, versionId, actor, expiresAt = null,
-    accessScope = "DOCUMENT", redactions = [], excerpt = null }) {
+    accessScope = "DOCUMENT", redactions = [], excerpt = null, markup = [], citedIn = null, nearbyRows = false }) {
     if (!projectId) throw new HttpError(400, 'A project is required to share a source.');
     if (!objectId) throw new HttpError(400, 'An indexed object is required to share a source.');
     const normalizedScope = normalizeShareScope(accessScope);
@@ -86,6 +109,8 @@ export class ObjectShareService {
     const offered = offeredShareScopes(version.path, version.anchor_json ? JSON.parse(version.anchor_json) : null);
     if (!offered.includes(normalizedScope)) throw new HttpError(422, scopeRefusal(version.path, normalizedScope));
     const normalizedRedactions = normalizeRedactions(redactions, normalizedScope);
+    // A marked copy keeps its strokes where a redacted one keeps its masks.
+    const normalizedMarkup = normalizeMarkup(markup, normalizedScope);
     const normalizedExcerpt = normalizePdfExcerpt(excerpt, normalizedScope);
     const isDrawing = /\.(?:ifc|dxf)$/i.test(version.path ?? '');
     const isPdf = /\.pdf$/i.test(version.path ?? '');
@@ -106,7 +131,7 @@ export class ObjectShareService {
     // Markdown and XML text redactions address structured sections. The layout
     // is recorded so the stored indexes cannot drift to a different segmentation.
     const layout = fullTextLayout(version.path);
-    let storedRedactions = layout
+    let storedRedactions = normalizedScope === 'MARKED' ? normalizedMarkup : layout
       ? normalizedRedactions.map(entry => entry.kind === 'BLOCK' ? { ...entry, layout } : entry)
       : normalizedRedactions;
     // Cells of a semicolon file are addressed in its semicolon columns.
@@ -119,6 +144,7 @@ export class ObjectShareService {
       }
     }
 
+    const context = shareContext(citedIn, nearbyRows);
     const normalizedActor = actor?.id ? actor : { id: 'human-self:local', displayName: 'Local user', actorType: 'HUMAN_SELF' };
     this.timeline.upsertActor(normalizedActor);
 
@@ -133,11 +159,13 @@ export class ObjectShareService {
     this.db.prepare(`
       INSERT INTO object_share_grants(
         id, project_id, object_id, object_version_id, token,
-        created_by_actor_id, created_at, expires_at, revoked_at, access_scope, redactions_json, excerpt_json, snapshot_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
+        created_by_actor_id, created_at, expires_at, revoked_at, access_scope, redactions_json, excerpt_json, snapshot_id,
+        context_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
     `).run(record.id, projectId, objectId, version.id, token,
       normalizedActor.id, record.createdAt, record.expiresAt, normalizedScope,
-      JSON.stringify(storedRedactions), normalizedExcerpt ? JSON.stringify(normalizedExcerpt) : null, version.snapshot_id);
+      JSON.stringify(storedRedactions), normalizedExcerpt ? JSON.stringify(normalizedExcerpt) : null, version.snapshot_id,
+      JSON.stringify(context));
 
     return {
       id: record.id,
@@ -150,6 +178,7 @@ export class ObjectShareService {
       accessScope: normalizedScope,
       redactions: storedRedactions,
       excerpt: normalizedExcerpt,
+      context,
     };
   }
 
@@ -232,6 +261,7 @@ export class ObjectShareService {
         accessScope: grant.access_scope ?? 'DOCUMENT',
         redactions: JSON.parse(grant.redactions_json ?? '[]'),
         excerpt: grant.excerpt_json ? JSON.parse(grant.excerpt_json) : null,
+        context: savedShareContext(grant.context_json),
       },
       source: {
         label: correctedDocumentLabel(version.object_type, version.label, metadata),
@@ -350,24 +380,30 @@ export class ObjectShareService {
     }));
   }
 }
-const SHARE_SCOPES = new Set(['DOCUMENT', 'INDEXED', 'REDACTED']);
+const SHARE_SCOPES = new Set(['DOCUMENT', 'INDEXED', 'REDACTED', 'MARKED']);
 
 /**
  * The scopes a source can be shared with. Code is never shared with a link.
  * A deck is shared whole or as one slide, the cited one, and has nothing to
- * redact; its whole-deck citation names no slide.
+ * redact; its whole-deck citation names no slide. PDFs, Word documents and
+ * decks can also be shared as a copy with markings drawn on its pages.
  * @param {string} filePath
  * @param {object|null} anchor the cited object's anchor
  * @returns {string[]}
  */
 export function offeredShareScopes(filePath, anchor = null) {
   if (isCodePath(filePath)) return [];
-  if (isPresentationPath(filePath)) return Number.isInteger(anchor?.slideNumber) ? ['DOCUMENT', 'INDEXED'] : ['DOCUMENT'];
-  return [...SHARE_SCOPES];
+  // A video is sent whole: a sentence of it is a moment to start at, not a part to cut out.
+  if (detectFileType(filePath) === 'video') return ['DOCUMENT'];
+  const marked = isMarkablePath(filePath) ? ['MARKED'] : [];
+  if (isPresentationPath(filePath)) return [...(Number.isInteger(anchor?.slideNumber) ? ['DOCUMENT', 'INDEXED'] : ['DOCUMENT']), ...marked];
+  return ['DOCUMENT', 'INDEXED', 'REDACTED', ...marked];
 }
 
 function scopeRefusal(filePath, scope) {
   if (isCodePath(filePath)) return 'Lasso doesn’t make share links for code files. Send a copy of the file instead.';
+  if (detectFileType(filePath) === 'video') return 'A video is shared whole, from the moment it is cited.';
+  if (scope === 'MARKED') return 'Only PDFs, Word documents and presentations can be shared with markings.';
   if (scope === 'REDACTED') return 'Presentations are shared whole or one slide at a time; there is nothing to redact.';
   return 'This citation names no slide. Share the whole presentation, or cite a slide to share only that slide.';
 }

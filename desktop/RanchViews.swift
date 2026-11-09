@@ -149,28 +149,33 @@ struct RanchRootView: View {
             HStack(spacing: 0) {
                 if !store.sidebarHidden {
                     RanchSidebar(store: store, actions: actions, search: $searchFocused, hide: toggleSidebar)
+                        .ranchSidebarSurface()
                         .frame(width: sidebarWidth)
                         .transition(.move(edge: .leading))
-                    RanchColumnDivider(width: $sidebarWidth, range: Self.sidebarWidths)
+                    RanchColumnDivider(width: $sidebarWidth, range: Self.sidebarWidths, showsLine: !RanchGlass.isAvailable)
                 }
                 // The network needs room, so it takes the whole width and shows
                 // the chosen file beside it instead of in a third column.
-                if store.section == .network {
-                    RanchNetworkPane(store: store, actions: actions)
-                        .environment(\.ranchShowSidebar, showSidebar)
-                } else {
-                    RanchContent(store: store)
-                        .environment(\.ranchShowSidebar, showSidebar)
-                        .frame(width: min(listWidth, listRoom))
-                    RanchColumnDivider(width: $listWidth, range: Self.listMinimum...listRoom)
-                    RanchDetail(store: store, actions: actions)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                HStack(spacing: 0) {
+                    if store.section == .network {
+                        RanchNetworkPane(store: store, actions: actions)
+                            .environment(\.ranchShowSidebar, showSidebar)
+                    } else {
+                        RanchContent(store: store)
+                            .environment(\.ranchShowSidebar, showSidebar)
+                            .frame(width: min(listWidth, listRoom))
+                        RanchColumnDivider(width: $listWidth, range: Self.listMinimum...listRoom)
+                        RanchDetail(store: store, actions: actions)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
+                // Files are read on a solid page; only the sidebar side is glass.
+                .background(RanchTheme.surface)
             }
         }
         // The columns run up under the window's buttons.
         .ignoresSafeArea(.container, edges: .top)
-        .background(RanchTheme.surface)
+        .background { RanchWindowBackdrop() }
         .frame(minWidth: 860, minHeight: 520)
         .background { shortcuts }
         .alert("Something Didn\u{2019}t Work", isPresented: Binding(get: { store.actionError != nil },
@@ -319,7 +324,6 @@ struct RanchSidebar: View {
             }
             footer
         }
-        .background(RanchTheme.sidebar)
     }
 
     private func library(_ selection: Binding<RanchSidebarItem?>, quiet: Bool) -> some View {
@@ -372,10 +376,11 @@ struct RanchSidebar: View {
                   open: branch.tree.isEmpty ? nil : { toggle(key) }) {
             HStack(spacing: 4) {
                 RanchDisclosure(open: branch.open, hidden: branch.tree.isEmpty || !store.canToggleFolders) { toggle(key) }
-                RanchDirectoryRow(directory: directory)
+                RanchDirectoryRow(directory: directory, color: directory.color, pinned: store.isPinned(directory.id))
             }
         }
         .accessibilityAction(named: branch.open ? "Collapse" : "Expand") { toggle(key) }
+        .contextMenu { RanchDirectoryMenu(store: store, directory: directory) }
         ForEach(branch.rows) { row in
             outlineRow(row, in: directory, selection: selection)
         }
@@ -472,7 +477,8 @@ struct RanchSidebar: View {
             Button(action: actions.addDirectories) {
                 Label("Add Work Directories\u{2026}", systemImage: "plus").frame(maxWidth: .infinity)
             }
-            .buttonStyle(RanchPillButtonStyle(prominent: true, height: 32))
+            // Grey like every other action button; only folders and highlights carry colour.
+            .buttonStyle(RanchPillButtonStyle(prominent: false, height: 32))
             .help("Choose folders for Lasso to read; their files appear here")
             HStack(spacing: 7) {
                 Circle().fill(status.color).frame(width: 7, height: 7)
@@ -567,13 +573,52 @@ struct RanchOrderMenu: View {
     }
 }
 
-struct RanchDirectoryRow: View {
+/// A directory's right-click menu in the sidebar: pin it to the top, give it
+/// a colour, which the menu bar panel and its sources share, or find it.
+struct RanchDirectoryMenu: View {
+    @ObservedObject var store: RanchStore
     let directory: RanchDirectory
 
     var body: some View {
+        Button(store.isPinned(directory.id) ? "Unpin" : "Pin to Top") { store.togglePin(directory.id) }
+        Menu("Colour") {
+            Picker("Colour", selection: color) {
+                ForEach(DirectoryToggleColor.allCases, id: \.self) { option in
+                    Label { Text(option.title) } icon: { Image(nsImage: option.swatch()) }.tag(option)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        }
+        if !directory.isApp && !directory.offline {
+            Divider()
+            Button("Show in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: directory.rootPath)])
+            }
+        }
+    }
+
+    private var color: Binding<DirectoryToggleColor> {
+        Binding(get: { DirectoryColorPreferences.color(for: directory.id) ?? DirectoryColorPreferences.defaultColor() },
+                set: { store.setColor($0, for: directory.id) })
+    }
+}
+
+struct RanchDirectoryRow: View {
+    let directory: RanchDirectory
+    /// Passed in rather than read here: the row only redraws when its inputs
+    /// change, so a colour picked while the window is open must be one of them.
+    let color: Color
+    var pinned = false
+
+    var body: some View {
         HStack(spacing: 9) {
-            Image(systemName: directory.sidebarSymbol).font(.system(size: 13)).foregroundStyle(directory.color).frame(width: 18)
+            Image(systemName: directory.sidebarSymbol).font(.system(size: 13)).foregroundStyle(color).frame(width: 18)
             Text(directory.name).font(RanchTheme.bodyFont).foregroundStyle(RanchTheme.ink).lineLimit(1)
+            if pinned {
+                Image(systemName: "pin.fill").font(.system(size: 9)).foregroundStyle(RanchTheme.tertiaryInk)
+                    .rotationEffect(.degrees(45)).help("Pinned to the top").accessibilityLabel("Pinned")
+            }
             if !directory.active {
                 Text("Paused").font(RanchTheme.captionFont).foregroundStyle(RanchTheme.tertiaryInk)
             } else if directory.offline {

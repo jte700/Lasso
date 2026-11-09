@@ -1,15 +1,18 @@
 // Lines of a programming file named while writing: "server.js line 42",
 // "lines 10 through 20", "line 10 to line 20", "line 7 of config.yaml". Tab
 // inserts the code itself after the words that named it, every line from the
-// first through the last.
+// first through the last, after a colon and on lines of their own.
 
 /** The most lines one Tab inserts. */
 export const MAX_CODE_LINES = 500;
 
 const NUMBER = String.raw`(\d{1,7})`;
-const RANGE = String.raw`(?:\s*(?:-|–|—|to|through|thru|till|until)\s*(?:lines?\s+)?${NUMBER})?`;
+const JOINER = String.raw`\s*(?:-|–|—|to|through|thru|till|until)\s*`;
+const RANGE = String.raw`(?:${JOINER}(?:lines?\s+)?${NUMBER})?`;
 // Ends where the writer stopped: after the number, a colon or a space.
 const MENTION_AT_END = new RegExp(String.raw`\b(?:lines?|ln\.?)\s*#?${NUMBER}${RANGE}\s*:?\s*$`, 'i');
+// A range typed up to its joining word: "line 6 to", "line 6 to line", "lines 6-".
+const RANGE_BEING_TYPED = new RegExp(String.raw`\b(?:lines?|ln\.?)\s*#?${NUMBER}${JOINER}(?:lines?\s*)?$`, 'i');
 // "line 42 of " just before a file name the writer then accepted.
 const MENTION_BEFORE_NAME = new RegExp(String.raw`\b(?:lines?|ln\.?)\s*#?${NUMBER}${RANGE}\s+(?:of|in|from)(?:\s+the)?\s*$`, 'i');
 // A file name written just before the lines it names: "server.js line 42", "src/app.py, lines 3-9".
@@ -24,12 +27,15 @@ function lines(match, offset) {
 /**
  * The lines named at the end of `text` (before `cursor`), counted from
  * `from`: { first, last, start, end }, or null. A range typed up to its
- * joining word ("lines 10 through") names nothing until its last number.
+ * joining word ("lines 10 through") is { first, last: null, pending: true }:
+ * it names nothing until its last number.
  */
 export function lineMentionAtEnd(text, from, cursor) {
   const before = String(text ?? '').slice(Math.max(0, from), cursor);
   const match = before.match(MENTION_AT_END);
-  return match ? lines(match, Math.max(0, from)) : null;
+  if (match) return lines(match, Math.max(0, from));
+  const typing = before.match(RANGE_BEING_TYPED);
+  return typing ? { ...lines(typing, Math.max(0, from)), last: null, pending: true } : null;
 }
 
 /** "line 42 of " ending at `at`, the start of the file name written after it. */
@@ -60,6 +66,29 @@ export function codeOfLines(fileLines, first, last) {
     return common.slice(0, length);
   }, indents[0] ?? '');
   return selected.map((line) => (line.startsWith(shared) ? line.slice(shared.length) : line.trimStart())).join('\n');
+}
+
+/**
+ * Lines of code as Tab inserts them at the end of `before`, the text up to
+ * the caret: on lines of their own, each indented by the writer's current
+ * line, so the code sits in the block being written. A caret on a line that
+ * holds only indentation starts the code there. Otherwise the words that
+ * named the lines end with a colon ("line 4 to line 15:") and the code starts
+ * on the next line; `replaced` is how many spaces after those words the
+ * colon takes the place of. Blank lines stay empty.
+ */
+export function codeOnOwnLines(code, before) {
+  const written = String(before ?? '');
+  const line = written.slice(written.lastIndexOf('\n') + 1);
+  const indent = line.match(/^[ \t]*/)[0];
+  const startsLine = indent.length === line.length;
+  const indented = code.split('\n')
+    .map((codeLine, index) => (codeLine && (index > 0 || !startsLine) ? indent + codeLine : codeLine))
+    .join('\n');
+  if (startsLine) return { text: indented, replaced: 0 };
+  const trailing = line.match(/[ \t]*$/)[0];
+  const colon = line.slice(0, line.length - trailing.length).endsWith(':') ? '' : ':';
+  return { text: `${colon}\n${indented}`, replaced: trailing.length };
 }
 
 /** "Line 42" or "Lines 10–20". */

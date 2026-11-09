@@ -29,6 +29,7 @@ final class RanchWindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 860, height: 520)
         window.tabbingMode = .disallowed
+        RanchGlass.prepare(window)
         super.init(window: window)
         // Before the content: the window keeps the first undo manager anything
         // asks it for, and SwiftUI asks while the content is set up.

@@ -145,7 +145,7 @@ final class DependencyHighlighter {
     func recordVerifiedInsertion(objectId: String, versionId: String?, projectId: String? = nil, label: String,
                                  valueText: String?, sourcePath: String, sourceLocation: String,
                                  document: [UInt16], range: Range<Int>, documentOffset: Int = 0,
-                                 element: AXUIElement) -> String? {
+                                 element: AXUIElement, videoTime: Double? = nil) -> String? {
         guard let anchor = TextAnchor.make(in: document, range: range,
                                            documentOffset: documentOffset) else { return nil }
         let id = "ref_" + UUID().uuidString.prefix(8)
@@ -157,7 +157,7 @@ final class DependencyHighlighter {
                 self.storeVerifiedInsertion(
                     id: id, objectId: objectId, versionId: versionId, projectId: projectId, label: label,
                     valueText: valueText, sourcePath: sourcePath, sourceLocation: sourceLocation,
-                    anchor: anchor, context: context)
+                    anchor: anchor, context: context, videoTime: videoTime)
             }
         }
         return id
@@ -165,7 +165,7 @@ final class DependencyHighlighter {
 
     private func storeVerifiedInsertion(id: String, objectId: String, versionId: String?, projectId: String?, label: String,
                                         valueText: String?, sourcePath: String, sourceLocation: String,
-                                        anchor: TextAnchor, context: HostContext) {
+                                        anchor: TextAnchor, context: HostContext, videoTime: Double? = nil) {
         let colorSlot = sourceColorSlot(path: sourcePath, objectId: objectId,
                                        projectId: projectId, in: context)
         let reference = DependencyReference(
@@ -177,7 +177,7 @@ final class DependencyHighlighter {
             anchor: anchor, state: .healthy,
             label: label, valueText: valueText,
             sourcePath: sourcePath, sourceLocation: sourceLocation,
-            sourceColorSlot: colorSlot,
+            sourceColorSlot: colorSlot, videoTime: videoTime,
             createdAt: Date(), updatedAt: Date())
         store.add(reference)
         scheduleRefresh()

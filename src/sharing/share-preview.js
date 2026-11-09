@@ -10,7 +10,7 @@ import { tabularLayout } from '../dependencies/service.js';
 import { parseDelimited } from '../history/diff.js';
 import { MARKDOWN_LAYOUT, isMarkdownPath, markdownBlocks, markdownPlainText } from './markdown.js';
 import { LINE_LAYOUT, fullTextLayout } from './text-layout.js';
-import { isPresentationPath, presentationOutline, readPresentation, slideAtLine } from '../dependencies/presentation-extraction.js';
+import { deckSummary, isPresentationPath, presentationOutline, readPresentation, slideAtLine } from '../dependencies/presentation-extraction.js';
 import { isCodePath } from '../history/file-types.js';
 
 /// Legacy paragraph blocks are used when any stored text redaction predates
@@ -102,6 +102,78 @@ export function buildSharePreview(file, anchor = {}, metadata = {}, radius = 2, 
     rows: rows.map((row) => ({ ...row, cells: row.cells.map((cell, index) => ({ ...cell,
       cited: selection.cites(row.rowNumber, spreadsheetColumnIndex(context.columns[index]), cell.value),
     })) })) };
+}
+
+/** How many of a shared column's rows its excerpt lists, from the heading down. */
+const SHARED_COLUMN_ROWS = 1000;
+
+/**
+ * What a cited-part share of a table holds, and what its recipient sees and
+ * downloads: exactly what the sentence cites, with only what it takes to
+ * read it. A cell comes with its row label and column heading; a row is
+ * that row under its headings; a column is that column alone, from its
+ * heading down. With `nearbyRows`, a cell or row keeps the rows around it
+ * and every column, for when the sharer wants that context.
+ * @param {{ path: string, content: Buffer|string }} file
+ * @param {object} anchor
+ * @param {object} metadata
+ * @param {{ nearbyRows?: boolean }} options
+ */
+export function buildSharedExcerpt(file, anchor = {}, metadata = {}, { nearbyRows = false } = {}) {
+  const context = buildSharePreview(file, anchor, metadata, 2, '', { columnRows: SHARED_COLUMN_ROWS });
+  if (!context?.rows) return context;
+  if (context.columnCitation) return citedColumnsOnly(context);
+  return nearbyRows ? context : citedRowOnly(context, anchor);
+}
+
+/**
+ * What a cited-part share of a text source holds: the paragraph the cited
+ * passage sits in, which the share page shows with the passage marked.
+ * Nothing past that paragraph is shared.
+ * @returns {{ kind: 'passage', paragraph: string } | null}
+ */
+export function buildSharedPassage(file, anchor = {}, metadata = {}, label = '', objectType = '') {
+  const preview = buildInspectorPreview(file, anchor, metadata, label, objectType);
+  if (preview?.kind !== 'text' || preview.deck || preview.presentation) return null;
+  if (preview.blocks) {
+    const cited = preview.blocks.filter((block) => block.cited && block.type !== 'heading');
+    const paragraph = cited.map((block) => markdownPlainText(block.text)).join(' ').replace(/\s+/g, ' ').trim();
+    return paragraph ? { kind: 'passage', paragraph } : null;
+  }
+  const lines = preview.lines ?? [];
+  let start = lines.findIndex((line) => line.cited);
+  if (start < 0) return null;
+  let end = lines.findLastIndex((line) => line.cited);
+  // A paragraph of plain text runs between blank lines.
+  while (start > 0 && lines[start - 1].value.trim()) start -= 1;
+  while (end < lines.length - 1 && lines[end + 1].value.trim()) end += 1;
+  const paragraph = lines.slice(start, end + 1).map((line) => line.value.trim()).join(' ').trim();
+  return paragraph ? { kind: 'passage', paragraph } : null;
+}
+
+/** The cited row alone: every cell of a cited row, or a cited cell with its row's label. */
+function citedRowOnly(context, anchor) {
+  const row = context.rows.find((entry) => entry.cells.some((cell) => cell.cited));
+  if (!row) return context;
+  const cited = row.cells.flatMap((cell, index) => (cell.cited ? [index] : []));
+  const rowKey = String(anchor.rowKey ?? '').trim();
+  const named = rowKey ? row.cells.findIndex((cell) => String(cell.value ?? '').trim() === rowKey) : -1;
+  const label = named >= 0 ? named : row.cells.findIndex((cell) => String(cell.value ?? '').trim());
+  const keep = cited.length === row.cells.length ? cited
+    : [...new Set([label, ...cited])].filter((index) => index >= 0).sort((left, right) => left - right);
+  const pick = (values) => keep.map((index) => values?.[index]);
+  return { ...context, columns: pick(context.columns), headers: pick(context.headers),
+    rows: [{ ...row, cells: pick(row.cells) }] };
+}
+
+/** The context narrowed to the columns that hold a cited cell. */
+function citedColumnsOnly(context) {
+  const keep = context.columns.map((_, index) => index)
+    .filter((index) => context.rows.some((row) => row.cells[index]?.cited));
+  if (!keep.length) return context;
+  const pick = (values) => keep.map((index) => values?.[index]);
+  return { ...context, columns: pick(context.columns), headers: pick(context.headers),
+    rows: context.rows.map((row) => ({ ...row, cells: pick(row.cells) })) };
 }
 
 const spreadsheetColumnIndex = (value) => [...value]
@@ -309,12 +381,16 @@ export function findPassage(text, passage) {
   return match ? { start: match.index, end: match.index + match[0].length } : null;
 }
 
+/** Lines around the cited ones, and Markdown blocks before and after them, that a text viewport includes. */
+export const TEXT_PREVIEW_CONTEXT = Object.freeze({ lines: 8, blocksBefore: 12, blocksAfter: 40 });
+
 /**
  * Text viewport for the native assist card, the source inspector and the share
  * composer. Markdown is returned as structured blocks so every surface renders
- * headings, lists and emphasis instead of the raw syntax.
+ * headings, lists and emphasis instead of the raw syntax. `context` widens it
+ * for a surface that scrolls.
  */
-export function buildTextPreview(filePath, value, anchor = {}, metadata = {}, label = '', objectType = '', { matchText = '', outline = null } = {}) {
+export function buildTextPreview(filePath, value, anchor = {}, metadata = {}, label = '', objectType = '', { matchText = '', outline = null, context = TEXT_PREVIEW_CONTEXT } = {}) {
   const text = String(value ?? '').replace(/\r\n?/g, '\n');
   const lines = text.split('\n');
   const range = citedLineRange(text, lines, anchor ?? {}, metadata ?? {}, label, matchText);
@@ -339,8 +415,8 @@ export function buildTextPreview(filePath, value, anchor = {}, metadata = {}, la
     const firstCited = blocks.findIndex(cited);
     let lastCited = firstCited;
     while (lastCited >= 0 && lastCited + 1 < blocks.length && cited(blocks[lastCited + 1])) lastCited += 1;
-    const start = firstCited < 0 ? 0 : Math.max(0, firstCited - 12);
-    const end = Math.min(blocks.length, (lastCited < 0 ? 0 : lastCited) + 40);
+    const start = firstCited < 0 ? 0 : Math.max(0, firstCited - context.blocksBefore);
+    const end = Math.min(blocks.length, (lastCited < 0 ? 0 : lastCited) + context.blocksAfter);
     const section = firstCited < 0 ? null
       : blocks.slice(0, firstCited + 1).reverse().find((block) => block.type === 'heading');
     const citedText = firstCited < 0 ? '' : blocks.slice(firstCited, lastCited + 1)
@@ -358,8 +434,8 @@ export function buildTextPreview(filePath, value, anchor = {}, metadata = {}, la
   }
 
   const selected = range ? range[0] - 1 : -1;
-  const startLine = Math.max(0, (selected < 0 ? 0 : selected) - 8);
-  const endLine = Math.min(lines.length, Math.max(startLine + 24, (range?.[1] ?? 0) + 8));
+  const startLine = Math.max(0, (selected < 0 ? 0 : selected) - context.lines);
+  const endLine = Math.min(lines.length, Math.max(startLine + 24, (range?.[1] ?? 0) + context.lines));
   return {
     kind: 'text', format: extension === '.docx' ? 'document' : 'plain', extracted: extension === '.docx',
     openAt,
@@ -385,7 +461,7 @@ function slidePreview(text, outline, range, anchor, metadata) {
   const document = slideDocument(text, shown, slide ? range : null);
   return {
     kind: 'text', format: 'markdown', extracted: true, slideNumber: slide?.number ?? null,
-    slideCount: outline.slides.length, openAt: { slide: shown.number },
+    slideCount: outline.slides.length, deck: deckSummary(outline), openAt: { slide: shown.number },
     location: slide ? slideLocation(slide) : 'Entire presentation',
     text: document.styles.filter((block) => block.cited).map((block) => markdownPlainText(block.text)).join('\n').slice(0, 1200),
     firstBlock: 0, blockCount: document.styles.length,
@@ -457,9 +533,10 @@ export function buildFullShareDocument(file, { visualPdf = false, structuredLayo
     // shares created before these layouts keep the paragraph blocks they were made with.
     if (isPresentationPath(file.path)) {
       // A deck reads as its slide outline; it is shared whole or a slide at a time, never redacted.
-      const blocks = markdownBlocks(presentationOutline(readPresentation(file.content)).text);
+      const outline = presentationOutline(readPresentation(file.content));
+      const blocks = markdownBlocks(outline.text);
       return blocks.length ? {
-        kind: 'text', format: 'markdown', layout: MARKDOWN_LAYOUT, presentation: true,
+        kind: 'text', format: 'markdown', layout: MARKDOWN_LAYOUT, presentation: true, deck: deckSummary(outline),
         blocks: blocks.map((block) => block.source),
         styles: blocks.map(({ source, lineStart, lineEnd, ...style }) => style),
       } : null;

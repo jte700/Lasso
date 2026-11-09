@@ -42,6 +42,31 @@ struct RanchQuickLookView: NSViewRepresentable {
     }
 }
 
+/// A deck's slides as the pictures Lasso draws of them, under the slide menu
+/// the suggestion card and share composer show; it turns to the slide a review
+/// link cites.
+struct RanchSlidesView: NSViewRepresentable {
+    let slides: SlideDeckDocument
+    var slide: Int
+
+    final class Coordinator {
+        var shown: Int?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> AssistSlidePreviewView {
+        context.coordinator.shown = slide
+        return AssistSlidePreviewView(slides: slides, current: slide, menuAtTop: true)
+    }
+
+    func updateNSView(_ view: AssistSlidePreviewView, context: Context) {
+        guard context.coordinator.shown != slide else { return }
+        context.coordinator.shown = slide
+        view.navigator.go(to: slide)
+    }
+}
+
 /// A PDF in PDFKit, which can turn to the page a review link cites and light
 /// up the cited words; Quick Look cannot be told which page to show.
 struct RanchPDFView: NSViewRepresentable {
@@ -329,14 +354,33 @@ final class RanchPlanCanvas: NSView {
     }
 }
 
+/// A code file's text and its colours, read off the main thread.
+struct RanchCode {
+    /// Colouring a longer file would hold up showing it, so it is shown plain.
+    static let maximumColouredLength = 1_000_000
+
+    let text: String
+    let tokens: [CodeToken]
+    let palette: CodePalette?
+
+    init(text: String, fileName: String, syntax: CodeSyntax? = CodeSyntax.bundled) {
+        self.text = text
+        let language = text.utf16.count <= Self.maximumColouredLength ? syntax?.language(forFileName: fileName) : nil
+        tokens = language?.tokens(in: text) ?? []
+        palette = language == nil ? nil : syntax?.palette
+    }
+}
+
 /// Code with its line numbers beside it, read-only, so the number to write
 /// after the file's name ("server.js line 42") is always in view. Selecting
 /// text reports the lines it covers.
 struct RanchCodeView: NSViewRepresentable {
-    let text: String
+    let code: RanchCode
     /// A line a review link cites, selected and scrolled to.
     var focusLine: Int? = nil
     let onSelectLines: (ClosedRange<Int>?) -> Void
+
+    private static let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var shownLine: Int?
@@ -364,16 +408,16 @@ struct RanchCodeView: NSViewRepresentable {
         textView.isSelectable = true
         textView.isRichText = false
         textView.usesFindBar = true
-        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.font = Self.font
         textView.textColor = .textColor
         textView.backgroundColor = .textBackgroundColor
         textView.textContainerInset = NSSize(width: 6, height: 8)
         textView.isHorizontallyResizable = true
         textView.isVerticallyResizable = true
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
-        textView.string = text
+        Self.show(code, in: textView)
         textView.delegate = context.coordinator
-        let scroll = NSScrollView()
+        let scroll = RanchCodeScrollView()
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true
@@ -388,9 +432,10 @@ struct RanchCodeView: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.onSelectLines = onSelectLines
         guard let textView = scroll.documentView as? NSTextView else { return }
-        if textView.string != text {
-            textView.string = text
+        if textView.string != code.text {
+            Self.show(code, in: textView)
             (scroll.verticalRulerView as? RanchLineNumberRuler)?.textDidChange()
+            (scroll as? RanchCodeScrollView)?.scrollToStart()
         }
         if let focusLine, context.coordinator.shownLine != focusLine {
             context.coordinator.shownLine = focusLine
@@ -402,6 +447,36 @@ struct RanchCodeView: NSViewRepresentable {
                 textView.showFindIndicator(for: range)
             }
         }
+    }
+
+    /// Puts the code in the view, coloured as Xcode colours it.
+    private static func show(_ code: RanchCode, in textView: NSTextView) {
+        textView.string = code.text
+        guard let palette = code.palette, let storage = textView.textStorage else { return }
+        palette.apply(code.tokens, to: storage, font: font)
+    }
+}
+
+/// The line numbers lie over the text's left edge, and the clip view is
+/// inset to make room for them, so the start of each line sits left of zero.
+/// Left at zero, as AppKit leaves it, the first characters of every line
+/// would hide under the numbers. This one opens all the way left, at the top.
+final class RanchCodeScrollView: NSScrollView {
+    private var showsStart = true
+
+    /// Shows the start of the text again once laid out, as for a new file.
+    func scrollToStart() {
+        showsStart = true
+        tile()
+    }
+
+    override func tile() {
+        super.tile()
+        guard showsStart, contentSize.width > 0, let document = documentView else { return }
+        showsStart = false
+        let insets = contentView.contentInsets
+        contentView.scroll(to: NSPoint(x: -insets.left, y: document.frame.minY - insets.top))
+        reflectScrolledClipView(contentView)
     }
 }
 
@@ -437,6 +512,14 @@ final class RanchLineNumberRuler: NSRulerView {
     }
 
     @objc private func redraw() { needsDisplay = true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        // Text scrolled sideways passes under the numbers, so they keep a ground of their own.
+        // Views don't clip to their bounds since macOS 14, so the fill keeps to the margin.
+        (textView?.backgroundColor ?? .textBackgroundColor).setFill()
+        dirtyRect.intersection(bounds).fill()
+        drawHashMarksAndLabels(in: dirtyRect)
+    }
 
     override func drawHashMarksAndLabels(in rect: NSRect) {
         guard let textView, let layout = textView.layoutManager, let container = textView.textContainer,

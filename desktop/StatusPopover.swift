@@ -567,6 +567,9 @@ final class StatusPopoverController {
             if let progress = row.view as? NativeMenuProgressRow {
                 return (progress.actionItem, progress)
             }
+            if let header = row.view as? StatusHeaderRow {
+                return (header.actionItem, header)
+            }
             return nil
         }
         for (item, view) in customItems { item.view = view }
@@ -583,7 +586,8 @@ final class StatusPopoverController {
             content.scrollToVisible(frame)
             return
         }
-        guard rows.contains(where: { $0.view is NativeMenuProgressRow }) else { return }
+        guard rows.contains(where: { $0.view is NativeMenuProgressRow || ($0.view as? StatusHeaderRow)?.isBusy == true })
+        else { return }
         scroll.contentView.scroll(to: .zero)
         scroll.reflectScrolledClipView(scroll.contentView)
     }

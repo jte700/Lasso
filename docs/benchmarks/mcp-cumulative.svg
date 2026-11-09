@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="378" viewBox="0 0 760 378" role="img" aria-labelledby="t d">
+<title id="t">Tokens an agent spends answering from your files</title><desc id="d">gpt-5.4-mini: 219302 tokens with file tools, 67439 with Lasso; gpt-5.3-codex: 127293 tokens with file tools, 29777 with Lasso</desc>
+<style>
+  .surface { fill: #fcfcfb; stroke: #e6e5e1; }
+  .title { fill: #0b0b0b; font: 600 17px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .subtitle { fill: #52514e; font: 13px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .label { fill: #0b0b0b; font: 13px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .strong { fill: #0b0b0b; font: 600 13px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .value { fill: #0b0b0b; font: 600 12px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .tick { fill: #6f6e69; font: 11px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .grid { stroke: #e6e5e1; stroke-width: 1; }
+  .axis { stroke: #a8a7a1; stroke-width: 1; }
+  .reference { stroke: #52514e; stroke-width: 1.5; stroke-dasharray: 4 4; }
+  .series-1 { fill: #1f9d4c; }
+  .series-1-light { fill: #6abd86; }
+  .muted-bar { fill: #c9c8c2; }
+  .hero { fill: #0b0b0b; font: 700 30px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; letter-spacing: -0.5px; }
+  .hero-label { fill: #52514e; font: 12.5px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .accent { fill: #1f9d4c; }
+  .line-1 { fill: none; stroke: #1f9d4c; stroke-width: 2.5; stroke-linejoin: round; }
+  .line-base { fill: none; stroke: #8f8e88; stroke-width: 2; stroke-linejoin: round; }
+  .dot-1 { fill: #1f9d4c; stroke: #fcfcfb; stroke-width: 2; }
+  .dot-base { fill: #8f8e88; stroke: #fcfcfb; stroke-width: 2; }
+  .area-1 { fill: #1f9d4c; fill-opacity: 0.08; }
+  .callout { fill: #0b0b0b; font: 700 15px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .footnote { fill: #8f8e88; font: 11px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  @media (prefers-color-scheme: dark) {
+    .surface { fill: #1a1a19; stroke: #333330; }
+    .title, .label, .strong, .value, .hero { fill: #f0efec; }
+    .subtitle, .hero-label { fill: #c3c2b7; }
+    .tick { fill: #9d9c95; }
+    .grid { stroke: #333330; }
+    .axis { stroke: #6f6e69; }
+    .reference { stroke: #c3c2b7; }
+    .series-1, .accent { fill: #28a752; }
+    .series-1-light { fill: #1a6534; }
+    .muted-bar { fill: #5c5b56; }
+    .line-1 { stroke: #28a752; }
+    .line-base { stroke: #7d7c76; }
+    .dot-1 { fill: #28a752; stroke: #1a1a19; }
+    .dot-base { fill: #7d7c76; stroke: #1a1a19; }
+    .area-1 { fill: #28a752; }
+    .callout { fill: #f0efec; }
+    .footnote { fill: #7d7c76; }
+  }</style>
+<rect class="surface" x="0.5" y="0.5" width="759" height="377" rx="12"/>
+<text x="24" y="34" class="title" text-anchor="start">Tokens an agent spends answering from your files</text>
+
+<rect class="dot-base" x="24" y="66" width="12" height="12" rx="3"/><text x="42" y="76" class="tick" text-anchor="start">File tools only (Read, Grep, Glob)</text><rect class="series-1" x="250" y="66" width="12" height="12" rx="3"/><text x="268" y="76" class="tick" text-anchor="start">With the Lasso MCP server</text>
+<line class="axis" x1="66" x2="362" y1="322" y2="322"/><text x="58" y="326" class="tick" text-anchor="end">0</text><line class="grid" x1="66" x2="362" y1="282.8" y2="282.8"/><text x="58" y="286.8" class="tick" text-anchor="end">50K</text><line class="grid" x1="66" x2="362" y1="243.6" y2="243.6"/><text x="58" y="247.6" class="tick" text-anchor="end">100K</text><line class="grid" x1="66" x2="362" y1="204.4" y2="204.4"/><text x="58" y="208.4" class="tick" text-anchor="end">150K</text><line class="grid" x1="66" x2="362" y1="165.2" y2="165.2"/><text x="58" y="169.2" class="tick" text-anchor="end">200K</text><line class="grid" x1="66" x2="362" y1="126" y2="126"/><text x="58" y="130" class="tick" text-anchor="end">250K</text>
+<text x="66" y="104" class="strong" text-anchor="start">gpt-5.4-mini · 32 tasks</text>
+<text x="362" y="104" class="callout" text-anchor="end">69% fewer tokens</text>
+<polygon class="area-1" points="66.0,322.0 75.3,320.8 84.5,319.6 93.8,318.5 103.0,317.2 112.3,314.7 121.5,313.7 130.8,311.4 140.0,310.4 149.3,309.3 158.5,308.2 167.8,307.2 177.0,306.1 186.3,304.9 195.5,303.7 204.8,298.5 214.0,297.0 223.3,294.5 232.5,293.3 241.8,292.2 251.0,290.9 260.3,288.4 269.5,287.4 278.8,285.2 288.0,284.1 297.3,283.0 306.5,281.9 315.8,280.8 325.0,279.7 334.3,278.6 343.5,277.4 352.8,270.7 362.0,269.1 362,322 66,322"/>
+<polyline class="line-base" points="66.0,322.0 75.3,321.0 84.5,319.6 93.8,318.8 103.0,316.2 112.3,312.3 121.5,311.4 130.8,308.7 140.0,307.9 149.3,307.1 158.5,300.7 167.8,299.9 177.0,299.0 186.3,293.7 195.5,290.9 204.8,267.3 214.0,230.3 223.3,229.3 232.5,227.9 241.8,227.1 251.0,224.6 260.3,220.1 269.5,219.2 278.8,216.5 288.0,215.7 297.3,214.9 306.5,210.1 315.8,209.2 325.0,208.2 334.3,201.7 343.5,199.9 352.8,189.1 362.0,150.1"/>
+<polyline class="line-1" points="66.0,322.0 75.3,320.8 84.5,319.6 93.8,318.5 103.0,317.2 112.3,314.7 121.5,313.7 130.8,311.4 140.0,310.4 149.3,309.3 158.5,308.2 167.8,307.2 177.0,306.1 186.3,304.9 195.5,303.7 204.8,298.5 214.0,297.0 223.3,294.5 232.5,293.3 241.8,292.2 251.0,290.9 260.3,288.4 269.5,287.4 278.8,285.2 288.0,284.1 297.3,283.0 306.5,281.9 315.8,280.8 325.0,279.7 334.3,278.6 343.5,277.4 352.8,270.7 362.0,269.1"/>
+<circle class="dot-base" cx="362" cy="150.067232" r="4.5"/>
+<circle class="dot-1" cx="362" cy="269.127824" r="4.5"/>
+<text x="354" y="140.067232" class="value" text-anchor="end">219,302</text>
+<text x="354" y="259.127824" class="value" text-anchor="end">67,439</text>
+<text x="66" y="340" class="tick" text-anchor="middle">0</text><text x="362" y="340" class="tick" text-anchor="middle">32</text>
+<text x="214" y="340" class="tick" text-anchor="middle">tasks completed</text>
+<line class="axis" x1="440" x2="736" y1="322" y2="322"/><text x="432" y="326" class="tick" text-anchor="end">0</text><line class="grid" x1="440" x2="736" y1="282.8" y2="282.8"/><text x="432" y="286.8" class="tick" text-anchor="end">50K</text><line class="grid" x1="440" x2="736" y1="243.6" y2="243.6"/><text x="432" y="247.6" class="tick" text-anchor="end">100K</text><line class="grid" x1="440" x2="736" y1="204.4" y2="204.4"/><text x="432" y="208.4" class="tick" text-anchor="end">150K</text><line class="grid" x1="440" x2="736" y1="165.2" y2="165.2"/><text x="432" y="169.2" class="tick" text-anchor="end">200K</text><line class="grid" x1="440" x2="736" y1="126" y2="126"/><text x="432" y="130" class="tick" text-anchor="end">250K</text>
+<text x="440" y="104" class="strong" text-anchor="start">gpt-5.3-codex · 15 tasks</text>
+<text x="736" y="104" class="callout" text-anchor="end">77% fewer tokens</text>
+<polygon class="area-1" points="440.0,322.0 459.7,320.8 479.5,319.5 499.2,318.4 518.9,317.1 538.7,310.9 558.4,309.8 578.1,307.5 597.9,306.4 617.6,305.4 637.3,304.3 657.1,303.2 676.8,302.2 696.5,301.0 716.3,299.8 736.0,298.7 736,322 440,322"/>
+<polyline class="line-base" points="440.0,322.0 459.7,321.0 479.5,319.5 499.2,318.7 518.9,316.3 538.7,310.9 558.4,310.0 578.1,307.8 597.9,307.0 617.6,306.2 637.3,275.1 657.1,273.5 676.8,272.6 696.5,261.1 716.3,258.5 736.0,222.2"/>
+<polyline class="line-1" points="440.0,322.0 459.7,320.8 479.5,319.5 499.2,318.4 518.9,317.1 538.7,310.9 558.4,309.8 578.1,307.5 597.9,306.4 617.6,305.4 637.3,304.3 657.1,303.2 676.8,302.2 696.5,301.0 716.3,299.8 736.0,298.7"/>
+<circle class="dot-base" cx="736" cy="222.202288" r="4.5"/>
+<circle class="dot-1" cx="736" cy="298.654832" r="4.5"/>
+<text x="728" y="212.202288" class="value" text-anchor="end">127,293</text>
+<text x="728" y="288.654832" class="value" text-anchor="end">29,777</text>
+<text x="440" y="340" class="tick" text-anchor="middle">0</text><text x="736" y="340" class="tick" text-anchor="middle">15</text>
+<text x="588" y="340" class="tick" text-anchor="middle">tasks completed</text>
+<text x="24" y="364" class="footnote" text-anchor="start">Running total of tokens per run (input, including tool definitions and conversation, plus output). Provider usage records in docs/agent.</text>
+</svg>

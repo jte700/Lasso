@@ -130,6 +130,10 @@ try {
   assert.ok(Object.keys(cardSizing.checks ?? {}).length >= 12, 'The card must be measured in every mode it changes size between');
   for (const [label, passed] of Object.entries(cardSizing.checks)) assert.equal(passed, true, label);
   console.log(`  ok ${Object.keys(cardSizing.checks).length} native card sizing checks`);
+  const footerKeys = await helper('footer-keys');
+  assert.ok(Object.keys(footerKeys.checks ?? {}).length >= 9, 'Every footer key must be placed and clicked');
+  for (const [label, passed] of Object.entries(footerKeys.checks)) assert.equal(passed, true, label);
+  console.log(`  ok ${Object.keys(footerKeys.checks).length} native footer key checks`);
   const sharePreview = await helper('share-preview-fit');
   assert.ok(sharePreview.checks?.length >= 13, 'Share preview must expose every cell and complete passage with stable redaction coordinates');
   console.log(`  ok ${sharePreview.checks.length} native share preview checks`);

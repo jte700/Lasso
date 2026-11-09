@@ -21,6 +21,8 @@ const DOCUMENT = new Set(['.docx']);
 const PRESENTATION = new Set(['.pptx']);
 const IMAGE = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.tif', '.tiff', '.svg']);
 const PDF = new Set(['.pdf']);
+// Containers macOS reads a sound track from; their speech is transcribed on the Mac.
+const VIDEO = new Set(['.mp4', '.mov', '.m4v']);
 const DRAWING = new Set(['.ifc', '.dxf', '.dwg', '.rvt', '.dgn', '.landxml', '.step', '.stp',
   // Native CAD formats are retained with export guidance rather than parsed.
   '.sldprt', '.sldasm', '.ipt', '.iam', '.f3d', '.catpart', '.catproduct', '.x_t', '.x_b', '.igs', '.iges', '.3dm']);
@@ -40,6 +42,7 @@ export function detectFileType(filePath) {
   if (PRESENTATION.has(extension)) return 'presentation';
   if (IMAGE.has(extension)) return 'image';
   if (PDF.has(extension)) return 'pdf';
+  if (VIDEO.has(extension)) return 'video';
   if (DRAWING.has(extension)) return 'drawing';
   if (extension === '.xml') return 'xml';
   return 'binary';

@@ -110,7 +110,16 @@ final class RanchStore: ObservableObject {
     @Published var actionError: String?
     @Published var linkTab = LinkTab.outgoing
     /// The network shows every directory, or one and what it connects to.
-    @Published var networkDirectory: String?
+    @Published var networkDirectory: String? {
+        didSet { if !retracing { networkTrail.leave(oldValue, for: networkDirectory) } }
+    }
+    /// Where the network was before each change, for its Back button.
+    @Published private(set) var networkTrail = RanchNetworkTrail()
+    private var retracing = false
+    /// Directories pinned to the top of the sidebar from their right-click menu.
+    @Published private(set) var pinnedDirectories: Set<String> {
+        didSet { RanchPins.save(pinnedDirectories, defaults: defaults) }
+    }
     /// Hidden, the sidebar gives its width to the list and the file.
     @Published var sidebarHidden: Bool {
         didSet { defaults.set(sidebarHidden, forKey: Self.sidebarKey) }
@@ -143,8 +152,12 @@ final class RanchStore: ObservableObject {
     private var workbooks: [String: RanchWorkbook] = [:]
     private static let cachedWorkbooks = 8
     private var networkCache: (key: String, layout: RanchNetworkLayout)?
+    private var colorObserver: NSObjectProtocol?
     /// The window's, so Edit > Undo (⌘Z) reaches what its views offer to undo.
     let undoManager = UndoManager()
+    /// Whom the network's offer to show every directory again is registered
+    /// for, so withdrawing it leaves pins and colours to undo.
+    let networkUndoTarget = NSObject()
 
     init(defaults: UserDefaults = .standard, session: URLSession = .shared) {
         self.defaults = defaults
@@ -154,7 +167,17 @@ final class RanchStore: ObservableObject {
         kindFilter = defaults.string(forKey: RanchKindFilter.key).flatMap(RanchKindFilter.init(rawValue:)) ?? .all
         sidebarHidden = defaults.bool(forKey: Self.sidebarKey)
         openFolders = Set(defaults.stringArray(forKey: Self.openFoldersKey) ?? [])
+        pinnedDirectories = RanchPins.saved(defaults: defaults)
         section = Section(saved: defaults.string(forKey: Self.sectionKey)) ?? .sources
+        // A colour chosen here, in the menu bar panel or in Settings redraws every directory.
+        colorObserver = NotificationCenter.default.addObserver(forName: .directoryColorsDidChange, object: nil,
+                                                               queue: .main) { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+    }
+
+    deinit {
+        if let colorObserver { NotificationCenter.default.removeObserver(colorObserver) }
     }
 
     // MARK: Loading
@@ -228,8 +251,12 @@ final class RanchStore: ObservableObject {
 
     // MARK: What the window lists
 
-    var folders: [RanchDirectory] { directoryOrder.sorted(overview.directories.filter { !$0.isApp }) }
-    var apps: [RanchDirectory] { directoryOrder.sorted(overview.directories.filter(\.isApp)) }
+    var folders: [RanchDirectory] {
+        RanchPins.ordered(directoryOrder.sorted(overview.directories.filter { !$0.isApp }), pinned: pinnedDirectories)
+    }
+    var apps: [RanchDirectory] {
+        RanchPins.ordered(directoryOrder.sorted(overview.directories.filter(\.isApp)), pinned: pinnedDirectories)
+    }
     /// Folders, then connected apps, each in the chosen directory order.
     var orderedDirectories: [RanchDirectory] { folders + apps }
 
@@ -260,6 +287,49 @@ final class RanchStore: ObservableObject {
     }
 
     func directoryName(_ id: String) -> String { directory(id)?.name ?? "Removed directory" }
+
+    // MARK: A directory's right-click menu
+
+    func isPinned(_ id: String) -> Bool { pinnedDirectories.contains(id) }
+
+    /// ⌘Z (Edit > Undo) takes back a pin or a colour, one change at a time.
+    func togglePin(_ id: String) {
+        let pinning = !pinnedDirectories.contains(id)
+        if pinning { pinnedDirectories.insert(id) } else { pinnedDirectories.remove(id) }
+        undoManager.registerUndo(withTarget: self) { $0.togglePin(id) }
+        nameUndo(pinning ? "Pin \(directoryName(id))" : "Unpin \(directoryName(id))")
+    }
+
+    /// The same colour the menu bar panel and every source reference use.
+    /// Nil puts the directory back on the default colour.
+    func setColor(_ color: DirectoryToggleColor?, for id: String) {
+        let previous = DirectoryColorPreferences.ownColor(for: id, defaults: defaults)
+        guard color != previous else { return }
+        DirectoryColorPreferences.set(color, for: id, defaults: defaults)
+        undoManager.registerUndo(withTarget: self) { $0.setColor(previous, for: id) }
+        nameUndo("Colour Change")
+    }
+
+    /// Undo keeps the name for Redo, so it is set only for the change itself.
+    private func nameUndo(_ name: String) {
+        if !undoManager.isUndoing && !undoManager.isRedoing { undoManager.setActionName(name) }
+    }
+
+    // MARK: The network's Back button
+
+    var canGoBackInNetwork: Bool { networkTrail.canGoBack || networkDirectory != nil }
+
+    /// The directory the network showed before, skipping any since removed, or every directory.
+    func networkBack() {
+        var trail = networkTrail
+        var previous = trail.back()
+        while let id = previous, directory(id) == nil, trail.canGoBack { previous = trail.back() }
+        if let id = previous, directory(id) == nil { previous = nil }
+        retracing = true
+        networkTrail = trail
+        networkDirectory = previous
+        retracing = false
+    }
 
     // MARK: The sidebar's outline
 
@@ -462,6 +532,27 @@ final class RanchStore: ObservableObject {
         }.resume()
     }
 
+    /// A deck's slides as the pictures Lasso's server draws, and its slide
+    /// list; nil when Lasso has not indexed the deck, which then shows in Quick Look.
+    func slides(_ source: RanchSource, completion: @escaping (SlideDeckDocument?) -> Void) {
+        shareTarget(for: source) { [weak self] result in
+            guard let self, case .success(let target) = result, let serverURL = self.serverURL,
+                  var components = URLComponents(url: serverURL.appendingPathComponent("api/dependency-objects")
+                    .appendingPathComponent(target.objectId).appendingPathComponent("preview"), resolvingAgainstBaseURL: false)
+            else { return completion(nil) }
+            components.queryItems = target.versionId.map { [URLQueryItem(name: "version", value: $0)] }
+            guard let url = components.url else { return completion(nil) }
+            self.session.dataTask(with: url) { data, response, _ in
+                let deck = (response as? HTTPURLResponse)?.statusCode == 200
+                    ? data.flatMap { AssistDocumentPreview.parse($0, syntax: nil) }?.deck : nil
+                DispatchQueue.main.async {
+                    completion(deck.map { SlideDeckDocument(deck: $0, source: SlidePictureSource(
+                        serverURL: serverURL, objectId: target.objectId, versionId: target.versionId)) })
+                }
+            }.resume()
+        }
+    }
+
     // MARK: Resolving what needs review
 
     /// The document keeps citing the version it linked, and the item leaves the list.
@@ -530,7 +621,8 @@ final class RanchStore: ObservableObject {
         request.httpMethod = link.kind == "DEPENDENCY" ? "DELETE" : "POST"
         request.timeoutInterval = 10
         session.dataTask(with: request) { [weak self] data, response, error in
-            let stopped = (response as? HTTPURLResponse)?.statusCode == 200
+            // Not found is a link already stopped, as by a second click before the list refreshes.
+            let stopped = [200, 404].contains((response as? HTTPURLResponse)?.statusCode)
             let message = stopped ? nil : WorkspaceAPI.errorMessage(data: data, response: response, error: error)
             DispatchQueue.main.async {
                 if let message { self?.actionError = "The link couldn\u{2019}t be stopped. \(message)" }

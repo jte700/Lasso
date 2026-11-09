@@ -3,18 +3,22 @@ import path from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { URL } from 'node:url';
 import { buildPreview } from '../history/preview.js';
+import { sendFileRange } from './file-range.js';
 import { HttpError } from '../history/errors.js';
 import { DEFAULT_EVENT_PAGE } from '../history/service.js';
-import { renderSharePage, renderUnavailable, renderInspectorPanel } from '../sharing/share-page.js';
-import { buildFullShareDocument, buildInspectorPreview, buildSharePreview, buildSlideShareDocument, isTextPreviewPath, usesStructuredLayout, detectsCsvDelimiter } from '../sharing/share-preview.js';
+import { renderSharePage, renderUnavailable, renderInspectorPanel, renderMenuBarHome } from '../sharing/share-page.js';
+import { buildFullShareDocument, buildInspectorPreview, buildSharedExcerpt, buildSharedPassage, buildSharePreview, buildSlideShareDocument, isTextPreviewPath, usesStructuredLayout, detectsCsvDelimiter } from '../sharing/share-preview.js';
 import { fullTextLayout } from '../sharing/text-layout.js';
 import { isMarkdownPath } from '../sharing/markdown.js';
 import { buildModelPreview } from '../dependencies/model-preview.js';
 import { redactModelPlan } from '../sharing/model-redaction.js';
 import { citedPartModel } from '../sharing/cited-part.js';
 import { buildShareDownload, downloadDisposition } from '../sharing/share-download.js';
+import { conversionFormat, convertedShareDownload, shareConversions } from '../sharing/share-conversion.js';
 import { drawingDiscovery } from '../dependencies/drawing-discovery.js';
-import { buildSafePdf, pdfShareRequest } from '../sharing/pdf-share.js';
+import { buildSafePdf, markedPdfRequest, pdfShareRequest } from '../sharing/pdf-share.js';
+import { buildPagePdf, slideCount, slidePicture } from '../sharing/document-pages.js';
+import { isMarkablePath } from '../sharing/markup.js';
 import { normalizePdfExcerpt, normalizeRedactions, offeredShareScopes } from '../sharing/object-share.js';
 import { isPresentationPath } from '../dependencies/presentation-extraction.js';
 import { singleSlidePresentation } from '../sharing/slide-export.js';
@@ -24,8 +28,12 @@ import { passiveInlineType } from './passive-types.js';
 // Rows on each side of a cited cell in the suggestion card. The card shows as
 // many as fit around the citation, so a footnote still has its table above it.
 const ASSIST_TABLE_RADIUS = 4;
+// With ?context=wide (the card, which scrolls), the rows on each side it scrolls through.
+const ASSIST_SCROLL_TABLE_RADIUS = 30;
 // Rows of a cited column the card can scroll through; it counts the rest.
 const ASSIST_COLUMN_ROWS = 100;
+// With ?context=wide, the lines and Markdown blocks around a cited passage the card scrolls through.
+const ASSIST_TEXT_CONTEXT = Object.freeze({ lines: 400, blocksBefore: 200, blocksAfter: 400 });
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -98,6 +106,19 @@ function sendBinary(response, status, content, contentType, headers = {}) {
   response.end(content);
 }
 
+/** A share's download in the format its recipient chose, or why it cannot be. */
+function sendConversion(response, converted) {
+  if (converted.status !== 'OK') {
+    return sendHtml(response, converted.status === 'CONVERSION_FAILED' ? 500 : 422,
+      renderUnavailable(converted.status), SHARE_PAGE_HEADERS);
+  }
+  return sendBinary(response, 200, converted.content, converted.contentType, {
+    'content-disposition': downloadDisposition(converted.filename),
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+  });
+}
+
 function actorFrom(body) {
   return body.actor ?? {
     id: body.actorId,
@@ -117,6 +138,11 @@ function decodePathSegment(segment) {
 function match(pathname, pattern) {
   const result = pathname.match(pattern);
   return result ? result.slice(1).map(decodePathSegment) : null;
+}
+
+/** Whether the old browser workbench is wanted: by the Windows app, which asks for it, or on Windows. */
+function opensWorkbench(url) {
+  return process.platform === 'win32' || url.searchParams.get('platform') === 'windows';
 }
 
 function serveStatic(publicDir, pathname, response) {
@@ -171,20 +197,45 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
     let preview = null, document = null;
     try {
       const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
-      const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null;
-      preview = buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata);
+      const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash), contentHash: file.contentHash } : null;
+      preview = buildSharedExcerpt(sourceFile, resolved.source.anchor, resolved.source.metadata,
+        { nearbyRows: resolved.share.context?.nearbyRows === true });
+      // A passage from a text source is shared inside its paragraph.
+      if (!preview && resolved.share.accessScope === 'INDEXED' && sourceFile) {
+        preview = buildSharedPassage(sourceFile, resolved.source.anchor, resolved.source.metadata,
+          resolved.source.label, resolved.source.objectType);
+      }
+      // A marked copy is the document's pages with the strokes drawn on, never the file.
+      // When it cannot be drawn, nothing else of the document is shown in its place.
+      const marked = markedPdfRequest(resolved);
+      if (marked) {
+        try {
+          const content = await buildSafePdf(await buildPagePdf(sourceFile), marked);
+          return { preview: null, document: content && { kind: 'pdf', safe: true, marked: true, page: 1, location: '',
+            fileUrl: `/d/${encodeURIComponent(resolved.share.token)}/source`, content } };
+        } catch (error) {
+          console.error('Lasso could not draw the marked copy of %s: %s', resolved.internal.filePath, error.message);
+          return { preview: null, document: null };
+        }
+      }
       // A 3D model's cited part is shared as its own view, never as the file.
       if (resolved.share.accessScope === 'INDEXED' && /\.(?:step|stp)$/i.test(resolved.internal.filePath)) {
         return { preview, document: citedPartModel(await resolvedModelPreview(resolved)) };
       }
       // A deck is shared whole, or as the slide the citation is on and nothing else.
       if (isPresentationPath(resolved.internal.filePath)) {
-        if (resolved.share.accessScope === 'DOCUMENT') return { preview: null, document: buildFullShareDocument(sourceFile) };
+        if (resolved.share.accessScope === 'DOCUMENT') {
+          // A deck of one slide may also be downloaded as that slide's picture.
+          return { preview: null, document: { ...buildFullShareDocument(sourceFile),
+            slideCount: slideCount(sourceFile.content, sourceFile.contentHash),
+            slidePicture: () => slidePicture(sourceFile.content, 1, sourceFile.contentHash) } };
+        }
         if (resolved.share.accessScope !== 'INDEXED') return { preview: null, document: null };
         const slide = buildSlideShareDocument(sourceFile, resolved.source.anchor, resolved.source.metadata);
         return { preview: null, document: slide && { ...slide,
           // Made only when the slide is downloaded.
-          slideFile: () => singleSlidePresentation(sourceFile.content, slide.slide) } };
+          slideFile: () => singleSlidePresentation(sourceFile.content, slide.slide),
+          slidePicture: () => slidePicture(sourceFile.content, slide.slide, sourceFile.contentHash) } };
       }
       const pdfRequest = pdfShareRequest(resolved);
       if (pdfRequest && sourceFile?.content) {
@@ -246,6 +297,10 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const { preview, document } = await sharedContent(resolved);
         const excerpt = buildShareDownload(resolved, preview, document);
         if (!excerpt) return sendHtml(response, 422, renderUnavailable('EXCERPT_UNAVAILABLE'), SHARE_PAGE_HEADERS);
+        if (url.searchParams.has('as')) {
+          return sendConversion(response, await convertedShareDownload('excerpt', conversionFormat(url.searchParams.get('as')),
+            shareConversions(resolved, preview, document), { excerpt, document }));
+        }
         return sendBinary(response, 200, excerpt.content, excerpt.contentType, {
           'content-disposition': downloadDisposition(excerpt.filename),
           'cache-control': 'no-store',
@@ -260,8 +315,11 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         if (resolved.share.accessScope !== 'DOCUMENT') {
           const { document } = await sharedContent(resolved);
           if (!document?.safe || !document.content) return sendHtml(response, 403, renderUnavailable('SCOPE_RESTRICTED'), SHARE_PAGE_HEADERS);
+          // A marked Word document or deck arrives as a PDF, and is named as one.
+          const original = String(resolved.source.filename ?? 'document');
+          const filename = /\.pdf$/i.test(original) ? original : `${original.replace(/\.[^./]+$/, '')}.pdf`;
           return sendBinary(response, 200, document.content, 'application/pdf', {
-            'content-disposition': downloadDisposition(resolved.source.filename).replace(/^attachment;/, 'inline;'),
+            'content-disposition': downloadDisposition(filename).replace(/^attachment;/, 'inline;'),
             'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
           });
         }
@@ -289,6 +347,12 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           const status = file.status === 'NOT_FOUND' ? 404 : file.status === 'SCOPE_RESTRICTED' ? 403 : 410;
           return sendHtml(response, status, renderUnavailable(file.status), SHARE_PAGE_HEADERS);
         }
+        if (url.searchParams.has('as')) {
+          const resolved = objectShares.resolveShare(shareParameters[0]);
+          const { preview, document } = await sharedContent(resolved);
+          return sendConversion(response, await convertedShareDownload('original', conversionFormat(url.searchParams.get('as')),
+            shareConversions(resolved, preview, document), { original: file, document }));
+        }
         // Only the basename is ever published, and quotes/newlines are stripped
         // so the header cannot be split.
         return sendBinary(response, 200, file.content, file.contentType, {
@@ -310,9 +374,14 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         }
         let preview = null;
         try {
-          const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+          const found = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+          // A video plays from its stored file, at the moment the link cites; its bytes are not read here.
+          const video = found?.fileType === 'video' ? found : null;
+          const file = video ? null : found;
           const content = file ? timeline.blobs.get(file.contentHash) : null;
-          preview = buildInspectorPreview(
+          preview = video ? dependencies.videoInspectorPreview(video, resolved.source, url.searchParams.get('time'),
+            `/api/dependency-objects/${encodeURIComponent(objectId)}/video?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`)
+            : buildInspectorPreview(
             file ? { path: file.path, content } : null,
             resolved.source.anchor, resolved.source.metadata, resolved.source.label, resolved.source.objectType,
             { matchText: url.searchParams.get('text') ?? '',
@@ -320,6 +389,11 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           if (preview && ['pdf', 'image'].includes(preview.kind)) {
             const query = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
             preview.fileUrl = `/api/dependency-objects/${encodeURIComponent(objectId)}/source${query}`;
+          }
+          // A deck shows its slides' pictures, slide n's at slidesUrl + n + slidesQuery.
+          if (preview?.deck) {
+            preview.slidesUrl = `/api/dependency-objects/${encodeURIComponent(objectId)}/slides/`;
+            preview.slidesQuery = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
           }
         } catch { preview = null; }
         preview = await resolvedModelPreview(resolved) ?? preview;
@@ -534,6 +608,45 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         });
       }
 
+      // The pages the share composer draws on, as a marked copy will show them.
+      const localPagesParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/pages$/);
+      if (request.method === 'GET' && localPagesParameters && objectShares) {
+        const resolved = objectShares.describe(localPagesParameters[0], url.searchParams.get('version'));
+        if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
+        if (!isMarkablePath(resolved.internal.filePath)) throw new HttpError(415, 'Only PDFs, Word documents and presentations can be marked up.');
+        const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+        const content = file ? timeline.blobs.get(file.contentHash) : null;
+        if (!content) throw new HttpError(404, 'The document is unavailable.');
+        let pages;
+        try { pages = await buildPagePdf({ path: file.path, content, contentHash: file.contentHash }); } catch (error) {
+          console.error('Lasso could not lay out %s as pages: %s', resolved.internal.filePath, error.message);
+          throw new HttpError(422, 'The document couldn’t be shown as pages to mark up.');
+        }
+        return sendBinary(response, 200, pages, 'application/pdf', { 'content-disposition': 'inline',
+          'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+      }
+
+      // One slide of a deck as a picture, which the card and the share composer
+      // show as it is scrolled to; the slides beside it are drawn with it.
+      const localSlideParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/slides\/(\d{1,5})$/);
+      if (request.method === 'GET' && localSlideParameters && objectShares) {
+        const resolved = objectShares.describe(localSlideParameters[0], url.searchParams.get('version'));
+        if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
+        if (!isPresentationPath(resolved.internal.filePath)) throw new HttpError(415, 'Only presentations have slides.');
+        const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+        const content = file ? timeline.blobs.get(file.contentHash) : null;
+        if (!content) throw new HttpError(404, 'The presentation is unavailable.');
+        const number = Number(localSlideParameters[1]);
+        if (number < 1 || number > slideCount(content, file.contentHash)) throw new HttpError(404, 'The presentation has no such slide.');
+        let picture;
+        try { picture = await slidePicture(content, number, file.contentHash); } catch (error) {
+          console.error('Lasso could not draw slide %d of %s: %s', number, resolved.internal.filePath, error.message);
+          throw new HttpError(422, 'This slide couldn’t be drawn.');
+        }
+        return sendBinary(response, 200, picture, 'image/jpeg', { 'content-disposition': 'inline',
+          'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+      }
+
       const localPdfPreviewParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/pdf-preview$/);
       if (request.method === 'POST' && localPdfPreviewParameters && objectShares) {
         const resolved = objectShares.describe(localPdfPreviewParameters[0], url.searchParams.get('version'));
@@ -555,30 +668,64 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
       }
 
+      // A linked video, in the byte ranges the inspector's player asks for.
+      const localVideoParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/video$/);
+      if (['GET', 'HEAD'].includes(request.method) && localVideoParameters && objectShares) {
+        const resolved = objectShares.describe(localVideoParameters[0], url.searchParams.get('version'));
+        if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
+        const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+        if (file?.fileType !== 'video') throw new HttpError(404, 'This source is not a video.');
+        const types = { '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/x-m4v' };
+        return sendFileRange(request, response, timeline.blobs.pathFor(file.contentHash),
+          types[path.extname(file.path).toLowerCase()] ?? 'application/octet-stream');
+      }
+
       const localObjectPreviewParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/preview$/);
       if (request.method === 'GET' && localObjectPreviewParameters && objectShares) {
         const versionId = url.searchParams.get('version');
         const resolved = objectShares.describe(localObjectPreviewParameters[0], versionId);
         if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
-        let preview = null;
+        let preview = null, sharedExcerpt = null, nearbyExcerpt = null;
+        // The suggestion card scrolls, so it asks for more of the source around the citation.
+        const wide = url.searchParams.get('context') === 'wide';
+        const radius = wide ? ASSIST_SCROLL_TABLE_RADIUS : ASSIST_TABLE_RADIUS;
         try {
           const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
+          // A video plays from its own file, at the quoted moment; its bytes are not read here.
+          if (file?.fileType === 'video') {
+            return sendJson(response, 200, { source: resolved.source, path: resolved.internal.filePath,
+              preview: dependencies.videoPreview(file, resolved.source, url.searchParams.get('text') ?? '',
+                dependencies.videoLocalPath(resolved.internal.snapshotId, file.path)),
+              citedPart: null, shareScopes: offeredShareScopes(resolved.internal.filePath, resolved.source.anchor) });
+          }
           const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null;
           // A table too large to read here previews from the table index.
           const window = file ? dependencies.tableWindow(file, sourceFile.content, resolved.source.anchor ?? {},
-            { before: ASSIST_TABLE_RADIUS, after: Math.max(ASSIST_TABLE_RADIUS, ASSIST_COLUMN_ROWS) }) : null;
+            { before: radius, after: Math.max(radius, ASSIST_COLUMN_ROWS) }) : null;
           preview = path.extname(file?.path ?? '').toLowerCase() === '.pdf'
             ? buildInspectorPreview(sourceFile, resolved.source.anchor, resolved.source.metadata, resolved.source.label, resolved.source.objectType)
-            : buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata, ASSIST_TABLE_RADIUS,
+            : buildSharePreview(sourceFile, resolved.source.anchor, resolved.source.metadata, radius,
               resolved.source.objectType, { display: true, columnRows: ASSIST_COLUMN_ROWS, window });
           // Text, Markdown and Word sources show the cited passage in context.
           if (!preview && isTextPreviewPath(file?.path)) {
             preview = buildInspectorPreview(sourceFile, resolved.source.anchor, resolved.source.metadata,
-              resolved.source.label, resolved.source.objectType, { matchText: url.searchParams.get('text') ?? '' });
+              resolved.source.label, resolved.source.objectType,
+              { matchText: url.searchParams.get('text') ?? '', ...(wide ? { context: ASSIST_TEXT_CONTEXT } : {}) });
           }
           if (preview?.kind === 'pdf') {
             const query = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
             preview.fileUrl = `/api/dependency-objects/${encodeURIComponent(localObjectPreviewParameters[0])}/source${query}`;
+          }
+          // The share composer is shown the table its "Cited part only" publishes.
+          if (url.searchParams.get('shared') === '1' && sourceFile) {
+            sharedExcerpt = buildSharedExcerpt(sourceFile, resolved.source.anchor, resolved.source.metadata);
+            // A cited cell or row may also be shared with the rows around it, which the composer can switch on.
+            const nearby = buildSharedExcerpt(sourceFile, resolved.source.anchor, resolved.source.metadata, { nearbyRows: true });
+            if (nearby?.rows && JSON.stringify(nearby) !== JSON.stringify(sharedExcerpt)) nearbyExcerpt = nearby;
+          }
+          // The card asks for the cited slide's picture next; it is already being drawn.
+          if (preview?.deck && file) {
+            slidePicture(sourceFile.content, preview.slideNumber ?? 1, file.contentHash).catch(() => {});
           }
         } catch { preview = null; }
         preview = await resolvedModelPreview(resolved) ?? preview;
@@ -586,6 +733,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           source: resolved.source, path: resolved.internal.filePath, preview,
           // What the share composer's "Cited part only" would publish.
           citedPart: citedPartModel(preview),
+          ...(sharedExcerpt?.rows ? { sharedExcerpt } : {}),
+          ...(nearbyExcerpt ? { nearbyExcerpt } : {}),
           shareScopes: offeredShareScopes(resolved.internal.filePath, resolved.source.anchor),
         });
       }
@@ -869,6 +1018,9 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
             accessScope: body.accessScope ?? 'DOCUMENT',
             redactions: body.redactions ?? [],
             excerpt: body.excerpt ?? null,
+            markup: body.markup ?? [],
+            citedIn: body.citedIn ?? null,
+            nearbyRows: body.nearbyRows === true,
           }),
         });
       }
@@ -940,6 +1092,10 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         return sendJson(response, 201, dependencies.revise(parameters[0], actorFrom(body), body));
       }
 
+      // The old browser workbench is the Windows app's window; on a Mac, Lasso is in the menu bar.
+      if (request.method === 'GET' && ['/', '/index.html'].includes(pathname) && !opensWorkbench(url)) {
+        return sendHtml(response, 200, renderMenuBarHome(), WORKSPACE_PAGE_HEADERS);
+      }
       if (request.method === 'GET' && serveStatic(config.publicDir, pathname, response)) return;
       sendJson(response, 404, { error: { message: 'Not found.' } });
     } catch (error) {

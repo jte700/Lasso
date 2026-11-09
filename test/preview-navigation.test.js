@@ -5,13 +5,16 @@ import vm from 'node:vm';
 
 // Exercise the production handlers with deliberately reordered network results.
 // A Windows checkout may use CRLF line endings; handlers are found by LF.
-const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-function handler(name) {
-  const start = app.indexOf(`async function ${name}(`);
-  const end = app.indexOf('\n}\n', start) + 2;
+const modules = ['snapshot-preview.js', 'source-viewer.js']
+  .map(file => readFileSync(new URL(`../public/${file}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n'));
+function declaration(signature) {
+  const text = modules.find(module => module.includes(signature)) ?? '';
+  const start = text.indexOf(signature);
+  const end = text.indexOf('\n}\n', start) + 2;
   assert.ok(start >= 0 && end > start);
-  return app.slice(start, end);
+  return text.slice(start, end);
 }
+const handler = name => declaration(`async function ${name}(`);
 function harness() {
   const requests = [], rendered = [], errors = [], usage = [];
   const target = { innerHTML: '' };
@@ -70,15 +73,12 @@ test('closing and reopening the source viewer discards its previous geometry and
 });
 
 test('opening a PDF source renders its preserved page and selectable text safely', () => {
-  const start = app.indexOf('function previewContent(');
-  const end = app.indexOf('\n}\n', start) + 2;
-  assert.ok(start >= 0 && end > start);
   const context = vm.createContext({
     escapeHtml: value => String(value ?? '').replace(/[&<>"']/g, character => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     }[character])),
   });
-  vm.runInContext(app.slice(start, end), context);
+  vm.runInContext(declaration('function previewContent('), context);
   const preview = {
     kind: 'pdf', path: 'Plans & notes.pdf', pageNumber: 1,
     fileUrl: '/api/snapshots/old-version/source?path=Plans%20%26%20notes.pdf',

@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="342" viewBox="0 0 760 342" role="img" aria-labelledby="t d">
+<title id="t">Where the MCP saves tokens, by file (gpt-5.4-mini)</title><desc id="d">Excel, 5,000 rows: 98% saving; PDF, 40 pages: 84% saving; STEP parts and assemblies: 83% saving; Excel, 6 to 12 rows: 4% saving; PDF, 8 to 9 pages: -6% saving; PDF, 1 to 2 pages: -14% saving</desc>
+<style>
+  .surface { fill: #fcfcfb; stroke: #e6e5e1; }
+  .title { fill: #0b0b0b; font: 600 17px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .subtitle { fill: #52514e; font: 13px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .label { fill: #0b0b0b; font: 13px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .strong { fill: #0b0b0b; font: 600 13px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .value { fill: #0b0b0b; font: 600 12px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .tick { fill: #6f6e69; font: 11px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .grid { stroke: #e6e5e1; stroke-width: 1; }
+  .axis { stroke: #a8a7a1; stroke-width: 1; }
+  .reference { stroke: #52514e; stroke-width: 1.5; stroke-dasharray: 4 4; }
+  .series-1 { fill: #1f9d4c; }
+  .series-1-light { fill: #6abd86; }
+  .muted-bar { fill: #c9c8c2; }
+  .hero { fill: #0b0b0b; font: 700 30px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; letter-spacing: -0.5px; }
+  .hero-label { fill: #52514e; font: 12.5px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .accent { fill: #1f9d4c; }
+  .line-1 { fill: none; stroke: #1f9d4c; stroke-width: 2.5; stroke-linejoin: round; }
+  .line-base { fill: none; stroke: #8f8e88; stroke-width: 2; stroke-linejoin: round; }
+  .dot-1 { fill: #1f9d4c; stroke: #fcfcfb; stroke-width: 2; }
+  .dot-base { fill: #8f8e88; stroke: #fcfcfb; stroke-width: 2; }
+  .area-1 { fill: #1f9d4c; fill-opacity: 0.08; }
+  .callout { fill: #0b0b0b; font: 700 15px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .footnote { fill: #8f8e88; font: 11px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  @media (prefers-color-scheme: dark) {
+    .surface { fill: #1a1a19; stroke: #333330; }
+    .title, .label, .strong, .value, .hero { fill: #f0efec; }
+    .subtitle, .hero-label { fill: #c3c2b7; }
+    .tick { fill: #9d9c95; }
+    .grid { stroke: #333330; }
+    .axis { stroke: #6f6e69; }
+    .reference { stroke: #c3c2b7; }
+    .series-1, .accent { fill: #28a752; }
+    .series-1-light { fill: #1a6534; }
+    .muted-bar { fill: #5c5b56; }
+    .line-1 { stroke: #28a752; }
+    .line-base { stroke: #7d7c76; }
+    .dot-1 { fill: #28a752; stroke: #1a1a19; }
+    .dot-base { fill: #7d7c76; stroke: #1a1a19; }
+    .area-1 { fill: #28a752; }
+    .callout { fill: #f0efec; }
+    .footnote { fill: #7d7c76; }
+  }</style>
+<rect class="surface" x="0.5" y="0.5" width="759" height="341" rx="12"/>
+<text x="24" y="34" class="title" text-anchor="start">Where the MCP saves tokens, by file (gpt-5.4-mini)</text>
+
+<rect class="series-1" x="24" y="66" width="12" height="12" rx="3"/><text x="42" y="76" class="tick" text-anchor="start">Fewer tokens than file tools</text><rect class="muted-bar" x="230" y="66" width="12" height="12" rx="3"/><text x="248" y="76" class="tick" text-anchor="start">More tokens than file tools</text>
+<line class="grid" x1="324" x2="324" y1="86" y2="284"/><text x="324" y="300" class="tick" text-anchor="middle">0%</text><line class="grid" x1="405.5" x2="405.5" y1="86" y2="284"/><text x="405.5" y="300" class="tick" text-anchor="middle">25%</text><line class="grid" x1="487" x2="487" y1="86" y2="284"/><text x="487" y="300" class="tick" text-anchor="middle">50%</text><line class="grid" x1="568.5" x2="568.5" y1="86" y2="284"/><text x="568.5" y="300" class="tick" text-anchor="middle">75%</text><line class="grid" x1="650" x2="650" y1="86" y2="284"/><text x="650" y="300" class="tick" text-anchor="middle">100%</text>
+<line class="axis" x1="324" x2="324" y1="86" y2="284"/>
+<text x="260" y="113" class="label" text-anchor="end">Excel, 5,000 rows · 4 tasks</text><path class="series-1" d="M324,101 h316.73139508774585 a4,4 0 0 1 4,4 v6 a4,4 0 0 1 -4,4 h-316.73139508774585 z"/><text x="652.7313950877458" y="113" class="value" text-anchor="start">98% fewer</text>
+<text x="260" y="145" class="label" text-anchor="end">PDF, 40 pages · 3 tasks</text><path class="series-1" d="M324,133 h270.6497503075921 a4,4 0 0 1 4,4 v6 a4,4 0 0 1 -4,4 h-270.6497503075921 z"/><text x="606.6497503075921" y="145" class="value" text-anchor="start">84% fewer</text>
+<text x="260" y="177" class="label" text-anchor="end">STEP parts and assemblies · 7 tasks</text><path class="series-1" d="M324,165 h265.2618955466503 a4,4 0 0 1 4,4 v6 a4,4 0 0 1 -4,4 h-265.2618955466503 z"/><text x="601.2618955466503" y="177" class="value" text-anchor="start">83% fewer</text>
+<text x="260" y="209" class="label" text-anchor="end">Excel, 6 to 12 rows · 7 tasks</text><path class="series-1" d="M324,197 h10.386095421775257 a4,4 0 0 1 4,4 v6 a4,4 0 0 1 -4,4 h-10.386095421775257 z"/><text x="346.3860954217753" y="209" class="value" text-anchor="start">4% fewer</text>
+<text x="260" y="241" class="label" text-anchor="end">PDF, 8 to 9 pages · 19 tasks</text><path class="muted-bar" d="M324,229 h-14.877404411316501 a4,4 0 0 0 -4,4 v6 a4,4 0 0 0 4,4 h14.877404411316501 z"/><text x="332" y="241" class="value" text-anchor="start">6% more</text>
+<text x="260" y="273" class="label" text-anchor="end">PDF, 1 to 2 pages · 2 tasks</text><path class="muted-bar" d="M324,261 h-40.51578773350963 a4,4 0 0 0 -4,4 v6 a4,4 0 0 0 4,4 h40.51578773350963 z"/><text x="332" y="273" class="value" text-anchor="start">14% more</text>
+<text x="24" y="328" class="footnote" text-anchor="start">Tokens with Lasso against file tools on the same tasks, one live run. Small files cost less to read directly.</text>
+</svg>

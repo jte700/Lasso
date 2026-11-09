@@ -30,3 +30,23 @@ test('ordinary files are previewed in full', () => {
   assert.equal(preview.rows.length, 1);
   assert.equal(preview.totalRows, 1);
 });
+
+test('a text viewport keeps its few lines of context unless a scrolling surface asks for more', async () => {
+  // Arrange
+  const { buildTextPreview } = await import('../src/sharing/share-preview.js');
+  const code = Array.from({ length: 1_000 }, (_, index) => `const value${index} = ${index};`).join('\n');
+  const notes = Array.from({ length: 300 }, (_, index) => `Paragraph ${index}.`).join('\n\n');
+  const wide = { context: { lines: 400, blocksBefore: 200, blocksAfter: 400 } };
+
+  // Act
+  const narrow = buildTextPreview('app.js', code, { lineStart: 500 });
+  const scrolling = buildTextPreview('app.js', code, { lineStart: 500 }, {}, '', '', wide);
+  const markdown = buildTextPreview('notes.md', notes, { lineStart: 301 }, {}, '', '', wide);
+
+  // Assert
+  assert.deepEqual([narrow.lines[0].lineNumber, narrow.lines.at(-1).lineNumber], [492, 515]);
+  assert.deepEqual([scrolling.lines[0].lineNumber, scrolling.lines.at(-1).lineNumber], [100, 900]);
+  assert.deepEqual(scrolling.lines.filter((line) => line.cited).map((line) => line.lineNumber), [500]);
+  assert.equal(markdown.firstBlock, 0, 'every block before the cited one fits in the wider context');
+  assert.equal(markdown.blocks.length, 300);
+});

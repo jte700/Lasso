@@ -83,7 +83,8 @@ test('public share routes', async (suite) => {
     assert.deepEqual(body.preview.rows.flatMap(row => row.cells.filter(cell => cell.cited).map(cell => cell.value)), ['Current Period']);
     const html = await (await fetch(`${base}/inspect?object=${variable.id}&version=${variable.versionId}`)).text();
     assert.match(html, /B1 \(column header\)/);
-    assert.equal((html.match(/class="cited"/g) ?? []).length, 1);
+    assert.equal((html.match(/<td class="cited"/g) ?? []).length, 1);
+    assert.match(html, /<th scope="col" class="cited">B<\/th>/, 'its column letter is marked beside it');
     assert.match(html, /class="cited"[^>]*>Current Period<\/td>/);
     const share = application.objectShares.createShare({ projectId: project.id, objectId: variable.id,
       versionId: variable.versionId, actor: maya, accessScope: 'INDEXED' });
@@ -91,6 +92,39 @@ test('public share routes', async (suite) => {
     assert.match(shared, /class="cited">400<\/td>/);
     assert.match(shared, /class="cited">225<\/td>/);
     assert.doesNotMatch(shared, /class="cited">Current Period<\/td>/);
+    // The cited part of a column is that column alone: no account names, no other period.
+    for (const other of ['Office Supplies', 'Payroll taxes', 'Prior Period', '384', '218']) {
+      assert.ok(!shared.includes(other), `${other} is not shared with the Current Period column`);
+    }
+    const excerpt = await (await fetch(`${base}/d/${share.token}/excerpt`)).text();
+    assert.match(excerpt, /Current Period/);
+    assert.match(excerpt, /400/);
+    assert.ok(!/Office Supplies|Prior Period|384/.test(excerpt), `the downloaded excerpt holds the column alone: ${excerpt}`);
+    const composer = await (await fetch(`${base}/api/dependency-objects/${variable.id}/preview?version=${variable.versionId}&shared=1`)).json();
+    assert.deepEqual(composer.sharedExcerpt.headers, ['Current Period'], 'the share composer is shown the same column');
+    assert.deepEqual(composer.sharedExcerpt.rows.map((row) => row.cells.map((cell) => cell.value)), [['400'], ['225']]);
+  });
+
+  await suite.test('a cited cell is shared with the sentence it backs, alone or with its nearby rows', async () => {
+    const cell = application.dependencies.objectsAt(project.id).find(source => source.anchor?.kind === 'table-cell'
+      && source.anchor.rowKey === 'Payroll taxes' && source.anchor.column === 'Current Period');
+    assert.ok(cell);
+    const sentence = 'Payroll taxes came to 225 this period.';
+    const alone = application.objectShares.createShare({ projectId: project.id, objectId: cell.id,
+      versionId: cell.versionId, actor: maya, accessScope: 'INDEXED', citedIn: sentence });
+    const page = await (await fetch(`${base}/d/${alone.token}`)).text();
+    assert.match(page, /Cited in/);
+    assert.match(page, /Payroll taxes came to 225 this period\./);
+    assert.match(page, /class="cited">225<\/td>/);
+    assert.ok(!page.includes('Office Supplies') && !page.includes('218'), 'the cell comes with its row label and heading only');
+    const nearby = application.objectShares.createShare({ projectId: project.id, objectId: cell.id,
+      versionId: cell.versionId, actor: maya, accessScope: 'INDEXED', citedIn: sentence, nearbyRows: true });
+    const wide = await (await fetch(`${base}/d/${nearby.token}`)).text();
+    assert.ok(wide.includes('Office Supplies') && wide.includes('218'), 'nearby rows come when the sharer asks for them');
+    assert.equal(application.objectShares.resolveShare(nearby.token).share.context.nearbyRows, true);
+    const composer = await (await fetch(`${base}/api/dependency-objects/${cell.id}/preview?version=${cell.versionId}&shared=1`)).json();
+    assert.deepEqual(composer.sharedExcerpt.headers, ['Account', 'Current Period'], 'the composer shows the cell as shared');
+    assert.ok(composer.nearbyExcerpt.rows.length > 1, 'and the nearby rows its switch would add');
   });
 
   await suite.test('select and redact loads the complete source document', async () => {
@@ -237,4 +271,29 @@ test('public share routes', async (suite) => {
 
   await application.close();
   fs.rmSync(sandbox, { recursive: true, force: true });
+});
+
+test('the old browser workbench is shown only to the Windows app; a Mac browser is pointed to the menu bar', async t => {
+  // Arrange
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-home-'));
+  const application = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false, port: 0 });
+  t.after(async () => { await application.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  await new Promise((resolve) => application.server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${application.server.address().port}`;
+
+  // Act
+  const home = await (await fetch(`${base}/`)).text();
+  const index = await (await fetch(`${base}/index.html`)).text();
+  const windows = await (await fetch(`${base}/?app=1&platform=windows`)).text();
+  const viewer = await fetch(`${base}/model-preview.js`);
+
+  // Assert
+  if (process.platform !== 'win32') {
+    for (const page of [home, index]) {
+      assert.match(page, /Lasso runs from the menu bar/);
+      assert.ok(!page.includes('/app.js'), 'the workbench is not loaded on a Mac');
+    }
+  }
+  assert.match(windows, /\/app\.js/, 'the Windows app still opens its workbench');
+  assert.equal(viewer.status, 200, 'share pages keep their scripts');
 });

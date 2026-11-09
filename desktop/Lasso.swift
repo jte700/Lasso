@@ -647,80 +647,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
+    /// The panel's group for what most people rarely need: drives, other
+    /// apps and removing several folders at once. It starts collapsed.
+    private static let moreGroupTitle = "More"
+
     private func rebuildMenu() {
         statusMenu.removeAllItems()
         let activeCount = directories.filter { $0.active && $0.available && ($0.error ?? "").isEmpty }.count
         let reading = directories.contains { $0.progress != nil } || connections.contains { $0.progress != nil }
-        let status = label(busyMessage ?? statusTitle(activeCount: activeCount))
-        // A folder being read shows its own bar; the status line has one only
-        // for requests no folder reports, such as a removal.
-        if busyMessage != nil && !reading { status.view = NativeMenuProgressRow(item: status) }
-        statusMenu.addItem(status)
-        statusMenu.addItem(.separator())
-        statusMenu.addItem(command("Add Work Directories…", action: #selector(addDirectories),
-                                   enabled: isServerReady && busyMessage == nil))
-        statusMenu.addItem(driveMenu.item(ready: isServerReady, idle: busyMessage == nil))
-        let connect = command("Connect 3rd Party Apps…", action: #selector(showConnectApps), enabled: isServerReady)
-        connect.toolTip = "Bring in mail, calendars and notes from Outlook, Google Calendar, Notion and more."
-        statusMenu.addItem(connect)
-        if directories.isEmpty { isRemovingDirectories = false }
-        if !directories.isEmpty && isRemovingDirectories {
-            addRemovalCommands()
-        } else if !directories.isEmpty {
-            let remove = command("Remove Work Directories\u{2026}", action: #selector(toggleRemovingDirectories))
-            remove.toolTip = "Choose one or more folders to remove from Lasso. The folders and their files are not changed."
-            statusMenu.addItem(remove)
-        }
-        if directories.isEmpty {
-            if isServerReady {
-                statusMenu.addItem(label("Add a folder of your work files to get source suggestions."))
-            } else if case .starting = server?.state {
-                statusMenu.addItem(label("Waiting for the server…"))
-            }
-        } else {
-            statusMenu.addItem(.separator())
-            // A folder being read stays in view even in a collapsed list.
-            let expanded = !directoryListCollapsed || isRemovingDirectories || reading
-            let heading = command("Work Directories", action: #selector(toggleDirectoryList))
-            heading.view = NativeMenuDisclosureRow(item: heading, expanded: expanded, count: directories.count)
-            statusMenu.addItem(heading)
-            if expanded {
-                let titles = WorkspaceAPI.distinctNames(directories.map { (name: $0.name, path: $0.rootPath) })
-                for (directory, title) in zip(directories, titles) {
-                    let note = !directory.available ? " (unavailable)"
-                        : directory.needsAttention ? " (needs attention)" : ""
-                    let item = command(title + note, action: #selector(toggleDirectory(_:)),
-                                       enabled: isServerReady && busyMessage == nil && directory.progress == nil)
-                    item.state = directory.active ? .on : .off
-                    item.representedObject = directory.id
-                    let usage = directory.progress != nil ? "Lasso is reading this folder."
-                        : directory.needsAttention ? "Click to try this folder again."
-                        : directory.active ? "On: suggestions include this folder." : "Off: this folder is paused."
-                    item.toolTip = [directory.rootPath, directory.error, directory.note, usage].compactMap { $0 }
-                        .joined(separator: "\n")
-                    item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
-                    let id = directory.id
-                    let row = NativeMenuToggleRow(item: item, color: toggleColor(for: directory.id),
-                                                  selecting: isRemovingDirectories,
-                                                  selected: removalSelection.ids.contains(id)) { [weak self] color in
-                        self?.setToggleColor(color, for: directory.id)
-                    }
-                    row.issue = directory.issue
-                    row.progress = directory.progress
-                    row.onFix = { [weak self] in self?.fixDirectory(id) }
-                    row.onSelect = { [weak self] extend in self?.toggleRemovalSelection(id, extendingRange: extend) }
-                    row.onReveal = { [weak self] in self?.revealDirectory(id) }
-                    row.onRemove = { [weak self] in
-                        let remove = NSMenuItem()
-                        remove.representedObject = id
-                        self?.removeDirectory(remove)
-                    }
-                    item.view = row
-                    statusMenu.addItem(item)
-                }
-            }
-        }
-        addConnectedApps()
+        // A folder being read shows its own bar; the header has one only for
+        // requests no folder reports, such as a removal.
+        statusMenu.addItem(headerItem(activeCount: activeCount, busy: busyMessage != nil && !reading))
+        addPermissionCommands()
         if let workspaceError {
             let item = label(workspaceError)
             item.toolTip = workspaceError
@@ -730,32 +668,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if case .failed = server?.state {
             statusMenu.addItem(command("Restart Server", action: #selector(restartServer)))
         }
+        if directories.isEmpty {
+            // The header says to add a folder.
+            isRemovingDirectories = false
+        } else {
+            statusMenu.addItem(.separator())
+            if isRemovingDirectories { addRemovalCommands() }
+            addDirectoryRows(reading: reading)
+        }
+        addConnectedApps()
         statusMenu.addItem(.separator())
-        let assist = command("Suggest While Typing", action: #selector(toggleGlobalAssist),
-                             enabled: isServerReady)
-        assist.state = assistActivation.requested ? .on : .off
-        statusMenu.addItem(assist)
-        if assistActivation.requested, isServerReady, activeCount == 0, !directories.isEmpty, busyMessage == nil {
-            statusMenu.addItem(label("Switch on a work directory to get suggestions."))
-        }
-        if assistActivation.requested && GlobalAssistant.shared.isEnabled && isServerReady
-            && GlobalAssistant.shared.isAwaitingInput && !AssistPermission.hasInputMonitoring {
-            statusMenu.addItem(command("Allow Input Monitoring…", action: #selector(openAssistSettings)))
-        } else if assistActivation.requested && !GlobalAssistant.shared.isEnabled && isServerReady {
-            if !AssistPermission.hasAccessibility {
-                statusMenu.addItem(command("Allow Accessibility…", action: #selector(openAssistSettings)))
-            } else if !AssistPermission.hasInputMonitoring {
-                statusMenu.addItem(command("Allow Input Monitoring…", action: #selector(openAssistSettings)))
-            } else {
-                statusMenu.addItem(command("Retry Suggestions", action: #selector(retryGlobalAssist)))
-            }
-        }
-
+        statusMenu.addItem(command("Add Work Directories\u{2026}", action: #selector(addDirectories),
+                                   enabled: isServerReady && busyMessage == nil))
+        statusMenu.addItem(moreGroup())
+        statusMenu.addItem(.separator())
         statusMenu.addItem(command("Open \(Ranch.title)", action: #selector(openRanch), key: Ranch.key, modifiers: Ranch.modifiers,
                                    enabled: isServerReady))
-        statusMenu.addItem(.separator())
-        // Look, Tab, notch and startup options live in Settings, not here.
-        statusMenu.addItem(command("Settings…", action: #selector(showSettings), key: ","))
+        // Look, Tab, notch, apps and startup options live in Settings, not here.
+        statusMenu.addItem(command("Settings\u{2026}", action: #selector(showSettings), key: ","))
         let quit = command("Quit Lasso", action: #selector(quit), key: "q")
         if LaunchHelper.state == .on {
             quit.toolTip = "Turns Lasso off. Press \(LaunchHelper.shortcut) to start it again."
@@ -767,6 +697,93 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         serverURL: isServerReady ? server?.url : nil,
                         suggestions: GlobalAssistant.shared.isEnabled, requested: assistActivation.requested,
                         revision: directories.filter { $0.active && $0.available && ($0.error ?? "").isEmpty }.map(\.id).sorted().joined(separator: "|"))
+    }
+
+    /// Lasso's name and state, with Suggest While Typing as the panel's one switch.
+    private func headerItem(activeCount: Int, busy: Bool) -> NSMenuItem {
+        let assist = command("Suggest While Typing", action: #selector(toggleGlobalAssist), enabled: isServerReady)
+        assist.state = assistActivation.requested ? .on : .off
+        assist.toolTip = "Suggest While Typing"
+        assist.view = StatusHeaderRow(item: assist, title: "Lasso",
+                                      subtitle: statusSubtitle(activeCount: activeCount), busy: busy)
+        return assist
+    }
+
+    /// What is missing before suggestions can work, next to the switch that needs it.
+    private func addPermissionCommands() {
+        guard assistActivation.requested, isServerReady else { return }
+        if GlobalAssistant.shared.isEnabled && GlobalAssistant.shared.isAwaitingInput && !AssistPermission.hasInputMonitoring {
+            statusMenu.addItem(command("Allow Input Monitoring\u{2026}", action: #selector(openAssistSettings)))
+        } else if !GlobalAssistant.shared.isEnabled {
+            if !AssistPermission.hasAccessibility {
+                statusMenu.addItem(command("Allow Accessibility\u{2026}", action: #selector(openAssistSettings)))
+            } else if !AssistPermission.hasInputMonitoring {
+                statusMenu.addItem(command("Allow Input Monitoring\u{2026}", action: #selector(openAssistSettings)))
+            } else {
+                statusMenu.addItem(command("Retry Suggestions", action: #selector(retryGlobalAssist)))
+            }
+        }
+    }
+
+    private func addDirectoryRows(reading: Bool) {
+        // A folder being read stays in view even in a collapsed list.
+        let expanded = !directoryListCollapsed || isRemovingDirectories || reading
+        let heading = command("Work Directories", action: #selector(toggleDirectoryList))
+        heading.view = NativeMenuDisclosureRow(item: heading, expanded: expanded, count: directories.count)
+        statusMenu.addItem(heading)
+        guard expanded else { return }
+        let titles = WorkspaceAPI.distinctNames(directories.map { (name: $0.name, path: $0.rootPath) })
+        for (directory, title) in zip(directories, titles) {
+            let note = !directory.available ? " (unavailable)"
+                : directory.needsAttention ? " (needs attention)" : ""
+            let item = command(title + note, action: #selector(toggleDirectory(_:)),
+                               enabled: isServerReady && busyMessage == nil && directory.progress == nil)
+            item.state = directory.active ? .on : .off
+            item.representedObject = directory.id
+            let usage = directory.progress != nil ? "Lasso is reading this folder."
+                : directory.needsAttention ? "Click to try this folder again."
+                : directory.active ? "On: suggestions include this folder." : "Off: this folder is paused."
+            item.toolTip = [directory.rootPath, directory.error, directory.note, usage].compactMap { $0 }
+                .joined(separator: "\n")
+            item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+            let id = directory.id
+            let row = NativeMenuToggleRow(item: item, color: toggleColor(for: directory.id),
+                                          selecting: isRemovingDirectories,
+                                          selected: removalSelection.ids.contains(id)) { [weak self] color in
+                self?.setToggleColor(color, for: directory.id)
+            }
+            row.issue = directory.issue
+            row.progress = directory.progress
+            row.onFix = { [weak self] in self?.fixDirectory(id) }
+            row.onSelect = { [weak self] extend in self?.toggleRemovalSelection(id, extendingRange: extend) }
+            row.onReveal = { [weak self] in self?.revealDirectory(id) }
+            row.onRemove = { [weak self] in
+                let remove = NSMenuItem()
+                remove.representedObject = id
+                self?.removeDirectory(remove)
+            }
+            item.view = row
+            statusMenu.addItem(item)
+        }
+    }
+
+    /// External drives, other apps and removing folders, collapsed until opened.
+    private func moreGroup() -> NSMenuItem {
+        let group = NSMenuItem(title: Self.moreGroupTitle, action: nil, keyEquivalent: "")
+        group.toolTip = "External drives, mail and calendar apps, and removing work directories."
+        let items = NSMenu()
+        items.autoenablesItems = false
+        items.addItem(driveMenu.item(ready: isServerReady, idle: busyMessage == nil))
+        let connect = command("Connect 3rd Party Apps\u{2026}", action: #selector(showConnectApps), enabled: isServerReady)
+        connect.toolTip = "Bring in mail, calendars and notes from Outlook, Google Calendar, Notion and more."
+        items.addItem(connect)
+        if !directories.isEmpty && !isRemovingDirectories {
+            let remove = command("Remove Work Directories\u{2026}", action: #selector(toggleRemovingDirectories))
+            remove.toolTip = "Choose one or more folders to remove from Lasso. The folders and their files are not changed."
+            items.addItem(remove)
+        }
+        group.submenu = items
+        return group
     }
 
     /// Connected apps, in their own section below the folders, each with the
@@ -822,13 +839,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func statusTitle(activeCount: Int) -> String {
+    /// The header's line: what Lasso is doing, or what it needs.
+    private func statusSubtitle(activeCount: Int) -> String {
+        if let busyMessage { return busyMessage }
         switch server?.state {
-        case .ready:
-            return activeCount == 1 ? "Lasso · 1 active directory" : "Lasso · \(activeCount) active directories"
-        case .failed: return "Lasso · server unavailable"
-        default: return "Lasso · starting…"
+        case .ready: break
+        case .failed: return "The server is unavailable."
+        default: return "Starting\u{2026}"
         }
+        if directories.isEmpty { return "Add a folder of your work files to get source suggestions." }
+        guard assistActivation.requested else { return "Suggestions are off." }
+        if activeCount == 0 { return "Switch on a work directory to get suggestions." }
+        return activeCount == 1 ? "Suggesting from 1 directory" : "Suggesting from \(activeCount) directories"
     }
 
     // MARK: Shared workspace state
@@ -899,14 +921,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.setAccessibilityLabel("Lasso")
         dismissDriveNotice()
         guard let button = statusItem.button else { return }
-        statusPopover.expand(path: driveMenu.attentionPath)
+        statusPopover.expand(path: [Self.moreGroupTitle] + driveMenu.attentionPath)
         rebuildMenu()
         statusPopover.show(relativeTo: button)
         refreshWorkspace()
         // The list may have changed since the notice; open the drive it is about.
         driveMenu.refresh(base: isServerReady ? server.url : nil) { [weak self] in
             guard let self else { return }
-            self.statusPopover.expand(path: self.driveMenu.attentionPath)
+            self.statusPopover.expand(path: [Self.moreGroupTitle] + self.driveMenu.attentionPath)
             self.rebuildMenu()
         }
     }
@@ -1457,7 +1479,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ShareComposerController.shared.show(
             objectId: target.objectId, versionId: target.versionId, label: target.label, sourcePath: target.path,
             near: anchor, serverURL: url, projectId: target.projectId,
-            fallbackColor: toggleColor(for: target.projectId).color,
             copyAction: { [weak self] configuration, finished in
                 ShareClient.createShare(serverURL: url, projectId: target.projectId, objectId: target.objectId,
                                         versionId: target.versionId, configuration: configuration) { result in

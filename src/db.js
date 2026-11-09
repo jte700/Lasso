@@ -156,6 +156,9 @@ export function openDatabase(config) {
   // the one it was made from. Existing shares read NULL and use their version's.
   const shareColumns = new Set(db.prepare('PRAGMA table_info(object_share_grants)').all().map((column) => column.name));
   if (!shareColumns.has('snapshot_id')) db.exec('ALTER TABLE object_share_grants ADD COLUMN snapshot_id TEXT REFERENCES snapshots(id)');
+  // The sentence a share backs, and whether a cited cell brings its nearby rows.
+  if (!shareColumns.has('context_json')) db.exec('ALTER TABLE object_share_grants ADD COLUMN context_json TEXT');
+  allowMarkedShares(db);
   // Rows and cells of large tables become objects only when they are offered
   // or linked (see dependencies/table-index.js). Each later reading of their
   // file reads these keys again, so a link to one survives a new version.
@@ -176,6 +179,34 @@ export function openDatabase(config) {
   db.exec('DROP INDEX IF EXISTS snapshot_files_path_idx; DROP INDEX IF EXISTS scientific_object_search_idx;');
 
   return db;
+}
+
+/**
+ * A share can be a copy with markings drawn on its pages (MARKED), its
+ * strokes kept in redactions_json. SQLite cannot change a CHECK constraint in
+ * place, so a table made before then is rebuilt once with the same rows.
+ * Done here, after the columns above, because a numbered migration runs
+ * before them on a new store.
+ */
+function allowMarkedShares(db) {
+  const table = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'object_share_grants'").get()?.sql ?? '';
+  if (!table || table.includes("'MARKED'")) return;
+  const scopes = /CHECK\s*\(\s*access_scope\s+IN\s*\(([^)]*)\)\s*\)/i;
+  if (!scopes.test(table)) return;
+  const rebuilt = table
+    .replace(/^CREATE TABLE\s+(?:IF NOT EXISTS\s+)?"?object_share_grants"?/i, 'CREATE TABLE object_share_grants_rebuilt')
+    .replace(scopes, (_, listed) => `CHECK (access_scope IN (${listed.trim()}, 'MARKED'))`);
+  const columns = db.prepare('PRAGMA table_info(object_share_grants)').all().map((column) => `"${column.name}"`).join(', ');
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    transaction(db, () => db.exec(`${rebuilt};
+      INSERT INTO object_share_grants_rebuilt (${columns}) SELECT ${columns} FROM object_share_grants;
+      DROP TABLE object_share_grants;
+      ALTER TABLE object_share_grants_rebuilt RENAME TO object_share_grants;
+      CREATE INDEX IF NOT EXISTS object_share_grant_object_idx ON object_share_grants(object_id, revoked_at, created_at DESC);`));
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
 }
 
 export function transaction(db, callback) {

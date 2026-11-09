@@ -28,6 +28,8 @@ struct AssistTableLayout {
     static let citedFont = NSFont.systemFont(ofSize: 10, weight: .medium)
     static let headingFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
     static let letterFont = NSFont.systemFont(ofSize: 10)
+    /// A column letter or row number marked as the way to a value.
+    static let markedLetterFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
     /// Space above a heading for its column letter, such as C.
     static let letterHeight: CGFloat = 13
     static let headerTopPadding: CGFloat = 7
@@ -318,5 +320,51 @@ struct AssistTableLayout {
             first -= 1
         }
         return min(first, max(0, heights.count - 1))
+    }
+}
+
+/// How a table marks its citation. A lone cited cell is reached from its row
+/// number and its column letter: each is marked, and the cells between it and
+/// the cell are washed in the source's colour as one path that stops at the
+/// cell's edge. A whole row or column cited has no single way in, so only its
+/// headers are marked. The card, the share composer and the inspector page
+/// mark them alike.
+struct TableCitationMarks {
+    /// How strongly the headers and the way in are washed.
+    static let opacity: CGFloat = 0.14
+
+    /// The lone cited cell: its index among the rows and among the shown columns.
+    let cell: (row: Int, column: Int)?
+    /// Rows whose number is marked, and shown columns whose letter is marked.
+    let markedRows: Set<Int>
+    let markedColumns: Set<Int>
+
+    init(rows: [AssistPreviewRow], visibleColumns: [Int]) {
+        let cited = rows.indices.flatMap { row in
+            visibleColumns.indices.compactMap { shown -> (row: Int, column: Int)? in
+                let column = visibleColumns[shown]
+                return rows[row].cells.indices.contains(column) && rows[row].cells[column].cited ? (row, shown) : nil
+            }
+        }
+        self.init(cited: cited)
+    }
+
+    /// From the cited cells themselves, as (row, shown column) pairs.
+    init(cited: [(row: Int, column: Int)]) {
+        if cited.count == 1, let lone = cited.first {
+            cell = lone
+            markedRows = [lone.row]
+            markedColumns = [lone.column]
+        } else {
+            cell = nil
+            markedRows = Set(cited.map(\.row))
+            markedColumns = Set(cited.map(\.column))
+        }
+    }
+
+    static func wash(_ rect: NSRect, color: NSColor) {
+        guard rect.width > 0, rect.height > 0 else { return }
+        color.withAlphaComponent(opacity).setFill()
+        rect.fill()
     }
 }

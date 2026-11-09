@@ -6,10 +6,13 @@ import { transaction } from './db.js';
 import { HttpError } from './history/errors.js';
 import { normalizeProjectRootPath } from './history/service.js';
 import { runSliced, runSync } from './history/work.js';
-import { currentClauseStart, namesFocusedFile } from './dependencies/service.js';
+import {
+  currentClauseStart, LINKED_VALUES_SHOWN, namesFocusedFile, SUGGESTIONS_SHOWN, writtenBeforeCaret,
+} from './dependencies/service.js';
 import { dictatedNameEnds, hasSuggestions, namesInFull, softenDictatedPauses } from './dependencies/dictation.js';
 import { directoryIssue, directoryNote } from './directory-issues.js';
 import { offeredShareScopes } from './sharing/object-share.js';
+import { matchedSourceWords, typedSentence } from './dependencies/direct-match.js';
 import { parseCommand } from './terminal/parser.js';
 import { failure, result, text, blank, dim } from './terminal/result.js';
 
@@ -112,14 +115,15 @@ function tag(value, project, projects = null) {
     ...(value.dependencyCandidate ? { dependencyCandidate: tag(value.dependencyCandidate, project, projects) } : {}) };
 }
 
-export function distinctRanked(items, limit) {
+export function distinctRanked(items, limit, { keepOrder = false } = {}) {
   const seen = new Set();
   // Full ties keep each directory's own ranked order, which already settles
   // them by source order (a row's columns left to right). Object ids are
   // random, so comparing them would shuffle equal suggestions between runs.
-  return items.map((item, order) => ({ item, order }))
+  const ordered = keepOrder ? items : items.map((item, order) => ({ item, order }))
     .sort((left, right) => compare(left.item, right.item) || left.order - right.order)
-    .map(({ item }) => item)
+    .map(({ item }) => item);
+  return ordered
     .filter((item) => {
       const key = `${item.projectId}:${item.id ?? item.objectId ?? item.dependencyCandidate?.id}:${item.insertText ?? item.text ?? ''}`;
       if (seen.has(key)) return false;
@@ -796,7 +800,7 @@ export class WorkspaceService {
       && claim.candidates?.some((candidate) => candidate.fileReference)
       && (!linkedContext || (claim.start >= linkedContext.anchor.end && !namesFocusedFile(claim, linkedContext)))));
     const pool = naming.length ? naming : scoped.length ? scoped : availablePredictions;
-    const limit = 12;
+    const limit = pool.some(({ prediction }) => prediction.listsEveryValue) ? LINKED_VALUES_SHOWN : SUGGESTIONS_SHOWN;
     const slots = [];
     for (const { project, prediction } of pool) {
       for (const group of ['sourceCompletions', 'workspaceCompletions']) {
@@ -820,16 +824,31 @@ export class WorkspaceService {
     const writingClaim = slots.some((slot) => slot.group === 'claim' && slot.claim.end > clauseStart);
     const inClause = writingClaim
       ? slots.filter((slot) => slot.group !== 'claim' || slot.claim.end > clauseStart) : slots;
+    // A value written before the words at the caret ("rises from 6% to") is
+    // not being typed. When a directory continues the sentence, other
+    // directories' sources for that value give up their places to it.
+    const continuing = slots.some((slot) => slot.group === 'completion')
+      ? inClause.filter((slot) => slot.group !== 'claim' || !writtenBeforeCaret(slot.claim, input.text, cursor)) : inClause;
     // Directories may match different suffixes of the same phrase ("net inc"
     // and "inc", "bracket length" and "length"). The longer match is the one
     // the writer is typing, so the shorter gives up its slots before ranking;
     // otherwise its higher scores could crowd the longer match out entirely.
-    const variables = inClause.filter((slot) => slot.group === 'claim' && slot.claim.type === 'STUDY_VARIABLE')
+    const variables = continuing.filter((slot) => slot.group === 'claim' && slot.claim.type === 'STUDY_VARIABLE')
       .map((slot) => slot.claim);
     const nested = (claim) => claim.type === 'STUDY_VARIABLE' && variables.some((other) => other !== claim
       && other.start <= claim.start && other.end >= claim.end && other.end - other.start > claim.end - claim.start);
-    const current = inClause.filter((slot) => slot.group !== 'claim' || !nested(slot.claim));
-    const selected = distinctRanked(current, limit);
+    const current = continuing.filter((slot) => slot.group !== 'claim' || !nested(slot.claim));
+    // Each keeps its place in the one ranked order, which the groups below split
+    // up, and the typed words its source has, which the card's preview marks.
+    const sentence = typedSentence(input.text, cursor);
+    // A video's moment marks the quoted words only, not every word of the sentence around them.
+    // A file named by its name is matched as a whole, so its preview marks no words in it.
+    const namesWholeFile = (item) => Boolean(item.fileReference ?? item.dependencyCandidate?.fileReference);
+    const keepOrder = pool.length > 0 && pool.every(({ prediction }) => prediction.listsInOrder);
+    const selected = distinctRanked(current, limit, { keepOrder }).map((item, rankOrder) => ({ ...item, rankOrder,
+      matchedWords: namesWholeFile(item) ? [] : matchedSourceWords(item.quotedPhrase ?? sentence, [item.sourceSentence, item.replacementText, item.dependencyCandidate?.valueText,
+        item.dependencyCandidate?.label, item.dependencyCandidate?.metadata?.variable, item.valueText, item.label,
+        item.metadata?.variable].filter((text) => typeof text === 'string').join(' ')) }));
     // fn+Right opens a suggestion that has values below it, such as a part's measurements.
     const narrowing = (candidate) => this.dependencies.narrowsTo(candidate.projectId, candidate)
       ? { ...candidate, narrowable: true } : candidate;

@@ -334,9 +334,10 @@ struct RanchFileViewer: View {
     @State private var scene: SCNScene?
     @State private var plan: AssistModelPreview?
     @State private var workbook: RanchWorkbook?
+    @State private var slides: SlideDeckDocument?
     @State private var failed = false
     @State private var reset = 0
-    @State private var code: String?
+    @State private var code: RanchCode?
     @State private var selectedLines: ClosedRange<Int>?
     @State private var request: URLSessionDataTask?
     /// A model or drawing still being read after a few seconds.
@@ -388,9 +389,15 @@ struct RanchFileViewer: View {
             } else {
                 RanchLoading(text: "Reading the cells\u{2026}")
             }
+        case .slides:
+            if let slides {
+                RanchSlidesView(slides: slides, slide: focus?.anchor?.slideNumber ?? 1)
+            } else {
+                RanchLoading(text: "Reading the slides\u{2026}")
+            }
         case .code:
             if let code {
-                RanchCodeView(text: code, focusLine: focus?.anchor?.line) { selectedLines = $0 }
+                RanchCodeView(code: code, focusLine: focus?.anchor?.line) { selectedLines = $0 }
             } else {
                 RanchLoading(text: "Reading the file\u{2026}")
             }
@@ -471,11 +478,17 @@ struct RanchFileViewer: View {
             request = store.workbook(source) { book in
                 if let book { workbook = book } else { failed = true }
             }
+        case .slides:
+            store.slides(source) { deck in
+                if let deck { slides = deck } else { failed = true }
+            }
         case .code:
             let file = url
+            // The file's own name: the copy shown may be stored under another.
+            let name = source.name
             DispatchQueue.global(qos: .userInitiated).async {
-                let text = (try? Data(contentsOf: file)).map { String(decoding: $0, as: UTF8.self) }
-                DispatchQueue.main.async { if let text { code = text } else { failed = true } }
+                let read = (try? Data(contentsOf: file)).map { RanchCode(text: String(decoding: $0, as: UTF8.self), fileName: name) }
+                DispatchQueue.main.async { if let read { code = read } else { failed = true } }
             }
         case .mesh:
             let file = url

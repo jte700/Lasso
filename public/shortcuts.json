@@ -23,7 +23,9 @@
         { "action": "Edit the file in its app", "macos": "⌘E" },
         { "action": "Copy a share link to the file", "macos": "⇧⌘L" },
         { "action": "Show the file in Finder", "macos": "⌥⌘R" },
-        { "action": "Back to the whole network", "macos": "⌘Z" }
+        { "action": "Back to the directory the network showed before", "macos": "⌘[" },
+        { "action": "Undo a pin or colour, or go back to the whole network", "macos": "⌘Z" },
+        { "action": "Redo the pin or colour", "macos": "⇧⌘Z" }
       ]
     },
     {
@@ -61,8 +63,8 @@
       "shortcuts": [
         { "action": "Change what is shared", "macos": "←→" },
         { "action": "Create the link", "macos": "↩" },
-        { "action": "Undo the last mask", "macos": "⌘Z" },
-        { "action": "Redo the mask", "macos": "⇧⌘Z" },
+        { "action": "Undo the last mask, mark or chosen excerpt", "macos": "⌘Z" },
+        { "action": "Redo what ⌘Z took back", "macos": "⇧⌘Z" },
         { "action": "Close", "macos": "Esc" }
       ]
     },

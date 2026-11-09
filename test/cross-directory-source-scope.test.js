@@ -186,6 +186,21 @@ test('fn+Right on a name being typed shows its values, which replace the typed w
   assert.deepEqual(replaced(cells), [[0, 5]]);
 });
 
+test('a sentence written on after a focused name is kept, and the value goes at the caret', async t => {
+  // Arrange
+  const app = await twoDirectories(t);
+  const part = (await typed(app, 'Hi Sam, the brac')).claims[0].candidates[0];
+
+  // Act and Assert
+  for (const text of ['Hi Sam, the brac the measurement for the holes in width is', 'Hi Sam, the brac is']) {
+    const values = await focused(app, text, focusOnTyped(part, text, 'brac'));
+    assert.equal(values.workspaceHeading, 'Values for Bracket', text);
+    assert.ok(offered(values).length, text);
+    assert.ok(replaced(values).every(([start, end]) => start === text.length && end === text.length),
+      `${text}: ${JSON.stringify(replaced(values))}`);
+  }
+});
+
 test('fn+Right stops at a value, which has nothing below it', async t => {
   const app = await twoDirectories(t);
   const bracket = await accept(app, 'The brack', 'Bracket', 'Bracket.step');

@@ -1,0 +1,1172 @@
+{
+  "generatedAt": "2026-11-05T21:20:57.635Z",
+  "commit": "11727e7",
+  "machine": {
+    "cpu": "Apple M3",
+    "cores": 8,
+    "memoryGB": 16,
+    "platform": "darwin 26.6",
+    "node": "v24.13.0"
+  },
+  "method": {
+    "charactersPerToken": 4,
+    "topN": 3,
+    "minimumPrefix": 2
+  },
+  "corpora": [
+    {
+      "name": "Mechanical CAD",
+      "folder": "Mechanical-CAD/Models",
+      "context": {
+        "files": 5,
+        "textFiles": 4,
+        "bytes": 2057612,
+        "characters": 2057410,
+        "tokens": 514353
+      },
+      "indexing": {
+        "milliseconds": 273,
+        "objects": 273
+      },
+      "score": {
+        "cases": 9,
+        "top1": 9,
+        "topN": 9,
+        "latency": {
+          "samples": 194,
+          "mean": 1.11,
+          "p50": 0.74,
+          "p95": 2.49,
+          "p99": 11.11,
+          "max": 15.67
+        }
+      },
+      "results": [
+        {
+          "corpus": "Mechanical CAD",
+          "kind": "value",
+          "text": "The Bracket Ø8 hole diameter is 8",
+          "expect": "Bracket Ø8 hole diameter",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "8 mm",
+            "10 mm",
+            "45 mm"
+          ],
+          "typedCharacters": 33,
+          "insertedCharacters": 4
+        },
+        {
+          "corpus": "Mechanical CAD",
+          "kind": "value",
+          "text": "The corner radius is 5",
+          "expect": "Bracket R5 90° arc radius",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "5 mm",
+            "5 in",
+            "7.853981634 mm"
+          ],
+          "typedCharacters": 22,
+          "insertedCharacters": 4
+        },
+        {
+          "corpus": "Mechanical CAD",
+          "kind": "value",
+          "text": "The four corner bores are 35",
+          "expect": "nist_ctc_01_asme1_rd Ø35 hole diameter",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "35 mm"
+          ],
+          "typedCharacters": 28,
+          "insertedCharacters": 5
+        },
+        {
+          "corpus": "Mechanical CAD",
+          "kind": "value",
+          "text": "The plate is 100",
+          "expect": "Bracket overall X extent",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "100 mm",
+            "100 mm",
+            "100 mm"
+          ],
+          "typedCharacters": 16,
+          "insertedCharacters": 6
+        },
+        {
+          "corpus": "Mechanical CAD",
+          "kind": "value",
+          "text": "The Ø25 holes are 50",
+          "expect": "nist_ctc_01_asme1_rd Ø25 hole depth",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "50 mm",
+            "50 mm",
+            "50 mm"
+          ],
+          "typedCharacters": 20,
+          "insertedCharacters": 5
+        },
+        {
+          "corpus": "Mechanical CAD",
+          "kind": "value",
+          "text": "The nist_ftc_07 holes are 0.25",
+          "expect": "nist_ftc_07_asme1 Ø0.25 hole diameter",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "0.25 in",
+            "0.25 in",
+            "0.25 in"
+          ],
+          "typedCharacters": 30,
+          "insertedCharacters": 7
+        },
+        {
+          "corpus": "Mechanical CAD",
+          "kind": "name",
+          "text": "The brack",
+          "expect": "Bracket",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "Bracket",
+            "Bracket"
+          ],
+          "typedCharacters": 9,
+          "insertedCharacters": 7
+        },
+        {
+          "corpus": "Mechanical CAD",
+          "kind": "name",
+          "text": "The Bracket Ø8 hole diam",
+          "expect": "Bracket Ø8 hole diameter",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "Bracket Ø8 hole diameter",
+            "Bracket Ø12 hole diameter"
+          ],
+          "typedCharacters": 24,
+          "insertedCharacters": 24
+        },
+        {
+          "corpus": "Mechanical CAD",
+          "kind": "name",
+          "text": "Bracket overall X ext",
+          "expect": "Bracket overall X extent",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "Bracket overall X extent"
+          ],
+          "typedCharacters": 21,
+          "insertedCharacters": 24
+        }
+      ]
+    },
+    {
+      "name": "Software engineering",
+      "folder": "Software-Engineering/tidewater",
+      "context": {
+        "files": 30,
+        "textFiles": 24,
+        "bytes": 196644,
+        "characters": 26921,
+        "tokens": 6731
+      },
+      "indexing": {
+        "milliseconds": 243,
+        "objects": 255
+      },
+      "score": {
+        "cases": 17,
+        "top1": 16,
+        "topN": 17,
+        "latency": {
+          "samples": 334,
+          "mean": 0.8,
+          "p50": 0.78,
+          "p95": 1.18,
+          "p99": 1.44,
+          "max": 12.11
+        }
+      },
+      "results": [
+        {
+          "corpus": "Software engineering",
+          "kind": "sentence",
+          "text": "Rate limit of 1",
+          "expect": "20 requests per minute per API key, bursts of 30",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "20 requests per minute per API key, bursts of 30"
+          ],
+          "typedCharacters": 15,
+          "insertedCharacters": 48
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "sentence",
+          "text": "p95 latency budget of 2",
+          "expect": "50 ms for quotes and bookings",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "50 ms for quotes and bookings"
+          ],
+          "typedCharacters": 23,
+          "insertedCharacters": 29
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "sentence",
+          "text": "Runs every 1",
+          "expect": "5 minutes on the shipments booked since the last run",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "5 minutes on the shipments booked since the last run"
+          ],
+          "typedCharacters": 12,
+          "insertedCharacters": 52
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "sentence",
+          "text": "Backoff starts at 2",
+          "expect": "00 ms and is capped at 10 seconds",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "00 ms and is capped at 10 seconds"
+          ],
+          "typedCharacters": 19,
+          "insertedCharacters": 33
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "sentence",
+          "text": "Each route holds at most 2",
+          "expect": "8 stops, earliest windows first",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "8 stops, earliest windows first"
+          ],
+          "typedCharacters": 26,
+          "insertedCharacters": 31
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "sentence",
+          "text": "Fuel surcharge rises from 6% to",
+          "expect": "7.5% on 1 October",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            " 7.5% on 1 October"
+          ],
+          "typedCharacters": 31,
+          "insertedCharacters": 18
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "sentence",
+          "text": "A 10 kg parcel now costs $17",
+          "expect": ".74, up from $17.49",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            ".74, up from $17.49"
+          ],
+          "typedCharacters": 28,
+          "insertedCharacters": 19
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "sentence",
+          "text": "Base fee stays at",
+          "expect": "$4.50 plus $1.20 per kilogram",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            " $4.50 plus $1.20 per kilogram"
+          ],
+          "typedCharacters": 17,
+          "insertedCharacters": 30
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "sentence",
+          "text": "Pool raised from 40 to",
+          "expect": "80 connections",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            " 80 connections"
+          ],
+          "typedCharacters": 22,
+          "insertedCharacters": 15
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "sentence",
+          "text": "The pool of 40 connections had no",
+          "expect": "headroom left for bookings",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            " headroom left for bookings"
+          ],
+          "typedCharacters": 33,
+          "insertedCharacters": 27
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "sentence",
+          "text": "The label export ran on the",
+          "expect": "primary and held connections for up to 90 seconds",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            " primary and held connections for up to 90 seconds"
+          ],
+          "typedCharacters": 27,
+          "insertedCharacters": 50
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "sentence",
+          "text": "Each API key may make 12",
+          "expect": "0 requests a minute, with bursts of 30.",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "0 requests a minute, with bursts of 30."
+          ],
+          "typedCharacters": 24,
+          "insertedCharacters": 39
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "name",
+          "text": "The Q3 Spr",
+          "expect": "Q3 Sprint Review",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "Q3 Sprint Review"
+          ],
+          "typedCharacters": 10,
+          "insertedCharacters": 16
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "name",
+          "text": "In the Incident Rev",
+          "expect": "Incident Review",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "Incident Review Oct 14"
+          ],
+          "typedCharacters": 19,
+          "insertedCharacters": 22
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "name",
+          "text": "Change rates.p",
+          "expect": "rates.py",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "test_rates.py",
+            "rates.py"
+          ],
+          "typedCharacters": 14,
+          "insertedCharacters": 13
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "name",
+          "text": "The scheduler.g",
+          "expect": "scheduler.go",
+          "rank": 2,
+          "top1": false,
+          "topN": true,
+          "offered": [
+            "scheduler_test.go",
+            "scheduler.go"
+          ],
+          "typedCharacters": 15,
+          "insertedCharacters": 0
+        },
+        {
+          "corpus": "Software engineering",
+          "kind": "name",
+          "text": "Open TrackingPan",
+          "expect": "Tracking Panel",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "Tracking Panel"
+          ],
+          "typedCharacters": 16,
+          "insertedCharacters": 14
+        }
+      ]
+    },
+    {
+      "name": "Finance",
+      "folder": "Finance",
+      "context": {
+        "files": 10,
+        "textFiles": 9,
+        "bytes": 15221,
+        "characters": 5828,
+        "tokens": 1457
+      },
+      "indexing": {
+        "milliseconds": 218,
+        "objects": 508
+      },
+      "score": {
+        "cases": 1,
+        "top1": 1,
+        "topN": 1,
+        "latency": {
+          "samples": 30,
+          "mean": 1.18,
+          "p50": 1,
+          "p95": 3.74,
+          "p99": 4.08,
+          "max": 4.08
+        }
+      },
+      "results": [
+        {
+          "corpus": "Finance",
+          "kind": "name",
+          "text": "The expected cost of office sup",
+          "expect": "Office supplies",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "Office supplies",
+            "Office supplies",
+            "Office supplies"
+          ],
+          "typedCharacters": 31,
+          "insertedCharacters": 15
+        }
+      ]
+    },
+    {
+      "name": "Accounting",
+      "folder": "Accountant",
+      "context": {
+        "files": 9,
+        "textFiles": 8,
+        "bytes": 16298,
+        "characters": 7424,
+        "tokens": 1856
+      },
+      "indexing": {
+        "milliseconds": 153,
+        "objects": 615
+      },
+      "score": {
+        "cases": 1,
+        "top1": 1,
+        "topN": 1,
+        "latency": {
+          "samples": 19,
+          "mean": 0.97,
+          "p50": 0.72,
+          "p95": 5.11,
+          "p99": 5.11,
+          "max": 5.11
+        }
+      },
+      "results": [
+        {
+          "corpus": "Accounting",
+          "kind": "name",
+          "text": "The recorded net inc",
+          "expect": "Net income",
+          "rank": 1,
+          "top1": true,
+          "topN": true,
+          "offered": [
+            "Net income",
+            "Net income"
+          ],
+          "typedCharacters": 20,
+          "insertedCharacters": 10
+        }
+      ]
+    },
+    {
+      "name": "Architecture (residential)",
+      "folder": "Architecture-Residential",
+      "context": {
+        "files": 7,
+        "textFiles": 6,
+        "bytes": 2605385,
+        "characters": 2603012,
+        "tokens": 650753
+      },
+      "indexing": {
+        "milliseconds": 5684,
+        "objects": 3253
+      },
+      "score": {
+        "cases": 0,
+        "top1": 0,
+        "topN": 0,
+        "latency": {
+          "samples": 0,
+          "mean": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        }
+      },
+      "results": []
+    },
+    {
+      "name": "Architecture (commercial)",
+      "folder": "Architecture-Commercial",
+      "context": {
+        "files": 5,
+        "textFiles": 4,
+        "bytes": 5060,
+        "characters": 2625,
+        "tokens": 657
+      },
+      "indexing": {
+        "milliseconds": 1827,
+        "objects": 72
+      },
+      "score": {
+        "cases": 0,
+        "top1": 0,
+        "topN": 0,
+        "latency": {
+          "samples": 0,
+          "mean": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        }
+      },
+      "results": []
+    },
+    {
+      "name": "Construction",
+      "folder": "Construction",
+      "context": {
+        "files": 4,
+        "textFiles": 3,
+        "bytes": 3661,
+        "characters": 1243,
+        "tokens": 311
+      },
+      "indexing": {
+        "milliseconds": 1826,
+        "objects": 61
+      },
+      "score": {
+        "cases": 0,
+        "top1": 0,
+        "topN": 0,
+        "latency": {
+          "samples": 0,
+          "mean": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        }
+      },
+      "results": []
+    },
+    {
+      "name": "Consulting",
+      "folder": "Consulting",
+      "context": {
+        "files": 4,
+        "textFiles": 3,
+        "bytes": 3700,
+        "characters": 1286,
+        "tokens": 322
+      },
+      "indexing": {
+        "milliseconds": 1817,
+        "objects": 60
+      },
+      "score": {
+        "cases": 0,
+        "top1": 0,
+        "topN": 0,
+        "latency": {
+          "samples": 0,
+          "mean": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        }
+      },
+      "results": []
+    },
+    {
+      "name": "Healthcare admin",
+      "folder": "Healthcare-Admin",
+      "context": {
+        "files": 4,
+        "textFiles": 2,
+        "bytes": 7764,
+        "characters": 1007,
+        "tokens": 252
+      },
+      "indexing": {
+        "milliseconds": 1804,
+        "objects": 64
+      },
+      "score": {
+        "cases": 0,
+        "top1": 0,
+        "topN": 0,
+        "latency": {
+          "samples": 0,
+          "mean": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        }
+      },
+      "results": []
+    },
+    {
+      "name": "Legal",
+      "folder": "Legal",
+      "context": {
+        "files": 4,
+        "textFiles": 3,
+        "bytes": 3724,
+        "characters": 1292,
+        "tokens": 323
+      },
+      "indexing": {
+        "milliseconds": 1813,
+        "objects": 55
+      },
+      "score": {
+        "cases": 0,
+        "top1": 0,
+        "topN": 0,
+        "latency": {
+          "samples": 0,
+          "mean": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        }
+      },
+      "results": []
+    }
+  ],
+  "singleFolder": {
+    "cases": 28,
+    "top1": 27,
+    "topN": 28,
+    "latency": {
+      "samples": 577,
+      "mean": 0.93,
+      "p50": 0.78,
+      "p95": 1.6,
+      "p99": 5.26,
+      "max": 15.67
+    }
+  },
+  "wholeLibrary": {
+    "folders": 10,
+    "indexing": {
+      "milliseconds": 11371,
+      "objects": 5216
+    },
+    "score": {
+      "cases": 28,
+      "top1": 27,
+      "topN": 28,
+      "latency": {
+        "samples": 577,
+        "mean": 14.2,
+        "p50": 6.99,
+        "p95": 18.94,
+        "p99": 221.69,
+        "max": 305.53
+      }
+    },
+    "results": [
+      {
+        "corpus": "Mechanical CAD",
+        "kind": "value",
+        "text": "The Bracket Ø8 hole diameter is 8",
+        "expect": "Bracket Ø8 hole diameter",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "8 mm",
+          "10 mm",
+          "45 mm"
+        ],
+        "typedCharacters": 33,
+        "insertedCharacters": 4
+      },
+      {
+        "corpus": "Mechanical CAD",
+        "kind": "value",
+        "text": "The corner radius is 5",
+        "expect": "Bracket R5 90° arc radius",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "5 mm",
+          "5 in",
+          "n = 5"
+        ],
+        "typedCharacters": 22,
+        "insertedCharacters": 4
+      },
+      {
+        "corpus": "Mechanical CAD",
+        "kind": "value",
+        "text": "The four corner bores are 35",
+        "expect": "nist_ctc_01_asme1_rd Ø35 hole diameter",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "35 mm"
+        ],
+        "typedCharacters": 28,
+        "insertedCharacters": 5
+      },
+      {
+        "corpus": "Mechanical CAD",
+        "kind": "value",
+        "text": "The plate is 100",
+        "expect": "Bracket overall X extent",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "100 mm",
+          "100",
+          "100"
+        ],
+        "typedCharacters": 16,
+        "insertedCharacters": 6
+      },
+      {
+        "corpus": "Mechanical CAD",
+        "kind": "value",
+        "text": "The Ø25 holes are 50",
+        "expect": "nist_ctc_01_asme1_rd Ø25 hole depth",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "50 mm",
+          "50.0%",
+          "50"
+        ],
+        "typedCharacters": 20,
+        "insertedCharacters": 5
+      },
+      {
+        "corpus": "Mechanical CAD",
+        "kind": "value",
+        "text": "The nist_ftc_07 holes are 0.25",
+        "expect": "nist_ftc_07_asme1 Ø0.25 hole diameter",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "0.25 in",
+          "0.25 in",
+          "0.25 in"
+        ],
+        "typedCharacters": 30,
+        "insertedCharacters": 7
+      },
+      {
+        "corpus": "Mechanical CAD",
+        "kind": "name",
+        "text": "The brack",
+        "expect": "Bracket",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "Bracket",
+          "Bracket"
+        ],
+        "typedCharacters": 9,
+        "insertedCharacters": 7
+      },
+      {
+        "corpus": "Mechanical CAD",
+        "kind": "name",
+        "text": "The Bracket Ø8 hole diam",
+        "expect": "Bracket Ø8 hole diameter",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "Bracket Ø8 hole diameter",
+          "Bracket Ø12 hole diameter"
+        ],
+        "typedCharacters": 24,
+        "insertedCharacters": 24
+      },
+      {
+        "corpus": "Mechanical CAD",
+        "kind": "name",
+        "text": "Bracket overall X ext",
+        "expect": "Bracket overall X extent",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "Bracket overall X extent"
+        ],
+        "typedCharacters": 21,
+        "insertedCharacters": 24
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "sentence",
+        "text": "Rate limit of 1",
+        "expect": "20 requests per minute per API key, bursts of 30",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "20 requests per minute per API key, bursts of 30"
+        ],
+        "typedCharacters": 15,
+        "insertedCharacters": 48
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "sentence",
+        "text": "p95 latency budget of 2",
+        "expect": "50 ms for quotes and bookings",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "50 ms for quotes and bookings"
+        ],
+        "typedCharacters": 23,
+        "insertedCharacters": 29
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "sentence",
+        "text": "Runs every 1",
+        "expect": "5 minutes on the shipments booked since the last run",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "5 minutes on the shipments booked since the last run"
+        ],
+        "typedCharacters": 12,
+        "insertedCharacters": 52
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "sentence",
+        "text": "Backoff starts at 2",
+        "expect": "00 ms and is capped at 10 seconds",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "00 ms and is capped at 10 seconds"
+        ],
+        "typedCharacters": 19,
+        "insertedCharacters": 33
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "sentence",
+        "text": "Each route holds at most 2",
+        "expect": "8 stops, earliest windows first",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "8 stops, earliest windows first"
+        ],
+        "typedCharacters": 26,
+        "insertedCharacters": 31
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "sentence",
+        "text": "Fuel surcharge rises from 6% to",
+        "expect": "7.5% on 1 October",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          " 7.5% on 1 October"
+        ],
+        "typedCharacters": 31,
+        "insertedCharacters": 18
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "sentence",
+        "text": "A 10 kg parcel now costs $17",
+        "expect": ".74, up from $17.49",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          ".74, up from $17.49"
+        ],
+        "typedCharacters": 28,
+        "insertedCharacters": 19
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "sentence",
+        "text": "Base fee stays at",
+        "expect": "$4.50 plus $1.20 per kilogram",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          " $4.50 plus $1.20 per kilogram"
+        ],
+        "typedCharacters": 17,
+        "insertedCharacters": 30
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "sentence",
+        "text": "Pool raised from 40 to",
+        "expect": "80 connections",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          " 80 connections"
+        ],
+        "typedCharacters": 22,
+        "insertedCharacters": 15
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "sentence",
+        "text": "The pool of 40 connections had no",
+        "expect": "headroom left for bookings",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          " headroom left for bookings",
+          "November Forecast CAD",
+          "North Ridge Technology"
+        ],
+        "typedCharacters": 33,
+        "insertedCharacters": 27
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "sentence",
+        "text": "The label export ran on the",
+        "expect": "primary and held connections for up to 90 seconds",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          " primary and held connections for up to 90 seconds"
+        ],
+        "typedCharacters": 27,
+        "insertedCharacters": 50
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "sentence",
+        "text": "Each API key may make 12",
+        "expect": "0 requests a minute, with bursts of 30.",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "0 requests a minute, with bursts of 30."
+        ],
+        "typedCharacters": 24,
+        "insertedCharacters": 39
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "name",
+        "text": "The Q3 Spr",
+        "expect": "Q3 Sprint Review",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "Q3 Sprint Review",
+          "OG-Fenster-1 Breite Sprossen",
+          "OG-Fenster-1 Stärke Sprossen"
+        ],
+        "typedCharacters": 10,
+        "insertedCharacters": 16
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "name",
+        "text": "In the Incident Rev",
+        "expect": "Incident Review",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "Incident Review Oct 14",
+          "Revenue",
+          "Revenue"
+        ],
+        "typedCharacters": 19,
+        "insertedCharacters": 22
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "name",
+        "text": "Change rates.p",
+        "expect": "rates.py",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "test_rates.py",
+          "rates.py"
+        ],
+        "typedCharacters": 14,
+        "insertedCharacters": 13
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "name",
+        "text": "The scheduler.g",
+        "expect": "scheduler.go",
+        "rank": 2,
+        "top1": false,
+        "topN": true,
+        "offered": [
+          "scheduler_test.go",
+          "scheduler.go"
+        ],
+        "typedCharacters": 15,
+        "insertedCharacters": 0
+      },
+      {
+        "corpus": "Software engineering",
+        "kind": "name",
+        "text": "Open TrackingPan",
+        "expect": "Tracking Panel",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "Tracking Panel"
+        ],
+        "typedCharacters": 16,
+        "insertedCharacters": 14
+      },
+      {
+        "corpus": "Finance",
+        "kind": "name",
+        "text": "The expected cost of office sup",
+        "expect": "Office supplies",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "Office supplies",
+          "Office supplies",
+          "Office supplies"
+        ],
+        "typedCharacters": 31,
+        "insertedCharacters": 15
+      },
+      {
+        "corpus": "Accounting",
+        "kind": "name",
+        "text": "The recorded net inc",
+        "expect": "Net income",
+        "rank": 1,
+        "top1": true,
+        "topN": true,
+        "offered": [
+          "Net income",
+          "Net income",
+          ""
+        ],
+        "typedCharacters": 20,
+        "insertedCharacters": 10
+      }
+    ]
+  }
+}

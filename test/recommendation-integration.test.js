@@ -62,14 +62,11 @@ test('a sentence is answered by sources sharing its words, not by data that only
   const { predict } = siteFixture(t);
   const named = predict('The retaining wall drainage results showed').workspaceCompletions;
   assert.equal(named[0].replacementText, 'The retaining wall drainage was blocked near the north culvert.');
-  assert.equal(named[0].dependencyCandidate.ranking.reason, 'Matching words in your sentence');
+  assert.equal(named[0].dependencyCandidate.ranking.reason, 'Direct word match');
   assert.ok(named.every((suggestion) => suggestion.dependencyCandidate.path === 'notes/site-visit.md'),
     named.map((suggestion) => suggestion.replacementText).join(', '));
-  // A sentence that names nothing is still offered the project's data, ranked
-  // below anything that matches words, in this directory or another.
-  const reporting = predict('Our results showed that').workspaceCompletions;
-  assert.ok(reporting.length > 0);
-  assert.ok(reporting.every((suggestion) => suggestion.dependencyCandidate.ranking.tier === 2));
+  // A sentence that names nothing ("Our results showed that") is offered nothing.
+  assert.deepEqual(predict('Our results showed that').workspaceCompletions, []);
   // A word with no source at all keeps the box closed rather than offering unrelated data.
   assert.deepEqual(predict('The geomembrane results showed').workspaceCompletions, []);
 });
@@ -284,4 +281,22 @@ test('usage API validates identity and records only explicit actions', async (t)
   assert.equal(renamed.status, 200);
   assert.equal((await renamed.json()).usage.path, 'renamed.csv');
   assert.equal(app.dependencies.ranking.usage(project.id)[0].path, 'renamed.csv');
+});
+
+test('A citation whose typed words start a paper title explains itself in plain words', (t) => {
+  // Arrange
+  const { application: app, project, root } = fixture(t);
+  fs.writeFileSync(path.join(root, 'references.bib'),
+    '@article{sharedWork,\n title={Shared evidence study},\n author={Researcher, Anne},\n year={2024}\n}');
+  app.timeline.capture(project.id, writer);
+
+  // Act
+  const candidates = app.dependencies.candidatesForClaim(project.id, {
+    type: 'LITERATURE', text: 'Shared evidence', value: 'Shared evidence', partial: true,
+  });
+
+  // Assert
+  const reasons = candidates.find((candidate) => candidate.path === 'references.bib')?.reasons ?? [];
+  assert.ok(reasons.includes('matching reference'), `reasons were ${reasons.join(', ')}`);
+  assert.ok(!reasons.some((reason) => /prefix|metadata/.test(reason)));
 });

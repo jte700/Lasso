@@ -1,8 +1,9 @@
 // A whole file named while writing: "General-Ledger.cs", "the month end close",
-// "Bracket". The label is what Tab inserts. A name typed as the file spells it
-// completes to that spelling (with the extension once one is typed); plain
-// words complete to the file's readable name. Drawings keep their discovery
-// label and aliases ("the floor plan"); other files match their name or title.
+// "Bracket", "deploy". The label is what Tab inserts. A name typed as the file
+// spells it completes to that spelling (with the extension once one is typed);
+// plain words complete to the file's readable name. Drawings keep their
+// discovery label and aliases ("the floor plan"), code completes to its file
+// name, and other files match their name or title.
 import { drawingReferenceMatch, genericTitle, humanStem, normalized, phraseMatch, words } from './drawing-discovery.js';
 
 const UNREADABLE = new Set(['unsupported', 'failed', 'error']);
@@ -16,6 +17,9 @@ export function isWholeFile(object) {
 }
 
 const fileName = object => String(object.path ?? '').replaceAll('\\', '/').split('/').pop() ?? '';
+/** The fewest letters that name a code file from the start of its name, as for a drawing. */
+const CODE_NAME_MIN_LETTERS = 3;
+const isCodeFile = object => ['CODE_BLOCK', 'MODEL'].includes(object?.objectType) && object.metadata?.codeFile === true;
 /** "General-Led", "Bracket.st": the file's own spelling, not words of a sentence. */
 export const typedAsWritten = typed => !/\s/.test(String(typed ?? '').trim()) && /[._-]/.test(String(typed ?? ''));
 // A workbook's worksheets are separate sources; the sheet keeps them apart.
@@ -59,6 +63,23 @@ function wordedMatch(object, terms) {
     score: scoreOf(chosen.match), matchedBy: 'file-name' };
 }
 
+/**
+ * A programming file is named by its file name, so the first word of it
+ * names the file as a drawing's does, from three letters: "dep", "deploy"
+ * for deploy.sh. Tab writes the whole name, as code is referred to
+ * ("deploy.sh line 4"), and more words go by the plain-words rule.
+ */
+function codeNameMatch(object, terms) {
+  const [term] = terms;
+  if (terms.length !== 1 || term.length < CODE_NAME_MIN_LETTERS) return null;
+  const filename = fileName(object);
+  const stem = words(humanStem(filename));
+  // Only the start: "api" in prose is not tidewater_api.py.
+  if (!stem[0]?.startsWith(term)) return null;
+  const match = stem.length === 1 && stem[0] === term ? 'exact' : 'prefix';
+  return { label: filename, score: scoreOf(match), matchedBy: 'file-name' };
+}
+
 /** Return null, or { label, score } for a whole file the typed text names. */
 export function fileReferenceMatch(object, typed) {
   if (!isWholeFile(object)) return null;
@@ -66,7 +87,8 @@ export function fileReferenceMatch(object, typed) {
   const terms = words(text);
   if (!terms.length || terms.length > 12 || terms.join('').length < 3) return null;
   const match = typedAsWritten(text) ? spelledMatch(object, text, terms)
-    : object.objectType === 'DRAWING' ? drawingReferenceMatch(object, text) : wordedMatch(object, terms);
+    : object.objectType === 'DRAWING' ? drawingReferenceMatch(object, text)
+      : (isCodeFile(object) && codeNameMatch(object, terms)) || wordedMatch(object, terms);
   if (!match) return null;
   // A native file kept only as a pointer ranks after the model Lasso could read.
   const unreadable = UNREADABLE.has(String(object.metadata?.extractionStatus ?? '').toLowerCase());

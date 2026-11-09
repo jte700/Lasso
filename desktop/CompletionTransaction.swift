@@ -39,14 +39,18 @@ struct CompletionReplacement: Equatable {
     }
 
     /// Capture a matched fragment or an explicit insertion at the request caret.
+    /// `replacingSpaces` lets a fragment of spaces alone be replaced, as the
+    /// colon before inserted code takes the place of spaces after "line 15 ".
     static func capture(start: Int?, end: Int?, in text: String,
-                        expectedText: String? = nil) -> CompletionReplacement? {
+                        expectedText: String? = nil, replacingSpaces: Bool = false) -> CompletionReplacement? {
         let document = Array(text.utf16)
         guard let start, let end, start >= 0, start <= end, end <= document.count,
               isScalarBoundary(start, in: document), isScalarBoundary(end, in: document) else { return nil }
         let fragment = String(decoding: document[start..<end], as: UTF16.self)
         let suffix = String(decoding: document[end...], as: UTF16.self)
-        guard (start == end || !fragment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
+        let onlySpaces = fragment.unicodeScalars.allSatisfy { CharacterSet.whitespaces.contains($0) }
+        guard (start == end || !fragment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                  || (replacingSpaces && onlySpaces)),
               expectedText == nil || expectedText == fragment,
               suffix.unicodeScalars.allSatisfy({ CharacterSet.whitespaces.contains($0) }) else { return nil }
         return CompletionReplacement(start: start, expectedText: fragment + suffix, preservedSuffix: suffix)
@@ -138,6 +142,9 @@ enum CompletionTransaction {
     private static func canonicalHostUnit(_ unit: UInt16) -> UInt16 {
         switch unit {
         case 0x00A0, 0x2007, 0x202F: return 0x0020
+        // Word reports a line break as a carriage return, others as a line or
+        // paragraph separator.
+        case 0x000D, 0x2028, 0x2029: return 0x000A
         default: return unit
         }
     }

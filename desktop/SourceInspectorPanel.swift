@@ -47,6 +47,8 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
     /// The server says so with each page: code is never shared with a link.
     private var sourceShareable = true
     private var pinchTap: PinchEventTap?
+    /// Watches for the inspector's app or space being left, while it shows.
+    private var hostObservers: [NSObjectProtocol] = []
     #if BROWSER_GEOMETRY_TEST
     private var regressionActions: [String] = []
     #endif
@@ -63,28 +65,32 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
             isOpen: { [weak self] in self?.isVisible == true },
             dismiss: { [weak self] in self?.hide() })
         LassoTransientUI.shared.start()
-        NotificationCenter.default.addObserver(self, selector: #selector(updateSourceAccent),
+        NotificationCenter.default.addObserver(self, selector: #selector(updateHighlight),
             name: .directoryColorsDidChange, object: nil)
     }
 
     deinit { NotificationCenter.default.removeObserver(self) }
 
-    private var fallbackSourceColor: NSColor {
+    /// The colour the link is highlighted in within the document, for references made before folders had colours.
+    private var fallbackHighlightColor: NSColor {
         DependencyStyle.stroke(for: .healthy, sourceSlot: reference?.sourceColorSlot ?? 0, hovered: true)
     }
 
-    private var sourceAccentHex: String {
-        let color = (DirectoryColorPreferences.color(for: reference?.projectId)?.color
-            ?? fallbackSourceColor).usingColorSpace(.sRGB)!
+    /// The cited cell is marked as on the suggestion card, in the source folder's colour.
+    /// The inspector's buttons and close X stay grey.
+    private var highlightColor: NSColor {
+        DirectoryColorPreferences.color(for: reference?.projectId)?.color ?? fallbackHighlightColor
+    }
+
+    private var highlightHex: String {
+        guard let color = highlightColor.usingColorSpace(.sRGB) else { return "#34C759" }
         return String(format: "#%02X%02X%02X", Int((color.redComponent * 255).rounded()),
             Int((color.greenComponent * 255).rounded()), Int((color.blueComponent * 255).rounded()))
     }
 
-    @objc private func updateSourceAccent() {
+    @objc private func updateHighlight() {
         guard reference != nil else { return }
-        closeButton?.contentTintColor = DirectoryColorPreferences.color(for: reference?.projectId)?.color
-            ?? fallbackSourceColor
-        webView?.evaluateJavaScript("document.documentElement.style.setProperty('--accent', '\(sourceAccentHex)')")
+        webView?.evaluateJavaScript("document.documentElement.style.setProperty('--cited', '\(highlightHex)')")
     }
 
     func show(_ reference: DependencyReference, near rect: CGRect, serverURL: URL) {
@@ -99,7 +105,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         regressionActions = []
         #endif
         let panel = existingPanel()
-        updateSourceAccent()
+        updateHighlight()
 
         var components = URLComponents(url: serverURL.appendingPathComponent("inspect"),
                                        resolvingAgainstBaseURL: false)
@@ -107,13 +113,18 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
             URLQueryItem(name: "object", value: reference.objectId),
             URLQueryItem(name: "version", value: reference.versionId),
             URLQueryItem(name: "reference", value: reference.id),
-            URLQueryItem(name: "accent", value: sourceAccentHex),
+            URLQueryItem(name: "accent", value: highlightHex),
         ]
+        // A cited video plays, and opens, from the second its quoted words start.
+        if let time = reference.videoTime {
+            components?.queryItems?.append(URLQueryItem(name: "time", value: String(time)))
+        }
         if let url = components?.url { pendingNavigation = webView?.load(URLRequest(url: url)) }
 
         panel.setFrame(NSRect(origin: placement(for: rect), size: size), display: true)
         panel.invalidateShadow()
         panel.orderFrontRegardless()
+        followHostAway()
         // macOS gives pinches to the active app, which the inspector never
         // makes Lasso, so a tap takes the ones made over the panel.
         if pinchTap == nil {
@@ -137,9 +148,34 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         panel?.orderOut(nil)
         pinchTap?.stop()
         pinchTap = nil
+        stopFollowingHost()
     }
 
     @objc private func closeInspector(_ sender: Any?) { hide() }
+
+    /// The inspector belongs to the link it was opened from. Swiping to
+    /// another space or full-screen app, or bringing another app forward,
+    /// closes it, so it never floats over something else. Lasso coming
+    /// forward (its share composer) and the link's own app do not.
+    private func followHostAway() {
+        stopFollowingHost()
+        let hostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let center = NSWorkspace.shared.notificationCenter
+        hostObservers.append(center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
+                                                object: nil, queue: .main) { [weak self] _ in self?.hide() })
+        hostObservers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
+                                                object: nil, queue: .main) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            guard let app, app.processIdentifier != hostPID,
+                  app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+            self?.hide()
+        })
+    }
+
+    private func stopFollowingHost() {
+        hostObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
+        hostObservers.removeAll()
+    }
 
     /// Keeps the tap's region on the panel as it moves, resizes, or the
     /// primary display it is measured from changes.
@@ -273,8 +309,10 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
             objectId: reference.objectId, versionId: reference.versionId,
             label: reference.label, sourcePath: reference.sourcePath,
             near: panel.frame, serverURL: serverURL, hostPanel: panel,
-            projectId: reference.projectId, fallbackColor: fallbackSourceColor,
-            copyAction: completion)
+            projectId: reference.projectId, fallbackHighlightColor: fallbackHighlightColor,
+            copyAction: completion,
+            citedIn: CitingSentence.around(reference.anchor.text, before: reference.anchor.prefixContext,
+                                           after: reference.anchor.suffixContext))
     }
 
     /// Beside the words when there is room, otherwise left, below or above —
@@ -311,6 +349,9 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         web.layer?.cornerRadius = InspectorWindow.cornerRadius
         web.layer?.masksToBounds = true
         web.underPageBackgroundColor = .clear
+        // The page is transparent where it has no panel of its own, so the
+        // glass behind it shows instead of a white page.
+        web.setValue(false, forKey: "drawsBackground")
         web.navigationDelegate = self
         webView = web
 
@@ -318,8 +359,9 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         content.addSubview(web)
         let close = InspectorCloseButton(frame: NSRect(x: size.width - 39, y: size.height - 39,
                                                        width: 23, height: 23))
-        close.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")?
-            .withSymbolConfiguration(.init(pointSize: 13, weight: .semibold))
+        // Grey and regular weight, as the suggestion card's own X.
+        close.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")
+        close.contentTintColor = .secondaryLabelColor
         close.imagePosition = .imageOnly
         close.isBordered = false
         close.bezelStyle = .regularSquare
@@ -379,7 +421,7 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         guard navigation === pendingNavigation else { return }
         pendingNavigation = nil
         guard resolvedSuccessfully, isVisible, let serverURL, let reference else { return }
-        updateSourceAccent()
+        updateHighlight()
         RecommendationUsageClient.recordResolvedOpen(serverURL: serverURL, objectId: reference.objectId)
     }
 
