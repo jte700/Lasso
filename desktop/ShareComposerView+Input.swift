@@ -34,14 +34,11 @@ extension ShareComposerView {
             return
         }
         if isPDFSource {
-            if (scope == .redacted || (scope == .indexed && isChoosingPDFExcerpt)), pdfTextModeRect.contains(point) {
+            if scope == .redacted, pdfTextModeRect.contains(point) {
                 pdfSelectionMode = .text; needsDisplay = true; return
             }
-            if (scope == .redacted || (scope == .indexed && isChoosingPDFExcerpt)), pdfAreaModeRect.contains(point) {
+            if scope == .redacted, pdfAreaModeRect.contains(point) {
                 pdfSelectionMode = .area; needsDisplay = true; return
-            }
-            if scope == .indexed && pdfExcerpt != nil && pdfExcerptToggleRect.contains(point) {
-                isChoosingPDFExcerpt.toggle(); needsDisplay = true; return
             }
         }
         if scope == .marked, choosePaletteItem(at: point) { return }
@@ -85,11 +82,6 @@ extension ShareComposerView {
 
     func submit() {
         guard copyState == .idle else { return }
-        guard scope != .indexed || !isPDFSource || canSubmit else {
-            notice = "Select a PDF excerpt and review it before creating the link."
-            needsDisplay = true
-            return
-        }
         guard scope != .redacted || !masks.isEmpty else {
             notice = "Select an area before creating the link."
             needsDisplay = true
@@ -102,7 +94,6 @@ extension ShareComposerView {
         }
         let redactions = scope == .redacted ? Array(masks.values) : []
         onCreate?(ShareConfiguration(scope: scope, redactions: redactions,
-                                     excerpt: scope == .indexed ? pdfExcerpt : nil,
                                      markup: scope == .marked ? markup.marks : [],
                                      nearbyRows: offersNearbyRows && includesNearbyRows,
                                      citedIn: citedIn))
@@ -154,14 +145,10 @@ extension ShareComposerView {
         history.record(from: before, to: masks)
     }
 
-    /// ⌘Z: the masks as they were before the last drag or click, the marks
-    /// before the last stroke, or the PDF excerpt chosen before the last one.
+    /// ⌘Z: the masks as they were before the last drag or click, or the marks
+    /// before the last stroke.
     func undoEdit() {
         if scope == .marked { if !isCopying, markup.undo() { showMarks() }; return }
-        if scope == .indexed {
-            if readyForExcerptStep(), let previous = excerptHistory.undo(from: pdfExcerpt) { showExcerpt(previous) }
-            return
-        }
         guard readyForMaskStep(), let previous = history.undo(from: masks) else { return }
         showMaskStep(previous)
     }
@@ -169,37 +156,8 @@ extension ShareComposerView {
     /// ⇧⌘Z: the edit ⌘Z last took back.
     func redoEdit() {
         if scope == .marked { if !isCopying, markup.redo() { showMarks() }; return }
-        if scope == .indexed {
-            if readyForExcerptStep(), let next = excerptHistory.redo(from: pdfExcerpt) { showExcerpt(next) }
-            return
-        }
         guard readyForMaskStep(), let next = history.redo(from: masks) else { return }
         showMaskStep(next)
-    }
-
-    /// A PDF's cited part is the passage or area chosen on its pages.
-    private func readyForExcerptStep() -> Bool {
-        guard !isCopying, isPDFSource else { return false }
-        pdfView.cancelInteraction()
-        return true
-    }
-
-    /// Shows the recipient preview of `excerpt`, or the pages to choose from
-    /// when nothing was chosen before.
-    func showExcerpt(_ excerpt: SharePDFExcerpt?) {
-        pdfExcerpt = excerpt
-        clearCopyConfirmation()
-        notice = nil
-        if let excerpt {
-            isChoosingPDFExcerpt = false
-            onReviewPDFExcerpt?(excerpt)
-        } else {
-            isChoosingPDFExcerpt = true
-            reviewedPDFDocument = nil
-            isPDFExcerptLoading = false
-            pdfExcerptError = nil
-        }
-        needsDisplay = true
     }
 
     /// Only the redaction view shows masks, so it alone steps through them.

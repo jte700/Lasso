@@ -50,15 +50,6 @@ extension ShareComposerView {
     func drawPDFContent(in rect: NSRect) {
         pdfView.marks = []
         syncPDFMasks()
-        if scope == .indexed && !isChoosingPDFExcerpt {
-            if let reviewedPDFDocument {
-                pdfView.selectionMode = .read
-                drawFullPDF(reviewedPDFDocument, page: 1, in: rect)
-            } else {
-                drawCentered(isPDFExcerptLoading ? "Preparing selected excerpt…" : pdfExcerptError ?? "Select an excerpt to review.", in: rect)
-            }
-            return
-        }
         guard let document = loadedPDFDocument else {
             drawCentered(isDocumentLoading || isPDFLoading ? "Loading PDF pages…" : "PDF pages could not be loaded. Reopen this source to try again.", in: rect)
             return
@@ -82,9 +73,8 @@ extension ShareComposerView {
             }
         }
         let slides = isPresentation && document === markupDocument || slideNavigator?.deck.document === document
-        let detail = slides && scope == .indexed ? "Only this slide is shared, without notes or comments"
+        let detail = slides && scope == .indexed ? "Only a picture of this slide is shared"
             : slides && scope == .document ? "Every slide · Scroll or choose one from the slide menu"
-            : scope == .indexed ? (isChoosingPDFExcerpt ? "Select text or mark an area · Scroll for more pages" : "Selected excerpt · Original page layout")
             : scope == .redacted ? "\(masks.count) area\(masks.count == 1 ? "" : "s") hidden · Scroll for more pages"
             : scope == .marked ? "\(markup.marks.count) mark\(markup.marks.count == 1 ? "" : "s") · Scroll for more \(isPresentation ? "slides" : "pages")"
             : "Original PDF layout · Scroll to read"
@@ -94,31 +84,7 @@ extension ShareComposerView {
                  font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
     }
 
-    func initializePDFExcerpt() {
-        guard !initializedPDFExcerpt, let document = loadedPDFDocument,
-              let preview = preview?.pdf, !preview.selectedText.isEmpty else { return }
-        let pages = [min(preview.pageNumber - 1, document.pageCount - 1)]
-            + (0..<document.pageCount).filter { $0 != preview.pageNumber - 1 }
-        let direct = document.findString(preview.selectedText, withOptions: [.caseInsensitive])
-        if let selection = direct.first(where: { $0.pages.contains { document.index(for: $0) == pages[0] } }) ?? direct.first {
-            initializedPDFExcerpt = true
-            selectPDFText(selection, asExcerpt: true)
-            return
-        }
-        let pattern = preview.selectedText.split(whereSeparator: { $0.isWhitespace })
-            .map { NSRegularExpression.escapedPattern(for: String($0)) }.joined(separator: "\\s+")
-        guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return }
-        for index in pages {
-            guard let page = document.page(at: index), let text = page.string,
-                  let match = expression.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)),
-                  let selection = page.selection(for: match.range) else { continue }
-            initializedPDFExcerpt = true
-            selectPDFText(selection, asExcerpt: true)
-            return
-        }
-    }
-
-    func selectPDFText(_ selection: PDFSelection, asExcerpt: Bool = false) {
+    func selectPDFText(_ selection: PDFSelection) {
         guard let document = loadedPDFDocument else { return }
         var regions: [SharePDFRegion] = []
         for line in selection.selectionsByLine() {
@@ -128,29 +94,23 @@ extension ShareComposerView {
                    !regions.contains(region) { regions.append(region) }
             }
         }
-        applyPDFSelection(text: selection.string ?? "", regions: regions, asExcerpt: asExcerpt)
+        applyPDFSelection(regions: regions)
     }
 
     func selectPDFArea(page: PDFPage, rect: NSRect) {
         guard let document = loadedPDFDocument,
               let region = SharePDFRegion(page: document.index(for: page) + 1, rect: rect, crop: page.bounds(for: .cropBox)) else { return }
-        applyPDFSelection(text: page.selection(for: rect)?.string ?? "", regions: [region])
+        applyPDFSelection(regions: [region])
     }
 
-    private func applyPDFSelection(text: String, regions: [SharePDFRegion], asExcerpt: Bool = false) {
+    private func applyPDFSelection(regions: [SharePDFRegion]) {
         guard !isCopying, !regions.isEmpty else { return }
         guard regions.count <= 512 else {
             notice = "Select a shorter excerpt with up to 512 lines or areas."
             needsDisplay = true
             return
         }
-        if scope == .indexed || asExcerpt {
-            let excerpt = SharePDFExcerpt(text: text, regions: regions)
-            // The cited passage found as the source opens is where ⌘Z stops.
-            if !asExcerpt { excerptHistory.record(from: pdfExcerpt, to: excerpt) }
-            initializedPDFExcerpt = true
-            showExcerpt(excerpt)
-        } else if scope == .redacted {
+        if scope == .redacted {
             guard masks.count + regions.count <= 512 else {
                 notice = "Use up to 512 areas. Click an existing mask to remove it."
                 needsDisplay = true

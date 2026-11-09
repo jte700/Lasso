@@ -7,6 +7,7 @@ import { createApplication } from '../src/server.js';
 import { extractPdfFullText, extractPdfPassages } from '../src/dependencies/document-extraction.js';
 import { buildFullShareDocument, buildInspectorPreview, buildSharePreview } from '../src/sharing/share-preview.js';
 import { INDEX_VERSION } from '../src/dependencies/constants.js';
+import { legacyCitedShare } from './fixtures/legacy-shares.js';
 
 const writer = { id: 'human:pdf-preview', displayName: 'PDF writer', actorType: 'HUMAN_SELF' };
 const nativePdf = process.platform === 'darwin';
@@ -165,7 +166,8 @@ test('public complete PDF shares render the pinned original inline without openi
   assert.deepEqual(Buffer.from(await (await fetch(`${sharedUrl}/source`)).arrayBuffer()), bytes);
   assert.deepEqual(Buffer.from(await (await fetch(base + local.document.fileUrl)).arrayBuffer()), bytes);
   for (const accessScope of ['INDEXED', 'REDACTED']) {
-    const restricted = create(accessScope);
+    const restricted = accessScope === 'INDEXED'
+      ? legacyCitedShare(app, { projectId: project.id, object: drawing, actor: writer }) : create(accessScope);
     const restrictedUrl = `${base}/d/${restricted.token}`;
     const page = await (await fetch(restrictedUrl)).text();
     assert.doesNotMatch(page, /class="shared-pdf"|<iframe/);

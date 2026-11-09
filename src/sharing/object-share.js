@@ -97,7 +97,7 @@ export class ObjectShareService {
    * recipient always sees the source as it was at the moment of sharing.
    */
   createShare({ projectId, objectId, versionId, actor, expiresAt = null,
-    accessScope = "DOCUMENT", redactions = [], excerpt = null, markup = [], citedIn = null, nearbyRows = false }) {
+    accessScope = "DOCUMENT", redactions = [], markup = [], citedIn = null, nearbyRows = false }) {
     if (!projectId) throw new HttpError(400, 'A project is required to share a source.');
     if (!objectId) throw new HttpError(400, 'An indexed object is required to share a source.');
     const normalizedScope = normalizeShareScope(accessScope);
@@ -111,10 +111,9 @@ export class ObjectShareService {
     const normalizedRedactions = normalizeRedactions(redactions, normalizedScope);
     // A marked copy keeps its strokes where a redacted one keeps its masks.
     const normalizedMarkup = normalizeMarkup(markup, normalizedScope);
-    const normalizedExcerpt = normalizePdfExcerpt(excerpt, normalizedScope);
     const isDrawing = /\.(?:ifc|dxf)$/i.test(version.path ?? '');
     const isPdf = /\.pdf$/i.test(version.path ?? '');
-    if ((normalizedExcerpt || normalizedRedactions.some(entry => entry.kind === 'PDF')) && !isPdf) {
+    if (normalizedRedactions.some(entry => entry.kind === 'PDF') && !isPdf) {
       throw new HttpError(400, 'PDF selections can only be shared from PDF documents.');
     }
     if (isPdf && normalizedRedactions.some(entry => entry.kind === 'PDF')
@@ -164,7 +163,7 @@ export class ObjectShareService {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
     `).run(record.id, projectId, objectId, version.id, token,
       normalizedActor.id, record.createdAt, record.expiresAt, normalizedScope,
-      JSON.stringify(storedRedactions), normalizedExcerpt ? JSON.stringify(normalizedExcerpt) : null, version.snapshot_id,
+      JSON.stringify(storedRedactions), null, version.snapshot_id,
       JSON.stringify(context));
 
     return {
@@ -177,7 +176,7 @@ export class ObjectShareService {
       expiresAt: record.expiresAt,
       accessScope: normalizedScope,
       redactions: storedRedactions,
-      excerpt: normalizedExcerpt,
+      excerpt: null,
       context,
     };
   }
@@ -381,12 +380,16 @@ export class ObjectShareService {
   }
 }
 const SHARE_SCOPES = new Set(['DOCUMENT', 'INDEXED', 'REDACTED', 'MARKED']);
+// A passage of prose says little on its own, so writing is sent whole, redacted or marked up.
+const WRITING_TYPES = new Set(['pdf', 'document', 'text', 'markdown']);
+const isWritingPath = (filePath) => WRITING_TYPES.has(detectFileType(filePath));
 
 /**
  * The scopes a source can be shared with. Code is never shared with a link.
- * A deck is shared whole or as one slide, the cited one, and has nothing to
- * redact; its whole-deck citation names no slide. PDFs, Word documents and
- * decks can also be shared as a copy with markings drawn on its pages.
+ * A deck is shared whole or as a picture of one slide, the cited one, and has
+ * nothing to redact; its whole-deck citation names no slide. PDFs, Word
+ * documents and text files have no cited part. PDFs, Word documents and decks
+ * can also be shared as a copy with markings drawn on its pages.
  * @param {string} filePath
  * @param {object|null} anchor the cited object's anchor
  * @returns {string[]}
@@ -397,6 +400,7 @@ export function offeredShareScopes(filePath, anchor = null) {
   if (detectFileType(filePath) === 'video') return ['DOCUMENT'];
   const marked = isMarkablePath(filePath) ? ['MARKED'] : [];
   if (isPresentationPath(filePath)) return [...(Number.isInteger(anchor?.slideNumber) ? ['DOCUMENT', 'INDEXED'] : ['DOCUMENT']), ...marked];
+  if (isWritingPath(filePath)) return ['DOCUMENT', 'REDACTED', ...marked];
   return ['DOCUMENT', 'INDEXED', 'REDACTED', ...marked];
 }
 
@@ -405,6 +409,7 @@ function scopeRefusal(filePath, scope) {
   if (detectFileType(filePath) === 'video') return 'A video is shared whole, from the moment it is cited.';
   if (scope === 'MARKED') return 'Only PDFs, Word documents and presentations can be shared with markings.';
   if (scope === 'REDACTED') return 'Presentations are shared whole or one slide at a time; there is nothing to redact.';
+  if (isWritingPath(filePath)) return 'PDFs, Word documents and text files are shared whole or redacted, not as a cited part.';
   return 'This citation names no slide. Share the whole presentation, or cite a slide to share only that slide.';
 }
 const REDACTION_KINDS = new Set(['CELL', 'BLOCK', 'DRAWING', 'PDF']);
@@ -463,28 +468,4 @@ export function normalizeRedactions(value, scope) {
   if (normalized.filter(entry => entry.kind === 'DRAWING').length > 64) throw new HttpError(400, 'Select no more than 64 drawing regions.');
   if (!normalized.length) throw new HttpError(400, 'Select at least one area to redact.');
   return normalized;
-}
-
-export function normalizePdfExcerpt(value, scope) {
-  if (value == null || scope !== 'INDEXED') return null;
-  if (String(value.kind ?? '').toUpperCase() !== 'PDF') throw new HttpError(400, 'Invalid PDF excerpt.');
-  const text = typeof value.text === 'string' ? value.text.trim() : '';
-  if (text.length > 100_000 || !Array.isArray(value.regions ?? [])) throw new HttpError(400, 'Invalid PDF excerpt.');
-  const regions = value.regions ?? [];
-  if (regions.length > 512) throw new HttpError(400, 'Too many PDF selection regions.');
-  const normalized = regions.map(region => {
-    if (!region || typeof region !== 'object') throw new HttpError(400, 'Invalid PDF selection region.');
-    const { x, y, width, height } = region;
-    const page = Number(region.page);
-    if (!Number.isInteger(page) || page < 1 || page > 1000
-        || ![x, y, width, height].every(coordinate => typeof coordinate === 'number' && Number.isFinite(coordinate))
-        || x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > 1 || y + height > 1) {
-      throw new HttpError(400, 'Invalid PDF selection region.');
-    }
-    return { page, x, y, width, height };
-  });
-  if (!text && !normalized.length) throw new HttpError(400, 'Select text or an area from the PDF before sharing.');
-  const page = value.page == null ? null : Number(value.page);
-  if (page != null && (!Number.isInteger(page) || page < 1 || page > 1000)) throw new HttpError(400, 'Invalid PDF selection page.');
-  return { kind: 'PDF', text, regions: normalized, ...(page ? { page } : {}) };
 }

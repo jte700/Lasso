@@ -19,9 +19,8 @@ import { drawingDiscovery } from '../dependencies/drawing-discovery.js';
 import { buildSafePdf, markedPdfRequest, pdfShareRequest } from '../sharing/pdf-share.js';
 import { buildPagePdf, slideCount, slidePicture } from '../sharing/document-pages.js';
 import { isMarkablePath } from '../sharing/markup.js';
-import { normalizePdfExcerpt, normalizeRedactions, offeredShareScopes } from '../sharing/object-share.js';
+import { offeredShareScopes } from '../sharing/object-share.js';
 import { isPresentationPath } from '../dependencies/presentation-extraction.js';
-import { singleSlidePresentation } from '../sharing/slide-export.js';
 import { refusalReason, WORKSPACE_PAGE_HEADERS } from './request-guard.js';
 import { passiveInlineType } from './passive-types.js';
 
@@ -222,7 +221,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       if (resolved.share.accessScope === 'INDEXED' && /\.(?:step|stp)$/i.test(resolved.internal.filePath)) {
         return { preview, document: citedPartModel(await resolvedModelPreview(resolved)) };
       }
-      // A deck is shared whole, or as the slide the citation is on and nothing else.
+      // A deck is shared whole, or as a picture of the slide the citation is on and nothing else.
       if (isPresentationPath(resolved.internal.filePath)) {
         if (resolved.share.accessScope === 'DOCUMENT') {
           // A deck of one slide may also be downloaded as that slide's picture.
@@ -232,10 +231,13 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         }
         if (resolved.share.accessScope !== 'INDEXED') return { preview: null, document: null };
         const slide = buildSlideShareDocument(sourceFile, resolved.source.anchor, resolved.source.metadata);
-        return { preview: null, document: slide && { ...slide,
-          // Made only when the slide is downloaded.
-          slideFile: () => singleSlidePresentation(sourceFile.content, slide.slide),
-          slidePicture: () => slidePicture(sourceFile.content, slide.slide, sourceFile.contentHash) } };
+        if (!slide) return { preview: null, document: null };
+        // The slide's words are shown only when it cannot be drawn.
+        const picture = await slidePicture(sourceFile.content, slide.slide, sourceFile.contentHash).catch((error) => {
+          console.error('Lasso could not draw slide %d of %s: %s', slide.slide, resolved.internal.filePath, error.message);
+          return null;
+        });
+        return { preview: null, document: { ...slide, picture } };
       }
       const pdfRequest = pdfShareRequest(resolved);
       if (pdfRequest && sourceFile?.content) {
@@ -303,6 +305,21 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         }
         return sendBinary(response, 200, excerpt.content, excerpt.contentType, {
           'content-disposition': downloadDisposition(excerpt.filename),
+          'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff',
+        });
+      }
+
+      // The picture a cited slide's page shows. Other links have none.
+      shareParameters = match(pathname, /^\/d\/([A-Za-z0-9_-]{16,128})\/slide$/);
+      if (request.method === 'GET' && shareParameters && objectShares) {
+        const resolved = objectShares.resolveShare(shareParameters[0]);
+        if (resolved.status !== 'OK') {
+          return sendHtml(response, resolved.status === 'NOT_FOUND' ? 404 : 410, renderUnavailable(resolved.status), SHARE_PAGE_HEADERS);
+        }
+        const { document } = await sharedContent(resolved);
+        if (!Buffer.isBuffer(document?.picture)) return sendHtml(response, 404, renderUnavailable('NOT_FOUND'), SHARE_PAGE_HEADERS);
+        return sendBinary(response, 200, document.picture, 'image/jpeg', {
           'cache-control': 'no-store',
           'x-content-type-options': 'nosniff',
         });
@@ -647,26 +664,6 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
       }
 
-      const localPdfPreviewParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/pdf-preview$/);
-      if (request.method === 'POST' && localPdfPreviewParameters && objectShares) {
-        const resolved = objectShares.describe(localPdfPreviewParameters[0], url.searchParams.get('version'));
-        if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
-        if (!/\.pdf$/i.test(resolved.internal.filePath)) throw new HttpError(415, 'Select a PDF document.');
-        const body = await readJson(request);
-        const accessScope = String(body.accessScope ?? 'INDEXED').toUpperCase();
-        if (!['INDEXED', 'REDACTED'].includes(accessScope)) throw new HttpError(400, 'Select an excerpt or redaction preview.');
-        const share = { accessScope, excerpt: normalizePdfExcerpt(body.excerpt, accessScope),
-          redactions: normalizeRedactions(body.redactions ?? [], accessScope) };
-        const pdfRequest = pdfShareRequest({ ...resolved, share });
-        if (!pdfRequest) throw new HttpError(422, 'Select text or an area from the PDF before sharing.');
-        const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
-        const content = file ? timeline.blobs.get(file.contentHash) : null;
-        if (!content) throw new HttpError(404, 'The indexed PDF is unavailable.');
-        let pdf;
-        try { pdf = await buildSafePdf(content, pdfRequest); } catch { throw new HttpError(422, 'The selected PDF excerpt could not be rendered. Select the text or area again.'); }
-        return sendBinary(response, 200, pdf, 'application/pdf', { 'content-disposition': 'inline',
-          'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
-      }
 
       // A linked video, in the byte ranges the inspector's player asks for.
       const localVideoParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/video$/);
@@ -1017,7 +1014,6 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
             expiresAt: body.expiresAt ?? null,
             accessScope: body.accessScope ?? 'DOCUMENT',
             redactions: body.redactions ?? [],
-            excerpt: body.excerpt ?? null,
             markup: body.markup ?? [],
             citedIn: body.citedIn ?? null,
             nearbyRows: body.nearbyRows === true,

@@ -6,10 +6,11 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createApplication } from '../src/server.js';
 import { buildSafePdf, pdfShareRequest } from '../src/sharing/pdf-share.js';
-import { normalizePdfExcerpt, normalizeRedactions } from '../src/sharing/object-share.js';
+import { normalizeRedactions } from '../src/sharing/object-share.js';
 import { extractPdfFullText } from '../src/dependencies/document-extraction.js';
 import { shareDownloadOptions } from '../src/sharing/share-download.js';
 import { renderSharePage } from '../src/sharing/share-page.js';
+import { legacyCitedShare } from './fixtures/legacy-shares.js';
 
 const native = process.platform === 'darwin';
 const actor = { id: 'human:visual-pdf', displayName: 'PDF QA', actorType: 'HUMAN_SELF' };
@@ -33,15 +34,12 @@ function pdf({ rotated = false } = {}) {
   return Buffer.from(`${value}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
 }
 
-test('PDF masks and excerpts validate pages and top-left normalized regions', () => {
+test('PDF masks validate pages and top-left normalized regions, and older excerpts keep to what they selected', () => {
   assert.deepEqual(normalizeRedactions([{ kind: 'pdf', page: 2, x: .1, y: .2, width: .3, height: .4 }], 'REDACTED'),
     [{ kind: 'PDF', page: 2, x: .1, y: .2, width: .3, height: .4, effect: 'BLUR' }]);
   for (const value of [{ page: 0 }, { x: -1 }, { width: 1 }, { effect: 'CLEAR' }]) {
     assert.throws(() => normalizeRedactions([{ kind: 'PDF', page: 1, x: .1, y: .2, width: .3, height: .4, ...value }], 'REDACTED'));
   }
-  assert.throws(() => normalizePdfExcerpt({ kind: 'PDF', text: '', regions: [] }, 'INDEXED'));
-  assert.throws(() => normalizePdfExcerpt({ kind: 'PDF', text: 'value', regions: [{ page: 1, x: 0, y: 0, width: 2, height: 1 }] }, 'INDEXED'));
-  assert.throws(() => normalizePdfExcerpt({ kind: 'PDF', regions: [null] }, 'INDEXED'), /Invalid PDF selection/);
   const source = { internal: { filePath: 'source.pdf' }, share: { accessScope: 'INDEXED' },
     source: { anchor: { pageNumber: 1 }, metadata: {}, valueText: 'Whole-file summary' } };
   assert.equal(pdfShareRequest(source), null, 'a whole-file reference cannot become a full PDF excerpt');
@@ -112,7 +110,7 @@ test('rotated cropped PDF preserves orientation and applies raw crop-box coordin
   assert.equal(extractPdfFullText(result).trim(), '');
 });
 
-test('PDF share preview, recipient view and downloads use identical pinned safe bytes', { skip: !native }, async t => {
+test('A PDF is no longer shared as a cited part, and its recipient view and downloads use identical pinned safe bytes', { skip: !native }, async t => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-pdf-share-http-'));
   const root = path.join(temporary, 'Project'); fs.mkdirSync(root);
   const filename = path.join(root, 'Plan.pdf'); fs.writeFileSync(filename, pdf());
@@ -124,22 +122,18 @@ test('PDF share preview, recipient view and downloads use identical pinned safe 
   assert.ok(object);
   await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${app.server.address().port}`;
-  const local = `${base}/api/dependency-objects/${object.id}/pdf-preview?version=${object.versionId}`;
   const excerpt = { kind: 'PDF', text: 'A public sentence is available to share.', page: 1, regions: [] };
-  for (const accessScope of ['INDEXED', 'REDACTED']) {
-    const payload = accessScope === 'INDEXED' ? { excerpt } : { redactions: [
-      { kind: 'PDF', page: 1, x: .05, y: .04, width: .7, height: .08, effect: 'BLUR' }] };
-    const preview = await fetch(local, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ accessScope, ...payload }) });
-    assert.equal(preview.status, 200); assert.equal(preview.headers.get('content-type'), 'application/pdf');
-    const bytes = Buffer.from(await preview.arrayBuffer());
-    const created = await fetch(`${base}/api/projects/${project.id}/object-shares`, { method: 'POST',
-      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ objectId: object.id, versionId: object.versionId, accessScope, ...payload, actor }) });
-    assert.equal(created.status, 201);
-    const { share } = await created.json();
-    const resolved = app.objectShares.resolveShare(share.token);
-    if (accessScope === 'INDEXED') assert.deepEqual(resolved.share.excerpt, excerpt);
+  const create = (accessScope, payload = {}) => fetch(`${base}/api/projects/${project.id}/object-shares`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ objectId: object.id, versionId: object.versionId, accessScope, ...payload, actor }) });
+  assert.equal((await create('INDEXED', { excerpt })).status, 422, 'a cited part is no longer offered');
+  const redactions = [{ kind: 'PDF', page: 1, x: .05, y: .04, width: .7, height: .08, effect: 'BLUR' }];
+  const shares = [legacyCitedShare(app, { projectId: project.id, object, actor, excerpt }),
+    (await (await create('REDACTED', { redactions })).json()).share];
+  assert.deepEqual(app.objectShares.resolveShare(shares[0].token).share.excerpt, excerpt, 'an older link keeps its excerpt');
+  for (const share of shares) {
     const url = `${base}/d/${share.token}`;
+    const bytes = Buffer.from(await (await fetch(`${url}/source`)).arrayBuffer());
+    assert.match(bytes.subarray(0, 5).toString('latin1'), /%PDF-/);
     const html = await (await fetch(url)).text();
     assert.match(html, /class="shared-pdf"/); assert.match(html, /<small>PDF<\/small>/);
     assert.doesNotMatch(html, /PRIVATE|72918|\/api\/dependency|Download original/);
@@ -154,7 +148,4 @@ test('PDF share preview, recipient view and downloads use identical pinned safe 
     app.objectShares.revokeShare(share.token);
     assert.equal((await fetch(`${url}/source`)).status, 410);
   }
-  const invalid = await fetch(local, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
-    accessScope: 'INDEXED', excerpt: { kind: 'PDF', text: 'Unmatched text', regions: [] } }) });
-  assert.equal(invalid.status, 422);
 });

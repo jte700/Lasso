@@ -76,7 +76,10 @@ internal sealed class ShareComposerWindow : Window
         Title = actionTitle == "Insert link" ? "Insert source hyperlink" : "Share source";
         _subtitle.Text = $"{label}  -  {Path.GetFileName(sourcePath)}";
         _action.Content = actionTitle;
-        _indexedOption.IsChecked = true;
+        // Writing has no cited part to start on, so it opens on the whole document.
+        var offersCitedPart = ShareScopes.OffersCitedPart(sourcePath);
+        _indexedOption.Visibility = offersCitedPart ? Visibility.Visible : Visibility.Collapsed;
+        (offersCitedPart ? _indexedOption : _documentOption).IsChecked = true;
     }
 
     private UIElement BuildLayout()

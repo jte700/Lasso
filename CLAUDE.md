@@ -20,7 +20,7 @@ Read only what a task needs. Files are split by feature and mostly under 500 lin
 | Slide pictures | `sharing/document-pages.js` `slidePicture`, `scripts/render-document-pages.swift` | `SlideDeckPreview.swift` (deck, slide menu, navigator) |
 | Suggestion card itself, Tab, keys | | `GlobalAssist.swift` (controller state, keys), `GlobalAssistant+Panel.swift` (showing, placement), `GlobalAssistant+Insertion.swift` (Tab, links, undo), `AssistBoxView*.swift` (the drawn card), `AssistSuggestion.swift`, `AssistSuggestionList.swift`, `KeyRouting.swift`, `AccessibilityReader.swift`, `CompletionTransaction.swift` |
 | Source Inspector (web page in a panel) | `sharing/share-page.js` `renderInspectorPanel` | `SourceInspectorPanel.swift` |
-| Share links and recipient pages | `sharing/object-share.js`, `share-page.js`, `share-preview.js`, `dependencies/dependency-sharing.js` | `ShareComposerController.swift`, `ShareComposerView*.swift`, `ShareInteractivePDFView.swift`, `ShareInsertion.swift`, `ShareMarkup.swift` |
+| Share links and recipient pages | `sharing/object-share.js`, `share-page.js`, `share-page-style.js` (how recipient pages look), `share-preview.js`, `dependencies/dependency-sharing.js` | `ShareComposerController.swift`, `ShareComposerView*.swift`, `ShareInteractivePDFView.swift`, `ShareInsertion.swift`, `ShareMarkup.swift` |
 | The Ranch (library window) | `ranch/` | `Ranch*.swift`; colours and controls in `RanchTheme.swift` |
 | Folder history, snapshots | `history/` | |
 | Links in documents, re-anchoring after edits | `dependencies/dependency-links.js`, `reconciliation.js`, `source-updates.js`, `document-editing.js` | `DependencyHighlighter.swift`, `DependencyReference.swift` |

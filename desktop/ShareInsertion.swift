@@ -29,7 +29,6 @@ enum ShareClient {
         if let versionId { payload["versionId"] = versionId }
         payload["accessScope"] = configuration.scope.rawValue
         payload["redactions"] = configuration.redactions.map(\.payload)
-        if let excerpt = configuration.excerpt { payload["excerpt"] = excerpt.payload }
         if configuration.scope == .marked { payload["markup"] = configuration.markup.map(\.payload) }
         if configuration.nearbyRows { payload["nearbyRows"] = true }
         if let citedIn = configuration.citedIn, !citedIn.isEmpty { payload["citedIn"] = citedIn }
@@ -249,19 +248,25 @@ enum ShareAccessScope: String {
     /// can also be shared as a copy with markings drawn on its pages.
     static func offered(for kind: ShareSourceKind, hasCitedPart: Bool, markable: Bool = false) -> [ShareAccessScope] {
         let marked: [ShareAccessScope] = markable ? [.marked] : []
-        guard kind != .other else { return [.document, .indexed, .redacted] + marked }
-        return (hasCitedPart ? [.document, .indexed] : [.document]) + marked
+        switch kind {
+        case .writing: return [.document, .redacted] + marked
+        case .other: return [.document, .indexed, .redacted] + marked
+        case .cadModel, .presentation: return (hasCitedPart ? [.document, .indexed] : [.document]) + marked
+        }
     }
 }
 
 /// What a shared source is, as far as which scopes it offers.
 enum ShareSourceKind: Equatable {
-    case cadModel, presentation, other
+    case cadModel, presentation, writing, other
 
     init(filename: String) {
         switch (filename as NSString).pathExtension.lowercased() {
         case "step", "stp": self = .cadModel
         case "pptx": self = .presentation
+        // A passage of prose says little on its own, so these have no cited part. The server's
+        // WRITING_TYPES in object-share.js is the same list.
+        case "pdf", "docx", "txt", "tex", "bib", "ris", "enw", "nbib", "log", "md", "mdx", "qmd", "rmd", "rst": self = .writing
         default: self = .other
         }
     }
@@ -345,14 +350,6 @@ struct SharePDFRegion: Hashable {
         ShareRedaction(kind: "PDF", sheet: nil, row: nil, column: nil, block: nil,
                        effect: effect, x: x, y: y, width: width, height: height, page: page)
     }
-
-    var payload: [String: Any] { ["page": page, "x": x, "y": y, "width": width, "height": height] }
-}
-
-struct SharePDFExcerpt: Equatable {
-    let text: String
-    let regions: [SharePDFRegion]
-    var payload: [String: Any] { ["kind": "PDF", "text": text, "regions": regions.map(\.payload)] }
 }
 
 /// Normalized top-left drawing coordinates match the server's pinned bounds.
@@ -485,7 +482,6 @@ typealias ShareMaskHistory = ShareEditHistory<[String: ShareRedaction]>
 struct ShareConfiguration {
     let scope: ShareAccessScope
     let redactions: [ShareRedaction]
-    var excerpt: SharePDFExcerpt? = nil
     var markup: [ShareMarkStroke] = []
     /// A cited cell or row brings the rows around it and every column.
     var nearbyRows = false

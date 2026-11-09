@@ -21,7 +21,6 @@ final class ShareComposerController: NSObject {
     private var active = false
     private var requests: [URLSessionDataTask] = []
     private var generation = 0
-    private var pdfReviewGeneration = 0
     private var escapedCopies = Set<Int>()
     private var completion: ((ShareConfiguration) -> Void)?
     private var copyAction: ((ShareConfiguration, @escaping (Result<DependencyShare, Error>) -> Void) -> Void)?
@@ -154,9 +153,6 @@ final class ShareComposerController: NSObject {
         requests.removeAll()
         view.reset(label: label, filename: (sourcePath as NSString).lastPathComponent)
         view.citedIn = citedIn
-        view.onReviewPDFExcerpt = { [weak self] excerpt in
-            self?.loadPDFExcerpt(excerpt, serverURL: serverURL, token: token)
-        }
         view.onNeedsMarkupPages = { [weak self] in
             self?.loadMarkupPages(objectId: objectId, versionId: versionId, serverURL: serverURL, token: token)
         }
@@ -224,7 +220,6 @@ final class ShareComposerController: NSObject {
                         self.view.nearbyExcerpt = data.flatMap { Self.excerpt($0, named: "nearbyExcerpt") }
                         self.view.isLoading = false
                         self.view.keepOfferedScope()
-                        self.view.initializePDFExcerpt()
                     } else {
                         self.view.fullDocument = data.flatMap(ShareFullDocument.parse)
                         self.view.isDocumentLoading = false
@@ -271,7 +266,6 @@ final class ShareComposerController: NSObject {
                 guard let self, token == self.generation else { return }
                 self.view.loadedPDFDocument = document
                 self.view.isPDFLoading = false
-                self.view.initializePDFExcerpt()
                 self.view.needsDisplay = true
             }
         }
@@ -299,39 +293,6 @@ final class ShareComposerController: NSObject {
                 self.view.markupPages = pages
                 self.view.isMarkupPagesLoading = false
                 self.view.markupPagesError = failure
-                self.view.needsDisplay = true
-            }
-        }
-        requests.append(task)
-        task.resume()
-    }
-
-    private func loadPDFExcerpt(_ excerpt: SharePDFExcerpt, serverURL: URL, token: Int) {
-        guard let source = view.fullDocument?.pdf?.sourceURL(serverURL: serverURL),
-              var components = URLComponents(url: source, resolvingAgainstBaseURL: false) else { return }
-        components.path = source.deletingLastPathComponent().appendingPathComponent("pdf-preview").path
-        guard let url = components.url else { return }
-        pdfReviewGeneration += 1
-        let reviewToken = pdfReviewGeneration
-        view.isPDFExcerptLoading = true
-        view.reviewedPDFDocument = nil
-        view.pdfExcerptError = nil
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["accessScope": "INDEXED", "excerpt": excerpt.payload])
-        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
-            let document = (response as? HTTPURLResponse).flatMap { response in
-                (200..<300).contains(response.statusCode) ? data.flatMap(PDFDocument.init(data:)) : nil
-            }
-            DispatchQueue.main.async {
-                // ⌘Z may have taken the excerpt back while it was being prepared.
-                guard let self, token == self.generation, reviewToken == self.pdfReviewGeneration,
-                      self.view.pdfExcerpt == excerpt else { return }
-                self.view.reviewedPDFDocument = document
-                self.view.isPDFExcerptLoading = false
-                self.view.pdfExcerptError = document == nil ? "The excerpt preview could not be prepared. Select the passage again." : nil
                 self.view.needsDisplay = true
             }
         }

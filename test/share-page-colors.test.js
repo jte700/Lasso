@@ -117,7 +117,7 @@ test("A share link's recipient sees every highlight in green, never the sharer's
   assert.doesNotMatch(html, /get\('accent'\)/, 'the page takes no colour from its address');
   assert.match(ruleBody(html, '.shared-recipient td.cited'), /\.8px color-mix\(in srgb,var\(--cited\) 65%/);
   const column = ruleBody(html, '.shared-recipient .shared-context-table .selected-column');
-  assert.match(column, /color:var\(--cited\)/);
+  assert.match(column, /color:color-mix\(in srgb,var\(--cited\) 62%,var\(--text\)\)/, 'its title is the green, deepened to read on the green wash');
   assert.match(column, /background:color-mix\(in srgb,var\(--cited\) 14%,var\(--surface\)\)/, 'the cited column\'s heading is washed in green');
   assert.doesNotMatch(column, /box-shadow/, 'with no bar breaking it off');
   const lone = renderSharePage({ source: { label: 'Inventory', filename: 'General-Ledger.csv' },

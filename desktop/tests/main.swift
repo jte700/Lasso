@@ -185,6 +185,11 @@ do {
           "a whole-deck citation is shared as the deck")
     check(ShareSourceKind(filename: "Review.PPTX") == .presentation && ShareSourceKind(filename: "Bracket.stp") == .cadModel
           && ShareSourceKind(filename: "Budget.xlsx") == .other, "a source's kind comes from its extension")
+    check(["Plan.PDF", "Memo.docx", "Notes.txt", "Close.md", "Paper.tex", "Guide.rst"].allSatisfy { ShareSourceKind(filename: $0) == .writing },
+          "PDFs, Word documents and text files are writing")
+    check(ShareAccessScope.offered(for: .writing, hasCitedPart: true) == [.document, .redacted]
+          && ShareAccessScope.offered(for: .writing, hasCitedPart: true, markable: true) == [.document, .redacted, .marked],
+          "writing offers no cited part, even when a passage is cited")
     check(ShareAccessScope.offered(for: .other, hasCitedPart: false, markable: true) == [.document, .indexed, .redacted, .marked]
           && ShareAccessScope.offered(for: .presentation, hasCitedPart: false, markable: true) == [.document, .marked]
           && ShareAccessScope.offered(for: .presentation, hasCitedPart: true, markable: true) == [.document, .indexed, .marked],
@@ -297,9 +302,6 @@ do {
     let mask = region.redaction(effect: .blank)
     check(mask.payload["page"] as? Int == 3 && mask.kind == "PDF" && mask.locationKey.hasPrefix("pdf:3:"),
           "PDF masks keep the exact page through serialization and removal")
-    let excerpt = SharePDFExcerpt(text: "A selected sentence.", regions: [region])
-    check((excerpt.payload["regions"] as? [[String: Any]])?.first?["page"] as? Int == 3,
-          "PDF excerpt payloads preserve the reviewed page region")
     check(SharePDFRegion(page: 0, rect: selected, crop: crop) == nil
           && SharePDFRegion(page: 1, rect: NSRect(x: 900, y: 900, width: 20, height: 20), crop: crop) == nil,
           "PDF selections reject missing pages and areas outside the page")

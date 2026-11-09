@@ -381,7 +381,7 @@ final class SlideMenuBar: NSView {
         current = number
         title.title = deck.label(for: number)
         title.isEnabled = numbers.count > 1
-        title.toolTip = numbers.count > 1 ? "Choose a slide" : "Only this slide is shared"
+        title.toolTip = numbers.count > 1 ? "Choose a slide" : "Only a picture of this slide is shared"
         guard let index = numbers.firstIndex(of: number) else { return }
         previous.isEnabled = index > 0
         next.isEnabled = index < numbers.count - 1

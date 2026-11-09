@@ -65,6 +65,8 @@ Console.WriteLine("email hyperlink formats");
 {
     var url = new Uri("https://example.test/d/source?a=1&b=2");
     var html = ShareFormats.Html("Supplies & <cost>", url);
+    Check(new[] { "Plan.PDF", "Memo.docx", "Notes.txt", "Close.md", "Paper.tex", "Guide.rst" }.All(name => !ShareScopes.OffersCitedPart(name))
+          && ShareScopes.OffersCitedPart("Budget.xlsx"), "PDFs, Word documents and text files are writing");
     Check(html.Contains("Supplies &amp; &lt;cost&gt;"), "escapes source labels in rich email");
     Check(html.Contains("href=\"https://example.test/d/source?a=1&amp;b=2\""),
           "preserves the hyperlink destination");

@@ -36,6 +36,18 @@ public static class ShareEnumNames
         effect == ShareRedactionEffect.Blank ? "BLANK" : "BLUR";
 }
 
+public static class ShareScopes
+{
+    /// A passage of prose says little on its own, so these are sent whole or
+    /// redacted. The server's WRITING_TYPES in object-share.js is the same list.
+    private static readonly HashSet<string> Writing = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".pdf", ".docx", ".txt", ".tex", ".bib", ".ris", ".enw", ".nbib", ".log", ".md", ".mdx", ".qmd", ".rmd", ".rst",
+    };
+
+    public static bool OffersCitedPart(string filename) => !Writing.Contains(Path.GetExtension(filename));
+}
+
 public sealed record ShareRedaction(
     string Kind,
     int? Sheet,

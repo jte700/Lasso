@@ -56,7 +56,7 @@ extension ShareComposerView {
                                     isPresentation ? "Every slide, and the original file" : "Include the original file")
             case .indexed: return (scope, isPresentation ? "Cited slide only" : "Cited part only",
                                    isCADModel ? "The part, its feature marked"
-                                   : isPresentation ? "This slide, without notes or comments" : "Share the matched context")
+                                   : isPresentation ? "A picture of this slide" : "Share the matched context")
             case .redacted: return (scope, "Select & redact", "Hide source content")
             case .marked: return (scope, "Mark up", "Pen, marker and highlighter")
             }
@@ -91,7 +91,7 @@ extension ShareComposerView {
         previewScroll.layer?.borderColor = NSColor.separatorColor.cgColor
         let x: CGFloat = 16
         let isPDF = isPDFSource
-        drawText(scope == .indexed ? (isPDF && isChoosingPDFExcerpt ? "Select excerpt" : "Recipient preview")
+        drawText(scope == .indexed ? "Recipient preview"
                  : scope == .marked ? (isPresentation ? "Slides to mark up" : "Pages to mark up") : "Complete document",
                  in: NSRect(x: x + 2, y: 108, width: 170, height: 16),
                  font: .systemFont(ofSize: 11, weight: .semibold), color: .secondaryLabelColor)
@@ -106,7 +106,7 @@ extension ShareComposerView {
             let badge = scope == .document ? "Original available" : "Original protected"
             drawPill(badge, in: NSRect(x: bounds.width - 125, y: 105, width: 109, height: 20))
         }
-        if isPDF && (scope == .redacted || (scope == .indexed && isChoosingPDFExcerpt)) {
+        if isPDF && scope == .redacted {
             drawButton("Select text", in: pdfTextModeRect, prominent: pdfSelectionMode == .text, enabled: !isCopying, showsShortcut: false)
             drawButton("Mark area", in: pdfAreaModeRect, prominent: pdfSelectionMode == .area, enabled: !isCopying, showsShortcut: false)
         }
@@ -118,21 +118,16 @@ extension ShareComposerView {
         NSBezierPath(roundedRect: card, xRadius: 10, yRadius: 10).stroke()
 
         drawText(label, in: NSRect(x: card.minX + 13, y: card.minY + 12,
-                                  width: card.width - 26 - (isPDF && scope == .indexed && pdfExcerpt != nil ? 124 : 0), height: 17),
+                                  width: card.width - 26, height: 17),
                  font: .systemFont(ofSize: 12.5, weight: .semibold), color: .labelColor)
         let drawing = fullDocument?.model != nil
         let subtitle = scope == .marked ? "Draw with the pen, marker or highlighter. The eraser takes a mark away."
-            : scope == .redacted ? (drawing || isPDF ? "Drag over text or mark an area. Click a mask to remove it." : "Drag across cells or sections to blur or redact.") : scope == .indexed && isPDF
-            ? (isChoosingPDFExcerpt ? "Select the words, sentence, paragraph or area to share." : "Only the selected excerpt will be shared.") : scope == .indexed
+            : scope == .redacted ? (drawing || isPDF ? "Drag over text or mark an area. Click a mask to remove it." : "Drag across cells or sections to blur or redact.") : scope == .indexed
             ? (citedPart.map(\.selectedLabel) ?? (preview?.location.isEmpty == false ? preview!.location : filename))
             : "Complete \(filename)"
         drawText(subtitle, in: NSRect(x: card.minX + 13, y: card.minY + 31,
                                      width: card.width - 26, height: 15),
                  font: .systemFont(ofSize: 10.5), color: .secondaryLabelColor)
-        if isPDF && scope == .indexed && pdfExcerpt != nil {
-            drawButton(isChoosingPDFExcerpt ? "Review excerpt" : "Change selection", in: pdfExcerptToggleRect,
-                       prominent: false, enabled: !isCopying)
-        }
 
         let content = NSRect(x: card.minX + 13, y: card.minY + 55,
                              width: card.width - 26, height: card.height - 68)
@@ -155,7 +150,7 @@ extension ShareComposerView {
         } else if isCADModel, let citedPart {
             drawRotatable(citedPart, in: content)
         } else if isPresentation, let preview, !preview.textBlocks.isEmpty {
-            // The whole cited slide is what the recipient gets, with the cited passage marked.
+            // While the slide's picture is on its way, or if it cannot be drawn, its words stand in.
             AssistMarkdown.draw(preview.textBlocks, in: content, accent: highlightColor, baseSize: 11.5)
         } else if isLoading {
             drawCentered("Loading source preview…", in: content)
@@ -189,9 +184,6 @@ extension ShareComposerView {
 
     var pdfTextModeRect: NSRect { NSRect(x: 200, y: 103, width: 78, height: 24) }
     var pdfAreaModeRect: NSRect { NSRect(x: 284, y: 103, width: 78, height: 24) }
-    var pdfExcerptToggleRect: NSRect {
-        NSRect(x: previewCard.maxX - 124, y: previewCard.minY + 12, width: 110, height: 22)
-    }
 
     private func drawFooter() {
         let centerY = bounds.height - footerHeight / 2
@@ -199,7 +191,7 @@ extension ShareComposerView {
         switch scope {
         case .document: detail = "Recipients can download the pinned original."
         case .indexed: detail = isCADModel ? "Only the cited part is published, not the model file."
-            : isPresentation ? "Only this slide is published, without speaker notes or comments." : "Only indexed context is published."
+            : isPresentation ? "Only a picture of this slide is published." : "Only indexed context is published."
         case .redacted: detail = masks.isEmpty ? "Select at least one area to redact." : "\(masks.count) area\(masks.count == 1 ? "" : "s") removed from the shared view."
         case .marked: detail = markup.marks.isEmpty ? "Draw on the pages to mark them up."
             : "A copy with \(markup.marks.count) mark\(markup.marks.count == 1 ? "" : "s") is shared, not the original."

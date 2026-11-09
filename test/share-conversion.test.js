@@ -9,6 +9,7 @@ import { readZip, zipBytes } from '../src/dependencies/zip-archive.js';
 import { conversionFormat, shareConversions } from '../src/sharing/share-conversion.js';
 import { renderSharePage } from '../src/sharing/share-page.js';
 import { POWERPOINT_THEME, themedDeck } from './fixtures/presentations.js';
+import { legacyCitedShare } from './fixtures/legacy-shares.js';
 
 const native = process.platform === 'darwin';
 const actor = { id: 'human:share-conversion', displayName: 'Conversion test', actorType: 'HUMAN_SELF' };
@@ -19,7 +20,7 @@ const resolved = (filename, accessScope) => ({
   share: { accessScope, redactions: [], createdAt: '2026-10-31T01:00:00Z' },
 });
 const safePdf = { kind: 'pdf', safe: true, content: Buffer.from('%PDF-1.4'), page: 1, location: '' };
-const slide = { kind: 'text', citedSlide: true, slide: 2, slideFile: () => null, slidePicture: async () => null };
+const slide = { kind: 'text', citedSlide: true, slide: 2, picture: Buffer.from([0xff, 0xd8, 0xff]) };
 const formats = (list) => list.map(({ of, format }) => `${of}:${format}`);
 
 /** Two pages of text, the first with one private line. */
@@ -70,7 +71,7 @@ async function sharedFolder(t, write) {
     assert.equal(response.status, 201, await response.clone().text());
     return `${base}/d/${(await response.json()).share.token}`;
   };
-  return { objects, share };
+  return { app, base, projectId, objects, share };
 }
 
 test('a format is named by its usual extension or its name', () => {
@@ -84,9 +85,9 @@ test('a format is named by its usual extension or its name', () => {
   assert.equal(conversionFormat(null), null);
 });
 
-test('a recipient may take a slide as a picture, a PDF as Word and Word as a PDF', () => {
+test('a recipient may take a PDF as Word and Word as a PDF', () => {
   // Assert: what was cut out for the recipient
-  assert.deepEqual(formats(shareConversions(resolved('Deck.pptx', 'INDEXED'), null, slide)), ['excerpt:JPEG']);
+  assert.deepEqual(shareConversions(resolved('Deck.pptx', 'INDEXED'), null, slide), [], 'a cited slide already is a picture');
   assert.deepEqual(formats(shareConversions(resolved('Plan.pdf', 'INDEXED'), null, safePdf)), ['excerpt:DOCX']);
   assert.deepEqual(formats(shareConversions(resolved('Plan.pdf', 'REDACTED'), null, safePdf)), ['excerpt:DOCX']);
   assert.deepEqual(formats(shareConversions(resolved('Memo.docx', 'MARKED'), null, safePdf)), ['excerpt:DOCX'],
@@ -112,8 +113,7 @@ test('the recipient page offers each format beside the download it converts', ()
   const wordPage = renderSharePage(resolved('Memo.docx', 'DOCUMENT'), 'b'.repeat(32), null, null);
 
   // Assert
-  assert.match(slidePage, /href="\/d\/a{32}\/excerpt" download>[\s\S]*?<small>PPTX<\/small>/);
-  assert.match(slidePage, /href="\/d\/a{32}\/excerpt\?as=jpeg" download>[\s\S]*?<small>JPEG<\/small>/);
+  assert.match(slidePage, /href="\/d\/a{32}\/excerpt" download>[\s\S]*?<small>JPEG<\/small>/);
   assert.match(wordPage, /href="\/d\/b{32}\/download" download>[\s\S]*?<small>DOCX<\/small>/);
   assert.match(wordPage, /href="\/d\/b{32}\/download\?as=pdf" download>[\s\S]*?Download as PDF[\s\S]*?<small>PDF<\/small>/);
 });
@@ -141,12 +141,12 @@ test('a shared PDF downloads as a Word document with its text and styling', { sk
   assert.match(document, /<w:b\/>/, 'bold text stays bold');
 });
 
-test('a PDF excerpt as Word is only its pictures, never the text it was cut from', { skip: !native }, async (t) => {
+test('an older link’s PDF excerpt as Word is only its pictures, never the text it was cut from', { skip: !native }, async (t) => {
   // Arrange
-  const { objects, share } = await sharedFolder(t, (root) => fs.writeFileSync(path.join(root, 'Plan.pdf'), PLAN));
+  const { app, base, projectId, objects } = await sharedFolder(t, (root) => fs.writeFileSync(path.join(root, 'Plan.pdf'), PLAN));
   const plan = objects.find(object => object.path === 'Plan.pdf');
   const excerpt = { kind: 'PDF', text: 'A public sentence is available to share.', page: 1, regions: [] };
-  const url = await share(plan, 'INDEXED', { excerpt });
+  const url = `${base}/d/${legacyCitedShare(app, { projectId, object: plan, actor, excerpt }).token}`;
 
   // Act
   const response = await fetch(`${url}/excerpt?as=docx`);
@@ -195,28 +195,18 @@ test('a shared slide, or a deck of one slide, downloads as a JPEG picture', { sk
     fs.writeFileSync(path.join(root, 'Review.pptx'), themedDeck(slides));
     fs.writeFileSync(path.join(root, 'Title.pptx'), themedDeck([{ title: 'Launch day', lines: ['Doors open at nine.'] }]));
   });
-  const cited = objects.find(object => object.path === 'Review.pptx' && object.anchor?.slideNumber === 2 && object.metadata.excerptType === 'sentence');
   const review = objects.find(object => object.path === 'Review.pptx' && !object.anchor);
   const title = objects.find(object => object.path === 'Title.pptx' && !object.anchor);
-  const slideUrl = await share(cited, 'INDEXED');
   const reviewUrl = await share(review, 'DOCUMENT');
   const titleUrl = await share(title, 'DOCUMENT');
 
   // Act
-  const slidePage = await (await fetch(slideUrl)).text();
-  const picture = await fetch(`${slideUrl}/excerpt?as=jpeg`);
   const titlePicture = await fetch(`${titleUrl}/download?as=jpg`);
   const reviewPage = await (await fetch(reviewUrl)).text();
 
   // Assert
-  assert.match(slidePage, /\/excerpt\?as=jpeg" download>/);
-  assert.equal(picture.status, 200);
-  assert.equal(picture.headers.get('content-type'), 'image/jpeg');
-  assert.match(picture.headers.get('content-disposition'), /Review-slide-2-v\d+\.jpg/);
-  assert.deepEqual([...Buffer.from(await picture.arrayBuffer()).subarray(0, 3)], [0xff, 0xd8, 0xff]);
   assert.equal(titlePicture.status, 200);
   assert.equal(titlePicture.headers.get('content-disposition'), 'attachment; filename="Title.jpg"');
   assert.doesNotMatch(reviewPage, /as=jpeg/, 'a deck of three slides is not offered as one picture');
   assert.equal((await fetch(`${reviewUrl}/download?as=jpeg`)).status, 422);
-  assert.equal((await fetch(`${slideUrl}/download?as=jpeg`)).status, 403, 'the deck itself stays private');
 });
