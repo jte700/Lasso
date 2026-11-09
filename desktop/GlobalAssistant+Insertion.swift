@@ -44,7 +44,8 @@ extension GlobalAssistant {
     /// A line is open with no word selected. Inserting then does nothing, and
     /// the card stays for words to be selected.
     private var choosesNoWords: Bool {
-        guard view.wordChoice?.chosenText == nil else { return false }
+        // Only an open line can have nothing chosen; with none open, the whole row is inserted.
+        guard let words = view.wordChoice, words.chosenText == nil else { return false }
         NSSound.beep()
         return true
     }
