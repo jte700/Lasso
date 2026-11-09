@@ -18,11 +18,8 @@ extension ShareComposerView {
             try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
         }
         var state: [String: Any] = ["loaded": loadedPDFDocument != nil, "scope": scope.rawValue,
-            "choosing": isChoosingPDFExcerpt, "reviewLoading": isPDFExcerptLoading,
-            "reviewedPages": reviewedPDFDocument?.pageCount ?? 0, "canSubmit": canSubmit,
-            "redactions": masks.values.map(\.payload)]
-        state["excerpt"] = pdfExcerpt?.payload
-        state["error"] = pdfExcerptError ?? notice
+            "canSubmit": canSubmit, "redactions": masks.values.map(\.payload)]
+        state["error"] = notice
         return state
     }
 
@@ -155,83 +152,12 @@ extension ShareComposerView {
                 "Switching scope cancels an unfinished drag and removes local redaction overlays")
         require(view.pdfView.document === pdf && view.pdfView.currentPage === originalPage,
                 "Changing sharing scope preserves the original PDF and current page")
-        view.scope = .indexed
-        paint()
-        require(!view.canSubmit, "A PDF reference cannot be shared as an empty cited excerpt")
-        var selectedExcerpt: SharePDFExcerpt?
-        view.onReviewPDFExcerpt = { selectedExcerpt = $0 }
-        view.selectPDFText(firstLine)
-        paint()
-        require(selectedExcerpt?.text == firstLine.string && selectedExcerpt?.regions.isEmpty == false,
-                "A PDF sentence selection requests only the selected text and page regions")
-        let reviewed = PDFDocument()
-        reviewed.insert(PDFPage(image: NSImage(size: NSSize(width: 400, height: 80), flipped: false) { rect in
-            NSColor.white.setFill(); rect.fill(); return true
-        })!, at: 0)
-        view.reviewedPDFDocument = reviewed
-        paint()
-        require(view.pdfView.document === reviewed && view.canSubmit,
-                "Cited-part review displays the generated excerpt rather than the complete PDF")
-        view.submit()
-        require(configuration?.scope == .indexed && configuration?.excerpt?.regions == selectedExcerpt?.regions,
-                "The shared excerpt uses exactly the regions that were reviewed")
-        let firstExcerpt = view.pdfExcerpt
-        view.isChoosingPDFExcerpt = true
-        view.pdfSelectionMode = .area
-        paint()
-        view.pdfView.mouseDown(with: mouse(.leftMouseDown, at: a))
-        view.pdfView.mouseDragged(with: mouse(.leftMouseDragged, at: b))
-        view.pdfView.mouseUp(with: mouse(.leftMouseUp, at: b))
-        require(view.pdfExcerpt?.regions.count == 1 && view.pdfExcerpt != firstExcerpt && !view.isChoosingPDFExcerpt,
-                "A marked area becomes the cited part in place of the passage")
-        view.undoEdit()
-        require(view.pdfExcerpt == firstExcerpt && selectedExcerpt == firstExcerpt && !view.isChoosingPDFExcerpt,
-                "Command+Z brings back the passage chosen before and reviews it again")
-        view.undoEdit()
-        require(view.pdfExcerpt == nil && view.isChoosingPDFExcerpt && view.reviewedPDFDocument == nil && !view.canSubmit,
-                "Command+Z past the first choice shows the pages to choose from")
-        view.undoEdit()
-        require(view.pdfExcerpt == nil, "With nothing left to take back, Command+Z changes nothing")
-        view.redoEdit()
-        view.redoEdit()
-        require(view.pdfExcerpt?.regions.count == 1 && selectedExcerpt == view.pdfExcerpt,
-                "Shift+Command+Z makes the same choices again, in order")
-        view.scope = .redacted
-        view.undoEdit()
-        view.scope = .indexed
-        require(view.pdfExcerpt?.regions.count == 1, "Command+Z in another scope leaves the cited part alone")
-
-        // The passage the source was cited for is where Command+Z stops.
-        guard let secondLine = text.selectionsByLine().first(where: {
-            $0.bounds(for: page).width > 3 && $0.string != firstLine.string
-        }), let cited = firstLine.string, let citation = try? JSONSerialization.data(withJSONObject: [
-            "source": ["filename": "Cedar-Lane-Concept-Plan.pdf"],
-            "preview": ["kind": "pdf", "fileUrl": descriptor.fileUrl, "pageNumber": descriptor.pageNumber, "selectedText": cited],
-        ]) else { preconditionFailure("The PDF fixture must contain two lines of selectable text") }
-        view.reset(label: "Cedar Lane Concept Plan", filename: "Cedar-Lane-Concept-Plan.pdf")
-        view.onReviewPDFExcerpt = { selectedExcerpt = $0 }
-        view.fullDocument = document
-        view.isDocumentLoading = false
-        view.preview = AssistDocumentPreview.parse(citation)
-        view.isLoading = false
-        view.loadedPDFDocument = pdf
-        view.initializePDFExcerpt()
-        let citedExcerpt = view.pdfExcerpt
-        require(citedExcerpt != nil && selectedExcerpt == citedExcerpt, "The cited passage is chosen as the source opens")
-        view.selectPDFText(secondLine)
-        view.undoEdit()
-        view.undoEdit()
-        require(view.pdfExcerpt == citedExcerpt && !view.isChoosingPDFExcerpt,
-                "Command+Z stops at the passage the source was cited for")
-        view.redoEdit()
-        require(view.pdfExcerpt?.text == secondLine.string, "Shift+Command+Z chooses the later passage again")
         view.reset(label: "Another source", filename: "notes.txt")
         require(view.pdfView.document == nil && view.pdfView.isHidden,
                 "Opening another source clears the previous PDF pages")
         view.reset(label: "Loading PDF", filename: "document.pdf")
-        view.submit()
-        require(!view.canSubmit && view.notice != nil,
-                "Quick acceptance while PDF metadata is loading cannot publish an empty excerpt")
+        require(view.scope == .document && view.scopes == [.document, .redacted, .marked],
+                "A PDF opens on the whole document and offers no cited part")
         return checks
     }
 

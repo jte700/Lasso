@@ -9,6 +9,7 @@ import { markdownPassages } from '../src/sharing/markdown.js';
 import { INDEX_VERSION } from '../src/dependencies/constants.js';
 import { extractDocxFullText } from '../src/dependencies/document-extraction.js';
 import { storedZip } from './fixtures/workbook.js';
+import { legacyCitedShare } from './fixtures/legacy-shares.js';
 
 const writer = { id: 'human:writer', displayName: 'Writer', actorType: 'HUMAN_SELF' };
 
@@ -61,7 +62,7 @@ test('markdown passages are plain sentences and paragraphs with source offsets a
     'The *starred* value stayed at four units.');
 });
 
-test('markdown and text sources index passages that previews and indexed shares cite exactly', async t => {
+test('markdown and text sources index passages that previews cite exactly, and older links to them still resolve', async t => {
   const { app, project } = workspace(t, {
     'notes.md': NOTES,
     'log.txt': 'Weekly log.\n\nThe pump at station four was replaced on Tuesday.\nIt has run without faults since then.\n',
@@ -103,12 +104,7 @@ test('markdown and text sources index passages that previews and indexed shares 
   assert.equal(plain.text, pump.valueText);
   assert.deepEqual(plain.lines.filter(line => line.cited).map(line => line.lineNumber), [3]);
 
-  const response = await fetch(`${base}/api/projects/${project.id}/object-shares`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ objectId: sentence.id, versionId: sentence.versionId, actor: writer, accessScope: 'INDEXED' }),
-  });
-  assert.equal(response.status, 201);
-  const share = (await response.json()).share;
+  const share = legacyCitedShare(app, { projectId: project.id, object: sentence, actor: writer });
   const page = await (await fetch(`${base}/d/${share.token}`)).text();
   assert.match(page, /Soil moisture in plot B rose by eighteen percent after the second irrigation cycle\./);
   assert.match(page, /lines 5–6/);

@@ -143,7 +143,7 @@ try {
     blocks: ['A text copy remains available for selective redaction.'] } }));
   const pdfComposer = await helper('share-pdf-preview', { input: pdfComposerInput,
     pdf: path.resolve(here, '../../test/fixtures/drawings/ncsu-office-kit.pdf') });
-  assert.ok(pdfComposer.checks?.length >= 20, 'PDF pages must support visible region masks and selected excerpt review');
+  assert.ok(pdfComposer.checks?.length >= 15, 'PDF pages must support visible region masks');
   console.log(`  ok ${pdfComposer.checks.length} native PDF composer checks`);
   let checks = 0, maximumMeasurementMilliseconds = 0;
   async function check(label) {

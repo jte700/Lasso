@@ -1,5 +1,5 @@
-// The other formats a recipient may download a share in: a slide as a
-// picture, a PDF as a Word document and a Word document as a PDF. Each is made
+// The other formats a recipient may download a share in: a deck of one slide
+// as a picture, a PDF as a Word document and a Word document as a PDF. Each is made
 // from exactly what the recipient may already download, the excerpt or, when
 // the whole document is shared, the original, so no format discloses more.
 import path from 'node:path';
@@ -34,7 +34,6 @@ export function shareConversions(resolved, preview, document) {
   const whole = resolved.share.accessScope === 'DOCUMENT';
   const pictured = typeof document?.slidePicture === 'function';
   return [
-    excerpt?.type === 'slide' && pictured && { of: 'excerpt', format: 'JPEG', label: excerpt.label },
     excerpt?.type === 'pdf' && { of: 'excerpt', format: 'DOCX', label: excerpt.label },
     whole && /\.pdf$/i.test(filename) && { of: 'original', format: 'DOCX', label: 'Download as Word' },
     whole && /\.docx$/i.test(filename) && { of: 'original', format: 'PDF', label: 'Download as PDF' },

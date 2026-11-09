@@ -51,10 +51,6 @@ final class ShareComposerView: NSView {
     var isDocumentLoading = true
     var isPDFLoading = false
     var loadedPDFDocument: PDFDocument?
-    var onReviewPDFExcerpt: ((SharePDFExcerpt) -> Void)?
-    var reviewedPDFDocument: PDFDocument?
-    var isPDFExcerptLoading = false
-    var pdfExcerptError: String?
     /// A deck's slides as pictures: every slide, for the whole deck and its
     /// mark-up, and the cited slide alone. Their slide menu sits above them.
     private(set) var slideDecks: (all: SlideDeckDocument, cited: SlideDeckDocument?)?
@@ -75,8 +71,6 @@ final class ShareComposerView: NSView {
         didSet { if masks != oldValue { clearCopyConfirmation() } }
     }
     var history = ShareMaskHistory()
-    /// Each passage or area chosen as a PDF's cited part, for ⌘Z.
-    var excerptHistory = ShareEditHistory<SharePDFExcerpt?>()
     var markup = ShareMarkupSession() {
         didSet {
             pdfView.draftMark = markup.draft
@@ -110,9 +104,6 @@ final class ShareComposerView: NSView {
     var pdfSelectionMode: ShareInteractivePDFView.SelectionMode = .text {
         didSet { if oldValue != pdfSelectionMode { pdfView.cancelInteraction() } }
     }
-    var pdfExcerpt: SharePDFExcerpt?
-    var isChoosingPDFExcerpt = true
-    var initializedPDFExcerpt = false
     var pdfMaskLayoutKey = ""
     var pdfSourceDestination: PDFDestination?
     lazy var pdfView: ShareInteractivePDFView = {
@@ -226,9 +217,6 @@ final class ShareComposerView: NSView {
         guard !isCopying else { return false }
         if scope == .redacted { return !masks.isEmpty }
         if scope == .marked { return !markup.marks.isEmpty && markupDocument != nil }
-        if scope == .indexed && isPDFSource {
-            return pdfExcerpt != nil && reviewedPDFDocument != nil && !isPDFExcerptLoading
-        }
         return true
     }
 
@@ -274,7 +262,8 @@ final class ShareComposerView: NSView {
         pdfView.cancelInteraction()
         self.label = label
         self.filename = filename.isEmpty ? "Indexed source" : filename
-        scope = .indexed
+        // Writing has no cited part to start on, so it opens on the whole document.
+        scope = sourceKind == .writing ? .document : .indexed
         localOnly = true
         copyState = .idle
         effect = .blur
@@ -282,7 +271,6 @@ final class ShareComposerView: NSView {
         modelDrag = nil
         masks.removeAll()
         history.clear()
-        excerptHistory.clear()
         gestureMasks = nil
         markup = ShareMarkupSession()
         markupPages = nil
@@ -307,13 +295,7 @@ final class ShareComposerView: NSView {
         loadedPDFDocument = nil
         pdfView.document = nil
         pdfView.isHidden = true
-        reviewedPDFDocument = nil
-        isPDFExcerptLoading = false
-        pdfExcerptError = nil
-        pdfExcerpt = nil
         pdfSelectionMode = .text
-        isChoosingPDFExcerpt = true
-        initializedPDFExcerpt = false
         pdfMaskLayoutKey = ""
         pdfSourceDestination = nil
         sheetIndex = 0

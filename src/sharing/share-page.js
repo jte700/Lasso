@@ -6,6 +6,7 @@ import { recipientExcerptText, shareDownloadOptions } from './share-download.js'
 import { shareConversions } from './share-conversion.js';
 import { MARKDOWN_STYLE, isMarkdownPath, markdownBlockHtml, markdownInlineHtml } from './markdown.js';
 import { isPresentationPath } from '../dependencies/presentation-extraction.js';
+import { RECIPIENT_FAVICON, RECIPIENT_STYLE } from './share-page-style.js';
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (character) => (
@@ -48,7 +49,7 @@ const STYLE = `
     border-radius:10px;font-size:11px}th,td{padding:7px 9px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
   th:last-child,td:last-child{border-right:0}tr:last-child td{border-bottom:0}th{color:var(--text3);font-weight:650}
   td.cited{background:color-mix(in srgb,var(--cited) 2.5%,var(--paper));box-shadow:inset 0 0 0 .8px color-mix(in srgb,var(--cited) 65%,transparent);font-weight:500}:is(.inspector-preview,.shared-recipient .shared-context-table) .row-number.cited{color:var(--cited);background:color-mix(in srgb,var(--cited) 14%,var(--paper));font-weight:600}.inspector-preview thead th.cited{color:var(--cited);background:color-mix(in srgb,var(--cited) 14%,var(--paper));font-weight:600}:is(.inspector-preview,.shared-recipient .shared-context-table) td.on-path{background:color-mix(in srgb,var(--cited) 14%,var(--paper))}
-  .notice{margin-top:20px;color:var(--text3);font-size:11px}.unavailable{color:var(--red)}
+  .notice{margin-top:20px;color:var(--text3);font-size:11px}
   .privacy-preview{display:flex;flex-wrap:wrap;gap:5px;margin-top:16px;padding:13px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
   .privacy-block{padding:3px 5px;border-radius:5px;background:var(--paper);font-size:11px}
   .redaction{display:inline-flex;width:80px;max-width:100%;height:1.1em;vertical-align:middle;border-radius:2px;user-select:none}
@@ -74,79 +75,52 @@ const STYLE = `
   .source-lines{display:table;min-width:100%;margin:0;padding:8px 0;font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}.source-line{display:table-row}.source-line.cited{background:color-mix(in srgb,var(--cited) 14%,var(--paper));box-shadow:inset 2.5px 0 0 var(--cited)}.line-number{display:table-cell;position:sticky;left:0;padding:0 10px;color:var(--text3);background:var(--paper);text-align:right;user-select:none}.line-content{display:table-cell;padding:0 10px;white-space:pre}.source-document-text{padding:16px;font:13px/1.7 Georgia,serif;white-space:pre-wrap;overflow-wrap:anywhere}.source-pdf{display:block;flex:1;width:100%;min-height:0;border:0;background:var(--paper)}.source-image{display:block;max-width:100%;height:auto;margin:auto}.source-video{display:block;flex:0 0 auto;width:100%;max-height:62%;background:#000}.source-transcript .line-content{white-space:pre-wrap}.preview-unavailable{padding:18px;color:var(--text2);font-size:12px;line-height:1.6}
   .slide-picture{display:grid;place-items:center;padding:10px;background:color-mix(in srgb,var(--text) 6%,var(--paper))}.cited-slide{position:relative;width:100%;max-height:100%;margin:0;border-radius:6px;overflow:hidden;background:color-mix(in srgb,var(--text) 10%,var(--paper));box-shadow:0 1px 3px rgba(0,0,0,.14)}.cited-slide img{position:relative;z-index:1;display:block;width:100%;height:100%;object-fit:contain}.cited-slide figcaption{position:absolute;inset:0;display:grid;place-items:center;color:var(--text2);font-size:12px}
   .inspector-spatial .preview-model{display:flex;flex-direction:column}.inspector-spatial .preview-model>.model-plan{display:flex;flex:1 0 auto;min-width:0;min-height:0;flex-direction:column}.inspector-spatial .preview-model .model-plan-head,.inspector-spatial .preview-model .model-plan-foot{flex:0 0 auto}.inspector-spatial .preview-model .model-plan-svg{flex:1 1 80px;height:80px;min-height:80px}.inspector-spatial .preview-image{display:flex}.inspector-spatial .preview-image .source-image{width:100%;height:100%;min-height:0;object-fit:contain}
-  .inspector-toolbar{display:flex;min-width:0;min-height:42px;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 12px;border-top:1px solid var(--line);background:color-mix(in srgb,var(--surface) 50%,transparent)}.inspector-toolbar button{display:flex;flex:0 0 auto;height:28px;align-items:center;gap:5px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:color-mix(in srgb,var(--paper) 65%,transparent);color:var(--text);font:500 11px -apple-system,BlinkMacSystemFont,system-ui,sans-serif;cursor:default;-webkit-user-select:none;user-select:none}.inspector-toolbar button:hover{background:color-mix(in srgb,var(--text) 7%,var(--paper))}.inspector-toolbar button svg{width:12px;height:12px;fill:none;stroke:var(--text2);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.inspector-toolbar,.source-summary,.preview-heading,.inspector-details dt{-webkit-user-select:none;user-select:none}.inspector-toolbar kbd{padding:1px 4px;border:1px solid var(--line);border-radius:3px;color:var(--text3);font:10px -apple-system,BlinkMacSystemFont,system-ui,sans-serif}.inspector-toolbar .destructive{margin-left:auto}button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .inspector-toolbar{display:flex;min-width:0;min-height:42px;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 12px;border-top:1px solid var(--line);background:color-mix(in srgb,var(--surface) 50%,transparent)}.inspector-toolbar button{display:flex;flex:0 0 auto;height:28px;align-items:center;gap:5px;padding:0 11px;border:1px solid var(--line);border-radius:14px;background:color-mix(in srgb,var(--paper) 65%,transparent);color:var(--text);font:500 11px -apple-system,BlinkMacSystemFont,system-ui,sans-serif;cursor:default;-webkit-user-select:none;user-select:none}.inspector-toolbar button:hover{background:color-mix(in srgb,var(--text) 7%,var(--paper))}.inspector-toolbar button svg{width:12px;height:12px;fill:none;stroke:var(--text2);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.inspector-toolbar,.source-summary,.preview-heading,.inspector-details dt{-webkit-user-select:none;user-select:none}.inspector-toolbar kbd{padding:1px 4px;border:1px solid var(--line);border-radius:3px;color:var(--text3);font:10px -apple-system,BlinkMacSystemFont,system-ui,sans-serif}.inspector-toolbar .destructive{margin-left:auto}button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
-`;
-
-// Recipient styles are scoped so the native inspector keeps its own sizing and
-// persistent toolbar. Both views use Lasso's system font, surfaces and blue selection.
-const RECIPIENT_STYLE = `
-  body.shared-recipient{--canvas:#ececef;--paper:#fff;--surface:#f1f1f4;--toolbar:#f8f8fa;
-    --text:rgba(24,24,27,.94);--text2:rgba(60,60,67,.72);--text3:rgba(60,60,67,.62);--line:rgba(60,60,67,.16);
-    min-width:0;min-height:100vh;padding:28px 24px 40px;background:var(--canvas);font-size:13px;line-height:1.5}
-  @media(prefers-color-scheme:dark){body.shared-recipient{--canvas:#151517;--paper:#202023;--surface:#29292d;--toolbar:#27272a;
-    --text:rgba(255,255,255,.92);--text2:rgba(235,235,245,.64);--text3:rgba(235,235,245,.56);--line:rgba(255,255,255,.095)}}
-  .shared-unavailable{padding-top:24px}
-  .shared-recipient main{max-width:1080px;min-width:0}.shared-window{min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:12px;background:var(--paper);box-shadow:0 12px 35px rgba(0,0,0,.07)}
-  .shared-toolbar{display:flex;min-height:55px;align-items:center;justify-content:space-between;gap:16px;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--toolbar)}
-  .shared-brand{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:650;letter-spacing:-.01em}.shared-brand svg{width:21px;height:21px;color:var(--text2)}
-  .shared-recipient :is(.shared-brand,.shared-toolbar-label,.shared-source-icon,.shared-scope,.action) svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}.shared-toolbar-label{display:flex;align-items:center;gap:6px;color:var(--text2);font-size:11px}.shared-toolbar-label svg{width:13px;height:13px}
-  .shared-source{display:flex;min-width:0;align-items:flex-start;justify-content:space-between;gap:20px;padding:24px 24px 20px}.shared-source-identity{display:grid;min-width:0;grid-template-columns:38px minmax(0,1fr);gap:12px;align-items:start}
-  .shared-source-icon{display:grid;width:38px;height:42px;place-items:center;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text2)}.shared-source-icon svg{width:22px;height:25px}.shared-source-icon.file-type{border:0;background:none}.shared-source-icon.file-type svg{width:34px;height:40px;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.2))}
-  .shared-file-type{margin:0 0 4px;color:var(--text3);font-size:11px;font-weight:500}.shared-recipient h1{margin:0;color:var(--text);font-size:20px;line-height:1.3;font-weight:650;letter-spacing:-.025em;overflow-wrap:anywhere}
-  .shared-file-name{margin:5px 0 0;color:var(--text2);font-size:12px;overflow-wrap:anywhere}.shared-scope{display:inline-flex;max-width:100%;flex:0 0 auto;align-items:center;gap:5px;margin-top:1px;padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--text2);font-size:11px;line-height:1.4}.shared-scope svg{width:13px;height:13px;flex:0 0 auto}
-  .shared-content{min-width:0;padding:0 24px 24px}.shared-content-card{min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
-  .shared-content-heading{display:flex;min-width:0;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--surface)}.shared-content-heading h2{margin:0;font-size:12px;font-weight:600}.shared-content-heading p{min-width:0;margin:2px 0 0;color:var(--text2);font-size:11px;overflow-wrap:anywhere}.shared-content-heading small{flex:0 0 auto;color:var(--text3);font-size:10px}
-  .shared-recipient .shared-context-table{max-height:560px;max-height:min(65vh,560px);min-height:0;max-width:100%;margin:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;border:0;border-radius:0}
-  .shared-recipient .shared-context-table table{width:max-content;min-width:100%;margin:0;border:0;border-radius:0;font-size:12px}.shared-recipient .shared-context-table th,.shared-recipient .shared-context-table td{min-width:94px;max-width:300px;padding:8px 10px;white-space:pre-wrap;overflow-wrap:anywhere;vertical-align:top;line-height:1.45}
-  .shared-recipient .shared-context-table thead th{position:sticky;top:0;z-index:2;background:var(--surface);color:var(--text2);font-size:11px;font-weight:600}.shared-recipient .shared-context-table .column-letter{display:block;margin-bottom:3px;color:var(--text3);font-size:10px;font-weight:500}.shared-recipient .shared-passage{color:var(--text2)}.shared-claim{margin:0 24px 18px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--text) 3%,var(--surface))}.shared-claim-label{margin:0 0 6px;color:var(--text3);font-size:11px;font-weight:600;letter-spacing:.02em;text-transform:uppercase}.shared-claim blockquote{margin:0;color:var(--text);font-size:15px;line-height:1.55;font-weight:500}.shared-claim blockquote::before{content:"“"}.shared-claim blockquote::after{content:"”"}.shared-claim-check{display:flex;align-items:center;gap:6px;margin:10px 0 0;color:var(--text3);font-size:12px}.shared-claim-check.verified{color:var(--text2)}.shared-claim-check svg{flex:none;width:14px;height:14px;fill:none;stroke:var(--cited);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.shared-recipient mark.shared-cited{padding:1px 2px;border-radius:3px;background:color-mix(in srgb,var(--cited) 18%,transparent);box-shadow:inset 0 -1.5px 0 var(--cited);color:var(--text);font-weight:500}.shared-recipient .shared-context-table .selected-column{color:var(--cited);background:color-mix(in srgb,var(--cited) 14%,var(--surface))}
-  .shared-recipient .shared-context-table .row-number{position:sticky;left:0;z-index:1;min-width:37px;width:37px;max-width:37px;padding:8px 9px;text-align:right;background:var(--paper);color:var(--text3);font-size:10px;font-weight:400;white-space:nowrap;user-select:none}.shared-recipient .shared-context-table thead .row-number{z-index:3;background:var(--surface)}
-  .shared-recipient td.cited{background:color-mix(in srgb,var(--cited) 2.5%,var(--paper));box-shadow:inset 0 0 0 .8px color-mix(in srgb,var(--cited) 65%,transparent);font-weight:500}.shared-selection-key{display:flex;align-items:center;gap:6px;margin:0;padding:8px 12px;border-top:1px solid var(--line);color:var(--text3);font-size:10px}.shared-selection-key i{width:9px;height:9px;border:.8px solid color-mix(in srgb,var(--cited) 65%,transparent);border-radius:2px;background:color-mix(in srgb,var(--cited) 2.5%,var(--paper))}
-  .shared-recipient .full-document{margin:0;padding:12px;min-width:0}.shared-recipient .full-document section+section{margin-top:16px}.shared-recipient .full-document h2{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--text2)}.shared-recipient .full-document .document-table{max-height:560px;margin:0;border-radius:6px}.shared-recipient .full-document table{font-size:12px}.shared-recipient .document-table th{min-width:94px;padding:7px 10px;font-size:10px}.shared-recipient .document-table .row-number{position:sticky;left:0;z-index:1;min-width:37px;max-width:37px;padding:8px;text-align:right;background:var(--paper);font-size:10px;font-weight:400}.shared-recipient .document-table thead .row-number{z-index:3;background:var(--surface)}.shared-recipient .full-document td{padding:8px 10px}.shared-recipient .full-document.document-text{gap:0;padding:18px 20px}.shared-recipient .full-document .document-block{padding:9px 0;border:0;background:transparent;line-height:1.65}.shared-recipient .full-document.document-lines .document-block{padding:1px 0;line-height:1.5}.shared-recipient .drawing-document{padding:0}.shared-recipient .drawing-document .model-plan{border:0;border-radius:0}.shared-recipient .drawing-document .model-plan-svg{height:min(65vh,580px);min-height:260px}
-  .shared-recipient .full-document.markdown-document{padding:18px 22px;font-size:13.5px;line-height:1.65}.shared-quote .markdown-document{white-space:normal}.shared-quote .md-paragraph{margin:0}.md-redacted{padding:6px 0}.md-redacted .redaction{width:min(100%,260px)}
-  .shared-quote{margin:0;padding:20px;color:var(--text);font-size:14px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}.shared-empty{margin:0;padding:20px;color:var(--text2);font-size:12px;line-height:1.6}
-  .shared-pdf{display:block;width:100%;height:720px;height:min(75vh,900px);min-height:320px;border:0;background:var(--surface)}
-  .shared-downloads{display:flex;min-width:0;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-top:16px}.shared-downloads p{flex:1;min-width:150px;margin:0;color:var(--text2);font-size:11px}.shared-recipient .actions{gap:8px;margin:0}.shared-recipient a.action{gap:6px;min-height:32px;padding:6px 10px;border-radius:6px;background:var(--surface);font-size:11px;font-weight:550;line-height:1.4}.shared-downloads a.action small{font-size:10px;font-weight:500;opacity:.8}.shared-recipient a.action svg{width:14px;height:14px;flex:0 0 auto;color:var(--text2)}.shared-recipient a.action.primary{background:color-mix(in srgb,var(--text) 9%,var(--surface));color:var(--text);font-weight:650}.shared-recipient a.action.primary:hover{background:color-mix(in srgb,var(--text) 13%,var(--surface))}.shared-recipient a.action:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-  .shared-provenance{display:flex;min-width:0;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0;padding:12px 24px;border-top:1px solid var(--line);background:var(--toolbar);color:var(--text3);font-size:10px}.shared-provenance p{margin:0}.shared-recipient .notice{margin:14px 3px 0;color:var(--text3);font-size:11px;line-height:1.6}.shared-recipient .privacy-preview{margin:0;padding:20px;border:0;border-radius:0}
-  @media(max-width:640px){body.shared-recipient{padding:12px 10px 24px}.shared-toolbar{padding:10px 14px}.shared-source{gap:12px;padding:19px 14px 16px;flex-direction:column}.shared-source-identity{grid-template-columns:32px minmax(0,1fr);gap:10px}.shared-source-icon{width:32px;height:37px}.shared-recipient h1{font-size:18px}.shared-scope{margin-left:42px}.shared-content{padding:0 14px 18px}.shared-content-heading{align-items:flex-start}.shared-content-heading small{max-width:90px;text-align:right}.shared-downloads{align-items:stretch}.shared-downloads p{flex-basis:100%}.shared-recipient .actions{width:100%;flex-wrap:wrap}.shared-recipient a.action{justify-content:center;flex:1 1 auto;min-height:36px}.shared-provenance{padding:12px 14px;gap:5px}.shared-recipient .shared-context-table{max-height:55vh}.shared-recipient .full-document.document-text{padding:12px 15px}}
-  @media(prefers-reduced-motion:reduce){.shared-recipient *{scroll-behavior:auto!important}}
 `;
 
 function page(title, body, bodyClass = '') {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">${bodyClass === 'shared-recipient' ? `<link rel="icon" href="${RECIPIENT_FAVICON}">` : ''}
 <title>${escapeHtml(title)}</title><style>${STYLE}${MARKDOWN_STYLE}${CODE_SYNTAX_STYLE}${bodyClass === 'shared-recipient' ? RECIPIENT_STYLE : ''}</style></head>
 <body class="${escapeHtml(bodyClass)}"><main>${body}</main></body></html>`;
 }
 
-/// Distinct wording per state, with no hint that other tokens exist.
+/** The bar across every recipient page: Lasso's name, what the page is, and the downloads if there are any. */
+function recipientToolbar({ label = 'Shared source', actions = '' } = {}) {
+  return `<header class="shared-toolbar"><div class="shared-brand">${icon('lasso')}<span>Lasso</span>${label ? `<span class="shared-toolbar-label">${label}</span>` : ''}</div>${actions}</header>`;
+}
+
+/** A page with one thing to say: why a link shows nothing, or where Lasso is. */
+function messagePage(title, heading, message, label) {
+  return page(title, `
+    ${recipientToolbar({ label })}
+    <section class="shared-state"><span class="shared-state-mark">${icon('lasso')}</span><h1>${escapeHtml(heading)}</h1><p>${escapeHtml(message)}</p></section>
+  `, 'shared-recipient');
+}
+
 /**
  * What a Mac browser sees at the server's own address. Lasso lives in the
  * menu bar there; the old browser workbench is kept only for the Windows app.
  */
 export function renderMenuBarHome() {
-  return page('Lasso', `
-    <article class="shared-window"><header class="shared-toolbar"><div class="shared-brand">${icon('lasso')}<span>Lasso</span></div></header>
-    <section class="shared-content shared-unavailable"><h1>Lasso runs from the menu bar</h1>
-      <p>Suggestions appear while you type in any app. Open The Ranch from the menu bar, or press Shift-Command-R, to see your sources.</p></section></article>
-  `, 'shared-recipient');
+  return messagePage('Lasso', 'Lasso runs from the menu bar',
+    'Suggestions appear while you type in any app. Open The Ranch from the menu bar, or press Shift-Command-R, to see your sources.', '');
 }
 
+/// Distinct wording per state, with no hint that other tokens exist.
 export function renderUnavailable(status) {
   const message = {
-    REVOKED: 'This dependency link has been revoked.',
-    EXPIRED: 'This dependency link has expired.',
-    SOURCE_MISSING: 'The source for this dependency is no longer available.',
+    REVOKED: 'This link has been revoked by the person who shared it.',
+    EXPIRED: 'This link has expired. Ask the person who shared it for a new one.',
+    SOURCE_MISSING: 'The source for this link is no longer available.',
     SCOPE_RESTRICTED: 'This link does not permit downloading the original document.',
     EXCERPT_UNAVAILABLE: 'An excerpt could not be generated for this source.',
     CONVERSION_UNAVAILABLE: 'This link does not offer a download in that format.',
     CONVERSION_FAILED: 'The download could not be converted to that format. Try the original format instead.',
-  }[status] ?? 'This dependency link is invalid or no longer available.';
-  return page('Shared source unavailable · Lasso', `
-    <article class="shared-window"><header class="shared-toolbar"><div class="shared-brand">${icon('lasso')}<span>Lasso</span></div><span class="shared-toolbar-label">Shared source</span></header>
-    <section class="shared-content shared-unavailable"><h1>Source unavailable</h1><p class="unavailable">${escapeHtml(message)}</p></section></article>
-  `, 'shared-recipient');
+  }[status] ?? 'This link is invalid or no longer available.';
+  return messagePage('Shared source unavailable · Lasso', 'Source unavailable', message);
 }
 
 function shareScopeName(scope) {
@@ -324,6 +298,11 @@ function recipientTable(preview) {
     </table></div>${preview.rows.some(row => row.cells.some(cell => cell.cited)) ? '<p class="shared-selection-key"><i aria-hidden="true"></i>Highlighted cells are the shared selection.</p>' : ''}`;
 }
 
+/** A cited slide as the picture of it the recipient was sent. */
+function sharedSlidePicture(base, document) {
+  return `<figure class="shared-slide"><img src="${base}/slide" alt="${escapeHtml(document.location)}"></figure>`;
+}
+
 export function renderSharePage(resolved, token, preview, document = null) {
   const { source, share } = resolved;
   const scope = share.accessScope ?? 'DOCUMENT';
@@ -343,14 +322,16 @@ export function renderSharePage(resolved, token, preview, document = null) {
   const deck = isPresentationPath(source.filename);
   const type = table ? 'Spreadsheet' : drawing ? 'Design drawing' : model ? 'CAD model' : deck ? 'Presentation' : 'Document';
   const excerpt = pdfExcerpt || scope === 'MARKED' ? '' : recipientExcerptText(source);
+  const base = `/d/${encodeURIComponent(token)}`;
   const content = hasTable ? recipientTable(preview)
+    : Buffer.isBuffer(document?.picture) && scope === 'INDEXED' ? sharedSlidePicture(base, document)
     : hasDocument ? renderFullDocument(document, redactions, redacted)
       : preview?.kind === 'passage' && scope === 'INDEXED' ? sharedPassage(preview.paragraph, excerpt)
       : scope === 'MARKED' ? '<p class="shared-empty">The marked copy couldn’t be prepared. Ask the sender for a new link.</p>'
       : excerpt ? isMarkdownPath(source.filename)
         ? `<blockquote class="shared-quote"><div class="markdown-document"><p class="md-paragraph">${markdownInlineHtml(excerpt)}</p></div></blockquote>`
         : `<blockquote class="shared-quote">${escapeHtml(excerpt)}</blockquote>`
-        : '<p class="shared-empty">An inline excerpt is unavailable for this source. The sharing options below show what you can download.</p>';
+        : '<p class="shared-empty">An inline excerpt is unavailable for this source.</p>';
   const heading = redacted ? 'Redacted document' : marked ? 'Marked-up copy' : deck && scope === 'INDEXED' ? 'Shared slide'
     : scope === 'INDEXED' ? 'Shared excerpt' : deck ? 'Slides' : 'Source preview';
   const location = !redacted && (document?.safe || document?.citedSlide) && document.location ? document.location
@@ -362,47 +343,45 @@ export function renderSharePage(resolved, token, preview, document = null) {
         : model && document?.kind === 'model-plan' ? escapeHtml(document.view ?? '')
           : deck && scope === 'DOCUMENT' && document?.styles ? `${document.styles.filter((style) => style.type === 'heading').length} slides` : '';
   const options = shareDownloadOptions(resolved, preview, document);
-  const base = `/d/${encodeURIComponent(token)}`;
   const originalType = String(source.filename ?? '').match(/\.([a-z\d]{1,10})$/i)?.[1].toUpperCase() || 'File';
   // Each other format sits beside the download it is made from.
   const conversions = shareConversions(resolved, preview, document);
   const converted = (of) => conversions.filter((entry) => entry.of === of).map(({ format, label }) =>
     `<a class="action" href="${base}/${of === 'excerpt' ? 'excerpt' : 'download'}?as=${format.toLowerCase()}" download>${icon('download')}<span>${escapeHtml(label)}</span><small>${format}</small></a>`);
+  // A whole document share leads with the file itself. Otherwise the excerpt is what was shared.
+  const whole = scope === 'DOCUMENT';
   const actions = [
-    options ? `<a class="action primary" href="${base}/excerpt" download>${icon('download')}<span>${options.label}</span><small>${options.format}</small></a>` : '',
-    ...(options ? converted('excerpt') : []),
-    scope === 'DOCUMENT' ? `<a class="action${options ? '' : ' primary'}" href="${base}/download" download>${icon('download')}<span>Download original</span><small>${escapeHtml(originalType)}</small></a>` : '',
+    whole ? `<a class="action primary" href="${base}/download" download>${icon('download')}<span>Download original</span><small>${escapeHtml(originalType)}</small></a>` : '',
     ...converted('original'),
+    options ? `<a class="action${whole ? '' : ' primary'}" href="${base}/excerpt" download>${icon('download')}<span>${options.label}</span><small>${options.format}</small></a>` : '',
+    ...(options ? converted('excerpt') : []),
   ].filter(Boolean).join('');
-  const downloadDetail = options?.format === 'ZIP' ? 'All worksheets are included as separate CSV files.'
+  const downloadNote = options?.format === 'ZIP' ? 'All worksheets are included as separate CSV files.'
     : redacted ? 'The downloaded copy includes these redactions.'
-      : marked ? 'The downloaded copy includes these markings.'
-      : options?.type === 'slide' ? 'Download this slide as a presentation of its own, or as a picture.'
-        : options ? 'Download the excerpt shown above.' : scope === 'DOCUMENT' ? 'Download the complete source file.' : '';
+      : marked ? 'The downloaded copy includes these markings.' : '';
   const scopeLabel = scope === 'INDEXED' ? (deck ? 'Cited slide only' : 'Cited part only') : redacted ? 'Redacted copy'
     : scope === 'MARKED' ? 'Marked-up copy' : 'Entire document';
   const notice = scope === 'DOCUMENT' ? 'This link includes the original document shared with you.'
-    : scope === 'INDEXED' && deck ? 'Only this slide is shared. The rest of the presentation, its speaker notes and comments are not included.'
+    : scope === 'INDEXED' && deck ? 'Only a picture of this slide is shared. The rest of the presentation, its speaker notes and comments are not included.'
     : scope === 'INDEXED' ? 'Only the excerpt shown here is shared. The original document is not included.'
       : scope === 'MARKED' ? 'This is a copy of the document with markings drawn on it. The original file is not included.'
       : 'Marked content has been removed from this view and its downloads. The original document is not included.';
 
+  // Tables, drawings and files use the page's full width. Prose reads better narrower.
+  const wide = table || drawing || model || deck || ['pdf', 'model-plan'].includes(document?.kind);
+
   return page(`${title} · Lasso`, `
-    <article class="shared-window">
-      <header class="shared-toolbar"><div class="shared-brand">${icon('lasso')}<span>Lasso</span></div><span class="shared-toolbar-label">${icon('link')}Shared source</span></header>
-      <section class="shared-source">
-        <div class="shared-source-identity"><span class="shared-source-icon file-type">${fileTypeIcon(source.filename)}</span>
-          <div><p class="shared-file-type">${type}</p><h1>${escapeHtml(title)}</h1>${title !== source.filename ? `<p class="shared-file-name">${escapeHtml(source.filename)}</p>` : ''}</div></div>
-        <span class="shared-scope" title="${escapeHtml(shareScopeName(scope))}">${icon('lock')}${scopeLabel}</span>
-      </section>
+    ${recipientToolbar({ actions: actions ? `<nav class="actions" aria-label="Download shared content">${actions}</nav>` : '' })}
+    <article class="shared-window"${wide ? '' : ' data-width="reading"'}>
+      <section class="shared-source"><span class="shared-source-icon file-type">${fileTypeIcon(source.filename)}</span>
+        <div><h1>${escapeHtml(title)}</h1><p class="shared-file-name">${type}${title !== source.filename ? ` · ${escapeHtml(source.filename)}` : ''}</p></div></section>
+      <ul class="shared-facts"><li title="${escapeHtml(shareScopeName(scope))}">${icon('lock')}${scopeLabel}</li><li>Version ${escapeHtml(source.snapshotVersion)}</li><li>Shared ${escapeHtml(formatDate(share.createdAt))}</li></ul>
       ${citedInPanel(share.context?.citedIn, source, share, redacted)}
       <section class="shared-content">
         <div class="shared-content-card"><header class="shared-content-heading"><div><h2>${heading}</h2>${location ? `<p>${escapeHtml(location)}</p>` : ''}</div>${stats ? `<small>${stats}</small>` : ''}</header>${content}</div>
-        ${actions ? `<div class="shared-downloads"><p>${downloadDetail}</p><nav class="actions" aria-label="Download shared content">${actions}</nav></div>` : ''}
       </section>
-      <footer class="shared-provenance"><p>Version ${escapeHtml(source.snapshotVersion)}</p><p>Shared ${escapeHtml(formatDate(share.createdAt))}</p></footer>
+      <p class="notice">${[notice, downloadNote, 'This view stays at this version, even if the source changes later.'].filter(Boolean).join(' ')}</p>
     </article>
-    <p class="notice">${notice} This view stays at Version ${escapeHtml(source.snapshotVersion)}, even if the source changes later.</p>
   `, 'shared-recipient');
 }
 

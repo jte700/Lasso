@@ -24,9 +24,8 @@ export function shareDownloadOptions(resolved, preview, document) {
   let type, format;
   if (document?.kind === 'pdf' && document.safe === true && Buffer.isBuffer(document.content)) {
     type = 'pdf'; format = 'PDF';
-  } else if (resolved.share.accessScope === 'INDEXED' && document?.citedSlide === true && typeof document.slideFile === 'function') {
-    // The one slide as a deck of its own, opened in PowerPoint or Keynote as it looks.
-    return { type: 'slide', format: 'PPTX', label: 'Download slide' };
+  } else if (resolved.share.accessScope === 'INDEXED' && document?.citedSlide === true && Buffer.isBuffer(document.picture)) {
+    return { type: 'slide', format: 'JPEG', label: 'Download slide' };
   } else if (redacted) {
     if (document?.kind === 'table' && document.sheets?.length) {
       type = 'sheets'; format = document.sheets.length > 1 ? 'ZIP' : 'CSV';
@@ -82,8 +81,7 @@ export function buildShareDownload(resolved, preview, document) {
   if (options.type === 'pdf') {
     content = document.content;
   } else if (options.type === 'slide') {
-    content = document.slideFile();
-    if (!content) return null;
+    content = document.picture;
   } else if (options.type === 'table') {
     content = csv([preview.headers, ...preview.rows.map(row => row.cells.map(cell => cell.value))]);
   } else if (options.type === 'sheets') {
@@ -112,7 +110,8 @@ export function buildShareDownload(resolved, preview, document) {
   }
   const version = Number.isSafeInteger(resolved.source.snapshotVersion) ? `-v${resolved.source.snapshotVersion}` : '';
   const suffix = resolved.share.accessScope === 'REDACTED' ? 'redacted' : resolved.share.accessScope === 'MARKED' ? 'marked' : options.type === 'slide' ? `slide-${document.slide}` : 'excerpt';
-  const contentType = { PPTX: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', PDF: 'application/pdf', CSV: 'text/csv; charset=utf-8', ZIP: 'application/zip', TXT: 'text/plain; charset=utf-8', MD: 'text/markdown; charset=utf-8', SVG: 'image/svg+xml; charset=utf-8' }[options.format];
+  const contentType = { JPEG: 'image/jpeg', PDF: 'application/pdf', CSV: 'text/csv; charset=utf-8', ZIP: 'application/zip', TXT: 'text/plain; charset=utf-8', MD: 'text/markdown; charset=utf-8', SVG: 'image/svg+xml; charset=utf-8' }[options.format];
+  const extension = options.format === 'JPEG' ? 'jpg' : options.format.toLowerCase();
   return { ...options, content, contentType,
-    filename: `${safeStem(resolved.source.filename)}-${suffix}${version}.${options.format.toLowerCase()}` };
+    filename: `${safeStem(resolved.source.filename)}-${suffix}${version}.${extension}` };
 }
