@@ -18,6 +18,19 @@ private final class InspectorCloseButton: NSButton {
     override var mouseDownCanMoveWindow: Bool { false }
 }
 
+/// The inspector's title strip. The page under it takes every click, so the
+/// window's own background never sees a drag; this strip moves the window
+/// instead, and passes scrolling on to the page.
+private final class InspectorDragStrip: NSView {
+    weak var page: NSView?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var mouseDownCanMoveWindow: Bool { true }
+    override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+    override func scrollWheel(with event: NSEvent) { page?.scrollWheel(with: event) }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
+}
+
 private final class InspectorWindow: NSPanel {
     static let cornerRadius: CGFloat = 14
 
@@ -373,6 +386,14 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
         close.setAccessibilityLabel("Close source inspector")
         close.setAccessibilityIdentifier("lasso.source-inspector.close")
         close.autoresizingMask = [.minXMargin, .minYMargin]
+        // Above the page along its title, clear of the close X.
+        let dragHeight: CGFloat = 46
+        let drag = InspectorDragStrip(frame: NSRect(x: 0, y: size.height - dragHeight,
+                                                    width: size.width - 46, height: dragHeight))
+        drag.page = web
+        drag.autoresizingMask = [.width, .minYMargin]
+        drag.setAccessibilityElement(false)
+        content.addSubview(drag)
         content.addSubview(close)
         closeButton = close
 

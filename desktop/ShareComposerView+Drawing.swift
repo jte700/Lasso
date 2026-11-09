@@ -263,14 +263,40 @@ extension ShareComposerView {
 
     private func drawButton(_ title: String, in rect: NSRect, prominent: Bool, enabled: Bool,
                             confirmed: Bool = false, showsShortcut: Bool = true) {
-        // Grey, as the suggestion card's buttons: the main action is told apart by a
-        // deeper grey and a semibold title, not by colour.
-        NSColor.labelColor.withAlphaComponent(prominent ? 0.12 : 0.07).setFill()
-        NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
-        NSColor.separatorColor.setStroke()
-        NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7).stroke()
-        let font = NSFont.systemFont(ofSize: 12, weight: prominent ? .semibold : .regular)
-        let color: NSColor = enabled ? .labelColor : .disabledControlTextColor
+        // Capsules, as the suggestion card's buttons: the main action is a white
+        // pill lifted off the glass, the other sits back in a soft grey one.
+        let height = min(rect.height, 32)
+        let pill = NSRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height)
+        let path = NSBezierPath(roundedRect: pill, xRadius: height / 2, yRadius: height / 2)
+        let increaseContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        let color: NSColor
+        if prominent {
+            NSGraphicsContext.saveGraphicsState()
+            if enabled {
+                let shadow = NSShadow()
+                shadow.shadowColor = NSColor.black.withAlphaComponent(0.18)
+                shadow.shadowBlurRadius = 3
+                shadow.shadowOffset = NSSize(width: 0, height: -1)
+                shadow.set()
+            }
+            NSColor.white.withAlphaComponent(enabled ? 1 : 0.45).setFill()
+            path.fill()
+            NSGraphicsContext.restoreGraphicsState()
+            NSColor.black.withAlphaComponent(increaseContrast ? 0.35 : 0.08).setStroke()
+            path.lineWidth = 0.5
+            path.stroke()
+            color = NSColor(white: 0.1, alpha: enabled ? 1 : 0.4)
+        } else {
+            NSColor.labelColor.withAlphaComponent(increaseContrast ? 0.16 : 0.08).setFill()
+            path.fill()
+            if increaseContrast {
+                NSColor.separatorColor.setStroke()
+                path.lineWidth = 0.5
+                path.stroke()
+            }
+            color = enabled ? .labelColor : .disabledControlTextColor
+        }
+        let font = NSFont.systemFont(ofSize: 12, weight: prominent ? .semibold : .medium)
         let titleSize = (title as NSString).size(withAttributes: [.font: font])
         let hasSymbol = prominent && showsShortcut
         let groupWidth = titleSize.width + (hasSymbol ? 22 : 0)

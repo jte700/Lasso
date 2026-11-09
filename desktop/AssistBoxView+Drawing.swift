@@ -167,30 +167,63 @@ extension AssistBoxView {
                    respectFlipped: true, hints: nil)
     }
 
-    func drawActionButton(_ title: String, symbol: String, in rect: NSRect) {
-        NSColor.controlBackgroundColor.withAlphaComponent(0.65).setFill()
-        let path = NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7)
-        path.fill()
-        NSColor.separatorColor.withAlphaComponent(0.18).setStroke()
-        path.lineWidth = 0.6
-        path.stroke()
+    /// How much a card button asks to be pressed: the main action is a white
+    /// capsule that stands out on the glass, the others sit back in it.
+    enum ActionButtonStyle { case prominent, secondary }
 
-        let font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+    /// A capsule button, as macOS draws its pill buttons, centred in `rect`.
+    func drawActionButton(_ title: String, symbol: String, in rect: NSRect, style: ActionButtonStyle = .secondary) {
+        let height: CGFloat = 30
+        let pill = NSRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height)
+        let path = NSBezierPath(roundedRect: pill, xRadius: height / 2, yRadius: height / 2)
+        let increaseContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        let titleColor: NSColor
+        let symbolColor: NSColor
+        switch style {
+        case .prominent:
+            // White in light and dark alike, lifted off the glass by a soft shadow.
+            NSGraphicsContext.current?.saveGraphicsState()
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.18)
+            shadow.shadowBlurRadius = 3
+            shadow.shadowOffset = NSSize(width: 0, height: -1)
+            shadow.set()
+            NSColor.white.setFill()
+            path.fill()
+            NSGraphicsContext.current?.restoreGraphicsState()
+            NSColor.black.withAlphaComponent(increaseContrast ? 0.35 : 0.08).setStroke()
+            path.lineWidth = 0.5
+            path.stroke()
+            titleColor = NSColor(white: 0.1, alpha: 1)
+            symbolColor = titleColor
+        case .secondary:
+            NSColor.labelColor.withAlphaComponent(increaseContrast ? 0.16 : 0.08).setFill()
+            path.fill()
+            if increaseContrast {
+                NSColor.separatorColor.setStroke()
+                path.lineWidth = 0.5
+                path.stroke()
+            }
+            titleColor = .labelColor
+            symbolColor = .secondaryLabelColor
+        }
+
+        let font = NSFont.systemFont(ofSize: 12, weight: style == .prominent ? .semibold : .medium)
         let titleWidth = ceil((title as NSString).size(withAttributes: [.font: font]).width)
-        let groupWidth = CGFloat(14 + 8) + titleWidth
-        let groupX = rect.midX - groupWidth / 2
+        let groupWidth = CGFloat(13 + 7) + titleWidth
+        let groupX = pill.midX - groupWidth / 2
         if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [.secondaryLabelColor])) {
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [symbolColor]))) {
             image.isTemplate = false
-            image.draw(in: NSRect(x: groupX, y: rect.minY + 10.5,
-                                  width: 14, height: 14),
-                       from: .zero, operation: .sourceOver, fraction: 0.68,
+            image.draw(in: NSRect(x: groupX, y: pill.midY - 6.5, width: 13, height: 13),
+                       from: .zero, operation: .sourceOver, fraction: 1,
                        respectFlipped: true, hints: nil)
         }
         drawText(title,
-                 in: NSRect(x: groupX + 22, y: rect.minY + 9.5,
+                 in: NSRect(x: groupX + 20, y: pill.midY - 8.5,
                            width: titleWidth + 2, height: 17),
-                 font: font, color: .labelColor)
+                 font: font, color: titleColor)
     }
 
     func drawMultilineText(_ value: String, in rect: NSRect, font: NSFont, color: NSColor,

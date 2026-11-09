@@ -245,7 +245,7 @@ extension AssistBoxView {
         let buttonWidth = shareable ? (rightWidth - 36 - gap) / 2 : rightWidth - 36
         drawActionButton("Open file", symbol: "arrow.up.right.square",
                          in: NSRect(x: rightX + 18, y: footerY + 6,
-                                   width: buttonWidth, height: 35))
+                                   width: buttonWidth, height: 35), style: .prominent)
         if shareable {
             drawActionButton("Share link…", symbol: "link",
                              in: NSRect(x: rightX + 18 + buttonWidth + gap, y: footerY + 6,
