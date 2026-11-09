@@ -110,18 +110,51 @@ extension AssistBoxView {
         }
     }
 
-    /// A key as a small rounded cap: a faint fill and a hairline edge, both
-    /// from the label colour so they read on glass in light and dark.
+    /// A Mac keyboard key's face, edge and the lip along its bottom, in light and dark.
+    private static let keycapFace = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor(white: 0.34, alpha: 1) : .white
+    }
+    private static let keycapLip = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor(white: 0.17, alpha: 1)
+            : NSColor(white: 0.74, alpha: 1)
+    }
+    private static let keycapEdge = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor.black.withAlphaComponent(0.45)
+            : NSColor.black.withAlphaComponent(0.12)
+    }
+
+    /// A key drawn as a Mac keyboard key: a raised face over a darker lip
+    /// along its bottom edge, a hairline outline and a faint shadow.
     private func drawKeycap(_ key: String, in rect: NSRect) {
-        let cap = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 5.5, yRadius: 5.5)
-        NSColor.labelColor.withAlphaComponent(0.07).setFill()
-        cap.fill()
-        NSColor.labelColor.withAlphaComponent(0.22).setStroke()
-        cap.lineWidth = 1
-        cap.stroke()
+        let radius: CGFloat = 5
+        let lip: CGFloat = 1.5
+        let body = rect.insetBy(dx: 0.5, dy: 0.5)
+        let bodyPath = NSBezierPath(roundedRect: body, xRadius: radius, yRadius: radius)
+
+        // The lip, with the cap's shadow beneath it.
+        NSGraphicsContext.current?.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.16)
+        shadow.shadowBlurRadius = 1.5
+        shadow.shadowOffset = NSSize(width: 0, height: -0.5)
+        shadow.set()
+        Self.keycapLip.setFill()
+        bodyPath.fill()
+        NSGraphicsContext.current?.restoreGraphicsState()
+
+        // The face sits above the lip; the view is flipped, so the lip shows at maxY.
+        let face = NSRect(x: body.minX, y: body.minY, width: body.width, height: body.height - lip)
+        Self.keycapFace.setFill()
+        NSBezierPath(roundedRect: face, xRadius: radius, yRadius: radius).fill()
+
+        let increaseContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        (increaseContrast ? NSColor.labelColor.withAlphaComponent(0.5) : Self.keycapEdge).setStroke()
+        bodyPath.lineWidth = 0.5
+        bodyPath.stroke()
+
         let font = AssistKeyHintLayout.keyFont
         let height = ceil(font.ascender - font.descender)
-        drawText(key, in: NSRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height),
+        drawText(key, in: NSRect(x: face.minX, y: face.midY - height / 2, width: face.width, height: height),
                  font: font, color: .labelColor, alignment: .center)
     }
 }
