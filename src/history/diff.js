@@ -1,53 +1,16 @@
 import path from 'node:path';
 import { hashBuffer } from './blob-store.js';
 import { isTextualType } from './file-types.js';
+import { sequenceOperations } from './sequence-diff.js';
 
 function decode(buffer) {
   return buffer?.toString('utf8').replace(/\r\n/g, '\n') ?? '';
 }
 
-function lcsOperations(beforeLines, afterLines) {
-  const n = beforeLines.length;
-  const m = afterLines.length;
-  if (n * m > 1_000_000) {
-    return [
-      ...beforeLines.map((text, index) => ({ kind: 'remove', text, beforeLine: index + 1 })),
-      ...afterLines.map((text, index) => ({ kind: 'add', text, afterLine: index + 1 })),
-    ];
-  }
-
-  const matrix = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
-  for (let i = n - 1; i >= 0; i -= 1) {
-    for (let j = m - 1; j >= 0; j -= 1) {
-      matrix[i][j] = beforeLines[i] === afterLines[j]
-        ? matrix[i + 1][j + 1] + 1
-        : Math.max(matrix[i + 1][j], matrix[i][j + 1]);
-    }
-  }
-
-  const operations = [];
-  let i = 0;
-  let j = 0;
-  while (i < n || j < m) {
-    if (i < n && j < m && beforeLines[i] === afterLines[j]) {
-      operations.push({ kind: 'equal', text: beforeLines[i], beforeLine: i + 1, afterLine: j + 1 });
-      i += 1;
-      j += 1;
-    } else if (j < m && (i === n || matrix[i][j + 1] > matrix[i + 1][j])) {
-      operations.push({ kind: 'add', text: afterLines[j], afterLine: j + 1 });
-      j += 1;
-    } else {
-      operations.push({ kind: 'remove', text: beforeLines[i], beforeLine: i + 1 });
-      i += 1;
-    }
-  }
-  return operations;
-}
-
 function lineDiff(beforeText, afterText, format = 'text') {
   const beforeLines = beforeText.split('\n');
   const afterLines = afterText.split('\n');
-  const operations = lcsOperations(beforeLines, afterLines);
+  const operations = sequenceOperations(beforeLines, afterLines);
   const added = operations.filter((item) => item.kind === 'add').length;
   const removed = operations.filter((item) => item.kind === 'remove').length;
   return { format, added, removed, operations };
@@ -106,7 +69,7 @@ function markdownBlocks(text) {
 function markdownDiff(beforeText, afterText) {
   const beforeBlocks = markdownBlocks(beforeText);
   const afterBlocks = markdownBlocks(afterText);
-  const operations = lcsOperations(
+  const operations = sequenceOperations(
     beforeBlocks.map((block) => `${block.type}\u0000${block.text}`),
     afterBlocks.map((block) => `${block.type}\u0000${block.text}`),
   ).map((operation) => {
@@ -238,26 +201,77 @@ function tableModel(text, extension) {
     const key = uniqueFirstColumn ? row[0] : `row:${index + 1}`;
     records.set(key, Object.fromEntries(headers.map((header, column) => [header || `column:${column + 1}`, row[column] ?? ''])));
   });
-  return { headers, keyColumn: uniqueFirstColumn ? headers[0] : null, records };
+  return { headers, keyColumn: uniqueFirstColumn ? headers[0] : null, rowsAreNamed: uniqueFirstColumn, records };
+}
+
+function changedCells(rowKey, beforeRow, afterRow) {
+  const columns = new Set([...Object.keys(beforeRow), ...Object.keys(afterRow)]);
+  const cells = [];
+  for (const column of columns) {
+    const oldValue = beforeRow[column] ?? '';
+    const newValue = afterRow[column] ?? '';
+    if (oldValue !== newValue) cells.push({ rowKey, column, before: oldValue, after: newValue });
+  }
+  return cells;
+}
+
+/** Rows matched by name, when the first column of both tables names every row once. */
+function namedRowChanges(before, after) {
+  return {
+    rowsAdded: [...after.records.keys()].filter((key) => !before.records.has(key)),
+    rowsRemoved: [...before.records.keys()].filter((key) => !after.records.has(key)),
+    cellsChanged: [...after.records].flatMap(([rowKey, afterRow]) => {
+      const beforeRow = before.records.get(rowKey);
+      return beforeRow ? changedCells(rowKey, beforeRow, afterRow) : [];
+    }),
+  };
+}
+
+/** The positions of the rows that have no row with the same content left in the other table. */
+function unmatchedRows(contents, otherContents) {
+  const available = new Map();
+  for (const content of otherContents) available.set(content, (available.get(content) ?? 0) + 1);
+  return contents.flatMap((content, index) => {
+    const left = available.get(content) ?? 0;
+    if (!left) return [index];
+    available.set(content, left - 1);
+    return [];
+  });
+}
+
+/**
+ * Rows matched by everything they hold, wherever they sit, for tables whose
+ * first column does not name their rows: an inserted row or a new sort order
+ * then leaves the other rows unchanged. The rows left over are paired in file
+ * order as changed rows, and any surplus is added or removed. A row is named
+ * by its own table's key, `row:N` by position.
+ */
+function unnamedRowChanges(before, after) {
+  const [beforeKeys, afterKeys] = [before, after].map((table) => [...table.records.keys()]);
+  const [beforeRows, afterRows] = [before, after].map((table) => [...table.records.values()]);
+  const columns = [...new Set([beforeRows[0], afterRows[0]].flatMap((row) => Object.keys(row ?? {})))];
+  const content = (row) => JSON.stringify(columns.map((column) => row[column] ?? ''));
+  const beforeContents = beforeRows.map(content);
+  const afterContents = afterRows.map(content);
+  const leftBefore = unmatchedRows(beforeContents, afterContents);
+  const leftAfter = unmatchedRows(afterContents, beforeContents);
+  const paired = Math.min(leftBefore.length, leftAfter.length);
+  return {
+    rowsAdded: leftAfter.slice(paired).map((index) => afterKeys[index]),
+    rowsRemoved: leftBefore.slice(paired).map((index) => beforeKeys[index]),
+    cellsChanged: leftAfter.slice(0, paired).flatMap((afterIndex, position) => changedCells(
+      afterKeys[afterIndex], beforeRows[leftBefore[position]], afterRows[afterIndex],
+    )),
+  };
 }
 
 function tableDiff(beforeText, afterText, filePath) {
   const extension = path.extname(filePath).toLowerCase();
   const before = tableModel(beforeText, extension);
   const after = tableModel(afterText, extension);
-  const rowsAdded = [...after.records.keys()].filter((key) => !before.records.has(key));
-  const rowsRemoved = [...before.records.keys()].filter((key) => !after.records.has(key));
-  const cellsChanged = [];
-  for (const [rowKey, afterRow] of after.records) {
-    const beforeRow = before.records.get(rowKey);
-    if (!beforeRow) continue;
-    const columns = new Set([...Object.keys(beforeRow), ...Object.keys(afterRow)]);
-    for (const column of columns) {
-      const oldValue = beforeRow[column] ?? '';
-      const newValue = afterRow[column] ?? '';
-      if (oldValue !== newValue) cellsChanged.push({ rowKey, column, before: oldValue, after: newValue });
-    }
-  }
+  const { rowsAdded, rowsRemoved, cellsChanged } = before.rowsAreNamed && after.rowsAreNamed
+    ? namedRowChanges(before, after)
+    : unnamedRowChanges(before, after);
   return {
     format: 'table',
     keyColumn: after.keyColumn ?? before.keyColumn,
