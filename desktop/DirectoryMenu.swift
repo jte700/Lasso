@@ -722,7 +722,7 @@ final class NativeMenuToggleRow: NSView {
             let icon = NSImageView(frame: NSRect(x: 14, y: 8, width: 16, height: 16))
             self.icon = icon
             icon.image = image
-            icon.contentTintColor = item.isEnabled ? .secondaryLabelColor : .disabledControlTextColor
+            icon.contentTintColor = title.textColor
             icon.setAccessibilityElement(false)
             addSubview(icon)
         }
@@ -861,7 +861,7 @@ final class NativeMenuToggleRow: NSView {
     private func refreshColors() {
         let lit = item.isEnabled || !progressBar.isHidden
         titleLabel.textColor = lit ? .labelColor : .disabledControlTextColor
-        icon?.contentTintColor = lit ? .secondaryLabelColor : .disabledControlTextColor
+        icon?.contentTintColor = titleLabel.textColor
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
