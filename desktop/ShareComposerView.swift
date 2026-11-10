@@ -225,11 +225,11 @@ final class ShareComposerView: NSView {
                height: bounds.height - footerHeight - 146)
     }
 
+    /// One segment of the scope control, which spans the window under its title.
     func scopeRect(_ index: Int) -> NSRect {
-        let count = CGFloat(scopes.count)
-        let width = (bounds.width - 32 - 6 * (count - 1)) / count
-        return NSRect(x: 16 + CGFloat(index) * (width + 6), y: 47,
-                      width: width, height: 48)
+        let count = CGFloat(max(1, scopes.count))
+        let width = (bounds.width - 32) / count
+        return NSRect(x: 16 + CGFloat(index) * width, y: 50, width: width, height: 28)
     }
 
     override var isFlipped: Bool { true }

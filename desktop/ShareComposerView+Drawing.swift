@@ -61,28 +61,14 @@ extension ShareComposerView {
             case .marked: return (scope, "Mark up", "Pen, marker and highlighter")
             }
         }
-        for (index, entry) in entries.enumerated() {
-            let row = scopeRect(index)
-            // The chosen scope is grey, like the card's own buttons: a faint fill and hairline edge.
-            if scope == entry.0 {
-                let card = NSBezierPath(roundedRect: row.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
-                NSColor.labelColor.withAlphaComponent(0.07).setFill()
-                card.fill()
-                NSColor.labelColor.withAlphaComponent(0.14).setStroke()
-                card.lineWidth = 0.75
-                card.stroke()
-            }
-            let radio = NSRect(x: row.minX + 10, y: row.minY + 9, width: 14, height: 14)
-            NSColor.labelColor.withAlphaComponent(scope == entry.0 ? 0.55 : 0.25).setStroke()
-            NSBezierPath(ovalIn: radio).stroke()
-            if scope == entry.0 {
-                NSColor.labelColor.withAlphaComponent(0.85).setFill()
-                NSBezierPath(ovalIn: radio.insetBy(dx: 4, dy: 4)).fill()
-            }
-            drawText(entry.1, in: NSRect(x: row.minX + 31, y: row.minY + 7, width: row.width - 40, height: 18),
-                     font: .systemFont(ofSize: 12, weight: .medium), color: .labelColor)
-            drawText(entry.2, in: NSRect(x: row.minX + 31, y: row.minY + 26, width: row.width - 40, height: 15),
-                     font: .systemFont(ofSize: 10.5), color: .secondaryLabelColor)
+        // A segmented control, as System Settings draws one across a pane, with
+        // what the chosen scope shares written under it.
+        drawSegmentedControl(entries.enumerated().map { ($0.element.1, scope == $0.element.0, scopeRect($0.offset)) },
+                             fontSize: 12.5)
+        if let chosen = entries.first(where: { $0.0 == scope }), let first = entries.indices.first {
+            let control = scopeRect(first).union(scopeRect(entries.count - 1))
+            drawText(chosen.2, in: NSRect(x: control.minX, y: control.maxY + 6, width: control.width, height: 15),
+                     font: .systemFont(ofSize: 11), color: .secondaryLabelColor, alignment: .center)
         }
     }
 
@@ -222,33 +208,55 @@ extension ShareComposerView {
                    confirmed: copyState == .copied, showsShortcut: !isCopying)
     }
 
-    /// Adjacent segments in one rounded track, like NSSegmentedControl.
-    func drawSegmentedControl(_ segments: [(title: String, selected: Bool, rect: NSRect)]) {
+    /// The raised segment of a segmented control: white in light, a lifted grey in dark.
+    private static let segmentKnob = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor(white: 0.39, alpha: 1) : .white
+    }
+
+    /// Adjacent segments in one track, like NSSegmentedControl: a capsule on
+    /// macOS 26, a rounded rectangle before it.
+    func drawSegmentedControl(_ segments: [(title: String, selected: Bool, rect: NSRect)], fontSize: CGFloat = 11) {
         guard let first = segments.first?.rect else { return }
         let track = segments.dropFirst().reduce(first) { $0.union($1.rect) }
-        NSColor.labelColor.withAlphaComponent(0.06).setFill()
-        NSBezierPath(roundedRect: track, xRadius: 6, yRadius: 6).fill()
+        let trackRadius = NativeMaterial.usesGlass ? track.height / 2 : 7
+        let inset: CGFloat = 2
+        let knobRadius = max(0, trackRadius - inset)
+        let increaseContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        NSColor.labelColor.withAlphaComponent(increaseContrast ? 0.14 : 0.07).setFill()
+        let trackPath = NSBezierPath(roundedRect: track, xRadius: trackRadius, yRadius: trackRadius)
+        trackPath.fill()
+        if increaseContrast {
+            NSColor.separatorColor.setStroke()
+            trackPath.lineWidth = 0.5
+            trackPath.stroke()
+        }
+        let font = NSFont.systemFont(ofSize: fontSize, weight: .medium)
+        let textHeight = ceil(font.ascender - font.descender)
         for (index, segment) in segments.enumerated() {
             if segment.selected {
-                let knob = segment.rect.insetBy(dx: 2, dy: 2)
-                NSColor.controlBackgroundColor.setFill()
+                let knob = segment.rect.insetBy(dx: inset, dy: inset)
+                let knobPath = NSBezierPath(roundedRect: knob, xRadius: knobRadius, yRadius: knobRadius)
                 NSGraphicsContext.saveGraphicsState()
                 let shadow = NSShadow()
-                shadow.shadowColor = NSColor.black.withAlphaComponent(0.18)
-                shadow.shadowBlurRadius = 1.5
+                shadow.shadowColor = NSColor.black.withAlphaComponent(0.2)
+                shadow.shadowBlurRadius = 2
                 shadow.shadowOffset = NSSize(width: 0, height: -0.5)
                 shadow.set()
-                NSBezierPath(roundedRect: knob, xRadius: 4.5, yRadius: 4.5).fill()
+                Self.segmentKnob.setFill()
+                knobPath.fill()
                 NSGraphicsContext.restoreGraphicsState()
+                NSColor.black.withAlphaComponent(increaseContrast ? 0.3 : 0.06).setStroke()
+                knobPath.lineWidth = 0.5
+                knobPath.stroke()
             } else if index > 0, !segments[index - 1].selected {
+                // A divider only between two unchosen segments, as AppKit draws it.
                 NSColor.separatorColor.setStroke()
-                line(from: NSPoint(x: segment.rect.minX, y: segment.rect.minY + 6),
-                     to: NSPoint(x: segment.rect.minX, y: segment.rect.maxY - 6))
+                line(from: NSPoint(x: segment.rect.minX, y: segment.rect.minY + 7),
+                     to: NSPoint(x: segment.rect.minX, y: segment.rect.maxY - 7))
             }
-            drawText(segment.title, in: NSRect(x: segment.rect.minX, y: segment.rect.minY + 4.5,
-                                               width: segment.rect.width, height: 15),
-                     font: .systemFont(ofSize: 11, weight: segment.selected ? .semibold : .regular),
-                     color: segment.selected ? .labelColor : .secondaryLabelColor, alignment: .center)
+            drawText(segment.title, in: NSRect(x: segment.rect.minX + 6, y: segment.rect.midY - textHeight / 2,
+                                               width: segment.rect.width - 12, height: textHeight),
+                     font: font, color: .labelColor, alignment: .center)
         }
     }
 
