@@ -33,7 +33,7 @@ export function withSameNamed(candidates) {
     ...sameNamed.map((other) => ({ ...other, ranking: candidate.ranking }))]);
 }
 
-const CONTEXTUAL_INSERTION_CUES = new Set([
+export const CONTEXTUAL_INSERTION_CUES = new Set([
   ...STOP_WORDS,
   'a', 'an', 'as', 'at', 'be', 'been', 'being', 'by', 'can', 'could', 'did', 'do', 'does',
   'had', 'in', 'is', 'it', 'may', 'might', 'must', 'of', 'on', 'or', 'should', 'to',

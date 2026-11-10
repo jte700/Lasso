@@ -176,6 +176,34 @@ test('a variable matched on as many words beats a file named the same in plain w
   assert.equal((await typed(app, 'Net-Income.cs')).claims[0].candidates[0].path, 'Net-Income.csv');
 });
 
+test('a file named by its own words comes before a drawing found only by its type', async t => {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-drawing-type-'));
+  const root = path.join(sandbox, 'Project');
+  fs.mkdirSync(root);
+  // A parsed building model is a "floor plan" by its format; the notes are one by name.
+  fs.writeFileSync(path.join(root, 'Haus.ifc'), `ISO-10303-21;
+HEADER;FILE_SCHEMA(('IFC4'));ENDSEC;
+DATA;
+#1=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);
+#2=IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.);
+#3=IFCUNITASSIGNMENT((#1,#2));
+#4=IFCPROJECT('project',$,'Project',$,$,$,$,$,#3);
+#5=IFCSPACE('space-guid',$,'101',$,$,$,$,'Office 101',.ELEMENT.,.INTERNAL.,$);
+#6=IFCQUANTITYAREA('NetFloorArea',$,$,12,$);
+#7=IFCELEMENTQUANTITY('quantity-guid',$,'Qto_SpaceBaseQuantities',$,$,(#6));
+#8=IFCRELDEFINESBYPROPERTIES('relation',$,$,$,(#5),#7);
+ENDSEC;END-ISO-10303-21;`);
+  fs.writeFileSync(path.join(root, 'Floor-Plan-Notes.md'), '# Floor plan notes\n\nThe kitchen moved north.\n');
+  const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
+  t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  await app.workspace.add([fs.realpathSync(root)], actor);
+  const [claim] = (await typed(app, 'Here is the floor plan')).claims;
+  assert.deepEqual(claim.candidates.map(candidate => candidate.path), ['Floor-Plan-Notes.md', 'Haus.ifc']);
+  assert.equal(claim.candidates[1].ranking.reason, 'Matching drawing type');
+  // Named by its own file name, the model is a direct match again.
+  assert.equal((await typed(app, 'Here is the Haus')).claims[0].candidates[0].path, 'Haus.ifc');
+});
+
 test('citations elsewhere in the paragraph, or a cue such as "the file", do not hide a named dataset', async t => {
   const app = await workspace(t);
   for (const text of ['Costs were reported monthly. I checked the General-Ledger.cs', 'I checked the file General-Ledger.cs',

@@ -258,6 +258,160 @@ extension AssistBoxView {
         !suggestions.indices.contains(selected) || suggestions[selected].shareable
     }
 
+    // MARK: A line's words
+
+    static let wordsHintLabel = "Choose words"
+    static let wordsHintKey = "⇧fn →"
+    static let wordsHintFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+    var wordFont: NSFont { .systemFont(ofSize: 13.5) }
+    var wordLineSpacing: CGFloat { 4 }
+
+    /// Where a highlighted line's row names the keys that open its words, at
+    /// the end of its breadcrumb, in the scrolling rows view's coordinates.
+    func wordsHintRect(row index: Int) -> NSRect {
+        let font = Self.wordsHintFont
+        let width = ceil((Self.wordsHintLabel + "  " + Self.wordsHintKey).size(withAttributes: [.font: font]).width) + 1
+        let slotY = CGFloat(index) * suggestionHeight
+        return NSRect(x: suggestionRowsRight - 12 - width, y: slotY + 47, width: width, height: 15)
+    }
+
+    /// The line's words, below its source and above the keys that choose them.
+    var wordTextRect: NSRect {
+        let top = bodyTop + navigationHeight + 34
+        return NSRect(x: 22, y: top, width: leftWidth - 44, height: footerY - 58 - top)
+    }
+
+    struct WordLayout {
+        let storage: NSTextStorage
+        let manager: NSLayoutManager
+        let container: NSTextContainer
+        /// Where the laid-out words start in the line, whose leading spaces are not shown.
+        let offset: Int
+    }
+
+    /// The line from its first word to its last, wrapped to the card, with the
+    /// words that Tab inserts in full colour.
+    func wordLayout(_ words: AssistWordChoice) -> WordLayout {
+        let first = words.words.first?.lowerBound ?? 0, last = words.words.last?.upperBound ?? 0
+        let shown = (words.text as NSString).substring(with: NSRange(location: first, length: last - first))
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineSpacing = wordLineSpacing
+        let storage = NSTextStorage(string: shown, attributes: [
+            .font: wordFont, .foregroundColor: NSColor.tertiaryLabelColor, .paragraphStyle: paragraph,
+        ])
+        if let chosen = words.chosenRange {
+            storage.addAttribute(.foregroundColor, value: NSColor.labelColor,
+                                 range: NSRange(location: chosen.lowerBound - first, length: chosen.count))
+        }
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: wordTextRect.width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        manager.addTextContainer(container)
+        storage.addLayoutManager(manager)
+        manager.ensureLayout(for: container)
+        return WordLayout(storage: storage, manager: manager, container: container, offset: first)
+    }
+
+    /// The caret between words, in the layout's own coordinates.
+    func wordCaretRect(_ words: AssistWordChoice, in layout: WordLayout) -> NSRect {
+        let length = layout.storage.length
+        guard length > 0 else { return .zero }
+        let atEnd = words.caret >= words.words.count
+        let character = atEnd ? length - 1 : min(length - 1, max(0, words.caretOffset - layout.offset))
+        let glyph = layout.manager.glyphIndexForCharacter(at: character)
+        let box = layout.manager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: layout.container)
+        let line = layout.manager.lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil)
+        let x = atEnd ? box.maxX + 1 : box.minX - 2
+        return NSRect(x: x, y: line.minY, width: 1.5, height: max(1, line.height - wordLineSpacing))
+    }
+
+    /// Keeps the caret in view as it moves through a line longer than the card shows.
+    func revealWordCaret() {
+        guard let words = wordChoice else { return }
+        let layout = wordLayout(words)
+        let area = wordTextRect
+        let caret = wordCaretRect(words, in: layout)
+        if caret.maxY - wordScroll > area.height { wordScroll = caret.maxY - area.height }
+        if caret.minY < wordScroll { wordScroll = caret.minY }
+        let height = layout.manager.usedRect(for: layout.container).height
+        wordScroll = min(max(0, wordScroll), max(0, height - area.height))
+    }
+
+    /// The word under a point in the line, or the nearest one before it.
+    func word(at point: NSPoint) -> Int? {
+        guard let words = wordChoice else { return nil }
+        let layout = wordLayout(words)
+        let area = wordTextRect
+        let inLayout = NSPoint(x: point.x - area.minX, y: min(max(point.y, area.minY), area.maxY) - area.minY + wordScroll)
+        let character = layout.manager.characterIndex(for: inLayout, in: layout.container,
+                                                      fractionOfDistanceBetweenInsertionPoints: nil) + layout.offset
+        return words.words.lastIndex { $0.lowerBound <= character } ?? 0
+    }
+
+    func scrollWords(by event: NSEvent, at point: NSPoint) -> Bool {
+        guard let words = wordChoice, wordTextRect.contains(point) else { return false }
+        let layout = wordLayout(words)
+        let height = layout.manager.usedRect(for: layout.container).height
+        let delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * 17
+        wordScroll = min(max(0, wordScroll - delta), max(0, height - wordTextRect.height))
+        needsDisplay = true
+        return true
+    }
+
+    /// In place of the list: where Escape goes back to, how many words are
+    /// selected, the line with its selection and caret, and the keys.
+    func drawWordChoice(_ words: AssistWordChoice, from suggestion: AssistSuggestion) {
+        let navigationFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+        drawLabel("‹ Suggestions", key: "esc",
+                  in: NSRect(x: 20, y: bodyTop + 10, width: leftWidth - 170, height: 16),
+                  font: navigationFont, color: .controlAccentColor)
+        let count = words.selection.count
+        drawText(count == 0 ? "No words selected" : "\(count) of \(words.words.count) words",
+                 in: NSRect(x: leftWidth - 150, y: bodyTop + 10, width: 130, height: 16),
+                 font: .systemFont(ofSize: 10.5), color: .secondaryLabelColor, alignment: .right)
+
+        let sourceY = bodyTop + navigationHeight + 6
+        drawSourceIcon(for: suggestion.path, in: NSRect(x: 22, y: sourceY, width: 18, height: 18))
+        let source = (suggestion.path as NSString).lastPathComponent
+        drawText([source.isEmpty ? "Project workspace" : source, suggestion.location]
+                    .filter { !$0.isEmpty }.joined(separator: "  ·  "),
+                 in: NSRect(x: 47, y: sourceY + 2, width: leftWidth - 69, height: 15),
+                 font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+
+        let area = wordTextRect
+        let layout = wordLayout(words)
+        let color = DirectoryColorPreferences.color(for: suggestion.projectId)?.color ?? .controlAccentColor
+        let origin = NSPoint(x: area.minX, y: area.minY - wordScroll)
+        NSGraphicsContext.current?.saveGraphicsState()
+        // Highlights reach a little past the text, so the clip does too.
+        area.insetBy(dx: -4, dy: -2).clip()
+        if let chosen = words.chosenRange {
+            let characters = NSRange(location: chosen.lowerBound - layout.offset, length: chosen.count)
+            let glyphs = layout.manager.glyphRange(forCharacterRange: characters, actualCharacterRange: nil)
+            color.withAlphaComponent(NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 0.34 : 0.2).setFill()
+            layout.manager.enumerateEnclosingRects(forGlyphRange: glyphs,
+                                                   withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+                                                   in: layout.container) { rect, _ in
+                let line = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height - self.wordLineSpacing)
+                NSBezierPath(roundedRect: line.offsetBy(dx: origin.x, dy: origin.y).insetBy(dx: -3, dy: -1),
+                             xRadius: 4, yRadius: 4).fill()
+            }
+        }
+        layout.manager.drawGlyphs(forGlyphRange: layout.manager.glyphRange(for: layout.container), at: origin)
+        color.setFill()
+        wordCaretRect(words, in: layout).offsetBy(dx: origin.x, dy: origin.y).fill()
+        NSGraphicsContext.current?.restoreGraphicsState()
+
+        let hintFont = NSFont.systemFont(ofSize: 10.5)
+        drawText("← →  Move a word        ⇧← ⇧→  Select a word",
+                 in: NSRect(x: 22, y: footerY - 44, width: leftWidth - 44, height: 15),
+                 font: hintFont, color: .secondaryLabelColor)
+        drawText("⇧⌘← ⇧⌘→  Select to the start or end, or drag",
+                 in: NSRect(x: 22, y: footerY - 26, width: leftWidth - 44, height: 15),
+                 font: hintFont, color: .secondaryLabelColor)
+    }
+
     private func drawPDFPreview(_ page: AssistPDFPageImage, in rect: NSRect) {
         let outline = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
         NSColor.controlBackgroundColor.withAlphaComponent(0.3).setFill()

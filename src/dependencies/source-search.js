@@ -68,10 +68,12 @@ export const sourceSearchMethods = {
           ...object,
           diversityKey: object.objectType === 'REFERENCE' ? object.id : object.path,
           ...(drawing ? { label: drawing.label, searchAliases: drawingDiscovery(object).aliases } : {}),
-          ...((drawing || direct && normalizedQuery) ? { matchTier: 0 }
-            : drawingPaths.has(object.path) ? { matchTier: 1 } : {}),
+          // A drawing found by its type ("floor plan") follows those found by name.
+          ...((drawing && drawing.matchedBy !== 'drawing-alias') || direct && normalizedQuery ? { matchTier: 0 }
+            : drawing || drawingPaths.has(object.path) ? { matchTier: 1 } : {}),
           ...(!normalizedQuery && contextTerms.length ? { matchTier: contextScore ? 1 : 3 } : {}),
-          reasons: aliasMatch ? ['Exact alias match'] : drawing ? ['Matches a drawing name or topic']
+          reasons: aliasMatch ? ['Exact alias match'] : drawing?.matchedBy === 'drawing-alias' ? ['Matches a drawing type']
+            : drawing ? ['Matches a drawing name or topic']
             : direct && normalizedQuery ? [match.reason]
               : aliasScore ? ['Matches a source alias'] : contextScore ? ['Matches current context'] : [],
           score: drawing ? Math.max(drawing.score, direct ? score : 0)

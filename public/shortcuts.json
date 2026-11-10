@@ -33,15 +33,28 @@
       "note": "In any app, while a suggestion card is showing or right after you accept one.",
       "shortcuts": [
         { "action": "Accept the suggestion", "macos": "⇥", "windows": "Tab" },
+        { "action": "Accept the suggestion while dictating", "macos": "Say “tab”" },
         { "action": "Insert as plain text", "macos": "⌘↩", "windows": "Ctrl+Enter" },
         { "action": "Share a link to the source", "macos": "⇧⌘↩", "windows": "Ctrl+Shift+Enter" },
         { "action": "Choose another suggestion", "macos": "↑↓", "windows": "↑↓" },
         { "action": "Confirm text or link, when Tab asks", "macos": "↩", "windows": "Enter" },
         { "action": "Step back to the previous suggestions", "macos": "fn ←" },
         { "action": "Narrow to the selected row", "macos": "fn →" },
+        { "action": "Choose words from the selected line", "macos": "⇧fn →" },
         { "action": "Undo what Lasso just inserted", "macos": "⌘Z" },
         { "action": "Open the source", "windows": "F4" },
         { "action": "Dismiss", "macos": "Esc", "windows": "Esc" }
+      ]
+    },
+    {
+      "title": "Choosing words from a line",
+      "note": "After ⇧fn → on a sentence, passage or line of code in the suggestion card, or ⇧fn ← to take words off its start.",
+      "shortcuts": [
+        { "action": "Move a word", "macos": "←→" },
+        { "action": "Select a word at a time", "macos": "⇧←→" },
+        { "action": "Select to the start or end", "macos": "⇧⌘←→" },
+        { "action": "Insert the selected words", "macos": "⇥" },
+        { "action": "Back to the suggestions", "macos": "Esc" }
       ]
     },
     {

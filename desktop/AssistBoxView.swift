@@ -130,6 +130,19 @@ final class AssistBoxView: NSView {
     /// The focus fn+Left steps a focused card back to, named in its header;
     /// nil when it steps back to every directory.
     var stepBackName: String?
+    /// The highlighted line's words, opened with ⇧fn+Right or ⇧fn+Left, in place of the list.
+    var wordChoice: AssistWordChoice? {
+        didSet {
+            if wordChoice?.text != oldValue?.text { wordScroll = 0 }
+            if wordChoice != oldValue { revealWordCaret() }
+            // The words take the list's place.
+            if (wordChoice == nil) != (oldValue == nil) { needsLayout = true }
+            needsDisplay = true
+        }
+    }
+    /// How far a long line's words are scrolled, and the word a drag across them started on.
+    var wordScroll: CGFloat = 0
+    var wordDrag: Int?
     var preview: AssistDocumentPreview? {
         didSet {
             modelView = AssistModelView(); modelDrag = nil; tableGeometryCache = nil
@@ -160,6 +173,8 @@ final class AssistBoxView: NSView {
     var onOpenSource: (() -> Void)?
     var onAllSources: (() -> Void)?
     var onStepBack: (() -> Void)?
+    var onOpenWords: (() -> Void)?
+    var onCloseWords: (() -> Void)?
     var onDismiss: (() -> Void)?
     let closeButton = NSButton()
 
@@ -179,7 +194,14 @@ final class AssistBoxView: NSView {
         suggestionRows.drawContent = { [unowned self] dirty in self.drawSuggestionRows(in: dirty) }
         suggestionRows.onClick = { [unowned self] point in
             let index = Int(point.y / self.suggestionHeight)
-            if self.mode == .suggestions, point.y >= 0, self.suggestions.indices.contains(index) { self.onSelectRow?(index) }
+            guard self.mode == .suggestions, point.y >= 0, self.suggestions.indices.contains(index) else { return }
+            // A highlighted line's "Choose words" opens its words.
+            if index == self.selected, self.suggestions[index].offersWords,
+               self.wordsHintRect(row: index).insetBy(dx: -4, dy: -4).contains(point) {
+                self.onOpenWords?()
+                return
+            }
+            self.onSelectRow?(index)
         }
         suggestionList.documentView = suggestionRows
         addSubview(suggestionList)
@@ -190,7 +212,7 @@ final class AssistBoxView: NSView {
     override func layout() {
         super.layout()
         closeButton.frame = NSRect(x: bounds.width - 34, y: bodyTop + 6, width: 24, height: 24)
-        suggestionList.isHidden = mode != .suggestions
+        suggestionList.isHidden = mode != .suggestions || wordChoice != nil
         let listFrame = NSRect(x: 0, y: bodyTop + navigationHeight, width: leftWidth, height: listHeight)
         if suggestionList.frame != listFrame {
             suggestionList.frame = listFrame

@@ -25,6 +25,10 @@ struct KeyRoutingState: Equatable {
     /// The card lists something to accept. One kept empty after a move only
     /// answers fn+Left and fn+Right.
     var offersChoices = true
+    /// The highlighted row is a line whose words ⇧fn+Left and ⇧fn+Right open.
+    var highlightsLine = false
+    /// The card shows a line's words, which take the arrows.
+    var choosingWords = false
     /// Lasso's last Tab or inserted link is the last change in the field, so
     /// ⌘Z takes it back.
     var canUndoInsertion = false
@@ -49,6 +53,13 @@ enum KeyAction: Equatable {
     case shareUndo
     case shareRedo
     case undoInsertion
+    /// ⇧fn+Left or ⇧fn+Right on a highlighted line: its words, every one
+    /// selected, with the selection's start or end to move.
+    case openWords(movingStart: Bool)
+    /// An arrow among a line's words.
+    case moveInWords(forward: Bool, selecting: Bool, toEnd: Bool)
+    /// Escape among a line's words goes back to the card's list.
+    case closeWords
 }
 
 enum KeyDecision: Equatable {
@@ -68,6 +79,10 @@ enum KeyRouter {
         // Our own synthesized keys are not the user typing.
         if synthetic || state.isInserting { return .pass(nil) }
         let commandLike = !flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty
+        let choosingWords = state.choosingWords && state.popup == .suggestions
+            && !state.sourceChooserVisible && !state.shareComposerOpen
+        // Escape among a line's words goes back to the list; a second closes the card.
+        if choosingWords, keyCode == escape, !commandLike { return .swallow(.closeWords) }
         if keyCode == escape, !commandLike, state.transientOpen { return .swallow(.dismissTransient) }
         // Native search controls own their keystrokes while the picker is open.
         if state.sourceChooserVisible { return .pass(nil) }
@@ -86,6 +101,14 @@ enum KeyRouter {
         // Shift+Tab leaves the field, Control+Tab switches tabs, and modified
         // arrows move or select text. Only the bare keys belong to the box.
         let chord = !flags.intersection([.maskShift, .maskCommand, .maskControl, .maskAlternate]).isEmpty
+        if choosingWords, let decision = wordsDecision(keyCode, flags: flags) { return decision }
+        // ⇧fn+Left and ⇧fn+Right open a highlighted line's words. On any other
+        // row they still select to the start or end in the host.
+        if state.popup == .suggestions, state.offersChoices, state.highlightsLine, !choosingWords,
+           keyCode == home || keyCode == end, flags.contains(.maskShift),
+           flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty {
+            return .swallow(.openWords(movingStart: keyCode == home))
+        }
         // fn+Right narrows the card's focus a level and fn+Left steps back
         // one. While the card is up they never reach the host, so at the top
         // or the bottom they do nothing rather than move the caret.
@@ -119,6 +142,24 @@ enum KeyRouter {
         // The debounce only fires once typing pauses, so an open box is moved
         // on every key instead; otherwise it lags behind continuous typing.
         return .pass(.followTyping(trackCaret: state.popup != .hidden))
+    }
+
+    /// Among a line's words the arrows are a text field's, a word at a time,
+    /// with or without Option: ⇧ selects, and ⌘ (or ⇧fn) goes to the start or
+    /// end. fn+Left and fn+Right keep their meaning on the card, and Control
+    /// arrows belong to macOS.
+    private static func wordsDecision(_ keyCode: Int64, flags: CGEventFlags) -> KeyDecision? {
+        guard !flags.contains(.maskControl) else { return nil }
+        let selecting = flags.contains(.maskShift)
+        switch keyCode {
+        case left, right:
+            return .swallow(.moveInWords(forward: keyCode == right, selecting: selecting,
+                                         toEnd: flags.contains(.maskCommand)))
+        case home where selecting, end where selecting:
+            return .swallow(.moveInWords(forward: keyCode == end, selecting: true, toEnd: true))
+        default:
+            return nil
+        }
     }
 
     private static func shareDecision(_ keyCode: Int64, flags: CGEventFlags, commandLike: Bool) -> KeyDecision {
@@ -157,6 +198,8 @@ final class KeyEventTap {
     private let perform: (KeyAction) -> Void
     /// Runs on the main thread once, when the first key arrives.
     private let onFirstKey: () -> Void
+    /// Runs on the main thread when a key that starts Dictation is pressed.
+    private let onDictationShortcut: () -> Void
     /// Set before the tap thread starts and never replaced, so the callback
     /// can read it without a lock.
     private var port: CFMachPort?
@@ -164,16 +207,20 @@ final class KeyEventTap {
     private var runLoop: CFRunLoop?
     /// Touched only on the tap thread.
     private var sawKey = false
+    private var dictationShortcut = DictationShortcut()
 
-    init(perform: @escaping (KeyAction) -> Void, onFirstKey: @escaping () -> Void) {
+    init(perform: @escaping (KeyAction) -> Void, onFirstKey: @escaping () -> Void,
+         onDictationShortcut: @escaping () -> Void = {}) {
         self.perform = perform
         self.onFirstKey = onFirstKey
+        self.onDictationShortcut = onDictationShortcut
     }
 
     /// False when macOS refused the tap, which means Input Monitoring is missing.
     func start() -> Bool {
         guard port == nil else { return false }
-        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+        // Modifier changes only show whether one was pressed twice, for Dictation.
+        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue) | CGEventMask(1 << CGEventType.flagsChanged.rawValue)
         guard let created = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
             eventsOfInterest: mask,
@@ -219,15 +266,25 @@ final class KeyEventTap {
             if let port { CGEvent.tapEnable(tap: port, enable: true) }
             return Unmanaged.passUnretained(event)
         }
+        let synthetic = event.getIntegerValueField(.eventSourceUserData) == SyntheticKeyboard.marker
+        if type == .flagsChanged {
+            let seconds = TimeInterval(event.timestamp) / 1_000_000_000
+            if !synthetic, dictationShortcut.flagsChanged(event.flags, at: seconds) {
+                DispatchQueue.main.async(execute: onDictationShortcut)
+            }
+            return Unmanaged.passUnretained(event)
+        }
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
         if !sawKey {
             sawKey = true
             DispatchQueue.main.async(execute: onFirstKey)
         }
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        if !synthetic, dictationShortcut.keyDown(keyCode, flags: event.flags) {
+            DispatchQueue.main.async(execute: onDictationShortcut)
+        }
         let decision = KeyRouter.decide(
-            keyCode: event.getIntegerValueField(.keyboardEventKeycode), flags: event.flags,
-            synthetic: event.getIntegerValueField(.eventSourceUserData) == SyntheticKeyboard.marker,
-            state: state.value)
+            keyCode: keyCode, flags: event.flags, synthetic: synthetic, state: state.value)
         switch decision {
         case .pass(let action):
             if let action { DispatchQueue.main.async { [perform] in perform(action) } }

@@ -90,7 +90,7 @@ npm start                       # then open http://127.0.0.1:4317
 1. Click the Lasso icon in the menu bar and choose **Add Work Directories…** to pick the folders Lasso should read.
 2. Turn on **Suggest While Typing**, and allow Accessibility access when macOS asks.
 3. Type in any app. After two letters of a name, value or sentence from your files, a card appears next to the caret.
-4. Press `Tab` to insert the suggestion, or `↑` `↓` to choose another.
+4. Press `Tab` to insert the suggestion, or `↑` `↓` to choose another. Dictating works too: the card follows dictated words, and saying "tab" accepts it.
 5. Press `⇧⌘R` to open **The Ranch**, Lasso's library window: every source, recent changes, share links and anything that needs review.
 
 The [user guide](docs/user-guide.md) covers sharing, connected apps (Outlook, Google Calendar, Notion), external drives and CAD sources.
@@ -106,6 +106,7 @@ The [user guide](docs/user-guide.md) covers sharing, connected apps (Outlook, Go
 | `⌘↩` | Insert as plain text |
 | `⇧⌘↩` | Insert a share link to the source |
 | `fn →` / `fn ←` | Narrow to the selected source / step back |
+| `⇧fn →` / `⇧fn ←` | Choose some of a highlighted line's words to insert |
 | `⌘Z` | Undo what Lasso just inserted |
 | `Esc` | Dismiss |
 

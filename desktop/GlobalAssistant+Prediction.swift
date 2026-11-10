@@ -139,6 +139,7 @@ extension GlobalAssistant {
     private func didReadHost(_ reading: HostReading) {
         guard isEnabled, let serverURL, !projectIds.isEmpty,
               let captured = reading.context else { hide(); return }
+        lastRead = (captured.element, captured.text, captured.absoluteCaret)
         // Two characters are enough to ask, so the first word of an empty
         // field ("Re" → Revenue) is not skipped. The server decides whether
         // the typed fragment is long enough to match.
@@ -158,11 +159,16 @@ extension GlobalAssistant {
             linkedSources.forget()
         }
         context = captured
-        guard let host = reading.host, let caret = reading.caret else { hide(); return }
+        guard let host = reading.host, let caret = reading.caret else {
+            if isDictating { dictationLog.debug("read: no caret to show the card at") }
+            hide()
+            return
+        }
         adoptHost(host, caret: caret)
         // Track the caret straight away. Waiting for the response would leave
         // the box behind whenever fast typing cancels requests.
         if panel?.isVisible == true, view.mode == .suggestions { reposition(near: popupCaret) }
+        if acceptsSpokenTab(in: captured) { return }
         requestPrediction(for: captured, serverURL: serverURL)
     }
 
@@ -176,15 +182,24 @@ extension GlobalAssistant {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.timeoutInterval = 2.5
+        // Dictated words are asked about without the mark dictation put at a
+        // pause, and the server may read a name said in full as accepted.
+        let dictated = isDictating
+        let pause = dictated ? SpokenAccept.pauseMarkLength(Array(captured.text.utf16)) : 0
+        let query = Self.trimmed(captured, by: pause)
         var body: [String: Any] = [
-            "text": captured.text,
-            "cursor": captured.cursor,
+            "text": query.text,
+            "cursor": query.cursor,
             "blockIndex": 0,
         ]
+        if dictated {
+            body["dictated"] = true
+            dictationLog.debug("asking about dictated words\(pause > 0 ? ", without a pause mark" : "", privacy: .public)")
+        }
         // Accepted phrases are located inside the window actually being sent,
         // so the offsets the server receives match the text it is given. One
         // deleted since it was accepted takes the card's focus back a step.
-        linkedSources.observe(captured.text, reachesStart: captured.windowStart == 0)
+        linkedSources.observe(query.text, reachesStart: query.windowStart == 0)
         body.merge(linkedSources.requestFields) { _, focus in focus }
         let activeProjectIds = Set(projectIds)
         let expectedRevision = workspaceRevision
@@ -199,7 +214,7 @@ extension GlobalAssistant {
                 }
                 return
             }
-            let parsed = Self.parse(data, requestedText: captured.text, activeProjectIds: activeProjectIds)
+            let parsed = Self.parse(data, requestedText: query.text, activeProjectIds: activeProjectIds)
             let heading = Self.heading(data)
             let focus = Self.focusedSource(data)
             let returnedRevision = Self.predictionRevision(data)
@@ -214,7 +229,7 @@ extension GlobalAssistant {
                     return
                 }
                 self.deliverPrediction(parsed, heading: heading, sourceScoped: focus != nil, focus: focus,
-                                       captured: captured, token: token)
+                                       captured: captured, pause: pause, token: token)
             }
         }
         self.request = task
@@ -266,10 +281,20 @@ extension GlobalAssistant {
     /// A response may arrive after Escape, an edit, or a window closing. Only
     /// deliver to the same still-current editor, using its current caret bounds.
     /// The editor is checked off the main thread; typing meanwhile drops it.
+    /// `pause` is the length of the mark dictation put at a pause, which the
+    /// card was asked about without: the card answers the words before it.
     func deliverPrediction(_ suggestions: [AssistSuggestion], heading: String?, sourceScoped: Bool,
-                                   focus: LinkedSourceMemory.Source? = nil, captured: CaretContext, token: Int) {
+                           focus: LinkedSourceMemory.Source? = nil, captured: CaretContext,
+                           pause: Int = 0, token: Int) {
         guard token == generation, isEnabled else { return }
         request = nil
+        if isDictating {
+            dictationLog.debug("answer: \(suggestions.count, privacy: .public) rows")
+            if suggestions.isEmpty, panel?.isVisible == true, let shown = displayedPrediction {
+                let change = SpokenAccept.change(from: shown.context.text, to: captured.text)
+                dictationLog.debug("card closing: \(change, privacy: .public) since it showed")
+            }
+        }
         // Right after fn+Left or fn+Right an empty card stays, so the move can be undone.
         guard !suggestions.isEmpty || linkedSources.keepsEmptyCard(focusedOn: focus),
               let host = popupHost else { hide(); return }
@@ -298,6 +323,16 @@ extension GlobalAssistant {
                     return
                 }
                 guard let current else { self.hide(); return }
+                let answered = Self.trimmed(current.context, by: pause)
+                let sameQuery = self.displayedPrediction.map { previous in
+                    previous.source == focus && CFEqual(previous.context.element, answered.element)
+                        && previous.context.diagnosis == answered.diagnosis
+                        && previous.context.text == answered.text
+                        && previous.context.cursor == answered.cursor
+                        && previous.context.absoluteCaret == answered.absoluteCaret
+                        && previous.context.windowStart == answered.windowStart
+                } ?? false
+                let selectedIdentity = self.currentSuggestion?.selectionIdentity
                 self.context = current.context
                 self.adoptHost(host, caret: current.caret)
                 self.view.sourceScoped = sourceScoped
@@ -314,8 +349,13 @@ extension GlobalAssistant {
                 if let landing = self.focusLanding {
                     self.focusLanding = nil
                     self.view.selected = landing.index(in: suggestions.map(\.objectId))
+                } else {
+                    self.view.selected = AssistSuggestionSelection.index(keeping: selectedIdentity,
+                        in: suggestions.map(\.selectionIdentity), sameQuery: sameQuery)
                 }
+                self.displayedPrediction = (answered, focus)
                 self.view.title = heading ?? "dependency"
+                self.view.wordChoice = nil
                 self.show(suggestions)
                 self.publishKeyRouting()
             }

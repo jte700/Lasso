@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { HttpError } from '../history/errors.js';
 import { BoundedCache } from '../cache.js';
+import { isWholeFile } from './file-reference.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SESSION_MS = 30 * 60 * 1000;
@@ -10,6 +11,18 @@ const clamp = (value, minimum = 0, maximum = 1) => Math.max(minimum, Math.min(ma
 const normalized = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 const tokens = (value) => [...new Set(normalized(value).match(/[\p{L}\p{N}_-]+/gu) ?? [])];
 const decay = (age, halfLifeDays) => 2 ** (-Math.max(0, age) / (halfLifeDays * DAY_MS));
+// Underscores and name separators are spelling: "birth weight" names the
+// column birth_weight. Preserve punctuation carrying meaning, including C++,
+// numeric signs/decimals, dates and units such as mg/mL.
+const spelled = (value) => (/\p{L}/u.test(value) ? value.replace(/_/g, ' ')
+  .replace(/(?<=[\p{L}\p{N}])[.-](?=\p{L})|(?<=\p{L})\.(?=\p{N})/gu, ' ')
+  .replace(/\s+/g, ' ').trim() : '');
+const capitalized = (text) => (typeof text === 'string' && text ? `${text[0].toUpperCase()}${text.slice(1)}` : text);
+
+// Candidate pools use the same bands before their bounded index materialization.
+export function recommendationRelevanceBand(score) {
+  return Math.floor((score + 1e-9) / RELEVANCE_BAND);
+}
 
 export function directRecommendationMatch(candidate, input) {
   const query = normalized(input);
@@ -18,12 +31,22 @@ export function directRecommendationMatch(candidate, input) {
   const candidatePath = normalized(candidate.path ?? source.path);
   const filename = path.posix.basename(candidatePath);
   const stem = filename.slice(0, filename.length - path.posix.extname(filename).length);
-  // A sentence or paragraph is named by its own words. Its file's name would
-  // make every passage in the file a direct match for that file.
+  // A file is named by its file name. What is inside it (a passage, row,
+  // column, cell or measurement) is named only by its own words; otherwise
+  // every cell of "pressure_log.csv" would directly match "pres".
   const passage = ['PDF_EXCERPT', 'TEXT_EXCERPT'].includes(source.metadata?.componentType);
-  const names = [...(passage ? [] : [candidatePath, filename, stem]), candidate.label, candidate.name, source.label]
-    .map(normalized).filter(Boolean);
-  if (names.includes(query)) return { score: 1, direct: true, exact: true, reason: 'Exact name match' };
+  const partOfFile = passage || (Boolean(source.objectType) && !isWholeFile(source));
+  // Some parts are labelled after their file ("pressure_log · included rows",
+  // "analysis.ipynb · cell 3"); that much of the label is the file's name too.
+  const fileLabels = partOfFile && stem ? [`${filename} · `, `${stem} · `] : [];
+  const ownName = (name) => fileLabels.reduce((value, prefix) => (value.startsWith(prefix) ? value.slice(prefix.length) : value), name);
+  const names = [...(partOfFile ? [] : [candidatePath, filename, stem]), candidate.label, candidate.name, source.label]
+    .map(normalized).map(ownName).filter(Boolean);
+  const spelledQuery = spelled(query);
+  const spelledNames = spelledQuery ? names.map(spelled) : [];
+  if (names.includes(query) || spelledNames.includes(spelledQuery)) {
+    return { score: 1, direct: true, exact: true, reason: 'Exact name match' };
+  }
   const metadata = source.metadata ?? {};
   const anchor = source.anchor ?? {};
   const identifiers = [source.id, source.objectKey, metadata.variable, metadata.column, metadata.symbol,
@@ -33,7 +56,8 @@ export function directRecommendationMatch(candidate, input) {
   if (source.valueText != null && normalized(source.valueText) === query) {
     return { score: 1, direct: true, exact: true, reason: 'Exact value match' };
   }
-  if (query.length >= 2 && names.some((name) => name.startsWith(query))) {
+  if (query.length >= 2 && (names.some((name) => name.startsWith(query))
+    || (spelledQuery.length >= 2 && spelledNames.some((name) => name.startsWith(spelledQuery))))) {
     return { score: 0.9, direct: true, reason: 'Name starts with your query' };
   }
   return { score: 0, direct: false, reason: null };
@@ -255,20 +279,27 @@ export class RecommendationRanking {
       const usage = usageByFile.get(file.project_file_id);
       const documentUsed = Boolean(document && usage?.documentProjectFileIds.includes(document.projectFileId));
       const relationship = related.has(current?.pathsById.get(file.project_file_id) ?? file.path) || documentUsed;
+      const contextScore = finiteOption(candidate.contextScore, 0, 0, 1);
       const explicitTier = Number.isInteger(candidate.matchTier) && candidate.matchTier >= 0 && candidate.matchTier <= 3;
       const tier = !query ? 3 : match.direct ? 0 : explicitTier ? candidate.matchTier
         : relevanceScore > 0 ? 1 : relationship ? 2 : 3;
       const reason = tier === 0 ? (match.direct ? match.reason : null) ?? candidate.reasons?.[0] ?? 'Direct match'
-        : !query && usage?.recentScore > 0.05 ? 'Recently used in this project'
+        : query && contextScore > 0 ? 'Matches your sentence context'
+          : !query && usage?.recentScore > 0.05 ? 'Recently used in this project'
           : !query && usage?.frequencyScore > 0.01 ? 'Frequently used in this project'
         : relationship ? (documentUsed ? 'Used with this document' : 'Used in this document')
           : tier <= 1 ? candidate.reasons?.[0] ?? match.reason ?? 'Matches your context'
             : usage?.recentScore > 0.05 ? 'Recently used in this project'
               : usage?.frequencyScore > 0.01 ? 'Frequently used in this project' : 'Available in this project';
       const ranking = {
-        tier, relevanceScore, relevanceBand: Math.floor((relevanceScore + 1e-9) / RELEVANCE_BAND),
-        directSpecificity: tier === 0 ? (match.direct && !match.exact ? 1 : 2) : 0,
-        usageBoost: usage?.usageBoost ?? 0, relationship, reason,
+        tier, relevanceScore, relevanceBand: recommendationRelevanceBand(relevanceScore),
+        // Only an exact name, identifier or value is most specific. A name the
+        // query begins, and a match only its caller vouches for (a drawing
+        // type, a cited value), rank together by how well they matched.
+        directSpecificity: tier === 0 ? (match.direct && match.exact ? 2 : 1) : 0,
+        contextScore, usageBoost: usage?.usageBoost ?? 0, relationship,
+        // Reasons are shown beside each suggestion; callers write some in lower case.
+        reason: capitalized(reason),
         recentScore: usage?.recentScore ?? 0, frequencyScore: usage?.frequencyScore ?? 0,
         acceptedSessions: usage?.acceptedSessions ?? 0, openedSessions: usage?.openedSessions ?? 0,
         lastUsedAt: usage?.lastUsedAt ?? null,
@@ -284,6 +315,7 @@ export class RecommendationRanking {
       return a.tier - b.tier
         || b.directSpecificity - a.directSpecificity
         || (query ? b.relevanceBand - a.relevanceBand : 0)
+        || (query ? b.contextScore - a.contextScore : 0)
         || (query ? Number(b.relationship) - Number(a.relationship)
           : b.recentScore - a.recentScore || b.frequencyScore - a.frequencyScore)
         || (query ? (b.relevanceScore + b.usageBoost) - (a.relevanceScore + a.usageBoost)

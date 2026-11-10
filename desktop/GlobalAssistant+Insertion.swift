@@ -16,8 +16,9 @@ extension GlobalAssistant {
 
     /// `Tab`. Follows the insertion preference; sharing is never implicit.
     func activateSelection() {
+        guard !choosesNoWords else { return }
         guard view.mode == .suggestions,
-              let suggestion = currentSuggestion else { hide(); return }
+              let suggestion = acceptedSuggestion else { hide(); return }
         switch InsertionMode.current {
         case .plain:
             acceptPlain()
@@ -33,8 +34,24 @@ extension GlobalAssistant {
         return view.suggestions[view.selected]
     }
 
+    /// What Tab inserts: the highlighted suggestion, or only the words chosen from its line.
+    var acceptedSuggestion: AssistSuggestion? {
+        guard let suggestion = currentSuggestion else { return nil }
+        guard let words = view.wordChoice else { return suggestion }
+        return suggestion.choosing(words)
+    }
+
+    /// A line is open with no word selected. Inserting then does nothing, and
+    /// the card stays for words to be selected.
+    private var choosesNoWords: Bool {
+        // Only an open line can have nothing chosen; with none open, the whole row is inserted.
+        guard let words = view.wordChoice, words.chosenText == nil else { return false }
+        NSSound.beep()
+        return true
+    }
+
     private func askBeforeSharing() {
-        pendingShare = currentSuggestion
+        pendingShare = acceptedSuggestion
         view.mode = .confirmShare
         view.title = "Insert as plain text or a share link?"
         view.confirmChoices = ["Plain text", "Share link…"]
@@ -52,13 +69,14 @@ extension GlobalAssistant {
     }
 
     func acceptPlain() {
-        guard let suggestion = currentSuggestion else { hide(); return }
+        guard !choosesNoWords else { return }
+        guard let suggestion = acceptedSuggestion else { hide(); return }
         insertPlain(suggestion)
     }
 
     /// Explicit Share action (or `⇧⌘⏎`). Never reached by the local-link shortcut.
     func acceptShared() {
-        guard view.mode == .suggestions, let suggestion = currentSuggestion else { return }
+        guard view.mode == .suggestions, !choosesNoWords, let suggestion = acceptedSuggestion else { return }
         guard suggestion.isShareable else {
             flash([suggestion.objectId == nil ? "This suggestion has no linkable source."
                    : "Lasso doesn\u{2019}t make share links for code. Tab inserts it as text."])
@@ -119,7 +137,7 @@ extension GlobalAssistant {
 
     /// Stage A. Builds the smallest edit that turns what the user typed into the
     /// suggestion, refusing anything that would touch text it should not.
-    private func planInsertion(for suggestion: AssistSuggestion,
+    func planInsertion(for suggestion: AssistSuggestion,
                                in context: CaretContext) -> Result<CompletionPlan, CompletionFailure> {
         let window = Array(context.text.utf16)
         // The captured window ends at the caret, so the caret is its length.
@@ -131,7 +149,8 @@ extension GlobalAssistant {
                                precededBy: window, upTo: suggestion.replacement?.start ?? window.count)
         return CompletionTransaction.plan(document: window, caret: caret, insertText: cased,
                                           replacement: suggestion.replacement,
-                                          separateInsertion: !suggestion.sentenceContinuation && !suggestion.joinsTyping)
+                                          separateInsertion: (!suggestion.sentenceContinuation && !suggestion.joinsTyping)
+                                              || suggestion.startsMidLine)
     }
 
     /// The run of characters before the caret, used only to decide casing.
@@ -149,12 +168,18 @@ extension GlobalAssistant {
         undoableInsertion = nil
         guard let context else { hide(); return }
 
-        guard case .success(let plan) = planInsertion(for: suggestion, in: context) else {
+        guard let plan = fieldPlan(for: suggestion, in: context) else {
             hide()
             flash(["Could not insert here.", "Nothing was changed."])
             return
         }
+        insert(suggestion, plan: plan, context: context)
+    }
 
+    /// Writes a planned insertion once a fresh read shows `context` is still
+    /// what the field holds.
+    private func insert(_ suggestion: AssistSuggestion, plan: CompletionPlan, context: CaretContext) {
+        undoableInsertion = nil
         // Stage A: confirm the plan is still current against a fresh read.
         let token = generation
         AccessibilityWork.queue.async { [weak self] in
@@ -167,11 +192,15 @@ extension GlobalAssistant {
     }
 
     /// Checks the fresh read against the planned context, then writes.
-    private func writePlain(_ suggestion: AssistSuggestion, plan: CompletionPlan,
+    func writePlain(_ suggestion: AssistSuggestion, plan: CompletionPlan,
                             context: CaretContext, fresh: CaretContext?) {
         guard let fresh, CFEqual(fresh.element, context.element),
               fresh.windowStart == context.windowStart, fresh.absoluteCaret == context.absoluteCaret,
               CompletionTransaction.equivalentHostText(Array(fresh.text.utf16), Array(context.text.utf16)) else {
+            if spokenHeardAt != nil {
+                dictationLog.debug("spoken tab: the field changed before writing")
+                spokenHeardAt = nil
+            }
             hide()
             return
         }
@@ -184,6 +213,8 @@ extension GlobalAssistant {
         }
 
         hide()
+        spokenCard = nil
+        markOwnWrite()
         let element = context.element
         AccessibilityWork.queue.async { [weak self] in
             AccessibilityReader.replace(length: plan.range.count, at: context.absoluteCaret,
@@ -225,6 +256,13 @@ extension GlobalAssistant {
     /// Records a dependency only for an insertion proved by `checkInsertion`.
     private func reportInsertion(_ check: InsertionCheck, plan: CompletionPlan,
                                  suggestion: AssistSuggestion, element: AXUIElement) {
+        markOwnWrite()
+        if let heard = spokenHeardAt {
+            let verified: Bool
+            if case .verified = check { verified = true } else { verified = false }
+            dictationLog.debug("spoken tab: \(verified ? "inserted" : "not verified", privacy: .public) \(Int(Date().timeIntervalSince(heard) * 1000), privacy: .public) ms after it was read")
+            spokenHeardAt = nil
+        }
         switch check {
         case .notApplied:
             flash(["The insertion could not be verified.", "No source reference was recorded."])
@@ -311,7 +349,7 @@ extension GlobalAssistant {
             flash(["Sharing is unavailable right now."])
             return
         }
-        guard case .success(let planned) = planInsertion(for: suggestion, in: context) else {
+        guard let planned = fieldPlan(for: suggestion, in: context) else {
             flash(["Could not insert here.", "Nothing was changed."])
             return
         }
@@ -503,27 +541,11 @@ extension GlobalAssistant {
                                          kind: "accept")
     }
 
-    /// Source labels are stored in title case ("Office Supplies"). Dropped into
-    /// the middle of a sentence after a lower-case word, that reads wrong, so
-    /// plainly capitalised words are lowered. Acronyms, mixed-case words and
-    /// anything containing digits keep their original form.
+    /// The case the insertion is written in, from what it replaces and what
+    /// comes before (see `InsertionCasing`).
     private static func matchCasing(of insertion: String, replacing typed: String,
                                     precededBy window: [UInt16], upTo index: Int) -> String {
-        guard !typed.isEmpty, typed == typed.lowercased() else { return insertion }
         let before = String(decoding: window[0..<min(window.count, max(0, index))], as: UTF16.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        // Start of a sentence keeps its capital.
-        guard let last = before.last, !".!?:".contains(last) else { return insertion }
-
-        func lowerIfPlainTitleCase(_ word: Substring) -> String {
-            guard let first = word.first, first.isUppercase else { return String(word) }
-            let rest = word.dropFirst()
-            guard word.count > 1,
-                  rest.allSatisfy({ $0.isLowercase || $0 == "'" || $0 == "-" }) else { return String(word) }
-            return first.lowercased() + rest
-        }
-        return insertion.split(separator: " ", omittingEmptySubsequences: false)
-            .map(lowerIfPlainTitleCase)
-            .joined(separator: " ")
+        return InsertionCasing.match(insertion, replacing: typed, after: before)
     }
 }

@@ -12,7 +12,7 @@ import {
 import { shell, showSession, selectShellTab } from './workspace-shell.js?v=1';
 import { openSourceDialog, terminalInput, dependencyShell } from './terminal-panel.js?v=1';
 import { openManuscriptWorkspace, openDocument } from './editor-document.js?v=1';
-import { clearPrediction } from './editor-predictions.js?v=1';
+import { clearPrediction, handleEditorSelectionChange } from './editor-predictions.js?v=1';
 import { saveDocument } from './editor-save.js?v=1';
 import { hideDependencyPicker } from './dependency-picker.js?v=1';
 import { openActiveDependencySharing } from './dependency-inspector.js?v=1';
@@ -184,6 +184,7 @@ window.dismissLassoOverlays = () => dismissLassoOverlays({
     state.editor.activeDependencyId = null;
   },
 });
+document.addEventListener('selectionchange', handleEditorSelectionChange);
 // A native overlay can consume Escape's keydown while the workspace browser
 // still has focus. Keyup also dismisses browser overlays, idempotently.
 window.addEventListener('keyup', (event) => {

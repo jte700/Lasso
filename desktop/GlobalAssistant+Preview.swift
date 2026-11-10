@@ -165,6 +165,7 @@ extension GlobalAssistant {
 
     func selectRow(_ index: Int) {
         guard index >= 0, index < view.suggestions.count else { return }
+        view.wordChoice = nil
         if view.preview?.unavailableReason != nil { previewKey = nil }
         view.selected = index
         view.needsDisplay = true

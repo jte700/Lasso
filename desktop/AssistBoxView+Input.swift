@@ -30,9 +30,17 @@ extension AssistBoxView {
             }
             guard point.y >= bodyTop else { return }
             // The rows take their own clicks; the header names where it goes:
-            // one level back, or the list of every source.
-            if point.y < bodyTop + navigationHeight, sourceScoped {
-                stepBackName == nil ? onAllSources?() : onStepBack?()
+            // back to the list from a line's words, one level back, or the
+            // list of every source.
+            if point.y < bodyTop + navigationHeight {
+                if wordChoice != nil { onCloseWords?() }
+                else if sourceScoped { stepBackName == nil ? onAllSources?() : onStepBack?() }
+                return
+            }
+            // Clicking a word selects it, and dragging selects every word to the one let go on.
+            if wordChoice != nil, wordTextRect.contains(point), let word = word(at: point) {
+                wordDrag = word
+                wordChoice?.select(from: word, to: word)
             }
             return
         }
@@ -43,13 +51,17 @@ extension AssistBoxView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if let first = wordDrag {
+            if let last = word(at: convert(event.locationInWindow, from: nil)) { wordChoice?.select(from: first, to: last) }
+            return
+        }
         guard let drag = modelDrag, let sent = preview?.model?.orbit?.camera else { return }
         let point = convert(event.locationInWindow, from: nil)
         modelView = drag.view.dragged(by: CGSize(width: point.x - drag.start.x, height: point.y - drag.start.y), from: sent)
         needsDisplay = true
     }
 
-    override func mouseUp(with event: NSEvent) { modelDrag = nil }
+    override func mouseUp(with event: NSEvent) { modelDrag = nil; wordDrag = nil }
 
     override func scrollWheel(with event: NSEvent) {
         // Rolling a wheel away, or pushing two fingers away, zooms in, whatever
@@ -57,6 +69,7 @@ extension AssistBoxView {
         let away = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
         let speed: CGFloat = event.hasPreciseScrollingDeltas ? 0.01 : 0.1
         let point = convert(event.locationInWindow, from: nil)
+        if scrollWords(by: event, at: point) { return }
         // The list and the previews are scroll views, which take their own
         // scrolling. Over a table's header, its rows scroll.
         if let table = previewContent as? AssistTableRowsView, documentPreviewRect.contains(point) {

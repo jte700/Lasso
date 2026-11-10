@@ -4,7 +4,7 @@ import Cocoa
 import ApplicationServices
 
 struct AssistSuggestion {
-    let insertText: String       // what gets typed into the focused app
+    var insertText: String       // what gets typed into the focused app
     let label: String            // headline shown in the box
     let detail: String           // value or context, shown dim
     let path: String             // originating source file
@@ -36,8 +36,27 @@ struct AssistSuggestion {
     /// Typed at the caret exactly as the server spells it, with no space put before it:
     /// the rest of a quoted word, its closing quote and the citation.
     var joinsTyping = false
+    /// Words chosen from after the line's first, set apart from the typed
+    /// text even when the line continued the sentence.
+    var startsMidLine = false
 
     var isShareable: Bool { objectId != nil && shareable }
+
+    var selectionIdentity: AssistSuggestionSelection.Identity {
+        .init(projectId: projectId, objectId: objectId ?? usageObjectId, insertText: insertText)
+    }
+
+    /// A line long enough that ⇧fn+Left and ⇧fn+Right open it to choose some of its words.
+    var offersWords: Bool { !narrowable && AssistWordChoice.offers(insertText) }
+
+    /// The suggestion with only the words chosen from its line, or nil when none are.
+    func choosing(_ words: AssistWordChoice) -> AssistSuggestion? {
+        guard let text = words.chosenText else { return nil }
+        var part = self
+        part.insertText = text
+        part.startsMidLine = words.startsMidLine
+        return part
+    }
 }
 
 struct CaretContext {

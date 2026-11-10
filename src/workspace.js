@@ -9,6 +9,7 @@ import { runSliced, runSync } from './history/work.js';
 import {
   currentClauseStart, LINKED_VALUES_SHOWN, namesFocusedFile, SUGGESTIONS_SHOWN, writtenBeforeCaret,
 } from './dependencies/service.js';
+import { dictatedNameEnds, hasSuggestions, namesInFull, softenDictatedPauses } from './dependencies/dictation.js';
 import { directoryIssue, directoryNote } from './directory-issues.js';
 import { offeredShareScopes } from './sharing/object-share.js';
 import { matchedSourceWords, typedSentence } from './dependencies/direct-match.js';
@@ -96,6 +97,7 @@ function compare(a, b) {
     || (browsing ? (right.recentScore ?? 0) - (left.recentScore ?? 0)
       || (right.frequencyScore ?? 0) - (left.frequencyScore ?? 0) : 0)
     || (right.relevanceBand ?? 0) - (left.relevanceBand ?? 0)
+    || (browsing ? 0 : (right.contextScore ?? 0) - (left.contextScore ?? 0))
     || Number(right.relationship ?? false) - Number(left.relationship ?? false)
     || ((right.relevanceScore ?? b.score ?? 0) + (right.usageBoost ?? 0))
       - ((left.relevanceScore ?? a.score ?? 0) + (left.usageBoost ?? 0))
@@ -659,6 +661,79 @@ export class WorkspaceService {
   }
 
   async predict(input = {}) {
+    let prediction = await this.predictText(input);
+    if (!hasSuggestions(prediction)) prediction = await this.pastEmptySource(input, prediction);
+    if (input.dictated !== true || hasSuggestions(prediction)) return prediction;
+    const named = await this.predictNamed(input);
+    if (named) return named;
+    // Dictation's pauses put sentence marks among the words being said ("The
+    // other revenue. Was"); read across them, at the same offsets.
+    const softened = softenDictatedPauses(input.text, Number.isInteger(input.cursor) ? input.cursor : undefined);
+    if (!softened) return prediction;
+    const across = { ...input, text: softened };
+    const read = await this.predictText(across);
+    return hasSuggestions(read) ? read : (await this.predictNamed(across)) ?? prediction;
+  }
+
+  /**
+   * An accepted source describes the rest of its sentence, so suggestions
+   * keep to it. One with nothing to offer for the words after it, such as a
+   * heading row with no values ("OPERATING EXPENSES"), no longer holds them
+   * once they name something else ("additionally, the other expen"): the
+   * name gets its suggestions, as after "and". A focus chosen with fn+Right
+   * is kept, and so is a source whose values were all written already.
+   */
+  async pastEmptySource(input, prediction) {
+    if (input.focusSource || !prediction.sourceContext?.source) return prediction;
+    const cursor = Number.isInteger(input.cursor) ? input.cursor : String(input.text ?? '').length;
+    const ends = (Array.isArray(input.pendingDependencies) ? input.pendingDependencies : [])
+      .map((link) => link?.end).filter((end) => Number.isInteger(end) && end <= cursor);
+    if (!ends.length) return prediction;
+    const boundary = Math.max(...ends);
+    const released = await this.predictText({ ...input, sourceScopeBoundary: boundary });
+    const namesSomething = (released.claims ?? []).some((claim) => claim.start >= boundary
+      && claim.candidates?.length && !['QUANTITATIVE', 'SAMPLE_SIZE'].includes(claim.type));
+    return namesSomething ? released : prediction;
+  }
+
+  /**
+   * Dictation writes a name in full and goes straight on ("Other revenue
+   * was"), with no moment to accept it with Tab. A source named in full among
+   * the words just said is read as if it had been accepted there. Null when
+   * none was, or reading it so offers nothing.
+   */
+  async predictNamed(input) {
+    const named = await this.dictatedName(input);
+    if (!named) return null;
+    const pending = Array.isArray(input.pendingDependencies) ? input.pendingDependencies : [];
+    const linked = await this.predictText({ ...input, pendingDependencies: [...pending, named] });
+    return hasSuggestions(linked) ? linked : null;
+  }
+
+  /** The link a dictated name would have had, had Tab accepted it; null when none was said in full. */
+  async dictatedName(input) {
+    if (input.focusSource) return null;
+    const text = String(input.text ?? '');
+    const cursor = Number.isInteger(input.cursor) ? input.cursor : text.length;
+    const pending = Array.isArray(input.pendingDependencies) ? input.pendingDependencies : [];
+    // Never a name already accepted, nor one in an earlier clause.
+    const linkedEnd = Math.max(0, ...pending.map((link) => (Number.isInteger(link?.end) ? link.end : 0)));
+    const from = Math.max(currentClauseStart(text, cursor), linkedEnd);
+    for (const end of dictatedNameEnds(text, from, cursor).slice(0, 3)) {
+      const said = text.slice(0, end);
+      const prediction = await this.predictText({ ...input, text: said, cursor: end });
+      for (const claim of prediction.claims ?? []) {
+        if (claim.end !== end || claim.start < from) continue;
+        const source = (claim.candidates ?? []).find((candidate) => candidate.id && candidate.snapshotId
+          && candidate.projectId && namesInFull(said.slice(claim.start, claim.end), candidate.label));
+        if (source) return { projectId: source.projectId, blockIndex: 0, start: claim.start, end: claim.end,
+          sourceObjectId: source.id, sourceSnapshotId: source.snapshotId };
+      }
+    }
+    return null;
+  }
+
+  async predictText(input = {}) {
     const revision = this.revision();
     const projects = this.activeProjects();
     const projectsById = new Map(projects.map((p) => [p.id, p]));

@@ -11,15 +11,34 @@ import { linkCandidate } from './editor-save.js?v=1';
 import { pendingDependenciesForPrediction } from './linked-claims.js?v=1';
 import { showDependencyPicker } from './dependency-picker.js?v=1';
 
+// Text alone is not enough: a click or arrow key can move the insertion point
+// without changing the paragraph while a prediction is still in flight.
+export function predictionContextIsCurrent(context) {
+  if (!context) return false;
+  const { block, requestedText, requestedDocument, cursor } = context;
+  const selection = window.getSelection();
+  return block?.isConnected && state.editor.document === requestedDocument
+    && block.textContent === requestedText && selection?.isCollapsed
+    && block.contains(selection.focusNode) && caretOffsetWithin(block) === cursor;
+}
+
+export function handleEditorSelectionChange() {
+  const context = state.editor.prediction?.requestContext ?? state.editor.predictionRequestContext;
+  if (context && !predictionContextIsCurrent(context)) clearPrediction();
+}
+
 export async function predictForBlock(block) {
   if (!block?.isConnected || !block.textContent.trim()) return;
   const requestedText = block.textContent;
   const requestedDocument = state.editor.document;
+  const cursor = caretOffsetWithin(block);
+  const requestContext = { block, requestedText, requestedDocument, cursor };
+  if (!predictionContextIsCurrent(requestContext)) return;
   const controller = new AbortController();
   state.editor.predictionController?.abort();
   state.editor.predictionController = controller;
+  state.editor.predictionRequestContext = requestContext;
   try {
-    const cursor = caretOffsetWithin(block);
     const blocks = [...document.querySelectorAll('.manuscript-block')];
     const blockIndex = Number(block.dataset.blockIndex);
     const section = blocks.slice(0, blockIndex + 1).reverse()
@@ -39,7 +58,7 @@ export async function predictForBlock(block) {
       }), signal: controller.signal,
     });
     if (controller.signal.aborted || state.editor.predictionController !== controller
-      || !block.isConnected || block.textContent !== requestedText) return;
+      || !predictionContextIsCurrent(requestContext)) return;
     if (prediction.workspaceRevision != null && prediction.workspaceRevision !== state.workspace.revision) {
       clearPrediction();
       const refreshController = new AbortController();
@@ -51,8 +70,7 @@ export async function predictForBlock(block) {
           renderProjectContext();
           dependencyShell.reset();
         }
-        if (block.isConnected && block.textContent === requestedText
-          && state.editor.document === requestedDocument && state.editor.activeBlock === block) {
+        if (predictionContextIsCurrent(requestContext)) {
           state.editor.predictionTimer = setTimeout(() => predictForBlock(block), 45);
         }
       } finally {
@@ -65,7 +83,7 @@ export async function predictForBlock(block) {
         .map((finding) => ({ ...finding, block, requestedText }));
       const first = findings[0];
       state.editor.prediction = {
-        mode: 'SOURCE_FINDINGS',
+        requestContext, mode: 'SOURCE_FINDINGS',
         completion: { kind: 'SOURCE_FINDING', block, requestedText },
         findings,
         sourceContext: prediction.sourceContext,
@@ -86,7 +104,7 @@ export async function predictForBlock(block) {
         .map((suggestion) => ({ ...suggestion, block, requestedText }));
       const first = workspaceSuggestions[0];
       state.editor.prediction = {
-        mode: 'WORKSPACE_SUGGESTIONS',
+        requestContext, mode: 'WORKSPACE_SUGGESTIONS',
         completion: { kind: 'WORKSPACE', block, requestedText },
         workspaceSuggestions,
         workspaceHeading: prediction.workspaceHeading,
@@ -106,7 +124,7 @@ export async function predictForBlock(block) {
       const completion = { ...prediction.completion, kind: 'SENTENCE', block, requestedText };
       const start = completion.claimStart;
       state.editor.prediction = {
-        mode: 'COMPLETE_AND_LINK', completion, blockIndex, blockType: block.dataset.blockType, block,
+        requestContext, mode: 'COMPLETE_AND_LINK', completion, blockIndex, blockType: block.dataset.blockType, block,
         claim: {
           start, end: requestedText.length, type: 'PROJECT_SENTENCE',
           text: `${requestedText.slice(start)}${completion.insertText}`,
@@ -130,7 +148,7 @@ export async function predictForBlock(block) {
       const completesDrawingReference = claim.type === 'ENTITY' && claim.partial
         && claim.candidates.some((candidate) => namesWholeFile(candidate) && candidate.label);
       state.editor.prediction = {
-        mode: completesCitation || completesStudyVariable || completesReferenceComponent || completesDrawingReference
+        requestContext, mode: completesCitation || completesStudyVariable || completesReferenceComponent || completesDrawingReference
           ? 'COMPLETE_AND_LINK' : 'LINK',
         completion: completesCitation
           ? { kind: 'CITATION', block, requestedText }
@@ -148,7 +166,10 @@ export async function predictForBlock(block) {
   } catch (error) {
     if (error.name !== 'AbortError') toast(error.message, 'error');
   } finally {
-    if (state.editor.predictionController === controller) state.editor.predictionController = null;
+    if (state.editor.predictionController === controller) {
+      state.editor.predictionController = null;
+      state.editor.predictionRequestContext = null;
+    }
   }
 }
 
@@ -374,6 +395,7 @@ export function clearPrediction() {
   clearTimeout(state.editor.predictionTimer);
   state.editor.predictionController?.abort();
   state.editor.predictionController = null;
+  state.editor.predictionRequestContext = null;
   const block = state.editor.prediction?.block;
   block?.classList.remove('has-prediction', 'has-text-completion');
   if (block) delete block.dataset.completion;
@@ -420,6 +442,10 @@ function openPredictionPicker() {
 export async function acceptPrediction() {
   const prediction = state.editor.prediction;
   if (!prediction) return;
+  if (!predictionContextIsCurrent(prediction.requestContext)) {
+    clearPrediction();
+    return;
+  }
   const candidate = prediction.claim.candidates[state.editor.predictionIndex];
   let claim = { ...prediction.claim, blockIndex: prediction.blockIndex, blockType: prediction.blockType };
   const edit = predictionEdit(prediction, candidate, state.editor.predictionIndex);

@@ -268,7 +268,9 @@ extension GlobalAssistant {
         view.onOpenSource = { [weak self] in self?.openCurrentSource() }
         view.onAllSources = { [weak self] in self?.chooseSource(allDocuments: true) }
         view.onStepBack = { [weak self] in self?.stepBack(); self?.publishKeyRouting() }
-        view.onDismiss = { [weak self] in self?.hide() }
+        view.onOpenWords = { [weak self] in self?.openWords(movingStart: false); self?.publishKeyRouting() }
+        view.onCloseWords = { [weak self] in self?.view.wordChoice = nil; self?.publishKeyRouting() }
+        view.onDismiss = { [weak self] in self?.dismiss() }
         created.contentView = AssistBubbleContainer(content: view)
         panel = created
         return created

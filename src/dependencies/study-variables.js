@@ -7,16 +7,25 @@ import { fileReferenceMatch, isWholeFile, typedAsWritten } from './file-referenc
 import { WHOLE_FILE_TYPES } from './constants.js';
 import { pendingObject, studyVariable } from './object-descriptors.js';
 import { rowCompletionFragments } from './row-field-match.js';
-import { variableTokens } from './text-similarity.js';
+import { recommendationRelevanceBand } from './ranking.js';
+import { variableTokens, wordTokens } from './text-similarity.js';
 import { measuredPartWords, namesMeasuredPart, variableNameMatch } from './variable-match.js';
-import { sameDocument } from './workspace-completion.js';
-import { progressiveVariableFragments, writingSourceContext } from './writing-context.js';
+import { CONTEXTUAL_INSERTION_CUES, sameDocument } from './workspace-completion.js';
+import { FRAGMENT_FUNCTION_WORDS, progressiveVariableFragments, writingSourceContext } from './writing-context.js';
 
 // How much the table index adds to a suggestion: rows matched per table, rows
 // shown among the names offered, and cells offered for an accepted source.
 const INDEXED_MATCHES_PER_TABLE = 12;
 const INDEXED_ROWS_SHOWN = 8;
 const INDEXED_RELATED_OBJECTS = 64;
+
+// Words that only say a sentence reports the writer's own work ("these results
+// indicate", "in the current analysis we observed") or where data sits ("the
+// marketing rows"). They name no data, so they never tell two names apart.
+const REPORTING_WORDS = new Set([...CONTEXTUAL_INSERTION_CUES, ...FRAGMENT_FUNCTION_WORDS,
+  'current', 'present', 'work', 'studies', 'finding', 'findings', 'outcome', 'outcomes',
+  'row', 'rows', 'column', 'columns', 'cell', 'cells', 'record', 'records', 'value', 'values',
+  'table', 'tables', 'sheet', 'sheets', 'field', 'fields', 'entry', 'entries']);
 
 function wordSuffixes(words) {
   return words.map((_, index) => words.slice(index).join(''));
@@ -158,6 +167,11 @@ export const studyVariablesMethods = {
     if (normalizedVariable(query).length < 2) return [];
     const normalizedQuery = normalizedVariable(query);
     const queryWords = variableTokens(humanVariable(query));
+    // The name decides eligibility. Earlier words in this sentence distinguish
+    // identically named columns/rows before duplicate names are collapsed.
+    const contextWords = wordTokens(options.sentenceContext)
+      .filter((word) => !REPORTING_WORDS.has(word) && !queryWords.includes(word));
+    const directoryWords = contextWords.length ? wordTokens(this.timeline.getProject(projectId).name) : [];
     const permitted = this.autocompleteFilter(projectId);
     const known = this.studyVariables(projectId, options.snapshotId);
     const indexed = this.indexedStudyVariables(projectId, options.snapshotId, query, this.keysOf(known));
@@ -175,29 +189,44 @@ export const studyVariablesMethods = {
       // extent"), so it waits until the drawing itself can be named and offered first.
       .filter(({ object }) => object.objectType !== 'DRAWING_ANNOTATION'
         || normalizedQuery.length >= DRAWING_NAME_MIN_LETTERS)
-      .map(({ object, match }) => {
+      .flatMap(({ object, match }) => {
         const { exact, prefix, contains, tokenPrefix, partMeasurement } = match;
         const variableObject = object.objectType === 'VARIABLE' ? 1 : 0;
         const rowObject = object.objectType === 'DATASET_ROW' && !object.namedRow ? 1 : 0;
+        // Words that each begin a word of the name, in any order, are how a
+        // column is abbreviated ("cur per"). They do not name a row or a value:
+        // "Quebec district 30002" would otherwise match every district.
+        if (!exact && !prefix && !contains && !partMeasurement && !variableObject && !rowObject) return [];
         // Named rows rank below variables and line items that match as well.
         const namedRow = object.namedRow ? 1 : 0;
         const dictionary = object.metadata.dictionary ? 1 : 0;
         const dataPath = /(^|\/)(?:data|datasets?|results?|outputs?|tables?|metabolomics)(\/|$)/i.test(object.path) ? 1 : 0;
-        const base = exact ? 0.91 : prefix ? 0.82 : contains ? 0.74 : partMeasurement ? 0.72 : tokenPrefix ? 0.68 : 0;
+        const base = exact ? 0.95 : prefix ? 0.82 : contains ? 0.74 : partMeasurement ? 0.72 : tokenPrefix ? 0.68 : 0;
         const profileQuality = object.metadata.range ? 0.025
           : object.metadata.samples?.length ? 0.012 : object.metadata.dictionary ? 0.01 : -0.015;
-        const score = Math.min(0.99, base + variableObject * 0.04 + rowObject * 0.065
-          + dictionary * 0.03 + dataPath * 0.02 + profileQuality - namedRow * 0.03);
+        const preference = variableObject * 0.04 + rowObject * 0.065
+          + dictionary * 0.03 + dataPath * 0.02 + profileQuality - namedRow * 0.03;
+        // How the typed words match the name sets the relevance band (exact,
+        // begins, contains, out of order). What kind of object it is and which
+        // folder holds it (-0.045 to 0.14, a fifth of that here) only order names
+        // that match alike: a column whose name merely contains the words never
+        // passes a row or column whose name begins with them.
+        const score = Math.min(0.99, base + 0.2 * (preference + 0.045));
+        // A name with the typed words further in ("Peak Pressure" for "pres") is
+        // a name match, not one the words begin.
         const reasons = namedRow ? [exact ? 'Exact row name' : 'Matching row name']
-          : [exact ? 'Exact variable name' : prefix || tokenPrefix ? 'Matching variable prefix' : 'Matching variable name'];
+          : [exact ? 'Exact variable name' : prefix || (tokenPrefix && !contains) ? 'Matching variable prefix' : 'Matching variable name'];
         if (dictionary) reasons.push('data dictionary definition');
         else if (rowObject || namedRow) reasons.push('named dataset row');
         else if (variableObject) reasons.push('inferred from dataset column');
-        return {
+        const sourceWords = contextWords.length
+          ? new Set([...directoryWords, ...wordTokens(`${object.label} ${object.searchText}`)]) : null;
+        return [{
           ...object,
           label: object.variable,
           completionText: object.variable,
           score: Number(score.toFixed(3)),
+          contextScore: sourceWords ? contextWords.filter((word) => sourceWords.has(word)).length / contextWords.length : 0,
           matchTier: exact ? 0 : 1,
           reasons,
           variableDefinition: object.objectType === 'VARIABLE' ? {
@@ -207,9 +236,13 @@ export const studyVariablesMethods = {
             path: object.path,
             inferred: !object.metadata.dictionary,
           } : null,
-        };
+        }];
       }).filter((object) => object.score >= 0.68)
-      .sort((left, right) => right.score - left.score
+      // Only eight deep rows become indexed objects. Apply sentence context
+      // within their relevance bands before that cap can discard the right file.
+      .sort((left, right) => recommendationRelevanceBand(right.score) - recommendationRelevanceBand(left.score)
+        || right.contextScore - left.contextScore
+        || right.score - left.score
         || Number(right.objectType === 'DATASET_ROW' && !right.namedRow) - Number(left.objectType === 'DATASET_ROW' && !left.namedRow)
         || Number(right.objectType === 'VARIABLE') - Number(left.objectType === 'VARIABLE')
         || left.variable.localeCompare(right.variable)
@@ -259,6 +292,7 @@ export const studyVariablesMethods = {
     for (const fragment of progressiveVariableFragments(input.text, cursor, settledAt)) {
       const candidates = this.candidatesForStudyVariable(projectId, fragment, {
         documentPath: input.documentPath,
+        sentenceContext: input.text.slice(Math.max(context.sentenceStart, settledAt), fragment.start),
         relatedPaths: this.relatedSourcePaths(projectId, input),
         limit: 40,
       });
@@ -278,9 +312,13 @@ export const studyVariablesMethods = {
     for (const fragment of fragments) {
       const candidates = files.flatMap(object => {
         const match = fileReferenceMatch(object, fragment.text);
+        // "floor plan" or "3D model" names what kind of drawing a file is, read
+        // from its format. A file whose own name or title has the words comes first.
+        const kindOnly = match?.matchedBy === 'drawing-alias';
         return match ? [this.enrichObject(projectId, {
-          ...object, label: match.label, score: match.score, matchTier: 0, fileReference: true,
-          reasons: [object.objectType === 'DRAWING' ? 'Matching drawing reference' : 'Matching file name'],
+          ...object, label: match.label, score: match.score, matchTier: kindOnly ? 1 : 0, fileReference: true,
+          reasons: [kindOnly ? 'Matching drawing type'
+            : object.objectType === 'DRAWING' ? 'Matching drawing reference' : 'Matching file name'],
         })] : [];
       }).sort((left, right) => right.score - left.score);
       if (candidates.length) return { ...fragment, type: 'ENTITY', partial: true,

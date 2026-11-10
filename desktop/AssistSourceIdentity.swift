@@ -150,3 +150,18 @@ enum AssistSuggestionSemantics {
         return sentence
     }
 }
+
+/// Refreshing the same query keeps the chosen suggestion, even if its rank
+/// changes. New typing starts at the strongest result instead of reusing a row.
+enum AssistSuggestionSelection {
+    struct Identity: Equatable {
+        let projectId: String
+        let objectId: String?
+        let insertText: String
+    }
+
+    static func index(keeping selected: Identity?, in candidates: [Identity], sameQuery: Bool) -> Int {
+        guard sameQuery, let selected else { return 0 }
+        return candidates.firstIndex(of: selected) ?? 0
+    }
+}

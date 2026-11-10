@@ -191,9 +191,12 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/KeyRouting.swift" \
   "$ROOT/desktop/PinchRouting.swift" \
   "$ROOT/desktop/CompletionTransaction.swift" \
+  "$ROOT/desktop/InsertionCasing.swift" \
   "$ROOT/desktop/InsertionUndo.swift" \
   "$ROOT/desktop/HostSelection.swift" \
   "$ROOT/desktop/AssistSourceIdentity.swift" \
+  "$ROOT/desktop/AssistWordChoice.swift" \
+  "$ROOT/desktop/SpokenAccept.swift" \
   "$ROOT/desktop/SourceOpenTarget.swift" \
   "$ROOT/desktop/SourceOpener.swift" \
   "$ROOT/desktop/AssistPopupHost.swift" \
@@ -202,6 +205,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/HostGeometry.swift" \
   "$ROOT/desktop/AccessibilityWork.swift" \
   "$ROOT/desktop/HostAccessibilityMode.swift" \
+  "$ROOT/desktop/DictationWatch.swift" \
   "$ROOT/desktop/HostTextAdapter.swift" \
   "$ROOT/desktop/FocusedTextElement.swift" \
   "$ROOT/desktop/DependencyOverlay.swift" \

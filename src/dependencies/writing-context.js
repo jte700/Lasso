@@ -41,7 +41,7 @@ export function writingSourceContext(text, cursor, section = '') {
 // A fragment that begins with one of these is part of the sentence, not of a
 // source name. Replacing it would delete the word ("cost of office sup"), and
 // a lone function word ("is", "of") would match unrelated names.
-const FRAGMENT_FUNCTION_WORDS = new Set(['a', 'an', 'the', 'of', 'to', 'in', 'on', 'at', 'by', 'for', 'from', 'with',
+export const FRAGMENT_FUNCTION_WORDS = new Set(['a', 'an', 'the', 'of', 'to', 'in', 'on', 'at', 'by', 'for', 'from', 'with',
   'as', 'is', 'are', 'was', 'were', 'be', 'been', 'it', 'its', 'and', 'or', 'but', 'if', 'so', 'than', 'then', 'that',
   'this', 'these', 'those', 'has', 'have', 'had', 'our', 'their', 'we', 'via', 'into', 'onto']);
 

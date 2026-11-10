@@ -23,6 +23,10 @@ extension AssistBoxView {
         var y = bodyTop + (mode == .suggestions ? 0 : headerHeight)
         switch mode {
         case .suggestions:
+            if let words = wordChoice, suggestions.indices.contains(selected) {
+                drawWordChoice(words, from: suggestions[selected])
+                break
+            }
             let navigationFont = NSFont.systemFont(ofSize: 11, weight: .medium)
             // Clear of the row counter when it shows.
             let width = suggestions.count > visibleSuggestionCount ? leftWidth - 170 : leftWidth - 40
@@ -83,12 +87,17 @@ extension AssistBoxView {
         }
     }
 
+    /// Where the rows end: short of the list's scroller while it shows.
+    var suggestionRowsRight: CGFloat {
+        suggestionRows.bounds.width < leftWidth ? suggestionRows.bounds.width - scrollerGap : leftWidth - 10
+    }
+
     /// Every suggestion's row, in the scrolling rows view's coordinates.
     func drawSuggestionRows(in dirtyRect: NSRect) {
         guard mode == .suggestions else { return }
         // While the list has a scroller, the rows end short of it.
         let hasScroller = suggestionRows.bounds.width < leftWidth
-        let right = hasScroller ? suggestionRows.bounds.width - scrollerGap : leftWidth - 10
+        let right = suggestionRowsRight
         for (index, suggestion) in suggestions.enumerated() {
             let slotY = CGFloat(index) * suggestionHeight
             guard slotY < dirtyRect.maxY, slotY + suggestionHeight + listBottomPadding > dirtyRect.minY else { continue }
@@ -118,9 +127,15 @@ extension AssistBoxView {
             let source = (suggestion.path as NSString).lastPathComponent
             let breadcrumb = [suggestion.rankingReason ?? "", source.isEmpty ? "Project workspace" : source, suggestion.location]
                 .filter { !$0.isEmpty }.joined(separator: "  ·  ")
+            // A highlighted line names the keys that open its words.
+            let wordsHint = index == selected && suggestion.offersWords ? wordsHintRect(row: index) : nil
+            if let wordsHint {
+                drawLabel(Self.wordsHintLabel, key: Self.wordsHintKey, in: wordsHint,
+                          font: Self.wordsHintFont, color: .secondaryLabelColor)
+            }
             drawText(breadcrumb,
                      in: NSRect(x: 65, y: slotY + 47,
-                               width: right - 77, height: 15),
+                               width: (wordsHint?.minX ?? right - 12) - 65 - (wordsHint == nil ? 0 : 10), height: 15),
                      font: NSFont.systemFont(ofSize: 11),
                      color: .secondaryLabelColor)
             if index < suggestions.count - 1 {
@@ -264,7 +279,7 @@ extension AssistBoxView {
     }
 
     /// A label followed by its key. A long label is shortened, never the key.
-    private func drawLabel(_ label: String, key: String, in rect: NSRect, font: NSFont, color: NSColor) {
+    func drawLabel(_ label: String, key: String, in rect: NSRect, font: NSFont, color: NSColor) {
         let keyText = "  " + key
         let keyWidth = ceil(keyText.size(withAttributes: [.font: font]).width)
         let labelWidth = min(ceil(label.size(withAttributes: [.font: font]).width), rect.width - keyWidth)

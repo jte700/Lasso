@@ -6,6 +6,7 @@ import { projectIsOffline } from './workspace-projects.js?v=1';
 import { renderEditableBlock } from './editor-document.js?v=1';
 import {
   predictForBlock, showPredictionCompletion, clearPrediction, endSourceContext, acceptPrediction,
+  predictionContextIsCurrent,
 } from './editor-predictions.js?v=1';
 import { saveDocument } from './editor-save.js?v=1';
 import { bindLinkedClaimNode, renderLocalDependencies } from './linked-claims.js?v=1';
@@ -338,7 +339,9 @@ export function focusDocumentEnd() {
 }
 
 export function handleEditorShortcuts(event) {
-  if (projectIsOffline()) return;
+  if (projectIsOffline() || event.isComposing) return;
+  if (state.editor.prediction && !predictionContextIsCurrent(state.editor.prediction.requestContext)) clearPrediction();
+  const unmodified = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
     event.preventDefault();
     if (event.shiftKey) redoEditor(); else undoEditor();
@@ -356,17 +359,18 @@ export function handleEditorShortcuts(event) {
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key === 'Enter') {
     event.preventDefault(); endSourceContext(); return;
   }
-  if (state.editor.prediction && (event.key === 'Tab' || (event.altKey && event.key === 'Enter'))) {
+  if (state.editor.prediction && ((event.key === 'Tab' && unmodified)
+    || (event.altKey && event.key === 'Enter' && !event.metaKey && !event.ctrlKey && !event.shiftKey))) {
     event.preventDefault(); acceptPrediction();
     return;
   }
-  if (state.editor.prediction && event.key === 'ArrowDown') {
+  if (state.editor.prediction && event.key === 'ArrowDown' && unmodified) {
     event.preventDefault();
     state.editor.predictionIndex = (state.editor.predictionIndex + 1) % state.editor.prediction.claim.candidates.length;
     showPredictionCompletion();
     return;
   }
-  if (state.editor.prediction && event.key === 'ArrowUp') {
+  if (state.editor.prediction && event.key === 'ArrowUp' && unmodified) {
     event.preventDefault();
     const completionCount = state.editor.prediction.claim.candidates.length;
     state.editor.predictionIndex = (state.editor.predictionIndex - 1 + completionCount) % completionCount;

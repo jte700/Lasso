@@ -18,7 +18,7 @@ export const state = {
   view: 'timeline',
   editor: {
     documents: [], document: null, dirty: false, prediction: null, predictionIndex: 0,
-    predictionTimer: null, predictionController: null,
+    predictionTimer: null, predictionController: null, predictionRequestContext: null,
     activeBlock: null, manualClaim: null, pickerMode: 'link',
     revealDependencyId: null, revealTimer: null,
     pendingLinks: [], autosaveTimer: null, savePromise: null, editRevision: 0,
