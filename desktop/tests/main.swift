@@ -4720,5 +4720,18 @@ do {
     check(PassageWordDiff.changes(from: long, to: long + " more").isEmpty, "a passage past the limit is not compared")
 }
 
+// The Ranch's sheet view tints the cells its version changed, with what they were.
+do {
+    let json = #"{"sheets":[{"name":"Budget","columns":2,"rows":[["Line","Amount"],["Rent","4200"],["Payroll","19250"]],"rowNumbers":[1,2,3],"truncated":false}],"skipped":[],"version":"s2","versions":[{"snapshotId":"s2","at":"2026-11-10T15:04:00Z"},{"snapshotId":"s1","at":"2026-11-09T09:00:00Z"}],"changes":[{"sheet":"Budget","row":3,"column":1,"before":"18,400","after":"19,250","changedAt":"2026-11-10T15:04:00Z"}]}"#
+    let book = try? JSONDecoder().decode(RanchWorkbook.self, from: Data(json.utf8))
+    let cells = book?.changedCells(onSheet: 0) ?? [:]
+    check(cells.count == 1 && cells[RanchCellKey(row: 2, column: 1)]?.before == "18,400", "a changed cell is found at the row the grid shows it on")
+    check(cells[RanchCellKey(row: 2, column: 1)]?.hoverText(date: { _ in "Nov 10, 3:04 PM" }) == "was 18,400 \u{00B7} Nov 10, 3:04 PM",
+          "hovering a changed cell says what it was and when")
+    check(book?.versions?.map(\.snapshotId) == ["s2", "s1"], "the file's versions are listed newest first")
+    let older = try? JSONDecoder().decode(RanchWorkbook.self, from: Data(#"{"sheets":[],"skipped":[]}"#.utf8))
+    check(older != nil && older?.changedCells(onSheet: 0).isEmpty == true && older?.versions == nil, "a workbook from an older server reads as before")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

@@ -19,6 +19,26 @@ export function shownCell(display, stored) {
   return /^-?\d+\.\d{12,}$/.test(text) ? String(Number(Number(text).toPrecision(12))) : text;
 }
 
+/**
+ * The cells one snapshot's index changed in a file, as the sheet view tints
+ * them: { sheet, row (the sheet's own row number), column (from 0), before,
+ * after, changedAt }.
+ */
+export function cellChanges(db, snapshotId, filePath) {
+  return db.prepare(`SELECT a.anchor_json, b.value_text AS before_value, a.value_text AS after_value, s.created_at
+    FROM object_changes c
+    JOIN snapshots s ON s.id = c.snapshot_id
+    JOIN scientific_object_versions a ON a.id = c.after_version_id
+    JOIN scientific_object_versions b ON b.id = c.before_version_id
+    WHERE c.snapshot_id = ? AND c.kind = 'modified' AND a.path = ? AND b.value_text IS NOT a.value_text`)
+    .all(snapshotId, filePath).flatMap((row) => {
+      const anchor = JSON.parse(row.anchor_json ?? 'null');
+      if (anchor?.kind !== 'table-cell' || !Number.isInteger(anchor.rowIndex) || !Number.isInteger(anchor.columnIndex)) return [];
+      return [{ sheet: anchor.sheet ?? null, row: anchor.rowIndex, column: anchor.columnIndex,
+        before: row.before_value, after: row.after_value, changedAt: row.created_at }];
+    });
+}
+
 export function spreadsheetView(buffer) {
   const tables = extractSpreadsheetTables(buffer);
   const sheets = tables.slice(0, MAX_SHEETS).map((table) => {
