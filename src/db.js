@@ -5,6 +5,9 @@ import { DatabaseSync } from 'node:sqlite';
 
 const BUSY_TIMEOUT_MS = 5000;
 const WAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024;
+// The first migration applied whenever it is missing, rather than only above
+// the highest recorded (see the runner in openDatabase).
+const FIRST_UNORDERED_MIGRATION = 27;
 
 export function openDatabase(config) {
   fs.mkdirSync(path.dirname(config.databasePath), { recursive: true });
@@ -101,10 +104,19 @@ export function openDatabase(config) {
     }
   }
 
+  // From 027 on, migrations built on parallel branches can land in either
+  // order, so each is applied whenever the store has not recorded it, not
+  // only when it is numbered above the highest recorded. Every one of them
+  // must be idempotent. Earlier numbers keep the ordered rule, which the
+  // branch normalisation above relies on.
+  const recorded = hasMigrations
+    ? new Set(db.prepare('SELECT version FROM schema_migrations').all().map((row) => row.version))
+    : new Set();
   const migrations = fs.readdirSync(migrationDirectory)
     .filter((name) => /^\d+_.*\.sql$/.test(name))
     .map((name) => ({ name, version: Number(name.split('_')[0]) }))
-    .filter((migration) => migration.version > currentVersion)
+    .filter((migration) => migration.version > currentVersion
+      || (migration.version >= FIRST_UNORDERED_MIGRATION && !recorded.has(migration.version)))
     .sort((a, b) => a.version - b.version);
   // Each migration applies completely or not at all, so an interrupted upgrade
   // cannot leave a half-built schema that fails on every later start.

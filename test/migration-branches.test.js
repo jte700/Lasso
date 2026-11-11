@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import {openDatabase} from '../src/db.js';
-const latestVersion = Math.max(...fs.readdirSync('migrations').map(name => Number(name.split('_')[0])).filter(Number.isFinite));
+const migrationVersions = fs.readdirSync('migrations').map(name => Number(name.split('_')[0])).filter(Number.isFinite).sort((a, b) => a - b);
+const latestVersion = Math.max(...migrationVersions);
 for (const branch of ['recommendations', 'share-scopes']) {
  test(`upgrades existing migration 014 from ${branch} without losing data`, () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'lasso-migration-'));
@@ -70,7 +71,7 @@ for (const version of [17, 18]) {
    assert.ok(columns('object_share_grants').includes('excerpt_json'));
    assert.ok(columns('removable_drives').length && columns('drive_projects').length);
    assert.deepEqual(db.prepare('SELECT version FROM schema_migrations WHERE version >= 16 ORDER BY version').all().map(r=>r.version),
-     Array.from({length:latestVersion-15},(_,i)=>i+16));
+     migrationVersions.filter(number=>number>=16));
    db.close();db=openDatabase({databasePath});
    assert.equal(db.prepare('SELECT value FROM migration_probe').get().value,'preserved');
   } finally {db.close();fs.rmSync(root,{recursive:true,force:true});}
@@ -96,6 +97,26 @@ test('upgrades a Windows companion store whose migration 018 added the reader co
    assert.equal(db.prepare('SELECT value FROM migration_probe').get().value,'preserved');
    db.close();db=openDatabase({databasePath});
    assert.equal(db.prepare('SELECT value FROM migration_probe').get().value,'preserved');
+  } finally {db.close();fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('a migration missing from the record is applied even when a higher one is recorded', () => {
+  // Arrange: a store that recorded a later-numbered migration from a parallel
+  // branch before change records (028) landed.
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'lasso-migration-'));
+  const databasePath=path.join(root,'test.sqlite');
+  let db=openDatabase({databasePath});
+  try {
+   db.exec(`DROP TABLE object_changes; DELETE FROM schema_migrations WHERE version = 28;
+     INSERT INTO schema_migrations(version, applied_at) VALUES (${latestVersion + 1}, '2026-11-11T00:00:00Z')`);
+   db.close();
+
+   // Act
+   db=openDatabase({databasePath});
+
+   // Assert
+   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'object_changes'").get());
+   assert.ok(db.prepare('SELECT 1 FROM schema_migrations WHERE version = 28').get());
   } finally {db.close();fs.rmSync(root,{recursive:true,force:true});}
 });
 

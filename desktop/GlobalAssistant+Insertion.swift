@@ -312,7 +312,7 @@ extension GlobalAssistant {
         // Stage B: the reference starts from the verified range, never from
         // a fresh search of the document.
         undoableInsertion?.referenceId = DependencyHighlighter.shared.recordVerifiedInsertion(
-            objectId: objectId, versionId: suggestion.versionId,
+            objectId: objectId, versionId: suggestion.versionId, snapshotId: suggestion.snapshotId,
             projectId: suggestion.projectId,
             label: suggestion.label, valueText: suggestion.detail,
             sourcePath: suggestion.path, sourceLocation: suggestion.detail,

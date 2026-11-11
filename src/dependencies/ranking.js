@@ -228,7 +228,7 @@ export class RecommendationRanking {
       WHERE v.position = 1 AND v.is_removed = 0 AND v.status != 'BROKEN'
     `).all(project.id, document.projectFileId, project.currentVersion);
     for (const row of rows) {
-      const source = this.timeline.objectVersions.at(row.source_snapshot_id, row.source_object_id);
+      const source = this.timeline.objectVersions.nearestVersion(row.source_snapshot_id, row.source_object_id);
       const origin = source ? this.timeline.snapshotFile(row.source_snapshot_id, source.path) : null;
       const current = origin ? this.timeline.snapshotFileById(project.currentSnapshotId, origin.projectFileId) : null;
       if (current) related.add(current.path);

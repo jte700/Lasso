@@ -77,11 +77,13 @@ test('real IFC preview routes focus different indexed products and preserve sour
   assert.equal(document.document.selected.guid, room.anchor.elementId);
 
   // A new export's bytes must not leak into the pinned preview of the old one.
+  // The room reads the same in both exports, so its version spans them; the
+  // preview pinned at the snapshot it was cited from shows that export.
   const revised = Buffer.from(bytes.toString().replace('DATA;', 'DATA;\n/* A later export revision. */'));
   fs.writeFileSync(path.join(root, 'House.ifc'), revised);
   assert.equal(app.timeline.capture(project.id, actor).changed, true);
   app.dependencies.ensureIndex(project.id);
-  const pinned = await get(`/api/dependency-objects/${room.id}/preview?version=${room.versionId}`);
+  const pinned = await get(`/api/dependency-objects/${room.id}/preview?version=${room.versionId}&snapshot=${room.snapshotId}`);
   assert.equal(pinned.preview.sourceHash, hash(bytes));
   const current = await get(`/api/dependency-objects/${room.id}/preview`);
   assert.equal(current.preview.sourceHash, hash(revised));

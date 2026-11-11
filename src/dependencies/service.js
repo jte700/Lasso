@@ -21,6 +21,7 @@ import { linkedFieldsMethods } from './linked-fields.js';
 import { linkedValuesMethods } from './linked-values.js';
 import { objectAccessMethods } from './object-access.js';
 import { objectExtractionMethods } from './object-extraction.js';
+import { objectHistoryMethods } from './object-history.js';
 import { contextOverlap, reconciliationMethods } from './reconciliation.js';
 import { rowIdentityMethods } from './row-identity.js';
 import { sourceSearchMethods } from './source-search.js';
@@ -218,6 +219,7 @@ installMethods(PredictiveProvenanceService.prototype,
   tableReadingMethods,
   rowIdentityMethods,
   objectAccessMethods,
+  objectHistoryMethods,
   studyVariablesMethods,
   workspaceSuggestionsMethods,
   claimCandidatesMethods,

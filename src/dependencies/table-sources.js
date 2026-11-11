@@ -1,6 +1,7 @@
 // Where a table's source objects sit, for following a link to one when its
 // row or column moves, or when a newer reader keys it differently.
 
+import { isWholeFileObject } from '../history/object-identity.js';
 import { columnLetter } from './table-preview.js';
 
 const TABLE_KINDS = new Set(['table-cell', 'table-row', 'table-column', 'sheet-note', 'table-summary']);
@@ -57,17 +58,20 @@ export function describeMove(previous, current) {
 }
 
 /**
- * Whether a table source's evidence changed. A table's objects record the
- * whole file's content hash, which any edit anywhere in the file changes,
- * so a cell is compared by its value (and a row by its name) instead; other
- * sources still compare the content they were read from.
+ * Whether a source's evidence changed since it was linked. A part of a file
+ * (a cell, passage, line, note) changed when its own recorded value did (and
+ * a table row when its name did), never because another part of its file
+ * was edited. An object that is the whole file changed when its file's bytes
+ * did. `current` is the source's version row read at the snapshot it is
+ * checked at, and `linked` the source as linked, read at its link's snapshot,
+ * so each carries its file's hash there.
  */
 export function sourceChanged(current, linked) {
-  if (isTableSource(linked.anchor)) {
-    return (current.value_text ?? null) !== (linked.valueText ?? null)
-      || (linked.anchor.kind === 'table-row' && current.label !== linked.label);
+  const valueChanged = (current.value_text ?? null) !== (linked.valueText ?? null);
+  if (isWholeFileObject(linked.objectType ?? current.object_type, linked.anchor)) {
+    return valueChanged || current.content_hash !== linked.contentHash;
   }
-  return current.content_hash !== linked.contentHash || current.value_text !== linked.valueText;
+  return valueChanged || (linked.anchor?.kind === 'table-row' && current.label !== linked.label);
 }
 
 /** A table source's place, for telling whether two readings name the same cell; null for anything else. */

@@ -6,6 +6,7 @@ import { diffInternals } from '../history/diff.js';
 import { id, sha } from './basics.js';
 import { detectClaimSpans } from './claim-detection.js';
 import { anchorForSpan } from './object-descriptors.js';
+import { isWholeFileObject } from '../history/object-identity.js';
 import {
   NAMED_TABLE_READER, READER_CHANGED, REPOINTED, describeMove, isPositionalTableKey, sourceChanged, sourcePlace,
   tablePosition,
@@ -18,6 +19,18 @@ function sourceOf(row) {
   return { id: row.object_id, projectId: row.project_id, objectKey: row.object_key, objectType: row.object_type,
     snapshotId: row.snapshot_id, path: row.path, anchor: json(row.anchor_json, null), label: row.label,
     valueText: row.value_text, contentHash: row.content_hash, metadata: json(row.metadata_json, {}) };
+}
+
+/**
+ * The content hash a stale link reports for its source now. A whole-file
+ * object's is its file's at the checked snapshot. A part's is the one stored
+ * with its current version, which stays put while the part does: the file's
+ * hash at the checked snapshot moves with every edit elsewhere in the file,
+ * and would record the link as stale again after each of them.
+ */
+function currentSourceHash(row) {
+  return isWholeFileObject(row.object_type, row.anchor_json)
+    ? row.content_hash : row.recorded_content_hash ?? row.content_hash;
 }
 
 /** The event title for one reconciled dependency. */
@@ -231,7 +244,7 @@ export const reconciliationMethods = {
           ...details,
           linkedSourceValue: dependency.source.valueText,
           currentSourceValue: currentSource.value_text,
-          currentSourceContentHash: currentSource.content_hash,
+          currentSourceContentHash: currentSourceHash(currentSource),
         };
       }
       // A table source that kept its identity while its row or column moved

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { BoundedCache } from '../cache.js';
 import { compareText, mergeSorted } from './text-order.js';
+import { changeKind, sameVersion } from './object-identity.js';
 
 /**
  * Indexed object versions, carried forward between snapshots.
@@ -12,9 +13,19 @@ import { compareText, mergeSorted } from './text-order.js';
  * without a base (the first index of a folder, and every index written before
  * carry-forward) hold all of their objects.
  *
- * Every version keeps the snapshot that first recorded it. Because a version
- * records its file's content hash, the file it points to has the same bytes at
- * every snapshot the version spans.
+ * Every version keeps the snapshot that first recorded it. A part of a file
+ * (a cell, passage, line, note) keeps its version while what was recorded
+ * about it stands, however the rest of its file changes; a whole-file object
+ * gets a new version whenever the file's bytes change (see object-identity.js).
+ * So a version can span snapshots whose file bytes differ, and its stored
+ * content_hash is only the file's hash when the version was first recorded.
+ * The bytes of an object read at a snapshot are that snapshot's file: rows
+ * read here at a snapshot carry the file's hash there (rowAtSnapshot,
+ * fileHashes), never the stored one, unless the file is absent there.
+ *
+ * Every index after a folder's first also records what changed since the
+ * index before it (object_changes): each object added, modified, moved or
+ * removed, by version id.
  */
 
 // An index resolves through at most this many bases; past it, the next index
@@ -72,6 +83,9 @@ const INSERT_VERSION = `INSERT INTO scientific_object_versions(
   id, object_id, snapshot_id, path, anchor_json, label, value_text, search_text, content_hash, metadata_json, created_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
+const INSERT_CHANGE = `INSERT INTO object_changes(snapshot_id, object_id, kind, before_version_id, after_version_id)
+  VALUES (?, ?, ?, ?, ?)`;
+
 function now() {
   return new Date().toISOString();
 }
@@ -87,19 +101,15 @@ export function storedFields(descriptor) {
     descriptor.value ?? null, descriptor.searchText, descriptor.contentHash, JSON.stringify(descriptor.metadata ?? {})];
 }
 
-function sameVersion(row, fields) {
-  const [filePath, anchor, label, value, searchText, contentHash, metadata] = fields;
-  return row.path === filePath && row.anchor_json === anchor && row.label === label && row.value_text === value
-    && row.search_text === searchText && row.content_hash === contentHash && row.metadata_json === metadata;
-}
-
 function resolvedSet(snapshotId, version, rows) {
   return { snapshotId, version, rows, byObject: new Map(rows.map((row) => [row.object_id, row])) };
 }
 
 export class ObjectVersionStore {
-  constructor(db) {
+  /** `files` is the timeline's SnapshotFileStore, which says what each file's bytes are at a snapshot. */
+  constructor(db, files = null) {
     this.db = db;
+    this.files = files;
     this.chains = new BoundedCache({ maxEntries: 64, maxWeight: 64 * MAX_INDEX_CHAIN, weight: (chain) => chain.size });
     // Rows in a set say nothing about the snapshot they were read at, so
     // consecutive snapshots share the rows they carry forward.
@@ -247,18 +257,48 @@ export class ObjectVersionStore {
       ?? this.count(snapshotId);
   }
 
-  /** A row as read at a snapshot, the shape callers of a single version expect. */
+  /** The content hash of the file at `filePath` as of a snapshot, or null when it is absent there. */
+  fileHashAt(snapshotId, filePath) {
+    return this.files?.rowAtPath(snapshotId, filePath)?.content_hash ?? null;
+  }
+
+  /**
+   * A lookup of file hashes at one snapshot, `(path) => hash or null`, for
+   * mapping many of its rows. It reads the snapshot's manifest once, on first
+   * use, and holds it no longer than the lookup is kept.
+   */
+  fileHashes(snapshotId) {
+    let byPath = null;
+    return (filePath) => {
+      byPath ??= this.files?.manifest(snapshotId).byPath ?? new Map();
+      return byPath.get(filePath)?.content_hash ?? null;
+    };
+  }
+
+  /**
+   * A row as read at a snapshot, the shape callers of a single version expect.
+   * Its content_hash is its file's at that snapshot, or the recorded one when
+   * the file is absent there; recorded_content_hash keeps the one stored with
+   * the version, which stays the same at every snapshot it spans. The row
+   * itself, which cached sets share between snapshots, is not changed.
+   */
   rowAtSnapshot(row, snapshotId, version = this.snapshotVersion(snapshotId)) {
-    return { ...row, snapshot_id: snapshotId, snapshot_version: version };
+    const recorded = row.recorded_content_hash ?? row.content_hash;
+    return { ...row, snapshot_id: snapshotId, snapshot_version: version,
+      content_hash: this.fileHashAt(snapshotId, row.path) ?? recorded, recorded_content_hash: recorded };
   }
 
   /** One object's version at a snapshot, or null when it is not there. */
   at(snapshotId, objectId) {
     const cached = this.sets.get(snapshotId);
-    if (cached) {
-      const row = cached.byObject.get(objectId);
-      return row ? this.rowAtSnapshot(row, snapshotId, cached.version) : null;
-    }
+    const row = this.nearestVersion(snapshotId, objectId);
+    return row ? this.rowAtSnapshot(row, snapshotId, cached?.version) : null;
+  }
+
+  /** The stored version row nearest a snapshot for one object, as recorded, or null when it is not there. */
+  nearestVersion(snapshotId, objectId) {
+    const cached = this.sets.get(snapshotId);
+    if (cached) return cached.byObject.get(objectId) ?? null;
     const chain = this.chain(snapshotId);
     let nearest = null;
     for (const entry of this.db.prepare(OBJECT_ENTRIES).all(objectId, objectId)) {
@@ -266,7 +306,7 @@ export class ObjectVersionStore {
       if (depth !== undefined && (!nearest || depth < nearest.depth)) nearest = { ...entry, depth };
     }
     if (nearest?.version_rowid == null) return null;
-    return this.rowAt(nearest.version_rowid, snapshotId);
+    return this.db.prepare(VERSION_BY_ROWID).get(nearest.version_rowid);
   }
 
   rowAt(versionRowid, snapshotId) {
@@ -278,20 +318,36 @@ export class ObjectVersionStore {
     const row = this.db.prepare(`SELECT ${VERSION_COLUMNS}, s.version AS snapshot_version
       FROM scientific_object_versions v JOIN scientific_objects o ON o.id = v.object_id
       JOIN snapshots s ON s.id = v.snapshot_id WHERE v.id = ?`).get(versionId);
-    return row ? { ...row, snapshot_id: row.recorded_snapshot_id } : null;
+    return row ? this.rowAtSnapshot(row, row.recorded_snapshot_id, row.snapshot_version) : null;
   }
 
   /**
-   * The folder's current snapshot if a version is still current there,
-   * otherwise the snapshot that recorded it. Used to report which version a
-   * pinned version id was taken from.
+   * The latest snapshot a version is current at: the folder's current
+   * snapshot while it still is, otherwise the last indexed snapshot before
+   * the object next changed, or the snapshot that recorded it. A version
+   * spans snapshots whose files differ, so a pinned version id with no
+   * snapshot is shown in the newest file that still reads it, never in one
+   * older than any it could have been taken from.
    */
-  currentSnapshotOf(version) {
+  lastSnapshotOf(version) {
     const head = this.db.prepare(`SELECT p.current_snapshot_id AS id FROM projects p
       JOIN scientific_objects o ON o.project_id = p.id WHERE o.id = ?`).get(version.object_id)?.id;
     const indexed = head && this.db.prepare('SELECT 1 FROM snapshot_object_indexes WHERE snapshot_id = ?').get(head);
-    return indexed && this.at(head, version.object_id)?.version_id === version.version_id
-      ? head : version.recorded_snapshot_id;
+    if (indexed && this.nearestVersion(head, version.object_id)?.version_id === version.version_id) return head;
+    const last = this.db.prepare(`WITH recorded AS (SELECT project_id, version FROM snapshots WHERE id = ?),
+      later AS (
+        SELECT MIN(s.version) AS version FROM (
+          SELECT snapshot_id FROM scientific_object_versions WHERE object_id = ?
+          UNION ALL SELECT snapshot_id FROM scientific_object_removals WHERE object_id = ?
+          UNION ALL SELECT snapshot_id FROM object_changes WHERE object_id = ? AND kind = 'removed'
+        ) entry JOIN snapshots s ON s.id = entry.snapshot_id, recorded WHERE s.version > recorded.version)
+      SELECT s.id FROM snapshots s JOIN snapshot_object_indexes i ON i.snapshot_id = s.id, recorded, later
+      WHERE s.project_id = recorded.project_id AND s.version >= recorded.version
+        AND (later.version IS NULL OR s.version < later.version)
+      ORDER BY s.version DESC LIMIT 1`)
+      .get(version.recorded_snapshot_id, version.object_id, version.object_id, version.object_id)?.id;
+    return last && this.nearestVersion(last, version.object_id)?.version_id === version.version_id
+      ? last : version.recorded_snapshot_id;
   }
 
   /**
@@ -388,7 +444,10 @@ export class ObjectVersionStore {
    * `carriedPaths` are kept from the base without entries. An index that already
    * exists (an upgrade pass) only gains the objects it lacks, as the full-copy
    * INSERT OR IGNORE did; indexes built on it record those objects as absent,
-   * so no later snapshot changes. Runs inside the caller's transaction.
+   * so no later snapshot changes. An index records each change from the index
+   * before it in object_changes, whether built on it or written in full; the
+   * first index of a folder and an upgrade pass record none.
+   * Runs inside the caller's transaction.
    * Returns how many objects the index holds, or null after an upgrade pass,
    * whose count is not known without resolving it.
    */
@@ -400,8 +459,7 @@ export class ObjectVersionStore {
     const insert = this.db.prepare(INSERT_VERSION);
     const createdAt = now();
     let cacheRows = entries.length <= this.sets.maxWeight && this.sets.maxEntries > 0;
-    const store = ({ object, descriptor }, fields) => {
-      const versionId = crypto.randomUUID();
+    const store = ({ object }, fields, versionId = crypto.randomUUID()) => {
       insert.run(versionId, object.id, snapshotId, ...fields, createdAt);
       if (!cacheRows) return null;
       const [filePath, anchor, label, value, searchText, contentHash, metadata] = fields;
@@ -413,7 +471,9 @@ export class ObjectVersionStore {
       };
     };
     const version = this.snapshotVersion(snapshotId);
-    let base = this.baseFor(projectId, snapshotId);
+    // The index this one follows, whether it is built on it or written in full.
+    const prior = this.previousIndexed(projectId, snapshotId);
+    let base = prior && this.canBuildOn(prior) ? prior : null;
     const baseCount = base ? this.indexedCount(base) : 0;
     // A reading that keeps little of its base, such as the first after a large
     // subfolder stopped being indexed, is written in full. As differences it
@@ -422,10 +482,17 @@ export class ObjectVersionStore {
     if (base && !carriedPaths?.size && entries.length * FULL_WRITE_SHARE < baseCount) base = null;
     if (!base) {
       const rows = [];
+      const written = [];
       for (const entry of entries) {
-        const row = store(entry, storedFields(entry.descriptor));
+        const fields = storedFields(entry.descriptor);
+        const versionId = crypto.randomUUID();
+        const row = store(entry, fields, versionId);
+        written.push({ entry, fields, versionId });
         if (row) rows.push(row);
       }
+      // A full write that follows an index still records what changed since
+      // it; only the first index of a folder has nothing to compare with.
+      if (prior) this.recordChanges(snapshotId, prior, written, carriedPaths);
       if (cacheRows) this.sets.set(snapshotId, resolvedSet(snapshotId, version, rows.sort(compareResolved)));
       this.chains.delete(snapshotId);
       this.depths.set(snapshotId, 0);
@@ -437,26 +504,28 @@ export class ObjectVersionStore {
       .run(snapshotId, base, createdAt);
     const replaced = new Set();
     const added = [];
+    const change = this.db.prepare(INSERT_CHANGE);
     // The new count is the base's, with the objects this index adds and removes.
     let count = baseCount;
     for (const entry of entries) {
       const fields = storedFields(entry.descriptor);
-      const before = previous ? previous.byObject.get(entry.object.id) : this.at(base, entry.object.id);
+      const before = previous ? previous.byObject.get(entry.object.id) : this.nearestVersion(base, entry.object.id);
       if (!before) count += 1;
-      if (before && sameVersion(before, fields)) continue;
+      if (before && sameVersion(before, fields, entry.object.object_type)) continue;
       if (before) replaced.add(entry.object.id);
-      const row = store(entry, fields);
+      const versionId = crypto.randomUUID();
+      const row = store(entry, fields, versionId);
+      change.run(snapshotId, entry.object.id, changeKind(before, fields, entry.object.object_type),
+        before?.version_id ?? null, versionId);
       if (row) added.push(row);
     }
     // Base objects of files the caller carries forward stay without an entry.
     const present = new Set(entries.map((entry) => entry.object.id));
     const remove = this.db.prepare('INSERT INTO scientific_object_removals(snapshot_id, object_id) VALUES (?, ?)');
-    const previousRows = previous?.rows ?? this.db.prepare(`${RESOLVE_ENTRIES}
-      SELECT v.object_id, v.path FROM nearest
-      JOIN scientific_object_versions v ON v.rowid = nearest.version_rowid`).iterate(base);
-    for (const row of previousRows) {
+    for (const row of this.baseRows(base, previous)) {
       if (present.has(row.object_id) || carriedPaths?.has(row.path)) continue;
       remove.run(snapshotId, row.object_id);
+      change.run(snapshotId, row.object_id, 'removed', row.version_id, null);
       replaced.add(row.object_id);
       count -= 1;
     }
@@ -471,6 +540,35 @@ export class ObjectVersionStore {
     return count;
   }
 
+  /** Every object of an index as { object_id, version_id, path }, from its resolved set when there is one. */
+  baseRows(snapshotId, resolved = null) {
+    return resolved?.rows ?? this.db.prepare(`${RESOLVE_ENTRIES}
+      SELECT v.object_id, v.id AS version_id, v.path FROM nearest
+      JOIN scientific_object_versions v ON v.rowid = nearest.version_rowid`).iterate(snapshotId);
+  }
+
+  /**
+   * The change records of an index written in full after `prior`: each
+   * written object { entry, fields, versionId } that differs from its version
+   * there, and each object of `prior` it no longer has. An object written
+   * again as it read is not a change.
+   */
+  recordChanges(snapshotId, prior, written, carriedPaths = null) {
+    const change = this.db.prepare(INSERT_CHANGE);
+    const resolved = this.indexedCount(prior) <= this.sets.maxWeight ? this.resolved(prior) : null;
+    for (const { entry, fields, versionId } of written) {
+      const before = resolved ? resolved.byObject.get(entry.object.id) : this.nearestVersion(prior, entry.object.id);
+      if (before && sameVersion(before, fields, entry.object.object_type)) continue;
+      change.run(snapshotId, entry.object.id, changeKind(before, fields, entry.object.object_type),
+        before?.version_id ?? null, versionId);
+    }
+    const present = new Set(written.map(({ entry }) => entry.object.id));
+    for (const row of this.baseRows(prior, resolved)) {
+      if (present.has(row.object_id) || carriedPaths?.has(row.path)) continue;
+      change.run(snapshotId, row.object_id, 'removed', row.version_id, null);
+    }
+  }
+
   /**
    * Records objects a snapshot's index did not read when it was built, such
    * as rows of a large table first offered later. Each is the version a
@@ -483,7 +581,7 @@ export class ObjectVersionStore {
     const removed = this.db.prepare('SELECT 1 FROM scientific_object_removals WHERE snapshot_id = ? AND object_id = ?');
     const added = [];
     for (const entry of entries) {
-      if (this.at(snapshotId, entry.object.id) || removed.get(snapshotId, entry.object.id)) continue;
+      if (this.nearestVersion(snapshotId, entry.object.id) || removed.get(snapshotId, entry.object.id)) continue;
       insert.run(crypto.randomUUID(), entry.object.id, snapshotId, ...storedFields(entry.descriptor), now());
       added.push(entry);
     }

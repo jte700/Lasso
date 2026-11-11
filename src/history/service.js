@@ -81,7 +81,7 @@ export class TimelineService {
     this.config = config;
     this.blobs = new BlobStore(config.blobDir);
     this.files = new SnapshotFileStore(db);
-    this.objectVersions = new ObjectVersionStore(db);
+    this.objectVersions = new ObjectVersionStore(db, this.files);
     this.storagePaths = [config.dataDir, config.databasePath, config.blobDir,
       `${config.databasePath}-wal`, `${config.databasePath}-shm`, `${config.databasePath}-journal`].map((storage) => {
       try { return fs.realpathSync(storage); } catch {

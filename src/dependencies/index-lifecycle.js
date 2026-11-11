@@ -5,6 +5,7 @@ import { transaction } from '../db.js';
 import { HttpError, VersionConflictError } from '../history/errors.js';
 import { isDesignFile } from './drawing-objects.js';
 import { FULL_WRITE_SHARE, storedFields } from '../history/object-versions.js';
+import { sameVersion } from '../history/object-identity.js';
 import { runSync, workUnits } from '../history/work.js';
 import { currentFileType } from '../history/file-types.js';
 import { now } from './basics.js';
@@ -222,10 +223,9 @@ export const indexLifecycleMethods = {
         compared += 1;
         const descriptor = byKey.get(row.object_key);
         if (!descriptor || row.object_type !== descriptor.type) return false;
-        const fields = storedFields(descriptor);
-        if (row.path !== fields[0] || row.anchor_json !== fields[1] || row.label !== fields[2]
-          || (row.value_text ?? null) !== fields[3] || row.search_text !== fields[4]
-          || row.content_hash !== fields[5] || row.metadata_json !== fields[6]) return false;
+        // The rule an index uses to keep a version: a part keeps the one an
+        // earlier file revision recorded while it reads the same.
+        if (!sameVersion(row, storedFields(descriptor))) return false;
       }
       return compared === byKey.size;
     })();

@@ -96,12 +96,14 @@ export class ObjectShareService {
    * Creates a share for one indexed object version. The version is pinned so the
    * recipient always sees the source as it was at the moment of sharing.
    */
-  createShare({ projectId, objectId, versionId, actor, expiresAt = null,
+  createShare({ projectId, objectId, versionId, snapshotId = null, actor, expiresAt = null,
     accessScope = "DOCUMENT", redactions = [], markup = [], citedIn = null, nearbyRows = false }) {
     if (!projectId) throw new HttpError(400, 'A project is required to share a source.');
     if (!objectId) throw new HttpError(400, 'An indexed object is required to share a source.');
     const normalizedScope = normalizeShareScope(accessScope);
-    const version = this.pinnedVersion(objectId, versionId);
+    // A share made from a link names the snapshot the link was made at, and
+    // shares that snapshot's file while the version is the object's there.
+    const version = this.pinnedVersion(objectId, versionId, snapshotId);
 
     if (!version) throw new HttpError(404, 'That indexed source version was not found.');
     if (version.project_id !== projectId) throw new HttpError(404, 'That indexed source version was not found.');
@@ -183,24 +185,28 @@ export class ObjectShareService {
 
   /**
    * The version a share or the inspector shows, with the snapshot it is shown
-   * at: a pinned version at the folder's current snapshot while it is still
-   * current there, or else where it was recorded; with no pin, the latest.
+   * at: the snapshot asked for when the version is the object's there (a
+   * version spans snapshots whose files differ, and each shows its own file);
+   * otherwise a pinned version at the latest snapshot it is current at (the
+   * folder's current one while it still is); with no pin, the object at the
+   * snapshot asked for, or its latest.
    */
-  pinnedVersion(objectId, versionId) {
+  pinnedVersion(objectId, versionId, snapshotId = null) {
     const versions = this.timeline.objectVersions;
-    if (!versionId) return versions.latest(objectId);
+    const asked = typeof snapshotId === 'string' && snapshotId ? versions.at(snapshotId, objectId) : null;
+    if (!versionId) return asked ?? versions.latest(objectId);
     const version = versions.versionById(versionId);
     if (!version || version.object_id !== objectId) return null;
-    const snapshotId = versions.currentSnapshotOf(version);
-    return { ...version, snapshot_id: snapshotId, snapshot_version: versions.snapshotVersion(snapshotId) };
+    if (asked?.version_id === version.version_id) return asked;
+    return versions.rowAtSnapshot(version, versions.lastSnapshotOf(version));
   }
 
   /**
    * Describes one indexed object version directly, with no share involved.
    * Used by the local source inspector, which is not a published surface.
    */
-  describe(objectId, versionId = null) {
-    const version = this.pinnedVersion(objectId, versionId);
+  describe(objectId, versionId = null, { snapshotId = null } = {}) {
+    const version = this.pinnedVersion(objectId, versionId, snapshotId);
     if (!version) return { status: 'NOT_FOUND' };
     const rootPath = this.db.prepare('SELECT root_path FROM projects WHERE id = ?').get(version.project_id).root_path;
 

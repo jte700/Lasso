@@ -142,7 +142,8 @@ final class DependencyHighlighter {
     /// stored only if that editor still has focus when the host is read.
     /// Returns the reference's id, so taking the insertion back can unlink it.
     @discardableResult
-    func recordVerifiedInsertion(objectId: String, versionId: String?, projectId: String? = nil, label: String,
+    func recordVerifiedInsertion(objectId: String, versionId: String?, snapshotId: String? = nil,
+                                 projectId: String? = nil, label: String,
                                  valueText: String?, sourcePath: String, sourceLocation: String,
                                  document: [UInt16], range: Range<Int>, documentOffset: Int = 0,
                                  element: AXUIElement, videoTime: Double? = nil) -> String? {
@@ -155,7 +156,8 @@ final class DependencyHighlighter {
                 guard let self else { return }
                 guard let context, CFEqual(context.element, element) else { return }
                 self.storeVerifiedInsertion(
-                    id: id, objectId: objectId, versionId: versionId, projectId: projectId, label: label,
+                    id: id, objectId: objectId, versionId: versionId, snapshotId: snapshotId,
+                    projectId: projectId, label: label,
                     valueText: valueText, sourcePath: sourcePath, sourceLocation: sourceLocation,
                     anchor: anchor, context: context, videoTime: videoTime)
             }
@@ -163,14 +165,15 @@ final class DependencyHighlighter {
         return id
     }
 
-    private func storeVerifiedInsertion(id: String, objectId: String, versionId: String?, projectId: String?, label: String,
+    private func storeVerifiedInsertion(id: String, objectId: String, versionId: String?, snapshotId: String?,
+                                        projectId: String?, label: String,
                                         valueText: String?, sourcePath: String, sourceLocation: String,
                                         anchor: TextAnchor, context: HostContext, videoTime: Double? = nil) {
         let colorSlot = sourceColorSlot(path: sourcePath, objectId: objectId,
                                        projectId: projectId, in: context)
         let reference = DependencyReference(
             id: id,
-            objectId: objectId, versionId: versionId, projectId: projectId,
+            objectId: objectId, versionId: versionId, snapshotId: snapshotId, projectId: projectId,
             hostBundleIdentifier: context.bundleIdentifier,
             hostApplication: context.applicationName,
             documentContext: context.documentContext,

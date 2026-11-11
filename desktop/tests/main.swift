@@ -1616,6 +1616,21 @@ do {
                 from: JSONSerialization.data(withJSONObject: older)))?.videoTime == nil,
           "a link remembers the second its video is cited at, and older links still load")
 
+    // A link remembers the snapshot it was made at, and asks for that file.
+    var pinnedReference = reference
+    pinnedReference.snapshotId = "snapshot-7"
+    var unpinned = try! JSONSerialization.jsonObject(with: JSONEncoder().encode(pinnedReference)) as! [String: Any]
+    unpinned.removeValue(forKey: "snapshotId")
+    let unpinnedReference = try? JSONDecoder().decode(DependencyReference.self,
+        from: JSONSerialization.data(withJSONObject: unpinned))
+    check(try! JSONDecoder().decode(DependencyReference.self, from: JSONEncoder().encode(pinnedReference)).snapshotId
+          == "snapshot-7" && unpinnedReference != nil && unpinnedReference?.snapshotId == nil,
+          "a link remembers the snapshot it was made at, and older links still load")
+    check(pinnedReference.citedVersionQuery == [URLQueryItem(name: "version", value: "v1"),
+                                                URLQueryItem(name: "snapshot", value: "snapshot-7")]
+          && reference.citedVersionQuery == [URLQueryItem(name: "version", value: "v1")],
+          "a link asks for its version at the snapshot it was made at, when it knows it")
+
     store.add(reference)
     check(store.references.count == 1, "stores a reference")
     check(store.hasReferences(bundleIdentifier: "com.google.Chrome"),
