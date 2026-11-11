@@ -13,6 +13,7 @@ import path from 'node:path';
 import { createApplication } from '../src/server.js';
 import { transaction } from '../src/db.js';
 import { anchorForSpan, EXTRACTOR_VERSION } from '../src/dependencies/service.js';
+import { TextStore } from '../src/dependencies/text-store.js';
 import { diffInternals } from '../src/history/diff.js';
 
 const maya = { id: 'human:maya', displayName: 'Maya Chen', actorType: 'HUMAN_SELF' };
@@ -22,29 +23,65 @@ const NOTES = '# Notes\n\nAdvertising came to 1200 dollars.\n\nThe account list 
 
 /** The older reader named a row after its position rather than its label. */
 function positional(descriptor) {
-  const row = /^(.*):row:(\d+):.+$/.exec(descriptor.key);
-  if (row) return { ...descriptor, key: `${row[1]}:row:${row[2]}`, label: `Row ${Number(row[2]) + 1}` };
-  const cell = /^(.*):cell:(\d+):.+?:(.+)$/.exec(descriptor.key);
+  const { rowIndex } = descriptor.anchor ?? {};
+  const row = /^(.*?):row:[^:]+$/.exec(descriptor.key);
+  if (row) return { ...descriptor, key: `${row[1]}:row:${rowIndex}`, label: `Row ${rowIndex + 1}` };
+  const cell = /^(.*?):cell:[^:]+:(.+)$/.exec(descriptor.key);
   if (cell) {
-    return { ...descriptor, key: `${cell[1]}:cell:${cell[2]}:${cell[3]}`, label: `Row ${Number(cell[2]) + 1} · ${cell[3]}` };
+    return { ...descriptor, key: `${cell[1]}:cell:${rowIndex}:${cell[2]}`, label: `Row ${rowIndex + 1} · ${cell[2]}` };
   }
   return descriptor;
 }
 
+const normalized = (value) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+
 /**
- * Records the current version's objects the way the older build recorded them,
- * including that it left no extractor version behind.
+ * Reader 8 read tables as this reader does, but keyed a row by its row number
+ * and label, a column by its index and name, and a note by its cell.
  */
-function recordOlderReading(application, projectId) {
+function readerEight(descriptor) {
+  const anchor = descriptor.anchor ?? {};
+  const row = `${anchor.rowIndex}:${normalized(anchor.rowKey) || 'row'}`;
+  const cell = /^(.*?):cell:[^:]+:(.+)$/.exec(descriptor.key);
+  if (cell) return { ...descriptor, key: `${cell[1]}:cell:${row}:${cell[2]}` };
+  const named = /^(.*?):row:[^:]+$/.exec(descriptor.key);
+  if (named) return { ...descriptor, key: `${named[1]}:row:${row}` };
+  const variable = /^(.*?):variable:[^:]+$/.exec(descriptor.key);
+  if (variable) return { ...descriptor, key: `${variable[1]}:variable:${anchor.columnIndex}:${normalized(anchor.column)}` };
+  const note = /^(.*?):note:[^:]+$/.exec(descriptor.key);
+  if (note) return { ...descriptor, key: `${note[1]}:note:${anchor.rowIndex}:${anchor.columnIndex}` };
+  return descriptor;
+}
+
+/**
+ * Records the current version's objects the way an older build recorded them,
+ * with the extractor version it left behind (none, for the oldest builds).
+ */
+function recordOlderReading(application, projectId, { keys = positional, version = 0 } = {}) {
   const project = application.timeline.getProject(projectId);
   const snapshot = application.timeline.getSnapshot(project.currentSnapshotId);
-  const descriptors = application.dependencies.extractDescriptors(snapshot).map(positional);
+  const descriptors = application.dependencies.extractDescriptors(snapshot).map(keys);
   transaction(application.db, () => {
     application.dependencies.writeObjectIndex(projectId, snapshot.id, descriptors);
-    application.db.prepare('UPDATE snapshot_object_indexes SET extractor_version = 0 WHERE snapshot_id = ?')
-      .run(snapshot.id);
+    application.db.prepare('UPDATE snapshot_object_indexes SET extractor_version = ? WHERE snapshot_id = ?')
+      .run(version, snapshot.id);
   });
   return snapshot.id;
+}
+
+const recordReaderEightReading = (application, projectId) => recordOlderReading(application, projectId,
+  { keys: readerEight, version: 8 });
+
+/** A cell as reader 8 recorded it; the version also holds this reader's reading from when it was imported. */
+const readerEightCell = (application, project, label) => application.dependencies.objectsAt(project.id)
+  .find((object) => object.label === label && /:cell:\d+:[a-z0-9]+:/.test(object.objectKey));
+
+function linkSpan(application, project, source, text) {
+  const notes = fs.readFileSync(path.join(project.rootPath, 'notes.md'), 'utf8');
+  return application.dependencies.link(project.id, {
+    documentPath: 'notes.md', anchor: spanAnchor(notes, text), spanText: text,
+    sourceObjectId: source.id, sourceSnapshotId: source.snapshotId, selectionMethod: 'MANUAL',
+  }, maya).dependency;
 }
 
 function spanAnchor(content, text) {
@@ -311,4 +348,84 @@ test('an identical re-read clears obsolete indexing failures without creating a 
   assert.equal(application.timeline.getProject(project.id).currentSnapshotId, before);
   assert.ok(application.db.prepare('SELECT resolved_at FROM index_failures WHERE project_id = ? AND path = ?')
     .get(project.id, 'ledger.csv').resolved_at, 'successful rereading clears stale warnings even when the objects are identical');
+});
+
+test('A reader upgrade re-points a link to the same cell under its new key', (t) => {
+  // Arrange: a project read by reader 8, with a claim linked to one of its cells.
+  const { application, project } = workspace(t);
+  recordReaderEightReading(application, project.id);
+  const cell = readerEightCell(application, project, 'Advertising · 2026');
+  assert.match(cell.objectKey, /:cell:1:advertising:2026$/);
+  const linked = linkSpan(application, project, cell, '1200 dollars');
+  recordReaderEightReading(application, project.id);
+
+  // Act
+  const result = application.dependencies.reindex(project.id, maya);
+
+  // Assert
+  assert.equal(result.changed, true);
+  const dependency = application.dependencies.getDependency(linked.id);
+  assert.equal(dependency.status, 'LINKED');
+  assert.notEqual(dependency.source.id, cell.id);
+  assert.match(dependency.source.objectKey, /:cell:advertising:2026$/);
+  assert.equal(dependency.source.valueText, '1200');
+  assert.equal(result.dependenciesNeedingReview, 0);
+  // The evidence it was linked to is still where it was recorded.
+  assert.equal(application.dependencies.objectAt(project.id, cell.snapshotId, cell.id).versionId, cell.versionId);
+});
+
+test('A table edited before the re-read sends its links to review, not to broken', (t) => {
+  // Arrange
+  const { application, project, root } = workspace(t);
+  recordReaderEightReading(application, project.id);
+  const cell = readerEightCell(application, project, 'Advertising · 2026');
+  const linked = linkSpan(application, project, cell, '1200 dollars');
+  recordReaderEightReading(application, project.id);
+
+  // Act: a new first row moves every row down before anyone asks for a re-read.
+  fs.writeFileSync(path.join(root, 'ledger.csv'), 'Account,2026\nInsurance,450\nAdvertising,1200\nBad debt,300\n');
+  application.timeline.capture(project.id, maya);
+
+  // Assert
+  const dependency = application.dependencies.getDependency(linked.id);
+  assert.equal(dependency.status, 'NEEDS_REVIEW');
+  assert.match(dependency.statusDetails.sourceIssue, /no longer produces this source object/);
+  assert.equal(application.dependencies.audit(project.id).summary.broken, 0);
+  const events = application.timeline.listEvents(project.id).length;
+  application.dependencies.reconcileProject(project.id);
+  assert.equal(application.timeline.listEvents(project.id).length, events, 'it is sent to review once');
+});
+
+test('A table edited before the re-read re-points a link whose cell did not move', (t) => {
+  // Arrange
+  const { application, project, root } = workspace(t);
+  recordReaderEightReading(application, project.id);
+  const cell = readerEightCell(application, project, 'Advertising · 2026');
+  const linked = linkSpan(application, project, cell, '1200 dollars');
+  recordReaderEightReading(application, project.id);
+
+  // Act: another row's value changes; the linked cell stays where it was.
+  fs.writeFileSync(path.join(root, 'ledger.csv'), LEDGER.replace('Bad debt,300', 'Bad debt,350'));
+  application.timeline.capture(project.id, maya);
+
+  // Assert
+  const dependency = application.dependencies.getDependency(linked.id);
+  assert.equal(dependency.status, 'LINKED');
+  assert.match(dependency.source.objectKey, /:cell:advertising:2026$/);
+});
+
+test('Stored PDF text survives a reader upgrade that did not change PDF reading', async (t) => {
+  // Arrange: text a reader 8 build kept for a PDF.
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-reindex-text-'));
+  t.after(() => fs.rmSync(sandbox, { recursive: true, force: true }));
+  const dataDir = path.join(sandbox, 'history');
+  new TextStore(path.join(dataDir, 'derived', 'text'), 8).set('pdf-hash|pdf|all', 'Kept text');
+
+  // Act
+  const application = createApplication({ dataDir, watchProjects: false });
+  t.after(() => application.close());
+
+  // Assert
+  assert.ok(EXTRACTOR_VERSION > 8, 'the reader changed since the text was kept');
+  assert.equal(application.dependencies.textStore.get('pdf-hash|pdf|all'), 'Kept text');
 });

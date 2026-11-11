@@ -9,7 +9,7 @@ import { runSync } from '../history/work.js';
 import { spreadsheetLayout, tabularLayout } from './tabular.js';
 import { fileLines } from './code-lines.js';
 import { isCodeType } from '../history/file-types.js';
-import { CODE_LINES_KEY, EXTRACTOR_VERSION } from './constants.js';
+import { CODE_LINES_KEY, PDF_TEXT_VERSION } from './constants.js';
 import { codeLinesDescriptor, objectsFromFile } from './file-objects.js';
 import { applyVariableDefinitions, worksheetCoordinates } from './index-state.js';
 import { freezeIndexedValue, mapObjectRow, objectDescriptor } from './object-descriptors.js';
@@ -198,7 +198,7 @@ export const objectExtractionMethods = {
   readPdfTexts(items, report) {
     return new Promise((resolve) => {
       const worker = new Worker(new URL('./pdf-text-worker.js', import.meta.url), {
-        workerData: { root: this.textStore.root, readerVersion: EXTRACTOR_VERSION, items },
+        workerData: { root: this.textStore.root, readerVersion: PDF_TEXT_VERSION, items },
         resourceLimits: { maxOldGenerationSizeMb: 512 },
       });
       worker.on('message', (message) => {

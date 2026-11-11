@@ -4,6 +4,7 @@ import { columnLetter } from './table-preview.js';
 import { dictionaryColumns, humanVariable, normalizedVariable, tableShape } from './tabular.js';
 import { MAX_INDEXED_TABLE_ROWS } from './constants.js';
 import { objectDescriptor } from './object-descriptors.js';
+import { labelIdentity, occurrenceCounter, provisionalToken, shortHash } from './row-identity.js';
 import { numericDescriptor } from './value-match.js';
 
 const MAX_TABLE_CELLS = 1_500;
@@ -109,11 +110,13 @@ export function objectsFromTabular(file, fileName, headers, rawRows, options = {
       }));
     }
   } else if (!options.statement) {
+    // A column is known by its name, so inserting one before it leaves it the same object.
+    const columnIdentity = occurrenceCounter();
     headers.slice(0, 80).forEach((column, columnIndex) => {
       if (!String(column ?? '').trim()) return;
       const profile = variableProfile(column, bodyRows.map((row) => row[columnIndex]));
       objects.push(objectDescriptor({
-        key: `${keyPrefix}:variable:${columnIndex}:${normalizedVariable(column)}`,
+        key: `${keyPrefix}:variable:${columnIdentity(labelIdentity(column))}`,
         type: 'VARIABLE', path: file.path,
         anchor: { kind: 'table-column', column, columnIndex, sheet },
         label: String(column), value: profile.inferredMeaning, contentHash: file.contentHash,
@@ -125,6 +128,8 @@ export function objectsFromTabular(file, fileName, headers, rawRows, options = {
   const shape = tableShape(headers, data, options);
   const { labelColumn, firstColumnActsAsRowLabels } = shape;
   const rowContext = { file, fileName, keyPrefix, sheet, headers, ...shape, statement: options.statement };
+  // Equally named rows, and identical rows without names, are told apart by their order.
+  const rowIdentity = occurrenceCounter();
   let indexedCells = 0;
   let section = '';
   // Whether rows or cells were left for the table index to answer.
@@ -137,7 +142,8 @@ export function objectsFromTabular(file, fileName, headers, rawRows, options = {
       && !String(row[options.labelColumns.at(-1)] ?? '').trim()
       && (row === rawRows[0] || !headers.some((header, index) => header && numericDescriptor(row[index])));
     if (sectionRow) section = rowLabel;
-    const { rowObject, cells } = tableRowObjects(rowContext, { row, rowIndex, rowNumber: rowNumber(rowIndex), rowLabel, section, sectionRow });
+    const { rowObject, cells } = tableRowObjects(rowContext, { row, rowIndex, rowNumber: rowNumber(rowIndex), rowLabel,
+      section, sectionRow, occurrences: rowIdentity });
     if (rowObject) objects.push(rowObject);
     for (const cell of cells) {
       objects.push(cell);
@@ -150,13 +156,15 @@ export function objectsFromTabular(file, fileName, headers, rawRows, options = {
   }
   // A note is read as a passage of text at its own cell, so it is found by its
   // words without claiming the table's headings or passing for one of its rows.
+  // It is known by its text, so rows added above it leave it the same object.
+  const noteIdentity = occurrenceCounter();
   for (const [rowIndex, note] of notes) {
     if (rowIndex >= data.length) break;
     const cellId = `${columnLetter(note.column)}${filled[rowIndex].number}`;
     // Its row index is the one its row would have, so previews find it the same way.
     const noteRow = rowNumber(rowIndex);
     objects.push(objectDescriptor({
-      key: `${keyPrefix}:note:${noteRow}:${note.column}`, type: 'DOCUMENT',
+      key: `${keyPrefix}:note:${noteIdentity(shortHash(note.text))}`, type: 'DOCUMENT',
       path: file.path, contentHash: file.contentHash,
       label: note.text.length > 110 ? `${note.text.slice(0, 107)}…` : note.text,
       value: note.text,
@@ -172,17 +180,44 @@ export function objectsFromTabular(file, fileName, headers, rawRows, options = {
   return Object.defineProperty(objects, 'deep', { value: truncated && searchable });
 }
 
+/** The cells of a row a table reads, as { columnIndex, column, value }. */
+function indexedCells(context, row, sectionRow) {
+  const { headers, labelColumn, firstColumnActsAsRowLabels, statement } = context;
+  const cells = [];
+  for (const [columnIndex, column] of headers.slice(0, 80).entries()) {
+    if (statement && (!column || sectionRow)) continue;
+    // The label names the row; as a cell it would only repeat that name.
+    // Column A stays unread as before when the labels sit further right, so
+    // a stray mark there does not become a value of its row.
+    if (!statement && firstColumnActsAsRowLabels && (columnIndex === labelColumn || columnIndex === 0)) continue;
+    const value = String(row[columnIndex] ?? '').trim();
+    if (!value || value.length > 180) continue;
+    cells.push({ columnIndex, column, value });
+  }
+  return cells;
+}
+
 /**
  * One table row's objects: the row itself when its rows are named, and each
  * of its cells. The indexer makes them for a table's first rows; the table
  * index makes the same ones, under the same keys, for any row after those.
+ *
+ * Their keys name the row by `identity` when the caller knows it, otherwise
+ * by the next one `occurrences` gives: a named row by its normalised label,
+ * a row without a name by a provisional token made from its cells, which the
+ * indexer's identity step (row-identity.js) may swap for the token the same
+ * row had in the file's previous version. The row number stays in anchors.
  */
-export function tableRowObjects(context, { row, rowIndex, rowNumber, rowLabel, section = '', sectionRow = false }) {
-  const { file, fileName, keyPrefix, sheet, headers, labelColumn, firstColumnActsAsRowLabels, rowDescribesVariable,
-    statement } = context;
-  const rowKey = firstColumnActsAsRowLabels && rowLabel ? rowLabel : `row:${rowIndex + 1}`;
-  const rowIdentity = `${rowNumber}:${normalizedVariable(rowKey) || 'row'}`;
-  const rowObject = firstColumnActsAsRowLabels && rowLabel ? objectDescriptor({
+export function tableRowObjects(context, { row, rowIndex, rowNumber, rowLabel, section = '', sectionRow = false,
+  identity = null, occurrences = null }) {
+  const { file, fileName, keyPrefix, sheet, headers, firstColumnActsAsRowLabels, rowDescribesVariable } = context;
+  const named = Boolean(firstColumnActsAsRowLabels && rowLabel);
+  const rowKey = named ? rowLabel : `row:${rowIndex + 1}`;
+  const values = indexedCells(context, row, sectionRow);
+  if (!named && !values.length) return { rowObject: null, cells: [] };
+  const rowIdentity = identity ?? occurrences(named ? labelIdentity(rowLabel)
+    : provisionalToken(values.map(({ columnIndex, column, value }) => [String(column || columnIndex), value])));
+  const rowObject = named ? objectDescriptor({
     key: `${keyPrefix}:row:${rowIdentity}`,
     type: 'DATASET_ROW', path: file.path,
     anchor: { kind: 'table-row', rowKey, rowIndex: rowNumber, sheet },
@@ -198,14 +233,7 @@ export function tableRowObjects(context, { row, rowIndex, rowNumber, rowLabel, s
     },
   }) : null;
   const cells = [];
-  for (const [columnIndex, column] of headers.slice(0, 80).entries()) {
-    if (statement && (!column || sectionRow)) continue;
-    // The label names the row; as a cell it would only repeat that name.
-    // Column A stays unread as before when the labels sit further right, so
-    // a stray mark there does not become a value of its row.
-    if (!statement && firstColumnActsAsRowLabels && (columnIndex === labelColumn || columnIndex === 0)) continue;
-    const value = String(row[columnIndex] ?? '').trim();
-    if (!value || value.length > 180) continue;
+  for (const { columnIndex, column, value } of values) {
     const numeric = numericDescriptor(value);
     const type = numeric ? /(^|\/)results?\//i.test(file.path) ? 'RESULT' : 'DATASET_VALUE' : 'TABLE';
     cells.push(objectDescriptor({

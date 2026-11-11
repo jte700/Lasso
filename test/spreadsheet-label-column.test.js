@@ -88,20 +88,20 @@ test('rows and value cells behind spacer columns keep their object keys', (t) =>
   // Act
   const keys = tableKeys(objects);
 
-  // Assert: exactly the keys a worksheet-row (xlsx-v2) reading records, less
-  // the three label cells ("cell:7:revenue:Account" and the like).
+  // Assert: exactly the keys a worksheet (xlsx-v2) reading records, less
+  // the three label cells ("cell:revenue:Account" and the like).
   const sheet = 'xlsx-v2:sheet:Budget vs Actual';
   assert.deepEqual(keys, [
-    ...['7:revenue', '8:rent', '9:operatingincome'].flatMap((row) => [
+    ...['revenue', 'rent', 'operatingincome'].flatMap((row) => [
       `${sheet}:cell:${row}:Actual`,
       `${sheet}:cell:${row}:Budget`,
       `${sheet}:cell:${row}:Department`,
       `${sheet}:cell:${row}:Variance %`,
     ]),
     `${sheet}:row-count`,
-    `${sheet}:row:7:revenue`,
-    `${sheet}:row:8:rent`,
-    `${sheet}:row:9:operatingincome`,
+    `${sheet}:row:revenue`,
+    `${sheet}:row:rent`,
+    `${sheet}:row:operatingincome`,
   ].sort());
 });
 
@@ -128,15 +128,15 @@ test('a table with its labels in column A reads as it did', (t) => {
   // Assert
   const sheet = 'xlsx-v2:sheet:Budget vs Actual';
   assert.deepEqual(keys, [
-    ...['2:revenue', '3:rent', '4:operatingincome'].flatMap((row) => [
+    ...['revenue', 'rent', 'operatingincome'].flatMap((row) => [
       `${sheet}:cell:${row}:Actual`,
       `${sheet}:cell:${row}:Budget`,
       `${sheet}:cell:${row}:Department`,
       `${sheet}:cell:${row}:Variance %`,
     ]),
     `${sheet}:row-count`,
-    `${sheet}:row:2:revenue`,
-    `${sheet}:row:3:rent`,
-    `${sheet}:row:4:operatingincome`,
+    `${sheet}:row:revenue`,
+    `${sheet}:row:rent`,
+    `${sheet}:row:operatingincome`,
   ].sort());
 });

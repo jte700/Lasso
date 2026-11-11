@@ -337,12 +337,48 @@ export class ObjectVersionStore {
     return this.depthOf(snapshotId) + 1 < MAX_INDEX_CHAIN;
   }
 
-  /** The nearest earlier indexed snapshot a new index can build on, or null to write it in full. */
-  baseFor(projectId, snapshotId) {
-    const base = this.db.prepare(`SELECT s.id FROM snapshots s JOIN snapshot_object_indexes i ON i.snapshot_id = s.id
+  /** The nearest earlier indexed snapshot, or null. */
+  previousIndexed(projectId, snapshotId) {
+    return this.db.prepare(`SELECT s.id FROM snapshots s JOIN snapshot_object_indexes i ON i.snapshot_id = s.id
       WHERE s.project_id = ? AND s.version < (SELECT version FROM snapshots WHERE id = ?)
       ORDER BY s.version DESC LIMIT 1`).get(projectId, snapshotId)?.id ?? null;
+  }
+
+  /** The nearest earlier indexed snapshot a new index can build on, or null to write it in full. */
+  baseFor(projectId, snapshotId) {
+    const base = this.previousIndexed(projectId, snapshotId);
     return base && this.depthOf(base) + 1 < MAX_INDEX_CHAIN ? base : null;
+  }
+
+  /**
+   * The cells of a table's rows without names (keys with ":cell:~") that an
+   * index holds for one file, as { object_key, value_text, anchor_json }.
+   * Only the file's own objects, keys starting with `prefix`, are resolved,
+   * not the whole index.
+   */
+  tokenCellsAt(snapshotId, projectId, prefix) {
+    const upper = `${prefix.slice(0, -1)}${String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1)}`;
+    const cached = this.sets.get(snapshotId);
+    if (cached) {
+      return cached.rows.filter((row) => row.object_key >= prefix && row.object_key < upper && row.object_key.includes(':cell:~'))
+        .map(({ object_key, value_text, anchor_json }) => ({ object_key, value_text, anchor_json }));
+    }
+    return this.db.prepare(`${INDEX_CHAIN},
+      candidates AS (SELECT id FROM scientific_objects
+        WHERE project_id = ? AND object_key >= ? AND object_key < ? AND instr(object_key, ':cell:~') > 0),
+      entries AS (
+        SELECT v.object_id, v.rowid AS version_rowid, chain.depth FROM candidates c
+        CROSS JOIN scientific_object_versions v ON v.object_id = c.id
+        JOIN chain ON v.snapshot_id = chain.snapshot_id
+        UNION ALL
+        SELECT r.object_id, NULL, chain.depth FROM candidates c
+        CROSS JOIN scientific_object_removals r ON r.object_id = c.id
+        JOIN chain ON r.snapshot_id = chain.snapshot_id
+      ),
+      nearest AS (SELECT object_id, version_rowid, MIN(depth) AS depth FROM entries GROUP BY object_id)
+      SELECT o.object_key, v.value_text, v.anchor_json
+      FROM nearest JOIN scientific_object_versions v ON v.rowid = nearest.version_rowid
+      JOIN scientific_objects o ON o.id = v.object_id`).all(snapshotId, projectId, prefix, upper);
   }
 
   /**

@@ -120,7 +120,7 @@ test('naming a row deep in a large table is a bounded lookup in the table index'
   assert.equal(row.objectType, 'DATASET_ROW');
   const file = app.timeline.snapshotFiles(app.timeline.getProject(id).currentSnapshotId)[0];
   assert.equal(app.db.prepare('SELECT object_key FROM scientific_objects WHERE id = ?').get(row.id).object_key,
-    `${file.projectFileId}:xlsx-v2:sheet:Deaths:row:30003:quebecdistrict30001`,
+    `${file.projectFileId}:xlsx-v2:sheet:Deaths:row:quebecdistrict30001`,
     'the row has the key the indexer would have given it');
   assert.ok(searches.mock.calls.every((call) => call.arguments[2] <= 12), 'each lookup is bounded');
   assert.ok(app.dependencies.studyVariables(id).length < 3_000, 'suggestions never score every row');
@@ -270,4 +270,25 @@ test('an index records how many objects it holds as it is written', async (t) =>
   const [after, recount] = recorded();
   assert.equal(after, recount, 'a delta index adds what it adds and takes away what it removes');
   assert.notEqual(after, first);
+});
+
+test('A deep row recorded under its row number by an earlier reader is read again under its label', async (t) => {
+  // Arrange: reader 8 recorded a cell of row 3,001 by that row's number.
+  const csv = `Ward,Glucose,Lactate\n${Array.from({ length: 4_000 }, (_, row) => `Hospital ward ${row},${row % 90},${row % 7}`).join('\n')}\n`;
+  const { app, folder } = await mortality(t, { 'metabolites.csv': csv });
+  const [{ id }] = (await app.workspace.add([folder], actor)).directories;
+  const snapshotId = app.timeline.getProject(id).currentSnapshotId;
+  const [table] = app.dependencies.snapshotTables(id, snapshotId);
+  const recorded = app.db.prepare('INSERT INTO table_objects(key_prefix, object_key) VALUES (?, ?)');
+  recorded.run(table.keyPrefix, `${table.keyPrefix}:cell:3001:hospitalward3000:Glucose`);
+
+  // Act
+  const descriptors = app.dependencies.recordedTableDescriptors(table.file, []);
+
+  // Assert
+  assert.deepEqual(descriptors.map((descriptor) => [descriptor.key, descriptor.value]),
+    [[`${table.keyPrefix}:cell:hospitalward3000:Glucose`, String(3000 % 90)]]);
+  const keys = app.db.prepare('SELECT object_key FROM table_objects WHERE key_prefix = ?').all(table.keyPrefix)
+    .map((row) => row.object_key);
+  assert.ok(keys.includes(`${table.keyPrefix}:cell:hospitalward3000:Glucose`), 'later readings follow the row by its label');
 });

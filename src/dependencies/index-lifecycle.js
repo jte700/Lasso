@@ -10,6 +10,7 @@ import { currentFileType } from '../history/file-types.js';
 import { now } from './basics.js';
 import { EXTRACTOR_VERSION, INDEX_VERSION } from './constants.js';
 import { dependencyFilePriority } from './file-objects.js';
+import { READER_CHANGED } from './table-sources.js';
 import {
   applyVariableDefinitions, indexIsCurrent, indexSummary, isDictionaryVariable, kindsChangedSince,
 } from './index-state.js';
@@ -69,7 +70,12 @@ export const indexLifecycleMethods = {
     // records in place; like an upgrade pass, that only adds missing objects.
     const existing = Boolean(indexed.indexed) || versions.hasRecords(targetSnapshotId);
     const carry = existing ? null : yield* this.carryPlanSteps(projectId, targetSnapshotId, files);
-    const index = carry ? this.carriedDescriptors(files, carry) : yield* this.indexDescriptorSteps(files);
+    // Rows without names take the identities they had in the reading this
+    // one follows: the snapshot's own records for an upgrade pass, otherwise
+    // the nearest earlier index.
+    const identityBase = existing ? targetSnapshotId : versions.previousIndexed(projectId, targetSnapshotId);
+    const index = carry ? this.carriedDescriptors(files, { ...carry, projectId })
+      : yield* this.indexDescriptorSteps(files, { projectId, base: identityBase });
     // Other requests ran between the slices of a sliced index. If one of them
     // indexed this snapshot meanwhile, what was read here is already recorded,
     // or was decided against an older state; start over from the new one. The
@@ -195,7 +201,7 @@ export const indexLifecycleMethods = {
     const files = partial ? indexable.filter((file) => kinds.has(file.fileType)) : indexable;
     const reread = new Set(files.map((file) => file.path));
     const carriedPaths = partial ? new Set(previous.files.map((file) => file.path).filter((filePath) => !reread.has(filePath))) : null;
-    const index = yield* this.indexDescriptorSteps(files);
+    const index = yield* this.indexDescriptorSteps(files, { projectId, base: previous.id });
     // A file saved while a sliced re-read ran makes a newer version, which
     // this reading does not describe. Read that version instead.
     if (this.timeline.getProject(projectId).currentSnapshotId !== previous.id) {
@@ -268,14 +274,10 @@ export const indexLifecycleMethods = {
 
     // A better reader can key an object differently (the row-label fix renames
     // every indented line item), so a claim whose source is absent from the new
-    // reading needs a person, not a verdict of BROKEN. Its evidence is intact
-    // and still pinned in the snapshot it was linked at.
-    const reconciled = this.reconcileProject(projectId, result.snapshot.id, {
-      missingSource: {
-        status: 'NEEDS_REVIEW',
-        reason: 'The current reader no longer produces this source object. Its recorded evidence is unchanged; re-point the claim at the new reading.',
-      },
-    });
+    // reading follows the same object under its new key when there is exactly
+    // one, and otherwise needs a person, not a verdict of BROKEN. Its evidence
+    // is intact and still pinned in the snapshot it was linked at.
+    const reconciled = this.reconcileProject(projectId, result.snapshot.id, { missingSource: READER_CHANGED });
 
     return {
       changed: true,
@@ -319,12 +321,16 @@ export const indexLifecycleMethods = {
    * Every object of the files, as a full index records them, with what a
    * later index needs to carry them forward without reading them again.
    */
-  indexDescriptors(files) {
-    return runSync(this.indexDescriptorSteps(files));
+  indexDescriptors(files, options = {}) {
+    return runSync(this.indexDescriptorSteps(files, options));
   },
 
-  /** The same, yielding `{ phase: 'indexing', done, total }` in work units after each file. */
-  *indexDescriptorSteps(files) {
+  /**
+   * The same, yielding `{ phase: 'indexing', done, total }` in work units
+   * after each file. With `base`, an index of `projectId`, the rows without
+   * names of each table keep the identities they had there.
+   */
+  *indexDescriptorSteps(files, { projectId = null, base = null } = {}) {
     const descriptors = [];
     const problems = [];
     const counts = new Map();
@@ -334,7 +340,8 @@ export const indexLifecycleMethods = {
       const units = workUnits(file.size);
       const extracted = yield* withinFile(this.extractedObjectSteps(file),
         (share) => ({ phase: 'indexing', done: done + share * units, total }));
-      const objects = [...extracted.objects, ...this.recordedDescriptors(file, extracted.objects)];
+      const objects = this.withStableRowIdentities(projectId, base, file,
+        [...extracted.objects, ...this.recordedDescriptors(file, extracted.objects)]);
       counts.set(file.path, objects.length);
       if (extracted.problem) problems.push({ path: file.path, ...extracted.problem });
       // Readers bound each file's bytes, rows and geometry. A folder-wide
@@ -385,7 +392,7 @@ export const indexLifecycleMethods = {
   },
 
   /** The objects of the files that changed since the base; the others are carried forward. */
-  carriedDescriptors(files, { known, carriedPaths }) {
+  carriedDescriptors(files, { base, known, carriedPaths, projectId = null }) {
     const descriptors = [];
     const problems = [];
     const counts = new Map();
@@ -396,7 +403,8 @@ export const indexLifecycleMethods = {
         continue;
       }
       const extracted = this.extractedObjects(file);
-      const objects = [...extracted.objects, ...this.recordedDescriptors(file, extracted.objects)];
+      const objects = this.withStableRowIdentities(projectId, base, file,
+        [...extracted.objects, ...this.recordedDescriptors(file, extracted.objects)]);
       counts.set(file.path, objects.length);
       if (extracted.problem) problems.push({ path: file.path, ...extracted.problem });
       descriptors.push(...objects.map((descriptor) => ({ ...descriptor, metadata: { ...descriptor.metadata } })));

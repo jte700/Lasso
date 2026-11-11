@@ -1,10 +1,50 @@
 // Keeping links true as files change: finding a moved span again, migrating
 // anchors, reconciling a project after a capture, and auditing.
 
+import { json } from '../db.js';
 import { diffInternals } from '../history/diff.js';
 import { id, sha } from './basics.js';
 import { detectClaimSpans } from './claim-detection.js';
 import { anchorForSpan } from './object-descriptors.js';
+import {
+  NAMED_TABLE_READER, READER_CHANGED, REPOINTED, describeMove, isPositionalTableKey, sourceChanged, sourcePlace,
+  tablePosition,
+} from './table-sources.js';
+
+const quoted = (dependency) => `“${dependency.spanText.slice(0, 56)}”`;
+
+/** A source object's version row, shaped as a dependency's `source`. */
+function sourceOf(row) {
+  return { id: row.object_id, projectId: row.project_id, objectKey: row.object_key, objectType: row.object_type,
+    snapshotId: row.snapshot_id, path: row.path, anchor: json(row.anchor_json, null), label: row.label,
+    valueText: row.value_text, contentHash: row.content_hash, metadata: json(row.metadata_json, {}) };
+}
+
+/** The event title for one reconciled dependency. */
+function changeTitle(change) {
+  if (change.retired) return `Dependency retired: ${quoted(change.dependency)}`;
+  if (change.status === 'STALE') return `Dependency marked stale: ${quoted(change.dependency)}`;
+  if (change.status === 'BROKEN') return `Dependency broken: ${quoted(change.dependency)}`;
+  if (change.status !== 'NEEDS_REVIEW' && change.moved) {
+    return `Source ${change.moved.replace(/^Moved/, 'moved').replace(/\.$/, '')}: ${quoted(change.dependency)}`;
+  }
+  if (change.status !== 'NEEDS_REVIEW' && change.source) return `Dependency follows its source's new name: ${quoted(change.dependency)}`;
+  return `Dependency needs review: ${quoted(change.dependency)}`;
+}
+
+/**
+ * Whether a table source moved since the link last saw it, and where it is
+ * now. The place and the words for the move are kept in the link's details
+ * once it has moved, so a later pass over the same version records nothing
+ * more, whatever the link's status.
+ */
+function sourceMove(dependency, current) {
+  const now = tablePosition(json(current.anchor_json, null));
+  if (!now) return null;
+  const { sourcePosition, sourceMoved } = dependency.statusDetails;
+  const moved = describeMove(sourcePosition ?? tablePosition(dependency.source.anchor), now);
+  return { moved, described: moved ?? sourceMoved ?? null, position: moved || sourcePosition ? now : null };
+}
 
 /**
  * How much of a recorded neighbour survived, 0..1.
@@ -159,18 +199,30 @@ export const reconciliationMethods = {
       let status = migration.status;
       let details = migration.reason ? { anchorIssue: migration.reason } : {};
       const ownerId = this.sourceProjectId(dependency.source);
-      const currentSource = this.sourceVersion(dependency.source.id,
-        ownerId === projectId ? targetSnapshotId : null);
+      const sourceSnapshotId = ownerId === projectId ? targetSnapshotId : null;
+      let currentSource = this.sourceVersion(dependency.source.id, sourceSnapshotId);
+      let repointed = null;
       if (!currentSource) {
         // A re-index passes its own verdict here: the source object is absent
-        // from the new reading, not gone from the record.
-        status = options.missingSource?.status ?? 'BROKEN';
-        details = {
-          ...details,
-          sourceIssue: options.missingSource?.reason ?? 'The linked scientific object no longer resolves.',
-        };
-      } else if (!dependency.statusDetails.pinnedHistoricalVersion
-        && (currentSource.content_hash !== dependency.source.contentHash || currentSource.value_text !== dependency.source.valueText)) {
+        // from the new reading, not gone from the record. So does a reading
+        // by a newer reader in an ordinary capture, when the source was keyed
+        // by an older one. Either way the link follows the same source under
+        // its new key when exactly one object is that source.
+        const missing = options.missingSource ?? (this.keyedByEarlierReader(dependency.source) ? READER_CHANGED : null);
+        repointed = missing ? this.rekeyedSource(ownerId, sourceSnapshotId, dependency.source) : null;
+        if (repointed) {
+          currentSource = repointed;
+          if (!migration.reason) status = 'LINKED';
+          details = { ...details, sourceRepointed: REPOINTED };
+        } else {
+          status = missing?.status ?? 'BROKEN';
+          details = {
+            ...details,
+            sourceIssue: missing?.reason ?? 'The linked scientific object no longer resolves.',
+          };
+        }
+      }
+      if (currentSource && !dependency.statusDetails.pinnedHistoricalVersion && sourceChanged(currentSource, dependency.source)) {
         // A claim whose location is unknown stays under review: there is
         // nowhere to apply a new value, so reporting it as merely stale would
         // offer an update that cannot be made.
@@ -182,6 +234,11 @@ export const reconciliationMethods = {
           currentSourceContentHash: currentSource.content_hash,
         };
       }
+      // A table source that kept its identity while its row or column moved
+      // is still the same source: the move is recorded, the link stays.
+      const move = currentSource ? sourceMove(dependency, currentSource) : null;
+      if (move?.position) details = { ...details, sourcePosition: move.position };
+      if (move?.described) details = { ...details, sourceMoved: move.described };
       // A claim the document no longer holds is retired rather than left as a
       // permanent warning: the user deleted the text, so the link to it is
       // gone. The version chain keeps the record, so nothing is lost.
@@ -189,23 +246,19 @@ export const reconciliationMethods = {
       if (retired) details = { ...details, retiredReason: migration.reason };
       const anchorChanged = JSON.stringify(migration.anchor) !== JSON.stringify(dependency.anchor);
       const detailsChanged = JSON.stringify(details) !== JSON.stringify(dependency.statusDetails);
-      if (retired || status !== dependency.status || anchorChanged
+      if (retired || repointed || move?.moved || status !== dependency.status || anchorChanged
         || (['STALE', 'BROKEN', 'NEEDS_REVIEW'].includes(status) && detailsChanged)) {
-        changes.push({ dependency, status, details, anchor: migration.anchor, retired });
+        changes.push({ dependency, status, details, anchor: migration.anchor, retired,
+          source: repointed ? sourceOf(repointed) : null, moved: move?.moved ?? null });
       }
     }
     if (!changes.length) return { changed: false };
     const system = { id: 'system:lasso', displayName: 'Lasso', actorType: 'SYSTEM' };
-    const source = changes.some((change) => change.status === 'STALE') ? 'DEPENDENCY_STALE'
-      : changes.some((change) => change.status === 'NEEDS_REVIEW') ? 'DEPENDENCY_CHANGED' : 'DEPENDENCY_CHANGED';
-    const title = changes.length === 1
-      ? changes[0].retired ? `Dependency retired: “${changes[0].dependency.spanText.slice(0, 56)}”`
-        : changes[0].status === 'STALE' ? `Dependency marked stale: “${changes[0].dependency.spanText.slice(0, 56)}”`
-        : changes[0].status === 'BROKEN' ? `Dependency broken: “${changes[0].dependency.spanText.slice(0, 56)}”`
-        : `Dependency needs review: “${changes[0].dependency.spanText.slice(0, 56)}”`
-      : `${changes.length} manuscript dependencies updated`;
+    const source = changes.some((change) => change.status === 'STALE') ? 'DEPENDENCY_STALE' : 'DEPENDENCY_CHANGED';
+    const title = changes.length === 1 ? changeTitle(changes[0]) : `${changes.length} manuscript dependencies updated`;
     const result = this.cloneTransition(projectId, system, { source, title }, ({ resultingSnapshotId, eventId, timestamp, actor }) => {
       for (const change of changes) {
+        const linkedSource = change.source ?? change.dependency.source;
         const versionId = id();
         this.db.prepare(`
           INSERT INTO claim_dependency_versions(
@@ -215,8 +268,8 @@ export const reconciliationMethods = {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           versionId, change.dependency.id, resultingSnapshotId, resultingSnapshotId, change.dependency.documentPath,
-          JSON.stringify(change.anchor), change.dependency.spanText, change.dependency.source.id,
-          change.dependency.source.snapshotId, change.dependency.source.valueText, change.dependency.selectionMethod,
+          JSON.stringify(change.anchor), change.dependency.spanText, linkedSource.id,
+          linkedSource.snapshotId, linkedSource.valueText, change.dependency.selectionMethod,
           change.dependency.confidence, change.status, JSON.stringify(change.details), actor.id, timestamp,
           change.retired ? 1 : 0,
         );
@@ -233,20 +286,48 @@ export const reconciliationMethods = {
           VALUES (?, ?, ?, ?, ?, 'DEPENDS_ON', ?, ?, ?, ?, ?, ?)
         `).run(
           id(), projectId, resultingSnapshotId, change.dependency.documentPath, JSON.stringify(change.anchor),
-          change.dependency.source.snapshotId, change.dependency.source.path,
-          change.dependency.source.anchor ? JSON.stringify(change.dependency.source.anchor) : null,
+          linkedSource.snapshotId, linkedSource.path,
+          linkedSource.anchor ? JSON.stringify(linkedSource.anchor) : null,
           JSON.stringify({
             dependencyId: change.dependency.id,
-            objectId: change.dependency.source.id,
-            objectType: change.dependency.source.objectType,
-            label: change.dependency.source.label,
-            value: change.dependency.source.valueText,
+            objectId: linkedSource.id,
+            objectType: linkedSource.objectType,
+            label: linkedSource.label,
+            value: linkedSource.valueText,
           }),
           eventId, timestamp,
         );
       }
     });
     return { changed: true, ...result };
+  },
+
+  /**
+   * Whether a missing source was keyed by a reader before the one that keys
+   * tables by name, under a key the current reader can no longer produce.
+   * Its evidence is intact; only its key changed.
+   */
+  keyedByEarlierReader(source) {
+    if (!isPositionalTableKey(source.objectKey)) return false;
+    const recorded = this.db.prepare('SELECT extractor_version FROM snapshot_object_indexes WHERE snapshot_id = ?')
+      .get(source.snapshotId);
+    return (recorded?.extractor_version ?? 0) < NAMED_TABLE_READER;
+  },
+
+  /**
+   * The object the current reading records a missing table source as: the
+   * one object of the same file and type at the same place, with the same
+   * label and value. Null when there is none or more than one, or the value
+   * changed, so a person decides.
+   */
+  rekeyedSource(ownerId, snapshotId, source) {
+    const place = sourcePlace(source.anchor);
+    if (!place || !ownerId) return null;
+    const target = snapshotId ?? this.timeline.getProject(ownerId).currentSnapshotId;
+    const matches = this.objectsAt(ownerId, target).filter((object) => object.path === source.path
+      && object.objectType === source.objectType && object.label === source.label
+      && (object.valueText ?? null) === (source.valueText ?? null) && sourcePlace(object.anchor) === place);
+    return matches.length === 1 ? this.timeline.objectVersions.at(target, matches[0].id) : null;
   },
 
   audit(projectId, options = {}) {

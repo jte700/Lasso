@@ -8,7 +8,7 @@ import { EXTRACTOR_VERSION, INDEX_VERSION } from './constants.js';
 // before it, so a reader upgrade re-reads only those. A version missing here
 // changed more than a few kinds, and a folder it is new to is read whole.
 const READER_CHANGES = new Map([[6, new Set(['table', 'spreadsheet'])], [7, new Set(['presentation', 'code', 'yaml'])],
-  [8, new Set(['presentation'])]]);
+  [8, new Set(['presentation'])], [9, new Set(['table', 'spreadsheet'])]]);
 
 export function kindsChangedSince(version) {
   if (!Number.isInteger(version) || version < 1) return null;

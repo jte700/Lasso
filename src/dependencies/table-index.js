@@ -37,6 +37,19 @@ export function rowTerms(label) {
   return [...terms].map((term) => term.slice(0, MAX_TERM_LENGTH)).filter((term) => term.length >= 2);
 }
 
+/**
+ * The term a row's whole name is stored under, one of its `rowTerms`, or ''
+ * when its name gives none (too short, too long, or no letters or digits).
+ * Rows whose names only end the same way share it too, so a caller checks
+ * each row's name.
+ */
+export function nameTerm(label) {
+  const text = String(label ?? '').trim();
+  if (!text || text.length > 180) return '';
+  const term = normalizedRowSearch(text).slice(0, MAX_TERM_LENGTH);
+  return term.length >= 2 ? term : '';
+}
+
 export function openTableDatabase(file) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
@@ -240,6 +253,9 @@ export class TableIndex {
       numbered: this.db.prepare('SELECT * FROM table_rows WHERE table_id = ? AND row_number = ? ORDER BY ordinal LIMIT 1'),
       before: this.db.prepare('SELECT * FROM table_rows WHERE table_id = ? AND row_number <= ? ORDER BY row_number DESC LIMIT ?'),
       search: this.db.prepare(`SELECT DISTINCT ordinal FROM table_terms WHERE table_id = ? AND term >= ? AND term < ? LIMIT ?`),
+      named: this.db.prepare(`SELECT r.* FROM table_terms t
+        JOIN table_rows r ON r.table_id = t.table_id AND r.ordinal = t.ordinal
+        WHERE t.table_id = ? AND t.term = ? AND t.ordinal >= ? AND t.ordinal < ? ORDER BY t.ordinal LIMIT ?`),
     };
   }
 
@@ -291,6 +307,16 @@ export class TableIndex {
   rowNumbered(tableId, rowNumber) {
     const row = this.statements.numbered.get(tableId, rowNumber);
     return row ? parse(row) : null;
+  }
+
+  /**
+   * Up to `limit` rows stored under exactly this name term (see nameTerm),
+   * with ordinals from `from` up to `to`, in table order: an index range,
+   * never a pass over the table.
+   */
+  rowsNamed(tableId, term, from, to = Number.MAX_SAFE_INTEGER, limit = 64) {
+    if (!term) return [];
+    return this.statements.named.all(tableId, term, from, to, limit).map(parse);
   }
 
   /** Up to `count` rows at or above a sheet row, nearest first. */

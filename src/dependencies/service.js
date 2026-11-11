@@ -10,7 +10,7 @@ import { TableIndex } from './table-index.js';
 import { extractDrawingDocument } from './drawing-extraction.js';
 import { presentationOutline, readPresentation } from './presentation-extraction.js';
 import { claimCandidatesMethods } from './claim-candidates.js';
-import { EXTRACTOR_VERSION } from './constants.js';
+import { PDF_TEXT_VERSION } from './constants.js';
 import { dependencyLinksMethods } from './dependency-links.js';
 import { dependencyPreviewsMethods } from './dependency-previews.js';
 import { dependencySharingMethods } from './dependency-sharing.js';
@@ -22,6 +22,7 @@ import { linkedValuesMethods } from './linked-values.js';
 import { objectAccessMethods } from './object-access.js';
 import { objectExtractionMethods } from './object-extraction.js';
 import { contextOverlap, reconciliationMethods } from './reconciliation.js';
+import { rowIdentityMethods } from './row-identity.js';
 import { sourceSearchMethods } from './source-search.js';
 import { sourceUpdatesMethods } from './source-updates.js';
 import { studyVariablesMethods } from './study-variables.js';
@@ -81,7 +82,7 @@ export class PredictiveProvenanceService {
     this.variableIndexes = new WeakMap();
     this.retrievalIndexes = new WeakMap();
     // PDFs' text outlives the process, so a restart does not read every PDF again.
-    this.textStore = new TextStore(path.join(timeline.config.dataDir, 'derived', 'text'), EXTRACTOR_VERSION);
+    this.textStore = new TextStore(path.join(timeline.config.dataDir, 'derived', 'text'), PDF_TEXT_VERSION);
     // So are videos' transcripts, which take the speech model a while each.
     this.transcriptStore = new TextStore(path.join(timeline.config.dataDir, 'derived', 'transcripts'), TRANSCRIPT_VERSION);
     this.transcriptCache = new BoundedCache({ maxEntries: 64, maxWeight: 32 * 1024 * 1024,
@@ -215,6 +216,7 @@ installMethods(PredictiveProvenanceService.prototype,
   indexLifecycleMethods,
   objectExtractionMethods,
   tableReadingMethods,
+  rowIdentityMethods,
   objectAccessMethods,
   studyVariablesMethods,
   workspaceSuggestionsMethods,
