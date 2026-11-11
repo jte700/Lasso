@@ -122,7 +122,13 @@ export const claimCandidatesMethods = {
     `).all(projectId, projectId).map((row) => row.path));
     const ranked = objects.map((object) => {
       const features = objectMatchingFeatures(object);
-      const value = valueMatch(claim, object, claimNumber, features.numeric);
+      let value = valueMatch(claim, object, claimNumber, features.numeric);
+      // A number typed as a used source's value was before a recent change
+      // is offered that source, to replace it with the current value. It
+      // matches as a similar value, so it never outranks a direct match.
+      const staleTyped = claimNumber && !value.score
+        ? this.staleTypedChange(projectId, object.snapshotId, object, claim) : null;
+      if (staleTyped) value = { score: 0.82, displayValue: null };
       const entity = Math.max(
         tokenOverlap(claimWords, features.words),
         claim.type === 'ENTITY' ? prefixTokenScore(claim.value ?? claim.text, object.searchText) : 0,
@@ -156,7 +162,7 @@ export const claimCandidatesMethods = {
       const candidateVariable = object.metadata.variable ?? object.metadata.column;
       if (claim.variable && candidateVariable && variable < 0.2) score *= 0.42;
       const reasons = [];
-      if (value.score >= 0.8) reasons.push('matching value');
+      if (value.score >= 0.8) reasons.push(staleTyped ? 'matching an earlier value' : 'matching value');
       if (author === 1) reasons.push('matching author');
       else if (author) reasons.push('similar author');
       if (publicationYear) reasons.push('matching publication year');
@@ -180,7 +186,7 @@ export const claimCandidatesMethods = {
         score: Number(score.toFixed(3)),
         reasons,
         matchStrength: Math.max(value.score, entity, variable, reference, component),
-        matchTier: (value.score >= 0.8 && (!claim.variable || variable >= 0.7))
+        matchTier: (!staleTyped && value.score >= 0.8 && (!claim.variable || variable >= 0.7))
           || reference >= 0.9 || author === 1 || component >= 0.9
           || variable >= 0.9 || (['ENTITY', 'METHOD'].includes(claim.type) && entity >= 0.9) ? 0 : 1,
         authorSimilarity: Number(author.toFixed(3)),
@@ -189,6 +195,7 @@ export const claimCandidatesMethods = {
         componentSimilarity: Number(component.toFixed(3)),
         referenceRole: claim.referenceMode === 'author' || claim.referenceMode === 'title'
           ? claim.referenceMode : author >= 0.7 && author >= titleReference ? 'author' : 'title',
+        ...(staleTyped ? { change: staleTyped } : {}),
         variableDefinition: definition ? {
           variable: definition.metadata.variable,
           description: definition.metadata.description ?? definition.metadata.inferredMeaning ?? definition.valueText,

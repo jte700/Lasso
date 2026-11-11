@@ -194,6 +194,19 @@ h1{margin:0 0 6px;font-size:21px;letter-spacing:-.01em}p{margin:0;color:var(--in
 <body><main><div class="mark" aria-hidden="true">${ok ? '&#10003;' : '!'}</div><h1>${escape(title)}</h1><p>${escape(message)}</p></main></body></html>`;
 }
 
+// How many of a value's past versions a preview lists.
+const PREVIEW_HISTORY_LIMIT = 20;
+
+/** An object's value history for its preview, most recent first; empty when it has none to show. */
+function objectPreviewHistory(dependencies, objectId) {
+  try {
+    return dependencies.objectHistory(objectId, { limit: PREVIEW_HISTORY_LIMIT })
+      .map(({ value, changedAt, snapshotId, kind, cause }) => ({ value, changedAt, snapshotId, kind, cause }));
+  } catch {
+    return [];
+  }
+}
+
 export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null, workspace = null, connections = null, ranch = null) {
   const resolvedModelPreview = resolved => dependencies.sourceModelPreview({ ...resolved.source,
     path: resolved.internal.filePath, snapshotId: resolved.internal.snapshotId });
@@ -761,6 +774,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           shareScopes: offeredShareScopes(resolved.internal.filePath, resolved.source.anchor),
           // Said plainly when the original file of this version was not kept.
           ...(bytesReleased ? { bytesReleased } : {}),
+          // The value's past versions, most recent first, read only for previews.
+          history: objectPreviewHistory(dependencies, localObjectPreviewParameters[0]),
         });
       }
 

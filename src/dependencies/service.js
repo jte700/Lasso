@@ -18,6 +18,7 @@ import { dependencySharingMethods } from './dependency-sharing.js';
 import { documentEditingMethods } from './document-editing.js';
 import { indexLifecycleMethods } from './index-lifecycle.js';
 import { indexSummaryMethods } from './index-summaries.js';
+import { valueChangeMethods } from './value-changes.js';
 import { linkedContextMethods } from './linked-context.js';
 import { linkedFieldsMethods } from './linked-fields.js';
 import { linkedValuesMethods } from './linked-values.js';
@@ -243,6 +244,7 @@ export class PredictiveProvenanceService {
 installMethods(PredictiveProvenanceService.prototype,
   indexLifecycleMethods,
   indexSummaryMethods,
+  valueChangeMethods,
   objectExtractionMethods,
   tableReadingMethods,
   tableRetentionMethods,
