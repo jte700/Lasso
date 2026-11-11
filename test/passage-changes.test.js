@@ -100,3 +100,32 @@ test('The Ranch names the passages a file\'s latest version changed, with what t
   assert.equal(page?.before, PUMP);
   assert.equal(page.pageNumber, 1);
 });
+
+test('A sentence edited and then put back has each wording in its history once', (t) => {
+  // Arrange
+  const { app, save, passage } = folder(t, { 'log.txt': `${LEAD}\n\n${PUMP}\n\n${TAIL}\n` });
+  save('log.txt', `${LEAD}\n\n${PUMP_EDITED}\n\n${TAIL}\n`);
+
+  // Act
+  save('log.txt', `${LEAD}\n\n${PUMP}\n\n${TAIL}\n`);
+  const history = app.dependencies.objectHistory(passage('log.txt', PUMP).id);
+
+  // Assert
+  assert.deepEqual(history.map((entry) => entry.value), [PUMP, PUMP_EDITED, PUMP]);
+});
+
+test('The Ranch still names a file\'s changed passages after the file is renamed', (t) => {
+  // Arrange
+  const { app, project, save } = folder(t, { 'log.txt': `${LEAD}\n\n${PUMP}\n\n${TAIL}\n` });
+  save('log.txt', `${LEAD}\n\n${PUMP_EDITED}\n\n${TAIL}\n`);
+  const root = app.timeline.getProject(project.id).rootPath;
+
+  // Act
+  fs.renameSync(path.join(root, 'log.txt'), path.join(root, 'site log.txt'));
+  app.timeline.capture(project.id, actor);
+  app.dependencies.ensureIndex(project.id);
+  const { changes } = app.ranch.passages({ directoryId: project.id, path: 'site log.txt' });
+
+  // Assert
+  assert.deepEqual(changes.map(({ before, after }) => [before, after]), [[PUMP, PUMP_EDITED]]);
+});

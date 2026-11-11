@@ -533,7 +533,9 @@ struct RanchCodeView: NSViewRepresentable {
         guard let textView = scroll.documentView as? NSTextView else { return }
         if textView.string != code.text {
             Self.show(code, in: textView)
+            // New text has none of the old tints, nor their notes.
             coordinator.shownChanges = []
+            coordinator.tinted = []
             (scroll.verticalRulerView as? RanchLineNumberRuler)?.textDidChange()
             (scroll as? RanchCodeScrollView)?.scrollToStart()
         }

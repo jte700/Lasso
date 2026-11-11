@@ -342,6 +342,7 @@ struct RanchFileViewer: View {
     /// Passages of a text or PDF file its latest version changed, and the note of the one pointed at or selected.
     @State private var passageChanges: [RanchPassageChange] = []
     @State private var changeNote: String?
+    @State private var passageRequest: URLSessionDataTask?
     @State private var request: URLSessionDataTask?
     /// A model or drawing still being read after a few seconds.
     @State private var slow = false
@@ -367,7 +368,7 @@ struct RanchFileViewer: View {
             }
         }
         .onAppear(perform: load)
-        .onDisappear { request?.cancel() }
+        .onDisappear { request?.cancel(); passageRequest?.cancel() }
         .onChange(of: focus?.anchor?.elementId) { _ in if kind == .plan || kind == .wireframe { load() } }
         .onChange(of: workbook) { _ in findCitedCell() }
         .onChange(of: focus) { _ in findCitedCell() }
@@ -491,10 +492,13 @@ struct RanchFileViewer: View {
 
     /// The passages a text or PDF file's latest version changed, for its viewer to tint.
     private func loadPassageChanges() {
+        // An answer about the file shown before must not tint this one.
+        passageRequest?.cancel()
+        passageRequest = nil
         passageChanges = []
         changeNote = nil
         guard source.fileExtension == "pdf" || RanchViewerKind.choose(for: source) == .text else { return }
-        store.passageChanges(source) { passageChanges = $0 }
+        passageRequest = store.passageChanges(source) { passageChanges = $0 }
     }
 
     private func load() {

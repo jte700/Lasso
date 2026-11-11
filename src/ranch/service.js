@@ -396,7 +396,9 @@ export class RanchService {
   passages(input) {
     const { project, file } = this.currentFile(input);
     const latest = this.fileVersions(project.id, file.projectFileId)[0];
-    return { version: latest?.snapshotId ?? null, changes: latest ? passageChanges(this.db, latest.snapshotId, file.path) : [] };
+    // The file's path at that version: a later rename that kept the bytes is not a version of its own.
+    const shown = latest ? this.timeline.snapshotFileById(latest.snapshotId, file.projectFileId) ?? file : file;
+    return { version: latest?.snapshotId ?? null, changes: latest ? passageChanges(this.db, latest.snapshotId, shown.path) : [] };
   }
 
   /**

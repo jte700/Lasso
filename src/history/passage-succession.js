@@ -21,6 +21,9 @@ const CHANGED_PASSAGES = `SELECT c.kind, c.object_id, v.id AS version_id, v.path
   FROM object_changes c
   JOIN scientific_object_versions v ON v.id = COALESCE(c.after_version_id, c.before_version_id)
   WHERE c.snapshot_id = ? AND c.kind IN ('added', 'removed')
+    -- Passage anchors are written kind first; this skips table cells and the
+    -- like without reading their JSON.
+    AND (${PASSAGE_ANCHORS.map(() => "v.anchor_json LIKE ?").join(' OR ')})
     AND json_extract(v.anchor_json, '$.kind') IN (${PASSAGE_ANCHORS.map(() => '?').join(', ')})`;
 
 function wordCounts(text) {
@@ -76,7 +79,8 @@ function pairsIn(added, removed) {
  */
 export function recordPassageSuccessions(db, snapshotId) {
   const groups = new Map();
-  for (const row of db.prepare(CHANGED_PASSAGES).all(snapshotId, ...PASSAGE_ANCHORS)) {
+  const prefixes = PASSAGE_ANCHORS.map((kind) => `{"kind":"${kind}"%`);
+  for (const row of db.prepare(CHANGED_PASSAGES).all(snapshotId, ...prefixes, ...PASSAGE_ANCHORS)) {
     const key = groupOf(row);
     if (!groups.has(key)) groups.set(key, { added: [], removed: [] });
     groups.get(key)[row.kind].push(row);
@@ -91,9 +95,9 @@ export function recordPassageSuccessions(db, snapshotId) {
   return recorded;
 }
 
-/** The version a passage replaced when it was added, with the object and snapshot; null when it replaced none. */
-export function replacedVersion(db, objectId) {
+/** The version a passage replaced when it was added at `snapshotId`, with its object; null when it replaced none there. */
+export function replacedVersion(db, objectId, snapshotId) {
   return db.prepare(`SELECT s.snapshot_id, s.replaces_version_id AS version_id, v.object_id
     FROM passage_successions s JOIN scientific_object_versions v ON v.id = s.replaces_version_id
-    WHERE s.object_id = ?`).get(objectId) ?? null;
+    WHERE s.object_id = ? AND s.snapshot_id = ?`).get(objectId, snapshotId) ?? null;
 }

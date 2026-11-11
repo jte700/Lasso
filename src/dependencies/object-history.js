@@ -67,15 +67,26 @@ export const objectHistoryMethods = {
     const object = this.db.prepare('SELECT object_type FROM scientific_objects WHERE id = ?').get(objectId);
     if (!object) throw new HttpError(404, 'Indexed object not found.');
     const wanted = historyLimit(limit);
-    const entries = this.ownHistory(objectId, object.object_type);
-    // An edited passage is a new object that replaces the one before it; its
-    // history goes on through the earlier wording, without that one's removal.
-    let replaced = replacedVersion(this.db, objectId);
-    for (let step = 0; replaced && entries.length < wanted && step < MAX_EARLIER_WORDINGS; step += 1) {
-      const earlier = this.ownHistory(replaced.object_id, object.object_type)
-        .filter((entry) => !(entry.kind === 'removed' && entry.snapshotId === replaced.snapshot_id));
-      entries.push(...earlier);
-      replaced = replacedVersion(this.db, replaced.object_id);
+    const entries = [];
+    // An edited passage is a new object that replaces the one before it. Read
+    // back in time: an object's entries until its version that replaced another
+    // passage, then that passage's entries from then on back, leaving out its
+    // removal there. A wording put back is its old object again, so the walk
+    // follows each snapshot's record, not each object's.
+    let current = { objectId, through: Infinity, rewordedAt: null };
+    for (let step = 0; current && entries.length < wanted && step <= MAX_EARLIER_WORDINGS; step += 1) {
+      const own = this.ownHistory(current.objectId, object.object_type).filter((entry) => entry.snapshotVersion <= current.through
+        && !(entry.kind === 'removed' && entry.snapshotId === current.rewordedAt));
+      let next = null;
+      for (const entry of own) {
+        entries.push(entry);
+        const replaced = entry.kind === 'added' ? replacedVersion(this.db, current.objectId, entry.snapshotId) : null;
+        if (replaced) {
+          next = { objectId: replaced.object_id, through: entry.snapshotVersion, rewordedAt: entry.snapshotId };
+          break;
+        }
+      }
+      current = next;
     }
     return entries.slice(0, wanted);
   },
@@ -98,7 +109,7 @@ export const objectHistoryMethods = {
       const removal = row.kind === 'removed';
       const restated = !removal && !row.kind && previous && sameVersion(previous, storedFieldsOf(row), objectType);
       if (!restated) {
-        entries.push({
+        const entry = {
           value: removal ? null : row.value_text,
           label: removal ? previous?.label ?? null : row.label,
           changedAt: row.created_at,
@@ -107,7 +118,10 @@ export const objectHistoryMethods = {
           kind: row.kind ?? (entries.length ? null : 'added'),
           cause: changeCause(row.source, row.actor_type),
           source: row.source ?? null,
-        });
+        };
+        // For walking back through earlier wordings; not part of the entry as sent.
+        Object.defineProperty(entry, 'snapshotVersion', { value: row.version });
+        entries.push(entry);
       }
       previous = removal ? null : row;
     }
