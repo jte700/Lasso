@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { BoundedCache } from '../cache.js';
 import { compareText, mergeSorted } from './text-order.js';
 import { changeKind, sameVersion } from './object-identity.js';
+import { recordPassageSuccessions } from './passage-succession.js';
 
 /**
  * Indexed object versions, carried forward between snapshots.
@@ -495,7 +496,10 @@ export class ObjectVersionStore {
       }
       // A full write that follows an index still records what changed since
       // it; only the first index of a folder has nothing to compare with.
-      if (prior) this.recordChanges(snapshotId, prior, written, carriedPaths);
+      if (prior) {
+        this.recordChanges(snapshotId, prior, written, carriedPaths);
+        recordPassageSuccessions(this.db, snapshotId);
+      }
       if (cacheRows) this.sets.set(snapshotId, resolvedSet(snapshotId, version, rows.sort(compareResolved)));
       this.chains.delete(snapshotId);
       this.depths.set(snapshotId, 0);
@@ -532,6 +536,7 @@ export class ObjectVersionStore {
       replaced.add(row.object_id);
       count -= 1;
     }
+    recordPassageSuccessions(this.db, snapshotId);
     // The new index read without the database: its base's rows with this
     // index's changes applied, in the order RESOLVE_OBJECTS returns.
     if (cacheRows) {

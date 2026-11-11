@@ -622,6 +622,9 @@ enum RanchViewerKind: Equatable {
     case quickLook
     /// Programming files, numbered line by line.
     case code
+    /// Plain text and Markdown, numbered line by line like code, with the passages
+    /// the latest version changed tinted.
+    case text
     /// STEP models, drawn from the edges and faces Lasso's reader recorded.
     case wireframe
     /// Meshes SceneKit reads itself: STL, OBJ, PLY, USD and Collada.
@@ -634,13 +637,16 @@ enum RanchViewerKind: Equatable {
     case slides
 
     private static let sheetExtensions: Set<String> = ["xlsx", "xlsm", "xls"]
+    private static let textExtensions: Set<String> = ["txt", "text", "md", "markdown", "mdx", "qmd", "rmd"]
     private static let meshExtensions: Set<String> = ["stl", "obj", "ply", "usdz", "usd", "usda", "usdc", "abc", "dae", "scn"]
 
     /// Code larger than this scrolls in Quick Look instead.
     static let maximumCodeBytes = 5_000_000
 
     static func choose(for source: RanchSource) -> RanchViewerKind {
-        source.isCode && source.size <= maximumCodeBytes ? .code : choose(for: source.fileExtension)
+        guard source.size <= maximumCodeBytes else { return choose(for: source.fileExtension) }
+        if source.isCode { return .code }
+        return textExtensions.contains(source.fileExtension) ? .text : choose(for: source.fileExtension)
     }
 
     static func choose(for fileExtension: String) -> RanchViewerKind {
@@ -658,7 +664,7 @@ enum RanchViewerKind: Equatable {
         switch self {
         case .wireframe, .mesh: return "Drag to rotate \u{00B7} Pinch or scroll to zoom \u{00B7} Option-drag to pan"
         case .plan: return "Pinch or scroll to zoom \u{00B7} Drag to pan"
-        case .quickLook, .code, .sheet, .slides: return nil
+        case .quickLook, .code, .text, .sheet, .slides: return nil
         }
     }
 }

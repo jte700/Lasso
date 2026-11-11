@@ -35,6 +35,16 @@ enum PassageWordDiff {
         return found.count == 1 ? found[0].range : nil
     }
 
+    /// The words of a passage new since `before`, where the passage is written
+    /// once in `text` within `span`, as ranges of `text`; none when it is not.
+    static func changes(from before: String, to after: String, writtenIn text: String, within span: NSRange) -> [Change] {
+        guard let place = onlyPlace(of: after, in: text, within: span) else { return [] }
+        let shown = (text as NSString).substring(with: place)
+        return changes(from: before, to: shown).map {
+            Change(range: NSRange(location: place.location + $0.range.location, length: $0.range.length), emphasized: $0.emphasized)
+        }
+    }
+
     private struct Word { let text: String; let range: NSRange }
 
     private static func words(_ text: String) -> [Word] {

@@ -5,9 +5,12 @@
 import { json } from '../db.js';
 import { HttpError } from '../history/errors.js';
 import { sameVersion } from '../history/object-identity.js';
+import { replacedVersion } from '../history/passage-succession.js';
 
 const DEFAULT_HISTORY_LIMIT = 20;
 const MAX_HISTORY_LIMIT = 500;
+// How many earlier wordings of a passage its history follows.
+const MAX_EARLIER_WORDINGS = 20;
 
 /**
  * Why a snapshot was recorded, from its timeline event's source: a re-read
@@ -61,11 +64,27 @@ export const objectHistoryMethods = {
   objectHistory(objectId, { limit = DEFAULT_HISTORY_LIMIT } = {}) {
     const object = this.db.prepare('SELECT object_type FROM scientific_objects WHERE id = ?').get(objectId);
     if (!object) throw new HttpError(404, 'Indexed object not found.');
+    const wanted = historyLimit(limit);
+    const entries = this.ownHistory(objectId, object.object_type);
+    // An edited passage is a new object that replaces the one before it; its
+    // history goes on through the earlier wording, without that one's removal.
+    let replaced = replacedVersion(this.db, objectId);
+    for (let step = 0; replaced && entries.length < wanted && step < MAX_EARLIER_WORDINGS; step += 1) {
+      const earlier = this.ownHistory(replaced.object_id, object.object_type)
+        .filter((entry) => !(entry.kind === 'removed' && entry.snapshotId === replaced.snapshot_id));
+      entries.push(...earlier);
+      replaced = replacedVersion(this.db, replaced.object_id);
+    }
+    return entries.slice(0, wanted);
+  },
+
+  /** One object's own versions and removals, most recent first (see objectHistory). */
+  ownHistory(objectId, objectType) {
     const entries = [];
     let previous = null;
     for (const row of this.db.prepare(OBJECT_ENTRIES).all(objectId, objectId)) {
       const removal = row.kind === 'removed';
-      const restated = !removal && !row.kind && previous && sameVersion(previous, storedFieldsOf(row), object.object_type);
+      const restated = !removal && !row.kind && previous && sameVersion(previous, storedFieldsOf(row), objectType);
       if (!restated) {
         entries.push({
           value: removal ? null : row.value_text,
@@ -80,7 +99,7 @@ export const objectHistoryMethods = {
       }
       previous = removal ? null : row;
     }
-    return entries.reverse().slice(0, historyLimit(limit));
+    return entries.reverse();
   },
 
   /**

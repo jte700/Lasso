@@ -546,6 +546,9 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         if (request.method === 'GET' && pathname === '/api/ranch/sheet') {
           return sendJson(response, 200, ranch.sheet({ ...file, version: url.searchParams.get('version') }));
         }
+        if (request.method === 'GET' && pathname === '/api/ranch/passages') {
+          return sendJson(response, 200, ranch.passages(file));
+        }
         if (request.method === 'GET' && pathname === '/api/ranch/file') {
           // Saved as a file for Quick Look, never shown as a page of this origin.
           const copy = ranch.fileContent(file);

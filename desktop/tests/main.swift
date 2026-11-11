@@ -4576,6 +4576,10 @@ do {
     let code = try! JSONDecoder().decode(RanchSource.self, from: Data(codeJSON.utf8))
     check(code.isCode && !code.canShareLink && RanchViewerKind.choose(for: code) == .code,
           "code shows numbered lines and offers no share link")
+    let notesFile = try! JSONDecoder().decode(RanchSource.self, from: Data(codeJSON
+        .replacingOccurrences(of: "src/server.js", with: "notes.md").replacingOccurrences(of: "server.js", with: "notes.md")
+        .replacingOccurrences(of: "\"fileType\": \"code\"", with: "\"fileType\": \"markdown\"").utf8))
+    check(RanchViewerKind.choose(for: notesFile) == .text, "notes show in the text viewer, which tints the passages their latest version changed")
     let older = try! JSONDecoder().decode(RanchSource.self, from: Data(codeJSON
         .replacingOccurrences(of: ",\n \"shareable\": false", with: "").replacingOccurrences(of: "\"fileType\": \"code\",", with: "").utf8))
     check(older.canShareLink && !older.isCode && RanchViewerKind.choose(for: older) == .quickLook,
@@ -4703,6 +4707,8 @@ do {
     check(twice?.location == "B3 \u{00B7} 18,400 \u{2192} 18,900 \u{2192} 19,250", "the history line sits beside the location")
     let never = preview(#"[{"value":"19,250"}]"#)
     check(never?.previousValue == nil && never?.historyLine == nil, "an unchanged value shows nothing more")
+    let sentences = preview(#"[{"value":"The pump was replaced on Thursday after the seal failed."},{"value":"The pump was replaced on Wednesday after the seal failed."},{"value":"The pump was replaced on Tuesday after the seal failed."}]"#)
+    check(sentences?.historyLine == nil && sentences?.location == "B3", "a passage edited twice gets no history line: its wordings would not fit")
     let older = AssistDocumentPreview.parse(Data(#"{"source":{"filename":"a.csv"},"preview":{}}"#.utf8), syntax: nil)
     check(older?.valueHistory == [], "a preview from an older server has no history")
 }
@@ -4739,6 +4745,20 @@ do {
     let older = try? JSONDecoder().decode(RanchWorkbook.self, from: Data(#"{"sheets":[],"skipped":[]}"#.utf8))
     check(older != nil && older?.changedCells(onSheet: 0).isEmpty == true && older?.versions == nil, "a workbook from an older server reads as before")
     let kept = try? JSONDecoder().decode(RanchFileVersion.self, from: Data(#"{"snapshotId":"s1","at":null,"available":false}"#.utf8))
+    let notes = "# Log\r\n\nSoil moisture in **plot B** rose by 19 percent.\nIt rained."
+    let passageJSON = #"{"version":"s2","changes":[{"kind":"text-excerpt","pageNumber":null,"start":8,"end":55,"lineStart":3,"lineEnd":3,"before":"Soil moisture in plot B rose by 18 percent.","after":"Soil moisture in plot B rose by 19 percent.","changedAt":"2026-11-10T15:04:00Z"}]}"#
+    let passages = try? JSONDecoder().decode(RanchPassageChanges.self, from: Data(passageJSON.utf8))
+    let passage = passages?.changes.first
+    let found = passage?.range(in: notes).map { (notes as NSString).substring(with: $0) }
+    check(found == "Soil moisture in **plot B** rose by 19 percent.", "a changed passage is found at its recorded place, Markdown markers and all (\(found ?? "nil"))")
+    let moved = "Intro line.\n" + notes
+    check(passage?.range(in: moved).map { (moved as NSString).substring(with: $0) } == nil,
+          "a passage whose recorded place no longer holds it, and whose words are not written plainly, is not tinted")
+    let plain = "Intro.\nSoil moisture in plot B rose by 19 percent.\n"
+    check(passage?.range(in: plain).map { (plain as NSString).substring(with: $0) } == "Soil moisture in plot B rose by 19 percent.",
+          "a passage is found by its words when its recorded place moved")
+    check(passage?.note(date: { _ in "Nov 10, 3:04 PM" }) == "was \u{201C}Soil moisture in plot B rose by 18 percent.\u{201D} \u{00B7} Nov 10, 3:04 PM",
+          "a changed passage's note quotes what it was and says when")
     check(kept?.available == false, "a version whose copy was not kept says so, and its menu entry is disabled")
 }
 

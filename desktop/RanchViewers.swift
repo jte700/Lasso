@@ -74,15 +74,19 @@ struct RanchPDFView: NSViewRepresentable {
     var page: Int? = nil
     /// Words to light up on the page, such as the value a link cites.
     var find: String? = nil
+    /// Passages the latest version changed, tinted, with what they were on hover or selection.
+    var changes: [RanchPassageChange] = []
+    var onChangeNote: (String?) -> Void = { _ in }
 
     final class Coordinator {
         var shown: String?
+        var shownChanges: [RanchPassageChange] = []
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeNSView(context: Context) -> PDFView {
-        let view = PDFView()
+    func makeNSView(context: Context) -> RanchChangesPDFView {
+        let view = RanchChangesPDFView()
         view.autoScales = true
         view.displayMode = .singlePageContinuous
         view.backgroundColor = .underPageBackgroundColor
@@ -90,7 +94,12 @@ struct RanchPDFView: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ view: PDFView, context: Context) {
+    func updateNSView(_ view: RanchChangesPDFView, context: Context) {
+        view.onNote = onChangeNote
+        if context.coordinator.shownChanges != changes {
+            context.coordinator.shownChanges = changes
+            view.tint(changes)
+        }
         guard let document = view.document, document.pageCount > 0 else { return }
         let key = "\(page ?? 0)|\(find ?? "")"
         guard context.coordinator.shown != key else { return }
@@ -108,6 +117,82 @@ struct RanchPDFView: NSViewRepresentable {
             view.highlightedSelections = matches.isEmpty ? nil : matches
             if let first = matches.first { view.go(to: first) }
         }
+    }
+}
+
+/// A PDF view that tints the passages a version changed and says what each
+/// was while the pointer is over it or a selection takes it in. The tints are
+/// annotations on the open document only; the file is never saved.
+final class RanchChangesPDFView: PDFView {
+    var onNote: (String?) -> Void = { _ in }
+    private var marks: [(annotation: PDFAnnotation, note: String)] = []
+    private var tracking: NSTrackingArea?
+    private var watchingSelection = false
+
+    func tint(_ changes: [RanchPassageChange]) {
+        marks.forEach { $0.annotation.page?.removeAnnotation($0.annotation) }
+        marks = []
+        guard let document else { return }
+        for change in changes {
+            guard let number = change.pageNumber, number >= 1, number <= document.pageCount,
+                  let page = document.page(at: number - 1), let text = page.string, let after = change.after,
+                  let place = PassageWordDiff.onlyPlace(of: after, in: text, within: NSRange(location: 0, length: (text as NSString).length)),
+                  let selection = page.selection(for: place) else { continue }
+            let note = change.note(date: RanchSheetViewer.changeTime)
+            for line in selection.selectionsByLine() {
+                let bounds = line.bounds(for: page)
+                guard !bounds.isEmpty else { continue }
+                let annotation = PDFAnnotation(bounds: bounds, forType: .highlight, withProperties: nil)
+                annotation.color = NSColor.systemOrange.withAlphaComponent(0.22)
+                page.addAnnotation(annotation)
+                marks.append((annotation, note))
+            }
+        }
+        if !watchingSelection {
+            watchingSelection = true
+            NotificationCenter.default.addObserver(self, selector: #selector(selectionChanged), name: .PDFViewSelectionChanged, object: self)
+        }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        marks.forEach { $0.annotation.page?.removeAnnotation($0.annotation) }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        guard !marks.isEmpty else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        guard let page = page(for: point, nearest: false) else { onNote(selectionNote()); return }
+        let onPage = convert(point, to: page)
+        onNote(marks.first { $0.annotation.page == page && $0.annotation.bounds.contains(onPage) }?.note ?? selectionNote())
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        if !marks.isEmpty { onNote(selectionNote()) }
+    }
+
+    @objc private func selectionChanged() {
+        if !marks.isEmpty { onNote(selectionNote()) }
+    }
+
+    /// The note of a changed passage the selection takes in, if any.
+    private func selectionNote() -> String? {
+        guard let selection = currentSelection else { return nil }
+        return marks.first { mark in
+            guard let page = mark.annotation.page, selection.pages.contains(page) else { return false }
+            return selection.bounds(for: page).intersects(mark.annotation.bounds)
+        }?.note
     }
 }
 
@@ -378,18 +463,30 @@ struct RanchCodeView: NSViewRepresentable {
     let code: RanchCode
     /// A line a review link cites, selected and scrolled to.
     var focusLine: Int? = nil
+    /// Passages the latest version changed, tinted, with what they were on hover or selection.
+    var changes: [RanchPassageChange] = []
+    var onChangeNote: (String?) -> Void = { _ in }
     let onSelectLines: (ClosedRange<Int>?) -> Void
 
     private static let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    private static let changeTint = NSColor.systemOrange.withAlphaComponent(0.18)
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var shownLine: Int?
         var onSelectLines: (ClosedRange<Int>?) -> Void
+        var onChangeNote: (String?) -> Void = { _ in }
+        var shownChanges: [RanchPassageChange] = []
+        /// Where each tinted passage is in the text, with its note.
+        var tinted: [(range: NSRange, note: String)] = []
         init(onSelectLines: @escaping (ClosedRange<Int>?) -> Void) { self.onSelectLines = onSelectLines }
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let view = notification.object as? NSTextView else { return }
             onSelectLines(RanchCodeLines.lines(in: view.string, selection: view.selectedRange()))
+            guard !tinted.isEmpty else { return }
+            let selected = view.selectedRange()
+            onChangeNote(tinted.first { NSIntersectionRange($0.range, selected).length > 0
+                || (selected.length == 0 && NSLocationInRange(selected.location, $0.range)) }?.note)
         }
     }
 
@@ -430,12 +527,19 @@ struct RanchCodeView: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        context.coordinator.onSelectLines = onSelectLines
+        let coordinator = context.coordinator
+        coordinator.onSelectLines = onSelectLines
+        coordinator.onChangeNote = onChangeNote
         guard let textView = scroll.documentView as? NSTextView else { return }
         if textView.string != code.text {
             Self.show(code, in: textView)
+            coordinator.shownChanges = []
             (scroll.verticalRulerView as? RanchLineNumberRuler)?.textDidChange()
             (scroll as? RanchCodeScrollView)?.scrollToStart()
+        }
+        if coordinator.shownChanges != changes, let storage = textView.textStorage {
+            coordinator.shownChanges = changes
+            coordinator.tinted = Self.tint(changes, in: storage)
         }
         if let focusLine, context.coordinator.shownLine != focusLine {
             context.coordinator.shownLine = focusLine
@@ -446,6 +550,20 @@ struct RanchCodeView: NSViewRepresentable {
                 textView.scrollRangeToVisible(range)
                 textView.showFindIndicator(for: range)
             }
+        }
+    }
+
+    /// Tints each changed passage and gives it its note as a tooltip; returns where they are.
+    private static func tint(_ changes: [RanchPassageChange], in storage: NSTextStorage) -> [(range: NSRange, note: String)] {
+        let whole = NSRange(location: 0, length: storage.length)
+        storage.removeAttribute(.backgroundColor, range: whole)
+        storage.removeAttribute(.toolTip, range: whole)
+        let text = storage.string
+        return changes.compactMap { change in
+            guard let range = change.range(in: text) else { return nil }
+            let note = change.note(date: RanchSheetViewer.changeTime)
+            storage.addAttributes([.backgroundColor: changeTint, .toolTip: note], range: range)
+            return (range, note)
         }
     }
 

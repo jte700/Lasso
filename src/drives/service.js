@@ -221,7 +221,7 @@ export class RemovableDriveService {
         for (const guard of guards) this.db.exec(`DROP TRIGGER "${guard.name.replaceAll('"', '""')}"`);
         // Carried-forward history refers to snapshots without cascading.
         for (const table of ['snapshot_object_indexes', 'object_index_bases', 'scientific_object_removals', 'object_changes',
-          'snapshot_index_summaries', 'snapshot_index_files']) {
+          'passage_successions', 'snapshot_index_summaries', 'snapshot_index_files']) {
           this.db.prepare(`DELETE FROM ${table} WHERE snapshot_id IN
             (SELECT id FROM snapshots WHERE project_id IN (${placeholders}))`).run(...ids);
         }

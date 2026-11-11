@@ -15,6 +15,7 @@ import { MAX_SCANNED_BYTES, SCANNED_TEXT_TYPES, sourceKind } from './kinds.js';
 import { addNameEdges, edgeCollector, mentionTargets } from './network.js';
 import { directoryReviewItems, linkReviewItems, readingReviewItems, shareReviewItems } from './review.js';
 import { cellChanges, spreadsheetView } from './sheets.js';
+import { passageChanges } from './passages.js';
 import { fileNamesIn, shareLinksIn } from './text-links.js';
 
 // How many of a file's versions the sheet view's version menu lists.
@@ -371,6 +372,16 @@ export class RanchService {
     return { ...spreadsheetView(content), version: chosen?.snapshotId ?? null,
       versions: versions.map(({ contentHash, ...version }) => version),
       changes: chosen ? cellChanges(this.db, chosen.snapshotId, file.path) : [] };
+  }
+
+  /**
+   * The passages of a text or PDF file that its latest version changed, each
+   * with what it was, for the viewer to tint: { version, changes }.
+   */
+  passages(input) {
+    const { project, file } = this.currentFile(input);
+    const latest = this.fileVersions(project.id, file.projectFileId)[0];
+    return { version: latest?.snapshotId ?? null, changes: latest ? passageChanges(this.db, latest.snapshotId, file.path) : [] };
   }
 
   /**

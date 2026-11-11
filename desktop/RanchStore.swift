@@ -499,6 +499,25 @@ final class RanchStore: ObservableObject {
         return task
     }
 
+    /// The passages of a text or PDF file its latest version changed, for its viewer to tint; none when it has none or the server cannot say.
+    @discardableResult
+    func passageChanges(_ source: RanchSource, completion: @escaping ([RanchPassageChange]) -> Void) -> URLSessionDataTask? {
+        guard let serverURL,
+              var components = URLComponents(url: serverURL.appendingPathComponent("api/ranch/passages"),
+                                             resolvingAgainstBaseURL: false) else { completion([]); return nil }
+        components.queryItems = [URLQueryItem(name: "directory", value: source.directoryId),
+                                 URLQueryItem(name: "path", value: source.path)]
+        guard let url = components.url else { completion([]); return nil }
+        let task = session.dataTask(with: url) { data, response, error in
+            if (error as NSError?)?.code == NSURLErrorCancelled { return }
+            let answer = (response as? HTTPURLResponse)?.statusCode == 200
+                ? data.flatMap { try? JSONDecoder().decode(RanchPassageChanges.self, from: $0) } : nil
+            DispatchQueue.main.async { completion(answer?.changes ?? []) }
+        }
+        task.resume()
+        return task
+    }
+
     // MARK: Actions
 
     /// Tells the server a file was looked at; it counts once per half hour.

@@ -239,6 +239,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/AssistSuggestion.swift" \
   "$ROOT/desktop/AssistValueChange.swift" \
   "$ROOT/desktop/PassageWordDiff.swift" \
+  "$ROOT/desktop/RanchPassageChanges.swift" \
   "$ROOT/desktop/RecommendationUsageClient.swift" \
   "$ROOT/desktop/InsertionMode.swift" \
   "$ROOT/desktop/AssistPermission.swift" \
