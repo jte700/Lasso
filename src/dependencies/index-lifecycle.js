@@ -341,7 +341,7 @@ export const indexLifecycleMethods = {
       const extracted = yield* withinFile(this.extractedObjectSteps(file),
         (share) => ({ phase: 'indexing', done: done + share * units, total }));
       const objects = this.withStableRowIdentities(projectId, base, file,
-        [...extracted.objects, ...this.recordedDescriptors(file, extracted.objects)]);
+        [...extracted.objects, ...this.recordedDescriptors(file, extracted.objects, extracted)]);
       counts.set(file.path, objects.length);
       if (extracted.problem) problems.push({ path: file.path, ...extracted.problem });
       // Readers bound each file's bytes, rows and geometry. A folder-wide
@@ -404,7 +404,7 @@ export const indexLifecycleMethods = {
       }
       const extracted = this.extractedObjects(file);
       const objects = this.withStableRowIdentities(projectId, base, file,
-        [...extracted.objects, ...this.recordedDescriptors(file, extracted.objects)]);
+        [...extracted.objects, ...this.recordedDescriptors(file, extracted.objects, extracted)]);
       counts.set(file.path, objects.length);
       if (extracted.problem) problems.push({ path: file.path, ...extracted.problem });
       descriptors.push(...objects.map((descriptor) => ({ ...descriptor, metadata: { ...descriptor.metadata } })));

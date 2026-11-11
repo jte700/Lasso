@@ -241,7 +241,7 @@ export const tableReadingMethods = {
     if (this.tables.has(file.contentHash)) return { readable: true };
     const known = this.tableReadings.get(file.contentHash);
     if (known) return known;
-    const job = { ...request, contentHash: file.contentHash, blobPath: this.timeline.blobs.pathFor(file.contentHash) };
+    const job = { ...request, contentHash: file.contentHash, blobPath: this.timeline.blobs.rawPath(file.contentHash) };
     let read = yield { share: 0, offThread: (report) => this.buildTable(job, report) };
     if (!read) {
       try { read = this.tables.buildBlocking(job); }

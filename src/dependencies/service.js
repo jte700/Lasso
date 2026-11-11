@@ -190,7 +190,7 @@ export class PredictiveProvenanceService {
     // PDFs not yet in the text store are read by a worker; a caller that
     // cannot wait for one reads them below, on this thread.
     const unread = pdfs.filter((file) => this.textStore.get(`${file.contentHash}|pdf|all`) === undefined)
-      .map((file) => ({ blobPath: this.timeline.blobs.pathFor(file.contentHash), contentHash: file.contentHash,
+      .map((file) => ({ blobPath: this.timeline.blobs.rawPath(file.contentHash), contentHash: file.contentHash,
         pages: drawings.has(file.path) }));
     if (unread.length) {
       yield { phase: 'warming', done: 0, total: 1, offThread: (report) => this.readPdfTexts(unread,

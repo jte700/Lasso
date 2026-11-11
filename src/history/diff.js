@@ -431,15 +431,16 @@ function operationAt(format, run, offset, before, after) {
 /**
  * The structured diff as it was computed, from its stored form.
  * `loadVersions` returns the compared versions' bytes: { before, after }.
- * Diffs stored before runs existed are returned unchanged.
+ * Diffs stored before runs existed are returned unchanged. So is one whose
+ * versions cannot be read, marked bytesReleased when retention released them.
  */
 export function expandStructuredDiff(stored, loadVersions) {
   if (!Array.isArray(stored?.operationRuns)) return stored;
   let versions;
   try {
     versions = loadVersions();
-  } catch {
-    return stored;
+  } catch (error) {
+    return error?.code === 'BLOB_RELEASED' ? { ...stored, bytesReleased: true } : stored;
   }
   if (!versions?.before && stored.operationRuns.some((run) => run.kind !== 'add')) return stored;
   if (!versions?.after && stored.operationRuns.some((run) => run.kind === 'add')) return stored;

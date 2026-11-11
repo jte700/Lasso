@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import crypto from 'node:crypto';
-import { BlobStore, hashBuffer } from './blob-store.js';
+import { hashBuffer } from './blob-store.js';
+import { captureTrackingMethods, openTimelineBlobs } from './capture-tracking.js';
+import { classifyPathChange, normalizeProjectRootPath } from './project-paths.js';
 import { isIgnoredScanPath, scanSteps, scannedFile } from './scanner.js';
 import { runSliced, runSync } from './work.js';
 import { isTrackedFile } from './file-types.js';
@@ -58,32 +59,15 @@ function eventPage(options) {
   return { limit, before };
 }
 
-function classifyPathChange(beforePath, afterPath) {
-  return path.posix.basename(beforePath) === path.posix.basename(afterPath) ? 'MOVED' : 'RENAMED';
-}
-
-function normalizeProjectRootPath(input) {
-  let value = String(input ?? '').trim();
-  const quote = value[0];
-  if (value.length >= 2 && (quote === "'" || quote === '"') && value.at(-1) === quote) {
-    value = value.slice(1, -1).trim();
-  }
-  // Backslash is a directory separator on Windows, including before a space.
-  if (process.platform !== 'win32') value = value.replace(/\\ /g, ' ');
-  if (value === '~') value = os.homedir();
-  else if (value.startsWith('~/') || (process.platform === 'win32' && value.startsWith('~\\'))) value = path.join(os.homedir(), value.slice(2));
-  return path.resolve(value);
-}
-
 export class TimelineService {
   constructor(db, config) {
     this.db = db;
     this.config = config;
-    this.blobs = new BlobStore(config.blobDir);
+    this.blobs = openTimelineBlobs(db, config);
     this.files = new SnapshotFileStore(db);
     this.objectVersions = new ObjectVersionStore(db, this.files);
-    this.storagePaths = [config.dataDir, config.databasePath, config.blobDir,
-      `${config.databasePath}-wal`, `${config.databasePath}-shm`, `${config.databasePath}-journal`].map((storage) => {
+    this.storagePaths = [config.dataDir, config.databasePath, config.blobDir, config.rawBlobCacheDir,
+      `${config.databasePath}-wal`, `${config.databasePath}-shm`, `${config.databasePath}-journal`].filter(Boolean).map((storage) => {
       try { return fs.realpathSync(storage); } catch {
         try { return path.join(fs.realpathSync(path.dirname(storage)), path.basename(storage)); }
         catch { return path.resolve(storage); }
@@ -97,6 +81,8 @@ export class TimelineService {
     this.environments = new Map();
     // Watcher captures in progress, by project: one per folder at a time.
     this.capturing = new Map();
+    // Captures and imports reading right now, of any kind (capture-tracking.js).
+    this.activeCaptures = 0;
     this.closed = false;
     this.captureListeners = new Set();
     // Set by the terminal's index controls. The timeline owns scanning; the
@@ -238,12 +224,8 @@ export class TimelineService {
     return runSync(this.importProjectSteps(rootPath, actorInput, options));
   }
 
-  /**
-   * The same as steps (see history/work.js). `options.projectId` names the
-   * new project in advance, so a folder still being read can be listed under
-   * the id it will keep.
-   */
-  *importProjectSteps(rootPath, actorInput, options = {}) {
+  /** Steps of importProjectSteps (capture-tracking.js), which counts them as a capture. */
+  *recordImportSteps(rootPath, actorInput, options) {
     let realRoot;
     try {
       realRoot = fs.realpathSync(normalizeProjectRootPath(rootPath));
@@ -410,12 +392,8 @@ export class TimelineService {
     return runSync(this.captureSteps(projectId, actorInput, options));
   }
 
-  /**
-   * The same as steps. `options.prepare(result)`, a step generator, runs after a new snapshot is
-   * recorded and before capture listeners hear of it, so a sliced capture can
-   * index the snapshot before anything asks it for objects.
-   */
-  *captureSteps(projectId, actorInput, options = {}) {
+  /** Steps of captureSteps (capture-tracking.js), which counts them as a capture. */
+  *recordCaptureSteps(projectId, actorInput, options) {
     const project = this.getProject(projectId);
     const actor = normalizeActor(actorInput, options.source === 'SYSTEM' ? 'SYSTEM' : 'HUMAN_SELF');
     if (options.expectedSnapshotId && options.expectedSnapshotId !== project.currentSnapshotId) {
@@ -646,8 +624,8 @@ export class TimelineService {
     const previousFile = this.snapshotFile(baseSnapshotId, relativePath);
     const beforeBuffer = previousFile ? this.blobs.get(previousFile.contentHash) : null;
     const afterBuffer = Buffer.from(String(input.content ?? ''), 'utf8');
-    const proposedHash = this.blobs.put(afterBuffer);
     const fileType = previousFile?.fileType ?? 'text';
+    const proposedHash = this.blobs.put(afterBuffer);
     const structuredDiff = createStructuredDiff({
       fileType,
       filePath: relativePath,
@@ -915,3 +893,6 @@ export class TimelineService {
 }
 
 export { normalizeActor, normalizeProjectRootPath };
+
+// Counting captures for the blob store's cleanup lives in capture-tracking.js.
+Object.assign(TimelineService.prototype, captureTrackingMethods);
