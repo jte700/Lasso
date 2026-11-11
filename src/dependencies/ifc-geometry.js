@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
+import { pooled } from '../worker-pool.js';
 
 const MAX_BYTES = 64_000_000;
 const MAX_CACHE_ENTRIES = 3;
@@ -49,7 +50,7 @@ function remember(sourceHash, entry, model) {
 }
 
 function runWorker(bytes) {
-  return new Promise((resolve, reject) => {
+  return pooled(() => new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./ifc-geometry-worker.js', import.meta.url), {
       workerData: { bytes }, resourceLimits: { maxOldGenerationSizeMb: 256 },
       // Parent CLI/test-runner flags may be invalid for a file worker.
@@ -65,7 +66,7 @@ function runWorker(bytes) {
     worker.once('message', message => finish(message.error ? new Error(message.error) : null, message.model));
     worker.once('error', error => finish(error));
     worker.once('exit', code => { if (!finished) finish(new Error(`IFC geometry worker exited before producing a preview (${code}).`)); });
-  });
+  }));
 }
 
 async function modelFor(bytes, sourceHash, signal) {

@@ -6,6 +6,7 @@ import { transaction } from '../db.js';
 import { csvDelimiter, parseDelimited } from '../history/diff.js';
 import { MAX_IN_MEMORY_PART_BYTES, MAX_WORKBOOK_SHEETS, extractSpreadsheetTables, isLargeSpreadsheet } from './document-extraction.js';
 import { sheetSignatures } from './workbook-parts.js';
+import { readerFor } from './readers.js';
 import { runSync } from '../history/work.js';
 import { BlobReleasedError } from '../history/errors.js';
 import { spreadsheetLayout, tabularLayout } from './tabular.js';
@@ -16,6 +17,7 @@ import { codeLinesDescriptor, objectsFromFile } from './file-objects.js';
 import { applyVariableDefinitions, worksheetCoordinates } from './index-state.js';
 import { freezeIndexedValue, mapObjectRow, objectDescriptor } from './object-descriptors.js';
 import { objectsFromTabular } from './tabular-objects.js';
+import { pooled } from '../worker-pool.js';
 
 /** Where a sheet's objects are kept between readings of its file: by file, path and the sheet's part signature. */
 const sheetCacheKey = (file, signature) => `${file.projectFileId}|${file.path}|${signature}`;
@@ -36,16 +38,18 @@ export const objectExtractionMethods = {
    * (`bytesReleased`); an index that already recorded it keeps what it has.
    */
   *extractedObjectSteps(file) {
-    const key = JSON.stringify([file.projectFileId, file.path, file.fileType, file.contentHash]);
+    const reader = readerFor(file);
+    const key = JSON.stringify([file.projectFileId, file.path, file.fileType, file.contentHash, reader.id, reader.version]);
     let extracted = this.extractionCache.get(key);
     if (!extracted) {
       let problem = null;
       const report = (code, reason) => { problem ??= { code, reason }; };
       let objects;
       try {
-        // A video is heard from its file where it lies; its bytes are not read into memory.
-        objects = file.fileType === 'video' ? yield* this.videoObjectSteps(file, report)
-          : ['table', 'spreadsheet'].includes(file.fileType)
+        // Each kind of file is read by its reader (readers.js). A video is heard
+        // from its file where it lies; its bytes are not read into memory.
+        objects = reader.extract === 'video' ? yield* this.videoObjectSteps(file, report)
+          : reader.extract === 'table'
             ? yield* this.tableObjectSteps(file, this.timeline.blobs.get(file.contentHash), report)
             : objectsFromFile(file, this.timeline.blobs.get(file.contentHash), report);
       } catch (error) {
@@ -240,7 +244,7 @@ export const objectExtractionMethods = {
 
   /** Has a worker read PDFs' text into the text store. Resolves once it has, or has failed. */
   readPdfTexts(items, report) {
-    return new Promise((resolve) => {
+    return pooled(() => new Promise((resolve) => {
       const worker = new Worker(new URL('./pdf-text-worker.js', import.meta.url), {
         workerData: { root: this.textStore.root, readerVersion: PDF_TEXT_VERSION, items },
         resourceLimits: { maxOldGenerationSizeMb: 512 },
@@ -251,6 +255,6 @@ export const objectExtractionMethods = {
       });
       worker.on('error', () => resolve(false));
       worker.on('exit', () => resolve(false));
-    });
+    }));
   },
 };

@@ -3,6 +3,7 @@ import { Worker } from 'node:worker_threads';
 import { rotate, transformPoint } from './step-model.js';
 import { ASSEMBLY_ELEMENT } from './step-extraction.js';
 import { ISOMETRIC_CAMERA, cameraAxes, projectWireframe } from '../../public/model-orbit.js';
+import { pooled } from '../worker-pool.js';
 
 const MAX_BYTES = 64_000_000;
 const MAX_CACHE_ENTRIES = 3;
@@ -15,7 +16,7 @@ let pending = 0, queue = Promise.resolve();
 const ISOMETRIC = cameraAxes(ISOMETRIC_CAMERA);
 
 function runWorker(bytes) {
-  return new Promise((resolve, reject) => {
+  return pooled(() => new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./step-geometry-worker.js', import.meta.url), {
       workerData: { bytes }, resourceLimits: { maxOldGenerationSizeMb: 512 }, execArgv: [],
     });
@@ -29,7 +30,7 @@ function runWorker(bytes) {
     worker.once('message', message => finish(message.error ? new Error(message.error) : null, message.scene));
     worker.once('error', error => finish(error));
     worker.once('exit', code => { if (!finished) finish(new Error(`STEP geometry worker exited before producing a preview (${code}).`)); });
-  });
+  }));
 }
 
 function sceneFor(bytes, sourceHash) {
