@@ -393,7 +393,7 @@ test('A store from before change records upgrades cleanly', () => {
     const table = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'object_changes'").get().sql;
     assert.match(table, /WITHOUT ROWID/i);
     assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'object_changes_snapshot_idx'").get());
-    assert.equal(db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version, CHANGE_RECORDS_MIGRATION);
+    assert.ok(db.prepare('SELECT 1 FROM schema_migrations WHERE version = ?').get(CHANGE_RECORDS_MIGRATION));
     assert.throws(() => db.prepare(`INSERT INTO object_changes(snapshot_id, object_id, kind) VALUES ('s', 'o', 'renamed')`).run(),
       /CHECK constraint/);
     db.close();

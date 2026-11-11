@@ -99,6 +99,11 @@ export const indexLifecycleMethods = {
           VALUES (?, ?, ?, ?, 2, ?)
           ON CONFLICT(snapshot_id) DO UPDATE SET drawing_index_version = excluded.drawing_index_version, spreadsheet_index_version = 2, indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
           .run(targetSnapshotId, now(), recorded ?? versions.count(targetSnapshotId), INDEX_VERSION, existing ? 0 : EXTRACTOR_VERSION);
+        // An upgrade pass reads only some files and keeps what was there, so
+        // later indexes cannot carry objects forward from it without reading
+        // them again; a full index or a carried one can be built on.
+        if (existing) this.forgetIndexSummary(targetSnapshotId);
+        else this.saveIndexSummary(targetSnapshotId, index.summary, { base: carry?.base, known: carry?.known });
       });
     } catch (error) {
       // The index was read into memory as it was written; drop it with the rollback.
@@ -236,7 +241,10 @@ export const indexLifecycleMethods = {
       // project stops being offered a re-read it does not need.
       this.db.prepare('UPDATE snapshot_object_indexes SET extractor_version = ? WHERE snapshot_id = ? AND extractor_version < ?')
         .run(EXTRACTOR_VERSION, previous.id, EXTRACTOR_VERSION);
-      if (!partial) this.indexedHere.set(previous.id, index.summary);
+      if (!partial) {
+        this.indexedHere.set(previous.id, index.summary);
+        transaction(this.db, () => this.saveIndexSummary(previous.id, index.summary));
+      }
       this.onIndexProblems?.(projectId, index.problems, partial ? reread : null);
       return {
         changed: false, reason: 'IDENTICAL_READING', projectId, snapshot: previous, event: null,
@@ -258,6 +266,7 @@ export const indexLifecycleMethods = {
       }, ({ resultingSnapshotId }) => {
         newSnapshotId = resultingSnapshotId;
         objectCount = this.writeObjectIndex(projectId, resultingSnapshotId, index.descriptors, { carriedPaths });
+        if (!partial) this.saveIndexSummary(resultingSnapshotId, index.summary);
       });
     } catch (error) {
       // The index was read into memory as it was written; drop it with the rollback.
@@ -360,7 +369,7 @@ export const indexLifecycleMethods = {
   /** The same, yielding `{ phase: 'indexing', done, total }` as it reads the files that changed. */
   *carryPlanSteps(projectId, snapshotId, files) {
     const base = this.timeline.objectVersions.baseFor(projectId, snapshotId);
-    const known = base ? this.indexedHere.get(base) : null;
+    const known = base ? this.knownIndexSummary(base) : null;
     if (!known || known.truncated) return null;
     const before = this.timeline.files.manifest(base).byPath;
     const unchanged = (file) => {

@@ -16,6 +16,7 @@ import { dependencyPreviewsMethods } from './dependency-previews.js';
 import { dependencySharingMethods } from './dependency-sharing.js';
 import { documentEditingMethods } from './document-editing.js';
 import { indexLifecycleMethods } from './index-lifecycle.js';
+import { indexSummaryMethods } from './index-summaries.js';
 import { linkedContextMethods } from './linked-context.js';
 import { linkedFieldsMethods } from './linked-fields.js';
 import { linkedValuesMethods } from './linked-values.js';
@@ -104,7 +105,8 @@ export class PredictiveProvenanceService {
     this.figurePreviewCache = new BoundedCache({ maxEntries: 12, maxWeight: 24 * 1024 * 1024,
       weight: (preview) => preview.image.length });
     this.reconcilingProjects = new Set();
-    // Full indexes built by this process, which later indexes may carry forward from.
+    // Recent indexes' summaries, which later indexes carry unchanged files forward from.
+    // Each is also stored in the database (index-summaries.js), so a restart keeps them.
     this.indexedHere = new BoundedCache({ maxEntries: 64 });
     this.unsubscribe = timeline.onCapture((capture) => {
       // Snapshot keys are immutable. A change in one directory must leave the
@@ -222,6 +224,7 @@ export class PredictiveProvenanceService {
 // The rest of the class lives in sibling modules, grouped by what the methods do.
 installMethods(PredictiveProvenanceService.prototype,
   indexLifecycleMethods,
+  indexSummaryMethods,
   objectExtractionMethods,
   tableReadingMethods,
   tableRetentionMethods,
