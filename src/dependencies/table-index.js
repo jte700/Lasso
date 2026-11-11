@@ -1,24 +1,30 @@
-import fs from 'node:fs';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { MessageChannel, Worker, receiveMessageOnPort } from 'node:worker_threads';
-import { normalizedRowSearch, rowSearchAliases } from './row-names.js';
+import { BoundedCache } from '../cache.js';
+import { normalizedRowSearch } from './row-names.js';
 import { dictionaryColumns, spreadsheetLayout, tableShape, tabularLayout } from './tabular.js';
+import { CLEANUP_BATCH_ROWS, cleanupBatch, dropTable } from './table-cleanup.js';
+import { lowerBound, placeOfOrdinal, placeOfRowNumber, placesBefore, placesOf, readTableMap } from './table-map.js';
+import { MAX_CHUNK_ROWS, MIN_CHUNK_ROWS, TableChunkStore, contentKey, openTableDatabase } from './table-storage.js';
+import { rowTerms } from './table-terms.js';
 
-// Every row of a large table, kept once per file content so a writer can name
-// any of them without the indexer holding them all. Rows are found through
+export { nameTerm, rowTerms } from './table-terms.js';
+export { openTableDatabase } from './table-storage.js';
+
+// Every row of a large table, kept per file content so a writer can name any
+// of them without the indexer holding them all. A file's versions share the
+// rows they have in common (see table-storage.js). Rows are found through
 // their names: each name is stored whole and from each of its words on, so a
 // prefix of what was typed is a range in a B-tree rather than a pass over
 // every cell. Like the text store this is derived data, separate from
 // history, and is rebuilt from the file if it is missing.
 
 // Bumped when what the index stores for the same bytes changes.
-export const TABLE_INDEX_VERSION = 1;
+export const TABLE_INDEX_VERSION = 2;
 // The rows the indexer reads a table's shape from, as objectsFromTabular does.
 export const SHAPE_ROWS = 1_000;
 // The last rows of a table, kept for the notes written under it.
 export const TAIL_ROWS = 64;
-const MAX_TERM_LENGTH = 64;
 const BATCH_ROWS = 2_000;
 // A worker reading a table is stopped past this, so one damaged file cannot
 // take the server's memory with it.
@@ -26,64 +32,15 @@ const WORKER_MEMORY_MB = 512;
 // A worker reports progress at least once per megabyte it reads. One silent
 // for this long has stopped, and a caller waiting for it stops waiting.
 const SILENT_WORKER_MS = 60_000;
-
-/** The names a row can be found by: its label whole, from each word on, and as a numbered reference. */
-export function rowTerms(label) {
-  const text = String(label ?? '').trim();
-  if (!text || text.length > 180) return [];
-  const terms = new Set(rowSearchAliases(text));
-  const words = text.replace(/[_./-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().match(/[a-z0-9]+/g) ?? [];
-  for (let index = 1; index < words.length; index += 1) terms.add(words.slice(index).join(''));
-  return [...terms].map((term) => term.slice(0, MAX_TERM_LENGTH)).filter((term) => term.length >= 2);
-}
-
-/**
- * The term a row's whole name is stored under, one of its `rowTerms`, or ''
- * when its name gives none (too short, too long, or no letters or digits).
- * Rows whose names only end the same way share it too, so a caller checks
- * each row's name.
- */
-export function nameTerm(label) {
-  const text = String(label ?? '').trim();
-  if (!text || text.length > 180) return '';
-  const term = normalizedRowSearch(text).slice(0, MAX_TERM_LENGTH);
-  return term.length >= 2 ? term : '';
-}
-
-export function openTableDatabase(file) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new DatabaseSync(file);
-  db.exec(`PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 30000;
-    PRAGMA journal_size_limit = 67108864;
-    CREATE TABLE IF NOT EXISTS tables (
-      id INTEGER PRIMARY KEY,
-      content_hash TEXT NOT NULL,
-      sheet TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      version INTEGER NOT NULL,
-      row_count INTEGER NOT NULL DEFAULT 0,
-      shape_json TEXT,
-      extras_json TEXT NOT NULL DEFAULT '{}',
-      complete INTEGER NOT NULL DEFAULT 0,
-      UNIQUE(content_hash, sheet, version)
-    );
-    CREATE TABLE IF NOT EXISTS table_rows (
-      table_id INTEGER NOT NULL,
-      ordinal INTEGER NOT NULL,
-      row_number INTEGER NOT NULL,
-      cells_json TEXT NOT NULL,
-      display_json TEXT,
-      PRIMARY KEY (table_id, ordinal)
-    ) WITHOUT ROWID;
-    CREATE INDEX IF NOT EXISTS table_rows_number_idx ON table_rows(table_id, row_number);
-    CREATE TABLE IF NOT EXISTS table_terms (
-      table_id INTEGER NOT NULL,
-      term TEXT NOT NULL,
-      ordinal INTEGER NOT NULL,
-      PRIMARY KEY (table_id, term, ordinal)
-    ) WITHOUT ROWID;`);
-  return db;
-}
+// The most rows' lists of a table held in memory at once, across tables.
+const MAPPED_ROWS = 2_000_000;
+// The most stored names one search reads. Names are shared by every version
+// of a file the index keeps, and by other files' rows, so this bounds a
+// search when a name is common to many rows outside the table searched.
+const MAX_TERM_ROWS = 20_000;
+// The same for rows read under one exact name; past it the table's own rows
+// are read instead, so the answer stays exact.
+const MAX_NAMED_TERM_ROWS = 50_000;
 
 /**
  * Where a table's data starts and which column names its rows, read from its
@@ -125,25 +82,22 @@ export class TableWriter {
     this.pending = [];
     this.physical = [];
     this.sheet = sheet;
+    // Rows of the chunk being filled, and chunks waiting to be written.
+    this.chunk = [];
+    this.ready = [];
+    this.readyRows = 0;
+    this.replaced = false;
+    this.store = new TableChunkStore(db);
     const previous = db.prepare('SELECT id FROM tables WHERE content_hash = ? AND sheet = ? AND version = ?')
       .get(contentHash, sheet ?? '', TABLE_INDEX_VERSION);
     if (previous) this.remove(previous.id);
-    this.id = Number(db.prepare(`INSERT INTO tables(content_hash, sheet, position, version) VALUES (?, ?, ?, ?)`)
-      .run(contentHash, sheet ?? '', position, TABLE_INDEX_VERSION).lastInsertRowid);
-    this.insertRow = db.prepare('INSERT INTO table_rows(table_id, ordinal, row_number, cells_json, display_json) VALUES (?, ?, ?, ?, ?)');
-    this.insertTerm = db.prepare('INSERT OR IGNORE INTO table_terms(table_id, term, ordinal) VALUES (?, ?, ?)');
+    this.id = Number(db.prepare(`INSERT INTO tables(content_hash, sheet, position, version, touched_at) VALUES (?, ?, ?, ?, ?)`)
+      .run(contentHash, sheet ?? '', position, TABLE_INDEX_VERSION, Date.now()).lastInsertRowid);
   }
 
+  /** Takes a table out of the index at once; cleanup removes its rows later. */
   remove(tableId) {
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
-      for (const statement of ['DELETE FROM table_terms WHERE table_id = ?', 'DELETE FROM table_rows WHERE table_id = ?',
-        'DELETE FROM tables WHERE id = ?']) this.db.prepare(statement).run(tableId);
-      this.db.exec('COMMIT');
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
+    dropTable(this.db, tableId);
   }
 
   /**
@@ -187,32 +141,56 @@ export class TableWriter {
     this.write(head);
   }
 
-  write(rows) {
+  /** A row as it is stored, with its content key and, past a named table's header, the column its names are read from. */
+  stored(row) {
     const { dataStart, labelColumn, searchable } = this.shape;
-    for (let start = 0; start < rows.length; start += BATCH_ROWS) {
-      this.db.exec('BEGIN IMMEDIATE');
-      try {
-        for (const row of rows.slice(start, start + BATCH_ROWS)) {
-          const shown = row.display && Object.keys(row.display).length ? JSON.stringify(row.display) : null;
-          this.insertRow.run(this.id, row.ordinal, row.rowNumber, JSON.stringify(row.cells), shown);
-          if (!searchable || row.ordinal < dataStart) continue;
-          for (const term of rowTerms(row.cells[labelColumn])) this.insertTerm.run(this.id, term, row.ordinal);
-        }
-        this.db.exec('COMMIT');
-      } catch (error) {
-        this.db.exec('ROLLBACK');
-        throw error;
-      }
+    const cellsJson = JSON.stringify(row.cells);
+    const displayJson = row.display && Object.keys(row.display).length ? JSON.stringify(row.display) : null;
+    const { key, cut } = contentKey(`${TABLE_INDEX_VERSION}\u0000${cellsJson}\u0000${displayJson ?? ''}`);
+    const named = searchable && row.ordinal >= dataStart && Number.isInteger(labelColumn);
+    return { ordinal: row.ordinal, rowNumber: row.rowNumber, cellsJson, displayJson, key, cut,
+      termColumn: named ? labelColumn : null, label: named ? row.cells[labelColumn] : null };
+  }
+
+  /**
+   * Adds rows to chunks. A chunk ends where a row's content says so, at its
+   * longest, and where the stored rows skip ordinals (before a table's last
+   * rows), so a chunk always holds consecutive rows.
+   */
+  write(rows) {
+    for (const row of rows) {
+      const entry = this.stored(row);
+      if (this.chunk.length && entry.ordinal !== this.chunk[this.chunk.length - 1].ordinal + 1) this.endChunk();
+      this.chunk.push(entry);
+      if (this.chunk.length >= MAX_CHUNK_ROWS || (entry.cut && this.chunk.length >= MIN_CHUNK_ROWS)) this.endChunk();
+      if (this.readyRows >= BATCH_ROWS) this.writeChunks();
     }
+    this.writeChunks();
+  }
+
+  endChunk() {
+    if (!this.chunk.length) return;
+    this.ready.push(this.chunk);
+    this.readyRows += this.chunk.length;
+    this.chunk = [];
+  }
+
+  /** Writes the chunks ready; once a newer build has replaced this table, they are let go instead. */
+  writeChunks() {
+    if (this.ready.length && !this.replaced) this.replaced = !this.store.write(this.id, this.ready);
+    this.ready = [];
+    this.readyRows = 0;
   }
 
   finish(extras = {}) {
     this.flush();
     this.write(this.tail);
     this.tail = [];
-    this.db.prepare('UPDATE tables SET complete = 1, row_count = ?, shape_json = ?, extras_json = ? WHERE id = ?')
+    this.endChunk();
+    this.writeChunks();
+    this.db.prepare('UPDATE tables SET complete = 1, row_count = ?, shape_json = ?, extras_json = ?, touched_at = ? WHERE id = ?')
       .run(this.ordinal, JSON.stringify(this.shape ?? shapeOf({ rows: [], rowNumbers: [], sheet: this.sheet, physicalRows: [] })),
-        JSON.stringify(extras), this.id);
+        JSON.stringify(extras), Date.now(), this.id);
     return this.id;
   }
 
@@ -236,31 +214,36 @@ export function writeTable(db, contentHash, { sheet = null, position = 0, rows, 
   }
 }
 
-const parse = (row) => ({ ordinal: row.ordinal, rowNumber: row.row_number, cells: JSON.parse(row.cells_json),
-  display: row.display_json ? JSON.parse(row.display_json) : null });
+const parse = (body, place, map) => ({ ordinal: map.ordinals[place], rowNumber: map.rowNumbers[place],
+  cells: JSON.parse(body.cells_json), display: body.display_json ? JSON.parse(body.display_json) : null });
 
 /** Reads the table index; builds of large files run in a worker. */
 export class TableIndex {
-  constructor(root) {
+  /** `keep(hashes)` returns which of these file contents some snapshot still needs (see cleanup). */
+  constructor(root, { keep = null } = {}) {
     this.file = path.join(root, 'tables.sqlite');
     this.db = openTableDatabase(this.file);
+    this.keep = keep;
     this.metas = new Map();
+    // A finished table's list of rows never changes, so it is read once while it is in use.
+    this.maps = new BoundedCache({ maxEntries: 32, maxWeight: MAPPED_ROWS, weight: (map) => map.ordinals.length });
     this.statements = {
       table: this.db.prepare(`SELECT * FROM tables WHERE content_hash = ? AND sheet = ? AND version = ? AND complete = 1`),
       sheets: this.db.prepare(`SELECT * FROM tables WHERE content_hash = ? AND version = ? AND complete = 1 ORDER BY position`),
-      range: this.db.prepare(`SELECT * FROM table_rows WHERE table_id = ? AND ordinal >= ? AND ordinal < ? ORDER BY ordinal`),
-      row: this.db.prepare('SELECT * FROM table_rows WHERE table_id = ? AND ordinal = ?'),
-      numbered: this.db.prepare('SELECT * FROM table_rows WHERE table_id = ? AND row_number = ? ORDER BY ordinal LIMIT 1'),
-      before: this.db.prepare('SELECT * FROM table_rows WHERE table_id = ? AND row_number <= ? ORDER BY row_number DESC LIMIT ?'),
-      search: this.db.prepare(`SELECT DISTINCT ordinal FROM table_terms WHERE table_id = ? AND term >= ? AND term < ? LIMIT ?`),
-      named: this.db.prepare(`SELECT r.* FROM table_terms t
-        JOIN table_rows r ON r.table_id = t.table_id AND r.ordinal = t.ordinal
-        WHERE t.table_id = ? AND t.term = ? AND t.ordinal >= ? AND t.ordinal < ? ORDER BY t.ordinal LIMIT ?`),
+      mapTable: this.db.prepare('SELECT content_hash, complete, shape_json FROM tables WHERE id = ?'),
+      mapParts: this.db.prepare(`SELECT p.first_ordinal, p.first_row_number, c.row_count, c.entries FROM table_parts p
+        JOIN table_chunks c ON c.id = p.chunk_id WHERE p.table_id = ? ORDER BY p.first_ordinal`),
+      body: this.db.prepare('SELECT id, cells_json, display_json FROM table_row_bodies WHERE id = ?'),
+      bodies: this.db.prepare('SELECT id, cells_json, display_json FROM table_row_bodies WHERE id IN (SELECT value FROM json_each(?))'),
+      search: this.db.prepare(`SELECT term, row_id FROM table_row_terms
+        WHERE label_column = ? AND term >= ? AND term < ? ORDER BY term, row_id LIMIT ?`),
+      named: this.db.prepare('SELECT row_id FROM table_row_terms WHERE label_column = ? AND term = ? LIMIT ?'),
     };
   }
 
   close() {
     this.metas.clear();
+    this.maps.clear();
     try { this.db.close(); } catch { /* already closed */ }
   }
 
@@ -293,48 +276,135 @@ export class TableIndex {
 
   forget(contentHash) {
     for (const key of this.metas.keys()) if (key.startsWith(`${contentHash}\u0000`)) this.metas.delete(key);
+    for (const [tableId, entry] of this.maps.entries) if (entry.value.contentHash === contentHash) this.maps.delete(tableId);
+  }
+
+  /** A table's list of rows; an unfinished one is read again each time. */
+  mapOf(tableId) {
+    const cached = this.maps.get(tableId);
+    if (cached) return cached;
+    const map = readTableMap(this.statements, tableId);
+    if (map.complete) this.maps.set(tableId, map);
+    return map;
+  }
+
+  /** The rows at these places in a table's list, in the order given. */
+  rowsAt(map, places) {
+    if (!places.length) return [];
+    const ids = places.map((place) => map.rowIds[place]);
+    const found = ids.length === 1 ? [this.statements.body.get(ids[0])].filter(Boolean)
+      : this.statements.bodies.all(JSON.stringify([...new Set(ids)]));
+    const bodies = new Map(found.map((body) => [body.id, body]));
+    return places.flatMap((place) => {
+      const body = bodies.get(map.rowIds[place]);
+      return body ? [parse(body, place, map)] : [];
+    });
   }
 
   rows(tableId, from, to) {
-    return this.statements.range.all(tableId, from, to).map(parse);
+    const map = this.mapOf(tableId);
+    const start = lowerBound(map.ordinals, from);
+    const end = Math.max(start, lowerBound(map.ordinals, to));
+    return this.rowsAt(map, Array.from({ length: end - start }, (_, index) => start + index));
   }
 
   row(tableId, ordinal) {
-    const row = this.statements.row.get(tableId, ordinal);
-    return row ? parse(row) : null;
+    const map = this.mapOf(tableId);
+    const place = placeOfOrdinal(map, ordinal);
+    return place < 0 ? null : this.rowsAt(map, [place])[0] ?? null;
   }
 
   rowNumbered(tableId, rowNumber) {
-    const row = this.statements.numbered.get(tableId, rowNumber);
-    return row ? parse(row) : null;
+    const map = this.mapOf(tableId);
+    const place = placeOfRowNumber(map, rowNumber);
+    return place < 0 ? null : this.rowsAt(map, [place])[0] ?? null;
   }
 
   /**
    * Up to `limit` rows stored under exactly this name term (see nameTerm),
    * with ordinals from `from` up to `to`, in table order: an index range,
-   * never a pass over the table.
+   * never a pass over the table, unless the name is stored for so many rows
+   * that reading the table's own rows is the bounded way to answer exactly.
    */
   rowsNamed(tableId, term, from, to = Number.MAX_SAFE_INTEGER, limit = 64) {
     if (!term) return [];
-    return this.statements.named.all(tableId, term, from, to, limit).map(parse);
+    const map = this.mapOf(tableId);
+    if (map.termColumn == null) return [];
+    const low = Math.max(from, map.dataStart);
+    const named = this.statements.named.all(map.termColumn, term, MAX_NAMED_TERM_ROWS + 1);
+    if (named.length > MAX_NAMED_TERM_ROWS) return this.rowsNamedByReading(map, term, low, to, limit);
+    const places = named.flatMap(({ row_id: rowId }) => placesOf(map, rowId))
+      .filter((place) => map.ordinals[place] >= low && map.ordinals[place] < to)
+      .sort((left, right) => left - right).slice(0, limit);
+    return this.rowsAt(map, places);
+  }
+
+  /** The same answer as rowsNamed, from the table's rows in order. */
+  rowsNamedByReading(map, term, low, to, limit) {
+    const found = [];
+    const end = lowerBound(map.ordinals, to);
+    for (let start = lowerBound(map.ordinals, low); start < end && found.length < limit; start += BATCH_ROWS) {
+      const places = Array.from({ length: Math.min(BATCH_ROWS, end - start) }, (_, index) => start + index);
+      for (const row of this.rowsAt(map, places)) {
+        if (found.length < limit && rowTerms(row.cells[map.termColumn]).includes(term)) found.push(row);
+      }
+    }
+    return found;
   }
 
   /** Up to `count` rows at or above a sheet row, nearest first. */
   rowsBefore(tableId, rowNumber, count) {
-    return this.statements.before.all(tableId, rowNumber, count).map(parse);
+    const map = this.mapOf(tableId);
+    return this.rowsAt(map, placesBefore(map, rowNumber, count));
   }
 
   /**
    * The rows whose name begins with what was typed, or has a word that does.
-   * A range scan over the name terms, bounded by `limit`; exact names sort
-   * first, as the shortest term with that prefix.
+   * A range scan over the name terms, bounded by `limit` and by how many
+   * stored names it reads; exact names sort first, as the shortest term with
+   * that prefix, and rows under one term in table order.
    */
   search(tableId, typed, limit = 32) {
     const query = normalizedRowSearch(typed);
     if (query.length < 2) return [];
-    const ordinals = this.statements.search.all(tableId, query, `${query}￿`, limit).map((row) => row.ordinal);
-    if (!ordinals.length) return [];
-    return ordinals.map((ordinal) => this.row(tableId, ordinal)).filter(Boolean);
+    const map = this.mapOf(tableId);
+    if (map.termColumn == null) return [];
+    const places = [];
+    const seen = new Set();
+    let group = [];
+    const take = () => {
+      for (const place of group.sort((left, right) => left - right)) {
+        if (places.length >= limit) break;
+        if (!seen.has(place)) { seen.add(place); places.push(place); }
+      }
+      group = [];
+    };
+    let term = null;
+    for (const row of this.statements.search.iterate(map.termColumn, query, `${query}￿`, MAX_TERM_ROWS)) {
+      if (row.term !== term) {
+        take();
+        if (places.length >= limit) break;
+        term = row.term;
+      }
+      for (const place of placesOf(map, row.row_id)) if (map.ordinals[place] >= map.dataStart) group.push(place);
+    }
+    take();
+    return this.rowsAt(map, places);
+  }
+
+  /**
+   * Removes one bounded batch of what the index no longer needs (see
+   * table-cleanup.js): tables of file contents `keep` does not keep, then
+   * the chunks and rows nothing uses. Returns how many of each it removed;
+   * all zero when nothing is left.
+   */
+  cleanup({ budget = CLEANUP_BATCH_ROWS, now = Date.now() } = {}) {
+    const { dropped, ...removed } = cleanupBatch(this.db, { keep: this.keep, version: TABLE_INDEX_VERSION, now, budget });
+    for (const table of dropped) {
+      this.maps.delete(table.id);
+      this.forget(table.content_hash);
+    }
+    return removed;
   }
 
   /**

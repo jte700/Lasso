@@ -28,6 +28,7 @@ import { sourceSearchMethods } from './source-search.js';
 import { sourceUpdatesMethods } from './source-updates.js';
 import { studyVariablesMethods } from './study-variables.js';
 import { tableReadingMethods } from './table-reading.js';
+import { TABLE_CLEANUP_DELAY_MS, tableRetentionMethods } from './table-retention.js';
 import { isPassageExcerpt } from './workspace-completion.js';
 import { workspaceSuggestionsMethods } from './workspace-suggestions.js';
 import { writingPredictionMethods } from './writing-prediction.js';
@@ -73,7 +74,11 @@ export class PredictiveProvenanceService {
     // Extracted file text depends only on the file's bytes, so an unchanged
     // PDF is not parsed again after every capture of its folder.
     // Large tables, whole, by file content (see table-index.js).
-    this.tables = new TableIndex(path.join(timeline.config.dataDir, 'derived'));
+    // Tables of contents no snapshot keeps are removed after captures (see table-retention.js).
+    this.tables = new TableIndex(path.join(timeline.config.dataDir, 'derived'), { keep: (hashes) => this.tableContentToKeep(hashes) });
+    this.tableCleanupTimer = null;
+    this.tableKeepAnswers = null;
+    this.tableCleanupDelayMs = TABLE_CLEANUP_DELAY_MS;
     this.tableBuilds = new Map();
     this.tableReadings = new BoundedCache({ maxEntries: 256 });
     this.snapshotTableCache = new BoundedCache({ maxEntries: 32 });
@@ -111,11 +116,13 @@ export class PredictiveProvenanceService {
         }
       }
       this.reconcileAfterCapture(capture);
+      if (capture?.changed || capture?.removedProjectIds?.length) this.tableContentChanged();
     });
   }
 
   close() {
     this.unsubscribe?.();
+    this.stopTableCleanup();
     this.ranking.close();
     for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache,
       this.objectCache, this.typedObjectCache, this.extractionCache, this.sourceTextCache, this.figurePreviewCache,
@@ -217,6 +224,7 @@ installMethods(PredictiveProvenanceService.prototype,
   indexLifecycleMethods,
   objectExtractionMethods,
   tableReadingMethods,
+  tableRetentionMethods,
   rowIdentityMethods,
   objectAccessMethods,
   objectHistoryMethods,
