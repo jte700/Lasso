@@ -321,7 +321,7 @@ struct RanchChangeRow: View {
         case "renamed", "moved":
             let before = entry.previousPath.map { ($0 as NSString).lastPathComponent } ?? "another name"
             return "\(entry.change == "moved" ? "Moved" : "Renamed") from \(before) \u{00B7} \(directory)"
-        default: return "\(entry.change.capitalized) \u{00B7} \(directory)"
+        default: return entry.valueCaption(directory: directory) ?? "\(entry.change.capitalized) \u{00B7} \(directory)"
         }
     }
 
@@ -568,6 +568,10 @@ struct RanchReviewRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 RanchRowText(title: item.path.map { ($0 as NSString).lastPathComponent } ?? directory,
                              caption: item.detail, captionLines: 3)
+                if let change = item.valueChangeLine {
+                    Text(change).font(RanchTheme.captionFont).foregroundStyle(RanchTheme.secondaryInk)
+                        .lineLimit(1).truncationMode(.tail).monospacedDigit()
+                }
                 if !item.documents.isEmpty {
                     Text("In " + item.documents.map { ($0 as NSString).lastPathComponent }.joined(separator: ", "))
                         .font(RanchTheme.captionFont).foregroundStyle(RanchTheme.tertiaryInk).lineLimit(1).truncationMode(.tail)

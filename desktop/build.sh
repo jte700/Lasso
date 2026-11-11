@@ -237,6 +237,7 @@ swiftc "${SWIFT_OPTIONS[@]}" \
   "$ROOT/desktop/ShareComposerView+Regressions.swift" \
   "$ROOT/desktop/SourceChooser.swift" \
   "$ROOT/desktop/AssistSuggestion.swift" \
+  "$ROOT/desktop/AssistValueChange.swift" \
   "$ROOT/desktop/RecommendationUsageClient.swift" \
   "$ROOT/desktop/InsertionMode.swift" \
   "$ROOT/desktop/AssistPermission.swift" \

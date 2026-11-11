@@ -6,7 +6,7 @@ import ApplicationServices
 struct AssistSuggestion {
     var insertText: String       // what gets typed into the focused app
     let label: String            // headline shown in the box
-    let detail: String           // value or context, shown dim
+    var detail: String           // value or context, shown dim
     let path: String             // originating source file
     let location: String         // exact sheet/cell, page, row, or passage
     /// Exact detected fragment from the request, revalidated before insertion.
@@ -39,6 +39,8 @@ struct AssistSuggestion {
     /// Words chosen from after the line's first, set apart from the typed
     /// text even when the line continued the sentence.
     var startsMidLine = false
+    /// Its value's recent change, which the detail slot names ("19,250 · was 18,400").
+    var change: AssistValueChange? = nil
 
     var isShareable: Bool { objectId != nil && shareable }
 

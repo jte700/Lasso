@@ -4651,5 +4651,61 @@ do {
     check(!apps.listed.contains(""), "an app with no bundle identifier is not listed")
 }
 
+// A suggested value's recent change is named in the row's dim detail slot.
+do {
+    let edited = AssistValueChange(json: ["kind": "edited", "previousValue": "18,400", "currentValue": "19,250",
+                                          "changedAt": "2026-11-10T12:00:00Z", "snapshotId": "s1"])
+    check(edited?.detail(replacing: "19,250") == "19,250 · was 18,400", "an edited value reads as its value and what it was")
+    check(edited?.detail(replacing: "") == "19,250 · was 18,400", "an empty detail still shows the current value")
+    let stale = AssistValueChange(json: ["kind": "stale-typed", "previousValue": "18,400", "currentValue": "19,250"])
+    check(stale?.detail(replacing: "19,250") == "changed from 18,400", "a typed earlier value reads as changed from it")
+    let recalculated = AssistValueChange(json: ["kind": "recalculated", "previousValue": "3", "currentValue": "4"])
+    check(recalculated?.detail(replacing: "4") == "4 · was 3", "a recalculated value reads like an edited one")
+    check(AssistValueChange(json: ["kind": "renamed", "previousValue": "a", "currentValue": "b"]) == nil,
+          "an unknown kind of change is ignored")
+    check(AssistValueChange(json: nil) == nil && AssistValueChange(json: ["kind": "edited"]) == nil,
+          "a suggestion without a change, or with an incomplete one, has none")
+}
+
+// The Ranch's Recent Changes name the value an edit changed.
+do {
+    func entry(_ json: String) -> RanchHistoryEntry? {
+        try? JSONDecoder().decode(RanchHistoryEntry.self, from: Data(json.utf8))
+    }
+    let one = entry(#"{"id":"c1","directoryId":"d","change":"edited","path":"budget.xlsx","valueChanges":{"count":1,"first":{"label":"Q3 Total","before":"18,400","after":"19,250"}}}"#)
+    check(one?.valueCaption(directory: "Finance") == "Q3 Total 18,400 \u{2192} 19,250", "one changed value reads as its label, old and new value")
+    let several = entry(#"{"id":"c2","directoryId":"d","change":"edited","path":"budget.xlsx","valueChanges":{"count":4,"first":{"label":"Q3 Total","before":"1","after":"2"}}}"#)
+    check(several?.valueCaption(directory: "Finance") == "4 values changed \u{00B7} Finance", "several changed values are counted")
+    let plain = entry(#"{"id":"c3","directoryId":"d","change":"edited","path":"notes.md"}"#)
+    check(plain != nil && plain?.valueCaption(directory: "Finance") == nil, "an edit from an older server, or with no value changes, keeps its caption")
+}
+
+// A Needs Review row names the old and new value and the claim they back.
+do {
+    func item(_ json: String) -> RanchReviewItem? { try? JSONDecoder().decode(RanchReviewItem.self, from: Data(json.utf8)) }
+    let changed = item(#"{"id":"r1","kind":"changed","title":"Linked value changed","directoryId":"d","documents":["memo.md"],"detail":"x","before":"18,400","after":"19,250","claim":"Payroll came to 18,400"}"#)
+    check(changed?.valueChangeLine == "18,400 \u{2192} 19,250 \u{00B7} \u{201C}Payroll came to 18,400\u{201D}",
+          "a changed link reads as old to new value and its claim")
+    let older = item(#"{"id":"r2","kind":"changed","title":"Linked value changed","directoryId":"d","documents":[],"detail":"x"}"#)
+    check(older != nil && older?.valueChangeLine == nil, "an item from an older server reads as before")
+}
+
+// A preview names what the cited value was, and its history when it changed more than once.
+do {
+    func preview(_ history: String) -> AssistDocumentPreview? {
+        AssistDocumentPreview.parse(Data(#"{"source":{"filename":"budget.csv","valueText":"19,250","objectType":"DATASET_VALUE","location":"B3"},"path":"budget.csv","preview":{"kind":"table","rows":[]},"history":\#(history)}"#.utf8), syntax: nil)
+    }
+    let once = preview(#"[{"value":"19,250"},{"value":"18,400"}]"#)
+    check(once?.previousValue == "18,400" && once?.historyLine == nil, "a value changed once shows what it was, with no history line")
+    check(once?.location == "B3", "the location is unchanged for a value changed once")
+    let twice = preview(#"[{"value":"19,250"},{"value":"18,900"},{"value":"18,400"}]"#)
+    check(twice?.historyLine == "18,400 \u{2192} 18,900 \u{2192} 19,250", "a value changed twice reads oldest to newest")
+    check(twice?.location == "B3 \u{00B7} 18,400 \u{2192} 18,900 \u{2192} 19,250", "the history line sits beside the location")
+    let never = preview(#"[{"value":"19,250"}]"#)
+    check(never?.previousValue == nil && never?.historyLine == nil, "an unchanged value shows nothing more")
+    let older = AssistDocumentPreview.parse(Data(#"{"source":{"filename":"a.csv"},"preview":{}}"#.utf8), syntax: nil)
+    check(older?.valueHistory == [], "a preview from an older server has no history")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)
