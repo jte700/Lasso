@@ -4,7 +4,8 @@ import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { transaction } from '../db.js';
 import { csvDelimiter, parseDelimited } from '../history/diff.js';
-import { MAX_IN_MEMORY_PART_BYTES, extractSpreadsheetTables, isLargeSpreadsheet } from './document-extraction.js';
+import { MAX_IN_MEMORY_PART_BYTES, MAX_WORKBOOK_SHEETS, extractSpreadsheetTables, isLargeSpreadsheet } from './document-extraction.js';
+import { sheetSignatures } from './workbook-parts.js';
 import { runSync } from '../history/work.js';
 import { BlobReleasedError } from '../history/errors.js';
 import { spreadsheetLayout, tabularLayout } from './tabular.js';
@@ -16,7 +17,15 @@ import { applyVariableDefinitions, worksheetCoordinates } from './index-state.js
 import { freezeIndexedValue, mapObjectRow, objectDescriptor } from './object-descriptors.js';
 import { objectsFromTabular } from './tabular-objects.js';
 
+/** Where a sheet's objects are kept between readings of its file: by file, path and the sheet's part signature. */
+const sheetCacheKey = (file, signature) => `${file.projectFileId}|${file.path}|${signature}`;
+
 export const objectExtractionMethods = {
+  /** Reads a workbook's sheets, or with `only` just those; a method so tests can see which were read. */
+  readWorkbookSheets(buffer, only = null) {
+    return extractSpreadsheetTables(buffer, only);
+  },
+
   extractedObjects(file) {
     return runSync(this.extractedObjectSteps(file));
   },
@@ -85,18 +94,28 @@ export const objectExtractionMethods = {
     let metas = null;
     let readable;
     let skipped;
+    let signatures = null;
+    const carried = new Map();
     if (isLargeSpreadsheet(buffer)) {
       const read = yield* this.tableBuildSteps(file, { kind: 'spreadsheet' });
       metas = this.tables.sheets(file.contentHash);
       readable = read.readable || metas.length > 0;
       skipped = metas[0]?.extras.skipped ?? read.skipped ?? [];
     } else {
-      sheets = extractSpreadsheetTables(buffer);
+      // Sheets whose parts did not change since the file's last reading keep
+      // the objects they were read as; only the others are read again.
+      signatures = sheetSignatures(buffer)?.slice(0, MAX_WORKBOOK_SHEETS) ?? null;
+      for (const sheet of signatures ?? []) {
+        const known = this.sheetObjectCache.get(sheetCacheKey(file, sheet.signature));
+        if (known) carried.set(sheet.name, known);
+      }
+      const only = carried.size ? new Set(signatures.filter((sheet) => !carried.has(sheet.name)).map((sheet) => sheet.name)) : null;
+      sheets = this.readWorkbookSheets(buffer, only);
       // A readable workbook lists the sheets it had to skip; a failed one does not.
-      readable = Array.isArray(sheets.skipped);
+      readable = Array.isArray(sheets.skipped) || carried.size > 0;
       skipped = sheets.skipped ?? [];
     }
-    const count = metas ? metas.length : sheets.length;
+    const count = metas ? metas.length : sheets.length + carried.size;
     if (skipped.length) {
       report('PARTIALLY_INDEXED', `${skipped.length === 1 ? 'Sheet' : 'Sheets'} ${skipped.map((name) => `“${name}”`).join(', ')} could not be read (damaged). The other sheets are indexed.`);
     }
@@ -109,12 +128,23 @@ export const objectExtractionMethods = {
       if (metas) {
         for (const meta of metas) objects.push(...this.indexedTableObjects(file, fileName, meta, { format, sheet: meta.sheet }));
       } else {
-        for (const [position, sheet] of sheets.entries()) {
+        // Sheets in workbook order, each read now or carried from the last reading.
+        const parsed = new Map(sheets.map((sheet) => [sheet.name, sheet]));
+        const ordered = signatures ? signatures.flatMap((sheet) => carried.has(sheet.name) || parsed.has(sheet.name)
+          ? [{ name: sheet.name, signature: sheet.signature }] : []) : sheets.map((sheet) => ({ name: sheet.name }));
+        for (const [position, { name, signature }] of ordered.entries()) {
+          if (carried.has(name)) {
+            objects.push(...carried.get(name).map((object) => ({ ...object, contentHash: file.contentHash })));
+            continue;
+          }
+          const sheet = parsed.get(name);
           const layout = spreadsheetLayout(sheet);
           const sheetObjects = objectsFromTabular(file, fileName, layout.headers, layout.rows, {
             format, sheet: sheet.name, ...layout, rowOffset: layout.headerRowIndex + 1,
           });
           objects.push(...sheetObjects);
+          // A sheet the table index answers for is read again with its file, so its index stays whole.
+          if (signature && !sheetObjects.deep) this.sheetObjectCache.set(sheetCacheKey(file, signature), sheetObjects);
           if (sheetObjects.deep) {
             this.indexTableRows(file.contentHash, { sheet: sheet.name, position, rows: sheet.rows,
               rowNumbers: sheet.rowNumbers, displayRows: sheet.displayRows, merges: sheet.merges });

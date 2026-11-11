@@ -1094,6 +1094,9 @@ function workbookParts(buffer, limit = MAX_IN_MEMORY_PART_BYTES) {
  * Whether a workbook has a part too large to inflate at once: a worksheet or
  * its shared strings. Such a workbook is read with streamSpreadsheetRows.
  */
+// The sheets of a workbook that are read; later ones are left out.
+export const MAX_WORKBOOK_SHEETS = 40;
+
 export function isLargeSpreadsheet(buffer) {
   if (buffer.subarray(0, 8).equals(COMPOUND_SIGNATURE)) return false;
   try {
@@ -1187,7 +1190,8 @@ export async function streamSpreadsheetRows(buffer, { onSheet, onRows, onSheetEn
   return { sheets: read, skipped };
 }
 
-export function extractSpreadsheetTables(buffer) {
+/** A workbook's sheets; with `only`, just the sheets of those names. */
+export function extractSpreadsheetTables(buffer, only = null) {
   try {
     if (buffer.subarray(0, 8).equals(COMPOUND_SIGNATURE)) return extractBiffSpreadsheetTables(buffer);
     // Without a workbook part this is not a readable .xlsx. The result then
@@ -1200,7 +1204,8 @@ export function extractSpreadsheetTables(buffer) {
     // One sheet that is too large or damaged is skipped on its own, so the
     // workbook's other sheets stay searchable. Skipped names are reported.
     const skipped = [];
-    for (const descriptor of descriptors.slice(0, 40)) {
+    for (const descriptor of descriptors.slice(0, MAX_WORKBOOK_SHEETS)) {
+      if (only && !only.has(descriptor.name)) continue;
       try {
         const sheet = spreadsheetSheet(buffer, descriptor, shared, relationships, formats);
         if (sheet) sheets.push(sheet);
