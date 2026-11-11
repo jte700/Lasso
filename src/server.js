@@ -22,6 +22,25 @@ const FORCE_CLOSE_AFTER_MS = 1000;
 // The desktop app force-quits a server that has not exited after 3 seconds.
 const SHUTDOWN_DEADLINE_MS = 2500;
 
+/**
+ * Lets the caches use their whole budget while requests arrive, and shrinks
+ * them to the budget's floor once none has come for `idleMs`. One unref'd
+ * timer, restarted by each request; nothing runs while the server is idle.
+ */
+function cachesShrinkWhenIdle(budget, idleMs) {
+  let timer = null;
+  const idle = () => { timer = null; budget.idle(); };
+  return {
+    active() {
+      budget.active();
+      clearTimeout(timer);
+      timer = setTimeout(idle, idleMs);
+      timer.unref();
+    },
+    close() { clearTimeout(timer); timer = null; },
+  };
+}
+
 export function createApplication(overrides = {}) {
   const config = createConfig(overrides);
   const db = openDatabase(config);
@@ -44,7 +63,12 @@ export function createApplication(overrides = {}) {
   retention.start();
   compaction.start();
   connections.start();
-  const server = http.createServer(createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal, workspace, connections, ranch));
+  const handle = createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal, workspace, connections, ranch);
+  const caches = cachesShrinkWhenIdle(timeline.memoryBudget, config.cacheIdleMs);
+  const server = http.createServer((request, response) => {
+    caches.active();
+    return handle(request, response);
+  });
   // Resolve ephemeral desktop ports before any share links are generated.
   server.on('listening', () => { config.port = server.address().port; });
   let closing;
@@ -67,6 +91,7 @@ export function createApplication(overrides = {}) {
       if (closing) return closing;
       retention.close();
       compaction.close();
+      caches.close();
       connections.close();
       workspace.close();
       timeline.close();

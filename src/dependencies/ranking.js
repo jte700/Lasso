@@ -82,13 +82,17 @@ function finiteOption(value, fallback, minimum, maximum) {
 }
 
 /** File-level, project-scoped ranking shared by explicit Lasso and typing. */
+// About what one file or object entry of a ranked snapshot takes in memory.
+const RANKED_ENTRY_BYTES = 200;
+
 export class RecommendationRanking {
-  constructor(timeline, { now = Date.now } = {}) {
+  constructor(timeline, { now = Date.now, budget = null } = {}) {
     this.timeline = timeline;
     this.db = timeline.db;
     this.now = now;
     this.snapshotCache = new BoundedCache({ maxEntries: 16, maxWeight: 120_000,
-      weight: (snapshot) => snapshot.files.size + snapshot.objects.size });
+      weight: (snapshot) => snapshot.files.size + snapshot.objects.size,
+      budget, bytes: (snapshot) => (snapshot.files.size + snapshot.objects.size) * RANKED_ENTRY_BYTES });
   }
 
   close() { this.snapshotCache.clear(); }

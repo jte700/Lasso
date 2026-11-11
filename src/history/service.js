@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { MemoryBudget } from '../cache.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { hashBuffer } from './blob-store.js';
@@ -64,8 +65,10 @@ export class TimelineService {
     this.db = db;
     this.config = config;
     this.blobs = openTimelineBlobs(db, config);
-    this.files = new SnapshotFileStore(db);
-    this.objectVersions = new ObjectVersionStore(db, this.files);
+    // One limit on what every derived-data cache holds together (cache.js).
+    this.memoryBudget = new MemoryBudget({ maxBytes: config.cacheBytes, idleBytes: config.cacheIdleBytes });
+    this.files = new SnapshotFileStore(db, this.memoryBudget);
+    this.objectVersions = new ObjectVersionStore(db, this.files, this.memoryBudget);
     this.storagePaths = [config.dataDir, config.databasePath, config.blobDir, config.rawBlobCacheDir,
       `${config.databasePath}-wal`, `${config.databasePath}-shm`, `${config.databasePath}-journal`].filter(Boolean).map((storage) => {
       try { return fs.realpathSync(storage); } catch {

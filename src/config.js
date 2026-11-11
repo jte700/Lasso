@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RECENT_TOUCH_WINDOW_MS } from './history/blob-store.js';
+import { DEFAULT_CACHE_BYTES, IDLE_CACHE_BYTES } from './cache.js';
 
 export const ACTOR_TYPES = new Set([
   'HUMAN_SELF',
@@ -57,6 +58,11 @@ export function createConfig(overrides = {}) {
     dataDir,
     databasePath: overrides.databasePath ?? path.join(dataDir, 'timeline.sqlite'),
     blobDir: overrides.blobDir ?? path.join(dataDir, 'blobs'),
+    // What every derived-data cache may hold together, and the floor they
+    // shrink to once the server has had no requests for cacheIdleMs.
+    cacheBytes: wholeNumber(overrides.cacheBytes ?? process.env.LASSO_CACHE_MB * 1024 * 1024, DEFAULT_CACHE_BYTES, 0),
+    cacheIdleBytes: wholeNumber(overrides.cacheIdleBytes, IDLE_CACHE_BYTES, 0),
+    cacheIdleMs: wholeNumber(overrides.cacheIdleMs, 60_000, 0),
     // Raw copies of compressed blobs, for readers that are handed a path.
     rawBlobCacheDir: overrides.rawBlobCacheDir ?? path.join(dataDir, 'derived', 'raw-blobs'),
     // Compressing (zstd) text versions that no folder holds any longer, in

@@ -33,6 +33,8 @@ import { changeKind, sameVersion } from './object-identity.js';
 export const MAX_INDEX_CHAIN = 2_000;
 // An index that keeps less than a quarter of its base's objects is written in full.
 export const FULL_WRITE_SHARE = 4;
+// About what one resolved version row takes in memory, for the cache budget.
+const VERSION_ROW_BYTES = 900;
 // Typed resolution starts at the candidate objects only when they number less
 // than this share of the index's rows (see resolvedTypes).
 const CANDIDATE_SHARE = 4;
@@ -107,13 +109,14 @@ function resolvedSet(snapshotId, version, rows) {
 
 export class ObjectVersionStore {
   /** `files` is the timeline's SnapshotFileStore, which says what each file's bytes are at a snapshot. */
-  constructor(db, files = null) {
+  constructor(db, files = null, budget = null) {
     this.db = db;
     this.files = files;
     this.chains = new BoundedCache({ maxEntries: 64, maxWeight: 64 * MAX_INDEX_CHAIN, weight: (chain) => chain.size });
     // Rows in a set say nothing about the snapshot they were read at, so
     // consecutive snapshots share the rows they carry forward.
-    this.sets = new BoundedCache({ maxEntries: 8, maxWeight: 160_000, weight: (set) => set.rows.length });
+    this.sets = new BoundedCache({ maxEntries: 8, maxWeight: 160_000, weight: (set) => set.rows.length,
+      budget, bytes: (set) => set.rows.length * VERSION_ROW_BYTES });
     // How many bases each recent index resolves through.
     this.depths = new BoundedCache({ maxEntries: 256 });
   }

@@ -3,6 +3,7 @@ import { json } from '../db.js';
 import { extractDocxDocument, extractPdfFullText } from './document-extraction.js';
 import { RecommendationRanking } from './ranking.js';
 import { BoundedCache } from '../cache.js';
+import { releaseAfterWork } from '../memory.js';
 import { workUnits } from '../history/work.js';
 import { TextStore } from './text-store.js';
 import { IFC_MODEL_VERSION, keepIfcModelsIn } from './ifc-geometry.js';
@@ -53,30 +54,43 @@ function installMethods(prototype, ...groups) {
   }
 }
 
+// About what one mapped source object takes in memory (label, search text,
+// metadata), for the shared cache budget.
+const MAPPED_OBJECT_BYTES = 1_200;
+
 export class PredictiveProvenanceService {
   constructor(timeline, rfi = null) {
     this.timeline = timeline;
     this.db = timeline.db;
     this.rfi = rfi;
-    this.ranking = new RecommendationRanking(timeline);
-    this.completionCorpusCache = new BoundedCache({ maxEntries: 16, maxWeight: 16 * 1024 * 1024,
-      weight: (corpus) => corpus.reduce((bytes, item) => bytes + item.sentence.length * 2 + item.tokens.length * 64, 0) });
-    this.studyVariableCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length });
-    this.workspaceRetrievalCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length });
-    this.objectCache = new BoundedCache({ maxEntries: 16, maxWeight: 120_000, weight: (objects) => objects.length });
-    this.typedObjectCache = new BoundedCache({ maxEntries: 96, maxWeight: 120_000, weight: (objects) => objects.length });
+    // Every cache below that can grow large also counts against the one
+    // budget all derived-data caches share (cache.js, config.cacheBytes).
+    const budget = timeline.memoryBudget ?? null;
+    const objectBytes = (objects) => objects.length * MAPPED_OBJECT_BYTES;
+    this.ranking = new RecommendationRanking(timeline, { budget });
+    const corpusBytes = (corpus) => corpus.reduce((bytes, item) => bytes + item.sentence.length * 2 + item.tokens.length * 64, 0);
+    this.completionCorpusCache = new BoundedCache({ maxEntries: 16, maxWeight: 16 * 1024 * 1024, weight: corpusBytes,
+      budget, bytes: corpusBytes });
+    this.studyVariableCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length,
+      budget, bytes: objectBytes });
+    this.workspaceRetrievalCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length,
+      budget, bytes: objectBytes });
+    this.objectCache = new BoundedCache({ maxEntries: 16, maxWeight: 120_000, weight: (objects) => objects.length,
+      budget, bytes: objectBytes });
+    this.typedObjectCache = new BoundedCache({ maxEntries: 96, maxWeight: 120_000, weight: (objects) => objects.length,
+      budget, bytes: objectBytes });
     // Whether an object has values below it, kept with the retrieval objects
     // it was worked out from, so it goes when they are read again.
     this.narrowingCache = new WeakMap();
     // Raw descriptors are cached before dictionary enrichment. Changing a
     // dictionary must still update unchanged source files in the next snapshot.
     this.extractionCache = new BoundedCache({ maxEntries: 256, maxWeight: 24 * 1024 * 1024,
-      weight: (entry) => entry.bytes });
+      weight: (entry) => entry.bytes, budget, bytes: (entry) => entry.bytes });
     // Extracted file text depends only on the file's bytes, so an unchanged
     // PDF is not parsed again after every capture of its folder.
     // Large tables, whole, by file content (see table-index.js).
     // Tables of contents no snapshot keeps are removed after captures (see table-retention.js).
-    this.tables = new TableIndex(path.join(timeline.config.dataDir, 'derived'), { keep: (hashes) => this.tableContentToKeep(hashes) });
+    this.tables = new TableIndex(path.join(timeline.config.dataDir, 'derived'), { keep: (hashes) => this.tableContentToKeep(hashes), budget });
     this.tableCleanupTimer = null;
     this.tableKeepAnswers = null;
     this.tableCleanupDelayMs = TABLE_CLEANUP_DELAY_MS;
@@ -84,7 +98,7 @@ export class PredictiveProvenanceService {
     this.tableReadings = new BoundedCache({ maxEntries: 256 });
     this.snapshotTableCache = new BoundedCache({ maxEntries: 32 });
     // Rows of large tables already offered at a snapshot, by snapshot and key.
-    this.deepObjects = new BoundedCache({ maxEntries: 4_096 });
+    this.deepObjects = new BoundedCache({ maxEntries: 4_096, budget, bytes: () => MAPPED_OBJECT_BYTES });
     this.objectKeySets = new WeakMap();
     this.variableIndexes = new WeakMap();
     this.retrievalIndexes = new WeakMap();
@@ -92,19 +106,23 @@ export class PredictiveProvenanceService {
     this.textStore = new TextStore(path.join(timeline.config.dataDir, 'derived', 'text'), PDF_TEXT_VERSION);
     // So are videos' transcripts, which take the speech model a while each.
     this.transcriptStore = new TextStore(path.join(timeline.config.dataDir, 'derived', 'transcripts'), TRANSCRIPT_VERSION);
-    this.transcriptCache = new BoundedCache({ maxEntries: 64, maxWeight: 32 * 1024 * 1024,
-      weight: (transcript) => transcript.segments.reduce((bytes, segment) => bytes + segment.text.length * 2 + segment.words.length * 64, 64) });
+    const transcriptBytes = (transcript) => transcript.segments.reduce((bytes, segment) => bytes + segment.text.length * 2 + segment.words.length * 64, 64);
+    this.transcriptCache = new BoundedCache({ maxEntries: 64, maxWeight: 32 * 1024 * 1024, weight: transcriptBytes,
+      budget, bytes: transcriptBytes });
     this.videoHearings = new Map();
     // So are IFC plans, which can take the geometry engine several seconds each.
     keepIfcModelsIn(new TextStore(path.join(timeline.config.dataDir, 'derived', 'ifc-models'), IFC_MODEL_VERSION));
     // A drawing PDF keeps one entry per page, so the bound is on bytes.
-    this.extractedTextCache = new BoundedCache({ maxEntries: 1024, maxWeight: 32 * 1024 * 1024,
-      weight: (text) => text.length * 2 });
-    this.sourceTextCache = new BoundedCache({ maxEntries: 64, maxWeight: 8 * 1024 * 1024,
-      weight: (text) => text.length * 2 });
+    const textBytes = (text) => text.length * 2;
+    this.extractedTextCache = new BoundedCache({ maxEntries: 1024, maxWeight: 32 * 1024 * 1024, weight: textBytes,
+      budget, bytes: textBytes });
+    this.sourceTextCache = new BoundedCache({ maxEntries: 64, maxWeight: 8 * 1024 * 1024, weight: textBytes,
+      budget, bytes: textBytes });
     this.figurePreviewCache = new BoundedCache({ maxEntries: 12, maxWeight: 24 * 1024 * 1024,
-      weight: (preview) => preview.image.length });
+      weight: (preview) => preview.image.length, budget, bytes: (preview) => preview.image.length });
     this.reconcilingProjects = new Set();
+    // Runs a full collection after an index read many bytes (memory.js).
+    this.releaseMemory = releaseAfterWork;
     // Recent indexes' summaries, which later indexes carry unchanged files forward from.
     // Each is also stored in the database (index-summaries.js), so a restart keeps them.
     this.indexedHere = new BoundedCache({ maxEntries: 64 });

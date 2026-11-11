@@ -115,6 +115,10 @@ export const indexLifecycleMethods = {
     if (existing) this.indexedHere.delete(targetSnapshotId);
     else this.indexedHere.set(targetSnapshotId, index.summary);
     this.forgetObjects(targetSnapshotId);
+    // Reading changed files leaves their parsed rows behind as garbage; give
+    // it back now rather than letting the heap grow across a run of edits.
+    this.releaseMemory((carry ? files.filter((file) => !carry.carriedPaths.has(file.path)) : files)
+      .reduce((bytes, file) => bytes + (file.size ?? 0), 0));
     this.completionCorpusCache.delete(targetSnapshotId);
     this.workspaceRetrievalCache.delete(targetSnapshotId);
     this.ranking.invalidateSnapshot(targetSnapshotId);

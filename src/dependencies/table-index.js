@@ -34,6 +34,8 @@ const WORKER_MEMORY_MB = 512;
 const SILENT_WORKER_MS = 60_000;
 // The most rows' lists of a table held in memory at once, across tables.
 const MAPPED_ROWS = 2_000_000;
+// A mapped row's ordinal, row id and row number, plus its place in the sort by id.
+const MAPPED_ROW_BYTES = 16;
 // The most stored names one search reads. Names are shared by every version
 // of a file the index keeps, and by other files' rows, so this bounds a
 // search when a name is common to many rows outside the table searched.
@@ -220,13 +222,14 @@ const parse = (body, place, map) => ({ ordinal: map.ordinals[place], rowNumber: 
 /** Reads the table index; builds of large files run in a worker. */
 export class TableIndex {
   /** `keep(hashes)` returns which of these file contents some snapshot still needs (see cleanup). */
-  constructor(root, { keep = null } = {}) {
+  constructor(root, { keep = null, budget = null } = {}) {
     this.file = path.join(root, 'tables.sqlite');
     this.db = openTableDatabase(this.file);
     this.keep = keep;
     this.metas = new Map();
     // A finished table's list of rows never changes, so it is read once while it is in use.
-    this.maps = new BoundedCache({ maxEntries: 32, maxWeight: MAPPED_ROWS, weight: (map) => map.ordinals.length });
+    this.maps = new BoundedCache({ maxEntries: 32, maxWeight: MAPPED_ROWS, weight: (map) => map.ordinals.length,
+      budget, bytes: (map) => map.ordinals.length * MAPPED_ROW_BYTES });
     this.statements = {
       table: this.db.prepare(`SELECT * FROM tables WHERE content_hash = ? AND sheet = ? AND version = ? AND complete = 1`),
       sheets: this.db.prepare(`SELECT * FROM tables WHERE content_hash = ? AND version = ? AND complete = 1 ORDER BY position`),

@@ -101,11 +101,15 @@ function sameRecord(left, right) {
   return a.every((value, index) => value === b[index]);
 }
 
+// About what one file row of a manifest takes in memory, for the cache budget.
+const MANIFEST_ROW_BYTES = 400;
+
 export class SnapshotFileStore {
-  constructor(db) {
+  constructor(db, budget = null) {
     this.db = db;
     // Snapshots never change, so a resolved manifest stays valid forever.
-    this.manifests = new BoundedCache({ maxEntries: 8, maxWeight: 200_000, weight: (manifest) => manifest.rows.length });
+    this.manifests = new BoundedCache({ maxEntries: 8, maxWeight: 200_000, weight: (manifest) => manifest.rows.length,
+      budget, bytes: (manifest) => manifest.rows.length * MANIFEST_ROW_BYTES });
     // How many bases each recent snapshot resolves through, so a capture does
     // not walk its parent's chain to find out.
     this.depths = new BoundedCache({ maxEntries: 256 });
