@@ -28,7 +28,15 @@ export const WHOLE_FILE_TYPES = ['DRAWING', 'DATASET', 'DOCUMENT', 'PAPER', 'COD
 //    table index; those past the in-memory limit were skipped or cut short.
 // 8: a deck's slide titles, short lines, table rows and charts are offered,
 //    not only its sentences.
-export const EXTRACTOR_VERSION = 8;
+// 9: a table's rows are keyed by their label (or, without one, by a token
+//    kept from the file's previous version), its columns by their name and
+//    its notes by their text, not by row number or column index.
+export const EXTRACTOR_VERSION = 9;
+
+// The reader whose PDF text the text store keeps (text-store.js). It moves
+// only when PDF text is read differently, so a reader change elsewhere does
+// not throw away every PDF's stored text.
+export const PDF_TEXT_VERSION = 8;
 
 export const MAX_INDEXED_TABLE_ROWS = 1_000;
 

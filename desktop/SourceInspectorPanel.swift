@@ -122,9 +122,10 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
 
         var components = URLComponents(url: serverURL.appendingPathComponent("inspect"),
                                        resolvingAgainstBaseURL: false)
-        components?.queryItems = [
-            URLQueryItem(name: "object", value: reference.objectId),
-            URLQueryItem(name: "version", value: reference.versionId),
+        // The cited version at the snapshot the link was made at, so the
+        // inspector shows the file the cited text was read from.
+        components?.queryItems = [URLQueryItem(name: "object", value: reference.objectId)]
+            + reference.citedVersionQuery + [
             URLQueryItem(name: "reference", value: reference.id),
             URLQueryItem(name: "accent", value: highlightHex),
         ]

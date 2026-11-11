@@ -51,12 +51,20 @@ export function linkReviewItems(dependencies, fileIdAt) {
   }
   return [...grouped.values()].map((item) => ({
     ...item,
+    // The first link's old and new value and the claim it backs, so a row can say "18,400 → 19,250".
+    ...(item.kind === 'changed' ? valueChange(item.links[0]) : {}),
     detail: item.kind === 'changed'
       ? `Changed since it was linked in ${plural(item.documents.length, 'document')}. The documents still show the earlier value.`
       : item.kind === 'unverified'
         ? `Lasso can’t confirm the linked text in ${plural(item.documents.length, 'document')} still matches it.`
         : `${plural(item.documents.length, 'document')} link to it, but it is no longer where it was.`,
   }));
+}
+
+/** A changed link's values and claim, as a review row shows them. */
+function valueChange(link) {
+  if (!link) return {};
+  return { before: link.linkedValue, after: link.currentValue, claim: link.text || null, document: link.documentPath ?? null };
 }
 
 /** Files Lasso could only partly read: damaged, protected or too large to index whole. */
@@ -80,7 +88,10 @@ export function directoryReviewItems(directories) {
 export function shareReviewItems(shares) {
   return shares.filter((share) => share.drifted).map((share) => ({
     id: `share:${share.id}`, kind: 'drifted', title: 'Changed since you shared it',
-    directoryId: share.directoryId, path: share.path, fileId: share.fileId, documents: [],
+    directoryId: share.directoryId, path: share.path, fileId: share.fileId,
+    documents: [],
+    before: share.sharedValue ?? null, after: share.currentValue ?? null,
+    claim: share.claim ?? null, document: share.documentPath ?? null,
     detail: 'The share link still shows the version you shared. Share it again to send the current one.',
   }));
 }

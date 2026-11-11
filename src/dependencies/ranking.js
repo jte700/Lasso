@@ -82,13 +82,17 @@ function finiteOption(value, fallback, minimum, maximum) {
 }
 
 /** File-level, project-scoped ranking shared by explicit Lasso and typing. */
+// About what one file or object entry of a ranked snapshot takes in memory.
+const RANKED_ENTRY_BYTES = 200;
+
 export class RecommendationRanking {
-  constructor(timeline, { now = Date.now } = {}) {
+  constructor(timeline, { now = Date.now, budget = null } = {}) {
     this.timeline = timeline;
     this.db = timeline.db;
     this.now = now;
     this.snapshotCache = new BoundedCache({ maxEntries: 16, maxWeight: 120_000,
-      weight: (snapshot) => snapshot.files.size + snapshot.objects.size });
+      weight: (snapshot) => snapshot.files.size + snapshot.objects.size,
+      budget, bytes: (snapshot) => (snapshot.files.size + snapshot.objects.size) * RANKED_ENTRY_BYTES });
   }
 
   close() { this.snapshotCache.clear(); }
@@ -228,7 +232,7 @@ export class RecommendationRanking {
       WHERE v.position = 1 AND v.is_removed = 0 AND v.status != 'BROKEN'
     `).all(project.id, document.projectFileId, project.currentVersion);
     for (const row of rows) {
-      const source = this.timeline.objectVersions.at(row.source_snapshot_id, row.source_object_id);
+      const source = this.timeline.objectVersions.nearestVersion(row.source_snapshot_id, row.source_object_id);
       const origin = source ? this.timeline.snapshotFile(row.source_snapshot_id, source.path) : null;
       const current = origin ? this.timeline.snapshotFileById(project.currentSnapshotId, origin.projectFileId) : null;
       if (current) related.add(current.path);

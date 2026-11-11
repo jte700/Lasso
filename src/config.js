@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { RECENT_TOUCH_WINDOW_MS } from './history/blob-store.js';
+import { DEFAULT_CACHE_BYTES, IDLE_CACHE_BYTES } from './cache.js';
 
 export const ACTOR_TYPES = new Set([
   'HUMAN_SELF',
@@ -26,6 +28,24 @@ function connectorApps() {
   };
 }
 
+// A version keeps its bytes while it is among this many of its file's newest…
+const DEFAULT_RETAINED_VERSIONS = 10;
+// …or was the file's content within this many days. A count alone would keep
+// only minutes of work in a folder whose every save is recorded.
+const DEFAULT_RETAINED_DAYS = 30;
+// Cleanup starts this long after the last capture, so it never competes with a burst of saves.
+const DEFAULT_RETENTION_IDLE_MS = 60_000;
+// Bytes stored, or found again by a capture, this recently are never
+// released. Another Lasso sharing the data folder stores a file's bytes
+// before it records them, and its captures cannot be seen from here.
+const DEFAULT_RETENTION_GRACE_MS = 6 * 60 * 60 * 1000;
+
+/** A whole number no smaller than `minimum`; anything else reads as the default. */
+function wholeNumber(value, fallback, minimum) {
+  const number = Number(value ?? fallback);
+  return Number.isInteger(number) && number >= minimum ? number : fallback;
+}
+
 export function createConfig(overrides = {}) {
   const currentDataDir = path.join(process.cwd(), '.lasso-data');
   const previousDataDir = path.join(process.cwd(), '.colab-dry-data');
@@ -38,6 +58,34 @@ export function createConfig(overrides = {}) {
     dataDir,
     databasePath: overrides.databasePath ?? path.join(dataDir, 'timeline.sqlite'),
     blobDir: overrides.blobDir ?? path.join(dataDir, 'blobs'),
+    // What every derived-data cache may hold together, and the floor they
+    // shrink to once the server has had no requests for cacheIdleMs.
+    cacheBytes: wholeNumber(overrides.cacheBytes ?? process.env.LASSO_CACHE_MB * 1024 * 1024, DEFAULT_CACHE_BYTES, 0),
+    cacheIdleBytes: wholeNumber(overrides.cacheIdleBytes, IDLE_CACHE_BYTES, 0),
+    cacheIdleMs: wholeNumber(overrides.cacheIdleMs, 60_000, 0),
+    // Raw copies of compressed blobs, for readers that are handed a path.
+    rawBlobCacheDir: overrides.rawBlobCacheDir ?? path.join(dataDir, 'derived', 'raw-blobs'),
+    // Compressing (zstd) text versions that no folder holds any longer, in
+    // idle batches. A file's current version always stays raw, where earlier
+    // builds read it. On unless switched off (LASSO_BLOB_COMPRESSION=off);
+    // `npm run blobs:decompress` turns compressed blobs back into raw ones.
+    blobCompressionEnabled: overrides.blobCompressionEnabled ?? process.env.LASSO_BLOB_COMPRESSION !== 'off',
+    // How long after the last capture compression waits before its first batch.
+    blobCompressionIdleMs: wholeNumber(overrides.blobCompressionIdleMs, DEFAULT_RETENTION_IDLE_MS, 0),
+    // Bytes stored or found again this recently are neither compressed nor released.
+    blobTouchWindowMs: wholeNumber(overrides.blobTouchWindowMs, RECENT_TOUCH_WINDOW_MS, 0),
+    // Releasing the bytes of old versions cannot be undone, so it stays off
+    // unless switched on. With it off nothing is ever released.
+    blobRetentionEnabled: overrides.blobRetentionEnabled ?? process.env.LASSO_BLOB_RETENTION === 'on',
+    // With it on, a version keeps its bytes while it is among its file's
+    // newest versions, or stopped being the file's content this recently.
+    blobRetentionVersions: wholeNumber(overrides.blobRetentionVersions ?? process.env.LASSO_BLOB_RETENTION_VERSIONS,
+      DEFAULT_RETAINED_VERSIONS, 1),
+    blobRetentionDays: wholeNumber(overrides.blobRetentionDays ?? process.env.LASSO_BLOB_RETENTION_DAYS,
+      DEFAULT_RETAINED_DAYS, 0),
+    // How long after the last capture cleanup waits before its first batch.
+    blobRetentionIdleMs: wholeNumber(overrides.blobRetentionIdleMs, DEFAULT_RETENTION_IDLE_MS, 0),
+    blobRetentionGraceMs: wholeNumber(overrides.blobRetentionGraceMs, DEFAULT_RETENTION_GRACE_MS, 0),
     port: Number(overrides.port ?? process.env.PORT ?? 4317),
     // Base of externally shared dependency links. Isolated here so the same
     // share records can later be served from a hosted origin.

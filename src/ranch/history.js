@@ -16,6 +16,41 @@ const ID_BATCH = 400;
 
 const VERBS = { ADDED: 'added', DELETED: 'removed', RENAMED: 'renamed', MOVED: 'moved', MODIFIED: 'edited' };
 
+const VALUE_CHANGES = (count) => `
+  SELECT c.snapshot_id, a.path, a.label, b.value_text AS before_value, a.value_text AS after_value
+  FROM object_changes c
+  JOIN scientific_object_versions a ON a.id = c.after_version_id
+  JOIN scientific_object_versions b ON b.id = c.before_version_id
+  JOIN scientific_objects o ON o.id = c.object_id
+  WHERE c.snapshot_id IN (${Array(count).fill('?').join(',')}) AND c.kind = 'modified'
+    AND b.value_text IS NOT a.value_text
+    -- A column's inferred profile restates its values; only the values themselves count.
+    AND NOT (o.object_type = 'VARIABLE' AND COALESCE(json_extract(a.metadata_json, '$.dictionary'), 0) = 0)
+  ORDER BY c.snapshot_id, a.path, a.label`;
+
+/** The values each snapshot changed, by snapshot and then path: { count, first }. */
+function valueChangesBySnapshot(db, snapshotIds) {
+  const bySnapshot = new Map();
+  for (let start = 0; start < snapshotIds.length; start += ID_BATCH) {
+    const ids = snapshotIds.slice(start, start + ID_BATCH);
+    for (const row of db.prepare(VALUE_CHANGES(ids.length)).all(...ids)) {
+      if (!bySnapshot.has(row.snapshot_id)) bySnapshot.set(row.snapshot_id, new Map());
+      const byPath = bySnapshot.get(row.snapshot_id);
+      const known = byPath.get(row.path);
+      if (known) known.count += 1;
+      else byPath.set(row.path, { count: 1, first: { label: row.label, before: row.before_value, after: row.after_value } });
+    }
+  }
+  return bySnapshot;
+}
+
+/** A file change's value changes, when its save changed any values the index reads. */
+function valueChangesOf(values, snapshotId, row) {
+  if (row.change_type !== 'MODIFIED') return {};
+  const found = values.get(snapshotId)?.get(row.path_after ?? row.path_before);
+  return found ? { valueChanges: found } : {};
+}
+
 /**
  * @param {import('node:sqlite').DatabaseSync} db
  * @param {string[]} projectIds
@@ -27,7 +62,7 @@ export function recentHistory(db, projectIds, now) {
   const since = new Date(now - HISTORY_DAYS * DAY_MS).toISOString();
   const placeholders = projectIds.map(() => '?').join(',');
   const events = db.prepare(`
-    SELECT e.id, e.project_id, e.occurred_at, e.source, COUNT(c.id) AS file_count
+    SELECT e.id, e.project_id, e.occurred_at, e.source, e.resulting_snapshot_id, COUNT(c.id) AS file_count
     FROM timeline_events e JOIN file_changes c ON c.event_id = e.id
     WHERE e.project_id IN (${placeholders}) AND e.occurred_at >= ?
     GROUP BY e.id
@@ -36,6 +71,7 @@ export function recentHistory(db, projectIds, now) {
   `).all(...projectIds, since, MAX_HISTORY_ENTRIES + 1);
   const listed = events.filter((event) => event.source !== 'IMPORT' && event.file_count <= MAX_FILES_PER_EVENT);
   const changes = new Map();
+  const values = valueChangesBySnapshot(db, listed.map((event) => event.resulting_snapshot_id).filter(Boolean));
   for (let start = 0; start < listed.length; start += ID_BATCH) {
     const ids = listed.slice(start, start + ID_BATCH).map((event) => event.id);
     for (const row of db.prepare(`SELECT id, event_id, change_type, path_before, path_after, project_file_id
@@ -58,6 +94,7 @@ export function recentHistory(db, projectIds, now) {
       path: row.path_after ?? row.path_before,
       previousPath: row.path_after && row.path_before && row.path_before !== row.path_after ? row.path_before : null,
       fileId: row.project_file_id,
+      ...valueChangesOf(values, event.resulting_snapshot_id, row),
     }));
   });
   return { entries: entries.slice(0, MAX_HISTORY_ENTRIES),

@@ -1,0 +1,1402 @@
+{
+  "baseline": {
+    "date": "2026-11-10T06:00:02.201Z",
+    "node": "v24.13.0",
+    "platform": "darwin 27.3.0 arm64",
+    "commit": "c6ca3b4",
+    "steps": [
+      {
+        "name": "empty library",
+        "scenario": 0,
+        "wallMs": 14.4,
+        "totals": {
+          "blobsBytes": 0,
+          "timelineSqliteBytes": 4096,
+          "timelineWalBytes": 1054752,
+          "timelineBytes": 1058848,
+          "timelineStoredBytes": 491520,
+          "derivedBytes": 73976,
+          "derivedTablesBytes": 4096,
+          "derivedTablesStoredBytes": 24576,
+          "derivedStoredBytes": 24576,
+          "versionRows": 0,
+          "removalRows": 0,
+          "rssBytes": 88391680,
+          "heapUsedBytes": 14490920,
+          "peakRssBytes": 88424448
+        },
+        "delta": {
+          "blobsBytes": 0,
+          "timelineSqliteBytes": 4096,
+          "timelineWalBytes": 1054752,
+          "timelineBytes": 1058848,
+          "timelineStoredBytes": 491520,
+          "derivedBytes": 73976,
+          "derivedTablesBytes": 4096,
+          "derivedTablesStoredBytes": 24576,
+          "derivedStoredBytes": 24576,
+          "versionRows": 0,
+          "removalRows": 0,
+          "rssBytes": 88391680,
+          "heapUsedBytes": 14490920,
+          "peakRssBytes": 88424448
+        }
+      },
+      {
+        "name": "import csv + xlsx",
+        "scenario": 1,
+        "wallMs": 372.1,
+        "totals": {
+          "blobsBytes": 775013,
+          "timelineSqliteBytes": 5390336,
+          "timelineWalBytes": 6130592,
+          "timelineBytes": 11520928,
+          "timelineStoredBytes": 5390336,
+          "derivedBytes": 3884976,
+          "derivedTablesBytes": 4096,
+          "derivedTablesStoredBytes": 2801664,
+          "derivedStoredBytes": 2801664,
+          "versionRows": 3764,
+          "removalRows": 0,
+          "rssBytes": 191250432,
+          "heapUsedBytes": 73090128,
+          "peakRssBytes": 191283200
+        },
+        "delta": {
+          "blobsBytes": 775013,
+          "timelineSqliteBytes": 5386240,
+          "timelineWalBytes": 5075840,
+          "timelineBytes": 10462080,
+          "timelineStoredBytes": 4898816,
+          "derivedBytes": 3811000,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 2777088,
+          "derivedStoredBytes": 2777088,
+          "versionRows": 3764,
+          "removalRows": 0,
+          "rssBytes": 102858752,
+          "heapUsedBytes": 58599208,
+          "peakRssBytes": 102858752
+        }
+      },
+      {
+        "name": "csv edit 1",
+        "scenario": 2,
+        "wallMs": 179.5,
+        "totals": {
+          "blobsBytes": 1403926,
+          "timelineSqliteBytes": 5390336,
+          "timelineWalBytes": 6130592,
+          "timelineBytes": 11520928,
+          "timelineStoredBytes": 6942720,
+          "derivedBytes": 7216800,
+          "derivedTablesBytes": 3031040,
+          "derivedTablesStoredBytes": 5083136,
+          "derivedStoredBytes": 5083136,
+          "versionRows": 5646,
+          "removalRows": 0,
+          "rssBytes": 309723136,
+          "heapUsedBytes": 89456032,
+          "peakRssBytes": 316342272
+        },
+        "delta": {
+          "blobsBytes": 628913,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 1552384,
+          "derivedBytes": 3331824,
+          "derivedTablesBytes": 3026944,
+          "derivedTablesStoredBytes": 2281472,
+          "derivedStoredBytes": 2281472,
+          "versionRows": 1882,
+          "removalRows": 0,
+          "rssBytes": 118472704,
+          "heapUsedBytes": 16365904,
+          "peakRssBytes": 125059072
+        }
+      },
+      {
+        "name": "csv edit 2",
+        "scenario": 2,
+        "wallMs": 175.9,
+        "totals": {
+          "blobsBytes": 2032841,
+          "timelineSqliteBytes": 8491008,
+          "timelineWalBytes": 6130592,
+          "timelineBytes": 14621600,
+          "timelineStoredBytes": 8491008,
+          "derivedBytes": 10211192,
+          "derivedTablesBytes": 5988352,
+          "derivedTablesStoredBytes": 7380992,
+          "derivedStoredBytes": 7380992,
+          "versionRows": 7528,
+          "removalRows": 0,
+          "rssBytes": 314998784,
+          "heapUsedBytes": 112332336,
+          "peakRssBytes": 317472768
+        },
+        "delta": {
+          "blobsBytes": 628915,
+          "timelineSqliteBytes": 3100672,
+          "timelineWalBytes": 0,
+          "timelineBytes": 3100672,
+          "timelineStoredBytes": 1548288,
+          "derivedBytes": 2994392,
+          "derivedTablesBytes": 2957312,
+          "derivedTablesStoredBytes": 2297856,
+          "derivedStoredBytes": 2297856,
+          "versionRows": 1882,
+          "removalRows": 0,
+          "rssBytes": 5275648,
+          "heapUsedBytes": 22876304,
+          "peakRssBytes": 1130496
+        }
+      },
+      {
+        "name": "csv edit 3",
+        "scenario": 2,
+        "wallMs": 154.8,
+        "totals": {
+          "blobsBytes": 2661758,
+          "timelineSqliteBytes": 8491008,
+          "timelineWalBytes": 6130592,
+          "timelineBytes": 14621600,
+          "timelineStoredBytes": 10031104,
+          "derivedBytes": 13197176,
+          "derivedTablesBytes": 8974336,
+          "derivedTablesStoredBytes": 9682944,
+          "derivedStoredBytes": 9682944,
+          "versionRows": 9410,
+          "removalRows": 0,
+          "rssBytes": 336592896,
+          "heapUsedBytes": 123556136,
+          "peakRssBytes": 337674240
+        },
+        "delta": {
+          "blobsBytes": 628917,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 1540096,
+          "derivedBytes": 2985984,
+          "derivedTablesBytes": 2985984,
+          "derivedTablesStoredBytes": 2301952,
+          "derivedStoredBytes": 2301952,
+          "versionRows": 1882,
+          "removalRows": 0,
+          "rssBytes": 21594112,
+          "heapUsedBytes": 11223800,
+          "peakRssBytes": 20201472
+        }
+      },
+      {
+        "name": "csv edit 4",
+        "scenario": 2,
+        "wallMs": 183,
+        "totals": {
+          "blobsBytes": 3290676,
+          "timelineSqliteBytes": 11583488,
+          "timelineWalBytes": 6130592,
+          "timelineBytes": 17714080,
+          "timelineStoredBytes": 11583488,
+          "derivedBytes": 16257248,
+          "derivedTablesBytes": 11972608,
+          "derivedTablesStoredBytes": 11972608,
+          "derivedStoredBytes": 11972608,
+          "versionRows": 11292,
+          "removalRows": 0,
+          "rssBytes": 362905600,
+          "heapUsedBytes": 78148512,
+          "peakRssBytes": 376913920
+        },
+        "delta": {
+          "blobsBytes": 628918,
+          "timelineSqliteBytes": 3092480,
+          "timelineWalBytes": 0,
+          "timelineBytes": 3092480,
+          "timelineStoredBytes": 1552384,
+          "derivedBytes": 3060072,
+          "derivedTablesBytes": 2998272,
+          "derivedTablesStoredBytes": 2289664,
+          "derivedStoredBytes": 2289664,
+          "versionRows": 1882,
+          "removalRows": 0,
+          "rssBytes": 26312704,
+          "heapUsedBytes": -45407624,
+          "peakRssBytes": 39239680
+        }
+      },
+      {
+        "name": "csv edit 5",
+        "scenario": 2,
+        "wallMs": 165.5,
+        "totals": {
+          "blobsBytes": 3919596,
+          "timelineSqliteBytes": 11583488,
+          "timelineWalBytes": 6130592,
+          "timelineBytes": 17714080,
+          "timelineStoredBytes": 13099008,
+          "derivedBytes": 16257248,
+          "derivedTablesBytes": 11972608,
+          "derivedTablesStoredBytes": 14266368,
+          "derivedStoredBytes": 14266368,
+          "versionRows": 13174,
+          "removalRows": 0,
+          "rssBytes": 367149056,
+          "heapUsedBytes": 90180056,
+          "peakRssBytes": 376913920
+        },
+        "delta": {
+          "blobsBytes": 628920,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 1515520,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 2293760,
+          "derivedStoredBytes": 2293760,
+          "versionRows": 1882,
+          "removalRows": 0,
+          "rssBytes": 4243456,
+          "heapUsedBytes": 12031544,
+          "peakRssBytes": 0
+        }
+      },
+      {
+        "name": "xlsx edit 1",
+        "scenario": 3,
+        "wallMs": 162.9,
+        "totals": {
+          "blobsBytes": 4065706,
+          "timelineSqliteBytes": 14860288,
+          "timelineWalBytes": 7061712,
+          "timelineBytes": 21922000,
+          "timelineStoredBytes": 14860288,
+          "derivedBytes": 19124448,
+          "derivedTablesBytes": 14839808,
+          "derivedTablesStoredBytes": 14839808,
+          "derivedStoredBytes": 14839808,
+          "versionRows": 15056,
+          "removalRows": 0,
+          "rssBytes": 368164864,
+          "heapUsedBytes": 137477576,
+          "peakRssBytes": 376913920
+        },
+        "delta": {
+          "blobsBytes": 146110,
+          "timelineSqliteBytes": 3276800,
+          "timelineWalBytes": 931120,
+          "timelineBytes": 4207920,
+          "timelineStoredBytes": 1761280,
+          "derivedBytes": 2867200,
+          "derivedTablesBytes": 2867200,
+          "derivedTablesStoredBytes": 573440,
+          "derivedStoredBytes": 573440,
+          "versionRows": 1882,
+          "removalRows": 0,
+          "rssBytes": 1015808,
+          "heapUsedBytes": 47297520,
+          "peakRssBytes": 0
+        }
+      },
+      {
+        "name": "xlsx edit 2",
+        "scenario": 3,
+        "wallMs": 146.5,
+        "totals": {
+          "blobsBytes": 4211820,
+          "timelineSqliteBytes": 14860288,
+          "timelineWalBytes": 7061712,
+          "timelineBytes": 21922000,
+          "timelineStoredBytes": 16568320,
+          "derivedBytes": 19124448,
+          "derivedTablesBytes": 14839808,
+          "derivedTablesStoredBytes": 15396864,
+          "derivedStoredBytes": 15396864,
+          "versionRows": 16938,
+          "removalRows": 0,
+          "rssBytes": 369524736,
+          "heapUsedBytes": 125887648,
+          "peakRssBytes": 376913920
+        },
+        "delta": {
+          "blobsBytes": 146114,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 1708032,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 557056,
+          "derivedStoredBytes": 557056,
+          "versionRows": 1882,
+          "removalRows": 0,
+          "rssBytes": 1359872,
+          "heapUsedBytes": -11589928,
+          "peakRssBytes": 0
+        }
+      },
+      {
+        "name": "xlsx edit 3",
+        "scenario": 3,
+        "wallMs": 156.3,
+        "totals": {
+          "blobsBytes": 4357937,
+          "timelineSqliteBytes": 18284544,
+          "timelineWalBytes": 8268872,
+          "timelineBytes": 26553416,
+          "timelineStoredBytes": 18284544,
+          "derivedBytes": 19124448,
+          "derivedTablesBytes": 14839808,
+          "derivedTablesStoredBytes": 15962112,
+          "derivedStoredBytes": 15962112,
+          "versionRows": 18820,
+          "removalRows": 0,
+          "rssBytes": 370655232,
+          "heapUsedBytes": 169113888,
+          "peakRssBytes": 376913920
+        },
+        "delta": {
+          "blobsBytes": 146117,
+          "timelineSqliteBytes": 3424256,
+          "timelineWalBytes": 1207160,
+          "timelineBytes": 4631416,
+          "timelineStoredBytes": 1716224,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 565248,
+          "derivedStoredBytes": 565248,
+          "versionRows": 1882,
+          "removalRows": 0,
+          "rssBytes": 1130496,
+          "heapUsedBytes": 43226240,
+          "peakRssBytes": 0
+        }
+      },
+      {
+        "name": "xlsx edit 4",
+        "scenario": 3,
+        "wallMs": 150.7,
+        "totals": {
+          "blobsBytes": 4504056,
+          "timelineSqliteBytes": 20049920,
+          "timelineWalBytes": 8268872,
+          "timelineBytes": 28318792,
+          "timelineStoredBytes": 20049920,
+          "derivedBytes": 19124448,
+          "derivedTablesBytes": 14839808,
+          "derivedTablesStoredBytes": 16519168,
+          "derivedStoredBytes": 16519168,
+          "versionRows": 20702,
+          "removalRows": 0,
+          "rssBytes": 373227520,
+          "heapUsedBytes": 156915664,
+          "peakRssBytes": 376913920
+        },
+        "delta": {
+          "blobsBytes": 146119,
+          "timelineSqliteBytes": 1765376,
+          "timelineWalBytes": 0,
+          "timelineBytes": 1765376,
+          "timelineStoredBytes": 1765376,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 557056,
+          "derivedStoredBytes": 557056,
+          "versionRows": 1882,
+          "removalRows": 0,
+          "rssBytes": 2572288,
+          "heapUsedBytes": -12198224,
+          "peakRssBytes": 0
+        }
+      },
+      {
+        "name": "xlsx edit 5",
+        "scenario": 3,
+        "wallMs": 154.8,
+        "totals": {
+          "blobsBytes": 4650186,
+          "timelineSqliteBytes": 21766144,
+          "timelineWalBytes": 8268872,
+          "timelineBytes": 30035016,
+          "timelineStoredBytes": 21766144,
+          "derivedBytes": 19124448,
+          "derivedTablesBytes": 14839808,
+          "derivedTablesStoredBytes": 17076224,
+          "derivedStoredBytes": 17076224,
+          "versionRows": 22584,
+          "removalRows": 0,
+          "rssBytes": 388546560,
+          "heapUsedBytes": 200579512,
+          "peakRssBytes": 388546560
+        },
+        "delta": {
+          "blobsBytes": 146130,
+          "timelineSqliteBytes": 1716224,
+          "timelineWalBytes": 0,
+          "timelineBytes": 1716224,
+          "timelineStoredBytes": 1716224,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 557056,
+          "derivedStoredBytes": 557056,
+          "versionRows": 1882,
+          "removalRows": 0,
+          "rssBytes": 15319040,
+          "heapUsedBytes": 43663848,
+          "peakRssBytes": 11632640
+        }
+      },
+      {
+        "name": "import 200-row csv",
+        "scenario": 4,
+        "wallMs": 17.3,
+        "totals": {
+          "blobsBytes": 4652692,
+          "timelineSqliteBytes": 21766144,
+          "timelineWalBytes": 8268872,
+          "timelineBytes": 30035016,
+          "timelineStoredBytes": 22269952,
+          "derivedBytes": 19124448,
+          "derivedTablesBytes": 14839808,
+          "derivedTablesStoredBytes": 17076224,
+          "derivedStoredBytes": 17076224,
+          "versionRows": 22988,
+          "removalRows": 0,
+          "rssBytes": 389742592,
+          "heapUsedBytes": 208080848,
+          "peakRssBytes": 389742592
+        },
+        "delta": {
+          "blobsBytes": 2506,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 503808,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 0,
+          "derivedStoredBytes": 0,
+          "versionRows": 404,
+          "removalRows": 0,
+          "rssBytes": 1196032,
+          "heapUsedBytes": 7501336,
+          "peakRssBytes": 1196032
+        }
+      },
+      {
+        "name": "top-row insert",
+        "scenario": 4,
+        "wallMs": 24.2,
+        "totals": {
+          "blobsBytes": 4655209,
+          "timelineSqliteBytes": 22880256,
+          "timelineWalBytes": 8268872,
+          "timelineBytes": 31149128,
+          "timelineStoredBytes": 22880256,
+          "derivedBytes": 19124448,
+          "derivedTablesBytes": 14839808,
+          "derivedTablesStoredBytes": 17076224,
+          "derivedStoredBytes": 17076224,
+          "versionRows": 23394,
+          "removalRows": 400,
+          "rssBytes": 394625024,
+          "heapUsedBytes": 175010960,
+          "peakRssBytes": 395083776
+        },
+        "delta": {
+          "blobsBytes": 2517,
+          "timelineSqliteBytes": 1114112,
+          "timelineWalBytes": 0,
+          "timelineBytes": 1114112,
+          "timelineStoredBytes": 610304,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 0,
+          "derivedStoredBytes": 0,
+          "versionRows": 406,
+          "removalRows": 400,
+          "rssBytes": 4882432,
+          "heapUsedBytes": -33069888,
+          "peakRssBytes": 5341184
+        }
+      },
+      {
+        "name": "restart",
+        "scenario": 5,
+        "wallMs": 5.6,
+        "totals": {
+          "blobsBytes": 4655209,
+          "timelineSqliteBytes": 22880256,
+          "timelineWalBytes": 0,
+          "timelineBytes": 22880256,
+          "timelineStoredBytes": 22880256,
+          "derivedBytes": 17108992,
+          "derivedTablesBytes": 17076224,
+          "derivedTablesStoredBytes": 17076224,
+          "derivedStoredBytes": 17076224,
+          "versionRows": 23394,
+          "removalRows": 400,
+          "rssBytes": 394674176,
+          "heapUsedBytes": 175714312,
+          "peakRssBytes": 395083776
+        },
+        "delta": {
+          "blobsBytes": 0,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": -8268872,
+          "timelineBytes": -8268872,
+          "timelineStoredBytes": 0,
+          "derivedBytes": -2015456,
+          "derivedTablesBytes": 2236416,
+          "derivedTablesStoredBytes": 0,
+          "derivedStoredBytes": 0,
+          "versionRows": 0,
+          "removalRows": 0,
+          "rssBytes": 49152,
+          "heapUsedBytes": 703352,
+          "peakRssBytes": 0
+        }
+      },
+      {
+        "name": "csv edit after restart",
+        "scenario": 5,
+        "wallMs": 302.9,
+        "totals": {
+          "blobsBytes": 5284131,
+          "timelineSqliteBytes": 24395776,
+          "timelineWalBytes": 4985232,
+          "timelineBytes": 29381008,
+          "timelineStoredBytes": 24395776,
+          "derivedBytes": 20384424,
+          "derivedTablesBytes": 17076224,
+          "derivedTablesStoredBytes": 19378176,
+          "derivedStoredBytes": 19378176,
+          "versionRows": 25276,
+          "removalRows": 400,
+          "rssBytes": 428818432,
+          "heapUsedBytes": 59783216,
+          "peakRssBytes": 444448768
+        },
+        "delta": {
+          "blobsBytes": 628922,
+          "timelineSqliteBytes": 1515520,
+          "timelineWalBytes": 4985232,
+          "timelineBytes": 6500752,
+          "timelineStoredBytes": 1515520,
+          "derivedBytes": 3275432,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 2301952,
+          "derivedStoredBytes": 2301952,
+          "versionRows": 1882,
+          "removalRows": 0,
+          "rssBytes": 34144256,
+          "heapUsedBytes": -115931096,
+          "peakRssBytes": 49364992
+        }
+      }
+    ],
+    "targets": {
+      "versionRowsPerOneCellEdit": 1882,
+      "dbGrowthPerEditBytes": 1548288,
+      "derivedGrowthPerCsvEditBytes": 2293760,
+      "csvFileBytes": 628911,
+      "derivedGrowthToCsvRatio": 3.65,
+      "identitiesKeptOnTopRowInsert": {
+        "kept": 4,
+        "total": 404
+      },
+      "firstEditAfterRestartMs": 302.9,
+      "warmEditMs": 175.9,
+      "restartToWarmRatio": 1.72,
+      "idleRssBytes": 89980928,
+      "peakRssBytes": 444448768
+    },
+    "files": {
+      "csvFileBytes": 628911,
+      "xlsxFileBytes": 146102,
+      "smallCsvFileBytes": 2506
+    },
+    "firstCsvEdit": {
+      "rowDeltas": [
+        {
+          "table": "scientific_object_versions",
+          "rows": 1882
+        },
+        {
+          "table": "snapshots",
+          "rows": 1
+        },
+        {
+          "table": "snapshot_files",
+          "rows": 1
+        },
+        {
+          "table": "timeline_events",
+          "rows": 1
+        },
+        {
+          "table": "file_changes",
+          "rows": 1
+        },
+        {
+          "table": "snapshot_object_indexes",
+          "rows": 1
+        },
+        {
+          "table": "object_index_bases",
+          "rows": 1
+        }
+      ],
+      "pageByteDeltas": [
+        {
+          "name": "scientific_object_versions",
+          "bytes": 1105920
+        },
+        {
+          "name": "scientific_object_versions_snapshot_object_idx",
+          "bytes": 180224
+        },
+        {
+          "name": "sqlite_autoindex_scientific_object_versions_2",
+          "bytes": 172032
+        },
+        {
+          "name": "sqlite_autoindex_scientific_object_versions_1",
+          "bytes": 94208
+        }
+      ],
+      "structuredDiffJsonBytes": 213,
+      "newVersionRows": 1882,
+      "newVersionRowsContentBytes": 986047
+    },
+    "referenceCell": {
+      "label": "Item 374 · Q4",
+      "objects": 1,
+      "versions": 6,
+      "distinctContentHashes": 6,
+      "identicalApartFromContentHash": true
+    },
+    "topRowInsert": {
+      "kept": 4,
+      "total": 404,
+      "objectsAfter": 406,
+      "removals": 400
+    },
+    "restart": {
+      "versionRows": 1882,
+      "fileObjects": 1882,
+      "folderObjects": 3764,
+      "builtOnPreviousIndex": true,
+      "rewroteFileIndex": true,
+      "freshProcess": {
+        "moduleLoadMs": 71.4,
+        "openMs": 3.1,
+        "firstEditMs": 619.4,
+        "versionRows": 1882
+      }
+    },
+    "idle": {
+      "idleRssBytes": 89980928,
+      "heapUsedBytes": 12040528
+    }
+  },
+  "final": {
+    "date": "2026-11-11T16:53:33.416Z",
+    "node": "v24.13.0",
+    "platform": "darwin 27.3.0 arm64",
+    "commit": "5b098cb",
+    "steps": [
+      {
+        "name": "empty library",
+        "scenario": 0,
+        "wallMs": 15.6,
+        "totals": {
+          "blobsBytes": 0,
+          "timelineSqliteBytes": 4096,
+          "timelineWalBytes": 1133032,
+          "timelineBytes": 1137128,
+          "timelineStoredBytes": 524288,
+          "derivedBytes": 90456,
+          "derivedTablesBytes": 4096,
+          "derivedTablesStoredBytes": 53248,
+          "derivedStoredBytes": 53248,
+          "versionRows": 0,
+          "removalRows": 0,
+          "rssBytes": 89030656,
+          "heapUsedBytes": 15408832,
+          "peakRssBytes": 89047040
+        },
+        "delta": {
+          "blobsBytes": 0,
+          "timelineSqliteBytes": 4096,
+          "timelineWalBytes": 1133032,
+          "timelineBytes": 1137128,
+          "timelineStoredBytes": 524288,
+          "derivedBytes": 90456,
+          "derivedTablesBytes": 4096,
+          "derivedTablesStoredBytes": 53248,
+          "derivedStoredBytes": 53248,
+          "versionRows": 0,
+          "removalRows": 0,
+          "rssBytes": 89030656,
+          "heapUsedBytes": 15408832,
+          "peakRssBytes": 89047040
+        }
+      },
+      {
+        "name": "import csv + xlsx",
+        "scenario": 1,
+        "wallMs": 449.8,
+        "totals": {
+          "blobsBytes": 775013,
+          "timelineSqliteBytes": 5357568,
+          "timelineWalBytes": 6159432,
+          "timelineBytes": 11517000,
+          "timelineStoredBytes": 5357568,
+          "derivedBytes": 6887064,
+          "derivedTablesBytes": 2351104,
+          "derivedTablesStoredBytes": 3063808,
+          "derivedStoredBytes": 3063808,
+          "versionRows": 3764,
+          "removalRows": 0,
+          "rssBytes": 205029376,
+          "heapUsedBytes": 31255624,
+          "peakRssBytes": 208502784
+        },
+        "delta": {
+          "blobsBytes": 775013,
+          "timelineSqliteBytes": 5353472,
+          "timelineWalBytes": 5026400,
+          "timelineBytes": 10379872,
+          "timelineStoredBytes": 4833280,
+          "derivedBytes": 6796608,
+          "derivedTablesBytes": 2347008,
+          "derivedTablesStoredBytes": 3010560,
+          "derivedStoredBytes": 3010560,
+          "versionRows": 3764,
+          "removalRows": 0,
+          "rssBytes": 115998720,
+          "heapUsedBytes": 15846792,
+          "peakRssBytes": 119455744
+        }
+      },
+      {
+        "name": "csv edit 1",
+        "scenario": 2,
+        "wallMs": 127.5,
+        "totals": {
+          "blobsBytes": 1403926,
+          "timelineSqliteBytes": 5357568,
+          "timelineWalBytes": 6159432,
+          "timelineBytes": 11517000,
+          "timelineStoredBytes": 5361664,
+          "derivedBytes": 6887064,
+          "derivedTablesBytes": 2351104,
+          "derivedTablesStoredBytes": 3076096,
+          "derivedStoredBytes": 3076096,
+          "versionRows": 3767,
+          "removalRows": 0,
+          "rssBytes": 263913472,
+          "heapUsedBytes": 59615640,
+          "peakRssBytes": 271450112
+        },
+        "delta": {
+          "blobsBytes": 628913,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 4096,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 12288,
+          "derivedStoredBytes": 12288,
+          "versionRows": 3,
+          "removalRows": 0,
+          "rssBytes": 58884096,
+          "heapUsedBytes": 28360016,
+          "peakRssBytes": 62947328
+        }
+      },
+      {
+        "name": "csv edit 2",
+        "scenario": 2,
+        "wallMs": 122.6,
+        "totals": {
+          "blobsBytes": 2032841,
+          "timelineSqliteBytes": 5357568,
+          "timelineWalBytes": 6159432,
+          "timelineBytes": 11517000,
+          "timelineStoredBytes": 5365760,
+          "derivedBytes": 6887064,
+          "derivedTablesBytes": 2351104,
+          "derivedTablesStoredBytes": 3076096,
+          "derivedStoredBytes": 3076096,
+          "versionRows": 3770,
+          "removalRows": 0,
+          "rssBytes": 282968064,
+          "heapUsedBytes": 64299552,
+          "peakRssBytes": 288931840
+        },
+        "delta": {
+          "blobsBytes": 628915,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 4096,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 0,
+          "derivedStoredBytes": 0,
+          "versionRows": 3,
+          "removalRows": 0,
+          "rssBytes": 19054592,
+          "heapUsedBytes": 4683912,
+          "peakRssBytes": 17481728
+        }
+      },
+      {
+        "name": "csv edit 3",
+        "scenario": 2,
+        "wallMs": 122.9,
+        "totals": {
+          "blobsBytes": 2661758,
+          "timelineSqliteBytes": 5357568,
+          "timelineWalBytes": 6159432,
+          "timelineBytes": 11517000,
+          "timelineStoredBytes": 5369856,
+          "derivedBytes": 7612056,
+          "derivedTablesBytes": 3076096,
+          "derivedTablesStoredBytes": 3076096,
+          "derivedStoredBytes": 3076096,
+          "versionRows": 3773,
+          "removalRows": 0,
+          "rssBytes": 283410432,
+          "heapUsedBytes": 68697456,
+          "peakRssBytes": 290471936
+        },
+        "delta": {
+          "blobsBytes": 628917,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 4096,
+          "derivedBytes": 724992,
+          "derivedTablesBytes": 724992,
+          "derivedTablesStoredBytes": 0,
+          "derivedStoredBytes": 0,
+          "versionRows": 3,
+          "removalRows": 0,
+          "rssBytes": 442368,
+          "heapUsedBytes": 4397904,
+          "peakRssBytes": 1540096
+        }
+      },
+      {
+        "name": "csv edit 4",
+        "scenario": 2,
+        "wallMs": 115.9,
+        "totals": {
+          "blobsBytes": 3290676,
+          "timelineSqliteBytes": 5357568,
+          "timelineWalBytes": 6159432,
+          "timelineBytes": 11517000,
+          "timelineStoredBytes": 5369856,
+          "derivedBytes": 7612056,
+          "derivedTablesBytes": 3076096,
+          "derivedTablesStoredBytes": 3080192,
+          "derivedStoredBytes": 3080192,
+          "versionRows": 3776,
+          "removalRows": 0,
+          "rssBytes": 285769728,
+          "heapUsedBytes": 73490256,
+          "peakRssBytes": 291782656
+        },
+        "delta": {
+          "blobsBytes": 628918,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 0,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 4096,
+          "derivedStoredBytes": 4096,
+          "versionRows": 3,
+          "removalRows": 0,
+          "rssBytes": 2359296,
+          "heapUsedBytes": 4792800,
+          "peakRssBytes": 1310720
+        }
+      },
+      {
+        "name": "csv edit 5",
+        "scenario": 2,
+        "wallMs": 118.6,
+        "totals": {
+          "blobsBytes": 3919596,
+          "timelineSqliteBytes": 5357568,
+          "timelineWalBytes": 6159432,
+          "timelineBytes": 11517000,
+          "timelineStoredBytes": 5373952,
+          "derivedBytes": 7612056,
+          "derivedTablesBytes": 3076096,
+          "derivedTablesStoredBytes": 3080192,
+          "derivedStoredBytes": 3080192,
+          "versionRows": 3779,
+          "removalRows": 0,
+          "rssBytes": 290619392,
+          "heapUsedBytes": 77982672,
+          "peakRssBytes": 296665088
+        },
+        "delta": {
+          "blobsBytes": 628920,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 4096,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 0,
+          "derivedStoredBytes": 0,
+          "versionRows": 3,
+          "removalRows": 0,
+          "rssBytes": 4849664,
+          "heapUsedBytes": 4492416,
+          "peakRssBytes": 4882432
+        }
+      },
+      {
+        "name": "xlsx edit 1",
+        "scenario": 3,
+        "wallMs": 129.4,
+        "totals": {
+          "blobsBytes": 4065706,
+          "timelineSqliteBytes": 5357568,
+          "timelineWalBytes": 6159432,
+          "timelineBytes": 11517000,
+          "timelineStoredBytes": 5373952,
+          "derivedBytes": 7612056,
+          "derivedTablesBytes": 3076096,
+          "derivedTablesStoredBytes": 3084288,
+          "derivedStoredBytes": 3084288,
+          "versionRows": 3782,
+          "removalRows": 0,
+          "rssBytes": 290897920,
+          "heapUsedBytes": 78114088,
+          "peakRssBytes": 296665088
+        },
+        "delta": {
+          "blobsBytes": 146110,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 0,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 4096,
+          "derivedStoredBytes": 4096,
+          "versionRows": 3,
+          "removalRows": 0,
+          "rssBytes": 278528,
+          "heapUsedBytes": 131416,
+          "peakRssBytes": 0
+        }
+      },
+      {
+        "name": "xlsx edit 2",
+        "scenario": 3,
+        "wallMs": 129.6,
+        "totals": {
+          "blobsBytes": 4211820,
+          "timelineSqliteBytes": 5357568,
+          "timelineWalBytes": 6159432,
+          "timelineBytes": 11517000,
+          "timelineStoredBytes": 5378048,
+          "derivedBytes": 7612056,
+          "derivedTablesBytes": 3076096,
+          "derivedTablesStoredBytes": 3088384,
+          "derivedStoredBytes": 3088384,
+          "versionRows": 3785,
+          "removalRows": 0,
+          "rssBytes": 290963456,
+          "heapUsedBytes": 77421208,
+          "peakRssBytes": 296665088
+        },
+        "delta": {
+          "blobsBytes": 146114,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 4096,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 4096,
+          "derivedStoredBytes": 4096,
+          "versionRows": 3,
+          "removalRows": 0,
+          "rssBytes": 65536,
+          "heapUsedBytes": -692880,
+          "peakRssBytes": 0
+        }
+      },
+      {
+        "name": "xlsx edit 3",
+        "scenario": 3,
+        "wallMs": 128.3,
+        "totals": {
+          "blobsBytes": 4357937,
+          "timelineSqliteBytes": 5357568,
+          "timelineWalBytes": 6159432,
+          "timelineBytes": 11517000,
+          "timelineStoredBytes": 5378048,
+          "derivedBytes": 7612056,
+          "derivedTablesBytes": 3076096,
+          "derivedTablesStoredBytes": 3088384,
+          "derivedStoredBytes": 3088384,
+          "versionRows": 3788,
+          "removalRows": 0,
+          "rssBytes": 291012608,
+          "heapUsedBytes": 77930744,
+          "peakRssBytes": 296665088
+        },
+        "delta": {
+          "blobsBytes": 146117,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 0,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 0,
+          "derivedStoredBytes": 0,
+          "versionRows": 3,
+          "removalRows": 0,
+          "rssBytes": 49152,
+          "heapUsedBytes": 509536,
+          "peakRssBytes": 0
+        }
+      },
+      {
+        "name": "xlsx edit 4",
+        "scenario": 3,
+        "wallMs": 129.1,
+        "totals": {
+          "blobsBytes": 4504056,
+          "timelineSqliteBytes": 5357568,
+          "timelineWalBytes": 6159432,
+          "timelineBytes": 11517000,
+          "timelineStoredBytes": 5398528,
+          "derivedBytes": 7612056,
+          "derivedTablesBytes": 3076096,
+          "derivedTablesStoredBytes": 3088384,
+          "derivedStoredBytes": 3088384,
+          "versionRows": 3791,
+          "removalRows": 0,
+          "rssBytes": 291143680,
+          "heapUsedBytes": 77017688,
+          "peakRssBytes": 296665088
+        },
+        "delta": {
+          "blobsBytes": 146119,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 20480,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 0,
+          "derivedStoredBytes": 0,
+          "versionRows": 3,
+          "removalRows": 0,
+          "rssBytes": 131072,
+          "heapUsedBytes": -913056,
+          "peakRssBytes": 0
+        }
+      },
+      {
+        "name": "xlsx edit 5",
+        "scenario": 3,
+        "wallMs": 128.8,
+        "totals": {
+          "blobsBytes": 4650186,
+          "timelineSqliteBytes": 5357568,
+          "timelineWalBytes": 6159432,
+          "timelineBytes": 11517000,
+          "timelineStoredBytes": 5402624,
+          "derivedBytes": 7612056,
+          "derivedTablesBytes": 3076096,
+          "derivedTablesStoredBytes": 3092480,
+          "derivedStoredBytes": 3092480,
+          "versionRows": 3794,
+          "removalRows": 0,
+          "rssBytes": 291192832,
+          "heapUsedBytes": 77372496,
+          "peakRssBytes": 296665088
+        },
+        "delta": {
+          "blobsBytes": 146130,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 4096,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 4096,
+          "derivedStoredBytes": 4096,
+          "versionRows": 3,
+          "removalRows": 0,
+          "rssBytes": 49152,
+          "heapUsedBytes": 354808,
+          "peakRssBytes": 0
+        }
+      },
+      {
+        "name": "import 200-row csv",
+        "scenario": 4,
+        "wallMs": 12.9,
+        "totals": {
+          "blobsBytes": 4652692,
+          "timelineSqliteBytes": 5357568,
+          "timelineWalBytes": 6159432,
+          "timelineBytes": 11517000,
+          "timelineStoredBytes": 5931008,
+          "derivedBytes": 7612056,
+          "derivedTablesBytes": 3076096,
+          "derivedTablesStoredBytes": 3092480,
+          "derivedStoredBytes": 3092480,
+          "versionRows": 4198,
+          "removalRows": 0,
+          "rssBytes": 291848192,
+          "heapUsedBytes": 85248296,
+          "peakRssBytes": 296665088
+        },
+        "delta": {
+          "blobsBytes": 2506,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 0,
+          "timelineBytes": 0,
+          "timelineStoredBytes": 528384,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 0,
+          "derivedStoredBytes": 0,
+          "versionRows": 404,
+          "removalRows": 0,
+          "rssBytes": 655360,
+          "heapUsedBytes": 7875800,
+          "peakRssBytes": 0
+        }
+      },
+      {
+        "name": "top-row insert",
+        "scenario": 4,
+        "wallMs": 11.7,
+        "totals": {
+          "blobsBytes": 4655209,
+          "timelineSqliteBytes": 6385664,
+          "timelineWalBytes": 6159432,
+          "timelineBytes": 12545096,
+          "timelineStoredBytes": 6385664,
+          "derivedBytes": 7612056,
+          "derivedTablesBytes": 3076096,
+          "derivedTablesStoredBytes": 3092480,
+          "derivedStoredBytes": 3092480,
+          "versionRows": 4604,
+          "removalRows": 0,
+          "rssBytes": 292552704,
+          "heapUsedBytes": 93867416,
+          "peakRssBytes": 296665088
+        },
+        "delta": {
+          "blobsBytes": 2517,
+          "timelineSqliteBytes": 1028096,
+          "timelineWalBytes": 0,
+          "timelineBytes": 1028096,
+          "timelineStoredBytes": 454656,
+          "derivedBytes": 0,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 0,
+          "derivedStoredBytes": 0,
+          "versionRows": 406,
+          "removalRows": 0,
+          "rssBytes": 704512,
+          "heapUsedBytes": 8619120,
+          "peakRssBytes": 0
+        }
+      },
+      {
+        "name": "restart",
+        "scenario": 5,
+        "wallMs": 3.5,
+        "totals": {
+          "blobsBytes": 4655209,
+          "timelineSqliteBytes": 6385664,
+          "timelineWalBytes": 0,
+          "timelineBytes": 6385664,
+          "timelineStoredBytes": 6385664,
+          "derivedBytes": 3125248,
+          "derivedTablesBytes": 3092480,
+          "derivedTablesStoredBytes": 3092480,
+          "derivedStoredBytes": 3092480,
+          "versionRows": 4604,
+          "removalRows": 0,
+          "rssBytes": 292569088,
+          "heapUsedBytes": 94640728,
+          "peakRssBytes": 296665088
+        },
+        "delta": {
+          "blobsBytes": 0,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": -6159432,
+          "timelineBytes": -6159432,
+          "timelineStoredBytes": 0,
+          "derivedBytes": -4486808,
+          "derivedTablesBytes": 16384,
+          "derivedTablesStoredBytes": 0,
+          "derivedStoredBytes": 0,
+          "versionRows": 0,
+          "removalRows": 0,
+          "rssBytes": 16384,
+          "heapUsedBytes": 773312,
+          "peakRssBytes": 0
+        }
+      },
+      {
+        "name": "csv edit after restart",
+        "scenario": 5,
+        "wallMs": 138.6,
+        "totals": {
+          "blobsBytes": 5284131,
+          "timelineSqliteBytes": 6385664,
+          "timelineWalBytes": 164832,
+          "timelineBytes": 6550496,
+          "timelineStoredBytes": 6393856,
+          "derivedBytes": 3446640,
+          "derivedTablesBytes": 3092480,
+          "derivedTablesStoredBytes": 3096576,
+          "derivedStoredBytes": 3096576,
+          "versionRows": 4607,
+          "removalRows": 0,
+          "rssBytes": 312016896,
+          "heapUsedBytes": 59406104,
+          "peakRssBytes": 316866560
+        },
+        "delta": {
+          "blobsBytes": 628922,
+          "timelineSqliteBytes": 0,
+          "timelineWalBytes": 164832,
+          "timelineBytes": 164832,
+          "timelineStoredBytes": 8192,
+          "derivedBytes": 321392,
+          "derivedTablesBytes": 0,
+          "derivedTablesStoredBytes": 4096,
+          "derivedStoredBytes": 4096,
+          "versionRows": 3,
+          "removalRows": 0,
+          "rssBytes": 19447808,
+          "heapUsedBytes": -35234624,
+          "peakRssBytes": 20201472
+        }
+      }
+    ],
+    "targets": {
+      "versionRowsPerOneCellEdit": 3,
+      "dbGrowthPerEditBytes": 4096,
+      "derivedGrowthPerCsvEditBytes": 0,
+      "csvFileBytes": 628911,
+      "derivedGrowthToCsvRatio": 0,
+      "identitiesKeptOnTopRowInsert": {
+        "kept": 404,
+        "total": 404
+      },
+      "firstEditAfterRestartMs": 138.6,
+      "warmEditMs": 122.6,
+      "restartToWarmRatio": 1.13,
+      "idleRssBytes": 90603520,
+      "peakRssBytes": 316866560
+    },
+    "files": {
+      "csvFileBytes": 628911,
+      "xlsxFileBytes": 146102,
+      "smallCsvFileBytes": 2506
+    },
+    "firstCsvEdit": {
+      "rowDeltas": [
+        {
+          "table": "scientific_object_versions",
+          "rows": 3
+        },
+        {
+          "table": "object_changes",
+          "rows": 3
+        },
+        {
+          "table": "snapshots",
+          "rows": 1
+        },
+        {
+          "table": "snapshot_files",
+          "rows": 1
+        },
+        {
+          "table": "timeline_events",
+          "rows": 1
+        },
+        {
+          "table": "file_changes",
+          "rows": 1
+        },
+        {
+          "table": "snapshot_object_indexes",
+          "rows": 1
+        },
+        {
+          "table": "object_index_bases",
+          "rows": 1
+        }
+      ],
+      "pageByteDeltas": [
+        {
+          "name": "scientific_object_versions",
+          "bytes": 4096
+        }
+      ],
+      "structuredDiffJsonBytes": 213,
+      "newVersionRows": 3,
+      "newVersionRowsContentBytes": 1765
+    },
+    "referenceCell": {
+      "label": "Item 374 · Q4",
+      "objects": 1,
+      "versions": 1,
+      "distinctContentHashes": 1,
+      "identicalApartFromContentHash": true
+    },
+    "topRowInsert": {
+      "kept": 404,
+      "total": 404,
+      "objectsAfter": 406,
+      "removals": 0
+    },
+    "restart": {
+      "versionRows": 3,
+      "fileObjects": 1882,
+      "folderObjects": 3764,
+      "builtOnPreviousIndex": true,
+      "rewroteFileIndex": false,
+      "freshProcess": {
+        "moduleLoadMs": 49.8,
+        "openMs": 2.9,
+        "firstEditMs": 166.2,
+        "versionRows": 3
+      }
+    },
+    "idle": {
+      "idleRssBytes": 90603520,
+      "heapUsedBytes": 12577584
+    }
+  }
+}

@@ -1,6 +1,7 @@
-// Measures Lasso's suggestion accuracy, keystroke latency, indexing speed and
-// the language-model context it avoids, on the test folders, and writes the
-// results to docs/benchmarks/results.json. Run with:
+// Measures Lasso's suggestion accuracy, keystroke latency, indexing speed,
+// the language-model context it avoids, peak memory and the disk one saved
+// cell costs, on the test folders, and writes the results to
+// docs/benchmarks/results.json. Run with:
 //
 //   node --disable-warning=ExperimentalWarning scripts/benchmark.mjs
 //
@@ -13,6 +14,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createApplication } from '../src/server.js';
+import { diskPerOneCellEdit, peakRssBytes } from './storage-measures.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..');
@@ -26,6 +28,7 @@ const CHARACTERS_PER_TOKEN = 4;
 const TOP_N = 3;
 // Prefixes shorter than this never ask for suggestions in the Mac app.
 const MIN_PREFIX = 2;
+const BYTES_PER_MB = 1_000_000;
 const TEXT_EXTENSIONS = new Set(['csv', 'tsv', 'md', 'txt', 'json', 'py', 'go', 'ts', 'tsx', 'js', 'sql', 'toml',
   'yaml', 'yml', 'sh', 'r', 'log', 'dxf', 'ifc', 'landxml', 'step', 'stp', 'xml', 'html', 'tex', 'bib']);
 const SKIPPED_FOLDERS = new Set(['node_modules', '__pycache__']);
@@ -179,6 +182,10 @@ function machine() {
     memoryGB: Math.round(os.totalmem() / 2 ** 30), platform: `${os.platform()} ${macOS ?? os.release()}`, node: process.version };
 }
 
+function megabytes(bytes) {
+  return (bytes / BYTES_PER_MB).toFixed(2);
+}
+
 async function main() {
   if (!fs.existsSync(benchRoot)) throw new Error(`Test folders not found at ${benchRoot}. Set LASSO_BENCH_ROOT.`);
   const perCorpus = [];
@@ -191,6 +198,12 @@ async function main() {
   process.stdout.write('Benchmarking every folder at once… ');
   const library = await benchmarkWholeLibrary();
   console.log(`${library.indexing.milliseconds} ms to index`);
+  // The most memory indexing and suggesting held, read before the saved-cell
+  // measurement below, which runs in this process, can add to it.
+  const memory = { peakRssBytes: peakRssBytes() };
+  // Measured on a generated table in its own temporary library, so the test
+  // folders are never written to. bench-storage.mjs has the full breakdown.
+  const storage = { diskPerEdit: await diskPerOneCellEdit(createApplication) };
   const singleFolderResults = perCorpus.flatMap((corpus) => corpus.results);
   const report = {
     generatedAt: new Date().toISOString(),
@@ -202,12 +215,16 @@ async function main() {
     singleFolder: scoreOf(singleFolderResults),
     wholeLibrary: { folders: library.folders, indexing: library.indexing, score: scoreOf(library.results),
       results: library.results.map(({ latencies, ...result }) => result) },
+    memory,
+    storage,
   };
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);
   const { top1, topN, cases: total, latency } = report.wholeLibrary.score;
   console.log(`\nWhole library: ${top1}/${total} first, ${topN}/${total} in the first ${TOP_N}; ` +
-    `keystroke p50 ${latency.p50} ms, p95 ${latency.p95} ms. Written to ${path.relative(repoRoot, outputPath)}`);
+    `keystroke p50 ${latency.p50} ms, p95 ${latency.p95} ms. Peak memory ${megabytes(memory.peakRssBytes)} MB; ` +
+    `one saved cell of a ${megabytes(storage.diskPerEdit.fileBytes)} MB table adds ${megabytes(storage.diskPerEdit.totalBytes)} MB on disk. ` +
+    `Written to ${path.relative(repoRoot, outputPath)}`);
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });

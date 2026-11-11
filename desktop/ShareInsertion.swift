@@ -18,6 +18,7 @@ struct DependencyShare {
 /// insertion mechanics so neither depends on the other.
 enum ShareClient {
     static func createShare(serverURL: URL, projectId: String, objectId: String, versionId: String?,
+                            snapshotId: String? = nil,
                             configuration: ShareConfiguration = .entireDocument,
                             completion: @escaping (Result<DependencyShare, Error>) -> Void) {
         var request = URLRequest(url: serverURL
@@ -27,6 +28,8 @@ enum ShareClient {
         request.timeoutInterval = 30
         var payload: [String: Any] = ["objectId": objectId]
         if let versionId { payload["versionId"] = versionId }
+        // A share made from a link shares the file the link was made from.
+        if let snapshotId { payload["snapshotId"] = snapshotId }
         payload["accessScope"] = configuration.scope.rawValue
         payload["redactions"] = configuration.redactions.map(\.payload)
         if configuration.scope == .marked { payload["markup"] = configuration.markup.map(\.payload) }

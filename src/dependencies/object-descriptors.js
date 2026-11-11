@@ -49,7 +49,11 @@ export function objectDescriptor({ key, type, path: filePath, anchor = null, lab
   };
 }
 
-/** `at` is the snapshot the row was read at, when the row does not carry it. */
+/**
+ * `at` is the snapshot the row was read at, when the row does not carry it,
+ * with `hashOf(path)`, its files' content hashes (ObjectVersionStore.fileHashes).
+ * A row that carries its snapshot already carries its file's hash there.
+ */
 export function mapObjectRow(row, at = { snapshotId: row.snapshot_id, version: row.snapshot_version }) {
   const metadata = json(row.metadata_json, {});
   return {
@@ -64,7 +68,7 @@ export function mapObjectRow(row, at = { snapshotId: row.snapshot_id, version: r
     anchor: json(row.anchor_json, null),
     label: correctedDocumentLabel(row.object_type, row.label, metadata),
     valueText: row.value_text,
-    contentHash: row.content_hash,
+    contentHash: at.hashOf?.(row.path) ?? row.content_hash,
     metadata,
     searchText: row.search_text,
   };

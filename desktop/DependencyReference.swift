@@ -182,6 +182,10 @@ struct DependencyReference: Codable, Equatable {
     /// The indexed object this phrase came from.
     let objectId: String
     let versionId: String?
+    /// The snapshot the link was made at. A version spans snapshots whose files
+    /// differ, so this names the file the cited text was read from. Links saved
+    /// before it was kept decode without it, and show the version's latest file.
+    var snapshotId: String? = nil
     /// Owning work directory, kept separately from relative source file paths.
     /// Older persisted references decode without this field and are backfilled.
     var projectId: String? = nil
@@ -208,9 +212,16 @@ struct DependencyReference: Codable, Equatable {
 
     static func == (left: DependencyReference, right: DependencyReference) -> Bool { left.id == right.id }
 
+    /// The query naming the cited version, and the snapshot it was cited at
+    /// when the link knows it, so the server shows the file the link was made from.
+    var citedVersionQuery: [URLQueryItem] {
+        [URLQueryItem(name: "version", value: versionId)]
+            + (snapshotId.map { [URLQueryItem(name: "snapshot", value: $0)] } ?? [])
+    }
+
     /// Identity equality is used by the UI; persistence needs content equality.
     func hasSameContent(as other: DependencyReference) -> Bool {
-        id == other.id && objectId == other.objectId && versionId == other.versionId
+        id == other.id && objectId == other.objectId && versionId == other.versionId && snapshotId == other.snapshotId
             && projectId == other.projectId
             && hostBundleIdentifier == other.hostBundleIdentifier && hostApplication == other.hostApplication
             && documentContext == other.documentContext && createdAt == other.createdAt

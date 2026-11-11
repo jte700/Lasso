@@ -574,7 +574,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                     ShareClient.createShare(
                         serverURL: url, projectId: projectId, objectId: reference.objectId,
-                        versionId: reference.versionId, configuration: configuration
+                        versionId: reference.versionId, snapshotId: reference.snapshotId, configuration: configuration
                     ) { result in finished(result) }
                 }
             }

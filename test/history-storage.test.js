@@ -385,10 +385,14 @@ function fullIndex(app, snapshotId) {
   }]));
 }
 
+// A part's version can be recorded at an earlier revision of its file; read
+// at a snapshot, its bytes are that snapshot's.
 function storedIndex(app, snapshotId) {
-  return new Map(app.timeline.objectVersions.resolved(snapshotId).rows.map((row) => [row.object_key, {
+  const versions = app.timeline.objectVersions;
+  const hashOf = versions.fileHashes(snapshotId);
+  return new Map(versions.resolved(snapshotId).rows.map((row) => [row.object_key, {
     path: row.path, anchor: JSON.parse(row.anchor_json ?? 'null'), label: row.label, valueText: row.value_text,
-    searchText: row.search_text, contentHash: row.content_hash, metadata: JSON.parse(row.metadata_json),
+    searchText: row.search_text, contentHash: hashOf(row.path) ?? row.content_hash, metadata: JSON.parse(row.metadata_json),
   }]));
 }
 

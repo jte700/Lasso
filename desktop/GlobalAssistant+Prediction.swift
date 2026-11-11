@@ -446,6 +446,11 @@ extension GlobalAssistant {
             if identities.insert(identity).inserted {
                 var matched = suggestion
                 matched.matchedWords = entry["matchedWords"] as? [String] ?? []
+                // A value that changed recently says what it was, in the same dim slot.
+                if let change = AssistValueChange(json: entry["change"]) {
+                    matched.change = change
+                    matched.detail = change.detail(replacing: matched.detail)
+                }
                 results.append((matched, (entry["rankOrder"] as? Int) ?? Int.max))
             }
         }

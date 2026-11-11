@@ -220,7 +220,8 @@ export class RemovableDriveService {
           AND name LIKE '%_immutable_delete'`).all();
         for (const guard of guards) this.db.exec(`DROP TRIGGER "${guard.name.replaceAll('"', '""')}"`);
         // Carried-forward history refers to snapshots without cascading.
-        for (const table of ['snapshot_object_indexes', 'object_index_bases', 'scientific_object_removals']) {
+        for (const table of ['snapshot_object_indexes', 'object_index_bases', 'scientific_object_removals', 'object_changes',
+          'snapshot_index_summaries', 'snapshot_index_files']) {
           this.db.prepare(`DELETE FROM ${table} WHERE snapshot_id IN
             (SELECT id FROM snapshots WHERE project_id IN (${placeholders}))`).run(...ids);
         }
@@ -246,7 +247,8 @@ export class RemovableDriveService {
         UNION ALL SELECT 1 FROM file_changes WHERE content_hash_before = ? OR content_hash_after = ? LIMIT 1`)
         .get(hash, hash, hash, hash, hash);
       if (!used && !proposals.some(row => row.proposal_json.includes(hash))) {
-        try { fs.rmSync(this.timeline.blobs.pathFor(hash), { force: true }); }
+        // Every stored form goes: the raw bytes, the compressed ones, and any raw copy.
+        try { this.timeline.blobs.remove(hash); }
         catch (error) { console.warn('Unable to release unreferenced drive snapshot:', error.message); }
       }
     }

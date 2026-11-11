@@ -5,11 +5,13 @@ import { transaction } from '../db.js';
 import { HttpError, VersionConflictError } from '../history/errors.js';
 import { isDesignFile } from './drawing-objects.js';
 import { FULL_WRITE_SHARE, storedFields } from '../history/object-versions.js';
+import { sameVersion } from '../history/object-identity.js';
 import { runSync, workUnits } from '../history/work.js';
 import { currentFileType } from '../history/file-types.js';
 import { now } from './basics.js';
 import { EXTRACTOR_VERSION, INDEX_VERSION } from './constants.js';
 import { dependencyFilePriority } from './file-objects.js';
+import { READER_CHANGED } from './table-sources.js';
 import {
   applyVariableDefinitions, indexIsCurrent, indexSummary, isDictionaryVariable, kindsChangedSince,
 } from './index-state.js';
@@ -69,7 +71,12 @@ export const indexLifecycleMethods = {
     // records in place; like an upgrade pass, that only adds missing objects.
     const existing = Boolean(indexed.indexed) || versions.hasRecords(targetSnapshotId);
     const carry = existing ? null : yield* this.carryPlanSteps(projectId, targetSnapshotId, files);
-    const index = carry ? this.carriedDescriptors(files, carry) : yield* this.indexDescriptorSteps(files);
+    // Rows without names take the identities they had in the reading this
+    // one follows: the snapshot's own records for an upgrade pass, otherwise
+    // the nearest earlier index.
+    const identityBase = existing ? targetSnapshotId : versions.previousIndexed(projectId, targetSnapshotId);
+    const index = carry ? this.carriedDescriptors(files, { ...carry, projectId })
+      : yield* this.indexDescriptorSteps(files, { projectId, base: identityBase });
     // Other requests ran between the slices of a sliced index. If one of them
     // indexed this snapshot meanwhile, what was read here is already recorded,
     // or was decided against an older state; start over from the new one. The
@@ -92,6 +99,11 @@ export const indexLifecycleMethods = {
           VALUES (?, ?, ?, ?, 2, ?)
           ON CONFLICT(snapshot_id) DO UPDATE SET drawing_index_version = excluded.drawing_index_version, spreadsheet_index_version = 2, indexed_at = excluded.indexed_at, object_count = excluded.object_count`)
           .run(targetSnapshotId, now(), recorded ?? versions.count(targetSnapshotId), INDEX_VERSION, existing ? 0 : EXTRACTOR_VERSION);
+        // An upgrade pass reads only some files and keeps what was there, so
+        // later indexes cannot carry objects forward from it without reading
+        // them again; a full index or a carried one can be built on.
+        if (existing) this.forgetIndexSummary(targetSnapshotId);
+        else this.saveIndexSummary(targetSnapshotId, index.summary, { base: carry?.base, known: carry?.known });
       });
     } catch (error) {
       // The index was read into memory as it was written; drop it with the rollback.
@@ -103,6 +115,10 @@ export const indexLifecycleMethods = {
     if (existing) this.indexedHere.delete(targetSnapshotId);
     else this.indexedHere.set(targetSnapshotId, index.summary);
     this.forgetObjects(targetSnapshotId);
+    // Reading changed files leaves their parsed rows behind as garbage; give
+    // it back now rather than letting the heap grow across a run of edits.
+    this.releaseMemory((carry ? files.filter((file) => !carry.carriedPaths.has(file.path)) : files)
+      .reduce((bytes, file) => bytes + (file.size ?? 0), 0));
     this.completionCorpusCache.delete(targetSnapshotId);
     this.workspaceRetrievalCache.delete(targetSnapshotId);
     this.ranking.invalidateSnapshot(targetSnapshotId);
@@ -195,7 +211,7 @@ export const indexLifecycleMethods = {
     const files = partial ? indexable.filter((file) => kinds.has(file.fileType)) : indexable;
     const reread = new Set(files.map((file) => file.path));
     const carriedPaths = partial ? new Set(previous.files.map((file) => file.path).filter((filePath) => !reread.has(filePath))) : null;
-    const index = yield* this.indexDescriptorSteps(files);
+    const index = yield* this.indexDescriptorSteps(files, { projectId, base: previous.id });
     // A file saved while a sliced re-read ran makes a newer version, which
     // this reading does not describe. Read that version instead.
     if (this.timeline.getProject(projectId).currentSnapshotId !== previous.id) {
@@ -216,10 +232,9 @@ export const indexLifecycleMethods = {
         compared += 1;
         const descriptor = byKey.get(row.object_key);
         if (!descriptor || row.object_type !== descriptor.type) return false;
-        const fields = storedFields(descriptor);
-        if (row.path !== fields[0] || row.anchor_json !== fields[1] || row.label !== fields[2]
-          || (row.value_text ?? null) !== fields[3] || row.search_text !== fields[4]
-          || row.content_hash !== fields[5] || row.metadata_json !== fields[6]) return false;
+        // The rule an index uses to keep a version: a part keeps the one an
+        // earlier file revision recorded while it reads the same.
+        if (!sameVersion(row, storedFields(descriptor))) return false;
       }
       return compared === byKey.size;
     })();
@@ -230,7 +245,10 @@ export const indexLifecycleMethods = {
       // project stops being offered a re-read it does not need.
       this.db.prepare('UPDATE snapshot_object_indexes SET extractor_version = ? WHERE snapshot_id = ? AND extractor_version < ?')
         .run(EXTRACTOR_VERSION, previous.id, EXTRACTOR_VERSION);
-      if (!partial) this.indexedHere.set(previous.id, index.summary);
+      if (!partial) {
+        this.indexedHere.set(previous.id, index.summary);
+        transaction(this.db, () => this.saveIndexSummary(previous.id, index.summary));
+      }
       this.onIndexProblems?.(projectId, index.problems, partial ? reread : null);
       return {
         changed: false, reason: 'IDENTICAL_READING', projectId, snapshot: previous, event: null,
@@ -252,6 +270,7 @@ export const indexLifecycleMethods = {
       }, ({ resultingSnapshotId }) => {
         newSnapshotId = resultingSnapshotId;
         objectCount = this.writeObjectIndex(projectId, resultingSnapshotId, index.descriptors, { carriedPaths });
+        if (!partial) this.saveIndexSummary(resultingSnapshotId, index.summary);
       });
     } catch (error) {
       // The index was read into memory as it was written; drop it with the rollback.
@@ -268,14 +287,10 @@ export const indexLifecycleMethods = {
 
     // A better reader can key an object differently (the row-label fix renames
     // every indented line item), so a claim whose source is absent from the new
-    // reading needs a person, not a verdict of BROKEN. Its evidence is intact
-    // and still pinned in the snapshot it was linked at.
-    const reconciled = this.reconcileProject(projectId, result.snapshot.id, {
-      missingSource: {
-        status: 'NEEDS_REVIEW',
-        reason: 'The current reader no longer produces this source object. Its recorded evidence is unchanged; re-point the claim at the new reading.',
-      },
-    });
+    // reading follows the same object under its new key when there is exactly
+    // one, and otherwise needs a person, not a verdict of BROKEN. Its evidence
+    // is intact and still pinned in the snapshot it was linked at.
+    const reconciled = this.reconcileProject(projectId, result.snapshot.id, { missingSource: READER_CHANGED });
 
     return {
       changed: true,
@@ -319,12 +334,16 @@ export const indexLifecycleMethods = {
    * Every object of the files, as a full index records them, with what a
    * later index needs to carry them forward without reading them again.
    */
-  indexDescriptors(files) {
-    return runSync(this.indexDescriptorSteps(files));
+  indexDescriptors(files, options = {}) {
+    return runSync(this.indexDescriptorSteps(files, options));
   },
 
-  /** The same, yielding `{ phase: 'indexing', done, total }` in work units after each file. */
-  *indexDescriptorSteps(files) {
+  /**
+   * The same, yielding `{ phase: 'indexing', done, total }` in work units
+   * after each file. With `base`, an index of `projectId`, the rows without
+   * names of each table keep the identities they had there.
+   */
+  *indexDescriptorSteps(files, { projectId = null, base = null } = {}) {
     const descriptors = [];
     const problems = [];
     const counts = new Map();
@@ -334,7 +353,8 @@ export const indexLifecycleMethods = {
       const units = workUnits(file.size);
       const extracted = yield* withinFile(this.extractedObjectSteps(file),
         (share) => ({ phase: 'indexing', done: done + share * units, total }));
-      const objects = [...extracted.objects, ...this.recordedDescriptors(file, extracted.objects)];
+      const objects = this.withStableRowIdentities(projectId, base, file,
+        [...extracted.objects, ...this.recordedDescriptors(file, extracted.objects, extracted)]);
       counts.set(file.path, objects.length);
       if (extracted.problem) problems.push({ path: file.path, ...extracted.problem });
       // Readers bound each file's bytes, rows and geometry. A folder-wide
@@ -353,7 +373,7 @@ export const indexLifecycleMethods = {
   /** The same, yielding `{ phase: 'indexing', done, total }` as it reads the files that changed. */
   *carryPlanSteps(projectId, snapshotId, files) {
     const base = this.timeline.objectVersions.baseFor(projectId, snapshotId);
-    const known = base ? this.indexedHere.get(base) : null;
+    const known = base ? this.knownIndexSummary(base) : null;
     if (!known || known.truncated) return null;
     const before = this.timeline.files.manifest(base).byPath;
     const unchanged = (file) => {
@@ -385,7 +405,7 @@ export const indexLifecycleMethods = {
   },
 
   /** The objects of the files that changed since the base; the others are carried forward. */
-  carriedDescriptors(files, { known, carriedPaths }) {
+  carriedDescriptors(files, { base, known, carriedPaths, projectId = null }) {
     const descriptors = [];
     const problems = [];
     const counts = new Map();
@@ -396,7 +416,8 @@ export const indexLifecycleMethods = {
         continue;
       }
       const extracted = this.extractedObjects(file);
-      const objects = [...extracted.objects, ...this.recordedDescriptors(file, extracted.objects)];
+      const objects = this.withStableRowIdentities(projectId, base, file,
+        [...extracted.objects, ...this.recordedDescriptors(file, extracted.objects, extracted)]);
       counts.set(file.path, objects.length);
       if (extracted.problem) problems.push({ path: file.path, ...extracted.problem });
       descriptors.push(...objects.map((descriptor) => ({ ...descriptor, metadata: { ...descriptor.metadata } })));

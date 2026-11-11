@@ -60,11 +60,15 @@ function isDirty(relativePath, dirtyPaths) {
   return false;
 }
 
-function metadataFor(type, buffer) {
+// A PNG states its size in its first bytes; no other metadata is read from a file.
+const METADATA_HEAD_BYTES = 24;
+
+/** A file's recorded metadata, from the first bytes of it. */
+function metadataFor(type, head) {
   const metadata = {};
-  if (type === 'image' && buffer.length >= 24 && buffer.subarray(1, 4).toString() === 'PNG') {
-    metadata.width = buffer.readUInt32BE(16);
-    metadata.height = buffer.readUInt32BE(20);
+  if (type === 'image' && head.length >= METADATA_HEAD_BYTES && head.subarray(1, 4).toString() === 'PNG') {
+    metadata.width = head.readUInt32BE(16);
+    metadata.height = head.readUInt32BE(20);
   }
   return metadata;
 }
@@ -209,28 +213,36 @@ export function* scanSteps(rootPath, blobStore, options = {}) {
       nextCache.set(relativePath, { fingerprint, file: cached.file });
       continue;
     }
-    let buffer;
+    const fileType = detectFileType(relativePath);
+    // A file whose recorded stat values still hold most likely has its
+    // recorded bytes: the store then only hashes it, and writes nothing.
+    const recorded = options.fileCache?.get(relativePath);
+    let stored;
     try {
-      buffer = fs.readFileSync(absolutePath);
+      // Read a chunk at a time, so a large file is never held whole.
+      stored = blobStore.putFile(absolutePath, {
+        headBytes: fileType === 'image' ? METADATA_HEAD_BYTES : 0,
+        expectedHash: matchesCache(recorded, fingerprint, stat) ? recorded.file.contentHash : null,
+      });
     } catch (error) {
+      // The store failing to write is not this file's fault, and stops the scan.
+      if (error?.storing) throw error;
       failures.push({ path: relativePath, ...describeScanError(error) });
       carryForward(error, relativePath, false);
       done += workUnits(stat.size);
       yield { phase: 'reading', done, total };
       continue;
     }
-    const contentHash = blobStore.put(buffer);
-    const fileType = detectFileType(relativePath);
     const file = {
       path: relativePath,
-      contentHash,
+      contentHash: stored.contentHash,
       size: Number(stat.size),
       mtimeMs: Number(stat.mtimeNs) / 1_000_000,
       ctimeMs: Number(stat.ctimeNs) / 1_000_000,
       fileType,
       device: String(stat.dev),
       inode: String(stat.ino),
-      metadata: metadataFor(fileType, buffer),
+      metadata: metadataFor(fileType, stored.head),
     };
     files.push(file);
     // A writer can change the file while it is being read. Keep its captured

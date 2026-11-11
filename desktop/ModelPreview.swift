@@ -503,7 +503,7 @@ struct AssistPDFPageImage {
 struct AssistDocumentPreview {
     let filename: String
     let path: String
-    let location: String
+    var location: String
     let context: String
     let valueText: String?
     let objectType: String
@@ -533,6 +533,29 @@ struct AssistDocumentPreview {
     var video: AssistVideoPreview? = nil
     /// The slides' pictures, filled in as they are drawn; set by whoever knows where they are fetched from.
     var slides: SlideDeckDocument? = nil
+    /// The cited value's past values, most recent first, each different from the one after it.
+    var valueHistory: [String] = []
+
+    /// The value the cited cell had before its latest change, drawn struck through beside it.
+    var previousValue: String? {
+        guard valueHistory.count >= 2, valueText == nil || valueHistory[0] == valueText else { return nil }
+        return valueHistory[1]
+    }
+
+    /// "18,400 → 18,900 → 19,250", oldest first, only when the value changed more than once.
+    var historyLine: String? {
+        guard valueHistory.count >= 3 else { return nil }
+        return valueHistory.prefix(Self.historyShown).reversed().joined(separator: " \u{2192} ")
+    }
+
+    /// How many values the history line names at most.
+    static let historyShown = 4
+
+    /// A preview response's history: values most recent first, a repeated value named once.
+    static func valueHistory(_ json: Any?) -> [String] {
+        let values = (json as? [[String: Any]] ?? []).compactMap { $0["value"] as? String }
+        return values.reduce(into: [String]()) { kept, value in if kept.last != value { kept.append(value) } }
+    }
 
     /// `syntax` colours a code file's lines; the app's bundled copy unless a test gives its own.
     static func parse(_ data: Data, syntax: CodeSyntax? = CodeSyntax.bundled) -> AssistDocumentPreview? {
@@ -577,6 +600,11 @@ struct AssistDocumentPreview {
             rows: rows, model: model, unavailableReason: unavailable,
             pdf: pdf)
         result.openTarget = AssistOpenTarget(json: preview["openAt"])
+        result.valueHistory = valueHistory(root["history"])
+        // One line, beside where the value is, and only when it changed more than once.
+        if let line = result.historyLine {
+            result.location = result.location.isEmpty ? line : "\(result.location) \u{00B7} \(line)"
+        }
         result.moreRows = (preview["moreRows"] as? NSNumber)?.intValue
         result.slideNumber = (preview["slideNumber"] as? NSNumber)?.intValue
         result.deck = AssistSlideDeck(json: preview["deck"])

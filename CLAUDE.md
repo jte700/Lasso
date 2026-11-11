@@ -15,14 +15,18 @@ Read only what a task needs. Files are split by feature and mostly under 500 lin
 | Videos: transcripts, a phrase typed in quotes | `dependencies/video-extraction.js` (helper `scripts/transcribe-video.swift`, on-device Speech, macOS 26), `video-transcripts.js` (kept by content hash in `derived/transcripts`, quoted search, card preview), `quoted-phrase.js` | `VideoPreview.swift`, `AssistVideoPreviewView.swift` (AVKit player cued to the moment); QuickTime jump in `SourceOpenTarget.swift` |
 | File named while typing | `dependencies/file-reference.js` | |
 | Readers: PDF, Word, xlsx/csv, pptx, DXF, IFC, STEP, LandXML | `dependencies/*-extraction.js`, `step-model.js`, `tabular.js`, `table-index.js`; objects per file in `file-objects.js`, `tabular-objects.js` | |
-| Indexing a folder's objects | `dependencies/index-lifecycle.js`, `object-extraction.js`, `object-access.js`; `service.js` is only the class shell that installs these method groups | |
+| Indexing a folder's objects | `dependencies/index-lifecycle.js`, `object-extraction.js`, `object-access.js`, `index-summaries.js` (carry-forward kept across restarts); `service.js` is only the class shell that installs these method groups | |
+| When an object gets a new version, and what changed | `history/object-identity.js` (the rule), `history/object-versions.js` (writes `object_changes`), `dependencies/object-history.js` (`objectHistory`, `snapshotChanges`); table row keys in `dependencies/row-identity.js` | |
+| A suggestion's recent value change, stale typed values | `dependencies/value-changes.js`, added in `workspace.js` `predict` and `claim-candidates.js` | `AssistValueChange.swift` (detail text), history line and struck value in `ModelPreview.swift`, `AssistBoxView+Preview.swift` |
 | Card preview JSON | `http/api.js` `/api/dependency-objects/:id/preview`, `dependencies/dependency-previews.js` | `GlobalAssistant+Preview.swift` (loading), `ModelPreview.swift` (parse), `AssistBoxView+Preview.swift`, `AssistPreviewViews.swift` (text, PDF, slides), `AssistTableLayout.swift`, `PreviewWordMarks.swift` (matched-word marks) |
 | Slide pictures | `sharing/document-pages.js` `slidePicture`, `scripts/render-document-pages.swift` | `SlideDeckPreview.swift` (deck, slide menu, navigator) |
 | Suggestion card itself, Tab, keys | | `GlobalAssist.swift` (controller state, keys), `GlobalAssistant+Panel.swift` (showing, placement), `GlobalAssistant+Insertion.swift` (Tab, links, undo), `AssistBoxView*.swift` (the drawn card), `AssistSuggestion.swift`, `AssistSuggestionList.swift`, `KeyRouting.swift`, `AccessibilityReader.swift`, `CompletionTransaction.swift` |
 | Source Inspector (web page in a panel) | `sharing/share-page.js` `renderInspectorPanel` | `SourceInspectorPanel.swift` |
 | Share links and recipient pages | `sharing/object-share.js`, `share-page.js`, `share-page-style.js` (how recipient pages look), `share-preview.js`, `dependencies/dependency-sharing.js` | `ShareComposerController.swift`, `ShareComposerView*.swift`, `ShareInteractivePDFView.swift`, `ShareInsertion.swift`, `ShareMarkup.swift` |
-| The Ranch (library window) | `ranch/` | `Ranch*.swift`; colours and controls in `RanchTheme.swift` |
-| Folder history, snapshots | `history/` | |
+| The Ranch (library window) | `ranch/` (value changes in `history.js`, review rows in `review.js`) | `Ranch*.swift`; colours and controls in `RanchTheme.swift` |
+| Folder history, snapshots | `history/`; blob storage, compression and retention in `blob-store.js`, `blob-compaction.js`, `retention.js`, `idle-batches.js` | |
+| Memory: one cache budget, collection after large edits | `cache.js` (`MemoryBudget`), `memory.js`, idle shrink in `server.js` | |
+| Storage and memory benchmark | `scripts/bench-storage.mjs` (`npm run bench:storage`), results in `docs/benchmarks/storage.json` | |
 | Links in documents, re-anchoring after edits | `dependencies/dependency-links.js`, `reconciliation.js`, `source-updates.js`, `document-editing.js` | `DependencyHighlighter.swift`, `DependencyReference.swift` |
 | Browser workbench (older web UI) | `public/app.js` wires `public/editor-*.js`, `workspace-*.js`, `dependency-*.js` modules; shared state in `public/state.js` | |
 | Terminal commands (`ask`, `find`, `index`) | `terminal/` | |
@@ -57,4 +61,4 @@ npm run desktop                  # builds dist/Lasso.app; the user's app only ch
 ## Keeping it cheap to change
 
 - New code goes in the feature file it belongs to, or a new file of its own; split a file before it passes about 800 lines. Swift extensions in other files need members widened from `private` to internal.
-- Still large, read by range: `src/dependencies/step-model.js` (1,476), `document-extraction.js` (1,190), `src/terminal/graph.js` (1,417), `desktop/Lasso.swift` (1,529), `desktop/DirectoryMenu.swift` (1,075), `public/terminal.css`, and the test files `desktop/tests/main.swift` and `test/*.test.js`.
+- Still large, read by range: `src/dependencies/step-model.js` (1,476), `document-extraction.js` (1,190), `src/terminal/graph.js` (1,417), `desktop/Lasso.swift` (1,529), `desktop/DirectoryMenu.swift` (1,075), `src/http/api.js` (1,156), `src/workspace.js` (1,061), `src/history/service.js` (901), `public/terminal.css`, and the test files `desktop/tests/main.swift` and `test/*.test.js`.

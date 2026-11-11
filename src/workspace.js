@@ -845,7 +845,14 @@ export class WorkspaceService {
     // A file named by its name is matched as a whole, so its preview marks no words in it.
     const namesWholeFile = (item) => Boolean(item.fileReference ?? item.dependencyCandidate?.fileReference);
     const keepOrder = pool.length > 0 && pool.every(({ prediction }) => prediction.listsInOrder);
-    const selected = distinctRanked(current, limit, { keepOrder }).map((item, rankOrder) => ({ ...item, rankOrder,
+    // A value that changed recently says what it was, in the suggestion's own field.
+    const withChange = (item) => {
+      const object = item.dependencyCandidate ?? item;
+      if (item.change || !object?.objectType) return item;
+      const change = this.dependencies.suggestionChange(object.projectId ?? item.projectId, object.snapshotId, object);
+      return change ? { ...item, change } : item;
+    };
+    const selected = distinctRanked(current, limit, { keepOrder }).map(withChange).map((item, rankOrder) => ({ ...item, rankOrder,
       matchedWords: namesWholeFile(item) ? [] : matchedSourceWords(item.quotedPhrase ?? sentence, [item.sourceSentence, item.replacementText, item.dependencyCandidate?.valueText,
         item.dependencyCandidate?.label, item.dependencyCandidate?.metadata?.variable, item.valueText, item.label,
         item.metadata?.variable].filter((text) => typeof text === 'string').join(' ')) }));

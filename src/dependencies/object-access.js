@@ -84,8 +84,11 @@ export const objectAccessMethods = {
 
   /** Version rows as the objects suggestions and search are offered. */
   mappedObjects(projectId, resolved) {
+    // A version spans snapshots whose files differ; its bytes are this snapshot's.
+    const at = { snapshotId: resolved.snapshotId, version: resolved.version,
+      hashOf: this.timeline.objectVersions.fileHashes(resolved.snapshotId) };
     return resolved.rows.filter((row) => row.project_id === projectId).map((row) => {
-        const object = mapObjectRow(row, resolved);
+        const object = mapObjectRow(row, at);
         // Search existing PDF versions through their preserved bytes as well as
         // the short metadata excerpt. Derived search text stays in memory so
         // immutable object versions and existing links retain their identity.
@@ -156,7 +159,7 @@ export const objectAccessMethods = {
       JOIN snapshots s ON s.id = p.from_snapshot_id
       WHERE p.project_id = ? AND p.relation <> 'DEPENDS_ON' AND p.from_path IN (${paths.map(() => '?').join(', ')})
       ORDER BY s.version DESC`).all(projectId, ...paths)
-      .filter((row) => versions.at(row.from_snapshot_id, object.id)?.path === row.from_path)
+      .filter((row) => versions.nearestVersion(row.from_snapshot_id, object.id)?.path === row.from_path)
       .map((row) => ({ snapshotId: row.from_snapshot_id, path: row.from_path, version: row.version, depth: 0 }));
     this.lineageLinks ??= this.db.prepare(`
       SELECT p.*, s.version AS to_version

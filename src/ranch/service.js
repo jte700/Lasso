@@ -272,6 +272,8 @@ export class RanchService {
         directoryId: directory.id, path: share.path, fileId: fileIdAt(directory.id, share.path),
         name: share.fileName, locator: share.locator ?? null, scope: share.scope ?? 'DOCUMENT',
         status: share.status, drifted: Boolean(share.drifted),
+        sharedValue: share.sharedValue ?? null, currentValue: share.currentValue ?? null,
+        documentPath: share.documentPath ?? null,
         createdAt: share.createdAt, expiresAt: share.expiresAt, revokedAt: share.revokedAt,
       })))
       .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));

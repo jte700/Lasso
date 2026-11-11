@@ -3,14 +3,32 @@
 
 import path from 'node:path';
 import { MAX_IN_MEMORY_PART_BYTES, isLargeSpreadsheet } from './document-extraction.js';
-import { TAIL_ROWS, writeTable } from './table-index.js';
-import { spreadsheetLayout, tabularLayout } from './tabular.js';
+import { TAIL_ROWS, nameTerm, writeTable } from './table-index.js';
+import { normalizedVariable, spreadsheetLayout, tabularLayout } from './tabular.js';
 import { MAX_INDEXED_TABLE_ROWS } from './constants.js';
 import { worksheetCoordinates } from './index-state.js';
+import { labelIdentity, withOccurrence } from './row-identity.js';
 import { objectsFromTabular, tableRowObjects, trailingTableNotes } from './tabular-objects.js';
 
 // The last rows of a large table read for the notes written under it.
 const TABLE_TAIL_ROWS = TAIL_ROWS;
+// The most rows sharing a row's name term read to tell which of the equally
+// named rows it is. Past it the row is left out rather than misnamed.
+const MAX_NAME_MATCHES = 4_096;
+
+// A recorded row or cell key after its table's prefix: "row:rent#2", "cell:rent#2:Q1".
+const LABEL_KEY = /^(?:row:([^:]+)$|cell:([^:]+):)/s;
+// The same, as readers before version 9 keyed it by row number: "row:12:rent", "cell:12:rent:Q1".
+const ROW_NUMBER_KEY = /^(?:row|cell):(\d+):[a-z0-9]+(?::|$)/;
+
+/** The key a reader before version 9 gave a large table's row or cell: its row number and label. */
+function rowNumberKey(keyPrefix, descriptor) {
+  const { rowIndex, rowKey } = descriptor.anchor;
+  const row = `${rowIndex}:${normalizedVariable(rowKey) || 'row'}`;
+  if (descriptor.type === 'DATASET_ROW') return `${keyPrefix}:row:${row}`;
+  const column = descriptor.key.slice(keyPrefix.length + 1).replace(/^cell:[^:]+:/, '');
+  return `${keyPrefix}:cell:${row}:${column}`;
+}
 
 export const tableReadingMethods = {
   /**
@@ -53,36 +71,119 @@ export const tableReadingMethods = {
       .keys()].map((index) => Math.max(0, meta.rowCount - TABLE_TAIL_ROWS) + index));
     if (table.notes.has(row.ordinal)) return [];
     const rowLabel = String(row.cells[meta.shape.labelColumn] ?? '').trim();
-    const { rowObject, cells } = tableRowObjects(context, { row: row.cells, rowIndex, rowNumber: row.rowNumber, rowLabel });
+    // A row without a name is known through the file's previous version,
+    // which only the indexer reads; such rows are never looked up by name.
+    if (!rowLabel) return [];
+    const occurrence = this.rowOccurrence(table, row, rowLabel);
+    if (occurrence == null) return [];
+    const { rowObject, cells } = tableRowObjects(context, { row: row.cells, rowIndex, rowNumber: row.rowNumber, rowLabel,
+      identity: withOccurrence(labelIdentity(rowLabel), occurrence) });
     const objects = rowObject ? [rowObject, ...cells] : cells;
     return sheet != null ? objects.map(worksheetCoordinates) : objects;
   },
 
   /**
-   * The rows and cells of large tables this folder has recorded, read again
-   * from this version of their file, so a link to one survives the file
-   * being read again. `read` are the objects the indexer read itself.
+   * Which of the table's equally named rows a stored row is, counted from its
+   * first row as the indexer counts them: 1 for the first, 2 for the second.
+   * The rows before it come from the table index under its name. A name it
+   * stores no term for is counted among the rows the indexer reads itself,
+   * which are the only ones such a row can be reached from; past those, or
+   * when too many rows share the name's term, null.
+   */
+  rowOccurrence(table, row, label) {
+    const { meta } = table;
+    const { dataStart, labelColumn } = meta.shape;
+    const base = labelIdentity(label);
+    const sameName = (other) => labelIdentity(String(other.cells[labelColumn] ?? '').trim()) === base;
+    const term = nameTerm(label);
+    if (term) {
+      const earlier = this.tables.rowsNamed(meta.id, term, dataStart, row.ordinal, MAX_NAME_MATCHES + 1);
+      return earlier.length > MAX_NAME_MATCHES ? null : earlier.filter(sameName).length + 1;
+    }
+    if (row.ordinal >= dataStart + MAX_INDEXED_TABLE_ROWS) return null;
+    return this.tables.rows(meta.id, dataStart, row.ordinal).filter(sameName).length + 1;
+  },
+
+  /** The stored row a recorded identity ("rent#2") names: the second row named "Rent", or null. */
+  namedRow(table, identity) {
+    const at = identity.lastIndexOf('#');
+    const base = at < 0 ? identity : identity.slice(0, at);
+    const occurrence = at < 0 ? 1 : Number(identity.slice(at + 1));
+    // Only a name the table index stores a term for can have been offered from it.
+    const term = /^[a-z0-9]+$/.test(base) ? nameTerm(base) : '';
+    if (!term || !Number.isInteger(occurrence) || occurrence < 1) return null;
+    const { meta } = table;
+    const { dataStart, labelColumn } = meta.shape;
+    let seen = 0;
+    for (const row of this.tables.rowsNamed(meta.id, term, dataStart, undefined, MAX_NAME_MATCHES)) {
+      if (labelIdentity(String(row.cells[labelColumn] ?? '').trim()) !== base) continue;
+      seen += 1;
+      if (seen === occurrence) return row;
+    }
+    return null;
+  },
+
+  /**
+   * The keys of a table's objects that a reading must record again when its
+   * reader does not reach them: the rows offered from the table index, and
+   * any row or cell a claim is linked to. A linked cell among the rows the
+   * indexer reads itself is pushed past them by rows inserted above it; its
+   * key still names its row, so it is found again by that name.
+   */
+  recordedTableKeys(keyPrefix) {
+    const offered = this.db.prepare('SELECT object_key FROM table_objects WHERE key_prefix = ?').all(keyPrefix);
+    // The links are few, so they are read first and their objects looked up by id.
+    const linked = this.db.prepare(`
+      SELECT DISTINCT o.object_key FROM claim_dependency_versions v CROSS JOIN scientific_objects o ON o.id = v.source_object_id
+      WHERE substr(o.object_key, 1, length(?)) = ?
+    `).all(`${keyPrefix}:`, `${keyPrefix}:`);
+    return new Set([...offered, ...linked].map((row) => row.object_key));
+  },
+
+  /**
+   * The rows and cells of large tables this folder has recorded or linked,
+   * read again from this version of their file, so a link to one survives
+   * the file being read again. `read` are the objects the indexer read
+   * itself. Recorded keys name a row by its label and occurrence; one
+   * recorded by a reader before version 9 names it by row number, and is
+   * read again under its new key, which is recorded too so later readings
+   * follow the row.
    */
   recordedTableDescriptors(file, read) {
     const tables = this.indexedTables(file);
     if (!tables.length) return [];
     const readKeys = new Set(read.map((descriptor) => descriptor.key));
-    const recorded = this.db.prepare('SELECT object_key FROM table_objects WHERE key_prefix = ?');
+    const remember = this.db.prepare('INSERT OR IGNORE INTO table_objects(key_prefix, object_key) VALUES (?, ?)');
     const output = [];
+    const group = (groups, name, key) => groups.set(name, (groups.get(name) ?? new Set()).add(key));
     for (const table of tables) {
-      const byRow = new Map();
-      for (const { object_key: key } of recorded.all(table.keyPrefix)) {
+      const byName = new Map();
+      const byNumber = new Map();
+      for (const key of this.recordedTableKeys(table.keyPrefix)) {
         if (readKeys.has(key)) continue;
-        // Keys name their row by its sheet or file row number: "row:12:ontario".
-        const rowNumber = Number(key.slice(table.keyPrefix.length + 1).match(/^(?:row|cell):(\d+):/)?.[1]);
-        if (!Number.isInteger(rowNumber)) continue;
-        if (!byRow.has(rowNumber)) byRow.set(rowNumber, new Set());
-        byRow.get(rowNumber).add(key);
+        const rest = key.slice(table.keyPrefix.length + 1);
+        // A key can read both ways; each reading below keeps only exact keys.
+        const named = LABEL_KEY.exec(rest);
+        if (named) group(byName, named[1] ?? named[2], key);
+        const numbered = ROW_NUMBER_KEY.exec(rest);
+        if (numbered) group(byNumber, Number(numbered[1]), key);
       }
-      for (const [rowNumber, keys] of byRow) {
+      const found = new Set();
+      for (const [identity, keys] of byName) {
+        const row = this.namedRow(table, identity);
+        if (!row) continue;
+        for (const descriptor of this.indexedRowObjects(table, row)) {
+          if (keys.has(descriptor.key) && !found.has(descriptor.key)) { found.add(descriptor.key); output.push(descriptor); }
+        }
+      }
+      for (const [rowNumber, keys] of byNumber) {
         const row = this.tables.rowNumbered(table.meta.id, rowNumber);
         if (!row) continue;
-        output.push(...this.indexedRowObjects(table, row).filter((descriptor) => keys.has(descriptor.key)));
+        for (const descriptor of this.indexedRowObjects(table, row)) {
+          if (!keys.has(rowNumberKey(table.keyPrefix, descriptor)) || readKeys.has(descriptor.key)) continue;
+          remember.run(table.keyPrefix, descriptor.key);
+          if (!found.has(descriptor.key)) { found.add(descriptor.key); output.push(descriptor); }
+        }
       }
     }
     return output;
@@ -140,7 +241,7 @@ export const tableReadingMethods = {
     if (this.tables.has(file.contentHash)) return { readable: true };
     const known = this.tableReadings.get(file.contentHash);
     if (known) return known;
-    const job = { ...request, contentHash: file.contentHash, blobPath: this.timeline.blobs.pathFor(file.contentHash) };
+    const job = { ...request, contentHash: file.contentHash, blobPath: this.timeline.blobs.rawPath(file.contentHash) };
     let read = yield { share: 0, offThread: (report) => this.buildTable(job, report) };
     if (!read) {
       try { read = this.tables.buildBlocking(job); }

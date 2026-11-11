@@ -515,7 +515,8 @@ extension AssistBoxView {
                 }
                 citedOutlines += drawTableRow(row, layout: layout, in: NSRect(x: 0, y: y, width: width, height: height),
                                               afterGap: layout.startsAfterGap(preview.rows, at: index),
-                                              sourceColor: sourceColor, numberMarked: numberMarked)
+                                              sourceColor: sourceColor, numberMarked: numberMarked,
+                                              previousValue: marks.cell == nil ? nil : preview.previousValue)
             }
             y += height
         }
@@ -578,7 +579,8 @@ extension AssistBoxView {
     /// Draws one row and returns the outline of its cited cell, if any, with
     /// its number in the source's colour when `numberMarked`.
     private func drawTableRow(_ row: AssistPreviewRow, layout: AssistTableLayout, in rect: NSRect,
-                              afterGap: Bool, sourceColor: NSColor, numberMarked: Bool) -> [NSRect] {
+                              afterGap: Bool, sourceColor: NSColor, numberMarked: Bool,
+                              previousValue: String? = nil) -> [NSRect] {
         let padding = AssistTableLayout.cellPadding
         let dataX = rect.minX + AssistTableLayout.rowHeaderWidth
         let cells = layout.cells(in: row)
@@ -596,9 +598,13 @@ extension AssistBoxView {
             let textRect = NSRect(x: cellRect.minX + padding, y: cellRect.minY + 7,
                                   width: cellRect.width - 2 * padding, height: cellRect.height - 12)
             if value.cited {
-                sourceColor.withAlphaComponent(0.025).setFill()
+                // A lone cited cell whose value changed is tinted more, with what it was.
+                sourceColor.withAlphaComponent(previousValue == nil ? 0.025 : 0.1).setFill()
                 cellRect.fill()
                 outlines.append(cellRect)
+            }
+            if value.cited, let previousValue {
+                drawStruckValue(previousValue, in: textRect, opposite: cell.alignment)
             }
             if value.cited && rect.height > layout.rowHeight {
                 drawMultilineText(value.value, in: textRect, font: font, color: .labelColor,
@@ -619,6 +625,21 @@ extension AssistBoxView {
         line.stroke()
         drawGridLine(x: dataX, from: rect.minY, to: rect.maxY)
         return outlines
+    }
+
+    /// A changed cell's earlier value, small and struck through, on the side its own value is not.
+    private func drawStruckValue(_ value: String, in rect: NSRect, opposite alignment: NSTextAlignment) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment == .right ? .left : .right
+        paragraph.lineBreakMode = .byTruncatingTail
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 9),
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+            .paragraphStyle: paragraph,
+        ]
+        NSAttributedString(string: value, attributes: attributes)
+            .draw(in: NSRect(x: rect.minX, y: rect.minY + 2, width: rect.width, height: 12))
     }
 
     private func drawGridLine(x: CGFloat, from top: CGFloat, to bottom: CGFloat) {

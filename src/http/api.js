@@ -4,7 +4,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { URL } from 'node:url';
 import { buildPreview } from '../history/preview.js';
 import { sendFileRange } from './file-range.js';
-import { HttpError } from '../history/errors.js';
+import { BlobReleasedError, HttpError } from '../history/errors.js';
 import { DEFAULT_EVENT_PAGE } from '../history/service.js';
 import { renderSharePage, renderUnavailable, renderInspectorPanel, renderMenuBarHome } from '../sharing/share-page.js';
 import { buildFullShareDocument, buildInspectorPreview, buildSharedExcerpt, buildSharedPassage, buildSharePreview, buildSlideShareDocument, isTextPreviewPath, usesStructuredLayout, detectsCsvDelimiter } from '../sharing/share-preview.js';
@@ -162,6 +162,17 @@ function serveStatic(publicDir, pathname, response) {
   return true;
 }
 
+/**
+ * The query naming a described object's version for the requests that follow
+ * its preview. When the preview was asked for at a snapshot, the requests
+ * that follow stay at it, since the file differs between snapshots a version
+ * spans.
+ */
+function pinnedQuery(versionId, resolved, askedSnapshotId) {
+  const version = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
+  return askedSnapshotId ? `${version}&snapshot=${encodeURIComponent(resolved.internal.snapshotId)}` : version;
+}
+
 function sourceLibraryEntry(source) {
   const { searchText, contentHash, metadata, ...object } = source;
   const drawing = source.searchAliases ? null : drawingDiscovery(source);
@@ -181,6 +192,19 @@ main{max-width:420px;margin:24px;padding:32px 30px;border-radius:18px;background
 .mark{width:44px;height:44px;margin:0 auto 14px;border-radius:50%;display:grid;place-items:center;font-size:22px;color:#fff;background:${ok ? 'var(--accent)' : 'var(--bad)'}}
 h1{margin:0 0 6px;font-size:21px;letter-spacing:-.01em}p{margin:0;color:var(--ink2)}</style></head>
 <body><main><div class="mark" aria-hidden="true">${ok ? '&#10003;' : '!'}</div><h1>${escape(title)}</h1><p>${escape(message)}</p></main></body></html>`;
+}
+
+// How many of a value's past versions a preview lists.
+const PREVIEW_HISTORY_LIMIT = 20;
+
+/** An object's value history for its preview, most recent first; empty when it has none to show. */
+function objectPreviewHistory(dependencies, objectId) {
+  try {
+    return dependencies.objectHistory(objectId, { limit: PREVIEW_HISTORY_LIMIT })
+      .map(({ value, changedAt, snapshotId, kind, cause }) => ({ value, changedAt, snapshotId, kind, cause }));
+  } catch {
+    return [];
+  }
 }
 
 export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null, workspace = null, connections = null, ranch = null) {
@@ -384,8 +408,9 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       if (request.method === 'GET' && pathname === '/inspect' && objectShares) {
         const objectId = url.searchParams.get('object');
         const versionId = url.searchParams.get('version');
+        const askedSnapshotId = url.searchParams.get('snapshot');
         const referenceId = url.searchParams.get('reference');
-        const resolved = objectShares.describe(objectId, versionId);
+        const resolved = objectShares.describe(objectId, versionId, { snapshotId: askedSnapshotId });
         if (resolved.status !== 'OK') {
           return sendHtml(response, 404, renderUnavailable('NOT_FOUND'));
         }
@@ -397,20 +422,20 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           const file = video ? null : found;
           const content = file ? timeline.blobs.get(file.contentHash) : null;
           preview = video ? dependencies.videoInspectorPreview(video, resolved.source, url.searchParams.get('time'),
-            `/api/dependency-objects/${encodeURIComponent(objectId)}/video?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`)
+            `/api/dependency-objects/${encodeURIComponent(objectId)}/video${pinnedQuery(versionId, resolved, askedSnapshotId)}`)
             : buildInspectorPreview(
             file ? { path: file.path, content } : null,
             resolved.source.anchor, resolved.source.metadata, resolved.source.label, resolved.source.objectType,
             { matchText: url.searchParams.get('text') ?? '',
               window: file ? dependencies.tableWindow(file, content, resolved.source.anchor ?? {}, { before: 6, after: 6 }) : null });
           if (preview && ['pdf', 'image'].includes(preview.kind)) {
-            const query = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
+            const query = pinnedQuery(versionId, resolved, askedSnapshotId);
             preview.fileUrl = `/api/dependency-objects/${encodeURIComponent(objectId)}/source${query}`;
           }
           // A deck shows its slides' pictures, slide n's at slidesUrl + n + slidesQuery.
           if (preview?.deck) {
             preview.slidesUrl = `/api/dependency-objects/${encodeURIComponent(objectId)}/slides/`;
-            preview.slidesQuery = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
+            preview.slidesQuery = pinnedQuery(versionId, resolved, askedSnapshotId);
           }
         } catch { preview = null; }
         preview = await resolvedModelPreview(resolved) ?? preview;
@@ -587,7 +612,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
 
       const localObjectSourceParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/source$/);
       if (request.method === 'GET' && localObjectSourceParameters && objectShares) {
-        const resolved = objectShares.describe(localObjectSourceParameters[0], url.searchParams.get('version'));
+        const resolved = objectShares.describe(localObjectSourceParameters[0], url.searchParams.get('version'),
+          { snapshotId: url.searchParams.get('snapshot') });
         if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
         const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
         const content = file ? timeline.blobs.get(file.contentHash) : null;
@@ -605,7 +631,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       const localObjectDocumentParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/document$/);
       if (request.method === 'GET' && localObjectDocumentParameters && objectShares) {
         const versionId = url.searchParams.get('version');
-        const resolved = objectShares.describe(localObjectDocumentParameters[0], versionId);
+        const askedSnapshotId = url.searchParams.get('snapshot');
+        const resolved = objectShares.describe(localObjectDocumentParameters[0], versionId, { snapshotId: askedSnapshotId });
         if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
         let document = null;
         try {
@@ -613,7 +640,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           document = buildFullShareDocument(
             file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null, { visualPdf: true });
           if (document?.kind === 'pdf') {
-            const query = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
+            const query = pinnedQuery(versionId, resolved, askedSnapshotId);
             document.fileUrl = `/api/dependency-objects/${encodeURIComponent(localObjectDocumentParameters[0])}/source${query}`;
             document.page = Math.max(1, Number(resolved.source.anchor?.pageNumber ?? resolved.source.metadata?.pageNumber) || 1);
           }
@@ -628,7 +655,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       // The pages the share composer draws on, as a marked copy will show them.
       const localPagesParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/pages$/);
       if (request.method === 'GET' && localPagesParameters && objectShares) {
-        const resolved = objectShares.describe(localPagesParameters[0], url.searchParams.get('version'));
+        const resolved = objectShares.describe(localPagesParameters[0], url.searchParams.get('version'),
+          { snapshotId: url.searchParams.get('snapshot') });
         if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
         if (!isMarkablePath(resolved.internal.filePath)) throw new HttpError(415, 'Only PDFs, Word documents and presentations can be marked up.');
         const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
@@ -647,7 +675,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       // show as it is scrolled to; the slides beside it are drawn with it.
       const localSlideParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/slides\/(\d{1,5})$/);
       if (request.method === 'GET' && localSlideParameters && objectShares) {
-        const resolved = objectShares.describe(localSlideParameters[0], url.searchParams.get('version'));
+        const resolved = objectShares.describe(localSlideParameters[0], url.searchParams.get('version'),
+          { snapshotId: url.searchParams.get('snapshot') });
         if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
         if (!isPresentationPath(resolved.internal.filePath)) throw new HttpError(415, 'Only presentations have slides.');
         const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
@@ -668,21 +697,24 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       // A linked video, in the byte ranges the inspector's player asks for.
       const localVideoParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/video$/);
       if (['GET', 'HEAD'].includes(request.method) && localVideoParameters && objectShares) {
-        const resolved = objectShares.describe(localVideoParameters[0], url.searchParams.get('version'));
+        const resolved = objectShares.describe(localVideoParameters[0], url.searchParams.get('version'),
+          { snapshotId: url.searchParams.get('snapshot') });
         if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
         const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
         if (file?.fileType !== 'video') throw new HttpError(404, 'This source is not a video.');
         const types = { '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/x-m4v' };
-        return sendFileRange(request, response, timeline.blobs.pathFor(file.contentHash),
+        return sendFileRange(request, response, timeline.blobs.rawPath(file.contentHash),
           types[path.extname(file.path).toLowerCase()] ?? 'application/octet-stream');
       }
 
       const localObjectPreviewParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/preview$/);
       if (request.method === 'GET' && localObjectPreviewParameters && objectShares) {
         const versionId = url.searchParams.get('version');
-        const resolved = objectShares.describe(localObjectPreviewParameters[0], versionId);
+        // A version spans snapshots whose files differ: the request may name the one to show.
+        const askedSnapshotId = url.searchParams.get('snapshot');
+        const resolved = objectShares.describe(localObjectPreviewParameters[0], versionId, { snapshotId: askedSnapshotId });
         if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
-        let preview = null, sharedExcerpt = null, nearbyExcerpt = null;
+        let preview = null, sharedExcerpt = null, nearbyExcerpt = null, bytesReleased = null;
         // The suggestion card scrolls, so it asks for more of the source around the citation.
         const wide = url.searchParams.get('context') === 'wide';
         const radius = wide ? ASSIST_SCROLL_TABLE_RADIUS : ASSIST_TABLE_RADIUS;
@@ -690,10 +722,12 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
           // A video plays from its own file, at the quoted moment; its bytes are not read here.
           if (file?.fileType === 'video') {
+            const absent = timeline.blobs.has(file.contentHash) ? null : timeline.blobs.absent(file.contentHash);
             return sendJson(response, 200, { source: resolved.source, path: resolved.internal.filePath,
               preview: dependencies.videoPreview(file, resolved.source, url.searchParams.get('text') ?? '',
                 dependencies.videoLocalPath(resolved.internal.snapshotId, file.path)),
-              citedPart: null, shareScopes: offeredShareScopes(resolved.internal.filePath, resolved.source.anchor) });
+              citedPart: null, shareScopes: offeredShareScopes(resolved.internal.filePath, resolved.source.anchor),
+              ...(absent instanceof BlobReleasedError ? { bytesReleased: absent.describe() } : {}) });
           }
           const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null;
           // A table too large to read here previews from the table index.
@@ -710,7 +744,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
               { matchText: url.searchParams.get('text') ?? '', ...(wide ? { context: ASSIST_TEXT_CONTEXT } : {}) });
           }
           if (preview?.kind === 'pdf') {
-            const query = `?version=${encodeURIComponent(versionId ?? resolved.internal.versionId)}`;
+            const query = pinnedQuery(versionId, resolved, askedSnapshotId);
             preview.fileUrl = `/api/dependency-objects/${encodeURIComponent(localObjectPreviewParameters[0])}/source${query}`;
           }
           // The share composer is shown the table its "Cited part only" publishes.
@@ -724,8 +758,13 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           if (preview?.deck && file) {
             slidePicture(sourceFile.content, preview.slideNumber ?? 1, file.contentHash).catch(() => {});
           }
-        } catch { preview = null; }
+        } catch (error) {
+          preview = null;
+          // An old version whose bytes retention released still has its recorded source.
+          if (error instanceof BlobReleasedError) bytesReleased = error.describe();
+        }
         preview = await resolvedModelPreview(resolved) ?? preview;
+        bytesReleased ??= preview?.bytesReleased ?? null;
         return sendJson(response, 200, {
           source: resolved.source, path: resolved.internal.filePath, preview,
           // What the share composer's "Cited part only" would publish.
@@ -733,6 +772,10 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           ...(sharedExcerpt?.rows ? { sharedExcerpt } : {}),
           ...(nearbyExcerpt ? { nearbyExcerpt } : {}),
           shareScopes: offeredShareScopes(resolved.internal.filePath, resolved.source.anchor),
+          // Said plainly when the original file of this version was not kept.
+          ...(bytesReleased ? { bytesReleased } : {}),
+          // The value's past versions, most recent first, read only for previews.
+          history: objectPreviewHistory(dependencies, localObjectPreviewParameters[0]),
         });
       }
 
@@ -1010,6 +1053,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
             projectId: parameters[0],
             objectId: body.objectId,
             versionId: body.versionId ?? null,
+            snapshotId: typeof body.snapshotId === 'string' ? body.snapshotId : null,
             actor: actorFrom(body),
             expiresAt: body.expiresAt ?? null,
             accessScope: body.accessScope ?? 'DOCUMENT',

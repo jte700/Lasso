@@ -94,6 +94,30 @@ struct RanchHistoryEntry: Decodable, Identifiable, Equatable {
     let previousPath: String?
     let fileId: String?
     let fileCount: Int?
+    /// The values an edit changed, when it changed any the index reads.
+    var valueChanges: RanchValueChanges? = nil
+
+    /// The caption of an edit that changed values: "Q3 Total 18,400 → 19,250"
+    /// for one, "4 values changed · Finance" for several; nil otherwise.
+    func valueCaption(directory: String) -> String? {
+        guard change == "edited", let changes = valueChanges, changes.count > 0 else { return nil }
+        if changes.count == 1, let first = changes.first, let before = first.before, let after = first.after {
+            let label = first.label.map { "\($0) " } ?? ""
+            return "\(label)\(before) \u{2192} \(after)"
+        }
+        return "\(changes.count) values changed \u{00B7} \(directory)"
+    }
+}
+
+/// How many values one edit changed, and the first of them.
+struct RanchValueChanges: Decodable, Equatable {
+    struct Change: Decodable, Equatable {
+        let label: String?
+        let before: String?
+        let after: String?
+    }
+    let count: Int
+    let first: Change?
 }
 
 struct RanchOutgoingLink: Decodable, Identifiable, Equatable {
@@ -143,8 +167,20 @@ struct RanchReviewItem: Decodable, Identifiable, Equatable {
     let detail: String
     /// The links behind a changed, missing or unverified source, one per document passage.
     var links: [RanchReviewLink] = []
+    /// For a changed link or a drifted share: the value then and now, and the claim it backs.
+    var before: String? = nil
+    var after: String? = nil
+    var claim: String? = nil
 
-    private enum Keys: String, CodingKey { case id, kind, title, directoryId, path, fileId, documents, detail, links }
+    private enum Keys: String, CodingKey { case id, kind, title, directoryId, path, fileId, documents, detail, links, before, after, claim }
+
+    /// "18,400 → 19,250 · “Payroll came to 18,400”", or nil when the item names no change of value.
+    var valueChangeLine: String? {
+        guard let before, let after, before != after else { return nil }
+        let change = "\(before) \u{2192} \(after)"
+        guard let claim = claim?.trimmingCharacters(in: .whitespacesAndNewlines), !claim.isEmpty else { return change }
+        return "\(change) \u{00B7} \u{201C}\(claim)\u{201D}"
+    }
 
     init(id: String, kind: String, title: String, directoryId: String, path: String?, fileId: String?,
          documents: [String], detail: String, links: [RanchReviewLink] = []) {
@@ -171,6 +207,9 @@ struct RanchReviewItem: Decodable, Identifiable, Equatable {
         detail = try container.decode(String.self, forKey: .detail)
         // Older servers send none; links that don't read leave the item as it was.
         links = (try? container.decode([RanchReviewLink].self, forKey: .links)) ?? []
+        before = try? container.decodeIfPresent(String.self, forKey: .before)
+        after = try? container.decodeIfPresent(String.self, forKey: .after)
+        claim = try? container.decodeIfPresent(String.self, forKey: .claim)
     }
 }
 

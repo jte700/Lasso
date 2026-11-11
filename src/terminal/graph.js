@@ -13,6 +13,7 @@ import { Worker } from 'node:worker_threads';
 import { json } from '../db.js';
 import { BoundedCache } from '../cache.js';
 import { parseDelimited } from '../history/diff.js';
+import { BlobReleasedError } from '../history/errors.js';
 import { runSliced, runSync } from '../history/work.js';
 import { NEWEST_VERSION, readChangedObjects } from './changed-objects.js';
 import { extractSpreadsheetTables } from '../dependencies/document-extraction.js';
@@ -1367,6 +1368,11 @@ export class DependencyGraph {
       locator: object.locator ?? sourceLocator(object),
     };
     const anchor = object.anchor ?? {};
+    // An old version whose bytes retention released previews as its recorded value.
+    const absent = this.timeline.blobs.has(file.contentHash) ? null : this.timeline.blobs.absent(file.contentHash);
+    if (absent instanceof BlobReleasedError && !object.metadata?.drawing) {
+      return { kind: 'meta', ...header, value: object.valueText ?? null, objectType: object.objectType, bytesReleased: absent.describe() };
+    }
 
     if (['table', 'spreadsheet'].includes(file.fileType) && ['table-cell', 'table-row', 'table-column', 'table-summary'].includes(anchor.kind)) {
       const table = this.tablePreview(file, object, radius);

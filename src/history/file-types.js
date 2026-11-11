@@ -71,6 +71,16 @@ export function isTextualType(type) {
   return new Set(['notebook', 'markdown', 'table', 'json', 'yaml', 'code', 'text']).has(type);
 }
 
+/**
+ * Kinds of file whose stored bytes are compressed: plain text of every sort.
+ * Workbooks, Word files, decks, PDFs, pictures and video are compressed
+ * already. Drawings are stored as they are: the kind mixes binary CAD
+ * formats with text ones.
+ */
+export function isCompressibleType(type) {
+  return isTextualType(type) || type === 'xml';
+}
+
 // Files that appear while another app works and vanish again: Office owner
 // files (~$Budget.xlsx), LibreOffice locks, partial downloads, and system
 // metadata such as AppleDouble (._) files on external drives. Tracking them
