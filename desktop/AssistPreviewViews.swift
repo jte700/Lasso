@@ -15,7 +15,9 @@ final class AssistTextPreviewView: AssistSlimScrollView {
     private var showsCitation = true
 
     /// `words` are the typed words the source has, marked inside the cited passage.
-    init(blocks: [AssistTextBlock], accent: NSColor, wraps: Bool, baseSize: CGFloat = 10.5, marking words: [String] = []) {
+    /// `passageChange` is the cited passage's text before and after its latest change; its new words are marked.
+    init(blocks: [AssistTextBlock], accent: NSColor, wraps: Bool, baseSize: CGFloat = 10.5, marking words: [String] = [],
+         passageChange: (before: String, after: String)? = nil) {
         // TextKit 1, whose line fragments the highlights are drawn behind.
         let storage = NSTextStorage()
         let layout = NSLayoutManager()
@@ -41,7 +43,7 @@ final class AssistTextPreviewView: AssistSlimScrollView {
 
         // In the scroll view before it has text, so it grows down from the top.
         documentView = textView
-        let content = AssistPreviewText(blocks: blocks, baseSize: baseSize, marking: words)
+        let content = AssistPreviewText(blocks: blocks, baseSize: baseSize, marking: words, passageChange: passageChange)
         storage.setAttributedString(content.text)
         textView.decorations = content.decorations
         textView.setSelectedRange(NSRange(location: 0, length: 0))
@@ -86,7 +88,8 @@ struct AssistPreviewText {
     let text: NSAttributedString
     let decorations: [AssistPreviewTextView.Decoration]
 
-    init(blocks: [AssistTextBlock], baseSize: CGFloat, marking words: [String] = []) {
+    init(blocks: [AssistTextBlock], baseSize: CGFloat, marking words: [String] = [],
+         passageChange: (before: String, after: String)? = nil) {
         let result = NSMutableAttributedString()
         var decorations: [AssistPreviewTextView.Decoration] = []
         for (index, block) in blocks.enumerated() {
@@ -111,6 +114,15 @@ struct AssistPreviewText {
         for range in PreviewWordMarks.ranges(of: words, in: result.string, within: cited) {
             decorations.append(.init(kind: .matched, range: range))
         }
+        // Words new since the passage's previous version, numbers and dates most,
+        // found where the passage sits in its cited block; nothing when it is not there.
+        if let passageChange, let block = cited.first {
+            let within = (result.string as NSString).range(of: passageChange.after, options: [], range: block)
+            for change in within.location == NSNotFound ? [] : PassageWordDiff.changes(from: passageChange.before, to: passageChange.after) {
+                let range = NSRange(location: within.location + change.range.location, length: change.range.length)
+                decorations.append(.init(kind: .changed(emphasized: change.emphasized), range: range))
+            }
+        }
         text = result
         self.decorations = decorations
     }
@@ -130,7 +142,7 @@ struct AssistPreviewText {
 /// Markdown blocks marked behind it as the card always drew them.
 final class AssistPreviewTextView: NSTextView {
     struct Decoration {
-        enum Kind { case cited(line: Bool), matched, code, quote, rule }
+        enum Kind { case cited(line: Bool), matched, changed(emphasized: Bool), code, quote, rule }
         let kind: Kind
         let range: NSRange
     }
@@ -156,6 +168,12 @@ final class AssistPreviewTextView: NSTextView {
                 NSBezierPath(roundedRect: word.insetBy(dx: -1.5, dy: -0.5), xRadius: 3, yRadius: 3).fill()
                 continue
             }
+            if case .changed(let emphasized) = decoration.kind {
+                guard let word = wordFrame(of: decoration.range), word.intersects(rect) else { continue }
+                NSColor.systemOrange.withAlphaComponent(emphasized ? 0.32 : 0.16).setFill()
+                NSBezierPath(roundedRect: word.insetBy(dx: -1.5, dy: -0.5), xRadius: 3, yRadius: 3).fill()
+                continue
+            }
             guard let frame = frame(of: decoration.range), frame.intersects(rect.insetBy(dx: -8, dy: -8)) else { continue }
             switch decoration.kind {
             case .cited(let line):
@@ -173,7 +191,7 @@ final class AssistPreviewTextView: NSTextView {
             case .rule:
                 NSColor.separatorColor.setFill()
                 NSRect(x: frame.minX, y: frame.midY, width: frame.width, height: 1).fill()
-            case .matched:
+            case .matched, .changed:
                 break
             }
         }

@@ -4707,5 +4707,18 @@ do {
     check(older?.valueHistory == [], "a preview from an older server has no history")
 }
 
+// A cited passage marks the words that are new since its previous version.
+do {
+    let before = "Revenue rose to 18,400 in March."
+    let after = "Revenue rose to 19,250 in April, as forecast."
+    let changes = PassageWordDiff.changes(from: before, to: after)
+    let words = changes.map { (after as NSString).substring(with: $0.range) }
+    check(words == ["19,250", "April", "as", "forecast"], "only the words new since the previous version are marked")
+    check(changes.first?.emphasized == true && changes.last?.emphasized == false, "a changed number is marked more strongly than a word")
+    check(PassageWordDiff.changes(from: after, to: after).isEmpty, "an unchanged passage marks nothing")
+    let long = Array(repeating: "word", count: PassageWordDiff.maxWords + 1).joined(separator: " ")
+    check(PassageWordDiff.changes(from: long, to: long + " more").isEmpty, "a passage past the limit is not compared")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)
