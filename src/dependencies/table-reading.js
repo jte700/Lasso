@@ -76,8 +76,9 @@ export const tableReadingMethods = {
     if (!rowLabel) return [];
     const occurrence = this.rowOccurrence(table, row, rowLabel);
     if (occurrence == null) return [];
-    const { rowObject, cells } = tableRowObjects(context, { row: row.cells, rowIndex, rowNumber: row.rowNumber, rowLabel,
-      identity: withOccurrence(labelIdentity(rowLabel), occurrence) });
+    const formulaCells = row.formulas?.length ? new Map([[row.rowNumber, new Set(row.formulas)]]) : null;
+    const { rowObject, cells } = tableRowObjects({ ...context, formulaCells }, { row: row.cells, rowIndex, rowNumber: row.rowNumber,
+      rowLabel, identity: withOccurrence(labelIdentity(rowLabel), occurrence) });
     const objects = rowObject ? [rowObject, ...cells] : cells;
     return sheet != null ? objects.map(worksheetCoordinates) : objects;
   },
@@ -280,8 +281,9 @@ export const tableReadingMethods = {
     };
     if (sheet != null) {
       const layout = spreadsheetLayout({ name: sheet, rows: stored.map((row) => row.cells), rowNumbers: stored.map((row) => row.rowNumber) });
+      const formulaCells = new Map(stored.filter((row) => row.formulas?.length).map((row) => [row.rowNumber, new Set(row.formulas)]));
       return objectsFromTabular(file, fileName, layout.headers, layout.rows, {
-        format, sheet, ...layout, rowOffset: layout.headerRowIndex + 1, ...(window ? { window } : {}),
+        format, sheet, ...layout, rowOffset: layout.headerRowIndex + 1, formulaCells, ...(window ? { window } : {}),
       });
     }
     // A delimited file's blank lines are not stored; its rows keep their places.

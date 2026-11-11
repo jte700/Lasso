@@ -60,7 +60,8 @@ export function workbook(sheetName, rows) {
 /**
  * A deflated workbook with `rows` data rows under a header, as large as a
  * real export: `cells(row)` gives each row's cells from column A. Shared
- * strings hold the text, as Excel writes it.
+ * strings hold the text, as Excel writes it. A cell given as
+ * { formula, value } is written as a formula with its cached value.
  */
 export function largeWorkbook(sheetName, header, rows, cells) {
   const strings = [];
@@ -73,6 +74,7 @@ export function largeWorkbook(sheetName, header, rows, cells) {
   const cell = (value, rowNumber, columnIndex) => {
     const reference = `${column(columnIndex)}${rowNumber}`;
     if (value === '' || value == null) return '';
+    if (value.formula) return `<c r="${reference}"><f>${value.formula}</f><v>${value.value}</v></c>`;
     return typeof value === 'number' ? `<c r="${reference}"><v>${value}</v></c>`
       : `<c r="${reference}" t="s"><v>${shared(String(value))}</v></c>`;
   };

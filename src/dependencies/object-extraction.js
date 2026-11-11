@@ -151,7 +151,7 @@ export const objectExtractionMethods = {
           if (signature && !sheetObjects.deep) this.sheetObjectCache.set(sheetCacheKey(file, signature), sheetObjects);
           if (sheetObjects.deep) {
             this.indexTableRows(file.contentHash, { sheet: sheet.name, position, rows: sheet.rows,
-              rowNumbers: sheet.rowNumbers, displayRows: sheet.displayRows, merges: sheet.merges });
+              rowNumbers: sheet.rowNumbers, displayRows: sheet.displayRows, merges: sheet.merges, formulas: sheet.formulas });
           }
         }
       }

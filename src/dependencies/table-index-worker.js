@@ -20,9 +20,9 @@ async function readWorkbook(db) {
       writer?.abandon();
       writer = new TableWriter(db, contentHash, name, position++);
     },
-    onRows(rows, rowNumbers, displayRows) {
+    onRows(rows, rowNumbers, displayRows, formulas) {
       writer.add(rows.map((cells, index) => ({ rowNumber: rowNumbers[index], cells,
-        display: displayRows[index] ? { ...displayRows[index] } : null })));
+        display: displayRows[index] ? { ...displayRows[index] } : null, formulas: formulas?.get(rowNumbers[index]) ?? null })));
     },
     onSheetEnd({ merges }) {
       writer.finish({ merges });

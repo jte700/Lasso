@@ -22,7 +22,8 @@ const TEXT_EXTENSIONS = new Set(['.txt', '.bib', '.ris', '.enw', '.nbib']);
 export const READERS = Object.freeze([
   { id: 'video', version: 1, extract: 'video', accepts: (file) => file.fileType === 'video' },
   // 2: worksheet cells that hold a formula say so (metadata.formula).
-  { id: 'table', version: 2, extract: 'table', accepts: (file) => ['table', 'spreadsheet'].includes(file.fileType) },
+  // 3: so do those of sheets too large to read at once, answered by the table index.
+  { id: 'table', version: 3, extract: 'table', accepts: (file) => ['table', 'spreadsheet'].includes(file.fileType) },
   // A PDF is read as a drawing when its pages are drawings, otherwise as a paper.
   { id: 'pdf', version: 1, extract: 'file', accepts: (file) => file.fileType === 'pdf' },
   { id: 'design', version: 1, extract: 'file', accepts: (file) => isDesignFile(file) },

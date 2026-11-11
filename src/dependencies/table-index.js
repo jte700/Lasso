@@ -21,7 +21,8 @@ export { openTableDatabase } from './table-storage.js';
 // history, and is rebuilt from the file if it is missing.
 
 // Bumped when what the index stores for the same bytes changes.
-export const TABLE_INDEX_VERSION = 2;
+// 3: rows record which of their cells hold a formula (formula_columns).
+export const TABLE_INDEX_VERSION = 3;
 // The rows the indexer reads a table's shape from, as objectsFromTabular does.
 export const SHAPE_ROWS = 1_000;
 // The last rows of a table, kept for the notes written under it.
@@ -104,7 +105,8 @@ export class TableWriter {
   }
 
   /**
-   * `rows` are { rowNumber, cells, display }. A delimited file passes its
+   * `rows` are { rowNumber, cells, display, formulas }, where `formulas` are the
+   * columns that hold a formula. A delimited file passes its
    * blank lines too, as `blank: true`, so its header is found as the indexer
    * finds it; they are not stored.
    */
@@ -149,9 +151,11 @@ export class TableWriter {
     const { dataStart, labelColumn, searchable } = this.shape;
     const cellsJson = JSON.stringify(row.cells);
     const displayJson = row.display && Object.keys(row.display).length ? JSON.stringify(row.display) : null;
-    const { key, cut } = contentKey(`${TABLE_INDEX_VERSION}\u0000${cellsJson}\u0000${displayJson ?? ''}`);
+    const formulaJson = row.formulas?.size || row.formulas?.length
+      ? JSON.stringify([...row.formulas].sort((left, right) => left - right)) : null;
+    const { key, cut } = contentKey(`${TABLE_INDEX_VERSION}\u0000${cellsJson}\u0000${displayJson ?? ''}\u0000${formulaJson ?? ''}`);
     const named = searchable && row.ordinal >= dataStart && Number.isInteger(labelColumn);
-    return { ordinal: row.ordinal, rowNumber: row.rowNumber, cellsJson, displayJson, key, cut,
+    return { ordinal: row.ordinal, rowNumber: row.rowNumber, cellsJson, displayJson, formulaJson, key, cut,
       termColumn: named ? labelColumn : null, label: named ? row.cells[labelColumn] : null };
   }
 
@@ -203,12 +207,14 @@ export class TableWriter {
 }
 
 /** Writes rows read in memory, as streamed rows are written. */
-export function writeTable(db, contentHash, { sheet = null, position = 0, rows, rowNumbers, displayRows = [], merges = [] }) {
+export function writeTable(db, contentHash, { sheet = null, position = 0, rows, rowNumbers, displayRows = [], merges = [],
+  formulas = null }) {
   const writer = new TableWriter(db, contentHash, sheet, position);
   try {
     writer.add(rows.map((cells, index) => {
       const blank = sheet == null && !cells.some((cell) => String(cell ?? '').trim());
-      return { rowNumber: rowNumbers[index], cells, display: displayRows[index] ? { ...displayRows[index] } : null, blank };
+      return { rowNumber: rowNumbers[index], cells, display: displayRows[index] ? { ...displayRows[index] } : null, blank,
+        formulas: formulas?.get(rowNumbers[index]) ?? null };
     }));
     return writer.finish({ merges });
   } catch (error) {
@@ -218,7 +224,9 @@ export function writeTable(db, contentHash, { sheet = null, position = 0, rows, 
 }
 
 const parse = (body, place, map) => ({ ordinal: map.ordinals[place], rowNumber: map.rowNumbers[place],
-  cells: JSON.parse(body.cells_json), display: body.display_json ? JSON.parse(body.display_json) : null });
+  cells: JSON.parse(body.cells_json), display: body.display_json ? JSON.parse(body.display_json) : null,
+  // Only a row with a formula says which of its cells hold one.
+  ...(body.formula_columns ? { formulas: JSON.parse(body.formula_columns) } : {}) });
 
 /** Reads the table index; builds of large files run in a worker. */
 export class TableIndex {
@@ -237,8 +245,8 @@ export class TableIndex {
       mapTable: this.db.prepare('SELECT content_hash, complete, shape_json FROM tables WHERE id = ?'),
       mapParts: this.db.prepare(`SELECT p.first_ordinal, p.first_row_number, c.row_count, c.entries FROM table_parts p
         JOIN table_chunks c ON c.id = p.chunk_id WHERE p.table_id = ? ORDER BY p.first_ordinal`),
-      body: this.db.prepare('SELECT id, cells_json, display_json FROM table_row_bodies WHERE id = ?'),
-      bodies: this.db.prepare('SELECT id, cells_json, display_json FROM table_row_bodies WHERE id IN (SELECT value FROM json_each(?))'),
+      body: this.db.prepare('SELECT id, cells_json, display_json, formula_columns FROM table_row_bodies WHERE id = ?'),
+      bodies: this.db.prepare('SELECT id, cells_json, display_json, formula_columns FROM table_row_bodies WHERE id IN (SELECT value FROM json_each(?))'),
       search: this.db.prepare(`SELECT term, row_id FROM table_row_terms
         WHERE label_column = ? AND term >= ? AND term < ? ORDER BY term, row_id LIMIT ?`),
       named: this.db.prepare('SELECT row_id FROM table_row_terms WHERE label_column = ? AND term = ? LIMIT ?'),

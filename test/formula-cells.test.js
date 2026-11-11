@@ -77,3 +77,30 @@ test('A formula written with a namespace prefix is still a formula', async (t) =
   assert.equal(cell('Total · Amount')?.metadata.formula, true);
   assert.equal(cell('Rent · Amount')?.metadata.formula, undefined);
 });
+
+test('A formula cell of a sheet too large to read at once says so too', async (t) => {
+  // Arrange: past the 5 MB the in-memory reader holds, so the table index answers for it.
+  const { largeWorkbook } = await import('./fixtures/workbook.js');
+  const rows = 50_000;
+  const book = largeWorkbook('Ledger', ['Account', 'Amount', 'Doubled'], rows,
+    (row) => [`Account ${row}`, row, { formula: `B${row + 2}*2`, value: row * 2 }]);
+  const sandbox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-formulas-large-')));
+  const root = path.join(sandbox, 'Ledger');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'ledger.xlsx'), book);
+  const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
+  t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+
+  // Act
+  const [{ id }] = (await app.workspace.add([root], actor)).directories;
+  const head = app.dependencies.objectsAt(id).find((object) => object.label === 'Account 3 · Doubled');
+  const [row] = app.dependencies.candidatesForStudyVariable(id, { text: 'Account 40000' });
+  const [table] = app.dependencies.snapshotTables(id, row.snapshotId);
+  const stored = app.dependencies.tables.rowNumbered(table.meta.id, row.anchor.rowIndex);
+  const deep = app.dependencies.indexedRowObjects(table, stored);
+
+  // Assert
+  assert.equal(head?.metadata.formula, true, 'a formula among the first rows says so');
+  assert.equal(deep.find((object) => object.metadata.column === 'Doubled')?.metadata.formula, true, 'so does a deep one');
+  assert.equal(deep.find((object) => object.metadata.column === 'Amount')?.metadata.formula, undefined);
+});

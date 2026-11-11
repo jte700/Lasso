@@ -1139,7 +1139,8 @@ const STREAM_PIECE_BYTES = 1024 * 1024;
  * Reads a workbook's worksheets a batch of rows at a time, holding one batch
  * in memory, so a sheet of any size can be read. The values are the ones
  * extractSpreadsheetTables reads. Calls `onSheet(name)` as each sheet starts,
- * `onRows(rows, rowNumbers, displayRows)` for each batch, `onSheetEnd({ merges })`
+ * `onRows(rows, rowNumbers, displayRows, formulas)` for each batch, where
+ * `formulas` maps a row number to the columns that hold a formula, `onSheetEnd({ merges })`
  * after its last, and `onProgress(share)` with the share of the workbook's
  * compressed sheets read so far. Resolves with the sheets read and skipped,
  * or null for a file that is not a readable .xlsx.
@@ -1161,7 +1162,7 @@ export async function streamSpreadsheetRows(buffer, { onSheet, onRows, onSheetEn
     const started = consumed;
     try {
       onSheet(descriptor.name);
-      const state = { fallbackRow: 1 };
+      const state = { fallbackRow: 1, formulas: new Map() };
       let pending = '';
       const advance = (bytes) => {
         consumed += bytes;
@@ -1176,7 +1177,8 @@ export async function streamSpreadsheetRows(buffer, { onSheet, onRows, onSheetEn
         const rowNumbers = [];
         const displayRows = [];
         const rows = spreadsheetRows(complete, parts.shared, rowNumbers, parts.formats, displayRows, state);
-        if (rows.length) onRows(rows, rowNumbers, displayRows);
+        if (rows.length) onRows(rows, rowNumbers, displayRows, state.formulas);
+        state.formulas = new Map();
       };
       const pieces = function* () {
         for (let offset = 0; offset < data.compressed.length; offset += STREAM_PIECE_BYTES) {
