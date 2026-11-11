@@ -200,3 +200,48 @@ test('a Word document is read a paragraph per line, and an index from before Wor
     [5, 'Flow returned to 42 litres per minute by the afternoon.']]);
   assert.deepEqual(cited(upgraded), cited(indexed), 'an index from before version 6 reads Word passages on upgrade');
 });
+
+test('a long sentence with no full stop is still located in its source', () => {
+  // Arrange
+  const run = Array.from({ length: 3000 }, (_, index) => `gauge${index} reading and`).join('\n');
+  const text = `${run}.\n\nThe pump at station four was replaced on Tuesday.\n`;
+
+  // Act
+  const passages = markdownPassages(text, { plain: true });
+
+  // Assert
+  const pump = passages.find((passage) => passage.selectedText.startsWith('The pump'));
+  assert.ok(pump, 'the sentence after the long run is a passage');
+  assert.equal(text.slice(pump.start, pump.end), 'The pump at station four was replaced on Tuesday.');
+});
+
+test('passages of one long paragraph are found in time and keep their exact offsets', () => {
+  // Arrange
+  const lines = Array.from({ length: 20000 }, (_, index) => `Reading ${index} at the north gauge measured ${index * 3} units.`);
+  const text = lines.join('\n');
+
+  // Act
+  const started = Date.now();
+  const passages = markdownPassages(text, { plain: true });
+  const elapsed = Date.now() - started;
+
+  // Assert
+  assert.ok(elapsed < 3000, `20,000 lines took ${elapsed} ms`);
+  assert.equal(passages.length, 2000, 'passages stop at the limit');
+  const sentences = passages.filter((passage) => passage.excerptType === 'sentence');
+  for (const sentence of sentences.slice(0, 50)) assert.equal(text.slice(sentence.start, sentence.end), sentence.selectedText);
+  assert.deepEqual([sentences[7].lineStart, sentences[7].lineEnd], [8, 8]);
+});
+
+test('a located sentence may start inside a longer word, as written in the source', () => {
+  // Arrange: the readable form drops the link target, which leaves "logconfirms" glued in the source.
+  const text = 'The [sensor log](https://example.com)confirms the trend today.';
+
+  // Act
+  const [passage] = markdownPassages(text);
+
+  // Assert
+  assert.equal(passage.selectedText, 'The sensor logconfirms the trend today.');
+  assert.equal(passage.start, 0);
+  assert.equal(passage.end, text.length);
+});
