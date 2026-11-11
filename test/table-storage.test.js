@@ -332,7 +332,10 @@ test('Old tables are removed after a capture without being asked', async (t) => 
   for (let edit = 1; edit <= 4; edit += 1) {
     save(app, id, folder, wardCsv({ changed: (row) => (row === edit * 500 ? `Hospital ward ${row},${edit},0` : null) }));
   }
-  for (let turn = 0; turn < 200 && app.dependencies.tables.has(first); turn += 1) {
+  // Cleanup runs one more batch after its last removal to find nothing left,
+  // so wait for that too rather than only for the table to go.
+  const cleaning = () => app.dependencies.tables.has(first) || app.dependencies.tableCleanupTimer !== null;
+  for (let turn = 0; turn < 200 && cleaning(); turn += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 
