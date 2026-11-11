@@ -771,6 +771,8 @@ function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null, for
       row[column] = cleanText(value, 2_000);
       // Which cells hold a formula, by sheet row, so a value that changed with
       // its inputs can be told from one typed over.
+      // Each number cell's format code, by sheet row, when asked for (spreadsheetCellFormats).
+      if (state.formatCodes && numeric && format && raw.trim()) state.formatCodes.set(`${rowNumber}\u0000${column}`, format);
       if (state.formulas && FORMULA_ELEMENT.test(cell.content)) {
         if (!state.formulas.has(rowNumber)) state.formulas.set(rowNumber, new Set());
         state.formulas.get(rowNumber).add(column);
@@ -1210,6 +1212,31 @@ export async function streamSpreadsheetRows(buffer, { onSheet, onRows, onSheetEn
     }
   }
   return { sheets: read, skipped };
+}
+
+/**
+ * The number format code of each number cell of a workbook's sheets, keyed
+ * "sheet\0row\0column" by sheet row number and column from 0, so a stored value
+ * can be shown as its cell shows it. Null for a workbook read only in pieces
+ * (isLargeSpreadsheet), an .xls, or anything unreadable.
+ */
+export function spreadsheetCellFormats(buffer) {
+  try {
+    if (buffer.subarray(0, 8).equals(COMPOUND_SIGNATURE) || isLargeSpreadsheet(buffer)) return null;
+    const parts = workbookParts(buffer);
+    if (!parts?.formats) return null;
+    const codes = new Map();
+    for (const descriptor of parts.descriptors.slice(0, MAX_WORKBOOK_SHEETS)) {
+      const source = zipEntry(buffer, descriptor.entry)?.toString('utf8');
+      if (!source) continue;
+      const state = { fallbackRow: 1, formatCodes: new Map() };
+      spreadsheetRows(source, parts.shared, null, parts.formats, null, state);
+      for (const [cell, code] of state.formatCodes) codes.set(`${descriptor.name}\u0000${cell}`, code);
+    }
+    return codes;
+  } catch {
+    return null;
+  }
 }
 
 /** A workbook's sheets; with `only`, just the sheets of those names. */

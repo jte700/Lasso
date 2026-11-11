@@ -4669,6 +4669,13 @@ do {
           "an unknown kind of change is ignored")
     check(AssistValueChange(json: nil) == nil && AssistValueChange(json: ["kind": "edited"]) == nil,
           "a suggestion without a change, or with an incomplete one, has none")
+    let sheet = AssistValueChange(json: ["kind": "edited", "previousValue": "18400", "currentValue": "19250",
+                                         "previousDisplay": "18,400", "currentDisplay": "19,250"])
+    check(sheet?.detail(replacing: "19250") == "19,250 · was 18,400", "a worksheet value reads as the sheet formats it")
+    let typedSheet = AssistValueChange(json: ["kind": "stale-typed", "previousValue": "18400", "currentValue": "19250", "previousDisplay": "18,400"])
+    check(typedSheet?.detail(replacing: "19250") == "changed from 18,400", "so does a typed earlier worksheet value")
+    let written = AssistValueChange(json: ["kind": "edited", "previousValue": "18400", "currentValue": "19250"])
+    check(written?.detail(replacing: "19250") == "19250 · was 18400", "a CSV value reads as written")
 }
 
 // The Ranch's Recent Changes name the value an edit changed.
@@ -4680,6 +4687,8 @@ do {
     check(one?.valueCaption(directory: "Finance") == "Q3 Total 18,400 \u{2192} 19,250", "one changed value reads as its label, old and new value")
     let several = entry(#"{"id":"c2","directoryId":"d","change":"edited","path":"budget.xlsx","valueChanges":{"count":4,"first":{"label":"Q3 Total","before":"1","after":"2"}}}"#)
     check(several?.valueCaption(directory: "Finance") == "4 values changed \u{00B7} Finance", "several changed values are counted")
+    let formatted = entry(#"{"id":"c4","directoryId":"d","change":"edited","path":"budget.xlsx","valueChanges":{"count":1,"first":{"label":"Payroll","before":"18400","after":"19250","beforeDisplay":"18,400","afterDisplay":"19,250"}}}"#)
+    check(formatted?.valueCaption(directory: "Finance") == "Payroll 18,400 \u{2192} 19,250", "a worksheet value's caption reads as the sheet formats it")
     let plain = entry(#"{"id":"c3","directoryId":"d","change":"edited","path":"notes.md"}"#)
     check(plain != nil && plain?.valueCaption(directory: "Finance") == nil, "an edit from an older server, or with no value changes, keeps its caption")
 }
@@ -4690,6 +4699,8 @@ do {
     let changed = item(#"{"id":"r1","kind":"changed","title":"Linked value changed","directoryId":"d","documents":["memo.md"],"detail":"x","before":"18,400","after":"19,250","claim":"Payroll came to 18,400"}"#)
     check(changed?.valueChangeLine == "18,400 \u{2192} 19,250 \u{00B7} \u{201C}Payroll came to 18,400\u{201D}",
           "a changed link reads as old to new value and its claim")
+    let shown = item(#"{"id":"r3","kind":"changed","title":"Linked value changed","directoryId":"d","documents":["memo.md"],"detail":"x","before":"18400","after":"19250","beforeDisplay":"18,400","afterDisplay":"19,250"}"#)
+    check(shown?.valueChangeLine == "18,400 \u{2192} 19,250", "a worksheet value's review line reads as the sheet formats it")
     let older = item(#"{"id":"r2","kind":"changed","title":"Linked value changed","directoryId":"d","documents":[],"detail":"x"}"#)
     check(older != nil && older?.valueChangeLine == nil, "an item from an older server reads as before")
 }
@@ -4742,6 +4753,8 @@ do {
     check(cells[RanchCellKey(row: 2, column: 1)]?.hoverText(date: { _ in "Nov 10, 3:04 PM" }) == "was 18,400 \u{00B7} Nov 10, 3:04 PM",
           "hovering a changed cell says what it was and when")
     check(book?.versions?.map(\.snapshotId) == ["s2", "s1"], "the file's versions are listed newest first")
+    let stored = try? JSONDecoder().decode(RanchCellChange.self, from: Data(#"{"sheet":"Budget","row":3,"column":1,"before":"18400","after":"19250","changedAt":null,"beforeDisplay":"18,400"}"#.utf8))
+    check(stored?.hoverText(date: { _ in "" }) == "was 18,400", "a changed cell's hover names its earlier value as the sheet shows it")
     let older = try? JSONDecoder().decode(RanchWorkbook.self, from: Data(#"{"sheets":[],"skipped":[]}"#.utf8))
     check(older != nil && older?.changedCells(onSheet: 0).isEmpty == true && older?.versions == nil, "a workbook from an older server reads as before")
     let kept = try? JSONDecoder().decode(RanchFileVersion.self, from: Data(#"{"snapshotId":"s1","at":null,"available":false}"#.utf8))

@@ -19,6 +19,7 @@ import { documentEditingMethods } from './document-editing.js';
 import { indexLifecycleMethods } from './index-lifecycle.js';
 import { indexSummaryMethods } from './index-summaries.js';
 import { valueChangeMethods } from './value-changes.js';
+import { cellDisplayMethods } from './cell-display.js';
 import { linkedContextMethods } from './linked-context.js';
 import { linkedFieldsMethods } from './linked-fields.js';
 import { linkedValuesMethods } from './linked-values.js';
@@ -151,6 +152,7 @@ export class PredictiveProvenanceService {
     this.ranking.close();
     for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache,
       this.objectCache, this.typedObjectCache, this.extractionCache, this.sheetObjectCache, this.slideReadingCache,
+      ...(this.cellFormatCache ? [this.cellFormatCache] : []),
       this.sourceTextCache, this.figurePreviewCache,
       this.indexedHere, this.tableReadings, this.snapshotTableCache, this.deepObjects, this.transcriptCache]) cache.clear();
     this.tables.close();
@@ -250,6 +252,7 @@ installMethods(PredictiveProvenanceService.prototype,
   indexLifecycleMethods,
   indexSummaryMethods,
   valueChangeMethods,
+  cellDisplayMethods,
   objectExtractionMethods,
   tableReadingMethods,
   tableRetentionMethods,

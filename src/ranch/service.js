@@ -47,6 +47,19 @@ export class RanchService {
     this.texts = new BoundedCache({ maxEntries: 50_000 });
     // Creation dates per directory version; reading them stats every file.
     this.births = new BoundedCache({ maxEntries: 64 });
+    /**
+     * How a directory's current copy of a worksheet shows `value` in the cell
+     * `anchor` names ("18,400"), or null; one format per file, whichever
+     * version a caption is about.
+     */
+    this.shownValue = (directoryId, filePath, anchor, value) => {
+      const project = directoryId ? this.timeline.getProject(directoryId) : null;
+      const file = project?.currentSnapshotId ? this.timeline.snapshotFile(project.currentSnapshotId, filePath) : null;
+      return file ? this.dependencies.shownCellValue(file.path, file.contentHash, anchor, value) : null;
+    };
+    /** `values` ({ field: value }) as the worksheet shows them, keeping only those it shows otherwise. */
+    this.shownValues = (directoryId, filePath, anchor, values) => Object.fromEntries(Object.entries(values)
+      .map(([field, value]) => [field, this.shownValue(directoryId, filePath, anchor, value)]).filter(([, shown]) => shown));
   }
 
   overview() {
@@ -161,13 +174,13 @@ export class RanchService {
 
     const review = [
       ...directoryReviewItems(directories),
-      ...linkReviewItems(dependencies, fileIdAt),
+      ...linkReviewItems(dependencies, fileIdAt, this.shownValue),
       ...directories.filter((directory) => directory.active && directory.available)
         .flatMap((directory) => readingReviewItems(directory.id, this.terminal.indexing.failures(directory.id), fileIdAt)),
       ...shareReviewItems(outgoing),
     ];
 
-    const history = recentHistory(this.db, directories.map((directory) => directory.id), now);
+    const history = recentHistory(this.db, directories.map((directory) => directory.id), now, { shown: this.shownValue });
     return {
       generatedAt: new Date(now).toISOString(),
       truncated: budget <= 0,
@@ -277,6 +290,7 @@ export class RanchService {
         name: share.fileName, locator: share.locator ?? null, scope: share.scope ?? 'DOCUMENT',
         status: share.status, drifted: Boolean(share.drifted),
         sharedValue: share.sharedValue ?? null, currentValue: share.currentValue ?? null,
+        ...this.shownValues(directory.id, share.path, share.anchor, { sharedDisplay: share.sharedValue, currentDisplay: share.currentValue }),
         documentPath: share.documentPath ?? null,
         createdAt: share.createdAt, expiresAt: share.expiresAt, revokedAt: share.revokedAt,
       })))
@@ -371,7 +385,8 @@ export class RanchService {
     if (!content) throw new HttpError(404, 'Lasso no longer has a copy of this file.');
     return { ...spreadsheetView(content), version: chosen?.snapshotId ?? null,
       versions: versions.map(({ contentHash, ...version }) => version),
-      changes: chosen ? cellChanges(this.db, chosen.snapshotId, file.path) : [] };
+      changes: chosen ? cellChanges(this.db, chosen.snapshotId, file.path,
+        (anchor, value) => this.dependencies.shownCellValue(file.path, file.contentHash, anchor, value)) : [] };
   }
 
   /**

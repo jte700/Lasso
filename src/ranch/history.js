@@ -17,8 +17,9 @@ const ID_BATCH = 400;
 const VERBS = { ADDED: 'added', DELETED: 'removed', RENAMED: 'renamed', MOVED: 'moved', MODIFIED: 'edited' };
 
 const VALUE_CHANGES = (count) => `
-  SELECT c.snapshot_id, a.path, a.label, b.value_text AS before_value, a.value_text AS after_value
+  SELECT c.snapshot_id, s.project_id, a.path, a.label, a.anchor_json, b.value_text AS before_value, a.value_text AS after_value
   FROM object_changes c
+  JOIN snapshots s ON s.id = c.snapshot_id
   JOIN scientific_object_versions a ON a.id = c.after_version_id
   JOIN scientific_object_versions b ON b.id = c.before_version_id
   JOIN scientific_objects o ON o.id = c.object_id
@@ -28,8 +29,21 @@ const VALUE_CHANGES = (count) => `
     AND NOT (o.object_type = 'VARIABLE' AND COALESCE(json_extract(a.metadata_json, '$.dictionary'), 0) = 0)
   ORDER BY c.snapshot_id, a.path, a.label`;
 
+/**
+ * One changed value as a caption names it, with the values as a worksheet
+ * shows them (beforeDisplay, afterDisplay) when `shown` finds them different.
+ */
+function captionedChange(row, shown) {
+  const first = { label: row.label, before: row.before_value, after: row.after_value };
+  if (!shown) return first;
+  const anchor = JSON.parse(row.anchor_json ?? 'null');
+  const beforeDisplay = shown(row.project_id, row.path, anchor, row.before_value);
+  const afterDisplay = shown(row.project_id, row.path, anchor, row.after_value);
+  return { ...first, ...(beforeDisplay ? { beforeDisplay } : {}), ...(afterDisplay ? { afterDisplay } : {}) };
+}
+
 /** The values each snapshot changed, by snapshot and then path: { count, first }. */
-function valueChangesBySnapshot(db, snapshotIds) {
+function valueChangesBySnapshot(db, snapshotIds, shown) {
   const bySnapshot = new Map();
   for (let start = 0; start < snapshotIds.length; start += ID_BATCH) {
     const ids = snapshotIds.slice(start, start + ID_BATCH);
@@ -38,7 +52,7 @@ function valueChangesBySnapshot(db, snapshotIds) {
       const byPath = bySnapshot.get(row.snapshot_id);
       const known = byPath.get(row.path);
       if (known) known.count += 1;
-      else byPath.set(row.path, { count: 1, first: { label: row.label, before: row.before_value, after: row.after_value } });
+      else byPath.set(row.path, { count: 1, first: captionedChange(row, shown) });
     }
   }
   return bySnapshot;
@@ -55,9 +69,11 @@ function valueChangesOf(values, snapshotId, row) {
  * @param {import('node:sqlite').DatabaseSync} db
  * @param {string[]} projectIds
  * @param {number} now epoch milliseconds
+ * @param {{ shown?: (directoryId: string, path: string, anchor: object|null, value: string|null) => string|null }} [options]
+ *   how a worksheet shows a value, for the captions
  * @returns {{ entries: object[], truncated: boolean }}
  */
-export function recentHistory(db, projectIds, now) {
+export function recentHistory(db, projectIds, now, { shown = null } = {}) {
   if (!projectIds.length) return { entries: [], truncated: false };
   const since = new Date(now - HISTORY_DAYS * DAY_MS).toISOString();
   const placeholders = projectIds.map(() => '?').join(',');
@@ -71,7 +87,7 @@ export function recentHistory(db, projectIds, now) {
   `).all(...projectIds, since, MAX_HISTORY_ENTRIES + 1);
   const listed = events.filter((event) => event.source !== 'IMPORT' && event.file_count <= MAX_FILES_PER_EVENT);
   const changes = new Map();
-  const values = valueChangesBySnapshot(db, listed.map((event) => event.resulting_snapshot_id).filter(Boolean));
+  const values = valueChangesBySnapshot(db, listed.map((event) => event.resulting_snapshot_id).filter(Boolean), shown);
   for (let start = 0; start < listed.length; start += ID_BATCH) {
     const ids = listed.slice(start, start + ID_BATCH).map((event) => event.id);
     for (const row of db.prepare(`SELECT id, event_id, change_type, path_before, path_after, project_file_id

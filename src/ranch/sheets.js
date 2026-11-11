@@ -22,9 +22,10 @@ export function shownCell(display, stored) {
 /**
  * The cells one snapshot's index changed in a file, as the sheet view tints
  * them: { sheet, row (the sheet's own row number), column (from 0), before,
- * after, changedAt }.
+ * after, changedAt }, with beforeDisplay and afterDisplay when `shown`
+ * (anchor, value) says the sheet shows a value otherwise ("18,400").
  */
-export function cellChanges(db, snapshotId, filePath) {
+export function cellChanges(db, snapshotId, filePath, shown = null) {
   return db.prepare(`SELECT a.anchor_json, b.value_text AS before_value, a.value_text AS after_value, s.created_at
     FROM object_changes c
     JOIN snapshots s ON s.id = c.snapshot_id
@@ -34,8 +35,11 @@ export function cellChanges(db, snapshotId, filePath) {
     .all(snapshotId, filePath).flatMap((row) => {
       const anchor = JSON.parse(row.anchor_json ?? 'null');
       if (anchor?.kind !== 'table-cell' || !Number.isInteger(anchor.rowIndex) || !Number.isInteger(anchor.columnIndex)) return [];
+      const beforeDisplay = shown?.(anchor, row.before_value);
+      const afterDisplay = shown?.(anchor, row.after_value);
       return [{ sheet: anchor.sheet ?? null, row: anchor.rowIndex, column: anchor.columnIndex,
-        before: row.before_value, after: row.after_value, changedAt: row.created_at }];
+        before: row.before_value, after: row.after_value, changedAt: row.created_at,
+        ...(beforeDisplay ? { beforeDisplay } : {}), ...(afterDisplay ? { afterDisplay } : {}) }];
     });
 }
 
