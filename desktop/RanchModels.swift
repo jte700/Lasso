@@ -338,6 +338,8 @@ struct RanchSheet: Decodable, Equatable {
 struct RanchFileVersion: Decodable, Equatable, Identifiable {
     let snapshotId: String
     let at: String?
+    /// False when Lasso no longer keeps this version's bytes, so it cannot be shown.
+    var available: Bool? = nil
     var id: String { snapshotId }
 }
 

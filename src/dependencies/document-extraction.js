@@ -737,6 +737,9 @@ function spreadsheetCellDisplay(type, raw, format, formats, value) {
   return shown != null && shown !== value ? shown : null;
 }
 
+// A cell's formula element, with or without a namespace prefix: <f>, <x:f t="shared"/>.
+const FORMULA_ELEMENT = /<(?:[A-Za-z_][\w.-]*:)?f[\s>/]/;
+
 /**
  * Reads a worksheet's non-empty rows. `displayRows`, when given, receives the
  * text each number cell shows in the sheet (such as $129,950) for previews;
@@ -768,7 +771,7 @@ function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null, for
       row[column] = cleanText(value, 2_000);
       // Which cells hold a formula, by sheet row, so a value that changed with
       // its inputs can be told from one typed over.
-      if (state.formulas && /<f[\s>/]/.test(cell.content)) {
+      if (state.formulas && FORMULA_ELEMENT.test(cell.content)) {
         if (!state.formulas.has(rowNumber)) state.formulas.set(rowNumber, new Set());
         state.formulas.get(rowNumber).add(column);
       }
@@ -1080,16 +1083,25 @@ function spreadsheetSheet(buffer, descriptor, shared, relationships, formats) {
 const spreadsheetRelationships = (xml) => spreadsheetElements(xml, 'Relationship')
   .map(({ attributes }) => ({ id: spreadsheetAttribute(attributes, 'Id'), target: spreadsheetAttribute(attributes, 'Target') }));
 
-/** A workbook's sheet list, shared strings and number formats; null when it is not a readable .xlsx. */
-function workbookParts(buffer, limit = MAX_IN_MEMORY_PART_BYTES) {
+/**
+ * The sheets a workbook lists, { name, entry } in workbook order, from its
+ * workbook part and that part's relationships. Names are decoded; tags may be
+ * prefixed and attributes single-quoted.
+ */
+export function workbookSheetList(workbookXml = '', relsXml = '') {
   const attribute = spreadsheetAttribute;
-  const workbook = zipEntry(buffer, 'xl/workbook.xml', limit)?.toString('utf8') ?? '';
-  if (!workbook) return null;
-  const workbookRels = spreadsheetRelationships(zipEntry(buffer, 'xl/_rels/workbook.xml.rels', limit)?.toString('utf8') ?? '');
-  const descriptors = spreadsheetElements(workbook, 'sheet').map(({ attributes }, index) => {
+  const workbookRels = spreadsheetRelationships(relsXml);
+  return spreadsheetElements(workbookXml, 'sheet').map(({ attributes }, index) => {
     const target = workbookRels.find(r => r.id === attribute(attributes, 'r:id'))?.target;
     return { name: attribute(attributes, 'name') || `Sheet ${index+1}`, entry: target ? path.posix.normalize(target.startsWith('/') ? target.slice(1) : `xl/${target}`) : `xl/worksheets/sheet${index+1}.xml` };
   });
+}
+
+/** A workbook's sheet list, shared strings and number formats; null when it is not a readable .xlsx. */
+function workbookParts(buffer, limit = MAX_IN_MEMORY_PART_BYTES) {
+  const workbook = zipEntry(buffer, 'xl/workbook.xml', limit)?.toString('utf8') ?? '';
+  if (!workbook) return null;
+  const descriptors = workbookSheetList(workbook, zipEntry(buffer, 'xl/_rels/workbook.xml.rels', limit)?.toString('utf8') ?? '');
   const shared = spreadsheetStrings(zipEntry(buffer, 'xl/sharedStrings.xml', limit)?.toString('utf8') ?? '');
   let formats = null;
   try {

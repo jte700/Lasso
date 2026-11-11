@@ -82,7 +82,10 @@ extension RanchSheetViewer {
             RanchPillMenu(title: title.isEmpty ? "Version" : title, symbol: "clock.arrow.circlepath",
                           help: "Show an earlier version of this file") {
                 ForEach(Array(versions.enumerated()), id: \.element.id) { offset, version in
-                    Button((offset == 0 ? "Latest \u{00B7} " : "") + Self.changeTime(version.at)) { onVersion(version.snapshotId) }
+                    let kept = version.available != false
+                    Button((offset == 0 ? "Latest \u{00B7} " : "") + Self.changeTime(version.at)
+                           + (kept ? "" : " \u{00B7} copy not kept")) { onVersion(version.snapshotId) }
+                        .disabled(!kept)
                 }
             }
         }

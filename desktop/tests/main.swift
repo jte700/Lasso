@@ -4718,6 +4718,13 @@ do {
     check(PassageWordDiff.changes(from: after, to: after).isEmpty, "an unchanged passage marks nothing")
     let long = Array(repeating: "word", count: PassageWordDiff.maxWords + 1).joined(separator: " ")
     check(PassageWordDiff.changes(from: long, to: long + " more").isEmpty, "a passage past the limit is not compared")
+    let shown = "Totals were checked.\nRevenue rose to\n19,250 in April, as forecast. Costs held."
+    let place = PassageWordDiff.onlyPlace(of: after, in: shown, within: NSRange(location: 0, length: (shown as NSString).length))
+    check(place.map { (shown as NSString).substring(with: $0) } == "Revenue rose to\n19,250 in April, as forecast.",
+          "a passage is found where it sits even when the preview breaks its lines")
+    let twice = "\(after) \(after)"
+    check(PassageWordDiff.onlyPlace(of: after, in: twice, within: NSRange(location: 0, length: (twice as NSString).length)) == nil,
+          "a passage written twice in its block is not marked, since either could be the cited one")
 }
 
 // The Ranch's sheet view tints the cells its version changed, with what they were.
@@ -4731,6 +4738,8 @@ do {
     check(book?.versions?.map(\.snapshotId) == ["s2", "s1"], "the file's versions are listed newest first")
     let older = try? JSONDecoder().decode(RanchWorkbook.self, from: Data(#"{"sheets":[],"skipped":[]}"#.utf8))
     check(older != nil && older?.changedCells(onSheet: 0).isEmpty == true && older?.versions == nil, "a workbook from an older server reads as before")
+    let kept = try? JSONDecoder().decode(RanchFileVersion.self, from: Data(#"{"snapshotId":"s1","at":null,"available":false}"#.utf8))
+    check(kept?.available == false, "a version whose copy was not kept says so, and its menu entry is disabled")
 }
 
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")

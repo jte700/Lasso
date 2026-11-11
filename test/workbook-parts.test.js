@@ -112,3 +112,74 @@ test('A sheet keeps its signature until its own part or a shared part changes', 
   assert.ok(stylesEdited.every((sheet, index) => sheet.signature !== before[index].signature));
   assert.equal(sheetSignatures(Buffer.from('not a workbook')), null);
 });
+
+/** A one-sheet workbook written the way some other tools write it. */
+function writtenAs({ prefix = '', quote = '"', name = 'Budget' }) {
+  const tag = (element) => (prefix ? `${prefix}:${element}` : element);
+  const sheet = `<${tag('worksheet')}><${tag('sheetData')}>`
+    + `<${tag('row')} r="1"><${tag('c')} r="A1" t="inlineStr"><${tag('is')}><${tag('t')}>Item</${tag('t')}></${tag('is')}></${tag('c')}><${tag('c')} r="B1" t="inlineStr"><${tag('is')}><${tag('t')}>Cost</${tag('t')}></${tag('is')}></${tag('c')}></${tag('row')}>`
+    + `<${tag('row')} r="2"><${tag('c')} r="A2" t="inlineStr"><${tag('is')}><${tag('t')}>Pump</${tag('t')}></${tag('is')}></${tag('c')}><${tag('c')} r="B2"><${tag('v')}>420</${tag('v')}></${tag('c')}></${tag('row')}>`
+    + `</${tag('sheetData')}></${tag('worksheet')}>`;
+  return storedZip({
+    'xl/workbook.xml': `<${tag('workbook')}><${tag('sheets')}><${tag('sheet')} name=${quote}${name}${quote} sheetId=${quote}1${quote} r:id=${quote}rId1${quote}/></${tag('sheets')}></${tag('workbook')}>`,
+    'xl/_rels/workbook.xml.rels': `<Relationships><Relationship Id=${quote}rId1${quote} Target=${quote}worksheets/sheet1.xml${quote}/></Relationships>`,
+    'xl/worksheets/sheet1.xml': sheet,
+  });
+}
+
+test('A workbook keeps its objects when its sheet name has an entity or its tags are prefixed or single-quoted', async (t) => {
+  // Arrange
+  const sandbox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-workbook-names-')));
+  const root = path.join(sandbox, 'Books');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'entity.xlsx'), writtenAs({ name: 'R&amp;D' }));
+  fs.writeFileSync(path.join(root, 'prefixed.xlsx'), writtenAs({ prefix: 'x' }));
+  fs.writeFileSync(path.join(root, 'quoted.xlsx'), writtenAs({ quote: "'" }));
+  const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
+  t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+
+  // Act
+  const project = app.timeline.importProject(root, actor, { watch: false }).project;
+  app.dependencies.ensureIndex(project.id);
+  const objects = app.dependencies.objectsAt(project.id);
+  const pump = (file) => objects.find((object) => object.path === file && object.label === 'Pump · Cost');
+
+  // Assert
+  assert.equal(pump('entity.xlsx')?.valueText, '420');
+  assert.equal(pump('entity.xlsx')?.metadata.sheet, 'R&D');
+  assert.equal(pump('prefixed.xlsx')?.valueText, '420');
+  assert.equal(pump('quoted.xlsx')?.valueText, '420');
+  assert.deepEqual(sheetSignatures(writtenAs({ name: 'R&amp;D' })).map((sheet) => sheet.name), ['R&D']);
+});
+
+test('A workbook whose sheet list cannot be read is read whole rather than as no sheets', () => {
+  // Arrange
+  const noSheets = storedZip({ 'xl/workbook.xml': '<workbook><sheets/></workbook>' });
+
+  // Act
+  const signatures = sheetSignatures(noSheets);
+
+  // Assert
+  assert.equal(signatures, null);
+});
+
+test('Renaming a sheet reads the workbook again, and its objects carry the new name', async (t) => {
+  // Arrange
+  const { read, save, app, project } = await folder(t);
+  const renamed = storedZip({
+    'xl/workbook.xml': `<workbook><sheets>${['North', 'Coast', 'West'].map((name, index) =>
+      `<sheet name="${name}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join('')}</sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<Relationships>${SHEETS.map((_, index) =>
+      `<Relationship Id="rId${index + 1}" Target="worksheets/sheet${index + 1}.xml"/>`).join('')}</Relationships>`,
+    'xl/styles.xml': '<styleSheet/>',
+    ...Object.fromEntries(SHEETS.map((name, index) => [`xl/worksheets/sheet${index + 1}.xml`, sheetXml(regionRows(name))])),
+  });
+
+  // Act
+  save(renamed);
+  const sheets = new Set(app.dependencies.objectsAt(project.id).map((object) => object.metadata.sheet).filter(Boolean));
+
+  // Assert: the workbook part changed, which every sheet reads, so all are read again.
+  assert.deepEqual(read, ['all']);
+  assert.deepEqual([...sheets].sort(), ['Coast', 'North', 'West']);
+});

@@ -26,6 +26,15 @@ enum PassageWordDiff {
         }
     }
 
+    /// Where `passage` is written in `text` within `span`, with any spacing or
+    /// line breaks between its words; nil when it is not there or is there more than once.
+    static func onlyPlace(of passage: String, in text: String, within span: NSRange) -> NSRange? {
+        let parts = passage.split(whereSeparator: \.isWhitespace).map { NSRegularExpression.escapedPattern(for: String($0)) }
+        guard !parts.isEmpty, let pattern = try? NSRegularExpression(pattern: parts.joined(separator: "\\s+")) else { return nil }
+        let found = pattern.matches(in: text, range: span)
+        return found.count == 1 ? found[0].range : nil
+    }
+
     private struct Word { let text: String; let range: NSRange }
 
     private static func words(_ text: String) -> [Word] {

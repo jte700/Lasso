@@ -115,12 +115,16 @@ struct AssistPreviewText {
             decorations.append(.init(kind: .matched, range: range))
         }
         // Words new since the passage's previous version, numbers and dates most,
-        // found where the passage sits in its cited block; nothing when it is not there.
-        if let passageChange, let block = cited.first {
-            let within = (result.string as NSString).range(of: passageChange.after, options: [], range: block)
-            for change in within.location == NSNotFound ? [] : PassageWordDiff.changes(from: passageChange.before, to: passageChange.after) {
-                let range = NSRange(location: within.location + change.range.location, length: change.range.length)
-                decorations.append(.init(kind: .changed(emphasized: change.emphasized), range: range))
+        // found where the passage sits in its cited lines; nothing when it is not
+        // there or is there twice, since only the cited passage may be marked.
+        if let passageChange, let first = cited.first, let last = cited.last {
+            let span = NSRange(location: first.location, length: NSMaxRange(last) - first.location)
+            if let within = PassageWordDiff.onlyPlace(of: passageChange.after, in: result.string, within: span) {
+                let shown = (result.string as NSString).substring(with: within)
+                for change in PassageWordDiff.changes(from: passageChange.before, to: shown) {
+                    let range = NSRange(location: within.location + change.range.location, length: change.range.length)
+                    decorations.append(.init(kind: .changed(emphasized: change.emphasized), range: range))
+                }
             }
         }
         text = result

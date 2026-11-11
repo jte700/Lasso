@@ -417,19 +417,24 @@ export class TableIndex {
    * `onProgress(share)` reports how far it got.
    */
   build(request, onProgress = () => {}) {
-    return pooled(() => new Promise((resolve, reject) => {
+    return pooled(({ signal, heard }) => new Promise((resolve, reject) => {
       const worker = new Worker(new URL('./table-index-worker.js', import.meta.url), {
         workerData: { ...request, databasePath: this.file }, resourceLimits: { maxOldGenerationSizeMb: WORKER_MEMORY_MB },
       });
       let settled = false;
+      signal.addEventListener('abort', () => {
+        void worker.terminate();
+        if (!settled) { settled = true; reject(signal.reason); }
+      }, { once: true });
       worker.on('message', (message) => {
+        heard();
         if (message.progress != null) onProgress(message.progress);
         if (message.done) { settled = true; this.forget(request.contentHash); resolve(message); }
         if (message.error) { settled = true; reject(new Error(message.error)); }
       });
       worker.on('error', (error) => { if (!settled) { settled = true; reject(error); } });
       worker.on('exit', (code) => { if (!settled) { settled = true; reject(new Error(`The table reader stopped (${code}).`)); } });
-    }));
+    }), { silentMs: SILENT_WORKER_MS });
   }
 
   /**

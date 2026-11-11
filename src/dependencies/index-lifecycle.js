@@ -10,7 +10,7 @@ import { runSync, workUnits } from '../history/work.js';
 import { currentFileType } from '../history/file-types.js';
 import { now } from './basics.js';
 import { EXTRACTOR_VERSION, INDEX_VERSION } from './constants.js';
-import { readerFor, readerVersions, readersChangedSince } from './readers.js';
+import { readerFor, readerVersions, readerVersionsAfter, readersChangedSince } from './readers.js';
 import { dependencyFilePriority } from './file-objects.js';
 import { READER_CHANGED } from './table-sources.js';
 import {
@@ -106,7 +106,11 @@ export const indexLifecycleMethods = {
         if (existing) this.forgetIndexSummary(targetSnapshotId);
         else this.saveIndexSummary(targetSnapshotId, index.summary, { base: carry?.base, known: carry?.known });
         // Files carried from a base keep the readers that read them there.
-        if (!existing) this.recordReaderVersions(targetSnapshotId, carry ? this.readerVersionsAt(carry.base) : readerVersions());
+        if (!existing) {
+          this.recordReaderVersions(targetSnapshotId, carry
+            ? readerVersionsAfter(this.readerVersionsAt(carry.base), this.readersOf(files, carry.carriedPaths))
+            : readerVersions());
+        }
       });
     } catch (error) {
       // The index was read into memory as it was written; drop it with the rollback.
@@ -230,6 +234,9 @@ export const indexLifecycleMethods = {
       return yield* this.reindexSteps(projectId, actorInput, { ...options, expectedSnapshotId: null });
     }
     yield { phase: 'saving' };
+    const carriedVersions = carriedPaths
+      ? readerVersionsAfter(this.readerVersionsAt(previous.id), this.readersOf(previous.files, carriedPaths))
+      : readerVersions();
     const recordedCount = versions.indexedCount(previous.id);
     // Compare one stored row at a time. Keeping serialized Maps of both
     // readings alongside the descriptors doubled large folders' memory use.
@@ -257,7 +264,7 @@ export const indexLifecycleMethods = {
       // project stops being offered a re-read it does not need.
       this.db.prepare('UPDATE snapshot_object_indexes SET extractor_version = ? WHERE snapshot_id = ? AND extractor_version < ?')
         .run(EXTRACTOR_VERSION, previous.id, EXTRACTOR_VERSION);
-      this.recordReaderVersions(previous.id, readerVersions());
+      this.recordReaderVersions(previous.id, carriedVersions);
       if (!partial) {
         this.indexedHere.set(previous.id, index.summary);
         transaction(this.db, () => this.saveIndexSummary(previous.id, index.summary));
@@ -283,8 +290,8 @@ export const indexLifecycleMethods = {
       }, ({ resultingSnapshotId }) => {
         newSnapshotId = resultingSnapshotId;
         objectCount = this.writeObjectIndex(projectId, resultingSnapshotId, index.descriptors, { carriedPaths });
-        // Every reader whose version changed read its files again; the others' files were read by these versions too.
-        this.recordReaderVersions(resultingSnapshotId, readerVersions());
+        // Readers whose files were all read again are current; one with carried files keeps its version.
+        this.recordReaderVersions(resultingSnapshotId, carriedVersions);
         if (!partial) this.saveIndexSummary(resultingSnapshotId, index.summary);
       });
     } catch (error) {
@@ -318,6 +325,11 @@ export const indexLifecycleMethods = {
         : 0,
       freshness: this.indexFreshness(projectId),
     };
+  },
+
+  /** The readers of those of `files` whose paths are in `paths`. */
+  readersOf(files, paths) {
+    return new Set(files.filter((file) => paths.has(file.path)).map((file) => readerFor(file).id));
   },
 
   /** Records which reader versions read a snapshot's index (readers.js). */

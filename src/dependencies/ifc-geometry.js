@@ -49,6 +49,7 @@ function remember(sourceHash, entry, model) {
   }
 }
 
+// Someone is waiting to see this model, so it goes before waiting indexing.
 function runWorker(bytes) {
   return pooled(() => new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./ifc-geometry-worker.js', import.meta.url), {
@@ -66,7 +67,7 @@ function runWorker(bytes) {
     worker.once('message', message => finish(message.error ? new Error(message.error) : null, message.model));
     worker.once('error', error => finish(error));
     worker.once('exit', code => { if (!finished) finish(new Error(`IFC geometry worker exited before producing a preview (${code}).`)); });
-  }));
+  }), { interactive: true });
 }
 
 async function modelFor(bytes, sourceHash, signal) {

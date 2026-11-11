@@ -151,6 +151,11 @@ final class RanchStore: ObservableObject {
     private var previews: [String: AssistModelPreview] = [:]
     private var workbooks: [String: RanchWorkbook] = [:]
     private static let cachedWorkbooks = 8
+    /// A workbook is kept by file as well as content: its versions and changed
+    /// cells belong to that file, and the same bytes can sit under another path.
+    static func workbookKey(_ source: RanchSource) -> String? {
+        source.contentHash.map { "\(source.directoryId)\u{0}\(source.path)\u{0}\($0)" }
+    }
     private var networkCache: (key: String, layout: RanchNetworkLayout)?
     private var colorObserver: NSObjectProtocol?
     /// The window's, so Edit > Undo (⌘Z) reaches what its views offer to undo.
@@ -468,7 +473,7 @@ final class RanchStore: ObservableObject {
     @discardableResult
     func workbook(_ source: RanchSource, version: String? = nil,
                   completion: @escaping (RanchWorkbook?) -> Void) -> URLSessionDataTask? {
-        if version == nil, let hash = source.contentHash, let cached = workbooks[hash] { completion(cached); return nil }
+        if version == nil, let key = Self.workbookKey(source), let cached = workbooks[key] { completion(cached); return nil }
         guard let serverURL,
               var components = URLComponents(url: serverURL.appendingPathComponent("api/ranch/sheet"),
                                              resolvingAgainstBaseURL: false) else { completion(nil); return nil }
@@ -483,9 +488,9 @@ final class RanchStore: ObservableObject {
             DispatchQueue.main.async {
                 let shown = book.flatMap { $0.sheets.isEmpty ? nil : $0 }
                 // Only the latest version is kept by content; an earlier one is asked for each time.
-                if let shown, version == nil, let hash = source.contentHash {
+                if let shown, version == nil, let key = Self.workbookKey(source) {
                     if self?.workbooks.count ?? 0 >= Self.cachedWorkbooks { self?.workbooks.removeAll() }
-                    self?.workbooks[hash] = shown
+                    self?.workbooks[key] = shown
                 }
                 completion(shown)
             }

@@ -44,3 +44,56 @@ test('A reader that fails gives its turn to the next one', async () => {
   assert.deepEqual(values, ['a', 'b', 'c']);
   assert.deepEqual(poolState(), { running: 0, waiting: 0 });
 });
+
+test('A reader that stops reporting loses its turn and is told to stop its worker', async () => {
+  // Arrange
+  let stopped = false;
+  const stuck = pooled(({ signal }) => new Promise(() => {
+    signal.addEventListener('abort', () => { stopped = true; }, { once: true });
+  }), { silentMs: 30 });
+  const stuckToo = pooled(() => new Promise(() => {}), { silentMs: 30 });
+  const next = pooled(async () => 'read');
+
+  // Act
+  const failure = await stuck.then(() => null, (error) => error.message);
+  await stuckToo.catch(() => null);
+  const value = await next;
+
+  // Assert
+  assert.match(failure, /silent/);
+  assert.equal(stopped, true);
+  assert.equal(value, 'read');
+  assert.deepEqual(poolState(), { running: 0, waiting: 0 });
+});
+
+test('A reader that keeps reporting keeps its turn past the silence limit', async () => {
+  // Arrange
+  const steady = pooled(async ({ heard }) => {
+    for (let step = 0; step < 6; step += 1) {
+      await later(10);
+      heard();
+    }
+    return 'done';
+  }, { silentMs: 25 });
+
+  // Act
+  const value = await steady;
+
+  // Assert
+  assert.equal(value, 'done');
+});
+
+test('A preview waiting for a turn goes before indexing that waits', async () => {
+  // Arrange
+  const order = [];
+  const busy = [pooled(() => later(20)), pooled(() => later(20))];
+  const indexing = pooled(async () => { order.push('indexing'); });
+  const preview = pooled(async () => { order.push('preview'); }, { interactive: true });
+
+  // Act
+  await Promise.all([...busy, indexing, preview]);
+
+  // Assert
+  assert.deepEqual(order, ['preview', 'indexing']);
+  assert.deepEqual(poolState(), { running: 0, waiting: 0 });
+});

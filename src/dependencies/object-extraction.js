@@ -244,17 +244,20 @@ export const objectExtractionMethods = {
 
   /** Has a worker read PDFs' text into the text store. Resolves once it has, or has failed. */
   readPdfTexts(items, report) {
-    return pooled(() => new Promise((resolve) => {
+    return pooled(({ signal, heard }) => new Promise((resolve) => {
       const worker = new Worker(new URL('./pdf-text-worker.js', import.meta.url), {
         workerData: { root: this.textStore.root, readerVersion: PDF_TEXT_VERSION, items },
         resourceLimits: { maxOldGenerationSizeMb: 512 },
       });
+      // A worker silent too long is stopped; the server reads those PDFs itself when asked.
+      signal.addEventListener('abort', () => { void worker.terminate(); resolve(false); }, { once: true });
       worker.on('message', (message) => {
+        heard();
         if (message.progress != null) report?.(message.progress);
         if (message.done) resolve(true);
       });
       worker.on('error', () => resolve(false));
       worker.on('exit', () => resolve(false));
-    }));
+    })).catch(() => false);
   },
 };
