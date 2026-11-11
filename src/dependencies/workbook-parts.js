@@ -2,9 +2,8 @@
 // checksum, size and stored bytes, without inflating any sheet, so an edit to
 // one sheet re-reads only that sheet.
 
-import crypto from 'node:crypto';
 import path from 'node:path';
-import { readZip, zipBytes } from './zip-archive.js';
+import { partStamp, readZip, zipBytes } from './zip-archive.js';
 import { workbookSheetList } from './document-extraction.js';
 
 // Parts every sheet reads: the sheet list and order, the shared strings that
@@ -13,15 +12,6 @@ import { workbookSheetList } from './document-extraction.js';
 const SHARED_PARTS = ['xl/workbook.xml', 'xl/_rels/workbook.xml.rels', 'xl/sharedStrings.xml', 'xl/styles.xml'];
 // The workbook part is read only to list sheets; one larger than this is not.
 const MAX_WORKBOOK_BYTES = 4 * 1024 * 1024;
-
-// A part's checksum and size from the directory, and a hash of its stored
-// bytes: some writers leave the checksum at zero, and an edit can keep the size.
-const partStamp = (entries, name) => {
-  const entry = entries.get(name);
-  if (!entry) return `${name}:-`;
-  const stored = crypto.createHash('sha1').update(entry.compressed).digest('base64url');
-  return `${name}:${entry.crc}:${entry.size}:${stored}`;
-};
 
 /**
  * Each sheet of an .xlsx in workbook order, { name, position, entry,

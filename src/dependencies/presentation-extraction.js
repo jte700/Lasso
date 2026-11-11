@@ -183,17 +183,32 @@ function slideSize(presentation) {
 }
 
 /**
+ * One slide's reading, carried from `slideCache` when its signature is there
+ * and read (then kept there) when it is not.
+ */
+function slideReading(zip, part, signature, slideCache) {
+  const known = signature ? slideCache.get(signature) : undefined;
+  if (known) return known;
+  const reading = slideBlocks(zip, part);
+  if (signature) slideCache.set(signature, reading);
+  return reading;
+}
+
+/**
  * A deck's slides with their text, and its document properties. A deck that
  * is not a readable zip (a password-protected file is not) is unreadable.
+ * With `slideCache` (deck-parts.js deckSlideCache), a slide whose parts did
+ * not change since it was last read is carried rather than read again.
  * @param {Buffer} buffer
  */
-export function readPresentation(buffer) {
+export function readPresentation(buffer, { slideCache = null } = {}) {
   try {
     const zip = readZip(buffer);
     if (!zip?.has(PRESENTATION_PART)) return UNREADABLE;
     const parts = slideParts(zip);
+    const signatures = slideCache?.signatures(zip) ?? null;
     const slides = parts.slice(0, MAX_SLIDES).map(({ part }, index) => {
-      const { blocks, hidden } = slideBlocks(zip, part);
+      const { blocks, hidden } = slideReading(zip, part, signatures?.get(part), slideCache);
       const title = blocks.find((block) => block.type === 'title')?.text ?? null;
       return { number: index + 1, title, hidden, blocks };
     });

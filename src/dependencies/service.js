@@ -87,6 +87,8 @@ export class PredictiveProvenanceService {
     // dictionary must still update unchanged source files in the next snapshot.
     // A workbook sheet's objects by its part signature, so an edit to one sheet reads only that sheet.
     this.sheetObjectCache = new BoundedCache({ maxEntries: 512, budget, bytes: objectBytes });
+    // A deck slide's reading by its part signature, so an edit to one slide reads only that slide.
+    this.slideReadingCache = new BoundedCache({ maxEntries: 4096, budget, bytes: (reading) => JSON.stringify(reading).length * 2 });
     this.extractionCache = new BoundedCache({ maxEntries: 256, maxWeight: 24 * 1024 * 1024,
       weight: (entry) => entry.bytes, budget, bytes: (entry) => entry.bytes });
     // Extracted file text depends only on the file's bytes, so an unchanged
@@ -148,7 +150,8 @@ export class PredictiveProvenanceService {
     this.stopTableCleanup();
     this.ranking.close();
     for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache,
-      this.objectCache, this.typedObjectCache, this.extractionCache, this.sheetObjectCache, this.sourceTextCache, this.figurePreviewCache,
+      this.objectCache, this.typedObjectCache, this.extractionCache, this.sheetObjectCache, this.slideReadingCache,
+      this.sourceTextCache, this.figurePreviewCache,
       this.indexedHere, this.tableReadings, this.snapshotTableCache, this.deepObjects, this.transcriptCache]) cache.clear();
     this.tables.close();
   }

@@ -6,6 +6,7 @@ import { transaction } from '../db.js';
 import { csvDelimiter, parseDelimited } from '../history/diff.js';
 import { MAX_IN_MEMORY_PART_BYTES, MAX_WORKBOOK_SHEETS, extractSpreadsheetTables, isLargeSpreadsheet } from './document-extraction.js';
 import { sheetSignatures } from './workbook-parts.js';
+import { deckSlideCache } from './deck-parts.js';
 import { readerFor } from './readers.js';
 import { runSync } from '../history/work.js';
 import { BlobReleasedError } from '../history/errors.js';
@@ -51,7 +52,8 @@ export const objectExtractionMethods = {
         objects = reader.extract === 'video' ? yield* this.videoObjectSteps(file, report)
           : reader.extract === 'table'
             ? yield* this.tableObjectSteps(file, this.timeline.blobs.get(file.contentHash), report)
-            : objectsFromFile(file, this.timeline.blobs.get(file.contentHash), report);
+            : objectsFromFile(file, this.timeline.blobs.get(file.contentHash), report,
+              { slideCache: deckSlideCache(this.slideReadingCache, `${file.projectFileId}|${file.path}|`) });
       } catch (error) {
         if (!(error instanceof BlobReleasedError)) throw error;
         // Not cached: the bytes come back if the file goes back to this content.
