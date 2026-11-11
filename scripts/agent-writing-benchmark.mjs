@@ -15,6 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openLocal } from '../src/agent/client.js';
 import { formatAnswer } from '../src/agent/render.js';
+import { askTextOptions } from '../src/agent/mcp.js';
 import { estimateTokens } from '../src/agent/metrics.js';
 import { prepareWritingLibrary, writingTasks } from './agent-writing-corpus.mjs';
 
@@ -37,7 +38,7 @@ async function main() {
       const direct = { tokens: estimateTokens(reference), facts: referenceFacts, overCap: task.files.some((file) => library.plain[file].length > MAX_TOOL_CHARS) };
       const sets = [...task.asks.map((ask) => ({ ask, round: 'development' })), ...task.heldOut1.map((ask) => ({ ask, round: 'held-out 1' })),
         ...task.heldOut2.map((ask) => ({ ask, round: 'held-out 2' }))].map(({ ask, round }) => {
-        const text = formatAnswer('ask', lasso.ask({ ask }));
+        const text = formatAnswer('ask', lasso.ask({ ask }), 'text', askTextOptions(['lasso']));
         const found = task.facts.filter((fact) => fact.pattern.test(text));
         return { ask, round, tokens: estimateTokens(text), facts: found.length,
           missing: task.facts.filter((fact) => !found.includes(fact)).map((fact) => fact.label), text };

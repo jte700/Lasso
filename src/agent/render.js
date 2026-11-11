@@ -4,8 +4,22 @@
 // model pays for on every later turn. Literal values stay JSON-quoted, so
 // their exact characters survive; file text is fenced exactly as the file
 // has it. Nothing is computed here that the service did not return.
+//
+// An ask's answer has two styles. The default is what REST and scripts get
+// when they ask for text. The lean one is what a model reads over MCP
+// (mcp.js), where every token of an answer is paid again on each later turn:
+// revisions cut to the eight characters an ask can name them by, excerpts as
+// the file's words without quotes, excerpts already shown gathered on one
+// line, no count of sentences or hint to raise the budget, and handles only
+// when something offered can take one. Values and row labels stay quoted in
+// both, and both say the same things about what was found and left out.
 
 const quote = (value) => JSON.stringify(String(value));
+
+const FULL = { lean: false, handles: true };
+const styleOf = (options = {}) => ({ lean: Boolean(options.lean), handles: options.handles ?? !options.lean });
+// Eight characters are the fewest an ask reads as a revision ("@f920bb86").
+const revisionShown = (rev, style) => (style.lean ? String(rev).slice(0, 8) : rev);
 
 /** A fence longer than any run of backticks in the text, so the text cannot close it. */
 function fence(text) {
@@ -14,9 +28,9 @@ function fence(text) {
   return `${marks}\n${text}\n${marks}`;
 }
 
-const handle = (value) => (value ? `#${value} ` : '');
+const handle = (value, style = FULL) => (value && style.handles ? `#${value} ` : '');
 
-function sourceLines(sources = {}) {
+function sourceLines(sources = {}, style = FULL) {
   return Object.entries(sources).map(([id, source]) => {
     const notes = [
       source.disk === 'changed' ? 'changed on disk since indexed' : null,
@@ -25,7 +39,7 @@ function sourceLines(sources = {}) {
       source.historical ? 'earlier revision' : null,
       source.lagging ? 'index behind the files' : null,
     ].filter(Boolean);
-    return `${id} = ${source.folder}/${source.path} @${source.rev}${notes.length ? ` (${notes.join(', ')})` : ''}`;
+    return `${id} = ${source.folder}/${source.path} @${revisionShown(source.rev, style)}${notes.length ? ` (${notes.join(', ')})` : ''}`;
   });
 }
 
@@ -35,11 +49,11 @@ const context = (ctx) => {
   return entries.length ? ` [${entries.map(([key, value]) => `${key} ${value}`).join('; ')}]` : '';
 };
 
-function candidateLine(candidate, { withMatch = true } = {}) {
+function candidateLine(candidate, { withMatch = true, style = FULL } = {}) {
   const match = candidate.match && withMatch ? ` (${candidate.match})` : '';
   if (candidate.type === 'record') {
     const fields = Object.entries(candidate.fields ?? {}).map(([name, field]) => `${name}=${quote(field.value)}${field.trunc ? '…' : ''}`
-      + `${field.h ? ` #${field.h}` : ''}${field.at ? ` ${field.at}` : ''}${field.col ? ` (column ${field.col})` : ''}`);
+      + `${field.h && (style.handles || field.trunc) ? ` #${field.h}` : ''}${field.at ? ` ${field.at}` : ''}${field.col ? ` (column ${field.col})` : ''}`);
     const missing = candidate.missing?.length ? `; no ${candidate.missing.join(', ')}` : '';
     const more = candidate.more_fields ? `; ${candidate.more_fields} more columns` : '';
     const row = candidate.row != null ? `${quote(candidate.row)} ` : '';
@@ -47,8 +61,10 @@ function candidateLine(candidate, { withMatch = true } = {}) {
   }
   const label = candidate.label ? ` ${quote(candidate.label)}` : '';
   const value = candidate.value != null ? `: ${quote(candidate.value)}${candidate.trunc ? ' (cut; read #h for all)' : ''}` : '';
+  // A value that was cut keeps its handle in either style: the handle is how the rest of it is read.
+  const own = handle(candidate.h, candidate.trunc ? FULL : style);
   const lines = candidate.lines_total ? ` ${candidate.lines_total} lines` : '';
-  return `- ${handle(candidate.h)}${candidate.src} ${candidate.type}${candidate.at ? ` ${candidate.at}` : ''}${label}${lines}${value}${context(candidate.ctx)}${match}`;
+  return `- ${own}${candidate.src} ${candidate.type}${candidate.at ? ` ${candidate.at}` : ''}${label}${lines}${value}${context(candidate.ctx)}${match}`;
 }
 
 function coverageLine(result) {
@@ -89,7 +105,7 @@ export function renderSuggest(response) {
   return [...lines, ...notes(response.warnings)].join('\n');
 }
 
-function itemLines(item, index) {
+function itemLines(item, index, style = FULL) {
   const prefix = `[${index + 1}] `;
   if (item.error) return errorLines(prefix, item.error);
   if (item.folders) {
@@ -97,26 +113,26 @@ function itemLines(item, index) {
       : `version ${folder.version}, ${folder.files} files`}${folder.lagging ? `, index behind (current ${folder.current})` : ''}${folder.unavailable ? ', unavailable' : ''})`)];
   }
   const revision = [
-    item.historical ? `earlier revision @${item.rev}${item.current ? `, current @${item.current}` : ''}` : null,
-    item.disk_rev ? `disk now @${item.disk_rev}${item.unindexed ? ', not indexed' : ''}` : null,
+    item.historical ? `earlier revision @${revisionShown(item.rev, style)}${item.current ? `, current @${revisionShown(item.current, style)}` : ''}` : null,
+    item.disk_rev ? `disk now @${revisionShown(item.disk_rev, style)}${item.unindexed ? ', not indexed' : ''}` : null,
   ].filter(Boolean).join('; ');
   const after = revision ? ` (${revision})` : '';
   if (item.text != null && item.lines) {
     const asked = item.asked ? ` (asked ${item.asked[0]}-${item.asked[1]})` : '';
     const symbol = item.symbol ? ` ${item.symbol}${item.only ? ' (defined nowhere else in the shared folders)' : ''}` : '';
     const span = item.lines[0] === item.lines[1] ? `line ${item.lines[0]}` : `lines ${item.lines[0]}-${item.lines[1]}`;
-    return [`${prefix}${handle(item.h)}${item.src} ${span} of ${item.total}${symbol}${asked}${after}${item.trunc ? ' (block cut)' : ''}`,
+    return [`${prefix}${handle(item.h, style)}${item.src} ${span} of ${item.total}${symbol}${asked}${after}${item.trunc ? ' (block cut)' : ''}`,
       fence(item.text)];
   }
   if (item.outline) {
-    return [`${prefix}${handle(item.h)}${item.src} outline, ${item.total} lines${after}: ${item.outline.join('; ')}${item.outline_more ? `; ${item.outline_more} more` : ''}`];
+    return [`${prefix}${handle(item.h, style)}${item.src} outline, ${item.total} lines${after}: ${item.outline.join('; ')}${item.outline_more ? `; ${item.outline_more} more` : ''}`];
   }
   if (item.versions) {
-    return [`${prefix}${handle(item.h)}${item.src} versions, newest first:`,
+    return [`${prefix}${handle(item.h, style)}${item.src} versions, newest first:`,
       ...item.versions.map((version) => `  v${version.v} ${version.at}: ${quote(version.value)}${version.loc ? ` ${version.loc}` : ''}${version.path ? ` (then ${version.path})` : ''}${version.this ? ' <- this handle' : ''}`),
       ...(item.more ? [`  ${item.more} older`] : []), `  ${item.note}`];
   }
-  const head = `${prefix}${handle(item.h)}${item.src} ${item.type}${item.at ? ` ${item.at}` : ''}${item.label ? ` ${quote(item.label)}` : ''}`
+  const head = `${prefix}${handle(item.h, style)}${item.src} ${item.type}${item.at ? ` ${item.at}` : ''}${item.label ? ` ${quote(item.label)}` : ''}`
     + `${item.value != null ? `: ${quote(item.value)}` : ''}${context(item.ctx)}${after}`;
   if (item.table) {
     const cell = (value) => String(value ?? '').replaceAll('|', '\\|');
@@ -124,13 +140,13 @@ function itemLines(item, index) {
       ...item.table.rows.map(([number, ...cells]) => `${number === item.table.hit ? '> ' : '  '}${number}: ${cells.map(cell).join(' | ')}`)];
   }
   if (item.passages) {
-    return [head, ...item.passages.map((passage) => `${passage.hit ? '> ' : '  '}${handle(passage.h)}${passage.at}: ${quote(passage.text)}`)];
+    return [head, ...item.passages.map((passage) => `${passage.hit ? '> ' : '  '}${handle(passage.h, style)}${passage.at}: ${quote(passage.text)}`)];
   }
   return [head];
 }
 
 export function renderInspect(response) {
-  return [...sourceLines(response.sources), ...response.items.flatMap(itemLines), ...notes(response.warnings)].join('\n');
+  return [...sourceLines(response.sources), ...response.items.flatMap((item, index) => itemLines(item, index)), ...notes(response.warnings)].join('\n');
 }
 
 export function renderBind(response) {
@@ -197,20 +213,31 @@ function textLines(item, head) {
     ...(item.more ? [`  (+${item.more} more passages; ask about a topic in it)`] : [])];
 }
 
-/** Excerpts of one file: each with its page or paragraph, its section where it changes, its text (or a table's rows) and a handle. */
-function excerptLines(item, head) {
+/**
+ * Excerpts of one file: each with its page or paragraph, its section where it changes, its text (or a table's rows)
+ * and a handle. Lean, an excerpt is the file's words on one line, and excerpts an earlier answer already showed are
+ * gathered on one line that names their places.
+ */
+function excerptLines(item, head, style = FULL) {
   const lines = [`${head} ${item.src}:`];
   let section = null;
+  let repeats = null;
   for (const excerpt of item.excerpts) {
+    if (excerpt.same && style.lean) {
+      if (repeats?.same !== excerpt.same) { repeats = { same: excerpt.same, places: [] }; lines.push(repeats); }
+      repeats.places.push(excerpt.at ?? 'an excerpt');
+      continue;
+    }
+    repeats = null;
     const where = [excerpt.at, excerpt.section && excerpt.section !== section ? `§${excerpt.section}` : null].filter(Boolean).join(' ');
     if (excerpt.section) section = excerpt.section;
     if (excerpt.same) { lines.push(`  ${where}: (shown in [${excerpt.same}])`); continue; }
-    const handle = excerpt.h ? ` #${excerpt.h}` : '';
+    const handle = excerpt.h && style.handles ? ` #${excerpt.h}` : '';
     if (excerpt.rows) {
       lines.push(`  ${where}: ${excerpt.caption ?? 'table'}${excerpt.header ? ` [${excerpt.header}]` : ''}${handle}`, ...excerpt.rows.map((row) => `    ${row}`));
-    } else lines.push(`  ${where}: ${quote(excerpt.text)}${handle}`);
+    } else lines.push(`  ${where}: ${style.lean ? String(excerpt.text).replace(/\s+/g, ' ').trim() : quote(excerpt.text)}${handle}`);
   }
-  return lines;
+  return lines.map((line) => (typeof line === 'string' ? line : `  shown in [${line.same}]: ${line.places.join(', ')}`));
 }
 
 /**
@@ -218,9 +245,9 @@ function excerptLines(item, head) {
  * left out and where, and what no file has. Ranked answers are a selection,
  * never all there is: the line says so in its first word.
  */
-function rankedLine(answer, head) {
+function rankedLine(answer, head, style = FULL) {
   const counts = answer.counts ?? {};
-  const shown = counts.sentences != null ? `${counts.sentences} sentence${counts.sentences === 1 ? '' : 's'}, ` : '';
+  const shown = counts.sentences != null && !style.lean ? `${counts.sentences} sentence${counts.sentences === 1 ? '' : 's'}, ` : '';
   const parts = [`ranked: ${shown}${counts.files}/${counts.matching_files} matching files`];
   if (answer.absent?.length) parts.push(`no indexed text in ${answer.file ?? `the ${answer.files} shared files`} has ${answer.absent.map(quote).join(' or ')}`);
   if (answer.like) {
@@ -230,7 +257,7 @@ function rankedLine(answer, head) {
   if (answer.unmatched?.length) parts.push(`no excerpt has ${answer.unmatched.map(quote).join(', ')}`);
   if (counts.left_out) {
     const where = answer.left_out_in?.length ? ` (${answer.left_out_in.map(([section, count]) => `${section} ${count}`).join(', ')})` : '';
-    parts.push(`${counts.left_out} more matched${where}; a larger "budget" shows more`);
+    parts.push(`${counts.left_out} more matched${where}${style.lean ? '' : '; a larger "budget" shows more'}`);
   }
   if (answer.not_searched?.length) parts.push(`not searchable: ${answer.not_searched.map((file) => `${file.path} (${file.reason})`).join(', ')}`);
   return `${head} ${parts.join('; ')}`;
@@ -245,42 +272,45 @@ function computedLines(item, head) {
   return [`${head} ${item.src}${item.sheet ? ` ${item.sheet}` : ''} ${quote(item.column)} ${name}${where}: ${item.value}${item.row ? ` (${item.row})` : ''}, over ${covered}${values}`];
 }
 
-function evidenceLines(item, head) {
+function evidenceLines(item, head, style = FULL) {
   if (item.type === 'relation' || item.type === 'placement') return geometryLines(item, head);
   if (item.type === 'computed') return computedLines(item, head);
-  if (item.type === 'excerpts') return excerptLines(item, head);
+  if (item.type === 'excerpts') return excerptLines(item, head, style);
   if (item.type === 'table' && item.rows) return tableLines(item, head);
   if (item.type === 'model' && item.elements) return modelLines(item, head);
   if (item.type === 'text' && item.passages) return textLines(item, head);
   if (item.error) return errorLines(`${head} ${item.symbol ? `${item.symbol}: ` : ''}`, item.error);
-  if (item.text != null && item.lines) return itemLines(item, 0).map((line, index) => (index === 0 ? line.replace(/^\[1\]/, head) : line));
+  if (item.text != null && item.lines) return itemLines(item, 0, style).map((line, index) => (index === 0 ? line.replace(/^\[1\]/, head) : line));
   if (item.outline || item.versions || item.table || item.passages || item.folders) {
-    return itemLines(item, 0).map((line, index) => (index === 0 ? line.replace(/^\[1\]/, head) : line));
+    return itemLines(item, 0, style).map((line, index) => (index === 0 ? line.replace(/^\[1\]/, head) : line));
   }
-  return [`${head} ${candidateLine(item, { withMatch: false }).replace(/^- /, '')}`];
+  return [`${head} ${candidateLine(item, { withMatch: false, style }).replace(/^- /, '')}`];
 }
 
 /** One label's rows: a single row, the best-matching with the other sources, or sources that agree or differ. */
-function recordGroupLines(answer, head) {
-  if (!answer.verdict) return [`${head} ${recordLine(answer.items[0])}`];
+function recordGroupLines(answer, head, style = FULL) {
+  const shown = { handles: style.handles };
+  if (!answer.verdict) return [`${head} ${recordLine(answer.items[0], shown)}`];
   if (answer.verdict === 'best') {
-    return [`${head} ${recordLine(answer.items[0])} (matches ${answer.matched.map(quote).join(', ')})`,
+    return [`${head} ${recordLine(answer.items[0], shown)} (matches ${answer.matched.map(quote).join(', ')})`,
       ...answer.items.slice(1).map((item) => `  other source: ${recordLine(item, { handles: false })}`)];
   }
   if (answer.verdict === 'agree') {
-    return [`${head} ${recordLine(answer.items[0])} (same in ${answer.items.length} sources: ${answer.items.map((item) => item.src).join(', ')})`];
+    return [`${head} ${recordLine(answer.items[0], shown)} (same in ${answer.items.length} sources: ${answer.items.map((item) => item.src).join(', ')})`];
   }
-  return [`${head} ${answer.items.length} sources differ; which is meant is not settled by the files:`, ...answer.items.map((item) => `  - ${recordLine(item)}`)];
+  return [`${head} ${answer.items.length} sources differ; which is meant is not settled by the files:`, ...answer.items.map((item) => `  - ${recordLine(item, shown)}`)];
 }
 
-export function renderAsk(response) {
-  const lines = sourceLines(response.sources);
+export function renderAsk(response, options = {}) {
+  const style = styleOf(options);
+  const evidence = (item, head) => evidenceLines(item, head, style);
+  const lines = sourceLines(response.sources, style);
   for (const answer of response.answers) {
     const head = `[${answer.n}]${answer.ask ? ` ${quote(answer.ask)}:` : ''}`;
     if (answer.kind === 'error') { lines.push(...errorLines(`${head} `, answer.error)); continue; }
-    if (answer.kind === 'record') { lines.push(...recordGroupLines(answer, head)); continue; }
+    if (answer.kind === 'record') { lines.push(...recordGroupLines(answer, head, style)); continue; }
     if (answer.kind === 'records') {
-      answer.groups.forEach((group, index) => lines.push(...recordGroupLines(group, `[${answer.n}.${index + 1}]${index === 0 && answer.ask ? ` ${quote(answer.ask)}:` : ''}`)));
+      answer.groups.forEach((group, index) => lines.push(...recordGroupLines(group, `[${answer.n}.${index + 1}]${index === 0 && answer.ask ? ` ${quote(answer.ask)}:` : ''}`, style)));
       continue;
     }
     if (answer.kind === 'none' && answer.named) {
@@ -297,20 +327,23 @@ export function renderAsk(response) {
       const like = answer.like?.rows ? `${unlabelled}; rows labelled like it: ${answer.like.rows.map(quote).join(', ')} (${answer.like.src.join(', ')})`
         : answer.like ? `${unlabelled}; ${answer.like.count} rows are labelled like it` : '';
       lines.push(`${head} ${said}${like}${answer.items.length ? '; closest:' : '.'}`,
-        ...answer.items.map((item) => `  ${candidateLine(item, { withMatch: false })}`),
+        ...answer.items.map((item) => `  ${candidateLine(item, { withMatch: false, style })}`),
         ...(answer.sections ? [`  its sections: ${answer.sections.join('; ')}${answer.more_sections ? `; +${answer.more_sections} more` : ''}`] : []));
       continue;
     }
     // A named file without some of the ask's words: that first, then what the file holds.
     if (answer.kind === 'digest' && answer.absent?.length) {
       lines.push(`${head} no indexed text in ${answer.file ?? 'the file'} has ${answer.absent.map(quote).join(' or ')}; what it holds:`);
-      answer.items.forEach((item, index) => lines.push(...evidenceLines(item, `[${answer.n}.${index + 1}]`)));
+      answer.items.forEach((item, index) => lines.push(...evidence(item, `[${answer.n}.${index + 1}]`)));
       continue;
     }
-    if (answer.kind === 'matches') { lines.push(`${head} ${coverageLine({ ...answer, id: 'matches' }).replace(/^matches: /, '')}`, ...answer.candidates.map(candidateLine)); continue; }
+    if (answer.kind === 'matches') {
+      lines.push(`${head} ${coverageLine({ ...answer, id: 'matches' }).replace(/^matches: /, '')}`, ...answer.candidates.map((candidate) => candidateLine(candidate, { style })));
+      continue;
+    }
     if (['found', 'computed'].includes(answer.kind) && answer.status === 'ranked') {
-      lines.push(rankedLine(answer, head));
-      answer.items.forEach((item, index) => lines.push(...evidenceLines(item, `[${answer.n}.${index + 1}]`)));
+      lines.push(rankedLine(answer, head, style));
+      answer.items.forEach((item, index) => lines.push(...evidence(item, `[${answer.n}.${index + 1}]`)));
       continue;
     }
     const more = answer.more ? [`  (${answer.more} other, less focused hits have these words too)`] : [];
@@ -321,18 +354,21 @@ export function renderAsk(response) {
       const apart = answer.missing.filter((word) => !absent.includes(word));
       lines.push(`${head} ${[absent.length ? `no indexed text in ${where} has ${absent.map(quote).join(' or ')}` : '',
         apart.length ? `nothing in ${where} has ${apart.map(quote).join(', ')} with the rest` : ''].filter(Boolean).join('; ')}; found for the rest:`);
-      answer.items.forEach((item, index) => lines.push(...evidenceLines(item, `[${answer.n}.${index + 1}]`)));
+      answer.items.forEach((item, index) => lines.push(...evidence(item, `[${answer.n}.${index + 1}]`)));
       lines.push(...more);
       continue;
     }
-    lines.push(...answerLines(answer, evidenceLines), ...more);
+    lines.push(...answerLines(answer, evidence), ...more);
   }
   return [...lines, ...notes(response.warnings)].join('\n');
 }
 
 const RENDERERS = { suggest: renderSuggest, inspect: renderInspect, bind: renderBind, ask: renderAsk };
 
-/** An operation's answer in the requested format: compact text, or the JSON contract. */
-export function formatAnswer(operation, response, format = 'text') {
-  return format === 'json' ? JSON.stringify(response) : RENDERERS[operation](response);
+/**
+ * An operation's answer in the requested format: compact text, or the JSON contract.
+ * `options` are for an ask's text: `lean` writes it as a model reads it over MCP, `handles` says whether handles are sent.
+ */
+export function formatAnswer(operation, response, format = 'text', options = {}) {
+  return format === 'json' ? JSON.stringify(response) : RENDERERS[operation](response, options);
 }

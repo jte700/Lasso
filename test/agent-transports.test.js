@@ -199,6 +199,8 @@ test('REST, MCP and in-process calls give the same answer for the same request',
   const askRest = await (await post('ask', asked)).json();
   const askMcp = (await mcp.call('lasso', asked)).value;
   const askMcpText = (await mcp.read('lasso', asked)).content[0].text;
+  const askMcpCited = (await mcp.read('lasso', { ...asked, handles: true })).content[0].text;
+  const askRestText = await (await post('ask', { ...asked, format: 'text' })).text();
   const askLocal = local.ask(asked);
   const viaRest = await (await fetch(`${served.url}/agent/v1/suggest`, { method: 'POST',
     headers: { authorization: `Bearer ${served.token}`, 'content-type': 'application/json' }, body: JSON.stringify(request) })).json();
@@ -213,7 +215,14 @@ test('REST, MCP and in-process calls give the same answer for the same request',
   // Assert
   assert.deepEqual(askRest, askLocal);
   assert.deepEqual(askMcp, askLocal);
-  assert.equal(askMcpText, formatAnswer('ask', askLocal));
+  // The same answer, written lean for a model over MCP only: REST's text keeps its handles and whole revisions.
+  assert.equal(askMcpText, formatAnswer('ask', askLocal, 'text', { lean: true, handles: false }));
+  assert.equal(askMcpCited, formatAnswer('ask', askLocal, 'text', { lean: true, handles: true }));
+  assert.equal(askRestText, formatAnswer('ask', askLocal));
+  assert.doesNotMatch(askMcpText, /#[0-9A-Z]{10}/);
+  assert.match(askMcpCited, /#[0-9A-Z]{10}/);
+  assert.match(askRestText, /^s1 = \S+ @[0-9a-f]{12}$/m);
+  assert.match(askRestText, /#[0-9A-Z]{10}/);
   assert.deepEqual(askLocal.answers.map((answer) => answer.kind), ['record', 'lines', 'definition', 'found']);
   assert.deepEqual(viaRest, inProcess);
   assert.deepEqual(viaMcp, inProcess);

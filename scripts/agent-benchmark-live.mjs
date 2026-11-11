@@ -25,7 +25,7 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { openLocal } from '../src/agent/client.js';
-import { INSTRUCTIONS as LASSO_INSTRUCTIONS, toolsNamed } from '../src/agent/mcp.js';
+import { askTextOptions, INSTRUCTIONS as LASSO_INSTRUCTIONS, toolsNamed } from '../src/agent/mcp.js';
 import { formatAnswer } from '../src/agent/render.js';
 import { estimateTokens } from '../src/agent/metrics.js';
 import { INSTRUCTIONS_V1, INSTRUCTIONS_V2, INSTRUCTIONS_V3, INSTRUCTIONS_V4, TOOLS_V1, TOOLS_V2, TOOLS_V3, TOOLS_V4 } from './agent-tools-versions.mjs';
@@ -152,7 +152,8 @@ async function runTask({ provider, arm, task, prompt, tools, execute, instructio
 function armsFor(workspace, lasso) {
   const instructions = instructionsFor(workspace.folders);
   const direct = workspace.tools;
-  const ask = (input) => formatAnswer('ask', lasso.ask(input));
+  // The lasso tool's answer as the MCP server writes it for a model.
+  const ask = (input) => formatAnswer('ask', lasso.ask(input), 'text', askTextOptions(['lasso'], input));
   // Earlier definitions reach the current server: v1 answered in JSON, v2 and v3 in compact text.
   const v1Tools = { lasso_suggest: (input) => lasso.suggest(input), lasso_inspect: (input) => lasso.inspect(input), lasso_bind: (input) => lasso.bind(input) };
   const v2Tools = { lasso_search: (input) => formatAnswer('suggest', lasso.suggest(input)),

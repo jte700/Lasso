@@ -147,7 +147,7 @@ The desktop app may run at the same time. Both read the store in WAL mode. The a
 
 Every piece of evidence has a 10-character handle that names one immutable thing: an object version, a line range of one file revision, or a cell of a large table's revision. File details are given once per answer, as sources `s1`, `s2`…, and candidates point at them.
 
-**Formats.** The service returns the JSON shown below, and that is the contract; REST answers in it by default. Over MCP a model receives the same answer as compact text (`src/agent/render.js`), which measured 26–27% fewer real tokens. Values stay JSON-quoted so their exact characters survive, and file text is fenced exactly as the file has it. Pass `format: "json"` (MCP) or `"format": "text"` (REST) to get the other. The same search as text:
+**Formats.** The service returns the JSON shown below, and that is the contract; REST answers in it by default. Over MCP a model receives the same answer as compact text (`src/agent/render.js`), which measured 26–27% fewer real tokens. Values stay JSON-quoted so their exact characters survive, and file text is fenced exactly as the file has it. Pass `format: "json"` (MCP) or `"format": "text"` (REST) to get the other. Over MCP the `lasso` tool's answers are also written lean ([below](#lean-answers-over-mcp-11-november-2026)): no handles unless a tool offered can take one, revisions cut to eight characters, excerpts as the file's words without quotes. REST's text is unchanged. The same search as text:
 
 ```
 s1 = Finance/Planning/budget.csv @dd459a8353ec
@@ -170,23 +170,25 @@ Every question of a task, in plain words, answered in one call. Strings are read
 As text over MCP (from the test fixture):
 
 ````
-s1 = Api/app.py @83757353ead4
-s2 = Finance/Approved/budget.csv @a1adad958009
-s3 = Finance/Planning/budget.csv @c0cee90b5eab
-[1] #D16826NQ4J s1 lines 5-8 of 19
+s1 = Api/app.py @83757353
+s2 = Finance/Approved/budget.csv @a1adad95
+s3 = Finance/Planning/budget.csv @c0cee90b
+[1] s1 lines 5-8 of 19
 ```
 def handle(request):
     """Return every item."""
     items = load()
     return json.dumps(items)
 ```
-[2] s2 "North division" row 2: Revenue="11.9" #ADE2V0Q3BV (matches "approved")
+[2] s2 "North division" row 2: Revenue="11.9" (matches "approved")
   other source: s3 "North division" row 2: Revenue="12.4"
 [3] 2 sources differ; which is meant is not settled by the files:
-  - s2 "North division" row 2: Revenue="11.9" #ADE2V0Q3BV
-  - s3 "North division" row 2: Revenue="12.4" #HDCR3CVABH
+  - s2 "North division" row 2: Revenue="11.9"
+  - s3 "North division" row 2: Revenue="12.4"
 [4] no indexed text in the 7 shared files has "west" (asked: "west division revenue"); rows labelled like it: "North division", "South division" (s2, s3).
 ````
+
+REST asked for text (`"format": "text"`) writes the same answer with whole revisions (`@83757353ead4`) and a handle on each line and value (`[1] #D16826NQ4J s1 lines 5-8 of 19`, `Revenue="11.9" #ADE2V0Q3BV`).
 
 The JSON contract is `{sources, answers: [{n, ask?, kind, …}], warnings?}`. An ask is resolved in this order:
 
@@ -297,7 +299,7 @@ Name resolution never guesses. A bare `app.py` that two folders contain is an `a
 - **Credentials.** `.env*`, keys and certificates (`*.pem`, `*.key`, `id_rsa`, …), `credentials*`, `secrets*`, and anything under `.ssh`, `.aws`, `.gnupg`, `.git` and the like are never returned, even inside a shared folder.
 - **The person's exclusions.** Paths excluded from autocomplete with a terminal rule are excluded for agents too.
 - **REST.** Loopback is not trusted by itself. Every request needs the bearer token from `<data>/agent/rest.json`, which is mode 0600 inside a 0700 directory. Requests with an `Origin` header or a cross-site `Sec-Fetch-Site`, and requests addressed to any host other than loopback (DNS rebinding), are refused.
-- **Prompt injection.** File contents are returned as JSON string values, and the MCP instructions state that result text is file content, not instructions. That reduces the risk; it doesn't remove it.
+- **Prompt injection.** As JSON, file contents are string values. As text, values are quoted, lines of a file are fenced, and an excerpt sits indented under its source after its page and section, on one line (a line break inside it cannot start a line of its own). The MCP instructions state that result text is file content, not instructions. That reduces the risk; it doesn't remove it.
 
 ---
 
@@ -368,6 +370,7 @@ v3 halved the evidence term but more than doubled the fixed term: it made more c
 | One lean definition (v4) | 387 tokens per call for search and read (v3) | One tool; the instructions say only "call lasso first" and that results are content | `d·M`, on every task | — | 149 real tokens per call (−61%) | Fewer words to persuade a model to call it; measured live below |
 | Resolved answers instead of candidates | Six facts as v3 search results: 1,642 tokens | Each ask answered with the row's named fields or the passage itself | Evidence term | Same values | 386 real tokens for the same six facts (−76%) | — |
 | Asks read the way models write them | 12 of 104 phrasings of the benchmark tasks failed: a folder named beside a file, `file:1-2,5-6`, `{symbol}` for a constant, a passage that only shares the words | A folder or directory word settles a shared name; range lists; constants by their indexed line; hits that state a figure or date first; a named file read as it is now | Fallback rate `f` | A name still unsettled by the ask is listed, never picked | 104/104 (`node scripts/agent-ask-phrasings.mjs`) | Phrasings written by hand, not sampled from models |
+| Lean answers over MCP | A handle on every excerpt and value, never used by a model (0 of 202 recorded `lasso` calls); 12-character revisions; quoted excerpts; a count of sentences and a budget hint on every search | `askTextOptions` in `mcp.js`: `lasso`'s text without handles unless a tool offered takes one, revisions at 8 characters, excerpts unquoted, repeats on one line | Evidence term, re-read every later turn | Same facts in every one of 128 graded responses | Offline: responses −11.1% (estimated tokens), lookup saving 19.3% → 19.8% | Not run live; MCP only |
 
 ---
 
@@ -757,6 +760,22 @@ The second ask was an oracle: a model that picks the right section. Listing the 
 
 The comparison arm (`lasso-v5`) was removed with the rollback, since `lasso` is that version again.
 
+## Lean answers over MCP (11 November 2026)
+
+A model re-reads every answer on each later turn, so what an answer carries besides evidence is paid for again and again. The recorded live runs showed what a model does not use: none of the 202 `lasso` calls passed a handle back, and none used an object ask. The `lasso` tool's text over MCP is therefore written lean:
+
+- **No handles**, unless something offered can take one: the server was started with `--tools …,read` or `…,cite`, or the call passes `handles: true`. A value that was cut keeps its handle, since that is how the rest of it is read. Handles are still issued and recorded, and the JSON has them, so `format: "json"` and REST are unchanged.
+- **Revisions at eight characters** (`@83757353`), the fewest an ask reads as a revision, so "at revision 83757353" still works.
+- **Excerpts as the file's words**, without quotes, on one line. Values and row labels stay quoted, and lines of a file stay fenced.
+- **Repeats on one line.** Excerpts an earlier answer of the same call already showed are named together (`shown in [1]: p.1, p.2, p.7`).
+- **A shorter first line for a search**: still `ranked`, how many matching files it shows, what no file has, and how many matched sentences it left out and where. The count of sentences shown and "a larger budget shows more" are gone: the schema says what the budget is, and past 1,000 tokens a larger budget shows almost nothing more (88 of 128 ask sets complete at 1,500 to 4,000, against 87 at 1,000).
+
+It is on for MCP only (`askTextOptions` in `src/agent/mcp.js`). REST's text, the command line and in-process callers answer as before, and `lasso_search`, `lasso_read` and `lasso_cite` keep their handles, which is what they are for.
+
+**Measured offline** ([eval-results-lean.md](eval-results-lean.md), no model called): on the four evaluation sets, all seen before, the 128 responses fell from 124,412 to 110,626 estimated tokens (−11.1%; median 1,007 → 884), and every response grades the same in every part (84 of 128 sufficient). The writing tasks keep their facts (23 / 24 / 21 of 24 ask sets) at 261 / 229 / 267 tokens an answer, from 279 / 242 / 285. The lookup benchmark stays 16 of 16 and its saving goes from 19.3% to 19.8%; its answers are short lines and records, with little to trim. All 104 phrasings still answer correctly. `benchmark-results.md` and `writing-results.md` were not regenerated.
+
+**Not measured:** a live run. The numbers above are the tokenizer-free estimate, and whether a model answers as well from unquoted excerpts without handles is only known once one is run. The benchmark and evaluation scripts now render `lasso`'s answers as the MCP server does, so the next live run measures this text.
+
 ## Next steps
 
 1. **More live runs:** a second run and model, a Claude model, and the lookups. Long conversations are not covered by any family yet.
@@ -827,4 +846,5 @@ They cover:
 - symbols, and large tables, including a row the app records concurrently
 - MCP over a real stdio process: negotiation, cancellation, errors and exit on disconnect
 - REST: token, Origin and Host checks, single instance, leases, idle shutdown, on-demand start and reuse
-- identical answers over MCP, REST and in-process calls
+- identical answers over MCP, REST and in-process calls, with `lasso`'s text lean over MCP only
+- lean text: no handles unless a tool takes them or the call asks, short revisions, unquoted excerpts, repeats on one line, and the default text unchanged
