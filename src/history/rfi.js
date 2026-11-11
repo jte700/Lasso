@@ -1,5 +1,5 @@
 import { json } from '../db.js';
-import { HttpError } from './errors.js';
+import { BlobReleasedError, HttpError } from './errors.js';
 import { resolveAnchor } from './preview.js';
 
 const UNKNOWN_MESSAGE = 'Lasso cannot determine the origin of this information from the recorded project history.';
@@ -29,6 +29,8 @@ export class RfiService {
     if (selectedValue == null || selectedValue === '') throw new HttpError(400, 'The selection could not be resolved in the requested file version.');
 
     const chain = this.snapshotChain(selectedSnapshot);
+    // Older versions whose bytes retention released have no value to read here.
+    const released = new Set();
     const observations = chain.map((snapshot) => {
       const file = this.timeline.snapshotFileRow(snapshot.id, selectedFile.projectFileId);
       if (!file) return { snapshot, file: null, value: null, event: this.eventForSnapshot(snapshot.id) };
@@ -39,10 +41,11 @@ export class RfiService {
         contentHash: file.content_hash,
         fileType: file.file_type,
       };
+      const content = this.keptBytes(file.content_hash, released);
       return {
         snapshot,
         file: normalized,
-        value: resolveAnchor(normalized, this.timeline.blobs.get(file.content_hash), anchor, snapshot.id === snapshotId),
+        value: content ? resolveAnchor(normalized, content, anchor, snapshot.id === snapshotId) : null,
         event: this.eventForSnapshot(snapshot.id),
       };
     });
@@ -107,8 +110,21 @@ export class RfiService {
       dependencyMessage: linkedDependency ? null : 'No dependency linked',
       linkedDependency,
       history,
+      // How many earlier versions of the file were left out of the history because their bytes were released.
+      versionsWithoutBytes: released.size,
       message: links.length ? null : UNKNOWN_MESSAGE,
     };
+  }
+
+  /** A version's bytes, or null when they were released, noting its hash in `released`. */
+  keptBytes(contentHash, released) {
+    try {
+      return this.timeline.blobs.get(contentHash);
+    } catch (error) {
+      if (!(error instanceof BlobReleasedError)) throw error;
+      released.add(contentHash);
+      return null;
+    }
   }
 
   snapshotChain(snapshot) {

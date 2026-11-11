@@ -6,6 +6,8 @@ import { createConfig } from './config.js';
 import { openDatabase } from './db.js';
 import { TimelineService } from './history/service.js';
 import { RfiService } from './history/rfi.js';
+import { BlobRetention } from './history/retention.js';
+import { BlobCompaction } from './history/blob-compaction.js';
 import { PredictiveProvenanceService } from './dependencies/service.js';
 import { createRequestHandler } from './http/api.js';
 import { ObjectShareService } from './sharing/object-share.js';
@@ -34,7 +36,13 @@ export function createApplication(overrides = {}) {
   const workspace = new WorkspaceService({ timeline, dependencies, terminal });
   const connections = new ConnectionService({ db, timeline, dependencies, workspace, config, fetchImpl: overrides.fetch });
   const ranch = new RanchService({ timeline, dependencies, terminal, workspace, objectShares });
+  // Off unless config.blobRetentionEnabled is set; then it runs only between captures.
+  const retention = new BlobRetention({ db, timeline, config });
+  // On unless config.blobCompressionEnabled is false; it compresses only versions no folder holds now.
+  const compaction = new BlobCompaction({ db, timeline, config });
   if (config.watchProjects) workspace.ready = workspace.restore();
+  retention.start();
+  compaction.start();
   connections.start();
   const server = http.createServer(createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal, workspace, connections, ranch));
   // Resolve ephemeral desktop ports before any share links are generated.
@@ -52,9 +60,13 @@ export function createApplication(overrides = {}) {
     workspace,
     connections,
     ranch,
+    retention,
+    compaction,
     server,
     close() {
       if (closing) return closing;
+      retention.close();
+      compaction.close();
       connections.close();
       workspace.close();
       timeline.close();

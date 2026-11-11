@@ -1,7 +1,7 @@
 // Previews of a linked source: its file, figure, model and the viewer around its anchor.
 
 import path from 'node:path';
-import { HttpError } from '../history/errors.js';
+import { BlobReleasedError, HttpError } from '../history/errors.js';
 import { parseDelimited } from '../history/diff.js';
 import { extractDocxDocument, extractSpreadsheetTables } from './document-extraction.js';
 import { renderPdfFigurePage } from './figure-preview.js';
@@ -71,7 +71,14 @@ export const dependencyPreviewsMethods = {
     if (!/\.(?:ifc|dxf|step|stp)$/i.test(source?.path ?? '')) return null;
     const file = this.timeline.snapshotFile(source.snapshotId, source.path);
     if (!file) return { kind: 'model-unavailable', reason: 'The indexed source version is no longer available.' };
-    return buildModelPreview({ path: file.path, content: this.timeline.blobs.get(file.contentHash) }, source);
+    let content;
+    try {
+      content = this.timeline.blobs.get(file.contentHash);
+    } catch (error) {
+      if (!(error instanceof BlobReleasedError)) throw error;
+      return { kind: 'model-unavailable', reason: error.message, bytesReleased: error.describe() };
+    }
+    return buildModelPreview({ path: file.path, content }, source);
   },
 
   dependencyModelPreview(dependencyId) {
@@ -83,7 +90,6 @@ export const dependencyPreviewsMethods = {
     const source = semanticDependencySource(dependency);
     const file = this.timeline.snapshotFile(source.snapshotId, source.path);
     if (!file) throw new HttpError(404, 'The indexed source version is no longer available.');
-    const buffer = this.timeline.blobs.get(file.contentHash);
     const fileUrl = `/api/dependencies/${encodeURIComponent(dependencyId)}/source-file`;
     const base = {
       dependencyId,
@@ -93,13 +99,22 @@ export const dependencyPreviewsMethods = {
       version: this.timeline.snapshotRecord(source.snapshotId)?.version ?? null,
       fileUrl,
     };
-
+    // A drawing's context is its recorded values; its file is not read.
     if (source.metadata?.drawing && file.fileType !== 'pdf') {
       const text = drawingContext(source).text;
       const selectedText = source.metadata.rawText ?? source.valueText ?? '';
       return { ...base, kind: 'document', text,
         selectedText, selectedStart: selectedText ? text.indexOf(selectedText) : -1,
         locationLabel: [source.metadata.elementId, source.metadata.propertySet, source.metadata.propertyName].filter(Boolean).join(' · ') };
+    }
+
+    let buffer;
+    try {
+      buffer = this.timeline.blobs.get(file.contentHash);
+    } catch (error) {
+      if (!(error instanceof BlobReleasedError)) throw error;
+      // The recorded source stands in for a file whose bytes were not kept.
+      return { ...base, kind: 'binary', locationLabel: source.label, bytesReleased: error.describe() };
     }
 
     if (file.fileType === 'pdf') {
@@ -197,28 +212,40 @@ export const dependencyPreviewsMethods = {
     const contextRadius = Number.isFinite(parsedRadius)
       ? Math.max(0, Math.min(5, parsedRadius)) : 1;
     let content;
-    if (source.objectType === 'FIGURE' && /\.pdf$/i.test(source.path)) {
-      try {
-        const rendered = this.figurePreviewImage(dependencyId);
-        const rawCaption = String(source.valueText ?? source.metadata.textExcerpt ?? '').trim();
-        const caption = wordTokens(rawCaption).length >= 3 ? rawCaption : '';
-        content = {
-          kind: 'pdf-figure',
-          imageUrl: `/api/dependencies/${encodeURIComponent(dependencyId)}/figure-image`,
-          label: source.metadata.componentLabel ?? source.label,
-          caption,
-          pageNumber: rendered.pageNumber,
-          located: rendered.located,
-        };
-      } catch {
-        content = this.sharedSourceContent(dependency, 'CONTEXT', contextRadius);
-      }
-    } else content = this.sharedSourceContent(dependency, 'CONTEXT', contextRadius);
+    try {
+      content = this.previewContent(dependency, source, contextRadius);
+    } catch (error) {
+      if (!(error instanceof BlobReleasedError)) throw error;
+      // The recorded value stands in for a file whose bytes were not kept.
+      return { claim: dependency.spanText, source, accessScope: 'CONTEXT',
+        content: { kind: 'text', text: source.valueText ?? dependency.spanText }, bytesReleased: error.describe() };
+    }
     return {
       claim: dependency.spanText,
       source,
       accessScope: 'CONTEXT',
       content,
     };
+  },
+
+  previewContent(dependency, source, contextRadius) {
+    if (source.objectType === 'FIGURE' && /\.pdf$/i.test(source.path)) {
+      try {
+        const rendered = this.figurePreviewImage(dependency.id);
+        const rawCaption = String(source.valueText ?? source.metadata.textExcerpt ?? '').trim();
+        const caption = wordTokens(rawCaption).length >= 3 ? rawCaption : '';
+        return {
+          kind: 'pdf-figure',
+          imageUrl: `/api/dependencies/${encodeURIComponent(dependency.id)}/figure-image`,
+          label: source.metadata.componentLabel ?? source.label,
+          caption,
+          pageNumber: rendered.pageNumber,
+          located: rendered.located,
+        };
+      } catch {
+        return this.sharedSourceContent(dependency, 'CONTEXT', contextRadius);
+      }
+    }
+    return this.sharedSourceContent(dependency, 'CONTEXT', contextRadius);
   },
 };

@@ -6,6 +6,7 @@ import { transaction } from '../db.js';
 import { csvDelimiter, parseDelimited } from '../history/diff.js';
 import { MAX_IN_MEMORY_PART_BYTES, extractSpreadsheetTables, isLargeSpreadsheet } from './document-extraction.js';
 import { runSync } from '../history/work.js';
+import { BlobReleasedError } from '../history/errors.js';
 import { spreadsheetLayout, tabularLayout } from './tabular.js';
 import { fileLines } from './code-lines.js';
 import { isCodeType } from '../history/file-types.js';
@@ -20,18 +21,29 @@ export const objectExtractionMethods = {
     return runSync(this.extractedObjectSteps(file));
   },
 
-  /** The same as steps: a table too large to hold is read off this thread. */
+  /**
+   * The same as steps: a table too large to hold is read off this thread. A
+   * file whose bytes were released reads as no objects and says so
+   * (`bytesReleased`); an index that already recorded it keeps what it has.
+   */
   *extractedObjectSteps(file) {
     const key = JSON.stringify([file.projectFileId, file.path, file.fileType, file.contentHash]);
     let extracted = this.extractionCache.get(key);
     if (!extracted) {
       let problem = null;
       const report = (code, reason) => { problem ??= { code, reason }; };
-      // A video is heard from its file where it lies; its bytes are not read into memory.
-      const objects = file.fileType === 'video' ? yield* this.videoObjectSteps(file, report)
-        : ['table', 'spreadsheet'].includes(file.fileType)
-          ? yield* this.tableObjectSteps(file, this.timeline.blobs.get(file.contentHash), report)
-          : objectsFromFile(file, this.timeline.blobs.get(file.contentHash), report);
+      let objects;
+      try {
+        // A video is heard from its file where it lies; its bytes are not read into memory.
+        objects = file.fileType === 'video' ? yield* this.videoObjectSteps(file, report)
+          : ['table', 'spreadsheet'].includes(file.fileType)
+            ? yield* this.tableObjectSteps(file, this.timeline.blobs.get(file.contentHash), report)
+            : objectsFromFile(file, this.timeline.blobs.get(file.contentHash), report);
+      } catch (error) {
+        if (!(error instanceof BlobReleasedError)) throw error;
+        // Not cached: the bytes come back if the file goes back to this content.
+        return { objects: [], problem: { code: 'BYTES_RELEASED', reason: error.message }, bytesReleased: true, bytes: 0 };
+      }
       extracted = { objects, problem, bytes: JSON.stringify(objects).length * 2 };
       this.extractionCache.set(key, extracted);
     }
@@ -124,7 +136,9 @@ export const objectExtractionMethods = {
   },
 
   /** What each reading of a file records again besides what its reader finds: table rows and code lines offered before. */
-  recordedDescriptors(file, read) {
+  recordedDescriptors(file, read, { bytesReleased = false } = {}) {
+    // Without the bytes nothing can be read again; what was recorded stays recorded.
+    if (bytesReleased) return [];
     return [...this.recordedTableDescriptors(file, read), ...this.recordedLineDescriptors(file, read)];
   },
 

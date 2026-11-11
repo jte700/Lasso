@@ -32,7 +32,7 @@ export const videoTranscriptMethods = {
   *videoTranscriptSteps(file) {
     const kept = this.keptTranscript(file.contentHash);
     if (kept) return kept;
-    const blobPath = this.timeline.blobs.pathFor(file.contentHash);
+    const blobPath = this.timeline.blobs.rawPath(file.contentHash);
     const extension = path.posix.extname(file.path);
     let transcript = yield { share: 0, offThread: () => this.hearVideo(file.contentHash, blobPath, extension) };
     transcript ??= transcribeVideoNow(blobPath, extension);

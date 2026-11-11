@@ -24,10 +24,11 @@ function fixture(t, options = {}) {
   return { sandbox, root, app, project };
 }
 
+// The scanner opens each file it reads and takes it a chunk at a time.
 function trackProjectReads(t, root) {
   const reads = [];
-  const original = fs.readFileSync;
-  t.mock.method(fs, 'readFileSync', function (file, ...args) {
+  const original = fs.openSync;
+  t.mock.method(fs, 'openSync', function (file, ...args) {
     // Recorded as project-relative POSIX paths on every platform.
     if (typeof file === 'string' && file.startsWith(`${root}${path.sep}`)) reads.push(path.relative(root, file).split(path.sep).join('/'));
     return original.call(this, file, ...args);
@@ -102,11 +103,11 @@ test('directory hints dirty descendants and changing a file during a read does n
   const reads = trackProjectReads(t, root);
   scanDirectory(root, blobs, { fileCache, reuseUnchanged: true, dirtyPaths: ['nested'] });
   assert.deepEqual(reads, ['nested/note.md']);
-  const original = fs.readFileSync;
-  t.mock.method(fs, 'readFileSync', function (file, ...args) {
-    const bytes = original.call(this, file, ...args);
+  const original = fs.openSync;
+  t.mock.method(fs, 'openSync', function (file, ...args) {
+    const descriptor = original.call(this, file, ...args);
     if (file === target) fs.writeFileSync(target, 'a later write');
-    return bytes;
+    return descriptor;
   });
   scanDirectory(root, blobs, { fileCache, reuseUnchanged: true, dirtyPaths: ['nested'] });
   assert.equal(fileCache.has('nested/note.md'), false);

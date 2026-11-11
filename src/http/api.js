@@ -4,7 +4,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { URL } from 'node:url';
 import { buildPreview } from '../history/preview.js';
 import { sendFileRange } from './file-range.js';
-import { HttpError } from '../history/errors.js';
+import { BlobReleasedError, HttpError } from '../history/errors.js';
 import { DEFAULT_EVENT_PAGE } from '../history/service.js';
 import { renderSharePage, renderUnavailable, renderInspectorPanel, renderMenuBarHome } from '../sharing/share-page.js';
 import { buildFullShareDocument, buildInspectorPreview, buildSharedExcerpt, buildSharedPassage, buildSharePreview, buildSlideShareDocument, isTextPreviewPath, usesStructuredLayout, detectsCsvDelimiter } from '../sharing/share-preview.js';
@@ -673,7 +673,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
         if (file?.fileType !== 'video') throw new HttpError(404, 'This source is not a video.');
         const types = { '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/x-m4v' };
-        return sendFileRange(request, response, timeline.blobs.pathFor(file.contentHash),
+        return sendFileRange(request, response, timeline.blobs.rawPath(file.contentHash),
           types[path.extname(file.path).toLowerCase()] ?? 'application/octet-stream');
       }
 
@@ -682,7 +682,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const versionId = url.searchParams.get('version');
         const resolved = objectShares.describe(localObjectPreviewParameters[0], versionId);
         if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
-        let preview = null, sharedExcerpt = null, nearbyExcerpt = null;
+        let preview = null, sharedExcerpt = null, nearbyExcerpt = null, bytesReleased = null;
         // The suggestion card scrolls, so it asks for more of the source around the citation.
         const wide = url.searchParams.get('context') === 'wide';
         const radius = wide ? ASSIST_SCROLL_TABLE_RADIUS : ASSIST_TABLE_RADIUS;
@@ -690,10 +690,12 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
           // A video plays from its own file, at the quoted moment; its bytes are not read here.
           if (file?.fileType === 'video') {
+            const absent = timeline.blobs.has(file.contentHash) ? null : timeline.blobs.absent(file.contentHash);
             return sendJson(response, 200, { source: resolved.source, path: resolved.internal.filePath,
               preview: dependencies.videoPreview(file, resolved.source, url.searchParams.get('text') ?? '',
                 dependencies.videoLocalPath(resolved.internal.snapshotId, file.path)),
-              citedPart: null, shareScopes: offeredShareScopes(resolved.internal.filePath, resolved.source.anchor) });
+              citedPart: null, shareScopes: offeredShareScopes(resolved.internal.filePath, resolved.source.anchor),
+              ...(absent instanceof BlobReleasedError ? { bytesReleased: absent.describe() } : {}) });
           }
           const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash) } : null;
           // A table too large to read here previews from the table index.
@@ -724,8 +726,13 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           if (preview?.deck && file) {
             slidePicture(sourceFile.content, preview.slideNumber ?? 1, file.contentHash).catch(() => {});
           }
-        } catch { preview = null; }
+        } catch (error) {
+          preview = null;
+          // An old version whose bytes retention released still has its recorded source.
+          if (error instanceof BlobReleasedError) bytesReleased = error.describe();
+        }
         preview = await resolvedModelPreview(resolved) ?? preview;
+        bytesReleased ??= preview?.bytesReleased ?? null;
         return sendJson(response, 200, {
           source: resolved.source, path: resolved.internal.filePath, preview,
           // What the share composer's "Cited part only" would publish.
@@ -733,6 +740,8 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           ...(sharedExcerpt?.rows ? { sharedExcerpt } : {}),
           ...(nearbyExcerpt ? { nearbyExcerpt } : {}),
           shareScopes: offeredShareScopes(resolved.internal.filePath, resolved.source.anchor),
+          // Said plainly when the original file of this version was not kept.
+          ...(bytesReleased ? { bytesReleased } : {}),
         });
       }
 

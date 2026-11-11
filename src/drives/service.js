@@ -246,7 +246,8 @@ export class RemovableDriveService {
         UNION ALL SELECT 1 FROM file_changes WHERE content_hash_before = ? OR content_hash_after = ? LIMIT 1`)
         .get(hash, hash, hash, hash, hash);
       if (!used && !proposals.some(row => row.proposal_json.includes(hash))) {
-        try { fs.rmSync(this.timeline.blobs.pathFor(hash), { force: true }); }
+        // Every stored form goes: the raw bytes, the compressed ones, and any raw copy.
+        try { this.timeline.blobs.remove(hash); }
         catch (error) { console.warn('Unable to release unreferenced drive snapshot:', error.message); }
       }
     }
