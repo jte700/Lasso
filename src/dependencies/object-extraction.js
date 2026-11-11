@@ -144,7 +144,7 @@ export const objectExtractionMethods = {
           const sheet = parsed.get(name);
           const layout = spreadsheetLayout(sheet);
           const sheetObjects = objectsFromTabular(file, fileName, layout.headers, layout.rows, {
-            format, sheet: sheet.name, ...layout, rowOffset: layout.headerRowIndex + 1,
+            format, sheet: sheet.name, ...layout, rowOffset: layout.headerRowIndex + 1, formulaCells: sheet.formulas,
           });
           objects.push(...sheetObjects);
           // A sheet the table index answers for is read again with its file, so its index stays whole.

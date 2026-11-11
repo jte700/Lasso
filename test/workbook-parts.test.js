@@ -85,6 +85,17 @@ test('A change to a part every sheet reads re-reads the whole workbook', async (
   assert.deepEqual(read, ['all']);
 });
 
+test('A sheet whose edit keeps its size and whose checksum is left at zero is still read again', () => {
+  // Arrange: the test workbooks, like some writers, leave every checksum at zero.
+  const before = sheetSignatures(regions({ North: 1 }));
+
+  // Act
+  const after = sheetSignatures(regions({ North: 2 }));
+
+  // Assert
+  assert.notEqual(after[0].signature, before[0].signature);
+});
+
 test('A sheet keeps its signature until its own part or a shared part changes', () => {
   // Arrange
   const before = sheetSignatures(regions());

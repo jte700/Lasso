@@ -21,7 +21,8 @@ const TEXT_EXTENSIONS = new Set(['.txt', '.bib', '.ris', '.enw', '.nbib']);
 /** In the order they are asked: the first that accepts a file reads it. */
 export const READERS = Object.freeze([
   { id: 'video', version: 1, extract: 'video', accepts: (file) => file.fileType === 'video' },
-  { id: 'table', version: 1, extract: 'table', accepts: (file) => ['table', 'spreadsheet'].includes(file.fileType) },
+  // 2: worksheet cells that hold a formula say so (metadata.formula).
+  { id: 'table', version: 2, extract: 'table', accepts: (file) => ['table', 'spreadsheet'].includes(file.fileType) },
   // A PDF is read as a drawing when its pages are drawings, otherwise as a paper.
   { id: 'pdf', version: 1, extract: 'file', accepts: (file) => file.fileType === 'pdf' },
   { id: 'design', version: 1, extract: 'file', accepts: (file) => isDesignFile(file) },

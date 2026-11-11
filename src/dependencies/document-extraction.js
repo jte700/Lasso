@@ -766,6 +766,12 @@ function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null, for
       const value = type === 's' && raw.trim() ? sharedStrings[Number(raw)] ?? raw
         : type === 'inlineStr' || inline ? inline : formatted ?? raw;
       row[column] = cleanText(value, 2_000);
+      // Which cells hold a formula, by sheet row, so a value that changed with
+      // its inputs can be told from one typed over.
+      if (state.formulas && /<f[\s>/]/.test(cell.content)) {
+        if (!state.formulas.has(rowNumber)) state.formulas.set(rowNumber, new Set());
+        state.formulas.get(rowNumber).add(column);
+      }
       if (displayRows && !inline) {
         const shown = spreadsheetCellDisplay(type, raw, format, formats, row[column]);
         if (shown != null) shownRow[column] = shown;
@@ -1049,7 +1055,8 @@ function spreadsheetSheet(buffer, descriptor, shared, relationships, formats) {
   if (!source) return null;
   const rowNumbers = [];
   const displayRows = [];
-  const rows = spreadsheetRows(source, shared, rowNumbers, formats, displayRows);
+  const formulas = new Map();
+  const rows = spreadsheetRows(source, shared, rowNumbers, formats, displayRows, { fallbackRow: 1, formulas });
   const merges = spreadsheetElements(source, 'mergeCell')
     .map(({ attributes }) => spreadsheetRange(attribute(attributes, 'ref'))).filter(Boolean);
   const directory = path.posix.dirname(descriptor.entry);
@@ -1066,7 +1073,8 @@ function spreadsheetSheet(buffer, descriptor, shared, relationships, formats) {
   });
   if (!rows.length) return null;
   // Presentation only, like `skipped`: kept out of the sheet's data and JSON.
-  return Object.defineProperty({ name:descriptor.name, rows, rowNumbers, merges, tables }, 'displayRows', { value: displayRows });
+  return Object.defineProperties({ name:descriptor.name, rows, rowNumbers, merges, tables },
+    { displayRows: { value: displayRows }, formulas: { value: formulas } });
 }
 
 const spreadsheetRelationships = (xml) => spreadsheetElements(xml, 'Relationship')

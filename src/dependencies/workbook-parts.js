@@ -1,7 +1,8 @@
-// Which sheets of a workbook changed between two versions, read from the zip
-// central directory alone (each part's checksum and size), so an edit to one
-// sheet re-reads only that sheet.
+// Which sheets of a workbook changed between two versions, from each part's
+// checksum, size and stored bytes, without inflating any sheet, so an edit to
+// one sheet re-reads only that sheet.
 
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { readZip, zipBytes } from './zip-archive.js';
 
@@ -15,9 +16,13 @@ const MAX_WORKBOOK_BYTES = 4 * 1024 * 1024;
 const attribute = (tag, name) => tag.match(new RegExp(`\\s${name.replace(':', '\\:')}="([^"]*)"`))?.[1] ?? '';
 const elements = (xml, name) => [...xml.matchAll(new RegExp(`<${name}\\b([^>]*)/?>`, 'g'))].map((match) => match[1]);
 
+// A part's checksum and size from the directory, and a hash of its stored
+// bytes: some writers leave the checksum at zero, and an edit can keep the size.
 const partStamp = (entries, name) => {
   const entry = entries.get(name);
-  return entry ? `${name}:${entry.crc}:${entry.size}` : `${name}:-`;
+  if (!entry) return `${name}:-`;
+  const stored = crypto.createHash('sha1').update(entry.compressed).digest('base64url');
+  return `${name}:${entry.crc}:${entry.size}:${stored}`;
 };
 
 /**
