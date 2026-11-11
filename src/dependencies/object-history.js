@@ -11,6 +11,8 @@ const DEFAULT_HISTORY_LIMIT = 20;
 const MAX_HISTORY_LIMIT = 500;
 // How many earlier wordings of a passage its history follows.
 const MAX_EARLIER_WORDINGS = 20;
+// How many of a value's past versions a preview lists.
+const PREVIEW_HISTORY_LIMIT = 20;
 
 /**
  * Why a snapshot was recorded, from its timeline event's source: a re-read
@@ -76,6 +78,16 @@ export const objectHistoryMethods = {
       replaced = replacedVersion(this.db, replaced.object_id);
     }
     return entries.slice(0, wanted);
+  },
+
+  /** An object's value history for its preview, most recent first; empty when it has none to show. */
+  previewHistory(objectId) {
+    try {
+      return this.objectHistory(objectId, { limit: PREVIEW_HISTORY_LIMIT })
+        .map(({ value, changedAt, snapshotId, kind, cause }) => ({ value, changedAt, snapshotId, kind, cause }));
+    } catch {
+      return [];
+    }
   },
 
   /** One object's own versions and removals, most recent first (see objectHistory). */

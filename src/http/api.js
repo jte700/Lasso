@@ -1,28 +1,27 @@
-import fs from 'node:fs';
 import path from 'node:path';
-import { timingSafeEqual } from 'node:crypto';
 import { URL } from 'node:url';
 import { buildPreview } from '../history/preview.js';
 import { sendFileRange } from './file-range.js';
 import { BlobReleasedError, HttpError } from '../history/errors.js';
 import { DEFAULT_EVENT_PAGE } from '../history/service.js';
 import { renderSharePage, renderUnavailable, renderInspectorPanel, renderMenuBarHome } from '../sharing/share-page.js';
-import { buildFullShareDocument, buildInspectorPreview, buildSharedExcerpt, buildSharedPassage, buildSharePreview, buildSlideShareDocument, isTextPreviewPath, usesStructuredLayout, detectsCsvDelimiter } from '../sharing/share-preview.js';
-import { fullTextLayout } from '../sharing/text-layout.js';
-import { isMarkdownPath } from '../sharing/markdown.js';
+import { buildFullShareDocument, buildInspectorPreview, buildSharedExcerpt, buildSharePreview, isTextPreviewPath } from '../sharing/share-preview.js';
 import { buildModelPreview } from '../dependencies/model-preview.js';
-import { redactModelPlan } from '../sharing/model-redaction.js';
 import { citedPartModel } from '../sharing/cited-part.js';
 import { buildShareDownload, downloadDisposition } from '../sharing/share-download.js';
 import { conversionFormat, convertedShareDownload, shareConversions } from '../sharing/share-conversion.js';
-import { drawingDiscovery } from '../dependencies/drawing-discovery.js';
-import { buildSafePdf, markedPdfRequest, pdfShareRequest } from '../sharing/pdf-share.js';
 import { buildPagePdf, slideCount, slidePicture } from '../sharing/document-pages.js';
 import { isMarkablePath } from '../sharing/markup.js';
 import { offeredShareScopes } from '../sharing/object-share.js';
 import { isPresentationPath } from '../dependencies/presentation-extraction.js';
 import { refusalReason, WORKSPACE_PAGE_HEADERS } from './request-guard.js';
 import { passiveInlineType } from './passive-types.js';
+import { actorFrom, match, opensWorkbench, readJson, sendBinary, sendConversion, sendHtml, sendJson, serveStatic, SHARE_PAGE_HEADERS, sourceLibraryEntry } from './responses.js';
+import { connectionRoutes } from './connection-routes.js';
+import { driveRoutes } from './drive-routes.js';
+import { ranchRoutes } from './ranch-routes.js';
+import { workspaceRoutes } from './workspace-routes.js';
+import { sharedContentReader } from '../sharing/shared-content.js';
 
 // Rows on each side of a cited cell in the suggestion card. The card shows as
 // many as fit around the citation, so a footnote still has its table above it.
@@ -33,134 +32,6 @@ const ASSIST_SCROLL_TABLE_RADIUS = 30;
 const ASSIST_COLUMN_ROWS = 100;
 // With ?context=wide, the lines and Markdown blocks around a cited passage the card scrolls through.
 const ASSIST_TEXT_CONTEXT = Object.freeze({ lines: 400, blocksBefore: 200, blocksAfter: 400 });
-
-const MIME_TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.ico': 'image/x-icon',
-};
-
-async function readJson(request, limit = 25 * 1024 * 1024) {
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of request) {
-    size += chunk.length;
-    if (size > limit) throw new HttpError(413, 'Request body is too large.');
-    chunks.push(chunk);
-  }
-  if (!chunks.length) return {};
-  let value;
-  try {
-    value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  } catch {
-    throw new HttpError(400, 'Request body must be valid JSON.');
-  }
-  // Every route reads named fields, so null, strings and arrays are client errors.
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new HttpError(400, 'Request body must be a JSON object.');
-  }
-  return value;
-}
-
-function sendJson(response, status, value) {
-  const body = JSON.stringify(value);
-  response.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'content-length': Buffer.byteLength(body),
-    'cache-control': 'no-store',
-  });
-  response.end(body);
-}
-
-// Recipient pages run no script and load nothing from elsewhere. If shared
-// text ever escaped its escaping, the browser would still refuse to run it.
-const SHARE_PAGE_HEADERS = {
-  'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-  'x-content-type-options': 'nosniff',
-};
-
-function sendHtml(response, status, html, headers = {}) {
-  const body = Buffer.from(html, 'utf8');
-  response.writeHead(status, {
-    'content-type': 'text/html; charset=utf-8',
-    'content-length': body.length,
-    'cache-control': 'no-store',
-    'referrer-policy': 'no-referrer',
-    ...headers,
-  });
-  response.end(body);
-}
-
-function sendBinary(response, status, content, contentType, headers = {}) {
-  response.writeHead(status, {
-    'content-type': contentType,
-    'content-length': content.length,
-    'cache-control': 'private, max-age=3600',
-    ...headers,
-  });
-  response.end(content);
-}
-
-/** A share's download in the format its recipient chose, or why it cannot be. */
-function sendConversion(response, converted) {
-  if (converted.status !== 'OK') {
-    return sendHtml(response, converted.status === 'CONVERSION_FAILED' ? 500 : 422,
-      renderUnavailable(converted.status), SHARE_PAGE_HEADERS);
-  }
-  return sendBinary(response, 200, converted.content, converted.contentType, {
-    'content-disposition': downloadDisposition(converted.filename),
-    'cache-control': 'no-store',
-    'x-content-type-options': 'nosniff',
-  });
-}
-
-function actorFrom(body) {
-  return body.actor ?? {
-    id: body.actorId,
-    displayName: body.actorName,
-    actorType: body.actorType,
-  };
-}
-
-function decodePathSegment(segment) {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    throw new HttpError(400, 'This is not a valid address.');
-  }
-}
-
-function match(pathname, pattern) {
-  const result = pathname.match(pattern);
-  return result ? result.slice(1).map(decodePathSegment) : null;
-}
-
-/** Whether the old browser workbench is wanted: by the Windows app, which asks for it, or on Windows. */
-function opensWorkbench(url) {
-  return process.platform === 'win32' || url.searchParams.get('platform') === 'windows';
-}
-
-function serveStatic(publicDir, pathname, response) {
-  const relative = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  const target = path.resolve(publicDir, relative);
-  const root = path.resolve(publicDir);
-  if (!target.startsWith(`${root}${path.sep}`) && target !== root) return false;
-  if (!fs.existsSync(target) || !fs.statSync(target).isFile()) return false;
-  const extension = path.extname(target).toLowerCase();
-  const content = fs.readFileSync(target);
-  response.writeHead(200, {
-    'content-type': MIME_TYPES[extension] ?? 'application/octet-stream',
-    'content-length': content.length,
-    'cache-control': 'no-store',
-    ...WORKSPACE_PAGE_HEADERS,
-  });
-  response.end(content);
-  return true;
-}
 
 /**
  * The query naming a described object's version for the requests that follow
@@ -173,126 +44,8 @@ function pinnedQuery(versionId, resolved, askedSnapshotId) {
   return askedSnapshotId ? `${version}&snapshot=${encodeURIComponent(resolved.internal.snapshotId)}` : version;
 }
 
-function sourceLibraryEntry(source) {
-  const { searchText, contentHash, metadata, ...object } = source;
-  const drawing = source.searchAliases ? null : drawingDiscovery(source);
-  return drawing ? { ...object, label: drawing.label, searchAliases: drawing.aliases } : object;
-}
-
-// The page the browser lands on after signing in to a connected app. It runs
-// no script; the Connect window sees the connection change on its own.
-function signInPage(title, message, ok) {
-  const escape = (value) => String(value).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escape(title)} · Lasso</title><style>
-:root{color-scheme:light dark;--bg:#f5f3f1;--ink:#000;--ink2:rgba(0,0,0,.6);--card:#fff;--accent:#1f9d55;--bad:#c2410c}
-@media (prefers-color-scheme:dark){:root{--bg:#161615;--ink:#f5f4f2;--ink2:rgba(245,244,242,.62);--card:#1f1f1e;--accent:#3fd977;--bad:#ff8a4c}}
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
-main{max-width:420px;margin:24px;padding:32px 30px;border-radius:18px;background:var(--card);box-shadow:0 1px 2px rgba(0,0,0,.05),0 18px 40px rgba(0,0,0,.08);text-align:center}
-.mark{width:44px;height:44px;margin:0 auto 14px;border-radius:50%;display:grid;place-items:center;font-size:22px;color:#fff;background:${ok ? 'var(--accent)' : 'var(--bad)'}}
-h1{margin:0 0 6px;font-size:21px;letter-spacing:-.01em}p{margin:0;color:var(--ink2)}</style></head>
-<body><main><div class="mark" aria-hidden="true">${ok ? '&#10003;' : '!'}</div><h1>${escape(title)}</h1><p>${escape(message)}</p></main></body></html>`;
-}
-
-// How many of a value's past versions a preview lists.
-const PREVIEW_HISTORY_LIMIT = 20;
-
-/** An object's value history for its preview, most recent first; empty when it has none to show. */
-function objectPreviewHistory(dependencies, objectId) {
-  try {
-    return dependencies.objectHistory(objectId, { limit: PREVIEW_HISTORY_LIMIT })
-      .map(({ value, changedAt, snapshotId, kind, cause }) => ({ value, changedAt, snapshotId, kind, cause }));
-  } catch {
-    return [];
-  }
-}
-
 export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null, workspace = null, connections = null, ranch = null) {
-  const resolvedModelPreview = resolved => dependencies.sourceModelPreview({ ...resolved.source,
-    path: resolved.internal.filePath, snapshotId: resolved.internal.snapshotId });
-  const resolvedModelDocument = async resolved => {
-    const model = await resolvedModelPreview(resolved);
-    return model?.kind === 'model-plan' ? { ...model, focusBounds: { ...model.bounds } } : model;
-  };
-  // The public view and exported excerpt resolve the same pinned content and
-  // apply the same disclosure scope before either is rendered.
-  const sharedContent = async resolved => {
-    let preview = null, document = null;
-    try {
-      const file = timeline.snapshotFile(resolved.internal.snapshotId, resolved.internal.filePath);
-      const sourceFile = file ? { path: file.path, content: timeline.blobs.get(file.contentHash), contentHash: file.contentHash } : null;
-      preview = buildSharedExcerpt(sourceFile, resolved.source.anchor, resolved.source.metadata,
-        { nearbyRows: resolved.share.context?.nearbyRows === true });
-      // A passage from a text source is shared inside its paragraph.
-      if (!preview && resolved.share.accessScope === 'INDEXED' && sourceFile) {
-        preview = buildSharedPassage(sourceFile, resolved.source.anchor, resolved.source.metadata,
-          resolved.source.label, resolved.source.objectType);
-      }
-      // A marked copy is the document's pages with the strokes drawn on, never the file.
-      // When it cannot be drawn, nothing else of the document is shown in its place.
-      const marked = markedPdfRequest(resolved);
-      if (marked) {
-        try {
-          const content = await buildSafePdf(await buildPagePdf(sourceFile), marked);
-          return { preview: null, document: content && { kind: 'pdf', safe: true, marked: true, page: 1, location: '',
-            fileUrl: `/d/${encodeURIComponent(resolved.share.token)}/source`, content } };
-        } catch (error) {
-          console.error('Lasso could not draw the marked copy of %s: %s', resolved.internal.filePath, error.message);
-          return { preview: null, document: null };
-        }
-      }
-      // A 3D model's cited part is shared as its own view, never as the file.
-      if (resolved.share.accessScope === 'INDEXED' && /\.(?:step|stp)$/i.test(resolved.internal.filePath)) {
-        return { preview, document: citedPartModel(await resolvedModelPreview(resolved)) };
-      }
-      // A deck is shared whole, or as a picture of the slide the citation is on and nothing else.
-      if (isPresentationPath(resolved.internal.filePath)) {
-        if (resolved.share.accessScope === 'DOCUMENT') {
-          // A deck of one slide may also be downloaded as that slide's picture.
-          return { preview: null, document: { ...buildFullShareDocument(sourceFile),
-            slideCount: slideCount(sourceFile.content, sourceFile.contentHash),
-            slidePicture: () => slidePicture(sourceFile.content, 1, sourceFile.contentHash) } };
-        }
-        if (resolved.share.accessScope !== 'INDEXED') return { preview: null, document: null };
-        const slide = buildSlideShareDocument(sourceFile, resolved.source.anchor, resolved.source.metadata);
-        if (!slide) return { preview: null, document: null };
-        // The slide's words are shown only when it cannot be drawn.
-        const picture = await slidePicture(sourceFile.content, slide.slide, sourceFile.contentHash).catch((error) => {
-          console.error('Lasso could not draw slide %d of %s: %s', slide.slide, resolved.internal.filePath, error.message);
-          return null;
-        });
-        return { preview: null, document: { ...slide, picture } };
-      }
-      const pdfRequest = pdfShareRequest(resolved);
-      if (pdfRequest && sourceFile?.content) {
-        const content = await buildSafePdf(sourceFile.content, pdfRequest);
-        const pages = [...new Set(pdfRequest.regions?.map(region => region.page) ?? [])].sort((a, b) => a - b);
-        const excerptLocation = pages.length ? `${pages.length > 1 ? 'Pages' : 'Page'} ${pages.join(', ')}`
-          : pdfRequest.page ? `Page ${pdfRequest.page}` : '';
-        document = { kind: 'pdf', safe: true, redacted: resolved.share.accessScope === 'REDACTED',
-          fileUrl: `/d/${encodeURIComponent(resolved.share.token)}/source`, page: 1, location: excerptLocation, content };
-        return { preview: null, document };
-      }
-      if (resolved.share.accessScope !== 'INDEXED') {
-        document = await resolvedModelDocument(resolved)
-          ?? (resolved.share.accessScope === 'REDACTED'
-            ? buildFullShareDocument(sourceFile, {
-              structuredLayout: usesStructuredLayout(resolved.share.redactions, fullTextLayout(resolved.internal.filePath)),
-              detectCsvDelimiter: detectsCsvDelimiter(resolved.share.redactions) })
-            // The original is downloadable in this scope, so Markdown can be read in full.
-            : isMarkdownPath(resolved.internal.filePath) ? buildFullShareDocument(sourceFile) : null);
-        if (resolved.share.accessScope === 'DOCUMENT' && /\.pdf$/i.test(resolved.internal.filePath)) {
-          document = { ...buildFullShareDocument(sourceFile, { visualPdf: true }),
-            fileUrl: `/d/${encodeURIComponent(resolved.share.token)}/source`,
-            page: Math.max(1, Number(resolved.source.anchor?.pageNumber ?? resolved.source.metadata?.pageNumber) || 1) };
-        }
-        if (resolved.share.accessScope === 'REDACTED' && /\.(?:dxf|ifc)$/i.test(resolved.internal.filePath)) {
-          document = redactModelPlan(document, resolved.share.redactions);
-        }
-      }
-    } catch { preview = null; document = null; }
-    return { preview, document };
-  };
+  const { resolvedModelPreview, resolvedModelDocument, sharedContent } = sharedContentReader({ timeline, dependencies });
   return async function requestHandler(request, response) {
     try {
       const url = new URL(request.url, 'http://localhost');
@@ -448,158 +201,9 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       if (request.method === 'GET' && pathname === '/api/health') {
         return sendJson(response, 200, { ok: true, service: 'scientific-version-timeline' });
       }
-      if (workspace) {
-        if (request.method === 'GET' && pathname === '/api/workspace/activity') {
-          return sendJson(response, 200, { activity: workspace.activity({ sourceObjectIds: url.searchParams.getAll('sourceObjectId') }) });
-        }
-        if (request.method === 'GET' && pathname === '/api/workspace') {
-          return sendJson(response, 200, workspace.state({ pending: url.searchParams.get('pending') === '1' }));
-        }
-        if (request.method === 'POST' && pathname === '/api/workspace/directories') {
-          const body = await readJson(request);
-          return sendJson(response, 200, await workspace.add(body.rootPaths, actorFrom(body)));
-        }
-        if (request.method === 'DELETE' && pathname === '/api/workspace/directories') {
-          const body = await readJson(request);
-          return sendJson(response, 200, await workspace.removeMany(body.projectIds));
-        }
-        const fix = match(pathname, /^\/api\/workspace\/directories\/([^/]+)\/fix$/);
-        if (request.method === 'POST' && fix) {
-          const body = await readJson(request);
-          return sendJson(response, 200, await workspace.fixIssue(fix[0], actorFrom(body)));
-        }
-        const directory = match(pathname, /^\/api\/workspace\/directories\/([^/]+)$/);
-        if (request.method === 'POST' && directory) {
-          const body = await readJson(request);
-          return sendJson(response, 200, await workspace.toggle(directory[0], body.active, actorFrom(body)));
-        }
-        if (request.method === 'DELETE' && directory) {
-          return sendJson(response, 200, await workspace.remove(directory[0]));
-        }
-        if (request.method === 'POST' && pathname === '/api/workspace/dependencies/predict') {
-          return sendJson(response, 200, { prediction: await workspace.predict(await readJson(request)) });
-        }
-        if (request.method === 'GET' && pathname === '/api/workspace/source-library') {
-          return sendJson(response, 200, { objects: workspace.search(url.searchParams.get('query') ?? '', {
-            documentProjectId: url.searchParams.get('documentProjectId'),
-            documentPath: url.searchParams.get('documentPath'), context: url.searchParams.get('context'),
-            limit: Number.MAX_SAFE_INTEGER, diversify: false, enrich: false,
-          }).map(sourceLibraryEntry) });
-        }
-        const review = match(pathname, /^\/api\/workspace\/source-review\/([^/]+)$/);
-        if (review && ['GET', 'POST'].includes(request.method)) {
-          const body = request.method === 'POST' ? await readJson(request) : null;
-          const plan = workspace.sourceValuePlan(review[0]);
-          if (request.method === 'GET') return sendJson(response, 200, { plan });
-          if (JSON.stringify(body.expectedPlan) !== JSON.stringify(plan)) {
-            throw new HttpError(409, 'The source or document changed. Review the updated comparison before continuing.');
-          }
-          if (!['apply', 'keep'].includes(body.action)) throw new HttpError(400, 'Choose an update action.');
-          return sendJson(response, 200, { result: workspace.applySourceValuePlan(review[0], body.action, actorFrom(body), plan) });
-        }
-        if (request.method === 'GET' && pathname === '/api/workspace/terminal/session') {
-          // Its Changes count reads value history; a long one is read off
-          // this thread first so the server keeps answering meanwhile.
-          await workspace.readValueHistory();
-          return sendJson(response, 200, { session: workspace.terminalSession() });
-        }
-        if (request.method === 'GET' && pathname === '/api/workspace/terminal/complete') {
-          return sendJson(response, 200, { completion: workspace.terminalComplete(url.searchParams.get('input') ?? '', {
-            documentPath: url.searchParams.get('documentPath'), context: url.searchParams.get('context'),
-            surface: url.searchParams.get('surface'),
-          }) });
-        }
-        if (request.method === 'POST' && pathname === '/api/workspace/terminal/preview') {
-          const body = await readJson(request);
-          const preview = workspace.terminalPreview(body.ref);
-          const source = terminal.executor.previewSource(body.ref.projectId, body.ref);
-          const model = source ? await dependencies.sourceModelPreview(source) : null;
-          return sendJson(response, 200, { preview: model ?? preview });
-        }
-        if (request.method === 'POST' && pathname === '/api/workspace/terminal') {
-          const body = await readJson(request);
-          await workspace.readValueHistory();
-          return sendJson(response, 200, { result: await workspace.terminalRun(body.input, actorFrom(body), body) });
-        }
-      }
-      // The Ranch, the Mac app's library window. Read-only apart from visits.
-      if (ranch && pathname.startsWith('/api/ranch')) {
-        if (request.method === 'GET' && pathname === '/api/ranch') {
-          // The window asks every few seconds; an unchanged library is not sent again.
-          const { value, tag } = ranch.current();
-          if (request.headers['if-none-match'] === tag) {
-            response.writeHead(304, { etag: tag, 'cache-control': 'no-cache' });
-            return response.end();
-          }
-          const body = JSON.stringify(value);
-          response.writeHead(200, { 'content-type': 'application/json; charset=utf-8',
-            'content-length': Buffer.byteLength(body), 'cache-control': 'no-cache', etag: tag });
-          return response.end(body);
-        }
-        if (request.method === 'POST' && pathname === '/api/ranch/visits') {
-          return sendJson(response, 200, { visit: ranch.recordVisit(await readJson(request, 16 * 1024)) });
-        }
-        const file = { directoryId: url.searchParams.get('directory'), path: url.searchParams.get('path') };
-        if (request.method === 'GET' && pathname === '/api/ranch/share-target') {
-          return sendJson(response, 200, { target: ranch.shareTarget(file) });
-        }
-        if (request.method === 'GET' && pathname === '/api/ranch/sheet') {
-          return sendJson(response, 200, ranch.sheet({ ...file, version: url.searchParams.get('version') }));
-        }
-        if (request.method === 'GET' && pathname === '/api/ranch/passages') {
-          return sendJson(response, 200, ranch.passages(file));
-        }
-        if (request.method === 'GET' && pathname === '/api/ranch/file') {
-          // Saved as a file for Quick Look, never shown as a page of this origin.
-          const copy = ranch.fileContent(file);
-          return sendBinary(response, 200, copy.content, 'application/octet-stream', {
-            'content-disposition': downloadDisposition(copy.name),
-            'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
-          });
-        }
-      }
-      if (connections && request.method === 'GET' && pathname === '/connect/callback') {
-        try {
-          const connection = await connections.completeSignIn(Object.fromEntries(url.searchParams));
-          return sendHtml(response, 200, signInPage(`${connection.providerName} is connected`,
-            'Lasso is bringing in your items now. You can close this tab and return to Lasso.', true));
-        } catch (error) {
-          if ((error.status ?? 500) >= 500) console.error(error);
-          return sendHtml(response, error.status ?? 500, signInPage('Lasso could not connect',
-            (error.status ?? 500) >= 500 ? 'An unexpected error occurred. Try again from the Connect window.' : error.message, false));
-        }
-      }
-      if (connections && pathname.startsWith('/api/connections')) {
-        if (request.method === 'GET' && pathname === '/api/connections') {
-          return sendJson(response, 200, { catalog: connections.catalog({ native: url.searchParams.get('native') === '1' }),
-            connections: workspace.state({ pending: true }).connections });
-        }
-        if (request.method === 'POST' && pathname === '/api/connections') {
-          return sendJson(response, 201, await connections.create(await readJson(request, 64 * 1024)));
-        }
-        const app = match(pathname, /^\/api\/connections\/apps\/([^/]+)$/);
-        if (request.method === 'POST' && app) {
-          return sendJson(response, 200, { catalog: connections.configureApp(app[0], await readJson(request, 16 * 1024)) });
-        }
-        const action = match(pathname, /^\/api\/connections\/([^/]+)\/(sync|sign-in|items)$/);
-        if (request.method === 'POST' && action) {
-          const [id, verb] = action;
-          if (verb === 'sync') return sendJson(response, 200, { connection: await connections.sync(id) });
-          if (verb === 'sign-in') return sendJson(response, 200, connections.reauthorize(id));
-          const body = await readJson(request, 32 * 1024 * 1024);
-          return sendJson(response, 200, { connection: await connections.receive(id, body.events) });
-        }
-        const connection = match(pathname, /^\/api\/connections\/([^/]+)$/);
-        if (request.method === 'POST' && connection) {
-          const body = await readJson(request, 4096);
-          // The menu reads the whole workspace back, as it does for a folder's switch.
-          const changed = await connections.setActive(connection[0], body.active);
-          return sendJson(response, 200, { ...workspace.state({ pending: true }), connection: changed });
-        }
-        if (request.method === 'DELETE' && connection) {
-          return sendJson(response, 200, await connections.disconnect(connection[0]));
-        }
-      }
+      if (workspace && await workspaceRoutes({ request, response, url, pathname, workspace, dependencies, terminal })) return;
+      if (ranch && await ranchRoutes({ request, response, url, pathname, ranch })) return;
+      if (connections && await connectionRoutes({ request, response, url, pathname, connections, workspace })) return;
       if (request.method === 'GET' && pathname === '/api/sharing/status' && objectShares) {
         const baseUrl = objectShares.baseUrl();
         const host = new URL(baseUrl).hostname;
@@ -696,7 +300,6 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
       }
 
-
       // A linked video, in the byte ranges the inspector's player asks for.
       const localVideoParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/video$/);
       if (['GET', 'HEAD'].includes(request.method) && localVideoParameters && objectShares) {
@@ -778,46 +381,11 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           // Said plainly when the original file of this version was not kept.
           ...(bytesReleased ? { bytesReleased } : {}),
           // The value's past versions, most recent first, read only for previews.
-          history: objectPreviewHistory(dependencies, localObjectPreviewParameters[0]),
+          history: dependencies.previewHistory(localObjectPreviewParameters[0]),
         });
       }
 
-      if (pathname.startsWith('/api/drives') && timeline.drives) {
-        // Native inventory is privileged: an arbitrary webpage cannot invent
-        // a mounted volume and thereby grant access to an arbitrary folder.
-        if (request.method === 'POST') {
-          const origin = request.headers.origin;
-          if ((origin && origin !== `http://${request.headers.host}`)
-            || request.headers['sec-fetch-site'] === 'cross-site') throw new HttpError(403, 'Drive actions must come from Lasso.');
-        }
-        if (request.method === 'POST' && pathname === '/api/drives/sync') {
-          const expected = Buffer.from(config.driveToken ?? '');
-          const actual = Buffer.from(String(request.headers['x-lasso-drive-token'] ?? ''));
-          if (!expected.length || actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
-            throw new HttpError(403, 'Drive discovery requires the desktop host.');
-          }
-          const body = await readJson(request, 128 * 1024);
-          return sendJson(response, 200, timeline.drives.sync(body.volumes));
-        }
-        if (request.method === 'GET' && pathname === '/api/drives') {
-          return sendJson(response, 200, timeline.drives.list());
-        }
-        const driveRoute = match(pathname, /^\/api\/drives\/([^/]+)\/(folders|index|decision)$/);
-        if (driveRoute) {
-          const [driveId, operation] = driveRoute;
-          if (request.method === 'GET' && operation === 'folders') {
-            return sendJson(response, 200, timeline.drives.folders(driveId, url.searchParams.get('path') ?? '.'));
-          }
-          if (request.method === 'POST' && operation === 'index') {
-            const body = await readJson(request, 128 * 1024);
-            return sendJson(response, 200, timeline.drives.index(driveId, body.paths, actorFrom(body)));
-          }
-          if (request.method === 'POST' && operation === 'decision') {
-            const body = await readJson(request, 4096);
-            return sendJson(response, 200, timeline.drives.decision(driveId, body.action));
-          }
-        }
-      }
+      if (await driveRoutes({ request, response, url, pathname, timeline, config })) return;
 
       if (request.method === 'GET' && pathname === '/api/projects') {
         return sendJson(response, 200, { projects: timeline.listProjects() });
