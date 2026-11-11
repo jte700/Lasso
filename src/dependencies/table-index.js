@@ -23,6 +23,10 @@ export { openTableDatabase } from './table-storage.js';
 // Bumped when what the index stores for the same bytes changes.
 // 3: rows record which of their cells hold a formula (formula_columns).
 export const TABLE_INDEX_VERSION = 3;
+// A row is keyed as version 2 keyed it, with its formula columns added only
+// when it has some. A row without formulas is stored as it was, so it keeps
+// its key, the chunk boundaries its key decides, and any stored copy.
+const ROW_KEY_VERSION = 2;
 // The rows the indexer reads a table's shape from, as objectsFromTabular does.
 export const SHAPE_ROWS = 1_000;
 // The last rows of a table, kept for the notes written under it.
@@ -153,7 +157,7 @@ export class TableWriter {
     const displayJson = row.display && Object.keys(row.display).length ? JSON.stringify(row.display) : null;
     const formulaJson = row.formulas?.size || row.formulas?.length
       ? JSON.stringify([...row.formulas].sort((left, right) => left - right)) : null;
-    const { key, cut } = contentKey(`${TABLE_INDEX_VERSION}\u0000${cellsJson}\u0000${displayJson ?? ''}\u0000${formulaJson ?? ''}`);
+    const { key, cut } = contentKey(`${ROW_KEY_VERSION}\u0000${cellsJson}\u0000${displayJson ?? ''}${formulaJson ? `\u0000${formulaJson}` : ''}`);
     const named = searchable && row.ordinal >= dataStart && Number.isInteger(labelColumn);
     return { ordinal: row.ordinal, rowNumber: row.rowNumber, cellsJson, displayJson, formulaJson, key, cut,
       termColumn: named ? labelColumn : null, label: named ? row.cells[labelColumn] : null };
