@@ -248,7 +248,7 @@ test('a table whose rows have no names keeps its first and last rows, and counts
   const [table] = app.dependencies.tables.sheets(file.contentHash);
   assert.equal(table.shape.searchable, false);
   assert.equal(table.rowCount, rows + 1);
-  const stored = app.dependencies.tables.db.prepare('SELECT COUNT(*) AS count FROM table_rows WHERE table_id = ?').get(table.id).count;
+  const stored = app.dependencies.tables.rows(table.id, 0, table.rowCount).length;
   assert.ok(stored < 1_200, `only the first rows and the last are kept (${stored})`);
   assert.equal(app.dependencies.objectsAt(id).find((object) => object.metadata.metric === 'row-count').valueText, `n = ${rows}`);
 });
