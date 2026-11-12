@@ -23,7 +23,10 @@ const MOVIE_FIXTURE = fileURLToPath(new URL('./fixtures/videos/site-visit.mov', 
 const SILENT_FIXTURE = fileURLToPath(new URL('./fixtures/videos/silent.mp4', import.meta.url));
 const NO_SOUND_FIXTURE = fileURLToPath(new URL('./fixtures/videos/no-sound.mp4', import.meta.url));
 // On-device transcription needs macOS 26 (Darwin 25) and its speech model.
-const canTranscribe = process.platform === 'darwin' && Number(os.release().split('.')[0]) >= 25;
+// Build machines without the model, such as GitHub's, set
+// LASSO_TRANSCRIPTION=unavailable to skip these tests.
+const canTranscribe = process.platform === 'darwin' && Number(os.release().split('.')[0]) >= 25
+  && process.env.LASSO_TRANSCRIPTION !== 'unavailable';
 const TIME_TOLERANCE = 0.35;
 
 async function videoFolder(t, { dataDir = null, extra = {}, video = FIXTURE } = {}) {
