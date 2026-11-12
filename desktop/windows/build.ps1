@@ -5,7 +5,12 @@ param(
     [ValidateSet('x64', 'arm64')][string]$Architecture = 'x64',
     [ValidateSet('Release', 'Debug')][string]$Configuration = 'Release',
     [switch]$SkipTests,
-    [switch]$NoArchive
+    # Skips only the shared server's test suite, which the release workflow
+    # runs once on macOS; the Windows tests and the packaged smoke test still run.
+    [switch]$SkipServerTests,
+    [switch]$NoArchive,
+    # The version Windows shows for Lasso.exe, from the release tag when there is one.
+    [string]$Version = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -66,20 +71,28 @@ try {
 
     if (-not $SkipTests) {
         if ($Architecture -ne $HostArchitecture) { throw 'Cross-architecture packaging requires -SkipTests; validate that artifact on a native Windows machine before release.' }
-        Copy-Item (Join-Path $Root 'test') -Destination $App -Recurse
-        Push-Location $App
-        try {
-            & $Node --disable-warning=ExperimentalWarning --test
-            Assert-Exit 'Application tests'
-        } finally { Pop-Location }
-        Remove-Item (Join-Path $App 'test') -Recurse -Force
+        if (-not $SkipServerTests) {
+            Copy-Item (Join-Path $Root 'test') -Destination $App -Recurse
+            Push-Location $App
+            try {
+                & $Node --disable-warning=ExperimentalWarning --test
+                Assert-Exit 'Application tests'
+            } finally { Pop-Location }
+            Remove-Item (Join-Path $App 'test') -Recurse -Force
+        }
         & dotnet run --project (Join-Path $PSScriptRoot 'Assist/tests/Lasso.Assist.LogicTests.csproj') --configuration $Configuration
         Assert-Exit 'Windows assist logic tests'
         & dotnet build (Join-Path $PSScriptRoot 'BrowserTests/Lasso.BrowserTests.csproj') --configuration $Configuration
         Assert-Exit 'Windows browser regression harness build'
     }
 
-    & dotnet publish (Join-Path $PSScriptRoot 'Lasso.Windows.csproj') --configuration $Configuration --runtime "win-$Architecture" --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false --output $Stage
+    $VersionArguments = @()
+    if ($Version) {
+        $Numeric = ($Version -replace '^v', '') -replace '-.*$', ''
+        if ($Numeric -notmatch '^\d+(\.\d+){0,3}$') { throw "The version must look like 1.2.3, not '$Version'." }
+        $VersionArguments = @("-p:Version=$Numeric", "-p:InformationalVersion=$($Version -replace '^v', '')")
+    }
+    & dotnet publish (Join-Path $PSScriptRoot 'Lasso.Windows.csproj') --configuration $Configuration --runtime "win-$Architecture" --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false @VersionArguments --output $Stage
     Assert-Exit 'Windows desktop publish'
     $Runtime = Join-Path $Stage 'runtime'
     New-Item -ItemType Directory -Force -Path $Runtime | Out-Null

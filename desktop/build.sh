@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIST="$ROOT/dist"
+DIST="${LASSO_OUTPUT_DIR:-$ROOT/dist}"
 APP="$DIST/Lasso.app"
 SUPPORT="$HOME/Library/Application Support/Lasso"
 PREVIOUS_SUPPORT="$HOME/Library/Application Support/CoLab Dry"
@@ -14,9 +14,50 @@ MINIMUM_NODE_MAJOR=24
 # every shipped Swift binary. The Swift code needs macOS 13 (SMAppService login
 # items, for the launcher) and the nodejs.org build of Node.js 24 needs 13.5.
 MACOS_MINIMUM="13.5"
-# Without a target, swiftc builds for the macOS it runs on. The architecture
-# stays this Mac's, like the slice of Node.js that is bundled.
-SWIFT_TARGET="$(uname -m)-apple-macos$MACOS_MINIMUM"
+# The architectures every shipped binary is built for. A release names both
+# (LASSO_ARCHS="arm64 x86_64"), so one download runs on Apple silicon and Intel.
+ARCHS="${LASSO_ARCHS:-$(uname -m)}"
+for arch in $ARCHS; do
+  case "$arch" in
+    arm64|x86_64) ;;
+    *) echo "error: LASSO_ARCHS may name arm64 and x86_64, not $arch." >&2; exit 1 ;;
+  esac
+done
+# The version Finder and About show: the release tag's when there is one,
+# otherwise package.json's. macOS wants plain numbers, so "1.2.0-beta.1" shows
+# as 1.2.0. The build number tells two builds of one version apart.
+APP_VERSION="${LASSO_VERSION:-$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$ROOT/package.json" | head -n 1)}"
+APP_VERSION="${APP_VERSION#v}"
+APP_VERSION="${APP_VERSION%%-*}"
+if ! [[ "$APP_VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+  echo "error: the version must look like 1.2.3, not '$APP_VERSION'. Set LASSO_VERSION." >&2
+  exit 1
+fi
+BUILD_NUMBER="${LASSO_BUILD_NUMBER:-$APP_VERSION}"
+# A release build is for other Macs: it is signed with the hardened runtime and
+# a secure timestamp so Apple can notarize it, and it leaves this Mac's own app
+# data and Launch Services records alone.
+RELEASE="${LASSO_RELEASE:-0}"
+SWIFT_MODULE_CACHE="${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}"
+
+# Compiles one shipped binary for every architecture in ARCHS and joins the
+# slices. The arguments after the output path go to swiftc as they are.
+swift_binary() {
+  local output="$1" arch
+  local slices=()
+  shift
+  for arch in $ARCHS; do
+    swiftc -O -target "$arch-apple-macos$MACOS_MINIMUM" -module-cache-path "$SWIFT_MODULE_CACHE" \
+      -o "$output.$arch" "$@"
+    slices+=("$output.$arch")
+  done
+  if [ "${#slices[@]}" -eq 1 ]; then
+    mv "${slices[0]}" "$output"
+  else
+    lipo -create "${slices[@]}" -output "$output"
+    rm -f "${slices[@]}"
+  fi
+}
 
 # Succeeds when macOS version $1 is later than $2, part by part (13.5 > 13.0.1).
 macos_is_later() {
@@ -162,135 +203,29 @@ enum BuildConfig {
 SWIFT
 
 echo "==> Compiling the menu bar app"
-SWIFT_OPTIONS=(-O -target "$SWIFT_TARGET")
+# Every Swift file in desktop/ is part of the app except the launcher, which is
+# its own app below. A new file needs no list; tests live in desktop/tests/.
+SWIFT_EXTRA=()
 if [ "${LASSO_BROWSER_GEOMETRY_TEST:-0}" = "1" ]; then
-  SWIFT_OPTIONS+=(-D BROWSER_GEOMETRY_TEST "$ROOT/desktop/tests/browser-geometry.swift")
+  SWIFT_EXTRA+=(-D BROWSER_GEOMETRY_TEST "$ROOT/desktop/tests/browser-geometry.swift")
 fi
-swiftc "${SWIFT_OPTIONS[@]}" \
-  -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" \
+APP_SOURCES=()
+for source in "$ROOT"/desktop/*.swift; do
+  [ "$(basename "$source")" = "LassoLauncher.swift" ] || APP_SOURCES+=("$source")
+done
+swift_binary "$CONTENTS/MacOS/Lasso" ${SWIFT_EXTRA[@]+"${SWIFT_EXTRA[@]}"} \
   -framework Cocoa -framework WebKit -framework PDFKit -framework ServiceManagement -framework DiskArbitration \
   -framework EventKit -framework SwiftUI -framework Quartz -framework SceneKit -framework ModelIO -framework Carbon \
   -framework Vision -framework AVFoundation -framework AVKit \
-  -o "$CONTENTS/MacOS/Lasso" \
-  "$ROOT/desktop/BuildConfig.swift" \
-  "$ROOT/desktop/NodeRuntime.swift" \
-  "$ROOT/desktop/WorkspaceAPI.swift" \
-  "$ROOT/desktop/AssistActivation.swift" \
-  "$ROOT/desktop/SuggestionApps.swift" \
-  "$ROOT/desktop/TransientDismissal.swift" \
-  "$ROOT/desktop/DirectoryColors.swift" \
-  "$ROOT/desktop/LaunchHelper.swift" \
-  "$ROOT/desktop/Appearance.swift" \
-  "$ROOT/desktop/NativeMaterial.swift" \
-  "$ROOT/desktop/DirectoryMenu.swift" \
-  "$ROOT/desktop/StatusPopover.swift" \
-  "$ROOT/desktop/StatusHeader.swift" \
-  "$ROOT/desktop/NotchMotion.swift" \
-  "$ROOT/desktop/NotchPanel.swift" \
-  "$ROOT/desktop/SyntheticKeyboard.swift" \
-  "$ROOT/desktop/KeyRouting.swift" \
-  "$ROOT/desktop/PinchRouting.swift" \
-  "$ROOT/desktop/CompletionTransaction.swift" \
-  "$ROOT/desktop/InsertionCasing.swift" \
-  "$ROOT/desktop/InsertionUndo.swift" \
-  "$ROOT/desktop/HostSelection.swift" \
-  "$ROOT/desktop/AssistSourceIdentity.swift" \
-  "$ROOT/desktop/AssistWordChoice.swift" \
-  "$ROOT/desktop/SpokenAccept.swift" \
-  "$ROOT/desktop/SourceOpenTarget.swift" \
-  "$ROOT/desktop/SourceOpener.swift" \
-  "$ROOT/desktop/AssistPopupHost.swift" \
-  "$ROOT/desktop/DependencyReference.swift" \
-  "$ROOT/desktop/LinkedSourceMemory.swift" \
-  "$ROOT/desktop/HostGeometry.swift" \
-  "$ROOT/desktop/AccessibilityWork.swift" \
-  "$ROOT/desktop/HostAccessibilityMode.swift" \
-  "$ROOT/desktop/DictationWatch.swift" \
-  "$ROOT/desktop/HostTextAdapter.swift" \
-  "$ROOT/desktop/FocusedTextElement.swift" \
-  "$ROOT/desktop/DependencyOverlay.swift" \
-  "$ROOT/desktop/DependencyHighlighter.swift" \
-  "$ROOT/desktop/CodeSyntax.swift" \
-  "$ROOT/desktop/ModelPreview.swift" \
-  "$ROOT/desktop/VideoPreview.swift" \
-  "$ROOT/desktop/AssistVideoPreviewView.swift" \
-  "$ROOT/desktop/ModelOrbit.swift" \
-  "$ROOT/desktop/AssistTableLayout.swift" \
-  "$ROOT/desktop/AssistSuggestionList.swift" \
-  "$ROOT/desktop/PreviewWordMarks.swift" \
-  "$ROOT/desktop/AssistPreviewViews.swift" \
-  "$ROOT/desktop/SlideDeckPreview.swift" \
-  "$ROOT/desktop/SourceInspectorPanel.swift" \
-  "$ROOT/desktop/WebText.swift" \
-  "$ROOT/desktop/ShareInsertion.swift" \
-  "$ROOT/desktop/ShareMarkup.swift" \
-  "$ROOT/desktop/ShareComposer.swift" \
-  "$ROOT/desktop/ShareComposerController.swift" \
-  "$ROOT/desktop/ShareInteractivePDFView.swift" \
-  "$ROOT/desktop/SharePreviewCanvas.swift" \
-  "$ROOT/desktop/ShareComposerView.swift" \
-  "$ROOT/desktop/ShareComposerView+Drawing.swift" \
-  "$ROOT/desktop/ShareComposerView+Documents.swift" \
-  "$ROOT/desktop/ShareComposerView+Scrolling.swift" \
-  "$ROOT/desktop/ShareComposerView+Input.swift" \
-  "$ROOT/desktop/ShareComposerView+Markup.swift" \
-  "$ROOT/desktop/ShareComposerView+Regressions.swift" \
-  "$ROOT/desktop/SourceChooser.swift" \
-  "$ROOT/desktop/AssistSuggestion.swift" \
-  "$ROOT/desktop/AssistValueChange.swift" \
-  "$ROOT/desktop/PassageWordDiff.swift" \
-  "$ROOT/desktop/RanchPassageChanges.swift" \
-  "$ROOT/desktop/RecommendationUsageClient.swift" \
-  "$ROOT/desktop/InsertionMode.swift" \
-  "$ROOT/desktop/AssistPermission.swift" \
-  "$ROOT/desktop/AccessibilityReader.swift" \
-  "$ROOT/desktop/AssistGlassBubble.swift" \
-  "$ROOT/desktop/AssistBoxView.swift" \
-  "$ROOT/desktop/AssistBoxView+Drawing.swift" \
-  "$ROOT/desktop/AssistBoxView+Preview.swift" \
-  "$ROOT/desktop/AssistBoxView+Input.swift" \
-  "$ROOT/desktop/AssistBoxView+Footer.swift" \
-  "$ROOT/desktop/GlobalAssist.swift" \
-  "$ROOT/desktop/GlobalAssistant+Prediction.swift" \
-  "$ROOT/desktop/GlobalAssistant+Preview.swift" \
-  "$ROOT/desktop/GlobalAssistant+Panel.swift" \
-  "$ROOT/desktop/GlobalAssistant+Insertion.swift" \
-  "$ROOT/desktop/GlobalAssistant+Regressions.swift" \
-  "$ROOT/desktop/ExternalDrives.swift" \
-  "$ROOT/desktop/DriveMenu.swift" \
-  "$ROOT/desktop/MainMenu.swift" \
-  "$ROOT/desktop/ShortcutCatalog.swift" \
-  "$ROOT/desktop/ShortcutsPane.swift" \
-  "$ROOT/desktop/SettingsPanes.swift" \
-  "$ROOT/desktop/SettingsWindow.swift" \
-  "$ROOT/desktop/ConnectApps.swift" \
-  "$ROOT/desktop/RanchModels.swift" \
-  "$ROOT/desktop/RanchNetworkLayout.swift" \
-  "$ROOT/desktop/RanchTypeIcon.swift" \
-  "$ROOT/desktop/RanchTheme.swift" \
-  "$ROOT/desktop/RanchGlass.swift" \
-  "$ROOT/desktop/RanchStore.swift" \
-  "$ROOT/desktop/RanchEditors.swift" \
-  "$ROOT/desktop/RanchViewers.swift" \
-  "$ROOT/desktop/RanchViews.swift" \
-  "$ROOT/desktop/RanchLists.swift" \
-  "$ROOT/desktop/RanchSheetView.swift" \
-  "$ROOT/desktop/RanchReview.swift" \
-  "$ROOT/desktop/RanchDetail.swift" \
-  "$ROOT/desktop/RanchNetworkView.swift" \
-  "$ROOT/desktop/RanchWindow.swift" \
-  "$ROOT/desktop/GlobalHotKey.swift" \
-  "$ROOT/desktop/Lasso.swift"
+  "${APP_SOURCES[@]}"
 
 echo "==> Compiling the launcher (starts Lasso at login and with Command-L)"
 # Its own small app, so it keeps running after Lasso quits. SMAppService
 # finds login items in Contents/Library/LoginItems.
 LAUNCHER="$CONTENTS/Library/LoginItems/Lasso Launcher.app"
 mkdir -p "$LAUNCHER/Contents/MacOS" "$LAUNCHER/Contents/Resources"
-swiftc -O -target "$SWIFT_TARGET" \
-  -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" \
-  -framework Cocoa -framework Carbon \
-  -o "$LAUNCHER/Contents/MacOS/LassoLauncher" "$ROOT/desktop/LassoLauncher.swift"
+swift_binary "$LAUNCHER/Contents/MacOS/LassoLauncher" -framework Cocoa -framework Carbon \
+  "$ROOT/desktop/LassoLauncher.swift"
 cat > "$LAUNCHER/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -299,8 +234,8 @@ cat > "$LAUNCHER/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>Lasso Launcher</string>
   <key>CFBundleDisplayName</key><string>Lasso</string>
   <key>CFBundleIdentifier</key><string>com.jte700.lasso.launcher</string>
-  <key>CFBundleVersion</key><string>1.0.0</string>
-  <key>CFBundleShortVersionString</key><string>1.0.0</string>
+  <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
+  <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
   <key>CFBundleExecutable</key><string>LassoLauncher</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -373,19 +308,19 @@ for dependency in web-ifc polygon-clipping robust-predicates splaytree; do
 done
 
 echo "==> Compiling local PDF drawing reader"
-swiftc -O -target "$SWIFT_TARGET" -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework PDFKit -o "$RESOURCES/app/scripts/extract-drawing-layout" \
+swift_binary "$RESOURCES/app/scripts/extract-drawing-layout" -framework PDFKit \
   "$ROOT/scripts/extract-drawing-layout.swift"
 
 echo "==> Compiling safe PDF sharing renderer"
-swiftc -O -target "$SWIFT_TARGET" -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework PDFKit -framework AppKit -o "$RESOURCES/app/scripts/render-shared-pdf" \
+swift_binary "$RESOURCES/app/scripts/render-shared-pdf" -framework PDFKit -framework AppKit \
   "$ROOT/scripts/render-shared-pdf.swift"
 
 echo "==> Compiling document page renderer for marked-up shares"
-swiftc -O -target "$SWIFT_TARGET" -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework AppKit -framework PDFKit -framework QuickLookThumbnailing -o "$RESOURCES/app/scripts/render-document-pages" \
+swift_binary "$RESOURCES/app/scripts/render-document-pages" -framework AppKit -framework PDFKit -framework QuickLookThumbnailing \
   "$ROOT/scripts/render-document-pages.swift"
 
 echo "==> Compiling on-device video transcriber"
-swiftc -O -target "$SWIFT_TARGET" -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework AVFoundation -framework Speech -o "$RESOURCES/app/scripts/transcribe-video" \
+swift_binary "$RESOURCES/app/scripts/transcribe-video" -framework AVFoundation -framework Speech \
   "$ROOT/scripts/transcribe-video.swift"
 
 echo "==> Drawing the app icon"
@@ -428,8 +363,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <key>CFBundleName</key><string>Lasso</string>
   <key>CFBundleDisplayName</key><string>Lasso</string>
   <key>CFBundleIdentifier</key><string>com.jte700.lasso</string>
-  <key>CFBundleVersion</key><string>1.0.0</string>
-  <key>CFBundleShortVersionString</key><string>1.0.0</string>
+  <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
+  <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
   <key>CFBundleExecutable</key><string>Lasso</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -462,8 +397,9 @@ PLIST
 printf 'APPL????' > "$CONTENTS/PkgInfo"
 
 # First run keeps the history recorded so far by `npm start` instead of
-# opening an empty workspace. Existing app data is never overwritten.
-if [ ! -d "$SUPPORT/data" ]; then
+# opening an empty workspace. Existing app data is never overwritten, and a
+# release build, made for other Macs, seeds nothing.
+if [ "$RELEASE" != "1" ] && [ ! -d "$SUPPORT/data" ]; then
   if [ -d "$PREVIOUS_SUPPORT/data" ]; then
     DATA_SEED="$PREVIOUS_SUPPORT/data"
   elif [ -d "$ROOT/.lasso-data" ]; then
@@ -483,9 +419,21 @@ echo "==> Signing"
 # Sign inside-out in one process so a one-time Keychain approval covers the
 # bundled Node, the helpers, the launcher and the containing app without a
 # second prompt.
-codesign --force --sign "$SIGNING_IDENTITY" "$BUNDLED_NODE" \
-  "$RESOURCES/app/scripts/extract-drawing-layout" "$RESOURCES/app/scripts/render-shared-pdf" \
-  "$RESOURCES/app/scripts/render-document-pages" "$RESOURCES/app/scripts/transcribe-video" "$LAUNCHER" "$BUILD_APP"
+HELPERS=("$RESOURCES/app/scripts/extract-drawing-layout" "$RESOURCES/app/scripts/render-shared-pdf"
+  "$RESOURCES/app/scripts/render-document-pages" "$RESOURCES/app/scripts/transcribe-video")
+if [ "$RELEASE" = "1" ]; then
+  # Notarization needs the hardened runtime and a secure timestamp on every
+  # executable. Node's JavaScript engine writes machine code as it runs, and
+  # the app asks other apps to show a cited place and reads chosen calendars,
+  # so each is granted only what it needs.
+  RELEASE_SIGN=(--force --sign "$SIGNING_IDENTITY" --options runtime)
+  if [ "$SIGNING_IDENTITY" = "-" ]; then RELEASE_SIGN+=(--timestamp=none); else RELEASE_SIGN+=(--timestamp); fi
+  codesign "${RELEASE_SIGN[@]}" --entitlements "$ROOT/desktop/Node.entitlements" "$BUNDLED_NODE"
+  codesign "${RELEASE_SIGN[@]}" "${HELPERS[@]}" "$LAUNCHER"
+  codesign "${RELEASE_SIGN[@]}" --entitlements "$ROOT/desktop/Lasso.entitlements" "$BUILD_APP"
+else
+  codesign --force --sign "$SIGNING_IDENTITY" "$BUNDLED_NODE" "${HELPERS[@]}" "$LAUNCHER" "$BUILD_APP"
+fi
 codesign --verify --deep --strict "$BUILD_APP"
 if [ "$("$BUNDLED_NODE" --version 2>/dev/null || true)" != "$NODE_VERSION" ]; then
   echo "error: the signed bundled Node.js does not run. The previous app has been preserved." >&2
@@ -499,7 +447,7 @@ mv "$BUILD_APP" "$APP"
 # Finder, alerts and Privacy & Security settings cache app icons. Re-register
 # so the new icon replaces a cached one without logging out.
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-if [ -x "$LSREGISTER" ]; then
+if [ "$RELEASE" != "1" ] && [ -x "$LSREGISTER" ]; then
   "$LSREGISTER" -f "$APP" >/dev/null 2>&1 || true
 fi
 touch "$APP"
