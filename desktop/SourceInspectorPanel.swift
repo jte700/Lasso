@@ -124,11 +124,12 @@ final class SourceInspectorPanel: NSObject, WKScriptMessageHandler, WKNavigation
                                        resolvingAgainstBaseURL: false)
         // The cited version at the snapshot the link was made at, so the
         // inspector shows the file the cited text was read from.
+        // A word inserted with a share link shows what its recipient sees.
         components?.queryItems = [URLQueryItem(name: "object", value: reference.objectId)]
             + reference.citedVersionQuery + [
             URLQueryItem(name: "reference", value: reference.id),
             URLQueryItem(name: "accent", value: highlightHex),
-        ]
+        ] + reference.sharedLinkQuery
         // A cited video plays, and opens, from the second its quoted words start.
         if let time = reference.videoTime {
             components?.queryItems?.append(URLQueryItem(name: "time", value: String(time)))

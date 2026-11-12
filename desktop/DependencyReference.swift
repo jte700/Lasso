@@ -207,6 +207,9 @@ struct DependencyReference: Codable, Equatable {
     /// Seconds into a video where the cited words are said; nil for every other source.
     /// Links saved before videos were cited decode without it.
     var videoTime: Double? = nil
+    /// The share link the word was inserted with (⇧⌘⏎), so the inspector shows
+    /// what its recipient sees. Links inserted as plain text decode without it.
+    var shareToken: String? = nil
     let createdAt: Date
     var updatedAt: Date
 
@@ -219,6 +222,11 @@ struct DependencyReference: Codable, Equatable {
             + (snapshotId.map { [URLQueryItem(name: "snapshot", value: $0)] } ?? [])
     }
 
+    /// The share link the word was inserted with, which the inspector previews.
+    var sharedLinkQuery: [URLQueryItem] {
+        shareToken.map { [URLQueryItem(name: "share", value: $0)] } ?? []
+    }
+
     /// Identity equality is used by the UI; persistence needs content equality.
     func hasSameContent(as other: DependencyReference) -> Bool {
         id == other.id && objectId == other.objectId && versionId == other.versionId && snapshotId == other.snapshotId
@@ -228,6 +236,7 @@ struct DependencyReference: Codable, Equatable {
             && anchor == other.anchor && state == other.state && label == other.label
             && valueText == other.valueText && sourcePath == other.sourcePath
             && sourceLocation == other.sourceLocation && sourceColorSlot == other.sourceColorSlot
+            && shareToken == other.shareToken
     }
 }
 

@@ -254,8 +254,10 @@ extension GlobalAssistant {
     }
 
     /// Records a dependency only for an insertion proved by `checkInsertion`.
+    /// `share` is the link a ⇧⌘⏎ insertion was made with, whether or not the host kept it.
     private func reportInsertion(_ check: InsertionCheck, plan: CompletionPlan,
-                                 suggestion: AssistSuggestion, element: AXUIElement) {
+                                 suggestion: AssistSuggestion, element: AXUIElement,
+                                 share: DependencyShare? = nil) {
         markOwnWrite()
         if let heard = spokenHeardAt {
             let verified: Bool
@@ -275,12 +277,13 @@ extension GlobalAssistant {
         case .verified(let verified, let after):
             undoableInsertion = AcceptedInsertion(element: element, caret: verified.documentRange.upperBound,
                                                   inserted: plan.insertText, replaced: plan.expectedPrefix)
-            recordInsertion(verified, after: after, plan: plan, suggestion: suggestion, element: element)
+            recordInsertion(verified, after: after, plan: plan, suggestion: suggestion, element: element,
+                            shareToken: share?.token)
         }
     }
 
     private func recordInsertion(_ verified: VerifiedCompletion, after: CaretContext, plan: CompletionPlan,
-                                 suggestion: AssistSuggestion, element: AXUIElement) {
+                                 suggestion: AssistSuggestion, element: AXUIElement, shareToken: String? = nil) {
         let afterUnits = Array(after.text.utf16)
         let content = plan.sourceRange ?? 0..<plan.insertText.utf16.count
         let sourceRange = (verified.snapshotRange.lowerBound + content.lowerBound)..<(verified.snapshotRange.lowerBound + content.upperBound)
@@ -317,7 +320,8 @@ extension GlobalAssistant {
             label: suggestion.label, valueText: suggestion.detail,
             sourcePath: suggestion.path, sourceLocation: suggestion.detail,
             document: afterUnits, range: sourceRange,
-            documentOffset: after.windowStart, element: element, videoTime: suggestion.videoTime)
+            documentOffset: after.windowStart, element: element, videoTime: suggestion.videoTime,
+            shareToken: shareToken)
     }
 
     /// A share link on its way into the host, planned against `before`.
@@ -379,7 +383,8 @@ extension GlobalAssistant {
         flash(["Creating share link…"])
         let suggestion = link.suggestion
         ShareClient.createShare(serverURL: link.serverURL, projectId: suggestion.projectId,
-                                objectId: objectId, versionId: suggestion.versionId, configuration: configuration) { [weak self] result in
+                                objectId: objectId, versionId: suggestion.versionId, snapshotId: suggestion.snapshotId,
+                                configuration: configuration) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }
                 switch result {
@@ -478,7 +483,7 @@ extension GlobalAssistant {
         case .unverified:
             flash(["The link could not be verified.", "Its access link was revoked."])
         case .linked(let check):
-            reportInsertion(check, plan: link.plan, suggestion: link.suggestion, element: link.element)
+            reportInsertion(check, plan: link.plan, suggestion: link.suggestion, element: link.element, share: share)
             if case .verified = check {
                 undoableInsertion?.share = share
                 undoableInsertion?.serverURL = link.serverURL
@@ -487,7 +492,8 @@ extension GlobalAssistant {
             flash(["Hyperlink inserted",
                    local ? "Available only on this Mac" : "Source access is set by your sharing choice"])
         case .plainText(let check):
-            reportInsertion(check, plan: link.plan, suggestion: link.suggestion, element: link.element)
+            // The word is still Lasso's link: clicking it previews the copied share.
+            reportInsertion(check, plan: link.plan, suggestion: link.suggestion, element: link.element, share: share)
             var pid: pid_t = 0
             AXUIElementGetPid(link.element, &pid)
             let app = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "This app"

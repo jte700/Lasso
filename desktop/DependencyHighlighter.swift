@@ -146,7 +146,8 @@ final class DependencyHighlighter {
                                  projectId: String? = nil, label: String,
                                  valueText: String?, sourcePath: String, sourceLocation: String,
                                  document: [UInt16], range: Range<Int>, documentOffset: Int = 0,
-                                 element: AXUIElement, videoTime: Double? = nil) -> String? {
+                                 element: AXUIElement, videoTime: Double? = nil,
+                                 shareToken: String? = nil) -> String? {
         guard let anchor = TextAnchor.make(in: document, range: range,
                                            documentOffset: documentOffset) else { return nil }
         let id = "ref_" + UUID().uuidString.prefix(8)
@@ -159,7 +160,7 @@ final class DependencyHighlighter {
                     id: id, objectId: objectId, versionId: versionId, snapshotId: snapshotId,
                     projectId: projectId, label: label,
                     valueText: valueText, sourcePath: sourcePath, sourceLocation: sourceLocation,
-                    anchor: anchor, context: context, videoTime: videoTime)
+                    anchor: anchor, context: context, videoTime: videoTime, shareToken: shareToken)
             }
         }
         return id
@@ -168,7 +169,8 @@ final class DependencyHighlighter {
     private func storeVerifiedInsertion(id: String, objectId: String, versionId: String?, snapshotId: String?,
                                         projectId: String?, label: String,
                                         valueText: String?, sourcePath: String, sourceLocation: String,
-                                        anchor: TextAnchor, context: HostContext, videoTime: Double? = nil) {
+                                        anchor: TextAnchor, context: HostContext, videoTime: Double? = nil,
+                                        shareToken: String? = nil) {
         let colorSlot = sourceColorSlot(path: sourcePath, objectId: objectId,
                                        projectId: projectId, in: context)
         let reference = DependencyReference(
@@ -180,7 +182,7 @@ final class DependencyHighlighter {
             anchor: anchor, state: .healthy,
             label: label, valueText: valueText,
             sourcePath: sourcePath, sourceLocation: sourceLocation,
-            sourceColorSlot: colorSlot, videoTime: videoTime,
+            sourceColorSlot: colorSlot, videoTime: videoTime, shareToken: shareToken,
             createdAt: Date(), updatedAt: Date())
         store.add(reference)
         scheduleRefresh()

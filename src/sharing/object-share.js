@@ -261,6 +261,7 @@ export class ObjectShareService {
       share: {
         id: grant.id,
         token: grant.token,
+        objectId: grant.object_id,
         createdAt: grant.created_at,
         expiresAt: grant.expires_at,
         accessScope: grant.access_scope ?? 'DOCUMENT',

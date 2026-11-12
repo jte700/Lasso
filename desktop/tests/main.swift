@@ -1631,6 +1631,20 @@ do {
           && reference.citedVersionQuery == [URLQueryItem(name: "version", value: "v1")],
           "a link asks for its version at the snapshot it was made at, when it knows it")
 
+    // A word inserted with a share link previews that link as its recipient sees it.
+    var sharedReference = reference
+    sharedReference.shareToken = "token-redacted"
+    var unshared = try! JSONSerialization.jsonObject(with: JSONEncoder().encode(sharedReference)) as! [String: Any]
+    unshared.removeValue(forKey: "shareToken")
+    let unsharedReference = try? JSONDecoder().decode(DependencyReference.self,
+        from: JSONSerialization.data(withJSONObject: unshared))
+    check(try! JSONDecoder().decode(DependencyReference.self, from: JSONEncoder().encode(sharedReference)).shareToken
+          == "token-redacted" && unsharedReference != nil && unsharedReference?.shareToken == nil,
+          "a word inserted with a share link remembers it, and older links still load")
+    check(sharedReference.sharedLinkQuery == [URLQueryItem(name: "share", value: "token-redacted")]
+          && reference.sharedLinkQuery.isEmpty,
+          "the inspector asks for the word's share link only when it was inserted with one")
+
     store.add(reference)
     check(store.references.count == 1, "stores a reference")
     check(store.hasReferences(bundleIdentifier: "com.google.Chrome"),
