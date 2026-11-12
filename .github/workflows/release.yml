@@ -1,0 +1,206 @@
+name: Release
+# Builds the downloads the website links to:
+#   Lasso.dmg               Mac, Apple silicon and Intel, macOS 13.5 or later
+#   Lasso-Setup.exe         Windows 10 (1809) or later, x64 (also runs on Windows 11 on Arm)
+#   Lasso-Setup-arm64.exe   Windows 11 on Arm, native
+# Pushing a tag such as v1.2.0 builds them and publishes them as that release,
+# so https://github.com/jte700/Lasso/releases/latest/download/<file> always
+# serves the newest. "Run workflow" builds them from any branch without
+# publishing. Nothing here names a version or a file list, so merges never
+# need to change it. Setup and secrets: docs/releasing.md.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mac:
+    runs-on: macos-26
+    timeout-minutes: 90
+    outputs:
+      notarized: ${{ steps.build.outputs.notarized }}
+    env:
+      MAC_CERTIFICATE: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+      MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Check the macOS SDK
+        run: |
+          xcodebuild -version
+          sdk="$(xcrun --show-sdk-version)"
+          if [ "${sdk%%.*}" -lt 26 ]; then
+            echo "::error::Lasso needs the macOS 26 SDK or later; this runner has $sdk."
+            exit 1
+          fi
+      - run: npm ci
+      - name: Server tests
+        run: npm test
+      - name: Import the Developer ID certificate
+        if: env.MAC_CERTIFICATE != ''
+        run: |
+          keychain="$RUNNER_TEMP/lasso-signing.keychain-db"
+          password="$(openssl rand -hex 24)"
+          echo "$MAC_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$MAC_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ { print $2; exit }')"
+          if [ -z "$identity" ]; then
+            echo "::error::MAC_CERTIFICATE_P12_BASE64 holds no Developer ID Application certificate."
+            exit 1
+          fi
+          echo "LASSO_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+      - name: Write the notarization key
+        if: env.APPLE_API_KEY != ''
+        run: |
+          echo "$APPLE_API_KEY" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          echo "LASSO_NOTARY_KEY_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+      - name: Build, notarize and package
+        id: build
+        env:
+          LASSO_NOTARY_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          LASSO_NOTARY_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: bash desktop/release-mac.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: |
+            dist/release/Lasso.dmg
+            dist/release/Lasso.dmg.sha256
+          if-no-files-found: error
+
+  windows:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+          - arch: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Read the version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = git describe --tags --exact-match 2>$null
+          $version = if ($LASTEXITCODE -eq 0 -and $tag) { $tag } else { (Get-Content package.json -Raw | ConvertFrom-Json).version }
+          $global:LASTEXITCODE = 0
+          "value=$version" >> $env:GITHUB_OUTPUT
+      - name: Build, test and package
+        shell: pwsh
+        run: ./desktop/windows/build.ps1 -Architecture ${{ matrix.arch }} -SkipServerTests -NoArchive -Version '${{ steps.version.outputs.value }}'
+      - name: Sign Lasso.exe
+        if: env.AZURE_CLIENT_ID != ''
+        uses: Azure/artifact-signing-action@v2.0.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
+          files: ${{ github.workspace }}\dist\windows\Lasso-win-${{ matrix.arch }}\Lasso.exe
+          file-digest: SHA256
+          timestamp-digest: SHA256
+      - name: Make the installer
+        shell: pwsh
+        run: ./desktop/windows/package-installer.ps1 -Architecture ${{ matrix.arch }} -Version '${{ steps.version.outputs.value }}' -InstallInnoSetup
+      - name: Sign the installer
+        if: env.AZURE_CLIENT_ID != ''
+        uses: Azure/artifact-signing-action@v2.0.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
+          files: ${{ github.workspace }}\dist\windows\${{ matrix.arch == 'x64' && 'Lasso-Setup.exe' || 'Lasso-Setup-arm64.exe' }}
+          file-digest: SHA256
+          timestamp-digest: SHA256
+      - name: Record the signed installer's checksum
+        if: env.AZURE_CLIENT_ID != ''
+        shell: pwsh
+        run: |
+          $name = '${{ matrix.arch == 'x64' && 'Lasso-Setup.exe' || 'Lasso-Setup-arm64.exe' }}'
+          $path = Join-Path 'dist/windows' $name
+          $hash = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -Path "$path.sha256" -Value "$hash  $name" -Encoding utf8NoBOM
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: |
+            dist/windows/Lasso-Setup*.exe
+            dist/windows/Lasso-Setup*.exe.sha256
+          if-no-files-found: error
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}-diagnostics
+          path: ~/AppData/Local/Lasso/logs/
+          if-no-files-found: ignore
+
+  publish:
+    needs: [mac, windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    env:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTARIZED: ${{ needs.mac.outputs.notarized }}
+        run: |
+          cd assets
+          cat Lasso.dmg.sha256 Lasso-Setup.exe.sha256 Lasso-Setup-arm64.exe.sha256 > SHA256SUMS.txt
+          files=(Lasso.dmg Lasso-Setup.exe Lasso-Setup-arm64.exe SHA256SUMS.txt)
+          flags=()
+          # "latest/download" links skip drafts and pre-releases, so a Mac
+          # build Apple has not notarized never reaches the website.
+          if [ "$NOTARIZED" != "yes" ]; then
+            flags+=(--draft)
+            echo "::warning::The Mac build is not notarized (signing secrets missing), so the release is a draft."
+          fi
+          if [ -z "$AZURE_CLIENT_ID" ]; then
+            echo "::warning::The Windows installers are unsigned, so SmartScreen will warn before they run."
+          fi
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then flags+=(--prerelease); fi
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" "${files[@]}" --repo "$GITHUB_REPOSITORY" \
+              --title "Lasso ${GITHUB_REF_NAME#v}" --generate-notes "${flags[@]}"
+          fi

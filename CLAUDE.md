@@ -45,9 +45,11 @@ The ranking rules are written up in `docs/lasso-ranking-algorithm.pdf`: a direct
 npm test                         # all Node tests (about 1 minute); one file: node --test test/<name>.test.js
 npm run desktop:test             # native unit checks (a subset of desktop/ files, listed in package.json)
 npm run desktop                  # builds dist/Lasso.app; the user's app only changes after this and a relaunch
+npm run release:mac              # the downloadable Lasso.dmg (Intel + Apple silicon) in dist/release; see docs/releasing.md
 ```
 
-- New Swift files go in two lists: `desktop/build.sh` (the app) and, if testable without AppKit windows, the `desktop:test` script in `package.json`. Frameworks are linked in `build.sh` only.
+- New Swift files in `desktop/` are compiled into the app on their own (`build.sh` takes every `desktop/*.swift` but `LassoLauncher.swift`). Add one to the `desktop:test` script in `package.json` if it is testable without AppKit windows. Frameworks are linked in `build.sh` only.
+- Releases: pushing a `v*` tag runs `.github/workflows/release.yml`, which builds, signs and publishes `Lasso.dmg`, `Lasso-Setup.exe` and `Lasso-Setup-arm64.exe`; the site links to `releases/latest/download/<file>`. Nothing there needs editing per merge. Setup and secrets: `docs/releasing.md`.
 - `npm test` has a known flaky race (`UNIQUE constraint failed: object_index_bases.snapshot_id` in `test/connections.test.js`); rerun the file alone before treating it as a regression.
 - Native UI checks without launching the app: compile the `build.sh` sources minus `Lasso.swift` with `-D BROWSER_GEOMETRY_TEST` plus a scratch `main.swift` that calls a `runRegression`/`regression*` function (`GlobalAssistant.regressionSuggestionNavigation`, `AssistSlidePreviewView.runRegression`, `PreviewWordMarks.runRegression`, `ShareComposerView.run*Regression`; test-only code lives in `*+Regressions.swift`). Copy `desktop/BuildConfig.swift` to the scratchpad first: `npm run desktop` rewrites it mid-build. The first run after a build can fail timing checks; run twice before calling it a regression. Put the source list in a script file: an inline zsh `${(f)...}` array trips the shell safety check.
 - To check suggestions against real files without touching the user's library: `createApplication({ dataDir: <scratch>, watchProjects: false })`, `workspace.add([...folders])`, `workspace.predict({ text, cursor })`. Test folders live in `~/Desktop/Software Tests/`.
