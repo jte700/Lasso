@@ -46,6 +46,10 @@ jobs:
           fi
       - run: npm ci
       - name: Server tests
+        # GitHub's Macs have no on-device speech model, so video
+        # transcription tests skip here; they run on a developer's Mac.
+        env:
+          LASSO_TRANSCRIPTION: unavailable
         run: npm test
       - name: Import the Developer ID certificate
         if: env.MAC_CERTIFICATE != ''
