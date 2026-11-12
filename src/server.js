@@ -11,6 +11,7 @@ import { BlobCompaction } from './history/blob-compaction.js';
 import { PredictiveProvenanceService } from './dependencies/service.js';
 import { createRequestHandler } from './http/api.js';
 import { ObjectShareService } from './sharing/object-share.js';
+import { HostedSharePublisher } from './sharing/hosted-share.js';
 import { RemovableDriveService } from './drives/service.js';
 import { createTerminal } from './terminal/service.js';
 import { WorkspaceService } from './workspace.js';
@@ -64,6 +65,7 @@ export function createApplication(overrides = {}) {
   compaction.start();
   connections.start();
   const handle = createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal, workspace, connections, ranch);
+  objectShares.publisher = new HostedSharePublisher({ config, db, handler: handle });
   const caches = cachesShrinkWhenIdle(timeline.memoryBudget, config.cacheIdleMs);
   const server = http.createServer((request, response) => {
     caches.active();

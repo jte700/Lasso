@@ -532,7 +532,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const body = await readJson(request);
         await terminal.graph.readFolderHistories([parameters[0]]);
         return sendJson(response, 200, {
-          result: terminal.executor.run(parameters[0], body.input, actorFrom(body), {
+          result: await terminal.executor.run(parameters[0], body.input, actorFrom(body), {
             documentPath: body.documentPath, context: body.context,
           }),
         });
@@ -620,7 +620,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       if (request.method === 'POST' && parameters && objectShares) {
         const body = await readJson(request);
         return sendJson(response, 201, {
-          share: objectShares.createShare({
+          share: await objectShares.createPublishedShare({
             projectId: parameters[0],
             objectId: body.objectId,
             versionId: body.versionId ?? null,
@@ -641,7 +641,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
 
       parameters = match(pathname, /^\/api\/object-shares\/([^/]+)\/revoke$/);
       if (request.method === 'POST' && parameters && objectShares) {
-        return sendJson(response, 200, objectShares.revokeShare(parameters[0]));
+        return sendJson(response, 200, await objectShares.revokeShare(parameters[0]));
       }
 
       parameters = match(pathname, /^\/api\/dependencies\/([^/]+)\/figure-image$/);

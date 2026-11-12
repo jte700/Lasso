@@ -19,6 +19,7 @@ final class ShareComposerView: NSView {
         }
     }
     var localOnly = true
+    var shareHost = "mylasso.ca"
     var scope: ShareAccessScope = .indexed {
         didSet {
             if scope != oldValue {
@@ -162,7 +163,7 @@ final class ShareComposerView: NSView {
     let headerHeight: CGFloat = 42
     let footerHeight: CGFloat = 68
     // The server ends every share link 48 hours after it is created.
-    static let linkLifetimeNote = "Link expires in 48 hours."
+    static let linkLifetimeNote = "Anyone with the link can view it. Expires in 48 hours."
     static let blurContext = CIContext(options: [.cacheIntermediates: false])
     var blurredMasks: [String: NSImage] = [:]
 

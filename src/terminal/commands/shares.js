@@ -95,9 +95,9 @@ export function revokeShareCommand(context, command) {
   if (share.status === 'revoked') {
     return result('shares', { headline: `${share.name} was already revoked`, data: { share } });
   }
-  if (share.kind === 'OBJECT') context.objectShares.revokeShare(token);
-  else context.dependencies.revokeDependencyShare(token);
-  return result('shares', {
+  const revoked = share.kind === 'OBJECT' ? context.objectShares.revokeShare(token)
+    : context.dependencies.revokeDependencyShare(token);
+  const completed = () => result('shares', {
     headline: `Revoked the share of ${share.name}`,
     blocks: [
       fields([['target', share.target], ['created', formatMoment(share.createdAt)]]),
@@ -106,4 +106,5 @@ export function revokeShareCommand(context, command) {
     ],
     data: { share },
   });
+  return revoked?.then ? revoked.then(completed) : completed();
 }

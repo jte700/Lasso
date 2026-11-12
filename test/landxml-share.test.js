@@ -52,7 +52,7 @@ test('LandXML sources show the complete document and share and redact it line by
   fs.mkdirSync(root);
   fs.writeFileSync(path.join(root, 'Juniper-Site-Survey.landxml'), SURVEY);
   fs.writeFileSync(path.join(root, 'Civil-Export.xml'), SURVEY);
-  const app = createApplication({ dataDir: path.join(sandbox, 'data'), watchProjects: false, port: 0 });
+  const app = createApplication({ shareBaseUrl: 'http://localhost:4317', dataDir: path.join(sandbox, 'data'), watchProjects: false, port: 0 });
   t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
   const actor = { id: 'human:qa', displayName: 'QA', actorType: 'HUMAN_SELF' };
   const { project } = app.timeline.importProject(root, actor, { watch: false });

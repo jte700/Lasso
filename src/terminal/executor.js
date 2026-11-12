@@ -107,7 +107,11 @@ export class TerminalCommandExecutor {
     }
 
     try {
-      return definition.run(this.context(projectId, actor, options), command);
+      const answer = definition.run(this.context(projectId, actor, options), command);
+      return answer?.then ? answer.catch(error => {
+        if (error instanceof HttpError || Number.isInteger(error?.status)) return failure(command.name, error.message);
+        throw error;
+      }) : answer;
     } catch (error) {
       if (error instanceof HttpError || Number.isInteger(error?.status)) {
         return failure(command.name, error.message, { hints: error.details ? [String(error.details)] : [] });

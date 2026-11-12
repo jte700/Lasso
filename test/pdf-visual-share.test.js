@@ -114,7 +114,7 @@ test('A PDF is no longer shared as a cited part, and its recipient view and down
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-pdf-share-http-'));
   const root = path.join(temporary, 'Project'); fs.mkdirSync(root);
   const filename = path.join(root, 'Plan.pdf'); fs.writeFileSync(filename, pdf());
-  const app = createApplication({ dataDir: path.join(temporary, 'history'), watchProjects: false, port: 0 });
+  const app = createApplication({ shareBaseUrl: 'http://localhost:4317', dataDir: path.join(temporary, 'history'), watchProjects: false, port: 0 });
   t.after(async () => { await app.close(); fs.rmSync(temporary, { recursive: true, force: true }); });
   const { project } = app.timeline.importProject(root, actor, { watch: false });
   app.dependencies.ensureIndex(project.id);

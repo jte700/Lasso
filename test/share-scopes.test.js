@@ -27,7 +27,7 @@ async function sharedFolder(t, write) {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-share-scopes-'));
   const root = path.join(temporary, 'Project'); fs.mkdirSync(root);
   write(root);
-  const app = createApplication({ dataDir: path.join(temporary, 'history'), watchProjects: false, port: 0 });
+  const app = createApplication({ shareBaseUrl: 'http://localhost:4317', dataDir: path.join(temporary, 'history'), watchProjects: false, port: 0 });
   t.after(async () => { await app.close(); fs.rmSync(temporary, { recursive: true, force: true }); });
   const { project } = app.timeline.importProject(root, actor, { watch: false });
   app.dependencies.ensureIndex(project.id);

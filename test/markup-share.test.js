@@ -104,7 +104,7 @@ test('a marked share draws the strokes on a picture of each page and keeps the o
   fs.mkdirSync(root);
   fs.writeFileSync(path.join(root, 'Plan.pdf'), letterPdf());
   fs.writeFileSync(path.join(root, 'Budget.csv'), 'Department,Amount\nPeople,42\n');
-  const app = createApplication({ dataDir: path.join(temporary, 'history'), watchProjects: false, port: 0 });
+  const app = createApplication({ shareBaseUrl: 'http://localhost:4317', dataDir: path.join(temporary, 'history'), watchProjects: false, port: 0 });
   t.after(async () => { await app.close(); fs.rmSync(temporary, { recursive: true, force: true }); });
   const { project } = app.timeline.importProject(root, actor, { watch: false });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
@@ -149,7 +149,7 @@ test('a Word document is laid out on pages to mark up', { skip: !native }, async
   const html = path.join(temporary, 'memo.html');
   fs.writeFileSync(html, `<h1>Site memo</h1>${'<p>The north wall needs another inspection before the pour.</p>'.repeat(120)}`);
   execFileSync('/usr/bin/textutil', ['-convert', 'docx', '-output', path.join(root, 'Memo.docx'), html]);
-  const app = createApplication({ dataDir: path.join(temporary, 'history'), watchProjects: false, port: 0 });
+  const app = createApplication({ shareBaseUrl: 'http://localhost:4317', dataDir: path.join(temporary, 'history'), watchProjects: false, port: 0 });
   t.after(async () => { await app.close(); fs.rmSync(temporary, { recursive: true, force: true }); });
   const { project } = app.timeline.importProject(root, actor, { watch: false });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));

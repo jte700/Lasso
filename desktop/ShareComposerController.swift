@@ -162,6 +162,7 @@ final class ShareComposerController: NSObject {
                 guard let self, token == self.generation, let data,
                       let status = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
                 self.view.localOnly = status["localOnly"] as? Bool ?? true
+                self.view.shareHost = (status["baseUrl"] as? String).flatMap { URL(string: $0)?.host } ?? "mylasso.ca"
                 self.view.needsDisplay = true
             }
         }

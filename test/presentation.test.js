@@ -134,7 +134,7 @@ async function boardFolder(t, deck = quarterlyReview(), others = {}) {
   fs.mkdirSync(root);
   fs.writeFileSync(path.join(root, 'Quarterly-Review.pptx'), deck);
   for (const [name, content] of Object.entries(others)) fs.writeFileSync(path.join(root, name), content);
-  const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false, port: 0 });
+  const app = createApplication({ shareBaseUrl: 'http://localhost:4317', dataDir: path.join(sandbox, 'history'), watchProjects: false, port: 0 });
   t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
   await app.workspace.add([fs.realpathSync(root)], actor);
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));

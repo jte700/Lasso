@@ -62,7 +62,7 @@ test('markdown sources preview, inspect, share and redact like other documents',
   const root = path.join(sandbox, 'Sources');
   fs.mkdirSync(root);
   fs.writeFileSync(path.join(root, 'README.md'), README);
-  const app = createApplication({ dataDir: path.join(sandbox, 'data'), watchProjects: false, port: 0 });
+  const app = createApplication({ shareBaseUrl: 'http://localhost:4317', dataDir: path.join(sandbox, 'data'), watchProjects: false, port: 0 });
   t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
   const actor = { id: 'human:qa', displayName: 'QA', actorType: 'HUMAN_SELF' };
   const { project } = app.timeline.importProject(root, actor, { watch: false });
