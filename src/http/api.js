@@ -46,6 +46,16 @@ function pinnedQuery(versionId, resolved, askedSnapshotId) {
 
 export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null, workspace = null, connections = null, ranch = null) {
   const { resolvedModelPreview, resolvedModelDocument, sharedContent } = sharedContentReader({ timeline, dependencies });
+  // A word inserted with a share link previews that link in the inspector,
+  // never a link made for another source. One that ended says so.
+  const inspectedShare = async (token, objectId) => {
+    if (!token || !objectShares) return null;
+    const found = objectShares.resolveShare(token);
+    if (found.status === 'NOT_FOUND') return null;
+    if (found.status !== 'OK') return { status: found.status };
+    if (found.share.objectId !== objectId) return null;
+    return { status: 'OK', resolved: found, token, ...(await sharedContent(found)) };
+  };
   return async function requestHandler(request, response) {
     try {
       const url = new URL(request.url, 'http://localhost');
@@ -192,9 +202,11 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
           }
         } catch { preview = null; }
         preview = await resolvedModelPreview(resolved) ?? preview;
-        const shareable = offeredShareScopes(resolved.internal.filePath, resolved.source.anchor).length > 0;
+        const shared = await inspectedShare(url.searchParams.get('share'), objectId);
+        // A word inserted with ⇧⌘⏎ already is its link, so it offers no other.
+        const shareable = !shared && offeredShareScopes(resolved.internal.filePath, resolved.source.anchor).length > 0;
         // The Mac app reads this before the page loads, so Tab never offers a link the page does not.
-        return sendHtml(response, 200, renderInspectorPanel(resolved, referenceId, preview, { shareable }),
+        return sendHtml(response, 200, renderInspectorPanel(resolved, referenceId, preview, { shareable, shared }),
           { 'x-lasso-shareable': shareable ? '1' : '0' });
       }
 

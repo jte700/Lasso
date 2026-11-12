@@ -79,11 +79,12 @@ const STYLE = `
 
 `;
 
-function page(title, body, bodyClass = '') {
+/** `recipientStyle` also styles what a link shows when the inspector previews it. */
+function page(title, body, bodyClass = '', { recipientStyle = bodyClass === 'shared-recipient' } = {}) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">${bodyClass === 'shared-recipient' ? `<link rel="icon" href="${RECIPIENT_FAVICON}">` : ''}
-<title>${escapeHtml(title)}</title><style>${STYLE}${MARKDOWN_STYLE}${CODE_SYNTAX_STYLE}${bodyClass === 'shared-recipient' ? RECIPIENT_STYLE : ''}</style></head>
+<title>${escapeHtml(title)}</title><style>${STYLE}${MARKDOWN_STYLE}${CODE_SYNTAX_STYLE}${recipientStyle ? RECIPIENT_STYLE : ''}</style></head>
 <body class="${escapeHtml(bodyClass)}"><main>${body}</main></body></html>`;
 }
 
@@ -303,7 +304,12 @@ function sharedSlidePicture(base, document) {
   return `<figure class="shared-slide"><img src="${base}/slide" alt="${escapeHtml(document.location)}"></figure>`;
 }
 
-export function renderSharePage(resolved, token, preview, document = null) {
+/**
+ * What a link shows its recipient, by its scope: the content with its heading,
+ * and the scope's name. The recipient page and the inspector of a word
+ * inserted with the link both show this.
+ */
+function recipientView(resolved, token, preview, document = null) {
   const { source, share } = resolved;
   const scope = share.accessScope ?? 'DOCUMENT';
   const redacted = scope === 'REDACTED';
@@ -342,6 +348,17 @@ export function renderSharePage(resolved, token, preview, document = null) {
       : drawing && document?.kind === 'model-plan' ? 'Plan view'
         : model && document?.kind === 'model-plan' ? escapeHtml(document.view ?? '')
           : deck && scope === 'DOCUMENT' && document?.styles ? `${document.styles.filter((style) => style.type === 'heading').length} slides` : '';
+  const scopeLabel = scope === 'INDEXED' ? (deck ? 'Cited slide only' : 'Cited part only') : redacted ? 'Redacted copy'
+    : scope === 'MARKED' ? 'Marked-up copy' : 'Entire document';
+  // Tables, drawings and files use the page's full width. Prose reads better narrower.
+  const wide = table || drawing || model || deck || ['pdf', 'model-plan'].includes(document?.kind);
+  return { scope, redacted, marked, deck, title, type, heading, location, stats, content, scopeLabel, wide, base };
+}
+
+export function renderSharePage(resolved, token, preview, document = null) {
+  const { source, share } = resolved;
+  const { scope, redacted, marked, deck, title, type, heading, location, stats, content, scopeLabel, wide, base } =
+    recipientView(resolved, token, preview, document);
   const options = shareDownloadOptions(resolved, preview, document);
   const originalType = String(source.filename ?? '').match(/\.([a-z\d]{1,10})$/i)?.[1].toUpperCase() || 'File';
   // Each other format sits beside the download it is made from.
@@ -359,16 +376,11 @@ export function renderSharePage(resolved, token, preview, document = null) {
   const downloadNote = options?.format === 'ZIP' ? 'All worksheets are included as separate CSV files.'
     : redacted ? 'The downloaded copy includes these redactions.'
       : marked ? 'The downloaded copy includes these markings.' : '';
-  const scopeLabel = scope === 'INDEXED' ? (deck ? 'Cited slide only' : 'Cited part only') : redacted ? 'Redacted copy'
-    : scope === 'MARKED' ? 'Marked-up copy' : 'Entire document';
   const notice = scope === 'DOCUMENT' ? 'This link includes the original document shared with you.'
     : scope === 'INDEXED' && deck ? 'Only a picture of this slide is shared. The rest of the presentation, its speaker notes and comments are not included.'
     : scope === 'INDEXED' ? 'Only the excerpt shown here is shared. The original document is not included.'
       : scope === 'MARKED' ? 'This is a copy of the document with markings drawn on it. The original file is not included.'
       : 'Marked content has been removed from this view and its downloads. The original document is not included.';
-
-  // Tables, drawings and files use the page's full width. Prose reads better narrower.
-  const wide = table || drawing || model || deck || ['pdf', 'model-plan'].includes(document?.kind);
 
   return page(`${title} · Lasso`, `
     ${recipientToolbar({ actions: actions ? `<nav class="actions" aria-label="Download shared content">${actions}</nav>` : '' })}
@@ -400,8 +412,22 @@ function renderCitedSlide(preview) {
     escapeHtml(label)}"></figure></div>`;
 }
 
+/** Why a word's link shows nothing to its recipient any more. */
+const ENDED_LINK = { REVOKED: 'Link revoked', EXPIRED: 'Link expired' };
+
+/**
+ * A word inserted with a share link previews what its recipient sees. An
+ * entire-document link sends the whole file, so the source itself is shown.
+ * `shared` is the link as `resolveShare` found it, with its content.
+ */
+function sharedInspectorPreview(shared) {
+  if (shared?.status !== 'OK') return { detail: ENDED_LINK[shared?.status] ?? '', view: null };
+  const view = recipientView(shared.resolved, shared.token, shared.preview, shared.document);
+  return { detail: view.scopeLabel, view: view.scope === 'DOCUMENT' ? null : view };
+}
+
 /** The private source inspector uses original file content and local provenance. */
-export function renderInspectorPanel(resolved, reference, preview, { shareable = true } = {}) {
+export function renderInspectorPanel(resolved, reference, preview, { shareable = true, shared = null } = {}) {
   const { source } = resolved;
   const position = preview?.location || source.location;
   let content = '<div class="preview-unavailable">This file cannot be displayed inline. Open the source to view it in its original application.</div>';
@@ -443,6 +469,13 @@ export function renderInspectorPanel(resolved, reference, preview, { shareable =
       ? `<div class="preview-scroll source-document-text">${escapeHtml(preview.lines.map((line) => line.value).join('\n'))}</div>`
       : `<div class="preview-scroll"><div class="source-lines">${preview.lines.map((line, index) => `<div class="source-line ${line.cited ? 'cited' : ''}"><span class="line-number">${line.lineNumber}</span><span class="line-content">${(coloured ? coloured[index] : escapeHtml(line.value)) || '&nbsp;'}</span></div>`).join('')}</div></div>`;
   }
+  let previewNote = preview?.sheet ? escapeHtml(preview.sheet) : '';
+  const link = sharedInspectorPreview(shared);
+  if (link.view) {
+    previewLabel = link.view.heading;
+    previewNote = link.view.location ? escapeHtml(link.view.location) : link.view.stats;
+    content = `<div class="preview-scroll shared-recipient inspector-shared">${link.view.content}</div>`;
+  }
   const localPayload = JSON.stringify({ referenceId: reference ?? null, absolutePath: source.absolutePath ?? null,
     openAt: preview?.openAt ?? null }).replace(/</g, '\\u003c');
 
@@ -454,8 +487,9 @@ export function renderInspectorPanel(resolved, reference, preview, { shareable =
           <div><dt>Source</dt><dd>${escapeHtml(source.filename)}</dd></div>
           <div><dt>Location</dt><dd class="file-location">${escapeHtml(source.absolutePath || resolved.internal?.filePath || 'Unavailable')}</dd></div>
           ${position && position !== '—' ? `<div><dt>Selection</dt><dd>${escapeHtml(position)}</dd></div>` : ''}
+          ${link.detail ? `<div><dt>Shared</dt><dd>${link.detail}</dd></div>` : ''}
         </dl>
-        <div class="inspector-preview"><div class="preview-heading"><span>${previewLabel}</span>${preview?.sheet ? `<small>${escapeHtml(preview.sheet)}</small>` : ''}</div>${content}</div>
+        <div class="inspector-preview"><div class="preview-heading"><span>${previewLabel}</span>${previewNote ? `<small>${previewNote}</small>` : ''}</div>${content}</div>
       </div>
       <footer class="inspector-toolbar">
         <button data-action="open" class="primary">${icon('open')}Open Source</button>
@@ -509,5 +543,5 @@ export function renderInspectorPanel(resolved, reference, preview, { shareable =
       });
     </script>
     ${preview?.kind === 'model-plan' ? `<script type="module">import { bindModelPlans } from '/model-preview.js?v=3'; bindModelPlans(document);</script>` : ''}
-  `, 'inspector inspector-spatial');
+  `, 'inspector inspector-spatial', { recipientStyle: Boolean(link.view) });
 }
