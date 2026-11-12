@@ -10,6 +10,7 @@ import { runSync, workUnits } from '../history/work.js';
 import { currentFileType } from '../history/file-types.js';
 import { now } from './basics.js';
 import { EXTRACTOR_VERSION, INDEX_VERSION } from './constants.js';
+import { readerFor, readerVersions, readersChangedSince } from './readers.js';
 import { dependencyFilePriority } from './file-objects.js';
 import { READER_CHANGED } from './table-sources.js';
 import {
@@ -104,6 +105,8 @@ export const indexLifecycleMethods = {
         // them again; a full index or a carried one can be built on.
         if (existing) this.forgetIndexSummary(targetSnapshotId);
         else this.saveIndexSummary(targetSnapshotId, index.summary, { base: carry?.base, known: carry?.known });
+        // Files carried from a base keep the readers that read them there.
+        if (!existing) this.recordReaderVersions(targetSnapshotId, carry ? this.readerVersionsAt(carry.base) : readerVersions());
       });
     } catch (error) {
       // The index was read into memory as it was written; drop it with the rollback.
@@ -160,6 +163,7 @@ export const indexLifecycleMethods = {
     const project = this.timeline.getProject(projectId);
     const row = this.db.prepare('SELECT extractor_version, indexed_at, object_count FROM snapshot_object_indexes WHERE snapshot_id = ?')
       .get(project.currentSnapshotId);
+    const readers = row ? readersChangedSince(this.readerVersionsAt(project.currentSnapshotId)) : null;
     // An unindexed snapshot is read by the current reader the moment anything
     // asks it for an object, so it is not behind.
     const indexedWith = row ? (row.extractor_version ?? 0) : null;
@@ -169,7 +173,7 @@ export const indexLifecycleMethods = {
       indexedWith,
       indexedAt: row?.indexed_at ?? null,
       objectCount: row?.object_count ?? null,
-      stale: indexedWith !== null && indexedWith < EXTRACTOR_VERSION,
+      stale: indexedWith !== null && (indexedWith < EXTRACTOR_VERSION || Boolean(readers?.size)),
     };
   },
 
@@ -205,10 +209,18 @@ export const indexLifecycleMethods = {
     // and carries the rest of the recorded reading forward. A data dictionary
     // can describe variables in any file, so a folder with one is read whole,
     // as is one whose index cannot build on its last.
-    const kinds = kindsChangedSince(this.indexFreshness(projectId).indexedWith);
-    const partial = Boolean(kinds) && versions.canBuildOn(previous.id)
+    // An index that recorded its readers' versions re-reads the files of the
+    // readers that changed; an older one, the kinds of file its build read differently.
+    // Reader versions decide only once the build that read it is the current one.
+    const indexedWith = this.indexFreshness(projectId).indexedWith;
+    // With no reader changed, a re-read the user asks for reads everything, as before.
+    const changedReaders = indexedWith === EXTRACTOR_VERSION ? readersChangedSince(this.readerVersionsAt(previous.id)) : null;
+    const readers = changedReaders?.size ? changedReaders : null;
+    const kinds = readers ? null : kindsChangedSince(indexedWith);
+    const rereads = readers ? (file) => readers.has(readerFor(file).id) : kinds ? (file) => kinds.has(file.fileType) : null;
+    const partial = Boolean(rereads) && versions.canBuildOn(previous.id)
       && !this.objectsAt(projectId, previous.id, ['VARIABLE']).some((object) => object.metadata.dictionary);
-    const files = partial ? indexable.filter((file) => kinds.has(file.fileType)) : indexable;
+    const files = partial ? indexable.filter(rereads) : indexable;
     const reread = new Set(files.map((file) => file.path));
     const carriedPaths = partial ? new Set(previous.files.map((file) => file.path).filter((filePath) => !reread.has(filePath))) : null;
     const index = yield* this.indexDescriptorSteps(files, { projectId, base: previous.id });
@@ -245,6 +257,7 @@ export const indexLifecycleMethods = {
       // project stops being offered a re-read it does not need.
       this.db.prepare('UPDATE snapshot_object_indexes SET extractor_version = ? WHERE snapshot_id = ? AND extractor_version < ?')
         .run(EXTRACTOR_VERSION, previous.id, EXTRACTOR_VERSION);
+      this.recordReaderVersions(previous.id, readerVersions());
       if (!partial) {
         this.indexedHere.set(previous.id, index.summary);
         transaction(this.db, () => this.saveIndexSummary(previous.id, index.summary));
@@ -270,6 +283,8 @@ export const indexLifecycleMethods = {
       }, ({ resultingSnapshotId }) => {
         newSnapshotId = resultingSnapshotId;
         objectCount = this.writeObjectIndex(projectId, resultingSnapshotId, index.descriptors, { carriedPaths });
+        // Every reader whose version changed read its files again; the others' files were read by these versions too.
+        this.recordReaderVersions(resultingSnapshotId, readerVersions());
         if (!partial) this.saveIndexSummary(resultingSnapshotId, index.summary);
       });
     } catch (error) {
@@ -303,6 +318,18 @@ export const indexLifecycleMethods = {
         : 0,
       freshness: this.indexFreshness(projectId),
     };
+  },
+
+  /** Records which reader versions read a snapshot's index (readers.js). */
+  recordReaderVersions(snapshotId, versions) {
+    this.db.prepare('UPDATE snapshot_object_indexes SET reader_versions_json = ? WHERE snapshot_id = ?')
+      .run(versions ? JSON.stringify(versions) : null, snapshotId);
+  },
+
+  /** The reader versions a snapshot's index was read with, or null when it recorded none. */
+  readerVersionsAt(snapshotId) {
+    const row = this.db.prepare('SELECT reader_versions_json FROM snapshot_object_indexes WHERE snapshot_id = ?').get(snapshotId);
+    try { return row?.reader_versions_json ? JSON.parse(row.reader_versions_json) : null; } catch { return null; }
   },
 
   /** The files an index pass reads, in the order their objects are indexed. */

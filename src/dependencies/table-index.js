@@ -7,6 +7,7 @@ import { CLEANUP_BATCH_ROWS, cleanupBatch, dropTable } from './table-cleanup.js'
 import { lowerBound, placeOfOrdinal, placeOfRowNumber, placesBefore, placesOf, readTableMap } from './table-map.js';
 import { MAX_CHUNK_ROWS, MIN_CHUNK_ROWS, TableChunkStore, contentKey, openTableDatabase } from './table-storage.js';
 import { rowTerms } from './table-terms.js';
+import { pooled } from '../worker-pool.js';
 
 export { nameTerm, rowTerms } from './table-terms.js';
 export { openTableDatabase } from './table-storage.js';
@@ -416,7 +417,7 @@ export class TableIndex {
    * `onProgress(share)` reports how far it got.
    */
   build(request, onProgress = () => {}) {
-    return new Promise((resolve, reject) => {
+    return pooled(() => new Promise((resolve, reject) => {
       const worker = new Worker(new URL('./table-index-worker.js', import.meta.url), {
         workerData: { ...request, databasePath: this.file }, resourceLimits: { maxOldGenerationSizeMb: WORKER_MEMORY_MB },
       });
@@ -428,7 +429,7 @@ export class TableIndex {
       });
       worker.on('error', (error) => { if (!settled) { settled = true; reject(error); } });
       worker.on('exit', (code) => { if (!settled) { settled = true; reject(new Error(`The table reader stopped (${code}).`)); } });
-    });
+    }));
   }
 
   /**

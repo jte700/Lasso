@@ -153,6 +153,11 @@ export function openDatabase(config) {
   if (!objectIndexColumns.has('extractor_version')) {
     db.exec('ALTER TABLE snapshot_object_indexes ADD COLUMN extractor_version INTEGER NOT NULL DEFAULT 0');
   }
+  // Each reader's version that read the index (dependencies/readers.js), so a
+  // re-read after one reader improves reads only its files. NULL before then.
+  if (!objectIndexColumns.has('reader_versions_json')) {
+    db.exec('ALTER TABLE snapshot_object_indexes ADD COLUMN reader_versions_json TEXT');
+  }
   // A file's change time moves on every write, even one that restores its
   // modification time. With it, reopening a folder after a restart reuses
   // unchanged files' recorded hashes instead of reading every file again.

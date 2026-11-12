@@ -4707,5 +4707,31 @@ do {
     check(older?.valueHistory == [], "a preview from an older server has no history")
 }
 
+// A cited passage marks the words that are new since its previous version.
+do {
+    let before = "Revenue rose to 18,400 in March."
+    let after = "Revenue rose to 19,250 in April, as forecast."
+    let changes = PassageWordDiff.changes(from: before, to: after)
+    let words = changes.map { (after as NSString).substring(with: $0.range) }
+    check(words == ["19,250", "April", "as", "forecast"], "only the words new since the previous version are marked")
+    check(changes.first?.emphasized == true && changes.last?.emphasized == false, "a changed number is marked more strongly than a word")
+    check(PassageWordDiff.changes(from: after, to: after).isEmpty, "an unchanged passage marks nothing")
+    let long = Array(repeating: "word", count: PassageWordDiff.maxWords + 1).joined(separator: " ")
+    check(PassageWordDiff.changes(from: long, to: long + " more").isEmpty, "a passage past the limit is not compared")
+}
+
+// The Ranch's sheet view tints the cells its version changed, with what they were.
+do {
+    let json = #"{"sheets":[{"name":"Budget","columns":2,"rows":[["Line","Amount"],["Rent","4200"],["Payroll","19250"]],"rowNumbers":[1,2,3],"truncated":false}],"skipped":[],"version":"s2","versions":[{"snapshotId":"s2","at":"2026-11-10T15:04:00Z"},{"snapshotId":"s1","at":"2026-11-09T09:00:00Z"}],"changes":[{"sheet":"Budget","row":3,"column":1,"before":"18,400","after":"19,250","changedAt":"2026-11-10T15:04:00Z"}]}"#
+    let book = try? JSONDecoder().decode(RanchWorkbook.self, from: Data(json.utf8))
+    let cells = book?.changedCells(onSheet: 0) ?? [:]
+    check(cells.count == 1 && cells[RanchCellKey(row: 2, column: 1)]?.before == "18,400", "a changed cell is found at the row the grid shows it on")
+    check(cells[RanchCellKey(row: 2, column: 1)]?.hoverText(date: { _ in "Nov 10, 3:04 PM" }) == "was 18,400 \u{00B7} Nov 10, 3:04 PM",
+          "hovering a changed cell says what it was and when")
+    check(book?.versions?.map(\.snapshotId) == ["s2", "s1"], "the file's versions are listed newest first")
+    let older = try? JSONDecoder().decode(RanchWorkbook.self, from: Data(#"{"sheets":[],"skipped":[]}"#.utf8))
+    check(older != nil && older?.changedCells(onSheet: 0).isEmpty == true && older?.versions == nil, "a workbook from an older server reads as before")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

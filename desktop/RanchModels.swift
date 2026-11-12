@@ -284,6 +284,23 @@ struct RanchWorkbook: Decodable, Equatable {
     let sheets: [RanchSheet]
     /// Sheets too large or damaged to read; the file then shows in Quick Look.
     let skipped: [String]
+    /// The version shown, and the file's versions newest first, for the version menu.
+    var version: String? = nil
+    var versions: [RanchFileVersion]? = nil
+    /// The cells the shown version changed, each with what it was.
+    var changes: [RanchCellChange]? = nil
+
+    /// The shown version's changes on one sheet, by the row and column the grid shows them at.
+    func changedCells(onSheet index: Int) -> [RanchCellKey: RanchCellChange] {
+        guard sheets.indices.contains(index) else { return [:] }
+        let sheet = sheets[index]
+        var cells: [RanchCellKey: RanchCellChange] = [:]
+        for change in changes ?? [] where change.sheet == sheet.name || (change.sheet == nil && index == 0) {
+            guard let row = sheet.rowNumbers.firstIndex(of: change.row) else { continue }
+            cells[RanchCellKey(row: row, column: change.column)] = change
+        }
+        return cells
+    }
 
     /// The sheet, row and column a link cites. The row is found again by its
     /// label when rows were added above it since the link was made.
@@ -315,6 +332,35 @@ struct RanchSheet: Decodable, Equatable {
     let rowNumbers: [Int]
     /// More rows or columns than the view shows.
     let truncated: Bool
+}
+
+/// One version of a file: the snapshot its save made, and when.
+struct RanchFileVersion: Decodable, Equatable, Identifiable {
+    let snapshotId: String
+    let at: String?
+    var id: String { snapshotId }
+}
+
+/// A cell the shown version changed: its sheet row number and column, and the value before and after.
+struct RanchCellChange: Decodable, Equatable {
+    let sheet: String?
+    let row: Int
+    let column: Int
+    let before: String?
+    let after: String?
+    let changedAt: String?
+
+    /// "was 18,400 · Nov 10, 3:04 PM", shown on hover; `date` writes the time of the change.
+    func hoverText(date: (String?) -> String) -> String {
+        let when = date(changedAt)
+        return "was \(before ?? "empty")" + (when.isEmpty ? "" : " \u{00B7} \(when)")
+    }
+}
+
+/// Where a cell sits in the grid: its row as shown, and its column from 0.
+struct RanchCellKey: Hashable {
+    let row: Int
+    let column: Int
 }
 
 /// A cell in a workbook, or a whole row when the link names no column.

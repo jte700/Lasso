@@ -14,7 +14,10 @@ import { recentHistory } from './history.js';
 import { MAX_SCANNED_BYTES, SCANNED_TEXT_TYPES, sourceKind } from './kinds.js';
 import { addNameEdges, edgeCollector, mentionTargets } from './network.js';
 import { directoryReviewItems, linkReviewItems, readingReviewItems, shareReviewItems } from './review.js';
-import { spreadsheetView } from './sheets.js';
+import { cellChanges, spreadsheetView } from './sheets.js';
+
+// How many of a file's versions the sheet view's version menu lists.
+const MAX_FILE_VERSIONS = 20;
 import { fileNamesIn, shareLinksIn } from './text-links.js';
 
 /** Files listed in one read. Past this the window says the list is partial. */
@@ -348,12 +351,32 @@ export class RanchService {
       label: chosen.name ?? chosen.label ?? file.path, path: file.path };
   }
 
-  /** A workbook's cells as Lasso reads them, for the sheet view. */
+  /**
+   * A workbook's cells as Lasso reads them, for the sheet view: the current
+   * version, or the one `input.version` names. Also the file's versions,
+   * newest first, for the viewer's version menu, and the cells the shown
+   * version changed, each with what it was.
+   */
   sheet(input) {
-    const { file } = this.currentFile(input);
+    const { project, file: current } = this.currentFile(input);
+    const versions = this.fileVersions(project.id, current.projectFileId);
+    const chosen = input?.version ? versions.find((version) => version.snapshotId === input.version) : versions[0];
+    if (input?.version && !chosen) throw new HttpError(404, 'Lasso has no such version of this file.');
+    const file = chosen ? this.timeline.snapshotFileById(chosen.snapshotId, current.projectFileId) ?? current : current;
     const content = this.timeline.blobs.get(file.contentHash);
     if (!content) throw new HttpError(404, 'Lasso no longer has a copy of this file.');
-    return spreadsheetView(content);
+    return { ...spreadsheetView(content), version: chosen?.snapshotId ?? null, versions,
+      changes: chosen ? cellChanges(this.db, chosen.snapshotId, file.path) : [] };
+  }
+
+  /** The versions of a file, newest first: each snapshot its saves made, with when. */
+  fileVersions(projectId, projectFileId) {
+    return this.db.prepare(`SELECT e.resulting_snapshot_id AS snapshot_id, e.occurred_at
+      FROM file_changes c JOIN timeline_events e ON e.id = c.event_id
+      WHERE e.project_id = ? AND c.project_file_id = ? AND c.change_type IN ('ADDED', 'MODIFIED', 'RENAMED', 'MOVED')
+        AND e.resulting_snapshot_id IS NOT NULL
+      ORDER BY e.occurred_at DESC, e.rowid DESC LIMIT ?`).all(projectId, projectFileId, MAX_FILE_VERSIONS)
+      .map((row) => ({ snapshotId: row.snapshot_id, at: row.occurred_at }));
   }
 
   /** The recorded copy of a file, for a directory whose drive is disconnected. */

@@ -85,6 +85,8 @@ export class PredictiveProvenanceService {
     this.narrowingCache = new WeakMap();
     // Raw descriptors are cached before dictionary enrichment. Changing a
     // dictionary must still update unchanged source files in the next snapshot.
+    // A workbook sheet's objects by its part signature, so an edit to one sheet reads only that sheet.
+    this.sheetObjectCache = new BoundedCache({ maxEntries: 512, budget, bytes: objectBytes });
     this.extractionCache = new BoundedCache({ maxEntries: 256, maxWeight: 24 * 1024 * 1024,
       weight: (entry) => entry.bytes, budget, bytes: (entry) => entry.bytes });
     // Extracted file text depends only on the file's bytes, so an unchanged
@@ -146,7 +148,7 @@ export class PredictiveProvenanceService {
     this.stopTableCleanup();
     this.ranking.close();
     for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache,
-      this.objectCache, this.typedObjectCache, this.extractionCache, this.sourceTextCache, this.figurePreviewCache,
+      this.objectCache, this.typedObjectCache, this.extractionCache, this.sheetObjectCache, this.sourceTextCache, this.figurePreviewCache,
       this.indexedHere, this.tableReadings, this.snapshotTableCache, this.deepObjects, this.transcriptCache]) cache.clear();
     this.tables.close();
   }

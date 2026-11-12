@@ -466,13 +466,15 @@ final class RanchStore: ObservableObject {
     /// A workbook's cells as Lasso reads them; nil when it has none to show,
     /// such as a sheet too large to read, and the file shows in Quick Look.
     @discardableResult
-    func workbook(_ source: RanchSource, completion: @escaping (RanchWorkbook?) -> Void) -> URLSessionDataTask? {
-        if let hash = source.contentHash, let cached = workbooks[hash] { completion(cached); return nil }
+    func workbook(_ source: RanchSource, version: String? = nil,
+                  completion: @escaping (RanchWorkbook?) -> Void) -> URLSessionDataTask? {
+        if version == nil, let hash = source.contentHash, let cached = workbooks[hash] { completion(cached); return nil }
         guard let serverURL,
               var components = URLComponents(url: serverURL.appendingPathComponent("api/ranch/sheet"),
                                              resolvingAgainstBaseURL: false) else { completion(nil); return nil }
         components.queryItems = [URLQueryItem(name: "directory", value: source.directoryId),
                                  URLQueryItem(name: "path", value: source.path)]
+            + (version.map { [URLQueryItem(name: "version", value: $0)] } ?? [])
         guard let url = components.url else { completion(nil); return nil }
         let task = session.dataTask(with: url) { [weak self] data, response, error in
             if (error as NSError?)?.code == NSURLErrorCancelled { return }
@@ -480,7 +482,8 @@ final class RanchStore: ObservableObject {
                 ? data.flatMap { try? JSONDecoder().decode(RanchWorkbook.self, from: $0) } : nil
             DispatchQueue.main.async {
                 let shown = book.flatMap { $0.sheets.isEmpty ? nil : $0 }
-                if let shown, let hash = source.contentHash {
+                // Only the latest version is kept by content; an earlier one is asked for each time.
+                if let shown, version == nil, let hash = source.contentHash {
                     if self?.workbooks.count ?? 0 >= Self.cachedWorkbooks { self?.workbooks.removeAll() }
                     self?.workbooks[hash] = shown
                 }

@@ -134,7 +134,9 @@ extension AssistBoxView {
             return table
         }
         guard preview.model == nil, preview.rows.isEmpty, !preview.textBlocks.isEmpty else { return nil }
-        return AssistTextPreviewView(blocks: preview.textBlocks, accent: accent, wraps: !preview.isCode, marking: words)
+        return AssistTextPreviewView(blocks: preview.textBlocks, accent: accent, wraps: !preview.isCode, marking: words,
+                                     passageChange: preview.previousValue.flatMap { before in
+                                         preview.valueText.map { (before: before, after: $0) } })
     }
 
     func zoomModel(by factor: CGFloat, at point: NSPoint) -> Bool {

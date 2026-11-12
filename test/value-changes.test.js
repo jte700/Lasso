@@ -171,3 +171,40 @@ test('A Needs Review row for a changed link says the old and new value and the c
     { before: '18400', after: '19250', document: 'memo.md' });
   assert.deepEqual(drifted.documents, []);
 });
+
+test('The Ranch sheet view names the cells its latest version changed and lists the file versions', async (t) => {
+  // Arrange
+  const { storedZip } = await import('./fixtures/workbook.js');
+  const book = (total) => storedZip({
+    'xl/workbook.xml': '<workbook><sheets><sheet name="Budget" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/worksheets/sheet1.xml': `<worksheet><sheetData>
+      <row r="1"><c r="A1" t="inlineStr"><is><t>Line</t></is></c><c r="B1" t="inlineStr"><is><t>Amount</t></is></c></row>
+      <row r="2"><c r="A2" t="inlineStr"><is><t>Rent</t></is></c><c r="B2"><v>4200</v></c></row>
+      <row r="3"><c r="A3" t="inlineStr"><is><t>Payroll</t></is></c><c r="B3"><v>${total}</v></c></row>
+    </sheetData></worksheet>`,
+  });
+  const sandbox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-ranch-sheet-')));
+  const root = path.join(sandbox, 'Budget');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'budget.xlsx'), book(18400));
+  const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
+  t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  const project = app.timeline.importProject(root, actor, { watch: false }).project;
+  app.dependencies.ensureIndex(project.id);
+  fs.writeFileSync(path.join(root, 'budget.xlsx'), book(19250));
+  app.timeline.capture(project.id, actor);
+  app.dependencies.ensureIndex(project.id);
+
+  // Act
+  const latest = app.ranch.sheet({ directoryId: project.id, path: 'budget.xlsx' });
+  const first = app.ranch.sheet({ directoryId: project.id, path: 'budget.xlsx', version: latest.versions.at(-1).snapshotId });
+
+  // Assert
+  assert.equal(latest.versions.length, 2);
+  assert.deepEqual(latest.changes.map(({ sheet, row, column, before, after }) => ({ sheet, row, column, before, after })),
+    [{ sheet: 'Budget', row: 3, column: 1, before: '18400', after: '19250' }]);
+  assert.ok(latest.changes[0].changedAt);
+  assert.equal(first.sheets[0].rows[2][1], '18400', 'an earlier version shows its own values');
+  assert.deepEqual(first.changes, []);
+});

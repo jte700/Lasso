@@ -10,13 +10,20 @@ struct RanchSheetViewer: View {
     let workbook: RanchWorkbook
     /// The cell a review item points at, if any.
     let place: RanchCellPlace?
+    /// Shows another version of the file, chosen from the version menu.
+    var onVersion: ((String) -> Void)? = nil
     @State private var sheetIndex = 0
 
     var body: some View {
         let index = workbook.sheets.indices.contains(sheetIndex) ? sheetIndex : 0
         let sheet = workbook.sheets[index]
         VStack(spacing: 0) {
-            RanchSheetGrid(sheet: sheet, highlight: place?.sheet == index ? place : nil)
+            if let versions = workbook.versions, versions.count > 1, let onVersion {
+                versionMenu(versions, onVersion: onVersion)
+                RanchHairline()
+            }
+            RanchSheetGrid(sheet: sheet, highlight: place?.sheet == index ? place : nil,
+                           changed: workbook.changedCells(onSheet: index))
             if workbook.sheets.count > 1 || sheet.truncated {
                 RanchHairline()
                 HStack(spacing: 2) {
@@ -57,17 +64,54 @@ struct RanchSheetViewer: View {
     }
 }
 
+extension RanchSheetViewer {
+    /// The time a change or version was saved, as the menu and hover text write it.
+    static func changeTime(_ iso: String?) -> String {
+        guard let iso, let date = ISO8601DateFormatter.withFractions.date(from: iso) ?? ISO8601DateFormatter().date(from: iso)
+        else { return "" }
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    /// The file's versions, newest first; closed until chosen from.
+    func versionMenu(_ versions: [RanchFileVersion], onVersion: @escaping (String) -> Void) -> some View {
+        let shown = workbook.version ?? versions.first?.snapshotId
+        let title = versions.first?.snapshotId == shown ? "Latest version"
+            : Self.changeTime(versions.first { $0.snapshotId == shown }?.at)
+        return HStack {
+            Spacer()
+            RanchPillMenu(title: title.isEmpty ? "Version" : title, symbol: "clock.arrow.circlepath",
+                          help: "Show an earlier version of this file") {
+                ForEach(Array(versions.enumerated()), id: \.element.id) { offset, version in
+                    Button((offset == 0 ? "Latest \u{00B7} " : "") + Self.changeTime(version.at)) { onVersion(version.snapshotId) }
+                }
+            }
+        }
+        .padding(.horizontal, 10).frame(height: 34)
+    }
+}
+
+private extension ISO8601DateFormatter {
+    static let withFractions: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+}
+
 /// One sheet's cells in a table: lettered columns, numbered rows, numbers set
 /// right as spreadsheets set them.
 struct RanchSheetGrid: NSViewRepresentable {
     let sheet: RanchSheet
     let highlight: RanchCellPlace?
+    /// Cells the shown version changed, tinted, with what they were on hover.
+    var changed: [RanchCellKey: RanchCellChange] = [:]
 
     private static let rowNumberColumn = NSUserInterfaceItemIdentifier("row")
 
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         var sheet: RanchSheet?
         var highlight: RanchCellPlace?
+        var changed: [RanchCellKey: RanchCellChange] = [:]
         private static let font = NSFont.systemFont(ofSize: 12)
         private static let boldFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
         private static let numberFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
@@ -100,9 +144,11 @@ struct RanchSheetGrid: NSViewRepresentable {
             field.font = cited ? Self.boldFont : Self.isNumber(value) ? Self.numberFont : Self.font
             field.alignment = Self.isNumber(value) ? .right : .left
             field.textColor = .labelColor
-            field.drawsBackground = cited
-            field.backgroundColor = cited ? NSColor.controlAccentColor.withAlphaComponent(0.18) : .clear
-            field.toolTip = value.count > 24 ? value : nil
+            let change = changed[RanchCellKey(row: row, column: column)]
+            field.drawsBackground = cited || change != nil
+            field.backgroundColor = cited ? NSColor.controlAccentColor.withAlphaComponent(0.18)
+                : change != nil ? NSColor.systemOrange.withAlphaComponent(0.16) : .clear
+            field.toolTip = change.map { $0.hoverText(date: RanchSheetViewer.changeTime) } ?? (value.count > 24 ? value : nil)
             return field
         }
 
@@ -146,10 +192,11 @@ struct RanchSheetGrid: NSViewRepresentable {
         guard let table = scroll.documentView as? NSTableView else { return }
         let coordinator = context.coordinator
         let changedSheet = coordinator.sheet != sheet
-        let changedHighlight = coordinator.highlight != highlight
+        let changedHighlight = coordinator.highlight != highlight || coordinator.changed != changed
         guard changedSheet || changedHighlight else { return }
         coordinator.sheet = sheet
         coordinator.highlight = highlight
+        coordinator.changed = changed
         if changedSheet { columns(of: table) }
         table.reloadData()
         if let highlight {

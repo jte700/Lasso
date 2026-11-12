@@ -385,7 +385,7 @@ struct RanchFileViewer: View {
             if originalLayout {
                 RanchQuickLookView(url: url)
             } else if let workbook {
-                RanchSheetViewer(workbook: workbook, place: citedCell)
+                RanchSheetViewer(workbook: workbook, place: citedCell, onVersion: { showVersion($0) })
             } else {
                 RanchLoading(text: "Reading the cells\u{2026}")
             }
@@ -466,6 +466,14 @@ struct RanchFileViewer: View {
 
     private func findCitedCell() {
         citedCell = workbook.flatMap { book in focus?.anchor.flatMap(book.place(of:)) }
+    }
+
+    /// Shows one version of the workbook, chosen from the viewer's version menu.
+    private func showVersion(_ snapshotId: String) {
+        request?.cancel()
+        request = store.workbook(source, version: snapshotId) { book in
+            if let book { workbook = book }
+        }
     }
 
     private func load() {

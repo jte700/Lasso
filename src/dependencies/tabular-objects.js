@@ -127,7 +127,8 @@ export function objectsFromTabular(file, fileName, headers, rawRows, options = {
 
   const shape = tableShape(headers, data, options);
   const { labelColumn, firstColumnActsAsRowLabels } = shape;
-  const rowContext = { file, fileName, keyPrefix, sheet, headers, ...shape, statement: options.statement };
+  const rowContext = { file, fileName, keyPrefix, sheet, headers, ...shape, statement: options.statement,
+    formulaCells: options.formulaCells ?? null };
   // Equally named rows, and identical rows without names, are told apart by their order.
   const rowIdentity = occurrenceCounter();
   let indexedCells = 0;
@@ -210,7 +211,7 @@ function indexedCells(context, row, sectionRow) {
  */
 export function tableRowObjects(context, { row, rowIndex, rowNumber, rowLabel, section = '', sectionRow = false,
   identity = null, occurrences = null }) {
-  const { file, fileName, keyPrefix, sheet, headers, firstColumnActsAsRowLabels, rowDescribesVariable } = context;
+  const { file, fileName, keyPrefix, sheet, headers, firstColumnActsAsRowLabels, rowDescribesVariable, formulaCells } = context;
   const named = Boolean(firstColumnActsAsRowLabels && rowLabel);
   const rowKey = named ? rowLabel : `row:${rowIndex + 1}`;
   const values = indexedCells(context, row, sectionRow);
@@ -250,6 +251,8 @@ export function tableRowObjects(context, { row, rowIndex, rowNumber, rowLabel, s
         orientation: rowDescribesVariable ? 'ROW' : 'COLUMN', section,
         dataset: fileName,
         sheet,
+        // A formula's value changes with its inputs; the change reads as recalculated.
+        ...(formulaCells?.get(rowNumber)?.has(columnIndex) ? { formula: true } : {}),
       },
     }));
   }
