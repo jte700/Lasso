@@ -339,6 +339,10 @@ struct RanchFileViewer: View {
     @State private var reset = 0
     @State private var code: RanchCode?
     @State private var selectedLines: ClosedRange<Int>?
+    /// Passages of a text or PDF file its latest version changed, and the note of the one pointed at or selected.
+    @State private var passageChanges: [RanchPassageChange] = []
+    @State private var changeNote: String?
+    @State private var passageRequest: URLSessionDataTask?
     @State private var request: URLSessionDataTask?
     /// A model or drawing still being read after a few seconds.
     @State private var slow = false
@@ -364,7 +368,7 @@ struct RanchFileViewer: View {
             }
         }
         .onAppear(perform: load)
-        .onDisappear { request?.cancel() }
+        .onDisappear { request?.cancel(); passageRequest?.cancel() }
         .onChange(of: focus?.anchor?.elementId) { _ in if kind == .plan || kind == .wireframe { load() } }
         .onChange(of: workbook) { _ in findCitedCell() }
         .onChange(of: focus) { _ in findCitedCell() }
@@ -377,7 +381,8 @@ struct RanchFileViewer: View {
             // PDFs always open in PDFKit, so a review link can turn to its page
             // without swapping viewers under it.
             if source.fileExtension == "pdf" {
-                RanchPDFView(url: url, page: focus.map { $0.anchor?.pageNumber ?? 1 }, find: focus?.linkedValue)
+                RanchPDFView(url: url, page: focus.map { $0.anchor?.pageNumber ?? 1 }, find: focus?.linkedValue,
+                             changes: passageChanges, onChangeNote: { changeNote = $0 })
             } else {
                 RanchQuickLookView(url: url)
             }
@@ -395,9 +400,11 @@ struct RanchFileViewer: View {
             } else {
                 RanchLoading(text: "Reading the slides\u{2026}")
             }
-        case .code:
+        case .code, .text:
             if let code {
-                RanchCodeView(code: code, focusLine: focus?.anchor?.line) { selectedLines = $0 }
+                // Only code lines can be written by number to insert them.
+                RanchCodeView(code: code, focusLine: focus?.anchor?.line, changes: passageChanges,
+                              onChangeNote: { changeNote = $0 }) { lines in selectedLines = kind == .code ? lines : nil }
             } else {
                 RanchLoading(text: "Reading the file\u{2026}")
             }
@@ -419,7 +426,14 @@ struct RanchFileViewer: View {
 
     @ViewBuilder
     private var notes: some View {
-        if kind == .code, let selectedLines {
+        if let changeNote {
+            Text(changeNote)
+                .font(RanchTheme.captionFont)
+                .lineLimit(3)
+                .frame(maxWidth: 520)
+                .ranchTooltip()
+                .padding(.bottom, 14)
+        } else if kind == .code, let selectedLines {
             // What to write to insert these lines while typing elsewhere.
             HStack(spacing: 6) {
                 Text(RanchCodeLines.label(selectedLines)).fontWeight(.semibold)
@@ -476,9 +490,21 @@ struct RanchFileViewer: View {
         }
     }
 
+    /// The passages a text or PDF file's latest version changed, for its viewer to tint.
+    private func loadPassageChanges() {
+        // An answer about the file shown before must not tint this one.
+        passageRequest?.cancel()
+        passageRequest = nil
+        passageChanges = []
+        changeNote = nil
+        guard source.fileExtension == "pdf" || RanchViewerKind.choose(for: source) == .text else { return }
+        passageRequest = store.passageChanges(source) { passageChanges = $0 }
+    }
+
     private func load() {
         request?.cancel()
         slow = false
+        loadPassageChanges()
         switch RanchViewerKind.choose(for: source) {
         case .quickLook:
             return
@@ -490,7 +516,7 @@ struct RanchFileViewer: View {
             store.slides(source) { deck in
                 if let deck { slides = deck } else { failed = true }
             }
-        case .code:
+        case .code, .text:
             let file = url
             // The file's own name: the copy shown may be stored under another.
             let name = source.name

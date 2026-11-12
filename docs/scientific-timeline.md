@@ -144,6 +144,7 @@ When extraction improves, projects already indexed keep the objects the build th
 - the new snapshot carries its parent's `snapshot_files` rows verbatim, so file identities, content hashes and blobs are shared rather than copied, and the manifest hash is unchanged;
 - its timeline event has source `REINDEX` and says plainly that the files did not change, with the caller's reason appended;
 - `snapshot_object_indexes.extractor_version` records which reader produced each snapshot's reading. `0` means a build that recorded none, which is what `GET /api/projects/:id/reindex` reports as stale;
+- `snapshot_object_indexes.reader_versions_json` records the version of each reader in [readers.js](../src/dependencies/readers.js) that read it. An index recorded before readers had versions counts as read by version 1 of each. A reading that re-read some files and carried the rest keeps, for each reader with a carried file, the version that read it, so those files are read again while that reader is behind;
 - objects whose key is unchanged keep their `scientific_objects` identity, so recorded usage and document links keep resolving;
 - a claim whose source object is absent from the new reading becomes `NEEDS_REVIEW`, not `BROKEN`: its evidence is intact and still pinned, and only the current reading identifies it differently;
 - an `object_share_grant` pins a version in an earlier snapshot and is untouched, so a published link keeps resolving to the evidence it was given.

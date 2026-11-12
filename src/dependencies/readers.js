@@ -22,7 +22,8 @@ const TEXT_EXTENSIONS = new Set(['.txt', '.bib', '.ris', '.enw', '.nbib']);
 export const READERS = Object.freeze([
   { id: 'video', version: 1, extract: 'video', accepts: (file) => file.fileType === 'video' },
   // 2: worksheet cells that hold a formula say so (metadata.formula).
-  { id: 'table', version: 2, extract: 'table', accepts: (file) => ['table', 'spreadsheet'].includes(file.fileType) },
+  // 3: so do those of sheets too large to read at once, answered by the table index.
+  { id: 'table', version: 3, extract: 'table', accepts: (file) => ['table', 'spreadsheet'].includes(file.fileType) },
   // A PDF is read as a drawing when its pages are drawings, otherwise as a paper.
   { id: 'pdf', version: 1, extract: 'file', accepts: (file) => file.fileType === 'pdf' },
   { id: 'design', version: 1, extract: 'file', accepts: (file) => isDesignFile(file) },
@@ -49,12 +50,24 @@ export function readerVersions() {
   return Object.fromEntries(READERS.map((reader) => [reader.id, reader.version]));
 }
 
-/**
- * The readers whose version differs from `recorded`, the versions an index
- * was read with; null when the index recorded none, as before readers had
- * versions of their own.
- */
+// An index recorded before readers had versions of their own was read by the
+// first version of each.
+const FIRST_VERSIONS = Object.freeze(Object.fromEntries(READERS.map((reader) => [reader.id, 1])));
+const recordedOrFirst = (recorded) => (recorded && typeof recorded === 'object' ? recorded : FIRST_VERSIONS);
+
+/** The readers whose version differs from `recorded`, the versions an index was read with. */
 export function readersChangedSince(recorded) {
-  if (!recorded || typeof recorded !== 'object') return null;
-  return new Set(READERS.filter((reader) => recorded[reader.id] !== reader.version).map((reader) => reader.id));
+  const versions = recordedOrFirst(recorded);
+  return new Set(READERS.filter((reader) => versions[reader.id] !== reader.version).map((reader) => reader.id));
+}
+
+/**
+ * The versions that read an index made by reading some files now and carrying
+ * the rest from one read with `recorded`: a reader any of whose files were
+ * carried keeps its recorded version, so those files are still read again
+ * when that reader is behind.
+ */
+export function readerVersionsAfter(recorded, carriedReaders) {
+  const versions = recordedOrFirst(recorded);
+  return Object.fromEntries(READERS.map((reader) => [reader.id, carriedReaders.has(reader.id) ? versions[reader.id] : reader.version]));
 }

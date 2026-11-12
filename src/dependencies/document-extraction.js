@@ -737,6 +737,9 @@ function spreadsheetCellDisplay(type, raw, format, formats, value) {
   return shown != null && shown !== value ? shown : null;
 }
 
+// A cell's formula element, with or without a namespace prefix: <f>, <x:f t="shared"/>.
+const FORMULA_ELEMENT = /<(?:[A-Za-z_][\w.-]*:)?f[\s>/]/;
+
 /**
  * Reads a worksheet's non-empty rows. `displayRows`, when given, receives the
  * text each number cell shows in the sheet (such as $129,950) for previews;
@@ -768,7 +771,9 @@ function spreadsheetRows(source = '', sharedStrings = [], rowNumbers = null, for
       row[column] = cleanText(value, 2_000);
       // Which cells hold a formula, by sheet row, so a value that changed with
       // its inputs can be told from one typed over.
-      if (state.formulas && /<f[\s>/]/.test(cell.content)) {
+      // Each number cell's format code, by sheet row, when asked for (spreadsheetCellFormats).
+      if (state.formatCodes && numeric && format && raw.trim()) state.formatCodes.set(`${rowNumber}\u0000${column}`, format);
+      if (state.formulas && FORMULA_ELEMENT.test(cell.content)) {
         if (!state.formulas.has(rowNumber)) state.formulas.set(rowNumber, new Set());
         state.formulas.get(rowNumber).add(column);
       }
@@ -1080,16 +1085,25 @@ function spreadsheetSheet(buffer, descriptor, shared, relationships, formats) {
 const spreadsheetRelationships = (xml) => spreadsheetElements(xml, 'Relationship')
   .map(({ attributes }) => ({ id: spreadsheetAttribute(attributes, 'Id'), target: spreadsheetAttribute(attributes, 'Target') }));
 
-/** A workbook's sheet list, shared strings and number formats; null when it is not a readable .xlsx. */
-function workbookParts(buffer, limit = MAX_IN_MEMORY_PART_BYTES) {
+/**
+ * The sheets a workbook lists, { name, entry } in workbook order, from its
+ * workbook part and that part's relationships. Names are decoded; tags may be
+ * prefixed and attributes single-quoted.
+ */
+export function workbookSheetList(workbookXml = '', relsXml = '') {
   const attribute = spreadsheetAttribute;
-  const workbook = zipEntry(buffer, 'xl/workbook.xml', limit)?.toString('utf8') ?? '';
-  if (!workbook) return null;
-  const workbookRels = spreadsheetRelationships(zipEntry(buffer, 'xl/_rels/workbook.xml.rels', limit)?.toString('utf8') ?? '');
-  const descriptors = spreadsheetElements(workbook, 'sheet').map(({ attributes }, index) => {
+  const workbookRels = spreadsheetRelationships(relsXml);
+  return spreadsheetElements(workbookXml, 'sheet').map(({ attributes }, index) => {
     const target = workbookRels.find(r => r.id === attribute(attributes, 'r:id'))?.target;
     return { name: attribute(attributes, 'name') || `Sheet ${index+1}`, entry: target ? path.posix.normalize(target.startsWith('/') ? target.slice(1) : `xl/${target}`) : `xl/worksheets/sheet${index+1}.xml` };
   });
+}
+
+/** A workbook's sheet list, shared strings and number formats; null when it is not a readable .xlsx. */
+function workbookParts(buffer, limit = MAX_IN_MEMORY_PART_BYTES) {
+  const workbook = zipEntry(buffer, 'xl/workbook.xml', limit)?.toString('utf8') ?? '';
+  if (!workbook) return null;
+  const descriptors = workbookSheetList(workbook, zipEntry(buffer, 'xl/_rels/workbook.xml.rels', limit)?.toString('utf8') ?? '');
   const shared = spreadsheetStrings(zipEntry(buffer, 'xl/sharedStrings.xml', limit)?.toString('utf8') ?? '');
   let formats = null;
   try {
@@ -1127,7 +1141,8 @@ const STREAM_PIECE_BYTES = 1024 * 1024;
  * Reads a workbook's worksheets a batch of rows at a time, holding one batch
  * in memory, so a sheet of any size can be read. The values are the ones
  * extractSpreadsheetTables reads. Calls `onSheet(name)` as each sheet starts,
- * `onRows(rows, rowNumbers, displayRows)` for each batch, `onSheetEnd({ merges })`
+ * `onRows(rows, rowNumbers, displayRows, formulas)` for each batch, where
+ * `formulas` maps a row number to the columns that hold a formula, `onSheetEnd({ merges })`
  * after its last, and `onProgress(share)` with the share of the workbook's
  * compressed sheets read so far. Resolves with the sheets read and skipped,
  * or null for a file that is not a readable .xlsx.
@@ -1149,7 +1164,7 @@ export async function streamSpreadsheetRows(buffer, { onSheet, onRows, onSheetEn
     const started = consumed;
     try {
       onSheet(descriptor.name);
-      const state = { fallbackRow: 1 };
+      const state = { fallbackRow: 1, formulas: new Map() };
       let pending = '';
       const advance = (bytes) => {
         consumed += bytes;
@@ -1164,7 +1179,8 @@ export async function streamSpreadsheetRows(buffer, { onSheet, onRows, onSheetEn
         const rowNumbers = [];
         const displayRows = [];
         const rows = spreadsheetRows(complete, parts.shared, rowNumbers, parts.formats, displayRows, state);
-        if (rows.length) onRows(rows, rowNumbers, displayRows);
+        if (rows.length) onRows(rows, rowNumbers, displayRows, state.formulas);
+        state.formulas = new Map();
       };
       const pieces = function* () {
         for (let offset = 0; offset < data.compressed.length; offset += STREAM_PIECE_BYTES) {
@@ -1196,6 +1212,31 @@ export async function streamSpreadsheetRows(buffer, { onSheet, onRows, onSheetEn
     }
   }
   return { sheets: read, skipped };
+}
+
+/**
+ * The number format code of each number cell of a workbook's sheets, keyed
+ * "sheet\0row\0column" by sheet row number and column from 0, so a stored value
+ * can be shown as its cell shows it. Null for a workbook read only in pieces
+ * (isLargeSpreadsheet), an .xls, or anything unreadable.
+ */
+export function spreadsheetCellFormats(buffer) {
+  try {
+    if (buffer.subarray(0, 8).equals(COMPOUND_SIGNATURE) || isLargeSpreadsheet(buffer)) return null;
+    const parts = workbookParts(buffer);
+    if (!parts?.formats) return null;
+    const codes = new Map();
+    for (const descriptor of parts.descriptors.slice(0, MAX_WORKBOOK_SHEETS)) {
+      const source = zipEntry(buffer, descriptor.entry)?.toString('utf8');
+      if (!source) continue;
+      const state = { fallbackRow: 1, formatCodes: new Map() };
+      spreadsheetRows(source, parts.shared, null, parts.formats, null, state);
+      for (const [cell, code] of state.formatCodes) codes.set(`${descriptor.name}\u0000${cell}`, code);
+    }
+    return codes;
+  } catch {
+    return null;
+  }
 }
 
 /** A workbook's sheets; with `only`, just the sheets of those names. */

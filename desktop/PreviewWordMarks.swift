@@ -37,6 +37,26 @@ enum PreviewWordMarks {
         }
     }
 
+    /// Underlines for the words of the cited passage new since its previous
+    /// version, numbers and dates stronger, where the passage is written once
+    /// on the page (and inside `cited` when known). Matched words keep their
+    /// highlight, so a changed word that was also typed shows both.
+    static func pdfChangeMarks(on page: PDFPage, change: (before: String, after: String), inside cited: CGRect?) -> [PDFAnnotation] {
+        guard let text = page.string else { return [] }
+        let whole = NSRange(location: 0, length: (text as NSString).length)
+        return PassageWordDiff.changes(from: change.before, to: change.after, writtenIn: text, within: whole).compactMap { word in
+            guard let bounds = page.selection(for: word.range)?.bounds(for: page), !bounds.isEmpty,
+                  cited.map({ $0.intersects(bounds) }) ?? true else { return nil }
+            let annotation = PDFAnnotation(bounds: bounds, forType: .underline, withProperties: nil)
+            annotation.color = NSColor.systemOrange.withAlphaComponent(word.emphasized ? 0.95 : 0.6)
+            let border = PDFBorder()
+            border.lineWidth = word.emphasized ? 2 : 1.25
+            annotation.border = border
+            page.addAnnotation(annotation)
+            return annotation
+        }
+    }
+
     static func highlight(_ bounds: CGRect, color: NSColor, on page: PDFPage) -> PDFAnnotation {
         let annotation = PDFAnnotation(bounds: bounds, forType: .highlight, withProperties: nil)
         annotation.color = color

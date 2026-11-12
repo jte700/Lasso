@@ -120,7 +120,8 @@ extension AssistBoxView {
     private func makePreviewContent(for preview: AssistDocumentPreview) -> NSView? {
         let words = selectedSuggestion?.matchedWords ?? []
         let accent = DirectoryColorPreferences.color(for: selectedSuggestion?.projectId)?.color ?? .controlAccentColor
-        if let page = preview.pdfPage { return AssistPDFPreviewView.showing(page, marking: words) }
+        let passageChange = preview.previousValue.flatMap { before in preview.valueText.map { (before: before, after: $0) } }
+        if let page = preview.pdfPage { return AssistPDFPreviewView.showing(page, marking: words, passageChange: passageChange) }
         if let video = preview.video {
             return AssistVideoPreviewView(video: video, blocks: preview.textBlocks, accent: accent, marking: words)
         }
@@ -135,8 +136,7 @@ extension AssistBoxView {
         }
         guard preview.model == nil, preview.rows.isEmpty, !preview.textBlocks.isEmpty else { return nil }
         return AssistTextPreviewView(blocks: preview.textBlocks, accent: accent, wraps: !preview.isCode, marking: words,
-                                     passageChange: preview.previousValue.flatMap { before in
-                                         preview.valueText.map { (before: before, after: $0) } })
+                                     passageChange: passageChange)
     }
 
     func zoomModel(by factor: CGFloat, at point: NSPoint) -> Bool {

@@ -15,10 +15,11 @@ import { MAX_SCANNED_BYTES, SCANNED_TEXT_TYPES, sourceKind } from './kinds.js';
 import { addNameEdges, edgeCollector, mentionTargets } from './network.js';
 import { directoryReviewItems, linkReviewItems, readingReviewItems, shareReviewItems } from './review.js';
 import { cellChanges, spreadsheetView } from './sheets.js';
+import { passageChanges } from './passages.js';
+import { fileNamesIn, shareLinksIn } from './text-links.js';
 
 // How many of a file's versions the sheet view's version menu lists.
 const MAX_FILE_VERSIONS = 20;
-import { fileNamesIn, shareLinksIn } from './text-links.js';
 
 /** Files listed in one read. Past this the window says the list is partial. */
 export const MAX_RANCH_SOURCES = 25_000;
@@ -46,6 +47,19 @@ export class RanchService {
     this.texts = new BoundedCache({ maxEntries: 50_000 });
     // Creation dates per directory version; reading them stats every file.
     this.births = new BoundedCache({ maxEntries: 64 });
+    /**
+     * How a directory's current copy of a worksheet shows `value` in the cell
+     * `anchor` names ("18,400"), or null; one format per file, whichever
+     * version a caption is about.
+     */
+    this.shownValue = (directoryId, filePath, anchor, value) => {
+      const project = directoryId ? this.timeline.getProject(directoryId) : null;
+      const file = project?.currentSnapshotId ? this.timeline.snapshotFile(project.currentSnapshotId, filePath) : null;
+      return file ? this.dependencies.shownCellValue(file.path, file.contentHash, anchor, value) : null;
+    };
+    /** `values` ({ field: value }) as the worksheet shows them, keeping only those it shows otherwise. */
+    this.shownValues = (directoryId, filePath, anchor, values) => Object.fromEntries(Object.entries(values)
+      .map(([field, value]) => [field, this.shownValue(directoryId, filePath, anchor, value)]).filter(([, shown]) => shown));
   }
 
   overview() {
@@ -160,13 +174,13 @@ export class RanchService {
 
     const review = [
       ...directoryReviewItems(directories),
-      ...linkReviewItems(dependencies, fileIdAt),
+      ...linkReviewItems(dependencies, fileIdAt, this.shownValue),
       ...directories.filter((directory) => directory.active && directory.available)
         .flatMap((directory) => readingReviewItems(directory.id, this.terminal.indexing.failures(directory.id), fileIdAt)),
       ...shareReviewItems(outgoing),
     ];
 
-    const history = recentHistory(this.db, directories.map((directory) => directory.id), now);
+    const history = recentHistory(this.db, directories.map((directory) => directory.id), now, { shown: this.shownValue });
     return {
       generatedAt: new Date(now).toISOString(),
       truncated: budget <= 0,
@@ -276,6 +290,7 @@ export class RanchService {
         name: share.fileName, locator: share.locator ?? null, scope: share.scope ?? 'DOCUMENT',
         status: share.status, drifted: Boolean(share.drifted),
         sharedValue: share.sharedValue ?? null, currentValue: share.currentValue ?? null,
+        ...this.shownValues(directory.id, share.path, share.anchor, { sharedDisplay: share.sharedValue, currentDisplay: share.currentValue }),
         documentPath: share.documentPath ?? null,
         createdAt: share.createdAt, expiresAt: share.expiresAt, revokedAt: share.revokedAt,
       })))
@@ -359,24 +374,50 @@ export class RanchService {
    */
   sheet(input) {
     const { project, file: current } = this.currentFile(input);
-    const versions = this.fileVersions(project.id, current.projectFileId);
-    const chosen = input?.version ? versions.find((version) => version.snapshotId === input.version) : versions[0];
+    const all = this.fileVersions(project.id, current.projectFileId);
+    // The menu lists the newest; an older version it names can still be opened.
+    const versions = all.slice(0, MAX_FILE_VERSIONS)
+      .map((version) => ({ ...version, available: this.timeline.blobs.has(version.contentHash) }));
+    const chosen = input?.version ? all.find((version) => version.snapshotId === input.version) : all[0];
     if (input?.version && !chosen) throw new HttpError(404, 'Lasso has no such version of this file.');
     const file = chosen ? this.timeline.snapshotFileById(chosen.snapshotId, current.projectFileId) ?? current : current;
     const content = this.timeline.blobs.get(file.contentHash);
     if (!content) throw new HttpError(404, 'Lasso no longer has a copy of this file.');
-    return { ...spreadsheetView(content), version: chosen?.snapshotId ?? null, versions,
-      changes: chosen ? cellChanges(this.db, chosen.snapshotId, file.path) : [] };
+    return { ...spreadsheetView(content), version: chosen?.snapshotId ?? null,
+      versions: versions.map(({ contentHash, ...version }) => version),
+      changes: chosen ? cellChanges(this.db, chosen.snapshotId, file.path,
+        (anchor, value) => this.dependencies.shownCellValue(file.path, file.contentHash, anchor, value)) : [] };
   }
 
-  /** The versions of a file, newest first: each snapshot its saves made, with when. */
+  /**
+   * The passages of a text or PDF file that its latest version changed, each
+   * with what it was, for the viewer to tint: { version, changes }.
+   */
+  passages(input) {
+    const { project, file } = this.currentFile(input);
+    const latest = this.fileVersions(project.id, file.projectFileId)[0];
+    // The file's path at that version: a later rename that kept the bytes is not a version of its own.
+    const shown = latest ? this.timeline.snapshotFileById(latest.snapshotId, file.projectFileId) ?? file : file;
+    return { version: latest?.snapshotId ?? null, changes: latest ? passageChanges(this.db, latest.snapshotId, shown.path) : [] };
+  }
+
+  /**
+   * The versions of a file, newest first: each snapshot that gave it new
+   * bytes, with when. A rename or move that kept the bytes is part of the
+   * version before it, not one of its own.
+   */
   fileVersions(projectId, projectFileId) {
-    return this.db.prepare(`SELECT e.resulting_snapshot_id AS snapshot_id, e.occurred_at
+    const rows = this.db.prepare(`SELECT e.resulting_snapshot_id AS snapshot_id, e.occurred_at, c.content_hash_after
       FROM file_changes c JOIN timeline_events e ON e.id = c.event_id
       WHERE e.project_id = ? AND c.project_file_id = ? AND c.change_type IN ('ADDED', 'MODIFIED', 'RENAMED', 'MOVED')
         AND e.resulting_snapshot_id IS NOT NULL
-      ORDER BY e.occurred_at DESC, e.rowid DESC LIMIT ?`).all(projectId, projectFileId, MAX_FILE_VERSIONS)
-      .map((row) => ({ snapshotId: row.snapshot_id, at: row.occurred_at }));
+      ORDER BY e.occurred_at, e.rowid`).all(projectId, projectFileId);
+    const versions = [];
+    for (const row of rows) {
+      if (versions.length && row.content_hash_after && versions.at(-1).contentHash === row.content_hash_after) continue;
+      versions.push({ snapshotId: row.snapshot_id, at: row.occurred_at, contentHash: row.content_hash_after });
+    }
+    return versions.reverse();
   }
 
   /** The recorded copy of a file, for a directory whose drive is disconnected. */

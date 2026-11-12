@@ -1,6 +1,7 @@
 // Reading and writing the zip archives Office files are made of. Entries are
 // listed once from the central directory, inflated only when asked for, and
 // copied into a new archive still compressed when nothing in them changes.
+import crypto from 'node:crypto';
 import { crc32, inflateRawSync } from 'node:zlib';
 
 const END_OF_DIRECTORY = 0x06054b50;
@@ -100,4 +101,17 @@ export function writeZip(entries) {
   end.writeUInt32LE(END_OF_DIRECTORY, 0); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10);
   end.writeUInt32LE(index.length, 12); end.writeUInt32LE(offset, 16);
   return Buffer.concat([...files, index, end]);
+}
+
+/**
+ * A stamp of one part of an archive that changes when the part does: its
+ * checksum and size from the directory, and a hash of its stored bytes, since
+ * some writers leave the checksum at zero and an edit can keep the size. A
+ * part the archive lacks has a stamp of its own. Nothing is inflated.
+ */
+export function partStamp(entries, name) {
+  const entry = entries.get(name);
+  if (!entry) return `${name}:-`;
+  const stored = crypto.createHash('sha1').update(entry.compressed).digest('base64url');
+  return `${name}:${entry.crc}:${entry.size}:${stored}`;
 }

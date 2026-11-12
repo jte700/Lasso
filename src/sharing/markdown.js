@@ -2,6 +2,8 @@
 // composer and recipient pages. Each block keeps its original source lines so
 // redactions, downloads and citations always refer to the pinned file itself.
 
+import { locateWords, sourceWords } from './passage-locator.js';
+
 const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([^`\s]*)/;
 const ATX_HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
 const RULE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
@@ -225,16 +227,9 @@ export function markdownPlainText(value) {
 const PASSAGE_BLOCKS = new Set(['paragraph', 'item', 'quote']);
 const MAX_PASSAGES = 2000;
 const passageWords = (value) => String(value ?? '').match(/[\p{L}\p{N}]+/gu) ?? [];
-const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/** First occurrence at or after `from` of these words, allowing markers and line breaks between them. */
-function locateWords(source, words, from) {
-  if (!words.length) return null;
-  const pattern = new RegExp(words.map(escapeRegExp).join('[^\\p{L}\\p{N}]{1,12}'), 'giu');
-  pattern.lastIndex = from;
-  const match = pattern.exec(source);
-  return match ? { start: match.index, end: match.index + match[0].length } : null;
-}
+// Read in place at an offset, so a long text is not copied for every sentence.
+const CLOSING_MARKS = /[*_~`]*[.!?:;]?/y;
+const LEADING_MARKS = /[^\p{L}\p{N}]*/uy;
 
 /**
  * Sentences and paragraphs of a Markdown or plain-text source, the way PDF
@@ -256,6 +251,7 @@ export function markdownPassages(value, { plain = false } = {}) {
     return low + 1;
   };
   const segmenter = new Intl.Segmenter('en', { granularity: 'sentence' });
+  const source = sourceWords(text);
   const passages = [];
   let section = null;
 
@@ -272,37 +268,46 @@ export function markdownPassages(value, { plain = false } = {}) {
     const prose = (plain ? block.text : markdownPlainText(block.text)).replace(/\s+/g, ' ').trim();
     if (!prose) continue;
     let cursor = blockStart;
-    const sentences = [...segmenter.segment(prose)].map((part) => part.segment.trim()).filter(Boolean).map((sentence) => {
+    const locate = (sentence) => {
       const words = passageWords(sentence);
       // Links and images keep text in the source that their readable form drops,
       // so fall back to locating the opening and closing words separately.
-      let found = locateWords(text, words, cursor);
-      if (found && found.end > blockEnd) found = null;
+      let found = locateWords(source, words, cursor, blockEnd);
       if (!found) {
-        const head = locateWords(text, words.slice(0, 3), cursor);
-        const tail = head && locateWords(text, words.slice(-3), head.start);
-        found = head && tail && tail.end <= blockEnd ? { start: head.start, end: tail.end } : null;
+        const head = locateWords(source, words.slice(0, 3), cursor, blockEnd);
+        const tail = head && locateWords(source, words.slice(-3), head.start, blockEnd);
+        found = head && tail ? { start: head.start, end: tail.end } : null;
       }
       if (found) {
         // Closing emphasis markers and the sentence's own punctuation belong to it.
-        found.end = Math.min(blockEnd, found.end + (text.slice(found.end).match(/^[*_~`]*[.!?:;]?/)?.[0].length ?? 0));
+        CLOSING_MARKS.lastIndex = found.end;
+        found.end = Math.min(blockEnd, found.end + CLOSING_MARKS.exec(text)[0].length);
         cursor = found.end;
       }
-      const span = found ?? { start: cursor + (text.slice(cursor, blockEnd).match(/^[^\p{L}\p{N}]*/u)?.[0].length ?? 0), end: blockEnd };
+      LEADING_MARKS.lastIndex = cursor;
+      const span = found ?? { start: cursor + Math.min(LEADING_MARKS.exec(text)[0].length, Math.max(0, blockEnd - cursor)), end: blockEnd };
       return { text: sentence, ...span };
-    });
+    };
 
+    // Sentences are read one at a time, so a long paragraph stops being read
+    // once the passage limit is reached.
     let paragraph = null;
-    for (const sentence of sentences) {
+    let count = 0;
+    for (const part of segmenter.segment(prose)) {
+      const trimmed = part.segment.trim();
+      if (!trimmed) continue;
+      const sentence = locate(trimmed);
+      count += 1;
       if (sentence.text.length <= 420) add(sentence.text, 'sentence', sentence.start, sentence.end);
       if (paragraph && paragraph.text.length + sentence.text.length > 1400) {
         add(paragraph.text, 'paragraph', paragraph.start, paragraph.end);
         paragraph = null;
       }
+      if (passages.length >= MAX_PASSAGES) return passages.slice(0, MAX_PASSAGES);
       paragraph = paragraph ? { ...paragraph, text: `${paragraph.text} ${sentence.text}`, end: sentence.end } : { ...sentence };
     }
     // One-sentence paragraphs already have a precise sentence passage.
-    if (paragraph && (sentences.length > 1 || paragraph.text.length > 420)) add(paragraph.text, 'paragraph', paragraph.start, paragraph.end);
+    if (paragraph && (count > 1 || paragraph.text.length > 420)) add(paragraph.text, 'paragraph', paragraph.start, paragraph.end);
     if (passages.length >= MAX_PASSAGES) return passages.slice(0, MAX_PASSAGES);
   }
   return passages;

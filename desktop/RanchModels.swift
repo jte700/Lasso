@@ -101,7 +101,8 @@ struct RanchHistoryEntry: Decodable, Identifiable, Equatable {
     /// for one, "4 values changed · Finance" for several; nil otherwise.
     func valueCaption(directory: String) -> String? {
         guard change == "edited", let changes = valueChanges, changes.count > 0 else { return nil }
-        if changes.count == 1, let first = changes.first, let before = first.before, let after = first.after {
+        if changes.count == 1, let first = changes.first, let before = first.beforeDisplay ?? first.before,
+           let after = first.afterDisplay ?? first.after {
             let label = first.label.map { "\($0) " } ?? ""
             return "\(label)\(before) \u{2192} \(after)"
         }
@@ -115,6 +116,9 @@ struct RanchValueChanges: Decodable, Equatable {
         let label: String?
         let before: String?
         let after: String?
+        /// As a worksheet shows them ("18,400"), when that differs from the stored values.
+        var beforeDisplay: String? = nil
+        var afterDisplay: String? = nil
     }
     let count: Int
     let first: Change?
@@ -171,13 +175,18 @@ struct RanchReviewItem: Decodable, Identifiable, Equatable {
     var before: String? = nil
     var after: String? = nil
     var claim: String? = nil
+    /// The values as a worksheet shows them, when that differs from the stored ones.
+    var beforeDisplay: String? = nil
+    var afterDisplay: String? = nil
 
-    private enum Keys: String, CodingKey { case id, kind, title, directoryId, path, fileId, documents, detail, links, before, after, claim }
+    private enum Keys: String, CodingKey {
+        case id, kind, title, directoryId, path, fileId, documents, detail, links, before, after, claim, beforeDisplay, afterDisplay
+    }
 
     /// "18,400 → 19,250 · “Payroll came to 18,400”", or nil when the item names no change of value.
     var valueChangeLine: String? {
         guard let before, let after, before != after else { return nil }
-        let change = "\(before) \u{2192} \(after)"
+        let change = "\(beforeDisplay ?? before) \u{2192} \(afterDisplay ?? after)"
         guard let claim = claim?.trimmingCharacters(in: .whitespacesAndNewlines), !claim.isEmpty else { return change }
         return "\(change) \u{00B7} \u{201C}\(claim)\u{201D}"
     }
@@ -210,6 +219,8 @@ struct RanchReviewItem: Decodable, Identifiable, Equatable {
         before = try? container.decodeIfPresent(String.self, forKey: .before)
         after = try? container.decodeIfPresent(String.self, forKey: .after)
         claim = try? container.decodeIfPresent(String.self, forKey: .claim)
+        beforeDisplay = try? container.decodeIfPresent(String.self, forKey: .beforeDisplay)
+        afterDisplay = try? container.decodeIfPresent(String.self, forKey: .afterDisplay)
     }
 }
 
@@ -338,6 +349,8 @@ struct RanchSheet: Decodable, Equatable {
 struct RanchFileVersion: Decodable, Equatable, Identifiable {
     let snapshotId: String
     let at: String?
+    /// False when Lasso no longer keeps this version's bytes, so it cannot be shown.
+    var available: Bool? = nil
     var id: String { snapshotId }
 }
 
@@ -349,11 +362,13 @@ struct RanchCellChange: Decodable, Equatable {
     let before: String?
     let after: String?
     let changedAt: String?
+    /// The earlier value as the sheet shows it ("18,400"), when that differs from the stored one.
+    var beforeDisplay: String? = nil
 
     /// "was 18,400 · Nov 10, 3:04 PM", shown on hover; `date` writes the time of the change.
     func hoverText(date: (String?) -> String) -> String {
         let when = date(changedAt)
-        return "was \(before ?? "empty")" + (when.isEmpty ? "" : " \u{00B7} \(when)")
+        return "was \(beforeDisplay ?? before ?? "empty")" + (when.isEmpty ? "" : " \u{00B7} \(when)")
     }
 }
 
@@ -620,6 +635,9 @@ enum RanchViewerKind: Equatable {
     case quickLook
     /// Programming files, numbered line by line.
     case code
+    /// Plain text and Markdown, numbered line by line like code, with the passages
+    /// the latest version changed tinted.
+    case text
     /// STEP models, drawn from the edges and faces Lasso's reader recorded.
     case wireframe
     /// Meshes SceneKit reads itself: STL, OBJ, PLY, USD and Collada.
@@ -632,13 +650,16 @@ enum RanchViewerKind: Equatable {
     case slides
 
     private static let sheetExtensions: Set<String> = ["xlsx", "xlsm", "xls"]
+    private static let textExtensions: Set<String> = ["txt", "text", "md", "markdown", "mdx", "qmd", "rmd"]
     private static let meshExtensions: Set<String> = ["stl", "obj", "ply", "usdz", "usd", "usda", "usdc", "abc", "dae", "scn"]
 
     /// Code larger than this scrolls in Quick Look instead.
     static let maximumCodeBytes = 5_000_000
 
     static func choose(for source: RanchSource) -> RanchViewerKind {
-        source.isCode && source.size <= maximumCodeBytes ? .code : choose(for: source.fileExtension)
+        guard source.size <= maximumCodeBytes else { return choose(for: source.fileExtension) }
+        if source.isCode { return .code }
+        return textExtensions.contains(source.fileExtension) ? .text : choose(for: source.fileExtension)
     }
 
     static func choose(for fileExtension: String) -> RanchViewerKind {
@@ -656,7 +677,7 @@ enum RanchViewerKind: Equatable {
         switch self {
         case .wireframe, .mesh: return "Drag to rotate \u{00B7} Pinch or scroll to zoom \u{00B7} Option-drag to pan"
         case .plan: return "Pinch or scroll to zoom \u{00B7} Drag to pan"
-        case .quickLook, .code, .sheet, .slides: return nil
+        case .quickLook, .code, .text, .sheet, .slides: return nil
         }
     }
 }

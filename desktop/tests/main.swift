@@ -4576,6 +4576,10 @@ do {
     let code = try! JSONDecoder().decode(RanchSource.self, from: Data(codeJSON.utf8))
     check(code.isCode && !code.canShareLink && RanchViewerKind.choose(for: code) == .code,
           "code shows numbered lines and offers no share link")
+    let notesFile = try! JSONDecoder().decode(RanchSource.self, from: Data(codeJSON
+        .replacingOccurrences(of: "src/server.js", with: "notes.md").replacingOccurrences(of: "server.js", with: "notes.md")
+        .replacingOccurrences(of: "\"fileType\": \"code\"", with: "\"fileType\": \"markdown\"").utf8))
+    check(RanchViewerKind.choose(for: notesFile) == .text, "notes show in the text viewer, which tints the passages their latest version changed")
     let older = try! JSONDecoder().decode(RanchSource.self, from: Data(codeJSON
         .replacingOccurrences(of: ",\n \"shareable\": false", with: "").replacingOccurrences(of: "\"fileType\": \"code\",", with: "").utf8))
     check(older.canShareLink && !older.isCode && RanchViewerKind.choose(for: older) == .quickLook,
@@ -4665,6 +4669,13 @@ do {
           "an unknown kind of change is ignored")
     check(AssistValueChange(json: nil) == nil && AssistValueChange(json: ["kind": "edited"]) == nil,
           "a suggestion without a change, or with an incomplete one, has none")
+    let sheet = AssistValueChange(json: ["kind": "edited", "previousValue": "18400", "currentValue": "19250",
+                                         "previousDisplay": "18,400", "currentDisplay": "19,250"])
+    check(sheet?.detail(replacing: "19250") == "19,250 · was 18,400", "a worksheet value reads as the sheet formats it")
+    let typedSheet = AssistValueChange(json: ["kind": "stale-typed", "previousValue": "18400", "currentValue": "19250", "previousDisplay": "18,400"])
+    check(typedSheet?.detail(replacing: "19250") == "changed from 18,400", "so does a typed earlier worksheet value")
+    let written = AssistValueChange(json: ["kind": "edited", "previousValue": "18400", "currentValue": "19250"])
+    check(written?.detail(replacing: "19250") == "19250 · was 18400", "a CSV value reads as written")
 }
 
 // The Ranch's Recent Changes name the value an edit changed.
@@ -4676,6 +4687,8 @@ do {
     check(one?.valueCaption(directory: "Finance") == "Q3 Total 18,400 \u{2192} 19,250", "one changed value reads as its label, old and new value")
     let several = entry(#"{"id":"c2","directoryId":"d","change":"edited","path":"budget.xlsx","valueChanges":{"count":4,"first":{"label":"Q3 Total","before":"1","after":"2"}}}"#)
     check(several?.valueCaption(directory: "Finance") == "4 values changed \u{00B7} Finance", "several changed values are counted")
+    let formatted = entry(#"{"id":"c4","directoryId":"d","change":"edited","path":"budget.xlsx","valueChanges":{"count":1,"first":{"label":"Payroll","before":"18400","after":"19250","beforeDisplay":"18,400","afterDisplay":"19,250"}}}"#)
+    check(formatted?.valueCaption(directory: "Finance") == "Payroll 18,400 \u{2192} 19,250", "a worksheet value's caption reads as the sheet formats it")
     let plain = entry(#"{"id":"c3","directoryId":"d","change":"edited","path":"notes.md"}"#)
     check(plain != nil && plain?.valueCaption(directory: "Finance") == nil, "an edit from an older server, or with no value changes, keeps its caption")
 }
@@ -4686,6 +4699,8 @@ do {
     let changed = item(#"{"id":"r1","kind":"changed","title":"Linked value changed","directoryId":"d","documents":["memo.md"],"detail":"x","before":"18,400","after":"19,250","claim":"Payroll came to 18,400"}"#)
     check(changed?.valueChangeLine == "18,400 \u{2192} 19,250 \u{00B7} \u{201C}Payroll came to 18,400\u{201D}",
           "a changed link reads as old to new value and its claim")
+    let shown = item(#"{"id":"r3","kind":"changed","title":"Linked value changed","directoryId":"d","documents":["memo.md"],"detail":"x","before":"18400","after":"19250","beforeDisplay":"18,400","afterDisplay":"19,250"}"#)
+    check(shown?.valueChangeLine == "18,400 \u{2192} 19,250", "a worksheet value's review line reads as the sheet formats it")
     let older = item(#"{"id":"r2","kind":"changed","title":"Linked value changed","directoryId":"d","documents":[],"detail":"x"}"#)
     check(older != nil && older?.valueChangeLine == nil, "an item from an older server reads as before")
 }
@@ -4703,6 +4718,8 @@ do {
     check(twice?.location == "B3 \u{00B7} 18,400 \u{2192} 18,900 \u{2192} 19,250", "the history line sits beside the location")
     let never = preview(#"[{"value":"19,250"}]"#)
     check(never?.previousValue == nil && never?.historyLine == nil, "an unchanged value shows nothing more")
+    let sentences = preview(#"[{"value":"The pump was replaced on Thursday after the seal failed."},{"value":"The pump was replaced on Wednesday after the seal failed."},{"value":"The pump was replaced on Tuesday after the seal failed."}]"#)
+    check(sentences?.historyLine == nil && sentences?.location == "B3", "a passage edited twice gets no history line: its wordings would not fit")
     let older = AssistDocumentPreview.parse(Data(#"{"source":{"filename":"a.csv"},"preview":{}}"#.utf8), syntax: nil)
     check(older?.valueHistory == [], "a preview from an older server has no history")
 }
@@ -4718,6 +4735,13 @@ do {
     check(PassageWordDiff.changes(from: after, to: after).isEmpty, "an unchanged passage marks nothing")
     let long = Array(repeating: "word", count: PassageWordDiff.maxWords + 1).joined(separator: " ")
     check(PassageWordDiff.changes(from: long, to: long + " more").isEmpty, "a passage past the limit is not compared")
+    let shown = "Totals were checked.\nRevenue rose to\n19,250 in April, as forecast. Costs held."
+    let place = PassageWordDiff.onlyPlace(of: after, in: shown, within: NSRange(location: 0, length: (shown as NSString).length))
+    check(place.map { (shown as NSString).substring(with: $0) } == "Revenue rose to\n19,250 in April, as forecast.",
+          "a passage is found where it sits even when the preview breaks its lines")
+    let twice = "\(after) \(after)"
+    check(PassageWordDiff.onlyPlace(of: after, in: twice, within: NSRange(location: 0, length: (twice as NSString).length)) == nil,
+          "a passage written twice in its block is not marked, since either could be the cited one")
 }
 
 // The Ranch's sheet view tints the cells its version changed, with what they were.
@@ -4729,8 +4753,26 @@ do {
     check(cells[RanchCellKey(row: 2, column: 1)]?.hoverText(date: { _ in "Nov 10, 3:04 PM" }) == "was 18,400 \u{00B7} Nov 10, 3:04 PM",
           "hovering a changed cell says what it was and when")
     check(book?.versions?.map(\.snapshotId) == ["s2", "s1"], "the file's versions are listed newest first")
+    let stored = try? JSONDecoder().decode(RanchCellChange.self, from: Data(#"{"sheet":"Budget","row":3,"column":1,"before":"18400","after":"19250","changedAt":null,"beforeDisplay":"18,400"}"#.utf8))
+    check(stored?.hoverText(date: { _ in "" }) == "was 18,400", "a changed cell's hover names its earlier value as the sheet shows it")
     let older = try? JSONDecoder().decode(RanchWorkbook.self, from: Data(#"{"sheets":[],"skipped":[]}"#.utf8))
     check(older != nil && older?.changedCells(onSheet: 0).isEmpty == true && older?.versions == nil, "a workbook from an older server reads as before")
+    let kept = try? JSONDecoder().decode(RanchFileVersion.self, from: Data(#"{"snapshotId":"s1","at":null,"available":false}"#.utf8))
+    let notes = "# Log\r\n\nSoil moisture in **plot B** rose by 19 percent.\nIt rained."
+    let passageJSON = #"{"version":"s2","changes":[{"kind":"text-excerpt","pageNumber":null,"start":8,"end":55,"lineStart":3,"lineEnd":3,"before":"Soil moisture in plot B rose by 18 percent.","after":"Soil moisture in plot B rose by 19 percent.","changedAt":"2026-11-10T15:04:00Z"}]}"#
+    let passages = try? JSONDecoder().decode(RanchPassageChanges.self, from: Data(passageJSON.utf8))
+    let passage = passages?.changes.first
+    let found = passage?.range(in: notes).map { (notes as NSString).substring(with: $0) }
+    check(found == "Soil moisture in **plot B** rose by 19 percent.", "a changed passage is found at its recorded place, Markdown markers and all (\(found ?? "nil"))")
+    let moved = "Intro line.\n" + notes
+    check(passage?.range(in: moved).map { (moved as NSString).substring(with: $0) } == nil,
+          "a passage whose recorded place no longer holds it, and whose words are not written plainly, is not tinted")
+    let plain = "Intro.\nSoil moisture in plot B rose by 19 percent.\n"
+    check(passage?.range(in: plain).map { (plain as NSString).substring(with: $0) } == "Soil moisture in plot B rose by 19 percent.",
+          "a passage is found by its words when its recorded place moved")
+    check(passage?.note(date: { _ in "Nov 10, 3:04 PM" }) == "was \u{201C}Soil moisture in plot B rose by 18 percent.\u{201D} \u{00B7} Nov 10, 3:04 PM",
+          "a changed passage's note quotes what it was and says when")
+    check(kept?.available == false, "a version whose copy was not kept says so, and its menu entry is disabled")
 }
 
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")

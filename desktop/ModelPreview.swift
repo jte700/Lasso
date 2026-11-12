@@ -542,14 +542,18 @@ struct AssistDocumentPreview {
         return valueHistory[1]
     }
 
-    /// "18,400 → 18,900 → 19,250", oldest first, only when the value changed more than once.
+    /// "18,400 → 18,900 → 19,250", oldest first, only when the value changed more
+    /// than once, and only for short values: a passage's wordings would not fit the line.
     var historyLine: String? {
-        guard valueHistory.count >= 3 else { return nil }
-        return valueHistory.prefix(Self.historyShown).reversed().joined(separator: " \u{2192} ")
+        let shown = valueHistory.prefix(Self.historyShown)
+        guard valueHistory.count >= 3, shown.allSatisfy({ $0.count <= Self.historyValueLength }) else { return nil }
+        return shown.reversed().joined(separator: " \u{2192} ")
     }
 
     /// How many values the history line names at most.
     static let historyShown = 4
+    /// The longest value the history line names.
+    static let historyValueLength = 32
 
     /// A preview response's history: values most recent first, a repeated value named once.
     static func valueHistory(_ json: Any?) -> [String] {

@@ -115,12 +115,12 @@ struct AssistPreviewText {
             decorations.append(.init(kind: .matched, range: range))
         }
         // Words new since the passage's previous version, numbers and dates most,
-        // found where the passage sits in its cited block; nothing when it is not there.
-        if let passageChange, let block = cited.first {
-            let within = (result.string as NSString).range(of: passageChange.after, options: [], range: block)
-            for change in within.location == NSNotFound ? [] : PassageWordDiff.changes(from: passageChange.before, to: passageChange.after) {
-                let range = NSRange(location: within.location + change.range.location, length: change.range.length)
-                decorations.append(.init(kind: .changed(emphasized: change.emphasized), range: range))
+        // found where the passage sits in its cited lines; nothing when it is not
+        // there or is there twice, since only the cited passage may be marked.
+        if let passageChange, let first = cited.first, let last = cited.last {
+            let span = NSRange(location: first.location, length: NSMaxRange(last) - first.location)
+            for change in PassageWordDiff.changes(from: passageChange.before, to: passageChange.after, writtenIn: result.string, within: span) {
+                decorations.append(.init(kind: .changed(emphasized: change.emphasized), range: change.range))
             }
         }
         text = result
@@ -230,12 +230,15 @@ final class AssistPDFPreviewView: PDFView {
 
     /// Nil when the page came without its document. Checked before the view
     /// is made: PDFKit crashes freeing a PDFView whose init gave up early.
-    static func showing(_ page: AssistPDFPageImage, marking words: [String] = []) -> AssistPDFPreviewView? {
+    /// `passageChange` is the cited passage before and after its latest change; its new words are underlined.
+    static func showing(_ page: AssistPDFPageImage, marking words: [String] = [],
+                        passageChange: (before: String, after: String)? = nil) -> AssistPDFPreviewView? {
         guard let document = page.document, document.pageCount > 0 else { return nil }
-        return AssistPDFPreviewView(page: page, document: document, marking: words)
+        return AssistPDFPreviewView(page: page, document: document, marking: words, passageChange: passageChange)
     }
 
-    private init(page: AssistPDFPageImage, document: PDFDocument, marking words: [String]) {
+    private init(page: AssistPDFPageImage, document: PDFDocument, marking words: [String],
+                 passageChange: (before: String, after: String)?) {
         citation = page
         super.init(frame: .zero)
         self.document = document
@@ -245,6 +248,9 @@ final class AssistPDFPreviewView: PDFView {
                 .reduce(CGRect.null) { $0.union($1) }
             wordMarks = PreviewWordMarks.pdfMarks(on: cited, words: words, inside: lines.isNull ? nil : lines,
                                                   color: NSColor.systemOrange.withAlphaComponent(0.6))
+            if let passageChange {
+                wordMarks += PreviewWordMarks.pdfChangeMarks(on: cited, change: passageChange, inside: lines.isNull ? nil : lines)
+            }
         }
         displayMode = .singlePageContinuous
         displaysPageBreaks = true

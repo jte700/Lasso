@@ -46,7 +46,7 @@ A reader may also report one problem for the file, `{ "code": "UNREADABLE_CONTEN
 
 A reader that takes a while is a generator. It yields `{ share }` (0 to 1) as it goes, and may yield `{ share, offThread(report) }`, where `offThread` starts its work in a worker and returns a promise of the result; the caller either awaits it or, when it must have the answer now, the reader does the work on the calling thread instead.
 
-Heavy readers run in workers ([src/worker-pool.js](../src/worker-pool.js)): each starts one worker for one job, with its own memory limit, and ends it when the job is done. At most two run at once; the rest wait their turn. A worker receives its job as `workerData` and posts:
+Heavy readers run in workers ([src/worker-pool.js](../src/worker-pool.js)): each starts one worker for one job, with its own memory limit, and ends it when the job is done. At most two run at once; the rest wait their turn, with a model preview someone is waiting to see going before waiting indexing. A worker that posts nothing for two minutes (one minute for a large table) is stopped and its turn handed on, so one that never exits cannot hold it. A worker receives its job as `workerData` and posts:
 
 | Message | Meaning |
 |---|---|

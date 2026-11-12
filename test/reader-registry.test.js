@@ -87,5 +87,55 @@ test('A reader change makes the folder offer a re-read', (t) => {
 
   // Assert
   assert.equal(app.dependencies.indexFreshness(project.id).stale, true);
-  assert.equal(readersChangedSince(null), null, 'an index from before reader versions says nothing');
+});
+
+test('An index from before reader versions counts as read by the first version of each reader', (t) => {
+  // Arrange
+  const { app, project } = folder(t);
+  const snapshotId = app.timeline.getProject(project.id).currentSnapshotId;
+  app.db.prepare('UPDATE snapshot_object_indexes SET reader_versions_json = NULL WHERE snapshot_id = ?').run(snapshotId);
+  const read = [];
+  const original = app.dependencies.extractedObjectSteps;
+  app.dependencies.extractedObjectSteps = function* readFile(file) {
+    read.push(file.path);
+    return yield* original.call(this, file);
+  };
+  const newer = READERS.filter((reader) => reader.version > 1).map((reader) => reader.id);
+
+  // Act
+  const staleBefore = app.dependencies.indexFreshness(project.id).stale;
+  app.dependencies.reindex(project.id, actor);
+
+  // Assert
+  assert.deepEqual(readersChangedSince(null), new Set(newer));
+  assert.equal(staleBefore, true, 'the table reader is past its first version');
+  assert.deepEqual([...new Set(read)], ['ledger.csv']);
+  assert.equal(app.dependencies.indexFreshness(project.id).stale, false);
+});
+
+test('A re-read chosen by kind of file keeps the older versions of readers whose files it carried', (t) => {
+  // Arrange: an index from the build before, whose code reader was also older.
+  const { app, project } = folder(t);
+  const snapshotId = app.timeline.getProject(project.id).currentSnapshotId;
+  app.db.prepare('UPDATE snapshot_object_indexes SET extractor_version = extractor_version - 1, reader_versions_json = ? WHERE snapshot_id = ?')
+    .run(JSON.stringify({ ...readerVersions(), code: 0 }), snapshotId);
+  const read = [];
+  const original = app.dependencies.extractedObjectSteps;
+  app.dependencies.extractedObjectSteps = function* readFile(file) {
+    read.push(file.path);
+    return yield* original.call(this, file);
+  };
+
+  // Act
+  app.dependencies.reindex(project.id, actor);
+  const firstRead = [...new Set(read)];
+  const staleAfterFirst = app.dependencies.indexFreshness(project.id).stale;
+  read.length = 0;
+  app.dependencies.reindex(project.id, actor);
+
+  // Assert
+  assert.deepEqual(firstRead, ['ledger.csv'], 'the build before read tables differently');
+  assert.equal(staleAfterFirst, true, 'the carried code file was read by an older code reader');
+  assert.deepEqual([...new Set(read)], ['model.py']);
+  assert.equal(app.dependencies.indexFreshness(project.id).stale, false);
 });

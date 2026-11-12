@@ -15,6 +15,7 @@ let pending = 0, queue = Promise.resolve();
 // The default view the lines are projected in. Clients rotate the 3D edges.
 const ISOMETRIC = cameraAxes(ISOMETRIC_CAMERA);
 
+// Someone is waiting to see this model, so it goes before waiting indexing.
 function runWorker(bytes) {
   return pooled(() => new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./step-geometry-worker.js', import.meta.url), {
@@ -30,7 +31,7 @@ function runWorker(bytes) {
     worker.once('message', message => finish(message.error ? new Error(message.error) : null, message.scene));
     worker.once('error', error => finish(error));
     worker.once('exit', code => { if (!finished) finish(new Error(`STEP geometry worker exited before producing a preview (${code}).`)); });
-  }));
+  }), { interactive: true });
 }
 
 function sceneFor(bytes, sourceHash) {

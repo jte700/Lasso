@@ -187,7 +187,8 @@ function textPassageDescriptors(file, text, parentMetadata, outline = null) {
  *   that keeps some or all of the file out of suggestions, so it can be shown
  *   in the indexing issues instead of disappearing silently
  */
-export function objectsFromFile(file, buffer, report = () => {}) {
+/** `slideCache` carries the readings of a deck's unchanged slides (deck-parts.js). */
+export function objectsFromFile(file, buffer, report = () => {}, { slideCache = null } = {}) {
   const objects = [];
   const base = file.projectFileId;
   const fileName = path.posix.basename(file.path, path.posix.extname(file.path));
@@ -296,7 +297,7 @@ export function objectsFromFile(file, buffer, report = () => {}) {
     // A Word document's sentences and paragraphs, cited by the lines previews show (a paragraph per line).
     else objects.push(...textPassageDescriptors(file, extractDocxFullText(buffer), parentMetadata));
   } else if (file.fileType === 'presentation') {
-    objects.push(...presentationDescriptors(file, buffer, fileName, report));
+    objects.push(...presentationDescriptors(file, buffer, fileName, report, slideCache));
   } else if (file.fileType === 'markdown' || (file.fileType === 'text' && path.extname(file.path).toLowerCase() === '.txt')) {
     const referenceLike = referenceLikePath(file.path);
     const heading = text.match(/^#\s+(.+)$/m)?.[1]?.trim();
@@ -374,8 +375,8 @@ export function objectsFromFile(file, buffer, report = () => {}) {
  * sentences and paragraphs of its slides, each knowing its slide. They cite
  * lines of the deck's slide outline, which previews and shares read the same way.
  */
-function presentationDescriptors(file, buffer, fileName, report) {
-  const deck = readPresentation(buffer);
+function presentationDescriptors(file, buffer, fileName, report, slideCache = null) {
+  const deck = readPresentation(buffer, { slideCache });
   if (deck.extraction === 'PPTX_UNREADABLE') {
     report('UNREADABLE_CONTENT', 'This presentation could not be opened. It may be password-protected or damaged.');
   }

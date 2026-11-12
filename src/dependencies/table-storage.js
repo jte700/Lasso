@@ -47,6 +47,8 @@ const SCHEMA = `
     hash INTEGER UNIQUE,
     cells_json TEXT NOT NULL,
     display_json TEXT,
+    -- The columns of the row that hold a formula, as a JSON array; NULL for none.
+    formula_columns TEXT,
     term_columns TEXT,
     refs INTEGER NOT NULL DEFAULT 0
   );
@@ -113,7 +115,18 @@ export function openTableDatabase(file) {
   db.exec(`PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 30000;
     PRAGMA journal_size_limit = 67108864;`);
   if (db.prepare('PRAGMA user_version').get().user_version !== TABLE_LAYOUT) upgrade(db);
+  addFormulaColumns(db);
   return db;
+}
+
+// An index made before rows recorded their formulas gains the column; its
+// rows are read again by the newer table version before they are used.
+function addFormulaColumns(db) {
+  const has = () => db.prepare('PRAGMA table_info(table_row_bodies)').all().some((column) => column.name === 'formula_columns');
+  if (has()) return;
+  immediately(db, () => {
+    if (!has()) db.exec('ALTER TABLE table_row_bodies ADD COLUMN formula_columns TEXT');
+  });
 }
 
 /** A short key for stored content, and whether a chunk ends after the row it belongs to. */
@@ -191,8 +204,8 @@ export class TableChunkStore {
   constructor(db) {
     this.db = db;
     this.statements = {
-      body: db.prepare('SELECT id, cells_json, display_json, term_columns FROM table_row_bodies WHERE hash = ?'),
-      insertBody: db.prepare('INSERT INTO table_row_bodies(hash, cells_json, display_json) VALUES (?, ?, ?)'),
+      body: db.prepare('SELECT id, cells_json, display_json, formula_columns, term_columns FROM table_row_bodies WHERE hash = ?'),
+      insertBody: db.prepare('INSERT INTO table_row_bodies(hash, cells_json, display_json, formula_columns) VALUES (?, ?, ?, ?)'),
       termColumns: db.prepare('UPDATE table_row_bodies SET term_columns = ? WHERE id = ?'),
       term: db.prepare('INSERT OR IGNORE INTO table_row_terms(label_column, term, row_id) VALUES (?, ?, ?)'),
       chunk: db.prepare('SELECT id, entries FROM table_chunks WHERE hash = ?'),
@@ -219,7 +232,7 @@ export class TableChunkStore {
     });
   }
 
-  /** `rows` are consecutive: { ordinal, rowNumber, cellsJson, displayJson, key, label, termColumn }. */
+  /** `rows` are consecutive: { ordinal, rowNumber, cellsJson, displayJson, formulaJson, key, label, termColumn }. */
   writeChunk(tableId, rows) {
     const rowIds = rows.map((row) => this.rowId(row));
     const entries = encodeChunk(rowIds, rows.map((row) => row.rowNumber));
@@ -230,9 +243,11 @@ export class TableChunkStore {
 
   rowId(row) {
     const found = this.statements.body.get(row.key);
-    const same = found && found.cells_json === row.cellsJson && found.display_json === row.displayJson;
+    const same = found && found.cells_json === row.cellsJson && found.display_json === row.displayJson
+      && (found.formula_columns ?? null) === (row.formulaJson ?? null);
     // Two different rows with one key cannot share it; the second is stored without one.
-    const id = same ? found.id : Number(this.statements.insertBody.run(found ? null : row.key, row.cellsJson, row.displayJson).lastInsertRowid);
+    const id = same ? found.id : Number(this.statements.insertBody.run(found ? null : row.key, row.cellsJson, row.displayJson,
+      row.formulaJson ?? null).lastInsertRowid);
     const columns = same ? found.term_columns : null;
     if (row.termColumn != null && !hasColumn(columns, row.termColumn)) {
       for (const term of rowTerms(row.label)) this.statements.term.run(row.termColumn, term, id);

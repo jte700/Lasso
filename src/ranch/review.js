@@ -37,7 +37,7 @@ function linkDetail(dependency, fileIdAt) {
  *   source: { projectId: string, path: string } }[]} dependencies
  * @param {(directoryId: string, filePath: string) => string | null} fileIdAt
  */
-export function linkReviewItems(dependencies, fileIdAt) {
+export function linkReviewItems(dependencies, fileIdAt, shown = null) {
   const grouped = new Map();
   for (const dependency of dependencies) {
     const problem = LINK_PROBLEMS[dependency.status];
@@ -52,7 +52,7 @@ export function linkReviewItems(dependencies, fileIdAt) {
   return [...grouped.values()].map((item) => ({
     ...item,
     // The first link's old and new value and the claim it backs, so a row can say "18,400 → 19,250".
-    ...(item.kind === 'changed' ? valueChange(item.links[0]) : {}),
+    ...(item.kind === 'changed' ? valueChange(item.links[0], (value) => shown?.(item.directoryId, item.path, item.links[0]?.anchor, value)) : {}),
     detail: item.kind === 'changed'
       ? `Changed since it was linked in ${plural(item.documents.length, 'document')}. The documents still show the earlier value.`
       : item.kind === 'unverified'
@@ -61,10 +61,16 @@ export function linkReviewItems(dependencies, fileIdAt) {
   }));
 }
 
-/** A changed link's values and claim, as a review row shows them. */
-function valueChange(link) {
+/**
+ * A changed link's values and claim, as a review row shows them, with the
+ * values as a worksheet shows them when `shown` finds them different.
+ */
+function valueChange(link, shown) {
   if (!link) return {};
-  return { before: link.linkedValue, after: link.currentValue, claim: link.text || null, document: link.documentPath ?? null };
+  const beforeDisplay = shown(link.linkedValue);
+  const afterDisplay = shown(link.currentValue);
+  return { before: link.linkedValue, after: link.currentValue, claim: link.text || null, document: link.documentPath ?? null,
+    ...(beforeDisplay ? { beforeDisplay } : {}), ...(afterDisplay ? { afterDisplay } : {}) };
 }
 
 /** Files Lasso could only partly read: damaged, protected or too large to index whole. */
@@ -91,6 +97,8 @@ export function shareReviewItems(shares) {
     directoryId: share.directoryId, path: share.path, fileId: share.fileId,
     documents: [],
     before: share.sharedValue ?? null, after: share.currentValue ?? null,
+    ...(share.sharedDisplay ? { beforeDisplay: share.sharedDisplay } : {}),
+    ...(share.currentDisplay ? { afterDisplay: share.currentDisplay } : {}),
     claim: share.claim ?? null, document: share.documentPath ?? null,
     detail: 'The share link still shows the version you shared. Share it again to send the current one.',
   }));

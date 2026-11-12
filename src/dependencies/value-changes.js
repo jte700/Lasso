@@ -100,6 +100,8 @@ export const valueChangeMethods = {
       currentValue: change.currentValue,
       changedAt: change.changedAt,
       snapshotId: change.snapshotId,
+      // As a worksheet shows them ("18,400"), when that differs from the stored values.
+      ...this.changeDisplay(object, change.previousValue, change.currentValue),
     };
   },
 
@@ -123,6 +125,7 @@ export const valueChangeMethods = {
       currentValue: change.currentValue,
       changedAt: change.changedAt,
       snapshotId: change.snapshotId,
+      ...this.changeDisplay(object, change.previousValue, change.currentValue),
     };
   },
 };
