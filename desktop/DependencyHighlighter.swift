@@ -197,23 +197,6 @@ final class DependencyHighlighter {
 
     func reference(id: String) -> DependencyReference? { store.reference(id: id) }
 
-    /// Native insertions are stored locally rather than as browser-document
-    /// dependencies. Tell the activity endpoint which indexed objects those
-    /// links refer to, including links in apps that are not currently focused.
-    /// An unresolved anchor is still linked until it is explicitly removed.
-    /// Called on the main thread, like the rest of the reference store.
-    var linkedSourceObjectIDs: [String] {
-        var seen = Set<String>()
-        var objectIDs: [String] = []
-        for reference in store.references.sorted(by: { $0.createdAt > $1.createdAt }) {
-            let objectID = reference.objectId
-            guard !objectID.isEmpty, seen.insert(objectID).inserted else { continue }
-            objectIDs.append(objectID)
-            if objectIDs.count == 256 { break }
-        }
-        return objectIDs
-    }
-
     /// Older builds did not store a work-directory owner and sometimes stored
     /// a human breadcrumb in sourcePath. Resolve ownership through the object
     /// API so files with identical relative paths cannot borrow another

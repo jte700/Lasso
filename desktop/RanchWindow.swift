@@ -65,14 +65,3 @@ final class RanchWindowController: NSWindowController, NSWindowDelegate {
         onClose?()
     }
 }
-
-extension RanchStore.Section {
-    /// Where the notch's button leads: what needs review, what changed, or everything.
-    init(notchDestination: String) {
-        switch notchDestination {
-        case "attention": self = .review
-        case "changes": self = .changes
-        default: self = .sources
-        }
-    }
-}

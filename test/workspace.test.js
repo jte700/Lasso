@@ -439,7 +439,7 @@ test('workspace HTTP routes expose toggles and predictions without enabling disa
   assert.ok(fs.existsSync(path.join(roots[0], 'data.csv')), 'removing never touches the folder on disk');
 });
 
-test('notch activity reports pinned source changes, excludes paused folders and does not rewrite documents', async t => {
+test('linked-source activity reports pinned source changes, excludes paused folders and does not rewrite documents', async t => {
   const { app, projects, roots } = await fixture(t, 2, 1);
   const first = projects[0];
   app.dependencies.ensureIndex(first.id);
@@ -461,8 +461,8 @@ test('notch activity reports pinned source changes, excludes paused folders and 
   assert.equal(change.projectId, first.id);
   assert.equal(change.fileName, 'data.csv');
   assert.deepEqual(activity.linkedSourceObjectIds, baseline.linkedSourceObjectIds, 'the first edit keeps the same subscription and can notify');
-  assert.equal(change.referenceCount, 1, 'notch includes references in a different enabled directory');
-  assert.equal(change.unresolvedReferences, 1, 'notch reports the changed cross-directory reference');
+  assert.equal(change.referenceCount, 1, 'activity includes references in a different enabled directory');
+  assert.equal(change.unresolvedReferences, 1, 'activity reports the changed cross-directory reference');
   assert.ok(change.toVersion > change.fromVersion);
   assert.equal(fs.readFileSync(path.join(roots[0], 'draft.md'), 'utf8'), 'Supplies were 120.\n');
   await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
@@ -470,7 +470,7 @@ test('notch activity reports pinned source changes, excludes paused folders and 
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).activity, activity);
   await app.workspace.toggle(first.id, false, actor);
-  assert.equal(app.workspace.activity().changes.length, 0, 'disabled sources must not appear in the notch');
+  assert.equal(app.workspace.activity().changes.length, 0, 'disabled sources must not appear in the activity');
   fs.mkdirSync(path.join(path.dirname(roots[1]), 'offline'));
   fs.renameSync(roots[1], path.join(path.dirname(roots[1]), 'offline', path.basename(roots[1])));
   const unavailable = app.workspace.activity();
@@ -499,7 +499,7 @@ test('a folder that was unavailable at startup comes back on its own when it rea
   assert.deepEqual(recovered.activeProjectIds, [state.projects[0].id]);
 });
 
-test('notch activity is reused until the workspace or its indexing issues change', async (t) => {
+test('linked-source activity is reused until the workspace or its indexing issues change', async (t) => {
   // Arrange
   const state = await fixture(t, 1);
   const app = state.app;
@@ -615,7 +615,7 @@ test('a newly linked current browser source exposes its subscription separately 
   assert.ok(edited.linkedChanges[0].toVersion > linked.linkedChanges[0].toVersion, 'a later edit has a new notification identity');
 });
 
-test('notch polling reads linked history without traversing the full graph or rebuilding indexes', async t => {
+test('activity polling reads linked history without traversing the full graph or rebuilding indexes', async t => {
   const { app, projects, roots } = await fixture(t, 1, 96);
   const project = projects[0];
   const source = app.dependencies.objectsAt(project.id).find(object => object.objectType === 'DATASET_VALUE'
@@ -624,7 +624,7 @@ test('notch polling reads linked history without traversing the full graph or re
   fs.writeFileSync(path.join(roots[0], 'data.csv'), 'Metric,Value\n'
     + Array.from({ length: 96 }, (_, row) => `Supplies ${row},${450 + row}`).join('\n') + '\n');
   app.timeline.capture(project.id, actor);
-  const unexpected = () => { throw new Error('Notch polling invoked the full graph/index path'); };
+  const unexpected = () => { throw new Error('Activity polling invoked the full graph/index path'); };
   t.mock.method(app.workspace, 'terminalSession', unexpected);
   t.mock.method(app.dependencies, 'ensureIndex', unexpected);
   for (const name of ['valueChanges', 'objectById', 'referencesTo', 'namedObjects']) {
@@ -642,7 +642,7 @@ test('notch polling reads linked history without traversing the full graph or re
 });
 
 
-test('notch linked history query uses object-ID indexes before checking the project', async t => {
+test('linked history query uses object-ID indexes before checking the project', async t => {
   const { app, projects } = await fixture(t, 1, 4);
   const source = app.dependencies.objectsAt(projects[0].id).find(object => object.objectType === 'DATASET_VALUE');
   const plans = [], prepare = app.terminal.graph.db.prepare.bind(app.terminal.graph.db);

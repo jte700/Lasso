@@ -1,7 +1,7 @@
 // Lasso Settings, opened with Command-Comma or Settings… in the status panel.
 //
 // General holds options that change how Lasso looks and behaves, and that the
-// status panel does not already show: appearance, the notch and what Tab
+// status panel does not already show: appearance and what Tab
 // inserts, with the folder colour, starting at login and the version under
 // Advanced. Apps switches suggestions off in chosen apps. Shortcuts lists
 // every keyboard shortcut Lasso has on the Mac. The first two are SwiftUI
@@ -39,9 +39,6 @@ enum SettingsPane: String, CaseIterable {
 }
 
 struct SettingsActions {
-    let showInNotch: () -> Bool
-    let setShowInNotch: (Bool) -> Void
-    let notchAvailable: () -> Bool
     /// "Lasso 1.0.0 · Server: …", shown under Advanced.
     let version: () -> String
     /// Called after any change, so the status panel can show the new state.

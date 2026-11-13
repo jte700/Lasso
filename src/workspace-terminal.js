@@ -17,10 +17,10 @@ export const workspaceTerminalMethods = {
       version: null, commands: this.terminal.registry.names(), projects: sessions };
   },
 
-  // A bounded, read-only summary for the native notch. Only enabled and
+  // A bounded, read-only summary of what changed in linked sources. Only enabled and
   // available source directories contribute evidence or notifications.
   /**
-   * The notch polls this every few seconds, and building it walks every
+   * A client may poll this every few seconds, and building it walks every
    * active folder. Reuse it until a folder's version, state or open indexing
    * issues change, so a poll cannot hold up suggestions while typing.
    */
