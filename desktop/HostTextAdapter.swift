@@ -12,6 +12,14 @@ enum HostTextSafety {
     static func isSecure(role: String?, subrole: String?) -> Bool {
         role == "AXSecureTextField" || subrole == "AXSecureTextField"
     }
+
+    /// A field for finding things, not for writing: a search field, a combo
+    /// box, a browser's address bar. What is typed there is a query, and a
+    /// card over it only gets in the way of the app's own suggestions.
+    static func isLookup(role: String?, subrole: String?, identifier: String?) -> Bool {
+        subrole == "AXSearchField" || role == "AXComboBox"
+            || (identifier?.localizedCaseInsensitiveContains("ADDRESS_AND_SEARCH") ?? false)
+    }
 }
 
 /// Identity of the surface being written in, so highlights never appear over an

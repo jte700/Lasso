@@ -36,7 +36,10 @@ export async function workspaceRoutes({ request, response, url, pathname, worksp
         return sendJson(response, 200, await workspace.remove(directory[0]));
       }
       if (request.method === 'POST' && pathname === '/api/workspace/dependencies/predict') {
-        return sendJson(response, 200, { prediction: await workspace.predict(await readJson(request)) });
+        // The Mac app cancels a request when the next key is typed.
+        const body = await readJson(request);
+        return sendJson(response, 200, { prediction: await workspace.predict(body,
+          { cancelled: () => response.destroyed || response.socket?.destroyed === true }) });
       }
       if (request.method === 'GET' && pathname === '/api/workspace/source-library') {
         return sendJson(response, 200, { objects: workspace.search(url.searchParams.get('query') ?? '', {

@@ -2685,6 +2685,31 @@ do {
     check(wholePage.focus == nil && !wholePage.highlighted, "a page without a cited passage is shown whole")
 }
 
+print("Escape keeps the card away for its sentence")
+var escapeQuiet = EscapeQuiet()
+check(!escapeQuiet.holds(for: "Revenue was"), "nothing is held before Escape")
+escapeQuiet.escaped(at: "Thanks for the notes. Can we move the mee")
+check(escapeQuiet.holds(for: "Thanks for the notes. Can we move the meeting to Friday"), "typing on in the sentence stays quiet")
+check(escapeQuiet.holds(for: "Thanks for the notes. Can we"), "deleting within the sentence stays quiet")
+check(!escapeQuiet.holds(for: "Thanks for the notes. Can we move the meeting? Revenue"), "the next sentence gets suggestions again")
+check(!escapeQuiet.isHolding, "the hold ends with the sentence")
+escapeQuiet.escaped(at: "Budget notes\nThe offi")
+check(!escapeQuiet.holds(for: "Budget notes\nThe office is closed\nRev"), "a new line gets suggestions again")
+escapeQuiet.escaped(at: "First point. Second po")
+check(!escapeQuiet.holds(for: "First poi"), "going back into an earlier sentence ends the hold")
+escapeQuiet.escaped(at: "The total is 4.5 and the res")
+check(escapeQuiet.holds(for: "The total is 4.5 and the rest is 3.2 of"), "a decimal point ends no sentence")
+escapeQuiet.escaped(at: "Other field")
+escapeQuiet.clear()
+check(!escapeQuiet.holds(for: "Other field text"), "another field starts fresh")
+
+print("fields for finding things get no card")
+check(HostTextSafety.isLookup(role: "AXTextField", subrole: "AXSearchField", identifier: nil), "a search field is not written in")
+check(HostTextSafety.isLookup(role: "AXComboBox", subrole: nil, identifier: nil), "a combo box is a picker")
+check(HostTextSafety.isLookup(role: "AXTextField", subrole: nil, identifier: "WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD"), "a browser's address bar is a query")
+check(!HostTextSafety.isLookup(role: "AXTextArea", subrole: nil, identifier: nil), "a text area is written in")
+check(!HostTextSafety.isLookup(role: "AXTextField", subrole: nil, identifier: "subject"), "an ordinary text field is written in")
+
 print("synthetic typing chunks")
 let accented = String(repeating: "e\u{301}", count: 12) + "👩‍🔬 Café"
 let accentedChunks = accented.chunkedForTyping(16)

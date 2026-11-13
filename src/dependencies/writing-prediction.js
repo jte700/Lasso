@@ -7,7 +7,7 @@ import { detectClaimSpans } from './claim-detection.js';
 import { LINKED_VALUES_SHOWN, SUGGESTIONS_SHOWN, WHOLE_FILE_TYPES } from './constants.js';
 import { referenceCompletionText } from './reference-match.js';
 import { replacingFocusWords, withSameNamed } from './workspace-completion.js';
-import { currentClauseStart, namesFocusedFile, writtenBeforeCaret } from './writing-context.js';
+import { currentClauseStart, namesFocusedFile, writingSourceContext, writtenBeforeCaret } from './writing-context.js';
 
 export const writingPredictionMethods = {
   warmPredictionCaches(projectId, snapshotId = null) {
@@ -258,8 +258,16 @@ export const writingPredictionMethods = {
     const predictedCompletion = atCaret.some((claim) => claim.candidates.length)
       ? null : this.sentenceSuggestion(projectId, input);
     const completion = predictedCompletion?.dependencyCandidate ? predictedCompletion : null;
+    // A plain sentence about the work ("The connection pool was raised") names
+    // its sources by their words, with no "we" or "our" to say it is a report.
+    // Words in a sentence with an accepted source or its value belong to that source.
+    const sentenceStart = writingSourceContext(text, cursor, input.section).sentenceStart;
+    const acceptedHere = [...(input.pendingDependencies ?? []), ...(input.acceptedDependencies ?? [])]
+      .some((link) => Number.isInteger(link?.end) && link.end > sentenceStart);
+    const workspaceCompletions = completion || atCaret.some((claim) => claim.candidates.length) || newestDependency || acceptedHere
+      ? [] : this.workspaceSuggestions(projectId, input, cursor, { limit: input.surface === 'search' ? 12 : 8 });
     return {
-      claims: completion ? atCaret : claims, completion, sourceCompletions: [], workspaceCompletions: [],
+      claims: completion ? atCaret : claims, completion, sourceCompletions: [], workspaceCompletions,
       sourceContext: claims.some((claim) => claim.scopedToLinkedPaper)
         ? {
           dependencyId: linkedDependency.id,

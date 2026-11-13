@@ -45,12 +45,14 @@ async function accept(app, text) {
   return { accepted, pendingDependencies: [link] };
 }
 
-test('the first word of a document suggests a source after two letters', async (t) => {
+test('the first word of a document suggests a source after three letters', async (t) => {
   const app = await fixture(t);
-  for (const [typed, expected] of [['Re', 'Revenue'], ['Gro', 'Gross profit'], ['Sal', 'Salaries and wages'],
+  for (const [typed, expected] of [['Rev', 'Revenue'], ['Gro', 'Gross profit'], ['Sal', 'Salaries and wages'],
     ['Mar', 'Marketing'], ['Cost of goo', 'Cost of goods sold']]) {
     assert.equal((await labels(app, typed))[0], expected, typed);
   }
+  // Two letters begin too many everyday words ("Re" of "Really") to name a source.
+  assert.deepEqual(await labels(app, 'Re'), []);
 });
 
 test('a new sentence starts a fresh suggestion even right after an accepted source', async (t) => {
@@ -98,7 +100,7 @@ test('named rows such as departments and suppliers are suggested by their names'
   assert.equal((await labels(app, 'We paid Harbour Off'))[0], 'Harbour Office Furniture');
   assert.equal((await labels(app, 'Maple Pa'))[0], 'Maple Paper Distribution');
   // Rows keyed by an identifier column ("Change ID") are codes, not names.
-  assert.deepEqual(await labels(app, 'Co'), ['Cost of goods sold']);
+  assert.deepEqual(await labels(app, 'Cos'), ['Cost of goods sold']);
 });
 
 const completions = async (app, text, pendingDependencies) => {
