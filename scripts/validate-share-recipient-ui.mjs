@@ -163,9 +163,9 @@ try {
   for (const [view, heading] of [['attention', 'Needs attention'], ['changes', 'Recent changes']]) {
     await call('Emulation.setDeviceMetricsOverride', {width:1280, height:900, deviceScaleFactor:1, mobile:false});
     await call('Page.navigate', {url:`${base}/?view=${view}`});
-    await until(() => evaluate(`document.querySelector('.wb-heading h1')?.textContent === ${JSON.stringify(heading)} && !document.querySelector('.wb-inspector[aria-busy="true"]')`), `Notch ${view} destination did not finish loading`);
+    await until(() => evaluate(`document.querySelector('.wb-heading h1')?.textContent === ${JSON.stringify(heading)} && !document.querySelector('.wb-inspector[aria-busy="true"]')`), `The ${view} view did not finish loading`);
     assert.equal(await evaluate(`Boolean(document.querySelector('.wb-error'))`), false);
-    console.log(`PASS notch opens ${heading} directly`);
+    console.log(`PASS the workbench opens ${heading} directly`);
   }
   assert.deepEqual(exceptions, []);
   console.log(`PASS ${checks} recipient layouts, ${records.length} real downloads, metre-scale mask extents and standalone drawing rendering`);

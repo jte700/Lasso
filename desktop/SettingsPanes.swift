@@ -31,8 +31,6 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var appearance = AppearancePreference.current()
     @Published private(set) var folderColor = DirectoryColorPreferences.defaultColor()
     @Published private(set) var insertion = InsertionMode.current
-    @Published private(set) var notchAvailable = false
-    @Published private(set) var showInNotch = false
     @Published private(set) var startState = LaunchHelper.State.on
     @Published private(set) var version = ""
     @Published private(set) var apps: [SettingsApp] = []
@@ -52,8 +50,6 @@ final class SettingsModel: ObservableObject {
         appearance = AppearancePreference.current()
         folderColor = DirectoryColorPreferences.defaultColor()
         insertion = InsertionMode.current
-        notchAvailable = actions.notchAvailable()
-        showInNotch = notchAvailable && actions.showInNotch()
         startState = LaunchHelper.state
         version = actions.version()
         reloadApps()
@@ -95,13 +91,6 @@ final class SettingsModel: ObservableObject {
         Binding(get: { self.insertion }, set: { value in
             InsertionMode.set(value)
             self.changed()
-        })
-    }
-
-    var notchChoice: Binding<Bool> {
-        Binding(get: { self.showInNotch }, set: { value in
-            self.actions.setShowInNotch(value)
-            self.refresh()
         })
     }
 
@@ -172,9 +161,6 @@ struct SettingsGeneralView: View {
             Section {
                 Picker("Appearance", selection: model.appearanceChoice) {
                     ForEach(AppearancePreference.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                if model.notchAvailable {
-                    Toggle("Show Lasso in the notch", isOn: model.notchChoice)
                 }
             }
             Section {

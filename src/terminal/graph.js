@@ -834,13 +834,13 @@ export class DependencyGraph {
     return changes;
   }
 
-  /** Lightweight notch history. Never resolves the full object index or dependency graph. */
+  /** Lightweight linked-source history. Never resolves the full object index or dependency graph. */
   activityChanges(projectId, { objectIds = null, limit = 8, includeSourceChanges = false } = {}) {
     let ids = objectIds ? [...objectIds] : [];
     if (!objectIds) {
       // Manual history is a recent sample. Visit indexed snapshots newest first
-      // through the snapshot_id index, with a hard candidate budget; opening a
-      // notch must not read years of unrelated object metadata into memory.
+      // through the snapshot_id index, with a hard candidate budget; reading
+      // it must not read years of unrelated object metadata into memory.
       const snapshots = this.db.prepare(`SELECT s.id FROM snapshots s
         JOIN snapshot_object_indexes i ON i.snapshot_id = s.id
         WHERE s.project_id = ? ORDER BY s.version DESC LIMIT 8`).all(projectId);

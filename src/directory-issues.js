@@ -10,7 +10,7 @@
 // password-protected workbook, a sheet read in part, a format it does not
 // parse — is a note, not an issue. Nearly every real folder holds such a file,
 // so badging them put a warning on every folder. Notes stay in the folder's
-// tooltip, the notch's indexing issues and `index failures`.
+// tooltip and `index failures`.
 
 const PERMISSION_CODES = new Set(['EACCES', 'EPERM']);
 const TRY_AGAIN = Object.freeze({ label: 'Try Again' });

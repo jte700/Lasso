@@ -1,7 +1,7 @@
 import Cocoa
 
 /// Light or dark for Lasso's own menu, suggestions and windows, chosen in
-/// Settings. System follows macOS. The notch stays black either way.
+/// Settings. System follows macOS.
 enum AppearancePreference: String, CaseIterable {
     case system, light, dark
 

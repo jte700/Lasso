@@ -374,7 +374,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var server: ServerController!
     private let statusMenu = NSMenu()
     private let statusPopover = StatusPopoverController()
-    private let notch = NotchPanelController()
     private let driveMonitor = ExternalDriveMonitor()
     private let driveMenu = ExternalDriveMenu()
     private var hasUnreadDriveChange = false
@@ -424,12 +423,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         requested: UserDefaults.standard.bool(forKey: "AssistEnabled"))
     private lazy var settings: SettingsWindowController = {
         let controller = SettingsWindowController(actions: SettingsActions(
-            showInNotch: { UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey) },
-            setShowInNotch: { [weak self] on in
-                guard on != UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey) else { return }
-                self?.toggleNotch()
-            },
-            notchAvailable: { NotchPanelController.isAvailable },
             version: { [weak self] in self?.versionLine ?? "" },
             didChange: { [weak self] in self?.rebuildMenu() }))
         // The menu bar and Dock icon show only while Settings is open, as a
@@ -504,13 +497,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         removeTypingLog(beside: logs)
         LaunchHelper.start()
 
-        notch.linkedSourceObjectIDs = { DependencyHighlighter.shared.linkedSourceObjectIDs }
-        notch.onToggleSuggestions = { [weak self] in self?.toggleGlobalAssist() }
-        notch.onOpenWorkspace = { [weak self] destination in
-            self?.showRanch(section: RanchStore.Section(notchDestination: destination))
-        }
-        NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
-            name: NSApplication.didChangeScreenParametersNotification, object: nil)
         ranchHotKey = GlobalHotKey(keyCode: kVK_ANSI_R, modifiers: Ranch.modifiers, id: 1) { [weak self] in
             self?.showRanch()
         }
@@ -584,7 +570,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         LassoTransientUI.shared.stop()
-        notch.stop()
         workspaceTimer?.invalidate()
         assistPermissionTimer?.invalidate()
         stopProgressPolling()
@@ -684,7 +669,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusMenu.addItem(.separator())
         statusMenu.addItem(command("Open \(Ranch.title)", action: #selector(openRanch), key: Ranch.key, modifiers: Ranch.modifiers,
                                    enabled: isServerReady))
-        // Look, Tab, notch, apps and startup options live in Settings, not here.
+        // Look, Tab, apps and startup options live in Settings, not here.
         statusMenu.addItem(command("Settings\u{2026}", action: #selector(showSettings), key: ","))
         let quit = command("Quit Lasso", action: #selector(quit), key: "q")
         if LaunchHelper.state == .on {
@@ -693,10 +678,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusMenu.addItem(quit)
         statusPopover.update(menu: statusMenu)
         if settingsLoaded { settings.refresh() }
-        notch.configure(enabled: UserDefaults.standard.bool(forKey: NotchPanelController.preferenceKey),
-                        serverURL: isServerReady ? server?.url : nil,
-                        suggestions: GlobalAssistant.shared.isEnabled, requested: assistActivation.requested,
-                        revision: directories.filter { $0.active && $0.available && ($0.error ?? "").isEmpty }.map(\.id).sorted().joined(separator: "|"))
     }
 
     /// Lasso's name and state, with Suggest While Typing as the panel's one switch.
@@ -1388,15 +1369,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard statusPopover.holdingOpen({ alert.runModal() }) == .alertFirstButtonReturn else { return }
         mutateWorkspace(path: "api/connections/" + id, method: "DELETE", message: "Disconnecting \(connection.name)…",
                         failureTitle: "The App Couldn\u{2019}t Be Disconnected")
-    }
-
-    @objc private func screensChanged() { rebuildMenu() }
-
-    @objc private func toggleNotch() {
-        guard NotchPanelController.isAvailable else { return }
-        let key = NotchPanelController.preferenceKey
-        UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: key), forKey: key)
-        rebuildMenu()
     }
 
     @objc private func toggleGlobalAssist() {
