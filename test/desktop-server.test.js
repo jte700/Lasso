@@ -17,7 +17,7 @@ async function launch(t, preferredPort = 0) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso desktop server '));
   const nonce = randomBytes(32).toString('hex');
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', serverPath], {
-    cwd: directory, env: { ...process.env, PORT: String(preferredPort), LASSO_DATA_DIR: path.join(directory, 'history'), LASSO_DESKTOP_NONCE: nonce },
+    cwd: directory, env: { ...process.env, PORT: String(preferredPort), LASSO_DATA_DIR: path.join(directory, 'history'), LASSO_DESKTOP_NONCE: nonce, SHARE_BASE_URL: 'https://www.mylasso.ca' },
     stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
   });
   const closed = once(child, 'close');
@@ -53,7 +53,8 @@ test('desktop child reports its actual port and serves installed assets from ano
   assert.equal(page.status, 200);
   assert.match(await page.text(), /Lasso/);
   const sharing = await (await fetch(`${base}/api/sharing/status`)).json();
-  assert.equal(new URL(sharing.baseUrl).port, new URL(base).port);
+  assert.equal(sharing.baseUrl, 'https://www.mylasso.ca');
+  assert.equal(sharing.localOnly, false);
   child.stdin.write('LASSO_SHUTDOWN incorrect-nonce\n');
   assert.equal((await fetch(`${base}/api/health`)).status, 200);
   child.stdin.write(`LASSO_SHUTDOWN ${nonce}\n`);

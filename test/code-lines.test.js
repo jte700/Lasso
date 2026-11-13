@@ -89,7 +89,7 @@ async function project(t) {
   fs.writeFileSync(path.join(root, 'src', 'server.js'), SERVER);
   fs.writeFileSync(path.join(root, 'src', 'routes.py'), ROUTES);
   fs.writeFileSync(path.join(root, 'docker-compose.yaml'), 'services:\n  web:\n    image: app\n');
-  const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false, port: 0 });
+  const app = createApplication({ shareBaseUrl: 'http://localhost:4317', dataDir: path.join(sandbox, 'history'), watchProjects: false, port: 0 });
   t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
   await app.workspace.add([fs.realpathSync(root)], actor);
   const projectId = app.workspace.state().directories[0].id;

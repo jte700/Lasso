@@ -25,7 +25,7 @@
 Lasso reads the folders you choose (spreadsheets, PDFs, Word, PowerPoint, CAD models, code) and, as you type in any app, offers the exact value or sentence from those files. Press `Tab` to insert it. Every insertion remains linked to the file and version it came from.
 
 - **Exact, not generated.** Suggestions are text that exists in your files. No language model is involved.
-- **Private.** Everything runs on your Mac. No account, no API key, no upload.
+- **Private.** Indexing and suggestions run on your Mac. Only content you explicitly share is uploaded to mylasso.ca; no account or API key is needed.
 - **For AI agents too.** The Lasso MCP server gives Claude, ChatGPT and other agents the same exact answers, with 69 to 77% fewer tokens than reading the files in live tests.
 
 <p align="center">
@@ -60,7 +60,7 @@ Lasso reads the folders you choose (spreadsheets, PDFs, Word, PowerPoint, CAD mo
 | **To build from source** | Node.js 24 or later, and the Xcode Command Line Tools |
 | **Permissions** | Accessibility, granted once in System Settings, so Lasso can read and insert text |
 | **For the MCP server** | Any MCP host: Claude Desktop, Claude Code, Cursor and others |
-| **Network** | None. Lasso works fully offline. |
+| **Network** | Indexing and suggestions work offline. Creating, viewing or revoking hosted shares needs internet access. |
 
 The built app bundles its own Node.js, so a Mac that only runs Lasso needs nothing else installed.
 

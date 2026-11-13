@@ -54,6 +54,13 @@ export function createConfig(overrides = {}) {
       ?? (fs.existsSync(currentDataDir) || !fs.existsSync(previousDataDir) ? currentDataDir : previousDataDir),
   );
 
+  const shareBaseUrl = overrides.shareBaseUrl ?? process.env.SHARE_BASE_URL ?? 'https://www.mylasso.ca';
+  const shareOrigin = new URL(shareBaseUrl);
+  const localSharing = ['localhost', '127.0.0.1', '[::1]'].includes(shareOrigin.hostname);
+  if ((!localSharing && shareOrigin.protocol !== 'https:') || !['http:', 'https:'].includes(shareOrigin.protocol)
+      || shareOrigin.username || shareOrigin.password || shareOrigin.pathname !== '/' || shareOrigin.search || shareOrigin.hash) {
+    throw new Error('SHARE_BASE_URL must be an HTTPS origin (HTTP loopback is allowed for local development).');
+  }
   return {
     dataDir,
     databasePath: overrides.databasePath ?? path.join(dataDir, 'timeline.sqlite'),
@@ -87,9 +94,10 @@ export function createConfig(overrides = {}) {
     blobRetentionIdleMs: wholeNumber(overrides.blobRetentionIdleMs, DEFAULT_RETENTION_IDLE_MS, 0),
     blobRetentionGraceMs: wholeNumber(overrides.blobRetentionGraceMs, DEFAULT_RETENTION_GRACE_MS, 0),
     port: Number(overrides.port ?? process.env.PORT ?? 4317),
-    // Base of externally shared dependency links. Isolated here so the same
-    // share records can later be served from a hosted origin.
-    shareBaseUrl: overrides.shareBaseUrl ?? process.env.SHARE_BASE_URL ?? null,
+    // Production publication uses HTTPS; loopback origins keep development local.
+    shareBaseUrl: shareOrigin.origin,
+    hostedSharing: !localSharing,
+    shareFetch: overrides.shareFetch,
     watchDebounceMs: Number(overrides.watchDebounceMs ?? process.env.LASSO_WATCH_DEBOUNCE_MS
       ?? process.env.COLAB_WATCH_DEBOUNCE_MS ?? 2500),
     // Saves that keep arriving cannot postpone a capture longer than this.

@@ -14,7 +14,7 @@ test('public share routes', async (suite) => {
   fs.writeFileSync(path.join(projectRoot, 'Finance', 'Income-Statement.csv'),
     'Account,Current Period,Prior Period\nOffice Supplies,400,384\nPayroll taxes,225,218\n');
 
-  const application = createApplication({
+  const application = createApplication({ shareBaseUrl: 'http://localhost:4317',
     dataDir: path.join(sandbox, 'history'), watchProjects: false, port: 0,
   });
   const { project } = application.timeline.importProject(projectRoot, maya, { watch: false });
@@ -276,7 +276,7 @@ test('public share routes', async (suite) => {
 test('the old browser workbench is shown only to the Windows app; a Mac browser is pointed to the menu bar', async t => {
   // Arrange
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-home-'));
-  const application = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false, port: 0 });
+  const application = createApplication({ shareBaseUrl: 'http://localhost:4317', dataDir: path.join(sandbox, 'history'), watchProjects: false, port: 0 });
   t.after(async () => { await application.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
   await new Promise((resolve) => application.server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${application.server.address().port}`;

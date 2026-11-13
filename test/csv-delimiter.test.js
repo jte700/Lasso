@@ -23,7 +23,7 @@ test('semicolon CSV sources index values and keep redactions on their own cells'
   const root = path.join(sandbox, 'Sources');
   fs.mkdirSync(root);
   fs.writeFileSync(path.join(root, 'Costs.csv'), 'Item;Cost;Owner\nPaper;12;PRIVATE_OWNER_A\nInk;30;Lee\nToner;55;Kim\n');
-  const app = createApplication({ dataDir: path.join(sandbox, 'data'), watchProjects: false, port: 0 });
+  const app = createApplication({ shareBaseUrl: 'http://localhost:4317', dataDir: path.join(sandbox, 'data'), watchProjects: false, port: 0 });
   t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
   const { project } = app.timeline.importProject(root, actor, { watch: false });
   app.dependencies.ensureIndex(project.id);

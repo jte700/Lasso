@@ -80,6 +80,11 @@ export function openDatabase(config) {
       }
     });
   }
+  // An earlier hosted-sharing build used migration 027 before it reached main.
+  // Preserve its share keys while installing main's idempotent retention schema.
+  if (currentVersion >= 27 && !hasTable('released_blobs')) {
+    transaction(db, () => db.exec(fs.readFileSync(path.join(migrationDirectory, '027_released_blobs.sql'), 'utf8')));
+  }
   const alreadyApplied = {
     21: () => columnsOf('snapshot_object_indexes').has('spreadsheet_index_version'),
     22: () => hasTable('removable_drives'),

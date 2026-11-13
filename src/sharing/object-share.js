@@ -89,7 +89,11 @@ export class ObjectShareService {
   }
 
   shareUrl(token) {
-    return `${this.baseUrl().replace(/\/+$/, '')}/d/${token}`;
+    const publication = this.db.prepare(`SELECT p.origin, p.published_at FROM object_share_publications p
+      JOIN object_share_grants g ON g.id = p.share_id WHERE g.token = ?`).get(token);
+    // Historical local grants were never uploaded. Do not invent hosted URLs for them.
+    const origin = (publication?.published_at ? publication.origin : null) ?? (this.config.hostedSharing ? `http://localhost:${this.config.port}` : this.baseUrl());
+    return `${origin.replace(/\/+$/, '')}/d/${token}`;
   }
 
   /**
@@ -181,6 +185,18 @@ export class ObjectShareService {
       excerpt: null,
       context,
     };
+  }
+
+  async createPublishedShare(options) {
+    const share = this.createShare(options);
+    if (!this.config.hostedSharing) return share;
+    try { return await this.publisher.publish(share); }
+    catch (error) {
+      // A response can be lost after the host commits the upload. Retain its
+      // management key and try to close it; a failed cleanup remains revocable.
+      try { await this.revokeShare(share.token); } catch { /* the Ranch can retry */ }
+      throw error;
+    }
   }
 
   /**
@@ -349,6 +365,12 @@ export class ObjectShareService {
   }
 
   revokeShare(token) {
+    const publication = this.db.prepare(`SELECT p.* FROM object_share_publications p
+      JOIN object_share_grants g ON g.id = p.share_id WHERE g.token = ?`).get(token);
+    if (publication) return this.publisher.revoke(token, publication).then(() => {
+      this.db.prepare('UPDATE object_share_grants SET revoked_at = COALESCE(revoked_at, ?) WHERE token = ?').run(now(), token);
+      return { revoked: true };
+    });
     const result = this.db.prepare('UPDATE object_share_grants SET revoked_at = ? WHERE token = ? AND revoked_at IS NULL')
       .run(now(), token);
     if (!result.changes) throw new HttpError(404, 'Share not found.');
@@ -356,10 +378,9 @@ export class ObjectShareService {
   }
 
   revokeShareById(id) {
-    const result = this.db.prepare('UPDATE object_share_grants SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL')
-      .run(now(), id);
-    if (!result.changes) throw new HttpError(404, 'Share not found.');
-    return { revoked: true };
+    const row = this.db.prepare('SELECT token FROM object_share_grants WHERE id = ?').get(id);
+    if (!row) throw new HttpError(404, 'Share not found.');
+    return this.revokeShare(row.token);
   }
 
   listShares(projectId) {

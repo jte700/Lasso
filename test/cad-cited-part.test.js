@@ -45,7 +45,7 @@ test('the share composer and a cited-part link show the same part, and never the
   const root = path.join(sandbox, 'Project');
   fs.mkdirSync(path.join(root, 'CAD'), { recursive: true });
   fs.writeFileSync(path.join(root, 'CAD', 'bracket.step'), bracketPart());
-  const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false, port: 0 });
+  const app = createApplication({ shareBaseUrl: 'http://localhost:4317', dataDir: path.join(sandbox, 'history'), watchProjects: false, port: 0 });
   t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
   const { project } = app.timeline.importProject(root, actor, { watch: false });
   await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));

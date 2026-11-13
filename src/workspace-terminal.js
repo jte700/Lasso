@@ -133,7 +133,10 @@ export const workspaceTerminalMethods = {
       hints: ['Choose the destination directory in the browser, or select a result from that directory.'],
     });
     let answers = projects.map((p) => ({ project: p, answer: this.terminal.executor.run(p.id, input, actor, options) }));
-    if (answers.length === 1) return this.tagTerminal(answers[0].answer, answers[0].project);
+    if (answers.length === 1) {
+      const { answer, project } = answers[0];
+      return answer?.then ? answer.then(value => this.tagTerminal(value, project)) : this.tagTerminal(answer, project);
+    }
     // A lookup is answered by the directories that found something. Listing
     // every other directory's "not answerable" first would bury that answer.
     if (['ask', 'find'].includes(command.name)) {

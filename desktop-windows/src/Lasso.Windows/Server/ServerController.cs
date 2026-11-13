@@ -97,7 +97,7 @@ public sealed class ServerController : IDisposable
         startInfo.Environment["LASSO_DATA_DIR"] = _dataDirectory;
         // Isolated here so shares can later be served from a hosted origin.
         startInfo.Environment["SHARE_BASE_URL"] =
-            Environment.GetEnvironmentVariable("SHARE_BASE_URL") ?? $"http://localhost:{port}";
+            Environment.GetEnvironmentVariable("SHARE_BASE_URL") ?? "https://www.mylasso.ca";
 
         Process child;
         try

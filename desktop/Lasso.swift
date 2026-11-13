@@ -164,9 +164,9 @@ final class ServerController {
         case .oneToTwentyFour: environment["LASSO_HOUR_CYCLE"] = "h24"
         @unknown default: break
         }
-        // Isolated here so shares can later be served from a hosted origin.
+        // Use the hosted service unless a development origin was explicitly supplied.
         environment["SHARE_BASE_URL"] = ProcessInfo.processInfo.environment["SHARE_BASE_URL"]
-            ?? "http://localhost:\(port)"
+            ?? "https://www.mylasso.ca"
         child.environment = environment
 
         if !FileManager.default.fileExists(atPath: logURL.path) {

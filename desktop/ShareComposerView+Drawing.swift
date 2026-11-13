@@ -184,7 +184,7 @@ extension ShareComposerView {
         }
         drawSymbol("lock.shield", in: NSRect(x: 18, y: centerY - 8, width: 16, height: 16), fraction: 0.8,
                    color: .secondaryLabelColor)
-        let availability = localOnly ? "Only on this Mac. Email recipients need hosted sharing." : detail
+        let availability = localOnly ? "Only on this Mac. Email recipients need hosted sharing." : "Uploads to \(shareHost). \(detail)"
         let message = notice ?? availability
         let font = NSFont.systemFont(ofSize: 11)
         let textWidth = max(0, cancelButtonRect.minX - 56)

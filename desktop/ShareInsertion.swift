@@ -25,7 +25,7 @@ enum ShareClient {
             .appendingPathComponent("api/projects/\(projectId)/object-shares"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.timeoutInterval = 30
+        request.timeoutInterval = 180
         var payload: [String: Any] = ["objectId": objectId]
         if let versionId { payload["versionId"] = versionId }
         // A share made from a link shares the file the link was made from.
@@ -39,6 +39,12 @@ enum ShareClient {
 
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error { completion(.failure(error)); return }
+            if let data, let status = (response as? HTTPURLResponse)?.statusCode, status != 201,
+               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let error = root["error"] as? [String: Any], let message = error["message"] as? String {
+                completion(.failure(NSError(domain: "Lasso", code: status, userInfo: [NSLocalizedDescriptionKey: message])))
+                return
+            }
             guard let data,
                   let status = (response as? HTTPURLResponse)?.statusCode, status == 201,
                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -60,7 +66,7 @@ enum ShareClient {
         var request = URLRequest(url: serverURL
             .appendingPathComponent("api/object-shares/\(token)/revoke"))
         request.httpMethod = "POST"
-        request.timeoutInterval = 5
+        request.timeoutInterval = 30
         URLSession.shared.dataTask(with: request).resume()
     }
 }
