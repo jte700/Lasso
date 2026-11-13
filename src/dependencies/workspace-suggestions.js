@@ -1,6 +1,7 @@
 // Suggestions for the words being typed, drawn from every object in the workspace.
 
-import { ownWordKeys, typedWordKeys } from './direct-match.js';
+import { ownWordKeys, typedWordKeys, unfinishedWord } from './direct-match.js';
+import { sharedWordsEarnCard } from './show-gate.js';
 import { dependencyFilePriority } from './file-objects.js';
 import { variableTokens } from './text-similarity.js';
 import {
@@ -70,7 +71,7 @@ export const workspaceSuggestionsMethods = {
 
   workspaceSuggestions(projectId, input, cursor, options = {}) {
     const context = writingSourceContext(input.text, cursor, input.section);
-    if (!context.projectIntent || context.literatureIntent || cursor !== String(input.text ?? '').length) return [];
+    if (context.literatureIntent || cursor !== String(input.text ?? '').length) return [];
     const query = `${context.sentence} ${input.context ?? ''} ${input.section ?? ''}`;
     if (context.sentence.trim().length < 6 || variableTokens(context.sentence).length < 2) return [];
     const resultIntent = /\b(?:data|result|finding|found|show|observe|detect|identify|measure|estimate|increase|decrease|reduction|difference|association|effect|mean|median|fold|significant)\w*\b/i.test(context.sentence)
@@ -93,12 +94,18 @@ export const workspaceSuggestionsMethods = {
     const clauseWords = typedWordKeys(input.text.slice(currentClauseStart(input.text, cursor), cursor));
     const atCaret = new Set(clauseWords.flatMap((word) => places.get(word) ?? []));
     const endsOnMatch = new Set(places.get(lastWord) ?? []);
+    const beingTyped = unfinishedWord(context.sentence);
     const reasons = ['direct word match', resultIntent ? 'study-data context' : methodIntent ? 'methods context' : 'project context'];
     // Ranking keeps only objects that reach its minimum, so the rest are not sorted for it.
     const minimumScore = options.minimumScore ?? 0.54;
     const scored = [];
     retrievable.forEach((object, position) => {
       if (!shared[position] || !atCaret.has(position)) return;
+      // One everyday word in common ("week") is not the passage being written about.
+      const sharedWords = typedWords.filter((word) => object.retrievalTokens.includes(word));
+      // The word still being typed is read as the source word it begins ("requ" as "requisitions").
+      const begun = beingTyped && object.retrievalTokens.find((token) => token.startsWith(beingTyped) && !sharedWords.includes(token));
+      if (!sharedWordsEarnCard(begun ? [...sharedWords, begun] : sharedWords, ownWordKeys({ label: object.label }))) return;
       if (input.documentPath && object.path === input.documentPath) return;
       if (!permitted(object)) return;
       const { resultType, methodType, identifier, priority } = features[position];

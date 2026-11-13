@@ -124,8 +124,10 @@ test('every kind of file can be named while typing, and Tab replaces exactly the
   assert.deepEqual([early.length, early[0].start, early[0].candidates[0].label], [1, 4, 'deploy.sh'],
     'a code file is offered before its name is typed out, and Tab writes its whole name');
   const shared = (await typed(app, 'the dep')).claims.flatMap(claim => claim.candidates.map(candidate => candidate.path));
-  assert.ok(!shared.includes('deploy.sh') && shared.includes('Bracket.step'),
-    'a measurement whose name starts the same way ("hole depth") goes first, as for any file');
+  assert.ok(shared.includes('deploy.sh') && !shared.includes('Bracket.step'),
+    'three letters open a file name, but not a later word of a measurement ("hole depth")');
+  const deeper = (await typed(app, 'the dept')).claims.flatMap(claim => claim.candidates.map(candidate => candidate.path));
+  assert.ok(deeper.includes('Bracket.step'), 'one more letter names the measurement');
   // The measured STEP model comes before the native file kept only as a pointer.
   const both = (await typed(app, 'The Bracket')).claims[0].candidates.map(candidate => candidate.path);
   assert.deepEqual(both, ['Bracket.step', 'Bracket.SLDPRT']);

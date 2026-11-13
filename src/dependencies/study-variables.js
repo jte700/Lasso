@@ -8,6 +8,7 @@ import { WHOLE_FILE_TYPES } from './constants.js';
 import { pendingObject, studyVariable } from './object-descriptors.js';
 import { rowCompletionFragments } from './row-field-match.js';
 import { recommendationRelevanceBand } from './ranking.js';
+import { nameFragmentEarnsCard } from './show-gate.js';
 import { variableTokens, wordTokens } from './text-similarity.js';
 import { measuredPartWords, namesMeasuredPart, variableNameMatch } from './variable-match.js';
 import { CONTEXTUAL_INSERTION_CUES, sameDocument } from './workspace-completion.js';
@@ -296,7 +297,10 @@ export const studyVariablesMethods = {
         relatedPaths: this.relatedSourcePaths(projectId, input),
         limit: 40,
       });
-      if (candidates.length) return { fragment, candidates, context };
+      // A couple of letters name nothing yet; a search asks for every match.
+      const named = input.surface === 'search' ? candidates
+        : candidates.filter(candidate => nameFragmentEarnsCard(fragment.text, candidate));
+      if (named.length) return { fragment, candidates: named, context };
     }
     return context.projectIntent ? { fragment: null, candidates: [], context } : null;
   },
@@ -312,6 +316,8 @@ export const studyVariablesMethods = {
     for (const fragment of fragments) {
       const candidates = files.flatMap(object => {
         const match = fileReferenceMatch(object, fragment.text);
+        if (match && input.surface !== 'search'
+          && !nameFragmentEarnsCard(fragment.text, { label: match.label }, { wholeFile: true })) return [];
         // "floor plan" or "3D model" names what kind of drawing a file is, read
         // from its format. A file whose own name or title has the words comes first.
         const kindOnly = match?.matchedBy === 'drawing-alias';

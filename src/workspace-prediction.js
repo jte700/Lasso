@@ -10,20 +10,41 @@ import { dictatedNameEnds, hasSuggestions, namesInFull, softenDictatedPauses } f
 import { matchedSourceWords, typedSentence } from './dependencies/direct-match.js';
 import { focusedDependency, tag, distinctRanked } from './workspace-ranking.js';
 
+/** Asks whether the writer has typed past this request; carried with the input through every reading of it. */
+const CANCELLED = Symbol('cancelled');
+/** The client closed the request: nginx's code for it, since HTTP has none. */
+const CLIENT_CLOSED_REQUEST = 499;
+
 export const workspacePredictionMethods = {
-  async predict(input = {}) {
+  /**
+   * @param {object} input the text, caret and accepted sources
+   * @param {{ cancelled?: () => boolean }} [options] `cancelled` says the answer is no longer wanted
+   */
+  async predict(input = {}, { cancelled = null } = {}) {
+    if (typeof cancelled === 'function') input = { ...input, [CANCELLED]: cancelled };
     let prediction = await this.predictText(input);
     if (!hasSuggestions(prediction)) prediction = await this.pastEmptySource(input, prediction);
-    if (input.dictated !== true || hasSuggestions(prediction)) return prediction;
-    const named = await this.predictNamed(input);
-    if (named) return named;
+    if (input.dictated !== true) return prediction;
+    const answered = await this.answerDictated(input, prediction);
+    if (answered) return answered;
     // Dictation's pauses put sentence marks among the words being said ("The
     // other revenue. Was"); read across them, at the same offsets.
     const softened = softenDictatedPauses(input.text, Number.isInteger(input.cursor) ? input.cursor : undefined);
     if (!softened) return prediction;
     const across = { ...input, text: softened };
-    const read = await this.predictText(across);
-    return hasSuggestions(read) ? read : (await this.predictNamed(across)) ?? prediction;
+    return (await this.answerDictated(across, await this.predictText(across))) ?? prediction;
+  },
+
+  /**
+   * What dictated words are answered with: a name or value at the caret
+   * stands; words that only share words with passages may still say a name
+   * in full, which leads on to its values. Null when nothing is offered.
+   */
+  async answerDictated(input, prediction) {
+    const sharesWordsOnly = !prediction.sourceContext && !prediction.completion
+      && !(prediction.claims ?? []).some((claim) => claim.candidates?.length);
+    if (hasSuggestions(prediction) && !sharesWordsOnly) return prediction;
+    return (await this.predictNamed(input)) ?? (hasSuggestions(prediction) ? prediction : null);
   },
 
   /**
@@ -130,6 +151,9 @@ export const workspacePredictionMethods = {
     const predictions = [];
     for (const project of projects) {
       await yieldTurn();
+      // Each key asks again, and a folder is read in one piece: an answer to
+      // words already typed past must not hold up the one for the words there now.
+      if (input[CANCELLED]?.()) throw new HttpError(CLIENT_CLOSED_REQUEST, 'Suggestions for this text are no longer wanted.');
       if (this.closed || revision !== this.revision()) throw new HttpError(409, 'Work directories changed. Request fresh suggestions.');
       const ownDocument = input.documentProjectId === project.id;
       // Every accepted link still tells which values were already written.
@@ -156,6 +180,8 @@ export const workspacePredictionMethods = {
     for (const { project, prediction } of pool) {
       for (const group of ['sourceCompletions', 'workspaceCompletions']) {
         for (const value of prediction[group] ?? []) slots.push({ ...tag(value, project, projectsById), group,
+          // Passages found by the words they share with the sentence, with no accepted source in scope.
+          sharedWordsOnly: group === 'workspaceCompletions' && !prediction.sourceContext?.source,
           ranking: value.dependencyCandidate?.ranking ?? value.ranking,
           score: value.dependencyCandidate?.score ?? value.score ?? value.confidence });
       }
@@ -189,6 +215,10 @@ export const workspacePredictionMethods = {
     const nested = (claim) => claim.type === 'STUDY_VARIABLE' && variables.some((other) => other !== claim
       && other.start <= claim.start && other.end >= claim.end && other.end - other.start > claim.end - claim.start);
     const current = continuing.filter((slot) => slot.group !== 'claim' || !nested(slot.claim));
+    // A name, a value or the sentence's own continuation is what is being
+    // typed: passages that only share its words follow it, whatever they scored.
+    const typed = current.filter((slot) => !slot.sharedWordsOnly);
+    const sharing = current.filter((slot) => slot.sharedWordsOnly);
     // Each keeps its place in the one ranked order, which the groups below split
     // up, and the typed words its source has, which the card's preview marks.
     const sentence = typedSentence(input.text, cursor);
@@ -203,7 +233,10 @@ export const workspacePredictionMethods = {
       const change = this.dependencies.suggestionChange(object.projectId ?? item.projectId, object.snapshotId, object);
       return change ? { ...item, change } : item;
     };
-    const selected = distinctRanked(current, limit, { keepOrder }).map(withChange).map((item, rankOrder) => ({ ...item, rankOrder,
+    const ordered = typed.some((slot) => slot.group === 'claim' || slot.group === 'completion')
+      ? [...distinctRanked(typed, limit, { keepOrder }), ...distinctRanked(sharing, limit, { keepOrder })].slice(0, limit)
+      : distinctRanked(current, limit, { keepOrder });
+    const selected = ordered.map(withChange).map((item, rankOrder) => ({ ...item, rankOrder,
       matchedWords: namesWholeFile(item) ? [] : matchedSourceWords(item.quotedPhrase ?? sentence, [item.sourceSentence, item.replacementText, item.dependencyCandidate?.valueText,
         item.dependencyCandidate?.label, item.dependencyCandidate?.metadata?.variable, item.valueText, item.label,
         item.metadata?.variable].filter((text) => typeof text === 'string').join(' ')) }));
@@ -214,10 +247,10 @@ export const workspacePredictionMethods = {
     for (const item of selected.filter((s) => s.group === 'claim')) {
       const key = `${item.claim.start}:${item.claim.end}:${item.claim.type}`;
       if (!claims.has(key)) claims.set(key, { ...item.claim, candidates: [] });
-      const { group, claim, ...candidate } = item;
+      const { group, claim, sharedWordsOnly, ...candidate } = item;
       claims.get(key).candidates.push(narrowing(candidate));
     }
-    const strip = ({ group, claim, ...value }) => value.dependencyCandidate
+    const strip = ({ group, claim, sharedWordsOnly, ...value }) => value.dependencyCandidate
       ? { ...value, dependencyCandidate: narrowing(value.dependencyCandidate) } : value;
     const context = pool.find(({ prediction }) => prediction.sourceContext?.source) ?? pool[0];
     return { deterministic: true, generatedText: false, workspaceRevision: revision,

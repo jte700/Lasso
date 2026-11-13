@@ -159,6 +159,11 @@ extension GlobalAssistant {
             linkedSources.forget()
         }
         context = captured
+        if escapeQuiet.isHolding {
+            if escapedElement.map({ CFEqual($0, captured.element) }) != true { escapeQuiet.clear() }
+            if escapeQuiet.holds(for: captured.text) { hide(); return }
+            escapedElement = nil
+        }
         guard let host = reading.host, let caret = reading.caret else {
             if isDictating { dictationLog.debug("read: no caret to show the card at") }
             hide()

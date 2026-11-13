@@ -75,6 +75,9 @@ final class GlobalAssistant {
     var displayedPrediction: (context: CaretContext, source: LinkedSourceMemory.Source?)?
     var generation = 0
     var feedbackDismissed = false
+    /// Escape's hold on the card for the sentence it was pressed in, and the field that sentence is in.
+    var escapeQuiet = EscapeQuiet()
+    var escapedElement: AXUIElement?
     private var sawEvent = false
     /// The tap exists but no key has arrived for a while. With Input
     /// Monitoring also missing, that means macOS is withholding keystrokes.
@@ -639,6 +642,11 @@ final class GlobalAssistant {
 
     private func dismissForEscape() {
         feedbackDismissed = true
+        // The card stays away for the rest of this sentence, in this field.
+        if let escapedContext = context {
+            escapeQuiet.escaped(at: escapedContext.text)
+            escapedElement = escapedContext.element
+        }
         dismiss()
     }
 

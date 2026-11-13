@@ -63,6 +63,10 @@ enum AccessibilityReader {
         if excludedRoles.contains(role) || HostTextSafety.isSecure(role: role, subrole: subrole) {
             return nil
         }
+        if HostTextSafety.isLookup(role: role, subrole: subrole,
+                                   identifier: attribute(field, kAXIdentifierAttribute as String) as? String) {
+            return nil
+        }
 
         // Caret offset. Without it there is nothing to complete.
         var caret = -1

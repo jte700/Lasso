@@ -65,8 +65,9 @@ export function matchKey(word) {
 }
 
 // A hyphenated word ("General-Ledger", "gal-3") counts whole and by its parts.
+// A word a long label was cut off in ("last wee…") is not a word of the source.
 function words(text) {
-  return (String(text ?? '').toLowerCase().match(/[a-z][a-z0-9-]{2,}/g) ?? [])
+  return (String(text ?? '').toLowerCase().replace(/[\p{L}\p{N}-]+(?:…|\.{3})/gu, ' ').match(/[a-z][a-z0-9-]{2,}/g) ?? [])
     .flatMap((word) => word.includes('-') ? [word, ...word.split('-').filter((part) => /^[a-z][a-z0-9]{2,}$/.test(part))] : [word]);
 }
 
@@ -121,7 +122,7 @@ export function typedSentence(text, cursor) {
  * @param {string} sentence
  * @returns {string|null}
  */
-function unfinishedWord(sentence) {
+export function unfinishedWord(sentence) {
   const word = String(sentence ?? '').match(/[A-Za-z][A-Za-z0-9]{2,}$/)?.[0].toLowerCase();
   return word && !FUNCTION_WORDS.has(word) && !STUDY_CUE_WORDS.has(word) ? word : null;
 }

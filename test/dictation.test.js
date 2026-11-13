@@ -71,7 +71,8 @@ const values = (prediction) => prediction.workspaceCompletions.map((entry) => en
 test('a name dictated in full leads on to its values, as if Tab had accepted it', async (t) => {
   const app = await finance(t);
   const typed = await ask(app, 'Net income was');
-  assert.ok(!hasSuggestions(typed), 'typed in full without Tab, the name is plain words, as before');
+  assert.equal(typed.sourceContext?.source, undefined, 'typed in full without Tab, the name is not an accepted source');
+  assert.equal(typed.workspaceHeading, undefined);
 
   const dictated = await ask(app, 'Net income was', { dictated: true });
   assert.equal(dictated.workspaceHeading, 'Values for Net income');
@@ -102,7 +103,7 @@ test('dictation changes nothing where the words already have suggestions, or nam
     assert.deepEqual(await ask(app, text, { dictated: true }), await ask(app, text), `${text} is answered as when typed`);
   }
   assert.ok(!hasSuggestions(await ask(app, 'The weather was', { dictated: true })));
-  assert.ok(!hasSuggestions(await ask(app, 'The income was', { dictated: true })), 'part of a name is not enough');
+  assert.equal((await ask(app, 'The income was', { dictated: true })).workspaceHeading, undefined, 'part of a name is not enough');
 });
 
 test('a dictated name is not linked again after its value', async (t) => {
