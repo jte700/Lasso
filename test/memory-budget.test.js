@@ -155,3 +155,40 @@ test('An index that read a large changed file gives its garbage back, and a smal
   assert.equal(releaseAfterWork(released[0]), false);
   assert.equal(releaseAfterWork(released[1]), true);
 });
+
+test('Suggestions after an idle spell or a full budget read no folder again', async (t) => {
+  // Arrange: a folder whose objects alone are over the whole budget.
+  const { createApplication } = await import('../src/server.js');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-typing-caches-'));
+  const folder = path.join(sandbox, 'Accounting');
+  fs.mkdirSync(folder);
+  const rows = ['Line item,Current period'];
+  for (let index = 0; index < 400; index += 1) rows.push(`Expense item ${index},${index * 10}`);
+  rows.push('Other revenue,197');
+  fs.writeFileSync(path.join(folder, 'income.csv'), `${rows.join('\n')}\n`);
+  const application = createApplication({ dataDir: path.join(sandbox, 'state'), watchProjects: false,
+    cacheBytes: kilobytes(64), cacheIdleBytes: kilobytes(8) });
+  t.after(async () => { await application.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  await application.workspace.add([folder]);
+  const typed = 'The other reven';
+  await application.workspace.predict({ text: typed, cursor: typed.length, blockIndex: 0 });
+  const versions = application.timeline.objectVersions;
+  let reads = 0;
+  for (const name of ['resolved', 'resolvedTypes']) {
+    const original = versions[name].bind(versions);
+    versions[name] = (...args) => { reads += 1; return original(...args); };
+  }
+
+  // Act
+  application.timeline.memoryBudget.idle();
+  application.timeline.memoryBudget.active();
+  const next = 'The other revenu';
+  const prediction = await application.workspace.predict({ text: next, cursor: next.length, blockIndex: 0 });
+
+  // Assert
+  assert.equal(reads, 0, 'the objects suggestions read on each key stay in memory');
+  assert.ok((prediction.claims ?? []).some((claim) => claim.candidates?.some((candidate) => /other revenue/i.test(candidate.label))));
+});
