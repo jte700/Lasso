@@ -2,10 +2,12 @@ import AppKit
 import CoreGraphics
 
 // Draws Lasso's app icon into an .iconset folder for `iconutil`.
-// The artwork is a lariat in brand green on a graphite body: a flat,
-// spinning loop with the rope falling from its honda in a loose S. Every
-// size is drawn from vectors so small icons stay sharp instead of being
-// downscaled, and the smallest sizes get a heavier rope and a taller loop.
+// The artwork is the website's mascot in white on an ink body, drawn large
+// and leaning in from the lower right with his head turned part way: the
+// bottom edge crops him, and his oval eyes slide toward the turn with the far
+// eye narrowed. The outline is one path with every corner rounded (the site
+// stacks offset copies, which leaves steps along the edge), lit from the top
+// left over a soft shadow. Every size is drawn from vectors.
 //
 // macOS 26 masks a full-bleed square icon to its own shape, but places any
 // other legacy icon, a pre-drawn squircle included, on a grey plate. Earlier
@@ -18,11 +20,21 @@ let bodyRect = CGRect(x: 100, y: 100, width: 824, height: 824)
 let squircleExponent: CGFloat = 5
 let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
 
-enum Ink {
-    static let backgroundTop: UInt32 = 0x2f3532
-    static let backgroundBottom: UInt32 = 0x0f1211
-    static let ropeLight: UInt32 = 0x74eb9e
-    static let ropeDark: UInt32 = 0x1fae4b
+enum Palette {
+    static let ink: UInt32 = 0x0a0b0d
+    static let mascot: UInt32 = 0xffffff
+    static let mascotShade: UInt32 = 0xdfe5eb
+    static let eyes: UInt32 = 0x15181b
+}
+
+/// Where the mascot sits: his width as a share of the icon, the shift of his
+/// centre (y up), his lean in degrees (counterclockwise), and how far his
+/// head is turned toward the viewer's right, 0 to 1.
+enum Pose {
+    static let widthShare: CGFloat = 0.98
+    static let offset = CGPoint(x: 120, y: -150)
+    static let lean: CGFloat = 14
+    static let turn: CGFloat = 0.45
 }
 
 func color(_ hex: UInt32, _ alpha: CGFloat = 1) -> CGColor {
@@ -49,94 +61,104 @@ func squircle(in rect: CGRect) -> CGPath {
     return path
 }
 
-func cubic(_ p0: CGPoint, _ p1: CGPoint, _ p2: CGPoint, _ p3: CGPoint, _ t: CGFloat) -> CGPoint {
-    let u = 1 - t
-    let a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t
-    return CGPoint(x: a * p0.x + b * p1.x + c * p2.x + d * p3.x, y: a * p0.y + b * p1.y + c * p2.y + d * p3.y)
+extension CGPath {
+    func transformed(_ transform: CGAffineTransform) -> CGPath {
+        var t = transform
+        return copy(using: &t)!
+    }
 }
 
-func roundStroke(_ points: [CGPoint], closed: Bool, width: CGFloat) -> CGPath {
-    let path = CGMutablePath()
-    path.addLines(between: points)
-    if closed { path.closeSubpath() }
-    return path.copy(strokingWithWidth: width, lineCap: .round, lineJoin: .round, miterLimit: 4)
+/// Rounds concave corners (grow, then shrink) and convex ones (shrink, then grow).
+func rounded(_ path: CGPath, radius r: CGFloat) -> CGPath {
+    func band(_ p: CGPath) -> CGPath { p.copy(strokingWithWidth: 2 * r, lineCap: .round, lineJoin: .round, miterLimit: 1) }
+    func grow(_ p: CGPath) -> CGPath { p.union(band(p)) }
+    func shrink(_ p: CGPath) -> CGPath { p.subtracting(band(p)) }
+    return grow(shrink(shrink(grow(path))))
 }
 
-/// How heavy the lariat is drawn at each pixel size. A rope thin enough to
-/// look elegant at 512px disappears at 16px, and the loop's eye closes up
-/// unless the loop grows taller as the rope thickens.
-struct Weight {
-    let rope: CGFloat, knot: CGFloat, loopHeight: CGFloat, shadow: Bool
+/// The mascot in the SVG's own space: a 100 square, y down.
+enum Mascot {
+    /// The SVG's slight shear, shared by the body and the eyes.
+    static func shear(_ tx: CGFloat, _ ty: CGFloat) -> CGAffineTransform {
+        CGAffineTransform(a: 0.9553, b: -0.0587, c: 0, d: 0.9801, tx: tx, ty: ty)
+    }
 
-    init(pixels: Int) {
-        switch pixels {
-        case ..<24: (rope, knot, loopHeight, shadow) = (124, 74, 176, false)
-        case ..<48: (rope, knot, loopHeight, shadow) = (96, 64, 152, false)
-        case ..<96: (rope, knot, loopHeight, shadow) = (76, 56, 134, true)
-        default: (rope, knot, loopHeight, shadow) = (62, 50, 124, true)
+    /// The outline: hat crown, brim tips raised at the sides, and the face.
+    static let outline: CGPath = {
+        typealias Curve = (CGFloat, CGFloat, CGFloat, CGFloat, CGFloat, CGFloat)
+        func add(_ p: CGMutablePath, _ curves: [Curve]) {
+            curves.forEach { p.addCurve(to: CGPoint(x: $0.4, y: $0.5), control1: CGPoint(x: $0.0, y: $0.1),
+                                        control2: CGPoint(x: $0.2, y: $0.3)) }
         }
-    }
-}
+        let p = CGMutablePath()
+        p.move(to: CGPoint(x: 33, y: 18))
+        add(p, [(37, 15, 42, 22, 50, 22), (58, 22, 63, 15, 67, 18), (71, 21, 72, 29, 74, 34),
+                (78, 36, 82, 33, 85, 31), (89, 28, 92, 32, 90, 37), (87, 43, 80, 46, 75, 47)])
+        p.addLine(to: CGPoint(x: 75, y: 65))
+        add(p, [(75, 78, 65, 86, 50, 86), (35, 86, 25, 78, 25, 65)])
+        p.addLine(to: CGPoint(x: 25, y: 47))
+        add(p, [(20, 46, 13, 43, 10, 37), (8, 32, 11, 28, 15, 31), (18, 33, 22, 36, 26, 34), (28, 29, 29, 21, 33, 18)])
+        p.closeSubpath()
+        return p
+    }()
 
-/// The lariat in body space: a 1024 square, y up, that maps onto the icon body.
-struct Lariat {
-    let weight: Weight
-    let center = CGPoint(x: 470, y: 672), radiusX: CGFloat = 300, tilt: CGFloat = 5 * .pi / 180
-    let hondaAngle: CGFloat = -50 * .pi / 180
+    static let body = rounded(outline.transformed(shear(1.2, 3.0)), radius: 2.2)
 
-    func loopPoint(_ theta: CGFloat) -> CGPoint {
-        let x = radiusX * cos(theta), y = weight.loopHeight * sin(theta)
-        return CGPoint(x: center.x + x * cos(tilt) - y * sin(tilt), y: center.y + x * sin(tilt) + y * cos(tilt))
-    }
-
-    var loop: [CGPoint] { (0...720).map { loopPoint(CGFloat($0) / 720 * 2 * .pi) } }
-    var honda: CGPoint { loopPoint(hondaAngle) }
-
-    /// The rope drops from the honda, swings out to the right and falls back.
-    var tail: [CGPoint] {
-        let h = honda
-        return (0...300).map {
-            cubic(h, CGPoint(x: h.x - 46, y: h.y - 150), CGPoint(x: h.x + 132, y: h.y - 236),
-                  CGPoint(x: h.x + 84, y: h.y - 408), CGFloat($0) / 300)
+    /// Oval eyes for a head turned part way: both slide toward the turn, sit
+    /// a little closer, and the far eye narrows as it wraps round the head.
+    static func eyes(turn: CGFloat) -> CGPath {
+        let spacing = 17 * (1 - abs(turn) * 0.18)
+        let mid = CGPoint(x: 50 + turn * 7, y: 58.6)
+        let path = CGMutablePath()
+        for side in [-1, 1] as [CGFloat] {
+            let far = side * turn < 0
+            let width = 6.6 * (far ? 1 - abs(turn) * 0.38 : 1 + abs(turn) * 0.06)
+            let height = 15.6 * (far ? 1 - abs(turn) * 0.08 : 1)
+            let x = mid.x + side * spacing / 2
+            path.addRoundedRect(in: CGRect(x: x - width / 2, y: mid.y - height / 2, width: width, height: height),
+                                cornerWidth: width / 2, cornerHeight: width / 2)
         }
-    }
-
-    /// Centred on its own bounds, so every weight sits in the same place.
-    var outline: CGPath {
-        let knot = CGRect(x: honda.x - weight.knot, y: honda.y - weight.knot, width: weight.knot * 2, height: weight.knot * 2)
-        let mark = roundStroke(loop, closed: true, width: weight.rope)
-            .union(roundStroke(tail, closed: false, width: weight.rope))
-            .union(CGPath(ellipseIn: knot, transform: nil))
-        let bounds = mark.boundingBox
-        var shift = CGAffineTransform(translationX: designSize / 2 - bounds.midX, y: designSize / 2 - bounds.midY)
-        return mark.copy(using: &shift)!
+        return path.transformed(shear(1.16, 2.93))
     }
 }
 
-func drawArtwork(_ ctx: CGContext, weight: Weight) {
-    ctx.drawLinearGradient(gradient([color(Ink.backgroundTop), color(Ink.backgroundBottom)]),
-                           start: CGPoint(x: 0, y: designSize), end: .zero, options: [])
-    // A faint light from above keeps the graphite from reading as flat black.
-    let light = CGPoint(x: designSize / 2, y: designSize)
-    ctx.drawRadialGradient(gradient([color(0xffffff, 0.07), color(0xffffff, 0)]),
-                           startCenter: light, startRadius: 0, endCenter: light, endRadius: 820, options: [])
+func drawArtwork(_ ctx: CGContext) {
+    // A flat, deep black ink body with no gradient.
+    ctx.setFillColor(color(Palette.ink))
+    ctx.fill(CGRect(x: 0, y: 0, width: designSize, height: designSize))
 
-    let outline = Lariat(weight: weight).outline
+    // Flip the SVG's y-down space, then place, lean and size the mascot.
+    let bounds = Mascot.body.boundingBox
+    let scale = designSize * Pose.widthShare / bounds.width
     ctx.saveGState()
-    if weight.shadow {
-        ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 30, color: color(0x000000, 0.5))
-    }
-    ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-    ctx.addPath(outline)
+    ctx.translateBy(x: designSize / 2 + Pose.offset.x, y: designSize / 2 + Pose.offset.y)
+    ctx.rotate(by: Pose.lean * .pi / 180)
+    ctx.scaleBy(x: scale, y: -scale)
+    ctx.translateBy(x: -bounds.midX, y: -bounds.midY)
+
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -16), blur: 46, color: color(0x000000, 0.55))
+    ctx.addPath(Mascot.body)
+    ctx.setFillColor(color(Palette.mascot))
+    ctx.fillPath()
+    ctx.restoreGState()
+
+    // Lit from the top left: white fading to a cool shade at the far edge.
+    ctx.saveGState()
+    ctx.addPath(Mascot.body)
     ctx.clip()
-    let box = outline.boundingBox
-    ctx.drawLinearGradient(gradient([color(Ink.ropeLight), color(Ink.ropeDark)]),
-                           start: CGPoint(x: 0, y: box.maxY), end: CGPoint(x: 0, y: box.minY), options: [])
-    ctx.endTransparencyLayer()
+    ctx.drawLinearGradient(gradient([color(Palette.mascot), color(Palette.mascot), color(Palette.mascotShade)]),
+                           start: CGPoint(x: bounds.minX, y: bounds.minY), end: CGPoint(x: bounds.maxX, y: bounds.maxY),
+                           options: [])
+    ctx.restoreGState()
+
+    ctx.addPath(Mascot.eyes(turn: Pose.turn))
+    ctx.setFillColor(color(Palette.eyes))
+    ctx.fillPath()
     ctx.restoreGState()
 }
 
-func drawIcon(_ ctx: CGContext, pixels: Int, fullBleed: Bool) {
+func drawIcon(_ ctx: CGContext, fullBleed: Bool) {
     if fullBleed {
         // Grow the body to the whole canvas; the system supplies the shape.
         ctx.translateBy(x: designSize / 2, y: designSize / 2)
@@ -150,11 +172,11 @@ func drawIcon(_ ctx: CGContext, pixels: Int, fullBleed: Bool) {
     ctx.clip()
     ctx.translateBy(x: bodyRect.minX, y: bodyRect.minY)
     ctx.scaleBy(x: bodyRect.width / designSize, y: bodyRect.height / designSize)
-    drawArtwork(ctx, weight: Weight(pixels: pixels))
+    drawArtwork(ctx)
     ctx.restoreGState()
     guard !fullBleed else { return }
 
-    // A faint rim separates the dark body from dark menus and windows.
+    // A faint rim separates the ink body from dark menus and windows.
     ctx.addPath(squircle(in: bodyRect.insetBy(dx: 1.5, dy: 1.5)))
     ctx.setStrokeColor(color(0xffffff, 0.12))
     ctx.setLineWidth(3)
@@ -168,7 +190,7 @@ func renderPNG(pixels: Int, fullBleed: Bool, to url: URL) throws {
     }
     ctx.interpolationQuality = .high
     ctx.scaleBy(x: CGFloat(pixels) / designSize, y: CGFloat(pixels) / designSize)
-    drawIcon(ctx, pixels: pixels, fullBleed: fullBleed)
+    drawIcon(ctx, fullBleed: fullBleed)
     guard let image = ctx.makeImage(),
           let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
         throw NSError(domain: "render-app-icon", code: 2, userInfo: [NSLocalizedDescriptionKey: "Cannot encode \(url.lastPathComponent)"])
