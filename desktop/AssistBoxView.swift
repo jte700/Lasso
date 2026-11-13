@@ -130,6 +130,8 @@ final class AssistBoxView: NSView {
     /// The focus fn+Left steps a focused card back to, named in its header;
     /// nil when it steps back to every directory.
     var stepBackName: String?
+    var tableBrowsing = false
+    var onReturnFromTable: (() -> Void)?
     /// The highlighted line's words, opened with ⇧fn+Right or ⇧fn+Left, in place of the list.
     var wordChoice: AssistWordChoice? {
         didSet {

@@ -22,6 +22,8 @@ import { driveRoutes } from './drive-routes.js';
 import { ranchRoutes } from './ranch-routes.js';
 import { workspaceRoutes } from './workspace-routes.js';
 import { sharedContentReader } from '../sharing/shared-content.js';
+import { navigateTableSource } from '../dependencies/table-navigation.js';
+import { mapObjectRow } from '../dependencies/object-descriptors.js';
 
 // Rows on each side of a cited cell in the suggestion card. The card shows as
 // many as fit around the citation, so a footnote still has its table above it.
@@ -323,6 +325,16 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         const types = { '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/x-m4v' };
         return sendFileRange(request, response, timeline.blobs.rawPath(file.contentHash),
           types[path.extname(file.path).toLowerCase()] ?? 'application/octet-stream');
+      }
+
+      const navigationParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/navigate$/);
+      if (request.method === 'GET' && navigationParameters && objectShares) {
+        const resolved = objectShares.describe(navigationParameters[0], url.searchParams.get('version'));
+        if (resolved.status !== 'OK') throw new HttpError(404, 'Indexed object not found.');
+        const row = dependencies.sourceVersion(navigationParameters[0], resolved.internal.snapshotId);
+        if (!row || (workspace && !workspace.isActive(row.project_id))) throw new HttpError(404, 'Source unavailable.');
+        const source = navigateTableSource(dependencies, mapObjectRow(row), url.searchParams.get('direction'));
+        return sendJson(response, 200, { source });
       }
 
       const localObjectPreviewParameters = match(pathname, /^\/api\/dependency-objects\/([^/]+)\/preview$/);
