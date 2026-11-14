@@ -73,14 +73,14 @@ export class PredictiveProvenanceService {
     const corpusBytes = (corpus) => corpus.reduce((bytes, item) => bytes + item.sentence.length * 2 + item.tokens.length * 64, 0);
     this.completionCorpusCache = new BoundedCache({ maxEntries: 16, maxWeight: 16 * 1024 * 1024, weight: corpusBytes,
       budget, bytes: corpusBytes });
-    this.studyVariableCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length,
-      budget, bytes: objectBytes });
-    this.workspaceRetrievalCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length,
-      budget, bytes: objectBytes });
-    this.objectCache = new BoundedCache({ maxEntries: 16, maxWeight: 120_000, weight: (objects) => objects.length,
-      budget, bytes: objectBytes });
-    this.typedObjectCache = new BoundedCache({ maxEntries: 96, maxWeight: 120_000, weight: (objects) => objects.length,
-      budget, bytes: objectBytes });
+    // The objects suggestions read on every key stay out of the budget and
+    // its idle floor. A folder's are often larger than the whole budget
+    // (tens of thousands of objects), and reading them again takes seconds,
+    // longer than the Mac app waits for a card. Their counts still bound them.
+    this.studyVariableCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length });
+    this.workspaceRetrievalCache = new BoundedCache({ maxEntries: 16, maxWeight: 100_000, weight: (objects) => objects.length });
+    this.objectCache = new BoundedCache({ maxEntries: 16, maxWeight: 120_000, weight: (objects) => objects.length });
+    this.typedObjectCache = new BoundedCache({ maxEntries: 96, maxWeight: 120_000, weight: (objects) => objects.length });
     // Whether an object has values below it, kept with the retrieval objects
     // it was worked out from, so it goes when they are read again.
     this.narrowingCache = new WeakMap();
