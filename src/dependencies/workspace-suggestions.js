@@ -2,11 +2,10 @@
 
 import { ownWordKeys, typedWordKeys, unfinishedWord } from './direct-match.js';
 import { sharedWordsEarnCard } from './show-gate.js';
-import { dependencyFilePriority } from './file-objects.js';
 import { variableTokens } from './text-similarity.js';
-import {
-  contextualCompletionRange, workspaceCompletionText, workspaceSuggestionCategory,
-} from './workspace-completion.js';
+import { contextualCompletionRange, workspaceSuggestionCategory } from './workspace-completion.js';
+import { RETRIEVABLE_TYPES } from './constants.js';
+import { retrievalFeatures, retrievalObject, retrievalScore } from './workspace-retrieval.js';
 import { currentClauseStart, writingSourceContext } from './writing-context.js';
 
 export const workspaceSuggestionsMethods = {
@@ -14,20 +13,7 @@ export const workspaceSuggestionsMethods = {
     const project = this.timeline.getProject(projectId);
     const target = snapshotId ?? project.currentSnapshotId;
     if (this.workspaceRetrievalCache.has(target)) return this.workspaceRetrievalCache.get(target);
-    const retrievableTypes = new Set([
-      'VARIABLE', 'RESULT', 'VALUE', 'DATASET_ROW', 'DATASET_VALUE', 'DATASET', 'METHOD', 'MODEL',
-      'PARAMETER', 'PROTOCOL', 'ANALYSIS_RUN', 'FIGURE', 'TABLE', 'DOCUMENT',
-      'DRAWING_ANNOTATION',
-    ]);
-    const objects = this.objectsAt(projectId, target, retrievableTypes)
-      .filter((object) => retrievableTypes.has(object.objectType))
-      .map((object) => ({
-        ...object,
-        retrievalText: workspaceCompletionText(object),
-        // Only the object's own words: a sentence never matches where it is filed.
-        retrievalTokens: ownWordKeys(object, workspaceCompletionText(object)),
-      })).filter((object) => object.retrievalText
-        && (object.objectType !== 'VARIABLE' || /[A-Za-z]/.test(object.retrievalText)));
+    const objects = this.objectsAt(projectId, target, RETRIEVABLE_TYPES).map(retrievalObject).filter(Boolean);
     this.workspaceRetrievalCache.set(target, objects);
     return objects;
   },
@@ -46,12 +32,7 @@ export const workspaceSuggestionsMethods = {
         if (!places.has(token)) places.set(token, []);
         places.get(token).push(position);
       }
-      return {
-        resultType: ['VARIABLE', 'RESULT', 'VALUE', 'DATASET_ROW', 'DATASET_VALUE', 'DATASET', 'TABLE'].includes(object.objectType),
-        methodType: ['METHOD', 'MODEL', 'PARAMETER', 'PROTOCOL', 'ANALYSIS_RUN'].includes(object.objectType),
-        identifier: /^(?:sample|subject|participant|patient)?[_ -]?id$|^(?:group|cohort)$/i.test(object.metadata.variable ?? object.label),
-        priority: dependencyFilePriority({ path: object.path }),
-      };
+      return retrievalFeatures(object);
     });
     index = { places, features };
     this.retrievalIndexes.set(objects, index);
@@ -80,46 +61,53 @@ export const workspaceSuggestionsMethods = {
     const methodIntent = /\b(?:method|protocol|procedure|experiment|model|parameter|dose|assay|analysis|analy[sz]ed|using)\w*\b/i.test(context.sentence)
       || /\bmethods?\b/i.test(input.section);
     const permitted = this.autocompleteFilter(projectId);
-    const retrievable = this.workspaceRetrievalObjects(projectId, options.snapshotId);
-    const { places, features } = this.retrievalIndexOf(retrievable);
     // How many of the typed words each object has itself. An object with none
     // is not offered: the sentence's intent only orders what it does name.
     const typedWords = typedWordKeys(context.sentence);
     const lastWord = typedWords.at(-1);
-    const shared = new Uint16Array(retrievable.length);
-    for (const word of typedWords) for (const position of places.get(word) ?? []) shared[position] += 1;
     // Earlier words still order what is offered, but one of the clause being
     // written must be in it: after "no issues and everything is how it is
     // now" the writer has moved past "issues".
     const clauseWords = typedWordKeys(input.text.slice(currentClauseStart(input.text, cursor), cursor));
-    const atCaret = new Set(clauseWords.flatMap((word) => places.get(word) ?? []));
-    const endsOnMatch = new Set(places.get(lastWord) ?? []);
     const beingTyped = unfinishedWord(context.sentence);
     const reasons = ['direct word match', resultIntent ? 'study-data context' : methodIntent ? 'methods context' : 'project context'];
     // Ranking keeps only objects that reach its minimum, so the rest are not sorted for it.
     const minimumScore = options.minimumScore ?? 0.54;
-    const scored = [];
-    retrievable.forEach((object, position) => {
-      if (!shared[position] || !atCaret.has(position)) return;
+    // An object that shares `sharedCount` typed words, scored, or null when it is not offered.
+    const scoreOf = (object, sharedCount, endsOnMatch, { resultType, methodType, identifier, priority }) => {
       // One everyday word in common ("week") is not the passage being written about.
       const sharedWords = typedWords.filter((word) => object.retrievalTokens.includes(word));
       // The word still being typed is read as the source word it begins ("requ" as "requisitions").
       const begun = beingTyped && object.retrievalTokens.find((token) => token.startsWith(beingTyped) && !sharedWords.includes(token));
-      if (!sharedWordsEarnCard(begun ? [...sharedWords, begun] : sharedWords, ownWordKeys({ label: object.label }))) return;
-      if (input.documentPath && object.path === input.documentPath) return;
-      if (!permitted(object)) return;
-      const { resultType, methodType, identifier, priority } = features[position];
-      const coverage = shared[position] / typedWords.length;
-      // More of the typed words, and the last one typed, put an object higher.
-      let score = 0.46 + coverage * 0.4 + (endsOnMatch.has(position) ? 0.06 : 0);
-      if ((resultIntent && resultType) || (methodIntent && methodType)) score += 0.04;
-      if (object.metadata.dictionary) score += 0.02;
-      if (object.metadata.metric === 'row-count' && !sampleSizeIntent) score -= 0.32;
-      if (identifier) score *= 0.38;
-      score = Number(Math.min(0.98, score).toFixed(3));
+      if (!sharedWordsEarnCard(begun ? [...sharedWords, begun] : sharedWords, ownWordKeys({ label: object.label }))) return null;
+      if (input.documentPath && object.path === input.documentPath) return null;
+      if (!permitted(object)) return null;
+      const score = retrievalScore({
+        coverage: sharedCount / typedWords.length, endsOnMatch,
+        intended: (resultIntent && resultType) || (methodIntent && methodType),
+        dictionary: Boolean(object.metadata.dictionary),
+        rowCount: object.metadata.metric === 'row-count' && !sampleSizeIntent, identifier,
+      });
       // The reasons go with the object into ranking, which then has no fallback score to work out.
-      if (score >= 0.34 && score >= minimumScore) scored.push({ object: { ...object, score, reasons }, priority });
-    });
+      return score >= 0.34 && score >= minimumScore ? { object: { ...object, score, reasons }, priority } : null;
+    };
+    // A folder too large to hold is searched in its index; only what it finds is read.
+    const index = this.searchIndexFor(projectId, options.snapshotId);
+    const scored = index ? this.indexedWorkspaceMatches(index, { typedWords, clauseWords, lastWord,
+      resultIntent, methodIntent, sampleSizeIntent, minimumScore }, scoreOf) : [];
+    if (!index) {
+      const retrievable = this.workspaceRetrievalObjects(projectId, options.snapshotId);
+      const { places, features } = this.retrievalIndexOf(retrievable);
+      const shared = new Uint16Array(retrievable.length);
+      for (const word of typedWords) for (const position of places.get(word) ?? []) shared[position] += 1;
+      const atCaret = new Set(clauseWords.flatMap((word) => places.get(word) ?? []));
+      const endsOnMatch = new Set(places.get(lastWord) ?? []);
+      retrievable.forEach((object, position) => {
+        if (!shared[position] || !atCaret.has(position)) return;
+        const entry = scoreOf(object, shared[position], endsOnMatch.has(position), features[position]);
+        if (entry) scored.push(entry);
+      });
+    }
     const objects = scored.sort((left, right) => right.object.score - left.object.score
         || Number(right.object.objectType === 'RESULT') - Number(left.object.objectType === 'RESULT')
         || Number(right.object.objectType === 'VARIABLE') - Number(left.object.objectType === 'VARIABLE')

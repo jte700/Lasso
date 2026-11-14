@@ -13,6 +13,18 @@ import { isPassageExcerpt } from './workspace-completion.js';
 // up only the keys being indexed, not every historical object in the folder.
 const INDIVIDUAL_OBJECT_LOOKUPS = 200;
 
+/**
+ * Whether an indexed object is still offered. Earlier indexes recorded prose
+ * such as "figure found" as a component, and workbook objects from before
+ * worksheet coordinates were superseded by xlsx-v2 keys; those versions stay
+ * resolvable for existing links but are not offered.
+ */
+export function isOfferedObject(object) {
+  return (!object.metadata.componentType || !['FIGURE', 'TABLE'].includes(object.metadata.componentType)
+    || isComponentIdentifier(object.metadata.identifier))
+    && (!/\.xlsx?$/i.test(object.path) || object.metadata.binary || object.metadata.spreadsheetExtractionVersion === 2);
+}
+
 export const objectAccessMethods = {
   /** Each descriptor with its object row, creating objects first seen here. */
   indexEntries(projectId, descriptors) {
@@ -87,29 +99,28 @@ export const objectAccessMethods = {
     // A version spans snapshots whose files differ; its bytes are this snapshot's.
     const at = { snapshotId: resolved.snapshotId, version: resolved.version,
       hashOf: this.timeline.objectVersions.fileHashes(resolved.snapshotId) };
-    return resolved.rows.filter((row) => row.project_id === projectId).map((row) => {
-        const object = mapObjectRow(row, at);
-        // Search existing PDF versions through their preserved bytes as well as
-        // the short metadata excerpt. Derived search text stays in memory so
-        // immutable object versions and existing links retain their identity.
-        if (/\.pdf$/i.test(object.path) && ['PAPER', 'DRAWING', 'DOCUMENT'].includes(object.objectType)
-          && !isPassageExcerpt(object)) {
-          object.searchText += ` ${this.sourceText(object).toLowerCase()}`;
-        }
-        return freezeIndexedValue(object);
-      // Earlier indexes recorded prose such as "figure found" as a component.
-      // Those versions stay resolvable for existing links but are not offered.
-      }).filter((object) => !object.metadata.componentType || !['FIGURE', 'TABLE'].includes(object.metadata.componentType)
-        || isComponentIdentifier(object.metadata.identifier))
-        // Workbook objects from before worksheet coordinates were superseded
-        // by xlsx-v2 keys; they stay resolvable for links but are not offered.
-        .filter((object) => !/\.xlsx?$/i.test(object.path) || object.metadata.binary || object.metadata.spreadsheetExtractionVersion === 2);
+    return resolved.rows.filter((row) => row.project_id === projectId)
+      .map((row) => this.mappedObject(row, at)).filter(isOfferedObject);
+  },
+
+  /** One version row as an offered object, read at the snapshot `at` names. */
+  mappedObject(row, at) {
+    const object = mapObjectRow(row, at);
+    // Search existing PDF versions through their preserved bytes as well as
+    // the short metadata excerpt. Derived search text stays in memory so
+    // immutable object versions and existing links retain their identity.
+    if (/\.pdf$/i.test(object.path) && ['PAPER', 'DRAWING', 'DOCUMENT'].includes(object.objectType)
+      && !isPassageExcerpt(object)) {
+      object.searchText += ` ${this.sourceText(object).toLowerCase()}`;
+    }
+    return freezeIndexedValue(object);
   },
 
   /** Drops a snapshot's mapped objects, complete and by type, after its index changes. */
   forgetObjects(snapshotId) {
     this.objectCache.delete(snapshotId);
     for (const type of OBJECT_TYPES) this.typedObjectCache.delete(`${snapshotId}|${type}`);
+    this.forgetSearchIndex(snapshotId);
   },
 
   objectAt(projectId, snapshotId, objectId) {

@@ -79,10 +79,15 @@ export const linkedValuesMethods = {
     // has its own value to state, unless that value is the linked text.
     const dependencyNamesMeasurement = source.objectType === 'DRAWING_ANNOTATION'
       && normalizedVariable(dependencyText) !== normalizedVariable(source.valueText);
-    const retrieved = this.workspaceRetrievalObjects(this.sourceProjectId(source) ?? projectId, source.snapshotId);
+    const ownerId = this.sourceProjectId(source) ?? projectId;
+    // A folder too large to hold is searched in its index for what can relate to the source.
+    const searchIndex = this.searchIndexFor(ownerId, source.snapshotId);
+    const retrieved = searchIndex
+      ? this.relatedIndexedObjects(searchIndex, source, variableKey, { wholeDrawing, namedRow, sourceRow })
+      : this.workspaceRetrievalObjects(ownerId, source.snapshotId);
     // A large table's later rows come from the table index, as few as the words typed name.
     const indexedRelated = wholeDrawing ? [] : this.indexedRelatedObjects(projectId, source, tail,
-      { variableKey, known: this.keysOf(retrieved) });
+      { variableKey, known: searchIndex ? this.indexedKeys(searchIndex) : this.keysOf(retrieved) });
     const workspaceObjects = indexedRelated.length ? [...retrieved, ...indexedRelated] : retrieved;
     // A data dictionary's cells describe the variable (its description and
     // units); they are not values of it, unless that file is the linked source.
