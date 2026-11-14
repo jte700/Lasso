@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RECENT_TOUCH_WINDOW_MS } from './history/blob-store.js';
 import { DEFAULT_CACHE_BYTES, IDLE_CACHE_BYTES } from './cache.js';
+import { SEARCH_INDEX_OBJECTS } from './dependencies/constants.js';
 
 export const ACTOR_TYPES = new Set([
   'HUMAN_SELF',
@@ -70,6 +71,8 @@ export function createConfig(overrides = {}) {
     cacheBytes: wholeNumber(overrides.cacheBytes ?? process.env.LASSO_CACHE_MB * 1024 * 1024, DEFAULT_CACHE_BYTES, 0),
     cacheIdleBytes: wholeNumber(overrides.cacheIdleBytes, IDLE_CACHE_BYTES, 0),
     cacheIdleMs: wholeNumber(overrides.cacheIdleMs, 60_000, 0),
+    // Folders with more indexed objects than this are searched through a compact index (search-index.js).
+    searchIndexObjects: wholeNumber(overrides.searchIndexObjects ?? process.env.LASSO_SEARCH_INDEX_OBJECTS, SEARCH_INDEX_OBJECTS, 0),
     // Raw copies of compressed blobs, for readers that are handed a path.
     rawBlobCacheDir: overrides.rawBlobCacheDir ?? path.join(dataDir, 'derived', 'raw-blobs'),
     // Compressing (zstd) text versions that no folder holds any longer, in

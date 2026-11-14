@@ -168,7 +168,9 @@ export const linkedContextMethods = {
    */
   narrowsTo(projectId, object) {
     if (!VALUE_HOLDERS.has(object?.objectType) || !object.snapshotId) return false;
-    const objects = this.workspaceRetrievalObjects(this.sourceProjectId(object) ?? projectId, object.snapshotId);
+    const ownerId = this.sourceProjectId(object) ?? projectId;
+    // Kept with the list the answer was worked out from, or a large folder's index.
+    const objects = this.searchIndexFor(ownerId, object.snapshotId) ?? this.workspaceRetrievalObjects(ownerId, object.snapshotId);
     if (!this.narrowingCache.has(objects)) this.narrowingCache.set(objects, new Map());
     const known = this.narrowingCache.get(objects);
     if (!known.has(object.id)) {

@@ -234,7 +234,7 @@ export class RemovableDriveService {
       throw error;
     }
     this.timeline.notifyCapture({ changed: false, removedProjectIds: ids });
-    for (const cache of ['completionCorpusCache', 'studyVariableCache', 'workspaceRetrievalCache', 'sourceTextCache', 'figurePreviewCache']) {
+    for (const cache of ['completionCorpusCache', 'studyVariableCache', 'workspaceRetrievalCache', 'indexedObjectCache', 'sourceTextCache', 'figurePreviewCache']) {
       this.dependencies[cache]?.clear();
     }
     // Content-addressed copies may be shared by unrelated projects. Only

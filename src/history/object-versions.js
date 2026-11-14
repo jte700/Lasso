@@ -39,6 +39,8 @@ const VERSION_ROW_BYTES = 900;
 // Typed resolution starts at the candidate objects only when they number less
 // than this share of the index's rows (see resolvedTypes).
 const CANDIDATE_SHARE = 4;
+// Rows read per step when an index is read a page at a time.
+const RESOLVED_PAGE_ROWS = 1_000;
 
 const VERSION_COLUMNS = `o.id AS object_id, o.project_id, o.object_key, o.object_type, o.rowid AS object_rowid,
   v.id, v.id AS version_id, v.snapshot_id AS recorded_snapshot_id, v.path, v.anchor_json, v.label, v.value_text,
@@ -227,6 +229,48 @@ export class ObjectVersionStore {
     return resolvedSet(snapshotId, snapshot.version, rows);
   }
 
+  /**
+   * Every object version at a snapshot, a page of rows per step, in no
+   * order. `resolved` sorts the whole index in one query, which holds the
+   * event loop for over a second on a large folder; this reads each index
+   * of the chain by its own key, nearest first, and keeps an object's
+   * nearest entry as `resolved` does. Rows carry `version_rowid`.
+   */
+  *resolvedPages(snapshotId, pageSize = RESOLVED_PAGE_ROWS) {
+    const chain = [...this.chain(snapshotId).keys()];
+    const page = this.db.prepare(`SELECT ${VERSION_COLUMNS}, v.rowid AS version_rowid FROM scientific_object_versions v
+      JOIN scientific_objects o ON o.id = v.object_id
+      WHERE v.snapshot_id = ? AND v.object_id > ? ORDER BY v.object_id LIMIT ?`);
+    const removals = this.db.prepare('SELECT object_id FROM scientific_object_removals WHERE snapshot_id = ?');
+    // Objects already met nearer the snapshot; a single index has no nearer one.
+    const settled = chain.length > 1 ? new Set() : null;
+    for (const link of chain) {
+      const removed = settled ? removals.all(link).map((row) => row.object_id) : [];
+      let after = '';
+      for (;;) {
+        const rows = page.all(link, after, pageSize);
+        if (!rows.length) break;
+        after = rows.at(-1).object_id;
+        const fresh = settled ? rows.filter((row) => !settled.has(row.object_id)) : rows;
+        for (const row of settled ? fresh : []) settled.add(row.object_id);
+        yield fresh;
+        if (rows.length < pageSize) break;
+      }
+      for (const objectId of removed) settled.add(objectId);
+    }
+  }
+
+  /** Version rows by rowid, as `resolved` returns them, for objects found in an index kept apart from their rows. */
+  rowsByRowid(rowids) {
+    this.versionByRowid ??= this.db.prepare(VERSION_BY_ROWID);
+    return rowids.map((rowid) => this.versionByRowid.get(rowid));
+  }
+
+  /** The path an object is at in a snapshot, or null when it is not there. */
+  pathAt(snapshotId, objectId) {
+    return this.nearestVersion(snapshotId, objectId)?.path ?? null;
+  }
+
   /** How many version and removal rows an index resolves through, counted from their snapshot index. */
   chainEntries(snapshotId) {
     return this.db.prepare(`${INDEX_CHAIN}
@@ -303,14 +347,20 @@ export class ObjectVersionStore {
   nearestVersion(snapshotId, objectId) {
     const cached = this.sets.get(snapshotId);
     if (cached) return cached.byObject.get(objectId) ?? null;
+    const rowid = this.versionRowidAt(snapshotId, objectId);
+    return rowid === null ? null : this.rowsByRowid([rowid])[0];
+  }
+
+  /** The rowid of the version row nearest a snapshot for one object, or null when it is not there. */
+  versionRowidAt(snapshotId, objectId) {
     const chain = this.chain(snapshotId);
+    this.objectEntries ??= this.db.prepare(OBJECT_ENTRIES);
     let nearest = null;
-    for (const entry of this.db.prepare(OBJECT_ENTRIES).all(objectId, objectId)) {
+    for (const entry of this.objectEntries.all(objectId, objectId)) {
       const depth = chain.get(entry.snapshot_id);
       if (depth !== undefined && (!nearest || depth < nearest.depth)) nearest = { ...entry, depth };
     }
-    if (nearest?.version_rowid == null) return null;
-    return this.db.prepare(VERSION_BY_ROWID).get(nearest.version_rowid);
+    return nearest?.version_rowid ?? null;
   }
 
   rowAt(versionRowid, snapshotId) {

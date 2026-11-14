@@ -4,7 +4,7 @@
 import { humanVariable, normalizedVariable } from './tabular.js';
 import { DRAWING_NAME_MIN_LETTERS } from './drawing-discovery.js';
 import { fileReferenceMatch, isWholeFile, typedAsWritten } from './file-reference.js';
-import { WHOLE_FILE_TYPES } from './constants.js';
+import { STUDY_DATA_TYPES, WHOLE_FILE_TYPES } from './constants.js';
 import { pendingObject, studyVariable } from './object-descriptors.js';
 import { rowCompletionFragments } from './row-field-match.js';
 import { recommendationRelevanceBand } from './ranking.js';
@@ -37,10 +37,9 @@ export const studyVariablesMethods = {
     const project = this.timeline.getProject(projectId);
     const target = snapshotId ?? project.currentSnapshotId;
     if (this.studyVariableCache.has(target)) return this.studyVariableCache.get(target);
-    const dataTypes = new Set(['VARIABLE', 'RESULT', 'VALUE', 'DATASET_ROW', 'DATASET_VALUE', 'TABLE', 'DRAWING_ANNOTATION']);
     const workspaceObjects = this.workspaceRetrievalCache.get(target);
-    const indexed = (workspaceObjects ?? this.objectsAt(projectId, target, dataTypes))
-      .filter((object) => dataTypes.has(object.objectType))
+    const indexed = (workspaceObjects ?? this.objectsAt(projectId, target, STUDY_DATA_TYPES))
+      .filter((object) => STUDY_DATA_TYPES.has(object.objectType))
       .map(studyVariable).filter((object) => object.variable && /[A-Za-z]/.test(object.variable));
     this.studyVariableCache.set(target, indexed);
     return indexed;
@@ -174,10 +173,14 @@ export const studyVariablesMethods = {
       .filter((word) => !REPORTING_WORDS.has(word) && !queryWords.includes(word));
     const directoryWords = contextWords.length ? wordTokens(this.timeline.getProject(projectId).name) : [];
     const permitted = this.autocompleteFilter(projectId);
-    const known = this.studyVariables(projectId, options.snapshotId);
-    const indexed = this.indexedStudyVariables(projectId, options.snapshotId, query, this.keysOf(known));
+    // A folder too large to hold is searched in its index; only the matching objects are read.
+    const searchIndex = this.searchIndexFor(projectId, options.snapshotId);
+    const known = searchIndex ? null : this.studyVariables(projectId, options.snapshotId);
+    const indexed = this.indexedStudyVariables(projectId, options.snapshotId, query,
+      searchIndex ? this.indexedKeys(searchIndex) : this.keysOf(known));
     // Only names that match can score; an object that matches no way scores under the threshold.
-    const matching = [...this.matchingStudyVariables(known, normalizedQuery, queryWords),
+    const matching = [...(searchIndex ? this.matchingIndexedVariables(searchIndex, normalizedQuery, queryWords, contextWords)
+      : this.matchingStudyVariables(known, normalizedQuery, queryWords)),
       ...indexed.map((object) => {
         const match = variableNameMatch({ ...object, wordSuffixes: wordSuffixes(object.variableWords) }, normalizedQuery, queryWords);
         return { object, match: { ...match, partMeasurement: !match.exact && !match.prefix && !match.contains

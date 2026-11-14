@@ -17,6 +17,8 @@ import { dependencyPreviewsMethods } from './dependency-previews.js';
 import { dependencySharingMethods } from './dependency-sharing.js';
 import { documentEditingMethods } from './document-editing.js';
 import { indexLifecycleMethods } from './index-lifecycle.js';
+import { indexedSearchMethods } from './indexed-search.js';
+import { SearchIndexStore } from './search-index-store.js';
 import { indexSummaryMethods } from './index-summaries.js';
 import { valueChangeMethods } from './value-changes.js';
 import { cellDisplayMethods } from './cell-display.js';
@@ -81,6 +83,14 @@ export class PredictiveProvenanceService {
       budget, bytes: objectBytes });
     this.typedObjectCache = new BoundedCache({ maxEntries: 96, maxWeight: 120_000, weight: (objects) => objects.length,
       budget, bytes: objectBytes });
+    // A folder with too many objects for those lists is searched through its
+    // search index (indexed-search.js): the index, by its real size, the few
+    // objects read back for the suggestions just offered, and the index on
+    // disk, which a launch reads instead of every version row.
+    this.searchIndexCache = new BoundedCache({ maxEntries: 4, budget, bytes: (index) => index.bytes });
+    this.indexedObjectCache = new BoundedCache({ maxEntries: 12_000, budget, bytes: () => MAPPED_OBJECT_BYTES });
+    this.largeSnapshots = new BoundedCache({ maxEntries: 256 });
+    this.searchIndexStore = new SearchIndexStore(path.join(timeline.config.dataDir, 'derived', 'search-index'));
     // Whether an object has values below it, kept with the retrieval objects
     // it was worked out from, so it goes when they are read again.
     this.narrowingCache = new WeakMap();
@@ -137,9 +147,15 @@ export class PredictiveProvenanceService {
       // other enabled directories warm while releasing the superseded head.
       const previous = capture?.event?.previousSnapshotId;
       if (previous) {
-        for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache]) {
+        for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache,
+          this.searchIndexCache]) {
           cache.delete(previous);
         }
+      }
+      // A removed folder's index goes with it, in memory and on disk.
+      for (const projectId of capture?.removedProjectIds ?? []) {
+        this.searchIndexStore.remove(projectId);
+        this.searchIndexCache.clear();
       }
       this.reconcileAfterCapture(capture);
       if (capture?.changed || capture?.removedProjectIds?.length) this.tableContentChanged();
@@ -151,7 +167,7 @@ export class PredictiveProvenanceService {
     this.stopTableCleanup();
     this.ranking.close();
     for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache,
-      this.objectCache, this.typedObjectCache, this.extractionCache, this.sheetObjectCache, this.slideReadingCache,
+      this.objectCache, this.typedObjectCache, this.searchIndexCache, this.indexedObjectCache, this.extractionCache, this.sheetObjectCache, this.slideReadingCache,
       ...(this.cellFormatCache ? [this.cellFormatCache] : []),
       this.sourceTextCache, this.figurePreviewCache,
       this.indexedHere, this.tableReadings, this.snapshotTableCache, this.deepObjects, this.transcriptCache]) cache.clear();
@@ -250,6 +266,7 @@ export class PredictiveProvenanceService {
 // The rest of the class lives in sibling modules, grouped by what the methods do.
 installMethods(PredictiveProvenanceService.prototype,
   indexLifecycleMethods,
+  indexedSearchMethods,
   indexSummaryMethods,
   valueChangeMethods,
   cellDisplayMethods,

@@ -6,6 +6,23 @@ export const OBJECT_TYPES = new Set([
   'PARAMETER', 'PROTOCOL', 'ANALYSIS_RUN', 'DOCUMENT', 'VARIABLE', 'DRAWING', 'DRAWING_ANNOTATION',
 ]);
 
+/** The types workspace suggestions retrieve by their own words. */
+export const RETRIEVABLE_TYPES = new Set([
+  'VARIABLE', 'RESULT', 'VALUE', 'DATASET_ROW', 'DATASET_VALUE', 'DATASET', 'METHOD', 'MODEL',
+  'PARAMETER', 'PROTOCOL', 'ANALYSIS_RUN', 'FIGURE', 'TABLE', 'DOCUMENT',
+  'DRAWING_ANNOTATION',
+]);
+
+/** The types a study variable's name can be typed for. */
+export const STUDY_DATA_TYPES = new Set(['VARIABLE', 'RESULT', 'VALUE', 'DATASET_ROW', 'DATASET_VALUE', 'TABLE', 'DRAWING_ANNOTATION']);
+
+// A folder with more objects than this at a snapshot is searched through a
+// compact index (search-index.js) instead of lists of its mapped objects.
+// The suggestion lists count each object at about 1,200 bytes, twice over
+// (retrieval and study variables), so past this many they no longer fit the
+// 64 MB cache budget together and every keystroke would read them again.
+export const SEARCH_INDEX_OBJECTS = 25_000;
+
 // 5: videos are transcribed, so folders indexed before read their videos.
 // 6: Word documents' sentences and paragraphs are indexed as passages.
 export const INDEX_VERSION = 6;

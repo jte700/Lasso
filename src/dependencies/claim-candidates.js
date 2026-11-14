@@ -102,7 +102,13 @@ export const claimCandidatesMethods = {
       METHOD: new Set(['METHOD', 'MODEL', 'CODE', 'CODE_BLOCK', 'CODE_LINE', 'NOTEBOOK_CELL', 'PROTOCOL']),
     }[claim.type] ?? new Set());
     const permitted = this.autocompleteFilter(projectId);
-    const objects = this.objectsAt(projectId, options.snapshotId, typePreference)
+    // A folder too large to hold is searched in its index for what can back the claim.
+    const searchIndex = this.searchIndexFor(projectId, options.snapshotId);
+    const objects = (searchIndex ? this.claimIndexedObjects(searchIndex, {
+      types: typePreference, claimNumber, claimWords, expectedVariable, expectedVariableWords,
+      entity: claim.type === 'ENTITY' ? claim.value ?? claim.text : null, sourcePath: options.sourcePath,
+      changedIds: claimNumber ? this.recentValueChanges(projectId, searchIndex.snapshotId).keys() : [],
+    }) : this.objectsAt(projectId, options.snapshotId, typePreference))
       .filter((object) => (!options.documentPath || object.path !== options.documentPath)
         && (!options.sourcePath || object.path === options.sourcePath)
         && (!typePreference.size || typePreference.has(object.objectType))
@@ -229,8 +235,9 @@ export const claimCandidatesMethods = {
     if (!objectIds.length) return [];
     const project = this.timeline.getProject(projectId);
     this.ensureIndex(projectId, project.currentSnapshotId);
-    const current = this.timeline.objectVersions.resolved(project.currentSnapshotId).byObject;
-    return [...new Set(objectIds.map((objectId) => current.get(objectId))
+    // Each source is looked up by itself: resolving the whole index for a few of them reads a large folder again.
+    const versions = this.timeline.objectVersions;
+    return [...new Set(objectIds.map((objectId) => versions.nearestVersion(project.currentSnapshotId, objectId))
       .filter((row) => row?.project_id === projectId).map((row) => row.path))];
   },
 

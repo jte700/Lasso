@@ -19,11 +19,13 @@ export const writingPredictionMethods = {
     const project = this.timeline.getProject(projectId);
     const target = snapshotId ?? project.currentSnapshotId;
     yield* this.pdfTextSteps(projectId, target);
-    this.retrievalIndexOf(this.workspaceRetrievalObjects(projectId, target));
+    // A folder too large to hold as lists is searched through its index, read from disk or built a page at a time.
+    if (this.usesSearchIndex(projectId, target)) yield* this.searchIndexSteps(projectId, target);
+    else this.retrievalIndexOf(this.workspaceRetrievalObjects(projectId, target));
     yield;
     // Typing a file's name asks for these on the first keystroke.
     this.objectsAt(projectId, target, WHOLE_FILE_TYPES);
-    this.variableIndexOf(this.studyVariables(projectId, target));
+    if (!this.usesSearchIndex(projectId, target)) this.variableIndexOf(this.studyVariables(projectId, target));
     yield;
     // Ranking checks every suggestion is still at the snapshot it came from.
     this.ranking.indexedSnapshot(projectId, target);

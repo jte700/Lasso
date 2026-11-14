@@ -112,13 +112,23 @@ export class RecommendationRanking {
       WHERE s.id = ? AND s.project_id = ?`).get(snapshotId, projectId);
     if (!row) return null;
     const files = this.timeline.snapshotFiles(snapshotId);
-    const versions = this.timeline.objectVersions.locations(snapshotId)
-      .filter((version) => version.project_id === projectId);
+    const store = this.timeline.objectVersions;
+    // Every object of a large folder is too many to list for each snapshot
+    // ranked; whether one is at the snapshot is asked of the index instead.
+    const listed = !row.indexed || store.indexedCount(snapshotId) <= this.timeline.config.searchIndexObjects;
     const snapshot = {
       projectId,
       files: new Map(files.map((file) => [file.path, { path: file.path, project_file_id: file.projectFileId }])),
       pathsById: new Map(files.map((file) => [file.projectFileId, file.path])),
-      objects: new Set(versions.map((version) => `${version.object_id}\u0000${version.path}`)),
+      objects: listed ? new Set(store.locations(snapshotId).filter((version) => version.project_id === projectId)
+        .map((version) => `${version.object_id}\u0000${version.path}`)) : {
+        size: 0,
+        add() {},
+        has: (key) => {
+          const [objectId, filePath] = key.split('\u0000');
+          return store.pathAt(snapshotId, objectId) === filePath;
+        },
+      },
     };
     // A partially built index can acquire objects later. Cache only completed,
     // immutable snapshots so validation never rejects newly indexed sources.
