@@ -6,6 +6,7 @@ import { dictionaryColumns, spreadsheetLayout, tableShape, tabularLayout } from 
 import { CLEANUP_BATCH_ROWS, cleanupBatch, dropTable } from './table-cleanup.js';
 import { lowerBound, placeOfOrdinal, placeOfRowNumber, placesBefore, placesOf, readTableMap } from './table-map.js';
 import { MAX_CHUNK_ROWS, MIN_CHUNK_ROWS, TableChunkStore, contentKey, openTableDatabase } from './table-storage.js';
+import { roomToWrite } from '../write-cache.js';
 import { rowTerms } from './table-terms.js';
 import { pooled } from '../worker-pool.js';
 
@@ -32,6 +33,14 @@ export const SHAPE_ROWS = 1_000;
 // The last rows of a table, kept for the notes written under it.
 export const TAIL_ROWS = 64;
 const BATCH_ROWS = 2_000;
+// Rows written per transaction. Each commit writes every page its rows
+// touched, and rows touch pages all over the index, so batches of 2,000 wrote
+// most of the index out again every time: a folder of 830,000 rows spent 21 of
+// its 41 seconds committing.
+const WRITE_BATCH_ROWS = 20_000;
+// Or fewer, once the rows waiting hold this many characters: a sheet hundreds
+// of columns wide must not wait in a worker's memory 20,000 rows at a time.
+const WRITE_BATCH_CHARACTERS = 16_000_000;
 // A worker reading a table is stopped past this, so one damaged file cannot
 // take the server's memory with it.
 const WORKER_MEMORY_MB = 512;
@@ -94,6 +103,7 @@ export class TableWriter {
     this.chunk = [];
     this.ready = [];
     this.readyRows = 0;
+    this.readyCharacters = 0;
     this.replaced = false;
     this.store = new TableChunkStore(db);
     const previous = db.prepare('SELECT id FROM tables WHERE content_hash = ? AND sheet = ? AND version = ?')
@@ -101,6 +111,9 @@ export class TableWriter {
     if (previous) this.remove(previous.id);
     this.id = Number(db.prepare(`INSERT INTO tables(content_hash, sheet, position, version, touched_at) VALUES (?, ?, ?, ?, ?)`)
       .run(contentHash, sheet ?? '', position, TABLE_INDEX_VERSION, Date.now()).lastInsertRowid);
+    // Taken once the table exists, so a writer that could not start holds
+    // none; given back when the table is finished or abandoned.
+    this.release = roomToWrite(db);
   }
 
   /** Takes a table out of the index at once; cleanup removes its rows later. */
@@ -173,8 +186,9 @@ export class TableWriter {
       const entry = this.stored(row);
       if (this.chunk.length && entry.ordinal !== this.chunk[this.chunk.length - 1].ordinal + 1) this.endChunk();
       this.chunk.push(entry);
+      this.readyCharacters += entry.cellsJson.length;
       if (this.chunk.length >= MAX_CHUNK_ROWS || (entry.cut && this.chunk.length >= MIN_CHUNK_ROWS)) this.endChunk();
-      if (this.readyRows >= BATCH_ROWS) this.writeChunks();
+      if (this.readyRows >= WRITE_BATCH_ROWS || this.readyCharacters >= WRITE_BATCH_CHARACTERS) this.writeChunks();
     }
     this.writeChunks();
   }
@@ -191,6 +205,7 @@ export class TableWriter {
     if (this.ready.length && !this.replaced) this.replaced = !this.store.write(this.id, this.ready);
     this.ready = [];
     this.readyRows = 0;
+    this.readyCharacters = 0;
   }
 
   finish(extras = {}) {
@@ -202,11 +217,13 @@ export class TableWriter {
     this.db.prepare('UPDATE tables SET complete = 1, row_count = ?, shape_json = ?, extras_json = ?, touched_at = ? WHERE id = ?')
       .run(this.ordinal, JSON.stringify(this.shape ?? shapeOf({ rows: [], rowNumbers: [], sheet: this.sheet, physicalRows: [] })),
         JSON.stringify(extras), Date.now(), this.id);
+    this.release();
     return this.id;
   }
 
   abandon() {
     try { this.remove(this.id); } catch { /* A later build replaces it. */ }
+    this.release();
   }
 }
 

@@ -307,6 +307,91 @@ test('a watcher that fails is restarted and the folder rescanned', async (t) => 
   assert.equal(captures.at(-1)[2].dirtyPaths, null, 'changes made while unwatched are found by a full rescan');
 });
 
+// A restart that opens the folder the way launch does, reporting what it read.
+async function reopenAndReconcile(t, sandbox, root, projectId) {
+  const reopened = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
+  try {
+    const reads = trackProjectReads(t, root);
+    const result = reopened.timeline.capture(projectId, actor, { source: 'OPEN_RECONCILE' });
+    return { reads: [...reads], changed: result.changed };
+  } finally {
+    t.mock.restoreAll();
+    await reopened.close();
+  }
+}
+
+test('a file saved again with the same bytes is read once, not on every restart', async (t) => {
+  // Arrange: the note was touched while Lasso was closed, so its recorded
+  // times no longer hold, and nothing about its content changed.
+  const { sandbox, root, app, project } = fixture(t);
+  await app.close();
+  const later = new Date(Date.now() + 60_000);
+  fs.utimesSync(path.join(root, 'note.md'), later, later);
+
+  // Act
+  const first = await reopenAndReconcile(t, sandbox, root, project.id);
+  const second = await reopenAndReconcile(t, sandbox, root, project.id);
+
+  // Assert
+  assert.deepEqual(first.reads, ['note.md'], 'the touched file is read to confirm its bytes');
+  assert.equal(first.changed, false, 'the same bytes record no new version');
+  assert.deepEqual(second.reads, [], 'the next restart trusts what the last one confirmed');
+});
+
+test('a file changed after its bytes were confirmed is read again', async (t) => {
+  // Arrange: a restart confirmed the touched note; then it was rewritten.
+  const { sandbox, root, app, project } = fixture(t);
+  await app.close();
+  const later = new Date(Date.now() + 60_000);
+  fs.utimesSync(path.join(root, 'note.md'), later, later);
+  await reopenAndReconcile(t, sandbox, root, project.id);
+  fs.writeFileSync(path.join(root, 'note.md'), 'A rewritten note.\n');
+
+  // Act
+  const afterEdit = await reopenAndReconcile(t, sandbox, root, project.id);
+  const settled = await reopenAndReconcile(t, sandbox, root, project.id);
+
+  // Assert
+  assert.deepEqual(afterEdit.reads, ['note.md']);
+  assert.equal(afterEdit.changed, true, 'the edit is recorded as a new version');
+  assert.deepEqual(settled.reads, [], 'the recorded version needs no further reading');
+});
+
+test('a folder recorded without change times is read once after a restart, then trusted', async (t) => {
+  // Arrange: a library from before change times were recorded.
+  const { sandbox, root, app, project } = fixture(t);
+  app.db.exec('DROP TRIGGER snapshot_files_immutable_update');
+  app.db.prepare('UPDATE snapshot_files SET ctime_ms = NULL').run();
+  await app.close();
+
+  // Act
+  const first = await reopenAndReconcile(t, sandbox, root, project.id);
+  const second = await reopenAndReconcile(t, sandbox, root, project.id);
+
+  // Assert
+  assert.deepEqual(first.reads.toSorted(), ['data.csv', 'note.md']);
+  assert.deepEqual(second.reads, [], 'every later restart reads nothing');
+});
+
+test('a confirmed file whose bytes were released is read again after a restart', async (t) => {
+  // Arrange: a restart confirmed the touched note, then its bytes were found released.
+  const { sandbox, root, app, project } = fixture(t);
+  const note = app.timeline.snapshotFiles(project.currentSnapshotId).find((file) => file.path === 'note.md');
+  await app.close();
+  const later = new Date(Date.now() + 60_000);
+  fs.utimesSync(path.join(root, 'note.md'), later, later);
+  await reopenAndReconcile(t, sandbox, root, project.id);
+  const releasing = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
+  releasing.timeline.forgetScannedBytes(project.id, note.contentHash);
+  await releasing.close();
+
+  // Act
+  const { reads } = await reopenAndReconcile(t, sandbox, root, project.id);
+
+  // Assert
+  assert.deepEqual(reads, ['note.md'], 'the file is read so its bytes are stored again');
+});
+
 test('reopening a folder after a restart reads only the files that changed', async (t) => {
   // Arrange: Lasso restarts, and one file changed while it was closed.
   const { sandbox, root, app, project } = fixture(t);

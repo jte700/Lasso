@@ -27,6 +27,10 @@ export const MIN_CHUNK_ROWS = 32;
 export const MAX_CHUNK_ROWS = 1_024;
 // A varint holds seven bits per byte; the high bit says another byte follows.
 const VARINT_BASE = 128;
+// Pages the write-ahead log holds before it is folded into the index, up to
+// its size limit below. At SQLite's default of 1,000 nearly every commit of a
+// table's rows stopped to do that.
+const CHECKPOINT_PAGES = 16_384;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS tables (
@@ -113,7 +117,7 @@ export function openTableDatabase(file) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec(`PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 30000;
-    PRAGMA journal_size_limit = 67108864;`);
+    PRAGMA journal_size_limit = 67108864; PRAGMA wal_autocheckpoint = ${CHECKPOINT_PAGES};`);
   if (db.prepare('PRAGMA user_version').get().user_version !== TABLE_LAYOUT) upgrade(db);
   addFormulaColumns(db);
   return db;

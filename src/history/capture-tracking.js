@@ -58,8 +58,10 @@ export const captureTrackingMethods = {
    * cache. A capture that met those bytes released would otherwise be
    * followed by captures that reuse the cached hash without reading the file
    * again; with the entry gone, the next scan reads it and stores its bytes.
+   * What a restart would trust for those files is dropped with it.
    */
   forgetScannedBytes(projectId, contentHash) {
+    this.verifiedStats.forgetBytes(projectId, contentHash);
     const cache = this.scanCaches.get(projectId);
     if (!cache) return;
     for (const [relativePath, entry] of cache) {

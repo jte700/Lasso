@@ -33,6 +33,12 @@ function statFingerprint(stat) {
   return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
 }
 
+/** Whether two file records carry the same stat values. A record without a change time matches none. */
+export function sameRecordedStat(left, right) {
+  return left.ctimeMs != null && left.ctimeMs === right.ctimeMs && left.mtimeMs === right.mtimeMs
+    && left.size === right.size && String(left.device) === String(right.device) && String(left.inode) === String(right.inode);
+}
+
 /** A recorded snapshot file in the shape a scan produces. */
 export function scannedFile(file) {
   return { path: file.path, contentHash: file.contentHash, size: file.size, mtimeMs: file.mtimeMs,
@@ -43,10 +49,13 @@ export function scannedFile(file) {
  * Whether a file still matches its cached entry. A live entry holds the exact
  * fingerprint. An entry seeded from the last snapshot after a restart holds
  * the recorded stat values; without a recorded change time it is not trusted.
+ * Such an entry may also hold `verified`, the fingerprint an earlier scan
+ * read these same bytes under (verified-stats.js).
  */
 function matchesCache(cached, fingerprint, stat) {
   if (!cached) return false;
   if (cached.fingerprint) return cached.fingerprint === fingerprint;
+  if (cached.verified === fingerprint) return true;
   const recorded = cached.file;
   return recorded.ctimeMs != null && String(stat.dev) === String(recorded.device)
     && String(stat.ino) === String(recorded.inode) && Number(stat.size) === recorded.size

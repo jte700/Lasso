@@ -13,6 +13,7 @@ import { EXTRACTOR_VERSION, INDEX_VERSION } from './constants.js';
 import { readerFor, readerVersions, readerVersionsAfter, readersChangedSince } from './readers.js';
 import { dependencyFilePriority } from './file-objects.js';
 import { READER_CHANGED } from './table-sources.js';
+import { roomToWrite } from '../write-cache.js';
 import {
   applyVariableDefinitions, indexIsCurrent, indexSummary, isDictionaryVariable, kindsChangedSince,
 } from './index-state.js';
@@ -89,6 +90,8 @@ export const indexLifecycleMethods = {
       return yield* this.ensureIndexSteps(projectId, targetSnapshotId);
     }
     yield { phase: 'saving' };
+    // A folder's objects land all over the indexes of their ids and keys.
+    const release = roomToWrite(this.db);
     try {
       transaction(this.db, () => {
         const recorded = versions.record(projectId, targetSnapshotId, this.indexEntries(projectId, index.descriptors),
@@ -116,6 +119,8 @@ export const indexLifecycleMethods = {
       // The index was read into memory as it was written; drop it with the rollback.
       versions.forget(targetSnapshotId);
       throw error;
+    } finally {
+      release();
     }
     // An upgrade pass reads only some files and keeps what was there, so later
     // indexes cannot carry objects forward from it without reading them again.
@@ -284,6 +289,7 @@ export const indexLifecycleMethods = {
     let objectCount = 0;
     let newSnapshotId = null;
     let result;
+    const release = roomToWrite(this.db);
     try {
       result = this.cloneTransition(projectId, actorInput, {
         source: 'REINDEX', title, initiatedBy: options.initiatedBy ?? null,
@@ -298,6 +304,8 @@ export const indexLifecycleMethods = {
       // The index was read into memory as it was written; drop it with the rollback.
       if (newSnapshotId) versions.forget(newSnapshotId);
       throw error;
+    } finally {
+      release();
     }
     if (!partial) this.indexedHere.set(result.snapshot.id, index.summary);
     for (const cache of [this.completionCorpusCache, this.studyVariableCache, this.workspaceRetrievalCache]) {

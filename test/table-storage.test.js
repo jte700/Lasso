@@ -216,6 +216,30 @@ test('A search returns the same rows as before the rows were shared', async (t) 
     'rows the versions have in common are stored once');
 });
 
+test('A long table is written in a few transactions, with a page cache it gives back afterwards', async (t) => {
+  // Arrange
+  const { app } = await wards(t, 'Ward,Glucose\nRenal,1\n');
+  const db = app.dependencies.tables.db;
+  const cacheKilobytes = () => -db.prepare('PRAGMA cache_size').get().cache_size;
+  const atRest = cacheKilobytes();
+  const whileWriting = [];
+  const exec = db.exec.bind(db);
+  t.mock.method(db, 'exec', (sql) => {
+    if (/^BEGIN/.test(sql)) whileWriting.push(cacheKilobytes());
+    return exec(sql);
+  });
+  const rows = [['Ward', 'Glucose'], ...Array.from({ length: 12_000 }, (_, row) => [`Hospital ward ${row}`, row % 90])];
+
+  // Act
+  writeTable(db, 'long-table', { rows, rowNumbers: rows.map((_, index) => index + 1) });
+
+  // Assert
+  assert.ok(whileWriting.length >= 1 && whileWriting.length <= 3,
+    `every row's pages are written once per transaction, so few transactions write few pages (took ${whileWriting.length})`);
+  assert.ok(whileWriting.every((kilobytes) => kilobytes >= 16 * 1024), 'the rows being written stay in memory until committed');
+  assert.equal(cacheKilobytes(), atRest, 'the connection is left as small as it was');
+});
+
 test('An old table is deleted once no snapshot needs it', async (t) => {
   // Arrange
   const { app, folder, id } = await wards(t);
