@@ -11,6 +11,7 @@ import { isTrackedFile } from './file-types.js';
 import { compactStructuredDiff, createStructuredDiff, deterministicEventTitle, expandStructuredDiff } from './diff.js';
 import { SnapshotFileStore } from './snapshot-store.js';
 import { ObjectVersionStore } from './object-versions.js';
+import { VerifiedFileStats } from './verified-stats.js';
 import { json, transaction } from '../db.js';
 import { HttpError, VersionConflictError } from './errors.js';
 import { normalizeActor } from './actors.js';
@@ -69,6 +70,8 @@ export class TimelineService {
     this.pendingTimers = new Map();
     this.pendingPaths = new Map();
     this.scanCaches = new Map();
+    // The stat values unchanged files were last read under, kept across restarts.
+    this.verifiedStats = new VerifiedFileStats(db);
     // Environment directories each project's last scan skipped, by project.
     this.environments = new Map();
     // Watcher captures in progress, by project: one per folder at a time.
@@ -98,9 +101,12 @@ export class TimelineService {
     if (!this.scanCaches.has(project.id)) this.scanCaches.set(project.id, new Map());
     const cache = this.scanCaches.get(project.id);
     // After a restart the cache is empty. Seed it from the last snapshot, so
-    // reopening a folder reads only files whose recorded stat values changed.
+    // reopening a folder reads only files whose recorded stat values changed,
+    // or the values an earlier scan confirmed the same bytes under.
     if (!cache.size && options.previousFiles) {
-      for (const file of options.previousFiles) cache.set(file.path, { file: scannedFile(file) });
+      for (const file of options.previousFiles) {
+        cache.set(file.path, { file: scannedFile(file), verified: this.verifiedStats.fingerprintFor(project.id, file) });
+      }
     }
     const environments = new Set();
     const files = yield* scanSteps(project.rootPath, this.blobs, {
@@ -116,6 +122,12 @@ export class TimelineService {
       throw new HttpError(409, 'The drive changed or became unreadable during indexing. Its last complete snapshot was kept.');
     }
     this.scanPolicy?.recordFailures?.(project.id, failures);
+    // What is noted only saves the next launch a read; failing to note it must not cost this scan.
+    try {
+      if (options.previousFiles) this.verifiedStats.record(project.id, options.previousFiles, cache);
+    } catch (error) {
+      console.error(`Could not note confirmed files of ${project.rootPath}:`, error.message);
+    }
     return files;
   }
 
@@ -151,6 +163,7 @@ export class TimelineService {
     this.pendingTimers.clear();
     this.pendingPaths.clear();
     this.scanCaches.clear();
+    this.verifiedStats.clear();
     this.files.clear();
     this.objectVersions.clear();
   }

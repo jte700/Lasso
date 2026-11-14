@@ -214,6 +214,6 @@ test('upgrading the earlier sharing migration preserves management keys and inst
   try {
     assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE name = 'released_blobs'").get());
     assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE name = 'object_share_publications'").get());
-    assert.equal(db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version, 31);
+    assert.ok(db.prepare('SELECT 1 FROM schema_migrations WHERE version = 31').get());
   } finally { db.close(); }
 });
