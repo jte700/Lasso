@@ -48,7 +48,7 @@ async function runSet(name, file) {
   const problems = validateSpec(spec);
   if (problems.length) throw new Error(`${file} is not valid:\n${problems.join('\n')}`);
   const library = await prepareSpecLibrary(spec);
-  const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'eval' });
+  const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'eval', mcp: true });
   const rows = [];
   try {
     for (const task of spec.tasks) {

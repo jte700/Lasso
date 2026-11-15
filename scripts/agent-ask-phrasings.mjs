@@ -65,7 +65,7 @@ function phrasings(truth, oldBillingRev, prompts) {
 async function main() {
   const only = process.argv[2];
   const library = await prepareLibrary();
-  const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'phrasings' });
+  const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'phrasings', mcp: true });
   const grade = graders(library);
   let passed = 0;
   let failed = 0;

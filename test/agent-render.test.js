@@ -27,7 +27,7 @@ const answered = () => ({
   ],
 });
 
-test('over MCP an answer is written lean: no handles, short revisions, excerpts as plain text, and what was left out without a budget hint', () => {
+test('over MCP an answer is written lean: no handles, short revisions, excerpts as plain text, and no count of sentences', () => {
   // Arrange
   const response = answered();
 
@@ -38,11 +38,11 @@ test('over MCP an answer is written lean: no handles, short revisions, excerpts 
   // Assert
   assert.equal(lines[0], 's1 = Reviews/Pilot evaluation.pdf @f920bb86', 'a revision is cut to the eight characters an ask can name it by');
   assert.equal(lines[1], 's2 = Finance/Approved/budget.csv @a1adad95 (changed on disk since indexed)');
-  assert.equal(lines[2], '[1] ranked: 1/4 matching files; no indexed text in the 6 shared files has "popular"; 3 more matched (2 Previous studies 2, 1 Introduction 1)');
+  assert.equal(lines[2], '[1] ranked: 1/4 matching files; no indexed text in the 6 shared files has "popular"; 3 more matched (2 Previous studies 2, 1 Introduction 1); a larger "budget" shows more',
+    'how to get what was left out is still said');
   assert.equal(lines[4], '  p.1 §Abstract: The library lends "household" tools for a small fee.', 'an excerpt is the file\'s words, unquoted');
   assert.deepEqual(lines.slice(5, 7), ['  p.7: Table 3. Loans with damage recorded at return [Category Loans Returned damaged]', '    Power tools 1,240 64']);
   assert.doesNotMatch(text, /#[0-9A-Z]{10}/, 'nothing offered takes a handle, so none is sent');
-  assert.doesNotMatch(text, /shows more/, 'the schema already says what the budget is');
 });
 
 test('excerpts already shown are named on one line, and the excerpt after them still says its section', () => {

@@ -10,14 +10,17 @@
 // (mcp.js), where every token of an answer is paid again on each later turn:
 // revisions cut to the eight characters an ask can name them by, excerpts as
 // the file's words without quotes, excerpts already shown gathered on one
-// line, no count of sentences or hint to raise the budget, and handles only
-// when something offered can take one. Values and row labels stay quoted in
+// line, no count of sentences, and handles only when something offered can
+// take one. Values and row labels stay quoted in
 // both, and both say the same things about what was found and left out.
+
+import { OPERATIONS } from './file-ops.js';
 
 const quote = (value) => JSON.stringify(String(value));
 
 const FULL = { lean: false, handles: true };
-const styleOf = (options = {}) => ({ lean: Boolean(options.lean), handles: options.handles ?? !options.lean });
+// `hinted` holds the tables one answer has already said how to query, so it is said once.
+const styleOf = (options = {}) => ({ lean: Boolean(options.lean), handles: options.handles ?? !options.lean, hinted: new Set() });
 // Eight characters are the fewest an ask reads as a revision ("@f920bb86").
 const revisionShown = (rev, style) => (style.lean ? String(rev).slice(0, 8) : rev);
 
@@ -174,12 +177,62 @@ function answerLines(answer, render) {
   return answer.items.flatMap((item, index) => render(item, `[${answer.n}.${index + 1}]${index === 0 ? echo : ''}`));
 }
 
+const counted = (number) => Number(number).toLocaleString('en-US');
+
 /** A table as rows: its header, then each row's label and values, separated by " | ". */
 function tableLines(item, head) {
   const total = item.rows_total ?? item.rows.length + (item.more_rows ?? 0);
   const shown = total > item.rows.length ? `first ${item.rows.length} of ${total} rows` : `${total} row${total === 1 ? '' : 's'}`;
   return [`${head} ${item.src}${item.sheet ? ` ${item.sheet}` : ''} table, ${shown}:`, `  ${item.header.join(' | ')}`,
     ...item.rows.map((row) => `  ${row.join(' | ')}`)];
+}
+
+/**
+ * How the tables behind an answer are asked about whole: by a query, under these names, with the rows each has and
+ * its columns, so the query can be written right the first time. Said lean only, and once for a set of tables in
+ * one response.
+ */
+function queryHintLines(answer, style) {
+  if (!style.lean || !answer.query_tables?.length) return [];
+  const key = answer.query_tables.map((table) => table.name).join('\u0000');
+  if (style.hinted.has(key)) return [];
+  style.hinted.add(key);
+  const [first, ...others] = answer.query_tables;
+  const name = /^[\p{L}_][\p{L}\p{N}_]*$/u.test(first.name) ? first.name : JSON.stringify(first.name);
+  const columns = (table) => (table.columns?.length ? `: ${table.columns.join(', ')}` : '');
+  return [`  (a query reads every row: ask "SELECT … FROM ${name}", with WHERE, GROUP BY or JOIN; ${first.name} has ${counted(first.rows)} rows${columns(first)}${
+    others.map((table) => `; ${table.name} ${counted(table.rows)}${columns(table)}`).join('')})`];
+}
+
+/** The whole-file operations of the files behind an answer, said lean only and once for a file in one response. */
+function operationHintLines(answer, style) {
+  if (!style.lean) return [];
+  return (answer.operations ?? []).filter((offered) => !style.hinted.has(`op:${offered.file}`)).map((offered) => {
+    style.hinted.add(`op:${offered.file}`);
+    // Written the way a model asks, as a string after the file's name: of 72 asks in a live run one was an object.
+    return `  (the whole ${offered.kind}, exactly: ask "${offered.file}: op; op" with op: ${OPERATIONS[offered.kind]})`;
+  });
+}
+
+/**
+ * A query's result: the tables it read and how many rows of each, then its rows under their column names. A result
+ * cut short says so, and a query Lasso wrote from plain words is shown, so it can be checked and asked again otherwise.
+ */
+function queryLines(item, head) {
+  const sources = [];
+  for (const table of item.tables) {
+    const last = sources.at(-1);
+    if (last?.src === table.src) last.names.push(table.name); else sources.push({ src: table.src, names: [table.name] });
+  }
+  const over = item.tables.length === 1 ? (item.tables[0].rows === 1 ? 'over its 1 row' : `over all ${counted(item.tables[0].rows)} rows`)
+    : `over ${item.tables.map((table, at) => `all ${counted(table.rows)}${at === 0 ? ' rows' : ''} of ${table.name}`).join(' and ')}`;
+  const rows = !item.total ? 'no rows' : item.more_rows ? `first ${counted(item.rows.length)} of ${counted(item.total)} rows`
+    : `${counted(item.total)} row${item.total === 1 ? '' : 's'}`;
+  const after = `${item.before_limit ? ` (LIMIT; ${counted(item.before_limit)} without it)` : ''}${item.more_rows ? '; LIMIT and OFFSET give the rest' : ''}`;
+  const cell = (value) => (value == null ? '' : String(value).replace(/\s+/g, ' ').replaceAll('|', '\\|'));
+  return [`${head} ${sources.map((source) => `${source.src} ${source.names.join(', ')}`).join(', ')}: ${rows}, ${over}${after}`,
+    ...(item.ran ? [`  ran: ${item.ran}`] : []), ...(item.note ? [`  note: ${item.note}`] : []),
+    ...(item.total ? [`  ${item.columns.map(cell).join(' | ')}`, ...item.rows.map((row) => `  ${row.map(cell).join(' | ')}`)] : [])];
 }
 
 /** A model: its own summary (parts and instances), then each part's or room's measurements, then where its instances sit. */
@@ -257,7 +310,9 @@ function rankedLine(answer, head, style = FULL) {
   if (answer.unmatched?.length) parts.push(`no excerpt has ${answer.unmatched.map(quote).join(', ')}`);
   if (counts.left_out) {
     const where = answer.left_out_in?.length ? ` (${answer.left_out_in.map(([section, count]) => `${section} ${count}`).join(', ')})` : '';
-    parts.push(`${counts.left_out} more matched${where}${style.lean ? '' : '; a larger "budget" shows more'}`);
+    // How to get what was left out is said in both styles. The lean text dropped it at first; a live run with it
+    // back read files as often, so it is kept for what it says, not for a measured effect (12 November 2026).
+    parts.push(`${counts.left_out} more matched${where}; a larger "budget" shows more`);
   }
   if (answer.not_searched?.length) parts.push(`not searchable: ${answer.not_searched.map((file) => `${file.path} (${file.reason})`).join(', ')}`);
   return `${head} ${parts.join('; ')}`;
@@ -276,6 +331,20 @@ function evidenceLines(item, head, style = FULL) {
   if (item.type === 'relation' || item.type === 'placement') return geometryLines(item, head);
   if (item.type === 'computed') return computedLines(item, head);
   if (item.type === 'excerpts') return excerptLines(item, head, style);
+  if (item.type === 'query') return queryLines(item, head);
+  if (item.type === 'cells') {
+    // A cell with its column's name and its row's label where it has them, its value, and its formula when it is one.
+    const said = (cell) => `${cell.at}${cell.column != null ? ` ${quote(cell.column)} of ${quote(cell.row)}` : ''}: ${quote(cell.value)}${
+      cell.formula ? ` ${cell.formula}${cell.stored != null ? ` (the file stores ${quote(cell.stored)})` : ''}` : ''}`;
+    return item.cells.length === 1 ? [`${head} ${item.src} ${item.sheet}!${said(item.cells[0])}`] : [`${head} ${item.src} ${item.sheet}, ${item.cells.length} cells:`,
+      ...item.cells.map((cell) => `  ${said(cell)}`)];
+  }
+  if (item.type === 'operation') {
+    // An operation over a whole file: what it is, how sure, what it covered, then its result as the operation wrote it.
+    const sure = item.certainty ? `${item.certainty}${item.guarantee ? ` (${item.guarantee})` : ''}` : 'exact';
+    return [`${head} ${item.src} ${item.op}${item.rev ? ` on ${item.rev}` : ''}: ${sure}${item.over ? `, over ${item.over}` : ''}`,
+      ...String(item.text).split('\n').map((line) => `  ${line}`)];
+  }
   if (item.type === 'table' && item.rows) return tableLines(item, head);
   if (item.type === 'model' && item.elements) return modelLines(item, head);
   if (item.type === 'text' && item.passages) return textLines(item, head);
@@ -307,58 +376,67 @@ export function renderAsk(response, options = {}) {
   const lines = sourceLines(response.sources, style);
   for (const answer of response.answers) {
     const head = `[${answer.n}]${answer.ask ? ` ${quote(answer.ask)}:` : ''}`;
-    if (answer.kind === 'error') { lines.push(...errorLines(`${head} `, answer.error)); continue; }
-    if (answer.kind === 'record') { lines.push(...recordGroupLines(answer, head, style)); continue; }
-    if (answer.kind === 'records') {
-      answer.groups.forEach((group, index) => lines.push(...recordGroupLines(group, `[${answer.n}.${index + 1}]${index === 0 && answer.ask ? ` ${quote(answer.ask)}:` : ''}`, style)));
-      continue;
+    const begun = lines.length;
+    // The branch that writes this answer leaves the block; what follows it is said after any of them.
+    written: {
+      if (answer.kind === 'error') { lines.push(...errorLines(`${head} `, answer.error)); break written; }
+      if (answer.kind === 'record') { lines.push(...recordGroupLines(answer, head, style)); break written; }
+      if (answer.kind === 'records') {
+        answer.groups.forEach((group, index) => lines.push(...recordGroupLines(group, `[${answer.n}.${index + 1}]${index === 0 && answer.ask ? ` ${quote(answer.ask)}:` : ''}`, style)));
+        break written;
+      }
+      if (answer.kind === 'none' && answer.named) {
+        lines.push(`${head} none of the ${answer.files} shared files is named ${answer.looked_for.map(quote).join(' or ')}.`);
+        break written;
+      }
+      if (answer.kind === 'none') {
+        const where = answer.file ? answer.file : `the ${answer.files} shared files`;
+        const said = answer.missing?.length
+          ? `no indexed text in ${where} has ${answer.missing.map(quote).join(' or ')} (asked: ${quote(answer.looked_for.join(' '))})`
+          : `no indexed text in ${where} has ${answer.looked_for.map(quote).join(', ')} together`;
+        // "no row is labelled …" goes without saying when no file has the word that sets the label apart.
+        const unlabelled = answer.like && !answer.missing?.includes(answer.like.word) ? `; no row is labelled ${quote(answer.like.label)}` : '';
+        const like = answer.like?.rows ? `${unlabelled}; rows labelled like it: ${answer.like.rows.map(quote).join(', ')} (${answer.like.src.join(', ')})`
+          : answer.like ? `${unlabelled}; ${answer.like.count} rows are labelled like it` : '';
+        lines.push(`${head} ${said}${like}${answer.items.length ? '; closest:' : '.'}`,
+          ...answer.items.map((item) => `  ${candidateLine(item, { withMatch: false, style })}`),
+          ...(answer.sections ? [`  its sections: ${answer.sections.join('; ')}${answer.more_sections ? `; +${answer.more_sections} more` : ''}`] : []));
+        break written;
+      }
+      // A named file without some of the ask's words: that first, then what the file holds.
+      if (answer.kind === 'digest' && answer.absent?.length) {
+        lines.push(`${head} no indexed text in ${answer.file ?? 'the file'} has ${answer.absent.map(quote).join(' or ')}; what it holds:`);
+        answer.items.forEach((item, index) => lines.push(...evidence(item, `[${answer.n}.${index + 1}]`)));
+        break written;
+      }
+      if (answer.kind === 'matches') {
+        lines.push(`${head} ${coverageLine({ ...answer, id: 'matches' }).replace(/^matches: /, '')}`, ...answer.candidates.map((candidate) => candidateLine(candidate, { style })));
+        break written;
+      }
+      if (['found', 'computed'].includes(answer.kind) && answer.status === 'ranked') {
+        lines.push(rankedLine(answer, head, style));
+        answer.items.forEach((item, index) => lines.push(...evidence(item, `[${answer.n}.${index + 1}]`)));
+        break written;
+      }
+      const more = answer.more ? [`  (${answer.more} other, less focused hits have these words too)`] : [];
+      // Found for the rest of the ask, the words no file has being said first.
+      if (answer.kind === 'found' && answer.missing?.length) {
+        const where = answer.file ?? `the ${answer.files} shared files`;
+        const absent = answer.absent ?? [];
+        const apart = answer.missing.filter((word) => !absent.includes(word));
+        lines.push(`${head} ${[absent.length ? `no indexed text in ${where} has ${absent.map(quote).join(' or ')}` : '',
+          apart.length ? `nothing in ${where} has ${apart.map(quote).join(', ')} with the rest` : ''].filter(Boolean).join('; ')}; found for the rest:`);
+        answer.items.forEach((item, index) => lines.push(...evidence(item, `[${answer.n}.${index + 1}]`)));
+        lines.push(...more);
+        break written;
+      }
+      lines.push(...answerLines(answer, evidence), ...more);
     }
-    if (answer.kind === 'none' && answer.named) {
-      lines.push(`${head} none of the ${answer.files} shared files is named ${answer.looked_for.map(quote).join(' or ')}.`);
-      continue;
-    }
-    if (answer.kind === 'none') {
-      const where = answer.file ? answer.file : `the ${answer.files} shared files`;
-      const said = answer.missing?.length
-        ? `no indexed text in ${where} has ${answer.missing.map(quote).join(' or ')} (asked: ${quote(answer.looked_for.join(' '))})`
-        : `no indexed text in ${where} has ${answer.looked_for.map(quote).join(', ')} together`;
-      // "no row is labelled …" goes without saying when no file has the word that sets the label apart.
-      const unlabelled = answer.like && !answer.missing?.includes(answer.like.word) ? `; no row is labelled ${quote(answer.like.label)}` : '';
-      const like = answer.like?.rows ? `${unlabelled}; rows labelled like it: ${answer.like.rows.map(quote).join(', ')} (${answer.like.src.join(', ')})`
-        : answer.like ? `${unlabelled}; ${answer.like.count} rows are labelled like it` : '';
-      lines.push(`${head} ${said}${like}${answer.items.length ? '; closest:' : '.'}`,
-        ...answer.items.map((item) => `  ${candidateLine(item, { withMatch: false, style })}`),
-        ...(answer.sections ? [`  its sections: ${answer.sections.join('; ')}${answer.more_sections ? `; +${answer.more_sections} more` : ''}`] : []));
-      continue;
-    }
-    // A named file without some of the ask's words: that first, then what the file holds.
-    if (answer.kind === 'digest' && answer.absent?.length) {
-      lines.push(`${head} no indexed text in ${answer.file ?? 'the file'} has ${answer.absent.map(quote).join(' or ')}; what it holds:`);
-      answer.items.forEach((item, index) => lines.push(...evidence(item, `[${answer.n}.${index + 1}]`)));
-      continue;
-    }
-    if (answer.kind === 'matches') {
-      lines.push(`${head} ${coverageLine({ ...answer, id: 'matches' }).replace(/^matches: /, '')}`, ...answer.candidates.map((candidate) => candidateLine(candidate, { style })));
-      continue;
-    }
-    if (['found', 'computed'].includes(answer.kind) && answer.status === 'ranked') {
-      lines.push(rankedLine(answer, head, style));
-      answer.items.forEach((item, index) => lines.push(...evidence(item, `[${answer.n}.${index + 1}]`)));
-      continue;
-    }
-    const more = answer.more ? [`  (${answer.more} other, less focused hits have these words too)`] : [];
-    // Found for the rest of the ask, the words no file has being said first.
-    if (answer.kind === 'found' && answer.missing?.length) {
-      const where = answer.file ?? `the ${answer.files} shared files`;
-      const absent = answer.absent ?? [];
-      const apart = answer.missing.filter((word) => !absent.includes(word));
-      lines.push(`${head} ${[absent.length ? `no indexed text in ${where} has ${absent.map(quote).join(' or ')}` : '',
-        apart.length ? `nothing in ${where} has ${apart.map(quote).join(', ')} with the rest` : ''].filter(Boolean).join('; ')}; found for the rest:`);
-      answer.items.forEach((item, index) => lines.push(...evidence(item, `[${answer.n}.${index + 1}]`)));
-      lines.push(...more);
-      continue;
-    }
-    lines.push(...answerLines(answer, evidence), ...more);
+    // Said right under an answer's first line when that line is its own ("[1] ranked: …"), ahead of the rows; else after it.
+    const hint = [...queryHintLines(answer, style), ...operationHintLines(answer, style)];
+    const first = lines[begun] ?? '';
+    if (hint.length && lines.length > begun + 1 && answer.kind !== 'operation' && first.startsWith(`[${answer.n}] `) && !/[:,]$/.test(first)) lines.splice(begun + 1, 0, ...hint);
+    else lines.push(...hint);
   }
   return [...lines, ...notes(response.warnings)].join('\n');
 }

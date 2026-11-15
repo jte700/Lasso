@@ -87,7 +87,7 @@ function requests() {
 async function main() {
   if (!KEY && !CLAUDE) throw new Error('Set OPENAI_API_KEY or pass --key-file.');
   const library = await prepareLibrary();
-  const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'probe' });
+  const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'probe', mcp: true });
   const base = await inputTokens({ input: 'x' });
   const real = async (text) => (await inputTokens({ input: text })) - base + 1;
   const rows = [];

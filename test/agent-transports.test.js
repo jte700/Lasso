@@ -230,6 +230,35 @@ test('REST, MCP and in-process calls give the same answer for the same request',
   assert.equal(restText, mcpText);
 });
 
+test('a query over a whole table is answered over MCP only: REST and in-process callers get the answer they always did', async (t) => {
+  // Arrange
+  const { dataDir } = await agentLibrary(t);
+  const asked = { ask: ['SELECT Division, Revenue FROM "Planning/budget.csv" ORDER BY Revenue DESC'] };
+  const served = await serveAgentApi({ dataDir, scope: ['*'], open: () => openEngine({ dataDir, scope: ['*'] }), idleSeconds: 0, log: () => {} });
+  t.after(() => served.stop('test over'));
+  const local = openLocal({ dataDir, scope: ['*'] });
+  t.after(() => local.close());
+  const standIn = openLocal({ dataDir, scope: ['*'], mcp: true });
+  t.after(() => standIn.close());
+  const mcp = startMcp(t, dataDir);
+  await mcp.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'Host' } });
+
+  // Act
+  const overMcp = (await mcp.read('lasso', asked)).content[0].text;
+  const mcpJson = (await mcp.call('lasso', asked)).value;
+  const overRest = await (await fetch(`${served.url}/agent/v1/ask`, { method: 'POST',
+    headers: { authorization: `Bearer ${served.token}`, 'content-type': 'application/json' }, body: JSON.stringify(asked) })).json();
+  const inProcess = local.ask(asked);
+  mcp.child.stdin.end();
+  await mcp.exited;
+
+  // Assert
+  assert.match(overMcp, /^s1 = Finance\/Planning\/budget\.csv @[0-9a-f]{8}\n\[1\] s1 budget: 2 rows, over all 2 rows\n {2}Division \| Revenue\n {2}North division \| 12\.4\n {2}South division \| 9\.10$/);
+  assert.deepEqual(mcpJson, standIn.ask(asked), 'a benchmark opens the same answers with openLocal({ mcp: true })');
+  assert.deepEqual(overRest, inProcess);
+  assert.ok(!JSON.stringify(inProcess).includes('"query"'), 'the same words sent any other way are searched for, as before');
+});
+
 test('a leased REST server outlives its idle time, then stops by itself and removes its address once released', async (t) => {
   // Arrange
   const { dataDir } = await agentLibrary(t);

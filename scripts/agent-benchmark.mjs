@@ -605,7 +605,8 @@ async function runOnce() {
   const clients = { lasso: openLocal({ dataDir, scope: ['*'], client: 'bench' }) };
   local.cold = performance.now() - opened;
   clients.optimized = openLocal({ dataDir, scope: ['*'], client: 'bench' });
-  clients.ask = openLocal({ dataDir, scope: ['*'], client: 'bench' });
+  // The lasso tool is answered as the MCP server answers it.
+  clients.ask = openLocal({ dataDir, scope: ['*'], client: 'bench', mcp: true });
   opened = performance.now();
   openLocal({ dataDir, scope: ['*'], client: 'bench' }).close();
   local.warm = performance.now() - opened;

@@ -165,7 +165,9 @@ export function serveMcp({ input = process.stdin, output = process.stdout, open,
       return { result: { content: [{ type: 'text', text: failure({ code: 'unavailable', message: engineError.message }, format) }], isError: true } };
     }
     try {
-      const value = engine.metrics.measure(operation, 'mcp', () => engine.evidence[operation](args, actor));
+      // What was added for a model asking over MCP is reached only from here (evidence.js, `mcp`).
+      const value = engine.metrics.measure(operation, 'mcp', () => (operation === 'ask' ? engine.evidence.ask(args, actor, { mcp: true })
+        : engine.evidence[operation](args, actor)));
       const options = operation === 'ask' ? askTextOptions([...offered], args) : {};
       return { result: { content: [{ type: 'text', text: formatAnswer(operation, value, format, options) }] } };
     } catch (error) {

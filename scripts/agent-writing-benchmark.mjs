@@ -29,7 +29,7 @@ const MAX_TOOL_CHARS = 60_000;
 
 async function main() {
   const library = await prepareWritingLibrary();
-  const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'writing-benchmark' });
+  const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'writing-benchmark', mcp: true });
   const rows = [];
   try {
     for (const task of writingTasks()) {
