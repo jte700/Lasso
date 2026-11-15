@@ -54,6 +54,13 @@ test('the suggestion keys each host routes are listed for that host', () => {
   for (const expected of ['Tab', 'Ctrl+Enter', 'Ctrl+Shift+Enter', '↑↓', 'F4', 'Esc']) assert.ok(keys('windows').includes(expected), expected);
 });
 
+test('the keys of the switcher that chooses where suggestions come from are listed for the Mac', () => {
+  const switcher = catalog.sections.find((section) => section.title === 'Choosing where suggestions come from');
+  assert.ok(switcher, 'the switcher has its own section');
+  const keys = switcher.shortcuts.map((entry) => entry.macos);
+  for (const expected of ['⌥⇥', '⇥ ↓', '⇧⇥ ↑', '↩', 'Esc']) assert.ok(keys.includes(expected), expected);
+});
+
 test('each platform sees only its own shortcuts, and empty sections are left out', () => {
   const windows = shortcutSections(catalog, 'windows');
   const mac = shortcutSections(catalog, 'macos');

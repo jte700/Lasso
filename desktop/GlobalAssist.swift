@@ -34,6 +34,8 @@ final class GlobalAssistant {
 
     var serverURL: URL?
     var projectIds: [String] = []
+    /// The folder suggestions come from alone, chosen with ⌥Tab, or All.
+    var sourceScope = SourceScope()
     var workspaceRevision = ""
     var isEnabled = false
 
@@ -262,6 +264,7 @@ final class GlobalAssistant {
 
     func disable() {
         dismiss()
+        ScopeSwitcherController.shared.hide()
         dictation.stop()
         dictationDebounce?.invalidate()
         dictationDebounce = nil
@@ -329,7 +332,9 @@ final class GlobalAssistant {
             choosingWords: view.mode == .suggestions && view.wordChoice != nil,
             canUndoInsertion: undoableInsertion != nil,
             tableNavigable: currentSuggestion?.tableNavigable == true,
-            tableBrowsing: tableNavigationOrigin != nil)
+            tableBrowsing: tableNavigationOrigin != nil,
+            scopeSwitcherOpen: ScopeSwitcherController.shared.isOpen,
+            scopeSwitchAvailable: scopeSwitchAvailable)
     }
 
     func publishKeyRouting() {
@@ -412,6 +417,17 @@ final class GlobalAssistant {
         case .pickerTypedOn:
             // Typing on in the app closes the picker; suggestions follow the new words.
             hide()
+            followTextChange(trackCaret: false)
+        case .openScopeSwitcher:
+            openScopeSwitcher()
+        case .scopeMove(let steps):
+            rollScopeSwitcher(by: steps)
+        case .scopeChoose:
+            chooseShownScope()
+        case .scopeCancel:
+            ScopeSwitcherController.shared.hide()
+        case .scopeTypedOn:
+            ScopeSwitcherController.shared.hide()
             followTextChange(trackCaret: false)
         }
         publishKeyRouting()

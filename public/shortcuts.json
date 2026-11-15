@@ -50,6 +50,17 @@
       ]
     },
     {
+      "title": "Choosing where suggestions come from",
+      "note": "In any app Lasso suggests in. ⌥⇥ opens a small switcher by the caret on the folder or app in use; the card then names the one chosen beside ⌥⇥.",
+      "shortcuts": [
+        { "action": "Open the switcher", "macos": "⌥⇥" },
+        { "action": "Next folder or app", "macos": "⇥ ↓" },
+        { "action": "Previous folder or app", "macos": "⇧⇥ ↑" },
+        { "action": "Suggest only from the one shown, or from every one at All", "macos": "↩" },
+        { "action": "Keep the one chosen before", "macos": "Esc" }
+      ]
+    },
+    {
       "title": "Choosing words from a line",
       "note": "After ⇧fn → on a sentence, passage or line of code in the suggestion card, or ⇧fn ← to take words off its start.",
       "shortcuts": [
