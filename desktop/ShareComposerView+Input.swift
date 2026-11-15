@@ -68,7 +68,7 @@ extension ShareComposerView {
                     masks.removeValue(forKey: mask.locationKey)
                     endMaskEdit()
                 } else if masks.count >= 64 {
-                    notice = "Use up to 64 drawing masks. Click a mask to remove it."
+                    notice = "Use up to 64 masks. Click a mask to remove it."
                 } else {
                     drawingDrag = (point, masks, effect)
                     beginMaskEdit()

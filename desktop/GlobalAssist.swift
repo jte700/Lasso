@@ -101,6 +101,10 @@ final class GlobalAssistant {
     var focusedSource: LinkedSourceMemory.Source?
     /// The row the list a focus move asked for opens on.
     var focusLanding: FocusLanding?
+    /// The cell the card is on while fn and the arrows move it through a sheet.
+    var sheetWalk: SheetWalk?
+    /// Drops a sheet move's answer once the walk it was for has ended.
+    var sheetToken = 0
     /// The field text the card last answered, so an answer can tell whether typing has moved on since.
     var answeredText: String?
     var linkedContext: String?
@@ -317,11 +321,13 @@ final class GlobalAssistant {
             transientOpen: LassoTransientUI.shared.hasOpenSurface,
             sourceChooserVisible: SourceChooserController.shared.isVisible,
             shareComposerOpen: composer.isVisible,
+            passagePickerOpen: PassagePickerController.shared.isVisible,
             inspectorCanShare: inspector?.canShareFromKeyboard == true,
             popup: popup,
             offersChoices: !view.suggestions.isEmpty,
             highlightsLine: view.mode == .suggestions && currentSuggestion?.offersWords == true,
             choosingWords: view.mode == .suggestions && view.wordChoice != nil,
+            walkingSheet: view.mode == .suggestions && sheetWalk != nil,
             canUndoInsertion: undoableInsertion != nil)
     }
 
@@ -376,18 +382,9 @@ final class GlobalAssistant {
             stepBack()
         case .focusIn:
             view.wordChoice = nil
-            // A value has nothing below it, so there fn+Right does nothing.
-            let choice = narrowingChoice, highlighted = highlightedSource
-            guard linkedSources.canMoveIn(focusedOn: focusedSource, selected: choice?.source,
-                                          highlighted: highlighted) else { break }
-            let narrowed = linkedSources.moveIn(focusedOn: focusedSource, selected: choice?.source,
-                                                highlighted: highlighted, typed: choice?.typed)
-            // Back in a level an earlier fn+Left left, the list opens on the row
-            // that fn+Left stepped out of, so fn+Right goes on back into it.
-            focusLanding = linkedSources.steppedOutOf.map { .row(objectId: $0.objectId) } ?? .first
-            // Until the server answers, a second fn+Right starts from here, not from the old card.
-            focusedSource = narrowed
-            refresh()
+            // A spreadsheet or CSV is walked a cell at a time instead of listed.
+            if currentSuggestion?.sheetGrid == true, sheetWalk == nil { enterSheet(); break }
+            narrowFocus()
         case .shareUndo:
             ShareComposerController.shared.undoEdit()
         case .shareRedo:
@@ -400,6 +397,20 @@ final class GlobalAssistant {
             view.wordChoice?.move(forward ? .forward : .backward, selecting: selecting, toEnd: toEnd)
         case .closeWords:
             view.wordChoice = nil
+        case .pickerInsert:
+            PassagePickerController.shared.insert()
+        case .pickerLink:
+            PassagePickerController.shared.link()
+        case .pickerMove(let forward, let byLine, let extending):
+            PassagePickerController.shared.moveSelection(forward: forward, byLine: byLine, extending: extending)
+        case .pickerCancel:
+            PassagePickerController.shared.cancel()
+        case .pickerTypedOn:
+            // Typing on in the app closes the picker; suggestions follow the new words.
+            hide()
+            followTextChange(trackCaret: false)
+        case .sheetMove(let direction):
+            moveInSheet(direction)
         }
         publishKeyRouting()
     }
@@ -407,6 +418,7 @@ final class GlobalAssistant {
     /// New text in the field, typed or dictated: suggestions follow it.
     private func followTextChange(trackCaret: Bool) {
         view.wordChoice = nil
+        endSheetWalk()
         // Typing on ends a move, so a card the move left empty closes as usual.
         linkedSources.endMove()
         focusLanding = nil
@@ -628,6 +640,22 @@ final class GlobalAssistant {
         view.wordChoice = words
     }
 
+    /// fn+Right: the card narrowed to the values below the highlighted row.
+    /// A value has nothing below it, so there fn+Right does nothing.
+    func narrowFocus() {
+        let choice = narrowingChoice, highlighted = highlightedSource
+        guard linkedSources.canMoveIn(focusedOn: focusedSource, selected: choice?.source,
+                                      highlighted: highlighted) else { return }
+        let narrowed = linkedSources.moveIn(focusedOn: focusedSource, selected: choice?.source,
+                                            highlighted: highlighted, typed: choice?.typed)
+        // Back in a level an earlier fn+Left left, the list opens on the row
+        // that fn+Left stepped out of, so fn+Right goes on back into it.
+        focusLanding = linkedSources.steppedOutOf.map { .row(objectId: $0.objectId) } ?? .first
+        // Until the server answers, a second fn+Right starts from here, not from the old card.
+        focusedSource = narrowed
+        refresh()
+    }
+
     /// fn+Left: one level back. The list it returns to opens on the row
     /// stepped out of, so fn+Right goes straight back into it.
     func stepBack() {
@@ -688,6 +716,7 @@ final class GlobalAssistant {
         generation += 1
         contextReads.dropPending()
         if ShareComposerController.shared.isPresented(in: panel) { ShareComposerController.shared.hide() }
+        if PassagePickerController.shared.isPresented(in: panel) { PassagePickerController.shared.hide() }
         stopTrackingHost()
         debounce?.invalidate()
         debounce = nil
@@ -708,6 +737,7 @@ final class GlobalAssistant {
         view.returnFocusName = nil
         view.stepBackName = nil
         view.wordChoice = nil
+        endSheetWalk()
         focusedSource = nil
         focusLanding = nil
         linkedSources.endMove()

@@ -93,7 +93,7 @@ export const RECIPIENT_STYLE = `
   .shared-empty{margin:0;padding:32px 24px;color:var(--text2);font-size:13px;line-height:1.6;text-align:center}
   .shared-slide{margin:0;padding:16px;background:var(--surface)}
   .shared-slide img{display:block;width:100%;height:auto;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.14)}
-  .shared-pdf{display:block;width:100%;height:720px;height:min(78vh,900px);min-height:320px;border:0;background:var(--surface)}
+  .shared-image-frame{display:flex;justify-content:center;margin:0;padding:12px;background:var(--surface)}.shared-image{display:block;max-width:100%;max-height:min(78vh,900px);height:auto;object-fit:contain}.shared-pdf{display:block;width:100%;height:720px;height:min(78vh,900px);min-height:320px;border:0;background:var(--surface)}
   .shared-recipient .privacy-preview{margin:0;padding:20px;border:0;border-radius:0}
   .shared-recipient :is(.document-table,.shared-context-table)::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--text) 28%,transparent);background-clip:padding-box}
   .shared-recipient :is(.document-table,.shared-context-table)::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--text) 46%,transparent);background-clip:padding-box}

@@ -9,6 +9,7 @@ import { currentClauseStart, LINKED_VALUES_SHOWN, namesFocusedFile, SUGGESTIONS_
 import { dictatedNameEnds, hasSuggestions, namesInFull, softenDictatedPauses } from './dependencies/dictation.js';
 import { matchedSourceWords, typedSentence } from './dependencies/direct-match.js';
 import { focusedDependency, tag, distinctRanked } from './workspace-ranking.js';
+import { movesInSheet, SHEET_DIRECTIONS } from './dependencies/sheet-navigation.js';
 
 /** Asks whether the writer has typed past this request; carried with the input through every reading of it. */
 const CANCELLED = Symbol('cancelled');
@@ -103,6 +104,24 @@ export const workspacePredictionMethods = {
       }
     }
     return null;
+  },
+
+  /**
+   * The sheet cell beside a suggestion, for fn and an arrow key in the card:
+   * `direction` is "up", "down", "left" or "right", or "into" for the cell a
+   * dive into a row, column, cell or sheet lands on. `cell` is null at the
+   * sheet's edge.
+   */
+  sheetCell(input = {}) {
+    const { projectId, objectId, snapshotId, direction } = input;
+    if (![projectId, objectId, snapshotId].every((value) => typeof value === 'string' && value)) {
+      throw new HttpError(400, 'A sheet move needs the suggestion\'s projectId, objectId and snapshotId.');
+    }
+    if (!SHEET_DIRECTIONS.has(direction)) throw new HttpError(400, 'A sheet move goes into, up, down, left or right.');
+    const project = this.activeProjects().find((candidate) => candidate.id === projectId);
+    if (!project) throw new HttpError(404, 'That folder is not active.');
+    const found = this.dependencies.sheetNeighbour(projectId, snapshotId, objectId, direction);
+    return { cell: found ? { ...found, object: tag(found.object, project, new Map([[project.id, project]])) } : null };
   },
 
   async predictText(input = {}) {
@@ -240,9 +259,15 @@ export const workspacePredictionMethods = {
       matchedWords: namesWholeFile(item) ? [] : matchedSourceWords(item.quotedPhrase ?? sentence, [item.sourceSentence, item.replacementText, item.dependencyCandidate?.valueText,
         item.dependencyCandidate?.label, item.dependencyCandidate?.metadata?.variable, item.valueText, item.label,
         item.metadata?.variable].filter((text) => typeof text === 'string').join(' ')) }));
-    // fn+Right opens a suggestion that has values below it, such as a part's measurements.
-    const narrowing = (candidate) => this.dependencies.narrowsTo(candidate.projectId, candidate)
-      ? { ...candidate, narrowable: true } : candidate;
+    // fn+Right opens a suggestion that has values below it, such as a part's
+    // measurements. The Mac app moves into a spreadsheet or CSV instead
+    // (sheetGrid), where fn and the arrows go from cell to cell.
+    const narrowing = (candidate) => {
+      const narrowable = this.dependencies.narrowsTo(candidate.projectId, candidate);
+      const sheetGrid = movesInSheet(candidate);
+      return narrowable || sheetGrid ? { ...candidate, ...(narrowable ? { narrowable } : {}), ...(sheetGrid ? { sheetGrid } : {}) }
+        : candidate;
+    };
     const claims = new Map();
     for (const item of selected.filter((s) => s.group === 'claim')) {
       const key = `${item.claim.start}:${item.claim.end}:${item.claim.type}`;

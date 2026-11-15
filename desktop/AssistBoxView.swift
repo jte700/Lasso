@@ -130,6 +130,8 @@ final class AssistBoxView: NSView {
     /// The focus fn+Left steps a focused card back to, named in its header;
     /// nil when it steps back to every directory.
     var stepBackName: String?
+    /// Where a walk through a sheet is ("Budget.xlsx · Budget!C3"), named in the header in place of the focus.
+    var sheetPlace: String? { didSet { if sheetPlace != oldValue { needsDisplay = true } } }
     /// The highlighted line's words, opened with ⇧fn+Right or ⇧fn+Left, in place of the list.
     var wordChoice: AssistWordChoice? {
         didSet {

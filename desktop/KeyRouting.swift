@@ -19,6 +19,8 @@ struct KeyRoutingState: Equatable {
     var sourceChooserVisible = false
     /// The share options are open, in the suggestion popup or the source inspector.
     var shareComposerOpen = false
+    /// The passage picker is open over the card, and takes Tab, Escape and the arrows.
+    var passagePickerOpen = false
     /// The source inspector shows a source its Share Link can share.
     var inspectorCanShare = false
     var popup: Popup = .hidden
@@ -29,9 +31,16 @@ struct KeyRoutingState: Equatable {
     var highlightsLine = false
     /// The card shows a line's words, which take the arrows.
     var choosingWords = false
+    /// The card moves through a spreadsheet or CSV a cell at a time, on fn and the arrows.
+    var walkingSheet = false
     /// Lasso's last Tab or inserted link is the last change in the field, so
     /// ⌘Z takes it back.
     var canUndoInsertion = false
+}
+
+/// Which way fn and an arrow move the card in a sheet; `into` is the dive that starts it.
+enum SheetDirection: String, Equatable {
+    case into, up, down, left, right
 }
 
 /// Work a keystroke asks of the main thread.
@@ -60,6 +69,18 @@ enum KeyAction: Equatable {
     case moveInWords(forward: Bool, selecting: Bool, toEnd: Bool)
     /// Escape among a line's words goes back to the card's list.
     case closeWords
+    /// Tab, Return or ⌘Return in the passage picker: the highlighted words.
+    case pickerInsert
+    /// ⇧⌘Return in the passage picker: the highlighted words as a share link.
+    case pickerLink
+    /// An arrow in the passage picker moves or, with ⇧, extends the highlight.
+    case pickerMove(forward: Bool, byLine: Bool, extending: Bool)
+    /// Escape in the passage picker goes back to the card.
+    case pickerCancel
+    /// A key typed into the app while the picker is open closes it, and the key goes on to the app.
+    case pickerTypedOn
+    /// fn and an arrow in a sheet: the card moves to the cell that way.
+    case sheetMove(SheetDirection)
 }
 
 enum KeyDecision: Equatable {
@@ -73,11 +94,14 @@ enum KeyRouter {
     private static let left: Int64 = 123, right: Int64 = 124, down: Int64 = 125, up: Int64 = 126
     /// What macOS sends for fn+← and fn+→ (and a full keyboard's own Home and End keys).
     private static let home: Int64 = 115, end: Int64 = 119
+    /// What macOS sends for fn+↑ and fn+↓ (and a full keyboard's Page Up and Page Down).
+    private static let pageUp: Int64 = 116, pageDown: Int64 = 121
 
     static func decide(keyCode: Int64, flags: CGEventFlags, synthetic: Bool,
                        state: KeyRoutingState) -> KeyDecision {
         // Our own synthesized keys are not the user typing.
         if synthetic || state.isInserting { return .pass(nil) }
+        if state.passagePickerOpen, !state.shareComposerOpen { return pickerDecision(keyCode, flags: flags) }
         let commandLike = !flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty
         let choosingWords = state.choosingWords && state.popup == .suggestions
             && !state.sourceChooserVisible && !state.shareComposerOpen
@@ -108,6 +132,16 @@ enum KeyRouter {
            keyCode == home || keyCode == end, flags.contains(.maskShift),
            flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty {
             return .swallow(.openWords(movingStart: keyCode == home))
+        }
+        // In a sheet, fn and each arrow move a cell; fn+Left at the left edge steps back out.
+        if state.popup == .suggestions, state.walkingSheet, !chord {
+            switch keyCode {
+            case home: return .swallow(.sheetMove(.left))
+            case end: return .swallow(.sheetMove(.right))
+            case pageUp: return .swallow(.sheetMove(.up))
+            case pageDown: return .swallow(.sheetMove(.down))
+            default: break
+            }
         }
         // fn+Right narrows the card's focus a level and fn+Left steps back
         // one. While the card is up they never reach the host, so at the top
@@ -159,6 +193,32 @@ enum KeyRouter {
             return .swallow(.moveInWords(forward: keyCode == end, selecting: true, toEnd: true))
         default:
             return nil
+        }
+    }
+
+    /// The passage picker keeps the writer's app focused, so its keys come
+    /// through here: Tab inserts, Escape goes back, the arrows change the
+    /// highlight. Shortcuts stay the app's; anything typed closes the picker.
+    private static func pickerDecision(_ keyCode: Int64, flags: CGEventFlags) -> KeyDecision {
+        let command = flags.contains(.maskCommand)
+        let shift = flags.contains(.maskShift)
+        let otherChord = !flags.intersection([.maskControl, .maskAlternate]).isEmpty
+        switch keyCode {
+        case escape where !command && !otherChord:
+            return .swallow(.pickerCancel)
+        case tab where !command && !otherChord && !shift:
+            return .swallow(.pickerInsert)
+        case returnKey, enter:
+            if command && shift { return .swallow(.pickerLink) }
+            if !otherChord { return .swallow(.pickerInsert) }
+            return .pass(nil)
+        case left, right, up, down:
+            guard !command, !flags.contains(.maskControl) else { return .pass(nil) }
+            return .swallow(.pickerMove(forward: keyCode == right || keyCode == down,
+                                        byLine: keyCode == up || keyCode == down, extending: shift))
+        default:
+            if command || flags.contains(.maskControl) { return .pass(nil) }
+            return .pass(.pickerTypedOn)
         }
     }
 

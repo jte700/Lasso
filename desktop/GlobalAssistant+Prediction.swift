@@ -44,7 +44,7 @@ extension GlobalAssistant {
     }
 
     func scheduleRefresh() {
-        guard !ShareComposerController.shared.isVisible else { return }
+        guard !ShareComposerController.shared.isVisible, !PassagePickerController.shared.isVisible else { return }
         // A brief message must not swallow the next words the writer types,
         // such as the first word of the following sentence. It stays long
         // enough to be read, then gives way to suggestions for that text.
@@ -291,7 +291,8 @@ extension GlobalAssistant {
     func deliverPrediction(_ suggestions: [AssistSuggestion], heading: String?, sourceScoped: Bool,
                            focus: LinkedSourceMemory.Source? = nil, captured: CaretContext,
                            pause: Int = 0, token: Int) {
-        guard token == generation, isEnabled else { return }
+        // A walk through a sheet keeps its cell until typing ends it.
+        guard token == generation, isEnabled, sheetWalk == nil else { return }
         request = nil
         if isDictating {
             dictationLog.debug("answer: \(suggestions.count, privacy: .public) rows")
@@ -383,7 +384,7 @@ extension GlobalAssistant {
         return nil
     }
 
-    private static func sourceLocation(_ candidate: [String: Any]) -> String {
+    static func sourceLocation(_ candidate: [String: Any]) -> String {
         let anchor = candidate["anchor"] as? [String: Any] ?? [:]
         let metadata = candidate["metadata"] as? [String: Any] ?? [:]
         // Equal CAD values ("10 mm") are told apart by the feature they measure.
@@ -465,7 +466,7 @@ extension GlobalAssistant {
             let candidate = completion["dependencyCandidate"] as? [String: Any] ?? [:]
             let source = completion["source"] as? [String: Any] ?? [:]
             if let projectId = owner(completion, candidate, source) {
-                append(AssistSuggestion(
+                var continuation = AssistSuggestion(
                     insertText: insert,
                     label: insert.trimmingCharacters(in: .whitespaces),
                     detail: "sentence", path: source["path"] as? String ?? "", location: "",
@@ -476,7 +477,9 @@ extension GlobalAssistant {
                     projectId: projectId,
                     rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String,
                     previewText: completion["sourceSentence"] as? String ?? insert.trimmingCharacters(in: .whitespacesAndNewlines),
-                    sentenceContinuation: true), rankedBy: completion)
+                    sentenceContinuation: true)
+                continuation.opensPassagePicker = PassageDocument.opensPicker(candidate: candidate)
+                append(continuation, rankedBy: completion)
             }
         }
 
@@ -490,7 +493,7 @@ extension GlobalAssistant {
                 guard let replacement = CompletionReplacement.capture(start: entry["claimStart"] as? Int,
                     end: entry["claimEnd"] as? Int, in: requestedText,
                     replacingSpaces: entry["verbatim"] as? Bool == true) else { continue }
-                append(AssistSuggestion(
+                var passage = AssistSuggestion(
                     // A code range inserts several lines; the row names its first one.
                     insertText: insert, label: entry["label"] as? String ?? insert,
                     detail: entry["detail"] as? String ?? candidate["valueText"] as? String ?? (entry["category"] as? String ?? ""),
@@ -507,7 +510,10 @@ extension GlobalAssistant {
                     previewText: entry["sourceSentence"] as? String ?? insert,
                     shareable: candidate["shareable"] as? Bool ?? true,
                     narrowable: candidate["narrowable"] as? Bool == true,
-                    verbatim: entry["verbatim"] as? Bool == true), rankedBy: entry)
+                    verbatim: entry["verbatim"] as? Bool == true)
+                passage.opensPassagePicker = entry["verbatim"] as? Bool != true && PassageDocument.opensPicker(candidate: candidate)
+                passage.sheetGrid = candidate["sheetGrid"] as? Bool == true
+                append(passage, rankedBy: entry)
             }
         }
 
@@ -551,6 +557,8 @@ extension GlobalAssistant {
                     narrowable: candidate["narrowable"] as? Bool == true)
                 suggestion.videoTime = AssistVideoPreview.seconds((candidate["anchor"] as? [String: Any])?["time"])
                 suggestion.joinsTyping = claimType == "QUOTED_PHRASE"
+                suggestion.opensPassagePicker = PassageDocument.opensPicker(candidate: candidate)
+                suggestion.sheetGrid = candidate["sheetGrid"] as? Bool == true
                 append(suggestion, rankedBy: candidate)
             }
         }

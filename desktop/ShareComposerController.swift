@@ -196,6 +196,7 @@ final class ShareComposerController: NSObject {
         if panel.isKeyWindow { panel.makeFirstResponder(view) }
         panel.orderFrontRegardless()
 
+        if view.isPicture { loadPicture(objectId: objectId, versionId: versionId, serverURL: serverURL, token: token) }
         for endpoint in ["preview", "document"] {
             var components = URLComponents(
                 url: serverURL.appendingPathComponent("api/dependency-objects")
@@ -267,6 +268,29 @@ final class ShareComposerController: NSObject {
                 guard let self, token == self.generation else { return }
                 self.view.loadedPDFDocument = document
                 self.view.isPDFLoading = false
+                self.view.needsDisplay = true
+            }
+        }
+        requests.append(task)
+        task.resume()
+    }
+
+    /// The picture itself, which the composer draws and masks are dragged over.
+    private func loadPicture(objectId: String, versionId: String?, serverURL: URL, token: Int) {
+        var components = URLComponents(url: serverURL.appendingPathComponent("api/dependency-objects")
+            .appendingPathComponent(objectId).appendingPathComponent("source"), resolvingAgainstBaseURL: false)
+        if let versionId { components?.queryItems = [URLQueryItem(name: "version", value: versionId)] }
+        guard let url = components?.url else { return }
+        view.isPictureLoading = true
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
+            let ok = (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
+            let picture = ok ? data.flatMap(NSImage.init(data:)) : nil
+            DispatchQueue.main.async {
+                guard let self, token == self.generation else { return }
+                self.view.picture = picture
+                self.view.isPictureLoading = false
                 self.view.needsDisplay = true
             }
         }

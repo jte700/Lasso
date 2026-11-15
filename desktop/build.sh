@@ -315,6 +315,10 @@ echo "==> Compiling safe PDF sharing renderer"
 swift_binary "$RESOURCES/app/scripts/render-shared-pdf" -framework PDFKit -framework AppKit \
   "$ROOT/scripts/render-shared-pdf.swift"
 
+echo "==> Compiling redacted picture renderer"
+swift_binary "$RESOURCES/app/scripts/render-shared-image" -framework AppKit -framework CoreImage \
+  -framework ImageIO -framework UniformTypeIdentifiers "$ROOT/scripts/render-shared-image.swift"
+
 echo "==> Compiling document page renderer for marked-up shares"
 swift_binary "$RESOURCES/app/scripts/render-document-pages" -framework AppKit -framework PDFKit -framework QuickLookThumbnailing \
   "$ROOT/scripts/render-document-pages.swift"
@@ -420,6 +424,7 @@ echo "==> Signing"
 # bundled Node, the helpers, the launcher and the containing app without a
 # second prompt.
 HELPERS=("$RESOURCES/app/scripts/extract-drawing-layout" "$RESOURCES/app/scripts/render-shared-pdf"
+  "$RESOURCES/app/scripts/render-shared-image"
   "$RESOURCES/app/scripts/render-document-pages" "$RESOURCES/app/scripts/transcribe-video")
 if [ "$RELEASE" = "1" ]; then
   # Notarization needs the hardened runtime and a secure timestamp on every

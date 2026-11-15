@@ -31,9 +31,15 @@ extension AssistBoxView {
             // Clear of the row counter when it shows.
             let width = suggestions.count > visibleSuggestionCount ? leftWidth - 170 : leftWidth - 40
             // fn+Right opens the highlighted row when it has values below it.
-            let narrowsInto = suggestions.indices.contains(selected) && suggestions[selected].narrowable
+            let narrowsInto = suggestions.indices.contains(selected)
+                && (suggestions[selected].narrowable || suggestions[selected].sheetGrid)
                 ? suggestions[selected].label : nil
-            if sourceScoped {
+            if let sheetPlace {
+                // In a sheet fn and every arrow move a cell.
+                drawLabel(sheetPlace, key: "fn ←↑↓→",
+                          in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
+                          font: navigationFont, color: .controlAccentColor)
+            } else if sourceScoped {
                 drawLabel("‹ \(stepBackName ?? "All sources")", key: "fn ←",
                           in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
                           font: navigationFont, color: .controlAccentColor)
@@ -188,57 +194,7 @@ extension AssistBoxView {
 
     /// A capsule button, as macOS draws its pill buttons, centred in `rect`.
     func drawActionButton(_ title: String, symbol: String, in rect: NSRect, style: ActionButtonStyle = .secondary) {
-        let height: CGFloat = 30
-        let pill = NSRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height)
-        let path = NSBezierPath(roundedRect: pill, xRadius: height / 2, yRadius: height / 2)
-        let increaseContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
-        let titleColor: NSColor
-        let symbolColor: NSColor
-        switch style {
-        case .prominent:
-            // White in light and dark alike, lifted off the glass by a soft shadow.
-            NSGraphicsContext.current?.saveGraphicsState()
-            let shadow = NSShadow()
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.18)
-            shadow.shadowBlurRadius = 3
-            shadow.shadowOffset = NSSize(width: 0, height: -1)
-            shadow.set()
-            NSColor.white.setFill()
-            path.fill()
-            NSGraphicsContext.current?.restoreGraphicsState()
-            NSColor.black.withAlphaComponent(increaseContrast ? 0.35 : 0.08).setStroke()
-            path.lineWidth = 0.5
-            path.stroke()
-            titleColor = NSColor(white: 0.1, alpha: 1)
-            symbolColor = titleColor
-        case .secondary:
-            NSColor.labelColor.withAlphaComponent(increaseContrast ? 0.16 : 0.08).setFill()
-            path.fill()
-            if increaseContrast {
-                NSColor.separatorColor.setStroke()
-                path.lineWidth = 0.5
-                path.stroke()
-            }
-            titleColor = .labelColor
-            symbolColor = .secondaryLabelColor
-        }
-
-        let font = NSFont.systemFont(ofSize: 12, weight: style == .prominent ? .semibold : .medium)
-        let titleWidth = ceil((title as NSString).size(withAttributes: [.font: font]).width)
-        let groupWidth = CGFloat(13 + 7) + titleWidth
-        let groupX = pill.midX - groupWidth / 2
-        if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-                .applying(NSImage.SymbolConfiguration(paletteColors: [symbolColor]))) {
-            image.isTemplate = false
-            image.draw(in: NSRect(x: groupX, y: pill.midY - 6.5, width: 13, height: 13),
-                       from: .zero, operation: .sourceOver, fraction: 1,
-                       respectFlipped: true, hints: nil)
-        }
-        drawText(title,
-                 in: NSRect(x: groupX + 20, y: pill.midY - 8.5,
-                           width: titleWidth + 2, height: 17),
-                 font: font, color: titleColor)
+        AssistPill.draw(title, symbol: symbol, in: rect, style: style == .prominent ? .prominent : .secondary)
     }
 
     func drawMultilineText(_ value: String, in rect: NSRect, font: NSFont, color: NSColor,

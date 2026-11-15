@@ -19,6 +19,8 @@ extension GlobalAssistant {
         guard !choosesNoWords else { return }
         guard view.mode == .suggestions,
               let suggestion = acceptedSuggestion else { hide(); return }
+        // A passage is picked from its document: the writer chooses the exact words.
+        if suggestion.opensPassagePicker, view.wordChoice == nil, openPassagePicker(for: suggestion) { return }
         switch InsertionMode.current {
         case .plain:
             acceptPlain()
@@ -85,7 +87,7 @@ extension GlobalAssistant {
         beginShare(suggestion)
     }
 
-    private func beginShare(_ suggestion: AssistSuggestion) {
+    func beginShare(_ suggestion: AssistSuggestion) {
         guard let serverURL, let savedContext = context, !suggestion.projectId.isEmpty, let objectId = suggestion.objectId else {
             flash(["Sharing is unavailable right now."])
             return
@@ -164,7 +166,7 @@ extension GlobalAssistant {
     /// that returns to the main thread before anything is written is dropped
     /// if a hide or new typing happened meanwhile; once writing has started,
     /// the insertion always finishes verifying and reports.
-    private func insertPlain(_ suggestion: AssistSuggestion) {
+    func insertPlain(_ suggestion: AssistSuggestion) {
         undoableInsertion = nil
         guard let context else { hide(); return }
 
@@ -277,6 +279,7 @@ extension GlobalAssistant {
         case .verified(let verified, let after):
             undoableInsertion = AcceptedInsertion(element: element, caret: verified.documentRange.upperBound,
                                                   inserted: plan.insertText, replaced: plan.expectedPrefix)
+            undoableInsertion?.keepsText = suggestion.fromPassagePicker
             recordInsertion(verified, after: after, plan: plan, suggestion: suggestion, element: element,
                             shareToken: share?.token)
         }
@@ -510,6 +513,7 @@ extension GlobalAssistant {
         guard let insertion = undoableInsertion else { SyntheticKeyboard.undo(); return }
         undoableInsertion = nil
         hide()
+        if insertion.keepsText { unlinkInsertion(insertion); return }
         isInserting = true
         AccessibilityWork.queue.async { [weak self] in
             guard let fresh = AccessibilityReader.focusedContext(extending: insertion.inserted.utf16.count),
@@ -522,6 +526,30 @@ extension GlobalAssistant {
             }
             AccessibilityReader.revert(plan, in: insertion.element, expected: fresh,
                                        unlink: insertion.share != nil) { reverted in
+                DispatchQueue.main.async { self?.finishUndo(insertion, reverted: reverted) }
+            }
+        }
+    }
+
+    /// ⌘Z after words chosen in the passage picker: they stay, and only their
+    /// link goes, the highlight Lasso keeps on them and, for an inserted link,
+    /// the hyperlink, written over as plain words. The next ⌘Z is the app's.
+    private func unlinkInsertion(_ insertion: AcceptedInsertion) {
+        guard insertion.share != nil else {
+            if let id = insertion.referenceId { DependencyHighlighter.shared.unlink(id: id) }
+            return
+        }
+        isInserting = true
+        AccessibilityWork.queue.async { [weak self] in
+            guard let fresh = AccessibilityReader.focusedContext(extending: insertion.inserted.utf16.count),
+                  CFEqual(fresh.element, insertion.element),
+                  let plan = insertion.unlinkPlan(windowStart: fresh.windowStart, text: Array(fresh.text.utf16),
+                                                  caret: fresh.absoluteCaret) else {
+                SyntheticKeyboard.undo()
+                DispatchQueue.main.async { self?.isInserting = false }
+                return
+            }
+            AccessibilityReader.revert(plan, in: insertion.element, expected: fresh, unlink: true) { reverted in
                 DispatchQueue.main.async { self?.finishUndo(insertion, reverted: reverted) }
             }
         }

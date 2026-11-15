@@ -190,6 +190,27 @@ do {
     check(ShareAccessScope.offered(for: .writing, hasCitedPart: true) == [.document, .redacted]
           && ShareAccessScope.offered(for: .writing, hasCitedPart: true, markable: true) == [.document, .redacted, .marked],
           "writing offers no cited part, even when a passage is cited")
+    check(["Site Standup.mov", "Walkthrough.MP4", "Clip.m4v"].allSatisfy { ShareSourceKind(filename: $0) == .video }
+          && ShareAccessScope.offered(for: .video, hasCitedPart: true) == [.document],
+          "a video is shared whole, with nothing to cut out, redact or mark")
+    check(["Site.png", "Photo.JPG", "Chart.gif", "Survey.tiff"].allSatisfy { ShareSourceKind(filename: $0) == .image }
+          && ShareAccessScope.offered(for: .image, hasCitedPart: true) == [.document, .redacted],
+          "a picture is shared whole or redacted, never as a cited part")
+    check(["Plan.dxf", "Duplex.IFC"].allSatisfy { ShareSourceKind(filename: $0) == .planDrawing }
+          && ShareAccessScope.offered(for: .planDrawing, hasCitedPart: true) == [.document, .redacted],
+          "a 2D drawing is shared whole or redacted, never as a cited part")
+    do {
+        let picture = ShareDrawingLayout(frame: NSRect(x: 100, y: 50, width: 400, height: 200), kind: "IMAGE")
+        let left = picture.redaction(from: NSPoint(x: 100, y: 50), to: NSPoint(x: 300, y: 150), effect: .blank)
+        let right = picture.redaction(from: NSPoint(x: 300, y: 150), to: NSPoint(x: 500, y: 250), effect: .blur)
+        check(left?.kind == "IMAGE" && left?.x == 0 && left?.y == 0 && left?.width == 0.5 && left?.height == 0.5,
+              "an area dragged over a picture is its share of the picture from the top left")
+        check(left.flatMap(picture.rect(for:)) == NSRect(x: 100, y: 50, width: 200, height: 100)
+              && left?.locationKey != right?.locationKey,
+              "each area of a picture is its own mask, drawn back where it was dragged")
+        check(left.flatMap(ShareDrawingLayout(frame: picture.frame).rect(for:)) == nil,
+              "a picture's mask is never read as a drawing's")
+    }
     check(ShareAccessScope.offered(for: .other, hasCitedPart: false, markable: true) == [.document, .indexed, .redacted, .marked]
           && ShareAccessScope.offered(for: .presentation, hasCitedPart: false, markable: true) == [.document, .marked]
           && ShareAccessScope.offered(for: .presentation, hasCitedPart: true, markable: true) == [.document, .indexed, .marked],
@@ -285,6 +306,11 @@ do {
     let edited = units("The plate is Bracket.stp ")
     check(insertion.revertPlan(windowStart: 100, text: edited, caret: 100 + edited.count) == nil,
           "inserted text that was changed is left alone")
+    let unlink = insertion.unlinkPlan(windowStart: 100, text: after, caret: 100 + after.count)
+    check(unlink.map { string(CompletionTransaction.apply($0, to: after)) } == "The plate is Bracket.step",
+          "unlinking words chosen in the passage picker keeps them, written again as plain words")
+    check(insertion.unlinkPlan(windowStart: 100, text: after + units("x"), caret: 101 + after.count) == nil,
+          "after more typing unlinking leaves the field to the host")
     let nbsp = units("The hole is 8 mm\u{00A0}")
     let spaced = AcceptedInsertion(element: element, caret: nbsp.count, inserted: "8 mm ", replaced: "")
     check(spaced.revertPlan(windowStart: 0, text: nbsp, caret: nbsp.count)?.expectedPrefix == "8 mm\u{00A0}",
@@ -2702,6 +2728,14 @@ check(escapeQuiet.holds(for: "The total is 4.5 and the rest is 3.2 of"), "a deci
 escapeQuiet.escaped(at: "Other field")
 escapeQuiet.clear()
 check(!escapeQuiet.holds(for: "Other field text"), "another field starts fresh")
+escapeQuiet.escaped(at: "Can we move the mee")
+check(escapeQuiet.holds(for: "Can we move the meeting"), "a field's first sentence stays quiet as it is written on")
+check(escapeQuiet.holds(for: "Ca"), "deleting into its first word stays quiet")
+check(!escapeQuiet.holds(for: ""), "a field emptied, as a chat app does on sending, gets suggestions again")
+escapeQuiet.escaped(at: "Can we move the mee")
+check(!escapeQuiet.holds(for: "Revenue was"), "a new message written over the escaped one gets suggestions")
+escapeQuiet.escaped(at: "Notes. Can we move the mee")
+check(!escapeQuiet.holds(for: "Notes. Revenue"), "the escaped sentence deleted and rewritten gets suggestions")
 
 print("fields for finding things get no card")
 check(HostTextSafety.isLookup(role: "AXTextField", subrole: "AXSearchField", identifier: nil), "a search field is not written in")
@@ -2797,6 +2831,8 @@ do {
     let line = " 6061 aluminium with a 3 mm wall, anodised black."
     check(!AssistWordChoice.offers("Office supplies budget") && !AssistWordChoice.offers("first line\nsecond line here"),
           "names and several lines do not open into words")
+    check(!AssistWordChoice.offers(line, from: "/Decks/Architecture-Overview.PPTX") && AssistWordChoice.offers(line, from: "/Notes/Close.md"),
+          "a slide's line never opens to choose its words; its words are highlighted on the slide")
     check(AssistWordChoice.offers(line) && AssistWordChoice.offers("const total = await fetchTotal(id);"),
           "sentences and lines of code do")
     var words = AssistWordChoice(text: line)!
@@ -2888,6 +2924,16 @@ do {
           "with no card on screen, fn+arrows belong to the host")
     check(chord(119, fnArrow, KeyRoutingState(popup: .confirmShare)) == .pass(.followTyping(trackCaret: true)),
           "the share question leaves fn+arrows to the host")
+    // In a spreadsheet or CSV, fn and every arrow move the card a cell; fn+↑ and fn+↓ arrive as Page Up (116) and Page Down (121).
+    let walking = KeyRoutingState(popup: .suggestions, walkingSheet: true)
+    check(chord(115, fnArrow, walking) == .swallow(.sheetMove(.left)) && chord(119, fnArrow, walking) == .swallow(.sheetMove(.right))
+          && chord(116, fnArrow, walking) == .swallow(.sheetMove(.up)) && chord(121, fnArrow, walking) == .swallow(.sheetMove(.down)),
+          "fn and an arrow move a cell at a time in a sheet")
+    check(route(48, walking) == .swallow(.activate), "Tab inserts the cell the card is on")
+    check(chord(116, fnArrow, open) == .pass(.followTyping(trackCaret: true)),
+          "outside a sheet fn+Up stays the host's Page Up")
+    check(chord(116, [.maskSecondaryFn, .maskShift], walking) == .pass(.followTyping(trackCaret: true)),
+          "Shift+fn+Up still selects a page in the host")
     let empty = KeyRoutingState(popup: .suggestions, offersChoices: false)
     check(chord(119, fnArrow, empty) == .swallow(.focusIn), "an empty card kept after a move still moves back with fn+Right")
     check(route(48, empty) == .pass(.followTyping(trackCaret: true)) && route(125, empty) == .pass(.followTyping(trackCaret: true))
@@ -4704,6 +4750,113 @@ do {
     check(passage?.note(date: { _ in "Nov 10, 3:04 PM" }) == "was \u{201C}Soil moisture in plot B rose by 18 percent.\u{201D} \u{00B7} Nov 10, 3:04 PM",
           "a changed passage's note quotes what it was and says when")
     check(kept?.available == false, "a version whose copy was not kept says so, and its menu entry is disabled")
+}
+
+
+// The passage picker: what a highlight inserts, how it is cited, and how it joins the typed words.
+do {
+    let json = #"""
+    {"document":{"name":"Site Standup.mov","kind":"video","lineBreaks":"space","truncated":false,
+     "text":"0:00  Good morning.\n0:02  The fire inspection is booked.\n",
+     "decorations":[{"start":0,"end":6},{"start":20,"end":26}],"headings":[],
+     "places":[{"start":6,"end":10,"kind":"time","time":0.0},{"start":11,"end":19,"kind":"time","time":0.5},
+               {"start":26,"end":29,"kind":"time","time":2.7},{"start":30,"end":34,"kind":"time","time":3.0},
+               {"start":35,"end":45,"kind":"time","time":3.3}],
+     "selection":{"start":26,"end":56}}}
+    """#
+    let video = PassageDocument.parse(Data(json.utf8))
+    check(video?.selection == NSRange(location: 26, length: 30), "the picker opens on the passage the suggestion cited")
+    let both = NSRange(location: 0, length: 56)
+    check(video?.insertedText(both) == "Good morning. The fire inspection is booked.",
+          "a highlight across a video's lines is inserted as one run of words, without the times (\(video?.insertedText(both) ?? "nil"))")
+    check(video?.citation(for: NSRange(location: 26, length: 30)) == "(Site Standup.mov, 0:02)", "a video is cited at the moment the highlight starts")
+    check(video?.time(of: NSRange(location: 30, length: 4)) == 3.0, "a video link starts where the highlight does")
+
+    let slides = PassageDocument(name: "Q3-Sprint-Review.pptx", kind: "slides", text: "Slide 2\nHighlights\n• Panel live\n\nSlide 3\n• Rate limit raised\n",
+        decorations: [NSRange(location: 0, length: 8), NSRange(location: 19, length: 2), NSRange(location: 33, length: 8), NSRange(location: 41, length: 2)],
+        headings: [], places: [PassagePlace(range: NSRange(location: 8, length: 24), kind: "slide", time: nil, number: 2, title: nil),
+                               PassagePlace(range: NSRange(location: 41, length: 19), kind: "slide", time: nil, number: 3, title: nil)],
+        joinsLines: false, selection: nil, unavailable: nil, truncated: false)
+    check(slides.insertedText(NSRange(location: 8, length: 24)) == "Highlights\nPanel live", "a deck's lines stay lines, without their bullets")
+    check(slides.citation(for: NSRange(location: 21, length: 10)) == "(Q3-Sprint-Review.pptx, slide 2)", "a slide is cited by the file and its number")
+    check(slides.citation(for: NSRange(location: 21, length: 30)) == "(Q3-Sprint-Review.pptx, slides 2\u{2013}3)", "a highlight across slides cites them all")
+    check(PassageDocument.numbered("page", [3, 5]) == "pages 3, 5", "pages apart are listed")
+
+    // Words read off a slide's picture, matched to the deck's own text so the inserted words are exact.
+    let read = [PassageSlideWord(text: "HIGHLIGHTS", box: CGRect(x: 0.1, y: 0.1, width: 0.4, height: 0.08), line: 0),
+                PassageSlideWord(text: "Pane1", box: CGRect(x: 0.12, y: 0.3, width: 0.12, height: 0.05), line: 1),
+                PassageSlideWord(text: "live", box: CGRect(x: 0.26, y: 0.3, width: 0.08, height: 0.05), line: 1)]
+    let onSlide = PassageSlideWords.aligned(read, to: slides, slide: 2)
+    check(onSlide.map(\.source) == [NSRange(location: 8, length: 10), NSRange(location: 21, length: 5), NSRange(location: 27, length: 4)],
+          "each word on a slide's picture is matched to the deck's text, a misread word between two matches included")
+    check(PassageSlideWords.text(onSlide, 0...2, in: slides) == "Highlights\nPanel live",
+          "words highlighted on a slide insert as the deck writes them, not as they were read off the picture")
+    check(PassageSlideWords.citation(onSlide, 1...2, in: slides) == "(Q3-Sprint-Review.pptx, slide 2)", "words on a slide cite that slide")
+    check(PassageSlideWords.covering(onSlide, NSRange(location: 21, length: 10)) == 1...2,
+          "the passage the suggestion cited opens highlighted on the slide")
+    check(PassageSlideWords.nearest(onSlide, to: CGPoint(x: 0.3, y: 0.33)) == 2
+          && PassageSlideWords.nearest(onSlide, to: CGPoint(x: 0.9, y: 0.32)) == 2
+          && PassageSlideWords.nearest(onSlide, to: CGPoint(x: 0.05, y: 0.12)) == 0,
+          "a press on or beside a line of the slide lands on its nearest word")
+    let unmatched = [PassageSlideWord(text: "Logo", box: CGRect(x: 0.8, y: 0.9, width: 0.1, height: 0.05), line: 2)]
+    check(PassageSlideWords.text(PassageSlideWords.aligned(unmatched, to: slides, slide: 2), 0...0, in: slides) == "Logo",
+          "words the deck's text does not have are inserted as they were read")
+    check(PassageDocument.numbered("line", [12, 14], listed: false) == "lines 12\u{2013}14", "lines are cited as a span")
+    let memo = PassageDocument(name: "Spec.docx", kind: "word", text: "Scope", decorations: [], headings: [],
+        places: [PassagePlace(range: NSRange(location: 0, length: 5), kind: "section", time: nil, number: nil, title: nil)],
+        joinsLines: false, selection: nil, unavailable: nil, truncated: false)
+    check(memo.citation(for: NSRange(location: 0, length: 5)) == "(Spec.docx)", "a Word paragraph with no heading above it cites the file alone")
+    check(PassageDocument.timestamp(3723) == "1:02:03" && PassageDocument.timestamp(4.6) == "0:04", "times read as a player shows them")
+
+    let quoted = PassageInsertion.plan(body: "The fire inspection is booked for the 15th.", citation: "(Site Standup.mov, 0:02)",
+                                       quoted: true, before: "Reminder that the fire insp")
+    check(quoted == .init(text: "\"The fire inspection is booked for the 15th.\" (Site Standup.mov, 0:02)", replaceStart: 14, replaceEnd: 27),
+          "a quote that starts with the typed words is typed in their place, never after them")
+    let opened = PassageInsertion.plan(body: "The fire inspection is booked.", citation: "(Site Standup.mov, 0:02)", quoted: true, before: "He said \"the fire")
+    check(opened?.replaceStart == 8 && opened?.text.hasPrefix("\"The fire") == true, "a quote the writer opened is not opened twice")
+    let after = PassageInsertion.plan(body: "Tracking panel live", citation: "(Review.pptx, slide 2)", quoted: false, before: "Customers saw it go")
+    check(after == .init(text: " Tracking panel live (Review.pptx, slide 2)", replaceStart: 19, replaceEnd: 19),
+          "a highlight that does not start with the typed words goes after them, set apart by a space")
+    let otherForm = PassageInsertion.plan(body: "Shipments stored in PostgreSQL behind a fixed connection pool", citation: nil,
+                                          quoted: false, before: "The shipment stored")
+    check(otherForm == .init(text: "Shipments stored in PostgreSQL behind a fixed connection pool", replaceStart: 4, replaceEnd: 19),
+          "typed words in another form of the highlight's first words (shipment, Shipments) are replaced, never written twice")
+    check(PassageInsertion.plan(body: "News of the merger", citation: nil, quoted: false, before: "It was new ")?.replaceStart == 11,
+          "short words in other forms are not taken for each other")
+    let plain = PassageInsertion.plan(body: "raised from 100 to 120", citation: nil, quoted: true, before: "It was raised ")
+    check(plain == .init(text: "raised from 100 to 120", replaceStart: 7, replaceEnd: 13),
+          "without its source a highlight is inserted exactly, unquoted, keeping the space typed after the words")
+    check(PassageInsertion.plan(body: "  ", citation: nil, quoted: false, before: "x") == nil, "nothing highlighted inserts nothing")
+    let fire = PassageTrigger(fromEnd: 8, length: 8, text: "the fire")
+    let chosen = PassageInsertion.plan(body: "Please keep the loading dock clear after four.", citation: nil, quoted: true,
+                                       before: "Note: the fire", replacing: fire)
+    check(chosen == .init(text: "Please keep the loading dock clear after four.", replaceStart: 6, replaceEnd: 14),
+          "a highlight the writer chose takes the place of the typed words the suggestion was found by")
+    let cited = PassageInsertion.plan(body: "Please keep the loading dock clear after four.", citation: "(Site Standup.mov, 0:07)",
+                                      quoted: true, before: "Note: the fire ", replacing: PassageTrigger(fromEnd: 9, length: 8, text: "the fire"))
+    check(cited?.replaceStart == 6 && cited?.replaceEnd == 14 && cited?.text.hasPrefix("\"Please keep") == true,
+          "a chosen quote replaces the typed words and keeps the space typed after them")
+    check(PassageTrigger(fromEnd: 8, length: 8, text: "the fire").range(in: "Note: the fir") == nil,
+          "typed words that changed since are not replaced")
+
+    let picking = KeyRoutingState(passagePickerOpen: true, popup: .suggestions)
+    let pickerKey = { (code: Int64, flags: CGEventFlags) in KeyRouter.decide(keyCode: code, flags: flags, synthetic: false, state: picking) }
+    check(pickerKey(48, []) == .swallow(.pickerInsert), "Tab in the picker inserts the highlight")
+    check(pickerKey(53, []) == .swallow(.pickerCancel), "Escape in the picker goes back to the card")
+    check(pickerKey(36, [.maskCommand, .maskShift]) == .swallow(.pickerLink), "\u{21E7}\u{2318}Return in the picker inserts a link")
+    check(pickerKey(124, [.maskShift]) == .swallow(.pickerMove(forward: true, byLine: false, extending: true)), "\u{21E7}\u{2192} extends the highlight a word")
+    check(pickerKey(125, []) == .swallow(.pickerMove(forward: true, byLine: true, extending: false)), "\u{2193} moves the highlight a line")
+    check(pickerKey(0, []) == .pass(.pickerTypedOn), "a letter goes on to the app and closes the picker")
+    check(pickerKey(8, [.maskCommand]) == .pass(nil), "a shortcut stays the app's and leaves the picker open")
+    check(pickerKey(48, [.maskShift]) == .pass(.pickerTypedOn), "\u{21E7}Tab is the app's, and closes the picker")
+
+    let segment: [String: Any] = ["id": "o1", "path": "clips/Site Standup.mov", "anchor": ["start": 0],
+                                  "metadata": ["componentType": "VIDEO_SEGMENT"]]
+    check(PassageDocument.opensPicker(candidate: segment), "a video's spoken passage opens the picker")
+    var wholeVideo = segment; wholeVideo["anchor"] = nil; wholeVideo["metadata"] = ["componentType": "VIDEO"]
+    check(!PassageDocument.opensPicker(candidate: wholeVideo), "a whole file named by its name inserts its name")
+    let cell: [String: Any] = ["id": "o2", "path": "Budget.xlsx", "anchor": ["row": 3], "metadata": ["componentType": "CELL"]]
+    check(!PassageDocument.opensPicker(candidate: cell), "a value from a table inserts as before")
 }
 
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")

@@ -67,6 +67,11 @@ Console.WriteLine("email hyperlink formats");
     var html = ShareFormats.Html("Supplies & <cost>", url);
     Check(new[] { "Plan.PDF", "Memo.docx", "Notes.txt", "Close.md", "Paper.tex", "Guide.rst" }.All(name => !ShareScopes.OffersCitedPart(name))
           && ShareScopes.OffersCitedPart("Budget.xlsx"), "PDFs, Word documents and text files are writing");
+    Check(!ShareScopes.OffersCitedPart("Site Standup.mov") && !ShareScopes.OffersRedaction("Walkthrough.MP4"),
+          "a video is shared whole, with nothing to cut out or redact");
+    Check(new[] { "Site.png", "Photo.JPG", "Plan.dxf", "Duplex.ifc" }.All(name => !ShareScopes.OffersCitedPart(name) && !ShareScopes.OffersRedaction(name))
+          && ShareScopes.OffersRedaction("Budget.xlsx") && ShareScopes.OffersRedaction("Memo.docx"),
+          "pictures and plans are shared whole on Windows, where areas are not drawn yet");
     Check(html.Contains("Supplies &amp; &lt;cost&gt;"), "escapes source labels in rich email");
     Check(html.Contains("href=\"https://example.test/d/source?a=1&amp;b=2\""),
           "preserves the hyperlink destination");

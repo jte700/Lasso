@@ -102,6 +102,12 @@ final class ShareComposerView: NSView {
     var scrollCanRedact = false
     var showsScrollablePreview = false
     var showsPDFPreview = false
+    /// A video's player, cued to the cited moment as the recipient's page opens it.
+    var videoView: (view: AssistVideoPreviewView, video: AssistVideoPreview)?
+    var showsVideoPreview = false
+    /// A picture, drawn as the recipient will see it, with its masks over it.
+    var picture: NSImage?
+    var isPictureLoading = false
     var pdfSelectionMode: ShareInteractivePDFView.SelectionMode = .text {
         didSet { if oldValue != pdfSelectionMode { pdfView.cancelInteraction() } }
     }
@@ -179,6 +185,8 @@ final class ShareComposerView: NSView {
     private var sourceKind: ShareSourceKind { ShareSourceKind(filename: filename) }
     var isCADModel: Bool { sourceKind == .cadModel }
     var isPresentation: Bool { sourceKind == .presentation }
+    var isVideo: Bool { sourceKind == .video }
+    var isPicture: Bool { sourceKind == .image }
     /// The pages a marked copy is drawn on: a deck's are its slides' pictures.
     var markupDocument: PDFDocument? {
         isPDFSource ? loadedPDFDocument : slideDecks?.all.document ?? markupPages
@@ -222,9 +230,12 @@ final class ShareComposerView: NSView {
     }
 
     var previewCard: NSRect {
-        NSRect(x: 16, y: 132, width: bounds.width - 32,
-               height: bounds.height - footerHeight - 146)
+        NSRect(x: 16, y: sectionY + 29, width: bounds.width - 32,
+               height: bounds.height - footerHeight - sectionY - 43)
     }
+
+    /// The top of the row naming the preview, under the scope control or, with one way to share, the title.
+    var sectionY: CGFloat { scopes.count > 1 ? 92 : 44 }
 
     /// One segment of the scope control, which spans the window under its title.
     func scopeRect(_ index: Int) -> NSRect {
@@ -263,8 +274,8 @@ final class ShareComposerView: NSView {
         pdfView.cancelInteraction()
         self.label = label
         self.filename = filename.isEmpty ? "Indexed source" : filename
-        // Writing has no cited part to start on, so it opens on the whole document.
-        scope = sourceKind == .writing ? .document : .indexed
+        // Writing, video, pictures and 2D plans have no cited part to start on, so they open on the whole file.
+        scope = [.writing, .video, .image, .planDrawing].contains(sourceKind) ? .document : .indexed
         localOnly = true
         copyState = .idle
         effect = .blur
@@ -280,6 +291,10 @@ final class ShareComposerView: NSView {
         slideNavigator?.bar.removeFromSuperview()
         slideNavigator = nil
         slideDecks = nil
+        videoView?.view.removeFromSuperview()
+        videoView = nil
+        picture = nil
+        isPictureLoading = false
         citedPart = nil
         sharedExcerpt = nil
         nearbyExcerpt = nil

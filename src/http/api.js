@@ -19,6 +19,7 @@ import { passiveInlineType } from './passive-types.js';
 import { actorFrom, match, opensWorkbench, readJson, sendBinary, sendConversion, sendHtml, sendJson, serveStatic, SHARE_PAGE_HEADERS, sourceLibraryEntry } from './responses.js';
 import { connectionRoutes } from './connection-routes.js';
 import { driveRoutes } from './drive-routes.js';
+import { passageRoutes } from './passage-routes.js';
 import { ranchRoutes } from './ranch-routes.js';
 import { workspaceRoutes } from './workspace-routes.js';
 import { sharedContentReader } from '../sharing/shared-content.js';
@@ -119,10 +120,12 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         if (resolved.share.accessScope !== 'DOCUMENT') {
           const { document } = await sharedContent(resolved);
           if (!document?.safe || !document.content) return sendHtml(response, 403, renderUnavailable('SCOPE_RESTRICTED'), SHARE_PAGE_HEADERS);
-          // A marked Word document or deck arrives as a PDF, and is named as one.
+          // A marked Word document or deck arrives as a PDF, and a redacted picture as a PNG, each named as one.
+          const contentType = document.contentType ?? 'application/pdf';
+          const extension = contentType === 'image/png' ? 'png' : 'pdf';
           const original = String(resolved.source.filename ?? 'document');
-          const filename = /\.pdf$/i.test(original) ? original : `${original.replace(/\.[^./]+$/, '')}.pdf`;
-          return sendBinary(response, 200, document.content, 'application/pdf', {
+          const filename = original.toLowerCase().endsWith(`.${extension}`) ? original : `${original.replace(/\.[^./]+$/, '')}.${extension}`;
+          return sendBinary(response, 200, document.content, contentType, {
             'content-disposition': downloadDisposition(filename).replace(/^attachment;/, 'inline;'),
             'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
           });
@@ -215,6 +218,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       }
       if (workspace && await workspaceRoutes({ request, response, url, pathname, workspace, dependencies, terminal })) return;
       if (ranch && await ranchRoutes({ request, response, url, pathname, ranch })) return;
+      if (await passageRoutes({ request, response, url, pathname, timeline, dependencies, objectShares })) return;
       if (connections && await connectionRoutes({ request, response, url, pathname, connections, workspace })) return;
       if (request.method === 'GET' && pathname === '/api/sharing/status' && objectShares) {
         const baseUrl = objectShares.baseUrl();
