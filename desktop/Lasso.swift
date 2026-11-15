@@ -294,6 +294,7 @@ private struct WorkDirectory {
     let progress: DirectoryProgress?
     /// Chosen and being read, but not recorded yet.
     let pending: Bool
+    let fileCount: Int
 
     init?(_ object: [String: Any]) {
         guard let id = object["id"] as? String,
@@ -308,10 +309,16 @@ private struct WorkDirectory {
         self.note = (object["note"] as? [String: Any])?["message"] as? String
         self.progress = DirectoryProgress(object["indexing"])
         self.pending = object["pending"] as? Bool ?? false
+        self.fileCount = (object["fileCount"] as? NSNumber)?.intValue ?? 0
     }
 
     /// Switched on and present, but not usable for suggestions.
     var needsAttention: Bool { active && available && !(error ?? "").isEmpty }
+
+    var additionStatus: AddedFolderStatus {
+        AddedFolderStatus(name: name, rootPath: rootPath, progress: progress, fileCount: fileCount,
+                          needsAttention: needsAttention)
+    }
 }
 
 /// A third-party app connected in the Connect window. Its items are indexed
@@ -403,6 +410,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onClose = { [weak self] in self?.returnToMenuBar() }
         return controller
     }()
+    /// Add Work Directories, drawn as an island that morphs while chosen folders are read.
+    private let addIsland = MorphIslandRow()
+    /// The folders chosen last, until the island has shown how adding them went.
+    private var folderAddition: FolderAddition?
+    /// Adding from the panel brings the panel back, so the island is seen at work.
+    private var addingFromPanel = false
     private var workspaceRevision = ""
     private var workspaceError: String?
     private var busyMessage: String?
@@ -599,6 +612,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         statusMenu.autoenablesItems = false
+        addIsland.onHoldEnded = { [weak self] in
+            self?.folderAddition = nil
+            self?.rebuildMenu()
+        }
         statusPopover.onEscape = { [weak self] in self?.endRemovingDirectories() ?? false }
         statusPopover.onClose = { [weak self] in _ = self?.endRemovingDirectories() }
         rebuildMenu()
@@ -639,10 +656,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func rebuildMenu() {
         statusMenu.removeAllItems()
         let activeCount = directories.filter { $0.active && $0.available && ($0.error ?? "").isEmpty }.count
-        let reading = directories.contains { $0.progress != nil } || connections.contains { $0.progress != nil }
+        // An addition whose request was dropped, as when the server restarted, is over.
+        if folderAddition?.outcome == .running && busyMessage == nil { folderAddition = nil }
+        // While folders are added, the add control is the panel's one progress:
+        // their rows and the header show no bar of their own.
+        let adding = folderAddition?.outcome == .running ? folderAddition : nil
+        let reading = directories.contains { $0.progress != nil && adding?.includes(rootPath: $0.rootPath) != true }
+            || connections.contains { $0.progress != nil }
         // A folder being read shows its own bar; the header has one only for
         // requests no folder reports, such as a removal.
-        statusMenu.addItem(headerItem(activeCount: activeCount, busy: busyMessage != nil && !reading))
+        statusMenu.addItem(headerItem(activeCount: activeCount, busy: busyMessage != nil && !reading && adding == nil))
         addPermissionCommands()
         if let workspaceError {
             let item = label(workspaceError)
@@ -659,12 +682,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             statusMenu.addItem(.separator())
             if isRemovingDirectories { addRemovalCommands() }
-            addDirectoryRows(reading: reading)
+            addDirectoryRows(reading: reading, adding: adding)
         }
         addConnectedApps()
         statusMenu.addItem(.separator())
-        statusMenu.addItem(command("Add Work Directories\u{2026}", action: #selector(addDirectories),
-                                   enabled: isServerReady && busyMessage == nil))
+        statusMenu.addItem(addDirectoriesItem())
         statusMenu.addItem(moreGroup())
         statusMenu.addItem(.separator())
         statusMenu.addItem(command("Open \(Ranch.title)", action: #selector(openRanch), key: Ranch.key, modifiers: Ranch.modifiers,
@@ -678,6 +700,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusMenu.addItem(quit)
         statusPopover.update(menu: statusMenu)
         if settingsLoaded { settings.refresh() }
+    }
+
+    /// Add Work Directories as the island, showing how the last addition is going.
+    private func addDirectoriesItem() -> NSMenuItem {
+        let add = command("Add Work Directories\u{2026}", action: #selector(addDirectoriesFromPanel),
+                          enabled: isServerReady && busyMessage == nil)
+        add.toolTip = "Choose folders for Lasso to read. Command-click to choose several."
+        addIsland.actionItem = add
+        addIsland.show(folderAddition?.state(folders: directories.map(\.additionStatus)) ?? .idle)
+        add.view = addIsland
+        return add
     }
 
     /// Lasso's name and state, with Suggest While Typing as the panel's one switch.
@@ -706,7 +739,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func addDirectoryRows(reading: Bool) {
+    private func addDirectoryRows(reading: Bool, adding: FolderAddition?) {
         // A folder being read stays in view even in a collapsed list.
         let expanded = !directoryListCollapsed || isRemovingDirectories || reading
         let heading = command("Work Directories", action: #selector(toggleDirectoryList))
@@ -734,7 +767,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.setToggleColor(color, for: directory.id)
             }
             row.issue = directory.issue
-            row.progress = directory.progress
+            row.progress = adding?.includes(rootPath: directory.rootPath) == true ? nil : directory.progress
             row.onFix = { [weak self] in self?.fixDirectory(id) }
             row.onSelect = { [weak self] extend in self?.toggleRemovalSelection(id, extendingRange: extend) }
             row.onReveal = { [weak self] in self?.revealDirectory(id) }
@@ -822,7 +855,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The header's line: what Lasso is doing, or what it needs.
     private func statusSubtitle(activeCount: Int) -> String {
-        if let busyMessage { return busyMessage }
+        // The add control says which folders are being added.
+        if let busyMessage, folderAddition?.outcome != .running { return busyMessage }
         switch server?.state {
         case .ready: break
         case .failed: return "The server is unavailable."
@@ -1105,8 +1139,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// (`answersWithWorkspace` false); the workspace is read again afterwards.
     private func mutateWorkspace(path: String, method: String = "POST", body: [String: Any]? = nil, message: String,
                                  failureTitle: String = "Work Directories Couldn\u{2019}t Be Updated",
-                                 answersWithWorkspace: Bool = true) {
-        guard isServerReady, busyMessage == nil, let base = server.url else { return }
+                                 answersWithWorkspace: Bool = true, finished: ((Bool) -> Void)? = nil) {
+        guard isServerReady, busyMessage == nil, let base = server.url else {
+            if let finished {
+                finished(false)
+                rebuildMenu()
+            }
+            return
+        }
         workspaceGeneration += 1
         let token = workspaceGeneration
         workspaceRequest?.cancel()
@@ -1134,11 +1174,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let succeeded = error == nil && (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } == true
                 if !answersWithWorkspace { self.driveMenu.refresh(base: self.server.url) }
                 if answersWithWorkspace, let state = self.readWorkspace(data: data, response: response) {
+                    finished?(true)
                     self.applyWorkspace(state)
                 } else if !answersWithWorkspace && succeeded {
+                    finished?(true)
                     self.rebuildMenu()
                     self.refreshWorkspace()
                 } else {
+                    finished?(false)
                     let message = WorkspaceAPI.errorMessage(data: data, response: response, error: error)
                     self.workspaceError = message
                     self.rebuildMenu()
@@ -1151,7 +1194,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startProgressPolling(token: token)
     }
 
+    @objc private func addDirectoriesFromPanel() {
+        addingFromPanel = true
+        addDirectories()
+    }
+
     @objc private func addDirectories() {
+        let fromPanel = addingFromPanel
+        addingFromPanel = false
         guard isServerReady, busyMessage == nil else { return }
         let panel = NSOpenPanel()
         panel.title = "Add Work Directories"
@@ -1163,12 +1213,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.canCreateDirectories = false
         NSApp.activate(ignoringOtherApps: true)
         panel.begin { [weak self] response in
-            guard response == .OK else { return }
+            guard let self, response == .OK else { return }
             let urls = panel.urls
-            self?.mutateWorkspace(path: "api/workspace/directories",
-                                  body: WorkspaceAPI.addDirectoriesBody(urls.map(\.path)),
-                                  message: urls.count == 1 ? "Adding \(urls[0].lastPathComponent)\u{2026}"
-                                      : "Adding \(urls.count) directories\u{2026}")
+            // The panel is open before the request starts, so the island is seen to morph.
+            if fromPanel, let button = self.statusItem.button { self.statusPopover.show(relativeTo: button) }
+            self.folderAddition = FolderAddition(paths: urls.map(\.path))
+            self.mutateWorkspace(path: "api/workspace/directories",
+                                 body: WorkspaceAPI.addDirectoriesBody(urls.map(\.path)),
+                                 message: urls.count == 1 ? "Adding \(urls[0].lastPathComponent)\u{2026}"
+                                     : "Adding \(urls.count) directories\u{2026}") { [weak self] succeeded in
+                self?.folderAddition?.outcome = succeeded ? .succeeded : .failed
+            }
         }
     }
 

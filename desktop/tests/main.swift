@@ -4719,5 +4719,136 @@ do {
     check(kept?.available == false, "a version whose copy was not kept says so, and its menu entry is disabled")
 }
 
+print("the add control says how adding folders is going")
+do {
+    let thesis = "/Users/me/Documents/Thesis", notesPath = "/Users/me/Documents/Field Notes"
+    var addition = FolderAddition(paths: [thesis])
+    check(addition.state(folders: []) == .adding(title: "Adding Thesis", detail: "Waiting to start", percent: nil),
+          "before the server reports, the island names the folder and shows no percentage")
+    let reading = AddedFolderStatus(name: "Thesis", rootPath: thesis + "/",
+                                    progress: DirectoryProgress(percent: 37, phase: "reading", kind: "adding"),
+                                    fileCount: 0, needsAttention: false)
+    check(addition.state(folders: [reading]) == .adding(title: "Adding Thesis", detail: "Reading files", percent: 37),
+          "the chosen folder's progress is shown, its path matched despite a trailing slash")
+    let thesisDone = AddedFolderStatus(name: "Thesis", rootPath: thesis, progress: nil, fileCount: 1240, needsAttention: false)
+    let notesReading = AddedFolderStatus(name: "Field Notes", rootPath: notesPath,
+                                         progress: DirectoryProgress(percent: 50, phase: "indexing", kind: "adding"),
+                                         fileCount: 3, needsAttention: false)
+    var both = FolderAddition(paths: [thesis, notesPath])
+    check(both.state(folders: [thesisDone, notesReading]) == .adding(title: "Adding 2 folders", detail: "Indexing files", percent: 75),
+          "several folders count together, a finished one as complete")
+    check(both.state(folders: [notesReading]) == .adding(title: "Adding 2 folders", detail: "Indexing files", percent: 25),
+          "a chosen folder the server has not listed yet counts as not started")
+    addition.outcome = .succeeded
+    check(addition.state(folders: [thesisDone]) == .done(title: "Thesis is ready", detail: "1,240 files"),
+          "a finished folder says it is ready and how many files Lasso read")
+    both.outcome = .succeeded
+    let notesDone = AddedFolderStatus(name: "Field Notes", rootPath: notesPath, progress: nil, fileCount: 3, needsAttention: false)
+    check(both.state(folders: [thesisDone, notesDone]) == .done(title: "2 folders are ready", detail: "1,243 files"),
+          "several finished folders are counted together")
+    check(FolderAddition.fileCountText(1) == "1 file", "one file is not written as plural")
+    let troubled = AddedFolderStatus(name: "Thesis", rootPath: thesis, progress: nil, fileCount: 0, needsAttention: true)
+    check(addition.state(folders: [troubled]) == .failed(title: "Thesis needs attention"),
+          "a folder added but not usable says it needs attention rather than ready")
+    addition.outcome = .failed
+    check(addition.state(folders: []) == .failed(title: "Couldn\u{2019}t add Thesis"), "a failed request says the folder was not added")
+    check(both.includes(rootPath: thesis + "/") && !both.includes(rootPath: "/Users/me/Documents/Other"),
+          "a chosen folder's row is recognised, so only the island shows its progress")
+}
+
+print("the add control morphs on the Morph Island springs")
+do {
+    func firstArrival(_ spring: IslandSpring, to target: Double) -> (time: Double, peak: Double) {
+        var spring = spring
+        spring.t = target
+        var time = 0.0, arrived: Double?, peak = spring.x
+        while time < 2 {
+            spring.step(1.0 / 480)
+            time += 1.0 / 480
+            peak = max(peak, spring.x)
+            if arrived == nil, spring.x >= target { arrived = time }
+        }
+        return (arrived ?? .infinity, peak)
+    }
+    let height = firstArrival(IslandSpring(24, stiffness: 300, damping: 22), to: 52)
+    check(height.peak > 52.5, "the height overshoots a little before it settles")
+    var calm = IslandSpring(32, stiffness: 300, damping: 22)
+    calm.tune(stiffness: 300, damping: 22, reduceMotion: true)
+    check(firstArrival(calm, to: 52).peak <= 52.001, "with Reduce Motion the island lands without overshooting")
+    check(abs(IslandCurve.ease(0.5) - 0.8024) < 0.002 && IslandCurve.land(1) == 1 && IslandCurve.land(0) == 0,
+          "the contents fade along the same curves as the original's CSS")
+
+    var now = 100.0
+    let island = MorphIslandRow()
+    island.drivesItself = false
+    island.animatesOffscreen = true
+    island.clock = { now }
+    let add = NSMenuItem(title: "Add Work Directories\u{2026}", action: nil, keyEquivalent: "")
+    add.isEnabled = true
+    island.actionItem = add
+    let restingHeight = island.frame.height
+    check(island.accessibilityRole() == .button && island.accessibilityLabel() == add.title,
+          "at rest the island is the Add Work Directories button")
+    check(restingHeight == 26 && island.pillFrame.minX == 4 && island.pillFrame.maxX == island.bounds.width - 4,
+          "at rest it is a panel row: as tall as the others, its highlight across the row")
+    island.setFrameSize(NSSize(width: 300, height: island.frame.height))
+    check(island.pillFrame.width == 292, "the row follows the panel's width")
+    check(island.subviews.contains { $0.allowsVibrancy && !$0.isHidden },
+          "at rest the row is drawn as the panel's rows are, with their vibrancy")
+    island.show(.adding(title: "Adding Thesis", detail: "Reading files", percent: 40))
+    let target = island.size(for: island.state)
+    for _ in 0..<240 { now += 1.0 / 60; island.tick() }
+    check(island.isAtRest(at: now) && abs(island.pillFrame.width - target.width) < 0.01
+          && abs(island.pillFrame.height - target.height) < 0.01, "the island settles at the adding size")
+    check(island.frame.height > restingHeight && island.frame.height >= target.height,
+          "the panel row grows to hold the taller island")
+    check(island.subviews.allSatisfy(\.isHidden), "while adding, only the card shows")
+    check(island.shownPercent == 40 && island.accessibilityRole() == .progressIndicator
+          && (island.accessibilityValue() as? NSNumber)?.intValue == 40,
+          "the count reaches the server's percentage and VoiceOver hears it")
+    island.show(.adding(title: "Adding Thesis", detail: "Reading files", percent: 30))
+    check(island.shownPercent == 40, "the count never goes back within one addition")
+    var handedBack = false
+    island.onHoldEnded = { handedBack = true }
+    island.show(.done(title: "Thesis is ready", detail: "1,240 files"))
+    island.hold(for: 2.7)
+    check(!handedBack, "a finished addition stays on screen for a moment")
+    island.hold(for: 0.2)
+    check(handedBack, "after the token's 2.8 seconds on screen it hands back to the button")
+    island.show(.idle)
+    for _ in 0..<240 { now += 1.0 / 60; island.tick() }
+    check(abs(island.frame.height - restingHeight) < 1, "back at rest, the row is its resting height again")
+
+    let unseen = MorphIslandRow()
+    unseen.drivesItself = false
+    unseen.show(.adding(title: "Adding Thesis", detail: "Waiting to start", percent: nil))
+    check(unseen.pillFrame.size == unseen.size(for: unseen.state),
+          "an island nobody can see jumps to its new size instead of animating")
+
+    func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+    let controller = StatusPopoverController()
+    func panel() -> NSMenu {
+        let menu = NSMenu()
+        let more = NSMenuItem(title: "More", action: nil, keyEquivalent: "")
+        more.submenu = NSMenu()
+        more.submenu?.addItem(NSMenuItem(title: "External Drives", action: nil, keyEquivalent: ""))
+        menu.addItem(more)
+        let fresh = NSMenuItem(title: "Add Work Directories\u{2026}", action: nil, keyEquivalent: "")
+        fresh.view = island
+        island.actionItem = fresh
+        menu.addItem(fresh)
+        return menu
+    }
+    controller.update(menu: panel())
+    let root = controller.popover.contentViewController!.view
+    controller.update(menu: panel())
+    check(descendants(root).filter { $0 is MorphIslandRow }.count == 1 && island.superview != nil,
+          "rebuilding the panel keeps the one island, so its motion carries on")
+    let moreButton = descendants(root).compactMap { $0 as? NSButton }.first { $0.title == "More" }
+    moreButton?.performClick(nil)
+    check(moreButton != nil && descendants(root).contains { $0 === island },
+          "opening a group in the panel keeps the island")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

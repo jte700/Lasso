@@ -513,6 +513,8 @@ final class StatusPopoverController {
                         if let row { self?.directoryList.reveal(row) }
                     }
                 }
+                // The add control grows and shrinks as it morphs; the rows below follow it.
+                (row as? MorphIslandRow)?.onSizeChange = { [weak self] in self?.layoutRows() }
                 width = max(width, min(496, row.frame.width + 16))
                 rows.append((row, inset))
             } else if let submenu = item.submenu {
@@ -553,6 +555,7 @@ final class StatusPopoverController {
     private func refreshHover() {
         directoryRows.values.forEach { $0.refreshHover() }
         for case let button as StatusCommandButton in content.subviews { button.refreshHover() }
+        for case let island as MorphIslandRow in content.subviews { island.refreshHover() }
     }
 
     private func updateRetainingCustomRows() {
@@ -570,6 +573,9 @@ final class StatusPopoverController {
             if let header = row.view as? StatusHeaderRow {
                 return (header.actionItem, header)
             }
+            if let island = row.view as? MorphIslandRow, let item = island.actionItem {
+                return (item, island)
+            }
             return nil
         }
         for (item, view) in customItems { item.view = view }
@@ -580,6 +586,11 @@ final class StatusPopoverController {
     /// replacement feedback visible, even after scrolling through a long menu:
     /// the folder being read, or the status line when no folder shows it.
     func revealProgress() {
+        // Folders being added show their progress only on the add control.
+        if let island = rows.lazy.compactMap({ $0.view as? MorphIslandRow }).first(where: { $0.state != .idle }) {
+            content.scrollToVisible(island.frame)
+            return
+        }
         if let reading = rows.lazy.compactMap({ $0.view as? NativeMenuToggleRow }).first(where: \.isShowingProgress) {
             directoryList.reveal(reading)
             let frame = directoryList.rows.contains(where: { $0 === reading }) ? directoryList.frame : reading.frame
