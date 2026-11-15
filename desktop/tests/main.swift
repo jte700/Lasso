@@ -5037,12 +5037,15 @@ do {
     check(SheetClipboard.pick(sheet, highlights: [flow], headers: false, citing: false)?.plain == "18,400", "without the source, only the value")
     let block = SheetClipboard.pick(sheet, highlights: [flow, SheetRange(top: 5, bottom: 5, left: 2, right: 2)], headers: false, citing: true)
     check(block?.single == false, "cells from two highlights insert as a table")
-    check(block?.plain == "18,400\t\n\t110\n(Pumps.xlsx, 'Trial Balance'!B2, C5)",
+    check(block?.plain == "| 18,400 |     |\n|        | 110 |\n(Pumps.xlsx, 'Trial Balance'!B2, C5)",
           "the table keeps the cells where they sit, closes the rows and columns between, and cites each highlight in order")
+    check(block?.tsv == "18,400\t\n\t110", "spreadsheets get the same cells tab-separated")
     let headed = SheetClipboard.pick(sheet, highlights: [flow, head], headers: true, citing: false)
-    check(headed?.plain == "Flow gpm\tHead ft\n18,400\t\n\t95", "with headers, the touched columns' header row comes first")
+    check(headed?.plain == "| Flow gpm | Head ft |\n| -------- | ------- |\n|   18,400 |         |\n|          |      95 |",
+          "with headers, the header row comes first with a line under it, and columns are lined up with numbers set right")
     check(SheetClipboard.pick(sheet, highlights: [SheetRange(top: 1, bottom: 2, left: 0, right: 0)], headers: true, citing: false)?.plain
-          == "Pump\nP-101", "a highlight that takes in the header row does not repeat it")
+          == "| Pump  |\n| ----- |\n| P-101 |", "a highlight that takes in the header row does not repeat it, and underlines it")
+    check(SheetClipboard.textTable([["a|b", "2"]], headed: false) == "| a\\|b | 2 |", "a bar inside a cell is escaped so it does not split the cell")
     check(headed?.html.contains("<th>Flow gpm</th>") == true && headed?.html.contains("<td style=\"text-align:right\">18,400</td>") == true,
           "the HTML table heads its columns and sets numbers right, as Excel does")
     check(block?.html.contains("(Pumps.xlsx, &#39;Trial Balance&#39;!B2, C5)") == true, "the HTML cites the source under the table")

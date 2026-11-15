@@ -3,6 +3,7 @@
 // are pasted as Excel copies them, so the app takes a table where it can.
 
 import Cocoa
+import UniformTypeIdentifiers
 
 extension GlobalAssistant {
     /// Opens the picker over the card; false when it cannot open, and fn+Tab inserts as Tab does.
@@ -85,6 +86,8 @@ extension GlobalAssistant {
                 let before = CompletionSnapshot(documentStart: fresh.windowStart, text: Array(fresh.text.utf16))
                 var formats: [NSPasteboard.PasteboardType: Data] = [.string: Data(plan.insertText.utf8), .html: Data(pick.html.utf8)]
                 if let rtf = pick.rtf { formats[.rtf] = rtf }
+                // Spreadsheets read the cells in place from tab-separated text.
+                formats[NSPasteboard.PasteboardType(UTType.utf8TabSeparatedText.identifier)] = Data(pick.tsv.utf8)
                 self.isInserting = true
                 self.markOwnWrite()
                 let element = context.element, caret = context.absoluteCaret

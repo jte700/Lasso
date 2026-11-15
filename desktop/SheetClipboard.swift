@@ -2,14 +2,18 @@
 // inserts one. More go in as Excel copies them: HTML, RTF and tab-separated
 // text on the clipboard together, so each app takes the richest it reads (a
 // table in Word, Pages, Mail and Notes, cells in place in Numbers, Excel and
-// Sheets, tabbed lines anywhere else). The cells keep where they sit in the
-// sheet, with the rows and columns between highlights left out.
+// Sheets). A plain text field gets the cells lined up between bars, with a
+// line under the header row, which Markdown also reads as a table. The cells
+// keep where they sit in the sheet, with the rows and columns between
+// highlights left out.
 
 import Foundation
 
 struct SheetPick: Equatable {
-    /// The text a plain field takes: one value, or tab-separated lines.
+    /// The text a plain field takes: one value, or the cells lined up between bars.
     let plain: String
+    /// The cells tab-separated, for spreadsheets; the value alone for one cell.
+    let tsv: String
     let html: String
     let rtf: Data?
     /// One cell: inserted at the caret as a suggestion is.
@@ -30,12 +34,13 @@ enum SheetClipboard {
         if highlights.count == 1, let only = highlights.first, only.top == only.bottom, only.left == only.right {
             let value = document.cell(row: only.top, column: only.left)
             let plain = [value, cited].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
-            return SheetPick(plain: plain, html: html([[value]], headed: false, citation: cited),
+            return SheetPick(plain: plain, tsv: value, html: html([[value]], headed: false, citation: cited),
                              rtf: rtf([[value]], citation: cited), single: true, citation: citation)
         }
         let table = grid(document, highlights, headers: headers)
-        let lines = table.cells.map { $0.joined(separator: "\t") } + (cited.map { [$0] } ?? [])
-        return SheetPick(plain: lines.joined(separator: "\n"), html: html(table.cells, headed: table.headed, citation: cited),
+        let lines = [textTable(table.cells, headed: table.headed)] + (cited.map { [$0] } ?? [])
+        return SheetPick(plain: lines.joined(separator: "\n"), tsv: table.cells.map { $0.joined(separator: "\t") }.joined(separator: "\n"),
+                         html: html(table.cells, headed: table.headed, citation: cited),
                          rtf: rtf(table.cells, citation: cited), single: false, citation: citation)
     }
 
@@ -58,6 +63,7 @@ enum SheetClipboard {
     /// The highlighted cells laid out as in the sheet, in the rows and columns
     /// they touch; a cell no highlight covers is empty. With `headers`, the
     /// header row comes first unless a highlight already takes it in.
+    /// `headed` says the first row is the header row, added or highlighted.
     static func grid(_ document: SheetDocument, _ highlights: [SheetRange], headers: Bool) -> (cells: [[String]], headed: Bool) {
         let covered = { (row: Int, column: Int) in highlights.contains { $0.contains(row: row, column: column) } }
         let rows = document.rows.map(\.number).filter { row in highlights.contains { (($0.top)...($0.bottom)).contains(row) } }
@@ -67,10 +73,35 @@ enum SheetClipboard {
         if addsHeader, let header = document.headerRow {
             cells.insert(columns.map { document.cell(row: header, column: $0) }, at: 0)
         }
-        return (cells, addsHeader)
+        return (cells, addsHeader || rows.first == document.headerRow)
     }
 
     // MARK: Formats
+
+    /// The cells lined up between bars, numbers set right, with a line of
+    /// dashes under the header row: "| Invoice   | Due Date   |".
+    static func textTable(_ cells: [[String]], headed: Bool) -> String {
+        let rows = cells.map { $0.map { $0.replacingOccurrences(of: "|", with: "\\|") } }
+        let count = rows.map(\.count).max() ?? 0
+        // Markdown needs at least three dashes under each header.
+        let widths = (0..<count).map { column in
+            max(headed ? 3 : 1, rows.map { $0.indices.contains(column) ? $0[column].count : 0 }.max() ?? 0)
+        }
+        let line = { (row: [String], index: Int) -> String in
+            let items = widths.indices.map { column -> String in
+                let value = row.indices.contains(column) ? row[column] : ""
+                let pad = String(repeating: " ", count: widths[column] - value.count)
+                let right = !(headed && index == 0) && value.range(of: numeric, options: .regularExpression) != nil
+                return right ? pad + value : value + pad
+            }
+            return "| " + items.joined(separator: " | ") + " |"
+        }
+        var lines = rows.enumerated().map { line($1, $0) }
+        if headed, !lines.isEmpty {
+            lines.insert("| " + widths.map { String(repeating: "-", count: $0) }.joined(separator: " | ") + " |", at: 1)
+        }
+        return lines.joined(separator: "\n")
+    }
 
     private static let numeric = "^[-+(]?[$€£¥]?\\s*\\d[\\d,.\\s]*%?\\)?$"
 
