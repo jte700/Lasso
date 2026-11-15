@@ -132,16 +132,7 @@ export const dependencyPreviewsMethods = {
     }
 
     if (['table', 'spreadsheet'].includes(file.fileType)) {
-      // A large table shows the rows around the cited one, from the table index.
-      const window = this.tableWindow(file, buffer, source.anchor ?? {}, {
-        before: 2_500, after: 2_500, sheet: String(options.sheet ?? '').trim() || null });
-      const anchor = window?.anchor ?? source.anchor;
-      const tables = window ? [window.table] : file.fileType === 'spreadsheet'
-        ? extractSpreadsheetTables(buffer)
-        : [{
-          name: path.posix.basename(file.path),
-          rows: parseDelimited(buffer.toString('utf8'), path.extname(file.path).toLowerCase() === '.tsv' ? '\t' : ','),
-        }];
+      const { window, anchor, tables } = this.viewerTables(file, buffer, source.anchor, options.sheet);
       if (!tables.length) return { ...base, kind: 'binary', locationLabel: source.label };
       const requestedSheet = String(options.sheet ?? '').trim();
       const table = tables.find((candidate) => candidate.name === requestedSheet)
@@ -203,6 +194,23 @@ export const dependencyPreviewsMethods = {
     }
 
     return { ...base, kind: 'binary', locationLabel: source.label };
+  },
+
+  /**
+   * A table file's sheets as a viewer reads them. A large table is the rows
+   * around the cited one, from the table index (`window`), with the anchor in
+   * that window's rows; any other is read whole.
+   */
+  viewerTables(file, buffer, sourceAnchor = {}, sheet = null) {
+    const window = this.tableWindow(file, buffer, sourceAnchor ?? {}, {
+      before: 2_500, after: 2_500, sheet: String(sheet ?? '').trim() || null });
+    const tables = window ? [window.table] : file.fileType === 'spreadsheet'
+      ? extractSpreadsheetTables(buffer)
+      : [{
+        name: path.posix.basename(file.path),
+        rows: parseDelimited(buffer.toString('utf8'), path.extname(file.path).toLowerCase() === '.tsv' ? '\t' : ','),
+      }];
+    return { window, anchor: window?.anchor ?? sourceAnchor, tables };
   },
 
   dependencyPreview(dependencyId, options = {}) {

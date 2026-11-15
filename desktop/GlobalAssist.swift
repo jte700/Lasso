@@ -329,7 +329,9 @@ final class GlobalAssistant {
             choosingWords: view.mode == .suggestions && view.wordChoice != nil,
             canUndoInsertion: undoableInsertion != nil,
             tableNavigable: currentSuggestion?.tableNavigable == true,
-            tableBrowsing: tableNavigationOrigin != nil)
+            tableBrowsing: tableNavigationOrigin != nil,
+            sheetPickable: view.mode == .suggestions && view.wordChoice == nil && currentSuggestion?.sheetPickable == true,
+            sheetPickerOpen: SheetPickerController.shared.isVisible)
     }
 
     func publishKeyRouting() {
@@ -413,6 +415,20 @@ final class GlobalAssistant {
             // Typing on in the app closes the picker; suggestions follow the new words.
             hide()
             followTextChange(trackCaret: false)
+        case .openSheetPicker:
+            // A card whose sheet cannot open inserts its suggestion, as Tab would.
+            if let suggestion = currentSuggestion, view.mode == .suggestions, openSheetPicker(for: suggestion) { break }
+            activateSelection()
+        case .sheetInsert:
+            SheetPickerController.shared.insert()
+        case .sheetCancel:
+            SheetPickerController.shared.cancel()
+        case .sheetUndo:
+            SheetPickerController.shared.undo()
+        case .sheetRedo:
+            SheetPickerController.shared.redo()
+        case .sheetMove(let columns, let rows, let extending):
+            SheetPickerController.shared.move(columns: columns, rows: rows, extending: extending)
         }
         publishKeyRouting()
     }
@@ -719,6 +735,7 @@ final class GlobalAssistant {
         contextReads.dropPending()
         if ShareComposerController.shared.isPresented(in: panel) { ShareComposerController.shared.hide() }
         if PassagePickerController.shared.isPresented(in: panel) { PassagePickerController.shared.hide() }
+        if SheetPickerController.shared.isPresented(in: panel) { SheetPickerController.shared.hide() }
         stopTrackingHost()
         debounce?.invalidate()
         debounce = nil

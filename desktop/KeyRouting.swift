@@ -36,6 +36,10 @@ struct KeyRoutingState: Equatable {
     var canUndoInsertion = false
     var tableNavigable = false
     var tableBrowsing = false
+    /// The highlighted suggestion is a spreadsheet's or CSV's, which fn+Tab opens in the sheet picker.
+    var sheetPickable = false
+    /// The sheet picker is open over the card, and takes Tab, Escape, ⌘Z and the arrows.
+    var sheetPickerOpen = false
 }
 
 /// Work a keystroke asks of the main thread.
@@ -76,6 +80,17 @@ enum KeyAction: Equatable {
     case pickerCancel
     /// A key typed into the app while the picker is open closes it, and the key goes on to the app.
     case pickerTypedOn
+    /// fn+Tab on a spreadsheet's or CSV's suggestion: its sheet, to highlight cells from.
+    case openSheetPicker
+    /// Tab or Return in the sheet picker: the highlighted cells.
+    case sheetInsert
+    /// Escape in the sheet picker goes back to the card.
+    case sheetCancel
+    /// ⌘Z in the sheet picker takes back the latest highlight, and ⇧⌘Z brings it back.
+    case sheetUndo
+    case sheetRedo
+    /// An arrow in the sheet picker moves the latest highlight a cell or, with ⇧, widens it.
+    case sheetMove(columns: Int, rows: Int, extending: Bool)
 }
 
 enum KeyDecision: Equatable {
@@ -95,6 +110,7 @@ enum KeyRouter {
         // Our own synthesized keys are not the user typing.
         if synthetic || state.isInserting { return .pass(nil) }
         if state.passagePickerOpen, !state.shareComposerOpen { return pickerDecision(keyCode, flags: flags) }
+        if state.sheetPickerOpen, !state.shareComposerOpen { return sheetPickerDecision(keyCode, flags: flags) }
         let commandLike = !flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty
         let choosingWords = state.choosingWords && state.popup == .suggestions
             && !state.sourceChooserVisible && !state.shareComposerOpen
@@ -152,6 +168,10 @@ enum KeyRouter {
             case tab where chord, down where chord, up where chord:
                 return .pass(.hide)
             case tab:
+                // fn+Tab opens a sheet's cells to highlight; on anything else it is Tab.
+                if state.sheetPickable, flags.contains(.maskSecondaryFn), state.popup == .suggestions {
+                    return .swallow(.openSheetPicker)
+                }
                 return .swallow(.activate)
             case returnKey, enter:
                 if flags.contains(.maskCommand) {
@@ -213,6 +233,31 @@ enum KeyRouter {
             guard !command, !flags.contains(.maskControl) else { return .pass(nil) }
             return .swallow(.pickerMove(forward: keyCode == right || keyCode == down,
                                         byLine: keyCode == up || keyCode == down, extending: shift))
+        default:
+            if command || flags.contains(.maskControl) { return .pass(nil) }
+            return .pass(.pickerTypedOn)
+        }
+    }
+
+    /// The sheet picker keeps the writer's app focused too: Tab inserts, Escape
+    /// goes back, ⌘Z and ⇧⌘Z step through the highlights, and the arrows move
+    /// or widen the latest. Other shortcuts stay the app's; typing closes it.
+    private static func sheetPickerDecision(_ keyCode: Int64, flags: CGEventFlags) -> KeyDecision {
+        let command = flags.contains(.maskCommand)
+        let shift = flags.contains(.maskShift)
+        let otherChord = !flags.intersection([.maskControl, .maskAlternate]).isEmpty
+        switch keyCode {
+        case escape where !command && !otherChord:
+            return .swallow(.sheetCancel)
+        case tab where !command && !otherChord && !shift, returnKey where !otherChord, enter where !otherChord:
+            return .swallow(.sheetInsert)
+        case z where command && !otherChord:
+            return .swallow(shift ? .sheetRedo : .sheetUndo)
+        case left, right, up, down:
+            guard !command, !otherChord else { return .pass(nil) }
+            let columns = keyCode == left ? -1 : keyCode == right ? 1 : 0
+            let rows = keyCode == up ? -1 : keyCode == down ? 1 : 0
+            return .swallow(.sheetMove(columns: columns, rows: rows, extending: shift))
         default:
             if command || flags.contains(.maskControl) { return .pass(nil) }
             return .pass(.pickerTypedOn)

@@ -8,9 +8,8 @@ final class PassagePickerController {
     static let shared = PassagePickerController()
 
     private let view = PassagePickerView(frame: NSRect(origin: .zero, size: PassagePickerView.defaultSize))
-    private weak var hostPanel: NSPanel?
-    private var previousContent: NSView?
-    private var previousFrame: NSRect?
+    private let takeover = CardPanelTakeover()
+    private var hostPanel: NSPanel? { takeover.panel }
     private var request: URLSessionDataTask?
     private var generation = 0
     private var active = false
@@ -49,27 +48,7 @@ final class PassagePickerController {
     }
 
     private func present(in panel: NSPanel) {
-        hostPanel = panel
-        previousContent = panel.contentView
-        previousFrame = panel.frame
-        let screen = (panel.screen ?? NSScreen.main)?.visibleFrame
-        var size = PassagePickerView.defaultSize
-        if let screen {
-            size.width = min(max(size.width, panel.frame.width), screen.width - 16)
-            size.height = min(size.height, screen.height - 16)
-        }
-        view.frame = NSRect(origin: .zero, size: size)
-        panel.contentView = ShareComposerSurface(content: view)
-        // The picker grows down from the card's top edge, kept on the screen.
-        var origin = NSPoint(x: panel.frame.minX, y: panel.frame.maxY - size.height)
-        if let screen {
-            origin.x = min(max(screen.minX + 8, origin.x), screen.maxX - size.width - 8)
-            origin.y = min(max(screen.minY + 8, origin.y), screen.maxY - size.height - 8)
-        }
-        panel.setFrame(NSRect(origin: origin, size: size), display: true)
-        panel.contentView?.layoutSubtreeIfNeeded()
-        panel.invalidateShadow()
-        panel.orderFrontRegardless()
+        takeover.present(view, size: PassagePickerView.defaultSize, in: panel)
     }
 
     /// The kind a file's name says it is, for the icon shown while it opens.
@@ -135,14 +114,6 @@ final class PassagePickerController {
         active = false
         view.stop()
         cancellation = nil
-        if let hostPanel {
-            hostPanel.contentView = previousContent
-            if let previousFrame { hostPanel.setFrame(previousFrame, display: true) }
-            hostPanel.contentView?.layoutSubtreeIfNeeded()
-            hostPanel.invalidateShadow()
-        }
-        hostPanel = nil
-        previousContent = nil
-        previousFrame = nil
+        takeover.restore()
     }
 }

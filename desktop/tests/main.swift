@@ -4992,5 +4992,90 @@ do {
     check(!PassageDocument.opensPicker(candidate: cell), "a value from a table inserts as before")
 }
 
+// MARK: The sheet picker
+
+do {
+    let json = """
+    {"document": {"name": "Pumps.xlsx", "sheet": "Trial Balance", "sheets": ["Trial Balance", "Notes"],
+      "columns": ["A", "B", "C"], "headerRow": 1, "truncated": false,
+      "selection": {"top": 3, "bottom": 3, "left": 1, "right": 1},
+      "rows": [{"number": 1, "cells": ["Pump", "Flow gpm", "Head ft"]},
+               {"number": 2, "cells": ["P-101", "18,400", "120"]},
+               {"number": 3, "cells": ["P-204", "9,750", "95"]},
+               {"number": 5, "cells": ["P-305", "12,200", "110"]}]}}
+    """
+    guard let sheet = SheetDocument.parse(Data(json.utf8)) else { fatalError("the sheet parses") }
+    check(sheet.name == "Pumps.xlsx" && sheet.sheets.count == 2 && sheet.headerRow == 1, "a sheet reads its name, sheets and header row")
+    check(sheet.selection == SheetRange(top: 3, bottom: 3, left: 1, right: 1), "a sheet opens on the cited cell")
+    check(sheet.cell(row: 2, column: 1) == "18,400" && sheet.cell(row: 4, column: 0) == "", "cells are read by sheet row number")
+    check(SheetDocument.parse(Data("{\"document\": {\"name\": \"x.csv\", \"unavailable\": \"Gone.\"}}".utf8))?.unavailable == "Gone.",
+          "a sheet that cannot be shown says why")
+
+    check(SheetRange(top: 5, bottom: 2, left: 2, right: 0) == SheetRange(top: 2, bottom: 5, left: 0, right: 2),
+          "a range dragged up or left is the same range")
+    check(SheetRange(top: 3, bottom: 3, left: 1, right: 1).a1 == "B3" && SheetRange(top: 2, bottom: 5, left: 0, right: 2).a1 == "A2:C5",
+          "a range is named as Excel names it")
+
+    let flow = SheetRange(top: 2, bottom: 2, left: 1, right: 1)
+    let head = SheetRange(top: 3, bottom: 3, left: 2, right: 2)
+    let two = SheetHighlights().adding(flow).adding(head)
+    check(two.ranges == [flow, head], "highlights are kept in the order they were made, and need not touch")
+    check(two.undoing().ranges == [flow], "\u{2318}Z removes the latest highlight")
+    check(two.undoing().redoing().ranges == [flow, head], "\u{21E7}\u{2318}Z brings it back")
+    check(two.undoing().adding(flow).redoing().ranges == [flow, flow], "a new highlight ends what \u{21E7}\u{2318}Z could bring back")
+    check(SheetHighlights().undoing().ranges.isEmpty, "\u{2318}Z with nothing highlighted does nothing")
+    let moved = SheetHighlights().adding(SheetRange(top: 3, bottom: 3, left: 1, right: 1)).moving(columns: 0, rows: 1, extending: false, in: sheet)
+    check(moved.ranges == [SheetRange(top: 5, bottom: 5, left: 1, right: 1)], "\u{2193} moves the latest highlight to the next row the sheet has")
+    let extended = SheetHighlights().adding(flow).moving(columns: 1, rows: 0, extending: true, in: sheet)
+    check(extended.ranges == [SheetRange(top: 2, bottom: 2, left: 1, right: 2)], "\u{21E7}\u{2192} widens the latest highlight a column")
+    check(SheetHighlights().adding(SheetRange(top: 2, bottom: 2, left: 2, right: 2)).moving(columns: 1, rows: 0, extending: false, in: sheet).ranges
+          == [SheetRange(top: 2, bottom: 2, left: 2, right: 2)], "a highlight stops at the sheet's last column")
+
+    let single = SheetClipboard.pick(sheet, highlights: [flow], headers: false, citing: true)
+    check(single?.single == true && single?.plain == "18,400 (Pumps.xlsx, 'Trial Balance'!B2)",
+          "one cell inserts its value as the sheet shows it, then its source")
+    check(SheetClipboard.pick(sheet, highlights: [flow], headers: false, citing: false)?.plain == "18,400", "without the source, only the value")
+    let block = SheetClipboard.pick(sheet, highlights: [flow, SheetRange(top: 5, bottom: 5, left: 2, right: 2)], headers: false, citing: true)
+    check(block?.single == false, "cells from two highlights insert as a table")
+    check(block?.plain == "18,400\t\n\t110\n(Pumps.xlsx, 'Trial Balance'!B2, C5)",
+          "the table keeps the cells where they sit, closes the rows and columns between, and cites each highlight in order")
+    let headed = SheetClipboard.pick(sheet, highlights: [flow, head], headers: true, citing: false)
+    check(headed?.plain == "Flow gpm\tHead ft\n18,400\t\n\t95", "with headers, the touched columns' header row comes first")
+    check(SheetClipboard.pick(sheet, highlights: [SheetRange(top: 1, bottom: 2, left: 0, right: 0)], headers: true, citing: false)?.plain
+          == "Pump\nP-101", "a highlight that takes in the header row does not repeat it")
+    check(headed?.html.contains("<th>Flow gpm</th>") == true && headed?.html.contains("<td style=\"text-align:right\">18,400</td>") == true,
+          "the HTML table heads its columns and sets numbers right, as Excel does")
+    check(block?.html.contains("(Pumps.xlsx, &#39;Trial Balance&#39;!B2, C5)") == true, "the HTML cites the source under the table")
+    let rtf = headed?.rtf.flatMap { String(data: $0, encoding: .ascii) } ?? ""
+    check(rtf.hasPrefix("{\\rtf1") && rtf.contains("\\intbl 18,400\\cell") && rtf.components(separatedBy: "\\row").count == 4,
+          "the RTF holds a table of the same rows")
+    let csv = SheetDocument(name: "pumps.csv", sheet: nil, sheets: [], columns: ["A", "B"],
+                            rows: [SheetRow(number: 1, cells: ["Pump", "Note {draft}"])], headerRow: 1, selection: nil, truncated: false)
+    check(SheetClipboard.pick(csv, highlights: [SheetRange(top: 1, bottom: 1, left: 1, right: 1)], headers: false, citing: true)?.plain
+          == "Note {draft} (pumps.csv, B1)", "a CSV is cited without a sheet")
+    let braces = SheetClipboard.pick(csv, highlights: [SheetRange(top: 1, bottom: 1, left: 0, right: 1)], headers: false, citing: false)
+    check(braces?.rtf.flatMap { String(data: $0, encoding: .ascii) }?.contains("Note \\{draft\\}") == true, "RTF escapes braces")
+    check(SheetClipboard.pick(sheet, highlights: [], headers: false, citing: true) == nil, "nothing highlighted inserts nothing")
+    check(SheetClipboard.block("a\tb", after: "The flows are") == "\na\tb", "a table typed after words starts on a new line")
+    check(SheetClipboard.block("a\tb", after: "Flows:\n") == "a\tb" && SheetClipboard.block("a\tb", after: "") == "a\tb",
+          "a table at the start of a line starts there")
+
+    let card = KeyRoutingState(popup: .suggestions, sheetPickable: true)
+    let cardKey = { (code: Int64, flags: CGEventFlags) in KeyRouter.decide(keyCode: code, flags: flags, synthetic: false, state: card) }
+    check(cardKey(48, [.maskSecondaryFn]) == .swallow(.openSheetPicker), "fn+Tab on a sheet's suggestion opens the sheet picker")
+    check(cardKey(48, []) == .swallow(.activate), "Tab on a sheet's suggestion inserts it as before")
+    check(KeyRouter.decide(keyCode: 48, flags: [.maskSecondaryFn], synthetic: false, state: KeyRoutingState(popup: .suggestions))
+          == .swallow(.activate), "fn+Tab on any other suggestion is Tab")
+    let sheetPicking = KeyRoutingState(popup: .suggestions, sheetPickerOpen: true)
+    let sheetKey = { (code: Int64, flags: CGEventFlags) in KeyRouter.decide(keyCode: code, flags: flags, synthetic: false, state: sheetPicking) }
+    check(sheetKey(48, []) == .swallow(.sheetInsert) && sheetKey(48, [.maskSecondaryFn]) == .swallow(.sheetInsert), "Tab in the sheet picker inserts the highlights")
+    check(sheetKey(53, []) == .swallow(.sheetCancel), "Escape in the sheet picker goes back to the card")
+    check(sheetKey(6, [.maskCommand]) == .swallow(.sheetUndo), "\u{2318}Z in the sheet picker removes the latest highlight")
+    check(sheetKey(6, [.maskCommand, .maskShift]) == .swallow(.sheetRedo), "\u{21E7}\u{2318}Z brings it back")
+    check(sheetKey(125, [.maskShift]) == .swallow(.sheetMove(columns: 0, rows: 1, extending: true)), "\u{21E7}\u{2193} extends the latest highlight")
+    check(sheetKey(0, []) == .pass(.pickerTypedOn), "a letter goes on to the app and closes the sheet picker")
+    check(sheetKey(8, [.maskCommand]) == .pass(nil), "a shortcut stays the app's")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

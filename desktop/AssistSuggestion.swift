@@ -31,6 +31,8 @@ struct AssistSuggestion {
     var verbatim = false
     /// A row or cell with spatial navigation in its source table.
     var tableNavigable = false
+    /// A spreadsheet's or CSV's cell, row or column: fn+Tab opens its sheet to highlight cells from.
+    var sheetPickable = false
     /// The typed words its source has, as the source spells them, which its preview marks.
     var matchedWords: [String] = []
     /// Seconds into a video where the quoted words are said, which its link and inspector start at.

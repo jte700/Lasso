@@ -264,19 +264,6 @@ final class PassagePickerView: NSView {
     /// the window, kept on the screen. The picker never takes the keyboard, so
     /// it is moved here rather than by the system's window dragging.
     override func mouseDown(with event: NSEvent) {
-        guard let window else { return }
-        let grabbed = NSEvent.mouseLocation
-        let origin = window.frame.origin
-        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
-            let pointer = NSEvent.mouseLocation
-            var frame = window.frame
-            frame.origin = NSPoint(x: origin.x + pointer.x - grabbed.x, y: origin.y + pointer.y - grabbed.y)
-            if let visible = (NSScreen.screens.first { $0.frame.contains(pointer) } ?? window.screen)?.visibleFrame {
-                frame.origin.x = min(max(visible.minX - frame.width + 80, frame.origin.x), visible.maxX - 80)
-                frame.origin.y = min(max(visible.minY, frame.origin.y), visible.maxY - frame.height)
-            }
-            window.setFrameOrigin(frame.origin)
-            if next.type == .leftMouseUp { break }
-        }
+        if let window { CardPanelTakeover.drag(window) }
     }
 }
