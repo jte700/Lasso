@@ -5,6 +5,7 @@ import ApplicationServices
 
 extension GlobalAssistant {
     func move(_ delta: Int) {
+        if tableNavigationOrigin != nil { returnFromTable() }
         if view.mode == .confirmShare {
             view.selected = (view.selected + delta + view.confirmChoices.count) % view.confirmChoices.count
             view.needsDisplay = true

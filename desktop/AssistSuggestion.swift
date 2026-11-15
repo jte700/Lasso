@@ -29,6 +29,8 @@ struct AssistSuggestion {
     /// Code: inserted exactly as written. Its letters are never re-cased, and
     /// where the host ignores Accessibility writes it is pasted, not typed.
     var verbatim = false
+    /// A row or cell with spatial navigation in its source table.
+    var tableNavigable = false
     /// The typed words its source has, as the source spells them, which its preview marks.
     var matchedWords: [String] = []
     /// Seconds into a video where the quoted words are said, which its link and inspector start at.
@@ -49,7 +51,7 @@ struct AssistSuggestion {
     }
 
     /// A line long enough that ⇧fn+Left and ⇧fn+Right open it to choose some of its words.
-    var offersWords: Bool { !narrowable && AssistWordChoice.offers(insertText) }
+    var offersWords: Bool { !tableNavigable && !narrowable && AssistWordChoice.offers(insertText) }
 
     /// The suggestion with only the words chosen from its line, or nil when none are.
     func choosing(_ words: AssistWordChoice) -> AssistSuggestion? {
