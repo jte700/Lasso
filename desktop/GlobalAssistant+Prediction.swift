@@ -36,7 +36,7 @@ extension GlobalAssistant {
                 location: Self.sourceLocation(object), replacement: replacement,
                 objectId: id, versionId: object["versionId"] as? String,
                 snapshotId: object["snapshotId"] as? String, usageObjectId: id,
-                projectId: projectId, rankingReason: nil)
+                projectId: projectId, rankingReason: nil, tableNavigable: Self.isTableSource(object))
             self.view.selected = 0
             self.view.sourceScoped = true
             self.showMeasuringHost([suggestion])
@@ -61,6 +61,7 @@ extension GlobalAssistant {
             hide()
         }
         guard view.mode == .suggestions else { return }
+        resetTableNavigation()
         feedbackDismissed = false
         // Invalidate the previous response now, not after the debounce. A late
         // response must not dismiss the next refresh while the user is typing.
@@ -383,6 +384,12 @@ extension GlobalAssistant {
         return nil
     }
 
+    static func isTableSource(_ object: [String: Any]) -> Bool {
+        guard let anchor = object["anchor"] as? [String: Any],
+              let kind = anchor["kind"] as? String else { return false }
+        return ["table-row", "table-cell"].contains(kind)
+    }
+
     static func sourceLocation(_ candidate: [String: Any]) -> String {
         let anchor = candidate["anchor"] as? [String: Any] ?? [:]
         let metadata = candidate["metadata"] as? [String: Any] ?? [:]
@@ -450,6 +457,8 @@ extension GlobalAssistant {
                 + "|" + suggestion.insertText
             if identities.insert(identity).inserted {
                 var matched = suggestion
+                let candidate = (entry["dependencyCandidate"] as? [String: Any]) ?? entry
+                matched.tableNavigable = Self.isTableSource(candidate)
                 matched.matchedWords = entry["matchedWords"] as? [String] ?? []
                 // A value that changed recently says what it was, in the same dim slot.
                 if let change = AssistValueChange(json: entry["change"]) {

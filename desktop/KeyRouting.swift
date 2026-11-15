@@ -34,6 +34,8 @@ struct KeyRoutingState: Equatable {
     /// Lasso's last Tab or inserted link is the last change in the field, so
     /// ⌘Z takes it back.
     var canUndoInsertion = false
+    var tableNavigable = false
+    var tableBrowsing = false
 }
 
 /// Work a keystroke asks of the main thread.
@@ -50,6 +52,8 @@ enum KeyAction: Equatable {
     case shareConfirm
     case shareScope(Int)
     case inspectorShare
+    case navigateTable(String)
+    case returnFromTable
     case focusOut
     case focusIn
     case shareUndo
@@ -96,6 +100,10 @@ enum KeyRouter {
             && !state.sourceChooserVisible && !state.shareComposerOpen
         // Escape among a line's words goes back to the list; a second closes the card.
         if choosingWords, keyCode == escape, !commandLike { return .swallow(.closeWords) }
+        if keyCode == escape, !commandLike, state.tableBrowsing,
+           !state.sourceChooserVisible, !state.shareComposerOpen, state.popup == .suggestions {
+            return .swallow(.returnFromTable)
+        }
         if keyCode == escape, !commandLike, state.transientOpen { return .swallow(.dismissTransient) }
         // Native search controls own their keystrokes while the picker is open.
         if state.sourceChooserVisible { return .pass(nil) }
@@ -114,6 +122,16 @@ enum KeyRouter {
         // Shift+Tab leaves the field, Control+Tab switches tabs, and modified
         // arrows move or select text. Only the bare keys belong to the box.
         let chord = !flags.intersection([.maskShift, .maskCommand, .maskControl, .maskAlternate]).isEmpty
+        if state.popup == .suggestions, state.tableNavigable, !chord, !choosingWords {
+            // macOS translates Fn arrows to Home, End, Page Up and Page Down.
+            switch keyCode {
+            case home: return .swallow(.navigateTable("left"))
+            case end: return .swallow(.navigateTable("right"))
+            case 116: return .swallow(.navigateTable("up"))
+            case 121: return .swallow(.navigateTable("down"))
+            default: break
+            }
+        }
         if choosingWords, let decision = wordsDecision(keyCode, flags: flags) { return decision }
         // ⇧fn+Left and ⇧fn+Right open a highlighted line's words. On any other
         // row they still select to the start or end in the host.

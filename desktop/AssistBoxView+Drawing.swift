@@ -33,7 +33,11 @@ extension AssistBoxView {
             // fn+Right opens the highlighted row when it has values below it.
             let narrowsInto = suggestions.indices.contains(selected) && suggestions[selected].narrowable
                 ? suggestions[selected].label : nil
-            if sourceScoped {
+            if suggestions.indices.contains(selected), suggestions[selected].tableNavigable {
+                drawLabel(tableBrowsing ? "Cells · Esc back" : "Cells", key: "fn ←↑↓→",
+                          in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
+                          font: navigationFont, color: .secondaryLabelColor)
+            } else if sourceScoped {
                 drawLabel("‹ \(stepBackName ?? "All sources")", key: "fn ←",
                           in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
                           font: navigationFont, color: .controlAccentColor)

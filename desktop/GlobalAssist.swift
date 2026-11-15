@@ -98,6 +98,10 @@ final class GlobalAssistant {
     /// can offer their values instead of matching the same phrase.
     var linkedSources = LinkedSourceMemory()
     /// The source the card on screen is focused on, as the server reported it.
+    var tableNavigationRequest: URLSessionDataTask?
+    var tableNavigationQueue: [String] = []
+    var tableNavigationToken = 0
+    var tableNavigationOrigin: (suggestions: [AssistSuggestion], selected: Int)?
     var focusedSource: LinkedSourceMemory.Source?
     /// The row the list a focus move asked for opens on.
     var focusLanding: FocusLanding?
@@ -323,7 +327,9 @@ final class GlobalAssistant {
             offersChoices: !view.suggestions.isEmpty,
             highlightsLine: view.mode == .suggestions && currentSuggestion?.offersWords == true,
             choosingWords: view.mode == .suggestions && view.wordChoice != nil,
-            canUndoInsertion: undoableInsertion != nil)
+            canUndoInsertion: undoableInsertion != nil,
+            tableNavigable: currentSuggestion?.tableNavigable == true,
+            tableBrowsing: tableNavigationOrigin != nil)
     }
 
     func publishKeyRouting() {
@@ -371,6 +377,11 @@ final class GlobalAssistant {
             ShareComposerController.shared.moveScope(delta)
         case .inspectorShare:
             inspector?.shareFromKeyboard()
+        case .navigateTable(let direction):
+            tableNavigationQueue.append(direction)
+            navigateNextTableCell()
+        case .returnFromTable:
+            returnFromTable()
         case .focusOut:
             // fn+Left and fn+Right keep their meaning among a line's words.
             view.wordChoice = nil
@@ -695,6 +706,7 @@ final class GlobalAssistant {
     }
 
     func hide() {
+        resetTableNavigation()
         // A card that closes on its own, because the next words found nothing
         // or dictation wrote a word it then corrected, can still be accepted by
         // saying "tab" a moment later. Dismissing it forgets it.

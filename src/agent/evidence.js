@@ -39,6 +39,8 @@ import { extractDocxHeadings, extractPdfPassages } from '../dependencies/documen
 import { readStepModel } from '../dependencies/step-model.js';
 import { instancesOf, namedInstances, relationOf } from './geometry.js';
 import { StructuralAdapterError } from './structural/adapters.js';
+import { sqlOfAsk, tableAskMethods } from './table-asks.js';
+import { fileOperationMethods } from './file-ops.js';
 
 const MAX_QUERIES = 16;
 const MAX_ASKS = 16;
@@ -1400,22 +1402,31 @@ export class EvidenceService {
    * Nothing is chosen between sources that disagree: they come back
    * together, with what tells them apart.
    */
-  ask(request = {}) {
+  /**
+   * `mcp` is set by the MCP server only: what was added for a model asking over MCP (whole-table operations,
+   * table-asks.js) is reached through it, and every other caller is answered as before.
+   */
+  ask(request = {}, actor = null, { mcp = false } = {}) {
     if (!request || typeof request !== 'object' || Array.isArray(request)) throw invalid('The request must be an object.');
     const given = request.ask ?? request.asks ?? request.questions ?? request.queries ?? request.items ?? request.text;
     const listed = Array.isArray(given) ? given : given != null ? [given] : [];
+    // A query is one ask: its parentheses and commas are not an enumeration of several.
     const asks = listed.flatMap((item) => (typeof item === 'string'
-      ? splitAsk(item).map((part, index, parts) => ({ text: part, split: parts.length > 1 }))
+      ? (mcp && sqlOfAsk(item) ? [item] : splitAsk(item)).map((part, index, parts) => ({ text: part, split: parts.length > 1 }))
       : [{ item }]));
     if (!asks.length || asks.length > MAX_ASKS) throw invalid(`ask must list 1 to ${MAX_ASKS} questions.`);
     const context = this.context();
+    context.mcp = Boolean(mcp);
     // A budget under 100 reads as a number of results ("budget": 5), not tokens of evidence: the default is used.
     context.budget = request.budget == null || Number(request.budget) < 100 ? null : count(request.budget, 'budget', { min: 100, max: 8000, fallback: ASK_BUDGET });
     const answers = asks.map((entry, index) => {
       // An ask split out of a longer one is echoed, so its answer can be told apart.
       const head = { n: index + 1, ...(entry.split ? { ask: entry.text } : {}) };
       try {
-        return withStatus({ ...head, ...(entry.item ? this.askItem(context, entry.item) : this.resolveAsk(context, entry.text)) });
+        const answer = withStatus({ ...head, ...(entry.item ? this.askItem(context, entry.item) : this.resolveAsk(context, entry.text)) });
+        if (!context.mcp) return answer;
+        const hinted = { ...answer, ...this.queryTables(context, answer, entry.text ?? '') };
+        return { ...hinted, ...this.operationsOffered(context, hinted, entry.text ?? '', entry.text ? parseAsk(entry.text, context.projects.map((project) => project.name)) : null) };
       } catch (error) {
         if (error instanceof AgentError) return { ...head, kind: 'error', status: error.code === 'ambiguous' ? 'ambiguous' : error.code === 'not_found' ? 'not_found' : 'error', error: error.toJSON() };
         throw error;
@@ -1426,10 +1437,19 @@ export class EvidenceService {
     return { sources: this.sourcesOf(context), answers, ...(warnings.length ? { warnings } : {}) };
   }
 
+  /** A query over whole tables (table-asks.js), in the folders asked and, when a file is named with it, in that file. */
+  askQuery(context, sql, fileName = null, folder = null) {
+    const named = fileName ? this.resolveFile(context, { file: String(fileName), ...(folder != null ? { folder } : {}) }) : null;
+    return this.askSql(context, this.foldersNamed(context, folder), text(sql, 'sql', { max: 4000, optional: false }), { named });
+  }
+
   /** A structured follow-up: a handle, file or definition to read, or an explicit search. */
   askItem(context, item) {
     if (!item || typeof item !== 'object') throw invalid('Each ask is a string or an object.');
+    if (context.mcp && typeof item.sql === 'string') return this.askQuery(context, item.sql, item.file ?? null, item.folder ?? null);
     if (item.op != null && GEOMETRY_OPS[String(item.op).toLowerCase()]) return this.askGeometryItem(context, item);
+    // {file, op, …}: an operation over a whole workbook, document or assembly (file-ops.js). A column makes it a column's operation, as before.
+    if (context.mcp && (item.op != null || Array.isArray(item.ops)) && item.file != null && item.column == null) return this.askOperations(context, item);
     if (item.op != null) {
       if (typeof item.column !== 'string' || !item.column.trim()) throw invalid('An operation names the column it works on: {op, column, file?}.');
       const answer = this.askAggregate(context, this.foldersNamed(context, item.folder), { original: '', words: [] }, item);
@@ -1458,6 +1478,8 @@ export class EvidenceService {
   }
 
   resolveAsk(context, value, folder = null) {
+    const query = context.mcp ? sqlOfAsk(value) : null;
+    if (query) return this.askQuery(context, query.sql, query.before, folder);
     const parsed = parseAsk(text(value, 'ask', { max: 2000, optional: false }), context.projects.map((project) => project.name));
     if (folder != null && parsed.folder == null) parsed.folder = String(folder);
     const projects = this.foldersNamed(context, parsed.folder);
@@ -1469,9 +1491,16 @@ export class EvidenceService {
       // A code-shaped name defined nowhere is still a name to find ("API_TOKEN", "max_pool_size").
       asked = { ...parsed, content: [...parsed.content, ...parsed.symbols] };
     }
+    // "broken cross-references in the agreement.pdf", "how many bolts in conveyor.step": an operation over the whole file.
+    const operated = context.mcp ? this.askFileOperations(context, asked) : null;
+    if (operated) return operated;
     if (asked.fileOnly) return this.askFiles(context, projects, asked);
     const placed = this.askGeometry(context, projects, asked);
     if (placed) return placed;
+    // "Summary!B12": a cell named as a spreadsheet names it. "total Net by quarter", "duplicate Order IDs": worked out
+    // over every row. Both before a row is looked for by its label.
+    const grouped = context.mcp ? this.askCells(context, projects, asked) ?? this.askGrouped(context, projects, asked) : null;
+    if (grouped) return grouped;
     const record = this.askRecord(context, projects, asked);
     if (record) return record;
     // A column's total answers that part of the ask exactly; the search answers the rest ("and how it compares with Q3"),
@@ -2707,6 +2736,8 @@ export class EvidenceService {
  * `ambiguous` (sources or candidates the files do not settle between),
  * `not_found` (this search found nothing, which is not proof of absence).
  */
+Object.assign(EvidenceService.prototype, tableAskMethods, fileOperationMethods);
+
 function withStatus(answer) {
   if (answer.status) return answer;
   const ambiguous = (answer.kind === 'record' && answer.verdict === 'differ') || (answer.kind === 'records' && answer.groups.some((group) => group.verdict === 'differ'))

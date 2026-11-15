@@ -2924,6 +2924,19 @@ do {
           "with no card on screen, fn+arrows belong to the host")
     check(chord(119, fnArrow, KeyRoutingState(popup: .confirmShare)) == .pass(.followTyping(trackCaret: true)),
           "the share question leaves fn+arrows to the host")
+    let table = KeyRoutingState(popup: .suggestions, tableNavigable: true, tableBrowsing: true)
+    for (key, direction) in [(115, "left"), (119, "right"), (116, "up"), (121, "down")] {
+        check(chord(Int64(key), fnArrow, table) == .swallow(.navigateTable(direction)),
+              "Fn arrows move spatially through a table")
+    }
+    check(route(53, table) == .swallow(.returnFromTable), "Escape returns from table browsing to the original suggestions")
+    check(route(125, table) == .swallow(.move(1)), "bare Down still chooses suggestions in tables")
+    check(chord(121, fnArrow, open) == .pass(.followTyping(trackCaret: true)),
+          "Fn Down remains with the host outside tables")
+    check(chord(119, [.maskShift, .maskSecondaryFn], table) == .pass(.followTyping(trackCaret: true)),
+          "modified table arrows still belong to text selection")
+    check(chord(119, fnArrow, KeyRoutingState(shareComposerOpen: true, popup: .suggestions, tableNavigable: true)) == .pass(nil),
+          "share controls take priority over table navigation")
     let empty = KeyRoutingState(popup: .suggestions, offersChoices: false)
     check(chord(119, fnArrow, empty) == .swallow(.focusIn), "an empty card kept after a move still moves back with fn+Right")
     check(route(48, empty) == .pass(.followTyping(trackCaret: true)) && route(125, empty) == .pass(.followTyping(trackCaret: true))

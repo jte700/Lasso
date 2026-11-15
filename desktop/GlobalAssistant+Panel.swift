@@ -266,6 +266,7 @@ extension GlobalAssistant {
         view.onLocalLink = { [weak self] in self?.acceptPlain() }
         view.onShare = { [weak self] in self?.acceptShared() }
         view.onOpenSource = { [weak self] in self?.openCurrentSource() }
+        view.onReturnFromTable = { [weak self] in self?.returnFromTable() }
         view.onAllSources = { [weak self] in self?.chooseSource(allDocuments: true) }
         view.onStepBack = { [weak self] in self?.stepBack(); self?.publishKeyRouting() }
         view.onOpenWords = { [weak self] in self?.openWords(movingStart: false); self?.publishKeyRouting() }
