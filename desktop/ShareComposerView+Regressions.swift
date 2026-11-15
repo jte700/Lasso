@@ -496,4 +496,112 @@ extension ShareComposerView {
         return failures
     }
 }
+
+extension ShareComposerView {
+    /// A video opens on the whole video alone, with its player cued in the preview.
+    static func runVideoShareRegression(videoPath: String, screenshotPath: String? = nil) -> [String] {
+        let view = ShareComposerView(frame: NSRect(x: 0, y: 0, width: 760, height: 660))
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        var checks: [String] = []
+        func require(_ condition: @autoclosure () -> Bool, _ message: String) {
+            precondition(condition(), message)
+            checks.append(message)
+        }
+        func paint() {
+            view.layoutSubtreeIfNeeded()
+            if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+            }
+        }
+        view.reset(label: "Good morning, everyone. The drywall crew starts on Monday.", filename: "Site Standup.mov")
+        require(view.scope == .document && view.scopes == [.document],
+                "A video opens on the whole video, with no cited part, redaction or mark-up offered")
+        paint()
+        require(view.videoView == nil, "No player is made before the preview says where the video is")
+        let json: [String: Any] = [
+            "source": ["filename": "Site Standup.mov", "path": videoPath],
+            "preview": ["kind": "video", "localPath": videoPath, "startTime": 12.4, "duration": 61,
+                        "lines": [["lineNumber": 1, "text": "Good morning, everyone.", "cited": true]]]]
+        view.preview = AssistDocumentPreview.parse(try! JSONSerialization.data(withJSONObject: json))
+        view.isLoading = false
+        view.keepOfferedScope()
+        require(view.preview?.video?.startTime == 12.4, "The composer reads the video's cited moment")
+        paint()
+        require(view.scope == .document, "The loaded preview keeps the whole video chosen")
+        require(view.videoView.map { !$0.view.isHidden && view.previewCard.contains($0.view.frame) } == true,
+                "The player is shown inside the preview card")
+        require(view.videoSubtitle == "Opens at 0:12 for the recipient", "The card says where the recipient's player starts")
+        if let screenshotPath, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: screenshotPath))
+        }
+        view.reset(label: "Total", filename: "Budget.xlsx")
+        paint()
+        require(view.videoView == nil && !view.subviews.contains { $0 is AssistVideoPreviewView },
+                "Sharing another file takes the video's player away")
+        require(view.scopes == [.document, .indexed, .redacted], "A workbook keeps its three ways to share")
+        return checks
+    }
+}
+
+extension ShareComposerView {
+    /// A picture opens whole, and in Select & redact an area dragged over it becomes a picture mask.
+    static func runPictureRedactionRegression(screenshotPath: String? = nil) -> [String] {
+        let view = ShareComposerView(frame: NSRect(x: 0, y: 0, width: 760, height: 660))
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        var checks: [String] = []
+        func require(_ condition: @autoclosure () -> Bool, _ message: String) {
+            precondition(condition(), message)
+            checks.append(message)
+        }
+        func paint() {
+            view.layoutSubtreeIfNeeded()
+            if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+            }
+        }
+        view.reset(label: "Site.png", filename: "Site.png")
+        require(view.scope == .document && view.scopes == [.document, .redacted],
+                "A picture opens whole, and offers Select & redact but no cited part")
+        view.picture = NSImage(size: NSSize(width: 400, height: 200), flipped: false) { rect in
+            NSColor.systemRed.setFill(); NSRect(x: 0, y: 0, width: rect.width / 2, height: rect.height).fill()
+            NSColor.systemBlue.setFill(); NSRect(x: rect.width / 2, y: 0, width: rect.width / 2, height: rect.height).fill()
+            return true
+        }
+        view.isPictureLoading = false
+        view.isLoading = false
+        view.isDocumentLoading = false
+        view.scope = .redacted
+        paint()
+        guard let layout = view.drawingLayout else { preconditionFailure("The picture is laid out for masks") }
+        require(layout.kind == "IMAGE" && view.previewCard.contains(layout.frame), "The picture is drawn inside the preview card")
+        require(abs(layout.frame.width / layout.frame.height - 2) < 0.02, "The picture keeps its shape")
+        require(!view.canSubmit, "A redacted picture needs at least one area")
+        // A drag from the picture's centre to its bottom right, as the mouse makes it.
+        view.drawingDrag = (NSPoint(x: layout.frame.midX, y: layout.frame.minY), view.masks, .blank)
+        view.updateRedactionDrag(at: NSPoint(x: layout.frame.maxX, y: layout.frame.maxY))
+        view.drawingDrag = nil
+        let mask = view.masks.values.first
+        require(view.masks.count == 1 && mask?.kind == "IMAGE" && mask?.effect == .blank,
+                "Dragging over the picture makes one picture mask")
+        require(mask.map { abs(($0.x ?? 0) - 0.5) < 0.01 && abs(($0.width ?? 0) - 0.5) < 0.01 && $0.y == 0 && $0.height == 1 } == true,
+                "The mask covers the right half the drag went over")
+        require(view.canSubmit, "With an area chosen the redacted picture can be shared")
+        paint()
+        if let screenshotPath, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: screenshotPath))
+        }
+        view.reset(label: "Plan.dxf", filename: "Plan.dxf")
+        require(view.picture == nil && view.scope == .document && view.scopes == [.document, .redacted],
+                "A 2D drawing opens whole, offers no cited part, and keeps no picture from before")
+        return checks
+    }
+}
 #endif

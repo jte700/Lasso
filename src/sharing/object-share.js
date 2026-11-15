@@ -8,6 +8,7 @@ import { shareExpiry } from './expiry.js';
 import { detectFileType, isCodePath } from '../history/file-types.js';
 import { isPresentationPath } from '../dependencies/presentation-extraction.js';
 import { isMarkablePath, normalizeMarkup } from './markup.js';
+import { isImagePath } from './image-share.js';
 
 const MIME_TYPES = {
   '.pdf': 'application/pdf',
@@ -117,7 +118,8 @@ export class ObjectShareService {
     const normalizedRedactions = normalizeRedactions(redactions, normalizedScope);
     // A marked copy keeps its strokes where a redacted one keeps its masks.
     const normalizedMarkup = normalizeMarkup(markup, normalizedScope);
-    const isDrawing = /\.(?:ifc|dxf)$/i.test(version.path ?? '');
+    const isDrawing = isPlanDrawingPath(version.path);
+    const isImage = isImagePath(version.path);
     const isPdf = /\.pdf$/i.test(version.path ?? '');
     if (normalizedRedactions.some(entry => entry.kind === 'PDF') && !isPdf) {
       throw new HttpError(400, 'PDF selections can only be shared from PDF documents.');
@@ -131,6 +133,12 @@ export class ObjectShareService {
     }
     if (isDrawing && normalizedScope === 'REDACTED' && normalizedRedactions.some(entry => entry.kind !== 'DRAWING')) {
       throw new HttpError(400, 'Select drawing regions to redact this source.');
+    }
+    if (normalizedRedactions.some(entry => entry.kind === 'IMAGE') && !isImage) {
+      throw new HttpError(400, 'Picture areas can only redact a picture.');
+    }
+    if (isImage && normalizedScope === 'REDACTED' && normalizedRedactions.some(entry => entry.kind !== 'IMAGE')) {
+      throw new HttpError(400, 'Select areas of the picture to redact it.');
     }
 
     // Markdown and XML text redactions address structured sections. The layout
@@ -411,13 +419,16 @@ const SHARE_SCOPES = new Set(['DOCUMENT', 'INDEXED', 'REDACTED', 'MARKED']);
 // A passage of prose says little on its own, so writing is sent whole, redacted or marked up.
 const WRITING_TYPES = new Set(['pdf', 'document', 'text', 'markdown']);
 const isWritingPath = (filePath) => WRITING_TYPES.has(detectFileType(filePath));
+// A 2D plan is read as a whole drawing; its cited element alone is only words.
+const isPlanDrawingPath = (filePath) => /\.(?:ifc|dxf)$/i.test(filePath ?? '');
 
 /**
  * The scopes a source can be shared with. Code is never shared with a link.
  * A deck is shared whole or as a picture of one slide, the cited one, and has
  * nothing to redact; its whole-deck citation names no slide. PDFs, Word
- * documents and text files have no cited part. PDFs, Word documents and decks
- * can also be shared as a copy with markings drawn on its pages.
+ * documents and text files have no cited part. Pictures and 2D plans have none
+ * either, and are redacted by area. PDFs, Word documents and decks can also be
+ * shared as a copy with markings drawn on its pages.
  * @param {string} filePath
  * @param {object|null} anchor the cited object's anchor
  * @returns {string[]}
@@ -429,6 +440,7 @@ export function offeredShareScopes(filePath, anchor = null) {
   const marked = isMarkablePath(filePath) ? ['MARKED'] : [];
   if (isPresentationPath(filePath)) return [...(Number.isInteger(anchor?.slideNumber) ? ['DOCUMENT', 'INDEXED'] : ['DOCUMENT']), ...marked];
   if (isWritingPath(filePath)) return ['DOCUMENT', 'REDACTED', ...marked];
+  if (isImagePath(filePath) || isPlanDrawingPath(filePath)) return ['DOCUMENT', 'REDACTED'];
   return ['DOCUMENT', 'INDEXED', 'REDACTED', ...marked];
 }
 
@@ -438,9 +450,13 @@ function scopeRefusal(filePath, scope) {
   if (scope === 'MARKED') return 'Only PDFs, Word documents and presentations can be shared with markings.';
   if (scope === 'REDACTED') return 'Presentations are shared whole or one slide at a time; there is nothing to redact.';
   if (isWritingPath(filePath)) return 'PDFs, Word documents and text files are shared whole or redacted, not as a cited part.';
+  if (isImagePath(filePath) || isPlanDrawingPath(filePath)) return 'Pictures and 2D drawings are shared whole or redacted, not as a cited part.';
   return 'This citation names no slide. Share the whole presentation, or cite a slide to share only that slide.';
 }
-const REDACTION_KINDS = new Set(['CELL', 'BLOCK', 'DRAWING', 'PDF']);
+const REDACTION_KINDS = new Set(['CELL', 'BLOCK', 'DRAWING', 'PDF', 'IMAGE']);
+// Areas are drawn from the top left, each value a share of the width or height.
+const AREA_KINDS = new Set(['DRAWING', 'PDF', 'IMAGE']);
+const AREA_NAMES = { DRAWING: 'drawing', PDF: 'PDF', IMAGE: 'picture' };
 const REDACTION_EFFECTS = new Set(['BLUR', 'BLANK']);
 
 function normalizeShareScope(value) {
@@ -462,12 +478,12 @@ export function normalizeRedactions(value, scope) {
       throw new HttpError(400, 'Invalid redaction.');
     }
     let target;
-    if (kind === 'DRAWING' || kind === 'PDF') {
+    if (AREA_KINDS.has(kind)) {
       const { x, y, width, height } = entry;
       if (![x, y, width, height].every(coordinate => typeof coordinate === 'number' && Number.isFinite(coordinate))
           || x < 0 || y < 0 || width <= 0 || height <= 0
           || x + width > 1 || y + height > 1) {
-        throw new HttpError(400, `Invalid ${kind === 'PDF' ? 'PDF' : 'drawing'} redaction region.`);
+        throw new HttpError(400, `Invalid ${AREA_NAMES[kind]} redaction region.`);
       }
       const page = Number(entry.page);
       if (kind === 'PDF' && (!Number.isInteger(page) || page < 1 || page > 1000)) throw new HttpError(400, 'Invalid PDF redaction page.');
@@ -494,6 +510,7 @@ export function normalizeRedactions(value, scope) {
     if (!seen.has(key)) { seen.add(key); normalized.push(target); }
   }
   if (normalized.filter(entry => entry.kind === 'DRAWING').length > 64) throw new HttpError(400, 'Select no more than 64 drawing regions.');
+  if (normalized.filter(entry => entry.kind === 'IMAGE').length > 64) throw new HttpError(400, 'Select no more than 64 areas of the picture.');
   if (!normalized.length) throw new HttpError(400, 'Select at least one area to redact.');
   return normalized;
 }

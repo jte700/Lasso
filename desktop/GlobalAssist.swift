@@ -98,6 +98,10 @@ final class GlobalAssistant {
     /// can offer their values instead of matching the same phrase.
     var linkedSources = LinkedSourceMemory()
     /// The source the card on screen is focused on, as the server reported it.
+    var tableNavigationRequest: URLSessionDataTask?
+    var tableNavigationQueue: [String] = []
+    var tableNavigationToken = 0
+    var tableNavigationOrigin: (suggestions: [AssistSuggestion], selected: Int)?
     var focusedSource: LinkedSourceMemory.Source?
     /// The row the list a focus move asked for opens on.
     var focusLanding: FocusLanding?
@@ -317,12 +321,15 @@ final class GlobalAssistant {
             transientOpen: LassoTransientUI.shared.hasOpenSurface,
             sourceChooserVisible: SourceChooserController.shared.isVisible,
             shareComposerOpen: composer.isVisible,
+            passagePickerOpen: PassagePickerController.shared.isVisible,
             inspectorCanShare: inspector?.canShareFromKeyboard == true,
             popup: popup,
             offersChoices: !view.suggestions.isEmpty,
             highlightsLine: view.mode == .suggestions && currentSuggestion?.offersWords == true,
             choosingWords: view.mode == .suggestions && view.wordChoice != nil,
-            canUndoInsertion: undoableInsertion != nil)
+            canUndoInsertion: undoableInsertion != nil,
+            tableNavigable: currentSuggestion?.tableNavigable == true,
+            tableBrowsing: tableNavigationOrigin != nil)
     }
 
     func publishKeyRouting() {
@@ -370,24 +377,18 @@ final class GlobalAssistant {
             ShareComposerController.shared.moveScope(delta)
         case .inspectorShare:
             inspector?.shareFromKeyboard()
+        case .navigateTable(let direction):
+            tableNavigationQueue.append(direction)
+            navigateNextTableCell()
+        case .returnFromTable:
+            returnFromTable()
         case .focusOut:
             // fn+Left and fn+Right keep their meaning among a line's words.
             view.wordChoice = nil
             stepBack()
         case .focusIn:
             view.wordChoice = nil
-            // A value has nothing below it, so there fn+Right does nothing.
-            let choice = narrowingChoice, highlighted = highlightedSource
-            guard linkedSources.canMoveIn(focusedOn: focusedSource, selected: choice?.source,
-                                          highlighted: highlighted) else { break }
-            let narrowed = linkedSources.moveIn(focusedOn: focusedSource, selected: choice?.source,
-                                                highlighted: highlighted, typed: choice?.typed)
-            // Back in a level an earlier fn+Left left, the list opens on the row
-            // that fn+Left stepped out of, so fn+Right goes on back into it.
-            focusLanding = linkedSources.steppedOutOf.map { .row(objectId: $0.objectId) } ?? .first
-            // Until the server answers, a second fn+Right starts from here, not from the old card.
-            focusedSource = narrowed
-            refresh()
+            narrowFocus()
         case .shareUndo:
             ShareComposerController.shared.undoEdit()
         case .shareRedo:
@@ -400,6 +401,18 @@ final class GlobalAssistant {
             view.wordChoice?.move(forward ? .forward : .backward, selecting: selecting, toEnd: toEnd)
         case .closeWords:
             view.wordChoice = nil
+        case .pickerInsert:
+            PassagePickerController.shared.insert()
+        case .pickerLink:
+            PassagePickerController.shared.link()
+        case .pickerMove(let forward, let byLine, let extending):
+            PassagePickerController.shared.moveSelection(forward: forward, byLine: byLine, extending: extending)
+        case .pickerCancel:
+            PassagePickerController.shared.cancel()
+        case .pickerTypedOn:
+            // Typing on in the app closes the picker; suggestions follow the new words.
+            hide()
+            followTextChange(trackCaret: false)
         }
         publishKeyRouting()
     }
@@ -628,6 +641,22 @@ final class GlobalAssistant {
         view.wordChoice = words
     }
 
+    /// fn+Right: the card narrowed to the values below the highlighted row.
+    /// A value has nothing below it, so there fn+Right does nothing.
+    func narrowFocus() {
+        let choice = narrowingChoice, highlighted = highlightedSource
+        guard linkedSources.canMoveIn(focusedOn: focusedSource, selected: choice?.source,
+                                      highlighted: highlighted) else { return }
+        let narrowed = linkedSources.moveIn(focusedOn: focusedSource, selected: choice?.source,
+                                            highlighted: highlighted, typed: choice?.typed)
+        // Back in a level an earlier fn+Left left, the list opens on the row
+        // that fn+Left stepped out of, so fn+Right goes on back into it.
+        focusLanding = linkedSources.steppedOutOf.map { .row(objectId: $0.objectId) } ?? .first
+        // Until the server answers, a second fn+Right starts from here, not from the old card.
+        focusedSource = narrowed
+        refresh()
+    }
+
     /// fn+Left: one level back. The list it returns to opens on the row
     /// stepped out of, so fn+Right goes straight back into it.
     func stepBack() {
@@ -677,6 +706,7 @@ final class GlobalAssistant {
     }
 
     func hide() {
+        resetTableNavigation()
         // A card that closes on its own, because the next words found nothing
         // or dictation wrote a word it then corrected, can still be accepted by
         // saying "tab" a moment later. Dismissing it forgets it.
@@ -688,6 +718,7 @@ final class GlobalAssistant {
         generation += 1
         contextReads.dropPending()
         if ShareComposerController.shared.isPresented(in: panel) { ShareComposerController.shared.hide() }
+        if PassagePickerController.shared.isPresented(in: panel) { PassagePickerController.shared.hide() }
         stopTrackingHost()
         debounce?.invalidate()
         debounce = nil

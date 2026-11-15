@@ -25,7 +25,7 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { openLocal } from '../src/agent/client.js';
-import { INSTRUCTIONS as LASSO_INSTRUCTIONS, toolsNamed } from '../src/agent/mcp.js';
+import { askTextOptions, INSTRUCTIONS as LASSO_INSTRUCTIONS, toolsNamed } from '../src/agent/mcp.js';
 import { formatAnswer } from '../src/agent/render.js';
 import { estimateTokens } from '../src/agent/metrics.js';
 import { INSTRUCTIONS_V1, INSTRUCTIONS_V2, INSTRUCTIONS_V3, INSTRUCTIONS_V4, TOOLS_V1, TOOLS_V2, TOOLS_V3, TOOLS_V4 } from './agent-tools-versions.mjs';
@@ -149,10 +149,13 @@ async function runTask({ provider, arm, task, prompt, tools, execute, instructio
 }
 
 /** The arms a workspace is run in: what each gives the model and how its tool calls are answered. */
-function armsFor(workspace, lasso) {
+function armsFor(workspace, lasso, before) {
   const instructions = instructionsFor(workspace.folders);
   const direct = workspace.tools;
-  const ask = (input) => formatAnswer('ask', lasso.ask(input));
+  // The lasso tool's answer as the MCP server writes it for a model.
+  const ask = (input) => formatAnswer('ask', lasso.ask(input), 'text', askTextOptions(['lasso'], input));
+  // The same tool as it answered before lean answers and whole-table operations: what every caller but MCP still gets.
+  const askBefore = (input) => formatAnswer('ask', before.ask(input));
   // Earlier definitions reach the current server: v1 answered in JSON, v2 and v3 in compact text.
   const v1Tools = { lasso_suggest: (input) => lasso.suggest(input), lasso_inspect: (input) => lasso.inspect(input), lasso_bind: (input) => lasso.bind(input) };
   const v2Tools = { lasso_search: (input) => formatAnswer('suggest', lasso.suggest(input)),
@@ -162,6 +165,8 @@ function armsFor(workspace, lasso) {
     lasso: { tools: [...workspace.definitions, ...LASSO_DEFINITIONS], instructions: `${instructions}\n\n${LASSO_INSTRUCTIONS}`,
       execute: (name, input) => (name === 'lasso' ? ask(input) : direct[name](input)) },
     upload: { tools: [], instructions: UPLOAD_INSTRUCTIONS, execute: () => 'Error: no tools in this conversation.' },
+    'lasso-before': { tools: [...workspace.definitions, ...LASSO_DEFINITIONS], instructions: `${instructions}\n\n${LASSO_INSTRUCTIONS}`,
+      execute: (name, input) => (name === 'lasso' ? askBefore(input) : direct[name](input)) },
   };
   if (workspace.name === 'lookup') {
     Object.assign(arms, {
@@ -182,7 +187,7 @@ function armsFor(workspace, lasso) {
 
 const familyOf = (workspace) => workspace.name.split('/')[0];
 function armNames(workspace) {
-  const available = [...DEFAULT_ARMS[familyOf(workspace)], ...(workspace.name === 'lookup' ? HISTORICAL_ARMS : [])];
+  const available = [...DEFAULT_ARMS[familyOf(workspace)], 'lasso-before', ...(workspace.name === 'lookup' ? HISTORICAL_ARMS : [])];
   const chosen = ASKED_ARMS ? ASKED_ARMS.filter((name) => available.includes(name)) : DEFAULT_ARMS[familyOf(workspace)];
   // Direct tools are in every comparison.
   return chosen.includes('direct') ? chosen : ['direct', ...chosen];
@@ -366,8 +371,9 @@ async function main() {
   try {
     for (let run = 1; run <= RUNS; run += 1) {
       for (const family of FAMILY_NAMES) for (const workspace of await workspacesOf([family], SET_NAMES)) {
-        const lasso = openLocal({ dataDir: workspace.dataDir, scope: ['*'], client: 'live-benchmark' });
-        const arms = armsFor(workspace, lasso);
+        const lasso = openLocal({ dataDir: workspace.dataDir, scope: ['*'], client: 'live-benchmark', mcp: true });
+        const before = openLocal({ dataDir: workspace.dataDir, scope: ['*'], client: 'live-benchmark-before' });
+        const arms = armsFor(workspace, lasso, before);
         const names = armNames(workspace);
         try {
           for (const [index, task] of workspace.tasks.filter((item) => !ONLY || ONLY.includes(item.id) || ONLY.includes(item.id.split('/').pop())).entries()) {
@@ -398,6 +404,7 @@ async function main() {
           }
         } finally {
           await lasso.close();
+          await before.close();
           await workspace.close();
         }
       }

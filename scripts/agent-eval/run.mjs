@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { openLocal } from '../../src/agent/client.js';
 import { formatAnswer } from '../../src/agent/render.js';
+import { askTextOptions } from '../../src/agent/mcp.js';
 import { estimateTokens } from '../../src/agent/metrics.js';
 import { plainText, prepareSpecLibrary } from './build.mjs';
 import { documentUnits, gradeEvidence, validateSpec } from './grade.mjs';
@@ -47,7 +48,7 @@ async function runSet(name, file) {
   const problems = validateSpec(spec);
   if (problems.length) throw new Error(`${file} is not valid:\n${problems.join('\n')}`);
   const library = await prepareSpecLibrary(spec);
-  const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'eval' });
+  const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'eval', mcp: true });
   const rows = [];
   try {
     for (const task of spec.tasks) {
@@ -58,7 +59,7 @@ async function runSet(name, file) {
       for (const [index, ask] of task.asks.entries()) {
         const started = performance.now();
         let text;
-        try { text = formatAnswer('ask', lasso.ask({ ask, ...(BUDGET ? { budget: Number(BUDGET) } : {}) })); } catch (error) { text = `Error: ${error.message}`; }
+        try { text = formatAnswer('ask', lasso.ask({ ask, ...(BUDGET ? { budget: Number(BUDGET) } : {}) }), 'text', askTextOptions(['lasso'])); } catch (error) { text = `Error: ${error.message}`; }
         const ms = Math.round(performance.now() - started);
         rows.push({ set: name, task: task.id, kind: task.kind, askSet: index + 1, ask, ms, fileTokens, files: needed.map((document) => document.path),
           ...gradeEvidence(task, text), text });

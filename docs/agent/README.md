@@ -147,7 +147,7 @@ The desktop app may run at the same time. Both read the store in WAL mode. The a
 
 Every piece of evidence has a 10-character handle that names one immutable thing: an object version, a line range of one file revision, or a cell of a large table's revision. File details are given once per answer, as sources `s1`, `s2`…, and candidates point at them.
 
-**Formats.** The service returns the JSON shown below, and that is the contract; REST answers in it by default. Over MCP a model receives the same answer as compact text (`src/agent/render.js`), which measured 26–27% fewer real tokens. Values stay JSON-quoted so their exact characters survive, and file text is fenced exactly as the file has it. Pass `format: "json"` (MCP) or `"format": "text"` (REST) to get the other. The same search as text:
+**Formats.** The service returns the JSON shown below, and that is the contract; REST answers in it by default. Over MCP a model receives the same answer as compact text (`src/agent/render.js`), which measured 26–27% fewer real tokens. Values stay JSON-quoted so their exact characters survive, and file text is fenced exactly as the file has it. Pass `format: "json"` (MCP) or `"format": "text"` (REST) to get the other. Over MCP the `lasso` tool's answers are also written lean ([below](#lean-answers-over-mcp-11-november-2026)): no handles unless a tool offered can take one, revisions cut to eight characters, excerpts as the file's words without quotes. REST's text is unchanged. The same search as text:
 
 ```
 s1 = Finance/Planning/budget.csv @dd459a8353ec
@@ -170,23 +170,25 @@ Every question of a task, in plain words, answered in one call. Strings are read
 As text over MCP (from the test fixture):
 
 ````
-s1 = Api/app.py @83757353ead4
-s2 = Finance/Approved/budget.csv @a1adad958009
-s3 = Finance/Planning/budget.csv @c0cee90b5eab
-[1] #D16826NQ4J s1 lines 5-8 of 19
+s1 = Api/app.py @83757353
+s2 = Finance/Approved/budget.csv @a1adad95
+s3 = Finance/Planning/budget.csv @c0cee90b
+[1] s1 lines 5-8 of 19
 ```
 def handle(request):
     """Return every item."""
     items = load()
     return json.dumps(items)
 ```
-[2] s2 "North division" row 2: Revenue="11.9" #ADE2V0Q3BV (matches "approved")
+[2] s2 "North division" row 2: Revenue="11.9" (matches "approved")
   other source: s3 "North division" row 2: Revenue="12.4"
 [3] 2 sources differ; which is meant is not settled by the files:
-  - s2 "North division" row 2: Revenue="11.9" #ADE2V0Q3BV
-  - s3 "North division" row 2: Revenue="12.4" #HDCR3CVABH
+  - s2 "North division" row 2: Revenue="11.9"
+  - s3 "North division" row 2: Revenue="12.4"
 [4] no indexed text in the 7 shared files has "west" (asked: "west division revenue"); rows labelled like it: "North division", "South division" (s2, s3).
 ````
+
+REST asked for text (`"format": "text"`) writes the same answer with whole revisions (`@83757353ead4`) and a handle on each line and value (`[1] #D16826NQ4J s1 lines 5-8 of 19`, `Revenue="11.9" #ADE2V0Q3BV`).
 
 The JSON contract is `{sources, answers: [{n, ask?, kind, …}], warnings?}`. An ask is resolved in this order:
 
@@ -200,6 +202,8 @@ The JSON contract is `{sources, answers: [{n, ask?, kind, …}], warnings?}`. An
 | Every word in a file's name or title, besides words for the answer's form (`the supplier review`, `Revenue 2025.xlsx`, `bracket.step`) | `digest` | What the file holds: a text file whole (or its outline); a workbook's tables; a PDF's or Word document's passages in order; a STEP model's parts with instances and sizes, and an assembly's instances with where each sits (`Pin:2 at [70, 45, 10], turned 90° about z`), or an IFC model's rooms and storeys with their areas, other elements counted |
 | Several row labels (`October, November and December`, `North and South division`) | `records` | Each label's rows as a group; only rows with the same label in different sources are compared |
 | An operation on a column (`total adverse events`, `average Revenue in Q4`, `the total Amount for the West region`, `{op: "sum", column, file?, where?}`; `sum`, `mean`, `max`, `min`, `count`) | `computed` | The value over every row of up to 3 tables that have the column (read from the table index when the table is larger than the cells the index keeps), `complete`: how many rows it covers, which cells were not numbers, and each row's value when there are at most 15. A period in the ask keeps a monthly table to its months; another column named with one of its values ("the West region") keeps that value's rows, and the answer says so. The ask's other words are searched for too, and what that finds comes after, `ranked` |
+| Over MCP only: a query over whole tables (`SELECT Region, SUM(Net) FROM Orders GROUP BY Region`, `"Operations 2025.xlsx": SELECT …`, `{sql, file?}`), or its common cases in plain words (`total Net by quarter of 2025`, `number of orders per Customer`, `duplicate Order IDs`) | `computed` | The query's rows, worked out from every row of the tables it names, with how many rows of each it read ([below](#whole-table-operations-over-mcp-12-november-2026)). `complete`, or `partial` when the result is longer than fits and is cut. A query written from plain words is shown (`ran`). A table name two files answer to is `ambiguous` and lists them |
+| Over MCP only: an operation over a whole workbook, PDF or STEP assembly (`{file, op, …}`; in plain words `Summary!B12`, `formulas in Operations 2025.xlsx`, `broken cross-references in the agreement.pdf`, `how many bolts in conveyor.step`) | `operation`, `cells` | The operation's result with what it covered ([below](#whole-file-operations-formulas-documents-and-assemblies-12-november-2026)): a cell with its formula, what a cell feeds, a recalculated copy, a document's cross-references or defined terms, an assembly's counts, bounds or interference. `complete` when exact and whole, `partial` when bounded or cut |
 | A file, with words it does not have (`what does the annual review say about carbon emissions`) | `none` or `digest` | Said first. A document with none of what the ask is about shows its sections, which say what it does cover; a model or table shows what it holds, which may answer in its own terms (an IFC model's rooms are its spaces) |
 | Anything else | `found` or `none` | A search of the [full-text index](#questions-about-documents-retrieval-uncertainty-and-evaluation): from at most 4 files, the sentences and table rows that answer the ask within `budget` (default 700 tokens), each with its section, page or line and a handle; a workbook's matching rows; a model's matching parts or rooms. `ranked`, saying how many matched sentences it left out and in which sections. `none` (`not_found`) says what this search did not find: words no shared file has (checked word by word against the index), that no passage has the words together, rows labelled like a label no row has ("North division" for "West division") |
 
@@ -297,7 +301,7 @@ Name resolution never guesses. A bare `app.py` that two folders contain is an `a
 - **Credentials.** `.env*`, keys and certificates (`*.pem`, `*.key`, `id_rsa`, …), `credentials*`, `secrets*`, and anything under `.ssh`, `.aws`, `.gnupg`, `.git` and the like are never returned, even inside a shared folder.
 - **The person's exclusions.** Paths excluded from autocomplete with a terminal rule are excluded for agents too.
 - **REST.** Loopback is not trusted by itself. Every request needs the bearer token from `<data>/agent/rest.json`, which is mode 0600 inside a 0700 directory. Requests with an `Origin` header or a cross-site `Sec-Fetch-Site`, and requests addressed to any host other than loopback (DNS rebinding), are refused.
-- **Prompt injection.** File contents are returned as JSON string values, and the MCP instructions state that result text is file content, not instructions. That reduces the risk; it doesn't remove it.
+- **Prompt injection.** As JSON, file contents are string values. As text, values are quoted, lines of a file are fenced, and an excerpt sits indented under its source after its page and section, on one line (a line break inside it cannot start a line of its own). The MCP instructions state that result text is file content, not instructions. That reduces the risk; it doesn't remove it.
 
 ---
 
@@ -368,6 +372,8 @@ v3 halved the evidence term but more than doubled the fixed term: it made more c
 | One lean definition (v4) | 387 tokens per call for search and read (v3) | One tool; the instructions say only "call lasso first" and that results are content | `d·M`, on every task | — | 149 real tokens per call (−61%) | Fewer words to persuade a model to call it; measured live below |
 | Resolved answers instead of candidates | Six facts as v3 search results: 1,642 tokens | Each ask answered with the row's named fields or the passage itself | Evidence term | Same values | 386 real tokens for the same six facts (−76%) | — |
 | Asks read the way models write them | 12 of 104 phrasings of the benchmark tasks failed: a folder named beside a file, `file:1-2,5-6`, `{symbol}` for a constant, a passage that only shares the words | A folder or directory word settles a shared name; range lists; constants by their indexed line; hits that state a figure or date first; a named file read as it is now | Fallback rate `f` | A name still unsettled by the ask is listed, never picked | 104/104 (`node scripts/agent-ask-phrasings.mjs`) | Phrasings written by hand, not sampled from models |
+| Lean answers over MCP | A handle on every excerpt and value, never used by a model (0 of 202 recorded `lasso` calls); 12-character revisions; quoted excerpts; a count of sentences and a budget hint on every search | `askTextOptions` in `mcp.js`: `lasso`'s text without handles unless a tool offered takes one, revisions at 8 characters, excerpts unquoted, repeats on one line | Evidence term, re-read every later turn | Same facts in every one of 128 graded responses | Offline: responses −11.1% (estimated tokens), lookup saving 19.3% → 19.8% | Not run live; MCP only |
+| Whole-table operations over MCP | No way to ask for a total by group, a filter over a range, a join or the rows that repeat; a table shown as "first 12 of 215 rows" (the rows that matched) read as the whole of it. In the trial a model rephrased until the call cap: 5.5 calls a step, 1.36M tokens | A restricted SQL over every row of the tables named (`table-sql.js`), asked as a query or in plain words for the common cases, and a line naming the tables and their rows where an answer shows a table in part | `M`, and the re-reading of every earlier call | Refuses what it cannot do exactly: text is never a number, a name several tables share is never chosen between | Offline: matches the trial generator's truth on five whole-workbook checks; the first recorded ask of 2 of its 6 workbook tasks is answered outright, the other 4 are told a query reads every row | Not run live; MCP only; tables in workbooks and delimited files only |
 
 ---
 
@@ -757,6 +763,221 @@ The second ask was an oracle: a model that picks the right section. Listing the 
 
 The comparison arm (`lasso-v5`) was removed with the rollback, since `lasso` is that version again.
 
+## Lean answers over MCP (11 November 2026)
+
+A model re-reads every answer on each later turn, so what an answer carries besides evidence is paid for again and again. The recorded live runs showed what a model does not use: none of the 202 `lasso` calls passed a handle back, and none used an object ask. The `lasso` tool's text over MCP is therefore written lean:
+
+- **No handles**, unless something offered can take one: the server was started with `--tools …,read` or `…,cite`, or the call passes `handles: true`. A value that was cut keeps its handle, since that is how the rest of it is read. Handles are still issued and recorded, and the JSON has them, so `format: "json"` and REST are unchanged.
+- **Revisions at eight characters** (`@83757353`), the fewest an ask reads as a revision, so "at revision 83757353" still works.
+- **Excerpts as the file's words**, without quotes, on one line. Values and row labels stay quoted, and lines of a file stay fenced.
+- **Repeats on one line.** Excerpts an earlier answer of the same call already showed are named together (`shown in [1]: p.1, p.2, p.7`).
+- **A shorter first line for a search**: still `ranked`, how many matching files it shows, what no file has, how many matched sentences it left out and where, and that a larger budget shows more. The count of sentences shown is gone. The budget hint was dropped too at first, since past 1,000 tokens a larger budget shows almost nothing more (88 of 128 ask sets complete at 1,500 to 4,000, against 87 at 1,000). It was put back after the live check, where the lean arm more often went on to read files; a second run with the hint back read files as often, so it is not what decides that.
+
+It is on for MCP only (`askTextOptions` in `src/agent/mcp.js`). REST's text, the command line and in-process callers answer as before, and `lasso_search`, `lasso_read` and `lasso_cite` keep their handles, which is what they are for.
+
+**Measured offline** ([eval-results-lean.md](eval-results-lean.md), no model called): on the four evaluation sets, all seen before, the 128 responses fell from 124,412 to 110,626 estimated tokens (−11.1%; median 1,007 → 884), and every response grades the same in every part (84 of 128 sufficient). The writing tasks keep their facts (23 / 24 / 21 of 24 ask sets) at 261 / 229 / 267 tokens an answer, from 279 / 242 / 285. The lookup benchmark stays 16 of 16 and its saving goes from 19.3% to 19.8%; its answers are short lines and records, with little to trim. All 104 phrasings still answer correctly. `benchmark-results.md` and `writing-results.md` were not regenerated.
+
+**Live:** [run on 12 November](#live-check-of-lean-answers-and-whole-table-operations-12-november-2026). Fewer tokens on lookups, large files, assemblies and writing. On documents the median task is 18% smaller, but the model went on to read files on 8 of 36 tasks against 4 with the old text, in two runs, and the total is about level.
+
+## Whole-table operations over MCP (12 November 2026)
+
+Some questions have no excerpt that answers them: net sales by quarter, the orders whose stored total disagrees with quantity times price, the customers who ordered in every quarter, the ids that appear twice. They need every row. Lasso had one operation for them, a total, mean, extreme or count of one column, so in the operation-preserving trial (`trials/operation-preserving`, kept apart from Lasso) a model given only `lasso` rephrased the same question until its call cap: 144 model calls for 26 steps and 1.36 million tokens, of which 170 thousand were new tool output and the rest the conversation re-read on every call. The same model with plain operators took 62 calls and 162 thousand tokens, and got 22 of 26 steps right against 8.
+
+The `lasso` tool now takes those operators, over MCP:
+
+- **A query.** An ask that is a `SELECT` is run over every row of the tables it names: `SELECT Region, SUM(Net) FROM Orders GROUP BY Region`. A file named before it, after it or with it settles which table is meant: `"Operations 2025.xlsx": SELECT …`, `SELECT … in Operations 2025.xlsx`, `FROM "Operations 2025.xlsx".Orders`, `{sql, file}`. A table is a workbook's sheet, or a delimited file by its name. A column of two words may be written without quotes (`Unit Price`), as models write it.
+- **Plain words, for the common cases.** `total Net by quarter of 2025`, `sum of Net grouped by Region`, `number of orders per Customer`, `average Qty for each Product`, `duplicate Order IDs`, `distinct Region values with counts`, `Orders rows where Region is blank`, `count of Orders rows where Region = North` and `Orders sheet total of the Net column` are turned into a query, which the answer shows (`ran:`) so it can be checked and asked again otherwise. Every column must be named as its table has it, and a quarter, month or year needs the table's one date column or a named one. A sheet the ask names is the table meant; else up to three tables that have the columns are answered, and none is chosen. A short table's total, or a measure by a column with no word for what to do with it, is answered as before: the table itself says more.
+- **A cell, named as a spreadsheet names it.** `Summary!B12` or `'Net sales'!B2:C4` (up to 50 cells) gives each cell's text with its column's name and its row's label, `complete`. Values are what the cells hold; formulas are not read.
+- **A line that says a query can read it all.** Where an answer shows a table in part, or answers an ask that wants something worked out with rows from a table of 30 rows or more, it names the file's tables, how many rows each has and their columns: `(a query reads every row: ask "SELECT … FROM Orders", with WHERE, GROUP BY or JOIN; Orders has 2,400 rows: Order ID, Date, Customer, …; Products 12: Product, Category, List Price, Unit Cost)`. It comes right under the answer's first line, and where the ask wants something worked out, or names a file for words it does not have, a long table's rows are cut to two: enough to see how its cells are written, and not re-read on every later call. A search's "first 12 of 215 rows" counts the rows that matched, and in the trial it was read as the whole table.
+
+As text over MCP (the trial's workbook):
+
+```
+s1 = Finance/Operations 2025.xlsx @ab3814d7
+[1] s1 Orders: 4 rows, over all 2,400 rows
+  ran: SELECT 'Q' || QUARTER("Date") AS quarter, SUM("Net") AS "total Net" FROM "Orders" WHERE YEAR("Date") = 2025 GROUP BY 1 ORDER BY 1
+  quarter | total Net
+  Q1 | 6320209.095
+  Q2 | 6284041.5185
+  Q3 | 7436313.6135
+  Q4 | 5996477.672
+[2] s1 Orders, Products: 4 rows, over all 2,400 rows of Orders and all 12 of Products
+  Category | margin
+  Controls | 2545320.0415
+  …
+```
+
+**The query language** (`src/agent/table-sql.js`) is one `SELECT [DISTINCT] … FROM t [LEFT] JOIN u ON … | USING (…) WHERE … GROUP BY … HAVING … ORDER BY … LIMIT n OFFSET m`, with a query in parentheses as a value or a list. Its functions are `COUNT SUM AVG MIN MAX GROUP_CONCAT`, `ROUND ABS NUMBER`, `UPPER LOWER TRIM LENGTH SUBSTR CONCAT`, `COALESCE NULLIF IIF CASE`, `YEAR QUARTER MONTH DAY DATE DATE_TRUNC STRFTIME EXTRACT`, `CAST`, and `ROW()`, the row's number in its sheet. A table or column answers to its name however it is spaced: `"Unit Price"`, `unit_price`. It is not SQLite: `WITH`, `UNION`, window functions and a query in `FROM` are refused by name, with what is supported. The evaluator is the trial's, moved here with what it learned live.
+
+**What keeps an answer from being wrong without saying so:**
+
+- **Every row, and it says how many.** Rows are read from the stored bytes of the indexed revision, or from the table index for a file too large to read in memory, never from the cells the search index keeps.
+- **Text is never a number.** `SUM`, `AVG` and arithmetic over a cell of text are an error that names the text, and so is a date function on text that is no date. `NUMBER(x)` gives no value for text, for a query that means to leave it out. In the trial a mistyped query once came back as an exact, empty result, and the model answered "none".
+- **Cells are read as written** (`src/agent/table-data.js`). A column is figures only when every filled cell is one. `007` is a code, a percentage is the fraction it stands for, `1,234.50` and `(450)` are figures, and `03/04/2025` is a date only when its column settles which part is the day. A column read as it stands is shown as its cells are written (`9.10`, `12.5%`); a figure worked out is shown as a number.
+- **A name is never guessed.** A table two files have is `ambiguous` and lists them; a table or column no file has is answered with the names there are.
+- **Work is bounded.** A join on equal columns looks its matches up; any other compares every pair, and past 20 million pairs or rows the query is refused, never cut short. A result longer than 1,500 tokens (or the call's `budget`) or 500 rows is cut and `partial`, and says `LIMIT` and `OFFSET` give the rest.
+
+It is on for MCP only: `ask(request, actor, { mcp: true })`, passed by `src/agent/mcp.js`. REST, the command line and in-process callers are answered as before, and the same words sent to them are searched for. A benchmark standing in for an MCP host opens `openLocal({ mcp: true })`. The tool's definition is unchanged, so it costs nothing on a task that needs none of this: a model learns of queries from the line above, from `ran:`, or from an error that lists the tables and columns.
+
+**Measured offline** (no model called):
+
+- **Against the trial generator's truth**, on its 2,400-order workbook: net by quarter, the 3 repeated ids, the 6 orders whose stored Net disagrees with its parts, the 7 customers in every quarter and the total all match. Seven asks took 205 ms.
+- **The trial's own first asks.** Replaying the first `lasso` call a model made on each of the six workbook tasks: two (quarter totals, repeated ids) are now answered outright by a query over all 2,400 rows, in 119 and 159 tokens. The other four (set logic, a formula check, a join, a cell reference) are answered as before plus the line that a query reads every row, about 30 tokens.
+- **Nothing else moved.** The four evaluation sets are unchanged (84 of 128 sufficient, 110,626 tokens), all 104 phrasings answer correctly, the writing tasks keep their facts and sizes, and the lookup benchmark stays 16 of 16 at 19.8%.
+
+**Live:** [run on 12 November](#live-check-of-lean-answers-and-whole-table-operations-12-november-2026) with the trial's harness, whose Lasso arm now answers as the MCP server does and has a `lasso-before` arm beside it. After that day's fixes, the five single-question workbook tasks are all right in both runs at 90% fewer tokens, level with the trial's plain operators.
+
+**Limits.** Tables in workbooks and delimited files only: a PDF's or Word document's tables are still read as rows of text. A workbook's values are what its cells hold; formulas are not recalculated, and a percentage keeps the digits its cell shows. Dates are read in ISO form, with a month's name, or in figures when the column settles the order. Plain words cover grouping, counting and repeats; a filter over a range, a ratio of two columns and a join are asked as a query.
+
+## Live check of lean answers and whole-table operations (12 November 2026)
+
+gpt-5.4-mini, one run of each, $2.38 in all. Three arms ran side by side on the same tasks: `lasso` as the MCP server now answers, `lasso-before` with the same definition but answering as it did before both changes (what REST still gets), and a reference without Lasso's answers. Reports: [the benchmark families](live-results-gpt-5.4-mini-lookup+scale+geometry+writing+documents-before-after-2026-11-12.md), and `trials/operation-preserving/results/live-gpt-5.4-mini-operators-2026-11-12.md` for the whole-file tasks.
+
+**The benchmark families** (effort `low`, 76 paired tasks, $1.17):
+
+| Family | Tasks | Before: right, tokens | Now: right, tokens | Tokens, now against before | Against file tools, before → now |
+|---|---|---|---|---|---|
+| Lookups | 16 | 16, 32,459 | 16, 30,481 | −6.1% | −57.4% → −60.0% |
+| 5,000-row workbook and 40-page PDF | 7 | 7, 28,659 | 7, 28,323 | −1.2% | −98.0% → −98.0% |
+| STEP assemblies | 5 | 5, 11,651 | 5, 9,301 | −20.2% | −62.0% → −69.7% |
+| Writing | 12 | 7, 33,524 | 10, 31,856 | −5.0% | −83.2% → −84.1% |
+| Documents, held-out 2 | 18 | 9, 85,949 | 11, 115,141 | +34.0% | −25.3% → 0.0% |
+| Documents, held-out 3 | 18 | 11, 61,054 | 12, 70,132 | +14.9% | −28.1% → −17.4% |
+| All | 76 | 55, 253,296 | 61, 285,234 | +12.6% | −86.9% → −85.3% |
+
+- **Four families used fewer tokens, and the documents more.** One document task accounts for more than the whole increase: on "which gate had the highest and lowest NO2" the new arm went on to grep and read the report eight times (53,076 tokens against 6,050) and got it right where the old arm was wrong. Without that task, all families together are 6.1% lower (247,246 → 232,158).
+- **Where both arms made the same calls, the leaner text is what was measured offline or less:** 13.3% fewer tokens on 13 tasks of held-out 2, 2.2% on 11 of held-out 3.
+- **The second step moved from Lasso to the files.** On the 36 document tasks each arm answered 26 after one `lasso` call. Of the 10 that took more, the old arm asked Lasso again on 6 and read files on 4; the new arm asked again on 2 and read files on 8. The lean text at that point did not end a search with "a larger budget shows more", which looked the likeliest cause. It was not: with the hint back, the run below read files on 8 of 36 again. Earlier runs of unchanged code read files on 5 to 8 of 36, so this may be chance; if it is the lean text, it is the handles or the quotes it dropped, which only a run of each would show.
+- **More answers were right: 61 of 76 against 55,** with file tools at 52. No query was written in these families: their tables are small, and none of their tasks needs one.
+
+**The whole-file tasks** (effort `medium`, 17 tasks, 26 steps, $1.21):
+
+| Arm | Steps right | Model calls | Tokens | Cost |
+|---|---|---|---|---|
+| `lasso-before` | 6 of 26 | 147 | 1,101,220 | $0.553 |
+| `lasso` | 13 of 26 | 129 | 1,190,103 | $0.517 |
+| Plain operators (the trial's `direct`) | 23 of 26 | 69 | 202,430 | $0.141 |
+
+- **Twice as many steps right, and no fewer tokens.** The median task used 23% fewer, the total 8% more.
+- **Where a query applies, it worked.** On the five single-question workbook tasks, 294,081 tokens became 39,409 (−87%) and 1 right became 4. Two were answered from the model's own first words (quarter totals in 2,150 tokens against 82,617; repeated ids in 1,077 against 8,993).
+- **Told that a query reads every row, the model wrote one, in all 4 tasks where it was told.** But 4 of its 8 queries failed on what this SQL does not take: `DATE_TRUNC`, `JOIN … USING (…)`, column names of two words written without quotes, and a file named after the query. And it once took `"Order ID"` for the customer, because the line names the tables and their rows, not their columns.
+- **The five-step workbook sequence cost more:** 254,645 tokens against 58,795. The old arm gave up at 0 of 5; the new one kept asking and got 3 of 5, re-reading three 2,800-token answers of table rows on every later call. It wrote its first query on its eleventh call.
+- **The PDF and STEP tasks, 11 of the 17, are outside what was built.** Both arms mostly failed them, and their tokens moved with how long the model went on asking (broken references 127,803 → 346,829, both 1 of 3).
+
+**Fixed the same day, from those traces:** the SQL a model writes is taken (a column of two words without quotes, `JOIN … USING`, `DATE_TRUNC`, a file named after the query); the line that offers a query names each table's columns and comes right under the answer's first line; the budget hint is back; a filter, a count of each value, a measure by a column and a named sheet's total are answered from plain words; a long table is shown as two rows where its rows are not the answer; and a cell is read by its reference (`Summary!B12`), which the model had asked for three times and been sent the whole workbook each time. Sent again offline, all 8 queries the model wrote in the run above are answered (4 failed), and 14 of its 35 plain-word asks are answered by a query (4 before).
+
+**Run again live** (the workbook tasks twice, the two document sets once, $0.48; `results/live-gpt-5.4-mini-operators-fixed-2026-11-12.md`, [documents](live-results-gpt-5.4-mini-documents-fixed-2026-11-12.md)). The "before" columns are the morning's run, so the sessions differ:
+
+| Workbook tasks | Before | First version | Fixed, run 1 | Fixed, run 2 | Plain operators |
+|---|---|---|---|---|---|
+| Five single questions: right, tokens | 1 of 5, 294,081 | 4 of 5, 39,409 | 5 of 5, 25,141 | 5 of 5, 28,430 | 5 of 5, 22,912 |
+| The five-step sequence: steps right, tokens | 0 of 5, 58,795 | 3 of 5, 254,645 | 4 of 5, 124,475 | 1 of 5, 78,170 | 5 of 5, 51,945 |
+| All six: steps right, tokens | 1 of 10, 352,876 | 7 of 10, 294,054 | 9 of 10, 149,616 | 6 of 10, 106,600 | 10 of 10, 74,857 |
+
+| Documents, 36 tasks | Right | Tokens | Median task | Went on to file tools |
+|---|---|---|---|---|
+| Before (morning) | 20 | 147,003 | 3,247 | 4 |
+| First version (morning) | 23 | 185,273 | 3,029 | 8 |
+| Fixed (afternoon) | 19 | 144,684 | 2,662 | 8 |
+| File tools alone (morning, afternoon) | 19, 20 | 200,072, 213,669 | 6,123, 5,642 | |
+
+- **The single-question workbook tasks are where the plain operators are:** 5 of 5 in both runs at 25,141 and 28,430 tokens, 90% under the old Lasso.
+- **The sequence is still the cost,** and the two runs differ by more than the fixes: 4 of 5 at 124,475 tokens, then 1 of 5 at 78,170. Its second step asks why a summary cell disagrees with the rows, and the answer is in the cell's formula, which Lasso does not read. The model spent 9 and 12 calls looking for it.
+- **Documents are level in total and 18% lower at the median.** The answers right, 19 to 23 of 36, move as much between sessions of unchanged file tools (19 and 20) as between versions.
+
+**Not settled:** why the lean text is followed by more file reading (above), and the PDF and STEP tasks of the trial, which nothing here addresses. Reading a workbook's formulas would answer the sequence's second step.
+
+## Whole-file operations: formulas, documents and assemblies (12 November 2026)
+
+The live check left three things a query over tables cannot answer: why a summary cell disagrees with its rows (the answer is in its formula), and anything about the whole of a contract or an assembly. The operation-preserving trial had operators for all three, which a model used to get 23 of 26 steps right. They are now in `src/agent/ops/`, behind the one `lasso` tool, over MCP:
+
+| Kind of file | Operations (`{file, op, …}`) | What they read |
+|---|---|---|
+| Workbook (`.xlsx`) | `cells` (values and formulas of a range), `deps` (what a cell feeds or reads, transitively), `whatif` (a recalculated copy with cells or formulas changed; it gets a revision, `r2`, that other operations can read with `rev`), `formulas` (the workbook's own account: sheets, columns, formula regions and their exceptions), `sql` | Every cell with its formula; a fixed formula language, recalculated here. A formula outside it is refused, never approximated |
+| PDF document | `outline`, `read` (sections by number), `find` (every sentence that matches), `refs` (cross-references to or from a section, or broken), `terms` (definitions with their scope and uses), `affected` (what a change to a term or section reaches), `related`, `tables`, `whatif` (renumber, delete, add) | Numbered sections and appendices set apart as headings, sentences, tables and footnotes, explicit cross-references, defined terms. Read by pdf.js in a worker process, once per revision (about half a second for 41 pages) |
+| STEP assembly | `count` (parts over every level), `tree`, `find` (by name, definition or bounds: `where:"zmax > 900"`), `bounds`, `clash` (every pair of solids that interpenetrates), `distance`, `clearance`, `whatif` (move parts on a copy) | Occurrences by path, composed placements in mm, boxes and cylinders exactly and any other solid as bounds; a pair is called overlapping or apart only when that is certain |
+
+- **Asked by name or in plain words.** `{file:"Operations 2025.xlsx", op:"whatif", set:{"Summary!B3":0.15}, show:["Summary!B14"]}` is an ask like any other. So are `Summary!B12` (a cell: its column, its row's label, its value and its formula, `=SUM(Orders!I2:I2100)`), `formulas in Operations 2025.xlsx`, `broken cross-references in the agreement.pdf`, `what refers to Section 5.2`, `how many bolts in conveyor.step`, `parts above z = 910` and `do any parts overlap`: only what the words say outright; a question that needs judgement goes to the search as before.
+- **Written the way a model writes them** (`src/agent/op-words.js`, 13 November). After the file's name, as words: `conveyor.step: whatif move:{"Roller assembly:15":{dz:10}}; clash all; distance Motor:1 Guard end panel:1`. As one `op` holding several, or a list in `ops`. Several in one ask run in order, and each one after a what-if reads the copy it made, so "move it, then measure the gap" is one ask. A sentence that only starts with an operation's name ("count every bolt…") is still read as a sentence.
+- **More plain words read as operations** (13 November): a move ("if the Drive unit is moved 20 mm in −x", "raised by 10 mm", "by dz:10") is a what-if, with any gap asked measured on the moved copy; "how far would A have to be raised so that it no longer overlaps B" is a clearance; "sections that refer by number to Section 3.3" and "sections that mention Section 5.5" are the references to them; "if the definition of “Business Day” were changed, which sections would be affected" is `affected` (two steps where the words say "or refers to a section that does"); "after renumbering Section 9.4 to 9.7 and adding Appendix E" is a what-if that lists what is then broken; and "with Roll-up!B11 corrected to =SUM(Shifts!H2:H1801) and B3 changed to 25%, what would B13 be" is a recalculation showing B13. A part is found by its path, by a tail of it only one part has (`Motor:1`), or by its name alone when only one part has it ("the Drive unit"). A cell written without its sheet takes the sheet named beside it, or the one sheet where it fits.
+- **Named in answers, not in the definition.** An answer that draws on such a file, for an ask about the whole of it, ends with the file's operations in one line (`(the whole workbook, exactly: ask "Operations 2025.xlsx: op; op" with op: cells range:… · deps … · whatif …)`), and so does an answer an operation gave from plain words. The line shows the string form since 13 November: that is how a model wrote operations back. The tool's definition is unchanged, so a task that needs none of this pays nothing for it.
+- **A cell is read anywhere on its sheet,** the rows above a table included (a tax rate in `B3`), and a query can ask about the cell behind a value: `FORMULA("Net")`, `KIND("Net")` (`formula` or `literal`), `CALC("Net")` (recomputed), `ADDRESS("Net")`.
+- **What it will not do is said.** A PDF without numbered sections set as headings has no whole-document operations, and a STEP file that is one part no assembly operations: an operation on either is `unsupported`, with the reason, and the operations are not offered for it. A result an operation could only bound says so (`bounded`), and one cut to the budget is `partial`.
+- **MCP only,** like the queries: `{file, op}` sent any other way is read as it was before.
+
+**The sequence, on fresh workbooks.** The trial's five-step workbook task was the only one of its kind, and everything built for it was built looking at it. `scripts/agent-live/sequence-variants.mjs` writes two others, made after the code: a payroll workbook (`Shifts`, `Roll-up`, a total whose range stops at row 1500 of 1801, a site spelt `Leds`, an on-cost rate and a euro rate) and a stock workbook (`Movements`, `Totals`, other cells, a range that stops at row 1000, a zone spelt `Chiled`, a duty rate). Each has the five steps (a check, an explanation, a correction, a recheck, a what-if) with the truth worked out by the generator. `test/agent-file-ops.test.js` asks, at each step, what a model would ask and checks the answers hold what the step needs: both totals and the formula that stops short; the rows left out and their sum; the three corrected cells from a what-if; the misspelt value and what it holds; the last cell at the new rate. All five steps of both pass, and a model then took them ([below](#live-verification-13-november-2026)).
+
+**Measured offline** (no model called): the four evaluation sets are unchanged (84 of 128 sufficient, 111,708 tokens), all 104 phrasings answer correctly, the writing tasks keep their facts, and the lookup benchmark stays 16 of 16 at 19.8%. Sent again, the asks a model made in the live check on the trial's contract and assembly tasks are now partly answered outright: the first ask of "which parts extend above z = 910" gets the 14 occurrences from `find`, and the overall size is 60 tokens where it was 647. Of the 29 asks it made about broken references, 11 are now an operation's answer.
+
+### Live verification (13 November 2026)
+
+gpt-5.4-mini at effort `medium`, one run, $0.55 (`node trials/operation-preserving/bench/live.mjs --variants`, and the trial's own tasks with `--tasks workbook/summary-check,contract,assembly`; reports in `trials/operation-preserving/results/live-gpt-5.4-mini-variants-2026-11-13.md` and `…-operations-2026-11-13.md`).
+
+**The fresh sequences,** three arms in one session:
+
+| Arm | Payroll: steps, tokens | Stock: steps, tokens | Both: steps, tokens, cost |
+|---|---|---|---|
+| Lasso as it answered before | 3 of 5, 156,477 | not run (the spend guard stopped it) | |
+| Lasso now | 4 of 5, 31,610 | 5 of 5, 24,246 | 9 of 10, 55,856, $0.050 |
+| The trial's plain operators | 4 of 5, 61,713 | 5 of 5, 41,319 | 9 of 10, 103,032, $0.058 |
+
+On workbooks made after the code, Lasso took the same nine steps as the plain operators in 46% fewer tokens, and the payroll sequence in 80% fewer than it did before. Both arms missed the same last step, by a few units: the model worked the what-if out by hand from rounded figures.
+
+**The trial's sequence, contract and assembly tasks** (12 tasks, 21 steps; the other columns are the run of 12 November):
+
+| | Steps right | Model calls | Tokens | Cost |
+|---|---|---|---|---|
+| Lasso before | 5 of 21 | 90 | 807,139 | $0.419 |
+| Lasso, first version of 12 November | 9 of 21 | 108 | 1,150,694 | $0.484 |
+| Lasso now | 17 of 21 | 64 | 375,993 | $0.280 |
+| Plain operators | 18 of 21 | 55 | 179,518 | $0.127 |
+
+| Kind | Before | Now | Plain operators |
+|---|---|---|---|
+| The workbook sequence | 0 of 5, 58,795 | 5 of 5, 44,201 | 5 of 5, 51,945 |
+| Contract (6 tasks) | 4 of 8, 424,729 | 6 of 8, 274,801 | 6 of 8, 93,057 |
+| Assembly (5 tasks) | 1 of 8, 323,615 | 6 of 8, 56,991 | 7 of 8, 34,516 |
+
+- **The workbook sequence is right in every step,** at fewer tokens than the plain operators: the cell's formula answers its second step, which no run had got before formulas were read.
+- **Three times the steps of the old Lasso at under half its tokens,** and one step short of the plain operators at about twice theirs. More than half of what is left is one contract task, "which sections would a change to Business Day affect" (211,270 tokens, wrong in every arm): the model asked for the references to sixty sections one by one, in words the `refs` operation was not read from, and never asked for `affected`.
+- **The model asked in plain words, not in `{file, op}`:** 1 of its 72 asks was an operation by name, 8 named a cell. What it got right it got through the plain-word routes. Where it tried the operations it had been shown, it wrote them its own way (`… whatif move:{…}; clash all; distance A B`, or several operations inside one `op`), which was not read at the time ([it is now](#routes-for-what-the-model-wrote-and-the-run-again-13-november-2026)), and the two assembly steps it missed (a clearance, a gap after a move) are those.
+
+### Routes for what the model wrote, and the run again (13 November 2026)
+
+The verification's traces said what to do: the model asks in plain words and writes operations its own way, so both are now read (`src/agent/op-words.js`; the bullets "Written the way a model writes them" and "More plain words read as operations" above). Sent again offline, each ask that had gone unanswered gets the trial's own truth: the 14 sections a change to “Business Day” reaches in two steps (235 tokens with the operations line, where the model had spent 211,270 asking section by section), the two references still broken after the renumbering and Appendix E, a lift of 8 mm, a gap of 14 mm after both moves, and 359,498.40 for the payroll cell. Offline nothing else moved: 84 of 128 evaluation ask sets at 111,708 tokens, 104 of 104 phrasings, the writing tasks' facts (23, 24 and 21 of 24), the lookup benchmark 16 of 16 at 19.8%.
+
+**Live, the same 12 tasks** (gpt-5.4-mini, effort `medium`, the Lasso arm only, one run, $0.140; `…/results/live-gpt-5.4-mini-routes-2026-11-13.md`). The other rows are the earlier runs:
+
+| | Steps right | Model calls | Tokens | Cost |
+|---|---|---|---|---|
+| Lasso before (12 November) | 5 of 21 | 90 | 807,139 | $0.419 |
+| Lasso with operations (13 November, earlier) | 17 of 21 | 64 | 375,993 | $0.280 |
+| Lasso with these routes (13 November) | 17 of 21 | 59 | 177,854 | $0.140 |
+| Plain operators (12 November) | 18 of 21 | 55 | 179,518 | $0.127 |
+
+| Kind | Earlier the same day | With the routes | Plain operators |
+|---|---|---|---|
+| The workbook sequence | 5 of 5, 44,201 | 4 of 5, 33,509 | 5 of 5, 51,945 |
+| Contract (6 tasks) | 6 of 8, 274,801 | 7 of 8, 59,336 | 6 of 8, 93,057 |
+| Assembly (5 tasks) | 6 of 8, 56,991 | 6 of 8, 85,009 | 7 of 8, 34,516 |
+
+- **Half the tokens for the same steps:** 375,993 to 177,854, level with the plain operators' 179,518 at one step fewer, and 78% under the old Lasso with more than three times its steps.
+- **The contract tasks are where it went:** 274,801 to 59,336. The renumbering sequence is right in all three steps, and the “Business Day” task cost 10,582 tokens where it had cost 211,270. It is still marked wrong, as it is for the plain operators: the first answer held the 14 sections, and the model then asked for every section that refers to an affected one, got the whole chain, and gave 73.
+- **Two of the four misses were answers given without asking.** The workbook's last step (the tax rate changed) and the lift that clears the cross member were answered from what earlier steps had shown: arithmetic by hand, and the overlap's depth (8 to 8.49 mm) read as the lift (8 mm).
+- **The fourth was a route still missing.** For "which parts extend above z = 910" the model wrote `zmax > 910`, copied from the operations line, in four asks; none was read, and it ran out of calls at 66,693 tokens.
+- **All in plain words again:** of 55 asks, none was an object, one was written as operations, two named a cell.
+
+**Two more fixes, each checked live on the task it came from** (so these are not one run, and the tasks were run again after their misses were seen):
+
+- A bound written in an ask (`zmax > 910`, `where zmax > 910 and xmin < 100`, "z coordinates above 910 mm") is a `find`. The task again: right, 4,497 tokens in 3 calls ($0.006).
+- An interference result now says under its pairs that depth is how deep a pair overlaps, not how far to move one clear, and names the `clearance` that answers that. The model then asked, in the operation's own words ("the clearance move needed to raise Roller assembly:15 … so that none of its parts overlaps Cross member:4"), which was not read: 3 of 4 again, 22,971 tokens ($0.014). With that read too, the four-step interference task was right in every step, for the first time in any Lasso run, at 18,248 tokens ($0.014; the plain operators had 3 of 4 at 21,091).
+
+**The fresh sequences again** (the Lasso arm, $0.053; `…/results/live-gpt-5.4-mini-variants-routes-2026-11-13.md`): 8 of 10 steps at 49,563 tokens, against 9 of 10 at 55,856 earlier the same day and the plain operators' 9 of 10 at 103,032. The payroll what-if was again answered without a call, by hand, 12 off. The stock sequence's first step is marked wrong on form only: both figures are right and the reply says "No", but not on its `ANSWER` line. A first attempt at this run stopped after $0.028 with nothing recorded, because its spend guard was set too low.
+
+**What is left is the model's, not a missing operation:** it answers a what-if from earlier figures instead of asking, and reads "refers to a section that does" as a chain. Neither is touched here: the tool's definition and instructions are as they were.
+
+**Limits.** Documents need numbered sections set as headings; a Word document has no operations yet. A workbook's formulas outside the fixed language (array formulas, external references, defined names) are refused. Only boxes and right circular cylinders are exact solids. What-if revisions live as long as the connection that made them.
+
 ## Next steps
 
 1. **More live runs:** a second run and model, a Claude model, and the lookups. Long conversations are not covered by any family yet.
@@ -781,7 +1002,7 @@ The comparison arm (`lasso-v5`) was removed with the rollback, since `lasso` is 
 ## Other limitations
 
 - Search is lexical: words and their stems, ranked by rarity, without their meaning. A question worded differently from its answer is missed or half found ([examples](#what-this-does-not-show)), and the response says it is a ranked search that can miss other wording. Code symbols for `lasso_search` come from Lasso's existing indexer, which misses forms such as `export function`; `lasso_read {symbol}` scans definitions itself and finds them.
-- Asks are read lexically. A question has to carry the words of what it is about: "the West division's revenue" finds rows labelled "West division", but "the region that grew most" finds nothing to compute it from. Lasso returns evidence and computes a column's total, mean, highest, lowest or count over every row; it does not compare, rank or summarize.
+- Asks are read lexically. A question has to carry the words of what it is about: "the West division's revenue" finds rows labelled "West division", but "the region that grew most" finds nothing to compute it from. Lasso returns evidence and computes a column's total, mean, highest, lowest or count over every row; it does not compare, rank or summarize. Over MCP a query can group, filter, join and order a table's rows ([above](#whole-table-operations-over-mcp-12-november-2026)).
 - A PDF's tables are read from its text layer by layout: rows of figures under a caption, until a gap. A table set as an image, or with cells wrapped onto several lines, is read as sentences.
 - Row labels come from the first text column of small tables and from the row index of large ones; a table whose rows are named elsewhere is searched by its values only.
 - A handle that could not be recorded because the store was busy resolves only in the process that issued it.
@@ -827,4 +1048,8 @@ They cover:
 - symbols, and large tables, including a row the app records concurrently
 - MCP over a real stdio process: negotiation, cancellation, errors and exit on disconnect
 - REST: token, Origin and Host checks, single instance, leases, idle shutdown, on-demand start and reuse
-- identical answers over MCP, REST and in-process calls
+- identical answers over MCP, REST and in-process calls, with `lasso`'s text lean over MCP only
+- lean text: no handles unless a tool takes them or the call asks, short revisions, unquoted excerpts, repeats on one line, and the default text unchanged
+- whole-table queries: grouping, joins, a query in parentheses, dates and quarters, text never a number, names not guessed, work bounded; cells read as written
+- whole-file operations: a workbook's cells with formulas, dependents and what-ifs; the fresh sequence variants step by step; a contract's outline, cross-references, terms and renumbering; an assembly's counts, bounds and interference; plain words that mean an operation (a move, a clearance, a gap, references, what a changed definition reaches, a renumbering, a cell changed) and words that do not; operations written loosely after a file's name, in one `op` or in `ops`, run in order on a what-if's copy; MCP only
+- whole-table asks: every row of a sheet, a join across sheets, plain-word totals by group, filters, value counts and repeats, a cell by its reference, the queries a model wrote live, a shared table name listed, a long result cut, a long table shown as two rows where its rows are not the answer, and MCP only

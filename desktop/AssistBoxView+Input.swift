@@ -33,7 +33,9 @@ extension AssistBoxView {
             // back to the list from a line's words, one level back, or the
             // list of every source.
             if point.y < bodyTop + navigationHeight {
-                if wordChoice != nil { onCloseWords?() }
+                if tableBrowsing { onReturnFromTable?() }
+                else if suggestions.indices.contains(selected), suggestions[selected].tableNavigable { return }
+                else if wordChoice != nil { onCloseWords?() }
                 else if sourceScoped { stepBackName == nil ? onAllSources?() : onStepBack?() }
                 return
             }

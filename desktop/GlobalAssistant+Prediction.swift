@@ -36,7 +36,7 @@ extension GlobalAssistant {
                 location: Self.sourceLocation(object), replacement: replacement,
                 objectId: id, versionId: object["versionId"] as? String,
                 snapshotId: object["snapshotId"] as? String, usageObjectId: id,
-                projectId: projectId, rankingReason: nil)
+                projectId: projectId, rankingReason: nil, tableNavigable: Self.isTableSource(object))
             self.view.selected = 0
             self.view.sourceScoped = true
             self.showMeasuringHost([suggestion])
@@ -44,7 +44,7 @@ extension GlobalAssistant {
     }
 
     func scheduleRefresh() {
-        guard !ShareComposerController.shared.isVisible else { return }
+        guard !ShareComposerController.shared.isVisible, !PassagePickerController.shared.isVisible else { return }
         // A brief message must not swallow the next words the writer types,
         // such as the first word of the following sentence. It stays long
         // enough to be read, then gives way to suggestions for that text.
@@ -61,6 +61,7 @@ extension GlobalAssistant {
             hide()
         }
         guard view.mode == .suggestions else { return }
+        resetTableNavigation()
         feedbackDismissed = false
         // Invalidate the previous response now, not after the debounce. A late
         // response must not dismiss the next refresh while the user is typing.
@@ -383,7 +384,13 @@ extension GlobalAssistant {
         return nil
     }
 
-    private static func sourceLocation(_ candidate: [String: Any]) -> String {
+    static func isTableSource(_ object: [String: Any]) -> Bool {
+        guard let anchor = object["anchor"] as? [String: Any],
+              let kind = anchor["kind"] as? String else { return false }
+        return ["table-row", "table-cell"].contains(kind)
+    }
+
+    static func sourceLocation(_ candidate: [String: Any]) -> String {
         let anchor = candidate["anchor"] as? [String: Any] ?? [:]
         let metadata = candidate["metadata"] as? [String: Any] ?? [:]
         // Equal CAD values ("10 mm") are told apart by the feature they measure.
@@ -450,6 +457,8 @@ extension GlobalAssistant {
                 + "|" + suggestion.insertText
             if identities.insert(identity).inserted {
                 var matched = suggestion
+                let candidate = (entry["dependencyCandidate"] as? [String: Any]) ?? entry
+                matched.tableNavigable = Self.isTableSource(candidate)
                 matched.matchedWords = entry["matchedWords"] as? [String] ?? []
                 // A value that changed recently says what it was, in the same dim slot.
                 if let change = AssistValueChange(json: entry["change"]) {
@@ -465,7 +474,7 @@ extension GlobalAssistant {
             let candidate = completion["dependencyCandidate"] as? [String: Any] ?? [:]
             let source = completion["source"] as? [String: Any] ?? [:]
             if let projectId = owner(completion, candidate, source) {
-                append(AssistSuggestion(
+                var continuation = AssistSuggestion(
                     insertText: insert,
                     label: insert.trimmingCharacters(in: .whitespaces),
                     detail: "sentence", path: source["path"] as? String ?? "", location: "",
@@ -476,7 +485,9 @@ extension GlobalAssistant {
                     projectId: projectId,
                     rankingReason: (candidate["ranking"] as? [String: Any])?["reason"] as? String,
                     previewText: completion["sourceSentence"] as? String ?? insert.trimmingCharacters(in: .whitespacesAndNewlines),
-                    sentenceContinuation: true), rankedBy: completion)
+                    sentenceContinuation: true)
+                continuation.opensPassagePicker = PassageDocument.opensPicker(candidate: candidate)
+                append(continuation, rankedBy: completion)
             }
         }
 
@@ -490,7 +501,7 @@ extension GlobalAssistant {
                 guard let replacement = CompletionReplacement.capture(start: entry["claimStart"] as? Int,
                     end: entry["claimEnd"] as? Int, in: requestedText,
                     replacingSpaces: entry["verbatim"] as? Bool == true) else { continue }
-                append(AssistSuggestion(
+                var passage = AssistSuggestion(
                     // A code range inserts several lines; the row names its first one.
                     insertText: insert, label: entry["label"] as? String ?? insert,
                     detail: entry["detail"] as? String ?? candidate["valueText"] as? String ?? (entry["category"] as? String ?? ""),
@@ -507,7 +518,9 @@ extension GlobalAssistant {
                     previewText: entry["sourceSentence"] as? String ?? insert,
                     shareable: candidate["shareable"] as? Bool ?? true,
                     narrowable: candidate["narrowable"] as? Bool == true,
-                    verbatim: entry["verbatim"] as? Bool == true), rankedBy: entry)
+                    verbatim: entry["verbatim"] as? Bool == true)
+                passage.opensPassagePicker = entry["verbatim"] as? Bool != true && PassageDocument.opensPicker(candidate: candidate)
+                append(passage, rankedBy: entry)
             }
         }
 
@@ -551,6 +564,7 @@ extension GlobalAssistant {
                     narrowable: candidate["narrowable"] as? Bool == true)
                 suggestion.videoTime = AssistVideoPreview.seconds((candidate["anchor"] as? [String: Any])?["time"])
                 suggestion.joinsTyping = claimType == "QUOTED_PHRASE"
+                suggestion.opensPassagePicker = PassageDocument.opensPicker(candidate: candidate)
                 append(suggestion, rankedBy: candidate)
             }
         }

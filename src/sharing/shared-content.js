@@ -11,6 +11,7 @@ import { citedPartModel } from './cited-part.js';
 import { buildSafePdf, markedPdfRequest, pdfShareRequest } from './pdf-share.js';
 import { buildPagePdf, slideCount, slidePicture } from './document-pages.js';
 import { isPresentationPath } from '../dependencies/presentation-extraction.js';
+import { buildRedactedImage, isImagePath } from './image-share.js';
 
 /** The readers a request handler uses for shared content, over this timeline and its index. */
 export function sharedContentReader({ timeline, dependencies }) {
@@ -68,6 +69,19 @@ export function sharedContentReader({ timeline, dependencies }) {
           return null;
         });
         return { preview: null, document: { ...slide, picture } };
+      }
+      // A redacted picture is a fresh copy with its areas covered, never the file.
+      // When it cannot be drawn, nothing of the picture is shown in its place.
+      if (resolved.share.accessScope === 'REDACTED' && isImagePath(resolved.internal.filePath)) {
+        const regions = (resolved.share.redactions ?? []).filter((mask) => mask.kind === 'IMAGE');
+        try {
+          const content = await buildRedactedImage(sourceFile?.content, regions, resolved.internal.filePath);
+          return { preview: null, document: { kind: 'image', safe: true, redacted: true, content, contentType: 'image/png',
+            fileUrl: `/d/${encodeURIComponent(resolved.share.token)}/source`, location: '' } };
+        } catch (error) {
+          console.error('Lasso could not draw the redacted copy of %s: %s', resolved.internal.filePath, error.message);
+          return { preview: null, document: null };
+        }
       }
       const pdfRequest = pdfShareRequest(resolved);
       if (pdfRequest && sourceFile?.content) {

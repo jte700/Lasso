@@ -19,10 +19,15 @@ import { readDiscovery } from './rest.js';
 const CLI = fileURLToPath(new URL('./cli.js', import.meta.url));
 const sameScope = (left, right) => JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
 
-export function openLocal({ dataDir = null, scope, client = 'node' } = {}) {
+/**
+ * `mcp: true` answers asks as the MCP server does, for a benchmark standing in for an MCP host. Without it a caller
+ * in process is answered as it always was.
+ */
+export function openLocal({ dataDir = null, scope, client = 'node', mcp = false } = {}) {
   const engine = openEngine({ dataDir: resolveDataDir(dataDir), scope });
   const actor = slugActor(`agent:local:${client}`, `${client} (in process)`);
-  const run = (operation) => (body = {}) => engine.metrics.measure(operation, 'local', () => engine.evidence[operation](body, actor));
+  const run = (operation) => (body = {}) => engine.metrics.measure(operation, 'local', () => (operation === 'ask' && mcp
+    ? engine.evidence.ask(body, actor, { mcp: true }) : engine.evidence[operation](body, actor)));
   return { ask: run('ask'), suggest: run('suggest'), inspect: run('inspect'), bind: run('bind'), status: () => engine.evidence.status(),
     metrics: () => engine.metrics.snapshot(), engine, close: async () => engine.close() };
 }

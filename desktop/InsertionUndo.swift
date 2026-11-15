@@ -20,6 +20,16 @@ struct AcceptedInsertion {
     var serverURL: URL? = nil
     /// The highlight recorded for the inserted source.
     var referenceId: String? = nil
+    /// Words chosen in the passage picker: ⌘Z keeps them and takes back only their link.
+    var keepsText = false
+
+    /// The edit that writes the inserted words again as plain text, which drops
+    /// a hyperlink and keeps the words. Nil when, as for `revertPlan`, they are
+    /// no longer the last change in the field.
+    func unlinkPlan(windowStart: Int, text: [UInt16], caret: Int) -> CompletionPlan? {
+        guard let plan = revertPlan(windowStart: windowStart, text: text, caret: caret) else { return nil }
+        return CompletionPlan(range: plan.range, expectedPrefix: plan.expectedPrefix, insertText: plan.expectedPrefix)
+    }
 
     /// The edit that puts back what was typed, planned against the text
     /// before the caret now. Nil once the caret has moved or the inserted

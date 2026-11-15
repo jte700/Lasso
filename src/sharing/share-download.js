@@ -33,6 +33,8 @@ export function shareDownloadOptions(resolved, preview, document) {
       type = 'blocks'; format = document.format === 'markdown' ? 'MD' : 'TXT';
     } else if (document?.kind === 'model-plan' && document.redacted === true) {
       type = 'drawing'; format = 'SVG';
+    } else if (document?.kind === 'image' && document.safe === true && Buffer.isBuffer(document.content)) {
+      type = 'picture'; format = 'PNG';
     }
   } else if (preview?.headers?.length && preview.rows?.length) {
     type = 'table'; format = 'CSV';
@@ -82,6 +84,8 @@ export function buildShareDownload(resolved, preview, document) {
     content = document.content;
   } else if (options.type === 'slide') {
     content = document.picture;
+  } else if (options.type === 'picture') {
+    content = document.content;
   } else if (options.type === 'table') {
     content = csv([preview.headers, ...preview.rows.map(row => row.cells.map(cell => cell.value))]);
   } else if (options.type === 'sheets') {
@@ -110,7 +114,7 @@ export function buildShareDownload(resolved, preview, document) {
   }
   const version = Number.isSafeInteger(resolved.source.snapshotVersion) ? `-v${resolved.source.snapshotVersion}` : '';
   const suffix = resolved.share.accessScope === 'REDACTED' ? 'redacted' : resolved.share.accessScope === 'MARKED' ? 'marked' : options.type === 'slide' ? `slide-${document.slide}` : 'excerpt';
-  const contentType = { JPEG: 'image/jpeg', PDF: 'application/pdf', CSV: 'text/csv; charset=utf-8', ZIP: 'application/zip', TXT: 'text/plain; charset=utf-8', MD: 'text/markdown; charset=utf-8', SVG: 'image/svg+xml; charset=utf-8' }[options.format];
+  const contentType = { JPEG: 'image/jpeg', PNG: 'image/png', PDF: 'application/pdf', CSV: 'text/csv; charset=utf-8', ZIP: 'application/zip', TXT: 'text/plain; charset=utf-8', MD: 'text/markdown; charset=utf-8', SVG: 'image/svg+xml; charset=utf-8' }[options.format];
   const extension = options.format === 'JPEG' ? 'jpg' : options.format.toLowerCase();
   return { ...options, content, contentType,
     filename: `${safeStem(resolved.source.filename)}-${suffix}${version}.${extension}` };

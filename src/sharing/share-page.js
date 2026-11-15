@@ -1,5 +1,6 @@
 // Server-rendered recipient pages and the private, native source inspector.
 import { renderModelPlan } from '../../public/model-preview.js';
+import { isImagePath } from './image-share.js';
 import { CODE_SYNTAX_STYLE, highlightCodeLines } from '../../public/code-syntax.js';
 import { renderSharedDrawing } from './shared-drawing.js';
 import { recipientExcerptText, shareDownloadOptions } from './share-download.js';
@@ -74,7 +75,7 @@ const STYLE = `
   .source-markdown{padding:10px 14px;font-size:12px;line-height:1.55}
   .source-lines{display:table;min-width:100%;margin:0;padding:8px 0;font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}.source-line{display:table-row}.source-line.cited{background:color-mix(in srgb,var(--cited) 14%,var(--paper));box-shadow:inset 2.5px 0 0 var(--cited)}.line-number{display:table-cell;position:sticky;left:0;padding:0 10px;color:var(--text3);background:var(--paper);text-align:right;user-select:none}.line-content{display:table-cell;padding:0 10px;white-space:pre}.source-document-text{padding:16px;font:13px/1.7 Georgia,serif;white-space:pre-wrap;overflow-wrap:anywhere}.source-pdf{display:block;flex:1;width:100%;min-height:0;border:0;background:var(--paper)}.source-image{display:block;max-width:100%;height:auto;margin:auto}.source-video{display:block;flex:0 0 auto;width:100%;max-height:62%;background:#000}.source-transcript .line-content{white-space:pre-wrap}.preview-unavailable{padding:18px;color:var(--text2);font-size:12px;line-height:1.6}
   .slide-picture{display:grid;place-items:center;padding:10px;background:color-mix(in srgb,var(--text) 6%,var(--paper))}.cited-slide{position:relative;width:100%;max-height:100%;margin:0;border-radius:6px;overflow:hidden;background:color-mix(in srgb,var(--text) 10%,var(--paper));box-shadow:0 1px 3px rgba(0,0,0,.14)}.cited-slide img{position:relative;z-index:1;display:block;width:100%;height:100%;object-fit:contain}.cited-slide figcaption{position:absolute;inset:0;display:grid;place-items:center;color:var(--text2);font-size:12px}
-  .inspector-spatial .preview-model{display:flex;flex-direction:column}.inspector-spatial .preview-model>.model-plan{display:flex;flex:1 0 auto;min-width:0;min-height:0;flex-direction:column}.inspector-spatial .preview-model .model-plan-head,.inspector-spatial .preview-model .model-plan-foot{flex:0 0 auto}.inspector-spatial .preview-model .model-plan-svg{flex:1 1 80px;height:80px;min-height:80px}.inspector-spatial .preview-image{display:flex}.inspector-spatial .preview-image .source-image{width:100%;height:100%;min-height:0;object-fit:contain}
+  .inspector-spatial .preview-model{display:flex;flex-direction:column;scrollbar-gutter:auto}.inspector-spatial .preview-model>.model-plan{display:flex;flex:1 0 auto;min-width:0;min-height:0;flex-direction:column}.inspector-spatial .preview-model .model-plan-head,.inspector-spatial .preview-model .model-plan-foot{flex:0 0 auto}.inspector-spatial .preview-model .model-plan-svg{flex:1 1 80px;height:80px;min-height:80px}.inspector-spatial .preview-image{display:flex}.inspector-spatial .preview-image .source-image{width:100%;height:100%;min-height:0;object-fit:contain}
   .inspector-toolbar{display:flex;min-width:0;min-height:48px;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 14px;border-top:1px solid var(--line);background:color-mix(in srgb,var(--surface) 50%,transparent)}.inspector-toolbar button{display:flex;flex:0 0 auto;height:30px;align-items:center;gap:6px;padding:0 14px;border:0;border-radius:999px;background:color-mix(in srgb,var(--text) 8%,transparent);color:var(--text);font:500 12px -apple-system,BlinkMacSystemFont,system-ui,sans-serif;cursor:default;-webkit-user-select:none;user-select:none}.inspector-toolbar button:hover{background:color-mix(in srgb,var(--text) 13%,transparent)}.inspector-toolbar button:active{background:color-mix(in srgb,var(--text) 18%,transparent)}.inspector-toolbar button.primary{background:#fff;color:#1d1d1f;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.18),0 0 0 .5px rgba(0,0,0,.08)}.inspector-toolbar button.primary:hover{background:#f4f4f6}.inspector-toolbar button.primary:active{background:#e8e8ec}.inspector-toolbar button.primary svg{stroke:#1d1d1f}.inspector-toolbar button.destructive{color:var(--red)}.inspector-toolbar button.destructive svg{stroke:var(--red)}.inspector-toolbar button svg{width:12px;height:12px;fill:none;stroke:var(--text2);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.inspector-toolbar,.source-summary,.preview-heading,.inspector-details dt{-webkit-user-select:none;user-select:none}.inspector-toolbar kbd{padding:1px 4px;border:1px solid var(--line);border-radius:3px;color:var(--text3);font:10px -apple-system,BlinkMacSystemFont,system-ui,sans-serif}.inspector-toolbar .destructive{margin-left:auto}button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 `;
@@ -154,6 +155,10 @@ function renderFullDocument(document, redactions, requireRedacted = false) {
   if (document?.kind === 'pdf' && document.fileUrl && (!requireRedacted || document.safe === true && document.redacted === true)) {
     const page = Math.max(1, Number(document.page) || 1);
     return `<iframe class="shared-pdf" src="${escapeHtml(document.fileUrl)}#page=${page}&zoom=page-width" title="Shared PDF document"></iframe>`;
+  }
+  // Only the redacted copy drawn by Lasso is shown, never the picture itself.
+  if (document?.kind === 'image' && document.safe === true && document.redacted === true && document.fileUrl) {
+    return `<figure class="shared-image-frame"><img class="shared-image" src="${escapeHtml(document.fileUrl)}" alt="Redacted picture"></figure>`;
   }
   if (document?.kind === 'table' && document.sheets?.length) {
     return `<div class="full-document">${document.sheets.map((sheet, sheetIndex) => {
@@ -326,11 +331,13 @@ function recipientView(resolved, token, preview, document = null) {
   const drawing = /\.(?:dxf|ifc)$/i.test(source.filename);
   const model = /\.(?:step|stp)$/i.test(source.filename);
   const deck = isPresentationPath(source.filename);
-  const type = table ? 'Spreadsheet' : drawing ? 'Design drawing' : model ? 'CAD model' : deck ? 'Presentation' : 'Document';
+  const picture = isImagePath(source.filename);
+  const type = table ? 'Spreadsheet' : drawing ? 'Design drawing' : model ? 'CAD model' : deck ? 'Presentation' : picture ? 'Picture' : 'Document';
   const excerpt = pdfExcerpt || scope === 'MARKED' ? '' : recipientExcerptText(source);
   const base = `/d/${encodeURIComponent(token)}`;
   const content = hasTable ? recipientTable(preview)
     : Buffer.isBuffer(document?.picture) && scope === 'INDEXED' ? sharedSlidePicture(base, document)
+    : redacted && picture && document?.kind !== 'image' ? '<p class="shared-empty">The redacted copy couldn’t be prepared. Ask the sender for a new link.</p>'
     : hasDocument ? renderFullDocument(document, redactions, redacted)
       : preview?.kind === 'passage' && scope === 'INDEXED' ? sharedPassage(preview.paragraph, excerpt)
       : scope === 'MARKED' ? '<p class="shared-empty">The marked copy couldn’t be prepared. Ask the sender for a new link.</p>'
@@ -338,7 +345,7 @@ function recipientView(resolved, token, preview, document = null) {
         ? `<blockquote class="shared-quote"><div class="markdown-document"><p class="md-paragraph">${markdownInlineHtml(excerpt)}</p></div></blockquote>`
         : `<blockquote class="shared-quote">${escapeHtml(excerpt)}</blockquote>`
         : '<p class="shared-empty">An inline excerpt is unavailable for this source.</p>';
-  const heading = redacted ? 'Redacted document' : marked ? 'Marked-up copy' : deck && scope === 'INDEXED' ? 'Shared slide'
+  const heading = redacted ? (picture ? 'Redacted picture' : 'Redacted document') : marked ? 'Marked-up copy' : deck && scope === 'INDEXED' ? 'Shared slide'
     : scope === 'INDEXED' ? 'Shared excerpt' : deck ? 'Slides' : 'Source preview';
   const location = !redacted && (document?.safe || document?.citedSlide) && document.location ? document.location
     : !redacted && scope !== 'MARKED' && source.location && source.location !== '—' ? source.location : '';
@@ -351,7 +358,7 @@ function recipientView(resolved, token, preview, document = null) {
   const scopeLabel = scope === 'INDEXED' ? (deck ? 'Cited slide only' : 'Cited part only') : redacted ? 'Redacted copy'
     : scope === 'MARKED' ? 'Marked-up copy' : 'Entire document';
   // Tables, drawings and files use the page's full width. Prose reads better narrower.
-  const wide = table || drawing || model || deck || ['pdf', 'model-plan'].includes(document?.kind);
+  const wide = table || drawing || model || deck || picture || ['pdf', 'model-plan'].includes(document?.kind);
   return { scope, redacted, marked, deck, title, type, heading, location, stats, content, scopeLabel, wide, base };
 }
 

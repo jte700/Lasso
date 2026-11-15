@@ -6,6 +6,7 @@ extension ShareComposerView {
     override func draw(_ dirtyRect: NSRect) {
         showsScrollablePreview = false
         showsPDFPreview = false
+        showsVideoPreview = false
         showsSlideMenu = false
         sheetTabTargets.removeAll()
         drawingLayout = nil
@@ -22,6 +23,7 @@ extension ShareComposerView {
         NSGraphicsContext.current?.restoreGraphicsState()
         previewScroll.isHidden = !showsScrollablePreview
         pdfView.isHidden = !showsPDFPreview
+        showVideoView(showsVideoPreview)
         slideNavigator?.bar.isHidden = !showsSlideMenu
         if !showsScrollablePreview { targets.removeAll() }
     }
@@ -50,26 +52,19 @@ extension ShareComposerView {
     }
 
     private func drawScopes() {
-        let entries: [(ShareAccessScope, String, String)] = scopes.map { scope in
+        // A single way to share needs no control at all; the preview moves up into its place.
+        guard scopes.count > 1 else { return }
+        let entries: [(ShareAccessScope, String)] = scopes.map { scope in
             switch scope {
-            case .document: return (scope, isPresentation ? "Entire presentation" : "Entire document",
-                                    isPresentation ? "Every slide, and the original file" : "Include the original file")
-            case .indexed: return (scope, isPresentation ? "Cited slide only" : "Cited part only",
-                                   isCADModel ? "The part, its feature marked"
-                                   : isPresentation ? "A picture of this slide" : "Share the matched context")
-            case .redacted: return (scope, "Select & redact", "Hide source content")
-            case .marked: return (scope, "Mark up", "Pen, marker and highlighter")
+            case .document: return (scope, isPresentation ? "Entire presentation" : isPicture ? "Entire picture" : "Entire document")
+            case .indexed: return (scope, isPresentation ? "Cited slide only" : "Cited part only")
+            case .redacted: return (scope, "Select & redact")
+            case .marked: return (scope, "Mark up")
             }
         }
-        // A segmented control, as System Settings draws one across a pane, with
-        // what the chosen scope shares written under it.
+        // A segmented control, as System Settings draws one across a pane.
         drawSegmentedControl(entries.enumerated().map { ($0.element.1, scope == $0.element.0, scopeRect($0.offset)) },
                              fontSize: 12.5)
-        if let chosen = entries.first(where: { $0.0 == scope }), let first = entries.indices.first {
-            let control = scopeRect(first).union(scopeRect(entries.count - 1))
-            drawText(chosen.2, in: NSRect(x: control.minX, y: control.maxY + 6, width: control.width, height: 15),
-                     font: .systemFont(ofSize: 11), color: .secondaryLabelColor, alignment: .center)
-        }
     }
 
     private func drawPreview() {
@@ -78,8 +73,9 @@ extension ShareComposerView {
         let x: CGFloat = 16
         let isPDF = isPDFSource
         drawText(scope == .indexed ? "Recipient preview"
-                 : scope == .marked ? (isPresentation ? "Slides to mark up" : "Pages to mark up") : "Complete document",
-                 in: NSRect(x: x + 2, y: 108, width: 170, height: 16),
+                 : scope == .marked ? (isPresentation ? "Slides to mark up" : "Pages to mark up")
+                 : isVideo ? "Video" : isPicture ? "Picture" : "Complete document",
+                 in: NSRect(x: x + 2, y: sectionY + 5, width: 170, height: 16),
                  font: .systemFont(ofSize: 11, weight: .semibold), color: .secondaryLabelColor)
 
         if scope == .marked {
@@ -90,7 +86,7 @@ extension ShareComposerView {
             drawNearbyRowsSwitch()
         } else {
             let badge = scope == .document ? "Original available" : "Original protected"
-            drawPill(badge, in: NSRect(x: bounds.width - 125, y: 105, width: 109, height: 20))
+            drawPill(badge, in: NSRect(x: bounds.width - 125, y: sectionY + 2, width: 109, height: 20))
         }
         if isPDF && scope == .redacted {
             drawButton("Select text", in: pdfTextModeRect, prominent: pdfSelectionMode == .text, enabled: !isCopying, showsShortcut: false)
@@ -108,9 +104,10 @@ extension ShareComposerView {
                  font: .systemFont(ofSize: 12.5, weight: .semibold), color: .labelColor)
         let drawing = fullDocument?.model != nil
         let subtitle = scope == .marked ? "Draw with the pen, marker or highlighter. The eraser takes a mark away."
-            : scope == .redacted ? (drawing || isPDF ? "Drag over text or mark an area. Click a mask to remove it." : "Drag across cells or sections to blur or redact.") : scope == .indexed
+            : scope == .redacted ? (isPicture ? "Drag over the picture to cover an area. Click a mask to remove it."
+                : drawing || isPDF ? "Drag over text or mark an area. Click a mask to remove it." : "Drag across cells or sections to blur or redact.") : scope == .indexed
             ? (citedPart.map(\.selectedLabel) ?? (preview?.location.isEmpty == false ? preview!.location : filename))
-            : "Complete \(filename)"
+            : isVideo ? videoSubtitle : "Complete \(filename)"
         drawText(subtitle, in: NSRect(x: card.minX + 13, y: card.minY + 31,
                                      width: card.width - 26, height: 15),
                  font: .systemFont(ofSize: 10.5), color: .secondaryLabelColor)
@@ -119,6 +116,10 @@ extension ShareComposerView {
                              width: card.width - 26, height: card.height - 68)
         if scope == .marked {
             drawMarkupContent(in: content)
+        } else if isVideo {
+            drawVideo(in: content)
+        } else if isPicture {
+            drawPicture(in: content)
         } else if isPDF {
             drawPDFContent(in: content)
         } else if let slideDecks {
@@ -165,11 +166,11 @@ extension ShareComposerView {
                  font: .systemFont(ofSize: 10), color: .secondaryLabelColor, alignment: .center, wrap: true)
     }
 
-    var blurEffectRect: NSRect { NSRect(x: bounds.width - 136, y: 103, width: 60, height: 24) }
-    var redactEffectRect: NSRect { NSRect(x: bounds.width - 76, y: 103, width: 60, height: 24) }
+    var blurEffectRect: NSRect { NSRect(x: bounds.width - 136, y: sectionY, width: 60, height: 24) }
+    var redactEffectRect: NSRect { NSRect(x: bounds.width - 76, y: sectionY, width: 60, height: 24) }
 
-    var pdfTextModeRect: NSRect { NSRect(x: 200, y: 103, width: 78, height: 24) }
-    var pdfAreaModeRect: NSRect { NSRect(x: 284, y: 103, width: 78, height: 24) }
+    var pdfTextModeRect: NSRect { NSRect(x: 200, y: sectionY, width: 78, height: 24) }
+    var pdfAreaModeRect: NSRect { NSRect(x: 284, y: sectionY, width: 78, height: 24) }
 
     private func drawFooter() {
         let centerY = bounds.height - footerHeight / 2
@@ -357,7 +358,7 @@ extension ShareComposerView {
 
 extension ShareComposerView {
     /// Where the "Nearby rows" switch sits: the heading line's right end, in place of the scope's badge.
-    var nearbyRowsRect: NSRect { NSRect(x: bounds.width - 150, y: 103, width: 134, height: 24) }
+    var nearbyRowsRect: NSRect { NSRect(x: bounds.width - 150, y: sectionY, width: 134, height: 24) }
 
     /// A cited cell or row can bring the rows around it; a column or a passage cannot.
     var offersNearbyRows: Bool { scope == .indexed && nearbyExcerpt?.rows.isEmpty == false }

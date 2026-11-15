@@ -270,3 +270,11 @@ test('3D wireframe data reaches only interactive local views, never shared drawi
   const json = html.match(/<script type="application\/json" data-model-orbit>([^<]*)<\/script>/)[1];
   assert.deepEqual(JSON.parse(json).pivot, [5, 5, 5]);
 });
+
+test('The inspector’s model preview keeps no room for a scrollbar, so the model sits centred', () => {
+  // Act
+  const html = renderInspectorPanel({ source: { filename: 'Bracket.step', label: 'Bracket', snapshotVersion: 1 } }, 'reference', solid);
+
+  // Assert
+  assert.match(html, /\.inspector-spatial \.preview-model\{[^}]*scrollbar-gutter:auto/);
+});

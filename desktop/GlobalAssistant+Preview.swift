@@ -165,6 +165,7 @@ extension GlobalAssistant {
 
     func selectRow(_ index: Int) {
         guard index >= 0, index < view.suggestions.count else { return }
+        resetTableNavigation()
         view.wordChoice = nil
         if view.preview?.unavailableReason != nil { previewKey = nil }
         view.selected = index
@@ -222,5 +223,90 @@ extension GlobalAssistant {
         case .failed:
             flash(["macOS could not open \((path as NSString).lastPathComponent)."])
         }
+    }
+}
+
+
+extension GlobalAssistant {
+    func resetTableNavigation() {
+        tableNavigationToken += 1
+        tableNavigationRequest?.cancel()
+        tableNavigationRequest = nil
+        tableNavigationQueue.removeAll()
+        tableNavigationOrigin = nil
+        view.tableBrowsing = false
+    }
+
+    func returnFromTable() {
+        guard let origin = tableNavigationOrigin else { return }
+        resetTableNavigation()
+        view.selected = origin.selected
+        show(origin.suggestions)
+    }
+
+    /// Serialize repeated arrows so each move starts at the last returned cell.
+    func navigateNextTableCell() {
+        guard tableNavigationRequest == nil, !tableNavigationQueue.isEmpty else { return }
+        guard let current = currentSuggestion, current.tableNavigable,
+              let id = current.objectId, let serverURL, panel?.isVisible == true else {
+            resetTableNavigation()
+            return
+        }
+        let direction = tableNavigationQueue.removeFirst()
+        generation += 1
+        request?.cancel()
+        request = nil
+        debounce?.invalidate()
+        debounce = nil
+        let generation = self.generation
+        let token = tableNavigationToken
+        let revision = workspaceRevision
+        var components = URLComponents(url: serverURL.appendingPathComponent("api/dependency-objects")
+            .appendingPathComponent(id).appendingPathComponent("navigate"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "direction", value: direction)]
+        if let version = current.versionId { components.queryItems?.append(URLQueryItem(name: "version", value: version)) }
+        var request = URLRequest(url: components.url!)
+        request.timeoutInterval = 2.5
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
+            DispatchQueue.main.async {
+                guard let self, token == self.tableNavigationToken else { return }
+                self.tableNavigationRequest = nil
+                guard generation == self.generation, revision == self.workspaceRevision,
+                      self.isEnabled, self.panel?.isVisible == true,
+                      self.currentSuggestion?.selectionIdentity == current.selectionIdentity else {
+                    self.resetTableNavigation()
+                    return
+                }
+                guard let data, (response as? HTTPURLResponse)?.statusCode == 200,
+                      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    self.tableNavigationQueue.removeAll()
+                    NSSound.beep()
+                    return
+                }
+                if let object = root["source"] as? [String: Any], let id = object["id"] as? String,
+                   let projectId = object["projectId"] as? String, self.projectIds.contains(projectId) {
+                    let label = object["label"] as? String ?? "Cell"
+                    let value = object["valueText"] as? String
+                    let suggestion = AssistSuggestion(insertText: value ?? label, label: label,
+                        detail: value ?? "", path: object["path"] as? String ?? current.path,
+                        location: Self.sourceLocation(object), replacement: current.replacement,
+                        objectId: id, versionId: object["versionId"] as? String,
+                        snapshotId: object["snapshotId"] as? String, usageObjectId: id,
+                        projectId: projectId, rankingReason: nil, tableNavigable: true)
+                    if self.tableNavigationOrigin == nil {
+                        self.tableNavigationOrigin = (self.view.suggestions, self.view.selected)
+                    }
+                    self.view.tableBrowsing = true
+                    self.view.wordChoice = nil
+                    self.view.selected = 0
+                    self.show([suggestion])
+                } else {
+                    NSSound.beep()
+                }
+                self.navigateNextTableCell()
+            }
+        }
+        tableNavigationRequest = task
+        task.resume()
     }
 }

@@ -186,7 +186,7 @@ extension GlobalAssistant {
     }
 
     func reposition(near caret: CGRect?) {
-        guard let panel, panel.isVisible else { return }
+        guard let panel, panel.isVisible, !PassagePickerController.shared.isPresented(in: panel) else { return }
         let size = ShareComposerController.shared.isPresented(in: panel)
             ? ShareComposerController.shared.canvasSize : view.boxSize
         let mainFrame = anchoredFrame(for: caret, size: size)
@@ -266,6 +266,7 @@ extension GlobalAssistant {
         view.onLocalLink = { [weak self] in self?.acceptPlain() }
         view.onShare = { [weak self] in self?.acceptShared() }
         view.onOpenSource = { [weak self] in self?.openCurrentSource() }
+        view.onReturnFromTable = { [weak self] in self?.returnFromTable() }
         view.onAllSources = { [weak self] in self?.chooseSource(allDocuments: true) }
         view.onStepBack = { [weak self] in self?.stepBack(); self?.publishKeyRouting() }
         view.onOpenWords = { [weak self] in self?.openWords(movingStart: false); self?.publishKeyRouting() }

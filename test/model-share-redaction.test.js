@@ -7,6 +7,7 @@ import { createApplication } from '../src/server.js';
 import { redactModelPlan } from '../src/sharing/model-redaction.js';
 import { renderSharePage } from '../src/sharing/share-page.js';
 import { renderSharedDrawing, sharedDrawingSvg } from '../src/sharing/shared-drawing.js';
+import { legacyCitedShare } from './fixtures/legacy-shares.js';
 
 const square = [[0, 0], [100, 0], [100, 100], [0, 100]];
 const mask = { kind: 'DRAWING', effect: 'BLUR', x: .4, y: .4, width: .2, height: .2 };
@@ -155,7 +156,9 @@ test('public CAD shares render the pinned plan, redact regions, reject wrong mas
     assert.match(svg, /drawing-redaction blur/);
     assert.match(svg, filename.endsWith('.dxf') ? /PUBLIC/ : /model-plan-element/);
     assert.doesNotMatch(svg, /HIDDEN-ROOM|HIDDEN-FLOOR|secret-room|sourceHash|<script|<foreignObject/);
-    const indexed = await create(object, { accessScope: 'INDEXED' }); const indexedToken = (await indexed.json()).share.token;
+    // A 2D drawing no longer offers its cited part; a link made before then still opens without the drawing.
+    assert.equal((await create(object, { accessScope: 'INDEXED' })).status, 422);
+    const indexedToken = legacyCitedShare(app, { projectId: project.id, object: { id: object.objectId, versionId: object.versionId }, actor }).token;
     const indexedPage = await (await fetch(`${base}/d/${indexedToken}`)).text(); assert.doesNotMatch(indexedPage, /data-model-plan|Download original/);
     assert.equal((await fetch(`${base}/d/${indexedToken}/download`)).status, 403);
     const wrong = await create(object, { accessScope: 'REDACTED', redactions: [{ kind: 'CELL', row: 0, column: 0 }] }); assert.equal(wrong.status, 400);

@@ -6,7 +6,8 @@
 // needs is implemented: initialize, ping, tools/list, tools/call and
 // cancellation. Results are compact text (render.js), about a quarter fewer
 // tokens than the same answer as JSON; `format: "json"` returns the JSON
-// contract instead. No outputSchema is declared: with one, the protocol also
+// contract instead. An ask's answer is written lean here and nowhere else
+// (askTextOptions). No outputSchema is declared: with one, the protocol also
 // requires a structured copy of each result, and a host that forwards both
 // would show the model every result twice.
 
@@ -90,6 +91,21 @@ export const TOOLS = [
 
 const OPERATIONS = { lasso: 'ask', lasso_search: 'suggest', lasso_read: 'inspect', lasso_cite: 'bind' };
 
+// The tools that take a handle: lasso_read reads around one, lasso_cite records one.
+const HANDLE_TOOLS = new Set(['lasso_read', 'lasso_cite']);
+
+/**
+ * How an ask's answer is written for a model over MCP: lean, since a model
+ * pays for every token of it again on each later turn. Handles are sent only
+ * when a tool offered can take one, or the call asks with `handles: true`.
+ * In the recorded live runs no lasso call used a handle (0 of 202), and they
+ * were 7.5% of an answer's tokens. REST, the command line and in-process
+ * callers are not affected.
+ */
+export function askTextOptions(toolNames, args = {}) {
+  return { lean: true, handles: args?.handles === true || toolNames.some((name) => HANDLE_TOOLS.has(name)) };
+}
+
 // Every definition is paid on every call, so one tool is offered: lasso, which
 // asks, finds and reads in one call. lasso_search, lasso_read and lasso_cite
 // stay available on request (--tools search,read,cite) for callers that
@@ -149,8 +165,11 @@ export function serveMcp({ input = process.stdin, output = process.stdout, open,
       return { result: { content: [{ type: 'text', text: failure({ code: 'unavailable', message: engineError.message }, format) }], isError: true } };
     }
     try {
-      const value = engine.metrics.measure(operation, 'mcp', () => engine.evidence[operation](args, actor));
-      return { result: { content: [{ type: 'text', text: formatAnswer(operation, value, format) }] } };
+      // What was added for a model asking over MCP is reached only from here (evidence.js, `mcp`).
+      const value = engine.metrics.measure(operation, 'mcp', () => (operation === 'ask' ? engine.evidence.ask(args, actor, { mcp: true })
+        : engine.evidence[operation](args, actor)));
+      const options = operation === 'ask' ? askTextOptions([...offered], args) : {};
+      return { result: { content: [{ type: 'text', text: formatAnswer(operation, value, format, options) }] } };
     } catch (error) {
       if (!error?.code && !(error?.status < 500)) log(`Lasso ${operation} failed: ${error?.stack ?? error}`);
       return { result: { content: [{ type: 'text', text: failure(errorBody(error), format) }], isError: true } };
