@@ -20,7 +20,6 @@ final class SheetGridView: NSView {
     private static let cellFont = NSFont.systemFont(ofSize: 12)
     private static let headingFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
     private static let letterFont = NSFont.systemFont(ofSize: 11)
-    private static let numeric = try? NSRegularExpression(pattern: "^[-+(]?[$€£¥]?\\s*\\d[\\d,.\\s]*%?\\)?$")
 
     private(set) var document: SheetDocument?
     private var columnWidths: [CGFloat] = []
@@ -194,9 +193,7 @@ final class SheetGridView: NSView {
         NSRect(x: visible.minX + Self.rowHeaderWidth - 0.5, y: visible.minY, width: 0.5, height: visible.height).fill()
     }
 
-    static func isNumber(_ text: String) -> Bool {
-        numeric?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
-    }
+    static func isNumber(_ text: String) -> Bool { SheetCells.isNumber(text) }
 
     // MARK: Highlighting
 

@@ -5031,38 +5031,41 @@ do {
     check(SheetHighlights().adding(SheetRange(top: 2, bottom: 2, left: 2, right: 2)).moving(columns: 1, rows: 0, extending: false, in: sheet).ranges
           == [SheetRange(top: 2, bottom: 2, left: 2, right: 2)], "a highlight stops at the sheet's last column")
 
-    let single = SheetClipboard.pick(sheet, highlights: [flow], headers: false, citing: true)
-    check(single?.single == true && single?.plain == "18,400 (Pumps.xlsx, 'Trial Balance'!B2)",
-          "one cell inserts its value as the sheet shows it, then its source")
-    check(SheetClipboard.pick(sheet, highlights: [flow], headers: false, citing: false)?.plain == "18,400", "without the source, only the value")
-    let block = SheetClipboard.pick(sheet, highlights: [flow, SheetRange(top: 5, bottom: 5, left: 2, right: 2)], headers: false, citing: true)
-    check(block?.single == false, "cells from two highlights insert as a table")
-    check(block?.plain == "| 18,400 |     |\n|        | 110 |\n(Pumps.xlsx, 'Trial Balance'!B2, C5)",
-          "the table keeps the cells where they sit, closes the rows and columns between, and cites each highlight in order")
-    check(block?.tsv == "18,400\t\n\t110", "spreadsheets get the same cells tab-separated")
-    let headed = SheetClipboard.pick(sheet, highlights: [flow, head], headers: true, citing: false)
-    check(headed?.plain == "| Flow gpm | Head ft |\n| -------- | ------- |\n|   18,400 |         |\n|          |      95 |",
-          "with headers, the header row comes first with a line under it, and columns are lined up with numbers set right")
-    check(SheetClipboard.pick(sheet, highlights: [SheetRange(top: 1, bottom: 2, left: 0, right: 0)], headers: true, citing: false)?.plain
-          == "| Pump  |\n| ----- |\n| P-101 |", "a highlight that takes in the header row does not repeat it, and underlines it")
-    check(SheetClipboard.textTable([["a|b", "2"]], headed: false) == "| a\\|b | 2 |", "a bar inside a cell is escaped so it does not split the cell")
-    check(headed?.html.contains("<th>Flow gpm</th>") == true && headed?.html.contains("<td style=\"text-align:right\">18,400</td>") == true,
-          "the HTML table heads its columns and sets numbers right, as Excel does")
-    check(block?.html.contains("(Pumps.xlsx, &#39;Trial Balance&#39;!B2, C5)") == true, "the HTML cites the source under the table")
-    let rtf = headed?.rtf.flatMap { String(data: $0, encoding: .ascii) } ?? ""
-    check(rtf.hasPrefix("{\\rtf1") && rtf.contains("\\intbl 18,400\\cell") && rtf.components(separatedBy: "\\row").count == 4,
-          "the RTF holds a table of the same rows")
+    let twoApart = [flow, SheetRange(top: 5, bottom: 5, left: 2, right: 2)]
+    let laid = SheetClipboard.grid(sheet, twoApart, headers: false)
+    check(laid.cells == [["18,400", ""], ["", "110"]] && !laid.headed,
+          "the picture keeps the cells where they sit and closes the rows and columns between highlights")
+    let withHeaders = SheetClipboard.grid(sheet, [flow, head], headers: true)
+    check(withHeaders.cells == [["Flow gpm", "Head ft"], ["18,400", ""], ["", "95"]] && withHeaders.headed,
+          "with headers, the touched columns' header row comes first")
+    let takesHeader = SheetClipboard.grid(sheet, [SheetRange(top: 1, bottom: 2, left: 0, right: 0)], headers: true)
+    check(takesHeader.cells == [["Pump"], ["P-101"]] && takesHeader.headed,
+          "a highlight that takes in the header row does not repeat it, and heads the picture with it")
+    check(SheetClipboard.citation(sheet, twoApart) == "(Pumps.xlsx, 'Trial Balance'!B2, C5)", "the source cites each highlight in order")
     let csv = SheetDocument(name: "pumps.csv", sheet: nil, sheets: [], columns: ["A", "B"],
-                            rows: [SheetRow(number: 1, cells: ["Pump", "Note {draft}"])], headerRow: 1, selection: nil, truncated: false)
-    check(SheetClipboard.pick(csv, highlights: [SheetRange(top: 1, bottom: 1, left: 1, right: 1)], headers: false, citing: true)?.plain
-          == "Note {draft} (pumps.csv, B1)", "a CSV is cited without a sheet")
-    let braces = SheetClipboard.pick(csv, highlights: [SheetRange(top: 1, bottom: 1, left: 0, right: 1)], headers: false, citing: false)
-    check(braces?.rtf.flatMap { String(data: $0, encoding: .ascii) }?.contains("Note \\{draft\\}") == true, "RTF escapes braces")
+                            rows: [SheetRow(number: 1, cells: ["Pump", "Note"])], headerRow: 1, selection: nil, truncated: false)
+    check(SheetClipboard.citation(csv, [SheetRange(top: 1, bottom: 1, left: 1, right: 1)]) == "(pumps.csv, B1)", "a CSV is cited without a sheet")
     check(SheetClipboard.pick(sheet, highlights: [], headers: false, citing: true) == nil, "nothing highlighted inserts nothing")
-    check(SheetClipboard.escapeRtf("é📈") == "\\u233?\\u-10179?\\u-9016?", "RTF writes accents as one unit and an emoji as its surrogate pair")
-    check(SheetClipboard.block("a\tb", after: "The flows are") == "\na\tb", "a table typed after words starts on a new line")
-    check(SheetClipboard.block("a\tb", after: "Flows:\n") == "a\tb" && SheetClipboard.block("a\tb", after: "") == "a\tb",
-          "a table at the start of a line starts there")
+
+    let plainLayout = SheetPicture.layout(laid.cells, headed: false, caption: nil)
+    let headedLayout = SheetPicture.layout(withHeaders.cells, headed: true, caption: nil)
+    let captioned = SheetPicture.layout(laid.cells, headed: false, caption: "(Pumps.xlsx, 'Trial Balance'!B2, C5)")
+    check(plainLayout.columnWidths.count == 2 && headedLayout.size.height > plainLayout.size.height,
+          "the picture has a column per touched column and a row per touched row")
+    check(captioned.size.height > plainLayout.size.height && captioned.size.width >= plainLayout.size.width,
+          "the source is written under the picture")
+    let picture = SheetClipboard.pick(sheet, highlights: [flow, head], headers: true, citing: true)
+    let png = picture.flatMap { NSBitmapImageRep(data: $0.png) }
+    check(png != nil && picture?.tiff != nil, "the picture is put on the clipboard as PNG and TIFF")
+    let expected = SheetPicture.layout(withHeaders.cells, headed: true, caption: picture?.citation)
+    check(png?.pixelsWide == Int(expected.size.width * SheetPicture.scale) && png?.pixelsHigh == Int(expected.size.height * SheetPicture.scale),
+          "the picture is drawn at Retina resolution")
+    let headerPixel = png?.colorAt(x: 3, y: 3)?.usingColorSpace(.sRGB)
+    let bodyPixel = png?.colorAt(x: 3, y: Int((SheetPicture.rowHeight + 6) * SheetPicture.scale))?.usingColorSpace(.sRGB)
+    check(headerPixel != nil && bodyPixel != nil && headerPixel!.brightnessComponent < bodyPixel!.brightnessComponent,
+          "the header row is shaded, the cells below are white")
+    check(SheetCells.isNumber("$18,400") && SheetCells.isNumber("(1,200)") && !SheetCells.isNumber("2026-09-17") && !SheetCells.isNumber("P-101")
+          && SheetCells.isNumber("-"), "numbers, and an accounting zero's dash, are told from dates and names, to set them right")
 
     let card = KeyRoutingState(popup: .suggestions, sheetPickable: true)
     let cardKey = { (code: Int64, flags: CGEventFlags) in KeyRouter.decide(keyCode: code, flags: flags, synthetic: false, state: card) }

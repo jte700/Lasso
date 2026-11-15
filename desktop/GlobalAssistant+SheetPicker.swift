@@ -1,9 +1,8 @@
 // fn+Tab on a spreadsheet's or CSV's suggestion opens the sheet picker on its
-// sheet. One highlighted cell is inserted as Tab inserts a suggestion; more
-// are pasted as Excel copies them, so the app takes a table where it can.
+// sheet, and what is highlighted there is pasted as a picture of those cells.
+// Tab on the card still inserts the suggestion as text.
 
 import Cocoa
-import UniformTypeIdentifiers
 
 extension GlobalAssistant {
     /// Opens the picker over the card; false when it cannot open, and fn+Tab inserts as Tab does.
@@ -35,37 +34,27 @@ extension GlobalAssistant {
         return true
     }
 
-    /// The suggestion as the picker makes it: the cells' text, typed exactly.
-    /// It still replaces the typed words it was found by only when the cited
-    /// cell is among those highlighted. A table starts on a line of its own.
-    static func sheetSuggestion(_ pick: SheetPick, from suggestion: AssistSuggestion, before: String) -> AssistSuggestion {
+    /// The suggestion the picture stands in for when its place in the field
+    /// is planned. It still replaces the typed words it was found by only
+    /// when the cited cell is among those highlighted.
+    static func sheetSuggestion(_ pick: SheetPick, from suggestion: AssistSuggestion) -> AssistSuggestion {
         var chosen = suggestion
+        // An inline picture is one object replacement character in the field's text.
+        chosen.insertText = "\u{FFFC}"
         chosen.verbatim = true
+        chosen.joinsTyping = true
         chosen.opensPassagePicker = false
         chosen.sentenceContinuation = false
         chosen.startsMidLine = false
         if !pick.includesCited { chosen.replacement = nil }
-        if pick.single {
-            chosen.insertText = pick.plain
-            chosen.joinsTyping = false
-        } else {
-            chosen.insertText = SheetClipboard.block(pick.plain, after: before)
-            chosen.joinsTyping = true
-        }
         return chosen
     }
 
+    /// Pastes the picture as PNG and TIFF, once a fresh read shows the field
+    /// is still as it was. The app's own ⌘Z takes a paste back.
     private func insertSheetPick(_ pick: SheetPick, from suggestion: AssistSuggestion, context: CaretContext) {
-        let chosen = Self.sheetSuggestion(pick, from: suggestion, before: context.text)
-        if pick.single { insertPlain(chosen); return }
-        pasteSheetCells(pick, as: chosen, context: context)
-    }
-
-    /// Pastes the cells as HTML, RTF and tab-separated text together, once a
-    /// fresh read shows the field is still as it was. The app's own ⌘Z takes
-    /// a paste back.
-    private func pasteSheetCells(_ pick: SheetPick, as chosen: AssistSuggestion, context: CaretContext) {
         undoableInsertion = nil
+        let chosen = Self.sheetSuggestion(pick, from: suggestion)
         guard let plan = fieldPlan(for: chosen, in: context) else {
             hide()
             flash(["Could not insert here.", "Nothing was changed."])
@@ -84,10 +73,8 @@ extension GlobalAssistant {
                     return
                 }
                 let before = CompletionSnapshot(documentStart: fresh.windowStart, text: Array(fresh.text.utf16))
-                var formats: [NSPasteboard.PasteboardType: Data] = [.string: Data(plan.insertText.utf8), .html: Data(pick.html.utf8)]
-                if let rtf = pick.rtf { formats[.rtf] = rtf }
-                // Spreadsheets read the cells in place from tab-separated text.
-                formats[NSPasteboard.PasteboardType(UTType.utf8TabSeparatedText.identifier)] = Data(pick.tsv.utf8)
+                var formats: [NSPasteboard.PasteboardType: Data] = [.png: pick.png]
+                if let tiff = pick.tiff { formats[.tiff] = tiff }
                 self.isInserting = true
                 self.markOwnWrite()
                 let element = context.element, caret = context.absoluteCaret

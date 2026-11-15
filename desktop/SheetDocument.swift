@@ -133,3 +133,13 @@ struct SheetHighlights: Equatable {
         return replacingLatest(with: SheetRange(top: top, bottom: top, left: left, right: left))
     }
 }
+
+enum SheetCells {
+    private static let numeric = try? NSRegularExpression(pattern: "^[-+(]?[$€£¥]?\\s*\\d[\\d,.\\s]*%?\\)?$")
+
+    /// A number as a sheet shows it ("$18,400", "(1,200)", "12%", or an
+    /// accounting zero's "-"), which is set right; not a date or a name.
+    static func isNumber(_ text: String) -> Bool {
+        text == "-" || numeric?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+    }
+}

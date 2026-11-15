@@ -1,6 +1,7 @@
 // The sheet picker's window: the file's name and sheet above, the sheet's
-// grid in the middle, and along the bottom Insert, the switch for the header
-// row and the switch for the source, with what will be cited. It sits on the
+// grid in the middle, and along the bottom Insert (a picture of the
+// highlighted cells), the switch for the header row and the switch for the
+// source written under the picture, with what will be cited. It sits on the
 // card's Liquid Glass surface, as the passage picker does.
 
 import Cocoa
@@ -81,7 +82,7 @@ final class SheetPickerView: NSView {
         grid.onHighlightsChange = { [weak self] _ in self?.updateControls() }
         insertButton.target = self
         insertButton.action = #selector(insert)
-        insertButton.toolTip = "Insert the highlighted cells (Tab)"
+        insertButton.toolTip = "Insert a picture of the highlighted cells (Tab)"
         for (toggle, label, name) in [(headersSwitch, headersLabel, "Insert with the header row"), (sourceSwitch, sourceLabel, "Insert with source")] {
             toggle.setAccessibilityLabel(name)
             toggle.target = self
@@ -220,7 +221,7 @@ final class SheetPickerView: NSView {
         citationLabel.textColor = sourceSwitch.isOn ? .secondaryLabelColor : .tertiaryLabelColor
         let count = grid.highlights.ranges.count
         hint.stringValue = count == 0 ? "Drag to highlight cells \u{00B7} Esc goes back"
-            : "Drag again to add cells \u{00B7} \u{2318}Z removes the last \u{00B7} Tab inserts"
+            : "Drag again to add cells \u{00B7} \u{2318}Z removes the last \u{00B7} Tab inserts a picture"
     }
 
     @objc private func optionToggled() { updateControls() }
