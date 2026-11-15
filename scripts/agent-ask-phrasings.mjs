@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import { openLocal } from '../src/agent/client.js';
 import { formatAnswer } from '../src/agent/render.js';
+import { askTextOptions } from '../src/agent/mcp.js';
 import { estimateTokens } from '../src/agent/metrics.js';
 import { composeAnswer, graders, prepareLibrary, REPEATED_RANGES, taskPrompts } from './agent-benchmark-corpus.mjs';
 
@@ -64,7 +65,7 @@ function phrasings(truth, oldBillingRev, prompts) {
 async function main() {
   const only = process.argv[2];
   const library = await prepareLibrary();
-  const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'phrasings' });
+  const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'phrasings', mcp: true });
   const grade = graders(library);
   let passed = 0;
   let failed = 0;
@@ -73,7 +74,7 @@ async function main() {
       if (only && !task.includes(only)) continue;
       for (const ask of asks) {
         const response = lasso.ask({ ask });
-        const rendered = formatAnswer('ask', response);
+        const rendered = formatAnswer('ask', response, 'text', askTextOptions(['lasso']));
         const correct = grade[task](composeAnswer(response));
         if (correct) passed += 1; else failed += 1;
         console.log(`${correct ? 'ok  ' : 'FAIL'} ${task} ${JSON.stringify(ask).slice(0, 110)} (~${estimateTokens(rendered)} tokens)`);

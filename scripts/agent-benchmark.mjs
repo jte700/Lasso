@@ -27,6 +27,7 @@ import { ASK_DEFINITIONS, DIRECT_DEFINITIONS, LASSO_DEFINITIONS, LASSO_DEFINITIO
   graders, grepHits, prepareLibrary, readLines, REPEATED_RANGES, taskPrompts } from './agent-benchmark-corpus.mjs';
 import { blockRange, definitions } from '../src/agent/evidence.js';
 import { formatAnswer } from '../src/agent/render.js';
+import { askTextOptions } from '../src/agent/mcp.js';
 import { estimateTokens } from '../src/agent/metrics.js';
 import { readDiscovery } from '../src/agent/rest.js';
 
@@ -604,17 +605,18 @@ async function runOnce() {
   const clients = { lasso: openLocal({ dataDir, scope: ['*'], client: 'bench' }) };
   local.cold = performance.now() - opened;
   clients.optimized = openLocal({ dataDir, scope: ['*'], client: 'bench' });
-  clients.ask = openLocal({ dataDir, scope: ['*'], client: 'bench' });
+  // The lasso tool is answered as the MCP server answers it.
+  clients.ask = openLocal({ dataDir, scope: ['*'], client: 'bench', mcp: true });
   opened = performance.now();
   openLocal({ dataDir, scope: ['*'], client: 'bench' }).close();
   local.warm = performance.now() - opened;
   for (const phase of ['cold', 'warm']) {
     // The model is charged for the compact text an MCP host shows it; the scripted policy reads the same answer as JSON.
-    const answer = (operation, value) => ({ forModel: formatAnswer(operation, value), value: JSON.stringify(value) });
+    const answer = (operation, value, options) => ({ forModel: formatAnswer(operation, value, 'text', options), value: JSON.stringify(value) });
     const toolsOf = (client) => ({ lasso_search: (input) => answer('suggest', client.suggest(input)),
       lasso_read: (input) => answer('inspect', client.inspect(input)), lasso_cite: (input) => answer('bind', client.bind(input)) });
     const legacyTool = { lasso_find: async ({ command }) => app.workspace.terminalRun(command, actor) };
-    const askTool = { lasso: (input) => answer('ask', clients.ask.ask(input)) };
+    const askTool = { lasso: (input) => answer('ask', clients.ask.ask(input), askTextOptions(['lasso'], input)) };
     for (const task of suite) {
       const arms = {
         direct: [task.direct, { ...direct }, DIRECT_DEFINITIONS],

@@ -15,7 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openLocal } from '../src/agent/client.js';
 import { formatAnswer } from '../src/agent/render.js';
-import { INSTRUCTIONS, toolsNamed } from '../src/agent/mcp.js';
+import { askTextOptions, INSTRUCTIONS, toolsNamed } from '../src/agent/mcp.js';
 import { estimateTokens } from '../src/agent/metrics.js';
 import { DIRECT_DEFINITIONS, prepareLibrary } from './agent-benchmark-corpus.mjs';
 import { INSTRUCTIONS_V1, INSTRUCTIONS_V2, INSTRUCTIONS_V3, INSTRUCTIONS_V4, TOOLS_V1, TOOLS_V2, TOOLS_V3, TOOLS_V4 } from './agent-tools-versions.mjs';
@@ -87,7 +87,7 @@ function requests() {
 async function main() {
   if (!KEY && !CLAUDE) throw new Error('Set OPENAI_API_KEY or pass --key-file.');
   const library = await prepareLibrary();
-  const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'probe' });
+  const lasso = openLocal({ dataDir: library.dataDir, scope: ['*'], client: 'probe', mcp: true });
   const base = await inputTokens({ input: 'x' });
   const real = async (text) => (await inputTokens({ input: text })) - base + 1;
   const rows = [];
@@ -97,7 +97,8 @@ async function main() {
       for (const limit of operation === 'suggest' ? [undefined, 5] : [undefined]) {
         const answer = lasso[operation](limit ? { ...request, limit } : request);
         const json = formatAnswer(operation, answer, 'json');
-        const text = formatAnswer(operation, answer, 'text');
+        // An ask's text is measured as the MCP server writes it for a model.
+        const text = formatAnswer(operation, answer, 'text', operation === 'ask' ? askTextOptions(['lasso']) : {});
         rows.push({ kind: 'answer', name: `${operation}: ${name}${limit ? ` (limit ${limit})` : ''}`, json: await real(json), text: await real(text),
           estimatedJson: estimateTokens(json), estimatedText: estimateTokens(text) });
       }
