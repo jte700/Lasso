@@ -106,7 +106,8 @@ enum SheetClipboard {
             .replacingOccurrences(of: "'", with: "&#39;")
     }
 
-    /// RTF's own characters escaped, and anything past ASCII as \uN?.
+    /// RTF's own characters escaped, and anything past ASCII as \uN? for
+    /// each of its UTF-16 units, so an emoji is written as its surrogate pair.
     static func escapeRtf(_ value: String) -> String {
         value.unicodeScalars.map { scalar -> String in
             switch scalar {
@@ -114,8 +115,7 @@ enum SheetClipboard {
             case "\n": return "\\line "
             case _ where scalar.value < 128: return String(scalar)
             default:
-                let unit = scalar.value > 0xFFFF ? "?" : "\\u\(Int16(truncatingIfNeeded: Int(scalar.value)))?"
-                return unit
+                return String(scalar).utf16.map { "\\u\(Int16(bitPattern: $0))?" }.joined()
             }
         }.joined()
     }

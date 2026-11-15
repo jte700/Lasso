@@ -5056,6 +5056,7 @@ do {
     let braces = SheetClipboard.pick(csv, highlights: [SheetRange(top: 1, bottom: 1, left: 0, right: 1)], headers: false, citing: false)
     check(braces?.rtf.flatMap { String(data: $0, encoding: .ascii) }?.contains("Note \\{draft\\}") == true, "RTF escapes braces")
     check(SheetClipboard.pick(sheet, highlights: [], headers: false, citing: true) == nil, "nothing highlighted inserts nothing")
+    check(SheetClipboard.escapeRtf("é📈") == "\\u233?\\u-10179?\\u-9016?", "RTF writes accents as one unit and an emoji as its surrogate pair")
     check(SheetClipboard.block("a\tb", after: "The flows are") == "\na\tb", "a table typed after words starts on a new line")
     check(SheetClipboard.block("a\tb", after: "Flows:\n") == "a\tb" && SheetClipboard.block("a\tb", after: "") == "a\tb",
           "a table at the start of a line starts there")
