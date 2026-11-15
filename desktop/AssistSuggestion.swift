@@ -26,8 +26,6 @@ struct AssistSuggestion {
     var shareable = true
     /// It has values below it, such as a part's measurements, that fn+Right narrows the card to.
     var narrowable = false
-    /// A spreadsheet or CSV cell, row or column: fn+Right moves into its sheet, a cell at a time.
-    var sheetGrid = false
     /// Code: inserted exactly as written. Its letters are never re-cased, and
     /// where the host ignores Accessibility writes it is pasted, not typed.
     var verbatim = false

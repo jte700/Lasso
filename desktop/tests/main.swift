@@ -2924,16 +2924,6 @@ do {
           "with no card on screen, fn+arrows belong to the host")
     check(chord(119, fnArrow, KeyRoutingState(popup: .confirmShare)) == .pass(.followTyping(trackCaret: true)),
           "the share question leaves fn+arrows to the host")
-    // In a spreadsheet or CSV, fn and every arrow move the card a cell; fn+↑ and fn+↓ arrive as Page Up (116) and Page Down (121).
-    let walking = KeyRoutingState(popup: .suggestions, walkingSheet: true)
-    check(chord(115, fnArrow, walking) == .swallow(.sheetMove(.left)) && chord(119, fnArrow, walking) == .swallow(.sheetMove(.right))
-          && chord(116, fnArrow, walking) == .swallow(.sheetMove(.up)) && chord(121, fnArrow, walking) == .swallow(.sheetMove(.down)),
-          "fn and an arrow move a cell at a time in a sheet")
-    check(route(48, walking) == .swallow(.activate), "Tab inserts the cell the card is on")
-    check(chord(116, fnArrow, open) == .pass(.followTyping(trackCaret: true)),
-          "outside a sheet fn+Up stays the host's Page Up")
-    check(chord(116, [.maskSecondaryFn, .maskShift], walking) == .pass(.followTyping(trackCaret: true)),
-          "Shift+fn+Up still selects a page in the host")
     let empty = KeyRoutingState(popup: .suggestions, offersChoices: false)
     check(chord(119, fnArrow, empty) == .swallow(.focusIn), "an empty card kept after a move still moves back with fn+Right")
     check(route(48, empty) == .pass(.followTyping(trackCaret: true)) && route(125, empty) == .pass(.followTyping(trackCaret: true))

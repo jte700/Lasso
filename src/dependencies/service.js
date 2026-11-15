@@ -30,7 +30,6 @@ import { objectExtractionMethods } from './object-extraction.js';
 import { objectHistoryMethods } from './object-history.js';
 import { contextOverlap, reconciliationMethods } from './reconciliation.js';
 import { rowIdentityMethods } from './row-identity.js';
-import { sheetNavigationMethods } from './sheet-navigation.js';
 import { sourceSearchMethods } from './source-search.js';
 import { sourceUpdatesMethods } from './source-updates.js';
 import { studyVariablesMethods } from './study-variables.js';
@@ -283,7 +282,6 @@ installMethods(PredictiveProvenanceService.prototype,
   linkedContextMethods,
   linkedFieldsMethods,
   linkedValuesMethods,
-  sheetNavigationMethods,
   writingPredictionMethods,
   videoTranscriptMethods,
   sourceSearchMethods,

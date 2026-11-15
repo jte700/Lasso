@@ -41,9 +41,6 @@ export async function workspaceRoutes({ request, response, url, pathname, worksp
         return sendJson(response, 200, { prediction: await workspace.predict(body,
           { cancelled: () => response.destroyed || response.socket?.destroyed === true }) });
       }
-      if (request.method === 'POST' && pathname === '/api/workspace/dependencies/sheet-cell') {
-        return sendJson(response, 200, workspace.sheetCell(await readJson(request)));
-      }
       if (request.method === 'GET' && pathname === '/api/workspace/source-library') {
         return sendJson(response, 200, { objects: workspace.search(url.searchParams.get('query') ?? '', {
           documentProjectId: url.searchParams.get('documentProjectId'),

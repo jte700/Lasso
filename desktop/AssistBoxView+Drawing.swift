@@ -31,15 +31,9 @@ extension AssistBoxView {
             // Clear of the row counter when it shows.
             let width = suggestions.count > visibleSuggestionCount ? leftWidth - 170 : leftWidth - 40
             // fn+Right opens the highlighted row when it has values below it.
-            let narrowsInto = suggestions.indices.contains(selected)
-                && (suggestions[selected].narrowable || suggestions[selected].sheetGrid)
+            let narrowsInto = suggestions.indices.contains(selected) && suggestions[selected].narrowable
                 ? suggestions[selected].label : nil
-            if let sheetPlace {
-                // In a sheet fn and every arrow move a cell.
-                drawLabel(sheetPlace, key: "fn ←↑↓→",
-                          in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
-                          font: navigationFont, color: .controlAccentColor)
-            } else if sourceScoped {
+            if sourceScoped {
                 drawLabel("‹ \(stepBackName ?? "All sources")", key: "fn ←",
                           in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
                           font: navigationFont, color: .controlAccentColor)

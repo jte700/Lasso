@@ -291,8 +291,7 @@ extension GlobalAssistant {
     func deliverPrediction(_ suggestions: [AssistSuggestion], heading: String?, sourceScoped: Bool,
                            focus: LinkedSourceMemory.Source? = nil, captured: CaretContext,
                            pause: Int = 0, token: Int) {
-        // A walk through a sheet keeps its cell until typing ends it.
-        guard token == generation, isEnabled, sheetWalk == nil else { return }
+        guard token == generation, isEnabled else { return }
         request = nil
         if isDictating {
             dictationLog.debug("answer: \(suggestions.count, privacy: .public) rows")
@@ -512,7 +511,6 @@ extension GlobalAssistant {
                     narrowable: candidate["narrowable"] as? Bool == true,
                     verbatim: entry["verbatim"] as? Bool == true)
                 passage.opensPassagePicker = entry["verbatim"] as? Bool != true && PassageDocument.opensPicker(candidate: candidate)
-                passage.sheetGrid = candidate["sheetGrid"] as? Bool == true
                 append(passage, rankedBy: entry)
             }
         }
@@ -558,7 +556,6 @@ extension GlobalAssistant {
                 suggestion.videoTime = AssistVideoPreview.seconds((candidate["anchor"] as? [String: Any])?["time"])
                 suggestion.joinsTyping = claimType == "QUOTED_PHRASE"
                 suggestion.opensPassagePicker = PassageDocument.opensPicker(candidate: candidate)
-                suggestion.sheetGrid = candidate["sheetGrid"] as? Bool == true
                 append(suggestion, rankedBy: candidate)
             }
         }

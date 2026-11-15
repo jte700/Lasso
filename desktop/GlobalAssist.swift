@@ -101,10 +101,6 @@ final class GlobalAssistant {
     var focusedSource: LinkedSourceMemory.Source?
     /// The row the list a focus move asked for opens on.
     var focusLanding: FocusLanding?
-    /// The cell the card is on while fn and the arrows move it through a sheet.
-    var sheetWalk: SheetWalk?
-    /// Drops a sheet move's answer once the walk it was for has ended.
-    var sheetToken = 0
     /// The field text the card last answered, so an answer can tell whether typing has moved on since.
     var answeredText: String?
     var linkedContext: String?
@@ -327,7 +323,6 @@ final class GlobalAssistant {
             offersChoices: !view.suggestions.isEmpty,
             highlightsLine: view.mode == .suggestions && currentSuggestion?.offersWords == true,
             choosingWords: view.mode == .suggestions && view.wordChoice != nil,
-            walkingSheet: view.mode == .suggestions && sheetWalk != nil,
             canUndoInsertion: undoableInsertion != nil)
     }
 
@@ -382,8 +377,6 @@ final class GlobalAssistant {
             stepBack()
         case .focusIn:
             view.wordChoice = nil
-            // A spreadsheet or CSV is walked a cell at a time instead of listed.
-            if currentSuggestion?.sheetGrid == true, sheetWalk == nil { enterSheet(); break }
             narrowFocus()
         case .shareUndo:
             ShareComposerController.shared.undoEdit()
@@ -409,8 +402,6 @@ final class GlobalAssistant {
             // Typing on in the app closes the picker; suggestions follow the new words.
             hide()
             followTextChange(trackCaret: false)
-        case .sheetMove(let direction):
-            moveInSheet(direction)
         }
         publishKeyRouting()
     }
@@ -418,7 +409,6 @@ final class GlobalAssistant {
     /// New text in the field, typed or dictated: suggestions follow it.
     private func followTextChange(trackCaret: Bool) {
         view.wordChoice = nil
-        endSheetWalk()
         // Typing on ends a move, so a card the move left empty closes as usual.
         linkedSources.endMove()
         focusLanding = nil
@@ -737,7 +727,6 @@ final class GlobalAssistant {
         view.returnFocusName = nil
         view.stepBackName = nil
         view.wordChoice = nil
-        endSheetWalk()
         focusedSource = nil
         focusLanding = nil
         linkedSources.endMove()
