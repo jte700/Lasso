@@ -161,7 +161,7 @@ extension ShareComposerView {
         pdfView.refreshMasks()
     }
 
-    private func drawDrawingMask(_ effect: ShareRedactionEffect, in rect: NSRect) {
+    func drawDrawingMask(_ effect: ShareRedactionEffect, in rect: NSRect) {
         NSGraphicsContext.current?.saveGraphicsState()
         NSBezierPath(rect: rect).addClip()
         if effect == .blank {

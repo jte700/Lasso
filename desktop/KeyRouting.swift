@@ -19,6 +19,8 @@ struct KeyRoutingState: Equatable {
     var sourceChooserVisible = false
     /// The share options are open, in the suggestion popup or the source inspector.
     var shareComposerOpen = false
+    /// The passage picker is open over the card, and takes Tab, Escape and the arrows.
+    var passagePickerOpen = false
     /// The source inspector shows a source its Share Link can share.
     var inspectorCanShare = false
     var popup: Popup = .hidden
@@ -64,6 +66,16 @@ enum KeyAction: Equatable {
     case moveInWords(forward: Bool, selecting: Bool, toEnd: Bool)
     /// Escape among a line's words goes back to the card's list.
     case closeWords
+    /// Tab, Return or ⌘Return in the passage picker: the highlighted words.
+    case pickerInsert
+    /// ⇧⌘Return in the passage picker: the highlighted words as a share link.
+    case pickerLink
+    /// An arrow in the passage picker moves or, with ⇧, extends the highlight.
+    case pickerMove(forward: Bool, byLine: Bool, extending: Bool)
+    /// Escape in the passage picker goes back to the card.
+    case pickerCancel
+    /// A key typed into the app while the picker is open closes it, and the key goes on to the app.
+    case pickerTypedOn
 }
 
 enum KeyDecision: Equatable {
@@ -82,6 +94,7 @@ enum KeyRouter {
                        state: KeyRoutingState) -> KeyDecision {
         // Our own synthesized keys are not the user typing.
         if synthetic || state.isInserting { return .pass(nil) }
+        if state.passagePickerOpen, !state.shareComposerOpen { return pickerDecision(keyCode, flags: flags) }
         let commandLike = !flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty
         let choosingWords = state.choosingWords && state.popup == .suggestions
             && !state.sourceChooserVisible && !state.shareComposerOpen
@@ -177,6 +190,32 @@ enum KeyRouter {
             return .swallow(.moveInWords(forward: keyCode == end, selecting: true, toEnd: true))
         default:
             return nil
+        }
+    }
+
+    /// The passage picker keeps the writer's app focused, so its keys come
+    /// through here: Tab inserts, Escape goes back, the arrows change the
+    /// highlight. Shortcuts stay the app's; anything typed closes the picker.
+    private static func pickerDecision(_ keyCode: Int64, flags: CGEventFlags) -> KeyDecision {
+        let command = flags.contains(.maskCommand)
+        let shift = flags.contains(.maskShift)
+        let otherChord = !flags.intersection([.maskControl, .maskAlternate]).isEmpty
+        switch keyCode {
+        case escape where !command && !otherChord:
+            return .swallow(.pickerCancel)
+        case tab where !command && !otherChord && !shift:
+            return .swallow(.pickerInsert)
+        case returnKey, enter:
+            if command && shift { return .swallow(.pickerLink) }
+            if !otherChord { return .swallow(.pickerInsert) }
+            return .pass(nil)
+        case left, right, up, down:
+            guard !command, !flags.contains(.maskControl) else { return .pass(nil) }
+            return .swallow(.pickerMove(forward: keyCode == right || keyCode == down,
+                                        byLine: keyCode == up || keyCode == down, extending: shift))
+        default:
+            if command || flags.contains(.maskControl) { return .pass(nil) }
+            return .pass(.pickerTypedOn)
         }
     }
 

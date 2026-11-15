@@ -31,6 +31,12 @@ struct AssistWordChoice: Equatable {
         return !line.contains(where: \.isNewline) && words(in: line).count >= minimumWords
     }
 
+    /// Whether a line from the file at `path` opens to choose its words. A slide's
+    /// words are highlighted on the slide itself, in the passage picker, so it does not.
+    static func offers(_ text: String, from path: String) -> Bool {
+        (path as NSString).pathExtension.lowercased() != "pptx" && offers(text)
+    }
+
     /// Every word selected. `movingStart` leaves the start of the selection to
     /// move, as ⇧fn← does; otherwise its end moves.
     init?(text: String, movingStart: Bool = false) {

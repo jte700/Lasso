@@ -2,16 +2,23 @@ import Foundation
 
 /// Escape closes the card for the sentence being written, not only for the
 /// key that follows. It comes back when the writer starts a new sentence or
-/// line, goes back into an earlier one, or writes somewhere else.
+/// line, goes back into an earlier one, deletes the sentence, or writes
+/// somewhere else.
 struct EscapeQuiet {
     /// The text before the caret up to where the escaped sentence starts.
     private var before: String?
+    /// The escaped sentence's first word, which the sentence keeps while it is
+    /// the one being written. A field emptied (a chat app sends its message)
+    /// or a sentence written over it has lost it.
+    private var firstWord = ""
 
     var isHolding: Bool { before != nil }
 
     /// Escape was pressed with `text` before the caret.
     mutating func escaped(at text: String) {
-        before = String(text[..<Self.sentenceStart(in: text)])
+        let start = Self.sentenceStart(in: text)
+        before = String(text[..<start])
+        firstWord = String(text[start...].drop(while: \.isWhitespace).prefix(while: { !$0.isWhitespace }))
     }
 
     mutating func clear() { before = nil }
@@ -21,11 +28,21 @@ struct EscapeQuiet {
     mutating func holds(for text: String) -> Bool {
         guard let before else { return false }
         // Text that no longer begins the same way was deleted back past the sentence, or is another field's.
-        guard text.hasPrefix(before), !Self.startsNewSentence(String(text.dropFirst(before.count))) else {
+        let written = text.hasPrefix(before) ? String(text.dropFirst(before.count)) : nil
+        guard let written, !Self.startsNewSentence(written), keepsFirstWord(written) else {
             self.before = nil
             return false
         }
         return true
+    }
+
+    /// The sentence still starts with the escaped one's first word, or with
+    /// part of it while that word is being corrected.
+    private func keepsFirstWord(_ written: String) -> Bool {
+        guard !firstWord.isEmpty else { return true }
+        let opening = String(written.drop(while: \.isWhitespace))
+        guard !opening.isEmpty else { return false }
+        return opening.hasPrefix(firstWord) || firstWord.hasPrefix(opening)
     }
 
     /// Where the sentence at the end of `text` begins: after the last line

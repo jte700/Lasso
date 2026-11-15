@@ -461,7 +461,8 @@ extension AssistBoxView {
         let projectId = suggestions.indices.contains(selected) ? suggestions[selected].projectId : nil
         let sourceColor = DirectoryColorPreferences.color(for: projectId)?.color ?? .controlAccentColor
         let outline = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
-        NSColor.textBackgroundColor.withAlphaComponent(Self.sheetOpacity).setFill()
+        // Text, code, Markdown and Word read on the system's own background, white or dark, never through the glass.
+        NSColor.textBackgroundColor.setFill()
         outline.fill()
         // The scrolling text view over it shows the text.
         if previewContent == nil { AssistMarkdown.draw(preview.textBlocks, in: rect, accent: sourceColor) }

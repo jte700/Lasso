@@ -98,7 +98,7 @@ APP="$WORK/build/Lasso.app"
 echo "==> Checking both architectures"
 for binary in "$APP/Contents/MacOS/Lasso" "$APP/Contents/MacOS/node" \
     "$APP/Contents/Library/LoginItems/Lasso Launcher.app/Contents/MacOS/LassoLauncher" \
-    "$APP/Contents/Resources/app/scripts/"{extract-drawing-layout,render-shared-pdf,render-document-pages,transcribe-video}; do
+    "$APP/Contents/Resources/app/scripts/"{extract-drawing-layout,render-shared-pdf,render-shared-image,render-document-pages,transcribe-video}; do
   archs="$(lipo -archs "$binary")"
   [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]] || fail "$binary is built for '$archs' only."
 done

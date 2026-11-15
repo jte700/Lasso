@@ -10,10 +10,10 @@ struct AssistSuggestion {
     let path: String             // originating source file
     let location: String         // exact sheet/cell, page, row, or passage
     /// Exact detected fragment from the request, revalidated before insertion.
-    let replacement: CompletionReplacement?
+    var replacement: CompletionReplacement?
     /// Indexed object behind the suggestion. Required to create a share; absent
     /// for plain sentence completions, which have nothing to link to.
-    let objectId: String?
+    var objectId: String?
     let versionId: String?
     let snapshotId: String?
     /// Sentence completions retain source identity for usage without becoming shareable.
@@ -41,17 +41,27 @@ struct AssistSuggestion {
     /// Words chosen from after the line's first, set apart from the typed
     /// text even when the line continued the sentence.
     var startsMidLine = false
+    /// A passage of a video, deck, PDF, Word document or text file: Tab opens the
+    /// passage picker on its document instead of inserting it.
+    var opensPassagePicker = false
+    /// Chosen in the passage picker: ⌘Z after it takes back only its link, keeping the words.
+    var fromPassagePicker = false
     /// Its value's recent change, which the detail slot names ("19,250 · was 18,400").
     var change: AssistValueChange? = nil
 
     var isShareable: Bool { objectId != nil && shareable }
+
+    /// The indexed passage the passage picker opens on: a sentence completion
+    /// names its source only as the object it was used from.
+    var passageObjectId: String? { objectId ?? (usageObjectId == "completion-source" ? nil : usageObjectId) }
 
     var selectionIdentity: AssistSuggestionSelection.Identity {
         .init(projectId: projectId, objectId: objectId ?? usageObjectId, insertText: insertText)
     }
 
     /// A line long enough that ⇧fn+Left and ⇧fn+Right open it to choose some of its words.
-    var offersWords: Bool { !tableNavigable && !narrowable && AssistWordChoice.offers(insertText) }
+    /// Not a table's, whose fn+arrows move through the table, nor a slide's.
+    var offersWords: Bool { !tableNavigable && !narrowable && AssistWordChoice.offers(insertText, from: path) }
 
     /// The suggestion with only the words chosen from its line, or nil when none are.
     func choosing(_ words: AssistWordChoice) -> AssistSuggestion? {

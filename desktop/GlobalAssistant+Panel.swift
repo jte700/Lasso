@@ -186,7 +186,7 @@ extension GlobalAssistant {
     }
 
     func reposition(near caret: CGRect?) {
-        guard let panel, panel.isVisible else { return }
+        guard let panel, panel.isVisible, !PassagePickerController.shared.isPresented(in: panel) else { return }
         let size = ShareComposerController.shared.isPresented(in: panel)
             ? ShareComposerController.shared.canvasSize : view.boxSize
         let mainFrame = anchoredFrame(for: caret, size: size)

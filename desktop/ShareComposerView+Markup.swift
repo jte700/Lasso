@@ -20,7 +20,7 @@ extension ShareComposerView {
 
     private func markColorRect(_ index: Int) -> NSRect {
         let count = CGFloat(ShareMarkColor.allCases.count)
-        return NSRect(x: bounds.width - 16 - (count - CGFloat(index)) * Self.markColorSpacing + 2, y: 105, width: 20, height: 20)
+        return NSRect(x: bounds.width - 16 - (count - CGFloat(index)) * Self.markColorSpacing + 2, y: sectionY + 2, width: 20, height: 20)
     }
 
     /// How near the eraser must come to a stroke, in page space, so it feels the same at any zoom.

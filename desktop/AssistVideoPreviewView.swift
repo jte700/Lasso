@@ -45,9 +45,11 @@ final class AssistVideoPreviewView: NSView {
                                   height: max(0, bounds.height - playerHeight - Self.gap))
     }
 
+    func pause() { playerView.player?.pause() }
+
     /// A preview taken off the card stops playing with it.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { playerView.player?.pause() }
+        if window == nil { pause() }
     }
 }

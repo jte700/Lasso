@@ -45,7 +45,29 @@ public static class ShareScopes
         ".pdf", ".docx", ".txt", ".tex", ".bib", ".ris", ".enw", ".nbib", ".log", ".md", ".mdx", ".qmd", ".rmd", ".rst",
     };
 
-    public static bool OffersCitedPart(string filename) => !Writing.Contains(Path.GetExtension(filename));
+    /// Sent whole and opened at the cited moment. The server's VIDEO list in history/file-types.js.
+    private static readonly HashSet<string> Video = new(StringComparer.OrdinalIgnoreCase) { ".mov", ".mp4", ".m4v" };
+
+    /// A picture or 2D plan has no part worth sending alone; it is redacted by area, which the Mac
+    /// composer draws. The server's IMAGE list in history/file-types.js, and its 2D plans.
+    private static readonly HashSet<string> Areas = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".tif", ".tiff", ".svg", ".dxf", ".ifc",
+    };
+
+    public static bool OffersCitedPart(string filename)
+    {
+        var extension = Path.GetExtension(filename);
+        return !Writing.Contains(extension) && !Video.Contains(extension) && !Areas.Contains(extension);
+    }
+
+    /// Masks here are cells and text sections. A video has nothing to mask, and areas of a
+    /// picture or plan are not drawn on Windows yet, so these are shared whole.
+    public static bool OffersRedaction(string filename)
+    {
+        var extension = Path.GetExtension(filename);
+        return !Video.Contains(extension) && !Areas.Contains(extension);
+    }
 }
 
 public sealed record ShareRedaction(
