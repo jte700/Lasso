@@ -36,6 +36,11 @@ struct KeyRoutingState: Equatable {
     var canUndoInsertion = false
     var tableNavigable = false
     var tableBrowsing = false
+    /// The ⌥Tab switcher is open, and takes Tab, the arrows, Return and Escape.
+    var scopeSwitcherOpen = false
+    /// ⌥Tab opens the switcher: suggestions are on, a folder is switched on,
+    /// and the app is not one Lasso stays quiet in.
+    var scopeSwitchAvailable = false
 }
 
 /// Work a keystroke asks of the main thread.
@@ -76,6 +81,16 @@ enum KeyAction: Equatable {
     case pickerCancel
     /// A key typed into the app while the picker is open closes it, and the key goes on to the app.
     case pickerTypedOn
+    /// ⌥Tab: the switcher opens on the folder suggestions come from now.
+    case openScopeSwitcher
+    /// Tab, ⌥Tab or ↑ ↓ in the switcher rolls it to the next or previous folder.
+    case scopeMove(Int)
+    /// Return in the switcher keeps the folder it shows.
+    case scopeChoose
+    /// Escape, or a shortcut, closes the switcher and leaves the choice as it was.
+    case scopeCancel
+    /// A key typed into the app while the switcher is open closes it, and the key goes on to the app.
+    case scopeTypedOn
 }
 
 enum KeyDecision: Equatable {
@@ -89,11 +104,19 @@ enum KeyRouter {
     private static let left: Int64 = 123, right: Int64 = 124, down: Int64 = 125, up: Int64 = 126
     /// What macOS sends for fn+← and fn+→ (and a full keyboard's own Home and End keys).
     private static let home: Int64 = 115, end: Int64 = 119
+    /// ⌥Tab opens the switcher: Tab accepts a suggestion, ⌥Tab chooses where they come from.
+    static let scopeSwitchKey: Int64 = tab
 
     static func decide(keyCode: Int64, flags: CGEventFlags, synthetic: Bool,
                        state: KeyRoutingState) -> KeyDecision {
         // Our own synthesized keys are not the user typing.
         if synthetic || state.isInserting { return .pass(nil) }
+        if state.scopeSwitcherOpen { return scopeDecision(keyCode, flags: flags) }
+        if state.scopeSwitchAvailable, keyCode == scopeSwitchKey, flags.contains(.maskAlternate),
+           flags.intersection([.maskCommand, .maskControl]).isEmpty,
+           !state.passagePickerOpen, !state.shareComposerOpen, !state.sourceChooserVisible {
+            return .swallow(.openScopeSwitcher)
+        }
         if state.passagePickerOpen, !state.shareComposerOpen { return pickerDecision(keyCode, flags: flags) }
         let commandLike = !flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty
         let choosingWords = state.choosingWords && state.popup == .suggestions
@@ -216,6 +239,22 @@ enum KeyRouter {
         default:
             if command || flags.contains(.maskControl) { return .pass(nil) }
             return .pass(.pickerTypedOn)
+        }
+    }
+
+    /// The switcher keeps the writer's app focused, so its keys come through
+    /// here: Tab and ↓ roll it on, ⇧Tab and ↑ roll it back, Return keeps the
+    /// folder it shows and Escape keeps the one chosen before. Shortcuts stay
+    /// the app's; anything typed closes the switcher and goes on to the app.
+    private static func scopeDecision(_ keyCode: Int64, flags: CGEventFlags) -> KeyDecision {
+        if flags.contains(.maskCommand) || flags.contains(.maskControl) { return .pass(.scopeCancel) }
+        switch keyCode {
+        case tab: return .swallow(.scopeMove(flags.contains(.maskShift) ? -1 : 1))
+        case down: return .swallow(.scopeMove(1))
+        case up: return .swallow(.scopeMove(-1))
+        case returnKey, enter: return .swallow(.scopeChoose)
+        case escape: return .swallow(.scopeCancel)
+        default: return .pass(.scopeTypedOn)
         }
     }
 

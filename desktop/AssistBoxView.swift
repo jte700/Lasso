@@ -124,6 +124,8 @@ final class AssistBoxView: NSView {
     var confirmChoices: [String] = []
     var messageLines: [String] = []
     var sourceScoped = false
+    /// The folder chosen with ⌥Tab, named in the footer beside its key; nil while every folder answers.
+    var scopeTitle: String?
     /// The latest focus, named in the header when fn+Right can take an
     /// unfocused card back into it and no highlighted row has values below it.
     var returnFocusName: String?

@@ -1076,10 +1076,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspaceError = nil
         let activeIds = state["activeProjectIds"] as? [String]
             ?? directories.filter { $0.active && $0.available && ($0.error ?? "").isEmpty }.map(\.id)
+        GlobalAssistant.shared.updateSourceScope(sourceScopeEntries())
         GlobalAssistant.shared.updateWorkspace(projectIds: activeIds, revision: workspaceRevision)
         rebuildMenu()
         welcomeIfNeeded()
         followProgress()
+    }
+
+    /// What ⌥Tab offers after All: the folders, then the connected apps, that
+    /// are switched on and can answer, titled and drawn as the menu lists them.
+    /// A folder Lasso is still reading for the first time cannot answer yet.
+    private func sourceScopeEntries() -> [SourceScopeEntry] {
+        let titles = WorkspaceAPI.distinctNames(directories.map { (name: $0.name, path: $0.rootPath) })
+        let folders = zip(directories, titles).compactMap { directory, title -> SourceScopeEntry? in
+            guard directory.active, directory.available, !directory.pending, (directory.error ?? "").isEmpty else { return nil }
+            return SourceScopeEntry(projectId: directory.id, title: title, symbol: "folder.fill")
+        }
+        let apps = connections.compactMap { connection -> SourceScopeEntry? in
+            guard connection.active, let projectId = connection.projectId else { return nil }
+            return SourceScopeEntry(projectId: projectId, title: connection.name, symbol: connection.symbol)
+        }
+        return folders + apps
     }
 
     /// A folder the server reads on its own, such as one brought up to date

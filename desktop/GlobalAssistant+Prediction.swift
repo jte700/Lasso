@@ -44,7 +44,8 @@ extension GlobalAssistant {
     }
 
     func scheduleRefresh() {
-        guard !ShareComposerController.shared.isVisible, !PassagePickerController.shared.isVisible else { return }
+        guard !ShareComposerController.shared.isVisible, !PassagePickerController.shared.isVisible,
+              !ScopeSwitcherController.shared.isOpen else { return }
         // A brief message must not swallow the next words the writer types,
         // such as the first word of the following sentence. It stays long
         // enough to be read, then gives way to suggestions for that text.
@@ -198,6 +199,8 @@ extension GlobalAssistant {
             "cursor": query.cursor,
             "blockIndex": 0,
         ]
+        // A folder chosen with ⌥Tab answers alone.
+        if let only = sourceScope.chosenProjectId { body["onlyProjectId"] = only }
         if dictated {
             body["dictated"] = true
             dictationLog.debug("asking about dictated words\(pause > 0 ? ", without a pause mark" : "", privacy: .public)")
