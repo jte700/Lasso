@@ -119,6 +119,10 @@ enum KeyRouter {
     private static let left: Int64 = 123, right: Int64 = 124, down: Int64 = 125, up: Int64 = 126
     /// What macOS sends for fn+← and fn+→ (and a full keyboard's own Home and End keys).
     private static let home: Int64 = 115, end: Int64 = 119
+    /// What macOS sends for fn+↑ and fn+↓.
+    private static let pageUp: Int64 = 116, pageDown: Int64 = 121
+    /// The table move that dives into a sheet without moving from where the suggestion is.
+    static let diveDirection = "here"
     /// ⌥Tab opens the switcher: Tab accepts a suggestion, ⌥Tab chooses where they come from.
     static let scopeSwitchKey: Int64 = tab
 
@@ -161,27 +165,24 @@ enum KeyRouter {
         // Shift+Tab leaves the field, Control+Tab switches tabs, and modified
         // arrows move or select text. Only the bare keys belong to the box.
         let chord = !flags.intersection([.maskShift, .maskCommand, .maskControl, .maskAlternate]).isEmpty
-        // Inside a sheet the bare arrows move a cell at a time, and fn+Left
-        // goes back out to the suggestions.
+        // Inside a sheet the bare arrows (and fn+Up and fn+Down, which macOS
+        // sends as Page Up and Page Down) move a cell at a time, and fn+Right
+        // or fn+Left goes back out to the suggestions.
         if state.popup == .suggestions, state.tableNavigable, state.tableBrowsing, !chord, !choosingWords {
             switch keyCode {
             case left: return .swallow(.navigateTable("left"))
             case right: return .swallow(.navigateTable("right"))
-            case up: return .swallow(.navigateTable("up"))
-            case down: return .swallow(.navigateTable("down"))
-            case home: return .swallow(.returnFromTable)
+            case up, pageUp: return .swallow(.navigateTable("up"))
+            case down, pageDown: return .swallow(.navigateTable("down"))
+            case home, end: return .swallow(.returnFromTable)
             default: break
             }
         }
-        if state.popup == .suggestions, state.tableNavigable, !chord, !choosingWords {
-            // macOS translates Fn arrows to Home, End, Page Up and Page Down.
-            switch keyCode {
-            case home: return .swallow(.navigateTable("left"))
-            case end: return .swallow(.navigateTable("right"))
-            case 116: return .swallow(.navigateTable("up"))
-            case 121: return .swallow(.navigateTable("down"))
-            default: break
-            }
+        // fn+Right on a sheet's suggestion dives in at the cell it names, or
+        // at the top-left cell when it names the whole file.
+        if state.popup == .suggestions, state.tableNavigable, !state.tableBrowsing, !chord, !choosingWords,
+           keyCode == end {
+            return .swallow(.navigateTable(KeyRouter.diveDirection))
         }
         if choosingWords, let decision = wordsDecision(keyCode, flags: flags) { return decision }
         // ⇧fn+Left and ⇧fn+Right open a highlighted line's words. On any other

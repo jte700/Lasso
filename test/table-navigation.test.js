@@ -50,6 +50,31 @@ test('table arrows preserve the other axis, reverse, skip empty values and stop 
 
 });
 
+test('a dive starts at the suggested cell, or a whole file at its top-left cell', async (t) => {
+  // Arrange
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-navigation-dive-'));
+  const root = path.join(sandbox, 'Sources');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'Invoices.csv'), 'Invoice,Amount\nBILL-1,120\nBILL-2,340\n');
+  const app = createApplication({ dataDir: path.join(sandbox, 'data'), watchProjects: false });
+  t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  const { project } = app.timeline.importProject(root, { id: 'human:test', displayName: 'Test', actorType: 'HUMAN_SELF' }, { watch: false });
+  app.dependencies.ensureIndex(project.id);
+  const objects = app.dependencies.objectsAt(project.id).filter(o => o.path === 'Invoices.csv');
+  const cell = objects.find(o => o.anchor?.kind === 'table-cell' && o.valueText === '340');
+  const file = objects.find(o => !['table-row', 'table-cell', 'table-column'].includes(o.anchor?.kind));
+  // Act
+  const fromCell = navigateTableSource(app.dependencies, cell, 'here');
+  const fromFile = navigateTableSource(app.dependencies, file, 'here');
+  // Assert
+  assert.equal(fromCell.id, cell.id);
+  assert.ok(fromFile, 'the whole file dives in somewhere');
+  const topLeft = objects.filter(o => ['table-row', 'table-cell'].includes(o.anchor?.kind))
+    .map(o => o.anchor.rowIndex).sort((a, b) => a - b)[0];
+  assert.equal(fromFile.anchor.rowIndex, topLeft);
+  assert.equal(navigateTableSource(app.dependencies, fromFile, 'left'), null);
+});
+
 test('table movement never crosses sheets or versions', () => {
   const cell = (id, sheet, snapshotId, columnIndex) => ({ id, path: 'Book.xlsx', projectId: 'p', snapshotId,
     anchor: { kind: 'table-cell', sheet, rowIndex: 4, columnIndex } });

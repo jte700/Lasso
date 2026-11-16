@@ -3251,19 +3251,19 @@ do {
     check(chord(119, fnArrow, KeyRoutingState(popup: .confirmShare)) == .pass(.followTyping(trackCaret: true)),
           "the share question leaves fn+arrows to the host")
     let tableRow = KeyRoutingState(popup: .suggestions, tableNavigable: true)
-    for (key, direction) in [(115, "left"), (119, "right"), (116, "up"), (121, "down")] {
-        check(chord(Int64(key), fnArrow, tableRow) == .swallow(.navigateTable(direction)),
-              "on a sheet's suggestion, fn arrows dive into the sheet")
-    }
+    check(chord(119, fnArrow, tableRow) == .swallow(.navigateTable(KeyRouter.diveDirection)),
+          "on a sheet's suggestion, fn+Right dives in where the suggestion is")
+    check(chord(115, fnArrow, tableRow) == .swallow(.focusOut), "before diving in, fn+Left steps the card back")
     check(route(125, tableRow) == .swallow(.move(1)), "before diving in, bare Down still chooses suggestions")
     let table = KeyRoutingState(popup: .suggestions, tableNavigable: true, tableBrowsing: true)
     for (key, direction) in [(123, "left"), (124, "right"), (126, "up"), (125, "down")] {
         check(chord(Int64(key), [.maskNumericPad, .maskSecondaryFn], table) == .swallow(.navigateTable(direction)),
               "inside a sheet the bare arrows move a cell at a time")
     }
-    check(chord(115, fnArrow, table) == .swallow(.returnFromTable), "inside a sheet fn+Left goes back to the suggestions")
-    for (key, direction) in [(119, "right"), (116, "up"), (121, "down")] {
-        check(chord(Int64(key), fnArrow, table) == .swallow(.navigateTable(direction)), "inside a sheet the other fn arrows still move")
+    check(chord(119, fnArrow, table) == .swallow(.returnFromTable), "inside a sheet fn+Right goes back to the suggestions")
+    check(chord(115, fnArrow, table) == .swallow(.returnFromTable), "inside a sheet fn+Left goes back too")
+    for (key, direction) in [(116, "up"), (121, "down")] {
+        check(chord(Int64(key), fnArrow, table) == .swallow(.navigateTable(direction)), "inside a sheet fn+Up and fn+Down still move")
     }
     check(route(53, table) == .swallow(.returnFromTable), "Escape returns from table browsing to the original suggestions")
     check(chord(121, fnArrow, open) == .pass(.followTyping(trackCaret: true)),
