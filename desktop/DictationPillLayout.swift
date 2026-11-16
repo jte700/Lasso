@@ -117,9 +117,12 @@ struct DictationPillSession: Equatable {
     }
 
     /// Words arrived that nobody typed while the dictation watch was listening.
+    /// They keep the pill up, or bring it back after a pause, only in a
+    /// dictation the 🎤 key started; on their own they never show it.
     mutating func wordsArrived(at now: Date) {
-        guard now.timeIntervalSince(stoppedAt) >= Self.afterStop else { return }
-        if !isOn(at: now) { since = now }
+        guard now.timeIntervalSince(stoppedAt) >= Self.afterStop,
+              let lastHeard = lastWords ?? since,
+              now.timeIntervalSince(lastHeard) < Self.dictationMemory else { return }
         lastWords = now
     }
 

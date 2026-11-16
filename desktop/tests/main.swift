@@ -1051,30 +1051,10 @@ do {
     check(acceptSpoken(card: other, current: other + ". Tab.", insert: "Other Revenue", replacement: otherName)?.text
           == "Other Revenue", "saying tab after a pause takes the mark out with the word, as the sentence goes on")
 
-    var shortcut = DictationShortcut()
-    check(shortcut.keyDown(176, flags: []) && shortcut.keyDown(176, flags: .maskSecondaryFn)
-          && !shortcut.keyDown(176, flags: .maskCommand) && !shortcut.keyDown(96, flags: [])
-          && !shortcut.keyDown(0, flags: []),
-          "the 🎤 key starts Dictation, alone or with fn; ⌘🎤, F5 and letters do not")
-    func taps(_ steps: [(CGEventFlags, TimeInterval)]) -> [Bool] {
-        var detector = DictationShortcut()
-        return steps.map { detector.flagsChanged($0.0, at: $0.1) }
-    }
-    check(taps([(.maskSecondaryFn, 0), ([], 0.08), (.maskSecondaryFn, 0.2), ([], 0.28)]) == [false, false, false, true]
-          && taps([(.maskControl, 0), ([], 0.1), (.maskControl, 0.2), ([], 0.3)]).last == true
-          && taps([(.maskCommand, 0), ([], 0.1), (.maskCommand, 0.25), ([], 0.35)]).last == true,
-          "fn, Control or Command pressed twice is a Dictation shortcut")
-    check(taps([(.maskSecondaryFn, 0), ([], 0.1), (.maskSecondaryFn, 0.7), ([], 0.8)]).last == false
-          && taps([(.maskSecondaryFn, 0), ([], 0.1), (.maskControl, 0.2), ([], 0.3)]).last == false
-          && taps([(.maskShift, 0), ([], 0.1), (.maskShift, 0.2), ([], 0.3)]).last == false
-          && taps([(.maskCommand, 0), ([.maskCommand, .maskShift], 0.05), ([], 0.1), (.maskCommand, 0.2), ([], 0.3)]).last == false,
-          "slow taps, two different modifiers, Shift and chords are not")
-    var typedBetween = DictationShortcut()
-    _ = typedBetween.flagsChanged(.maskCommand, at: 0)
-    _ = typedBetween.flagsChanged([], at: 0.1)
-    _ = typedBetween.keyDown(8, flags: [])
-    _ = typedBetween.flagsChanged(.maskCommand, at: 0.2)
-    check(!typedBetween.flagsChanged([], at: 0.3), "a key typed between the taps breaks the shortcut")
+    check(DictationShortcut.isShortcut(176, flags: []) && DictationShortcut.isShortcut(176, flags: .maskSecondaryFn)
+          && !DictationShortcut.isShortcut(176, flags: .maskCommand) && !DictationShortcut.isShortcut(96, flags: [])
+          && !DictationShortcut.isShortcut(0, flags: []) && !DictationShortcut.isShortcut(48, flags: .maskSecondaryFn),
+          "only the 🎤 key starts Dictation, alone or with fn; ⌘🎤, F5 typed as an F-key, letters and fn+Tab do not")
 
     let element = AXUIElementCreateApplication(getpid())
     let before = card + " tab"
@@ -3270,13 +3250,22 @@ do {
           "with no card on screen, fn+arrows belong to the host")
     check(chord(119, fnArrow, KeyRoutingState(popup: .confirmShare)) == .pass(.followTyping(trackCaret: true)),
           "the share question leaves fn+arrows to the host")
-    let table = KeyRoutingState(popup: .suggestions, tableNavigable: true, tableBrowsing: true)
+    let tableRow = KeyRoutingState(popup: .suggestions, tableNavigable: true)
     for (key, direction) in [(115, "left"), (119, "right"), (116, "up"), (121, "down")] {
-        check(chord(Int64(key), fnArrow, table) == .swallow(.navigateTable(direction)),
-              "Fn arrows move spatially through a table")
+        check(chord(Int64(key), fnArrow, tableRow) == .swallow(.navigateTable(direction)),
+              "on a sheet's suggestion, fn arrows dive into the sheet")
+    }
+    check(route(125, tableRow) == .swallow(.move(1)), "before diving in, bare Down still chooses suggestions")
+    let table = KeyRoutingState(popup: .suggestions, tableNavigable: true, tableBrowsing: true)
+    for (key, direction) in [(123, "left"), (124, "right"), (126, "up"), (125, "down")] {
+        check(chord(Int64(key), [.maskNumericPad, .maskSecondaryFn], table) == .swallow(.navigateTable(direction)),
+              "inside a sheet the bare arrows move a cell at a time")
+    }
+    check(chord(115, fnArrow, table) == .swallow(.returnFromTable), "inside a sheet fn+Left goes back to the suggestions")
+    for (key, direction) in [(119, "right"), (116, "up"), (121, "down")] {
+        check(chord(Int64(key), fnArrow, table) == .swallow(.navigateTable(direction)), "inside a sheet the other fn arrows still move")
     }
     check(route(53, table) == .swallow(.returnFromTable), "Escape returns from table browsing to the original suggestions")
-    check(route(125, table) == .swallow(.move(1)), "bare Down still chooses suggestions in tables")
     check(chord(121, fnArrow, open) == .pass(.followTyping(trackCaret: true)),
           "Fn Down remains with the host outside tables")
     check(chord(119, [.maskShift, .maskSecondaryFn], table) == .pass(.followTyping(trackCaret: true)),
@@ -5533,6 +5522,13 @@ do {
     check(SheetClipboard.typedTrigger(named, before: "The accrued pa") == named, "a matched name is replaced whole")
     check(SheetClipboard.typedTrigger(CompletionReplacement(start: 3, expectedText: ""), before: "inv") == typedInv,
           "a suggestion that only adds at the caret still takes away the unfinished word")
+    check(RichTextInserter.deletesBeforePaste(selected: true, deletesFirst: true, replacing: 3, keyboardDeleteCount: 3) == 1,
+          "a selected typed word is deleted before a picture is pasted, as attachments leave the selection")
+    check(RichTextInserter.deletesBeforePaste(selected: false, deletesFirst: true, replacing: 3, keyboardDeleteCount: 3) == 3,
+          "without a selection the typed letters are deleted one by one")
+    check(RichTextInserter.deletesBeforePaste(selected: true, deletesFirst: false, replacing: 3, keyboardDeleteCount: 3) == 0
+          && RichTextInserter.deletesBeforePaste(selected: true, deletesFirst: true, replacing: 0, keyboardDeleteCount: 0) == 0,
+          "a link pastes over its selected word, and with nothing typed nothing is deleted")
 
     let plainLayout = SheetPicture.layout(laid.cells, headed: false, caption: nil)
     let headedLayout = SheetPicture.layout(withHeaders.cells, headed: true, caption: nil)
@@ -5684,13 +5680,23 @@ do {
     session.wordsArrived(at: at(41))
     check(!session.isOn(at: at(41.1)), "the last words dictation writes as it stops do not bring it back")
     session.wordsArrived(at: at(50))
-    check(session.isOn(at: at(50.1)), "words dictated later bring the pill back without the shortcut")
+    check(!session.isOn(at: at(50.1)), "after dictation stopped, words alone do not bring the pill back")
     session.shortcutPressed(at: at(51))
-    check(!session.isOn(at: at(51.1)), "pressing the shortcut while the pill shows stops it")
+    check(session.isOn(at: at(51.1)), "pressing it again starts dictation again")
     session.shortcutPressed(at: at(52))
-    check(session.isOn(at: at(52.1)), "pressing it again starts dictation again")
+    check(!session.isOn(at: at(52.1)), "pressing the shortcut while the pill shows stops it")
     session.stop(at: at(53))
     check(!session.isOn(at: at(53)) && session.endsAt == nil, "Escape stops it")
+    var unprompted = DictationPillSession()
+    unprompted.wordsArrived(at: start)
+    check(!unprompted.isOn(at: at(0.1)), "words nobody typed never show the pill without the 🎤 key")
+    var paused = DictationPillSession()
+    paused.shortcutPressed(at: start)
+    paused.wordsArrived(at: at(2))
+    paused.wordsArrived(at: at(30))
+    check(paused.isOn(at: at(30.1)), "words after a pause bring the pill back in a dictation the 🎤 key started")
+    paused.wordsArrived(at: at(30 + DictationPillSession.dictationMemory + 1))
+    check(!paused.isOn(at: at(30 + DictationPillSession.dictationMemory + 1.1)), "a minute after the last words, words alone do not")
     var later = DictationPillSession()
     later.shortcutPressed(at: start)
     later.wordsArrived(at: at(2))

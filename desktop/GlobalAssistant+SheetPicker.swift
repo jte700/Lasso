@@ -50,8 +50,9 @@ extension GlobalAssistant {
         return chosen
     }
 
-    /// Pastes the picture as PNG and TIFF, once a fresh read shows the field
-    /// is still as it was. The app's own ⌘Z takes a paste back.
+    /// Deletes the typed words, then pastes the picture as PNG and TIFF, once
+    /// a fresh read shows the field is still as it was. The app's own ⌘Z
+    /// takes a paste back.
     private func insertSheetPick(_ pick: SheetPick, from suggestion: AssistSuggestion, context: CaretContext) {
         undoableInsertion = nil
         let chosen = Self.sheetSuggestion(pick, from: suggestion, before: context.text)
@@ -80,7 +81,7 @@ extension GlobalAssistant {
                 let element = context.element, caret = context.absoluteCaret
                 AccessibilityWork.queue.async { [weak self] in
                     RichTextInserter.insertFormats(formats, replacing: plan.range.count, at: caret, in: element,
-                                                   keyboardDeleteCount: plan.expectedPrefix.count,
+                                                   keyboardDeleteCount: plan.expectedPrefix.count, deletesFirst: true,
                                                    validateSelection: { selected in
                         AccessibilityReader.canPaste(in: element, before: before, caret: caret,
                                                      expectedPrefix: plan.expectedPrefix, selected: selected)

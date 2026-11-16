@@ -161,6 +161,18 @@ enum KeyRouter {
         // Shift+Tab leaves the field, Control+Tab switches tabs, and modified
         // arrows move or select text. Only the bare keys belong to the box.
         let chord = !flags.intersection([.maskShift, .maskCommand, .maskControl, .maskAlternate]).isEmpty
+        // Inside a sheet the bare arrows move a cell at a time, and fn+Left
+        // goes back out to the suggestions.
+        if state.popup == .suggestions, state.tableNavigable, state.tableBrowsing, !chord, !choosingWords {
+            switch keyCode {
+            case left: return .swallow(.navigateTable("left"))
+            case right: return .swallow(.navigateTable("right"))
+            case up: return .swallow(.navigateTable("up"))
+            case down: return .swallow(.navigateTable("down"))
+            case home: return .swallow(.returnFromTable)
+            default: break
+            }
+        }
         if state.popup == .suggestions, state.tableNavigable, !chord, !choosingWords {
             // macOS translates Fn arrows to Home, End, Page Up and Page Down.
             switch keyCode {
@@ -348,7 +360,6 @@ final class KeyEventTap {
     private var runLoop: CFRunLoop?
     /// Touched only on the tap thread.
     private var sawKey = false
-    private var dictationShortcut = DictationShortcut()
 
     init(perform: @escaping (KeyAction) -> Void, onFirstKey: @escaping () -> Void,
          onDictationShortcut: @escaping () -> Void = {}) {
@@ -360,8 +371,7 @@ final class KeyEventTap {
     /// False when macOS refused the tap, which means Input Monitoring is missing.
     func start() -> Bool {
         guard port == nil else { return false }
-        // Modifier changes only show whether one was pressed twice, for Dictation.
-        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue) | CGEventMask(1 << CGEventType.flagsChanged.rawValue)
+        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
         guard let created = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
             eventsOfInterest: mask,
@@ -408,20 +418,13 @@ final class KeyEventTap {
             return Unmanaged.passUnretained(event)
         }
         let synthetic = event.getIntegerValueField(.eventSourceUserData) == SyntheticKeyboard.marker
-        if type == .flagsChanged {
-            let seconds = TimeInterval(event.timestamp) / 1_000_000_000
-            if !synthetic, dictationShortcut.flagsChanged(event.flags, at: seconds) {
-                DispatchQueue.main.async(execute: onDictationShortcut)
-            }
-            return Unmanaged.passUnretained(event)
-        }
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
         if !sawKey {
             sawKey = true
             DispatchQueue.main.async(execute: onFirstKey)
         }
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        if !synthetic, dictationShortcut.keyDown(keyCode, flags: event.flags) {
+        if !synthetic, DictationShortcut.isShortcut(keyCode, flags: event.flags) {
             DispatchQueue.main.async(execute: onDictationShortcut)
         }
         let decision = KeyRouter.decide(
