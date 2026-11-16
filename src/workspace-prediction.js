@@ -107,7 +107,10 @@ export const workspacePredictionMethods = {
 
   async predictText(input = {}) {
     const revision = this.revision();
-    const projects = this.activeProjects();
+    // A folder chosen with ⌥Tab answers alone. One switched off since answers
+    // nothing: the writer asked for that folder, not for every other one.
+    const projects = typeof input.onlyProjectId === 'string'
+      ? this.activeProjects().filter((project) => project.id === input.onlyProjectId) : this.activeProjects();
     const projectsById = new Map(projects.map((p) => [p.id, p]));
     const owners = new Map();
     const cursor = Number.isInteger(input.cursor) ? input.cursor : String(input.text ?? '').length;

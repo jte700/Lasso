@@ -261,6 +261,18 @@ extension GlobalAssistant {
         checks["a click on Dismiss dismisses"] = card.footerCommand(at: placed[2].keycaps[0].midX) == .dismiss
         let narrow = AssistKeyHintLayout(card.footerHints, from: 18, to: placed[1].title.maxX + 1, centeredOn: 20)
         checks["hints that do not fit go from the end"] = narrow.placed.map(\.hint.title) == ["Insert", "Choose"]
+        card.scopeTitle = "Finance"
+        let scoped = card.footerHintLayout(card.footerHints).placed
+        checks["a card narrowed to one folder names it beside \u{2325}\u{21E5}, after Insert"] =
+            scoped.count > 2 && Array(scoped.map(\.hint.title).prefix(3)) == ["Insert", "Finance", "Choose"]
+            && scoped[1].hint.keys == ["\u{2325}\u{21E5}"]
+        checks["the folder's hint ends inside the list's column"] = scoped.allSatisfy { $0.title.maxX <= card.leftWidth - 14 }
+        card.scopeTitle = "Quarterly Board Materials 2026"
+        let long = card.footerHintLayout(card.footerHints).placed.map(\.hint.title)
+        checks["a long folder name is shortened so Choose still fits"] = long.count >= 3 && long[0] == "Insert"
+            && long[1].hasPrefix("Quarterly") && long[1].hasSuffix("\u{2026}") && long[2] == "Choose"
+        checks["a folder named twice shows the last part of its path"] =
+            AssistBoxView.footerScopeTitle("/Users/me/Work/Finance") == "Finance"
         return checks
     }
 

@@ -77,12 +77,28 @@ extension AssistBoxView {
         if mode != .plain {
             hints.append(AssistKeyHint(keys: ["⌘↩"], title: "Insert", command: .insertText))
         }
+        // A card narrowed to one folder says which, and the key that changes it, before the keys everyone knows.
+        if let scopeTitle {
+            hints.append(AssistKeyHint(keys: ["⌥⇥"], title: Self.footerScopeTitle(scopeTitle), command: nil))
+        }
         hints.append(AssistKeyHint(keys: ["↑", "↓"], title: "Choose", command: nil))
         hints.append(AssistKeyHint(keys: ["esc"], title: "Dismiss", command: .dismiss))
         if shareable && mode != .share {
             hints.append(AssistKeyHint(keys: ["⇧⌘↩"], title: "Share…", command: .share))
         }
         return hints
+    }
+
+    /// A folder's name short enough to leave room for ↑ ↓ Choose after it.
+    /// Two folders of one name are told apart by their paths; the footer shows the last part.
+    static func footerScopeTitle(_ title: String, maximumWidth: CGFloat = 84,
+                                 measure: (String, NSFont) -> CGFloat = AssistTableLayout.textWidth) -> String {
+        let name = title.hasPrefix("/") ? (title as NSString).lastPathComponent : title
+        let font = AssistKeyHintLayout.titleFont
+        guard measure(name, font) > maximumWidth else { return name }
+        var cut = name
+        while !cut.isEmpty, measure(cut + "\u{2026}", font) > maximumWidth { cut.removeLast() }
+        return cut.trimmingCharacters(in: .whitespaces) + "\u{2026}"
     }
 
     /// The keys of the share question: move, choose and cancel.

@@ -5098,6 +5098,72 @@ do {
     check(sheetKey(125, [.maskShift]) == .swallow(.sheetMove(columns: 0, rows: 1, extending: true)), "\u{21E7}\u{2193} extends the latest highlight")
     check(sheetKey(0, []) == .pass(.pickerTypedOn), "a letter goes on to the app and closes the sheet picker")
     check(sheetKey(8, [.maskCommand]) == .pass(nil), "a shortcut stays the app's")
+    let sheetAndScope = KeyRoutingState(popup: .suggestions, sheetPickerOpen: true, scopeSwitchAvailable: true)
+    check(KeyRouter.decide(keyCode: 48, flags: [.maskAlternate], synthetic: false, state: sheetAndScope) != .swallow(.openScopeSwitcher),
+          "\u{2325}Tab does not open the folder switcher over the sheet picker")
+}
+
+print("⌥Tab chooses the folder suggestions come from")
+do {
+    let tab: Int64 = 48, returnKey: Int64 = 36, escape: Int64 = 53, up: Int64 = 126, down: Int64 = 125
+    func key(_ code: Int64, _ flags: CGEventFlags, _ state: KeyRoutingState) -> KeyDecision {
+        KeyRouter.decide(keyCode: code, flags: flags, synthetic: false, state: state)
+    }
+    let ready = KeyRoutingState(scopeSwitchAvailable: true)
+    check(key(tab, .maskAlternate, ready) == .swallow(.openScopeSwitcher), "⌥Tab opens the switcher")
+    check(key(tab, .maskAlternate, KeyRoutingState(popup: .suggestions, scopeSwitchAvailable: true)) == .swallow(.openScopeSwitcher),
+          "⌥Tab opens the switcher over a card, rather than closing the card")
+    check(key(tab, [.maskAlternate, .maskShift], ready) == .swallow(.openScopeSwitcher), "⇧⌥Tab opens it too")
+    check(key(tab, .maskAlternate, KeyRoutingState()) != .swallow(.openScopeSwitcher),
+          "with suggestions off, no folder on, or an app Lasso stays quiet in, ⌥Tab is the app's")
+    check(key(tab, [.maskAlternate, .maskCommand], ready) != .swallow(.openScopeSwitcher), "⌥⌘Tab is not the switcher's")
+    check(key(tab, [], ready) == .pass(.followTyping(trackCaret: false)), "a bare Tab with nothing open is still the app's")
+    check(key(tab, .maskAlternate, KeyRoutingState(passagePickerOpen: true, scopeSwitchAvailable: true)) != .swallow(.openScopeSwitcher),
+          "the passage picker keeps its keys")
+    check(key(tab, .maskAlternate, KeyRoutingState(shareComposerOpen: true, scopeSwitchAvailable: true)) != .swallow(.openScopeSwitcher),
+          "the share options keep their keys")
+
+    let open = KeyRoutingState(popup: .hidden, scopeSwitcherOpen: true, scopeSwitchAvailable: true)
+    check(key(tab, .maskAlternate, open) == .swallow(.scopeMove(1)), "⌥Tab again rolls to the next folder")
+    check(key(tab, [], open) == .swallow(.scopeMove(1)), "Tab rolls to the next folder")
+    check(key(tab, .maskShift, open) == .swallow(.scopeMove(-1)), "⇧Tab rolls back")
+    check(key(down, [], open) == .swallow(.scopeMove(1)) && key(up, [], open) == .swallow(.scopeMove(-1)), "↑ and ↓ roll it")
+    check(key(returnKey, [], open) == .swallow(.scopeChoose) && key(76, [], open) == .swallow(.scopeChoose),
+          "Return keeps the folder shown")
+    check(key(escape, [], open) == .swallow(.scopeCancel), "Escape leaves the choice as it was")
+    check(key(0, [], open) == .pass(.scopeTypedOn), "a letter goes on to the app and closes the switcher")
+    check(key(8, .maskCommand, open) == .pass(.scopeCancel), "a shortcut stays the app's and closes the switcher")
+    check(key(tab, .maskAlternate, KeyRoutingState(isInserting: true, scopeSwitcherOpen: true)) == .pass(nil),
+          "keys pass untouched while Lasso types an insertion")
+
+    let finance = SourceScopeEntry(projectId: "p1", title: "Finance", symbol: "folder.fill")
+    let plans = SourceScopeEntry(projectId: "p2", title: "Plans", symbol: "folder.fill")
+    let mail = SourceScopeEntry(projectId: "p3", title: "Outlook", symbol: "envelope")
+    var scope = SourceScope()
+    check(scope.chosen == .all && scope.entries == [.all], "with no folders the switcher offers All alone")
+    scope.update([finance, plans, mail, finance])
+    check(scope.entries == [.all, finance, plans, mail], "All comes first, then each switched-on folder and app once")
+    check(scope.index(from: 0, by: 1) == 1 && scope.index(from: 3, by: 1) == 0 && scope.index(from: 0, by: -1) == 3,
+          "rolling past the last goes back round to All, both ways")
+    check(scope.choose(at: 2) && scope.chosenProjectId == "p2" && scope.chosen == plans, "Return on a folder chooses it")
+    check(!scope.choose(at: 2), "choosing the folder already chosen changes nothing")
+    check(!scope.update([finance, plans]) && scope.chosen == plans, "other folders switching off keep the choice")
+    check(scope.update([finance, mail]) && scope.chosen == .all, "the chosen folder switched off goes back to All")
+    check(scope.choose(at: 1) && scope.choose(at: 0) && scope.chosenProjectId == nil, "All is chosen like any other")
+
+    let visible = CGRect(x: 0, y: 0, width: 1440, height: 900)
+    let size = CGSize(width: 300, height: 44)
+    let below = ScopeSwitcherPlacement.frame(caret: CGRect(x: 400, y: 500, width: 2, height: 18), size: size, visible: visible)
+    check(below.maxY == 500 - ScopeSwitcherPlacement.gap && below.minX == 400 - ScopeSwitcherPlacement.leadIn,
+          "the pill sits just below the caret line, starting a little before the caret")
+    let low = ScopeSwitcherPlacement.frame(caret: CGRect(x: 400, y: 10, width: 2, height: 18), size: size, visible: visible)
+    check(low.minY == 28 + ScopeSwitcherPlacement.gap, "with no room below, it sits above the line")
+    let edge = ScopeSwitcherPlacement.frame(caret: CGRect(x: 1430, y: 500, width: 2, height: 18), size: size, visible: visible)
+    check(edge.maxX == 1440, "it stays on screen at the right edge")
+    let margined = ScopeSwitcherPlacement.frame(caret: CGRect(x: 400, y: 500, width: 2, height: 18), size: size,
+                                                margin: 10, visible: visible)
+    check(margined.maxY - 10 == 500 - ScopeSwitcherPlacement.gap && margined.minX + 10 == 400 - ScopeSwitcherPlacement.leadIn,
+          "a panel with room for a shadow puts its pill in the same place")
 }
 
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")

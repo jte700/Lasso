@@ -34,6 +34,8 @@ final class GlobalAssistant {
 
     var serverURL: URL?
     var projectIds: [String] = []
+    /// The folder suggestions come from alone, chosen with ⌥Tab, or All.
+    var sourceScope = SourceScope()
     var workspaceRevision = ""
     var isEnabled = false
 
@@ -262,6 +264,7 @@ final class GlobalAssistant {
 
     func disable() {
         dismiss()
+        ScopeSwitcherController.shared.hide()
         dictation.stop()
         dictationDebounce?.invalidate()
         dictationDebounce = nil
@@ -331,7 +334,9 @@ final class GlobalAssistant {
             tableNavigable: currentSuggestion?.tableNavigable == true,
             tableBrowsing: tableNavigationOrigin != nil,
             sheetPickable: view.mode == .suggestions && view.wordChoice == nil && currentSuggestion?.sheetPickable == true,
-            sheetPickerOpen: SheetPickerController.shared.isVisible)
+            sheetPickerOpen: SheetPickerController.shared.isVisible,
+            scopeSwitcherOpen: ScopeSwitcherController.shared.isOpen,
+            scopeSwitchAvailable: scopeSwitchAvailable)
     }
 
     func publishKeyRouting() {
@@ -429,6 +434,17 @@ final class GlobalAssistant {
             SheetPickerController.shared.redo()
         case .sheetMove(let columns, let rows, let extending):
             SheetPickerController.shared.move(columns: columns, rows: rows, extending: extending)
+        case .openScopeSwitcher:
+            openScopeSwitcher()
+        case .scopeMove(let steps):
+            rollScopeSwitcher(by: steps)
+        case .scopeChoose:
+            chooseShownScope()
+        case .scopeCancel:
+            ScopeSwitcherController.shared.hide()
+        case .scopeTypedOn:
+            ScopeSwitcherController.shared.hide()
+            followTextChange(trackCaret: false)
         }
         publishKeyRouting()
     }
