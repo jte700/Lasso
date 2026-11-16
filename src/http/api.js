@@ -20,6 +20,7 @@ import { actorFrom, match, opensWorkbench, readJson, sendBinary, sendConversion,
 import { connectionRoutes } from './connection-routes.js';
 import { driveRoutes } from './drive-routes.js';
 import { passageRoutes } from './passage-routes.js';
+import { sheetRoutes } from './sheet-routes.js';
 import { ranchRoutes } from './ranch-routes.js';
 import { workspaceRoutes } from './workspace-routes.js';
 import { sharedContentReader } from '../sharing/shared-content.js';
@@ -221,6 +222,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       if (workspace && await workspaceRoutes({ request, response, url, pathname, workspace, dependencies, terminal })) return;
       if (ranch && await ranchRoutes({ request, response, url, pathname, ranch })) return;
       if (await passageRoutes({ request, response, url, pathname, timeline, dependencies, objectShares })) return;
+      if (await sheetRoutes({ request, response, url, pathname, timeline, dependencies, objectShares })) return;
       if (connections && await connectionRoutes({ request, response, url, pathname, connections, workspace })) return;
       if (request.method === 'GET' && pathname === '/api/sharing/status' && objectShares) {
         const baseUrl = objectShares.baseUrl();

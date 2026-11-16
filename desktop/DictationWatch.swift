@@ -24,52 +24,21 @@ import os
 /// streamed: `log stream --level debug --predicate 'subsystem == "com.jte700.lasso"'`.
 let dictationLog = Logger(subsystem: "com.jte700.lasso", category: "dictation")
 
-/// The keys that start macOS Dictation, seen by the keyboard tap: the 🎤
-/// key, or the shortcuts Keyboard settings offers, a modifier pressed twice
-/// (🌐 fn, Control or Command). macOS Dictation records without the input
-/// device reporting itself as running, so this is how Lasso knows to look.
-/// Pressing one again, as when ending Dictation, starts the watch again,
-/// which keeps it for the words Dictation writes as it stops.
+/// The key that starts dictation for Lasso, seen by the keyboard tap: the
+/// 🎤 key (F5 on the top row). A modifier pressed twice, which macOS can
+/// also be set to take, is left alone: it was too easily done by accident.
+/// macOS Dictation records without the input device reporting itself as
+/// running, so this is how Lasso knows to look. Pressing it again, as when
+/// ending Dictation, starts the watch again, which keeps it for the words
+/// Dictation writes as it stops.
 struct DictationShortcut {
     /// The 🎤 key, which macOS sends as key code 176. Where the top row types
     /// F-keys, the key types F5 and fn+F5 is the 🎤 key, sent as 176 too.
     static let keys: Set<Int64> = [176]
-    static let doubleTapTime: TimeInterval = 0.5
 
-    private var down: CGEventFlags.RawValue?
-    private var lastTap: (modifier: CGEventFlags.RawValue, at: TimeInterval)?
-    private var previous: CGEventFlags = []
-
-    private static let tapped: [CGEventFlags] = [.maskSecondaryFn, .maskControl, .maskCommand]
-    private static let modifiers: CGEventFlags = [.maskSecondaryFn, .maskControl, .maskCommand, .maskShift, .maskAlternate]
-
-    /// A key went down. True when it is the 🎤 key; any key also breaks a modifier tap.
-    mutating func keyDown(_ keyCode: Int64, flags: CGEventFlags) -> Bool {
-        down = nil
-        lastTap = nil
-        return Self.keys.contains(keyCode) && flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).isEmpty
-    }
-
-    /// The modifiers changed. True on the second quick tap of one of them, alone.
-    mutating func flagsChanged(_ flags: CGEventFlags, at time: TimeInterval) -> Bool {
-        let held = flags.intersection(Self.modifiers)
-        defer { previous = held }
-        if previous.isEmpty, let single = Self.tapped.first(where: { held == $0 }) {
-            down = single.rawValue
-            return false
-        }
-        guard held.isEmpty, let released = down else {
-            // A second modifier joined it: a chord, not a tap.
-            if !held.isEmpty { down = nil; lastTap = nil }
-            return false
-        }
-        down = nil
-        if let last = lastTap, last.modifier == released, time - last.at <= Self.doubleTapTime {
-            lastTap = nil
-            return true
-        }
-        lastTap = (released, time)
-        return false
+    /// A key went down. True when it is the 🎤 key.
+    static func isShortcut(_ keyCode: Int64, flags: CGEventFlags) -> Bool {
+        keys.contains(keyCode) && flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).isEmpty
     }
 }
 

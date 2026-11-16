@@ -130,6 +130,30 @@ enum RichTextInserter {
                            in element: AXUIElement, keyboardDeleteCount: Int,
                            validateSelection: @escaping (Bool) -> Bool,
                            onPasted: @escaping (Bool) -> Void) {
+        insertFormats(representations(label: label, url: url), replacing: length, at: caret, in: element,
+                      keyboardDeleteCount: keyboardDeleteCount, validateSelection: validateSelection, onPasted: onPasted)
+    }
+
+    private static let deletionSettleTime: TimeInterval = 0.08
+
+    /// How many times Backspace is pressed before pasting. A selected word is
+    /// one press when `deletesFirst`, and pasting over it otherwise; without
+    /// a selection the typed letters are deleted one by one.
+    static func deletesBeforePaste(selected: Bool, deletesFirst: Bool, replacing length: Int,
+                                   keyboardDeleteCount: Int) -> Int {
+        guard selected else { return keyboardDeleteCount }
+        return deletesFirst && length > 0 ? 1 : 0
+    }
+
+    /// Selects the partial word, then pastes `formats` together, so the host
+    /// takes the richest it reads: a link, or a sheet's cells as a table.
+    /// With `deletesFirst` the word is deleted before the paste, since editors
+    /// that turn a pasted picture into an attachment leave the selection as it is.
+    /// Accessibility queue only, where `validateSelection` and `onPasted` are called too.
+    static func insertFormats(_ formats: [NSPasteboard.PasteboardType: Data], replacing length: Int, at caret: Int,
+                              in element: AXUIElement, keyboardDeleteCount: Int, deletesFirst: Bool = false,
+                              validateSelection: @escaping (Bool) -> Bool,
+                              onPasted: @escaping (Bool) -> Void) {
         var selectedRange = false
         if length > 0, caret >= length {
             selectedRange = HostSelection.selectForWrite((caret - length)..<caret, caret: caret, in: element)
@@ -141,21 +165,27 @@ enum RichTextInserter {
         AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.05) {
             let verifiedSelection = selectedRange && validateSelection(true)
             guard verifiedSelection || validateSelection(false) else { onPasted(false); return }
-            if !verifiedSelection { SyntheticKeyboard.deleteBackwards(keyboardDeleteCount) }
-            // Pasted at a bare caret, the link would merge into a pending
-            // prediction, which can return during the wait. Clear it now.
-            if length == 0, !HostSelection.selectForWrite(caret..<caret, caret: caret, in: element) {
-                onPasted(false)
-                return
-            }
-            withBorrowedPasteboard {
-                let pasteboard = NSPasteboard.general
-                pasteboard.clearContents()
-                let formats = representations(label: label, url: url)
-                pasteboard.declareTypes(Array(formats.keys), owner: nil)
-                for (type, data) in formats { pasteboard.setData(data, forType: type) }
-                paste()
-                AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.25) { onPasted(true) }
+            let deletes = deletesBeforePaste(selected: verifiedSelection, deletesFirst: deletesFirst,
+                                             replacing: length, keyboardDeleteCount: keyboardDeleteCount)
+            SyntheticKeyboard.deleteBackwards(deletes)
+            // The app takes the deletion before the caret is read again.
+            let settle = deletesFirst && deletes > 0 ? deletionSettleTime : 0
+            AccessibilityWork.queue.asyncAfter(deadline: .now() + settle) {
+                // Pasted at a bare caret, the paste would merge into a pending
+                // prediction, which can return during the wait. Clear it now.
+                let bareCaret = length == 0 || deletesFirst ? caret - length : nil
+                if let bareCaret, !HostSelection.selectForWrite(bareCaret..<bareCaret, caret: bareCaret, in: element) {
+                    onPasted(false)
+                    return
+                }
+                withBorrowedPasteboard {
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pasteboard.declareTypes(Array(formats.keys), owner: nil)
+                    for (type, data) in formats { pasteboard.setData(data, forType: type) }
+                    paste()
+                    AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.25) { onPasted(true) }
+                }
             }
         }
     }

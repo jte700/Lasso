@@ -36,7 +36,8 @@ extension GlobalAssistant {
                 location: Self.sourceLocation(object), replacement: replacement,
                 objectId: id, versionId: object["versionId"] as? String,
                 snapshotId: object["snapshotId"] as? String, usageObjectId: id,
-                projectId: projectId, rankingReason: nil, tableNavigable: Self.isTableSource(object))
+                projectId: projectId, rankingReason: nil, tableNavigable: Self.isTableSource(object),
+                sheetPickable: Self.isSheetSource(object))
             self.view.selected = 0
             self.view.sourceScoped = true
             self.showMeasuringHost([suggestion])
@@ -45,6 +46,7 @@ extension GlobalAssistant {
 
     func scheduleRefresh() {
         guard !ShareComposerController.shared.isVisible, !PassagePickerController.shared.isVisible,
+              !SheetPickerController.shared.isVisible,
               !ScopeSwitcherController.shared.isOpen, !ReferenceMenuController.shared.isShown else { return }
         // A brief message must not swallow the next words the writer types,
         // such as the first word of the following sentence. It stays long
@@ -395,6 +397,15 @@ extension GlobalAssistant {
         return ["table-row", "table-cell"].contains(kind)
     }
 
+    static let sheetExtensions: Set<String> = ["xlsx", "xlsm", "xls", "csv", "tsv"]
+
+    /// A cell, row or column of a spreadsheet or CSV, which the sheet picker opens on.
+    static func isSheetSource(_ object: [String: Any]) -> Bool {
+        guard let path = object["path"] as? String, sheetExtensions.contains((path as NSString).pathExtension.lowercased()),
+              let kind = (object["anchor"] as? [String: Any])?["kind"] as? String else { return false }
+        return ["table-row", "table-cell", "table-column"].contains(kind)
+    }
+
     static func sourceLocation(_ candidate: [String: Any]) -> String {
         let anchor = candidate["anchor"] as? [String: Any] ?? [:]
         let metadata = candidate["metadata"] as? [String: Any] ?? [:]
@@ -464,6 +475,7 @@ extension GlobalAssistant {
                 var matched = suggestion
                 let candidate = (entry["dependencyCandidate"] as? [String: Any]) ?? entry
                 matched.tableNavigable = Self.isTableSource(candidate)
+                matched.sheetPickable = Self.isSheetSource(candidate)
                 matched.matchedWords = entry["matchedWords"] as? [String] ?? []
                 // A value that changed recently says what it was, in the same dim slot.
                 if let change = AssistValueChange(json: entry["change"]) {

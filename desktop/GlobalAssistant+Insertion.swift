@@ -575,7 +575,7 @@ extension GlobalAssistant {
         }
     }
 
-    private func recordAcceptedUsage(_ suggestion: AssistSuggestion) {
+    func recordAcceptedUsage(_ suggestion: AssistSuggestion) {
         guard let serverURL else { return }
         RecommendationUsageClient.record(serverURL: serverURL, projectId: suggestion.projectId,
                                          objectId: suggestion.usageObjectId, path: suggestion.path,

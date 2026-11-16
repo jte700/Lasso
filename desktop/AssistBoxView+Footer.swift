@@ -81,8 +81,9 @@ extension AssistBoxView {
         if let scopeTitle {
             hints.append(AssistKeyHint(keys: ["⌥⇥"], title: Self.footerScopeTitle(scopeTitle), command: nil))
         }
-        hints.append(AssistKeyHint(keys: ["↑", "↓"], title: "Choose", command: nil))
-        hints.append(AssistKeyHint(keys: ["esc"], title: "Dismiss", command: .dismiss))
+        // Inside a sheet the arrows move between cells, and Escape goes back to the suggestions.
+        if !tableBrowsing { hints.append(AssistKeyHint(keys: ["↑", "↓"], title: "Choose", command: nil)) }
+        hints.append(AssistKeyHint(keys: ["esc"], title: tableBrowsing ? "Back" : "Dismiss", command: .dismiss))
         if shareable && mode != .share {
             hints.append(AssistKeyHint(keys: ["⇧⌘↩"], title: "Share…", command: .share))
         }

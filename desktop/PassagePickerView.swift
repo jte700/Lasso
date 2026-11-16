@@ -56,6 +56,8 @@ final class PassagePickerView: NSView {
     private let insertButton = PassagePillButton(title: "Insert", symbol: "arrow.right.to.line", style: .prominent)
     private let linkButton = PassagePillButton(title: "Insert Link", symbol: "link", style: .secondary)
     private let sourceSwitch = PassageToggle()
+    /// Whether "Insert with source" was left on, kept across openings and launches.
+    private static let insertsSourceKey = "passagePickerInsertsSource"
     private let sourceLabel = NSTextField(labelWithString: "Insert with source")
     private let citationLabel = NSTextField(labelWithString: "")
     private var body: PassagePickerBody?
@@ -95,6 +97,7 @@ final class PassagePickerView: NSView {
         linkButton.action = #selector(link)
         linkButton.toolTip = "Insert the highlighted words as a share link (\u{21E7}\u{2318}\u{21A9})"
         sourceSwitch.setAccessibilityLabel("Insert with source")
+        sourceSwitch.isOn = UserDefaults.standard.bool(forKey: Self.insertsSourceKey)
         sourceSwitch.target = self
         sourceSwitch.action = #selector(sourceToggled)
         sourceLabel.font = .systemFont(ofSize: 13)
@@ -227,7 +230,10 @@ final class PassagePickerView: NSView {
         hint.stringValue = picked ? "Tab inserts the highlighted words \u{00B7} Esc goes back" : "Highlight the words to insert"
     }
 
-    @objc private func sourceToggled() { updateControls() }
+    @objc private func sourceToggled() {
+        UserDefaults.standard.set(sourceSwitch.isOn, forKey: Self.insertsSourceKey)
+        updateControls()
+    }
 
     @objc func insert() {
         guard let pick = currentPick else { NSSound.beep(); return }
@@ -264,19 +270,6 @@ final class PassagePickerView: NSView {
     /// the window, kept on the screen. The picker never takes the keyboard, so
     /// it is moved here rather than by the system's window dragging.
     override func mouseDown(with event: NSEvent) {
-        guard let window else { return }
-        let grabbed = NSEvent.mouseLocation
-        let origin = window.frame.origin
-        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
-            let pointer = NSEvent.mouseLocation
-            var frame = window.frame
-            frame.origin = NSPoint(x: origin.x + pointer.x - grabbed.x, y: origin.y + pointer.y - grabbed.y)
-            if let visible = (NSScreen.screens.first { $0.frame.contains(pointer) } ?? window.screen)?.visibleFrame {
-                frame.origin.x = min(max(visible.minX - frame.width + 80, frame.origin.x), visible.maxX - 80)
-                frame.origin.y = min(max(visible.minY, frame.origin.y), visible.maxY - frame.height)
-            }
-            window.setFrameOrigin(frame.origin)
-            if next.type == .leftMouseUp { break }
-        }
+        if let window { CardPanelTakeover.drag(window) }
     }
 }

@@ -36,6 +36,10 @@ struct KeyRoutingState: Equatable {
     var canUndoInsertion = false
     var tableNavigable = false
     var tableBrowsing = false
+    /// The highlighted suggestion is a spreadsheet's or CSV's, which fn+Tab opens in the sheet picker.
+    var sheetPickable = false
+    /// The sheet picker is open over the card, and takes Tab, Escape, ⌘Z and the arrows.
+    var sheetPickerOpen = false
     /// The ⌥Tab switcher is open, and takes Tab, the arrows, Return and Escape.
     var scopeSwitcherOpen = false
     /// ⌥Tab opens the switcher: suggestions are on, a folder is switched on,
@@ -81,6 +85,17 @@ enum KeyAction: Equatable {
     case pickerCancel
     /// A key typed into the app while the picker is open closes it, and the key goes on to the app.
     case pickerTypedOn
+    /// fn+Tab on a spreadsheet's or CSV's suggestion: its sheet, to highlight cells from.
+    case openSheetPicker
+    /// Tab or Return in the sheet picker: the highlighted cells.
+    case sheetInsert
+    /// Escape in the sheet picker goes back to the card.
+    case sheetCancel
+    /// ⌘Z in the sheet picker takes back the latest highlight, and ⇧⌘Z brings it back.
+    case sheetUndo
+    case sheetRedo
+    /// An arrow in the sheet picker moves the latest highlight a cell or, with ⇧, widens it.
+    case sheetMove(columns: Int, rows: Int, extending: Bool)
     /// ⌥Tab: the switcher opens on the folder suggestions come from now.
     case openScopeSwitcher
     /// Tab, ⌥Tab or ↑ ↓ in the switcher rolls it to the next or previous folder.
@@ -114,10 +129,11 @@ enum KeyRouter {
         if state.scopeSwitcherOpen { return scopeDecision(keyCode, flags: flags) }
         if state.scopeSwitchAvailable, keyCode == scopeSwitchKey, flags.contains(.maskAlternate),
            flags.intersection([.maskCommand, .maskControl]).isEmpty,
-           !state.passagePickerOpen, !state.shareComposerOpen, !state.sourceChooserVisible {
+           !state.passagePickerOpen, !state.sheetPickerOpen, !state.shareComposerOpen, !state.sourceChooserVisible {
             return .swallow(.openScopeSwitcher)
         }
         if state.passagePickerOpen, !state.shareComposerOpen { return pickerDecision(keyCode, flags: flags) }
+        if state.sheetPickerOpen, !state.shareComposerOpen { return sheetPickerDecision(keyCode, flags: flags) }
         let commandLike = !flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty
         let choosingWords = state.choosingWords && state.popup == .suggestions
             && !state.sourceChooserVisible && !state.shareComposerOpen
@@ -145,6 +161,18 @@ enum KeyRouter {
         // Shift+Tab leaves the field, Control+Tab switches tabs, and modified
         // arrows move or select text. Only the bare keys belong to the box.
         let chord = !flags.intersection([.maskShift, .maskCommand, .maskControl, .maskAlternate]).isEmpty
+        // Inside a sheet the bare arrows move a cell at a time, and fn+Left
+        // goes back out to the suggestions.
+        if state.popup == .suggestions, state.tableNavigable, state.tableBrowsing, !chord, !choosingWords {
+            switch keyCode {
+            case left: return .swallow(.navigateTable("left"))
+            case right: return .swallow(.navigateTable("right"))
+            case up: return .swallow(.navigateTable("up"))
+            case down: return .swallow(.navigateTable("down"))
+            case home: return .swallow(.returnFromTable)
+            default: break
+            }
+        }
         if state.popup == .suggestions, state.tableNavigable, !chord, !choosingWords {
             // macOS translates Fn arrows to Home, End, Page Up and Page Down.
             switch keyCode {
@@ -175,6 +203,10 @@ enum KeyRouter {
             case tab where chord, down where chord, up where chord:
                 return .pass(.hide)
             case tab:
+                // fn+Tab opens a sheet's cells to highlight; on anything else it is Tab.
+                if state.sheetPickable, flags.contains(.maskSecondaryFn), state.popup == .suggestions {
+                    return .swallow(.openSheetPicker)
+                }
                 return .swallow(.activate)
             case returnKey, enter:
                 if flags.contains(.maskCommand) {
@@ -242,6 +274,31 @@ enum KeyRouter {
         }
     }
 
+    /// The sheet picker keeps the writer's app focused too: Tab inserts, Escape
+    /// goes back, ⌘Z and ⇧⌘Z step through the highlights, and the arrows move
+    /// or widen the latest. Other shortcuts stay the app's; typing closes it.
+    private static func sheetPickerDecision(_ keyCode: Int64, flags: CGEventFlags) -> KeyDecision {
+        let command = flags.contains(.maskCommand)
+        let shift = flags.contains(.maskShift)
+        let otherChord = !flags.intersection([.maskControl, .maskAlternate]).isEmpty
+        switch keyCode {
+        case escape where !command && !otherChord:
+            return .swallow(.sheetCancel)
+        case tab where !command && !otherChord && !shift, returnKey where !otherChord, enter where !otherChord:
+            return .swallow(.sheetInsert)
+        case z where command && !otherChord:
+            return .swallow(shift ? .sheetRedo : .sheetUndo)
+        case left, right, up, down:
+            guard !command, !otherChord else { return .pass(nil) }
+            let columns = keyCode == left ? -1 : keyCode == right ? 1 : 0
+            let rows = keyCode == up ? -1 : keyCode == down ? 1 : 0
+            return .swallow(.sheetMove(columns: columns, rows: rows, extending: shift))
+        default:
+            if command || flags.contains(.maskControl) { return .pass(nil) }
+            return .pass(.pickerTypedOn)
+        }
+    }
+
     /// The switcher keeps the writer's app focused, so its keys come through
     /// here: Tab and ↓ roll it on, ⇧Tab and ↑ roll it back, Return keeps the
     /// folder it shows and Escape keeps the one chosen before. Shortcuts stay
@@ -303,7 +360,6 @@ final class KeyEventTap {
     private var runLoop: CFRunLoop?
     /// Touched only on the tap thread.
     private var sawKey = false
-    private var dictationShortcut = DictationShortcut()
 
     init(perform: @escaping (KeyAction) -> Void, onFirstKey: @escaping () -> Void,
          onDictationShortcut: @escaping () -> Void = {}) {
@@ -315,8 +371,7 @@ final class KeyEventTap {
     /// False when macOS refused the tap, which means Input Monitoring is missing.
     func start() -> Bool {
         guard port == nil else { return false }
-        // Modifier changes only show whether one was pressed twice, for Dictation.
-        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue) | CGEventMask(1 << CGEventType.flagsChanged.rawValue)
+        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
         guard let created = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
             eventsOfInterest: mask,
@@ -363,20 +418,13 @@ final class KeyEventTap {
             return Unmanaged.passUnretained(event)
         }
         let synthetic = event.getIntegerValueField(.eventSourceUserData) == SyntheticKeyboard.marker
-        if type == .flagsChanged {
-            let seconds = TimeInterval(event.timestamp) / 1_000_000_000
-            if !synthetic, dictationShortcut.flagsChanged(event.flags, at: seconds) {
-                DispatchQueue.main.async(execute: onDictationShortcut)
-            }
-            return Unmanaged.passUnretained(event)
-        }
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
         if !sawKey {
             sawKey = true
             DispatchQueue.main.async(execute: onFirstKey)
         }
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        if !synthetic, dictationShortcut.keyDown(keyCode, flags: event.flags) {
+        if !synthetic, DictationShortcut.isShortcut(keyCode, flags: event.flags) {
             DispatchQueue.main.async(execute: onDictationShortcut)
         }
         let decision = KeyRouter.decide(

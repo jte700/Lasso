@@ -1051,30 +1051,10 @@ do {
     check(acceptSpoken(card: other, current: other + ". Tab.", insert: "Other Revenue", replacement: otherName)?.text
           == "Other Revenue", "saying tab after a pause takes the mark out with the word, as the sentence goes on")
 
-    var shortcut = DictationShortcut()
-    check(shortcut.keyDown(176, flags: []) && shortcut.keyDown(176, flags: .maskSecondaryFn)
-          && !shortcut.keyDown(176, flags: .maskCommand) && !shortcut.keyDown(96, flags: [])
-          && !shortcut.keyDown(0, flags: []),
-          "the 🎤 key starts Dictation, alone or with fn; ⌘🎤, F5 and letters do not")
-    func taps(_ steps: [(CGEventFlags, TimeInterval)]) -> [Bool] {
-        var detector = DictationShortcut()
-        return steps.map { detector.flagsChanged($0.0, at: $0.1) }
-    }
-    check(taps([(.maskSecondaryFn, 0), ([], 0.08), (.maskSecondaryFn, 0.2), ([], 0.28)]) == [false, false, false, true]
-          && taps([(.maskControl, 0), ([], 0.1), (.maskControl, 0.2), ([], 0.3)]).last == true
-          && taps([(.maskCommand, 0), ([], 0.1), (.maskCommand, 0.25), ([], 0.35)]).last == true,
-          "fn, Control or Command pressed twice is a Dictation shortcut")
-    check(taps([(.maskSecondaryFn, 0), ([], 0.1), (.maskSecondaryFn, 0.7), ([], 0.8)]).last == false
-          && taps([(.maskSecondaryFn, 0), ([], 0.1), (.maskControl, 0.2), ([], 0.3)]).last == false
-          && taps([(.maskShift, 0), ([], 0.1), (.maskShift, 0.2), ([], 0.3)]).last == false
-          && taps([(.maskCommand, 0), ([.maskCommand, .maskShift], 0.05), ([], 0.1), (.maskCommand, 0.2), ([], 0.3)]).last == false,
-          "slow taps, two different modifiers, Shift and chords are not")
-    var typedBetween = DictationShortcut()
-    _ = typedBetween.flagsChanged(.maskCommand, at: 0)
-    _ = typedBetween.flagsChanged([], at: 0.1)
-    _ = typedBetween.keyDown(8, flags: [])
-    _ = typedBetween.flagsChanged(.maskCommand, at: 0.2)
-    check(!typedBetween.flagsChanged([], at: 0.3), "a key typed between the taps breaks the shortcut")
+    check(DictationShortcut.isShortcut(176, flags: []) && DictationShortcut.isShortcut(176, flags: .maskSecondaryFn)
+          && !DictationShortcut.isShortcut(176, flags: .maskCommand) && !DictationShortcut.isShortcut(96, flags: [])
+          && !DictationShortcut.isShortcut(0, flags: []) && !DictationShortcut.isShortcut(48, flags: .maskSecondaryFn),
+          "only the 🎤 key starts Dictation, alone or with fn; ⌘🎤, F5 typed as an F-key, letters and fn+Tab do not")
 
     let element = AXUIElementCreateApplication(getpid())
     let before = card + " tab"
@@ -3270,13 +3250,22 @@ do {
           "with no card on screen, fn+arrows belong to the host")
     check(chord(119, fnArrow, KeyRoutingState(popup: .confirmShare)) == .pass(.followTyping(trackCaret: true)),
           "the share question leaves fn+arrows to the host")
-    let table = KeyRoutingState(popup: .suggestions, tableNavigable: true, tableBrowsing: true)
+    let tableRow = KeyRoutingState(popup: .suggestions, tableNavigable: true)
     for (key, direction) in [(115, "left"), (119, "right"), (116, "up"), (121, "down")] {
-        check(chord(Int64(key), fnArrow, table) == .swallow(.navigateTable(direction)),
-              "Fn arrows move spatially through a table")
+        check(chord(Int64(key), fnArrow, tableRow) == .swallow(.navigateTable(direction)),
+              "on a sheet's suggestion, fn arrows dive into the sheet")
+    }
+    check(route(125, tableRow) == .swallow(.move(1)), "before diving in, bare Down still chooses suggestions")
+    let table = KeyRoutingState(popup: .suggestions, tableNavigable: true, tableBrowsing: true)
+    for (key, direction) in [(123, "left"), (124, "right"), (126, "up"), (125, "down")] {
+        check(chord(Int64(key), [.maskNumericPad, .maskSecondaryFn], table) == .swallow(.navigateTable(direction)),
+              "inside a sheet the bare arrows move a cell at a time")
+    }
+    check(chord(115, fnArrow, table) == .swallow(.returnFromTable), "inside a sheet fn+Left goes back to the suggestions")
+    for (key, direction) in [(119, "right"), (116, "up"), (121, "down")] {
+        check(chord(Int64(key), fnArrow, table) == .swallow(.navigateTable(direction)), "inside a sheet the other fn arrows still move")
     }
     check(route(53, table) == .swallow(.returnFromTable), "Escape returns from table browsing to the original suggestions")
-    check(route(125, table) == .swallow(.move(1)), "bare Down still chooses suggestions in tables")
     check(chord(121, fnArrow, open) == .pass(.followTyping(trackCaret: true)),
           "Fn Down remains with the host outside tables")
     check(chord(119, [.maskShift, .maskSecondaryFn], table) == .pass(.followTyping(trackCaret: true)),
@@ -5463,6 +5452,124 @@ do {
     check(!PassageDocument.opensPicker(candidate: cell), "a value from a table inserts as before")
 }
 
+// MARK: The sheet picker
+
+do {
+    let json = """
+    {"document": {"name": "Pumps.xlsx", "sheet": "Trial Balance", "sheets": ["Trial Balance", "Notes"],
+      "columns": ["A", "B", "C"], "headerRow": 1, "truncated": false,
+      "selection": {"top": 3, "bottom": 3, "left": 1, "right": 1},
+      "rows": [{"number": 1, "cells": ["Pump", "Flow gpm", "Head ft"]},
+               {"number": 2, "cells": ["P-101", "18,400", "120"]},
+               {"number": 3, "cells": ["P-204", "9,750", "95"]},
+               {"number": 5, "cells": ["P-305", "12,200", "110"]}]}}
+    """
+    guard let sheet = SheetDocument.parse(Data(json.utf8)) else { fatalError("the sheet parses") }
+    check(sheet.name == "Pumps.xlsx" && sheet.sheets.count == 2 && sheet.headerRow == 1, "a sheet reads its name, sheets and header row")
+    check(sheet.selection == SheetRange(top: 3, bottom: 3, left: 1, right: 1), "a sheet opens on the cited cell")
+    check(sheet.cell(row: 2, column: 1) == "18,400" && sheet.cell(row: 4, column: 0) == "", "cells are read by sheet row number")
+    check(SheetDocument.parse(Data("{\"document\": {\"name\": \"x.csv\", \"unavailable\": \"Gone.\"}}".utf8))?.unavailable == "Gone.",
+          "a sheet that cannot be shown says why")
+
+    check(SheetRange(top: 5, bottom: 2, left: 2, right: 0) == SheetRange(top: 2, bottom: 5, left: 0, right: 2),
+          "a range dragged up or left is the same range")
+    check(SheetRange(top: 3, bottom: 3, left: 1, right: 1).a1 == "B3" && SheetRange(top: 2, bottom: 5, left: 0, right: 2).a1 == "A2:C5",
+          "a range is named as Excel names it")
+
+    let flow = SheetRange(top: 2, bottom: 2, left: 1, right: 1)
+    let head = SheetRange(top: 3, bottom: 3, left: 2, right: 2)
+    let two = SheetHighlights().adding(flow).adding(head)
+    check(two.ranges == [flow, head], "highlights are kept in the order they were made, and need not touch")
+    check(two.undoing().ranges == [flow], "\u{2318}Z removes the latest highlight")
+    check(two.undoing().redoing().ranges == [flow, head], "\u{21E7}\u{2318}Z brings it back")
+    check(two.undoing().adding(flow).redoing().ranges == [flow, flow], "a new highlight ends what \u{21E7}\u{2318}Z could bring back")
+    check(SheetHighlights().undoing().ranges.isEmpty, "\u{2318}Z with nothing highlighted does nothing")
+    let moved = SheetHighlights().adding(SheetRange(top: 3, bottom: 3, left: 1, right: 1)).moving(columns: 0, rows: 1, extending: false, in: sheet)
+    check(moved.ranges == [SheetRange(top: 5, bottom: 5, left: 1, right: 1)], "\u{2193} moves the latest highlight to the next row the sheet has")
+    let extended = SheetHighlights().adding(flow).moving(columns: 1, rows: 0, extending: true, in: sheet)
+    check(extended.ranges == [SheetRange(top: 2, bottom: 2, left: 1, right: 2)], "\u{21E7}\u{2192} widens the latest highlight a column")
+    check(SheetHighlights().adding(SheetRange(top: 2, bottom: 2, left: 2, right: 2)).moving(columns: 1, rows: 0, extending: false, in: sheet).ranges
+          == [SheetRange(top: 2, bottom: 2, left: 2, right: 2)], "a highlight stops at the sheet's last column")
+
+    let twoApart = [flow, SheetRange(top: 5, bottom: 5, left: 2, right: 2)]
+    let laid = SheetClipboard.grid(sheet, twoApart, headers: false)
+    check(laid.cells == [["18,400", ""], ["", "110"]] && !laid.headed,
+          "the picture keeps the cells where they sit and closes the rows and columns between highlights")
+    let withHeaders = SheetClipboard.grid(sheet, [flow, head], headers: true)
+    check(withHeaders.cells == [["Flow gpm", "Head ft"], ["18,400", ""], ["", "95"]] && withHeaders.headed,
+          "with headers, the touched columns' header row comes first")
+    let takesHeader = SheetClipboard.grid(sheet, [SheetRange(top: 1, bottom: 2, left: 0, right: 0)], headers: true)
+    check(takesHeader.cells == [["Pump"], ["P-101"]] && takesHeader.headed,
+          "a highlight that takes in the header row does not repeat it, and heads the picture with it")
+    check(SheetClipboard.citation(sheet, twoApart) == "(Pumps.xlsx, 'Trial Balance'!B2, C5)", "the source cites each highlight in order")
+    let csv = SheetDocument(name: "pumps.csv", sheet: nil, sheets: [], columns: ["A", "B"],
+                            rows: [SheetRow(number: 1, cells: ["Pump", "Note"])], headerRow: 1, selection: nil, truncated: false)
+    check(SheetClipboard.citation(csv, [SheetRange(top: 1, bottom: 1, left: 1, right: 1)]) == "(pumps.csv, B1)", "a CSV is cited without a sheet")
+    check(SheetClipboard.pick(sheet, highlights: [], headers: false, citing: true) == nil, "nothing highlighted inserts nothing")
+    let withBlank = SheetDocument(name: "ap.csv", sheet: nil, sheets: [], columns: ["A", "B", "C"],
+                                  rows: [SheetRow(number: 1, cells: ["Invoice", "", "Due"]), SheetRow(number: 2, cells: ["BILL-1160", "", "2026-09-17"]),
+                                         SheetRow(number: 3, cells: [""])], headerRow: 1, selection: nil, truncated: false)
+    check(SheetClipboard.grid(withBlank, [SheetRange(top: 1, bottom: 3, left: 0, right: 2)], headers: false).cells
+          == [["Invoice", "Due"], ["BILL-1160", "2026-09-17"]], "rows and columns with nothing in them are left out of the picture")
+
+    let typedInv = CompletionReplacement.capture(start: 0, end: 3, in: "inv")
+    check(SheetClipboard.typedTrigger(nil, before: "inv") == typedInv,
+          "the unfinished word that brought up the suggestion is replaced by the picture")
+    check(SheetClipboard.typedTrigger(nil, before: "Due dates: inv") == CompletionReplacement.capture(start: 11, end: 14, in: "Due dates: inv"),
+          "only that word, not the words before it")
+    check(SheetClipboard.typedTrigger(nil, before: "The invoices are ") == nil, "after a finished word nothing typed is removed")
+    let named = CompletionReplacement.capture(start: 4, end: 14, in: "The accrued pa")
+    check(SheetClipboard.typedTrigger(named, before: "The accrued pa") == named, "a matched name is replaced whole")
+    check(SheetClipboard.typedTrigger(CompletionReplacement(start: 3, expectedText: ""), before: "inv") == typedInv,
+          "a suggestion that only adds at the caret still takes away the unfinished word")
+    check(RichTextInserter.deletesBeforePaste(selected: true, deletesFirst: true, replacing: 3, keyboardDeleteCount: 3) == 1,
+          "a selected typed word is deleted before a picture is pasted, as attachments leave the selection")
+    check(RichTextInserter.deletesBeforePaste(selected: false, deletesFirst: true, replacing: 3, keyboardDeleteCount: 3) == 3,
+          "without a selection the typed letters are deleted one by one")
+    check(RichTextInserter.deletesBeforePaste(selected: true, deletesFirst: false, replacing: 3, keyboardDeleteCount: 3) == 0
+          && RichTextInserter.deletesBeforePaste(selected: true, deletesFirst: true, replacing: 0, keyboardDeleteCount: 0) == 0,
+          "a link pastes over its selected word, and with nothing typed nothing is deleted")
+
+    let plainLayout = SheetPicture.layout(laid.cells, headed: false, caption: nil)
+    let headedLayout = SheetPicture.layout(withHeaders.cells, headed: true, caption: nil)
+    let captioned = SheetPicture.layout(laid.cells, headed: false, caption: "(Pumps.xlsx, 'Trial Balance'!B2, C5)")
+    check(plainLayout.columnWidths.count == 2 && headedLayout.size.height > plainLayout.size.height,
+          "the picture has a column per touched column and a row per touched row")
+    check(captioned.size.height > plainLayout.size.height && captioned.size.width >= plainLayout.size.width,
+          "the source is written under the picture")
+    let picture = SheetClipboard.pick(sheet, highlights: [flow, head], headers: true, citing: true)
+    let png = picture.flatMap { NSBitmapImageRep(data: $0.png) }
+    check(png != nil && picture?.tiff != nil, "the picture is put on the clipboard as PNG and TIFF")
+    let expected = SheetPicture.layout(withHeaders.cells, headed: true, caption: picture?.citation)
+    check(png?.pixelsWide == Int(expected.size.width * SheetPicture.scale) && png?.pixelsHigh == Int(expected.size.height * SheetPicture.scale),
+          "the picture is drawn at Retina resolution")
+    let headerPixel = png?.colorAt(x: 3, y: 3)?.usingColorSpace(.sRGB)
+    let bodyPixel = png?.colorAt(x: 3, y: Int((SheetPicture.rowHeight + 6) * SheetPicture.scale))?.usingColorSpace(.sRGB)
+    check(headerPixel != nil && bodyPixel != nil && headerPixel!.brightnessComponent < bodyPixel!.brightnessComponent,
+          "the header row is shaded, the cells below are white")
+    check(SheetCells.isNumber("$18,400") && SheetCells.isNumber("(1,200)") && !SheetCells.isNumber("2026-09-17") && !SheetCells.isNumber("P-101")
+          && SheetCells.isNumber("-"), "numbers, and an accounting zero's dash, are told from dates and names, to set them right")
+
+    let card = KeyRoutingState(popup: .suggestions, sheetPickable: true)
+    let cardKey = { (code: Int64, flags: CGEventFlags) in KeyRouter.decide(keyCode: code, flags: flags, synthetic: false, state: card) }
+    check(cardKey(48, [.maskSecondaryFn]) == .swallow(.openSheetPicker), "fn+Tab on a sheet's suggestion opens the sheet picker")
+    check(cardKey(48, []) == .swallow(.activate), "Tab on a sheet's suggestion inserts it as before")
+    check(KeyRouter.decide(keyCode: 48, flags: [.maskSecondaryFn], synthetic: false, state: KeyRoutingState(popup: .suggestions))
+          == .swallow(.activate), "fn+Tab on any other suggestion is Tab")
+    let sheetPicking = KeyRoutingState(popup: .suggestions, sheetPickerOpen: true)
+    let sheetKey = { (code: Int64, flags: CGEventFlags) in KeyRouter.decide(keyCode: code, flags: flags, synthetic: false, state: sheetPicking) }
+    check(sheetKey(48, []) == .swallow(.sheetInsert) && sheetKey(48, [.maskSecondaryFn]) == .swallow(.sheetInsert), "Tab in the sheet picker inserts the highlights")
+    check(sheetKey(53, []) == .swallow(.sheetCancel), "Escape in the sheet picker goes back to the card")
+    check(sheetKey(6, [.maskCommand]) == .swallow(.sheetUndo), "\u{2318}Z in the sheet picker removes the latest highlight")
+    check(sheetKey(6, [.maskCommand, .maskShift]) == .swallow(.sheetRedo), "\u{21E7}\u{2318}Z brings it back")
+    check(sheetKey(125, [.maskShift]) == .swallow(.sheetMove(columns: 0, rows: 1, extending: true)), "\u{21E7}\u{2193} extends the latest highlight")
+    check(sheetKey(0, []) == .pass(.pickerTypedOn), "a letter goes on to the app and closes the sheet picker")
+    check(sheetKey(8, [.maskCommand]) == .pass(nil), "a shortcut stays the app's")
+    let sheetAndScope = KeyRoutingState(popup: .suggestions, sheetPickerOpen: true, scopeSwitchAvailable: true)
+    check(KeyRouter.decide(keyCode: 48, flags: [.maskAlternate], synthetic: false, state: sheetAndScope) != .swallow(.openScopeSwitcher),
+          "\u{2325}Tab does not open the folder switcher over the sheet picker")
+}
+
 print("⌥Tab chooses the folder suggestions come from")
 do {
     let tab: Int64 = 48, returnKey: Int64 = 36, escape: Int64 = 53, up: Int64 = 126, down: Int64 = 125
@@ -5573,13 +5680,23 @@ do {
     session.wordsArrived(at: at(41))
     check(!session.isOn(at: at(41.1)), "the last words dictation writes as it stops do not bring it back")
     session.wordsArrived(at: at(50))
-    check(session.isOn(at: at(50.1)), "words dictated later bring the pill back without the shortcut")
+    check(!session.isOn(at: at(50.1)), "after dictation stopped, words alone do not bring the pill back")
     session.shortcutPressed(at: at(51))
-    check(!session.isOn(at: at(51.1)), "pressing the shortcut while the pill shows stops it")
+    check(session.isOn(at: at(51.1)), "pressing it again starts dictation again")
     session.shortcutPressed(at: at(52))
-    check(session.isOn(at: at(52.1)), "pressing it again starts dictation again")
+    check(!session.isOn(at: at(52.1)), "pressing the shortcut while the pill shows stops it")
     session.stop(at: at(53))
     check(!session.isOn(at: at(53)) && session.endsAt == nil, "Escape stops it")
+    var unprompted = DictationPillSession()
+    unprompted.wordsArrived(at: start)
+    check(!unprompted.isOn(at: at(0.1)), "words nobody typed never show the pill without the 🎤 key")
+    var paused = DictationPillSession()
+    paused.shortcutPressed(at: start)
+    paused.wordsArrived(at: at(2))
+    paused.wordsArrived(at: at(30))
+    check(paused.isOn(at: at(30.1)), "words after a pause bring the pill back in a dictation the 🎤 key started")
+    paused.wordsArrived(at: at(30 + DictationPillSession.dictationMemory + 1))
+    check(!paused.isOn(at: at(30 + DictationPillSession.dictationMemory + 1.1)), "a minute after the last words, words alone do not")
     var later = DictationPillSession()
     later.shortcutPressed(at: start)
     later.wordsArrived(at: at(2))
