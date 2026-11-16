@@ -48,6 +48,17 @@ final class DependencyHighlighter {
     /// once no relevant host is in front.
     private var readerHoldsHost = false
     private var migratingObjectIds = Set<String>()
+    /// The phrases last drawn, and which of them are hidden while the text
+    /// under them may be moving.
+    private var shownChips: [OverlayChip] = []
+    private var shownQuiet = Set<String>()
+    private var quieted = Set<String>()
+    private var quietUntil = Date.distantPast
+    private var settleWork: DispatchWorkItem?
+    /// Where the host's caret was at the last read, in AppKit coordinates.
+    private var lastCaret: CGRect?
+    /// How long phrases stay hidden after the last keystroke or scroll that may move them.
+    private static let quietTime: TimeInterval = 0.35
 
     private init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -87,6 +98,9 @@ final class DependencyHighlighter {
         if let changes = NSEvent.addGlobalMonitorForEvents(
             matching: [.keyDown, .scrollWheel, .leftMouseDown, .leftMouseDragged, .leftMouseUp],
             handler: { [weak self] _ in self?.scheduleRefresh() }) { monitors.append(changes) }
+        if let moving = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .scrollWheel], handler: { [weak self] event in
+            self?.quietMovingText(event)
+        }) { monitors.append(moving) }
 
         for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification] {
             monitors.append(centre.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -141,13 +155,15 @@ final class DependencyHighlighter {
     /// `element` is the editor the insertion was verified in. The reference is
     /// stored only if that editor still has focus when the host is read.
     /// Returns the reference's id, so taking the insertion back can unlink it.
+    /// `alternatives` are the sources the card offered at that moment, which
+    /// Change Source offers again.
     @discardableResult
     func recordVerifiedInsertion(objectId: String, versionId: String?, snapshotId: String? = nil,
                                  projectId: String? = nil, label: String,
                                  valueText: String?, sourcePath: String, sourceLocation: String,
                                  document: [UInt16], range: Range<Int>, documentOffset: Int = 0,
                                  element: AXUIElement, videoTime: Double? = nil,
-                                 shareToken: String? = nil) -> String? {
+                                 shareToken: String? = nil, alternatives: [ReferenceAlternative]? = nil) -> String? {
         guard let anchor = TextAnchor.make(in: document, range: range,
                                            documentOffset: documentOffset) else { return nil }
         let id = "ref_" + UUID().uuidString.prefix(8)
@@ -160,7 +176,8 @@ final class DependencyHighlighter {
                     id: id, objectId: objectId, versionId: versionId, snapshotId: snapshotId,
                     projectId: projectId, label: label,
                     valueText: valueText, sourcePath: sourcePath, sourceLocation: sourceLocation,
-                    anchor: anchor, context: context, videoTime: videoTime, shareToken: shareToken)
+                    anchor: anchor, context: context, videoTime: videoTime, shareToken: shareToken,
+                    alternatives: alternatives)
             }
         }
         return id
@@ -170,7 +187,7 @@ final class DependencyHighlighter {
                                         projectId: String?, label: String,
                                         valueText: String?, sourcePath: String, sourceLocation: String,
                                         anchor: TextAnchor, context: HostContext, videoTime: Double? = nil,
-                                        shareToken: String? = nil) {
+                                        shareToken: String? = nil, alternatives: [ReferenceAlternative]? = nil) {
         let colorSlot = sourceColorSlot(path: sourcePath, objectId: objectId,
                                        projectId: projectId, in: context)
         let reference = DependencyReference(
@@ -183,7 +200,7 @@ final class DependencyHighlighter {
             label: label, valueText: valueText,
             sourcePath: sourcePath, sourceLocation: sourceLocation,
             sourceColorSlot: colorSlot, videoTime: videoTime, shareToken: shareToken,
-            createdAt: Date(), updatedAt: Date())
+            alternatives: alternatives, createdAt: Date(), updatedAt: Date())
         store.add(reference)
         scheduleRefresh()
     }
@@ -356,9 +373,7 @@ final class DependencyHighlighter {
         guard !references.isEmpty, reading.hasDocument else { hide(); return }
 
         var found: [DependencyGeometry] = []
-        var states: [String: DependencyVisualState] = [:]
-        var sourceSlots: [String: Int] = [:]
-        var directoryColors: [String: DirectoryToggleColor] = [:]
+        var chips: [OverlayChip] = []
 
         store.batchUpdates {
             for reference in references {
@@ -388,50 +403,129 @@ final class DependencyHighlighter {
                     if reference.state == .unresolved {
                         store.update(id: reference.id) { $0.state = .healthy }
                     }
-                    states[reference.id] = reference.state == .unresolved ? .healthy : reference.state
-                    sourceSlots[reference.id] = reference.sourceColorSlot
+                    let state = reference.state == .unresolved ? DependencyVisualState.healthy : reference.state
+                    let slot = reference.sourceColorSlot
                         ?? stableSourceColorSlot(sourceKey(path: reference.sourcePath, objectId: reference.objectId,
                                                            projectId: reference.projectId))
-                    directoryColors[reference.id] = DirectoryColorPreferences.color(for: reference.projectId)
+                    let directoryColor = DirectoryColorPreferences.color(for: reference.projectId)
                     guard let rects = reading.rects[reference.id], !rects.isEmpty else { continue }
                     let converted = rects.map {
                         HostGeometryConverter.toAppKit($0, primaryHeight: Self.primaryHeight())
                     }
-                    found.append(DependencyGeometry.coalesce(converted, referenceId: reference.id))
+                    let geometry = DependencyGeometry.coalesce(converted, referenceId: reference.id)
+                    guard !geometry.fragments.isEmpty else { continue }
+                    found.append(geometry)
+                    chips.append(Self.chip(for: reference, geometry: geometry, state: state, slot: slot,
+                                           directoryColor: directoryColor, style: reading.styles[reference.id],
+                                           room: reading.room[reference.id]))
                 }
             }
         }
 
         updatePolling()
+        lastCaret = reading.caret.map { HostGeometryConverter.toAppKit($0, primaryHeight: Self.primaryHeight()) }
         guard !found.isEmpty else { hide(); return }
-        let unchanged = currentContext == context && geometries == found
-            && view.states == states && view.sourceSlots == sourceSlots
-            && view.directoryColors == directoryColors && panel.isVisible
+        let quiet = currentQuiet()
+        let unchanged = currentContext == context && geometries == found && shownChips == chips
+            && shownQuiet == quiet && panel.isVisible
         currentContext = context
         guard !unchanged else { return }
         geometries = found
-        view.geometries = found
-        view.states = states
-        view.sourceSlots = sourceSlots
-        view.directoryColors = directoryColors
+        shownChips = chips
+        shownQuiet = quiet
+        view.show(chips, quiet: quiet)
+        reframe()
+        panel.orderFrontRegardless()
+    }
 
-        // The panel covers only what it needs to.
-        let union = found.dropFirst().reduce(found[0].bounds) { $0.union($1.bounds) }
-        panel.setFrame(union.insetBy(dx: -6, dy: -6), display: true)
+    /// The panel covers what is drawn and what is still moving, with room for
+    /// each icon and the pills' edges.
+    private func reframe() {
+        let union = view.paintedBounds ?? geometries.dropFirst().reduce(geometries.first?.bounds ?? .zero) { $0.union($1.bounds) }
+        let frame = union.insetBy(dx: -10, dy: -10).integral
+        if panel.frame != frame { panel.setFrame(frame, display: false) }
         view.panelFrame = panel.frame
         view.frame = NSRect(origin: .zero, size: panel.frame.size)
         view.needsDisplay = true
-        panel.orderFrontRegardless()
     }
 
     private func hide() {
         readGeneration += 1
         guard !geometries.isEmpty || panel.isVisible else { return }
         geometries = []
-        view.geometries = []
-        view.sourceSlots = [:]
-        view.directoryColors = [:]
+        shownChips = []
+        shownQuiet = []
+        view.show([])
+        view.hoveredId = nil
         panel.orderOut(nil)
+    }
+
+    /// One phrase as the overlay draws it: its words in the host's font where
+    /// they can be matched, its pill in the colours of the page under it.
+    private static func chip(for reference: DependencyReference, geometry: DependencyGeometry,
+                             state: DependencyVisualState, slot: Int, directoryColor: DirectoryToggleColor?,
+                             style: HostTextStyle?, room: HighlightReader.Room?) -> OverlayChip {
+        let tint = DependencyStyle.stroke(for: state, sourceSlot: slot, directoryColor: directoryColor, hovered: true)
+        let dark = ReferenceChipPalette.isDark(style)
+        // Lines in reading order, top first.
+        let fragments = geometry.fragments.sorted {
+            abs($0.midY - $1.midY) > 1 ? $0.midY > $1.midY : $0.minX < $1.minX
+        }
+        let lines = ReferenceChipLayout.lines(text: reference.anchor.text, fragments: fragments, style: style)
+        return OverlayChip(
+            id: reference.id, text: reference.anchor.text, fragments: fragments, lines: lines,
+            state: state, tint: tint, page: ReferenceChipPalette.page(style, dark: dark),
+            ink: ReferenceChipPalette.ink(style, dark: dark), words: ReferenceChipPalette.words(tint: tint, dark: dark),
+            sourcePath: reference.sourcePath, roomBefore: room?.before ?? false, roomAfter: room?.after ?? false,
+            badgeSide: ChipBadgeSide.choose(lines: lines), isNew: Date().timeIntervalSince(reference.createdAt) < 3)
+    }
+
+    // MARK: Text on the move
+
+    /// Hides the phrases a keystroke or scroll may move before the host has
+    /// drawn them anew, so a pill never sits over the wrong letters. Typing
+    /// moves only what comes after the caret; a scroll moves everything.
+    private func quietMovingText(_ event: NSEvent) {
+        guard panel.isVisible, !geometries.isEmpty else { return }
+        let ids: Set<String>
+        if event.type == .scrollWheel {
+            guard event.scrollingDeltaY != 0 || event.scrollingDeltaX != 0 else { return }
+            ids = Set(geometries.map(\.referenceId))
+        } else {
+            guard Self.mayEditText(event) else { return }
+            ids = Set(geometries.filter { $0.mayMove(typingAt: lastCaret) }.map(\.referenceId))
+        }
+        guard !ids.isEmpty else { return }
+        quieted.formUnion(ids)
+        quietUntil = Date().addingTimeInterval(Self.quietTime)
+        view.quiet(ids)
+        scheduleSettle()
+    }
+
+    /// Keys that only move the caret or close something leave the text where it is.
+    static func mayEditText(_ event: NSEvent) -> Bool {
+        let navigation: Set<UInt16> = [53, 115, 116, 119, 121, 123, 124, 125, 126]
+        guard !navigation.contains(event.keyCode) else { return false }
+        guard event.modifierFlags.contains(.command) else { return true }
+        // Paste, cut and undo change text; other shortcuts do not.
+        return ["v", "x", "z"].contains(event.charactersIgnoringModifiers?.lowercased() ?? "")
+    }
+
+    private func currentQuiet() -> Set<String> {
+        guard Date() < quietUntil else {
+            quieted = []
+            return []
+        }
+        scheduleSettle()
+        return quieted
+    }
+
+    /// One more read once the text has stopped moving, to bring the phrases back.
+    private func scheduleSettle() {
+        settleWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.scheduleRefresh() }
+        settleWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0.02, quietUntil.timeIntervalSinceNow + 0.02), execute: work)
     }
 
     private static func primaryHeight() -> CGFloat {
@@ -445,21 +539,96 @@ final class DependencyHighlighter {
         let hovered = geometries.first { $0.contains(point) }?.referenceId
         guard hovered != view.hoveredId else { return }
         view.hoveredId = hovered
-        view.needsDisplay = true
     }
 
+    /// A click on a phrase opens its menu under the line clicked; a click on
+    /// the same phrase again, or anywhere else, closes it.
     private func handleClick(_ point: NSPoint) {
-        guard panel.isVisible,
-              let hit = geometries.first(where: { $0.contains(point) }),
-              let reference = store.reference(id: hit.referenceId) else { return }
-        onInspect?(reference, hit.bounds)
+        let menu = ReferenceMenuController.shared
+        let hit = panel.isVisible ? geometries.first(where: { $0.contains(point) }) : nil
+        if menu.isShown {
+            let same = hit?.referenceId == menu.referenceId
+            menu.hide()
+            if same || hit == nil { return }
+        }
+        guard let hit, let reference = store.reference(id: hit.referenceId) else { return }
+        let line = hit.fragments.first { $0.insetBy(dx: -1, dy: -2).contains(point) } ?? hit.bounds
+        let id = reference.id
+        view.activeId = id
+        // Words already accepted are not asked about again: the card makes way
+        // for the menu and stays away while it is open.
+        GlobalAssistant.shared.dismiss()
+        menu.show(reference, below: line, onInspect: { [weak self] in
+            guard let self, let current = self.store.reference(id: id) else { return }
+            self.onInspect?(current, self.geometries.first { $0.referenceId == id }?.bounds ?? hit.bounds)
+        }, onChoose: { [weak self] alternative in
+            self?.changeSource(of: id, to: alternative)
+        }, onClose: { [weak self] in
+            if self?.view.activeId == id { self?.view.activeId = nil }
+        })
+    }
+
+    // MARK: Change Source
+
+    /// Writes the chosen source's words over the phrase in the host, then moves
+    /// the link to that source. The words roll over as soon as it is chosen.
+    func changeSource(of id: String, to alternative: ReferenceAlternative) {
+        guard let reference = store.reference(id: id), let element = lastResolvedElement[id] else {
+            GlobalAssistant.shared.flash(["The words couldn\u{2019}t be found here.", "Nothing was changed."])
+            return
+        }
+        let current = reference.currentAlternativeIndex.flatMap { reference.alternatives?[$0] }
+        view.beginChange(id)
+        GlobalAssistant.shared.markOwnWrite()
+        let anchor = reference.anchor
+        AccessibilityWork.queue.async {
+            ReferenceSwap.write(anchor, in: element, words: { shown, before in
+                ReferenceSwap.words(for: alternative, current: current, shown: shown, before: before)
+            }) { written in
+                DispatchQueue.main.async { [weak self] in self?.finishChange(id, to: alternative, written: written) }
+            }
+        }
+    }
+
+    private func finishChange(_ id: String, to alternative: ReferenceAlternative, written: ReferenceSwap.Written?) {
+        GlobalAssistant.shared.markOwnWrite()
+        guard let written, let anchor = TextAnchor.make(in: written.document, range: written.range) else {
+            view.cancelChange(id)
+            GlobalAssistant.shared.flash(["Lasso couldn\u{2019}t change the words here.", "Their source stays as it was."])
+            return
+        }
+        // ⌘Z now belongs to the host: the insertion it would take back is gone.
+        if GlobalAssistant.shared.undoableInsertion?.referenceId == id { GlobalAssistant.shared.undoableInsertion = nil }
+        store.update(id: id) {
+            $0.anchor = anchor
+            $0.objectId = alternative.objectId
+            $0.versionId = alternative.versionId
+            $0.snapshotId = alternative.snapshotId
+            $0.projectId = alternative.projectId
+            $0.label = alternative.label
+            $0.valueText = alternative.detail
+            $0.sourcePath = alternative.path
+            $0.sourceLocation = alternative.location
+            $0.videoTime = alternative.videoTime
+            $0.state = .healthy
+            $0.sourceColorSlot = nil
+        }
+        missingSince[id] = nil
+        if let serverURL {
+            RecommendationUsageClient.record(serverURL: serverURL, projectId: alternative.projectId,
+                                             objectId: alternative.usageObjectId ?? alternative.objectId,
+                                             path: alternative.path, kind: "accept")
+        }
+        // Draw the new words as soon as the host has them.
+        lastRefresh = .distantPast
+        scheduleRefresh()
     }
 }
 
 /// The Accessibility side of highlighting: reading the focused editor, its
 /// text and the geometry of each reference, and watching it for changes.
 /// Used only on `AccessibilityWork.queue`.
-private final class HighlightReader {
+final class HighlightReader {
     struct Reading {
         let context: HostContext
         /// False when the editor has no references here or exposes no text.
@@ -469,6 +638,27 @@ private final class HighlightReader {
         let rects: [String: [CGRect]]
         /// References missing here whose last editor still exists elsewhere.
         let stillOpenElsewhere: Set<String>
+        /// The font and colours each resolved phrase is drawn in, where the host says.
+        var styles: [String: HostTextStyle] = [:]
+        /// Whitespace either side of each resolved phrase.
+        var room: [String: Room] = [:]
+        /// The caret, in Accessibility coordinates.
+        var caret: CGRect? = nil
+    }
+
+    /// Whether the characters either side of a phrase are whitespace or the
+    /// text's ends, which its pill may reach into.
+    struct Room: Equatable {
+        let before: Bool
+        let after: Bool
+
+        static func around(_ range: Range<Int>, in document: [UInt16]) -> Room {
+            func open(_ index: Int) -> Bool {
+                guard document.indices.contains(index) else { return true }
+                return [9, 10, 13, 32, 160, 0x2028, 0x2029].contains(document[index])
+            }
+            return Room(before: open(range.lowerBound - 1), after: open(range.upperBound))
+        }
     }
 
     private let adapter = AccessibilityTextAdapter()
@@ -477,6 +667,9 @@ private final class HighlightReader {
     private var observer: AXObserver?
     private var observedPID: pid_t?
     private var observedElements: [AXUIElement] = []
+    /// Each phrase's font, read once per phrase and editor.
+    private var styles: [String: (text: String, style: HostTextStyle?)] = [:]
+    private var stylesElement: AXUIElement?
 
     func focusedContext() -> HostContext? {
         adapter.beginRefresh()
@@ -493,14 +686,29 @@ private final class HighlightReader {
         }
         let matches = resolutions.resolve(references, in: document)
         let snapshot = adapter.geometrySnapshot(context, text: document)
+        let units = Array(document.utf16)
+        if stylesElement.map({ !CFEqual($0, context.element) }) ?? true {
+            styles = [:]
+            stylesElement = context.element
+        }
         var rects: [String: [CGRect]] = [:]
         var stillOpenElsewhere = Set<String>()
+        var textStyles: [String: HostTextStyle] = [:]
+        var room: [String: Room] = [:]
         for reference in references {
             switch matches[reference.id] {
             case .resolved(let range)?:
                 rects[reference.id] = geometry.rects(for: range, in: snapshot) { [adapter] range in
                     adapter.measuredRects(for: range, in: context)
                 }
+                if let known = styles[reference.id], known.text == reference.anchor.text {
+                    textStyles[reference.id] = known.style
+                } else {
+                    let style = adapter.textStyle(for: range, in: context)
+                    styles[reference.id] = (reference.anchor.text, style)
+                    textStyles[reference.id] = style
+                }
+                room[reference.id] = Room.around(range, in: units)
             case .unresolved(.textMissing)?:
                 if let other = resolvedIn[reference.id], !CFEqual(other, context.element), Self.exists(other) {
                     stillOpenElsewhere.insert(reference.id)
@@ -510,7 +718,7 @@ private final class HighlightReader {
             }
         }
         return Reading(context: context, hasDocument: true, matches: matches, rects: rects,
-                       stillOpenElsewhere: stillOpenElsewhere)
+                       stillOpenElsewhere: stillOpenElsewhere, styles: textStyles, room: room, caret: snapshot.caret)
     }
 
     /// Stops watching the host and lets go of its text and geometry.
@@ -518,6 +726,8 @@ private final class HighlightReader {
         detachObserver()
         resolutions.clear()
         geometry.clear()
+        styles = [:]
+        stylesElement = nil
     }
 
     private static func exists(_ element: AXUIElement) -> Bool {

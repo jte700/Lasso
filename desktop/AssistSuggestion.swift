@@ -73,6 +73,21 @@ struct AssistSuggestion {
     }
 }
 
+extension ReferenceAlternative {
+    /// A suggestion as a source its words can be changed to, or nil when it
+    /// links to nothing, as a plain sentence completion.
+    init?(_ suggestion: AssistSuggestion) {
+        let continuation = suggestion.sentenceContinuation && suggestion.usageObjectId != "completion-source"
+            ? suggestion.usageObjectId : nil
+        guard let objectId = suggestion.objectId ?? continuation,
+              !suggestion.insertText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        self.init(text: suggestion.insertText, label: suggestion.label, detail: suggestion.detail,
+                  path: suggestion.path, location: suggestion.location, objectId: objectId,
+                  versionId: suggestion.versionId, snapshotId: suggestion.snapshotId, projectId: suggestion.projectId,
+                  usageObjectId: suggestion.usageObjectId, videoTime: suggestion.videoTime, verbatim: suggestion.verbatim)
+    }
+}
+
 struct CaretContext {
     let text: String
     let cursor: Int
