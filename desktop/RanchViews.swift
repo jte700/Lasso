@@ -583,7 +583,8 @@ struct RanchDirectoryMenu: View {
         Button(store.isPinned(directory.id) ? "Unpin" : "Pin to Top") { store.togglePin(directory.id) }
         Menu("Colour") {
             Picker("Colour", selection: color) {
-                ForEach(DirectoryToggleColor.allCases, id: \.self) { option in
+                ForEach(DirectoryToggleColor.choices(including: color.wrappedValue, DirectoryColorPreferences.lastCustom()),
+                        id: \.self) { option in
                     Label { Text(option.title) } icon: { Image(nsImage: option.swatch()) }.tag(option)
                 }
             }

@@ -2128,6 +2128,352 @@ do {
     root.removeFromSuperview()
 }
 
+print("the colour picker lays its colours out in a capsule, the chosen one a named pill")
+do {
+    let dots = Array(repeating: PaletteMetric.swatch, count: DirectoryToggleColor.allCases.count)
+    let frames = PaletteLayout.frames(widths: dots, origin: CGPoint(x: 10, y: 2))
+    check(frames.first?.minX == 10 + PaletteMetric.inset && frames.first?.minY == 2 + PaletteMetric.inset
+          && zip(frames, frames.dropFirst()).allSatisfy { $1.minX - $0.maxX == PaletteMetric.gap },
+          "the colours sit in a row inside the capsule, an even gap apart")
+    check(PaletteLayout.trackWidth(widths: dots) == frames.last!.maxX + PaletteMetric.inset - 10,
+          "the capsule ends as far past the last colour as it starts before the first")
+    check(PaletteLayout.pillWidth(nameWidth: 12) == PaletteMetric.pillMinimum, "a short name still makes a pill")
+    check(PaletteLayout.pillWidth(nameWidth: 60) >= 60 + PaletteMetric.labelLeading + PaletteMetric.close,
+          "a long name and the close button both fit in the pill")
+    check(PaletteLayout.width(selected: false, hovered: true, pill: 70, reduceMotion: false) == PaletteMetric.hoverWidth
+          && PaletteLayout.width(selected: false, hovered: false, pill: 70, reduceMotion: false) == PaletteMetric.swatch,
+          "pointing at a colour widens it into a short capsule")
+    check(PaletteLayout.width(selected: false, hovered: true, pill: 70, reduceMotion: true) == PaletteMetric.swatch
+          && PaletteLayout.width(selected: true, hovered: false, pill: 70, reduceMotion: true) == 70,
+          "with Reduce Motion pointing moves nothing, and the chosen colour is still the pill")
+    var widened = dots
+    widened[2] = PaletteMetric.hoverWidth
+    let wide = PaletteLayout.frames(widths: widened, origin: .zero)
+    check(PaletteLayout.hovered(at: CGPoint(x: wide[2].maxX - 1, y: wide[2].midY), frames: wide) == 2,
+          "the pointer at the end of a widened colour is still on it, so it does not flicker")
+    check(PaletteLayout.hovered(at: CGPoint(x: wide[2].maxX + PaletteMetric.gap / 2 + 0.5, y: wide[2].midY), frames: wide) == 3
+          && PaletteLayout.hovered(at: CGPoint(x: wide.last!.maxX + 10, y: wide[2].midY), frames: wide) == nil,
+          "past the middle of a gap it is on the next colour, and beside the capsule on none")
+    check(PaletteLayout.darkText(on: DirectoryToggleColor.orange.color) && !PaletteLayout.darkText(on: DirectoryToggleColor.blue.color),
+          "orange carries dark letters and blue light ones, so every name reads")
+    check(PaletteMotion.letterStart(0, reduceMotion: false) > 0
+          && PaletteMotion.letterStart(3, reduceMotion: false) > PaletteMotion.letterStart(2, reduceMotion: false),
+          "the name comes in a letter at a time, once the pill has started to stretch")
+    check(PaletteMotion.letterStart(4, reduceMotion: true) == 0, "with Reduce Motion the name comes in whole")
+    var stretch = IslandSpring(Double(PaletteMetric.swatch), stiffness: PaletteMotion.width.stiffness,
+                               damping: PaletteMotion.width.damping)
+    stretch.t = 70
+    var time = 0.0, peak = stretch.x
+    var settled: Double?
+    while time < 1.5 {
+        stretch.step(1.0 / 480)
+        time += 1.0 / 480
+        peak = max(peak, stretch.x)
+        if abs(stretch.x - 70) >= 0.5 { settled = nil } else if settled == nil { settled = time }
+    }
+    check(peak < 70.5, "a colour stretches into the pill without a visible overshoot")
+    check((settled ?? .infinity) < 0.4, "and gets there in under 0.4 seconds, as in the reference")
+}
+
+print("choosing in the colour picker stretches the new colour and types its name in")
+do {
+    _ = NSApplication.shared
+    var now = 50.0
+    var picked: [DirectoryToggleColor] = []
+    let palette = DirectoryColorPaletteRow(selected: .purple) { picked.append($0) }
+    palette.frame.size.width = 284
+    palette.drivesItself = false
+    palette.animatesOffscreen = true
+    palette.reducesMotion = { false }
+    palette.clock = { now }
+    var rooms: [CGFloat] = []
+    palette.onRoom = { rooms.append($0) }
+    func run(_ seconds: Double) {
+        let end = now + seconds
+        while now < end - 1e-9 {
+            now += 1.0 / 120
+            palette.tick()
+        }
+    }
+    check(!palette.isOpen && rooms.isEmpty, "a new picker is closed until it is opened")
+    palette.open()
+    run(0.05)
+    check((rooms.last ?? 0) > 0 && (rooms.last ?? 32) < 32, "opening grows the row on a spring")
+    run(1)
+    check(rooms.contains { $0 > 32.3 } && abs((rooms.last ?? 0) - 32) < 0.01 && palette.isAtRest(at: now),
+          "it overshoots a little, as the panel's add control does, and comes to rest open")
+    let purple = palette.swatches.first { $0.tint == .purple }!
+    let green = palette.swatches.first { $0.tint == .green }!
+    check(purple.accessibilityLabel() == "Use Purple" && purple.accessibilityValue() as? String == "Purple, selected"
+          && green.accessibilityValue() as? String == "Green", "VoiceOver hears each colour and which one is chosen")
+    check(palette.letterOpacities(.purple).allSatisfy { $0 == 1 } && palette.closeOpacity == 1,
+          "the chosen colour is named, with its close button")
+    green.performClick(nil)
+    check(picked == [.green] && green.accessibilityValue() as? String == "Green, selected",
+          "choosing a colour hands it on at once")
+    run(0.04)
+    let midway = palette.shownWidths
+    check(midway[2] > PaletteMetric.swatch && midway[2] < palette.targetWidths[2]
+          && midway[5] > PaletteMetric.swatch && midway[5] < palette.targetWidths[2],
+          "the new colour stretches while the old pill shrinks back")
+    check(palette.letterOpacities(.purple).allSatisfy { $0 < 0.5 } && palette.letterOpacities(.green).allSatisfy { $0 == 0 },
+          "the old name goes at once, and the new one waits for the pill")
+    run(0.12)
+    let letters = palette.letterOpacities(.green)
+    check(letters.first! > 0.3 && letters.first! > letters.last!, "the new name comes in from its first letter")
+    run(1)
+    check(palette.shownWidths[2] == palette.targetWidths[2] && palette.targetWidths[2] >= PaletteMetric.pillMinimum
+          && palette.shownWidths[5] == PaletteMetric.swatch, "the new colour ends as the pill and the old one as a dot")
+    check(palette.letterOpacities(.green).allSatisfy { $0 == 1 } && palette.letterOpacities(.purple).allSatisfy { $0 == 0 },
+          "only the chosen colour is named")
+    let closeFrame = palette.closeButton.frame
+    check(palette.closeOpacity == 1 && closeFrame.maxX <= green.frame.maxX
+          && closeFrame.minX >= green.frame.minX + PaletteMetric.labelLeading + green.nameWidth,
+          "the close button moves to the end of the new pill, clear of the name")
+    let first = palette.swatches[0]
+    palette.pointer(at: palette.convert(NSPoint(x: first.frame.midX, y: first.frame.midY), from: first.superview))
+    run(1)
+    check(palette.shownWidths[0] == PaletteMetric.hoverWidth, "pointing at a colour widens it")
+    palette.pointer(at: nil)
+    run(1)
+    check(palette.shownWidths[0] == PaletteMetric.swatch, "and it narrows again when the pointer leaves")
+    var closed = false
+    palette.onClose = { palette.close() }
+    palette.onClosed = { closed = true }
+    palette.closeButton.performClick(nil)
+    run(0.05)
+    check(!closed && (rooms.last ?? 32) < 32, "the close button shrinks the row back")
+    run(1)
+    check(closed && rooms.last == 0, "then the picker says it has closed")
+}
+
+print("a folder's colour button opens the picker under its row, and choosing works as before")
+do {
+    _ = NSApplication.shared
+    func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+    var chosen: [DirectoryToggleColor] = []
+    let item = NSMenuItem(title: "Thesis", action: nil, keyEquivalent: "")
+    item.state = .on
+    let row = NativeMenuToggleRow(item: item, color: .blue) { chosen.append($0) }
+    row.frame.size.width = 284
+    let dot = descendants(row).compactMap { $0 as? DirectoryColorButton }.first!
+    dot.performClick(nil)
+    check(row.isPaletteVisible && row.frame.height == 64 && row.paletteView != nil,
+          "the colour button opens the picker; a row nobody can see is open at once")
+    row.paletteView!.swatches.first { $0.tint == .pink }!.performClick(nil)
+    check(chosen == [.pink] && row.currentColor == .pink, "choosing in the picker colours the folder")
+    row.paletteView!.closeButton.performClick(nil)
+    check(!row.isPaletteVisible && row.frame.height == 32 && row.paletteView == nil, "its close button puts the picker away")
+    dot.performClick(nil)
+    dot.performClick(nil)
+    check(row.frame.height == 32 && row.paletteView == nil, "the colour button puts it away too")
+
+    var now = 10.0
+    row.preparePalette = { palette in
+        palette.drivesItself = false
+        palette.animatesOffscreen = true
+        palette.reducesMotion = { false }
+        palette.clock = { now }
+    }
+    var resized = 0
+    row.onSizeChange = { resized += 1 }
+    row.setPaletteVisible(true)
+    let animated = row.paletteView!
+    check(row.frame.height == 32, "on screen the row starts at its own height")
+    for _ in 0..<120 { now += 1.0 / 120; animated.tick() }
+    check(row.frame.height == 64 && resized > 2 && animated.frame.height == 32,
+          "and grows frame by frame to make room for the picker")
+    row.setPaletteVisible(false)
+    for _ in 0..<4 { now += 1.0 / 120; animated.tick() }
+    row.setPaletteVisible(true)
+    check(row.paletteView === animated, "opening it again while it closes turns the same picker around")
+    for _ in 0..<240 { now += 1.0 / 120; animated.tick() }
+    check(row.frame.height == 64 && row.isPaletteVisible, "and it settles open")
+    animated.plusButton.performClick(nil)
+    for _ in 0..<240 { now += 1.0 / 120; animated.tick() }
+    let cardRoom = PaletteMetric.trackHeight + PaletteCardLayout.height(width: animated.trackFrame.width) + 4
+    check(abs(row.frame.height - (32 + cardRoom.rounded())) <= 1 && animated.trackFrame.maxX <= row.frame.width - 2,
+          "pressing + grows the row to hold the card, which stays inside the row")
+    animated.plusButton.performClick(nil)
+    for _ in 0..<240 { now += 1.0 / 120; animated.tick() }
+    check(row.frame.height == 64 && chosen == [.pink], "its × puts the card away, and nothing new was chosen")
+}
+
+print("a folder colour can be one of Lasso's six or a hex of one's own")
+do {
+    check(DirectoryToggleColor(rawValue: "purple") == .purple && DirectoryToggleColor.purple.title == "Purple"
+          && !DirectoryToggleColor.purple.isCustom, "colours saved by name still read back as Lasso's own")
+    let own = DirectoryToggleColor(rawValue: "#3c7a28")
+    check(own?.rawValue == "#3C7A28" && own?.title == "#3C7A28" && own?.isCustom == true,
+          "a hex is a colour of one's own, written in capitals")
+    check(DirectoryToggleColor(rawValue: "#12345") == nil && DirectoryToggleColor(rawValue: "red") == nil,
+          "anything else is not a colour")
+    let made = DirectoryToggleColor(red: 0.2, green: 0.4, blue: 0.6)
+    check(made.rawValue == "#336699" && abs(made.components.green - 0.4) < 0.003, "a made colour keeps its components")
+    check(DirectoryToggleColor(rawValue: DirectoryToggleColor.orange.hex)?.matchingPreset == .orange
+          && made.matchingPreset == nil, "a hex that is one of Lasso's colours is known as that colour")
+    check(DirectoryToggleColor.choices(including: made, nil, .blue) == DirectoryToggleColor.allCases + [made],
+          "a menu of colours lists Lasso's six, then a colour of one's own in use")
+    let defaults = MemoryDirectoryDefaults()
+    DirectoryColorPreferences.set(made, for: "thesis", defaults: defaults)
+    check(DirectoryColorPreferences.color(for: "thesis", defaults: defaults) == made,
+          "a folder keeps a colour of one's own")
+    DirectoryColorPreferences.rememberCustom(.green, defaults: defaults)
+    check(DirectoryColorPreferences.lastCustom(defaults) == nil, "only colours of one's own are remembered as made")
+    DirectoryColorPreferences.rememberCustom(made, defaults: defaults)
+    check(DirectoryColorPreferences.lastCustom(defaults) == made, "the last colour made is offered to every folder")
+
+    let purple = PaletteHSB(.purple)
+    check(purple.color == DirectoryToggleColor(rawValue: DirectoryToggleColor.purple.hex),
+          "hue, saturation and brightness go back to the same colour")
+    let grey = PaletteHSB(hue: 0.7, saturation: 0, brightness: 0.5)
+    check(grey.hue == 0.7 && grey.color.rawValue == "#808080", "a grey keeps the hue it was dragged from")
+    let shades = PaletteShades.shades(hue: 0.3)
+    check(shades.count == 9 && shades.allSatisfy { $0.hue == 0.3 }
+          && zip(shades, shades.dropFirst()).allSatisfy { $0.brightness >= $1.brightness },
+          "the shades are of the one hue, palest first")
+    check(PaletteShades.index(of: shades[4]) == 4 && PaletteShades.index(of: PaletteHSB(.blue)) == nil,
+          "the ring finds the shade the colour is, and none when it is not a shade")
+    check(abs(PaletteContrast.ratio(.black, .white) - 21) < 0.01 && PaletteContrast.grade(21) == "AAA"
+          && PaletteContrast.grade(5) == "AA" && PaletteContrast.grade(2) == "Low",
+          "contrast is measured and graded as WCAG does")
+    let width: CGFloat = 258
+    let field = PaletteCardLayout.field(width: width), hue = PaletteCardLayout.hue(width: width)
+    let row = PaletteCardLayout.shades(width: width), footer = PaletteCardLayout.footer(width: width)
+    check(field.minX == hue.minX && hue.minY > field.maxY && row[0].minY > hue.maxY && footer.minY > row[0].maxY
+          && abs(row.last!.maxX - field.maxX) < 0.01 && PaletteCardLayout.height(width: width) > footer.maxY,
+          "the card stacks field, hue, shades and footer, all the same width")
+    check(PaletteLayout.trackWidth(widths: [20, 0, 20]) == 2 * PaletteMetric.inset + 40 + PaletteMetric.gap
+          && PaletteLayout.frames(widths: [20, 0, 20], origin: .zero)[2].minX == PaletteMetric.inset + 20 + PaletteMetric.gap,
+          "a colour not there takes no room and leaves no gap")
+    check(PaletteLayout.width(selected: false, hovered: true, pill: 70, reduceMotion: false, hoverRoom: 3)
+          == PaletteMetric.swatch + 3, "pointing widens a colour only as far as the row has room")
+}
+
+print("the + makes a colour of one's own in a card, and Done keeps it")
+do {
+    _ = NSApplication.shared
+    var now = 80.0
+    var picked: [DirectoryToggleColor] = []
+    let palette = DirectoryColorPaletteRow(selected: .purple) { picked.append($0) }
+    palette.frame.size.width = 274
+    palette.drivesItself = false
+    palette.animatesOffscreen = true
+    palette.reducesMotion = { false }
+    palette.clock = { now }
+    var rooms: [CGFloat] = []
+    palette.onRoom = { rooms.append($0) }
+    func run(_ seconds: Double) {
+        let end = now + seconds
+        while now < end - 1e-9 {
+            now += 1.0 / 120
+            palette.tick()
+        }
+    }
+    palette.open()
+    run(1)
+    let slot = palette.swatches[palette.slotIndex]
+    check(slot.isHidden && palette.shownWidths[palette.slotIndex] == 0 && !palette.plusButton.isHidden
+          && palette.plusButton.accessibilityLabel() == "New custom color",
+          "with no colour of one's own yet there is no slot, only the black +")
+    check(palette.trackFrame.maxX <= 274 - PaletteMetric.trailingRoom, "the capsule fits the narrowest folder row")
+    palette.plusButton.performClick(nil)
+    run(0.05)
+    check(palette.shownWidths[palette.slotIndex] > 0 && palette.shownWidths[palette.slotIndex] < palette.targetWidths[palette.slotIndex]
+          && palette.plusTurn > 0 && palette.cardOpenness > 0, "pressing + grows a new pill in, turns the +, and opens the card")
+    run(1)
+    let start = DirectoryToggleColor(rawValue: DirectoryToggleColor.purple.hex)!
+    check(palette.draft != nil && slot.tint == start && palette.selected == start && slot.accessibilityValue() as? String == "\(start.title), selected",
+          "the new pill starts as a copy of the chosen colour, named by its hex")
+    check(palette.letterOpacities(start).count == 7 && palette.letterOpacities(start).allSatisfy { $0 == 1 }
+          && palette.letterOpacities(.purple).allSatisfy { $0 == 0 }, "its hex has typed in and the old name gone")
+    check(abs(palette.plusTurn - 1) < 0.01 && palette.plusButton.accessibilityLabel() == "Cancel custom color"
+          && abs((rooms.last ?? 0) - (PaletteMetric.trackHeight + PaletteCardLayout.height(width: palette.trackFrame.width) + 4)) < 0.5,
+          "the + has turned into × and the row holds the whole card")
+    check(palette.closeButton.isHidden && picked.isEmpty, "while it is being made the pill has no ×, and nothing is chosen yet")
+    palette.card.hueSlider.onChange?(0.33)
+    palette.card.field.onChange?(0.7, 0.6)
+    let made = PaletteHSB(hue: 0.33, saturation: 0.7, brightness: 0.6).color
+    check(slot.tint == made && palette.card.hsb.saturation == 0.7, "the pill follows the card's controls")
+    palette.card.doneButton.performClick(nil)
+    run(1)
+    check(picked == [made] && palette.selected == made && palette.slotColor == made && palette.draft == nil,
+          "Done chooses the colour made and keeps it in the slot")
+    check(palette.cardOpenness < 0.01 && abs((rooms.last ?? 0) - 32) < 0.5 && palette.closeOpacity == 1,
+          "the card goes away and the pill has its × again")
+
+    palette.plusButton.performClick(nil)
+    run(1)
+    palette.card.shadeButtons[1].performClick(nil)
+    palette.card.doneButton.performClick(nil)
+    run(1)
+    let pale = PaletteShades.shades(hue: palette.card.hsb.hue)[1].color
+    check(palette.selected == pale && palette.closeButton.ink == NSColor.black.withAlphaComponent(0.78),
+          "a pale colour made gets dark letters, and its × is dark too")
+    palette.plusButton.performClick(nil)
+    run(1)
+    palette.card.field.onChange?(0.1, 0.9)
+    palette.plusButton.performClick(nil)
+    run(1)
+    check(picked == [made, pale] && palette.selected == pale && slot.tint == pale,
+          "the × puts the card away and goes back to the colour the folder had")
+    palette.plusButton.performClick(nil)
+    run(1)
+    palette.swatches[0].performClick(nil)
+    run(1)
+    check(picked == [made, pale, .blue] && palette.draft == nil && palette.cardOpenness < 0.01 && slot.tint == pale,
+          "choosing one of Lasso's colours while the card is open puts the card away and chooses it")
+    palette.plusButton.performClick(nil)
+    run(1)
+    palette.card.doneButton.performClick(nil)
+    run(1)
+    check(picked.last == .blue && palette.selected == .blue && palette.slotColor == pale,
+          "a colour made that is one of Lasso's own is chosen as that colour")
+    let offered = DirectoryColorPaletteRow(selected: .teal, custom: made) { _ in }
+    check(!offered.swatches[offered.slotIndex].isHidden && offered.swatches[offered.slotIndex].tint == made,
+          "the last colour made is offered in other folders' pickers")
+}
+
+print("a chosen colour keeps stretching while the panel rebuilds its rows")
+do {
+    _ = NSApplication.shared
+    var now = 120.0
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 80), styleMask: [.borderless],
+                          backing: .buffered, defer: true)
+    let palette = DirectoryColorPaletteRow(selected: .blue) { _ in }
+    palette.frame = NSRect(x: 0, y: 0, width: 280, height: 32)
+    palette.drivesItself = false
+    palette.animatesOffscreen = true
+    palette.reducesMotion = { false }
+    palette.clock = { now }
+    window.contentView?.addSubview(palette)
+    func run(_ seconds: Double) {
+        let end = now + seconds
+        while now < end - 1e-9 {
+            now += 1.0 / 120
+            palette.tick()
+        }
+    }
+    palette.open()
+    run(1)
+    palette.swatches[3].performClick(nil)
+    run(0.04)
+    let midway = palette.shownWidths[3]
+    // Choosing saves the colour, and the panel takes its rows out and puts them back.
+    palette.animatesOffscreen = false
+    palette.removeFromSuperview()
+    palette.update(selected: .orange, isEnabled: true)
+    check(palette.shownWidths[3] == midway && midway < palette.targetWidths[3],
+          "out of the panel for a moment, the stretch waits where it was instead of jumping to the pill")
+    palette.animatesOffscreen = true
+    window.contentView?.addSubview(palette)
+    check(palette.shownWidths[3] == midway, "put back, it carries on from there")
+    run(1)
+    check(palette.shownWidths[3] == palette.targetWidths[3] && palette.letterOpacities(.orange).allSatisfy { $0 == 1 },
+          "and arrives at the pill with its name")
+    palette.removeFromSuperview()
+}
+
 print("the bar fills with blocks that spread as it moves and close up at rest")
 do {
     _ = NSApplication.shared
