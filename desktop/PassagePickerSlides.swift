@@ -117,27 +117,43 @@ final class PassageSlideCanvas: NSView {
 }
 
 final class PassageSlidesBody: NSView, PassagePickerBody {
-    private static let navigationHeight: CGFloat = 38
+    private static let navigationHeight: CGFloat = 30
+    /// How far the fingers move up or down before lifting them turns the slide.
+    static let swipeToTurn: CGFloat = 90
+    /// How much of a swipe past the first or last slide the slide follows.
+    private static let edgeResistance: CGFloat = 0.3
+    private static let settleDuration: TimeInterval = 0.22
+    /// The shortest time between two slides turned by a mouse wheel's notches.
+    private static let wheelPause: TimeInterval = 0.25
 
     private let document: PassageDocument
     private let source: SlidePictureSource?
-    private let canvas = PassageSlideCanvas()
+    let canvas = PassageSlideCanvas()
     private let spinner = NSProgressIndicator()
-    private let previous = PassagePickerControls.circleButton(symbol: "chevron.left", label: "Previous slide")
-    private let next = PassagePickerControls.circleButton(symbol: "chevron.right", label: "Next slide")
     private let counter = NSTextField(labelWithString: "")
     /// The deck's text, shown only when a slide cannot be drawn.
     private let text: PassageTextBody
     private var showingText = false
     private let numbers: [Int]
-    private var shown: Int?
+    private(set) var shown: Int?
     private var request: URLSessionDataTask?
+    private var prefetches: [URLSessionDataTask] = []
     /// The passage the suggestion cited, highlighted once its slide's words are read.
     private var pendingSelection: NSRange?
     private var opening: (slide: Int, words: ClosedRange<Int>)?
+    /// Each slide's words once read, so a slide returned to is ready at once.
+    private var readWords: [Int: [PassageSlideWord]] = [:]
+    /// The one highlight, on the slide it was made on. It is what gets inserted
+    /// while other slides are looked at, until words on another slide replace it.
+    private(set) var chosen: (slide: Int, words: ClosedRange<Int>)?
     /// The highlight's fixed end and moving end, as word indices on the shown slide.
     private var anchor: Int?
     private var head: Int?
+    /// How far the swipe under way has gone up or down, or nil when the scroll is not a swipe.
+    private var swipe: CGFloat?
+    /// Where the slide sits while it follows the fingers.
+    private var slideOffset: CGFloat = 0
+    private var lastWheelTurn: TimeInterval = -.infinity
     var onSelectionChange: (() -> Void)?
     var view: NSView { self }
     override var isFlipped: Bool { true }
@@ -159,27 +175,24 @@ final class PassageSlidesBody: NSView, PassagePickerBody {
         counter.font = .systemFont(ofSize: 12, weight: .medium)
         counter.textColor = .secondaryLabelColor
         counter.alignment = .center
-        previous.target = self
-        previous.action = #selector(showPrevious)
-        next.target = self
-        next.action = #selector(showNext)
         text.isHidden = true
         text.onSelectionChange = { [weak self] in self?.onSelectionChange?() }
-        [canvas, spinner, previous, counter, next, text].forEach(addSubview)
+        // A slide following a swipe slides out of sight, not over the picker.
+        wantsLayer = true
+        layer?.masksToBounds = true
+        [canvas, spinner, counter, text].forEach(addSubview)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    private var slideHeight: CGFloat { max(0, bounds.height - Self.navigationHeight) }
+
     override func layout() {
         super.layout()
-        let slideHeight = max(0, bounds.height - Self.navigationHeight)
-        canvas.frame = NSRect(x: 0, y: 0, width: bounds.width, height: slideHeight)
-        text.frame = canvas.frame
+        canvas.frame = NSRect(x: 0, y: slideOffset, width: bounds.width, height: slideHeight)
+        text.frame = NSRect(x: 0, y: 0, width: bounds.width, height: slideHeight)
         spinner.frame = NSRect(x: bounds.midX - 8, y: slideHeight / 2 - 8, width: 16, height: 16)
-        let navigationY = slideHeight + 8
-        previous.frame = NSRect(x: bounds.midX - 90, y: navigationY, width: 26, height: 26)
-        next.frame = NSRect(x: bounds.midX + 64, y: navigationY, width: 26, height: 26)
-        counter.frame = NSRect(x: bounds.midX - 60, y: navigationY + 5, width: 120, height: 16)
+        counter.frame = NSRect(x: bounds.midX - 60, y: slideHeight + 8, width: 120, height: 16)
         window?.invalidateCursorRects(for: canvas)
     }
 
@@ -190,24 +203,79 @@ final class PassageSlidesBody: NSView, PassagePickerBody {
         show(slide)
     }
 
-    @objc private func showPrevious() { step(-1) }
-    @objc private func showNext() { step(1) }
-
-    private func step(_ delta: Int) {
+    /// The slide `delta` slides from the shown one, if the deck has it.
+    private func neighbour(_ delta: Int) -> Int? {
         guard let shown, let index = numbers.firstIndex(of: shown),
-              numbers.indices.contains(index + delta) else { NSSound.beep(); return }
-        show(numbers[index + delta])
+              numbers.indices.contains(index + delta) else { return nil }
+        return numbers[index + delta]
+    }
+
+    // MARK: Turning slides
+
+    /// A two-finger swipe up or down turns the slide, which follows the
+    /// fingers until they lift; a mouse wheel turns a slide a notch.
+    override func scrollWheel(with event: NSEvent) {
+        guard !showingText, shown != nil else { super.scrollWheel(with: event); return }
+        guard event.hasPreciseScrollingDeltas else { wheelTurn(event); return }
+        // The glide after the fingers lift belongs to the swipe already finished.
+        guard event.momentumPhase.isEmpty else { return }
+        if event.phase.contains(.began) { swipe = 0 }
+        if event.phase.contains(.changed), let distance = swipe {
+            // A scroll that starts sideways is not a swipe.
+            if distance == 0, abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) { swipe = nil; return }
+            swipe = distance + event.scrollingDeltaY
+            follow(distance + event.scrollingDeltaY)
+        }
+        if event.phase.contains(.ended) || event.phase.contains(.cancelled) { finishSwipe() }
+    }
+
+    private func follow(_ distance: CGFloat) {
+        let pastEnd = neighbour(distance < 0 ? 1 : -1) == nil
+        slideOffset = pastEnd ? distance * Self.edgeResistance : distance
+        canvas.frame.origin.y = slideOffset
+    }
+
+    /// Far enough, and the next slide comes in from the side the fingers pulled
+    /// it from; otherwise the slide goes back.
+    private func finishSwipe() {
+        let distance = swipe ?? 0
+        swipe = nil
+        let delta = distance <= -Self.swipeToTurn ? 1 : distance >= Self.swipeToTurn ? -1 : 0
+        guard delta != 0, let number = neighbour(delta) else { settle(from: slideOffset); return }
+        let from = slideOffset + CGFloat(delta) * slideHeight
+        show(number)
+        settle(from: from)
+    }
+
+    private func settle(from start: CGFloat) {
+        slideOffset = 0
+        canvas.frame.origin.y = start
+        guard start != 0 else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.settleDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            canvas.animator().setFrameOrigin(NSPoint(x: canvas.frame.minX, y: 0))
+        }
+    }
+
+    private func wheelTurn(_ event: NSEvent) {
+        let amount = event.scrollingDeltaY
+        guard amount != 0, event.timestamp - lastWheelTurn > Self.wheelPause,
+              let number = neighbour(amount < 0 ? 1 : -1) else { return }
+        lastWheelTurn = event.timestamp
+        show(number)
     }
 
     /// Shows slide `number`, its words to be read before they can be highlighted.
+    /// The highlight stays chosen wherever it was made.
     private func show(_ number: Int?) {
         guard let number else { return }
         shown = number
         counter.stringValue = "Slide \(number) of \(numbers.last ?? number)"
-        previous.isEnabled = numbers.first.map { number > $0 } ?? false
-        next.isEnabled = numbers.last.map { number < $0 } ?? false
         canvas.words = []
-        setSelection(nil, notify: true)
+        canvas.selection = nil
+        anchor = nil
+        head = nil
         if showingText, let place = document.places.first(where: { $0.kind == "slide" && $0.number == number }) {
             text.scrollToTop(max(0, place.range.location - 12))
         }
@@ -240,27 +308,57 @@ final class PassageSlidesBody: NSView, PassagePickerBody {
         spinner.stopAnimation(nil)
         guard let image = NSImage(data: data) else { showText(); return }
         canvas.picture = image
+        prefetchNeighbours(of: number)
+        if let read = readWords[number] { wordsRead(read, on: number); return }
         DispatchQueue.global(qos: .userInitiated).async { [weak self, document] in
             let read = PassageSlideWords.aligned(PassageSlideReader.words(in: data), to: document, slide: number)
             DispatchQueue.main.async {
-                guard let self, self.shown == number else { return }
-                self.canvas.words = read
-                self.window?.invalidateCursorRects(for: self.canvas)
-                self.highlightOpening(on: number)
+                guard let self else { return }
+                self.readWords[number] = read
+                guard self.shown == number else { return }
+                self.wordsRead(read, on: number)
             }
         }
     }
 
+    /// The slides either side, fetched ahead so a swipe finds them drawn. One
+    /// that fails is fetched again when it is shown.
+    private func prefetchNeighbours(of number: Int) {
+        guard let source else { return }
+        prefetches.removeAll { $0.state == .completed }
+        for slide in [neighbour(-1), neighbour(1)].compactMap({ $0 }) {
+            guard SlidePictureCache.picture(slide, of: source) == nil, let url = source.url(for: slide) else { continue }
+            let task = URLSession.shared.dataTask(with: url) { data, response, _ in
+                guard ((response as? HTTPURLResponse)?.statusCode ?? 0) == 200,
+                      let data, NSImage(data: data) != nil else { return }
+                SlidePictureCache.keep(data, slide, of: source)
+            }
+            prefetches.append(task)
+            task.resume()
+        }
+    }
+
+    /// A slide's words are ready: the cited passage is highlighted the first
+    /// time, and the highlight shows again on the slide it was made on.
+    private func wordsRead(_ read: [PassageSlideWord], on number: Int) {
+        canvas.words = read
+        window?.invalidateCursorRects(for: canvas)
+        if highlightOpening(on: number) { return }
+        guard let chosen, chosen.slide == number, read.indices.contains(chosen.words.upperBound) else { return }
+        anchor = chosen.words.lowerBound
+        head = chosen.words.upperBound
+        canvas.selection = chosen.words
+    }
+
     /// The passage the suggestion cited, once, on its slide.
-    private func highlightOpening(on number: Int) {
+    private func highlightOpening(on number: Int) -> Bool {
         guard let wanted = pendingSelection,
-              document.place(at: wanted.location, kind: "slide")?.number == number else { return }
+              document.place(at: wanted.location, kind: "slide")?.number == number else { return false }
         pendingSelection = nil
-        guard let words = PassageSlideWords.covering(canvas.words, wanted) else { return }
+        guard let words = PassageSlideWords.covering(canvas.words, wanted) else { return false }
         opening = (number, words)
-        anchor = words.lowerBound
-        head = words.upperBound
-        setSelection(words, notify: true)
+        choose(words)
+        return true
     }
 
     /// A slide that cannot be drawn: the deck's text, highlighted as the picture would have been.
@@ -273,39 +371,40 @@ final class PassageSlidesBody: NSView, PassagePickerBody {
         onSelectionChange?()
     }
 
+    // MARK: Choosing
+
+    /// Words chosen on the shown slide replace the highlight, wherever it was.
     private func choose(_ words: ClosedRange<Int>?) {
         anchor = words?.lowerBound
         head = words?.upperBound
-        setSelection(words, notify: true)
-    }
-
-    private func setSelection(_ words: ClosedRange<Int>?, notify: Bool) {
+        chosen = shown.flatMap { slide in words.map { (slide, $0) } }
         canvas.selection = words
-        if notify { onSelectionChange?() }
+        onSelectionChange?()
     }
 
     func pick(citing: Bool) -> PassagePick? {
         guard !showingText else { return text.pick(citing: citing) }
-        guard let selection = canvas.selection else { return nil }
-        let body = PassageSlideWords.text(canvas.words, selection, in: document)
+        guard let chosen, let words = readWords[chosen.slide] else { return nil }
+        let body = PassageSlideWords.text(words, chosen.words, in: document)
         guard !body.isEmpty else { return nil }
         return PassagePick(body: body, citation: citing ? citation() : nil, quoted: false, videoTime: nil)
     }
 
     var isOpeningSelection: Bool {
         guard !showingText else { return text.isOpeningSelection }
-        guard let opening, let selection = canvas.selection else { return false }
-        return opening.slide == shown && opening.words == selection
+        guard let opening, let chosen else { return false }
+        return opening.slide == chosen.slide && opening.words == chosen.words
     }
 
     func citation() -> String? {
         guard !showingText else { return text.citation() }
-        guard let selection = canvas.selection, let shown else { return nil }
-        return PassageSlideWords.citation(canvas.words, selection, in: document)
-            ?? "(\(document.name), \(PassageDocument.numbered("slide", [shown]) ?? "slide \(shown)"))"
+        guard let chosen, let words = readWords[chosen.slide] else { return nil }
+        return PassageSlideWords.citation(words, chosen.words, in: document)
+            ?? "(\(document.name), \(PassageDocument.numbered("slide", [chosen.slide]) ?? "slide \(chosen.slide)"))"
     }
 
     /// The arrows move the highlight a word at a time, or a line with ↑ and ↓; with ⇧ they extend it.
+    /// On a slide without the highlight they start a new one there.
     func moveSelection(forward: Bool, byLine: Bool, extending: Bool) {
         guard !showingText else { text.moveSelection(forward: forward, byLine: byLine, extending: extending); return }
         let words = canvas.words
@@ -320,11 +419,14 @@ final class PassageSlidesBody: NSView, PassagePickerBody {
         } else {
             to = min(max(0, from + (forward ? 1 : -1)), words.count - 1)
         }
+        let start = (extending ? anchor : nil) ?? to
+        choose(min(start, to)...max(start, to))
+        anchor = start
         head = to
-        if !extending || anchor == nil { anchor = to }
-        let start = anchor ?? to
-        setSelection(min(start, to)...max(start, to), notify: true)
     }
 
-    func stop() { request?.cancel() }
+    func stop() {
+        request?.cancel()
+        prefetches.forEach { $0.cancel() }
+    }
 }
