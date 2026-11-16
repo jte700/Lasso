@@ -96,35 +96,36 @@ function acceptValue(prediction, text, replacementText) {
     sourceObjectId: value.dependencyCandidate.id, sourceSnapshotId: value.dependencyCandidate.snapshotId } };
 }
 
-test('a value tabbed at the end of a source gives the next words back to every directory', async t => {
+test('a value tabbed from a source keeps its list until fn+Left gives the words to every directory', async t => {
   const app = await twoDirectories(t);
   const bracket = await accept(app, 'The brack', 'Bracket', 'Bracket.step');
   const width = acceptValue(await typed(app, `${bracket.accepted} is `, [bracket.link]), `${bracket.accepted} is `, '100 mm');
   const links = [bracket.link, width.link];
-  // A measurement is as deep as the part goes. The card leaves the part, and
-  // the value just tabbed is not offered again for the text it fills.
-  for (const tail of ['', ' ', ' wide']) {
+  // The part's measurements stay on the card, whatever is typed after the value.
+  for (const tail of [' ', ' wide', ' next to the reven']) {
     const after = await typed(app, `${width.accepted}${tail}`, links);
-    assert.equal(after.workspaceHeading, undefined, JSON.stringify(tail));
-    assert.equal(after.sourceContext?.source, undefined, JSON.stringify(tail));
-    assert.deepEqual(after.claims.filter(claim => claim.end <= width.accepted.length), [], JSON.stringify(tail));
+    assert.equal(after.sourceContext?.source?.id, bracket.link.sourceObjectId, JSON.stringify(tail));
   }
-  // With no joining word or new sentence, the other directory names what comes next.
-  assert.equal(named(await typed(app, `${width.accepted} next to the reven`, links))[0], 'Revenue');
+  // fn+Left sends no source, only where the value ended, and the other directory names what comes next.
+  const widened = `${width.accepted} next to the reven`;
+  const released = await app.workspace.predict({ text: widened, cursor: widened.length, blockIndex: 0,
+    settledValueEnd: width.accepted.length, sourceScopeBoundary: width.accepted.length });
+  assert.equal(named(released)[0], 'Revenue');
 
   const revenue = await accept(app, 'Reven', 'Revenue', 'Income-Statement.csv');
   const amount = acceptValue(await typed(app, `${revenue.accepted} was `, [revenue.link]), `${revenue.accepted} was `, '485000');
-  const partAfterAmount = await typed(app, `${amount.accepted} in the quarter the brack`, [revenue.link, amount.link]);
-  assert.equal(partAfterAmount.workspaceHeading, undefined);
+  const quarter = `${amount.accepted} in the quarter the brack`;
+  const partAfterAmount = await app.workspace.predict({ text: quarter, cursor: quarter.length, blockIndex: 0,
+    settledValueEnd: amount.accepted.length, sourceScopeBoundary: amount.accepted.length });
   assert.equal(named(partAfterAmount)[0], 'Bracket');
 
-  // A source accepted earlier in another directory does not take the card back.
+  // A source accepted earlier in another directory does not take the card
+  // back: the list kept is the one the value was tabbed from.
   const part = await accept(app, `${revenue.accepted} matched the brack`, 'Bracket', 'Bracket.step');
   const partLinks = [revenue.link, part.link];
   const length = acceptValue(await typed(app, `${part.accepted} at `, partLinks), `${part.accepted} at `, '100 mm');
   const afterLength = await typed(app, `${length.accepted} `, [...partLinks, length.link]);
-  assert.equal(afterLength.workspaceHeading, undefined);
-  assert.equal(afterLength.sourceContext?.source, undefined);
+  assert.equal(afterLength.sourceContext?.source?.id, part.link.sourceObjectId);
 });
 
 // fn+Right focuses a source that need not be in the text.

@@ -149,7 +149,8 @@ export const workspacePredictionMethods = {
     const predictionInput = namedElsewhere ? { ...input, sourceScopeBoundary: linkedContext.anchor.end }
       : settledAt >= 0 ? { ...input, sourceScopeBoundary: settledAt, settledValueEnd: settledAt } : input;
     if (namedElsewhere) linkedContext = null;
-    const currentPending = linkedContext
+    // A held list is worked out again from the values tabbed from it, so they go along with it.
+    const currentPending = linkedContext && !linkedContext.heldList
       ? availablePending.filter((link) => link.sourceObjectId === linkedContext.source.id) : availablePending;
     const predictions = [];
     for (const project of projects) {

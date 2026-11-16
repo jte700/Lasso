@@ -157,8 +157,10 @@ export const writingPredictionMethods = {
         deterministic: true, generatedText: false,
       };
     }
+    // A kept list also offers the rows of the values tabbed from it.
     const linkedProjectObject = this.projectLinkInScope(projectId, input, cursor, linkedDependency)
-      ? this.valuesFromLinkedProjectObject(projectId, input, cursor, linkedDependency) : null;
+      ? this.withTabbedRows(projectId, input, cursor, linkedDependency,
+        this.valuesFromLinkedProjectObject(projectId, input, cursor, linkedDependency)) : null;
     if (linkedProjectObject) {
       return {
         claims: [], completion: null, sourceCompletions: [],
