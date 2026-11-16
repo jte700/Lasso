@@ -97,17 +97,25 @@ test('every invoice date of an Excel sheet can be inserted in turn after accepti
 });
 
 
-test('a completed table value releases the scope unless a comma continues its list', async t => {
+test('a value tabbed from a column keeps the column listed until fn+Left drops it', async t => {
+  // Arrange
   const app = await directory(t, 'Accounts-Payable.csv', `${PAYABLES.map(row => row.join(',')).join('\n')}\n`);
-  const column = await acceptName(app, 'The invoice dat', 'Invoice Date', []);
-  const before = `${column.text} is `;
-  const prediction = await typed(app, before, column.links);
-  const value = prediction.workspaceCompletions[0];
-  const text = before + value.replacementText;
-  const links = [...column.links, link(value.dependencyCandidate, before.length, text.length)];
-  assert.equal((await typed(app, `${text} `, links)).workspaceHeading, undefined);
-  assert.equal((await typed(app, `${text}, `, links)).workspaceHeading, 'Values for Invoice Date');
-  assert.equal((await typed(app, `${text}, next `, links)).workspaceHeading, undefined);
+  const column = await acceptName(app, 'Inv', 'Invoice', []);
+  const before = `${column.text} had approximately 3 values I was looking into, it was `;
+  const first = (await typed(app, before, column.links)).workspaceCompletions
+    .find(item => item.replacementText === 'BILL-1160');
+  const text = before + first.replacementText;
+  const links = [...column.links, link(first.dependencyCandidate, before.length, text.length)];
+  // Act
+  const after = await Promise.all([' and ', ' and BI', ' and BILL-1190 who had some values. Then the next ']
+    .map(more => typed(app, text + more, links)));
+  const widened = await typed(app, `${text} and `, []);
+  // Assert
+  for (const prediction of after) assert.equal(prediction.workspaceHeading, 'Values for Invoice');
+  assert.ok(!offered(after[0]).includes('BILL-1160'), 'the value already written is left out of its sentence');
+  assert.ok(offered(after[0]).includes('BILL-1190'));
+  assert.ok(offered(after[2]).includes('BILL-1160'), 'a new sentence may name it again');
+  assert.notEqual(widened.workspaceHeading, 'Values for Invoice', 'with the column dropped, every directory answers');
 });
 
 // A general ledger: Credit CAD has nine different amounts, 0 among them, over fifteen rows.
@@ -353,4 +361,41 @@ test('a typed date or amount reorders its column too', async t => {
   // Assert
   assert.deepEqual(date, ['2026-10-12', '2026-10-20', '2026-09-17', '2026-11-01']);
   assert.equal(amount[0], '46350');
+});
+
+// "Invoice ... it was BILL-1160 and BILL-1190 who had values that didnt quite
+// add up being 22000 and 32500": the rows of the values tabbed in a sentence
+// join the list kept for their column, below it, and their digits bring them up.
+async function writeRowAmounts(app) {
+  // Arrange
+  const column = await acceptName(app, 'Inv', 'Invoice', []);
+  let text = `${column.text} had approximately 3 values I was looking into, it was `;
+  let links = column.links;
+  for (const bill of ['BILL-1160', 'BILL-1190']) {
+    const value = (await typed(app, text, links)).workspaceCompletions.find(item => item.replacementText === bill);
+    assert.ok(value, `${bill} is offered after ${text}`);
+    links = [...links, link(value.dependencyCandidate, text.length, text.length + bill.length)];
+    text += bill === 'BILL-1160' ? `${bill} and ` : `${bill} who had some values that didnt quite add up being `;
+  }
+  // Act
+  const listed = offered(await typed(app, text, links));
+  const first = offered(await typed(app, `${text}22`, links));
+  const second = offered(await typed(app, `${text}22000 and 32`, links));
+  // Assert
+  assert.equal(listed[0], 'BILL-1174', 'the column\'s own values stay on top');
+  assert.ok(listed.indexOf('22000') > listed.indexOf('BILL-1193') && listed.includes('32500'), listed.join(' | '));
+  assert.ok(!listed.includes('18400'), 'a row nobody tabbed adds nothing');
+  assert.equal(first[0], '22000');
+  assert.equal(second[0], '32500');
+}
+
+test('the rows of values tabbed from a CSV column join its kept list', async t => {
+  const app = await directory(t, 'Accounts-Payable.csv', `${PAYABLES.map(row => row.join(',')).join('\n')}\n`);
+  await writeRowAmounts(app);
+});
+
+test('the rows of values tabbed from an Excel column join its kept list', async t => {
+  const rows = Object.fromEntries(PAYABLES.map((row, index) => [index + 1, row]));
+  const app = await directory(t, 'Accounts-Payable.xlsx', workbook('Payables', rows));
+  await writeRowAmounts(app);
 });

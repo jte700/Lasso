@@ -25,6 +25,7 @@ import { cellDisplayMethods } from './cell-display.js';
 import { linkedContextMethods } from './linked-context.js';
 import { linkedFieldsMethods } from './linked-fields.js';
 import { linkedValuesMethods } from './linked-values.js';
+import { heldRowsMethods } from './held-rows.js';
 import { objectAccessMethods } from './object-access.js';
 import { objectExtractionMethods } from './object-extraction.js';
 import { objectHistoryMethods } from './object-history.js';
@@ -282,6 +283,7 @@ installMethods(PredictiveProvenanceService.prototype,
   linkedContextMethods,
   linkedFieldsMethods,
   linkedValuesMethods,
+  heldRowsMethods,
   writingPredictionMethods,
   videoTranscriptMethods,
   sourceSearchMethods,

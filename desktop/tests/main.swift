@@ -3457,6 +3457,23 @@ do {
     memory.moveIn(focusedOn: bracket, selected: hole)
     check(focusId(memory.requestFields) == "hole", "fn+Left then fn+Right returns to the narrowed focus")
 
+    // Tab on Invoice lists its values; Tab on one of them leaves that list on the card.
+    let invoice = source("invoice", "Invoice"), bill = source("bill-1160", "BILL-1160")
+    var held = LinkedSourceMemory()
+    let invoiceText = accept(&held, invoice, after: "")
+    held.noteFocus(invoice)
+    let billText = accept(&held, bill, after: invoiceText + " had values, it was ")
+    held.observe(billText + " and ", reachesStart: true)
+    held.noteFocus(invoice)
+    check(held.stepBack == nil, "fn+Left from a list a value was tabbed from goes to every directory")
+    held.moveOut(from: invoice)
+    let widened = held.requestFields, billEnd = billText.utf16.count
+    check(pendingIds(widened).isEmpty && widened["settledValueEnd"] as? Int == billEnd
+          && widened["sourceScopeBoundary"] as? Int == billEnd,
+          "one fn+Left drops the list and the value tabbed from it, and the words after the value go to every directory")
+    check(held.canMoveIn(focusedOn: nil, selected: nil) && held.recent == invoice,
+          "fn+Right goes back into the list")
+
     let revenueText = accept(&memory, source("revenue", "Revenue", project: "finance"), after: "The Bracket is shown. ")
     memory.observe(revenueText + " was", reachesStart: true)
     check(focusId(memory.requestFields) == nil && memory.requestFields["pendingDependencies"] != nil,

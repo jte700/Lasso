@@ -69,6 +69,9 @@ struct LinkedSourceMemory {
         let step: Int
         /// Where the words a focus was chosen on are; its values replace them.
         var words: Range<Int>? = nil
+        /// The server answered this Tab with the list the value was tabbed
+        /// from, which stays until fn+Left steps out of that list too.
+        var keptList = false
     }
 
     private struct Focus {
@@ -79,6 +82,10 @@ struct LinkedSourceMemory {
         var chosen: [Level] = []
         var recent: Source?
         var displayed: Source?
+        /// Where the value ends that fn+Left stepped past with the list it was
+        /// tabbed from. The words after it go to every directory, as they
+        /// would have after a value before lists were kept.
+        var releasedAt: Int?
     }
 
     /// The steps replayed against the window.
@@ -122,7 +129,8 @@ struct LinkedSourceMemory {
     var stepBack: Source? {
         let focus = focus
         if let level = focus.chosen.last { return level.beneath }
-        return focus.pending.last?.level.beneath
+        // A value whose list stayed on the card is stepped past with that list.
+        return focus.pending.last { !$0.level.keptList }?.level.beneath
     }
 
     /// Where fn+Right returns from every directory: the latest focus in this field.
@@ -298,7 +306,12 @@ struct LinkedSourceMemory {
             return ["projectId": source.projectId, "blockIndex": 0, "start": range.lowerBound, "end": range.upperBound,
                     "sourceObjectId": source.objectId, "sourceSnapshotId": source.snapshotId]
         }
-        return pending.isEmpty ? [:] : ["pendingDependencies": pending]
+        var fields: [String: Any] = pending.isEmpty ? [:] : ["pendingDependencies": pending]
+        if let released = focus.releasedAt {
+            fields["settledValueEnd"] = released
+            fields["sourceScopeBoundary"] = released
+        }
+        return fields
     }
 
     private var focus: Focus { replay.focus }
@@ -328,6 +341,7 @@ struct LinkedSourceMemory {
                     }
                     let level = Level(source: source, beneath: replay.focus.displayed, step: index)
                     replay.focus.pending.append((level, range, replay.focus.chosen))
+                    replay.focus.releasedAt = nil
                 case .unseen:
                     break
                 }
@@ -339,6 +353,10 @@ struct LinkedSourceMemory {
                 if let shown = replay.focus.displayed { replay.focus.recent = shown }
             case .displayed(let source) where !undone:
                 if let source { replay.focus.recent = source }
+                if let last = replay.focus.pending.indices.last, let source,
+                   replay.focus.pending[last].level.beneath?.objectId == source.objectId {
+                    replay.focus.pending[last].level.keptList = true
+                }
                 replay.focus.displayed = source
             case .chosen(let source, let words):
                 let found = words.map { place(of: $0.anchor) }
@@ -360,13 +378,22 @@ struct LinkedSourceMemory {
                 var level = Level(source: source, beneath: replay.focus.displayed, step: index)
                 if case .at(let range)? = found { level.words = range }
                 replay.focus.chosen.append(level)
+                replay.focus.releasedAt = nil
                 replay.focus.recent = source
                 replay.focus.displayed = source
             case .movedOut(let source) where !undone:
                 if let level = replay.focus.chosen.popLast() {
                     replay.focus.displayed = level.beneath
                     replay.steppedOut[index] = level.step
-                } else if let accepted = replay.focus.pending.popLast() {
+                } else if var accepted = replay.focus.pending.popLast() {
+                    // A value tabbed from the list on screen left that list
+                    // there, so fn+Left steps past the value and out of the list.
+                    var released: Int?
+                    while accepted.level.keptList, let below = replay.focus.pending.popLast() {
+                        released = released ?? accepted.range.upperBound
+                        accepted = below
+                    }
+                    replay.focus.releasedAt = released
                     // Out of a Tab, the focus it replaced comes back.
                     replay.focus.chosen = accepted.replaced
                     replay.focus.displayed = accepted.level.beneath

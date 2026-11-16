@@ -9,6 +9,27 @@ import { VALUE_HOLDERS } from './variable-match.js';
 import { CLAUSE_JOINER, endsSentence, writingSourceContext } from './writing-context.js';
 
 const isCodeLineReference = (object) => object?.anchor?.kind === 'line-range' && object.metadata?.lineReference === true;
+// Characters typed after the latest Tab before its source stops scoping the card.
+const LINKED_REACH = 420;
+
+/**
+ * Whether `value` is one of the values listed below `holder`: a column's
+ * cells, a row's cells, or anything in a whole file or drawing.
+ * @param {object} holder
+ * @param {object} value
+ * @returns {boolean}
+ */
+export function holdsValue(holder, value) {
+  if (!holder || !value || holder.id === value.id || holder.path !== value.path) return false;
+  if (!VALUE_HOLDERS.has(holder.objectType)) return false;
+  const held = holder.anchor ?? {}, cell = value.anchor ?? {};
+  const sheet = held.sheet ?? holder.metadata?.sheet ?? null;
+  if (sheet !== null && (cell.sheet ?? value.metadata?.sheet ?? null) !== sheet) return false;
+  if (held.kind === 'table-column') return Number.isInteger(held.columnIndex) && cell.columnIndex === held.columnIndex;
+  if (held.kind === 'table-row') return Number.isInteger(held.rowIndex) && cell.rowIndex === held.rowIndex;
+  if (held.kind === 'table-cell') return false;
+  return true;
+}
 
 export const linkedContextMethods = {
   linkedDependencyContext(projectId, input, cursor) {
@@ -45,11 +66,27 @@ export const linkedContextMethods = {
           replacesText: item.focused === true && item.replacesText === true,
         };
       }).filter(Boolean);
-    const dependency = [...persisted, ...pending]
+    const linked = [...persisted, ...pending]
       .filter((item) => !this.workspace || this.workspace.isActive(this.sourceProjectId(item.source)))
-      .sort((left, right) => right.anchor.end - left.anchor.end)[0] ?? null;
-    if (!dependency || cursor - dependency.anchor.end > 420) return null;
-    return dependency;
+      .sort((left, right) => right.anchor.end - left.anchor.end);
+    const dependency = linked[0] ?? null;
+    if (!dependency || cursor - dependency.anchor.end > LINKED_REACH) return null;
+    return this.heldValueList(projectId, input, cursor, dependency, linked.slice(1)) ?? dependency;
+  },
+
+  /**
+   * A value tabbed from a source's list ("BILL-1160" from Invoice's values)
+   * leaves that list on the card, so the next value is a Tab away. The source
+   * stays the focus through new sentences and joining words; only fn+Left,
+   * which drops it from the request, widens the card again. A list with
+   * nothing left to offer gives the words to every directory, as a value did.
+   */
+  heldValueList(projectId, input, cursor, newest, earlier) {
+    if (input.focusSource || this.settledValueEnd({ ...input, settledValueEnd: undefined }, newest) < 0) return null;
+    const holder = earlier.find((item) => item.anchor.end <= newest.anchor.start && holdsValue(item.source, newest.source));
+    if (!holder) return null;
+    const held = { ...holder, heldList: true };
+    return this.valuesFromLinkedProjectObject(projectId, input, cursor, held)?.completions.length ? held : null;
   },
 
   /** Links saved in the project document block being edited; none for other callers. */
@@ -117,7 +154,7 @@ export const linkedContextMethods = {
    * Papers are exempt: "They found that ..." in a later sentence still cites them.
    */
   projectLinkInScope(projectId, input, cursor, dependency) {
-    if (!dependency || ['PAPER', 'REFERENCE'].includes(dependency.source.objectType)) return true;
+    if (!dependency || dependency.heldList || ['PAPER', 'REFERENCE'].includes(dependency.source.objectType)) return true;
     const tail = String(input.text ?? '').slice(dependency.anchor.end, cursor);
     if (endsSentence(tail)) return false;
     return !this.namesSubjectAfterJoiner(projectId, input, cursor, dependency);
@@ -130,7 +167,7 @@ export const linkedContextMethods = {
    * new subject need not live beside the accepted source.
    */
   namesSubjectAfterJoiner(projectId, input, cursor, dependency) {
-    if (['PAPER', 'REFERENCE'].includes(dependency.source.objectType)) return false;
+    if (dependency.heldList || ['PAPER', 'REFERENCE'].includes(dependency.source.objectType)) return false;
     const tail = String(input.text ?? '').slice(dependency.anchor.end, cursor);
     const joiner = [...tail.matchAll(CLAUSE_JOINER)].at(-1);
     if (!joiner) return false;
