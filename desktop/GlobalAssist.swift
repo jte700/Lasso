@@ -92,6 +92,9 @@ final class GlobalAssistant {
         }
     }
     var pendingShare: AssistSuggestion?
+    /// The suggestions on the card when one was accepted, kept with the link
+    /// it becomes so Change Source can offer them again.
+    var offeredAtAcceptance: [AssistSuggestion] = []
     /// Lasso's last verified insertion, while ⌘Z can still take it back.
     var undoableInsertion: AcceptedInsertion? {
         didSet { publishKeyRouting() }
@@ -148,10 +151,24 @@ final class GlobalAssistant {
 
     // Dictation writes without keys, so its words are followed through the
     // field's own change reports instead of the keyboard tap.
-    private let dictation = DictationWatch()
+    let dictation = DictationWatch()
+    /// Whether the dictation pill shows (GlobalAssistant+DictationPill.swift).
+    var dictationPill = DictationPillSession()
+    /// The voice's loudness for the pill's waves, read only while it would show.
+    let voiceMeter = VoiceLevelMeter()
+    var dictationPillTimer: Timer?
+    var dictationPillReading = false
+    /// Counts the card's closes and showings, so a close the card is shown
+    /// again straight after does not shrink it into the pill.
+    var dictationCardClosings = 0
     /// When a key the editor turns into text was last typed. The field's
     /// report of that change is the keyboard's, already followed.
     private var lastTypedAt = Date.distantPast
+    /// When the mouse was last pressed in another app. A click moves the caret
+    /// or selects without a word being said, so the field after it is where
+    /// dictation would start from, never dictation itself.
+    private var lastClickAt = Date.distantPast
+    private var clickMonitor: Any?
     /// Lasso's own edits change the field too; changes until then are its own.
     private var ownWriteUntil = Date.distantPast
     private var dictationDebounce: Timer?
@@ -162,7 +179,10 @@ final class GlobalAssistant {
     private static let dictationPollTime: TimeInterval = 0.2
     /// The focused field as last read, so a change report that left its text
     /// as it was asks for nothing.
-    var lastRead: (element: AXUIElement, text: String, caret: Int)?
+    var lastRead: (element: AXUIElement, text: String, caret: Int)? {
+        didSet { lastReadAt = Date() }
+    }
+    private var lastReadAt = Date.distantPast
     /// Elements whose changes were not the focused field's, until focus moves.
     private var unrelatedElements: [AXUIElement] = []
     /// The card last on screen, kept a moment after it closes: dictation can
@@ -227,7 +247,7 @@ final class GlobalAssistant {
         let created = KeyEventTap(
             perform: { [weak self] action in self?.perform(action) },
             onFirstKey: { [weak self] in self?.firstKeyArrived() },
-            onDictationShortcut: { [weak self] in self?.dictation.shortcutPressed() })
+            onDictationShortcut: { [weak self] in self?.dictationShortcutPressed() })
         guard created.start() else {
             if !input && requestPermissions { AssistPermission.requestInputMonitoring() }
             lastProblem = PermissionProblem(service: "Input Monitoring",
@@ -249,6 +269,15 @@ final class GlobalAssistant {
         dictation.onValueChange = { [weak self] element in self?.fieldValueChanged(element) }
         dictation.onFocusChange = { [weak self] in self?.unrelatedElements.removeAll() }
         dictation.onListeningChange = { [weak self] in self?.listeningChanged() }
+        // Dictation stops when another app comes forward, and so does the pill.
+        dictation.onAppChange = { [weak self] in
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+            self?.stopDictationPill()
+        }
+        startVoiceMeter()
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            self?.lastClickAt = Date()
+        }
         dictation.start()
         publishKeyRouting()
         // If nothing arrives the tap exists but is not receiving; that is the
@@ -265,7 +294,14 @@ final class GlobalAssistant {
     func disable() {
         dismiss()
         ScopeSwitcherController.shared.hide()
+        dictationPill.stop(at: Date())
+        dictationPillTimer?.invalidate()
+        dictationPillTimer = nil
+        voiceMeter.stop()
+        DictationPillController.shared.hide()
         dictation.stop()
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+        clickMonitor = nil
         dictationDebounce?.invalidate()
         dictationDebounce = nil
         dictationPoll?.invalidate()
@@ -357,12 +393,14 @@ final class GlobalAssistant {
         case .dismissTransient:
             LassoTransientUI.shared.dismissAll()
         case .escapePassed:
+            // Escape in the app ends Dictation too, and the pill goes with it
+            // rather than coming back out of a card closing now.
+            dictation.endSession()
+            stopDictationPill()
             // A prediction or presentation already pending is dropped, so it
             // cannot reopen the menu the user just dismissed.
             if debounce != nil || request != nil || popupHost != nil || measuringFor == generation { dismiss() }
             spokenCard = nil
-            // Escape in the app ends Dictation too.
-            dictation.endSession()
         case .hide:
             dismiss()
         case .followTyping(let trackCaret):
@@ -484,6 +522,7 @@ final class GlobalAssistant {
             && !ShareComposerController.shared.isVisible && !SourceChooserController.shared.isVisible
             && view.mode != .confirmShare
             && now.timeIntervalSince(lastTypedAt) > Self.keyEchoTime && now >= ownWriteUntil
+            && now.timeIntervalSince(lastClickAt) > Self.keyEchoTime
     }
 
     /// While a microphone is live the focused field is also read on a timer:
@@ -509,17 +548,26 @@ final class GlobalAssistant {
     /// `element` is what reported a change, or nil for a timed read.
     private func readDictatedText(reportedBy element: AXUIElement?) {
         guard dictationReads.begin() else { return }
-        let typedAt = lastTypedAt
+        let typedAt = lastTypedAt, clickedAt = lastClickAt
         AccessibilityWork.queue.async { [weak self] in
             let context = AccessibilityReader.focusedContext()
             DispatchQueue.main.async {
                 guard let self else { return }
                 let again = self.dictationReads.end()
                 defer { if again { self.readDictatedText(reportedBy: element) } }
-                // A key typed meanwhile is the keyboard tap's to follow.
-                guard self.isEnabled, typedAt == self.lastTypedAt, Date() >= self.ownWriteUntil else { return }
+                // A key typed meanwhile is the keyboard tap's to follow, and a
+                // click meanwhile is read again once the caret has settled.
+                guard self.isEnabled, typedAt == self.lastTypedAt, clickedAt == self.lastClickAt,
+                      Date() >= self.ownWriteUntil else { return }
                 guard let context else {
                     if element != nil { dictationLog.debug("read: no focused text field") }
+                    return
+                }
+                // The first read after a click is where dictation would start
+                // from: the caret moved or text was selected, and nothing was said.
+                if self.lastClickAt > self.lastReadAt {
+                    dictationLog.debug("read: after a click, noted")
+                    self.lastRead = (context.element, context.text, context.absoluteCaret)
                     return
                 }
                 let sameField = self.lastRead.map { CFEqual($0.element, context.element) } ?? false
@@ -541,6 +589,7 @@ final class GlobalAssistant {
                 }
                 dictationLog.debug("read: dictated text, \(element == nil ? "timed" : "reported", privacy: .public)")
                 self.dictation.wordsArrived()
+                self.dictatedWordsArrived(caret: context.caretRect)
                 // "tab" is taken as the key from this reading, without a second one.
                 self.lastRead = (context.element, context.text, context.absoluteCaret)
                 if self.acceptsSpokenTab(in: context) { return }
@@ -726,7 +775,9 @@ final class GlobalAssistant {
         unansweredListTimer = nil
         typedOverList.answered()
         guard view.mode == .suggestions, panel?.isVisible == true else { return }
+        let closing = closingCard()
         panel?.orderOut(nil)
+        cardClosed(closing)
         publishKeyRouting()
     }
 
@@ -738,6 +789,8 @@ final class GlobalAssistant {
     }
 
     func hide() {
+        // Read first: closing forgets the caret the pill would shrink back to.
+        let closing = closingCard()
         resetTableNavigation()
         // A card that closes on its own, because the next words found nothing
         // or dictation wrote a word it then corrected, can still be accepted by
@@ -777,6 +830,7 @@ final class GlobalAssistant {
         linkedSources.endMove()
         pendingShare = nil
         panel?.orderOut(nil)
+        cardClosed(closing)
         publishKeyRouting()
     }
 }

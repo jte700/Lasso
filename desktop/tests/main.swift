@@ -2128,6 +2128,352 @@ do {
     root.removeFromSuperview()
 }
 
+print("the colour picker lays its colours out in a capsule, the chosen one a named pill")
+do {
+    let dots = Array(repeating: PaletteMetric.swatch, count: DirectoryToggleColor.allCases.count)
+    let frames = PaletteLayout.frames(widths: dots, origin: CGPoint(x: 10, y: 2))
+    check(frames.first?.minX == 10 + PaletteMetric.inset && frames.first?.minY == 2 + PaletteMetric.inset
+          && zip(frames, frames.dropFirst()).allSatisfy { $1.minX - $0.maxX == PaletteMetric.gap },
+          "the colours sit in a row inside the capsule, an even gap apart")
+    check(PaletteLayout.trackWidth(widths: dots) == frames.last!.maxX + PaletteMetric.inset - 10,
+          "the capsule ends as far past the last colour as it starts before the first")
+    check(PaletteLayout.pillWidth(nameWidth: 12) == PaletteMetric.pillMinimum, "a short name still makes a pill")
+    check(PaletteLayout.pillWidth(nameWidth: 60) >= 60 + PaletteMetric.labelLeading + PaletteMetric.close,
+          "a long name and the close button both fit in the pill")
+    check(PaletteLayout.width(selected: false, hovered: true, pill: 70, reduceMotion: false) == PaletteMetric.hoverWidth
+          && PaletteLayout.width(selected: false, hovered: false, pill: 70, reduceMotion: false) == PaletteMetric.swatch,
+          "pointing at a colour widens it into a short capsule")
+    check(PaletteLayout.width(selected: false, hovered: true, pill: 70, reduceMotion: true) == PaletteMetric.swatch
+          && PaletteLayout.width(selected: true, hovered: false, pill: 70, reduceMotion: true) == 70,
+          "with Reduce Motion pointing moves nothing, and the chosen colour is still the pill")
+    var widened = dots
+    widened[2] = PaletteMetric.hoverWidth
+    let wide = PaletteLayout.frames(widths: widened, origin: .zero)
+    check(PaletteLayout.hovered(at: CGPoint(x: wide[2].maxX - 1, y: wide[2].midY), frames: wide) == 2,
+          "the pointer at the end of a widened colour is still on it, so it does not flicker")
+    check(PaletteLayout.hovered(at: CGPoint(x: wide[2].maxX + PaletteMetric.gap / 2 + 0.5, y: wide[2].midY), frames: wide) == 3
+          && PaletteLayout.hovered(at: CGPoint(x: wide.last!.maxX + 10, y: wide[2].midY), frames: wide) == nil,
+          "past the middle of a gap it is on the next colour, and beside the capsule on none")
+    check(PaletteLayout.darkText(on: DirectoryToggleColor.orange.color) && !PaletteLayout.darkText(on: DirectoryToggleColor.blue.color),
+          "orange carries dark letters and blue light ones, so every name reads")
+    check(PaletteMotion.letterStart(0, reduceMotion: false) > 0
+          && PaletteMotion.letterStart(3, reduceMotion: false) > PaletteMotion.letterStart(2, reduceMotion: false),
+          "the name comes in a letter at a time, once the pill has started to stretch")
+    check(PaletteMotion.letterStart(4, reduceMotion: true) == 0, "with Reduce Motion the name comes in whole")
+    var stretch = IslandSpring(Double(PaletteMetric.swatch), stiffness: PaletteMotion.width.stiffness,
+                               damping: PaletteMotion.width.damping)
+    stretch.t = 70
+    var time = 0.0, peak = stretch.x
+    var settled: Double?
+    while time < 1.5 {
+        stretch.step(1.0 / 480)
+        time += 1.0 / 480
+        peak = max(peak, stretch.x)
+        if abs(stretch.x - 70) >= 0.5 { settled = nil } else if settled == nil { settled = time }
+    }
+    check(peak < 70.5, "a colour stretches into the pill without a visible overshoot")
+    check((settled ?? .infinity) < 0.4, "and gets there in under 0.4 seconds, as in the reference")
+}
+
+print("choosing in the colour picker stretches the new colour and types its name in")
+do {
+    _ = NSApplication.shared
+    var now = 50.0
+    var picked: [DirectoryToggleColor] = []
+    let palette = DirectoryColorPaletteRow(selected: .purple) { picked.append($0) }
+    palette.frame.size.width = 284
+    palette.drivesItself = false
+    palette.animatesOffscreen = true
+    palette.reducesMotion = { false }
+    palette.clock = { now }
+    var rooms: [CGFloat] = []
+    palette.onRoom = { rooms.append($0) }
+    func run(_ seconds: Double) {
+        let end = now + seconds
+        while now < end - 1e-9 {
+            now += 1.0 / 120
+            palette.tick()
+        }
+    }
+    check(!palette.isOpen && rooms.isEmpty, "a new picker is closed until it is opened")
+    palette.open()
+    run(0.05)
+    check((rooms.last ?? 0) > 0 && (rooms.last ?? 32) < 32, "opening grows the row on a spring")
+    run(1)
+    check(rooms.contains { $0 > 32.3 } && abs((rooms.last ?? 0) - 32) < 0.01 && palette.isAtRest(at: now),
+          "it overshoots a little, as the panel's add control does, and comes to rest open")
+    let purple = palette.swatches.first { $0.tint == .purple }!
+    let green = palette.swatches.first { $0.tint == .green }!
+    check(purple.accessibilityLabel() == "Use Purple" && purple.accessibilityValue() as? String == "Purple, selected"
+          && green.accessibilityValue() as? String == "Green", "VoiceOver hears each colour and which one is chosen")
+    check(palette.letterOpacities(.purple).allSatisfy { $0 == 1 } && palette.closeOpacity == 1,
+          "the chosen colour is named, with its close button")
+    green.performClick(nil)
+    check(picked == [.green] && green.accessibilityValue() as? String == "Green, selected",
+          "choosing a colour hands it on at once")
+    run(0.04)
+    let midway = palette.shownWidths
+    check(midway[2] > PaletteMetric.swatch && midway[2] < palette.targetWidths[2]
+          && midway[5] > PaletteMetric.swatch && midway[5] < palette.targetWidths[2],
+          "the new colour stretches while the old pill shrinks back")
+    check(palette.letterOpacities(.purple).allSatisfy { $0 < 0.5 } && palette.letterOpacities(.green).allSatisfy { $0 == 0 },
+          "the old name goes at once, and the new one waits for the pill")
+    run(0.12)
+    let letters = palette.letterOpacities(.green)
+    check(letters.first! > 0.3 && letters.first! > letters.last!, "the new name comes in from its first letter")
+    run(1)
+    check(palette.shownWidths[2] == palette.targetWidths[2] && palette.targetWidths[2] >= PaletteMetric.pillMinimum
+          && palette.shownWidths[5] == PaletteMetric.swatch, "the new colour ends as the pill and the old one as a dot")
+    check(palette.letterOpacities(.green).allSatisfy { $0 == 1 } && palette.letterOpacities(.purple).allSatisfy { $0 == 0 },
+          "only the chosen colour is named")
+    let closeFrame = palette.closeButton.frame
+    check(palette.closeOpacity == 1 && closeFrame.maxX <= green.frame.maxX
+          && closeFrame.minX >= green.frame.minX + PaletteMetric.labelLeading + green.nameWidth,
+          "the close button moves to the end of the new pill, clear of the name")
+    let first = palette.swatches[0]
+    palette.pointer(at: palette.convert(NSPoint(x: first.frame.midX, y: first.frame.midY), from: first.superview))
+    run(1)
+    check(palette.shownWidths[0] == PaletteMetric.hoverWidth, "pointing at a colour widens it")
+    palette.pointer(at: nil)
+    run(1)
+    check(palette.shownWidths[0] == PaletteMetric.swatch, "and it narrows again when the pointer leaves")
+    var closed = false
+    palette.onClose = { palette.close() }
+    palette.onClosed = { closed = true }
+    palette.closeButton.performClick(nil)
+    run(0.05)
+    check(!closed && (rooms.last ?? 32) < 32, "the close button shrinks the row back")
+    run(1)
+    check(closed && rooms.last == 0, "then the picker says it has closed")
+}
+
+print("a folder's colour button opens the picker under its row, and choosing works as before")
+do {
+    _ = NSApplication.shared
+    func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+    var chosen: [DirectoryToggleColor] = []
+    let item = NSMenuItem(title: "Thesis", action: nil, keyEquivalent: "")
+    item.state = .on
+    let row = NativeMenuToggleRow(item: item, color: .blue) { chosen.append($0) }
+    row.frame.size.width = 284
+    let dot = descendants(row).compactMap { $0 as? DirectoryColorButton }.first!
+    dot.performClick(nil)
+    check(row.isPaletteVisible && row.frame.height == 64 && row.paletteView != nil,
+          "the colour button opens the picker; a row nobody can see is open at once")
+    row.paletteView!.swatches.first { $0.tint == .pink }!.performClick(nil)
+    check(chosen == [.pink] && row.currentColor == .pink, "choosing in the picker colours the folder")
+    row.paletteView!.closeButton.performClick(nil)
+    check(!row.isPaletteVisible && row.frame.height == 32 && row.paletteView == nil, "its close button puts the picker away")
+    dot.performClick(nil)
+    dot.performClick(nil)
+    check(row.frame.height == 32 && row.paletteView == nil, "the colour button puts it away too")
+
+    var now = 10.0
+    row.preparePalette = { palette in
+        palette.drivesItself = false
+        palette.animatesOffscreen = true
+        palette.reducesMotion = { false }
+        palette.clock = { now }
+    }
+    var resized = 0
+    row.onSizeChange = { resized += 1 }
+    row.setPaletteVisible(true)
+    let animated = row.paletteView!
+    check(row.frame.height == 32, "on screen the row starts at its own height")
+    for _ in 0..<120 { now += 1.0 / 120; animated.tick() }
+    check(row.frame.height == 64 && resized > 2 && animated.frame.height == 32,
+          "and grows frame by frame to make room for the picker")
+    row.setPaletteVisible(false)
+    for _ in 0..<4 { now += 1.0 / 120; animated.tick() }
+    row.setPaletteVisible(true)
+    check(row.paletteView === animated, "opening it again while it closes turns the same picker around")
+    for _ in 0..<240 { now += 1.0 / 120; animated.tick() }
+    check(row.frame.height == 64 && row.isPaletteVisible, "and it settles open")
+    animated.plusButton.performClick(nil)
+    for _ in 0..<240 { now += 1.0 / 120; animated.tick() }
+    let cardRoom = PaletteMetric.trackHeight + PaletteCardLayout.height(width: animated.trackFrame.width) + 4
+    check(abs(row.frame.height - (32 + cardRoom.rounded())) <= 1 && animated.trackFrame.maxX <= row.frame.width - 2,
+          "pressing + grows the row to hold the card, which stays inside the row")
+    animated.plusButton.performClick(nil)
+    for _ in 0..<240 { now += 1.0 / 120; animated.tick() }
+    check(row.frame.height == 64 && chosen == [.pink], "its × puts the card away, and nothing new was chosen")
+}
+
+print("a folder colour can be one of Lasso's six or a hex of one's own")
+do {
+    check(DirectoryToggleColor(rawValue: "purple") == .purple && DirectoryToggleColor.purple.title == "Purple"
+          && !DirectoryToggleColor.purple.isCustom, "colours saved by name still read back as Lasso's own")
+    let own = DirectoryToggleColor(rawValue: "#3c7a28")
+    check(own?.rawValue == "#3C7A28" && own?.title == "#3C7A28" && own?.isCustom == true,
+          "a hex is a colour of one's own, written in capitals")
+    check(DirectoryToggleColor(rawValue: "#12345") == nil && DirectoryToggleColor(rawValue: "red") == nil,
+          "anything else is not a colour")
+    let made = DirectoryToggleColor(red: 0.2, green: 0.4, blue: 0.6)
+    check(made.rawValue == "#336699" && abs(made.components.green - 0.4) < 0.003, "a made colour keeps its components")
+    check(DirectoryToggleColor(rawValue: DirectoryToggleColor.orange.hex)?.matchingPreset == .orange
+          && made.matchingPreset == nil, "a hex that is one of Lasso's colours is known as that colour")
+    check(DirectoryToggleColor.choices(including: made, nil, .blue) == DirectoryToggleColor.allCases + [made],
+          "a menu of colours lists Lasso's six, then a colour of one's own in use")
+    let defaults = MemoryDirectoryDefaults()
+    DirectoryColorPreferences.set(made, for: "thesis", defaults: defaults)
+    check(DirectoryColorPreferences.color(for: "thesis", defaults: defaults) == made,
+          "a folder keeps a colour of one's own")
+    DirectoryColorPreferences.rememberCustom(.green, defaults: defaults)
+    check(DirectoryColorPreferences.lastCustom(defaults) == nil, "only colours of one's own are remembered as made")
+    DirectoryColorPreferences.rememberCustom(made, defaults: defaults)
+    check(DirectoryColorPreferences.lastCustom(defaults) == made, "the last colour made is offered to every folder")
+
+    let purple = PaletteHSB(.purple)
+    check(purple.color == DirectoryToggleColor(rawValue: DirectoryToggleColor.purple.hex),
+          "hue, saturation and brightness go back to the same colour")
+    let grey = PaletteHSB(hue: 0.7, saturation: 0, brightness: 0.5)
+    check(grey.hue == 0.7 && grey.color.rawValue == "#808080", "a grey keeps the hue it was dragged from")
+    let shades = PaletteShades.shades(hue: 0.3)
+    check(shades.count == 9 && shades.allSatisfy { $0.hue == 0.3 }
+          && zip(shades, shades.dropFirst()).allSatisfy { $0.brightness >= $1.brightness },
+          "the shades are of the one hue, palest first")
+    check(PaletteShades.index(of: shades[4]) == 4 && PaletteShades.index(of: PaletteHSB(.blue)) == nil,
+          "the ring finds the shade the colour is, and none when it is not a shade")
+    check(abs(PaletteContrast.ratio(.black, .white) - 21) < 0.01 && PaletteContrast.grade(21) == "AAA"
+          && PaletteContrast.grade(5) == "AA" && PaletteContrast.grade(2) == "Low",
+          "contrast is measured and graded as WCAG does")
+    let width: CGFloat = 258
+    let field = PaletteCardLayout.field(width: width), hue = PaletteCardLayout.hue(width: width)
+    let row = PaletteCardLayout.shades(width: width), footer = PaletteCardLayout.footer(width: width)
+    check(field.minX == hue.minX && hue.minY > field.maxY && row[0].minY > hue.maxY && footer.minY > row[0].maxY
+          && abs(row.last!.maxX - field.maxX) < 0.01 && PaletteCardLayout.height(width: width) > footer.maxY,
+          "the card stacks field, hue, shades and footer, all the same width")
+    check(PaletteLayout.trackWidth(widths: [20, 0, 20]) == 2 * PaletteMetric.inset + 40 + PaletteMetric.gap
+          && PaletteLayout.frames(widths: [20, 0, 20], origin: .zero)[2].minX == PaletteMetric.inset + 20 + PaletteMetric.gap,
+          "a colour not there takes no room and leaves no gap")
+    check(PaletteLayout.width(selected: false, hovered: true, pill: 70, reduceMotion: false, hoverRoom: 3)
+          == PaletteMetric.swatch + 3, "pointing widens a colour only as far as the row has room")
+}
+
+print("the + makes a colour of one's own in a card, and Done keeps it")
+do {
+    _ = NSApplication.shared
+    var now = 80.0
+    var picked: [DirectoryToggleColor] = []
+    let palette = DirectoryColorPaletteRow(selected: .purple) { picked.append($0) }
+    palette.frame.size.width = 274
+    palette.drivesItself = false
+    palette.animatesOffscreen = true
+    palette.reducesMotion = { false }
+    palette.clock = { now }
+    var rooms: [CGFloat] = []
+    palette.onRoom = { rooms.append($0) }
+    func run(_ seconds: Double) {
+        let end = now + seconds
+        while now < end - 1e-9 {
+            now += 1.0 / 120
+            palette.tick()
+        }
+    }
+    palette.open()
+    run(1)
+    let slot = palette.swatches[palette.slotIndex]
+    check(slot.isHidden && palette.shownWidths[palette.slotIndex] == 0 && !palette.plusButton.isHidden
+          && palette.plusButton.accessibilityLabel() == "New custom color",
+          "with no colour of one's own yet there is no slot, only the black +")
+    check(palette.trackFrame.maxX <= 274 - PaletteMetric.trailingRoom, "the capsule fits the narrowest folder row")
+    palette.plusButton.performClick(nil)
+    run(0.05)
+    check(palette.shownWidths[palette.slotIndex] > 0 && palette.shownWidths[palette.slotIndex] < palette.targetWidths[palette.slotIndex]
+          && palette.plusTurn > 0 && palette.cardOpenness > 0, "pressing + grows a new pill in, turns the +, and opens the card")
+    run(1)
+    let start = DirectoryToggleColor(rawValue: DirectoryToggleColor.purple.hex)!
+    check(palette.draft != nil && slot.tint == start && palette.selected == start && slot.accessibilityValue() as? String == "\(start.title), selected",
+          "the new pill starts as a copy of the chosen colour, named by its hex")
+    check(palette.letterOpacities(start).count == 7 && palette.letterOpacities(start).allSatisfy { $0 == 1 }
+          && palette.letterOpacities(.purple).allSatisfy { $0 == 0 }, "its hex has typed in and the old name gone")
+    check(abs(palette.plusTurn - 1) < 0.01 && palette.plusButton.accessibilityLabel() == "Cancel custom color"
+          && abs((rooms.last ?? 0) - (PaletteMetric.trackHeight + PaletteCardLayout.height(width: palette.trackFrame.width) + 4)) < 0.5,
+          "the + has turned into × and the row holds the whole card")
+    check(palette.closeButton.isHidden && picked.isEmpty, "while it is being made the pill has no ×, and nothing is chosen yet")
+    palette.card.hueSlider.onChange?(0.33)
+    palette.card.field.onChange?(0.7, 0.6)
+    let made = PaletteHSB(hue: 0.33, saturation: 0.7, brightness: 0.6).color
+    check(slot.tint == made && palette.card.hsb.saturation == 0.7, "the pill follows the card's controls")
+    palette.card.doneButton.performClick(nil)
+    run(1)
+    check(picked == [made] && palette.selected == made && palette.slotColor == made && palette.draft == nil,
+          "Done chooses the colour made and keeps it in the slot")
+    check(palette.cardOpenness < 0.01 && abs((rooms.last ?? 0) - 32) < 0.5 && palette.closeOpacity == 1,
+          "the card goes away and the pill has its × again")
+
+    palette.plusButton.performClick(nil)
+    run(1)
+    palette.card.shadeButtons[1].performClick(nil)
+    palette.card.doneButton.performClick(nil)
+    run(1)
+    let pale = PaletteShades.shades(hue: palette.card.hsb.hue)[1].color
+    check(palette.selected == pale && palette.closeButton.ink == NSColor.black.withAlphaComponent(0.78),
+          "a pale colour made gets dark letters, and its × is dark too")
+    palette.plusButton.performClick(nil)
+    run(1)
+    palette.card.field.onChange?(0.1, 0.9)
+    palette.plusButton.performClick(nil)
+    run(1)
+    check(picked == [made, pale] && palette.selected == pale && slot.tint == pale,
+          "the × puts the card away and goes back to the colour the folder had")
+    palette.plusButton.performClick(nil)
+    run(1)
+    palette.swatches[0].performClick(nil)
+    run(1)
+    check(picked == [made, pale, .blue] && palette.draft == nil && palette.cardOpenness < 0.01 && slot.tint == pale,
+          "choosing one of Lasso's colours while the card is open puts the card away and chooses it")
+    palette.plusButton.performClick(nil)
+    run(1)
+    palette.card.doneButton.performClick(nil)
+    run(1)
+    check(picked.last == .blue && palette.selected == .blue && palette.slotColor == pale,
+          "a colour made that is one of Lasso's own is chosen as that colour")
+    let offered = DirectoryColorPaletteRow(selected: .teal, custom: made) { _ in }
+    check(!offered.swatches[offered.slotIndex].isHidden && offered.swatches[offered.slotIndex].tint == made,
+          "the last colour made is offered in other folders' pickers")
+}
+
+print("a chosen colour keeps stretching while the panel rebuilds its rows")
+do {
+    _ = NSApplication.shared
+    var now = 120.0
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 80), styleMask: [.borderless],
+                          backing: .buffered, defer: true)
+    let palette = DirectoryColorPaletteRow(selected: .blue) { _ in }
+    palette.frame = NSRect(x: 0, y: 0, width: 280, height: 32)
+    palette.drivesItself = false
+    palette.animatesOffscreen = true
+    palette.reducesMotion = { false }
+    palette.clock = { now }
+    window.contentView?.addSubview(palette)
+    func run(_ seconds: Double) {
+        let end = now + seconds
+        while now < end - 1e-9 {
+            now += 1.0 / 120
+            palette.tick()
+        }
+    }
+    palette.open()
+    run(1)
+    palette.swatches[3].performClick(nil)
+    run(0.04)
+    let midway = palette.shownWidths[3]
+    // Choosing saves the colour, and the panel takes its rows out and puts them back.
+    palette.animatesOffscreen = false
+    palette.removeFromSuperview()
+    palette.update(selected: .orange, isEnabled: true)
+    check(palette.shownWidths[3] == midway && midway < palette.targetWidths[3],
+          "out of the panel for a moment, the stretch waits where it was instead of jumping to the pill")
+    palette.animatesOffscreen = true
+    window.contentView?.addSubview(palette)
+    check(palette.shownWidths[3] == midway, "put back, it carries on from there")
+    run(1)
+    check(palette.shownWidths[3] == palette.targetWidths[3] && palette.letterOpacities(.orange).allSatisfy { $0 == 1 },
+          "and arrives at the pill with its name")
+    palette.removeFromSuperview()
+}
+
 print("the bar fills with blocks that spread as it moves and close up at rest")
 do {
     _ = NSApplication.shared
@@ -4595,6 +4941,131 @@ do {
           "an arrow near the card's edge stays clear of the rounded corner")
 }
 
+// MARK: Linked words drawn as pills
+
+do {
+    let font = NSFont(name: "Helvetica Neue", size: 15) ?? NSFont.systemFont(ofSize: 15)
+    let style = HostTextStyle(fontName: font.fontName, fontFamily: font.familyName, fontSize: 15)
+    let area = "18,400 sq ft"
+    let areaWidth = ReferenceChipLayout.width(area, font)
+    let drawn = ReferenceChipLayout.lines(text: area, fragments: [CGRect(x: 100, y: 200, width: areaWidth, height: 18)],
+                                          style: style)
+    check(drawn?.count == 1 && abs((drawn?[0].stretch ?? 0) - 1) < 0.001 && abs((drawn?[0].font.pointSize ?? 0) - 15) < 0.01,
+          "a phrase in the host's own font is drawn again at its size, unstretched")
+    let zoomed = ReferenceChipLayout.lines(text: area, fragments: [CGRect(x: 100, y: 200, width: areaWidth * 1.2, height: 22)],
+                                           style: style)
+    check(zoomed.map { abs($0[0].font.pointSize - 18) < 0.01 } == true, "a zoomed host's words are drawn at the size they show at")
+    check(ReferenceChipLayout.lines(text: area, fragments: [CGRect(x: 100, y: 200, width: areaWidth * 2, height: 18)],
+                                    style: style) == nil,
+          "words that cannot match where the host drew them keep the host's own letters")
+    check(ReferenceChipLayout.lines(text: "two\nparagraphs", fragments: [CGRect(x: 0, y: 0, width: 80, height: 18)],
+                                    style: style) == nil,
+          "words across paragraphs keep the host's own letters")
+
+    let first = "the retaining wall needs a second", second = "inspection before the pour"
+    let wrapped = ReferenceChipLayout.lines(text: first + " " + second, fragments: [
+        CGRect(x: 300, y: 400, width: ReferenceChipLayout.width(first, font), height: 18),
+        CGRect(x: 40, y: 382, width: ReferenceChipLayout.width(second, font), height: 18),
+    ], style: style)
+    check(wrapped?.map(\.text) == [first, second], "a wrapped phrase is split where the host wrapped it")
+    check(wrapped.map { $0[0].baseline > $0[1].baseline } == true, "each line is drawn on its own baseline")
+
+    func chip(_ phrase: String, roomAfter: Bool = true) -> OverlayChip? {
+        let fragments = [CGRect(x: 100, y: 200, width: ReferenceChipLayout.width(phrase, font), height: 18)]
+        guard let lines = ReferenceChipLayout.lines(text: phrase, fragments: fragments, style: style) else { return nil }
+        return OverlayChip(id: phrase, text: phrase, fragments: fragments, lines: lines, state: .healthy, tint: .systemGreen,
+                           page: .white, ink: .black, words: .systemGreen, sourcePath: "Area Schedule.xlsx",
+                           roomBefore: true, roomAfter: roomAfter, badgeSide: ChipBadgeSide.choose(lines: lines), isNew: false)
+    }
+    let space = ReferenceChipLayout.width(" ", font)
+    if let income = chip("income tax expense") {
+        let pill = income.pill(0), words = income.fragments[0]
+        check(pill.minX > words.minX - space * 0.5 && pill.maxX < words.maxX + space * 0.5,
+              "a pill reaches less than half way into the spaces beside its words")
+        check(income.badgeSide == .after, "the type icon sits over the phrase's own low letters at its end")
+        check(income.badge.map { $0.minX >= pill.minX && $0.maxX <= pill.maxX } == true,
+              "the type icon stays within the pill, off the letters of the words beside it")
+        check(income.badge.map { $0.minY > income.lines![0].baseline + income.lines![0].font.xHeight } == true,
+              "it sits clear of the tops of the lowercase letters under it")
+    } else {
+        check(false, "a phrase in the host's font is drawn again")
+    }
+    check(chip("expense,", roomAfter: false).map { abs($0.pill(0).maxX - $0.fragments[0].maxX) < 0.001 } == true,
+          "a pill stops at its words where punctuation follows them")
+    check(chip("measured Total")?.badgeSide == .before, "with tall letters at its end the icon sits over low ones at its start")
+    check(chip(area).map { $0.badgeSide == nil && $0.badge == nil } == true,
+          "with tall letters at both ends no icon is drawn over the text, and the menu shows the type")
+    check(ChipBadgeSide.choose(lines: nil) == nil, "words left in the host's letters get no icon over them")
+
+    check(ReferenceChipPalette.isDark(HostTextStyle(foreground: NSColor(white: 0.92, alpha: 1)), systemDark: false),
+          "light words mean a dark page")
+    check(!ReferenceChipPalette.isDark(HostTextStyle(foreground: NSColor(white: 0.1, alpha: 1)), systemDark: true),
+          "dark words mean a light page, whatever the system's appearance")
+    check(ReferenceChipPalette.isDark(nil, systemDark: true) && !ReferenceChipPalette.isDark(nil, systemDark: false),
+          "without the host's colours the system's appearance decides")
+
+    let line = CGRect(x: 100, y: 500, width: 1, height: 18)
+    let after = DependencyGeometry(referenceId: "a", fragments: [CGRect(x: 160, y: 500, width: 40, height: 18)])
+    let before = DependencyGeometry(referenceId: "b", fragments: [CGRect(x: 20, y: 500, width: 40, height: 18)])
+    let below = DependencyGeometry(referenceId: "c", fragments: [CGRect(x: 20, y: 482, width: 40, height: 18)])
+    let above = DependencyGeometry(referenceId: "d", fragments: [CGRect(x: 20, y: 518, width: 40, height: 18)])
+    check(after.mayMove(typingAt: line) && below.mayMove(typingAt: line),
+          "typing moves the phrases after the caret on its line and on the lines below")
+    check(!before.mayMove(typingAt: line) && !above.mayMove(typingAt: line),
+          "words just accepted before the caret, and lines above, stay drawn while typing goes on")
+}
+
+// MARK: Change Source
+
+do {
+    func offered(_ text: String, _ object: String, path: String = "Area Schedule.xlsx") -> ReferenceAlternative {
+        ReferenceAlternative(text: text, label: text, detail: "", path: path, location: "", objectId: object,
+                             versionId: nil, snapshotId: nil, projectId: "p", usageObjectId: nil)
+    }
+    let list = ReferenceAlternative.offered(accepted: offered("18,400 sq ft", "a"),
+                                            others: [offered("18,400 sq ft", "a"), offered("17,950 sq ft", "b"),
+                                                     offered("18,250 sq ft", "c", path: "Planning.pdf")])
+    check(list.map(\.objectId) == ["a", "b", "c"], "the accepted source comes first, then the card's others, each once")
+    check(ReferenceAlternative.offered(accepted: offered("x", "a"), others: (0..<12).map { offered("v\($0)", "o\($0)") })
+            .count == ReferenceAlternative.limit, "only as many sources are kept as the card shows")
+    let picked = ReferenceAlternative.offered(accepted: offered("\u{201C}a second inspection\u{201D} (p. 4)", "a"),
+                                              others: [offered("the wall needs a second inspection", "a"), offered("x", "b")],
+                                              samePassage: true)
+    check(picked.map(\.objectId) == ["a", "b"], "words picked from a passage stand for that passage")
+
+    var reference = DependencyReference(
+        id: "r", objectId: "b", versionId: nil, hostBundleIdentifier: "x", hostApplication: "x", documentContext: "d",
+        anchor: TextAnchor(text: "17,950 sq ft", prefixContext: "", suffixContext: "", approximateOffset: 0),
+        state: .healthy, label: "", valueText: nil, sourcePath: "Area Schedule.xlsx", sourceLocation: "",
+        alternatives: list, createdAt: Date(), updatedAt: Date())
+    check(reference.currentAlternativeIndex == 1 && reference.otherAlternatives.map(\.objectId) == ["a", "c"],
+          "after a change the source in use is found among those offered, and the rest are offered")
+    reference.shareToken = "t"
+    check(reference.otherAlternatives.isEmpty, "a share link's words keep the source the link was made for")
+    reference.shareToken = nil
+    reference.alternatives = nil
+    check(reference.otherAlternatives.isEmpty && reference.currentAlternativeIndex == nil,
+          "links saved before sources were kept offer no change")
+    let encoded = try? JSONEncoder().encode([reference])
+    let older = encoded.flatMap { String(data: $0, encoding: .utf8) }?.replacingOccurrences(of: ",\"alternatives\":null", with: "")
+    check(older.flatMap { try? JSONDecoder().decode([DependencyReference].self, from: Data($0.utf8)) }?.count == 1,
+          "links saved by older builds still load")
+
+    let gross = offered("Gross Floor Area", "a"), net = offered("Net Floor Area", "b")
+    check(ReferenceSwap.words(for: net, current: gross, shown: "gross floor area", before: "the ") == "net floor area",
+          "a source lowered to fit the sentence passes that on to the one chosen instead")
+    check(ReferenceSwap.words(for: net, current: gross, shown: "Gross Floor Area", before: "the ") == "Net Floor Area",
+          "a source inserted as its file spells it is replaced as the new file spells it")
+    var code = offered("rangeStart", "c")
+    code.verbatim = true
+    check(ReferenceSwap.words(for: code, current: gross, shown: "gross floor area", before: "the ") == "rangeStart",
+          "code keeps its letters")
+    let document = Array("the area is 18,400 sq ft, and".utf16)
+    check(String(decoding: ReferenceSwap.expected(document, replacing: 12..<24, with: "17,950 sq ft (net)"), as: UTF16.self)
+            == "the area is 17,950 sq ft (net), and",
+          "only the phrase's own characters are written over")
+}
+
 // MARK: Apps Lasso suggests in
 
 do {
@@ -5164,6 +5635,137 @@ do {
                                                 margin: 10, visible: visible)
     check(margined.maxY - 10 == 500 - ScopeSwitcherPlacement.gap && margined.minX + 10 == 400 - ScopeSwitcherPlacement.leadIn,
           "a panel with room for a shadow puts its pill in the same place")
+}
+
+print("The dictation pill follows the voice and grows into the card")
+do {
+    check(VoiceLevel.normalized(rms: 0) == 0 && VoiceLevel.normalized(rms: .nan) == 0, "silence and a bad reading draw flat waves")
+    check(VoiceLevel.normalized(rms: 0.002) == 0, "a room's hum, below -48 dB, draws flat waves")
+    let soft = VoiceLevel.normalized(rms: 0.01), speech = VoiceLevel.normalized(rms: 0.05)
+    check(soft > 0.2 && soft < speech && speech < 1, "soft speech moves the waves, and louder speech moves them more")
+    check(VoiceLevel.normalized(rms: 0.5) == 1, "a raised voice fills them")
+
+    var waves = VoiceWaveform()
+    waves.hear([0.2, 0.9, 0.4])
+    waves.advance()
+    check(waves.bars.last == 0.9 && waves.bars.count == VoiceWaveform.barCount, "a bar takes the loudest of its two slices")
+    waves.advance()
+    check(waves.bars.last == 0.4 && waves.bars[VoiceWaveform.barCount - 2] == 0.9, "the waves move left as new bars arrive on the right")
+    waves.advance()
+    check(abs((waves.bars.last ?? 0) - 0.4 * VoiceWaveform.fade) < 0.0001, "with no reading a bar fades rather than dropping to nothing")
+    waves.hear([CGFloat](repeating: 0.5, count: 100))
+    var advances = 0
+    while waves.bars.last == 0.5 || advances == 0 { waves.advance(); advances += 1; if advances > 50 { break } }
+    check(advances == VoiceWaveform.maximumQueued / VoiceWaveform.slicesPerBar + 1,
+          "a meter running ahead never leaves the waves far behind the voice")
+    let heights = VoiceWaveform().heights(minimum: 3, maximum: 20)
+    check(heights.allSatisfy { $0 == 3 }, "in silence every bar is a dot")
+    var loud = VoiceWaveform()
+    for _ in 0..<VoiceWaveform.barCount { loud.hear([1, 1]); loud.advance() }
+    let full = loud.heights(minimum: 3, maximum: 20)
+    check(full[VoiceWaveform.barCount / 2] > full[0] && abs(full[0] - full[VoiceWaveform.barCount - 1]) < 0.001 && (full.max() ?? 0) <= 20,
+          "the middle bars stand tallest, so the waves sit in the pill as a shape")
+
+    let start = Date(timeIntervalSinceReferenceDate: 1000)
+    func at(_ seconds: TimeInterval) -> Date { start.addingTimeInterval(seconds) }
+    var session = DictationPillSession()
+    check(!session.isOn(at: start), "the pill is not up before dictation")
+    session.shortcutPressed(at: start)
+    session.shortcutPressed(at: at(0.05))
+    check(session.isOn(at: at(1)), "the 🎤 key, which arrives twice, starts dictation once")
+    check(!session.isOn(at: at(DictationPillSession.beforeWords + 0.1)), "with no words after the shortcut, the pill goes")
+    session.wordsArrived(at: at(12))
+    check(session.isOn(at: at(12 + DictationPillSession.afterWords - 0.1))
+          && !session.isOn(at: at(12 + DictationPillSession.afterWords + 0.1)),
+          "dictated words keep the pill through a pause, then it goes")
+    session.shortcutPressed(at: at(40))
+    check(!session.isOn(at: at(40.1)) && session.endsAt == nil,
+          "after a silence that hid the pill, the shortcut ends dictation rather than starting it")
+    session.wordsArrived(at: at(41))
+    check(!session.isOn(at: at(41.1)), "the last words dictation writes as it stops do not bring it back")
+    session.wordsArrived(at: at(50))
+    check(session.isOn(at: at(50.1)), "words dictated later bring the pill back without the shortcut")
+    session.shortcutPressed(at: at(51))
+    check(!session.isOn(at: at(51.1)), "pressing the shortcut while the pill shows stops it")
+    session.shortcutPressed(at: at(52))
+    check(session.isOn(at: at(52.1)), "pressing it again starts dictation again")
+    session.stop(at: at(53))
+    check(!session.isOn(at: at(53)) && session.endsAt == nil, "Escape stops it")
+    var later = DictationPillSession()
+    later.shortcutPressed(at: start)
+    later.wordsArrived(at: at(2))
+    later.shortcutPressed(at: at(2 + DictationPillSession.dictationMemory + 1))
+    check(later.isOn(at: at(2 + DictationPillSession.dictationMemory + 1.1)),
+          "a minute after the last words, the shortcut starts dictation again")
+
+    let visible = CGRect(x: 0, y: 0, width: 1440, height: 900)
+    let pill = CGSize(width: 132, height: 36)
+    let caret = CGRect(x: 600, y: 300, width: 2, height: 18)
+    let under = DictationPillPlacement.frame(caret: caret, size: pill, visible: visible)
+    // macOS's microphone as measured on screen: 30 by 23 points, centred on the caret, 5 points under the line.
+    let microphone = CGRect(x: caret.midX - 15, y: caret.minY - 28, width: 30, height: 23)
+    check(under.maxY == caret.minY - DictationPillPlacement.underLine && under.minX > microphone.maxX
+          && !under.intersects(microphone) && abs(under.midY - microphone.midY) <= 3,
+          "the pill sits just under the caret line, level with macOS's microphone and to its right")
+    let nextWord = caret.offsetBy(dx: 50, dy: 0)
+    let lead = DictationPillPlacement.lead(from: caret, to: nextWord, keeping: 0)
+    let ahead = DictationPillPlacement.frame(caret: nextWord, size: pill, visible: visible, lead: lead)
+    check(lead == 50 && !ahead.intersects(microphone.offsetBy(dx: 100, dy: 0)),
+          "while words arrive the pill keeps a word ahead, so the next word does not put the microphone under it")
+    check(DictationPillPlacement.lead(from: nextWord, to: nextWord.offsetBy(dx: 3, dy: 0), keeping: 50) == 50
+          && DictationPillPlacement.lead(from: caret, to: caret.offsetBy(dx: 400, dy: 0), keeping: 0) == DictationPillPlacement.longestLead,
+          "a step too short to be a word keeps the lead, and a long jump keeps no more than a long word")
+    check(DictationPillPlacement.lead(from: nextWord, to: caret, keeping: 50) == 0
+          && DictationPillPlacement.lead(from: caret, to: caret.offsetBy(dx: -300, dy: -22), keeping: 50) == 0,
+          "going back, or onto a new line, keeps no lead")
+    let bottom = CGRect(x: 600, y: 20, width: 2, height: 18)
+    check(DictationPillPlacement.frame(caret: bottom, size: pill, visible: visible).minY == bottom.maxY + DictationPillPlacement.gap,
+          "with no room under the line, it sits above")
+    let edge = CGRect(x: 1400, y: 300, width: 2, height: 18)
+    let atEdge = DictationPillPlacement.frame(caret: edge, size: pill, visible: visible)
+    check(atEdge.maxX < edge.midX - DictationPillPlacement.microphoneHalfWidth && atEdge.maxX <= 1440,
+          "at the right edge of the screen, it sits before the microphone instead")
+
+    // CoreAudio's transport codes: built in, Bluetooth, USB.
+    func transport(_ code: String) -> UInt32 { code.utf8.reduce(0) { $0 << 8 | UInt32($1) } }
+    let builtIn = MeterInput(uid: "BuiltInMic", transport: transport("bltn"))
+    let airPods = MeterInput(uid: "AirPods", transport: transport("blue"))
+    let usb = MeterInput(uid: "USBMic", transport: transport("usb "))
+    check(MeterInput.choose([airPods, builtIn], defaultInput: "AirPods") == "BuiltInMic",
+          "the waves listen through the Mac's own microphone, never the headset Dictation uses")
+    check(MeterInput.choose([usb, airPods], defaultInput: "USBMic") == "USBMic",
+          "without one, a wired microphone that is the input")
+    check(MeterInput.choose([airPods], defaultInput: "AirPods") == nil,
+          "with only a headset, the waves do not listen at all")
+
+    let capsule = DictationOutline.pill(CGRect(x: 100, y: 100, width: 132, height: 36), caretX: 166, pointerAtTop: false)
+    check(capsule.cornerRadius == 18 && capsule.pointerHeight == 0 && capsule.pointerX == 66,
+          "the pill is a capsule whose arrow lies flat under the caret")
+    let seed = DictationOutline.seed(of: capsule)
+    check(seed.rect.width == 36 && seed.rect.midX == capsule.rect.midX, "it grows out of a dot at its centre")
+    let cardOutline = DictationOutline(rect: CGRect(x: 0, y: 0, width: 760, height: 396), cornerRadius: 18,
+                                       pointerHeight: 12, pointerWidth: 21, pointerX: 84, pointerAtTop: false)
+    check(DictationOutline.between(capsule, cardOutline, progress: 0) == capsule
+          && DictationOutline.between(capsule, cardOutline, progress: 1) == cardOutline,
+          "the morph starts at the pill and ends at the card's own outline")
+    let halfway = DictationOutline.between(capsule, cardOutline, progress: 0.5)
+    check(halfway.pointerHeight == 6 && halfway.rect.width == 446, "on the way the arrow grows as the outline widens")
+    let past = DictationOutline.between(cardOutline, capsule, progress: 1.1)
+    check(past.pointerHeight == 0 && past.pointerWidth == 0 && past.rect.width >= 1,
+          "a spring overshooting back into the pill never turns the arrow inside out")
+
+    let canvas = DictationMorphCanvas.covering([CGRect(x: 100, y: 100, width: 132, height: 36), CGRect(x: 50, y: 150, width: 760, height: 396)],
+                                               margin: 18)
+    check(canvas.frame == CGRect(x: 32, y: 82, width: 796, height: 482), "the morph's panel covers both ends with room for a shadow")
+    let local = canvas.local(CGRect(x: 100, y: 100, width: 132, height: 36))
+    check(local.minX == 68 && local.maxY == 482 - 18 && canvas.appKit(local) == CGRect(x: 100, y: 100, width: 132, height: 36),
+          "the panel draws from its top-left, and its rectangles go back to the screen unchanged")
+
+    let fade = DictationFade(from: 0, to: 1, delay: 0.1, duration: 0.2)
+    check(fade.value(at: 0) == 0 && fade.value(at: 0.31) == 1 && fade.value(at: 0.2) > 0.5,
+          "a fade waits, then eases out to where it lands")
+    check(!fade.isDone(at: 0.29) && fade.isDone(at: 0.31) && DictationFade.hold(0.4).value(at: 0) == 0.4,
+          "it is done once its time is up, and a held opacity stays")
 }
 
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")

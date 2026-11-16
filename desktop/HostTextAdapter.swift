@@ -246,6 +246,21 @@ final class AccessibilityTextAdapter: HostTextAdapter {
         return []
     }
 
+    /// The font and colours the host draws a phrase in, from the editor's own
+    /// attributed text. Nil where the editor does not say, as web documents
+    /// read through text markers.
+    func textStyle(for range: Range<Int>, in context: HostContext) -> HostTextStyle? {
+        guard textValue(of: context.element) != nil, !range.isEmpty else { return nil }
+        var cfRange = CFRange(location: range.lowerBound, length: min(range.count, 64))
+        guard let axRange = AXValueCreate(.cfRange, &cfRange) else { return nil }
+        var value: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+                context.element, "AXAttributedStringForRange" as CFString, axRange, &value) == .success,
+              let attributed = value as? NSAttributedString, attributed.length > 0 else { return nil }
+        let style = HostTextStyle.read(from: attributed)
+        return style == HostTextStyle() ? nil : style
+    }
+
     /// What decides whether earlier measurements still hold: the editor, its
     /// text, where it and its window are, and where the caret sits on screen.
     func geometrySnapshot(_ context: HostContext, text: String) -> HighlightGeometrySnapshot {

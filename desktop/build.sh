@@ -390,6 +390,10 @@ cat > "$CONTENTS/Info.plist" <<PLIST
        the cited cell, passage or page. The file opens even when this is denied. -->
   <key>NSAppleEventsUsageDescription</key>
   <string>Lasso asks the app that opens a source to go to the cited cell, page, passage or moment in a video.</string>
+  <!-- The dictation pill's waves follow the voice's loudness while dictation
+       is on. Without it the waves drift and dictation works as before. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>While you dictate, Lasso shows how loud your voice is as moving waves. Nothing you say is recorded, kept or sent.</string>
   <!-- Connecting the Calendar app in Connect 3rd Party Apps reads its events. -->
   <key>NSCalendarsFullAccessUsageDescription</key>
   <string>Lasso reads the events in the calendars you choose so it can suggest and cite them.</string>

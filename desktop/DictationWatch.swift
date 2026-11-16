@@ -8,9 +8,12 @@
 //  the frontmost app is asked to report changes to its values, and the
 //  assistant reads the focused field when one arrives and on a timer.
 //
-//  Lasso never records or listens. It reads only CoreAudio's report of
-//  whether an input device is running for some app, which needs no
-//  microphone access, and recognising speech is left to the dictation tool.
+//  Lasso never records. The watch reads only CoreAudio's report of whether
+//  an input device is running for some app, which needs no microphone
+//  access, and recognising speech is left to the dictation tool. While
+//  dictation is on, the dictation pill reads the voice's loudness for its
+//  waves (VoiceLevelMeter.swift), which the watch knows apart from an app
+//  dictating.
 
 import Cocoa
 import CoreAudio
@@ -79,6 +82,12 @@ final class MicrophoneActivity {
 
     private var inputs: [AudioObjectID] = []
     private var started = false
+    /// Lasso's own reading of the voice runs the input too. Until then only
+    /// other apps' use of an input counts.
+    private var ownInputUntil = Date.distantPast
+    private var ownInputCheck: Timer?
+    /// An input Lasso stopped can still report itself running for a moment.
+    static let ownInputSettle: TimeInterval = 0.8
     // CoreAudio removes a listener only when handed the same block it was
     // added with, so each is made once.
     private lazy var devicesChanged: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.watchInputs() }
@@ -108,6 +117,31 @@ final class MicrophoneActivity {
         for device in inputs { AudioObjectRemovePropertyListenerBlock(device, &running, .main, runningChanged) }
         inputs = []
         isLive = false
+        ownInputCheck?.invalidate()
+        ownInputCheck = nil
+        ownInputUntil = .distantPast
+    }
+
+    /// Lasso started or stopped reading the voice's loudness.
+    func ownInputChanged(running: Bool) {
+        guard started else { return }
+        ownInputCheck?.invalidate()
+        if running {
+            ownInputUntil = .distantFuture
+            // The input stays running for Lasso, so it no longer reports
+            // other apps starting or stopping it: they are looked for instead.
+            let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.update() }
+            RunLoop.main.add(timer, forMode: .common)
+            ownInputCheck = timer
+        } else {
+            ownInputUntil = Date().addingTimeInterval(Self.ownInputSettle)
+            let timer = Timer(timeInterval: Self.ownInputSettle + 0.05, repeats: false) { [weak self] _ in
+                self?.ownInputCheck = nil
+                self?.update()
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            ownInputCheck = timer
+        }
     }
 
     /// Follows microphones as they are plugged in and taken away.
@@ -127,7 +161,15 @@ final class MicrophoneActivity {
 
     private func update() {
         guard started else { return }
-        let live = inputs.contains(where: Self.isRunning)
+        let live: Bool
+        if Date() < ownInputUntil {
+            // Where macOS cannot say which apps run an input, nothing
+            // changes until Lasso's own reading stops.
+            guard let others = Self.otherAppsRunInput() else { return }
+            live = others
+        } else {
+            live = inputs.contains(where: Self.isRunning)
+        }
         guard live != isLive else { return }
         if !live { stoppedAt = Date() }
         isLive = live
@@ -145,6 +187,27 @@ final class MicrophoneActivity {
             var streams = Self.address(kAudioDevicePropertyStreams, kAudioObjectPropertyScopeInput)
             var streamSize: UInt32 = 0
             return AudioObjectGetPropertyDataSize(device, &streams, 0, nil, &streamSize) == noErr && streamSize > 0
+        }
+    }
+
+    /// Whether an app other than Lasso is running an input, or nil where
+    /// macOS keeps no list of the apps using audio (before macOS 14).
+    private static func otherAppsRunInput() -> Bool? {
+        var address = address(kAudioHardwarePropertyProcessObjectList)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr else { return nil }
+        var processes = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &processes) == noErr else { return nil }
+        let own = ProcessInfo.processInfo.processIdentifier
+        return processes.contains { process in
+            var pidAddress = Self.address(kAudioProcessPropertyPID)
+            var pid: pid_t = 0
+            var pidSize = UInt32(MemoryLayout<pid_t>.size)
+            guard AudioObjectGetPropertyData(process, &pidAddress, 0, nil, &pidSize, &pid) == noErr, pid != own else { return false }
+            var runningAddress = Self.address(kAudioProcessPropertyIsRunningInput)
+            var running: UInt32 = 0
+            var runningSize = UInt32(MemoryLayout<UInt32>.size)
+            return AudioObjectGetPropertyData(process, &runningAddress, 0, nil, &runningSize, &running) == noErr && running != 0
         }
     }
 
@@ -167,6 +230,8 @@ final class DictationWatch {
     var onFocusChange: (() -> Void)?
     /// `isListening` changed. Main thread.
     var onListeningChange: (() -> Void)?
+    /// Another app came forward, listening or not. Main thread.
+    var onAppChange: (() -> Void)?
 
     /// Long enough for tools that write once recording stops.
     static let afterRecording: TimeInterval = 4
@@ -210,6 +275,11 @@ final class DictationWatch {
         sessionUntil = max(sessionUntil, Date().addingTimeInterval(Self.afterDictatedWords))
     }
 
+    /// Lasso started or stopped reading the voice's loudness for the pill.
+    func ownInputChanged(running: Bool) {
+        microphone.ownInputChanged(running: running)
+    }
+
     /// Escape ends Dictation.
     func endSession() {
         guard running, sessionUntil > Date() else { return }
@@ -224,7 +294,9 @@ final class DictationWatch {
         microphone.start()
         activation = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
-                guard let self, self.isListening else { return }
+                guard let self else { return }
+                self.onAppChange?()
+                guard self.isListening else { return }
                 self.onFocusChange?()
                 self.attachToFrontmost()
             }

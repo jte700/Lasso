@@ -412,6 +412,18 @@ final class StatusPopoverController {
         return body()
     }
 
+    /// Keeps the transient panel open while something outside it runs, such as the
+    /// colour picker's eyedropper, until the returned closure is called.
+    func holdOpen() -> () -> Void {
+        guard popover.isShown else { return {} }
+        popover.behavior = .applicationDefined
+        return { [weak self] in
+            guard let self else { return }
+            self.popover.behavior = .transient
+            if self.popover.isShown { self.controller.view.window?.makeKey() }
+        }
+    }
+
     func toggle(relativeTo button: NSStatusBarButton) {
         if popover.isShown {
             closeReturningFocus()
@@ -512,6 +524,7 @@ final class StatusPopoverController {
                         self?.layoutRows()
                         if let row { self?.directoryList.reveal(row) }
                     }
+                    (row as? NativeMenuToggleRow)?.holdOpen = { [weak self] in self?.holdOpen() ?? {} }
                 }
                 // The add control grows and shrinks as it morphs; the rows below follow it.
                 (row as? MorphIslandRow)?.onSizeChange = { [weak self] in self?.layoutRows() }

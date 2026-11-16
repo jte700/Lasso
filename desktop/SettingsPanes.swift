@@ -193,7 +193,8 @@ struct SettingsGeneralView: View {
 
     @ViewBuilder private var advancedRows: some View {
         Picker(selection: model.folderColorChoice) {
-            ForEach(DirectoryToggleColor.allCases, id: \.self) { option in
+            ForEach(DirectoryToggleColor.choices(including: model.folderColor, DirectoryColorPreferences.lastCustom()),
+                    id: \.self) { option in
                 Label { Text(option.title) } icon: { Image(nsImage: option.swatch(size: Self.swatchSize)) }
                     .tag(option)
             }

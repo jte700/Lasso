@@ -47,7 +47,7 @@ extension GlobalAssistant {
     func scheduleRefresh() {
         guard !ShareComposerController.shared.isVisible, !PassagePickerController.shared.isVisible,
               !SheetPickerController.shared.isVisible,
-              !ScopeSwitcherController.shared.isOpen else { return }
+              !ScopeSwitcherController.shared.isOpen, !ReferenceMenuController.shared.isShown else { return }
         // A brief message must not swallow the next words the writer types,
         // such as the first word of the following sentence. It stays long
         // enough to be read, then gives way to suggestions for that text.
@@ -114,6 +114,8 @@ extension GlobalAssistant {
 
     func refresh() {
         guard isEnabled, serverURL != nil, !projectIds.isEmpty else { hide(); return }
+        // A linked phrase's menu is open: its words were accepted already.
+        guard !ReferenceMenuController.shared.isShown else { hide(); return }
         // An app switched off in Settings gets no card, and its text is not read.
         if let app = Self.frontmostBundleID, !SuggestionApps.shared.allows(app) { hide(); return }
         // One read at a time: a slow host must not pile up reads behind it.

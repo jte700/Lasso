@@ -179,9 +179,9 @@ enum DependencyVisualState: String, Codable {
 
 struct DependencyReference: Codable, Equatable {
     let id: String
-    /// The indexed object this phrase came from.
-    let objectId: String
-    let versionId: String?
+    /// The indexed object this phrase came from. Change Source moves it to another.
+    var objectId: String
+    var versionId: String?
     /// The snapshot the link was made at. A version spans snapshots whose files
     /// differ, so this names the file the cited text was read from. Links saved
     /// before it was kept decode without it, and show the version's latest file.
@@ -210,6 +210,10 @@ struct DependencyReference: Codable, Equatable {
     /// The share link the word was inserted with (⇧⌘⏎), so the inspector shows
     /// what its recipient sees. Links inserted as plain text decode without it.
     var shareToken: String? = nil
+    /// The sources the card offered when these words were accepted, the accepted
+    /// one among them, which Change Source offers again. Links saved before
+    /// they were kept decode without them.
+    var alternatives: [ReferenceAlternative]? = nil
     let createdAt: Date
     var updatedAt: Date
 
@@ -236,7 +240,61 @@ struct DependencyReference: Codable, Equatable {
             && anchor == other.anchor && state == other.state && label == other.label
             && valueText == other.valueText && sourcePath == other.sourcePath
             && sourceLocation == other.sourceLocation && sourceColorSlot == other.sourceColorSlot
-            && shareToken == other.shareToken
+            && shareToken == other.shareToken && videoTime == other.videoTime
+            && alternatives == other.alternatives
+    }
+
+    /// The source in use among those offered: the same object and words, or
+    /// failing that the same object, as for words picked from a passage.
+    var currentAlternativeIndex: Int? {
+        guard let alternatives else { return nil }
+        return alternatives.firstIndex {
+            $0.objectId == objectId && $0.text.caseInsensitiveCompare(anchor.text) == .orderedSame
+        } ?? alternatives.firstIndex { $0.objectId == objectId }
+    }
+
+    /// Others to change to. A share link keeps the source it was made for, so
+    /// its words are not offered a change.
+    var otherAlternatives: [ReferenceAlternative] {
+        guard shareToken == nil, let alternatives else { return [] }
+        let current = currentAlternativeIndex
+        return alternatives.enumerated().filter { $0.offset != current }.map(\.element)
+    }
+}
+
+/// One source the suggestion card offered for some words, kept with the link
+/// those words became so it can be chosen instead later.
+struct ReferenceAlternative: Codable, Equatable {
+    /// The words as the card offered them.
+    let text: String
+    let label: String
+    let detail: String
+    let path: String
+    let location: String
+    /// The object the words link to once chosen.
+    let objectId: String
+    let versionId: String?
+    let snapshotId: String?
+    let projectId: String
+    /// The object its use is counted against, which differs for sentence completions.
+    let usageObjectId: String?
+    var videoTime: Double? = nil
+    /// Code keeps its letters as written.
+    var verbatim = false
+
+    /// At most this many are kept, which is as many as the card shows.
+    static let limit = 8
+
+    /// The accepted source first, then the others in the card's order, each once.
+    static func offered(accepted: ReferenceAlternative?, others: [ReferenceAlternative],
+                        samePassage: Bool = false) -> [ReferenceAlternative] {
+        var list: [ReferenceAlternative] = accepted.map { [$0] } ?? []
+        for other in others where !list.contains(where: {
+            $0.objectId == other.objectId && ($0.text == other.text || samePassage)
+        }) {
+            list.append(other)
+        }
+        return Array(list.prefix(limit))
     }
 }
 

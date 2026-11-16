@@ -911,28 +911,64 @@ final class NativeMenuToggleRow: NSView {
         refreshHover()
     }
 
+    /// The colour picker grows out under the row on a spring and shrinks back
+    /// into it; the row is as tall as the picker is open.
     func setPaletteVisible(_ visible: Bool) {
         guard visible != isPaletteVisible else { return }
         isPaletteVisible = visible
         if visible {
-            let palette = DirectoryColorPaletteRow(selected: colorButton.tint) { [weak self] color in
-                guard let self, self.item.isEnabled else { return }
-                self.colorButton.tint = color
-                self.toggle.tint = color
-                self.palette?.update(selected: color, isEnabled: self.item.isEnabled)
-                self.onColorChange(color)
-            }
-            palette.frame = NSRect(x: 0, y: 32, width: frame.width, height: 32)
-            palette.autoresizingMask = [.width]
+            // A picker still closing opens again from where it is.
+            let palette = self.palette ?? makePalette()
             palette.update(selected: colorButton.tint, isEnabled: item.isEnabled)
-            self.palette = palette
-            addSubview(palette)
+            palette.open()
         } else {
-            palette?.removeFromSuperview()
-            palette = nil
+            palette?.close()
         }
-        setFrameSize(NSSize(width: frame.width, height: visible ? 64 : 32))
-        onSizeChange?()
+    }
+
+    /// The picker on screen, open or closing.
+    var paletteView: DirectoryColorPaletteRow? { palette }
+    /// Run on each new picker before it opens; tests drive its clock by hand.
+    var preparePalette: ((DirectoryColorPaletteRow) -> Void)?
+
+    /// Keeps the panel open while something outside it runs, such as the eyedropper;
+    /// call what it returns to let go.
+    var holdOpen: (() -> () -> Void)?
+
+    private func makePalette() -> DirectoryColorPaletteRow {
+        let palette = DirectoryColorPaletteRow(selected: colorButton.tint, custom: DirectoryColorPreferences.lastCustom()) {
+            [weak self] color in
+            guard let self, self.item.isEnabled else { return }
+            self.colorButton.tint = color
+            self.toggle.tint = color
+            self.palette?.update(selected: color, isEnabled: self.item.isEnabled)
+            if color.isCustom { DirectoryColorPreferences.rememberCustom(color) }
+            self.onColorChange(color)
+        }
+        palette.frame = NSRect(x: 0, y: 32, width: frame.width, height: 0)
+        palette.autoresizingMask = [.width]
+        palette.onClose = { [weak self] in self?.setPaletteVisible(false) }
+        palette.onRoom = { [weak self] room in self?.revealPalette(room) }
+        palette.holdOpen = { [weak self] in self?.holdOpen?() ?? {} }
+        palette.onClosed = { [weak self, weak palette] in
+            guard let self, let palette, self.palette === palette, !self.isPaletteVisible else { return }
+            palette.removeFromSuperview()
+            self.palette = nil
+        }
+        self.palette = palette
+        addSubview(palette)
+        preparePalette?(palette)
+        return palette
+    }
+
+    /// The row grows by as much of the picker as is showing, in whole points.
+    private func revealPalette(_ points: CGFloat) {
+        let room = max(0, points).rounded()
+        let height = 32 + room
+        let changed = abs(height - frame.height) >= 0.5
+        if changed { setFrameSize(NSSize(width: frame.width, height: height)) }
+        palette?.frame = NSRect(x: 0, y: 32, width: frame.width, height: room)
+        if changed { onSizeChange?() }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -977,35 +1013,6 @@ final class NativeMenuToggleRow: NSView {
 
     @objc private func activate() {
         dispatchMenuAction(item)
-    }
-}
-
-final class DirectoryColorPaletteRow: NSView {
-    private var buttons: [DirectoryColorButton] = []
-
-    init(selected: DirectoryToggleColor, onPick: @escaping (DirectoryToggleColor) -> Void) {
-        super.init(frame: NSRect(x: 0, y: 0, width: CGFloat(DirectoryToggleColor.allCases.count) * 28 + 16, height: 32))
-        setAccessibilityElement(false)
-        for (index, color) in DirectoryToggleColor.allCases.enumerated() {
-            let button = DirectoryColorButton(color: color, label: "Use \(color.title)")
-            button.selected = color == selected
-            button.setFrameOrigin(NSPoint(x: 8 + CGFloat(index) * 28, y: 4))
-            button.onPick = { [weak self] in
-                self?.update(selected: color, isEnabled: true)
-                onPick(color)
-            }
-            buttons.append(button)
-            addSubview(button)
-        }
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    func update(selected: DirectoryToggleColor, isEnabled: Bool) {
-        for button in buttons {
-            button.selected = button.tint == selected
-            button.isEnabled = isEnabled
-        }
     }
 }
 

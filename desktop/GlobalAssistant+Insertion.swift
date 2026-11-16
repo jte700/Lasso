@@ -20,6 +20,7 @@ extension GlobalAssistant {
         guard !choosesNoWords else { return }
         guard view.mode == .suggestions,
               let suggestion = acceptedSuggestion else { hide(); return }
+        offeredAtAcceptance = view.suggestions
         // A passage is picked from its document: the writer chooses the exact words.
         if suggestion.opensPassagePicker, view.wordChoice == nil, openPassagePicker(for: suggestion) { return }
         switch InsertionMode.current {
@@ -80,6 +81,7 @@ extension GlobalAssistant {
     /// Explicit Share action (or `⇧⌘⏎`). Never reached by the local-link shortcut.
     func acceptShared() {
         guard view.mode == .suggestions, !choosesNoWords, let suggestion = acceptedSuggestion else { return }
+        offeredAtAcceptance = view.suggestions
         guard suggestion.isShareable else {
             flash([suggestion.objectId == nil ? "This suggestion has no linkable source."
                    : "Lasso doesn\u{2019}t make share links for code. Tab inserts it as text."])
@@ -316,6 +318,10 @@ extension GlobalAssistant {
         guard let objectId = suggestion.objectId ?? continuationSource else {
             return
         }
+        let alternatives = ReferenceAlternative.offered(
+            accepted: ReferenceAlternative(suggestion), others: offeredAtAcceptance.compactMap(ReferenceAlternative.init),
+            samePassage: suggestion.fromPassagePicker)
+        offeredAtAcceptance = []
         // Stage B: the reference starts from the verified range, never from
         // a fresh search of the document.
         undoableInsertion?.referenceId = DependencyHighlighter.shared.recordVerifiedInsertion(
@@ -325,7 +331,7 @@ extension GlobalAssistant {
             sourcePath: suggestion.path, sourceLocation: suggestion.detail,
             document: afterUnits, range: sourceRange,
             documentOffset: after.windowStart, element: element, videoTime: suggestion.videoTime,
-            shareToken: shareToken)
+            shareToken: shareToken, alternatives: alternatives)
     }
 
     /// A share link on its way into the host, planned against `before`.

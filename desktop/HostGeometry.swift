@@ -139,6 +139,17 @@ struct DependencyGeometry: Equatable {
         fragments.contains { $0.insetBy(dx: -1, dy: -2).contains(point) }
     }
 
+    /// Typing at the caret moves a phrase that starts after it on its line, or
+    /// sits on a line below it. Without a caret, any phrase may move. AppKit
+    /// coordinates, so lines below have smaller y.
+    func mayMove(typingAt caret: CGRect?) -> Bool {
+        guard let caret else { return true }
+        return fragments.contains { fragment in
+            let sameLine = abs(fragment.midY - caret.midY) < max(caret.height, fragment.height) / 2
+            return sameLine ? fragment.minX >= caret.minX - 1 : fragment.maxY <= caret.minY + 1
+        }
+    }
+
     /// Merges rectangles that sit on the same text line, which the
     /// Accessibility API often reports per character run.
     static func coalesce(_ rects: [CGRect], referenceId: String) -> DependencyGeometry {
