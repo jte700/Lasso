@@ -206,10 +206,7 @@ final class SheetPickerView: NSView {
 
     var currentPick: SheetPick? {
         guard let document = grid.document, !scroll.isHidden else { return nil }
-        let ranges = grid.highlights.ranges
-        guard var pick = SheetClipboard.pick(document, highlights: ranges, headers: headersSwitch.isOn, citing: sourceSwitch.isOn) else { return nil }
-        pick.includesCited = document.selection.map { cited in ranges.contains { $0.contains(row: cited.top, column: cited.left) } } ?? false
-        return pick
+        return SheetClipboard.pick(document, highlights: grid.highlights.ranges, headers: headersSwitch.isOn, citing: sourceSwitch.isOn)
     }
 
     var canInsert: Bool { currentPick != nil }

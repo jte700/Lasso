@@ -5046,6 +5046,22 @@ do {
                             rows: [SheetRow(number: 1, cells: ["Pump", "Note"])], headerRow: 1, selection: nil, truncated: false)
     check(SheetClipboard.citation(csv, [SheetRange(top: 1, bottom: 1, left: 1, right: 1)]) == "(pumps.csv, B1)", "a CSV is cited without a sheet")
     check(SheetClipboard.pick(sheet, highlights: [], headers: false, citing: true) == nil, "nothing highlighted inserts nothing")
+    let withBlank = SheetDocument(name: "ap.csv", sheet: nil, sheets: [], columns: ["A", "B", "C"],
+                                  rows: [SheetRow(number: 1, cells: ["Invoice", "", "Due"]), SheetRow(number: 2, cells: ["BILL-1160", "", "2026-09-17"]),
+                                         SheetRow(number: 3, cells: [""])], headerRow: 1, selection: nil, truncated: false)
+    check(SheetClipboard.grid(withBlank, [SheetRange(top: 1, bottom: 3, left: 0, right: 2)], headers: false).cells
+          == [["Invoice", "Due"], ["BILL-1160", "2026-09-17"]], "rows and columns with nothing in them are left out of the picture")
+
+    let typedInv = CompletionReplacement.capture(start: 0, end: 3, in: "inv")
+    check(SheetClipboard.typedTrigger(nil, before: "inv") == typedInv,
+          "the unfinished word that brought up the suggestion is replaced by the picture")
+    check(SheetClipboard.typedTrigger(nil, before: "Due dates: inv") == CompletionReplacement.capture(start: 11, end: 14, in: "Due dates: inv"),
+          "only that word, not the words before it")
+    check(SheetClipboard.typedTrigger(nil, before: "The invoices are ") == nil, "after a finished word nothing typed is removed")
+    let named = CompletionReplacement.capture(start: 4, end: 14, in: "The accrued pa")
+    check(SheetClipboard.typedTrigger(named, before: "The accrued pa") == named, "a matched name is replaced whole")
+    check(SheetClipboard.typedTrigger(CompletionReplacement(start: 3, expectedText: ""), before: "inv") == typedInv,
+          "a suggestion that only adds at the caret still takes away the unfinished word")
 
     let plainLayout = SheetPicture.layout(laid.cells, headed: false, caption: nil)
     let headedLayout = SheetPicture.layout(withHeaders.cells, headed: true, caption: nil)

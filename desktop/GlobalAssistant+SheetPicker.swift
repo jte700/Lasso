@@ -35,9 +35,9 @@ extension GlobalAssistant {
     }
 
     /// The suggestion the picture stands in for when its place in the field
-    /// is planned. It still replaces the typed words it was found by only
-    /// when the cited cell is among those highlighted.
-    static func sheetSuggestion(_ pick: SheetPick, from suggestion: AssistSuggestion) -> AssistSuggestion {
+    /// is planned. The picture takes the place of the typed words that
+    /// brought the suggestion up.
+    static func sheetSuggestion(_ pick: SheetPick, from suggestion: AssistSuggestion, before: String) -> AssistSuggestion {
         var chosen = suggestion
         // An inline picture is one object replacement character in the field's text.
         chosen.insertText = "\u{FFFC}"
@@ -46,7 +46,7 @@ extension GlobalAssistant {
         chosen.opensPassagePicker = false
         chosen.sentenceContinuation = false
         chosen.startsMidLine = false
-        if !pick.includesCited { chosen.replacement = nil }
+        chosen.replacement = SheetClipboard.typedTrigger(suggestion.replacement, before: before)
         return chosen
     }
 
@@ -54,7 +54,7 @@ extension GlobalAssistant {
     /// is still as it was. The app's own ⌘Z takes a paste back.
     private func insertSheetPick(_ pick: SheetPick, from suggestion: AssistSuggestion, context: CaretContext) {
         undoableInsertion = nil
-        let chosen = Self.sheetSuggestion(pick, from: suggestion)
+        let chosen = Self.sheetSuggestion(pick, from: suggestion, before: context.text)
         guard let plan = fieldPlan(for: chosen, in: context) else {
             hide()
             flash(["Could not insert here.", "Nothing was changed."])

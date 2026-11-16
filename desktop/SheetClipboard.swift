@@ -10,9 +10,6 @@ struct SheetPick: Equatable {
     let tiff: Data?
     /// The source, written under the picture or not.
     let citation: String
-    /// The suggestion's own cell is among those highlighted, so the picture
-    /// takes the place of the typed words it was found by.
-    var includesCited = false
 }
 
 enum SheetClipboard {
@@ -24,6 +21,18 @@ enum SheetClipboard {
         guard let picture = SheetPicture.render(table.cells, headed: table.headed, caption: citing ? citation : nil),
               let png = picture.representation(using: .png, properties: [:]) else { return nil }
         return SheetPick(png: png, tiff: picture.tiffRepresentation, citation: citation)
+    }
+
+    /// The typed words the picture takes the place of: those the suggestion
+    /// was matched on, or else the unfinished word at the caret ("inv" for
+    /// Invoice). After a finished word, nothing typed is removed.
+    static func typedTrigger(_ replacement: CompletionReplacement?, before: String) -> CompletionReplacement? {
+        if let replacement, !replacement.typedText.isEmpty { return replacement }
+        let text = Array(before.utf16)
+        var start = text.count
+        while start > 0, let scalar = Unicode.Scalar(text[start - 1]), !CharacterSet.whitespacesAndNewlines.contains(scalar) { start -= 1 }
+        guard start < text.count else { return nil }
+        return CompletionReplacement.capture(start: start, end: text.count, in: before)
     }
 
     /// "(Pumps.xlsx, 'Trial Balance'!B2, C5:C7)": each highlight in the order
@@ -41,10 +50,14 @@ enum SheetClipboard {
     /// they touch; a cell no highlight covers is empty. With `headers`, the
     /// header row comes first unless a highlight already takes it in.
     /// `headed` says the first row is the header row, added or highlighted.
+    /// Rows and columns with nothing in them, such as a CSV's blank last
+    /// line, are left out.
     static func grid(_ document: SheetDocument, _ highlights: [SheetRange], headers: Bool) -> (cells: [[String]], headed: Bool) {
         let covered = { (row: Int, column: Int) in highlights.contains { $0.contains(row: row, column: column) } }
-        let rows = document.rows.map(\.number).filter { row in highlights.contains { (($0.top)...($0.bottom)).contains(row) } }
-        let columns = Array(Set(highlights.flatMap { Array($0.left...$0.right) })).sorted()
+        let filled = { (row: Int, column: Int) in covered(row, column) && !document.cell(row: row, column: column).isEmpty }
+        let touched = Array(Set(highlights.flatMap { Array($0.left...$0.right) })).sorted()
+        let rows = document.rows.map(\.number).filter { row in touched.contains { filled(row, $0) } }
+        let columns = touched.filter { column in rows.contains { filled($0, column) } }
         var cells = rows.map { row in columns.map { covered(row, $0) ? document.cell(row: row, column: $0) : "" } }
         let addsHeader = headers && document.headerRow.map { !rows.contains($0) } == true
         if addsHeader, let header = document.headerRow {
