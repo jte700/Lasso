@@ -89,7 +89,7 @@ extension GlobalAssistant {
         view.selected = min(view.selected, max(0, suggestions.count - 1))
         loadPreviewForSelection()
         refreshPanelGeometry()
-        panel.orderFrontRegardless()
+        presentCard(panel)
         publishKeyRouting()
     }
 
@@ -296,7 +296,7 @@ extension GlobalAssistant {
         view.title = "lasso"
         view.messageLines = lines
         refreshPanelGeometry()
-        panel.orderFrontRegardless()
+        presentCard(panel)
         flashTimer?.invalidate()
         flashTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
             self?.hide()

@@ -2,11 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Lasso.app under the hardened runtime of a release build. Opening a source
      asks its app (Excel, Word, Acrobat, QuickTime) to go to the cited place,
-     and Connect reads the calendars the user chooses. Info.plist explains both
-     to the user. Accessibility and Input Monitoring need no entitlement. -->
+     Connect reads the calendars the user chooses, and the dictation pill reads
+     the voice's loudness while dictation is on. Info.plist explains each to
+     the user. Accessibility and Input Monitoring need no entitlement. -->
 <plist version="1.0">
 <dict>
   <key>com.apple.security.automation.apple-events</key><true/>
   <key>com.apple.security.personal-information.calendars</key><true/>
+  <key>com.apple.security.device.audio-input</key><true/>
 </dict>
 </plist>

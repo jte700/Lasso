@@ -42,7 +42,7 @@ final class AssistBubbleContainer: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    private static func geometry(of card: AssistBoxView) -> AssistBubbleGeometry {
+    static func geometry(of card: AssistBoxView) -> AssistBubbleGeometry {
         AssistBubbleGeometry(cornerRadius: card.bubbleCornerRadius, pointerWidth: card.pointerWidth,
                              pointerHeight: card.pointerHeight, pointerX: card.pointerX,
                              pointerAtTop: card.pointerAtTop)
@@ -249,7 +249,7 @@ final class AssistBoxView: NSView {
     let messageHeight: CGFloat = 22
     private let footerHeight: CGFloat = 55
     let pointerHeight: CGFloat = 12
-    fileprivate let pointerWidth: CGFloat = 21
+    let pointerWidth: CGFloat = 21
     let bubbleCornerRadius: CGFloat = 18
     // The host tracker reassigns these ten times a second while the box is
     // open. Only a real change may relayout and redraw the panel.
@@ -347,6 +347,9 @@ final class AssistBoxView: NSView {
         let width = mode == .suggestions ? panelWidth : leftWidth
         return NSSize(width: width, height: bodyHeight + pointerHeight)
     }
+
+    /// The card's size with suggestions on it, whatever it shows now.
+    var suggestionsBoxSize: NSSize { NSSize(width: panelWidth, height: suggestionBodyHeight + pointerHeight) }
 
     override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

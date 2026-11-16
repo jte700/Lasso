@@ -4595,6 +4595,131 @@ do {
           "an arrow near the card's edge stays clear of the rounded corner")
 }
 
+// MARK: Linked words drawn as pills
+
+do {
+    let font = NSFont(name: "Helvetica Neue", size: 15) ?? NSFont.systemFont(ofSize: 15)
+    let style = HostTextStyle(fontName: font.fontName, fontFamily: font.familyName, fontSize: 15)
+    let area = "18,400 sq ft"
+    let areaWidth = ReferenceChipLayout.width(area, font)
+    let drawn = ReferenceChipLayout.lines(text: area, fragments: [CGRect(x: 100, y: 200, width: areaWidth, height: 18)],
+                                          style: style)
+    check(drawn?.count == 1 && abs((drawn?[0].stretch ?? 0) - 1) < 0.001 && abs((drawn?[0].font.pointSize ?? 0) - 15) < 0.01,
+          "a phrase in the host's own font is drawn again at its size, unstretched")
+    let zoomed = ReferenceChipLayout.lines(text: area, fragments: [CGRect(x: 100, y: 200, width: areaWidth * 1.2, height: 22)],
+                                           style: style)
+    check(zoomed.map { abs($0[0].font.pointSize - 18) < 0.01 } == true, "a zoomed host's words are drawn at the size they show at")
+    check(ReferenceChipLayout.lines(text: area, fragments: [CGRect(x: 100, y: 200, width: areaWidth * 2, height: 18)],
+                                    style: style) == nil,
+          "words that cannot match where the host drew them keep the host's own letters")
+    check(ReferenceChipLayout.lines(text: "two\nparagraphs", fragments: [CGRect(x: 0, y: 0, width: 80, height: 18)],
+                                    style: style) == nil,
+          "words across paragraphs keep the host's own letters")
+
+    let first = "the retaining wall needs a second", second = "inspection before the pour"
+    let wrapped = ReferenceChipLayout.lines(text: first + " " + second, fragments: [
+        CGRect(x: 300, y: 400, width: ReferenceChipLayout.width(first, font), height: 18),
+        CGRect(x: 40, y: 382, width: ReferenceChipLayout.width(second, font), height: 18),
+    ], style: style)
+    check(wrapped?.map(\.text) == [first, second], "a wrapped phrase is split where the host wrapped it")
+    check(wrapped.map { $0[0].baseline > $0[1].baseline } == true, "each line is drawn on its own baseline")
+
+    func chip(_ phrase: String, roomAfter: Bool = true) -> OverlayChip? {
+        let fragments = [CGRect(x: 100, y: 200, width: ReferenceChipLayout.width(phrase, font), height: 18)]
+        guard let lines = ReferenceChipLayout.lines(text: phrase, fragments: fragments, style: style) else { return nil }
+        return OverlayChip(id: phrase, text: phrase, fragments: fragments, lines: lines, state: .healthy, tint: .systemGreen,
+                           page: .white, ink: .black, words: .systemGreen, sourcePath: "Area Schedule.xlsx",
+                           roomBefore: true, roomAfter: roomAfter, badgeSide: ChipBadgeSide.choose(lines: lines), isNew: false)
+    }
+    let space = ReferenceChipLayout.width(" ", font)
+    if let income = chip("income tax expense") {
+        let pill = income.pill(0), words = income.fragments[0]
+        check(pill.minX > words.minX - space * 0.5 && pill.maxX < words.maxX + space * 0.5,
+              "a pill reaches less than half way into the spaces beside its words")
+        check(income.badgeSide == .after, "the type icon sits over the phrase's own low letters at its end")
+        check(income.badge.map { $0.minX >= pill.minX && $0.maxX <= pill.maxX } == true,
+              "the type icon stays within the pill, off the letters of the words beside it")
+        check(income.badge.map { $0.minY > income.lines![0].baseline + income.lines![0].font.xHeight } == true,
+              "it sits clear of the tops of the lowercase letters under it")
+    } else {
+        check(false, "a phrase in the host's font is drawn again")
+    }
+    check(chip("expense,", roomAfter: false).map { abs($0.pill(0).maxX - $0.fragments[0].maxX) < 0.001 } == true,
+          "a pill stops at its words where punctuation follows them")
+    check(chip("measured Total")?.badgeSide == .before, "with tall letters at its end the icon sits over low ones at its start")
+    check(chip(area).map { $0.badgeSide == nil && $0.badge == nil } == true,
+          "with tall letters at both ends no icon is drawn over the text, and the menu shows the type")
+    check(ChipBadgeSide.choose(lines: nil) == nil, "words left in the host's letters get no icon over them")
+
+    check(ReferenceChipPalette.isDark(HostTextStyle(foreground: NSColor(white: 0.92, alpha: 1)), systemDark: false),
+          "light words mean a dark page")
+    check(!ReferenceChipPalette.isDark(HostTextStyle(foreground: NSColor(white: 0.1, alpha: 1)), systemDark: true),
+          "dark words mean a light page, whatever the system's appearance")
+    check(ReferenceChipPalette.isDark(nil, systemDark: true) && !ReferenceChipPalette.isDark(nil, systemDark: false),
+          "without the host's colours the system's appearance decides")
+
+    let line = CGRect(x: 100, y: 500, width: 1, height: 18)
+    let after = DependencyGeometry(referenceId: "a", fragments: [CGRect(x: 160, y: 500, width: 40, height: 18)])
+    let before = DependencyGeometry(referenceId: "b", fragments: [CGRect(x: 20, y: 500, width: 40, height: 18)])
+    let below = DependencyGeometry(referenceId: "c", fragments: [CGRect(x: 20, y: 482, width: 40, height: 18)])
+    let above = DependencyGeometry(referenceId: "d", fragments: [CGRect(x: 20, y: 518, width: 40, height: 18)])
+    check(after.mayMove(typingAt: line) && below.mayMove(typingAt: line),
+          "typing moves the phrases after the caret on its line and on the lines below")
+    check(!before.mayMove(typingAt: line) && !above.mayMove(typingAt: line),
+          "words just accepted before the caret, and lines above, stay drawn while typing goes on")
+}
+
+// MARK: Change Source
+
+do {
+    func offered(_ text: String, _ object: String, path: String = "Area Schedule.xlsx") -> ReferenceAlternative {
+        ReferenceAlternative(text: text, label: text, detail: "", path: path, location: "", objectId: object,
+                             versionId: nil, snapshotId: nil, projectId: "p", usageObjectId: nil)
+    }
+    let list = ReferenceAlternative.offered(accepted: offered("18,400 sq ft", "a"),
+                                            others: [offered("18,400 sq ft", "a"), offered("17,950 sq ft", "b"),
+                                                     offered("18,250 sq ft", "c", path: "Planning.pdf")])
+    check(list.map(\.objectId) == ["a", "b", "c"], "the accepted source comes first, then the card's others, each once")
+    check(ReferenceAlternative.offered(accepted: offered("x", "a"), others: (0..<12).map { offered("v\($0)", "o\($0)") })
+            .count == ReferenceAlternative.limit, "only as many sources are kept as the card shows")
+    let picked = ReferenceAlternative.offered(accepted: offered("\u{201C}a second inspection\u{201D} (p. 4)", "a"),
+                                              others: [offered("the wall needs a second inspection", "a"), offered("x", "b")],
+                                              samePassage: true)
+    check(picked.map(\.objectId) == ["a", "b"], "words picked from a passage stand for that passage")
+
+    var reference = DependencyReference(
+        id: "r", objectId: "b", versionId: nil, hostBundleIdentifier: "x", hostApplication: "x", documentContext: "d",
+        anchor: TextAnchor(text: "17,950 sq ft", prefixContext: "", suffixContext: "", approximateOffset: 0),
+        state: .healthy, label: "", valueText: nil, sourcePath: "Area Schedule.xlsx", sourceLocation: "",
+        alternatives: list, createdAt: Date(), updatedAt: Date())
+    check(reference.currentAlternativeIndex == 1 && reference.otherAlternatives.map(\.objectId) == ["a", "c"],
+          "after a change the source in use is found among those offered, and the rest are offered")
+    reference.shareToken = "t"
+    check(reference.otherAlternatives.isEmpty, "a share link's words keep the source the link was made for")
+    reference.shareToken = nil
+    reference.alternatives = nil
+    check(reference.otherAlternatives.isEmpty && reference.currentAlternativeIndex == nil,
+          "links saved before sources were kept offer no change")
+    let encoded = try? JSONEncoder().encode([reference])
+    let older = encoded.flatMap { String(data: $0, encoding: .utf8) }?.replacingOccurrences(of: ",\"alternatives\":null", with: "")
+    check(older.flatMap { try? JSONDecoder().decode([DependencyReference].self, from: Data($0.utf8)) }?.count == 1,
+          "links saved by older builds still load")
+
+    let gross = offered("Gross Floor Area", "a"), net = offered("Net Floor Area", "b")
+    check(ReferenceSwap.words(for: net, current: gross, shown: "gross floor area", before: "the ") == "net floor area",
+          "a source lowered to fit the sentence passes that on to the one chosen instead")
+    check(ReferenceSwap.words(for: net, current: gross, shown: "Gross Floor Area", before: "the ") == "Net Floor Area",
+          "a source inserted as its file spells it is replaced as the new file spells it")
+    var code = offered("rangeStart", "c")
+    code.verbatim = true
+    check(ReferenceSwap.words(for: code, current: gross, shown: "gross floor area", before: "the ") == "rangeStart",
+          "code keeps its letters")
+    let document = Array("the area is 18,400 sq ft, and".utf16)
+    check(String(decoding: ReferenceSwap.expected(document, replacing: 12..<24, with: "17,950 sq ft (net)"), as: UTF16.self)
+            == "the area is 17,950 sq ft (net), and",
+          "only the phrase's own characters are written over")
+}
+
 // MARK: Apps Lasso suggests in
 
 do {
@@ -5053,6 +5178,137 @@ do {
                                                 margin: 10, visible: visible)
     check(margined.maxY - 10 == 500 - ScopeSwitcherPlacement.gap && margined.minX + 10 == 400 - ScopeSwitcherPlacement.leadIn,
           "a panel with room for a shadow puts its pill in the same place")
+}
+
+print("The dictation pill follows the voice and grows into the card")
+do {
+    check(VoiceLevel.normalized(rms: 0) == 0 && VoiceLevel.normalized(rms: .nan) == 0, "silence and a bad reading draw flat waves")
+    check(VoiceLevel.normalized(rms: 0.002) == 0, "a room's hum, below -48 dB, draws flat waves")
+    let soft = VoiceLevel.normalized(rms: 0.01), speech = VoiceLevel.normalized(rms: 0.05)
+    check(soft > 0.2 && soft < speech && speech < 1, "soft speech moves the waves, and louder speech moves them more")
+    check(VoiceLevel.normalized(rms: 0.5) == 1, "a raised voice fills them")
+
+    var waves = VoiceWaveform()
+    waves.hear([0.2, 0.9, 0.4])
+    waves.advance()
+    check(waves.bars.last == 0.9 && waves.bars.count == VoiceWaveform.barCount, "a bar takes the loudest of its two slices")
+    waves.advance()
+    check(waves.bars.last == 0.4 && waves.bars[VoiceWaveform.barCount - 2] == 0.9, "the waves move left as new bars arrive on the right")
+    waves.advance()
+    check(abs((waves.bars.last ?? 0) - 0.4 * VoiceWaveform.fade) < 0.0001, "with no reading a bar fades rather than dropping to nothing")
+    waves.hear([CGFloat](repeating: 0.5, count: 100))
+    var advances = 0
+    while waves.bars.last == 0.5 || advances == 0 { waves.advance(); advances += 1; if advances > 50 { break } }
+    check(advances == VoiceWaveform.maximumQueued / VoiceWaveform.slicesPerBar + 1,
+          "a meter running ahead never leaves the waves far behind the voice")
+    let heights = VoiceWaveform().heights(minimum: 3, maximum: 20)
+    check(heights.allSatisfy { $0 == 3 }, "in silence every bar is a dot")
+    var loud = VoiceWaveform()
+    for _ in 0..<VoiceWaveform.barCount { loud.hear([1, 1]); loud.advance() }
+    let full = loud.heights(minimum: 3, maximum: 20)
+    check(full[VoiceWaveform.barCount / 2] > full[0] && abs(full[0] - full[VoiceWaveform.barCount - 1]) < 0.001 && (full.max() ?? 0) <= 20,
+          "the middle bars stand tallest, so the waves sit in the pill as a shape")
+
+    let start = Date(timeIntervalSinceReferenceDate: 1000)
+    func at(_ seconds: TimeInterval) -> Date { start.addingTimeInterval(seconds) }
+    var session = DictationPillSession()
+    check(!session.isOn(at: start), "the pill is not up before dictation")
+    session.shortcutPressed(at: start)
+    session.shortcutPressed(at: at(0.05))
+    check(session.isOn(at: at(1)), "the 🎤 key, which arrives twice, starts dictation once")
+    check(!session.isOn(at: at(DictationPillSession.beforeWords + 0.1)), "with no words after the shortcut, the pill goes")
+    session.wordsArrived(at: at(12))
+    check(session.isOn(at: at(12 + DictationPillSession.afterWords - 0.1))
+          && !session.isOn(at: at(12 + DictationPillSession.afterWords + 0.1)),
+          "dictated words keep the pill through a pause, then it goes")
+    session.shortcutPressed(at: at(40))
+    check(!session.isOn(at: at(40.1)) && session.endsAt == nil,
+          "after a silence that hid the pill, the shortcut ends dictation rather than starting it")
+    session.wordsArrived(at: at(41))
+    check(!session.isOn(at: at(41.1)), "the last words dictation writes as it stops do not bring it back")
+    session.wordsArrived(at: at(50))
+    check(session.isOn(at: at(50.1)), "words dictated later bring the pill back without the shortcut")
+    session.shortcutPressed(at: at(51))
+    check(!session.isOn(at: at(51.1)), "pressing the shortcut while the pill shows stops it")
+    session.shortcutPressed(at: at(52))
+    check(session.isOn(at: at(52.1)), "pressing it again starts dictation again")
+    session.stop(at: at(53))
+    check(!session.isOn(at: at(53)) && session.endsAt == nil, "Escape stops it")
+    var later = DictationPillSession()
+    later.shortcutPressed(at: start)
+    later.wordsArrived(at: at(2))
+    later.shortcutPressed(at: at(2 + DictationPillSession.dictationMemory + 1))
+    check(later.isOn(at: at(2 + DictationPillSession.dictationMemory + 1.1)),
+          "a minute after the last words, the shortcut starts dictation again")
+
+    let visible = CGRect(x: 0, y: 0, width: 1440, height: 900)
+    let pill = CGSize(width: 132, height: 36)
+    let caret = CGRect(x: 600, y: 300, width: 2, height: 18)
+    let under = DictationPillPlacement.frame(caret: caret, size: pill, visible: visible)
+    // macOS's microphone as measured on screen: 30 by 23 points, centred on the caret, 5 points under the line.
+    let microphone = CGRect(x: caret.midX - 15, y: caret.minY - 28, width: 30, height: 23)
+    check(under.maxY == caret.minY - DictationPillPlacement.underLine && under.minX > microphone.maxX
+          && !under.intersects(microphone) && abs(under.midY - microphone.midY) <= 3,
+          "the pill sits just under the caret line, level with macOS's microphone and to its right")
+    let nextWord = caret.offsetBy(dx: 50, dy: 0)
+    let lead = DictationPillPlacement.lead(from: caret, to: nextWord, keeping: 0)
+    let ahead = DictationPillPlacement.frame(caret: nextWord, size: pill, visible: visible, lead: lead)
+    check(lead == 50 && !ahead.intersects(microphone.offsetBy(dx: 100, dy: 0)),
+          "while words arrive the pill keeps a word ahead, so the next word does not put the microphone under it")
+    check(DictationPillPlacement.lead(from: nextWord, to: nextWord.offsetBy(dx: 3, dy: 0), keeping: 50) == 50
+          && DictationPillPlacement.lead(from: caret, to: caret.offsetBy(dx: 400, dy: 0), keeping: 0) == DictationPillPlacement.longestLead,
+          "a step too short to be a word keeps the lead, and a long jump keeps no more than a long word")
+    check(DictationPillPlacement.lead(from: nextWord, to: caret, keeping: 50) == 0
+          && DictationPillPlacement.lead(from: caret, to: caret.offsetBy(dx: -300, dy: -22), keeping: 50) == 0,
+          "going back, or onto a new line, keeps no lead")
+    let bottom = CGRect(x: 600, y: 20, width: 2, height: 18)
+    check(DictationPillPlacement.frame(caret: bottom, size: pill, visible: visible).minY == bottom.maxY + DictationPillPlacement.gap,
+          "with no room under the line, it sits above")
+    let edge = CGRect(x: 1400, y: 300, width: 2, height: 18)
+    let atEdge = DictationPillPlacement.frame(caret: edge, size: pill, visible: visible)
+    check(atEdge.maxX < edge.midX - DictationPillPlacement.microphoneHalfWidth && atEdge.maxX <= 1440,
+          "at the right edge of the screen, it sits before the microphone instead")
+
+    // CoreAudio's transport codes: built in, Bluetooth, USB.
+    func transport(_ code: String) -> UInt32 { code.utf8.reduce(0) { $0 << 8 | UInt32($1) } }
+    let builtIn = MeterInput(uid: "BuiltInMic", transport: transport("bltn"))
+    let airPods = MeterInput(uid: "AirPods", transport: transport("blue"))
+    let usb = MeterInput(uid: "USBMic", transport: transport("usb "))
+    check(MeterInput.choose([airPods, builtIn], defaultInput: "AirPods") == "BuiltInMic",
+          "the waves listen through the Mac's own microphone, never the headset Dictation uses")
+    check(MeterInput.choose([usb, airPods], defaultInput: "USBMic") == "USBMic",
+          "without one, a wired microphone that is the input")
+    check(MeterInput.choose([airPods], defaultInput: "AirPods") == nil,
+          "with only a headset, the waves do not listen at all")
+
+    let capsule = DictationOutline.pill(CGRect(x: 100, y: 100, width: 132, height: 36), caretX: 166, pointerAtTop: false)
+    check(capsule.cornerRadius == 18 && capsule.pointerHeight == 0 && capsule.pointerX == 66,
+          "the pill is a capsule whose arrow lies flat under the caret")
+    let seed = DictationOutline.seed(of: capsule)
+    check(seed.rect.width == 36 && seed.rect.midX == capsule.rect.midX, "it grows out of a dot at its centre")
+    let cardOutline = DictationOutline(rect: CGRect(x: 0, y: 0, width: 760, height: 396), cornerRadius: 18,
+                                       pointerHeight: 12, pointerWidth: 21, pointerX: 84, pointerAtTop: false)
+    check(DictationOutline.between(capsule, cardOutline, progress: 0) == capsule
+          && DictationOutline.between(capsule, cardOutline, progress: 1) == cardOutline,
+          "the morph starts at the pill and ends at the card's own outline")
+    let halfway = DictationOutline.between(capsule, cardOutline, progress: 0.5)
+    check(halfway.pointerHeight == 6 && halfway.rect.width == 446, "on the way the arrow grows as the outline widens")
+    let past = DictationOutline.between(cardOutline, capsule, progress: 1.1)
+    check(past.pointerHeight == 0 && past.pointerWidth == 0 && past.rect.width >= 1,
+          "a spring overshooting back into the pill never turns the arrow inside out")
+
+    let canvas = DictationMorphCanvas.covering([CGRect(x: 100, y: 100, width: 132, height: 36), CGRect(x: 50, y: 150, width: 760, height: 396)],
+                                               margin: 18)
+    check(canvas.frame == CGRect(x: 32, y: 82, width: 796, height: 482), "the morph's panel covers both ends with room for a shadow")
+    let local = canvas.local(CGRect(x: 100, y: 100, width: 132, height: 36))
+    check(local.minX == 68 && local.maxY == 482 - 18 && canvas.appKit(local) == CGRect(x: 100, y: 100, width: 132, height: 36),
+          "the panel draws from its top-left, and its rectangles go back to the screen unchanged")
+
+    let fade = DictationFade(from: 0, to: 1, delay: 0.1, duration: 0.2)
+    check(fade.value(at: 0) == 0 && fade.value(at: 0.31) == 1 && fade.value(at: 0.2) > 0.5,
+          "a fade waits, then eases out to where it lands")
+    check(!fade.isDone(at: 0.29) && fade.isDone(at: 0.31) && DictationFade.hold(0.4).value(at: 0) == 0.4,
+          "it is done once its time is up, and a held opacity stays")
 }
 
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
