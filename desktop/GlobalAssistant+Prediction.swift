@@ -36,7 +36,8 @@ extension GlobalAssistant {
                 location: Self.sourceLocation(object), replacement: replacement,
                 objectId: id, versionId: object["versionId"] as? String,
                 snapshotId: object["snapshotId"] as? String, usageObjectId: id,
-                projectId: projectId, rankingReason: nil, tableNavigable: Self.isTableSource(object),
+                projectId: projectId, rankingReason: nil,
+                tableNavigable: Self.isTableSource(object) || Self.isSheetFile(object),
                 sheetPickable: Self.isSheetSource(object))
             self.view.selected = 0
             self.view.sourceScoped = true
@@ -399,6 +400,12 @@ extension GlobalAssistant {
 
     static let sheetExtensions: Set<String> = ["xlsx", "xlsm", "xls", "csv", "tsv"]
 
+    /// Anything from a spreadsheet or CSV with an object to dive from, its whole file included.
+    static func isSheetFile(_ object: [String: Any]) -> Bool {
+        guard object["id"] is String, let path = object["path"] as? String else { return false }
+        return sheetExtensions.contains((path as NSString).pathExtension.lowercased())
+    }
+
     /// A cell, row or column of a spreadsheet or CSV, which the sheet picker opens on.
     static func isSheetSource(_ object: [String: Any]) -> Bool {
         guard let path = object["path"] as? String, sheetExtensions.contains((path as NSString).pathExtension.lowercased()),
@@ -474,7 +481,8 @@ extension GlobalAssistant {
             if identities.insert(identity).inserted {
                 var matched = suggestion
                 let candidate = (entry["dependencyCandidate"] as? [String: Any]) ?? entry
-                matched.tableNavigable = Self.isTableSource(candidate)
+                // A spreadsheet's own name dives in too, at its top-left cell.
+                matched.tableNavigable = Self.isTableSource(candidate) || Self.isSheetFile(candidate)
                 matched.sheetPickable = Self.isSheetSource(candidate)
                 matched.matchedWords = entry["matchedWords"] as? [String] ?? []
                 // A value that changed recently says what it was, in the same dim slot.
