@@ -2,54 +2,17 @@ import Cocoa
 
 /// Draws its folder's colour directly, so an enabled menu switch stays
 /// colored even when its menu window is inactive, and each folder's switch
-/// matches its colour dot. NSButton supplies state, keyboard and AX actions.
-final class DirectoryTintSwitch: NSButton {
-    var tint: DirectoryToggleColor = .blue { didSet { needsDisplay = true } }
+/// matches its colour dot. Proportions follow the small system switch; the
+/// knob moves on SpringSwitch's springs.
+final class DirectoryTintSwitch: SpringSwitch {
+    var tint: DirectoryToggleColor = .blue { didSet { onColor = tint.color } }
 
     init() {
-        super.init(frame: NSRect(x: 0, y: 0, width: 40, height: 24))
-        setButtonType(.switch)
-        allowsMixedState = false
-        isBordered = false
-        title = ""
-        setAccessibilityRole(.checkBox)
-        setAccessibilitySubrole(.switch)
+        super.init(frameSize: NSSize(width: 40, height: 24), trackSize: NSSize(width: 30, height: 17))
+        onColor = tint.color
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func draw(_ dirtyRect: NSRect) {
-        // Proportions follow the small system switch: a capsule track with a
-        // round white knob that carries a soft shadow and hairline edge.
-        let track = NSRect(x: (bounds.width - 30) / 2, y: (bounds.height - 17) / 2,
-                           width: 30, height: 17)
-        let opacity: CGFloat = isEnabled ? 1 : 0.45
-        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let offColor = dark ? NSColor(white: 1, alpha: 0.16) : NSColor(white: 0, alpha: 0.1)
-        (state == .on ? tint.color : offColor).withAlphaComponent((state == .on ? 1 : offColor.alphaComponent) * opacity).setFill()
-        NSBezierPath(roundedRect: track, xRadius: track.height / 2, yRadius: track.height / 2).fill()
-        let knob = NSRect(x: state == .on ? track.maxX - 16 : track.minX + 1,
-                          y: track.minY + 1, width: 15, height: 15)
-        NSGraphicsContext.saveGraphicsState()
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.25 * opacity)
-        shadow.shadowBlurRadius = 1.5
-        shadow.shadowOffset = NSSize(width: 0, height: -0.5)
-        shadow.set()
-        NSColor.white.withAlphaComponent(dark && state != .on ? 0.85 * opacity : opacity).setFill()
-        NSBezierPath(ovalIn: knob).fill()
-        NSGraphicsContext.restoreGraphicsState()
-        NSColor.black.withAlphaComponent(0.08 * opacity).setStroke()
-        let edge = NSBezierPath(ovalIn: knob.insetBy(dx: 0.25, dy: 0.25))
-        edge.lineWidth = 0.5
-        edge.stroke()
-        if window?.firstResponder === self {
-            NSColor.keyboardFocusIndicatorColor.setStroke()
-            let ring = NSBezierPath(roundedRect: track.insetBy(dx: -2.5, dy: -2.5), xRadius: 11, yRadius: 11)
-            ring.lineWidth = 2.5
-            ring.stroke()
-        }
-    }
 }
 
 final class DirectoryColorButton: NSButton {

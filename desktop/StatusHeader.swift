@@ -11,7 +11,9 @@ final class StatusHeaderRow: NSView {
     let isBusy: Bool
     private let titleLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(wrappingLabelWithString: "")
-    private let toggle = NSSwitch()
+    /// Rebuilt with every refresh, so its knob's motion is kept by key.
+    private let toggle = SpringSwitch(frameSize: NSSize(width: 42, height: 26), trackSize: NSSize(width: 38, height: 22),
+                                      motionKey: "suggest-while-typing")
     private let progress = DirectoryProgressBar()
 
     private static let inset: CGFloat = 14
@@ -41,7 +43,6 @@ final class StatusHeaderRow: NSView {
         subtitleLabel.autoresizingMask = [.width]
         subtitleLabel.toolTip = subtitle
         addSubview(subtitleLabel)
-        toggle.controlSize = .regular
         toggle.state = item.state == .on ? .on : .off
         toggle.isEnabled = item.isEnabled
         toggle.target = self
@@ -63,7 +64,6 @@ final class StatusHeaderRow: NSView {
 
     /// Places the pieces for a width and takes the height they need.
     private func layOut(width: CGFloat) {
-        toggle.sizeToFit()
         let switchSize = toggle.frame.size
         let textWidth = width - Self.inset * 2 - switchSize.width - Self.switchGap
         titleLabel.frame = NSRect(x: Self.inset, y: 6, width: textWidth, height: Self.titleHeight)
@@ -76,7 +76,8 @@ final class StatusHeaderRow: NSView {
             progress.frame = NSRect(x: Self.inset, y: height + 2, width: width - Self.inset * 2, height: Self.progressHeight)
             height = progress.frame.maxY + 8
         }
-        toggle.frame = NSRect(x: width - Self.inset - switchSize.width, y: 8,
+        // The track, not the room around it for the focus ring, lines up with the inset.
+        toggle.frame = NSRect(x: width - Self.inset - switchSize.width + 2, y: 6,
                               width: switchSize.width, height: switchSize.height)
         setFrameSize(NSSize(width: width, height: height))
     }
