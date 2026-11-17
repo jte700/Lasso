@@ -217,6 +217,7 @@ extension GlobalAssistant {
             return
         }
 
+        acceptGhostText(plan)
         hide()
         spokenCard = nil
         markOwnWrite()

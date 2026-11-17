@@ -91,6 +91,7 @@ extension GlobalAssistant {
         refreshPanelGeometry()
         presentCard(panel)
         publishKeyRouting()
+        updateGhostText()
     }
 
     func showMeasuringHost(_ suggestions: [AssistSuggestion]) {
@@ -171,6 +172,7 @@ extension GlobalAssistant {
         guard rect != popupCaret else { return }
         popupCaret = rect
         reposition(near: rect)
+        updateGhostText()
     }
 
     func stopTrackingHost() {
@@ -273,6 +275,7 @@ extension GlobalAssistant {
         view.onOpenWords = { [weak self] in self?.openWords(movingStart: false); self?.publishKeyRouting() }
         view.onCloseWords = { [weak self] in self?.view.wordChoice = nil; self?.publishKeyRouting() }
         view.onDismiss = { [weak self] in self?.dismiss() }
+        view.onTabTextChange = { [weak self] in self?.updateGhostText() }
         created.contentView = AssistBubbleContainer(content: view)
         panel = created
         return created

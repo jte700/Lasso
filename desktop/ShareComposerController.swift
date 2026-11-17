@@ -129,6 +129,8 @@ final class ShareComposerController: NSObject {
               citedIn: String? = nil,
               completion: ((ShareConfiguration) -> Void)? = nil) {
         hide()
+        // A link, not the ghost's words, is what this writes.
+        GhostTextOverlay.shared.withdraw()
         let drawing = ["dxf", "ifc"].contains((sourcePath as NSString).pathExtension.lowercased())
         canvasSize = hostPanel.map {
             NSSize(width: max(760, $0.frame.width),

@@ -776,6 +776,7 @@ final class GlobalAssistant {
         typedOverList.answered()
         guard view.mode == .suggestions, panel?.isVisible == true else { return }
         let closing = closingCard()
+        GhostTextOverlay.shared.cardClosed()
         panel?.orderOut(nil)
         cardClosed(closing)
         publishKeyRouting()
@@ -829,6 +830,7 @@ final class GlobalAssistant {
         focusLanding = nil
         linkedSources.endMove()
         pendingShare = nil
+        GhostTextOverlay.shared.cardClosed()
         panel?.orderOut(nil)
         cardClosed(closing)
         publishKeyRouting()
