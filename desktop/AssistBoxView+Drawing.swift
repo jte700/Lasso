@@ -34,7 +34,7 @@ extension AssistBoxView {
             let narrowsInto = suggestions.indices.contains(selected) && suggestions[selected].narrowable
                 ? suggestions[selected].label : nil
             if suggestions.indices.contains(selected), suggestions[selected].tableNavigable, tableBrowsing {
-                drawText("Arrow keys move between cells · fn+Right to go back",
+                drawText("Arrow keys move between cells · fn ← to return",
                          in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
                          font: navigationFont, color: .secondaryLabelColor)
             } else if suggestions.indices.contains(selected), suggestions[selected].tableNavigable {

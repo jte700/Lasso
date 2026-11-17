@@ -4,7 +4,6 @@
 // typed bring them up.
 
 import path from 'node:path';
-import { holdsValue } from './linked-context.js';
 import { mapObjectRow } from './object-descriptors.js';
 import { typedValueCloseness } from './workspace-completion.js';
 import { writingSourceContext } from './writing-context.js';
@@ -67,8 +66,9 @@ export const heldRowsMethods = {
       const found = this.sourceVersion(item.sourceObjectId, item.sourceSnapshotId);
       if (!found) continue;
       const value = mapObjectRow(found);
-      if (value.anchor?.kind !== 'table-cell' || !holdsValue(held.source, value)) continue;
-      const row = this.rowOfCell(value);
+      if (!['table-cell', 'table-row'].includes(value.anchor?.kind) || !this.holdsTableValue(held.source, value)) continue;
+      // A name tabbed from the column naming the rows is its row.
+      const row = value.anchor.kind === 'table-row' ? value : this.rowOfCell(value);
       if (row && row.id !== held.source.id && !rows.some((known) => known.id === row.id)) rows.push(row);
     }
     return rows;
