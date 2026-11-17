@@ -94,6 +94,7 @@ final class AssistBoxView: NSView {
             needsLayout = true
             if mode == .suggestions { revealSelectedSuggestion(animated: false) }
             updatePreviewContent()
+            onTabTextChange?()
         }
     }
     var suggestions: [AssistSuggestion] = [] {
@@ -110,6 +111,7 @@ final class AssistBoxView: NSView {
             // paints where it brings rows into view.
             suggestionRows.needsDisplay = true
             revealSelectedSuggestion(animated: true)
+            if selected != oldValue { onTabTextChange?() }
         }
     }
     let visibleSuggestionCount = 4
@@ -142,6 +144,7 @@ final class AssistBoxView: NSView {
             // The words take the list's place.
             if (wordChoice == nil) != (oldValue == nil) { needsLayout = true }
             needsDisplay = true
+            if wordChoice != oldValue { onTabTextChange?() }
         }
     }
     /// How far a long line's words are scrolled, and the word a drag across them started on.
@@ -180,6 +183,8 @@ final class AssistBoxView: NSView {
     var onOpenWords: (() -> Void)?
     var onCloseWords: (() -> Void)?
     var onDismiss: (() -> Void)?
+    /// What Tab would write may have changed: another row, another mode, or words chosen from a line.
+    var onTabTextChange: (() -> Void)?
     let closeButton = NSButton()
 
     override init(frame frameRect: NSRect) {

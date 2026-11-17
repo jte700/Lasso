@@ -5791,5 +5791,71 @@ do {
           "it is done once its time is up, and a held opacity stays")
 }
 
+do {
+    check(GhostMotion.letter == (stiffness: 300, damping: 30) && GhostMotion.hop == (stiffness: 520, damping: 16)
+          && GhostMotion.tabKey == (stiffness: 520, damping: 24)
+          && GhostMotion.offerStagger == 0.008 && GhostMotion.acceptStagger == 0.016
+          && GhostMotion.hopVelocity == -70 && GhostMotion.keyDropVelocity == -9 && GhostMotion.brighten == 0.18,
+          "ghost text moves on the Ghost Suggestion component's own springs and timing")
+
+    // What Tab would add after the caret.
+    check(GhostLayout.remainder(of: CompletionPlan(range: 8..<11, expectedPrefix: "sup", insertText: "supplies")) == "plies",
+          "the ghost is the rest of the word being typed")
+    check(GhostLayout.remainder(of: CompletionPlan(range: 0..<10, expectedPrefix: "office sup", insertText: "Office supplies")) == "plies",
+          "typed letters in another case still count as typed")
+    check(GhostLayout.remainder(of: CompletionPlan(range: 12..<12, expectedPrefix: "", insertText: " $400")) == " $400",
+          "a value added after the typed words keeps the space Tab writes before it")
+    check(GhostLayout.remainder(of: CompletionPlan(range: 20..<25, expectedPrefix: "suppl", insertText: "Office supplies")) == nil,
+          "no ghost when Tab would rewrite the typed letters into something else")
+    check(GhostLayout.remainder(of: CompletionPlan(range: 0..<15, expectedPrefix: "Office supplies", insertText: "Office supplies")) == nil,
+          "no ghost when Tab would add nothing")
+
+    // What fits on the caret's line.
+    let tenEach: (String) -> CGFloat = { CGFloat($0.count) * 10 }
+    check(GhostLayout.fit("plies for the office", width: 200, measure: tenEach) == "plies for the office", "a ghost that fits shows whole")
+    check(GhostLayout.fit("plies for the office", width: 120, measure: tenEach) == "plies for\u{2026}",
+          "a long ghost is cut after the last whole word that fits")
+    check(GhostLayout.fit("plies\nNext line", width: 500, measure: tenEach) == "plies\u{2026}", "a ghost stops at the end of its line")
+    check(GhostLayout.fit("supercalifragilistic", width: 50, measure: tenEach) == nil, "no ghost when not one word fits")
+    check(GhostLayout.fit("   ", width: 500, measure: tenEach) == nil, "no ghost of only spaces")
+
+    func run(_ ghost: inout GhostLetters, seconds: Double, watch: (GhostLetters) -> Void = { _ in }) {
+        for _ in 0..<Int(seconds * 60) { ghost.advance(by: 1.0 / 60); watch(ghost) }
+    }
+
+    var ghost = GhostLetters(text: "plies for", keyPops: true)
+    check(ghost.count == 9 && ghost.opacity(at: 0) == 0 && ghost.keyFace.opacity == 0 && abs(ghost.keyFace.scale - 0.6) < 0.0001,
+          "the ghost starts unseen, its Tab key small")
+    run(&ghost, seconds: 0.05)
+    check(ghost.opacity(at: 0) > 0.2 && ghost.opacity(at: 0) > ghost.opacity(at: 8), "its letters fade in from left to right")
+    var widest = 0.0
+    run(&ghost, seconds: 1.5) { widest = max(widest, $0.keyFace.scale) }
+    check(widest > 1 && widest <= 1.08, "the Tab key pops a little past its size")
+    check(!ghost.isMoving && ghost.opacity(at: 8) == 1 && ghost.keyFace.opacity == 1 && ghost.keyFace.scale == 1
+          && ghost.brightness(at: 0) == 0 && !ghost.hasLanded,
+          "then the ghost rests, dim, with its Tab key beside it")
+
+    let swapped = GhostLetters(text: "budget", keyPops: false)
+    check(swapped.opacity(at: 0) == 0 && swapped.keyFace.opacity == 1 && swapped.keyFace.scale == 1,
+          "another suggestion's ghost fades in beside a Tab key already there")
+
+    ghost.accept()
+    run(&ghost, seconds: 0.05)
+    check(ghost.brightness(at: 0) > ghost.brightness(at: 8), "Tab brightens the letters from left to right")
+    var highest = 0.0
+    run(&ghost, seconds: 1.5) { highest = max(highest, $0.lift(at: 4)) }
+    check(highest > 1 && highest < 4, "each letter makes a small hop")
+    check(ghost.hasLanded && abs(ghost.lift(at: 4)) < 0.01 && ghost.brightness(at: 8) == 1 && ghost.keyFace.opacity == 0,
+          "and lands bright as the Tab key goes")
+
+    var calm = GhostLetters(text: "plies", keyPops: true, reduceMotion: true)
+    var calmWidest = 0.0
+    run(&calm, seconds: 1.5) { calmWidest = max(calmWidest, $0.keyFace.scale) }
+    calm.accept()
+    var lowest = 0.0
+    run(&calm, seconds: 1.5) { lowest = min(lowest, $0.lift(at: 2)) }
+    check(calmWidest <= 1 && lowest > -0.01 && calm.hasLanded, "with Reduce Motion nothing overshoots")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

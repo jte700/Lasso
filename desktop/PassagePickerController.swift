@@ -31,6 +31,8 @@ final class PassagePickerController {
               onInsert: @escaping (PassagePick) -> Void, onLink: @escaping (PassagePick) -> Void,
               onCancel: @escaping () -> Void) {
         hide()
+        // The picker takes the card's place; Tab no longer writes the ghost's words.
+        GhostTextOverlay.shared.withdraw()
         active = true
         generation += 1
         let token = generation
