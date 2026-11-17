@@ -73,6 +73,11 @@ export function createConfig(overrides = {}) {
     cacheIdleMs: wholeNumber(overrides.cacheIdleMs, 60_000, 0),
     // Folders with more indexed objects than this are searched through a compact index (search-index.js).
     searchIndexObjects: wholeNumber(overrides.searchIndexObjects ?? process.env.LASSO_SEARCH_INDEX_OBJECTS, SEARCH_INDEX_OBJECTS, 0),
+    // AI writers (src/writing): the Codex CLI ChatGPT writes through, found on its own when unset, and
+    // the model and reasoning effort it is asked for. An unset model is the one Codex itself is set to.
+    codexPath: overrides.codexPath ?? null,
+    writerModel: overrides.writerModel ?? process.env.LASSO_WRITER_MODEL ?? null,
+    writerEffort: overrides.writerEffort ?? process.env.LASSO_WRITER_EFFORT ?? 'low',
     // Raw copies of compressed blobs, for readers that are handed a path.
     rawBlobCacheDir: overrides.rawBlobCacheDir ?? path.join(dataDir, 'derived', 'raw-blobs'),
     // Compressing (zstd) text versions that no folder holds any longer, in

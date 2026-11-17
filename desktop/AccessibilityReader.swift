@@ -190,6 +190,23 @@ enum AccessibilityReader {
         return nil
     }
 
+    /// The rectangle of the character at `index`, in Accessibility
+    /// coordinates: where a prompt about to be erased began, which is where
+    /// the answer will be. Nil where the field does not say. Accessibility queue only.
+    static func characterRect(in element: AXUIElement, at index: Int) -> CGRect? {
+        guard index >= 0 else { return nil }
+        var range = CFRange(location: index, length: 1)
+        guard let axRange = AXValueCreate(.cfRange, &range) else { return nil }
+        var value: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString,
+                                                         axRange, &value) == .success,
+              let box = value, CFGetTypeID(box) == AXValueGetTypeID() else { return nil }
+        var rect = CGRect.zero
+        guard AXValueGetValue(box as! AXValue, .cgRect, &rect), HostGeometryConverter.isUsable(rect),
+              rect.height <= CaretLine.tallestLine else { return nil }
+        return rect
+    }
+
     /// The focused field's own frame.
     private static func fieldFrame(_ element: AXUIElement) -> CGRect? {
         guard let positionValue = attribute(element, kAXPositionAttribute as String),
@@ -209,7 +226,8 @@ enum AccessibilityReader {
     /// the text before the caret puts the box under the caret rather than under
     /// the field.
     private static func measuredCaretRect(_ element: AXUIElement, caret: Int, field: CGRect) -> CGRect? {
-        guard caret > 0 else { return CGRect(x: field.minX, y: field.minY, width: 1, height: field.height) }
+        // An empty field's caret is on its first line.
+        guard caret > 0 else { return CaretLine.line(CGRect(x: field.minX, y: field.minY, width: 1, height: field.height)) }
         var range = CFRange(location: 0, length: caret)
         guard let axRange = AXValueCreate(.cfRange, &range) else { return nil }
         var value: CFTypeRef?
@@ -356,6 +374,73 @@ enum AccessibilityReader {
                 let ok = landed(text, in: element)
                 completion?(ok)
             }
+        }
+    }
+
+    /// Deletes the `length` UTF-16 units before the caret, a backslash prompt
+    /// an AI writer is about to answer: by Accessibility, or by Backspace
+    /// where the host ignores that. `completion` is given the field as it
+    /// reads afterwards, or nil when it does not show exactly that deletion.
+    /// Accessibility queue only, where `completion` is called too.
+    static func erase(length: Int, at caret: Int, in element: AXUIElement, expected: CaretContext,
+                      completion: @escaping (CaretContext?) -> Void) {
+        let before = Array(expected.text.utf16)
+        guard length > 0, before.count >= length, let initial = focusedContext(), CFEqual(initial.element, element),
+              initial.windowStart == expected.windowStart, initial.absoluteCaret == caret,
+              CompletionTransaction.equivalentHostText(Array(initial.text.utf16), before) else {
+            completion(nil); return
+        }
+        let kept = Array(before.dropLast(length))
+        let erasedText = String(decoding: before.suffix(length), as: UTF16.self)
+        // The window reaches further back once the text before the caret is
+        // shorter, so what was kept is compared at its end.
+        func erased() -> CaretContext? {
+            guard let after = context(of: element) else { return nil }
+            let now = Array(after.text.utf16)
+            if kept.isEmpty {
+                // The prompt was all that was read: a field it began is now empty before the caret.
+                guard expected.windowStart > 0 || now.isEmpty else { return nil }
+            } else {
+                guard now.count >= kept.count,
+                      CompletionTransaction.equivalentHostText(Array(now.suffix(kept.count)), kept) else { return nil }
+            }
+            // Nothing was deleted if the prompt still ends the text.
+            if now.count >= before.count,
+               CompletionTransaction.equivalentHostText(Array(now.suffix(before.count)), before) { return nil }
+            return after
+        }
+        let bundle = bundleIdentifier(of: element)
+        var wrote = false
+        if caret >= 0, caret - length >= 0, !IgnoredTextWrites.contains(bundle),
+           HostSelection.selectForWrite((caret - length)..<caret, caret: caret, in: element) {
+            wrote = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, "" as CFTypeRef) == .success
+        }
+        AccessibilityWork.queue.asyncAfter(deadline: .now() + (wrote ? 0.12 : 0.05)) {
+            if wrote, let after = erased() {
+                IgnoredTextWrites.forget(bundle)
+                completion(after)
+                return
+            }
+            // An app that answered the write and changed nothing is typed into from now on.
+            if wrote { IgnoredTextWrites.remember(bundle) }
+            guard let current = focusedContext(allowSelection: true), CFEqual(current.element, element) else {
+                completion(nil); return
+            }
+            if current.selectionLength > 0 {
+                // Lasso's own selection of the prompt is still live: one Backspace deletes it.
+                guard attribute(element, kAXSelectedTextAttribute as String) as? String == erasedText else {
+                    completion(nil); return
+                }
+                SyntheticKeyboard.deleteBackwards(1)
+            } else {
+                guard CompletionTransaction.equivalentHostText(Array(current.text.utf16), before) else {
+                    completion(nil); return
+                }
+                SyntheticKeyboard.deleteBackwards(erasedText.count)
+            }
+            // A Backspace for each character takes a moment to arrive in the host.
+            let wait = 0.14 + min(0.6, Double(erasedText.count) * 0.004)
+            AccessibilityWork.queue.asyncAfter(deadline: .now() + wait) { completion(erased()) }
         }
     }
 

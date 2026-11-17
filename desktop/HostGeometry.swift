@@ -64,6 +64,20 @@ enum HostGeometryConverter {
 enum CaretLine {
     /// How far a character's edge may sit from the caret and still touch it.
     static let touchTolerance: CGFloat = 1.5
+    /// The tallest caret taken as one line of text. A taller one is a text
+    /// field's own frame, given where the caret could not be measured.
+    static let tallestLine: CGFloat = 60
+    /// The line height assumed for a caret only a field's frame gives.
+    static let assumedLineHeight: CGFloat = 20
+
+    /// The caret as one line of text. A field's frame given for it stands for
+    /// its first line, where the caret of an empty field is: an empty Gmail
+    /// draft cannot be measured, and a pill placed under its frame sat at
+    /// the bottom of the window.
+    static func line(_ caret: CGRect) -> CGRect {
+        guard caret.height > tallestLine else { return caret }
+        return CGRect(x: caret.minX, y: caret.minY, width: min(max(caret.width, 1), 2), height: assumedLineHeight)
+    }
 
     /// `before` is the character just before the caret and `after` the one at
     /// it, each measured in Accessibility coordinates and nil when it is a line

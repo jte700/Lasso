@@ -20,6 +20,8 @@ struct AcceptedInsertion {
     var serverURL: URL? = nil
     /// The highlight recorded for the inserted source.
     var referenceId: String? = nil
+    /// The highlights of an AI writer's answer after its first: one for each phrase it cited.
+    var furtherReferenceIds: [String] = []
     /// Words chosen in the passage picker: ⌘Z keeps them and takes back only their link.
     var keepsText = false
 
