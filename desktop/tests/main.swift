@@ -5983,5 +5983,32 @@ do {
     check(calmWidest <= 1 && lowest > -0.01 && calm.hasLanded, "with Reduce Motion nothing overshoots")
 }
 
+do {
+    // The Toggle Switch component's knob: it stretches toward where it is
+    // going, lands with a small bounce and rounds back up.
+    let motion = SwitchMotion()
+    motion.set(on: false, animated: true)
+    check(!motion.isMoving && motion.knob(diameter: 26, travel: 20) == (0, 26), "a switch first shown rests where it is")
+    motion.set(on: true, animated: true)
+    var clock = 0.0
+    var longest = 0.0, furthest = 0.0, frontAtStart = 0.0
+    motion.advance(to: clock)
+    while clock < 2 {
+        clock += 1.0 / 60
+        motion.advance(to: clock)
+        let knob = motion.knob(diameter: 26, travel: 20)
+        if clock < 0.05 { frontAtStart = knob.x + knob.width }
+        longest = max(longest, knob.width)
+        furthest = max(furthest, motion.position.x)
+    }
+    check(frontAtStart > 26.5, "flipping on, the knob's front edge leads")
+    check(longest > 35 && longest <= 36, "the knob grows up to ten points longer on the way")
+    check(furthest > 1.05 && furthest < 1.3, "and lands with a small bounce")
+    check(!motion.isMoving && motion.knob(diameter: 26, travel: 20) == (20, 26), "then rests round at the far end")
+    motion.set(on: false, animated: false)
+    check(!motion.isMoving && motion.progress == 0, "a flip that is not animated lands at once")
+    check(SwitchMotion.kept(for: "header") === SwitchMotion.kept(for: "header"), "a rebuilt switch keeps its motion by key")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)
