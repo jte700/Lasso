@@ -29,14 +29,14 @@ const PAYABLES = [
 const suppliers = PAYABLES.slice(1, -1).map(([supplier]) => supplier);
 
 // A work directory holding the file, and any others beside it, by name.
-async function directory(t, name, contents, others = {}) {
+async function directory(t, name, contents, others = {}, options = {}) {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-value-lists-'));
   const root = path.join(sandbox, 'Accountant');
   fs.mkdirSync(root);
   for (const [file, text] of Object.entries({ [name]: contents, ...others })) {
     fs.writeFileSync(path.join(root, file), text);
   }
-  const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
+  const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false, ...options });
   await app.workspace.add([fs.realpathSync(root)], actor);
   t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
   return app;
@@ -398,4 +398,83 @@ test('the rows of values tabbed from an Excel column join its kept list', async 
   const rows = Object.fromEntries(PAYABLES.map((row, index) => [index + 1, row]));
   const app = await directory(t, 'Accounts-Payable.xlsx', workbook('Payables', rows));
   await writeRowAmounts(app);
+});
+
+// The column that names a sheet's rows holds its values as the rows themselves.
+const SUPPLIER_NAMES = ['Maple Paper', 'Harbour Office', 'North Ridge', 'Cedar Packaging'];
+const SHEETS_NAMED_BY_A_COLUMN = [
+  ['a CSV', 'Accounts-Payable.csv', OPEN_BILLS, {}],
+  ['an Excel sheet', 'Accounts-Payable.xlsx', workbook('Payables', Object.fromEntries(OPEN_BILLS.trim().split('\n')
+    .map((line, index) => [index + 1, line.split(',')]))), {}],
+  ['a folder searched in its index', 'Accounts-Payable.csv', OPEN_BILLS, { searchIndexObjects: 1 }],
+];
+
+for (const [kind, name, contents, options] of SHEETS_NAMED_BY_A_COLUMN) {
+  test(`fn+Right on the column naming ${kind}'s rows lists every name from top to bottom`, async t => {
+    // Arrange
+    const app = await directory(t, name, contents, {}, options);
+    const { claim, candidate } = await suggested(app, 'last months top supplier', 'Supplier');
+
+    // Act
+    const values = await dive(app, 'last months top supplier', focusOn(candidate, claim.start, claim.end));
+
+    // Assert
+    assert.equal(candidate.narrowable, true, 'fn+Right has something to show');
+    assert.equal(values.workspaceHeading, 'Values for Supplier');
+    assert.deepEqual(offered(values), SUPPLIER_NAMES);
+  });
+
+  test(`after Tab the column naming ${kind}'s rows lists every name`, async t => {
+    // Arrange
+    const app = await directory(t, name, contents, {}, options);
+    const column = await acceptName(app, 'last months top supplier', 'Supplier', []);
+
+    // Act
+    const values = await typed(app, `${column.text} was `, column.links);
+
+    // Assert
+    assert.deepEqual(offered(values), SUPPLIER_NAMES);
+  });
+}
+
+test('a name tabbed from the column naming the rows keeps the names listed, with that row\'s cells', async t => {
+  // Arrange
+  const app = await directory(t, 'Accounts-Payable.csv', OPEN_BILLS);
+  const column = await acceptName(app, 'The top supplier', 'Supplier', []);
+  const before = `${column.text} was `;
+  const name = (await typed(app, before, column.links)).workspaceCompletions
+    .find(item => item.replacementText === 'North Ridge');
+  const text = before + name.replacementText;
+  const links = [...column.links, link(name.dependencyCandidate, before.length, text.length)];
+
+  // Act
+  const after = await typed(app, `${text} and `, links);
+
+  // Assert
+  assert.equal(after.workspaceHeading, 'Values for Supplier');
+  assert.ok(!offered(after).includes('North Ridge'), 'the name already written is left out of its sentence');
+  assert.ok(offered(after).includes('Cedar Packaging'));
+  assert.ok(offered(after).includes('BILL-1181') && offered(after).includes('35000'), offered(after).join(' | '));
+});
+
+// A wide count table: its first rows spend the indexed cells, and the table index holds the rest.
+const SAMPLES = Array.from({ length: 40 }, (_, index) => `S${index + 1}`);
+const GENES = Array.from({ length: LINKED_VALUES_SHOWN + 40 }, (_, index) => `gene_${String(index + 1).padStart(4, '0')}`);
+const count = (gene, sample) => String((gene * 7 + sample * 13) % 997);
+const COUNTS = `gene_id,${SAMPLES.join(',')}\n${GENES.map((gene, row) =>
+  `${gene},${SAMPLES.map((_, column) => count(row, column)).join(',')}`).join('\n')}\n`;
+
+test('a wide table lists a column down past its first indexed rows, as far as the card lists', async t => {
+  // Arrange
+  const app = await directory(t, 'counts.csv', COUNTS);
+  const sample = await suggested(app, 'sample s7', 'S7');
+  const genes = await suggested(app, 'the gene id', 'gene_id');
+
+  // Act
+  const counts = offered(await dive(app, 'sample s7 was ', focusOn(sample.candidate)));
+  const names = offered(await dive(app, 'the gene id was ', focusOn(genes.candidate)));
+
+  // Assert
+  assert.deepEqual(counts, GENES.slice(0, LINKED_VALUES_SHOWN).map((_, row) => count(row, 6)));
+  assert.deepEqual(names, GENES.slice(0, LINKED_VALUES_SHOWN));
 });

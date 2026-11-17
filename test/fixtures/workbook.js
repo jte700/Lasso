@@ -44,16 +44,26 @@ export function storedZip(entries, { deflate = false } = {}) {
 
 /** One worksheet; `rows` maps a sheet row number to its cells from column A. */
 export function workbook(sheetName, rows) {
-  const rowXml = Object.entries(rows).map(([rowNumber, cells]) => `<row r="${rowNumber}">${cells.map((value, column) => {
+  return workbookSheets({ [sheetName]: rows });
+}
+
+/** A workbook of several sheets, in the order given: { name: rows }. */
+export function workbookSheets(sheets) {
+  const names = Object.keys(sheets);
+  const sheetXml = (rows) => Object.entries(rows).map(([rowNumber, cells]) => `<row r="${rowNumber}">${cells.map((value, column) => {
     const reference = `${String.fromCharCode(65 + column)}${rowNumber}`;
     if (!value) return '';
     return /^-?\d+(?:\.\d+)?$/.test(value)
       ? `<c r="${reference}"><v>${value}</v></c>`
       : `<c r="${reference}" t="inlineStr"><is><t>${value}</t></is></c>`;
   }).join('')}</row>`).join('');
+  const sheetList = names.map((name, index) => `<sheet name="${name}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join('');
+  const relations = names.map((_, index) => `<Relationship Id="rId${index + 1}" Target="worksheets/sheet${index + 1}.xml"/>`).join('');
   return storedZip({
-    'xl/workbook.xml': `<workbook><sheets><sheet name="${sheetName}" sheetId="1" r:id="rId1"/></sheets></workbook>`,
-    'xl/worksheets/sheet1.xml': `<worksheet><sheetData>${rowXml}</sheetData></worksheet>`,
+    'xl/workbook.xml': `<workbook><sheets>${sheetList}</sheets></workbook>`,
+    ...(names.length > 1 ? { 'xl/_rels/workbook.xml.rels': `<Relationships>${relations}</Relationships>` } : {}),
+    ...Object.fromEntries(names.map((name, index) => [`xl/worksheets/sheet${index + 1}.xml`,
+      `<worksheet><sheetData>${sheetXml(sheets[name])}</sheetData></worksheet>`])),
   });
 }
 

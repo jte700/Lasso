@@ -114,6 +114,10 @@ export class PredictiveProvenanceService {
     this.tableBuilds = new Map();
     this.tableReadings = new BoundedCache({ maxEntries: 256 });
     this.snapshotTableCache = new BoundedCache({ maxEntries: 32 });
+    // Which column names a small table's rows, by file content and sheet.
+    this.labelColumnCache = new BoundedCache({ maxEntries: 64 });
+    // A large table's first values in a column, by snapshot, table and column.
+    this.columnValuesCache = new BoundedCache({ maxEntries: 64 });
     // Rows of large tables already offered at a snapshot, by snapshot and key.
     this.deepObjects = new BoundedCache({ maxEntries: 4_096, budget, bytes: () => MAPPED_OBJECT_BYTES });
     this.objectKeySets = new WeakMap();
@@ -171,7 +175,7 @@ export class PredictiveProvenanceService {
       this.objectCache, this.typedObjectCache, this.searchIndexCache, this.indexedObjectCache, this.extractionCache, this.sheetObjectCache, this.slideReadingCache,
       ...(this.cellFormatCache ? [this.cellFormatCache] : []),
       this.sourceTextCache, this.figurePreviewCache,
-      this.indexedHere, this.tableReadings, this.snapshotTableCache, this.deepObjects, this.transcriptCache]) cache.clear();
+      this.indexedHere, this.tableReadings, this.snapshotTableCache, this.labelColumnCache, this.columnValuesCache, this.deepObjects, this.transcriptCache]) cache.clear();
     this.tables.close();
   }
 

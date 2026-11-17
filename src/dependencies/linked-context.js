@@ -5,6 +5,7 @@ import { fieldCue } from './record-fields.js';
 import { lineMentionAtEnd } from './code-lines.js';
 import { mapObjectRow } from './object-descriptors.js';
 import { acceptedAsValue } from './value-match.js';
+import { normalizedVariable } from './tabular.js';
 import { VALUE_HOLDERS } from './variable-match.js';
 import { CLAUSE_JOINER, endsSentence, writingSourceContext } from './writing-context.js';
 
@@ -12,20 +13,32 @@ const isCodeLineReference = (object) => object?.anchor?.kind === 'line-range' &&
 // Characters typed after the latest Tab before its source stops scoping the card.
 const LINKED_REACH = 420;
 
+/** Whether a row was written as its own name, as a name tabbed from the column naming the rows is. */
+function writtenAsRowName(dependency, text) {
+  if (dependency?.source.anchor?.kind !== 'table-row') return false;
+  const written = normalizedVariable(String(text ?? '').slice(dependency.anchor.start, dependency.anchor.end));
+  return Boolean(written) && written === normalizedVariable(dependency.source.anchor.rowKey ?? dependency.source.label);
+}
+
 /**
  * Whether `value` is one of the values listed below `holder`: a column's
- * cells, a row's cells, or anything in a whole file or drawing.
+ * cells, a row's cells, or anything in a whole file or drawing. The column
+ * naming the rows (`rowsNamedBy`, its index) holds the rows themselves.
  * @param {object} holder
  * @param {object} value
+ * @param {number|null} [rowsNamedBy]
  * @returns {boolean}
  */
-export function holdsValue(holder, value) {
+export function holdsValue(holder, value, rowsNamedBy = null) {
   if (!holder || !value || holder.id === value.id || holder.path !== value.path) return false;
   if (!VALUE_HOLDERS.has(holder.objectType)) return false;
   const held = holder.anchor ?? {}, cell = value.anchor ?? {};
   const sheet = held.sheet ?? holder.metadata?.sheet ?? null;
   if (sheet !== null && (cell.sheet ?? value.metadata?.sheet ?? null) !== sheet) return false;
-  if (held.kind === 'table-column') return Number.isInteger(held.columnIndex) && cell.columnIndex === held.columnIndex;
+  if (held.kind === 'table-column') {
+    if (!Number.isInteger(held.columnIndex)) return false;
+    return cell.kind === 'table-row' ? rowsNamedBy === held.columnIndex : cell.columnIndex === held.columnIndex;
+  }
   if (held.kind === 'table-row') return Number.isInteger(held.rowIndex) && cell.rowIndex === held.rowIndex;
   if (held.kind === 'table-cell') return false;
   return true;
@@ -82,11 +95,19 @@ export const linkedContextMethods = {
    * nothing left to offer gives the words to every directory, as a value did.
    */
   heldValueList(projectId, input, cursor, newest, earlier) {
-    if (input.focusSource || this.settledValueEnd({ ...input, settledValueEnd: undefined }, newest) < 0) return null;
-    const holder = earlier.find((item) => item.anchor.end <= newest.anchor.start && holdsValue(item.source, newest.source));
+    if (input.focusSource) return null;
+    // A row written by its name is a value only of a column naming the rows, found below.
+    if (this.settledValueEnd({ ...input, settledValueEnd: undefined }, newest) < 0 && !writtenAsRowName(newest, input.text)) return null;
+    const holder = earlier.find((item) => item.anchor.end <= newest.anchor.start && this.holdsTableValue(item.source, newest.source));
     if (!holder) return null;
     const held = { ...holder, heldList: true };
     return this.valuesFromLinkedProjectObject(projectId, input, cursor, held)?.completions.length ? held : null;
+  },
+
+  /** holdsValue, knowing which column names the holder's rows when the value is a row. */
+  holdsTableValue(holder, value) {
+    const namesRows = value?.anchor?.kind === 'table-row' && this.columnNamesRows(holder);
+    return holdsValue(holder, value, namesRows ? holder.anchor.columnIndex : null);
   },
 
   /** Links saved in the project document block being edited; none for other callers. */

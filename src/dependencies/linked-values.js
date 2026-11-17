@@ -82,12 +82,15 @@ export const linkedValuesMethods = {
     const ownerId = this.sourceProjectId(source) ?? projectId;
     // A folder too large to hold is searched in its index for what can relate to the source.
     const searchIndex = this.searchIndexFor(ownerId, source.snapshotId);
+    // The column naming a table's rows ("Supplier") has those rows as its values.
+    const rowsAreValues = this.columnNamesRows(source);
+    const isNamingRow = (object) => rowsAreValues && object.objectType === 'DATASET_ROW';
     const retrieved = searchIndex
-      ? this.relatedIndexedObjects(searchIndex, source, variableKey, { wholeDrawing, namedRow, sourceRow })
+      ? this.relatedIndexedObjects(searchIndex, source, variableKey, { wholeDrawing, namedRow, sourceRow, rowsAreValues })
       : this.workspaceRetrievalObjects(ownerId, source.snapshotId);
     // A large table's later rows come from the table index, as few as the words typed name.
     const indexedRelated = wholeDrawing ? [] : this.indexedRelatedObjects(projectId, source, tail,
-      { variableKey, known: searchIndex ? this.indexedKeys(searchIndex) : this.keysOf(retrieved) });
+      { variableKey, rowsAreValues, known: searchIndex ? this.indexedKeys(searchIndex) : this.keysOf(retrieved) });
     const workspaceObjects = indexedRelated.length ? [...retrieved, ...indexedRelated] : retrieved;
     // A data dictionary's cells describe the variable (its description and
     // units); they are not values of it, unless that file is the linked source.
@@ -108,7 +111,8 @@ export const linkedValuesMethods = {
         : (object) => normalizedVariable(object.metadata.variable ?? object.metadata.column) === variableKey
           || (source.metadata.sectionRow && normalizedVariable(object.metadata.section) === variableKey)
           // A table keyed by row names stores each cell under its row ("Revenue"); its column names the source.
-          || (source.anchor?.kind === 'table-column' && normalizedVariable(object.metadata.column) === variableKey);
+          || (source.anchor?.kind === 'table-column' && normalizedVariable(object.metadata.column) === variableKey)
+          || (isNamingRow(object) && tableKey(object) === tableKey(source));
     // Another document's column of the same name is a suggestion of its own
     // (a trial balance's Credit CAD beside the general ledger's), so its cells
     // are not this column's values. What other files say of the variable by
@@ -269,7 +273,8 @@ export const linkedValuesMethods = {
         const numeric = numericDescriptor(object.valueText);
         const resultPath = /(^|\/)(?:results?|outputs?|analysis)(\/|$)/i.test(object.path);
         const derivedField = /\b(?:fold|change|difference|effect|estimate|ratio|percent|reduction|increase|decrease)\b/.test(field);
-        const contextualText = contextualStoredValue(object, tail);
+        const contextualText = isNamingRow(object) ? String(object.anchor?.rowKey ?? object.label ?? '').trim() || null
+          : contextualStoredValue(object, tail);
         if (!contextualText || written.get(object.id)?.has(contextualText.toLowerCase())) return null;
         let score = object.objectType === 'RESULT' ? 0.52
           : ['VALUE', 'DATASET_VALUE'].includes(object.objectType) ? 0.28 : 0.18;
@@ -295,7 +300,7 @@ export const linkedValuesMethods = {
     // words typed since name brought to the top; none are hidden. A named row
     // or field, or a word about a change, asks ranking for particular values.
     const listsInOrder = !requestedRows.size && !explicitFields.size && !changeIntent
-      && objects.some((object) => object.anchor?.kind === 'table-cell');
+      && objects.some((object) => object.anchor?.kind === 'table-cell' || isNamingRow(object));
     const suggestions = [];
     const seen = new Set();
     for (const object of listsInOrder ? typedFirst(inSheetOrder(objects, source), tail) : objects) {
@@ -305,7 +310,7 @@ export const linkedValuesMethods = {
       // Two objects read from the same cell still show once.
       const anchor = object.anchor ?? {};
       const feature = anchor.kind === 'cad-property' ? object.label : '';
-      const cell = anchor.kind === 'table-cell'
+      const cell = anchor.kind === 'table-cell' || anchor.kind === 'table-row'
         ? `${anchor.rowIndex ?? anchor.rowKey ?? ''}:${anchor.columnIndex ?? anchor.column ?? ''}` : '';
       const fingerprint = `${object.contextualText.toLowerCase()}|${object.path}|${object.metadata.sheet ?? ''}|${feature}|${cell}`;
       if (seen.has(fingerprint)) continue;

@@ -2,9 +2,10 @@
 // windows answered from it.
 
 import path from 'node:path';
+import { BlobReleasedError } from '../history/errors.js';
 import { MAX_IN_MEMORY_PART_BYTES, isLargeSpreadsheet } from './document-extraction.js';
 import { TAIL_ROWS, nameTerm, writeTable } from './table-index.js';
-import { normalizedVariable, spreadsheetLayout, tabularLayout } from './tabular.js';
+import { normalizedVariable, spreadsheetLayout, tableShape, tabularLayout } from './tabular.js';
 import { MAX_INDEXED_TABLE_ROWS } from './constants.js';
 import { worksheetCoordinates } from './index-state.js';
 import { labelIdentity, withOccurrence } from './row-identity.js';
@@ -56,6 +57,48 @@ export const tableReadingMethods = {
       .flatMap((file) => this.indexedTables(file));
     this.snapshotTableCache.set(snapshotId, tables);
     return tables;
+  },
+
+  /**
+   * Which column names a table's rows, read as the indexer read them: the
+   * table index keeps it for large tables, and a small one is read again.
+   * Column 0 when the file's bytes are gone or it holds no table.
+   */
+  tableLabelColumn(source, sheet = null) {
+    const projectId = this.sourceProjectId(source);
+    const indexed = this.snapshotTables(projectId, source.snapshotId)
+      .find((table) => table.file.path === source.path && (table.sheet ?? null) === sheet);
+    if (indexed) return indexed.meta.shape.labelColumn ?? 0;
+    const file = this.timeline.snapshotFile(source.snapshotId, source.path);
+    if (!file || !['table', 'spreadsheet'].includes(file.fileType)) return 0;
+    const key = `${file.contentHash}:${sheet ?? ''}`;
+    if (this.labelColumnCache.has(key)) return this.labelColumnCache.get(key);
+    let buffer;
+    try {
+      buffer = this.timeline.blobs.get(file.contentHash);
+    } catch (error) {
+      if (error instanceof BlobReleasedError) return 0;
+      throw error;
+    }
+    const { window, tables } = this.viewerTables(file, buffer, {}, sheet);
+    const table = tables.find((candidate) => candidate.name === sheet) ?? tables[0];
+    let labelColumn = 0;
+    if (table) {
+      const layout = file.fileType === 'spreadsheet' || window ? spreadsheetLayout(table) : tabularLayout(table.rows);
+      const filled = layout.rows.filter((row) => row.some((cell) => String(cell ?? '').trim()));
+      labelColumn = tableShape(layout.headers, filled.slice(0, MAX_INDEXED_TABLE_ROWS), layout).labelColumn ?? 0;
+    }
+    this.labelColumnCache.set(key, labelColumn);
+    return labelColumn;
+  },
+
+  /**
+   * Whether a column is the one naming its table's rows ("Supplier" in a
+   * payables list): its values are those rows, which have no cells of their own.
+   */
+  columnNamesRows(source) {
+    if (source?.anchor?.kind !== 'table-column' || !Number.isInteger(source.anchor.columnIndex)) return false;
+    return this.tableLabelColumn(source, source.anchor.sheet ?? null) === source.anchor.columnIndex;
   },
 
   /**
