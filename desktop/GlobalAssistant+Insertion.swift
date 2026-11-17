@@ -570,6 +570,7 @@ extension GlobalAssistant {
             return
         }
         if let id = insertion.referenceId { DependencyHighlighter.shared.unlink(id: id) }
+        for id in insertion.furtherReferenceIds { DependencyHighlighter.shared.unlink(id: id) }
         // A link taken back is revoked, like one that never landed.
         if let share = insertion.share, let serverURL = insertion.serverURL {
             ShareClient.revokeShare(serverURL: serverURL, token: share.token)

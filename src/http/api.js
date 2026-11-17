@@ -23,6 +23,7 @@ import { passageRoutes } from './passage-routes.js';
 import { sheetRoutes } from './sheet-routes.js';
 import { ranchRoutes } from './ranch-routes.js';
 import { workspaceRoutes } from './workspace-routes.js';
+import { writingRoutes } from './writing-routes.js';
 import { sharedContentReader } from '../sharing/shared-content.js';
 import { navigateTableSource } from '../dependencies/table-navigation.js';
 import { mapObjectRow } from '../dependencies/object-descriptors.js';
@@ -48,7 +49,7 @@ function pinnedQuery(versionId, resolved, askedSnapshotId) {
   return askedSnapshotId ? `${version}&snapshot=${encodeURIComponent(resolved.internal.snapshotId)}` : version;
 }
 
-export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null, workspace = null, connections = null, ranch = null) {
+export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null, workspace = null, connections = null, ranch = null, writing = null) {
   const { resolvedModelPreview, resolvedModelDocument, sharedContent } = sharedContentReader({ timeline, dependencies });
   // A word inserted with a share link previews that link in the inspector,
   // never a link made for another source. One that ended says so.
@@ -221,6 +222,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
       }
       if (workspace && await workspaceRoutes({ request, response, url, pathname, workspace, dependencies, terminal })) return;
       if (ranch && await ranchRoutes({ request, response, url, pathname, ranch })) return;
+      if (writing && await writingRoutes({ request, response, pathname, writing })) return;
       if (await passageRoutes({ request, response, url, pathname, timeline, dependencies, objectShares })) return;
       if (await sheetRoutes({ request, response, url, pathname, timeline, dependencies, objectShares })) return;
       if (connections && await connectionRoutes({ request, response, url, pathname, connections, workspace })) return;

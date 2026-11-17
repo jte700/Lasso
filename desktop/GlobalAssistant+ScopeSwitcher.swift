@@ -1,7 +1,9 @@
 // ⌥Tab: choosing the folder or connected app suggestions come from. The
 // switcher (ScopeSwitcher.swift) opens on the one in use; Return keeps the
 // one it shows until All is chosen again, that folder is switched off, or
-// Lasso quits. Meanwhile the card's footer names it beside ⌥⇥.
+// Lasso quits. Meanwhile the card's footer names it beside ⌥⇥. ↓ shows the
+// switcher's second row, the AI writer a backslash prompt is handed to, which
+// Return keeps too, from one launch to the next.
 
 import Cocoa
 
@@ -37,7 +39,7 @@ extension GlobalAssistant {
         let switcher = ScopeSwitcherController.shared
         switcher.onDismiss = { [weak self] in self?.publishKeyRouting() }
         let index = sourceScope.chosenIndex
-        switcher.open(sourceScope.entries[index], index: index, isCurrent: true)
+        switcher.open(sourceScope.entries[index], index: index, isCurrent: true, writerIndex: writer.choice.chosenIndex)
         if let known { switcher.present(at: known) }
         // Read where the caret is now; the pill moves there if it has moved.
         AccessibilityWork.queue.async {
@@ -53,17 +55,41 @@ extension GlobalAssistant {
     func rollScopeSwitcher(by steps: Int) {
         let switcher = ScopeSwitcherController.shared
         guard switcher.isOpen else { return }
-        let index = sourceScope.index(from: switcher.shownIndex, by: steps)
-        switcher.roll(to: sourceScope.entries[index], index: index, forward: steps > 0,
-                      isCurrent: index == sourceScope.chosenIndex)
+        switch switcher.row {
+        case .folders:
+            let index = sourceScope.index(from: switcher.shownIndex, by: steps)
+            switcher.roll(to: sourceScope.entries[index], index: index, forward: steps > 0,
+                          isCurrent: index == sourceScope.chosenIndex)
+        case .writers:
+            let index = writer.choice.index(from: switcher.shownWriterIndex, by: steps)
+            switcher.roll(to: writer.choice.entries[index].scopeEntry, index: index, forward: steps > 0,
+                          isCurrent: index == writer.choice.chosenIndex)
+        }
+    }
+
+    /// ↓ shows who writes a prompt, on the writer that row last showed; ↑ goes
+    /// back to where suggestions come from.
+    func switchScopeRow(by steps: Int) {
+        let switcher = ScopeSwitcherController.shared
+        guard switcher.isOpen else { return }
+        if steps > 0 {
+            let index = switcher.shownWriterIndex
+            switcher.show(row: .writers, entry: writer.choice.entries[index].scopeEntry,
+                          isCurrent: index == writer.choice.chosenIndex)
+        } else {
+            let index = switcher.shownIndex
+            switcher.show(row: .folders, entry: sourceScope.entries[index], isCurrent: index == sourceScope.chosenIndex)
+        }
     }
 
     /// Return: suggestions come from the folder shown, starting with the words
-    /// already typed, even in a sentence Escape had quieted.
+    /// already typed, even in a sentence Escape had quieted, and prompts go to
+    /// the writer shown on the row below.
     func chooseShownScope() {
         let switcher = ScopeSwitcherController.shared
         guard switcher.isOpen else { return }
         sourceScope.choose(at: switcher.shownIndex)
+        chooseWriter(at: switcher.shownWriterIndex)
         switcher.hide()
         showScopeOnCard()
         escapeQuiet.clear()

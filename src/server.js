@@ -17,6 +17,7 @@ import { createTerminal } from './terminal/service.js';
 import { WorkspaceService } from './workspace.js';
 import { ConnectionService } from './connections/service.js';
 import { RanchService } from './ranch/service.js';
+import { WritingService } from './writing/service.js';
 import { watchParent } from './parent-watchdog.js';
 
 const FORCE_CLOSE_AFTER_MS = 1000;
@@ -56,6 +57,7 @@ export function createApplication(overrides = {}) {
   const workspace = new WorkspaceService({ timeline, dependencies, terminal });
   const connections = new ConnectionService({ db, timeline, dependencies, workspace, config, fetchImpl: overrides.fetch });
   const ranch = new RanchService({ timeline, dependencies, terminal, workspace, objectShares });
+  const writing = new WritingService({ workspace, dependencies, config });
   // Off unless config.blobRetentionEnabled is set; then it runs only between captures.
   const retention = new BlobRetention({ db, timeline, config });
   // On unless config.blobCompressionEnabled is false; it compresses only versions no folder holds now.
@@ -64,7 +66,7 @@ export function createApplication(overrides = {}) {
   retention.start();
   compaction.start();
   connections.start();
-  const handle = createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal, workspace, connections, ranch);
+  const handle = createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal, workspace, connections, ranch, writing);
   objectShares.publisher = new HostedSharePublisher({ config, db, handler: handle });
   const caches = cachesShrinkWhenIdle(timeline.memoryBudget, config.cacheIdleMs);
   const server = http.createServer((request, response) => {
@@ -86,6 +88,7 @@ export function createApplication(overrides = {}) {
     workspace,
     connections,
     ranch,
+    writing,
     retention,
     compaction,
     server,
@@ -94,6 +97,7 @@ export function createApplication(overrides = {}) {
       retention.close();
       compaction.close();
       caches.close();
+      writing.close();
       connections.close();
       workspace.close();
       timeline.close();

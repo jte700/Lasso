@@ -115,6 +115,8 @@ extension GlobalAssistant {
 
     func refresh() {
         guard isEnabled, serverURL != nil, !projectIds.isEmpty else { hide(); return }
+        // While an AI writer answers, the words in the field are its own: no card follows them.
+        guard writer.session == nil else { return }
         // A linked phrase's menu is open: its words were accepted already.
         guard !ReferenceMenuController.shared.isShown else { hide(); return }
         // An app switched off in Settings gets no card, and its text is not read.
@@ -171,6 +173,8 @@ extension GlobalAssistant {
             if escapeQuiet.holds(for: captured.text) { hide(); return }
             escapedElement = nil
         }
+        // A backslash prompt is offered to the chosen AI writer, in place of the card.
+        if offersWriterPrompt(in: captured, caret: reading.caret) { return }
         guard let host = reading.host, let caret = reading.caret else {
             if isDictating { dictationLog.debug("read: no caret to show the card at") }
             hide()

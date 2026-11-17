@@ -36,6 +36,8 @@ final class GlobalAssistant {
     var projectIds: [String] = []
     /// The folder suggestions come from alone, chosen with ⌥Tab, or All.
     var sourceScope = SourceScope()
+    /// The AI writer chosen on ⌥Tab's second row, and a backslash prompt it is offered or answering.
+    var writer = WriterState()
     var workspaceRevision = ""
     var isEnabled = false
 
@@ -271,12 +273,15 @@ final class GlobalAssistant {
         dictation.onListeningChange = { [weak self] in self?.listeningChanged() }
         // Dictation stops when another app comes forward, and so does the pill.
         dictation.onAppChange = { [weak self] in
+            self?.withdrawWriterPrompt()
             guard NSWorkspace.shared.frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
             self?.stopDictationPill()
         }
         startVoiceMeter()
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             self?.lastClickAt = Date()
+            // A click moves the caret off a prompt the pill was offering.
+            self?.withdrawWriterPrompt()
         }
         dictation.start()
         publishKeyRouting()
@@ -292,6 +297,7 @@ final class GlobalAssistant {
     }
 
     func disable() {
+        stopWriter()
         dismiss()
         ScopeSwitcherController.shared.hide()
         dictationPill.stop(at: Date())
@@ -372,7 +378,8 @@ final class GlobalAssistant {
             sheetPickable: view.mode == .suggestions && view.wordChoice == nil && currentSuggestion?.sheetPickable == true,
             sheetPickerOpen: SheetPickerController.shared.isVisible,
             scopeSwitcherOpen: ScopeSwitcherController.shared.isOpen,
-            scopeSwitchAvailable: scopeSwitchAvailable)
+            scopeSwitchAvailable: scopeSwitchAvailable,
+            writerPromptReady: writerPromptReady, writerWorking: writer.session != nil)
     }
 
     func publishKeyRouting() {
@@ -483,6 +490,10 @@ final class GlobalAssistant {
         case .scopeTypedOn:
             ScopeSwitcherController.shared.hide()
             followTextChange(trackCaret: false)
+        case .scopeRow(let steps):
+            switchScopeRow(by: steps)
+        case .writePrompt, .dismissWriterPrompt, .stopWriter:
+            performWriterKey(action)
         }
         publishKeyRouting()
     }
@@ -830,6 +841,7 @@ final class GlobalAssistant {
         focusLanding = nil
         linkedSources.endMove()
         pendingShare = nil
+        withdrawWriterPrompt()
         GhostTextOverlay.shared.cardClosed()
         panel?.orderOut(nil)
         cardClosed(closing)

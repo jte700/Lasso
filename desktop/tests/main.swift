@@ -5611,7 +5611,8 @@ do {
     check(key(tab, .maskAlternate, open) == .swallow(.scopeMove(1)), "⌥Tab again rolls to the next folder")
     check(key(tab, [], open) == .swallow(.scopeMove(1)), "Tab rolls to the next folder")
     check(key(tab, .maskShift, open) == .swallow(.scopeMove(-1)), "⇧Tab rolls back")
-    check(key(down, [], open) == .swallow(.scopeMove(1)) && key(up, [], open) == .swallow(.scopeMove(-1)), "↑ and ↓ roll it")
+    check(key(down, [], open) == .swallow(.scopeRow(1)) && key(up, [], open) == .swallow(.scopeRow(-1)),
+          "↓ shows the row that chooses the AI writer, and ↑ the folders again")
     check(key(returnKey, [], open) == .swallow(.scopeChoose) && key(76, [], open) == .swallow(.scopeChoose),
           "Return keeps the folder shown")
     check(key(escape, [], open) == .swallow(.scopeCancel), "Escape leaves the choice as it was")
@@ -5648,6 +5649,131 @@ do {
                                                 margin: 10, visible: visible)
     check(margined.maxY - 10 == 500 - ScopeSwitcherPlacement.gap && margined.minX + 10 == 400 - ScopeSwitcherPlacement.leadIn,
           "a panel with room for a shadow puts its pill in the same place")
+}
+
+print("A backslash prompt is handed to the AI writer chosen with ⌥Tab ↓")
+do {
+    let tab: Int64 = 48, escape: Int64 = 53
+    func key(_ code: Int64, _ flags: CGEventFlags, _ state: KeyRoutingState) -> KeyDecision {
+        KeyRouter.decide(keyCode: code, flags: flags, synthetic: false, state: state)
+    }
+    var choice = WriterChoice()
+    check(choice.chosen == .none && choice.writer == nil, "no writer is chosen until one is: a backslash is only a backslash")
+    check(choice.entries.first == WriterAgent.none && choice.entries.contains(.chatGPT), "None comes first, then ChatGPT")
+    check(choice.index(from: 0, by: 1) == 1 && choice.index(from: choice.entries.count - 1, by: 1) == 0
+          && choice.index(from: 0, by: -1) == choice.entries.count - 1, "rolling past the last writer goes back round to None")
+    check(choice.choose(at: 1) && choice.writer == .chatGPT && !choice.choose(at: 1), "Return on ChatGPT chooses it, once")
+    check(WriterChoice(chosenId: "chatgpt").writer == .chatGPT, "the choice is kept between launches")
+    check(WriterChoice(chosenId: "someone-else").writer == nil, "a writer no longer offered reads as None")
+    check(WriterAgent.chatGPT.scopeEntry.title == "ChatGPT" && WriterAgent.chatGPT.scopeEntry.projectId == nil,
+          "the switcher draws a writer as it draws a folder")
+
+    func prompt(_ text: String) -> String? { WriterPrompt.find(in: text)?.instruction }
+    check(prompt("\\Write a message detailing the budget") == "Write a message detailing the budget",
+          "a line begun with a backslash is a prompt")
+    check(WriterPrompt.find(in: "\\Write a note")?.length == 13, "Tab erases from the backslash to the caret")
+    check(prompt("Thanks for the update. \\Summarise the budget") == "Summarise the budget"
+          && WriterPrompt.find(in: "Thanks for the update. \\Summarise the budget")?.length == 21,
+          "a sentence begun with a backslash is a prompt, and the sentences before it stay")
+    check(prompt("First line\n  \\ draft a reply") == "draft a reply", "spaces around the backslash are not part of what is asked")
+    check(prompt("\\Write a note. Keep it to two lines") == "Write a note. Keep it to two lines", "a prompt may run to several sentences")
+    check(prompt("\\Compare C:\\Users and D:\\Data") == "Compare C:\\Users and D:\\Data", "a backslash inside the prompt is part of it")
+    check(prompt("the path is C:\\Users\\adel") == nil && prompt("a\\b") == nil, "a backslash inside a sentence starts no prompt")
+    check(prompt("\\") == nil && prompt("\\ ") == nil && prompt("\\a") == nil, "a lone backslash or one letter is not yet a prompt")
+    check(prompt("\\\\server\\share") == nil && prompt("\\{bold}") == nil, "a second backslash or a bracket after it is not a prompt")
+    check(prompt("\\Write a note\nand then") == nil, "a prompt ends with its line: on the next line it is ordinary text")
+    let emoji = WriterPrompt.find(in: "👍 Done. \\Thank them 🙏")
+    check(emoji?.instruction == "Thank them 🙏" && emoji?.length == "\\Thank them 🙏".utf16.count, "its length is counted as the field counts it")
+
+    let ready = KeyRoutingState(scopeSwitchAvailable: true, writerPromptReady: true)
+    check(key(tab, [], ready) == .swallow(.writePrompt), "Tab on the pill hands the prompt to the writer")
+    check(key(escape, [], ready) == .swallow(.dismissWriterPrompt), "Escape puts the pill away")
+    check(key(0, [], ready) == .pass(.followTyping(trackCaret: false)), "a letter is typed on into the prompt")
+    check(key(tab, .maskShift, ready) != .swallow(.writePrompt), "⇧Tab is still the app's")
+    check(key(tab, .maskSecondaryFn, ready) != .swallow(.writePrompt), "fn+Tab is not the prompt's")
+    check(key(tab, [], KeyRoutingState(sheetPickerOpen: true, scopeSwitchAvailable: true, writerPromptReady: true))
+          != .swallow(.writePrompt), "an open sheet picker keeps Tab")
+    check(key(tab, .maskAlternate, ready) == .swallow(.openScopeSwitcher), "⌥Tab still opens the switcher over a prompt")
+    check(key(tab, [], KeyRoutingState(scopeSwitchAvailable: true)) == .pass(.followTyping(trackCaret: false)),
+          "with no prompt offered, Tab is the app's")
+    let working = KeyRoutingState(popup: .hidden, scopeSwitchAvailable: true, writerWorking: true)
+    check(key(escape, [], working) == .swallow(.stopWriter), "Escape stops a writer that is answering")
+    check(key(0, [], working) == .pass(nil) && key(tab, [], working) == .pass(nil), "its other keys are the app's, and no card follows them")
+    check(key(tab, .maskAlternate, working) == .pass(nil), "the switcher waits until the writer is done")
+
+    var lines = WriterLines()
+    let first = lines.take(Data("{\"type\":\"text\",\"text\":\"Hi\"}\n{\"type\":\"ci".utf8))
+    check(first.count == 1 && String(decoding: first[0], as: UTF8.self) == "{\"type\":\"text\",\"text\":\"Hi\"}",
+          "an answer is read a whole line at a time")
+    let second = lines.take(Data("te\",\"text\":\"4,200\"}\n\n".utf8))
+    check(second.count == 1 && String(decoding: second[0], as: UTF8.self) == "{\"type\":\"cite\",\"text\":\"4,200\"}",
+          "a line cut in two waits for its end, and empty lines are skipped")
+
+    var session = [WriterPiece(text: "The total is ", source: nil), WriterPiece(text: "61,750", source: nil),
+                   WriterPiece(text: ".\n\n", source: nil)]
+    let held = WriterPiece.batch(from: &session, finished: false)
+    check(held.map(\.text) == ["The total is ", "61,750", "."] && session.map(\.text) == ["\n\n"],
+          "line breaks at the end of what has arrived wait for the words after them")
+    var ending = [WriterPiece(text: "Thanks.", source: nil), WriterPiece(text: " \n", source: nil)]
+    let last = WriterPiece.batch(from: &ending, finished: true)
+    check(last.map(\.text) == ["Thanks."] && ending.isEmpty, "the answer's own last spaces and line breaks are not written")
+    var blank = [WriterPiece(text: "\n", source: nil)]
+    check(WriterPiece.batch(from: &blank, finished: false).isEmpty && blank.map(\.text) == ["\n"], "with only a line break so far, nothing is written yet")
+}
+
+print("Pills sit by an empty field's caret, and the pill's thinking line moves as Kokonut's does")
+do {
+    let draft = CGRect(x: 72, y: 300, width: 1, height: 520)
+    let line = CaretLine.line(draft)
+    check(line.minX == 72 && line.minY == 300 && line.height == CaretLine.assumedLineHeight,
+          "a caret as tall as an empty Gmail draft stands for its first line, not its bottom edge")
+    let caret = CGRect(x: 300, y: 300, width: 2, height: 18)
+    check(CaretLine.line(caret) == caret, "a measured caret is kept as it is")
+    let below = ScopeSwitcherPlacement.frame(caret: HostGeometryConverter.toAppKit(line, primaryHeight: 900),
+                                             size: CGSize(width: 300, height: 44), visible: CGRect(x: 0, y: 0, width: 1440, height: 900))
+    check(below.maxY == 900 - 320 - ScopeSwitcherPlacement.gap, "so the switcher sits under the draft's first line")
+
+    let ease = ThinkingMotion.easeOut
+    check(ease(0) == 0 && ease(1) == 1 && abs(ease(0.5) - 0.95) < 0.03, "Kokonut's ease-out is most of the way by half time")
+    let css = ThinkingMotion.easeInOut
+    check(abs(css(0.5) - 0.5) < 0.001 && css(0.1) < 0.1, "ease-in-out is symmetric and starts slowly")
+    let scale = ThinkingMotion.scale(forFontSize: 15)
+    let first = ThinkingMotion.entering(letter: 0, elapsed: 0, scale: scale, reduceMotion: false)
+    check(first.opacity == 0 && first.offset == 4 && first.blur == 2,
+          "a letter starts unseen, 8 points low and blurred at 30-point type, half that at 15")
+    let risen = ThinkingMotion.entering(letter: 0, elapsed: 0.28, scale: scale, reduceMotion: false)
+    check(risen == ThinkingMotion.LetterState(opacity: 1, offset: 0, blur: 0), "it is in place after 0.28 seconds")
+    let fifth = ThinkingMotion.entering(letter: 5, elapsed: 0.28, scale: scale, reduceMotion: false)
+    check(fifth.opacity < 1 && ThinkingMotion.entering(letter: 5, elapsed: 0.28 + 5 * 0.018, scale: scale, reduceMotion: false).opacity == 1,
+          "each letter follows the one before by 0.018 seconds")
+    check(ThinkingMotion.entering(letter: 0, elapsed: 0.05, scale: scale, reduceMotion: true).offset == 0,
+          "with Reduce Motion letters only fade in")
+    let gone = ThinkingMotion.leaving(elapsed: 0.15, scale: 1, reduceMotion: false)
+    check(gone.opacity == 0 && gone.offset == -6 && gone.blur == 3, "a replaced line drops out upward in 0.15 seconds")
+    check(ThinkingMotion.wave(letter: 0, time: 0, reduceMotion: false) == 1, "the wave starts at full brightness")
+    check(abs(ThinkingMotion.wave(letter: 0, time: 0.8, reduceMotion: false) - 0.3) < 0.0001
+          && ThinkingMotion.wave(letter: 0, time: 1.6, reduceMotion: false) == 1, "it dims to 0.3 halfway through each 1.6 seconds")
+    check(abs(ThinkingMotion.wave(letter: 3, time: 0.8 + 3 * 0.07, reduceMotion: false) - 0.3) < 0.0001,
+          "each letter dims 0.07 seconds after the one before, so the wave runs left to right")
+    check(ThinkingMotion.wave(letter: 0, time: 0.8, reduceMotion: true) == 1, "with Reduce Motion the letters hold still")
+
+    var lines = ThinkingLines(at: 0)
+    check(lines.shown == "Thinking…", "it starts by thinking")
+    check(!lines.lookup("Searching for “budget”…", at: 0.7) && lines.shown == "Thinking…",
+          "a lookup waits until the line has shown for 1.5 seconds")
+    check(lines.advance(at: 1.5) && lines.shown == "Searching for “budget”…", "then it takes its turn")
+    check(!lines.lookup("Searching for “budget”…", at: 1.6), "the same lookup again changes nothing")
+    check(!lines.lookup("Reading Budget 2026.csv…", at: 2) && lines.advance(at: 3) && lines.shown == "Reading Budget 2026.csv…",
+          "lookups are shown one at a time, each for its interval")
+    check(!lines.advance(at: 4) && lines.advance(at: 4.5) && lines.shown == "Drafting…",
+          "once the last lookup has had its time the writer is drafting")
+    check(!lines.advance(at: 9), "and stays drafting until the words arrive")
+    check(ThinkingLines.line(status: "searching", detail: "budget, travel costs") == "Searching for “budget”…"
+          && ThinkingLines.line(status: "reading", detail: "Finance/Budget 2026.xlsx") == "Reading Budget 2026.xlsx…"
+          && ThinkingLines.line(status: "searching", detail: "") == "Searching your files…",
+          "lookups are said in plain words, by their first query or the file's name")
+    check(ThinkingLines.line(status: "searching", detail: String(repeating: "a", count: 60)).count == 45,
+          "a long query is shortened")
 }
 
 print("The dictation pill follows the voice and grows into the card")

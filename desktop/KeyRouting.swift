@@ -45,6 +45,10 @@ struct KeyRoutingState: Equatable {
     /// ⌥Tab opens the switcher: suggestions are on, a folder is switched on,
     /// and the app is not one Lasso stays quiet in.
     var scopeSwitchAvailable = false
+    /// The pill by the caret offers a backslash prompt to the chosen AI writer: Tab hands it over.
+    var writerPromptReady = false
+    /// An AI writer is answering into the field, and Escape stops it.
+    var writerWorking = false
 }
 
 /// Work a keystroke asks of the main thread.
@@ -98,14 +102,22 @@ enum KeyAction: Equatable {
     case sheetMove(columns: Int, rows: Int, extending: Bool)
     /// ⌥Tab: the switcher opens on the folder suggestions come from now.
     case openScopeSwitcher
-    /// Tab, ⌥Tab or ↑ ↓ in the switcher rolls it to the next or previous folder.
+    /// Tab or ⌥Tab in the switcher rolls its row to the next folder or writer, ⇧Tab to the one before.
     case scopeMove(Int)
+    /// ↓ in the switcher shows who writes a prompt; ↑ goes back to where suggestions come from.
+    case scopeRow(Int)
     /// Return in the switcher keeps the folder it shows.
     case scopeChoose
     /// Escape, or a shortcut, closes the switcher and leaves the choice as it was.
     case scopeCancel
     /// A key typed into the app while the switcher is open closes it, and the key goes on to the app.
     case scopeTypedOn
+    /// Tab on a backslash prompt: it is erased and the chosen writer answers in its place.
+    case writePrompt
+    /// Escape on a backslash prompt: the pill stays away for the rest of the sentence.
+    case dismissWriterPrompt
+    /// Escape while a writer is answering stops it; what it has written stays.
+    case stopWriter
 }
 
 enum KeyDecision: Equatable {
@@ -130,11 +142,25 @@ enum KeyRouter {
                        state: KeyRoutingState) -> KeyDecision {
         // Our own synthesized keys are not the user typing.
         if synthetic || state.isInserting { return .pass(nil) }
+        // While a writer answers, its words are the only thing Lasso does in the field:
+        // Escape stops it, and every other key is the app's, with no card following it.
+        if state.writerWorking {
+            let bare = flags.intersection([.maskShift, .maskCommand, .maskControl, .maskAlternate]).isEmpty
+            return keyCode == escape && bare ? .swallow(.stopWriter) : .pass(nil)
+        }
         if state.scopeSwitcherOpen { return scopeDecision(keyCode, flags: flags) }
         if state.scopeSwitchAvailable, keyCode == scopeSwitchKey, flags.contains(.maskAlternate),
            flags.intersection([.maskCommand, .maskControl]).isEmpty,
            !state.passagePickerOpen, !state.sheetPickerOpen, !state.shareComposerOpen, !state.sourceChooserVisible {
             return .swallow(.openScopeSwitcher)
+        }
+        // A prompt's pill takes Tab and Escape as a card would; anything else is typed on into the prompt.
+        // fn+Tab stays the sheet picker's, and an open picker keeps its keys.
+        if state.writerPromptReady, !state.passagePickerOpen, !state.sheetPickerOpen, !state.shareComposerOpen,
+           !state.sourceChooserVisible,
+           flags.intersection([.maskShift, .maskCommand, .maskControl, .maskAlternate, .maskSecondaryFn]).isEmpty {
+            if keyCode == tab { return .swallow(.writePrompt) }
+            if keyCode == escape { return .swallow(.dismissWriterPrompt) }
         }
         if state.passagePickerOpen, !state.shareComposerOpen { return pickerDecision(keyCode, flags: flags) }
         if state.sheetPickerOpen, !state.shareComposerOpen { return sheetPickerDecision(keyCode, flags: flags) }
@@ -301,15 +327,16 @@ enum KeyRouter {
     }
 
     /// The switcher keeps the writer's app focused, so its keys come through
-    /// here: Tab and ↓ roll it on, ⇧Tab and ↑ roll it back, Return keeps the
-    /// folder it shows and Escape keeps the one chosen before. Shortcuts stay
-    /// the app's; anything typed closes the switcher and goes on to the app.
+    /// here: Tab rolls its row on and ⇧Tab back, ↓ shows the row that chooses
+    /// who writes a prompt and ↑ the row of folders again, Return keeps what
+    /// both rows show and Escape what was chosen before. Shortcuts stay the
+    /// app's; anything typed closes the switcher and goes on to the app.
     private static func scopeDecision(_ keyCode: Int64, flags: CGEventFlags) -> KeyDecision {
         if flags.contains(.maskCommand) || flags.contains(.maskControl) { return .pass(.scopeCancel) }
         switch keyCode {
         case tab: return .swallow(.scopeMove(flags.contains(.maskShift) ? -1 : 1))
-        case down: return .swallow(.scopeMove(1))
-        case up: return .swallow(.scopeMove(-1))
+        case down: return .swallow(.scopeRow(1))
+        case up: return .swallow(.scopeRow(-1))
         case returnKey, enter: return .swallow(.scopeChoose)
         case escape: return .swallow(.scopeCancel)
         default: return .pass(.scopeTypedOn)
