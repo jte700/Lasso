@@ -20,18 +20,23 @@ struct RanchActivityPage: View {
     @State private var chosen: String?
     /// The change opened in the log, showing its detail.
     @State private var expanded: String?
+    /// Which changes the log lists; ones that arrive later wait behind the pill.
+    @State private var feed = RanchChangeFeed()
+    /// Where the list's top sits in the page's view, for the pill to float over it.
+    @State private var listTop: CGFloat = 80
     @StateObject private var pull = RanchPull()
 
     private static let scrollSpace = "ranch-activity-scroll"
+    private static let topID = "ranch-activity-top"
 
     var body: some View {
         let content = listContent
         GeometryReader { geometry in
             ZStack(alignment: .trailing) {
-                VStack(spacing: 0) {
+                ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
-                            RanchScrollTopProbe(pull: pull, space: Self.scrollSpace)
+                            RanchScrollTopProbe(pull: pull, space: Self.scrollSpace).id(Self.topID)
                             RanchListHeader(title: title, caption: content.caption,
                                             layout: kind == .changes ? .constant(.table) : layout, compact: $compact,
                                             pull: pull, read: store.loadError == nil ? store.overview.generatedAt : nil,
@@ -40,8 +45,8 @@ struct RanchActivityPage: View {
                             }
                             .padding(.top, -8)
                             RanchPullList(pull: pull) {
-                                if kind == .changes, !changeEntries.isEmpty {
-                                    RanchChangeLog(store: store, entries: changeEntries, width: geometry.size.width - 56,
+                                if kind == .changes, !shownChanges.isEmpty {
+                                    RanchChangeLog(store: store, entries: shownChanges, width: geometry.size.width - 56,
                                                    compact: compact, since: laidOut, chosen: $chosen, expanded: $expanded,
                                                    menu: { menu(id: $0.id) })
                                 } else {
@@ -53,6 +58,9 @@ struct RanchActivityPage: View {
                                               menu: { menu(id: $0.id) })
                                 }
                             }
+                            .background(GeometryReader { place in
+                                Color.clear.preference(key: RanchListTopKey.self, value: place.frame(in: .named(Self.scrollSpace)).minY)
+                            })
                             if let notice = content.notice {
                                 Text(notice).font(RanchLook.font(12.5)).foregroundStyle(RanchLook.ink3).padding(.top, 12)
                             }
@@ -62,6 +70,9 @@ struct RanchActivityPage: View {
                     }
                     .coordinateSpace(name: Self.scrollSpace)
                     .onPreferenceChange(RanchPullTopKey.self) { top in pull.atTop = top >= -0.5 }
+                    .onPreferenceChange(RanchListTopKey.self) { top in listTop = top }
+                    .overlay(alignment: .top) { newChangesPill(proxy) }
+                    .animation(RanchLook.spring, value: waitingChanges.count)
                 }
                 RanchFileDrawer(store: store, actions: actions, width: geometry.size.width)
             }
@@ -73,10 +84,16 @@ struct RanchActivityPage: View {
             if !isOpen, kind != .changes { chosen = nil }
         }
         .onChange(of: store.linkTab) { _ in laidOut = Date() }
+        .onChange(of: store.hasLoaded) { loaded in if loaded { feed.begin(with: store.overview.history) } }
         .onAppear {
+            if store.hasLoaded { feed.begin(with: store.overview.history) }
             pull.blocked = open
-            pull.onRefresh = { store.reload() }
-            pull.onLanded = { laidOut = Date() }
+            // Pulled down, the log takes in what the read brings, as its pill would.
+            pull.onRefresh = { store.reload(then: { takeInChanges() }) }
+            pull.onLanded = {
+                laidOut = Date()
+                takeInChanges()
+            }
             pull.attach()
         }
         .onDisappear { pull.detach() }
@@ -138,14 +155,38 @@ struct RanchActivityPage: View {
         return folder.isEmpty ? "Top of the directory" : folder
     }
 
-    /// The changes the search keeps, newest first, as the log lists them.
+    /// The changes the search keeps, newest first.
     private var changeEntries: [RanchHistoryEntry] {
         store.overview.history.filter { matches($0.path ?? store.directoryName($0.directoryId)) }
     }
 
+    /// The ones the log lists; the rest wait behind the pill until taken in.
+    private var shownChanges: [RanchHistoryEntry] { feed.shown(changeEntries) }
+    private var waitingChanges: [RanchHistoryEntry] { kind == .changes ? feed.waiting(changeEntries) : [] }
+
+    @ViewBuilder private func newChangesPill(_ proxy: ScrollViewProxy) -> some View {
+        let count = waitingChanges.count
+        if count > 0 {
+            RanchNewChangesPill(count: count) { takeInChanges(scrolling: proxy) }
+                // Over the top of the list, and at the top of the page once the list scrolls under it.
+                .padding(.top, max(14, listTop + 4))
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    /// Lists the changes waiting behind the pill, newest at the top, rising into place.
+    private func takeInChanges(scrolling proxy: ScrollViewProxy? = nil) {
+        guard kind == .changes, !feed.waiting(store.overview.history).isEmpty else { return }
+        laidOut = Date()
+        withAnimation(RanchLook.spring) {
+            feed.takeIn(store.overview.history)
+            proxy?.scrollTo(Self.topID, anchor: .top)
+        }
+    }
+
     /// The log draws its own rows; the list is only asked for its words when there are none.
     private var changes: Content {
-        let count = changeEntries.count
+        let count = shownChanges.count
         return Content(items: [], caption: "\(count == 1 ? "1 change" : "\(count.formatted()) changes") \u{00B7} last two weeks",
                        columns: RanchListColumns(status: "Change", detail: "What changed", when: "When"),
                        empty: ("clock", store.searchText.isEmpty ? "No Changes" : "No Matches",
@@ -272,4 +313,10 @@ struct RanchActivityPage: View {
             return AnyView(RanchSourceMenu(store: store, source: source))
         }
     }
+}
+
+/// Where a page's list starts within its scroll view.
+private struct RanchListTopKey: PreferenceKey {
+    static var defaultValue: CGFloat = 80
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }

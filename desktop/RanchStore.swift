@@ -162,6 +162,8 @@ final class RanchStore: ObservableObject {
     /// The overview's tag from the server; a poll with it is answered "not modified".
     private var etag: String?
     private var reloadAgain = false
+    /// What asked to know when the library it asked for has been read.
+    private var reloadWaiters: [() -> Void] = []
 
     private let defaults: UserDefaults
     private let session: URLSession
@@ -233,9 +235,13 @@ final class RanchStore: ObservableObject {
         request = nil
     }
 
-    func reload() {
+    /// Reads the library again; `then` runs once what it read is in place,
+    /// after a read already under way and the one this asks for.
+    func reload(then done: (() -> Void)? = nil) {
+        if let done { reloadWaiters.append(done) }
         guard let serverURL else {
             loadError = "Lasso\u{2019}s server is starting. The Ranch will fill in as soon as it is ready."
+            finishWaiters()
             return
         }
         // A read already under way may predate what was just changed; read again after it.
@@ -263,7 +269,7 @@ final class RanchStore: ObservableObject {
 
     private func apply(_ result: Result<RanchOverview?, Error>, tag: String?) {
         request = nil
-        defer { if reloadAgain { reloadAgain = false; reload() } }
+        defer { if reloadAgain { reloadAgain = false; reload() } else { finishWaiters() } }
         switch result {
         case .success(nil):
             loadError = nil
@@ -283,6 +289,12 @@ final class RanchStore: ObservableObject {
             NSLog("The Ranch could not load the library: %@", error.localizedDescription)
             loadError = "The library couldn\u{2019}t be loaded. \(error.localizedDescription)"
         }
+    }
+
+    private func finishWaiters() {
+        let waiting = reloadWaiters
+        reloadWaiters.removeAll()
+        waiting.forEach { $0() }
     }
 
     // MARK: What the window lists

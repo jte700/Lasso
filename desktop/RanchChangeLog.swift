@@ -125,7 +125,7 @@ struct RanchChangeLog: View {
         case "renamed", "moved":
             return entry.previousPath.map { "From \(($0 as NSString).lastPathComponent)" }
         default:
-            return entry.valueCaption(directory: directory)
+            return entry.textChanges.map(RanchChangeWords.textSummary) ?? entry.valueCaption(directory: directory)
         }
     }
 
@@ -199,7 +199,7 @@ private struct RanchChangeRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             if fits.detail {
                 Text(detail ?? "\u{2014}").font(RanchLook.font(13.5)).monospacedDigit()
-                    .foregroundStyle(entry.valueChanges != nil ? RanchLook.ink : RanchLook.ink3)
+                    .foregroundStyle(entry.valueChanges != nil || entry.textChanges != nil ? RanchLook.ink : RanchLook.ink3)
                     .lineLimit(1).truncationMode(.middle)
                     .frame(width: RanchChangeColumns.detail, alignment: .leading)
             }
@@ -287,5 +287,40 @@ struct RanchChangeActor: View {
     static func orb(for name: String) -> (Color, Color) {
         let sum = name.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
         return orbs[sum % orbs.count]
+    }
+}
+
+/// "3 new changes": floats at the top of Recent Changes while changes that
+/// arrived wait to be listed, so the list holds still while it is read.
+struct RanchNewChangesPill: View {
+    let count: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: "arrow.up").font(.system(size: 11.5, weight: .semibold))
+                Text(RanchChangeFeed.pillTitle(count)).font(RanchLook.font(13, .medium)).monospacedDigit()
+            }
+        }
+        .buttonStyle(RanchNewChangesPillStyle())
+        .help("List the changes that arrived since this list was read")
+        .accessibilityLabel("\(RanchChangeFeed.pillTitle(count)). Show them.")
+    }
+}
+
+private struct RanchNewChangesPillStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        RanchHover { hovering in
+            configuration.label
+                .foregroundStyle(RanchLook.onSky)
+                .padding(.horizontal, 16)
+                .frame(height: 34)
+                .background(Capsule().fill(hovering ? RanchLook.skySoft : RanchLook.sky))
+                .shadow(color: .black.opacity(0.45), radius: 14, y: 6)
+                .scaleEffect(configuration.isPressed ? 0.96 : 1)
+                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+                .contentShape(Capsule())
+        }
     }
 }

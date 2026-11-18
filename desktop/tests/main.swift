@@ -5188,6 +5188,41 @@ do {
     check(RanchChangeWords.row("row:4") == "Row 4" && RanchChangeWords.row("Ada") == "Ada"
           && RanchChangeWords.lineSummary(RanchChangeDetail.Lines(added: 2, removed: 1, hunks: [], truncated: false)) == "2 lines added, 1 removed",
           "Table rows and line counts read as words")
+    check(RanchChangeWords.textSummary(RanchTextChanges(added: 1, removed: 0, unit: "line")) == "1 line added"
+          && RanchChangeWords.textSummary(RanchTextChanges(added: 2, removed: 1, unit: "paragraph")) == "2 paragraphs added, 1 removed",
+          "A text file's row says how many lines or paragraphs its save changed")
+    var passage = RanchHistoryEntry(id: "p", directoryId: "d1", at: nil, change: "edited", path: "todo.txt", previousPath: nil,
+                                    fileId: nil, fileCount: nil)
+    passage.valueChanges = RanchValueChanges(count: 1, first: .init(label: "todo", before: "Order rebar\nCall the surveyor",
+                                                                      after: "Order rebar\nCall the surveyor\nBook the crane"))
+    check(passage.valueCaption(directory: "Site") == "1 value changed \u{00B7} Site",
+          "A passage is counted rather than quoted, since a row has no room for its lines")
+}
+
+// MARK: Recent Changes holds still until new changes are taken in
+
+do {
+    func entry(_ id: String) -> RanchHistoryEntry {
+        RanchHistoryEntry(id: id, directoryId: "d1", at: nil, change: "edited", path: "\(id).md", previousPath: nil,
+                          fileId: nil, fileCount: nil)
+    }
+    var feed = RanchChangeFeed()
+    let first = [entry("b"), entry("a")]
+    check(feed.shown(first).map(\.id) == ["b", "a"] && feed.waiting(first).isEmpty,
+          "Before the library is read, nothing waits behind the pill")
+    feed.begin(with: first)
+    let later = [entry("d"), entry("c"), entry("b"), entry("a")]
+    check(feed.shown(later).map(\.id) == ["b", "a"] && feed.waiting(later).map(\.id) == ["d", "c"],
+          "Changes that arrive later wait behind the pill, and the list holds still")
+    feed.begin(with: later)
+    check(feed.waiting(later).count == 2, "A later read does not take them in by itself")
+    let aged = [entry("d"), entry("c"), entry("b")]
+    check(feed.shown(aged).map(\.id) == ["b"], "A change that ages out of the two weeks leaves the list at once")
+    feed.takeIn(aged)
+    check(feed.shown(aged).map(\.id) == ["d", "c", "b"] && feed.waiting(aged).isEmpty,
+          "Clicking the pill or pulling the list takes every waiting change in")
+    check(RanchChangeFeed.pillTitle(1) == "1 new change" && RanchChangeFeed.pillTitle(3) == "3 new changes",
+          "The pill counts the changes waiting")
 }
 
 // MARK: The glass card's outline

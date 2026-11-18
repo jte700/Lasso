@@ -219,9 +219,18 @@ enum RanchChangeWords {
 
     /// "2 lines added, 1 removed".
     static func lineSummary(_ lines: RanchChangeDetail.Lines) -> String {
-        let count = { (number: Int, word: String) in number == 1 ? "1 line \(word)" : "\(number.formatted()) lines \(word)" }
-        switch (lines.added, lines.removed) {
-        case (0, 0): return "No lines changed"
+        textSummary(added: lines.added, removed: lines.removed, unit: "line")
+    }
+
+    /// "1 line added", "2 paragraphs added, 1 removed", as a text file's row says what its save changed.
+    static func textSummary(_ changes: RanchTextChanges) -> String {
+        textSummary(added: changes.added, removed: changes.removed, unit: changes.unit)
+    }
+
+    private static func textSummary(added: Int, removed: Int, unit: String) -> String {
+        let count = { (number: Int, word: String) in number == 1 ? "1 \(unit) \(word)" : "\(number.formatted()) \(unit)s \(word)" }
+        switch (added, removed) {
+        case (0, 0): return "No \(unit)s changed"
         case (let added, 0): return count(added, "added")
         case (0, let removed): return count(removed, "removed")
         case (let added, let removed): return "\(count(added, "added")), \(removed.formatted()) removed"
@@ -293,5 +302,41 @@ enum RanchChangeWords {
         var rest = string as String
         for range in ranges.reversed() { rest = (rest as NSString).replacingCharacters(in: range, with: " ") }
         return rest.allSatisfy { !$0.isLetter && !$0.isNumber }
+    }
+}
+
+/// Which changes Recent Changes lists and which wait behind its "new changes"
+/// pill: the list holds still while it is read, and what arrives is taken in
+/// when the pill is clicked or the list is pulled down.
+struct RanchChangeFeed: Equatable {
+    /// The changes already listed; nil until the library has first been read.
+    private(set) var listed: Set<String>?
+
+    /// Lists every change there is, the first time the library has been read.
+    mutating func begin(with entries: [RanchHistoryEntry]) {
+        if listed == nil { listed = Set(entries.map(\.id)) }
+    }
+
+    /// Lists every change there is now, the ones that were waiting among them.
+    mutating func takeIn(_ entries: [RanchHistoryEntry]) {
+        listed = Set(entries.map(\.id))
+    }
+
+    /// The changes the list shows, newest first as given. Before the first
+    /// read everything shows; a change that has aged out leaves at once.
+    func shown(_ entries: [RanchHistoryEntry]) -> [RanchHistoryEntry] {
+        guard let listed else { return entries }
+        return entries.filter { listed.contains($0.id) }
+    }
+
+    /// The changes that arrived since the list was last taken in.
+    func waiting(_ entries: [RanchHistoryEntry]) -> [RanchHistoryEntry] {
+        guard let listed else { return [] }
+        return entries.filter { !listed.contains($0.id) }
+    }
+
+    /// "1 new change", "3 new changes".
+    static func pillTitle(_ count: Int) -> String {
+        count == 1 ? "1 new change" : "\(count.formatted()) new changes"
     }
 }
