@@ -516,6 +516,7 @@ struct RanchTitleRow: View {
         case .changes: RanchLucideIcon(icon: .history, color: RanchTheme.secondaryInk)
         case .links: RanchLucideIcon(icon: .link, color: RanchTheme.secondaryInk)
         case .review: RanchLucideIcon(icon: .triangleAlert, color: RanchTheme.secondaryInk)
+        case .reviews: RanchLucideIcon(icon: .fileDiff, color: RanchTheme.secondaryInk)
         case .network: RanchLucideIcon(icon: .network, color: RanchTheme.secondaryInk)
         case .directory(let id): RanchLucideIcon(icon: .folder, color: store.directory(id)?.color ?? RanchTheme.secondaryInk)
         }
@@ -527,6 +528,7 @@ struct RanchTitleRow: View {
         case .changes: return [.init(title: "Recent Changes")]
         case .links: return [.init(title: "Links")]
         case .review: return [.init(title: "Needs Review")]
+        case .reviews: return [.init(title: "Review Changes")]
         case .network: return [.init(title: "Network")]
         case .directory(let id):
             return [.init(title: "Sources") { store.section = .sources }, .init(title: store.directoryName(id))]

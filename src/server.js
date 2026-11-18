@@ -17,6 +17,7 @@ import { createTerminal } from './terminal/service.js';
 import { WorkspaceService } from './workspace.js';
 import { ConnectionService } from './connections/service.js';
 import { RanchService } from './ranch/service.js';
+import { ReviewService } from './review/service.js';
 import { WritingService } from './writing/service.js';
 import { watchParent } from './parent-watchdog.js';
 
@@ -58,6 +59,7 @@ export function createApplication(overrides = {}) {
   const connections = new ConnectionService({ db, timeline, dependencies, workspace, config, fetchImpl: overrides.fetch });
   const ranch = new RanchService({ timeline, dependencies, terminal, workspace, objectShares });
   const writing = new WritingService({ workspace, dependencies, config });
+  const reviews = new ReviewService({ timeline, writing });
   // Off unless config.blobRetentionEnabled is set; then it runs only between captures.
   const retention = new BlobRetention({ db, timeline, config });
   // On unless config.blobCompressionEnabled is false; it compresses only versions no folder holds now.
@@ -66,7 +68,7 @@ export function createApplication(overrides = {}) {
   retention.start();
   compaction.start();
   connections.start();
-  const handle = createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal, workspace, connections, ranch, writing);
+  const handle = createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal, workspace, connections, ranch, writing, reviews);
   objectShares.publisher = new HostedSharePublisher({ config, db, handler: handle });
   const caches = cachesShrinkWhenIdle(timeline.memoryBudget, config.cacheIdleMs);
   const server = http.createServer((request, response) => {
@@ -89,6 +91,7 @@ export function createApplication(overrides = {}) {
     connections,
     ranch,
     writing,
+    reviews,
     retention,
     compaction,
     server,

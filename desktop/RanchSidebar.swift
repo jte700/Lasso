@@ -131,6 +131,9 @@ struct RanchSidebar: View {
             view(.changes, "Recent Changes", icon: .history, selection, quiet: quiet) {
                 RanchSidebarCount(value: store.overview.history.count)
             }
+            view(.reviews, "Review Changes", icon: .fileDiff, selection, quiet: quiet) {
+                RanchReviewSidebarCount(model: store.reviews)
+            }
             view(.links, "Links", icon: .link, selection, quiet: quiet) {
                 RanchSidebarCount(value: store.activeLinkCount + store.overview.links.received.count)
             }
@@ -272,7 +275,7 @@ struct RanchSidebar: View {
     /// The rows ↑ and ↓ move through: views, directories and the files open
     /// under them. Folders are opened and closed, not chosen.
     private func order(_ branches: [RanchBranch]) -> [RanchSidebarItem] {
-        [RanchStore.Section.sources, .changes, .links, .review, .network].map(RanchSidebarItem.section)
+        [RanchStore.Section.sources, .changes, .reviews, .links, .review, .network].map(RanchSidebarItem.section)
             + branches.flatMap { branch in
                 [RanchSidebarItem.section(.directory(branch.directory.id))] + branch.files.map(RanchSidebarItem.file)
             }
@@ -365,6 +368,13 @@ struct RanchSidebarRule: View {
 }
 
 /// A count at the end of a sidebar row, in plain figures.
+/// How many changed files wait in the folders' reviews.
+struct RanchReviewSidebarCount: View {
+    @ObservedObject var model: RanchReviewModel
+
+    var body: some View { RanchSidebarCount(value: model.waiting) }
+}
+
 struct RanchSidebarCount: View {
     let value: Int
     var tint: Color? = nil

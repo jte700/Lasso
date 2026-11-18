@@ -241,12 +241,12 @@ export function placeOf(anchor, metadata, filePath) {
 }
 
 /** A sort key that keeps a file's changes in reading order. */
-function readingOrder(anchor) {
+export function readingOrder(anchor) {
   return [anchor?.sheet ?? '', anchor?.pageNumber ?? anchor?.slideNumber ?? 0,
     anchor?.lineStart ?? anchor?.line ?? anchor?.rowIndex ?? 0, anchor?.columnIndex ?? 0];
 }
 
-function compareOrder(left, right) {
+export function compareOrder(left, right) {
   for (let index = 0; index < left.length; index += 1) {
     if (left[index] === right[index]) continue;
     return typeof left[index] === 'string' ? String(left[index]).localeCompare(String(right[index]))

@@ -8,7 +8,7 @@ import SwiftUI
 enum RanchLucide: String {
     case layers, history, link, triangleAlert, network, folder, folderOpen, chevronRight, circlePlus, settings, file
     case search, plus, panelLeft
-    case share, eyeOff, highlighter, clock, x, mail, fileText
+    case share, eyeOff, highlighter, clock, x, mail, fileText, fileDiff
 
     /// The icon's shapes as SVG path data on Lucide's 24 by 24 grid.
     var paths: [String] {
@@ -64,6 +64,8 @@ enum RanchLucide: String {
                     "M10 9H8", "M16 13H8", "M16 17H8"]
         case .file:
             return ["M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", "M14 2v4a2 2 0 0 0 2 2h4"]
+        case .fileDiff:
+            return ["M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", "M9 10h6", "M12 13V7", "M9 17h6"]
         }
     }
 
