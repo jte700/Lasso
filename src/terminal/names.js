@@ -94,22 +94,23 @@ export function sourceLocator(object) {
   const metadata = object.metadata ?? {};
   const sheet = metadata.sheet ?? anchor.sheet ?? null;
   const spreadsheet = isSpreadsheet(object.path);
+  const rowNumber = shownRow(anchor);
 
   switch (anchor.kind) {
     case 'table-cell': {
-      if (spreadsheet && Number.isInteger(anchor.rowIndex) && Number.isInteger(anchor.columnIndex)) {
-        const cell = `${columnLetter(anchor.columnIndex)}${anchor.rowIndex + 1}`;
+      if (spreadsheet && rowNumber != null && Number.isInteger(anchor.columnIndex)) {
+        const cell = `${columnLetter(anchor.columnIndex)}${rowNumber}`;
         return sheet ? `${sheet}!${cell}` : cell;
       }
       const column = anchor.column ?? metadata.column;
-      const row = Number.isInteger(anchor.rowIndex) ? `row ${anchor.rowIndex + 1}` : anchor.rowKey;
+      const row = rowNumber != null ? `row ${rowNumber}` : anchor.rowKey;
       return [sheet, row, column].filter(Boolean).join(' · ');
     }
     case 'table-row': {
-      if (spreadsheet && Number.isInteger(anchor.rowIndex)) {
-        return sheet ? `${sheet}!${anchor.rowIndex + 1}:${anchor.rowIndex + 1}` : `row ${anchor.rowIndex + 1}`;
+      if (spreadsheet && rowNumber != null) {
+        return sheet ? `${sheet}!${rowNumber}:${rowNumber}` : `row ${rowNumber}`;
       }
-      return [sheet, Number.isInteger(anchor.rowIndex) ? `row ${anchor.rowIndex + 1}` : anchor.rowKey]
+      return [sheet, rowNumber != null ? `row ${rowNumber}` : anchor.rowKey]
         .filter(Boolean).join(' · ');
     }
     case 'table-column': {
@@ -143,6 +144,15 @@ export function sourceLocator(object) {
     case 'manuscript-span': return `block ${anchor.blockIndex}`;
     default: return sheet ? `sheet ${sheet}` : '';
   }
+}
+
+/**
+ * The 1-based row number a table anchor's row is shown as. A worksheet anchor
+ * already holds the sheet's own row number; any other counts rows from 0.
+ */
+function shownRow(anchor) {
+  if (!Number.isInteger(anchor.rowIndex)) return null;
+  return anchor.rowCoordinate === 'worksheet' ? anchor.rowIndex : anchor.rowIndex + 1;
 }
 
 /** The directory an object lives in, used by `--directory` and rule prefixes. */
