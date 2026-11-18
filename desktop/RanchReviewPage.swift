@@ -15,10 +15,10 @@ struct RanchReviewPage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                if model.folders.count > 1 { chips }
-                if let review = model.review {
+                if shownFolders.count > 1 { chips }
+                if let review = model.review, review.state != "empty" || model.tabs(review).count > 0 {
                     RanchReviewCard(store: store, model: model, review: review)
-                } else if model.folders.isEmpty {
+                } else if model.review != nil || model.folders.isEmpty {
                     empty
                 }
             }
@@ -31,10 +31,15 @@ struct RanchReviewPage: View {
         .overlay(alignment: .bottom) { problem }
     }
 
+    /// Folders with something waiting, and the one open now.
+    private var shownFolders: [RanchReviewFolder] {
+        model.folders.filter { $0.state != "empty" || $0.id == model.chosenFolder }
+    }
+
     private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(model.folders) { folder in
+                ForEach(shownFolders) { folder in
                     let chosen = folder.id == model.chosenFolder
                     Button { model.chosenFolder = folder.id } label: {
                         HStack(spacing: 8) {
@@ -59,7 +64,7 @@ struct RanchReviewPage: View {
     private var empty: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Nothing to review").font(RanchLook.font(17, .medium)).foregroundStyle(RanchLook.ink)
-            Text("Changes saved in your switched-on folders wait here until you approve them.")
+            Text("When someone edits a file in a switched-on folder, or asks for a change to one, it waits here until it is approved. To ask for a change yourself, choose Request a Change on a file.")
                 .font(RanchLook.font(14)).foregroundStyle(RanchLook.ink2)
         }
         .padding(.top, 40)
@@ -100,15 +105,16 @@ struct RanchReviewCard: View {
                 banner(approval).padding(.horizontal, 28).padding(.top, 16)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
-            if !review.files.isEmpty {
+            if !model.tabs(review).isEmpty {
                 tabs.padding(.horizontal, 28).padding(.top, 18).padding(.bottom, 14)
                 RanchLook.line.frame(height: 1)
-                if let chosen = review.files.first(where: { $0.path == model.chosenFile }) {
+                if let chosen = model.tabs(review).first(where: { $0.path == model.chosenFile }) {
                     RanchReviewFileArea(store: store, model: model, file: chosen, view: model.files[chosen.path])
                         .id(chosen.path)
                 }
             } else {
-                Text("Everything here has been looked at and approved.").font(RanchLook.font(14)).foregroundStyle(RanchLook.ink3)
+                Text(review.state == "approved" ? "Everything here has been looked at and approved." : "Nothing here waits for review.")
+                    .font(RanchLook.font(14)).foregroundStyle(RanchLook.ink3)
                     .padding(28)
             }
         }
@@ -140,7 +146,7 @@ struct RanchReviewCard: View {
             }
             Spacer(minLength: 12)
             RanchApproveButton(approved: review.approval != nil, working: model.approving,
-                               enabled: !review.files.isEmpty) { model.approve() }
+                               enabled: !model.tabs(review).isEmpty) { model.approve() }
         }
     }
 
@@ -161,7 +167,7 @@ struct RanchReviewCard: View {
         HStack(spacing: 14) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
-                    ForEach(review.files) { file in
+                    ForEach(model.tabs(review)) { file in
                         RanchReviewTab(file: file, chosen: file.path == model.chosenFile) {
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) { model.chosenFile = file.path }
                         }
@@ -298,6 +304,17 @@ struct RanchReviewFileArea: View {
         }
         .animation(.spring(response: 0.42, dampingFraction: 0.88), value: view)
         .animation(.spring(response: 0.42, dampingFraction: 0.88), value: composing)
+        .onAppear(perform: openIfAsked)
+        .onChange(of: view?.path) { _ in openIfAsked() }
+        .onChange(of: model.composeFor) { _ in openIfAsked() }
+    }
+
+    /// Opens the comment box on the file someone chose Request a Change for. It reads the
+    /// file from the model: on macOS 13 a change handler still sees this view's earlier values.
+    private func openIfAsked() {
+        guard model.composeFor == file.path, let view = model.files[file.path] else { return }
+        model.composeFor = nil
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.88)) { composing = filePlace(view) }
     }
 
     private var header: some View {
@@ -328,7 +345,9 @@ struct RanchReviewFileArea: View {
     }
 
     @ViewBuilder private var counts: some View {
-        if let lines = view?.lines {
+        if file.change == "unchanged" {
+            EmptyView()
+        } else if let lines = view?.lines {
             HStack(spacing: 6) {
                 Text("+\(lines.added.formatted())").foregroundStyle(RanchLook.lime)
                 Text("\u{2212}\(lines.removed.formatted())").foregroundStyle(RanchLook.terracottaSoft)
@@ -392,6 +411,7 @@ struct RanchReviewFileArea: View {
 
     private func nothingShown(_ view: RanchReviewFileView) -> String {
         switch view.change {
+        case "unchanged": return "No one has edited this file. Comment on it to ask for a change."
         case "removed": return "Removed from the folder. Lasso keeps its last version."
         case "renamed", "moved": return "Only its name or place changed."
         default:

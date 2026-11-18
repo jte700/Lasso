@@ -1,8 +1,11 @@
-// A folder's review: everything that changed in it since it was last
-// approved, file by file, as The Ranch's review card shows it. Until a folder
-// has been approved its review starts from when Lasso first read it. Once
-// approved at its current version, the review shows what that approval
-// covered, as approved, until the next save starts a new one.
+// A folder's review: the files someone edited since it was last approved,
+// and the files someone has asked to be changed, as The Ranch's review card
+// shows them. Loading a folder puts nothing up for review, and neither does a
+// capture of many files at once (a folder copied in or taken away, a sync, a
+// checkout): an edit is a save that changed a file that was already there.
+// Until a folder has been approved its review starts from when Lasso first
+// read it. Once approved at its current version, the review shows what that
+// approval covered, as approved, until the next edit starts a new one.
 //
 // Each file is shown the way its kind reads best: text and code line by line,
 // workbooks and CSVs as grids of their changed cells, and the files Lasso
@@ -10,12 +13,15 @@
 // changed. Comments sit beside the line, cell or passage they are pinned to.
 
 import { isCodeType, isTextualType } from '../history/file-types.js';
-import { cellAddress, cellValue, sheetDiff } from './sheet-diff.js';
-import { MAX_COMPARED_TEXT, findLine, lineDiff, linesOf } from './text-diff.js';
+import { MAX_FILES_PER_EVENT } from '../ranch/history.js';
+import { cellAddress, cellValue, sheetDiff, sheetGrids } from './sheet-diff.js';
+import { MAX_COMPARED_TEXT, MAX_SHOWN_LINES, findLine, lineDiff, linesOf } from './text-diff.js';
 import { valueChanges } from './value-diff.js';
 
-/** Files one review lists; a sync of thousands lists these and counts the rest. */
+/** Files one review lists; past these the review counts the rest. */
 export const MAX_REVIEW_FILES = 60;
+/** Rows of a sheet no one edited shown, to ask for a change in. */
+const UNEDITED_ROWS = 40;
 
 const VERBS = { ADDED: 'added', DELETED: 'removed', RENAMED: 'renamed', MOVED: 'moved', MODIFIED: 'edited' };
 
@@ -52,14 +58,18 @@ export function reviewRange(db, records, projectId) {
   return { base, current: { id: current.id, version: current.version, at: current.created_at }, approved };
 }
 
-/** Who saved changes in the range, and how many saves there were. */
+// A save that edited a file: not a folder's first reading or a re-read, and not a capture of many files at once.
+const EDITING_SAVE = `e.source NOT IN ('IMPORT', 'REINDEX')
+  AND (SELECT COUNT(*) FROM file_changes g WHERE g.event_id = e.id) <= ?
+  AND EXISTS (SELECT 1 FROM file_changes m WHERE m.event_id = e.id AND m.change_type = 'MODIFIED')`;
+
+/** Who saved edits in the range, and how many such saves there were. */
 function savers(db, projectId, base, current) {
   const rows = db.prepare(`SELECT e.id, a.id AS actor_id, a.display_name, a.actor_type, i.id AS asker_id, i.display_name AS asker_name
     FROM timeline_events e JOIN snapshots s ON s.id = e.resulting_snapshot_id JOIN actors a ON a.id = e.actor_id
     LEFT JOIN actors i ON i.id = e.initiated_by_actor_id
-    WHERE e.project_id = ? AND s.version > ? AND s.version <= ? AND e.source != 'IMPORT'
-      AND EXISTS (SELECT 1 FROM file_changes f WHERE f.event_id = e.id)
-    ORDER BY s.version`).all(projectId, base.version, current.version);
+    WHERE e.project_id = ? AND s.version > ? AND s.version <= ? AND ${EDITING_SAVE}
+    ORDER BY s.version`).all(projectId, base.version, current.version, MAX_FILES_PER_EVENT);
   const people = new Map();
   for (const row of rows) {
     people.set(row.actor_id, { id: row.actor_id, name: row.display_name, type: row.actor_type,
@@ -68,13 +78,14 @@ function savers(db, projectId, base, current) {
   return { saves: rows.length, people: [...people.values()] };
 }
 
-/** Who saved each file in the range, latest last, by the file's id. */
+/** Who edited each file in the range, latest last, by the file's id. */
 function editorsByFile(db, projectId, base, current) {
   const byFile = new Map();
   for (const row of db.prepare(`SELECT f.project_file_id, a.id, a.display_name, a.actor_type
       FROM file_changes f JOIN timeline_events e ON e.id = f.event_id JOIN snapshots s ON s.id = e.resulting_snapshot_id
       JOIN actors a ON a.id = e.actor_id
-      WHERE e.project_id = ? AND s.version > ? AND s.version <= ? ORDER BY s.version`).all(projectId, base.version, current.version)) {
+      WHERE e.project_id = ? AND s.version > ? AND s.version <= ? AND f.change_type = 'MODIFIED' AND ${EDITING_SAVE}
+      ORDER BY s.version`).all(projectId, base.version, current.version, MAX_FILES_PER_EVENT)) {
     if (!row.project_file_id) continue;
     const list = byFile.get(row.project_file_id) ?? [];
     const editor = { id: row.id, name: row.display_name, type: row.actor_type };
@@ -83,20 +94,28 @@ function editorsByFile(db, projectId, base, current) {
   return byFile;
 }
 
-/** The files that differ between the two versions, in path order. */
-export function changedFiles(timeline, base, current) {
-  const before = new Map(timeline.getSnapshot(base.id).files.map((file) => [file.projectFileId, file]));
-  const after = timeline.getSnapshot(current.id).files;
-  const files = [];
-  for (const file of after) {
-    const was = before.get(file.projectFileId);
-    before.delete(file.projectFileId);
-    if (!was) files.push({ change: 'ADDED', before: null, after: file });
-    else if (was.contentHash !== file.contentHash) files.push({ change: 'MODIFIED', before: was, after: file });
-    else if (was.path !== file.path) files.push({ change: 'RENAMED', before: was, after: file });
+/**
+ * The files saves edited in the range, each with how it read just before its
+ * first edit there and how it reads now, in path order. A file edited back to
+ * how it was is not among them, and neither is one since removed.
+ */
+export function editedFiles(db, timeline, projectId, base, current) {
+  const first = new Map();
+  for (const row of db.prepare(`SELECT f.project_file_id, e.previous_snapshot_id
+      FROM file_changes f JOIN timeline_events e ON e.id = f.event_id JOIN snapshots s ON s.id = e.resulting_snapshot_id
+      WHERE e.project_id = ? AND s.version > ? AND s.version <= ? AND f.change_type = 'MODIFIED' AND f.project_file_id IS NOT NULL
+        AND ${EDITING_SAVE}
+      ORDER BY s.version`).all(projectId, base.version, current.version, MAX_FILES_PER_EVENT)) {
+    if (!first.has(row.project_file_id)) first.set(row.project_file_id, row);
   }
-  for (const was of before.values()) files.push({ change: 'DELETED', before: was, after: null });
-  return files.sort((left, right) => (left.after ?? left.before).path.localeCompare((right.after ?? right.before).path));
+  const files = [];
+  for (const [fileId, row] of first) {
+    const after = timeline.snapshotFileById(current.id, fileId);
+    const before = row.previous_snapshot_id ? timeline.snapshotFileById(row.previous_snapshot_id, fileId) : null;
+    if (!after || !before || after.contentHash === before.contentHash) continue;
+    files.push({ change: 'MODIFIED', before, after });
+  }
+  return files.sort((left, right) => left.after.path.localeCompare(right.after.path));
 }
 
 export class FolderReview {
@@ -120,20 +139,32 @@ export class FolderReview {
     }
   }
 
-  /** The files a folder's review lists, with what each needs to draw its tab. */
+  /**
+   * The files a folder's review lists, with what each needs to draw its tab:
+   * those edited, then those someone has asked to be changed and no one has
+   * edited, while the request is open.
+   */
   files(projectId, range, viewerId) {
     const viewed = this.records.viewed(projectId, viewerId);
     const threads = this.records.threads(projectId);
     const editors = editorsByFile(this.db, projectId, range.base, range.current);
-    const all = changedFiles(this.timeline, range.base, range.current).filter((entry) => this.meaningful(projectId, range, entry));
+    const edited = editedFiles(this.db, this.timeline, projectId, range.base, range.current)
+      .filter((entry) => this.meaningful(projectId, range, entry));
+    const listed = new Set(edited.map((entry) => entry.after.path));
+    const requested = [...new Set(threads.filter((thread) => !thread.resolved && !thread.applied && !listed.has(thread.path))
+      .map((thread) => thread.path))].sort((left, right) => left.localeCompare(right))
+      .map((filePath) => this.timeline.snapshotFile(range.current.id, filePath))
+      .filter(Boolean).map((file) => ({ change: 'UNCHANGED', before: file, after: file }));
+    const all = [...edited, ...requested];
     return {
       total: all.length,
+      requests: requested.length,
       files: all.slice(0, MAX_REVIEW_FILES).map((entry) => {
         const file = entry.after ?? entry.before;
         const open = threads.filter((thread) => thread.path === file.path && !thread.resolved && !thread.applied);
         return {
           path: file.path, previousPath: entry.change === 'RENAMED' || (entry.before && entry.before.path !== file.path) ? entry.before.path : null,
-          fileId: file.projectFileId, fileType: file.fileType, change: VERBS[entry.change], kind: viewKind(file.fileType),
+          fileId: file.projectFileId, fileType: file.fileType, change: VERBS[entry.change] ?? 'unchanged', kind: viewKind(file.fileType),
           contentHash: entry.after?.contentHash ?? null,
           viewed: entry.after ? viewed.get(file.path) === entry.after.contentHash : viewed.has(file.path),
           comments: threads.filter((thread) => thread.path === file.path).reduce((sum, thread) => sum + thread.comments.length, 0),
@@ -148,7 +179,7 @@ export class FolderReview {
   summary(projectId, viewerId) {
     const project = this.timeline.getProject(projectId);
     const range = reviewRange(this.db, this.records, projectId);
-    const { files, total } = this.files(projectId, range, viewerId);
+    const { files, total, requests } = this.files(projectId, range, viewerId);
     const { saves, people } = savers(this.db, projectId, range.base, range.current);
     // A comment is pending for the person who wrote it, until their approval sends it.
     const pending = this.records.threads(projectId).flatMap((thread) => thread.comments)
@@ -158,7 +189,7 @@ export class FolderReview {
       state: range.approved ? 'approved' : files.length ? 'open' : 'empty',
       base: { version: range.base.version, at: range.base.at, approvedBy: range.base.approval?.by ?? null },
       current: { version: range.current.version, at: range.current.at },
-      saves, people, pendingComments: pending,
+      saves, people, pendingComments: pending, requests,
       approval: range.approved ? { id: range.approved.id, at: range.approved.at, by: range.approved.by, comments: range.approved.comments } : null,
       files, moreFiles: Math.max(0, total - files.length),
     };
@@ -167,8 +198,8 @@ export class FolderReview {
   /** One file of a folder's review: what changed in it, drawn for its kind, and its comments. */
   file(projectId, filePath, viewerId) {
     const range = reviewRange(this.db, this.records, projectId);
-    const entry = changedFiles(this.timeline, range.base, range.current)
-      .find((candidate) => (candidate.after ?? candidate.before).path === filePath);
+    const entry = editedFiles(this.db, this.timeline, projectId, range.base, range.current)
+      .find((candidate) => candidate.after.path === filePath);
     const after = entry ? entry.after : this.timeline.snapshotFile(range.current.id, filePath);
     const before = entry ? entry.before : after;
     const file = after ?? before;
@@ -203,7 +234,10 @@ export class FolderReview {
           placed.push({ thread, position: line ? { line } : null, place: line ? `Line ${line}` : thread.anchor?.kind === 'line' ? `Line ${thread.anchor.line}` : null,
             current: line ? now[line - 1] : null });
         }
-        view.lines = lineDiff(entry ? linesOf(beforeBytes) : now, now, new Set(placed.map((item) => item.position?.line).filter(Boolean)));
+        // A file no one edited is shown whole, so a line of it can be asked to change.
+        const pinned = entry ? new Set(placed.map((item) => item.position?.line).filter(Boolean))
+          : new Set(Array.from({ length: Math.min(now.length, MAX_SHOWN_LINES) }, (_, index) => index + 1));
+        view.lines = lineDiff(entry ? linesOf(beforeBytes) : now, now, pinned);
       }
     } else if (kind === 'sheet') {
       const [beforeBytes, afterBytes] = [entry ? read(before) : read(after), read(after)];
@@ -215,6 +249,12 @@ export class FolderReview {
           place: anchor?.kind === 'cell' ? cellAddress(anchor.sheet, anchor.row, anchor.column, csv) : null, current: found });
       }
       const pinned = new Set(placed.filter((item) => item.position).map((item) => `${item.position.sheet}\u0000${item.position.row}`));
+      // A sheet no one edited shows its first rows, so a cell of it can be asked to change.
+      if (!entry) {
+        for (const grid of sheetGrids(afterBytes, file.fileType, file.path)) {
+          for (const row of grid.rowNumbers.slice(0, UNEDITED_ROWS)) pinned.add(`${grid.name}\u0000${row}`);
+        }
+      }
       view.sheet = sheetDiff({ beforeBuffer: beforeBytes, afterBuffer: afterBytes, fileType: file.fileType, filePath: file.path, pinned });
     } else if (kind === 'values' && entry) {
       const { values, count } = valueChanges(this.db, projectId, file.path, range.base.version, range.current.version);

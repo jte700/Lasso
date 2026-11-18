@@ -21,6 +21,7 @@ struct RanchSourceMenu: View {
                 }
             }
             if source.canShareLink { Button("Share\u{2026}") { store.sharing = source } }
+            Button("Request a Change\u{2026}") { store.requestChange(source) }
             Divider()
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
             Button("Copy Path") { store.copy(url.path) }

@@ -5488,7 +5488,10 @@ do {
     let json = #"{"review":{"directoryId":"d","name":"Accounting","state":"approved","base":{"version":3,"at":"2026-11-12T10:00:00.000Z","approvedBy":{"id":"human:desktop","name":"Desktop","type":"HUMAN_SELF"}},"current":{"version":6,"at":"2026-11-18T10:00:00.000Z"},"saves":3,"people":[{"id":"human:dana","name":"Dana Walker","type":"HUMAN_SELF"}],"pendingComments":0,"approval":{"id":"a1","at":"2026-11-18T10:05:00.000Z","by":{"id":"human:desktop","name":"Desktop","type":"HUMAN_SELF"},"comments":1},"files":[{"path":"Income.xlsx","previousPath":null,"fileId":"f","fileType":"spreadsheet","change":"edited","kind":"sheet","viewed":true,"comments":2,"openThreads":0,"editors":[]},{"path":"notes.md","previousPath":null,"fileId":"g","fileType":"markdown","change":"added","kind":"lines","viewed":false,"comments":0,"openThreads":0,"editors":[]}],"moreFiles":0}}"#
     let review = try? RanchReview.decode(Data(json.utf8))
     let noon = ISO8601DateFormatter().date(from: "2026-11-18T12:00:00Z")!
-    check(review.map { RanchReviewWords.headline($0, now: noon) } == "Dana Walker changed 2 files since you approved Nov 12", "the headline names who, how much and since when")
+    check(review.map { RanchReviewWords.headline($0, now: noon) } == "Dana Walker edited 2 files since you approved Nov 12", "the headline names who, how much and since when")
+    let asked = try? RanchReview.decode(Data(json.replacingOccurrences(of: #""pendingComments":0"#, with: #""pendingComments":0,"requests":2"#).utf8))
+    check(asked.map { RanchReviewWords.headline($0, now: noon) } == "2 changes requested", "a review of requests alone says so")
+    check(RanchReviewWords.change("unchanged") == "Change requested", "a file only asked to change says so")
     check(review.map(RanchReviewWords.viewed) == "1/2 viewed", "files looked at are counted")
     check(review?.approval.map { RanchReviewWords.approved($0).lead + " " + RanchReviewWords.approved($0).rest } == "You approved these changes with 1 comment",
           "the banner says who approved and what it sent")

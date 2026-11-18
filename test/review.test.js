@@ -85,6 +85,65 @@ test('A folder\'s review lists what changed since it was first read, and a text 
   ]);
 });
 
+test('Loading a folder, and files added or removed many at once, put nothing up for review; a file someone edits does', (t) => {
+  // Arrange
+  const { app, reviews, id, root, save } = folder(t);
+  for (let index = 0; index < 30; index += 1) fs.writeFileSync(path.join(root, `part-${index}.txt`), `Part ${index}\n`);
+  app.timeline.capture(id, dana);
+  const afterBatch = reviews.summary(id, me.id);
+  save('notes.txt', 'A new note.\n');
+  const afterNewFile = reviews.summary(id, me.id);
+  for (let index = 0; index < 30; index += 1) fs.rmSync(path.join(root, `part-${index}.txt`));
+  app.timeline.capture(id, dana);
+
+  // Act
+  save('crew.csv', 'Name,Hours\nAda,9\nBo,6\n');
+  const review = reviews.summary(id, me.id);
+
+  // Assert
+  assert.deepEqual([afterBatch.state, afterBatch.files.length], ['empty', 0], 'a folder copied in is not an edit');
+  assert.equal(afterNewFile.files.length, 0, 'nor is a new file');
+  assert.deepEqual(review.files.map((file) => [file.path, file.change]), [['crew.csv', 'edited']]);
+  assert.deepEqual(review.people.map((person) => person.name), ['Dana Walker'], 'only the people who edited are named');
+  assert.equal(review.saves, 1);
+});
+
+test('A file edited after it arrived is compared with how it read before the edit, not with nothing', (t) => {
+  // Arrange
+  const { reviews, id, save } = folder(t);
+  save('notes.txt', 'First line.\nSecond line.\n');
+
+  // Act
+  save('notes.txt', 'First line.\nSecond line, reworded.\n');
+  const file = reviews.file(id, 'notes.txt', me.id);
+
+  // Assert
+  assert.equal(file.change, 'edited');
+  assert.deepEqual(file.lines.hunks[0].lines.map((line) => line.kind), ['same', 'remove', 'add']);
+});
+
+test('A change requested on a file no one edited puts it up for review, with its lines to comment on', (t) => {
+  // Arrange
+  const { reviews, id } = folder(t);
+  const line = 'const BASE_DELAY_MS = 30_000;';
+
+  // Act
+  const { threadId } = reviews.comment(id, { path: 'backoff.ts', anchor: { kind: 'line', line: 2, text: line },
+    body: 'Start at 10 seconds', suggestion: { before: line, after: 'const BASE_DELAY_MS = 10_000;' } }, dana);
+  const review = reviews.summary(id, me.id);
+  const file = reviews.file(id, 'backoff.ts', me.id);
+  reviews.resolve(threadId, true, me);
+  const settled = reviews.summary(id, me.id);
+
+  // Assert
+  assert.deepEqual([review.state, review.requests], ['open', 1]);
+  assert.deepEqual(review.files.map((item) => [item.path, item.change]), [['backoff.ts', 'unchanged']]);
+  assert.equal(file.change, 'unchanged');
+  assert.deepEqual(file.lines.hunks[0].lines.slice(0, 2).map((item) => [item.kind, item.after]), [['same', 1], ['same', 2]], 'its lines are there to comment on');
+  assert.deepEqual(file.threads[0].position, { line: 2 });
+  assert.deepEqual([settled.state, settled.files.length], ['empty', 0], 'a settled request leaves the review');
+});
+
 test('A comment is pinned to its line, follows it when lines move, and is pending until the folder is approved', (t) => {
   // Arrange
   const { reviews, id, save } = folder(t);

@@ -57,7 +57,7 @@ struct RanchReview: Decodable, Equatable {
         let previousPath: String?
         let fileId: String?
         let fileType: String?
-        /// added, edited, removed or renamed.
+        /// edited, or unchanged for a file only asked to change.
         let change: String
         /// lines, sheet, values or file.
         let kind: String
@@ -78,11 +78,15 @@ struct RanchReview: Decodable, Equatable {
     let saves: Int
     let people: [RanchReviewActor]
     let pendingComments: Int
+    /// Files listed because someone asked for a change and no one has edited them.
+    var requests: Int? = nil
     let approval: Approval?
     let files: [File]
     let moreFiles: Int
 
     var viewedCount: Int { files.filter(\.viewed).count }
+    /// Files someone edited, as against those only asked to change.
+    var editedCount: Int { max(0, files.count + moreFiles - (requests ?? 0)) }
 
     private struct Envelope: Decodable { let review: RanchReview }
     static func decode(_ data: Data) throws -> RanchReview {
@@ -283,18 +287,20 @@ enum RanchReviewWords {
         }
     }
 
-    /// The line under the folder's name: who changed how much, since when.
+    /// The line under the folder's name: who edited how much since when, and the changes asked for.
     static func headline(_ review: RanchReview, now: Date = Date()) -> String {
-        let files = review.files.count + review.moreFiles
-        let changed = files == 1 ? "1 file" : "\(files.formatted()) files"
+        let edited = review.editedCount
+        let requests = review.requests ?? 0
         let since: String
         if let approver = review.base.approvedBy {
             since = "since \(approver.isMe ? "you" : approver.shownName) approved \(day(review.base.at, now: now))"
         } else {
             since = "since Lasso first read it \(day(review.base.at, now: now))"
         }
-        if files == 0 { return "Nothing changed \(since)" }
-        return "\(names(review.people)) changed \(changed) \(since)"
+        let asked = requests == 1 ? "1 change requested" : "\(requests.formatted()) changes requested"
+        guard edited > 0 else { return requests > 0 ? asked : "Nothing edited \(since)" }
+        let lead = "\(names(review.people)) edited \(edited == 1 ? "1 file" : "\(edited.formatted()) files") \(since)"
+        return requests > 0 ? "\(lead) \u{00B7} \(asked)" : lead
     }
 
     /// "today", "yesterday", "Nov 12".
@@ -333,6 +339,7 @@ enum RanchReviewWords {
         case "removed": return "Removed"
         case "renamed": return "Renamed"
         case "moved": return "Moved"
+        case "unchanged": return "Change requested"
         default: return "Edited"
         }
     }
