@@ -396,7 +396,7 @@ struct RanchReviewThreadView: View {
     @ViewBuilder private var actions: some View {
         HStack(spacing: 6) {
             if let suggestion = thread.suggestion, thread.state == "open" || holdingApplied {
-                if file.writable {
+                if file.writable && thread.anchor.kind != "file" {
                     RanchReviewFilledButton(title: holdingApplied ? "Applied" : "Apply suggestion",
                                             systemImage: holdingApplied ? "checkmark" : nil, enabled: !applying,
                                             done: holdingApplied, action: apply)
