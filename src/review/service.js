@@ -12,9 +12,17 @@ import { HttpError } from '../history/errors.js';
 import { FolderReview, writable } from './folder-review.js';
 import { EDIT_INSTRUCTIONS, cellEdits, editRequest, lineEdits, parseAnswer, suggestedText } from './ai-edit.js';
 import { replaceLines, setDelimitedCell, setWorkbookCells } from './file-edits.js';
+import { setLegacyWorkbookCells } from './legacy-workbook.js';
 import { ReviewRecords } from './records.js';
 import { cellAddress, cellValue } from './sheet-diff.js';
 import { findLine, linesOf } from './text-diff.js';
+
+/** A CSV, .xlsx or .xls with cells set: edits are { sheet, row, column, value }. */
+function writeCells(file, bytes, edits) {
+  if (file.fileType === 'table') return Buffer.from(edits.reduce((text, edit) => setDelimitedCell(text, edit, file.path), bytes.toString('utf8')), 'utf8');
+  if (/\.xls$/i.test(file.path)) return setLegacyWorkbookCells(bytes, edits);
+  return setWorkbookCells(bytes, edits);
+}
 
 /** The AI writer as history names it. */
 export const CHATGPT = Object.freeze({ id: 'agent:chatgpt', displayName: 'ChatGPT', actorType: 'AI_AGENT' });
@@ -87,11 +95,10 @@ export class ReviewService {
     return this.timeline.capture(projectId, actor, { expectedSnapshotId: project.currentSnapshotId, source: 'DOCUMENT_CHANGE' });
   }
 
-  /** The file with `after` written at a thread's place: a line, a CSV cell, or an .xlsx cell. */
+  /** The file with `after` written at a thread's place: a line, or a cell of a CSV, .xlsx or .xls. */
   edited(file, bytes, position, after) {
     if (position.line) return Buffer.from(replaceLines(bytes.toString('utf8'), [{ from: position.line, to: position.line, lines: after.split('\n') }]), 'utf8');
-    if (file.fileType === 'table') return Buffer.from(setDelimitedCell(bytes.toString('utf8'), { ...position, value: after }, file.path), 'utf8');
-    return setWorkbookCells(bytes, [{ ...position, value: after }]);
+    return writeCells(file, bytes, [{ ...position, value: after }]);
   }
 
   /** Applies a thread's suggested change to the file, as the person's own edit. */
@@ -106,6 +113,9 @@ export class ReviewService {
     const file = this.timeline.snapshotFile(project.currentSnapshotId, thread.path);
     if (!writable(file)) {
       throw new HttpError(409, 'Lasso can’t write this kind of file. Make the change in its own app; once it is saved, the suggestion shows as applied.');
+    }
+    if (shown.anchor?.kind === 'file') {
+      throw new HttpError(409, 'This suggestion is about the whole file, not one line or cell, so Lasso can\u2019t apply it. Reply starting with \\ to have ChatGPT make it.');
     }
     if (!shown.position) throw new HttpError(409, 'The place this was suggested for has changed since. Look at it again before applying.');
     const bytes = this.timeline.blobs.get(file.contentHash);
@@ -148,22 +158,26 @@ export class ReviewService {
     let suggestion;
     let summary;
     let changed = null;
+    let pinned = place;
     if (request.format === 'lines') {
       const result = lineEdits(answer, request.context.lines);
       const [first] = [...result.edits].sort((left, right) => left.from - right.from);
       suggestion = { before: request.context.lines.slice(first.from - 1, first.to).join('\n'), after: first.lines.join('\n') };
       summary = result.summary;
       changed = Buffer.from(replaceLines(bytes.toString('utf8'), result.edits), 'utf8');
+      // A prompt about the whole file is pinned to the first line it changed.
+      if (!thread && place.kind === 'file' && first.lines.length) pinned = { kind: 'line', line: first.from, text: first.lines[0] };
     } else if (request.format === 'cells') {
       const result = cellEdits(answer, request.context);
       const [first] = result.edits;
       const before = cellValue(bytes, file.fileType, file.path, { sheet: first.sheet ?? request.context.grid.name, row: first.row, column: first.column });
       suggestion = { before, after: first.value, cell: cellAddress(first.sheet, first.row, first.column, request.context.csv) };
       summary = result.summary;
-      changed = file.fileType === 'table'
-        ? result.edits.reduce((text, edit) => setDelimitedCell(text, edit, file.path), bytes.toString('utf8'))
-        : setWorkbookCells(bytes, result.edits);
-      if (typeof changed === 'string') changed = Buffer.from(changed, 'utf8');
+      changed = writeCells(file, bytes, result.edits);
+      // A prompt about the whole file is pinned to the first cell it changed.
+      if (!thread && place.kind === 'file') {
+        pinned = { kind: 'cell', sheet: request.context.csv ? target : first.sheet, row: first.row, column: first.column, value: first.value };
+      }
     } else {
       const result = suggestedText(answer);
       suggestion = { before: place.value ?? null, after: result.text };
@@ -178,7 +192,7 @@ export class ReviewService {
       this.timeline.approveAgentEdit(execution.id);
       executionId = execution.id;
     }
-    const id = thread?.id ?? this.records.startThread(projectId, { path: target, anchor: place, snapshotId: project.currentSnapshotId,
+    const id = thread?.id ?? this.records.startThread(projectId, { path: target, anchor: pinned, snapshotId: project.currentSnapshotId,
       body: asked, prompt: asked }, actor);
     if (thread) this.records.addComment(id, { body: asked, prompt: asked }, actor);
     this.records.addComment(id, { body: summary, suggestion: { before: suggestion.before, after: suggestion.after },

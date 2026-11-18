@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { extractSpreadsheetTables } from '../src/dependencies/document-extraction.js';
 import { readZip, zipBytes } from '../src/dependencies/zip-archive.js';
 import { createApplication } from '../src/server.js';
+import { biffFormula, biffLabelSst, sampleLegacyXls } from './fixtures/legacy-xls.js';
 import { textPdf } from './fixtures/pdf.js';
 import { storedZip } from './fixtures/workbook.js';
 
@@ -254,10 +255,10 @@ test('A suggestion reads as applied once a save makes the file read as it sugges
   // Arrange
   const { reviews, id, save } = folder(t);
   save('crew.csv', 'Name,Hours\nAda,9\nBo,6\n');
-  save('statement.xls', Buffer.from('not really a workbook'));
+  save('site.pdf', textPdf('Soil was dry at the east trench.'));
   const bo = reviews.comment(id, { path: 'crew.csv', anchor: { kind: 'cell', sheet: 'crew.csv', row: 3, column: 1, value: '6' },
     body: 'Bo did 7', suggestion: { before: '6', after: '7' } }, me).threadId;
-  const legacy = reviews.comment(id, { path: 'statement.xls', anchor: { kind: 'file' }, body: 'Update the template',
+  const legacy = reviews.comment(id, { path: 'site.pdf', anchor: { kind: 'file' }, body: 'Say it was damp',
     suggestion: { before: null, after: 'x' } }, dana).threadId;
 
   // Act
@@ -311,6 +312,10 @@ test('A backslash prompt on a workbook cell has ChatGPT set the cell, and never 
   const answered = file.threads[0].comments.at(-1);
   assert.deepEqual([answered.author.name, answered.suggestion], ['ChatGPT', { before: '5000', after: '5500' }]);
   await assert.rejects(refused, /B2, which holds a formula/);
+  fs.writeFileSync(replyFile, JSON.stringify({ summary: 'Raised Product 1.', cells: [{ cell: 'B2', value: '1' }, { cell: 'B3', value: '5600' }] }));
+  await reviews.ask(id, { path: 'statement.xlsx', anchor, prompt: '\\ raise it and the total' }, me);
+  assert.deepEqual(extractSpreadsheetTables(read('statement.xlsx'))[0].rows.slice(1, 3).map((row) => row[1]), ['11200', '5600'],
+    'a formula cell named alongside is left as it is, for Excel to work out again');
 });
 
 test('A PDF\'s changes are its passages, and a backslash prompt there leaves ChatGPT\'s wording as a suggestion', async (t) => {
@@ -335,6 +340,24 @@ test('A PDF\'s changes are its passages, and a backslash prompt there leaves Cha
   assert.deepEqual([thread.state, thread.comments.at(-1).suggestion.after], ['open', 'Soil was damp after two days of rain.'],
     'the suggestion waits to be made in the file\'s own app');
   assert.deepEqual(read('site.pdf'), bytes, 'the PDF is untouched');
+});
+
+test('A backslash prompt about a whole .xls has ChatGPT change the number, recorded as its edit and pinned to the cell', async (t) => {
+  // Arrange: the prompt is about the file, and the row it needs is not near the top.
+  const { app, reviews, id, save, read } = folder(t, { reply: { summary: 'Set Payroll Taxes for the current period to 250.',
+    cells: [{ cell: 'Accounting!B2', value: '250' }] } });
+  save('statement.xls', sampleLegacyXls(0, 1, [biffLabelSst(2, 0, 4), biffFormula(2, 1, 440)]));
+
+  // Act
+  const { threadId, file } = await reviews.ask(id, { path: 'statement.xls', anchor: { kind: 'file' },
+    prompt: '\\ make payroll taxes 250 this period' }, me);
+
+  // Assert
+  assert.deepEqual(extractSpreadsheetTables(read('statement.xls'))[0].rows[1], ['Payroll Taxes and Benefits-Direct', '250', '215']);
+  const thread = file.threads.find((item) => item.id === threadId);
+  assert.deepEqual([thread.state, thread.place, thread.comments.at(-1).suggestion], ['applied', 'Accounting!B2', { before: '225', after: '250' }]);
+  const [newest] = app.ranch.overview().history;
+  assert.deepEqual([newest.path, newest.source, newest.actor.name], ['statement.xls', 'AGENT_EDIT', 'ChatGPT']);
 });
 
 test('A workbook written again with no cell changed is not in the review, and a file looked at is looked at again after its next save', (t) => {

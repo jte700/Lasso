@@ -1314,5 +1314,5 @@ export function extractTaggedReferences(text) {
 export const documentExtractionInternals = {
   zipEntry, pdfLiteralAt, pdfProperty, cleanText, pdfTextFromStreams, pdfUnicodeMap, decodePdfHexText,
   pdfObjects, structuredPdfText, spreadsheetColumnIndex, spreadsheetStrings, spreadsheetRows,
-  compoundWorkbookStream, biffRecords, biffSharedStrings, extractBiffWorkbookStream, extractBiffSpreadsheetTables,
+  compoundWorkbookStream, biffRecords, biffSharedStrings, biffShortString, extractBiffWorkbookStream, extractBiffSpreadsheetTables,
 };

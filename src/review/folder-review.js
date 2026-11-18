@@ -35,10 +35,10 @@ export function viewKind(fileType) {
 
 const CODE_TYPES = new Set(['json', 'yaml', 'notebook']);
 const isCode = (fileType) => isCodeType(fileType) || CODE_TYPES.has(fileType);
-/** Kinds Lasso writes itself when a suggestion is applied or an AI is asked: text, code, CSV and .xlsx cells. */
+/** Kinds Lasso writes itself when a suggestion is applied or an AI is asked: text, code, CSV, .xlsx cells and .xls numbers. */
 export function writable(file) {
   if (!file) return false;
-  if (file.fileType === 'spreadsheet') return /\.xlsx$/i.test(file.path);
+  if (file.fileType === 'spreadsheet') return /\.xlsx?$/i.test(file.path);
   return viewKind(file.fileType) === 'lines' || file.fileType === 'table';
 }
 
