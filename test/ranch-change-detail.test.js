@@ -73,6 +73,26 @@ test('An edited text file shows who saved it, the versions and the changed lines
   assert.equal(removed.before, 4, 'lines carry their numbers in the version they come from');
 });
 
+test('A text file\'s row counts the lines its save changed, and Markdown its paragraphs', (t) => {
+  // Arrange
+  const { app, root, capture, entry } = folder(t);
+  fs.writeFileSync(path.join(root, 'todo.txt'), 'Order rebar\nCall the surveyor\n');
+  capture();
+  fs.writeFileSync(path.join(root, 'todo.txt'), 'Order rebar\nCall the surveyor\nBook the crane\n');
+  fs.writeFileSync(path.join(root, 'notes.md'), NOTES.replace('Soil was dry.', 'Soil was damp.'));
+  capture();
+
+  // Act
+  const text = entry('todo.txt');
+  const markdown = entry('notes.md');
+
+  // Assert
+  assert.deepEqual(text.textChanges, { added: 1, removed: 0, unit: 'line' });
+  assert.deepEqual(markdown.textChanges, { added: 1, removed: 1, unit: 'paragraph' },
+    'Markdown history is kept a paragraph at a time');
+  assert.equal(app.ranch.overview().history.find((item) => item.path === 'budget.xlsx')?.textChanges, undefined);
+});
+
 test('An edited workbook lists the value it changed, where it sits and what it was', (t) => {
   // Arrange
   const { app, root, capture, entry } = folder(t);

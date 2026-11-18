@@ -44,6 +44,10 @@ export class RanchService {
     this.db = timeline.db;
     this.now = now;
     this.cache = null;
+    // Part of every tag, so a cache filled by an earlier server, perhaps an
+    // earlier build that left out fields this one sends, is never told it
+    // still holds the library.
+    this.started = crypto.randomUUID();
     // What a text file links to and names never changes for the same bytes.
     this.texts = new BoundedCache({ maxEntries: 50_000 });
     // Creation dates per directory version; reading them stats every file.
@@ -89,7 +93,8 @@ export class RanchService {
       (SELECT COUNT(*) FROM claim_dependency_versions) AS links,
       (SELECT COUNT(*) || ':' || COALESCE(MAX(detected_at), '') FROM index_failures WHERE resolved_at IS NULL) AS failures
     `).get();
-    return [this.workspace.revision(), ...Object.values(signature), Math.floor(this.now() / REFRESH_BUCKET_MS)].join('#');
+    return [this.started, this.workspace.revision(), ...Object.values(signature),
+      Math.floor(this.now() / REFRESH_BUCKET_MS)].join('#');
   }
 
   build() {

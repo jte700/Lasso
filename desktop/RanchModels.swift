@@ -103,18 +103,30 @@ struct RanchHistoryEntry: Decodable, Identifiable, Equatable {
     var source: String? = nil
     /// Who history says made it.
     var actor: RanchActor? = nil
+    /// The lines (or Markdown paragraphs) an edit to a text file added and removed.
+    var textChanges: RanchTextChanges? = nil
 
     /// The caption of an edit that changed values: "Q3 Total 18,400 → 19,250"
     /// for one, "4 values changed · Finance" for several; nil otherwise.
     func valueCaption(directory: String) -> String? {
         guard change == "edited", let changes = valueChanges, changes.count > 0 else { return nil }
+        // A short value is quoted; a passage, which a row has no room for, is counted.
+        let quotable = { (value: String) in value.count <= 40 && !value.contains(where: \.isNewline) }
         if changes.count == 1, let first = changes.first, let before = first.beforeDisplay ?? first.before,
-           let after = first.afterDisplay ?? first.after {
+           let after = first.afterDisplay ?? first.after, quotable(before), quotable(after) {
             let label = first.label.map { "\($0) " } ?? ""
             return "\(label)\(before) \u{2192} \(after)"
         }
-        return "\(changes.count) values changed \u{00B7} \(directory)"
+        return "\(changes.count == 1 ? "1 value" : "\(changes.count.formatted()) values") changed \u{00B7} \(directory)"
     }
+}
+
+/// How many lines (or Markdown paragraphs) an edit to a text file added and removed.
+struct RanchTextChanges: Decodable, Equatable {
+    let added: Int
+    let removed: Int
+    /// line, or paragraph for Markdown.
+    let unit: String
 }
 
 /// How many values one edit changed, and the first of them.

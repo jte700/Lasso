@@ -66,6 +66,21 @@ function valueChangesBySnapshot(db, snapshotIds, shown) {
   return bySnapshot;
 }
 
+// Markdown is compared a block at a time, which a reader calls a paragraph.
+const TEXT_UNITS = { text: 'line', code: 'line', markdown: 'paragraph' };
+
+/**
+ * How many lines (or Markdown paragraphs) an edit to a text file added and
+ * removed, from the comparison recorded with it, so its row can say so
+ * rather than quote a passage.
+ */
+function textChangesOf(row) {
+  const unit = TEXT_UNITS[row.diff_format];
+  if (!unit || !Number.isInteger(row.diff_added) || !Number.isInteger(row.diff_removed)) return {};
+  if (row.diff_added === 0 && row.diff_removed === 0) return {};
+  return { textChanges: { added: row.diff_added, removed: row.diff_removed, unit } };
+}
+
 /** A file change's value changes, when its save changed any values the index reads. */
 function valueChangesOf(values, snapshotId, row) {
   if (row.change_type !== 'MODIFIED') return {};
@@ -99,7 +114,10 @@ export function recentHistory(db, projectIds, now, { shown = null } = {}) {
   const values = valueChangesBySnapshot(db, listed.map((event) => event.resulting_snapshot_id).filter(Boolean), shown);
   for (let start = 0; start < listed.length; start += ID_BATCH) {
     const ids = listed.slice(start, start + ID_BATCH).map((event) => event.id);
-    for (const row of db.prepare(`SELECT id, event_id, change_type, path_before, path_after, project_file_id
+    for (const row of db.prepare(`SELECT id, event_id, change_type, path_before, path_after, project_file_id,
+        json_extract(structured_diff_json, '$.format') AS diff_format,
+        json_extract(structured_diff_json, '$.added') AS diff_added,
+        json_extract(structured_diff_json, '$.removed') AS diff_removed
       FROM file_changes WHERE event_id IN (${ids.map(() => '?').join(',')}) ORDER BY rowid`).all(...ids)) {
       if (!changes.has(row.event_id)) changes.set(row.event_id, []);
       changes.get(row.event_id).push(row);
@@ -123,6 +141,7 @@ export function recentHistory(db, projectIds, now, { shown = null } = {}) {
       previousPath: row.path_after && row.path_before && row.path_before !== row.path_after ? row.path_before : null,
       fileId: row.project_file_id,
       ...valueChangesOf(values, event.resulting_snapshot_id, row),
+      ...textChangesOf(row),
     }));
   });
   return { entries: entries.slice(0, MAX_HISTORY_ENTRIES),

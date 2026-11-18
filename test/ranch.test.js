@@ -12,7 +12,7 @@ import { edgeCollector, mentionTargets } from '../src/ranch/network.js';
 import { linkReviewItems, readingReviewItems } from '../src/ranch/review.js';
 import { shownCell, spreadsheetView } from '../src/ranch/sheets.js';
 import { workbook } from './fixtures/workbook.js';
-import { VISIT_SESSION_MS } from '../src/ranch/service.js';
+import { RanchService, VISIT_SESSION_MS } from '../src/ranch/service.js';
 import { bracketPart } from './fixtures/step-models.js';
 
 const actor = { id: 'human:ranch', displayName: 'Ranch test', actorType: 'HUMAN_SELF' };
@@ -228,6 +228,20 @@ test('a capture that changed many files is one history row, so two weeks still f
     ['directory-added', null, 2],
   ]);
   assert.equal(app.ranch.overview().historyTruncated, false);
+});
+
+test('a restarted server never answers an earlier server\'s tag as unchanged', async (t) => {
+  // Arrange: a later build reads the same library and may describe it with fields an earlier one lacked.
+  const { app } = await library(t);
+  const before = app.ranch.current().tag;
+
+  // Act
+  const restarted = new RanchService({ timeline: app.timeline, dependencies: app.dependencies, terminal: app.terminal,
+    workspace: app.workspace, objectShares: app.objectShares });
+
+  // Assert
+  assert.equal(app.ranch.current().tag, before, 'the same server keeps its tag while nothing changes');
+  assert.notEqual(restarted.current().tag, before);
 });
 
 test('visits count once per half hour and brighten the file', async (t) => {
