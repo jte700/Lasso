@@ -1,6 +1,8 @@
 // The Ranch's Recent Changes: what changed in each directory over the last two
 // weeks, newest first, read from the recorded history rather than the disk.
 
+import { shownCell } from './sheets.js';
+
 export const HISTORY_DAYS = 14;
 /** Enough for two busy weeks; older entries are still in each file's history. */
 export const MAX_HISTORY_ENTRIES = 500;
@@ -35,10 +37,16 @@ const VALUE_CHANGES = (count) => `
  */
 function captionedChange(row, shown) {
   const first = { label: row.label, before: row.before_value, after: row.after_value };
-  if (!shown) return first;
   const anchor = JSON.parse(row.anchor_json ?? 'null');
-  const beforeDisplay = shown(row.project_id, row.path, anchor, row.before_value);
-  const afterDisplay = shown(row.project_id, row.path, anchor, row.after_value);
+  // As the worksheet formats it, else without a binary workbook's floating-point residue.
+  const display = (value) => {
+    const formatted = shown?.(row.project_id, row.path, anchor, value);
+    if (formatted || value == null) return formatted ?? null;
+    const tidied = shownCell(null, value);
+    return tidied !== value ? tidied : null;
+  };
+  const beforeDisplay = display(row.before_value);
+  const afterDisplay = display(row.after_value);
   return { ...first, ...(beforeDisplay ? { beforeDisplay } : {}), ...(afterDisplay ? { afterDisplay } : {}) };
 }
 
