@@ -1,6 +1,7 @@
 // The Ranch's Recent Changes: what changed in each directory over the last two
 // weeks, newest first, read from the recorded history rather than the disk.
 
+import { detectFileType } from '../history/file-types.js';
 import { shownCell } from './sheets.js';
 
 export const HISTORY_DAYS = 14;
@@ -18,8 +19,19 @@ const ID_BATCH = 400;
 
 const VERBS = { ADDED: 'added', DELETED: 'removed', RENAMED: 'renamed', MOVED: 'moved', MODIFIED: 'edited' };
 
+/**
+ * Whether the cell an object change `c` left as version `a` holds a formula:
+ * as that reading says, or as a later reading of the same file bytes says. A
+ * reader that learns to mark formulas reads a folder again with the same bytes,
+ * so a save recorded before it still reads as typed and recalculated cells.
+ */
+export const FORMULA_CELL = `COALESCE(json_extract(a.metadata_json, '$.formula'),
+    EXISTS (SELECT 1 FROM scientific_object_versions n WHERE n.object_id = c.object_id
+      AND n.content_hash = a.content_hash AND json_extract(n.metadata_json, '$.formula') = 1), 0)`;
+
 const VALUE_CHANGES = (count) => `
-  SELECT c.snapshot_id, s.project_id, a.path, a.label, a.anchor_json, b.value_text AS before_value, a.value_text AS after_value
+  SELECT c.snapshot_id, s.project_id, a.path, a.label, a.anchor_json, b.value_text AS before_value, a.value_text AS after_value,
+    ${FORMULA_CELL} AS formula
   FROM object_changes c
   JOIN snapshots s ON s.id = c.snapshot_id
   JOIN scientific_object_versions a ON a.id = c.after_version_id
@@ -50,7 +62,11 @@ function captionedChange(row, shown) {
   return { ...first, ...(beforeDisplay ? { beforeDisplay } : {}), ...(afterDisplay ? { afterDisplay } : {}) };
 }
 
-/** The values each snapshot changed, by snapshot and then path: { count, first }. */
+/**
+ * The values each snapshot changed, by snapshot and then path: { count, first,
+ * recalculated }. `recalculated` counts the formula cells among them, which
+ * changed because their inputs did; `first` is a typed value when there is one.
+ */
 function valueChangesBySnapshot(db, snapshotIds, shown) {
   const bySnapshot = new Map();
   for (let start = 0; start < snapshotIds.length; start += ID_BATCH) {
@@ -58,12 +74,57 @@ function valueChangesBySnapshot(db, snapshotIds, shown) {
     for (const row of db.prepare(VALUE_CHANGES(ids.length)).all(...ids)) {
       if (!bySnapshot.has(row.snapshot_id)) bySnapshot.set(row.snapshot_id, new Map());
       const byPath = bySnapshot.get(row.snapshot_id);
-      const known = byPath.get(row.path);
-      if (known) known.count += 1;
-      else byPath.set(row.path, { count: 1, first: captionedChange(row, shown) });
+      const formula = Boolean(row.formula);
+      const known = byPath.get(row.path) ?? { count: 0, recalculated: 0, first: null, firstFormula: true };
+      byPath.set(row.path, known);
+      known.count += 1;
+      if (formula) known.recalculated += 1;
+      if (!known.first || (known.firstFormula && !formula)) {
+        known.first = captionedChange(row, shown);
+        known.firstFormula = formula;
+      }
+    }
+  }
+  for (const byPath of bySnapshot.values()) {
+    for (const [filePath, { count, recalculated, first }] of byPath) {
+      byPath.set(filePath, { count, first, ...(recalculated ? { recalculated } : {}) });
     }
   }
   return bySnapshot;
+}
+
+// Lasso reads every cell of these. Excel writes a workbook again when it opens
+// one, and a save can change only formatting; neither changes a cell.
+const CELL_READ_TYPES = new Set(['spreadsheet', 'table']);
+
+/**
+ * The workbooks (by snapshot and path, "snapshot\0path") a capture read again
+ * and found no cell of changed: every object it recorded for them is the same
+ * label and value under a new version. A workbook with nothing recorded is not
+ * among them, since Lasso cannot say it was read.
+ */
+function unchangedWorkbooks(db, rows) {
+  const saved = rows.filter((row) => row.change_type === 'MODIFIED' && row.snapshot_id
+    && CELL_READ_TYPES.has(detectFileType(row.path_after ?? row.path_before ?? '')));
+  const key = (snapshotId, filePath) => `${snapshotId}\u0000${filePath}`;
+  const asked = new Set(saved.map((row) => key(row.snapshot_id, row.path_after ?? row.path_before)));
+  const snapshotIds = [...new Set(saved.map((row) => row.snapshot_id))];
+  const unchanged = new Set();
+  for (let start = 0; start < snapshotIds.length; start += ID_BATCH) {
+    const ids = snapshotIds.slice(start, start + ID_BATCH);
+    for (const row of db.prepare(`
+      SELECT c.snapshot_id, COALESCE(a.path, b.path) AS path,
+        MAX(CASE WHEN c.kind = 'modified' AND a.value_text IS b.value_text AND a.label IS b.label THEN 0 ELSE 1 END) AS changed
+      FROM object_changes c
+      LEFT JOIN scientific_object_versions a ON a.id = c.after_version_id
+      LEFT JOIN scientific_object_versions b ON b.id = c.before_version_id
+      WHERE c.snapshot_id IN (${ids.map(() => '?').join(',')})
+      GROUP BY c.snapshot_id, COALESCE(a.path, b.path)`).all(...ids)) {
+      const found = key(row.snapshot_id, row.path);
+      if (!row.changed && asked.has(found)) unchanged.add(found);
+    }
+  }
+  return unchanged;
 }
 
 // Markdown is compared a block at a time, which a reader calls a paragraph.
@@ -110,6 +171,7 @@ export function recentHistory(db, projectIds, now, { shown = null } = {}) {
     LIMIT ?
   `).all(...projectIds, since, MAX_HISTORY_ENTRIES + 1);
   const listed = events.filter((event) => event.source !== 'IMPORT' && event.file_count <= MAX_FILES_PER_EVENT);
+  const snapshotOf = new Map(listed.map((event) => [event.id, event.resulting_snapshot_id]));
   const changes = new Map();
   const values = valueChangesBySnapshot(db, listed.map((event) => event.resulting_snapshot_id).filter(Boolean), shown);
   for (let start = 0; start < listed.length; start += ID_BATCH) {
@@ -120,9 +182,13 @@ export function recentHistory(db, projectIds, now, { shown = null } = {}) {
         json_extract(structured_diff_json, '$.removed') AS diff_removed
       FROM file_changes WHERE event_id IN (${ids.map(() => '?').join(',')}) ORDER BY rowid`).all(...ids)) {
       if (!changes.has(row.event_id)) changes.set(row.event_id, []);
-      changes.get(row.event_id).push(row);
+      changes.get(row.event_id).push({ ...row, snapshot_id: snapshotOf.get(row.event_id) });
     }
   }
+  // Recent Changes lists what a save changed; a workbook written with no cell changed is left out.
+  const unchanged = unchangedWorkbooks(db, [...changes.values()].flat());
+  const changedSomething = (row) => !(row.change_type === 'MODIFIED'
+    && unchanged.has(`${row.snapshot_id}\u0000${row.path_after ?? row.path_before}`));
   const entries = events.slice(0, MAX_HISTORY_ENTRIES).flatMap((event) => {
     // Who history says made the change and how Lasso came to record it
     // (WATCHER for a save it saw, AGENT_EDIT, IMPORT for a first reading).
@@ -135,7 +201,7 @@ export function recentHistory(db, projectIds, now, { shown = null } = {}) {
     if (event.file_count > MAX_FILES_PER_EVENT) {
       return [{ ...base, id: event.id, change: 'many', path: null, previousPath: null, fileCount: event.file_count }];
     }
-    return (changes.get(event.id) ?? []).map((row) => ({
+    return (changes.get(event.id) ?? []).filter(changedSomething).map((row) => ({
       ...base, id: row.id, change: VERBS[row.change_type] ?? 'edited',
       path: row.path_after ?? row.path_before,
       previousPath: row.path_after && row.path_before && row.path_before !== row.path_after ? row.path_before : null,

@@ -1012,7 +1012,15 @@ function extractBiffWorkbookStream(stream) {
     const end = sheets[sheetIndex + 1]?.offset ?? stream.length;
     const rows = new Map();
     const merges = [];
+    // Which cells hold a formula, by sheet row, as a newer workbook's reading
+    // records them, so a value that changed with its inputs reads as recalculated.
+    const formulas = new Map();
     for (const record of biffRecords(stream, sheet.offset, end)) {
+      if (record.id === 0x0006 && record.data.length >= 4) {
+        const rowNumber = record.data.readUInt16LE(0) + 1;
+        if (!formulas.has(rowNumber)) formulas.set(rowNumber, new Set());
+        formulas.get(rowNumber).add(record.data.readUInt16LE(2));
+      }
       if (record.id === 0x00e5 && record.data.length >= 2) {
         for (let i = 0; i < record.data.readUInt16LE(0) && 2 + (i + 1) * 8 <= record.data.length; i++) {
           const offset = 2 + i * 8;
@@ -1038,7 +1046,10 @@ function extractBiffWorkbookStream(stream) {
       rows.get(rowIndex)[columnIndex] = String(value);
     }
     const values = [...rows.entries()].sort((left, right) => left[0] - right[0]).map((entry) => entry[1]);
-    if (values.length) output.push({ name: sheet.name, rows: values, rowNumbers: [...rows.keys()].sort((a,b)=>a-b).map(row=>row+1), merges });
+    if (!values.length) continue;
+    // Presentation only, as a newer workbook's sheet has it: kept out of the sheet's data and JSON.
+    output.push(Object.defineProperty({ name: sheet.name, rows: values, rowNumbers: [...rows.keys()].sort((a,b)=>a-b).map(row=>row+1), merges },
+      'formulas', { value: formulas }));
   }
   return output;
 }

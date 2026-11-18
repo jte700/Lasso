@@ -28,7 +28,7 @@ function folder(t) {
 
 test('Every kind of file has exactly one reader', () => {
   // Arrange
-  const files = [['a.csv', 'table'], ['a.xlsx', 'spreadsheet'], ['a.pdf', 'pdf'], ['a.docx', 'document'],
+  const files = [['a.csv', 'table'], ['a.xlsx', 'spreadsheet'], ['a.xls', 'spreadsheet'], ['a.pdf', 'pdf'], ['a.docx', 'document'],
     ['a.pptx', 'presentation'], ['a.md', 'markdown'], ['a.txt', 'text'], ['a.py', 'code'], ['a.ipynb', 'notebook'],
     ['a.png', 'image'], ['a.json', 'json'], ['a.mp4', 'video'], ['a.dxf', 'drawing']];
 
@@ -36,7 +36,7 @@ test('Every kind of file has exactly one reader', () => {
   const readers = files.map(([name, fileType]) => readerFor({ path: name, fileType }).id);
 
   // Assert
-  assert.deepEqual(readers, ['table', 'table', 'pdf', 'document', 'presentation', 'text', 'text', 'code', 'notebook',
+  assert.deepEqual(readers, ['table', 'table', 'legacy-workbook', 'pdf', 'document', 'presentation', 'text', 'text', 'code', 'notebook',
     'image', 'json', 'video', 'design']);
   assert.equal(new Set(READERS.map((reader) => reader.id)).size, READERS.length);
   assert.ok(READERS.every((reader) => Number.isInteger(reader.version) && reader.version > 0));

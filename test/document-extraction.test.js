@@ -107,12 +107,22 @@ function biffNumber(row, column, value) {
   return biffRecord(0x0203, data);
 }
 
-function sampleLegacyXls(headerRow = 0, dataRow = 1) {
-  const strings = ['Account', 'Current Period', 'Prior Period', 'Payroll Taxes and Benefits-Direct'];
+/** A formula cell as Excel 97-2003 stores it: the formula's last result, then its (here empty) expression. */
+function biffFormula(row, column, value) {
+  const data = Buffer.alloc(22);
+  data.writeUInt16LE(row, 0);
+  data.writeUInt16LE(column, 2);
+  data.writeDoubleLE(value, 6);
+  return biffRecord(0x0006, data);
+}
+
+function sampleLegacyXls(headerRow = 0, dataRow = 1, moreCells = []) {
+  const strings = ['Account', 'Current Period', 'Prior Period', 'Payroll Taxes and Benefits-Direct', 'Total Expenses'];
   const sheet = Buffer.concat([
     biffBof(0x0010),
     biffLabelSst(headerRow, 0, 0), biffLabelSst(headerRow, 1, 1), biffLabelSst(headerRow, 2, 2),
     biffLabelSst(dataRow, 0, 3), biffNumber(dataRow, 1, 225), biffNumber(dataRow, 2, 215),
+    ...moreCells,
     biffRecord(0x000a),
   ]);
   const sheetName = Buffer.from('Accounting', 'latin1');
@@ -344,6 +354,31 @@ test('legacy spreadsheet row names autocomplete in ordinary document prose', asy
     await application.close();
     fs.rmSync(sandbox, { recursive: true, force: true });
   }
+});
+
+test('A legacy workbook\'s formula cells say so, as a newer workbook\'s do', async (t) => {
+  // Arrange: row 3 totals the expenses with a formula this period and was typed in the last.
+  const workbook = sampleLegacyXls(0, 1, [biffLabelSst(2, 0, 4), biffFormula(2, 1, 450), biffNumber(2, 2, 430)]);
+  const sandbox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-legacy-xls-formulas-')));
+  const root = path.join(sandbox, 'Accounting');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'Income-Statement-Template.xls'), workbook);
+  const application = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
+  t.after(async () => { await application.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+
+  // Act
+  const [sheet] = extractSpreadsheetTables(workbook);
+  const project = application.timeline.importProject(root, researcher, { watch: false }).project;
+  application.dependencies.ensureIndex(project.id);
+  const cell = (label) => application.dependencies.objectsAt(project.id).find((object) => object.label === label);
+
+  // Assert
+  assert.deepEqual(sheet.rows[2], ['Total Expenses', '450', '430'], 'a formula reads as its last result');
+  assert.deepEqual([...(sheet.formulas.get(3) ?? [])], [1], 'by sheet row number, the columns holding a formula');
+  assert.equal(sheet.formulas.has(2), false);
+  assert.equal(cell('Total Expenses · Current Period')?.metadata.formula, true);
+  assert.equal(cell('Total Expenses · Prior Period')?.metadata.formula, undefined);
+  assert.equal(cell('Payroll Taxes and Benefits-Direct · Current Period')?.metadata.formula, undefined);
 });
 
 test('opaque project papers autocomplete from internal metadata with tolerant author matching', async () => {

@@ -90,6 +90,10 @@ struct RanchChangeDetail: Decodable, Equatable {
         let after: String?
         var beforeDisplay: String? = nil
         var afterDisplay: String? = nil
+        /// A formula cell whose value changed because its inputs did.
+        var recalculated: Bool? = nil
+
+        var isRecalculated: Bool { recalculated == true }
 
         /// As the file shows them ("18,400"), else as stored.
         var shownBefore: String? { beforeDisplay ?? before }
@@ -126,6 +130,8 @@ struct RanchChangeDetail: Decodable, Equatable {
     let values: [Value]
     let valueCount: Int
     let movedCount: Int
+    /// How many of `valueCount` are recalculated formula cells, listed after the values typed into.
+    var recalculatedCount: Int? = nil
     /// Retention released this version's bytes, so its lines can't be shown.
     let bytesReleased: Bool
 
@@ -235,6 +241,24 @@ enum RanchChangeWords {
         case (0, let removed): return count(removed, "removed")
         case (let added, let removed): return "\(count(added, "added")), \(removed.formatted()) removed"
         }
+    }
+
+    /// What a file's changed values add up to, counting the values typed into
+    /// apart from the formula cells that followed them: "1 value changed ·
+    /// 9 recalculated", "4 values added", "3 values recalculated".
+    static func valueSummary(_ detail: RanchChangeDetail) -> String {
+        let recalculated = min(detail.recalculatedCount ?? 0, detail.valueCount)
+        let typed = detail.valueCount - recalculated
+        let count = { (number: Int, word: String) in number == 1 ? "1 value \(word)" : "\(number.formatted()) values \(word)" }
+        if typed == 0 { return count(recalculated, "recalculated") }
+        let listed = detail.values.filter { !$0.isRecalculated }
+        let word = listed.allSatisfy { $0.kind == "added" } ? "added" : listed.allSatisfy { $0.kind == "removed" } ? "removed" : "changed"
+        return recalculated > 0 ? "\(count(typed, word)) \u{00B7} \(recalculated.formatted()) recalculated" : count(typed, word)
+    }
+
+    /// The fold under the values typed into that holds the formula cells they recalculated.
+    static func recalculatedFold(_ count: Int, typed: Int) -> String {
+        "\(count == 1 ? "1 formula cell" : "\(count.formatted()) formula cells") recalculated from \(typed == 1 ? "it" : "them")"
     }
 
     /// What to say when the detail lists nothing that changed inside the file.
