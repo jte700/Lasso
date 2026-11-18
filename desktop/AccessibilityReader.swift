@@ -18,6 +18,8 @@ enum AccessibilityReader {
         // fallback because some apps answer only one of the two.
         if let front = NSWorkspace.shared.frontmostApplication {
             let pid = front.processIdentifier
+            // Lasso's own windows are never read: see `AccessibilityWork.mayRead`.
+            guard AccessibilityWork.mayRead(pid: pid) else { return nil }
             let application = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(application, 0.4)
             // Electron and Chromium publish their tree only once a client asks.
@@ -33,6 +35,7 @@ enum AccessibilityReader {
            CFGetTypeID(focused) == AXUIElementGetTypeID() {
             var pid: pid_t = 0
             AXUIElementGetPid(focused as! AXUIElement, &pid)
+            guard AccessibilityWork.mayRead(pid: pid) else { return nil }
             return (FocusedTextElement.resolve(focused as! AXUIElement), pid)
         }
         return nil

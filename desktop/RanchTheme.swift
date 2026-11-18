@@ -1,8 +1,6 @@
-// The Ranch's look, built from the system's own colours so it follows light
-// and dark, the accent colour and Liquid Glass (RanchGlass.swift) as macOS
-// does: a sidebar on the system's sidebar surface, rows as soft cards on the
-// content background, and capsule controls. Every view in the window draws
-// with these colours and pieces.
+// The pieces every view in The Ranch draws with: its colours and type, which
+// come from the website rework's dark look (RanchLook.swift), rows as soft
+// cards on the page, and capsule controls.
 
 import Cocoa
 import SwiftUI
@@ -10,70 +8,47 @@ import SwiftUI
 enum RanchTheme {
     // MARK: Colours
 
-    /// Behind the sidebar's rows: clear, so its glass or material shows.
+    /// Behind the sidebar's rows: clear, so its panel shows.
     static let sidebar = Color.clear
     /// The list and file columns, and the window behind them.
-    static let surface = Color(nsColor: nsSurface)
-    static let nsSurface = NSColor.controlBackgroundColor
+    static let surface = RanchLook.page
+    static let nsSurface = RanchLook.nsPage
     /// A row at rest, and the ground under models and drawings.
-    static let card = tint(light: 0.04, dark: 0.06)
-    static let cardHover = tint(light: 0.07, dark: 0.1)
-    /// The chosen row, tinted with the accent colour chosen in System Settings.
-    static let selection = Color(nsColor: NSColor(name: nil) { appearance in
-        NSColor.controlAccentColor.withAlphaComponent(isDark(appearance) ? 0.32 : 0.18)
-    })
-    static let hairline = Color(nsColor: .separatorColor)
+    static let card = RanchLook.rgb(0xF6F4EC, 0.05)
+    static let cardHover = RanchLook.rgb(0xF6F4EC, 0.085)
+    /// The chosen row: a lighter panel, as the sidebar's chosen view is.
+    static let selection = RanchLook.rgb(0xF6F4EC, 0.15)
+    static let hairline = RanchLook.line
     /// Fields and menus where glass is not used.
-    static let control = Color(nsColor: .controlBackgroundColor)
-    static let controlEdge = Color(nsColor: .separatorColor)
+    static let control = RanchLook.raise
+    static let controlEdge = RanchLook.line
     /// The groove a segmented control's choices sit in.
-    static let track = tint(light: 0.05, dark: 0.08)
-    static let ink = Color(nsColor: .labelColor)
-    static let secondaryInk = Color(nsColor: .secondaryLabelColor)
-    static let tertiaryInk = Color(nsColor: .tertiaryLabelColor)
-    /// The one strong button, and what is written on it.
-    static let strong = Color.accentColor
-    static let onStrong = Color.white
+    static let track = RanchLook.track
+    static let ink = RanchLook.ink
+    static let secondaryInk = RanchLook.ink2
+    static let tertiaryInk = RanchLook.ink3
+    /// The one strong button, filled with the page's ink, and what is written on it.
+    static let strong = RanchLook.ink
+    static let onStrong = RanchLook.onInk
     /// Notes that float over a view, such as what the pointer is on.
-    static let tooltip = color(0x1D1D1F, 0x3A3A3C)
-    static let onTooltip = Color.white
-    static let onTooltipSecondary = Color.white.opacity(0.62)
-    static let warning = Color(nsColor: .systemOrange)
+    static let tooltip = RanchLook.lift
+    static let onTooltip = RanchLook.ink
+    static let onTooltipSecondary = RanchLook.ink2
+    static let warning = RanchLook.rgb(0xE08A5F)
 
     // MARK: Type
 
-    static let brandFont = Font.system(size: 17, weight: .semibold)
-    static let titleFont = Font.system(size: 14, weight: .semibold)
-    static let bodyFont = Font.system(size: 13)
-    static let captionFont = Font.system(size: 11.5)
-    static let controlFont = Font.system(size: 12, weight: .medium)
-    static let sectionFont = Font.system(size: 11.5, weight: .semibold)
+    static let brandFont = RanchLook.font(19, .semibold)
+    static let titleFont = RanchLook.font(14.5, .semibold)
+    static let bodyFont = RanchLook.font(13.5)
+    static let captionFont = RanchLook.font(12)
+    static let controlFont = RanchLook.font(12.5, .medium)
+    static let sectionFont = RanchLook.font(12, .semibold)
 
     /// The column headers' height: the window's buttons sit halfway down the sidebar's.
     static let headerHeight: CGFloat = 52
     /// The title bar band at the top of the sidebar, where the window's buttons are.
-    static var titlebarHeight: CGFloat { RanchGlass.isAvailable ? RanchGlass.sidebarTitlebarHeight : 32 }
-
-    private static func color(_ light: Int, _ dark: Int) -> Color { Color(nsColor: nsColor(light, dark)) }
-
-    private static func isDark(_ appearance: NSAppearance) -> Bool {
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-    }
-
-    /// The label colour faded to a wash, as the system's fill colours are.
-    private static func tint(light: CGFloat, dark: CGFloat) -> Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
-            isDark(appearance) ? NSColor.white.withAlphaComponent(dark) : NSColor.black.withAlphaComponent(light)
-        })
-    }
-
-    private static func nsColor(_ light: Int, _ dark: Int) -> NSColor {
-        NSColor(name: nil) { appearance in
-            let hex = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
-            return NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
-                           blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
-        }
-    }
+    static var titlebarHeight: CGFloat { RanchGlass.isAvailable ? 52 : 38 }
 }
 
 // MARK: Window chrome
@@ -215,7 +190,7 @@ struct RanchPillShape: View {
     var body: some View {
         if #available(macOS 26.0, *) {
             Capsule().fill(Color.clear)
-                .glassEffect(prominent ? .regular.tint(.accentColor) : .regular, in: Capsule())
+                .glassEffect(prominent ? .regular.tint(RanchLook.ink) : .regular, in: Capsule())
         } else {
             let shape = Capsule()
             if prominent {
@@ -384,7 +359,7 @@ struct RanchSearchField: View {
     }
 
     @ViewBuilder private var field: some View {
-        let ring = focused.wrappedValue ? Color.accentColor.opacity(0.55) : Color.clear
+        let ring = focused.wrappedValue ? RanchLook.sky.opacity(0.6) : Color.clear
         if #available(macOS 26.0, *) {
             Capsule().fill(RanchTheme.card)
                 .overlay(Capsule().strokeBorder(ring, lineWidth: 1.5))
@@ -469,8 +444,20 @@ extension EnvironmentValues {
     }
 }
 
+struct RanchRowChosenKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// True inside a row that is chosen or under the pointer; a sidebar row writes brighter then.
+    var ranchRowChosen: Bool {
+        get { self[RanchRowChosenKey.self] }
+        set { self[RanchRowChosenKey.self] = newValue }
+    }
+}
+
 /// One row of a `RanchCardList`: a soft card in a column's list, or a
-/// borderless row in the sidebar, lavender while chosen.
+/// borderless row in the sidebar, lighter while chosen.
 struct RanchCard<ID: Hashable, Content: View>: View {
     enum Style { case card, sidebar }
 
@@ -490,10 +477,11 @@ struct RanchCard<ID: Hashable, Content: View>: View {
     var body: some View {
         let chosen = highlighted ?? (selection == id)
         content
-            .padding(.horizontal, style == .card ? 11 : 8)
+            .environment(\.ranchRowChosen, chosen || hovering)
+            .padding(.horizontal, style == .card ? 11 : 10)
             .padding(.vertical, style == .card ? 8 : 0)
-            .frame(maxWidth: .infinity, minHeight: style == .card ? nil : 30, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: style == .card ? 10 : 7, style: .continuous)
+            .frame(maxWidth: .infinity, minHeight: style == .card ? nil : 36, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: style == .card ? 12 : RanchLook.rowRadius, style: .continuous)
                 .fill(chosen ? (quiet ? RanchTheme.cardHover : RanchTheme.selection) : hovering ? RanchTheme.cardHover
                       : style == .card ? RanchTheme.card : .clear))
             .contentShape(Rectangle())
@@ -567,11 +555,11 @@ struct RanchCount: View {
     var body: some View {
         if value > 0 {
             Text(value.formatted())
-                .font(.system(size: 11, weight: .medium)).monospacedDigit()
-                .foregroundStyle(tint ?? RanchTheme.tertiaryInk)
-                .padding(.horizontal, tint == nil ? 0 : 6)
-                .padding(.vertical, tint == nil ? 0 : 1)
-                .background { if let tint { Capsule().fill(tint.opacity(0.14)) } }
+                .font(RanchLook.font(11, .medium)).monospacedDigit()
+                .foregroundStyle(tint ?? RanchTheme.secondaryInk)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(Capsule().fill((tint ?? RanchLook.ink).opacity(tint == nil ? 0.08 : 0.16)))
         }
     }
 }

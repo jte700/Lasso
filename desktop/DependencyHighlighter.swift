@@ -122,7 +122,9 @@ final class DependencyHighlighter {
 
     private var hasRelevantHost: Bool {
         guard !systemSleeping, !displaySleeping,
-              let bundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return false }
+              let front = NSWorkspace.shared.frontmostApplication,
+              AccessibilityWork.mayRead(pid: front.processIdentifier),
+              let bundle = front.bundleIdentifier else { return false }
         return store.hasReferences(bundleIdentifier: bundle)
     }
 

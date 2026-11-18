@@ -10,6 +10,7 @@ import { HttpError } from '../history/errors.js';
 import { isWholeFile } from '../dependencies/file-reference.js';
 import { isCodeType } from '../history/file-types.js';
 import { activityScore, addCounts, EMPTY_COUNTS, latestTime, normalizedActivity } from './activity.js';
+import { changeDetail } from './change-detail.js';
 import { recentHistory } from './history.js';
 import { MAX_SCANNED_BYTES, SCANNED_TEXT_TYPES, sourceKind } from './kinds.js';
 import { addNameEdges, edgeCollector, mentionTargets } from './network.js';
@@ -364,6 +365,14 @@ export class RanchService {
     if (!chosen) throw new HttpError(404, 'Lasso hasn’t indexed anything in this file, so it can’t make a share link for it.');
     return { projectId: project.id, objectId: chosen.id, versionId: chosen.versionId ?? null,
       label: chosen.name ?? chosen.label ?? file.path, path: file.path };
+  }
+
+  /**
+   * One Recent Changes row opened: who recorded it, the versions it went
+   * between, and what changed inside the file (change-detail.js).
+   */
+  change(input) {
+    return changeDetail({ db: this.db, timeline: this.timeline, shown: this.shownValue }, input?.id);
   }
 
   /**

@@ -406,7 +406,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var ranch: RanchWindowController = {
         let controller = RanchWindowController(actions: RanchActions(
             createShareLink: { [weak self] target, anchor in self?.composeRanchShare(target, near: anchor) },
-            addDirectories: { [weak self] in self?.addDirectories() }))
+            addDirectories: { [weak self] in self?.addDirectories() },
+            openSettings: { [weak self] in self?.showSettings() },
+            setDirectoriesActive: { [weak self] changes in self?.setDirectoriesActive(changes) }))
         controller.onClose = { [weak self] in self?.returnToMenuBar() }
         return controller
     }()
@@ -1253,6 +1255,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mutateWorkspace(path: "api/workspace/directories/" + id,
                         body: WorkspaceAPI.toggleDirectoryBody(active: activate),
                         message: activate ? "Activating and indexing directory…" : "Pausing directory…")
+    }
+
+    /// Pauses and resumes directories one after another, as The Ranch's
+    /// opening step was ticked, through the same request as the menu's switches.
+    private func setDirectoriesActive(_ changes: [RanchDirectoryChange]) {
+        guard let change = changes.first else { return }
+        let name = directories.first { $0.id == change.id }?.name ?? "directory"
+        mutateWorkspace(path: "api/workspace/directories/" + change.id,
+                        body: WorkspaceAPI.toggleDirectoryBody(active: change.active),
+                        message: change.active ? "Activating and indexing \(name)\u{2026}" : "Pausing \(name)\u{2026}") { [weak self] _ in
+            self?.ranch.store.reload()
+            self?.setDirectoriesActive(Array(changes.dropFirst()))
+        }
     }
 
     /// Applies the fix Lasso offers for a folder's issue, such as re-reading its files.

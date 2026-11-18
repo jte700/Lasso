@@ -78,8 +78,9 @@ export function recentHistory(db, projectIds, now, { shown = null } = {}) {
   const since = new Date(now - HISTORY_DAYS * DAY_MS).toISOString();
   const placeholders = projectIds.map(() => '?').join(',');
   const events = db.prepare(`
-    SELECT e.id, e.project_id, e.occurred_at, e.source, e.resulting_snapshot_id, COUNT(c.id) AS file_count
-    FROM timeline_events e JOIN file_changes c ON c.event_id = e.id
+    SELECT e.id, e.project_id, e.occurred_at, e.source, e.resulting_snapshot_id, COUNT(c.id) AS file_count,
+      a.display_name AS actor_name, a.actor_type
+    FROM timeline_events e JOIN file_changes c ON c.event_id = e.id JOIN actors a ON a.id = e.actor_id
     WHERE e.project_id IN (${placeholders}) AND e.occurred_at >= ?
     GROUP BY e.id
     ORDER BY e.occurred_at DESC
@@ -97,7 +98,10 @@ export function recentHistory(db, projectIds, now, { shown = null } = {}) {
     }
   }
   const entries = events.slice(0, MAX_HISTORY_ENTRIES).flatMap((event) => {
-    const base = { directoryId: event.project_id, at: event.occurred_at };
+    // Who history says made the change and how Lasso came to record it
+    // (WATCHER for a save it saw, AGENT_EDIT, IMPORT for a first reading).
+    const base = { directoryId: event.project_id, at: event.occurred_at, source: event.source,
+      actor: { name: event.actor_name, type: event.actor_type } };
     // A folder's first reading lists every file as added: one event, "added to The Ranch".
     if (event.source === 'IMPORT') {
       return [{ ...base, id: event.id, change: 'directory-added', path: null, previousPath: null, fileCount: event.file_count }];

@@ -21,6 +21,9 @@ struct RanchCounts: Decodable, Equatable {
 
     static let none = RanchCounts(tabs: 0, opens: 0, visits: 0, shares: 0, references: 0)
 
+    /// Every time the file was used, whichever way.
+    var total: Int { tabs + opens + visits + shares + references }
+
     /// "Tabbed 3 times · Shared once", leaving out what never happened.
     var summary: String {
         let parts: [(Int, String)] = [(tabs, "Tabbed"), (opens, "Opened from a suggestion"), (visits, "Viewed"),
@@ -96,6 +99,10 @@ struct RanchHistoryEntry: Decodable, Identifiable, Equatable {
     let fileCount: Int?
     /// The values an edit changed, when it changed any the index reads.
     var valueChanges: RanchValueChanges? = nil
+    /// How Lasso came to record it: WATCHER for a save it saw, AGENT_EDIT, IMPORT, ...
+    var source: String? = nil
+    /// Who history says made it.
+    var actor: RanchActor? = nil
 
     /// The caption of an edit that changed values: "Q3 Total 18,400 → 19,250"
     /// for one, "4 values changed · Finance" for several; nil otherwise.
@@ -436,6 +443,11 @@ struct RanchOverview: Decodable, Equatable {
 
     /// The server writes ISO 8601 with milliseconds; a field it leaves null stays nil.
     static func decode(_ data: Data) throws -> RanchOverview {
+        try decoder().decode(RanchOverview.self, from: data)
+    }
+
+    /// A decoder for what The Ranch's routes send, its dates in ISO 8601 with or without milliseconds.
+    static func decoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         let precise = ISO8601DateFormatter()
         precise.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -448,7 +460,7 @@ struct RanchOverview: Decodable, Equatable {
             }
             return date
         }
-        return try decoder.decode(RanchOverview.self, from: data)
+        return decoder
     }
 }
 
@@ -738,6 +750,26 @@ enum RanchKindFilter: String, CaseIterable, Identifiable {
     }
 
     func includes(_ source: RanchSource) -> Bool { kind.map { $0 == source.kind } ?? true }
+
+    /// The filter that keeps one of the server's kinds.
+    static func keeping(_ kind: String) -> RanchKindFilter? { allCases.first { $0.kind == kind } }
+
+    /// One file of this kind, as a short label: "Spreadsheet", "PDF".
+    static func label(for kind: String) -> String {
+        switch kind {
+        case "document": return "Document"
+        case "spreadsheet": return "Spreadsheet"
+        case "pdf": return "PDF"
+        case "presentation": return "Slides"
+        case "model": return "3D model"
+        case "drawing": return "Drawing"
+        case "image": return "Image"
+        case "video": return "Video"
+        case "text": return "Text"
+        case "code": return "Code"
+        default: return "File"
+        }
+    }
 
     static let key = "RanchKindFilter"
 }

@@ -30,6 +30,8 @@ final class RanchWindowController: NSWindowController, NSWindowDelegate {
         window.minSize = NSSize(width: 860, height: 520)
         window.tabbingMode = .disallowed
         RanchGlass.prepare(window)
+        // The Ranch is dark whatever the Mac is set to.
+        window.appearance = NSAppearance(named: .darkAqua)
         super.init(window: window)
         // Before the content: the window keeps the first undo manager anything
         // asks it for, and SwiftUI asks while the content is set up.
@@ -51,6 +53,15 @@ final class RanchWindowController: NSWindowController, NSWindowDelegate {
     func show(section: RanchStore.Section? = nil, serverURL: URL?) {
         store.serverURL = serverURL
         if let section { store.section = section }
+        // Opened afresh, the window starts with its tour the first time and its
+        // gas and Begin after that; sent to a particular view, or already open,
+        // it goes straight there.
+        if section == nil, window?.isVisible != true {
+            store.tourStep = 0
+            store.stage = RanchTour.finished() ? .welcome : .tour
+        } else if section != nil {
+            store.stage = .home
+        }
         if let window, !window.isVisible, !window.setFrameUsingName(Self.autosaveName) { window.center() }
         store.startRefreshing()
         NSApp.activate(ignoringOtherApps: true)

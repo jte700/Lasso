@@ -127,6 +127,7 @@ final class ShareComposerController: NSObject {
               copyAction: ((ShareConfiguration, @escaping (Result<DependencyShare, Error>) -> Void) -> Void)? = nil,
               onCancel: (() -> Void)? = nil,
               citedIn: String? = nil,
+              scope: ShareAccessScope? = nil,
               completion: ((ShareConfiguration) -> Void)? = nil) {
         hide()
         // A link, not the ghost's words, is what this writes.
@@ -155,6 +156,8 @@ final class ShareComposerController: NSObject {
         requests.removeAll()
         view.reset(label: label, filename: (sourcePath as NSString).lastPathComponent)
         view.citedIn = citedIn
+        // Opened for one way of sharing, such as redacting, it starts there.
+        if let scope, view.scopes.contains(scope) { view.scope = scope }
         view.onNeedsMarkupPages = { [weak self] in
             self?.loadMarkupPages(objectId: objectId, versionId: versionId, serverURL: serverURL, token: token)
         }
