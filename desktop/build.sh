@@ -216,8 +216,21 @@ done
 swift_binary "$CONTENTS/MacOS/Lasso" ${SWIFT_EXTRA[@]+"${SWIFT_EXTRA[@]}"} \
   -framework Cocoa -framework WebKit -framework PDFKit -framework ServiceManagement -framework DiskArbitration \
   -framework EventKit -framework SwiftUI -framework Quartz -framework SceneKit -framework ModelIO -framework Carbon \
-  -framework Vision -framework AVFoundation -framework AVKit \
+  -framework Vision -framework AVFoundation -framework AVKit -framework Metal -framework MetalKit \
   "${APP_SOURCES[@]}"
+
+# The Ranch's typefaces, Figtree and Geist Mono, drawn from inside the app with
+# their licences beside them; nothing is installed on the Mac.
+if compgen -G "$ROOT/desktop/Fonts/*.[ot]tf" > /dev/null; then
+  mkdir -p "$RESOURCES/Fonts"
+  cp "$ROOT"/desktop/Fonts/*.[ot]tf "$RESOURCES/Fonts/"
+  if compgen -G "$ROOT/desktop/Fonts/*.txt" > /dev/null; then cp "$ROOT"/desktop/Fonts/*.txt "$RESOURCES/Fonts/"; fi
+fi
+# The licence of the avatar kit whose shape The Ranch's 3D mascot is built from (MIT).
+if compgen -G "$ROOT/desktop/Mascot/LICENSE.*" > /dev/null; then
+  mkdir -p "$RESOURCES/Mascot"
+  cp "$ROOT"/desktop/Mascot/LICENSE.* "$RESOURCES/Mascot/"
+fi
 
 echo "==> Compiling the launcher (starts Lasso at login and with Command-L)"
 # Its own small app, so it keeps running after Lasso quits. SMAppService

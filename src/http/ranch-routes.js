@@ -23,6 +23,9 @@ export async function ranchRoutes({ request, response, url, pathname, ranch }) {
       if (request.method === 'POST' && pathname === '/api/ranch/visits') {
         return sendJson(response, 200, { visit: ranch.recordVisit(await readJson(request, 16 * 1024)) });
       }
+      if (request.method === 'GET' && pathname === '/api/ranch/change') {
+        return sendJson(response, 200, { change: ranch.change({ id: url.searchParams.get('id') }) });
+      }
       const file = { directoryId: url.searchParams.get('directory'), path: url.searchParams.get('path') };
       if (request.method === 'GET' && pathname === '/api/ranch/share-target') {
         return sendJson(response, 200, { target: ranch.shareTarget(file) });

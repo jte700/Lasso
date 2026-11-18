@@ -1,5 +1,5 @@
-// The Ranch window: a sidebar of library views and directories, a list of
-// what the chosen view holds, and the selected file on the right.
+// The Ranch window: its opening, then a sidebar of library views and
+// directories beside the page the chosen one shows.
 
 import Cocoa
 import SwiftUI
@@ -10,6 +10,10 @@ struct RanchActions {
     /// Opens the share composer for a file; the rect is where it was asked from, in screen coordinates.
     let createShareLink: (RanchShareTarget, NSRect) -> Void
     let addDirectories: () -> Void
+    /// Opens Lasso's Settings window.
+    var openSettings: () -> Void = {}
+    /// Pauses and resumes directories, one after another.
+    var setDirectoriesActive: ([RanchDirectoryChange]) -> Void = { _ in }
 }
 
 enum RanchFormat {
@@ -67,6 +71,12 @@ extension RanchDirectory {
         if isApp, let symbol, NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil { return symbol }
         if isApp { return "app" }
         return offline ? "externaldrive" : "folder"
+    }
+
+    /// The same symbol, filled where it has a filled form.
+    var filledSymbol: String {
+        let filled = sidebarSymbol + ".fill"
+        return NSImage(systemSymbolName: filled, accessibilityDescription: nil) == nil ? sidebarSymbol : filled
     }
 }
 
@@ -135,47 +145,35 @@ struct RanchRootView: View {
     let actions: RanchActions
     @FocusState private var searchFocused: Bool
     @AppStorage("RanchSidebarWidth") private var sidebarWidth = 260.0
-    @AppStorage("RanchListWidth") private var listWidth = 360.0
-    private static let shortcuts: [RanchStore.Section] = [.changes, .sources, .links, .review, .network]
+    private static let shortcuts: [RanchStore.Section] = [.sources, .changes, .links, .review, .network]
     private static let sidebarWidths = 200.0...380.0
-    private static let listMinimum = 280.0
-    private static let listMaximum = 700.0
-    /// The file column keeps at least this much when the list is widened.
-    private static let detailMinimum = 300.0
 
     var body: some View {
-        GeometryReader { geometry in
-            let listRoom = listRoom(in: geometry.size.width)
-            HStack(spacing: 0) {
-                if !store.sidebarHidden {
-                    RanchSidebar(store: store, actions: actions, search: $searchFocused, hide: toggleSidebar)
-                        .ranchSidebarSurface()
-                        .frame(width: sidebarWidth)
-                        .transition(.move(edge: .leading))
-                    RanchColumnDivider(width: $sidebarWidth, range: Self.sidebarWidths, showsLine: !RanchGlass.isAvailable)
-                }
-                // The network needs room, so it takes the whole width and shows
-                // the chosen file beside it instead of in a third column.
-                HStack(spacing: 0) {
-                    if store.section == .network {
-                        RanchNetworkPane(store: store, actions: actions)
-                            .environment(\.ranchShowSidebar, showSidebar)
-                    } else {
-                        RanchContent(store: store)
-                            .environment(\.ranchShowSidebar, showSidebar)
-                            .frame(width: min(listWidth, listRoom))
-                        RanchColumnDivider(width: $listWidth, range: Self.listMinimum...listRoom)
-                        RanchDetail(store: store, actions: actions)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                }
-                // Files are read on a solid page; only the sidebar side is glass.
-                .background(RanchTheme.surface)
+        let opening = store.isOpening
+        ZStack {
+            // Behind the glass sidebar, the desktop; each page draws its own solid ground.
+            RanchWindowBackdrop().ignoresSafeArea()
+            // The library waits, blurred and still, behind the opening's card,
+            // and comes into focus as the card goes.
+            library
+                .blur(radius: opening ? 14 : 0)
+                .scaleEffect(opening ? 0.985 : 1)
+                .animation(.easeOut(duration: 0.7), value: opening)
+                .allowsHitTesting(!opening)
+                .accessibilityHidden(opening)
+            // A source's share dialog, over the whole window.
+            if let source = store.sharing {
+                RanchShareFlow(store: store, source: source)
+                    .id(source.id)
+                    .transition(.opacity)
+            }
+            if store.stage != .home {
+                RanchOpening(store: store, actions: actions)
             }
         }
-        // The columns run up under the window's buttons.
-        .ignoresSafeArea(.container, edges: .top)
-        .background { RanchWindowBackdrop() }
+        // Everything runs up under the window's buttons, the gas included.
+        .ignoresSafeArea()
+        .ranchDark()
         .frame(minWidth: 860, minHeight: 520)
         .background { shortcuts }
         .alert("Something Didn\u{2019}t Work", isPresented: Binding(get: { store.actionError != nil },
@@ -186,13 +184,63 @@ struct RanchRootView: View {
         }
     }
 
-    /// How wide the list may be beside the sidebar, leaving the file its share.
-    private func listRoom(in width: CGFloat) -> Double {
-        let sidebar = store.sidebarHidden ? 0 : sidebarWidth + 1
-        return max(Self.listMinimum, min(Self.listMaximum, Double(width) - sidebar - 1 - Self.detailMinimum))
+    /// The window as one surface: its material runs through the sidebar and
+    /// the top row, and the page is a solid rounded panel set into it.
+    private var library: some View {
+        let panel = RoundedRectangle(cornerRadius: RanchGlass.panelRadius, style: .continuous)
+        return ZStack(alignment: .topLeading) {
+            HStack(spacing: 0) {
+                if !store.sidebarHidden {
+                    RanchSidebar(store: store, actions: actions, search: $searchFocused)
+                        .frame(width: sidebarWidth)
+                        .transition(.move(edge: .leading))
+                    RanchColumnDivider(width: $sidebarWidth, range: Self.sidebarWidths, showsLine: false)
+                }
+                VStack(spacing: 0) {
+                    RanchTitleRow(store: store, leading: store.sidebarHidden ? Self.windowButtons : 0)
+                    page
+                        .background(RanchTheme.surface)
+                        .clipShape(panel)
+                        .overlay(panel.strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
+                        .padding(.leading, store.sidebarHidden ? RanchGlass.panelInset : 0)
+                        .padding([.trailing, .bottom], RanchGlass.panelInset)
+                }
+            }
+            // Beside the window's own buttons, the one that hides and shows the sidebar.
+            Button(action: toggleSidebar) {
+                RanchLucideIcon(icon: .panelLeft, color: RanchTreeStyle.restInk)
+            }
+            .buttonStyle(RanchSidebarIconStyle())
+            .help(store.sidebarHidden ? "Show Sidebar (\u{2303}\u{2318}S)" : "Hide Sidebar (\u{2303}\u{2318}S)")
+            .accessibilityLabel(store.sidebarHidden ? "Show Sidebar" : "Hide Sidebar")
+            .padding(.leading, RanchGlass.isAvailable ? 84 : 74)
+            .frame(height: RanchTheme.titlebarHeight)
+        }
     }
 
-    private var showSidebar: (() -> Void)? { store.sidebarHidden ? toggleSidebar : nil }
+    /// Room the window's buttons and the sidebar button take at the top left.
+    private static var windowButtons: CGFloat { RanchGlass.isAvailable ? 118 : 108 }
+
+    /// What the chosen view shows beside the sidebar: sources, directories,
+    /// changes, links and review items as pages of one kind of list, and the
+    /// network across the whole width.
+    @ViewBuilder
+    private var page: some View {
+        switch store.section ?? .sources {
+        case .sources:
+            RanchSourcesPage(store: store, actions: actions, directoryId: nil, search: $searchFocused)
+        case .directory(let id):
+            RanchSourcesPage(store: store, actions: actions, directoryId: id, search: $searchFocused)
+        case .network:
+            RanchNetworkPane(store: store, actions: actions)
+        case .changes:
+            RanchActivityPage(store: store, actions: actions, kind: .changes)
+        case .links:
+            RanchActivityPage(store: store, actions: actions, kind: .links)
+        case .review:
+            RanchActivityPage(store: store, actions: actions, kind: .review)
+        }
+    }
 
     private func toggleSidebar() {
         withAnimation(.easeInOut(duration: 0.2)) { store.sidebarHidden.toggle() }
@@ -207,8 +255,14 @@ struct RanchRootView: View {
             text.performFindPanelAction(item)
             return
         }
-        if store.sidebarHidden { toggleSidebar() }
-        searchFocused = true
+        // The sources pages put the cursor in their search bar; the other views use the sidebar's field.
+        switch store.section ?? .sources {
+        case .sources, .directory:
+            store.searchRequest += 1
+        default:
+            if store.sidebarHidden { toggleSidebar() }
+            searchFocused = true
+        }
     }
 
     /// Command-1 to Command-5 go to the library views, as Mail's do to its
@@ -234,403 +288,5 @@ struct RanchHiddenShortcut: View {
         Button("", action: action)
             .keyboardShortcut(key, modifiers: modifiers)
             .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
-    }
-}
-
-/// What the sidebar chooses: a library view or directory, a folder to open, or a file.
-enum RanchSidebarItem: Hashable {
-    case section(RanchStore.Section)
-    case folder(String)
-    case file(String)
-}
-
-/// A directory in the sidebar and what its outline shows.
-private struct RanchBranch {
-    let directory: RanchDirectory
-    let tree: RanchTree
-    let open: Bool
-    let rows: [RanchTree.Row]
-
-    var files: [String] {
-        rows.compactMap { row in
-            if case .file(let source, _) = row { return source.id }
-            return nil
-        }
-    }
-}
-
-struct RanchSidebar: View {
-    @ObservedObject var store: RanchStore
-    let actions: RanchActions
-    var search: FocusState<Bool>.Binding
-    let hide: () -> Void
-    /// Each level of the outline sits this much further in.
-    private static let indent: CGFloat = 16
-
-    var body: some View {
-        let branches = store.orderedDirectories.map(branch)
-        let shown = Set(branches.flatMap(\.files))
-        // A file open in the outline is the one thing chosen; the view it is in turns grey.
-        let fileShown = store.selectedSourceID.map(shown.contains) ?? false
-        let selection = selection(fileShown: fileShown)
-        VStack(spacing: 0) {
-            // The window's own buttons sit on the left of this strip.
-            HStack {
-                Spacer()
-                Button(action: hide) { Image(systemName: "sidebar.left") }
-                    .buttonStyle(RanchIconButtonStyle(size: 26))
-                    .help("Hide Sidebar (\u{2303}\u{2318}S)")
-            }
-            .padding(.horizontal, 8)
-            .frame(height: RanchTheme.titlebarHeight)
-            .background(RanchWindowDragArea())
-            HStack(spacing: 9) {
-                Image(nsImage: NSApp.applicationIconImage).resizable().interpolation(.high).frame(width: 26, height: 26)
-                Text(Ranch.title).font(RanchTheme.brandFont).foregroundStyle(RanchTheme.ink)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 2)
-            .padding(.bottom, 12)
-            .background(RanchWindowDragArea())
-            RanchSearchField(text: $store.searchText, focused: search, prompt: "Search files")
-                .padding(.horizontal, 12)
-                .padding(.bottom, 4)
-            RanchCardList(selection: selection, order: { order(branches) }, pinnedHeaders: false, spacing: 1,
-                          sideways: { sideways($0, from: selection.wrappedValue) }) {
-                library(selection, quiet: fileShown)
-                Section {
-                    ForEach(branches.filter { !$0.directory.isApp }, id: \.directory.id) { branch in
-                        outline(branch, selection: selection, quiet: fileShown)
-                    }
-                    if store.folders.isEmpty && store.hasLoaded {
-                        Text("No work directories yet.").font(RanchTheme.captionFont)
-                            .foregroundStyle(RanchTheme.tertiaryInk).padding(.horizontal, 20).padding(.vertical, 4)
-                    }
-                } header: {
-                    RanchSectionHeader(title: "Directories", background: RanchTheme.sidebar) {
-                        RanchOrderMenu(title: "Sort Directories By", order: $store.directoryOrder)
-                    }
-                }
-                if !store.apps.isEmpty {
-                    Section {
-                        ForEach(branches.filter(\.directory.isApp), id: \.directory.id) { branch in
-                            outline(branch, selection: selection, quiet: fileShown)
-                        }
-                    } header: {
-                        RanchSectionHeader(title: "Connected Apps", background: RanchTheme.sidebar)
-                    }
-                }
-            }
-            footer
-        }
-    }
-
-    private func library(_ selection: Binding<RanchSidebarItem?>, quiet: Bool) -> some View {
-        Section {
-            row(.changes, selection, quiet: quiet) {
-                RanchSidebarRow(title: "Recent Changes", symbol: "clock.arrow.circlepath", count: store.overview.history.count)
-            }
-            row(.sources, selection, quiet: quiet) {
-                RanchSidebarRow(title: "All Sources", symbol: "square.stack.3d.up", count: store.overview.sources.count)
-            }
-            row(.links, selection, quiet: quiet) {
-                RanchSidebarRow(title: "Links", symbol: "link",
-                                count: store.activeLinkCount + store.overview.links.received.count)
-            }
-            row(.review, selection, quiet: quiet) {
-                RanchSidebarRow(title: "Needs Review", symbol: "exclamationmark.triangle",
-                                tint: store.reviewCount > 0 ? RanchTheme.warning : RanchTheme.secondaryInk,
-                                count: store.reviewCount, countTint: store.reviewCount > 0 ? RanchTheme.warning : nil)
-            }
-            row(.network, selection, quiet: quiet) {
-                RanchSidebarRow(title: "Network", symbol: "point.3.connected.trianglepath.dotted")
-            }
-        } header: {
-            RanchSectionHeader(title: "Library", background: RanchTheme.sidebar)
-        }
-    }
-
-    private func row<Content: View>(_ section: RanchStore.Section, _ selection: Binding<RanchSidebarItem?>, quiet: Bool,
-                                    @ViewBuilder _ content: () -> Content) -> some View {
-        RanchCard(id: .section(section), selection: selection, style: .sidebar,
-                  highlighted: store.section == section, quiet: quiet) { content() }
-    }
-
-    // MARK: Outline
-
-    private func branch(_ directory: RanchDirectory) -> RanchBranch {
-        let tree = store.tree(in: directory.id)
-        let open = !tree.isEmpty && store.isOpen(RanchTree.key(directory: directory.id))
-        let rows = open ? tree.rows { store.isOpen(RanchTree.key(directory: directory.id, folder: $0)) } : []
-        return RanchBranch(directory: directory, tree: tree, open: open, rows: rows)
-    }
-
-    /// A directory's row, and below it, while it is open, its folders and files.
-    @ViewBuilder
-    private func outline(_ branch: RanchBranch, selection: Binding<RanchSidebarItem?>, quiet: Bool) -> some View {
-        let directory = branch.directory
-        let key = RanchTree.key(directory: directory.id)
-        RanchCard(id: .section(.directory(directory.id)), selection: selection, style: .sidebar,
-                  highlighted: store.section == .directory(directory.id), quiet: quiet,
-                  open: branch.tree.isEmpty ? nil : { toggle(key) }) {
-            HStack(spacing: 4) {
-                RanchDisclosure(open: branch.open, hidden: branch.tree.isEmpty || !store.canToggleFolders) { toggle(key) }
-                RanchDirectoryRow(directory: directory, color: directory.color, pinned: store.isPinned(directory.id))
-            }
-        }
-        .accessibilityAction(named: branch.open ? "Collapse" : "Expand") { toggle(key) }
-        .contextMenu { RanchDirectoryMenu(store: store, directory: directory) }
-        ForEach(branch.rows) { row in
-            outlineRow(row, in: directory, selection: selection)
-        }
-    }
-
-    @ViewBuilder
-    private func outlineRow(_ row: RanchTree.Row, in directory: RanchDirectory, selection: Binding<RanchSidebarItem?>) -> some View {
-        switch row {
-        case .folder(let path, let name, let depth):
-            let key = RanchTree.key(directory: directory.id, folder: path)
-            let open = store.isOpen(key)
-            // Clicking a folder opens or closes it.
-            RanchCard(id: .folder(key), selection: selection, style: .sidebar, highlighted: false) {
-                HStack(spacing: 4) {
-                    RanchDisclosure(open: open, hidden: !store.canToggleFolders) { toggle(key) }
-                    HStack(spacing: 9) {
-                        Image(systemName: "folder").font(.system(size: 12.5)).foregroundStyle(RanchTheme.secondaryInk)
-                            .frame(width: 18)
-                        Text(name).font(RanchTheme.bodyFont).foregroundStyle(RanchTheme.ink).lineLimit(1).truncationMode(.middle)
-                    }
-                }
-                .padding(.leading, CGFloat(depth) * Self.indent)
-            }
-            .help(path)
-            .accessibilityAction(named: open ? "Collapse" : "Expand") { toggle(key) }
-        case .file(let source, let depth):
-            RanchCard(id: .file(source.id), selection: selection, style: .sidebar,
-                      highlighted: store.selectedSourceID == source.id, open: { edit(source) }) {
-                HStack(spacing: 9) {
-                    RanchFileIcon(url: nil, fileExtension: source.fileExtension, size: 16).frame(width: 18)
-                    Text(source.name).font(RanchTheme.bodyFont).foregroundStyle(RanchTheme.ink).lineLimit(1).truncationMode(.middle)
-                }
-                // Clear of the disclosure arrows beside its folders.
-                .padding(.leading, CGFloat(depth) * Self.indent + RanchDisclosure.width + 4)
-            }
-            .help(source.path)
-            .contextMenu { RanchSourceMenu(store: store, source: source) }
-            .onDrag { store.localURL(for: source).flatMap { NSItemProvider(contentsOf: $0) } ?? NSItemProvider() }
-        }
-    }
-
-    /// Clicking or moving to a library view or directory shows it; a file opens
-    /// beside the list; a folder opens or closes.
-    private func selection(fileShown: Bool) -> Binding<RanchSidebarItem?> {
-        Binding(get: {
-            if fileShown, let id = store.selectedSourceID { return .file(id) }
-            return store.section.map(RanchSidebarItem.section)
-        }, set: { item in
-            switch item {
-            case .section(let section)?: store.section = section
-            case .file(let id)?: store.showFromOutline(id)
-            case .folder(let key)?: toggle(key)
-            case nil: break
-            }
-        })
-    }
-
-    /// The rows ↑ and ↓ move through: views, directories and the files open
-    /// under them. Folders are opened and closed, not chosen.
-    private func order(_ branches: [RanchBranch]) -> [RanchSidebarItem] {
-        [RanchStore.Section.changes, .sources, .links, .review, .network].map(RanchSidebarItem.section)
-            + branches.flatMap { branch in
-                [RanchSidebarItem.section(.directory(branch.directory.id))] + branch.files.map(RanchSidebarItem.file)
-            }
-    }
-
-    /// → opens the chosen directory and ← closes it, as in Finder's list; ← on a
-    /// file closes the folder it is in.
-    private func sideways(_ direction: MoveCommandDirection, from item: RanchSidebarItem?) {
-        guard store.canToggleFolders else { return }
-        switch item {
-        case .section(.directory(let id))?:
-            let key = RanchTree.key(directory: id)
-            if (direction == .right) != store.openFolders.contains(key) { toggle(key) }
-        case .file(let id)? where direction == .left:
-            store.closeFolder(around: id)
-        default:
-            break
-        }
-    }
-
-    private func toggle(_ key: String) {
-        guard store.canToggleFolders else { return }
-        store.toggleFolder(key)
-    }
-
-    private func edit(_ source: RanchSource) {
-        guard let url = store.localURL(for: source) else { return }
-        RanchEditors.primary(for: url)?.open(url)
-    }
-
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button(action: actions.addDirectories) {
-                Label("Add Work Directories\u{2026}", systemImage: "plus").frame(maxWidth: .infinity)
-            }
-            // Grey like every other action button; only folders and highlights carry colour.
-            .buttonStyle(RanchPillButtonStyle(prominent: false, height: 32))
-            .help("Choose folders for Lasso to read; their files appear here")
-            HStack(spacing: 7) {
-                Circle().fill(status.color).frame(width: 7, height: 7)
-                Text(status.text).font(RanchTheme.captionFont).foregroundStyle(RanchTheme.secondaryInk)
-                    .lineLimit(1).truncationMode(.tail)
-            }
-            .padding(.horizontal, 4)
-            .help(store.loadError ?? "The Ranch reads Lasso\u{2019}s library again every few seconds while it is open.")
-        }
-        .padding(12)
-        .overlay(alignment: .top) { RanchHairline() }
-    }
-
-    /// Whether the window is showing the library as it is now.
-    private var status: (text: String, color: Color) {
-        if store.loadError != nil {
-            return store.hasLoaded ? ("Couldn\u{2019}t refresh \u{00B7} showing the last copy", RanchTheme.warning)
-                : ("Waiting for Lasso\u{2019}s library", RanchTheme.warning)
-        }
-        if !store.hasLoaded { return ("Reading your library\u{2026}", RanchTheme.tertiaryInk) }
-        return ("Up to date", Color(nsColor: RanchActivityColor.color(for: 1)))
-    }
-}
-
-/// The arrow that opens and closes a directory or folder in the outline.
-struct RanchDisclosure: View {
-    static let width: CGFloat = 12
-    let open: Bool
-    /// Kept in place, unseen, so rows with and without one line up.
-    var hidden = false
-    let toggle: () -> Void
-
-    var body: some View {
-        Button(action: toggle) {
-            Image(systemName: "chevron.right")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(RanchTheme.tertiaryInk)
-                .rotationEffect(.degrees(open ? 90 : 0))
-                .animation(.easeOut(duration: 0.15), value: open)
-                .frame(width: Self.width, height: 20)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .opacity(hidden ? 0 : 1)
-        .disabled(hidden)
-        .accessibilityHidden(true)
-    }
-}
-
-/// A library view in the sidebar: its symbol, its name and how many it holds.
-struct RanchSidebarRow: View {
-    let title: String
-    let symbol: String
-    var tint = RanchTheme.secondaryInk
-    var count = 0
-    var countTint: Color? = nil
-
-    var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: symbol).font(.system(size: 13)).foregroundStyle(tint).frame(width: 18)
-            Text(title).font(RanchTheme.bodyFont).foregroundStyle(RanchTheme.ink).lineLimit(1)
-            Spacer(minLength: 4)
-            RanchCount(value: count, tint: countTint)
-        }
-    }
-}
-
-/// Last Edited, Recently Used, Oldest or Newest, from a small menu.
-struct RanchOrderMenu: View {
-    let title: String
-    @Binding var order: RanchOrder
-
-    var body: some View {
-        Menu {
-            Picker(title, selection: $order) {
-                ForEach(RanchOrder.allCases) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            HStack(spacing: 3) {
-                Text(order.title)
-                Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
-            }
-            .font(.system(size: 11.5))
-            .foregroundStyle(RanchTheme.secondaryInk)
-            .contentShape(Rectangle())
-        }
-        .modifier(RanchPlainMenuStyle())
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help(title)
-    }
-}
-
-/// A directory's right-click menu in the sidebar: pin it to the top, give it
-/// a colour, which the menu bar panel and its sources share, or find it.
-struct RanchDirectoryMenu: View {
-    @ObservedObject var store: RanchStore
-    let directory: RanchDirectory
-
-    var body: some View {
-        Button(store.isPinned(directory.id) ? "Unpin" : "Pin to Top") { store.togglePin(directory.id) }
-        Menu("Colour") {
-            Picker("Colour", selection: color) {
-                ForEach(DirectoryToggleColor.choices(including: color.wrappedValue, DirectoryColorPreferences.lastCustom()),
-                        id: \.self) { option in
-                    Label { Text(option.title) } icon: { Image(nsImage: option.swatch()) }.tag(option)
-                }
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        }
-        if !directory.isApp && !directory.offline {
-            Divider()
-            Button("Show in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: directory.rootPath)])
-            }
-        }
-    }
-
-    private var color: Binding<DirectoryToggleColor> {
-        Binding(get: { DirectoryColorPreferences.color(for: directory.id) ?? DirectoryColorPreferences.defaultColor() },
-                set: { store.setColor($0, for: directory.id) })
-    }
-}
-
-struct RanchDirectoryRow: View {
-    let directory: RanchDirectory
-    /// Passed in rather than read here: the row only redraws when its inputs
-    /// change, so a colour picked while the window is open must be one of them.
-    let color: Color
-    var pinned = false
-
-    var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: directory.sidebarSymbol).font(.system(size: 13)).foregroundStyle(color).frame(width: 18)
-            Text(directory.name).font(RanchTheme.bodyFont).foregroundStyle(RanchTheme.ink).lineLimit(1)
-            if pinned {
-                Image(systemName: "pin.fill").font(.system(size: 9)).foregroundStyle(RanchTheme.tertiaryInk)
-                    .rotationEffect(.degrees(45)).help("Pinned to the top").accessibilityLabel("Pinned")
-            }
-            if !directory.active {
-                Text("Paused").font(RanchTheme.captionFont).foregroundStyle(RanchTheme.tertiaryInk)
-            } else if directory.offline {
-                Text("Offline").font(RanchTheme.captionFont).foregroundStyle(RanchTheme.tertiaryInk)
-            }
-            Spacer(minLength: 4)
-            if let issue = directory.issue {
-                Image(systemName: "exclamationmark.circle.fill").foregroundStyle(RanchTheme.warning).help(issue)
-            }
-            RanchCount(value: directory.listedCount)
-        }
-        .help(directory.rootPath)
     }
 }

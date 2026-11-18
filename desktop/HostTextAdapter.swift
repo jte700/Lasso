@@ -145,6 +145,7 @@ final class AccessibilityTextAdapter: HostTextAdapter {
 
     func focusedContext() -> HostContext? {
         guard let application = NSWorkspace.shared.frontmostApplication,
+              AccessibilityWork.mayRead(pid: application.processIdentifier),
               let bundle = application.bundleIdentifier else { return nil }
         let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
         AXUIElementSetMessagingTimeout(applicationElement, Self.messagingTimeout)

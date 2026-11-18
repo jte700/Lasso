@@ -121,6 +121,9 @@ extension GlobalAssistant {
         guard !ReferenceMenuController.shared.isShown else { hide(); return }
         // An app switched off in Settings gets no card, and its text is not read.
         if let app = Self.frontmostBundleID, !SuggestionApps.shared.allows(app) { hide(); return }
+        // Nor does Lasso itself, such as The Ranch's search bar: its own windows are never read.
+        if let front = NSWorkspace.shared.frontmostApplication,
+           !AccessibilityWork.mayRead(pid: front.processIdentifier) { hide(); return }
         // One read at a time: a slow host must not pile up reads behind it.
         guard contextReads.begin() else { return }
         let token = generation

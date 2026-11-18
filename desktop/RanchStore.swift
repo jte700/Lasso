@@ -51,13 +51,31 @@ final class RanchStore: ObservableObject {
         var title: String { self == .outgoing ? "Shared by You" : "Received" }
     }
 
+    /// How far the window is through its opening: the tour (the first time),
+    /// the gas and Begin, the directories, the last of the gas leaving, then
+    /// the library itself.
+    enum Stage { case tour, welcome, directories, leaving, home }
+    @Published var stage = Stage.home
+    /// Which of the tour's steps is showing (RanchTourStep).
+    @Published var tourStep = 0
+    /// The file being shared from its Share button, while the share dialog is open.
+    @Published var sharing: RanchSource?
+    /// Counts asks to open the sources page's search, from ⌘F or the sidebar.
+    @Published var searchRequest = 0
+
+    /// Whether the window is still in its opening, with the library waiting behind.
+    var isOpening: Bool { stage == .tour || stage == .welcome || stage == .directories }
+
     @Published private(set) var overview = RanchOverview.empty {
         didSet {
             sourcesByID = Dictionary(overview.sources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             sourcesByDirectory = Dictionary(grouping: overview.sources, by: \.directoryId)
+            termsCache.removeAll()
             clearLists()
         }
     }
+    /// The terms the search offers on each sources page, made once per library read.
+    private var termsCache: [String: RanchChipSearch.Terms] = [:]
     private var sourcesByID: [String: RanchSource] = [:]
     private var sourcesByDirectory: [String: [RanchSource]] = [:]
     /// Each directory's files as listed: filtered, searched and sorted once per
@@ -106,6 +124,15 @@ final class RanchStore: ObservableObject {
     @Published var searchText = "" {
         didSet { clearLists() }
     }
+    /// The filters in the sources pages' search bar; a file is listed when it holds every one.
+    @Published var searchChips: [String] = [] {
+        didSet { if searchChips != oldValue { clearLists() } }
+    }
+    /// The sources pages' recent searches, newest first, kept between launches.
+    @Published var searchRecents: [String] = [] {
+        didSet { defaults.set(searchRecents, forKey: Self.recentsKey) }
+    }
+    static let recentsKey = "RanchSearchRecents"
     /// Something the person asked for that did not work, for an alert.
     @Published var actionError: String?
     @Published var linkTab = LinkTab.outgoing
@@ -150,6 +177,9 @@ final class RanchStore: ObservableObject {
     private static let cachedPreviews = 24
     private var previews: [String: AssistModelPreview] = [:]
     private var workbooks: [String: RanchWorkbook] = [:]
+    /// Recent Changes rows already opened; history never changes, so they are kept.
+    private var changeDetails: [String: RanchChangeDetail] = [:]
+    private static let cachedChanges = 64
     private static let cachedWorkbooks = 8
     /// A workbook is kept by file as well as content: its versions and changed
     /// cells belong to that file, and the same bytes can sit under another path.
@@ -171,6 +201,7 @@ final class RanchStore: ObservableObject {
         itemOrder = RanchOrder.saved(RanchOrder.itemKey, defaults: defaults)
         kindFilter = defaults.string(forKey: RanchKindFilter.key).flatMap(RanchKindFilter.init(rawValue:)) ?? .all
         sidebarHidden = defaults.bool(forKey: Self.sidebarKey)
+        searchRecents = Array((defaults.stringArray(forKey: Self.recentsKey) ?? []).prefix(RanchChipSearch.maxRecents))
         openFolders = Set(defaults.stringArray(forKey: Self.openFoldersKey) ?? [])
         pinnedDirectories = RanchPins.saved(defaults: defaults)
         section = Section(saved: defaults.string(forKey: Self.sectionKey)) ?? .sources
@@ -279,12 +310,43 @@ final class RanchStore: ObservableObject {
     func sources(in directoryId: String) -> [RanchSource] {
         if let listed = listCache[directoryId] { return listed }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let named = directoryName(directoryId)
         let listed = itemOrder.sorted((sourcesByDirectory[directoryId] ?? []).filter { source in
             kindFilter.includes(source) && (query.isEmpty || source.path.localizedCaseInsensitiveContains(query))
+                && RanchChipSearch.keeps(source, chips: searchChips, directoryName: named)
         })
         listCache[directoryId] = listed
         return listed
     }
+
+    /// One directory's files, or with no directory every file as one list, in
+    /// the file order and narrowed by the search field and the kind filter.
+    func listedSources(in directoryId: String?) -> [RanchSource] {
+        if let directoryId { return sources(in: directoryId) }
+        if let listed = listCache[Self.everyDirectory] { return listed }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let names = Dictionary(overview.directories.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        let listed = itemOrder.sorted(overview.sources.filter { source in
+            kindFilter.includes(source) && (query.isEmpty || source.path.localizedCaseInsensitiveContains(query))
+                && RanchChipSearch.keeps(source, chips: searchChips, directoryName: names[source.directoryId] ?? "")
+        })
+        listCache[Self.everyDirectory] = listed
+        return listed
+    }
+    /// The terms the sources page's search offers as it is typed in: on a
+    /// directory's page its files and kinds, on Sources every directory too.
+    func searchTerms(in directoryId: String?) -> RanchChipSearch.Terms {
+        let key = directoryId ?? Self.everyDirectory
+        if let terms = termsCache[key] { return terms }
+        let terms = RanchChipSearch.Terms(directoryId.map { id in
+            RanchChipSearch.suggestions(sources: sourcesByDirectory[id] ?? [], directories: [])
+        } ?? RanchChipSearch.suggestions(sources: overview.sources, directories: orderedDirectories))
+        termsCache[key] = terms
+        return terms
+    }
+
+    /// No directory has this id, so the whole library's list can share the cache.
+    private static let everyDirectory = "\u{0}every"
 
     private func clearLists() {
         listCache.removeAll()
@@ -513,6 +575,41 @@ final class RanchStore: ObservableObject {
             let answer = (response as? HTTPURLResponse)?.statusCode == 200
                 ? data.flatMap { try? JSONDecoder().decode(RanchPassageChanges.self, from: $0) } : nil
             DispatchQueue.main.async { completion(answer?.changes ?? []) }
+        }
+        task.resume()
+        return task
+    }
+
+    /// A Recent Changes row's detail read before, so reopening it shows at once.
+    func cachedChange(_ id: String) -> RanchChangeDetail? { changeDetails[id] }
+
+    /// One Recent Changes row opened: who recorded it, its versions and what changed inside the file.
+    @discardableResult
+    func changeDetail(_ id: String, completion: @escaping (Result<RanchChangeDetail, Error>) -> Void) -> URLSessionDataTask? {
+        if let known = changeDetails[id] { completion(.success(known)); return nil }
+        guard let serverURL,
+              var components = URLComponents(url: serverURL.appendingPathComponent("api/ranch/change"),
+                                             resolvingAgainstBaseURL: false) else {
+            completion(.failure(Self.failure("Lasso\u{2019}s server isn\u{2019}t ready yet.")))
+            return nil
+        }
+        components.queryItems = [URLQueryItem(name: "id", value: id)]
+        guard let url = components.url else { completion(.failure(Self.failure("Lasso couldn\u{2019}t ask for this change."))); return nil }
+        let task = session.dataTask(with: url) { [weak self] data, response, error in
+            if (error as NSError?)?.code == NSURLErrorCancelled { return }
+            let result: Result<RanchChangeDetail, Error>
+            if let data, (response as? HTTPURLResponse)?.statusCode == 200 {
+                result = Result { try RanchChangeDetail.decode(data) }
+            } else {
+                result = .failure(Self.failure(WorkspaceAPI.errorMessage(data: data, response: response, error: error)))
+            }
+            DispatchQueue.main.async {
+                if case .success(let detail) = result, let self {
+                    if self.changeDetails.count >= Self.cachedChanges { self.changeDetails.removeAll() }
+                    self.changeDetails[id] = detail
+                }
+                completion(result)
+            }
         }
         task.resume()
         return task

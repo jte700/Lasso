@@ -11,6 +11,15 @@ import Foundation
 
 enum AccessibilityWork {
     static let queue = DispatchQueue(label: "com.jte700.lasso.accessibility", qos: .userInitiated)
+
+    /// Whether this queue may read an app's windows. Never Lasso's own: macOS
+    /// answers a process's reads of itself on the thread that asks, so a read
+    /// made here would run AppKit and SwiftUI off the main thread, where an
+    /// exception they throw is swallowed with SwiftUI's lock still held and
+    /// the app freezes. Typing in The Ranch's search bar did exactly this.
+    static func mayRead(pid: pid_t, own: pid_t = ProcessInfo.processInfo.processIdentifier) -> Bool {
+        pid > 0 && pid != own
+    }
 }
 
 /// Keeps at most one read of a kind running and remembers a single follow-up,

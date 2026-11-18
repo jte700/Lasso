@@ -3848,6 +3848,16 @@ do {
     check(long.requestFields.isEmpty, "a window from the start of the field without it is a deletion")
 }
 
+print("Lasso never reads its own windows through Accessibility")
+do {
+    check(!AccessibilityWork.mayRead(pid: 4242, own: 4242),
+          "the queue does not read Lasso itself, whose reads macOS would answer off the main thread")
+    check(!AccessibilityWork.mayRead(pid: ProcessInfo.processInfo.processIdentifier),
+          "this process counts as Lasso when nothing else is said")
+    check(AccessibilityWork.mayRead(pid: 911, own: 4242) && !AccessibilityWork.mayRead(pid: 0, own: 4242),
+          "another app is read, and a missing app is not")
+}
+
 print("slow hosts cost one outstanding Accessibility read")
 do {
     var gate = CoalescingGate()
@@ -4720,6 +4730,211 @@ do {
               && layout.lines.contains { $0.kind == "link" && !$0.crossesDirectories },
               "lines say whether they cross directories")
         check(layout == RanchNetworkLayout.make(overview), "the same library always lays out the same way")
+
+        // The sources page's overview, counted from the same library.
+        let today = ISO8601DateFormatter().date(from: "2026-10-23T12:00:00Z")!
+        let whole = RanchLibrarySummary(sources: overview.sources, history: overview.history,
+                                        links: overview.links.outgoing, directoryId: nil, now: today)
+        check(whole.total == 4 && whole.usedCount == 4 && whole.totalUses == 12 && overview.sources[0].counts.total == 3,
+              "the overview adds up every way a file was used")
+        check(whole.kinds.map(\.kind) == ["spreadsheet"] && whole.kinds.first?.count == 4,
+              "the overview counts files by kind")
+        check(whole.changedThisWeek == 1 && whole.changedFiles.map(\.id) == ["b"],
+              "a file edited in the last week counts as changed; a directory being added does not")
+        check(whole.activeLinks == 1 && whole.allLinks == 1 && whole.expiringLinks == 1 && whole.driftedLinks == 0,
+              "a working link that ends within a week is counted as expiring soon")
+        let models = RanchLibrarySummary(sources: overview.sources, history: overview.history,
+                                         links: overview.links.outgoing, directoryId: "d2", now: today)
+        check(models.total == 2 && models.changedThisWeek == 0 && models.allLinks == 0 && models.top.map(\.id) == ["c", "d"],
+              "one directory's overview counts only its own files, changes and links")
+        let later = RanchLibrarySummary(sources: overview.sources, history: overview.history,
+                                        links: overview.links.outgoing, directoryId: nil,
+                                        now: today.addingTimeInterval(30 * 24 * 3600))
+        check(later.changedThisWeek == 0, "a change more than a week old is no longer counted")
+        check(RanchUseFilter.used.keeps(overview.sources[0]) && !RanchUseFilter.shared.keeps(overview.sources[0])
+              && RanchUseFilter.all.keeps(overview.sources[0]),
+              "In use keeps files that were used, Shared those with a working link")
+        let busy = RanchLibrarySummary(sources: [], history: [], links: [], directoryId: nil)
+        check(busy.total == 0 && !busy.anyUsed && busy.top.isEmpty && busy.kinds.isEmpty,
+              "an empty library has an empty overview")
+        check(RanchLibrarySummary.short(46) == "46" && RanchLibrarySummary.short(2140) == "2.1k"
+              && RanchLibrarySummary.short(18400) == "18k",
+              "a count too long for its circle is written in thousands")
+        let box = CGSize(width: 260, height: 150)
+        let circles = RanchCirclePacking.pack([1412, 806, 482, 147], in: box)
+        var apart = true
+        for first in circles.indices {
+            for second in circles.indices where second > first {
+                let distance = hypot(circles[first].x - circles[second].x, circles[first].y - circles[second].y)
+                if distance < (circles[first].d + circles[second].d) / 2 { apart = false }
+            }
+        }
+        let inside = circles.allSatisfy { $0.x - $0.d / 2 >= -0.5 && $0.x + $0.d / 2 <= box.width + 0.5
+            && $0.y - $0.d / 2 >= -0.5 && $0.y + $0.d / 2 <= box.height + 0.5 }
+        check(apart && inside, "the kinds' circles sit inside their card without touching")
+        check(circles[0].d > circles[1].d && circles[1].d > circles[2].d && circles[2].d > circles[3].d,
+              "a kind with more files gets a larger circle")
+        check(RanchCirclePacking.pack([0, 0], in: box).allSatisfy { $0.d == 0 }, "kinds with no files draw no circle")
+        let wide = RanchTableColumns(width: 900, showsDirectory: true)
+        let narrow = RanchTableColumns(width: 600, showsDirectory: true)
+        check(wide.kind && wide.directory && wide.usage && narrow.kind && !narrow.directory && !narrow.usage
+              && !RanchTableColumns(width: 900, showsDirectory: false).directory,
+              "a narrow table drops its directory and usage columns, and one directory's table never names it")
+        var ticks = RanchDirectoryTicks()
+        ticks.meet(overview.directories)
+        check(ticks.count(overview.directories) == 3 && ticks.changes(overview.directories).isEmpty,
+              "every directory Lasso reads starts ticked, and going on untouched changes nothing")
+        ticks.toggle(overview.directories[0])
+        check(ticks.changes(overview.directories) == [RanchDirectoryChange(id: "d1", active: false)]
+              && ticks.count(overview.directories) == 2,
+              "unticking a directory pauses it when the person goes on")
+        ticks.toggle(overview.directories[0])
+        check(ticks.changes(overview.directories).isEmpty, "ticking it again takes the pause back")
+        ticks.toggle(overview.directories[2])
+        check(ticks.isTicked(overview.directories[2]) && ticks.changes(overview.directories).isEmpty,
+              "a connected app stays ticked; it is switched on and off where it was connected")
+        let pausedJSON = json.replacingOccurrences(of: "\"name\": \"Finance\", \"rootPath\": \"/tmp/Finance\", \"kind\": \"folder\", \"symbol\": null, \"active\": true",
+                                                   with: "\"name\": \"Finance\", \"rootPath\": \"/tmp/Finance\", \"kind\": \"folder\", \"symbol\": null, \"active\": false")
+        if let paused = try? RanchOverview.decode(Data(pausedJSON.utf8)), !paused.directories[0].active {
+            var resume = RanchDirectoryTicks()
+            resume.meet(paused.directories)
+            check(!resume.isTicked(paused.directories[0]), "a paused directory starts unticked")
+            resume.toggle(paused.directories[0])
+            check(resume.changes(paused.directories) == [RanchDirectoryChange(id: "d1", active: true)],
+                  "ticking a paused directory resumes it")
+            var later = RanchDirectoryTicks()
+            later.meet(Array(overview.directories.prefix(1)))
+            later.toggle(overview.directories[0])
+            later.meet(overview.directories)
+            check(later.changes(overview.directories) == [RanchDirectoryChange(id: "d1", active: false)]
+                  && later.isTicked(overview.directories[1]),
+                  "a directory added during the step comes in ticked and keeps the ticks already changed")
+        } else {
+            check(false, "a paused directory decodes")
+        }
+        let early = RanchDemoTime(t: 1, loop: 10)
+        let late = RanchDemoTime(t: 9.9, loop: 10)
+        check(early.ramp(0, 2, curve: .linear) == 0.5 && early.ramp(2, 3) == 0 && early.ramp(0, 0.5) == 1
+              && early.ramp(0, 2) == 0.5,
+              "a demo's ramps run from 0 to 1 across their span and hold outside it")
+        check(RanchDemoTime(t: 0.9, loop: 10).ramp(0, 1, curve: .back) > 1 && RanchDemoTime(t: 1, loop: 10).ramp(0, 1, curve: .back) == 1,
+              "a pop overshoots a little and settles where it belongs")
+        check([RanchDemoTime.Curve.linear, .smooth, .out, .back].allSatisfy {
+                  RanchDemoTime(t: 0.5, loop: 10).ramp(1, 2, curve: $0) == 0 && RanchDemoTime(t: 1, loop: 10).ramp(1, 2, curve: $0) == 0
+              },
+              "nothing has begun before its moment, whatever its curve")
+        check(early.span(0.5, 3) == 1 && RanchDemoTime(t: 3.5, loop: 10).span(0.5, 3) == 0
+              && early.press(1, length: 0.16) == 0 && RanchDemoTime(t: 1.08, loop: 10).press(1) == 1,
+              "something shown for a span is gone after it, and a press is down only for its moment")
+        check(early.fade == 1 && late.fade < 0.5 && RanchDemoTime(t: 0, loop: 10).fade == 0,
+              "a demo fades in as its loop starts and out before it starts again")
+        let path = RanchDemoPath(keys: [(0, CGPoint(x: 0, y: 0)), (1, CGPoint(x: 0, y: 0)), (3, CGPoint(x: 100, y: 50))])
+        check(path.point(RanchDemoTime(t: 0.5, loop: 10)) == .zero && path.point(RanchDemoTime(t: 2, loop: 10)) == CGPoint(x: 50, y: 25)
+              && path.point(RanchDemoTime(t: 5, loop: 10)) == CGPoint(x: 100, y: 50),
+              "a demo's pointer holds at each stop and glides between them")
+        check(abs(RanchPullPhysics.rubber(100) - 55) < 1e-9 && abs(RanchPullPhysics.rubber(180) - 99) < 1e-9
+              && RanchPullPhysics.rubber(-20) == 0
+              && RanchPullPhysics.rubber(160) >= RanchPullPhysics.threshold,
+              "a pull moves the page half as far at first, so the refresh point is easy to reach")
+        check(RanchPullPhysics.rubber(2000) < 159 && RanchPullPhysics.rubber(2000) > RanchPullPhysics.rubber(400),
+              "past that the page resists more and more, and never goes further than about 159 points")
+        var back = RanchSpring(RanchPullPhysics.threshold, RanchPullPhysics.back.k, RanchPullPhysics.back.c)
+        back.t = 0
+        var lowest = back.x
+        for _ in 0..<(60 * 4 * 2) { back.step(1.0 / 240); lowest = min(lowest, back.x) }
+        check(lowest < 0 && lowest > -12 && back.settled,
+              "let go, the page springs home with one small overshoot and settles")
+        var held = RanchSpring(0, RanchPullPhysics.follow.k, RanchPullPhysics.follow.c)
+        held.t = 40
+        var highest = held.x
+        for _ in 0..<(60 * 4) { held.step(1.0 / 240); highest = max(highest, held.x) }
+        check(highest <= 40.6 && held.settled, "while pulled, the page follows closely, overshooting by no more than a hair")
+        var calm = RanchSpring(0, 0, 0)
+        calm.tune(RanchPullPhysics.back, reduce: true)
+        check(calm.c == 2 * RanchPullPhysics.back.k.squareRoot(), "with Reduce Motion the springs are critically damped")
+        check(RanchShareWay.allCases.allSatisfy { $0.unavailable(for: "Lease.pdf") == nil },
+              "a PDF can be shared whole, redacted or marked up")
+        check(RanchShareWay.whole.unavailable(for: "deck-loads.xlsx") == nil
+              && RanchShareWay.redacted.unavailable(for: "deck-loads.xlsx") == nil
+              && RanchShareWay.marked.unavailable(for: "deck-loads.xlsx") != nil,
+              "a spreadsheet can be shared whole or redacted, but not marked up, and says why")
+        check(RanchShareWay.whole.unavailable(for: "site.mp4") == nil && RanchShareWay.redacted.unavailable(for: "site.mp4") != nil,
+              "a video is shared whole only")
+        check(RanchShareWay.whole.scope == .document && RanchShareWay.redacted.scope == .redacted && RanchShareWay.marked.scope == .marked,
+              "each way of sharing makes the scope the server knows it by")
+        check(RanchShareAddress.valid("sam@harbor.co") && !RanchShareAddress.valid("sam@harbor")
+              && !RanchShareAddress.valid("sam harbor.co") && !RanchShareAddress.valid(""),
+              "only what looks like an email address becomes a recipient")
+        var rows = RanchSpringRows(count: 3, row: 56, pad: 6)
+        rows.hover(0)
+        check(rows.highlight.top == 6 && rows.highlight.height == 56, "the highlight starts on its row at once, with no slide")
+        for _ in 0..<72 { rows.step(1.0 / 240) }
+        rows.hover(2)
+        var stretched = 0.0
+        for _ in 0..<120 { rows.step(1.0 / 240); stretched = max(stretched, rows.highlight.height) }
+        check(stretched > 80, "moving down two rows, the highlight stretches as its leading edge runs ahead")
+        for _ in 0..<480 { rows.step(1.0 / 240) }
+        check(abs(rows.highlight.top - 118) < 0.5 && abs(rows.highlight.height - 56) < 0.5,
+              "and settles on the new row, its own height again")
+        rows.choose(1)
+        check(rows.presses[1].x == 0.955 && rows.ticks[1].t == 1 && rows.ticks[0].t == 0,
+              "choosing a row draws its check and gives it a little press")
+        check(RanchSpringRows.delay(0) == 0.05 && abs(RanchSpringRows.delay(2) - 0.14) < 1e-9,
+              "rows fall in 45 milliseconds apart, as the component's stagger is")
+        typealias Chips = RanchChipSearch
+        let recents = ["dashboards", "empty states", "pricing pages"]
+        let terms = ["dashboards", "data tables", "dark mode", "empty states", "onboarding", "pricing pages"]
+        check(Chips.rows(query: "", chips: ["onboarding"], recents: recents, suggestions: terms).map(\.label) == recents
+              && Chips.rows(query: " ", chips: [], recents: recents, suggestions: terms).allSatisfy { $0.kind == .recent },
+              "with nothing typed, the chip search lists the recent searches")
+        let typed = Chips.rows(query: "da", chips: ["onboarding"], recents: recents, suggestions: terms)
+        check(typed.map(\.label) == ["da", "dashboards", "data tables", "dark mode"]
+              && typed.map(\.kind) == [.query, .recent, .suggestion, .suggestion],
+              "typing lists what was typed, then recents holding it, then suggestions, none twice")
+        check(Chips.rows(query: "ON", chips: ["onboarding"], recents: [], suggestions: terms).map(\.label) == ["ON"],
+              "a term that is already a chip is not offered again, whatever its case")
+        check(Chips.rows(query: "a", chips: [], recents: [], suggestions: (1...9).map { "a\($0)" }).count == 1 + 6,
+              "at most six matches follow what was typed")
+        check(Chips.holds(Array("data tables".utf8), Array("a t".utf8)) && Chips.holds(Array("ab".utf8), [])
+              && !Chips.holds(Array("ab".utf8), Array("abc".utf8)) && !Chips.holds(Array("aab".utf8), Array("abb".utf8)),
+              "a term holds the typed bytes anywhere in it, and nothing longer than itself")
+        let accented = Chips.Terms(["Été Report.pdf", "Plan.docx"])
+        check(Chips.rows(query: "ÉTÉ", chips: [], recents: [], terms: accented).map(\.label) == ["ÉTÉ", "Été Report.pdf"],
+              "terms are matched whatever their case, accented letters too")
+        let marked = Chips.highlight("Data tables", query: "DA").map { String("Data tables"[$0]) }
+        check(marked == "Da" && Chips.highlight("Data", query: "x") == nil && Chips.highlight("Data", query: "") == nil,
+              "the typed part of a row is found whatever its case, to be drawn heavier")
+        let added = Chips.add(" pricing pages ", chips: ["onboarding"], recents: recents)
+        check(added.outcome == .added && added.chips == ["onboarding", "pricing pages"]
+              && added.recents == ["pricing pages", "dashboards", "empty states"],
+              "entering a term adds it as a chip, trimmed, and moves it to the top of the recents")
+        let again = Chips.add("ONBOARDING", chips: ["onboarding"], recents: recents)
+        check(again.outcome == .existing && again.chips == ["onboarding"] && again.recents.first == "ONBOARDING"
+              && again.recents.count == 4,
+              "a term already a chip is not added twice, though it still becomes the latest recent")
+        let full = Chips.add("settings", chips: ["a", "b", "c", "d"], recents: recents)
+        check(full.outcome == .full && full.chips.count == 4 && full.recents == recents,
+              "a bar holding four chips takes no more and leaves the recents alone")
+        check(Chips.add("  ", chips: [], recents: recents).outcome == .empty
+              && Chips.add("x", chips: [], recents: ["a", "b", "c", "d", "e"]).recents == ["x", "a", "b", "c", "d"],
+              "nothing typed adds nothing, and the recents keep five")
+        let row = ["a", "b", "c"]
+        check(Chips.step(nil, by: -1, in: row) == "c" && Chips.step("c", by: -1, in: row) == "b"
+              && Chips.step("a", by: -1, in: row) == "a" && Chips.step("b", by: 1, in: row) == "c"
+              && Chips.step("c", by: 1, in: row) == nil && Chips.step(nil, by: -1, in: []) == nil,
+              "the left arrow walks back through the chips from the field, and the right arrow past the last leaves them")
+        let budget = overview.sources[0]
+        check(Chips.keeps(budget, chips: ["budget"], directoryName: "Finance")
+              && Chips.keeps(budget, chips: ["REPORTS", "finance", "spreadsheet"], directoryName: "Finance")
+              && !Chips.keeps(budget, chips: ["budget", "models"], directoryName: "Finance")
+              && Chips.keeps(budget, chips: [], directoryName: "Finance"),
+              "a file stays listed when every chip is in its name, folders, directory or kind")
+        let offered = Chips.suggestions(sources: overview.sources, directories: overview.directories)
+        check(offered == ["Finance", "Models", "Outlook", "Spreadsheet", "Actuals.xlsx", "Budget.xlsx", "Plate.step", "Bracket.step"],
+              "the terms offered are the directories, the kinds, then the files edited most lately")
+        check(RanchKindFilter.keeping("pdf") == .pdfs && RanchKindFilter.keeping("nothing") == nil
+              && RanchKindFilter.label(for: "spreadsheet") == "Spreadsheet" && RanchKindFilter.label(for: "mystery") == "File",
+              "a file's kind has a short label and a filter that keeps it")
         check(layout.nodes.allSatisfy { abs($0.position.x) <= 1 && abs($0.position.y) <= 1 },
               "every node stays inside the drawing")
         let finance = RanchNetworkLayout.make(overview, directoryId: "d1")
@@ -4924,6 +5139,55 @@ do {
           "a selection covers the lines it touches, not the line after its last line break")
     check(RanchCodeLines.label(4...4) == "Line 4" && RanchCodeLines.label(10...20) == "Lines 10\u{2013}20",
           "selected lines are named the way they are written")
+}
+
+// MARK: Recent Changes as an audit log
+
+do {
+    let json = """
+    {"change": {"id": "c1", "change": "edited", "directoryId": "d1", "at": "2026-11-03T10:24:00.000Z", "source": "WATCHER",
+     "actor": {"name": "Dana Walker", "type": "HUMAN_SELF"}, "initiatedBy": null, "request": null,
+     "version": {"before": 12, "after": 13}, "path": "notes/field.md", "previousPath": null, "fileId": "f1", "fileCount": 1,
+     "files": [], "file": {"type": "markdown", "before": {"size": 2048, "hash": "a"}, "after": {"size": 3072, "hash": "b"}},
+     "lines": {"added": 1, "removed": 1, "truncated": false, "hunks": [{"lines": [
+        {"kind": "same", "text": "Site visit on Monday.", "before": 3, "after": 3},
+        {"kind": "remove", "text": "Soil was dry.", "before": 4, "after": null},
+        {"kind": "add", "text": "Soil was damp after rain.", "before": null, "after": 4}]}]},
+     "table": null, "fields": null, "values": [], "valueCount": 0, "movedCount": 0, "bytesReleased": false}}
+    """
+    let detail = try? RanchChangeDetail.decode(Data(json.utf8))
+    check(detail?.lines?.hunks.first?.lines.count == 3 && detail?.at != nil && detail?.version.after == 13
+          && detail?.listsChanges == true && detail?.isCode == false,
+          "A change's detail decodes with its lines, versions and date")
+    check(RanchChangeWords.version(RanchChangeDetail.Version(before: 12, after: 13)) == "12 \u{2192} 13"
+          && RanchChangeWords.version(RanchChangeDetail.Version(before: nil, after: 1)) == "1",
+          "A change names the directory versions it went between")
+
+    let lines = detail?.lines?.hunks.first?.lines ?? []
+    let marks = RanchChangeWords.changedWords(in: lines)
+    let marked = { (index: Int) in (marks[index] ?? []).map { (lines[index].text as NSString).substring(with: $0) } }
+    check(marks[0] == nil && marked(1) == ["dry"] && marked(2) == ["damp after rain"],
+          "A rewritten line marks the words it dropped and the words its replacement brought, a phrase as one mark")
+    let rewritten = [RanchChangeDetail.Line(kind: "remove", text: "Old words here", before: 1, after: nil),
+                     RanchChangeDetail.Line(kind: "add", text: "Entirely different text", before: nil, after: 1)]
+    check(RanchChangeWords.changedWords(in: rewritten).isEmpty, "A line rewritten whole is left to its colour")
+
+    check(RanchChangeWords.who(RanchActor(name: "Lasso", type: "SYSTEM"), source: "WATCHER") == .disk
+          && RanchChangeWords.who(RanchActor(name: "Lasso", type: "SYSTEM"), source: "REINDEX") == .lasso
+          && RanchChangeWords.who(RanchActor(name: "Claude Code", type: "AI_AGENT"), source: "AGENT_EDIT") == .agent("Claude Code")
+          && RanchChangeWords.who(RanchActor(name: "Dana Walker", type: "HUMAN_SELF"), source: "WATCHER").title == "Dana Walker",
+          "A save Lasso only saw on disk is never credited to Lasso")
+    check(RanchChangeWords.recorded("WATCHER") == "Saved on this Mac" && RanchChangeWords.recorded("SOME_NEW_SOURCE") == "Some new source",
+          "How a change was recorded reads as words, even for a source the app does not know yet")
+    let kb = { (bytes: Int) in ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file) }
+    check(RanchChangeWords.size(before: 2048, after: 3072) == "\(kb(2048)) \u{2192} \(kb(3072))"
+          && RanchChangeWords.size(before: 2048, after: 2048) == "\(kb(2048)), unchanged"
+          && RanchChangeWords.size(before: 2048, after: nil) == "\(kb(2048)) when removed"
+          && RanchChangeWords.size(before: nil, after: nil) == nil,
+          "A change's size says what it was and what it became")
+    check(RanchChangeWords.row("row:4") == "Row 4" && RanchChangeWords.row("Ada") == "Ada"
+          && RanchChangeWords.lineSummary(RanchChangeDetail.Lines(added: 2, removed: 1, hunks: [], truncated: false)) == "2 lines added, 1 removed",
+          "Table rows and line counts read as words")
 }
 
 // MARK: The glass card's outline
