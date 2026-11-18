@@ -107,17 +107,24 @@ struct RanchHistoryEntry: Decodable, Identifiable, Equatable {
     var textChanges: RanchTextChanges? = nil
 
     /// The caption of an edit that changed values: "Q3 Total 18,400 → 19,250"
-    /// for one, "4 values changed · Finance" for several; nil otherwise.
+    /// for one, "4 values changed · Finance" for several; nil otherwise. Only
+    /// the values typed into count: the formula cells that recalculated from
+    /// them are listed in the change's detail.
     func valueCaption(directory: String) -> String? {
         guard change == "edited", let changes = valueChanges, changes.count > 0 else { return nil }
+        let recalculated = min(changes.recalculated ?? 0, changes.count)
+        let typed = changes.count - recalculated
         // A short value is quoted; a passage, which a row has no room for, is counted.
         let quotable = { (value: String) in value.count <= 40 && !value.contains(where: \.isNewline) }
-        if changes.count == 1, let first = changes.first, let before = first.beforeDisplay ?? first.before,
+        if typed == 1 || changes.count == 1, let first = changes.first, let before = first.beforeDisplay ?? first.before,
            let after = first.afterDisplay ?? first.after, quotable(before), quotable(after) {
             let label = first.label.map { "\($0) " } ?? ""
             return "\(label)\(before) \u{2192} \(after)"
         }
-        return "\(changes.count == 1 ? "1 value" : "\(changes.count.formatted()) values") changed \u{00B7} \(directory)"
+        if typed == 0 {
+            return "\(recalculated == 1 ? "1 value" : "\(recalculated.formatted()) values") recalculated \u{00B7} \(directory)"
+        }
+        return "\(typed == 1 ? "1 value" : "\(typed.formatted()) values") changed \u{00B7} \(directory)"
     }
 }
 
@@ -140,7 +147,10 @@ struct RanchValueChanges: Decodable, Equatable {
         var afterDisplay: String? = nil
     }
     let count: Int
+    /// A value typed into when the edit has one, else a recalculated one.
     let first: Change?
+    /// How many of `count` are formula cells that changed because their inputs did.
+    var recalculated: Int? = nil
 }
 
 struct RanchOutgoingLink: Decodable, Identifiable, Equatable {

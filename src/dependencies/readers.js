@@ -21,6 +21,11 @@ const TEXT_EXTENSIONS = new Set(['.txt', '.bib', '.ris', '.enw', '.nbib']);
 /** In the order they are asked: the first that accepts a file reads it. */
 export const READERS = Object.freeze([
   { id: 'video', version: 1, extract: 'video', accepts: (file) => file.fileType === 'video' },
+  // Excel 97-2003 workbooks (.xls), read from their binary records.
+  // 1: read by the table reader, before they had a reader of their own.
+  // 2: cells that hold a formula say so (metadata.formula), as a newer workbook's do.
+  { id: 'legacy-workbook', version: 2, extract: 'table',
+    accepts: (file) => file.fileType === 'spreadsheet' && path.extname(file.path).toLowerCase() === '.xls' },
   // 2: worksheet cells that hold a formula say so (metadata.formula).
   // 3: so do those of sheets too large to read at once, answered by the table index.
   // 4: a headed column A is read as cells when the rows are named further right.

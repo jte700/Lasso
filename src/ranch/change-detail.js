@@ -10,6 +10,7 @@ import { HttpError } from '../history/errors.js';
 import { diffInternals, expandStructuredDiff } from '../history/diff.js';
 import { isTextualType } from '../history/file-types.js';
 import { sourceLocator } from '../terminal/names.js';
+import { FORMULA_CELL } from './history.js';
 import { shownCell } from './sheets.js';
 
 /** Lines kept either side of a changed line, as `diff -U3` keeps them. */
@@ -52,7 +53,8 @@ const OBJECT_CHANGES = `
     b.anchor_json AS before_anchor, b.metadata_json AS before_metadata,
     a.path AS after_path, a.label AS after_label, a.value_text AS after_value,
     a.anchor_json AS after_anchor, a.metadata_json AS after_metadata,
-    s.replaces_version_id, r.label AS replaced_label, r.value_text AS replaced_value
+    s.replaces_version_id, r.label AS replaced_label, r.value_text AS replaced_value,
+    CASE WHEN a.id IS NULL THEN 0 ELSE ${FORMULA_CELL} END AS formula
   FROM object_changes c
   JOIN scientific_objects o ON o.id = c.object_id
   LEFT JOIN scientific_object_versions b ON b.id = c.before_version_id
@@ -94,7 +96,7 @@ function captureDetail(db, event, base) {
       previousPath: row.path_after && row.path_before !== row.path_after ? row.path_before : null }));
   return { ...base, change: event.source === 'IMPORT' ? 'directory-added' : 'many', path: null, previousPath: null,
     fileId: null, fileCount: event.file_count, files, file: null, lines: null, table: null, fields: null,
-    values: [], valueCount: 0, movedCount: 0, bytesReleased: false };
+    values: [], valueCount: 0, recalculatedCount: 0, movedCount: 0, bytesReleased: false };
 }
 
 function fileDetail({ db, timeline, shown }, event, row, base) {
@@ -134,7 +136,7 @@ function fileDetail({ db, timeline, shown }, event, row, base) {
   }
 
   // Text and tables already say what changed; the objects read from them would say it twice.
-  const values = lines || table || fields ? { values: [], valueCount: 0, movedCount: 0 }
+  const values = lines || table || fields ? { values: [], valueCount: 0, recalculatedCount: 0, movedCount: 0 }
     : valuesOf(db, event, filePath, row.path_before, shown);
   return {
     ...base, change: VERBS[row.change_type] ?? 'edited', path: filePath,
@@ -306,13 +308,18 @@ function valuesOf(db, event, filePath, previousPath, shown) {
     };
     const beforeDisplay = kind === 'added' ? null : display(before);
     const afterDisplay = kind === 'removed' ? null : display(after);
+    // A formula cell whose value changed was recalculated from its inputs, not typed into.
+    const recalculated = kind === 'modified' && valued && Boolean(row.formula);
     values.push({
       kind, label: clip(label, 160), place: placeOf(anchor, metadata, filePath),
       before: kind === 'added' ? null : clip(before), after: kind === 'removed' ? null : clip(after),
       ...(beforeDisplay ? { beforeDisplay } : {}), ...(afterDisplay ? { afterDisplay } : {}),
-      order: readingOrder(anchor),
+      ...(recalculated ? { recalculated } : {}),
+      order: [recalculated ? 1 : 0, ...readingOrder(anchor)],
     });
   }
+  // What was typed comes first, then the formula cells that followed it, each in reading order.
   values.sort((left, right) => compareOrder(left.order, right.order));
-  return { values: values.slice(0, MAX_VALUES).map(({ order, ...value }) => value), valueCount: values.length, movedCount: moved };
+  return { values: values.slice(0, MAX_VALUES).map(({ order, ...value }) => value), valueCount: values.length,
+    recalculatedCount: values.filter((value) => value.recalculated).length, movedCount: moved };
 }

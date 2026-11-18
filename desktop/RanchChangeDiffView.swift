@@ -100,6 +100,7 @@ struct RanchChangeDiffView: View {
 /// The panel of what changed inside the file, inset like a diff in a review.
 private struct RanchChangeBody: View {
     let detail: RanchChangeDetail
+    @State private var showsRecalculated = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -117,10 +118,20 @@ private struct RanchChangeBody: View {
                                       label: nil, before: field.before, after: field.after, code: true)
                 }
             } else if !detail.values.isEmpty {
-                caption(Self.valueSummary(detail))
-                ForEach(Array(detail.values.enumerated()), id: \.offset) { _, value in
-                    RanchDiffValueRow(kind: value.kind, place: value.place, label: value.label,
-                                      before: value.shownBefore, after: value.shownAfter, code: false)
+                caption(RanchChangeWords.valueSummary(detail))
+                let typed = detail.values.filter { !$0.isRecalculated }
+                let recalculated = detail.values.filter(\.isRecalculated)
+                // What was typed leads. The formula cells that followed it wait in
+                // a fold; when nothing was typed, they are what changed.
+                ForEach(Array((typed.isEmpty ? recalculated : typed).enumerated()), id: \.offset) { _, value in
+                    valueRow(value)
+                }
+                if !typed.isEmpty, !recalculated.isEmpty {
+                    RanchRecalculatedFold(title: RanchChangeWords.recalculatedFold(
+                        max(detail.recalculatedCount ?? 0, recalculated.count), typed: typed.count), open: $showsRecalculated)
+                    if showsRecalculated {
+                        ForEach(Array(recalculated.enumerated()), id: \.offset) { _, value in valueRow(value) }
+                    }
                 }
                 if detail.valueCount > detail.values.count {
                     note("And \((detail.valueCount - detail.values.count).formatted()) more. The file\u{2019}s viewer tints every one.")
@@ -176,10 +187,38 @@ private struct RanchChangeBody: View {
         return parts.isEmpty ? "No cells changed" : parts.joined(separator: " \u{00B7} ")
     }
 
-    private static func valueSummary(_ detail: RanchChangeDetail) -> String {
-        let count = detail.valueCount
-        let word = detail.values.allSatisfy { $0.kind == "added" } ? "added" : detail.values.allSatisfy { $0.kind == "removed" } ? "removed" : "changed"
-        return count == 1 ? "1 value \(word)" : "\(count.formatted()) values \(word)"
+    private func valueRow(_ value: RanchChangeDetail.Value) -> some View {
+        RanchDiffValueRow(kind: value.kind, place: value.place, label: value.label,
+                          before: value.shownBefore, after: value.shownAfter, code: false, recalculated: value.isRecalculated)
+    }
+}
+
+/// The row under the values typed into that opens onto the formula cells they recalculated.
+private struct RanchRecalculatedFold: View {
+    let title: String
+    @Binding var open: Bool
+
+    var body: some View {
+        Button {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { open.toggle() }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .rotationEffect(.degrees(open ? 90 : 0))
+                    .frame(width: 12)
+                Text(title).font(RanchLook.font(13))
+                Spacer(minLength: 8)
+            }
+            .foregroundStyle(RanchLook.ink2)
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .top) { RanchLook.line2.frame(height: 1) }
+        .help(open ? "Hide the formula cells" : "Show the formula cells")
+        .accessibilityLabel(title)
+        .accessibilityValue(open ? "Shown" : "Hidden")
     }
 }
 
@@ -310,13 +349,15 @@ private struct RanchDiffValueRow: View {
     let before: String?
     let after: String?
     let code: Bool
+    /// A formula cell that changed because its inputs did.
+    var recalculated = false
 
     private static let shortLength = 70
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                RanchListStatusLabel(status: status).frame(width: 96, alignment: .leading)
+                RanchListStatusLabel(status: status).frame(width: 112, alignment: .leading)
                 if let place {
                     Text(place).font(RanchLook.font(12.5, .medium)).foregroundStyle(RanchLook.ink2).lineLimit(1)
                         .fixedSize()
@@ -334,6 +375,7 @@ private struct RanchDiffValueRow: View {
     }
 
     private var status: RanchListStatus {
+        if recalculated { return RanchListStatus(title: "Recalculated", dot: RanchLook.ink3, dim: true) }
         switch kind {
         case "added": return RanchListStatus(title: "Added", dot: RanchLook.lime)
         case "removed": return RanchListStatus(title: "Removed", dot: RanchLook.terracotta)

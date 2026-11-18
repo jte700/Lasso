@@ -5447,6 +5447,31 @@ do {
     check(formatted?.valueCaption(directory: "Finance") == "Payroll 18,400 \u{2192} 19,250", "a worksheet value's caption reads as the sheet formats it")
     let plain = entry(#"{"id":"c3","directoryId":"d","change":"edited","path":"notes.md"}"#)
     check(plain != nil && plain?.valueCaption(directory: "Finance") == nil, "an edit from an older server, or with no value changes, keeps its caption")
+    let typedOne = entry(#"{"id":"c5","directoryId":"d","change":"edited","path":"Income.xls","valueChanges":{"count":10,"recalculated":9,"first":{"label":"Product 1 · Current Period","before":"4000","after":"5000"}}}"#)
+    check(typedOne?.valueCaption(directory: "Accounting") == "Product 1 \u{00B7} Current Period 4000 \u{2192} 5000",
+          "the one value typed into leads the caption; the formula cells it recalculated are left to the detail")
+    let typedThree = entry(#"{"id":"c6","directoryId":"d","change":"edited","path":"Income.xls","valueChanges":{"count":12,"recalculated":9,"first":{"label":"Rent","before":"1","after":"2"}}}"#)
+    check(typedThree?.valueCaption(directory: "Accounting") == "3 values changed \u{00B7} Accounting", "only values typed into are counted")
+    let formulasOnly = entry(#"{"id":"c7","directoryId":"d","change":"edited","path":"Income.xls","valueChanges":{"count":4,"recalculated":4,"first":{"label":"Net","before":"1","after":"2"}}}"#)
+    check(formulasOnly?.valueCaption(directory: "Accounting") == "4 values recalculated \u{00B7} Accounting", "a save that changed only formula results says so")
+}
+
+// A change's detail counts the values typed into apart from the formula cells that followed them.
+do {
+    func detail(_ values: String, count: Int, recalculated: Int) -> RanchChangeDetail? {
+        try? RanchChangeDetail.decode(Data(#"{"change":{"id":"f1","change":"edited","directoryId":"d","source":"WATCHER","actor":{"name":"Lasso","type":"SYSTEM"},"version":{"before":1,"after":2},"path":"Income.xls","previousPath":null,"fileId":"x","fileCount":1,"files":[],"file":null,"lines":null,"table":null,"fields":null,"values":[\#(values)],"valueCount":\#(count),"recalculatedCount":\#(recalculated),"movedCount":0,"bytesReleased":false}}"#.utf8))
+    }
+    let typed = #"{"kind":"modified","label":"Product 1","place":"Accounting!B18","before":"4000","after":"5000"}"#
+    let formula = #"{"kind":"modified","label":"Net","place":"Accounting!B69","before":"6236","after":"5236","recalculated":true}"#
+    let mixed = detail([typed, formula, formula].joined(separator: ","), count: 3, recalculated: 2)
+    check(mixed?.values.map(\.isRecalculated) == [false, true, true], "a value says whether a formula recalculated it")
+    check(mixed.map(RanchChangeWords.valueSummary) == "1 value changed \u{00B7} 2 recalculated", "the caption counts each apart")
+    check(RanchChangeWords.recalculatedFold(9, typed: 1) == "9 formula cells recalculated from it", "the fold names what followed the typed value")
+    check(RanchChangeWords.recalculatedFold(1, typed: 2) == "1 formula cell recalculated from them", "and from several")
+    let onlyFormulas = detail(formula, count: 1, recalculated: 1)
+    check(onlyFormulas.map(RanchChangeWords.valueSummary) == "1 value recalculated", "a save that changed only formula results says so")
+    let older = detail(typed, count: 1, recalculated: 0)
+    check(older.map(RanchChangeWords.valueSummary) == "1 value changed", "a value typed into alone reads as before")
 }
 
 // A Needs Review row names the old and new value and the claim they back.
