@@ -9,6 +9,7 @@
 //   FAKE_CODEX_SIGNED_OUT=1    account/read reports no account
 //   FAKE_CODEX_REJECT_FLAGS=1  started with --disable, it refuses to run
 //   FAKE_CODEX_LOG=<file>      each request's method (and thread/start's params) is appended there
+//   FAKE_CODEX_REPLY_FILE=<file>  while the file exists, each turn answers with its contents and nothing else
 
 import fs from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -44,6 +45,18 @@ async function turn(threadId, turnId, request) {
   if (/fail/i.test(prompt)) {
     notify('error', { threadId, turnId, willRetry: false, error: { message: 'You have reached your usage limit.' } });
     completed('failed', { message: 'You have reached your usage limit.' });
+    return;
+  }
+  // A scripted answer, read afresh each turn: the reply to a review's request for an edit.
+  const scripted = process.env.FAKE_CODEX_REPLY_FILE;
+  if (scripted && fs.existsSync(scripted)) {
+    log({ method: 'turn/request', request });
+    notify('item/started', { threadId, turnId, item: { type: 'agentMessage', id: 'scripted', phase: 'final_answer', text: '' } });
+    const answer = fs.readFileSync(scripted, 'utf8');
+    for (let at = 0; at < answer.length; at += 11) {
+      notify('item/agentMessage/delta', { threadId, turnId, itemId: 'scripted', delta: answer.slice(at, at + 11) });
+    }
+    completed('completed');
     return;
   }
   if (/slow/i.test(prompt)) {

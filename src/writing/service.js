@@ -129,6 +129,33 @@ export class WritingService {
     }
   }
 
+  /**
+   * The writer's whole answer to `prompt` under `instructions`, for work that
+   * is not written at a cursor, such as a change asked for in a review. It can
+   * look things up through Lasso as a written answer can.
+   */
+  async complete({ instructions, prompt, onlyProjectId = null, signal }) {
+    await this.codex.ready();
+    const sources = new WritingSources({ workspace: this.workspace, dependencies: this.dependencies, onlyProjectId });
+    let answer = '';
+    try {
+      await this.codex.write({
+        instructions, tools: WRITING_TOOLS, prompt, signal,
+        onText: (delta) => { answer += delta; },
+        onTool: () => {},
+        callTool: (name, input) => {
+          if (name === 'lasso_search') return sources.search(input?.queries);
+          if (name === 'lasso_open') return sources.open(input?.source);
+          throw new Error(`There is no tool named ${name}.`);
+        },
+      });
+    } catch (error) {
+      if (error instanceof WriterError) throw new HttpError(502, error.message);
+      throw error;
+    }
+    return answer;
+  }
+
   close() {
     this.writing?.abort();
     this.codex.close();

@@ -17,6 +17,8 @@ struct RanchShareTarget: Equatable {
 final class RanchStore: ObservableObject {
     enum Section: Hashable {
         case changes, sources, links, review, network
+        /// Review Changes: a folder's changes since it was last approved.
+        case reviews
         case directory(String)
 
         /// How the window remembers where it was left.
@@ -27,6 +29,7 @@ final class RanchStore: ObservableObject {
             case .links: return "links"
             case .review: return "review"
             case .network: return "network"
+            case .reviews: return "reviews"
             case .directory(let id): return "directory:" + id
             }
         }
@@ -38,6 +41,7 @@ final class RanchStore: ObservableObject {
             case "links": self = .links
             case "review": self = .review
             case "network": self = .network
+            case "reviews": self = .reviews
             case let value? where value.hasPrefix("directory:") && value.count > 10:
                 self = .directory(String(value.dropFirst(10)))
             default: return nil
@@ -157,8 +161,10 @@ final class RanchStore: ObservableObject {
     }
 
     var serverURL: URL? {
-        didSet { if serverURL != oldValue { etag = nil; reload() } }
+        didSet { if serverURL != oldValue { etag = nil; reload(); reviews.serverURL = serverURL } }
     }
+    /// Review Changes: the folders' changes waiting to be approved, and the open review.
+    let reviews = RanchReviewModel()
     /// The overview's tag from the server; a poll with it is answered "not modified".
     private var etag: String?
     private var reloadAgain = false
@@ -277,7 +283,11 @@ final class RanchStore: ObservableObject {
             loadError = nil
             hasLoaded = true
             etag = tag
-            if next != overview { overview = next }
+            if next != overview {
+                // A new save may start or grow a folder's review.
+                if next.history.first?.id != overview.history.first?.id { reviews.refresh() }
+                overview = next
+            }
             if let id = selectedSourceID, source(id) == nil { selectedSourceID = nil }
             // A resolved item leaves the list; one still open keeps its newest details.
             if let focus = reviewFocus { reviewFocus = overview.review.first { $0.id == focus.id } }

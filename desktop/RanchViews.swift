@@ -145,7 +145,7 @@ struct RanchRootView: View {
     let actions: RanchActions
     @FocusState private var searchFocused: Bool
     @AppStorage("RanchSidebarWidth") private var sidebarWidth = 260.0
-    private static let shortcuts: [RanchStore.Section] = [.sources, .changes, .links, .review, .network]
+    private static let shortcuts: [RanchStore.Section] = [.sources, .changes, .reviews, .links, .review, .network]
     private static let sidebarWidths = 200.0...380.0
 
     var body: some View {
@@ -239,6 +239,8 @@ struct RanchRootView: View {
             RanchActivityPage(store: store, actions: actions, kind: .links)
         case .review:
             RanchActivityPage(store: store, actions: actions, kind: .review)
+        case .reviews:
+            RanchReviewPage(store: store, model: store.reviews)
         }
     }
 
@@ -265,7 +267,7 @@ struct RanchRootView: View {
         }
     }
 
-    /// Command-1 to Command-5 go to the library views, as Mail's do to its
+    /// Command-1 to Command-6 go to the library views, as Mail's do to its
     /// mailboxes; Control-Command-S hides the sidebar, as in Finder and Mail.
     private var shortcuts: some View {
         ZStack {

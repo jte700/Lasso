@@ -5474,6 +5474,37 @@ do {
     check(older.map(RanchChangeWords.valueSummary) == "1 value changed", "a value typed into alone reads as before")
 }
 
+// A folder's review card says who changed what since it was last approved, and how each conversation ended.
+do {
+    let dana = RanchReviewActor(id: "human:dana", name: "Dana Walker", type: "HUMAN_SELF")
+    let me = RanchReviewActor(id: RanchReviewActor.meID, name: "Desktop", type: "HUMAN_SELF")
+    let chatgpt = RanchReviewActor(id: "agent:chatgpt", name: "ChatGPT", type: "AI_AGENT")
+    check(RanchReviewWords.names([dana, me, chatgpt]) == "Dana Walker, you and ChatGPT", "this Mac's person is \u{201C}you\u{201D} after a name")
+    check(RanchReviewWords.names([me, dana]) == "You and Dana Walker", "and \u{201C}You\u{201D} leading")
+    check(RanchReviewWords.names([dana, me, chatgpt, RanchReviewActor(id: "human:sam", name: "Sam", type: "HUMAN_SELF")]) == "Dana Walker, you and 2 others",
+          "four or more are counted")
+    check(RanchReviewWords.isPrompt("  \\ cap it at 15 minutes") && !RanchReviewWords.isPrompt("Ship it"), "a backslash first hands the words to the AI")
+
+    let json = #"{"review":{"directoryId":"d","name":"Accounting","state":"approved","base":{"version":3,"at":"2026-11-12T10:00:00.000Z","approvedBy":{"id":"human:desktop","name":"Desktop","type":"HUMAN_SELF"}},"current":{"version":6,"at":"2026-11-18T10:00:00.000Z"},"saves":3,"people":[{"id":"human:dana","name":"Dana Walker","type":"HUMAN_SELF"}],"pendingComments":0,"approval":{"id":"a1","at":"2026-11-18T10:05:00.000Z","by":{"id":"human:desktop","name":"Desktop","type":"HUMAN_SELF"},"comments":1},"files":[{"path":"Income.xlsx","previousPath":null,"fileId":"f","fileType":"spreadsheet","change":"edited","kind":"sheet","viewed":true,"comments":2,"openThreads":0,"editors":[]},{"path":"notes.md","previousPath":null,"fileId":"g","fileType":"markdown","change":"added","kind":"lines","viewed":false,"comments":0,"openThreads":0,"editors":[]}],"moreFiles":0}}"#
+    let review = try? RanchReview.decode(Data(json.utf8))
+    let noon = ISO8601DateFormatter().date(from: "2026-11-18T12:00:00Z")!
+    check(review.map { RanchReviewWords.headline($0, now: noon) } == "Dana Walker changed 2 files since you approved Nov 12", "the headline names who, how much and since when")
+    check(review.map(RanchReviewWords.viewed) == "1/2 viewed", "files looked at are counted")
+    check(review?.approval.map { RanchReviewWords.approved($0).lead + " " + RanchReviewWords.approved($0).rest } == "You approved these changes with 1 comment",
+          "the banner says who approved and what it sent")
+    check(RanchReviewWords.sheetCounts(.init(cells: 3, recalculated: 2, rowsAdded: 1, rowsRemoved: 0)) == "1 cell \u{00B7} 2 recalculated \u{00B7} 1 row added",
+          "a sheet counts the cells typed into apart from the formula cells")
+
+    func thread(_ json: String) -> RanchReviewThread? { try? RanchOverview.decoder().decode(RanchReviewThread.self, from: Data(json.utf8)) }
+    let applied = thread(#"{"id":"t1","path":"backoff.ts","state":"applied","anchor":{"kind":"line","line":9,"text":"x"},"by":{"id":"human:marcus","name":"Marcus Johnson","type":"HUMAN_COLLABORATOR"},"at":null,"resolved":null,"applied":{"at":null,"by":{"id":"human:desktop","name":"Desktop","type":"HUMAN_SELF"}},"position":{"line":9},"place":"Line 9","suggestion":{"before":"a","after":"b"},"pending":false,"comments":[]}"#)
+    check(applied.map { RanchReviewWords.summary($0).lead + " \u{00B7} " + RanchReviewWords.summary($0).rest } == "Suggestion applied \u{00B7} Line 9 \u{00B7} Marcus Johnson",
+          "an applied suggestion folds to who suggested it and where")
+    let edited = thread(#"{"id":"t2","path":"notes.md","state":"applied","anchor":{"kind":"line","line":3,"text":"x"},"by":{"id":"human:desktop","name":"Desktop","type":"HUMAN_SELF"},"at":null,"resolved":null,"applied":{"at":null,"by":{"id":"agent:chatgpt","name":"ChatGPT","type":"AI_AGENT"}},"position":{"line":3},"place":"Line 3","suggestion":{"before":"a","after":"b"},"pending":false,"comments":[{"id":"c1","author":{"id":"agent:chatgpt","name":"ChatGPT","type":"AI_AGENT"},"initiatedBy":{"id":"human:dana","name":"Dana Walker","type":"HUMAN_SELF"},"body":"Capped it.","at":null,"pending":false,"executionId":"x1"}]}"#)
+    check(edited.map { RanchReviewWords.summary($0).lead + " \u{00B7} " + RanchReviewWords.summary($0).rest } == "ChatGPT edited \u{00B7} Line 3 \u{00B7} asked by Dana Walker",
+          "an AI's edit folds to the AI, the place and who asked")
+    check(edited?.editedByAI == true && applied?.editedByAI == false, "a thread knows when the AI made its change")
+}
+
 // A Needs Review row names the old and new value and the claim they back.
 do {
     func item(_ json: String) -> RanchReviewItem? { try? JSONDecoder().decode(RanchReviewItem.self, from: Data(json.utf8)) }

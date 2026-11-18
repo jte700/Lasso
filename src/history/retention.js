@@ -66,7 +66,8 @@ const PINNED_SNAPSHOTS = `SELECT s.id, s.project_id AS projectId, s.version FROM
   UNION SELECT document_snapshot_id FROM claim_dependency_versions
   UNION SELECT from_snapshot_id FROM provenance_links
   UNION SELECT to_snapshot_id FROM provenance_links
-  UNION SELECT base_snapshot_id FROM agent_executions WHERE status = 'PROPOSED')`;
+  UNION SELECT base_snapshot_id FROM agent_executions WHERE status = 'PROPOSED'
+  UNION SELECT snapshot_id FROM review_approvals WHERE undone_at IS NULL)`;
 
 // Bytes named directly by their hash.
 const PINNED_HASHES = `SELECT content_hash AS hash FROM agent_evidence

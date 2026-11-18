@@ -65,7 +65,8 @@ export const agentEditMethods = {
     this.resolveProjectPath(project, relativePath);
     const previousFile = this.snapshotFile(baseSnapshotId, relativePath);
     const beforeBuffer = previousFile ? this.blobs.get(previousFile.contentHash) : null;
-    const afterBuffer = Buffer.from(String(input.content ?? ''), 'utf8');
+    // Text arrives as `content`; a file of another kind (a workbook) as its `bytes`.
+    const afterBuffer = Buffer.isBuffer(input.bytes) ? input.bytes : Buffer.from(String(input.content ?? ''), 'utf8');
     const fileType = previousFile?.fileType ?? 'text';
     const proposedHash = this.blobs.put(afterBuffer);
     const structuredDiff = createStructuredDiff({
