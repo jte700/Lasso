@@ -89,6 +89,26 @@ test('An edited workbook lists the value it changed, where it sits and what it w
   assert.equal(detail.valueCount, detail.values.length);
 });
 
+test('A stored value with floating-point residue is shown as the sheet shows it', (t) => {
+  // Arrange
+  const { app, root, capture, entry } = folder(t);
+  fs.writeFileSync(path.join(root, 'budget.xlsx'), book('18853.199999999997'));
+  capture();
+  fs.writeFileSync(path.join(root, 'budget.xlsx'), book('18066.199999999997'));
+  capture();
+
+  // Act
+  const row = entry('budget.xlsx');
+  const detail = app.ranch.change({ id: row.id });
+
+  // Assert
+  const [changed] = detail.values.filter((value) => value.kind === 'modified');
+  assert.deepEqual([changed.beforeDisplay, changed.afterDisplay], ['18853.2', '18066.2']);
+  assert.equal(changed.before, '18853.199999999997', 'the stored value is kept as recorded');
+  assert.deepEqual([row.valueChanges.first.beforeDisplay, row.valueChanges.first.afterDisplay], ['18853.2', '18066.2'],
+    'the row\'s caption says the same');
+});
+
 test('An edited table lists the cells that changed by row and column', (t) => {
   // Arrange
   const { app, root, capture, entry } = folder(t);

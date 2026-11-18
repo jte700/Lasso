@@ -10,6 +10,7 @@ import { HttpError } from '../history/errors.js';
 import { diffInternals, expandStructuredDiff } from '../history/diff.js';
 import { isTextualType } from '../history/file-types.js';
 import { sourceLocator } from '../terminal/names.js';
+import { shownCell } from './sheets.js';
 
 /** Lines kept either side of a changed line, as `diff -U3` keeps them. */
 export const CONTEXT_LINES = 3;
@@ -295,7 +296,14 @@ function valuesOf(db, event, filePath, previousPath, shown) {
       [before, label] = [row.before_label, null];
     }
     // Only values are shown as the worksheet formats them, never labels standing in for them.
-    const display = (value) => (shown && valued && value != null ? shown(event.project_id, filePath, anchor, value) : null);
+    const display = (value) => {
+      if (!valued || value == null) return null;
+      const formatted = shown?.(event.project_id, filePath, anchor, value);
+      if (formatted) return formatted;
+      // A binary workbook's stored 18853.199999999997 is 18853.2 in the sheet.
+      const tidied = shownCell(null, value);
+      return tidied !== value ? tidied : null;
+    };
     const beforeDisplay = kind === 'added' ? null : display(before);
     const afterDisplay = kind === 'removed' ? null : display(after);
     values.push({
