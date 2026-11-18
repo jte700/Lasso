@@ -446,6 +446,12 @@ final class RanchStore: ObservableObject {
         if openFolders.contains(key) { openFolders.remove(key) } else { openFolders.insert(key) }
     }
 
+    /// Opens Review Changes on a file, with its comment box ready to ask for a change.
+    func requestChange(_ source: RanchSource) {
+        reviews.request(folder: source.directoryId, path: source.path)
+        section = .reviews
+    }
+
     /// Shows a file chosen in the sidebar's outline. The list stays where it is
     /// when it holds the file, and goes to the file's directory when it doesn't.
     func showFromOutline(_ id: String) {

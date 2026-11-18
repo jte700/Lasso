@@ -18,6 +18,10 @@ final class RanchReviewModel: ObservableObject {
     /// Places the AI writer is working on, by RanchReviewModel.key.
     @Published private(set) var asking: Set<String> = []
     @Published var problem: String?
+    /// A file someone chose to ask a change of, shown in its folder's review even before anything is said about it.
+    @Published private(set) var requested: (folder: String, path: String)?
+    /// The file whose comment box opens on its own, once its changes are read.
+    @Published var composeFor: String?
     /// The line or cell a suggestion was just written to, which flashes once.
     @Published private(set) var flashed: String?
 
@@ -82,7 +86,9 @@ final class RanchReviewModel: ObservableObject {
 
     private func take(_ review: RanchReview) {
         withAnimation(RanchLook.spring) { self.review = review }
-        if chosenFile == nil || !review.files.contains(where: { $0.path == chosenFile }) {
+        if let asked = requested, asked.folder == review.directoryId, chosenFile == asked.path {
+            loadFile()
+        } else if chosenFile == nil || !review.files.contains(where: { $0.path == chosenFile }) {
             chosenFile = review.files.first { $0.openThreads > 0 }?.path ?? review.files.first?.path
         } else {
             loadFile()
@@ -95,6 +101,24 @@ final class RanchReviewModel: ObservableObject {
             guard let self, folder == self.chosenFolder, case .success(let file) = result else { return }
             if files[path] != file { files[path] = file }
         }
+    }
+
+    /// The review's tabs: its files, and the file someone chose to ask a change of when it is not among them yet.
+    func tabs(_ review: RanchReview) -> [RanchReview.File] {
+        guard let asked = requested, asked.folder == review.directoryId, !review.files.contains(where: { $0.path == asked.path }) else {
+            return review.files
+        }
+        return review.files + [RanchReview.File(path: asked.path, previousPath: nil, fileId: nil, fileType: nil, change: "unchanged",
+                                                 kind: files[asked.path]?.kind ?? "file", viewed: false, comments: 0, openThreads: 0, editors: [])]
+    }
+
+    /// Opens a file in its folder's review with its comment box ready, to ask for a change to it.
+    func request(folder: String, path: String) {
+        requested = (folder, path)
+        composeFor = path
+        if chosenFolder != folder { chosenFolder = folder }
+        chosenFile = path
+        refresh()
     }
 
     // MARK: What a person does
