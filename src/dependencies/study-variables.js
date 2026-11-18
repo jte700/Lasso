@@ -4,7 +4,7 @@
 import { humanVariable, normalizedVariable } from './tabular.js';
 import { DRAWING_NAME_MIN_LETTERS } from './drawing-discovery.js';
 import { fileReferenceMatch, isWholeFile, typedAsWritten } from './file-reference.js';
-import { STUDY_DATA_TYPES, WHOLE_FILE_TYPES } from './constants.js';
+import { LINKED_VALUES_SHOWN, STUDY_DATA_TYPES, WHOLE_FILE_TYPES } from './constants.js';
 import { pendingObject, studyVariable } from './object-descriptors.js';
 import { rowCompletionFragments } from './row-field-match.js';
 import { recommendationRelevanceBand } from './ranking.js';
@@ -19,6 +19,8 @@ import { FRAGMENT_FUNCTION_WORDS, progressiveVariableFragments, writingSourceCon
 const INDEXED_MATCHES_PER_TABLE = 12;
 const INDEXED_ROWS_SHOWN = 8;
 const INDEXED_RELATED_OBJECTS = 64;
+// Rows of a large table read, at most, for a column's values down the table.
+const COLUMN_ROWS_SCANNED = 1_000;
 
 // Words that only say a sentence reports the writer's own work ("these results
 // indicate", "in the current analysis we observed") or where data sits ("the
@@ -132,7 +134,7 @@ export const studyVariablesMethods = {
    * value in the source's column. Found in the table index and recorded as
    * objects to offer.
    */
-  indexedRelatedObjects(projectId, source, tail, { variableKey, known }) {
+  indexedRelatedObjects(projectId, source, tail, { variableKey, known, rowsAreValues = false }) {
     const ownerId = this.sourceProjectId(source) ?? projectId;
     const sheet = source.metadata.sheet ?? source.anchor?.sheet ?? null;
     const table = this.snapshotTables(ownerId, source.snapshotId)
@@ -146,6 +148,9 @@ export const studyVariablesMethods = {
       const row = Number.isInteger(source.anchor?.rowIndex) ? this.tables.rowNumbered(table.meta.id, source.anchor.rowIndex) : null;
       if (row) descriptors.push(...this.indexedRowObjects(table, row).filter((descriptor) => descriptor.type !== 'DATASET_ROW'));
     } else {
+      // The column naming the rows takes the row named; any other column, the row's cell in it.
+      const ofColumn = (descriptor) => (descriptor.type === 'DATASET_ROW' ? rowsAreValues
+        : normalizedVariable(descriptor.metadata.variable ?? descriptor.metadata.column) === variableKey);
       // The rows the words after the source can name, as the in-memory rows
       // are matched: the name being typed at the end, and a numbered row
       // ("Control 3", "district 45003") written anywhere after it.
@@ -153,13 +158,38 @@ export const studyVariablesMethods = {
         ...[...String(tail).matchAll(/\b[A-Za-z]{1,16}[\s_-]*\d+\b/g)].map((match) => match[0])];
       for (const text of new Set(typed)) {
         for (const row of this.tables.search(table.meta.id, text, INDEXED_MATCHES_PER_TABLE)) {
-          descriptors.push(...this.indexedRowObjects(table, row).filter((descriptor) => descriptor.type !== 'DATASET_ROW'
-            && normalizedVariable(descriptor.metadata.variable ?? descriptor.metadata.column) === variableKey));
+          descriptors.push(...this.indexedRowObjects(table, row).filter(ofColumn));
         }
+      }
+      // With no row named, a column goes on down the table past the rows
+      // read with its file, as far as the card lists.
+      if (!descriptors.length && source.anchor?.kind === 'table-column') {
+        const down = this.columnValuesDown(table, source, variableKey, ofColumn).filter((descriptor) => !known.has(descriptor.key));
+        return down.length ? this.indexedObjects(ownerId, source.snapshotId, table, down) : [];
       }
     }
     const fresh = descriptors.filter((descriptor) => !known.has(descriptor.key)).slice(0, INDEXED_RELATED_OBJECTS);
     return fresh.length ? this.indexedObjects(ownerId, source.snapshotId, table, fresh) : [];
+  },
+
+  /**
+   * A large table's first values in one column, from its top down to as many
+   * as the card lists, read from the table index once per snapshot. The same
+   * window every time, so the values offered never grow keystroke by keystroke.
+   */
+  columnValuesDown(table, source, variableKey, ofColumn) {
+    const key = `${source.snapshotId}|${table.keyPrefix}|${variableKey}`;
+    if (this.columnValuesCache.has(key)) return this.columnValuesCache.get(key);
+    const { meta } = table;
+    const found = [];
+    const last = Math.min(meta.rowCount, meta.shape.dataStart + COLUMN_ROWS_SCANNED);
+    for (let ordinal = meta.shape.dataStart; ordinal < last && found.length < LINKED_VALUES_SHOWN; ordinal += 1) {
+      const row = this.tables.row(meta.id, ordinal);
+      if (row) found.push(...this.indexedRowObjects(table, row).filter(ofColumn));
+    }
+    const window = Object.freeze(found.slice(0, LINKED_VALUES_SHOWN));
+    this.columnValuesCache.set(key, window);
+    return window;
   },
 
   candidatesForStudyVariable(projectId, fragment, options = {}) {

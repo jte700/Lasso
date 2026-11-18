@@ -53,6 +53,23 @@ export function indexSummary(counts, problems, definitions, truncated) {
   };
 }
 
+// A column of shares, rates or counts ("Variance %", "Invoice Count") is not
+// measured in its row's units, and nor is a value written with a unit of its own.
+const OWN_KIND_COLUMN = /%|\b(?:percent(?:age)?s?|pct|ratios?|rates?|shares?|proportions?|counts?|number of)\b/i;
+const OWN_UNIT_VALUE = /[%‰]\s*$/;
+
+/**
+ * Whether a definition's units belong to this cell. One found by the cell's
+ * own column always does; one found by its row ("Revenue is in CAD") belongs
+ * to the row's amounts, not a percentage or count beside them.
+ */
+function takesDefinitionUnits(descriptor) {
+  const { variable, column } = descriptor.metadata;
+  const foundByRow = column != null && variable != null && normalizedVariable(variable) !== normalizedVariable(column);
+  if (!foundByRow) return true;
+  return !OWN_KIND_COLUMN.test(String(column)) && !OWN_UNIT_VALUE.test(String(descriptor.value ?? descriptor.valueText ?? ''));
+}
+
 /** `sources` are the dictionary variables in index order, from every indexed file. */
 export function applyVariableDefinitions(descriptors, sources = descriptors) {
   const definitions = new Map();
@@ -66,12 +83,13 @@ export function applyVariableDefinitions(descriptors, sources = descriptors) {
     const key = normalizedVariable(descriptor.metadata.variable ?? descriptor.metadata.column);
     const definition = definitions.get(key);
     if (!definition) continue;
+    const units = takesDefinitionUnits(descriptor) ? definition.metadata.units ?? null : null;
     descriptor.metadata = {
       ...descriptor.metadata,
       definition: definition.metadata.description,
-      units: definition.metadata.units ?? descriptor.metadata.units ?? null,
+      units: units ?? descriptor.metadata.units ?? null,
       dictionaryPath: definition.path,
     };
-    descriptor.searchText += ` ${definition.label} ${definition.value ?? ''} ${definition.metadata.units ?? ''}`.toLowerCase();
+    descriptor.searchText += ` ${definition.label} ${definition.value ?? ''} ${units ?? ''}`.toLowerCase();
   }
 }

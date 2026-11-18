@@ -235,7 +235,7 @@ export const indexedSearchMethods = {
    * object `valuesFromLinkedProjectObject` could relate to it, and the data
    * dictionaries' variables, in index order. The source's own file comes first.
    */
-  relatedIndexedObjects(index, source, variableKey, { wholeDrawing, namedRow, sourceRow }) {
+  relatedIndexedObjects(index, source, variableKey, { wholeDrawing, namedRow, sourceRow, rowsAreValues = false }) {
     const { count, typeOf, pathOf } = index;
     const sourcePath = index.pathIds.get(source.path) ?? -1;
     const inFile = (accept) => {
@@ -247,7 +247,9 @@ export const indexedSearchMethods = {
     };
     const rowName = normalizedRowSearch(sourceRow);
     const related = wholeDrawing ? inFile((position) => typeOf[position] === DRAWING_ANNOTATION)
-      : !namedRow ? [...index.keys.get(variableKeyOf(variableKey))]
+      : !namedRow ? [...index.keys.get(variableKeyOf(variableKey)),
+        // The column naming the rows has the rows of its file as its values.
+        ...(rowsAreValues ? inFile((position) => typeOf[position] === DATASET_ROW) : [])]
         : rowName ? [...index.keys.get(rowKeyOf(rowName))].filter((position) => pathOf[position] === sourcePath)
           : inFile(() => true);
     const chosen = new Set([...related.filter((position) => pathOf[position] === sourcePath),

@@ -188,9 +188,11 @@ function indexedCells(context, row, sectionRow) {
   for (const [columnIndex, column] of headers.slice(0, 80).entries()) {
     if (statement && (!column || sectionRow)) continue;
     // The label names the row; as a cell it would only repeat that name.
-    // Column A stays unread as before when the labels sit further right, so
-    // a stray mark there does not become a value of its row.
-    if (!statement && firstColumnActsAsRowLabels && (columnIndex === labelColumn || columnIndex === 0)) continue;
+    // A column A without a heading stays unread when the labels sit further
+    // right, so a stray mark there does not become a value of its row; a
+    // headed one (a ledger's Date) is a column like any other.
+    const strayFirstColumn = columnIndex === 0 && !String(column ?? '').trim();
+    if (!statement && firstColumnActsAsRowLabels && (columnIndex === labelColumn || strayFirstColumn)) continue;
     const value = String(row[columnIndex] ?? '').trim();
     if (!value || value.length > 180) continue;
     cells.push({ columnIndex, column, value });

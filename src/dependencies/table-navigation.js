@@ -17,7 +17,7 @@ export function navigateTableSource(service, source, direction) {
   const sheet = source.anchor.sheet ?? null;
   const table = service.snapshotTables(projectId, source.snapshotId)
     .find(t => t.file.path === source.path && (t.sheet ?? null) === sheet);
-  const position = cellPosition(table?.meta.shape.labelColumn ?? 0);
+  const position = cellPosition(service.tableLabelColumn(source, sheet));
   const start = position(source);
   if (!Number.isInteger(start.row) || !Number.isInteger(start.column)) return null;
   const [dx, dy] = STEPS[direction];
@@ -64,20 +64,25 @@ function cellPosition(labelColumn) {
 /**
  * fn+Right on a sheet's suggestion: a cell or row starts where it is; a
  * column at its top filled cell; a whole file at its first sheet's top-left
- * filled cell.
+ * filled cell, which is a row's name when its rows are named in column A.
  */
 function diveTarget(service, source) {
   if (isTableSource(source)) return source;
   const projectId = service.sourceProjectId(source);
-  const tables = service.snapshotTables(projectId, source.snapshotId).filter(t => t.file.path === source.path);
+  const inFile = service.objectsAt(projectId, source.snapshotId)
+    .filter(object => object.path === source.path && isTableSource(object));
   const column = source.anchor?.kind === 'table-column' && Number.isInteger(source.anchor.columnIndex)
     ? source.anchor.columnIndex : null;
-  const sheet = source.anchor?.sheet ?? tables[0]?.sheet ?? null;
-  const table = tables.find(t => (t.sheet ?? null) === sheet);
-  const position = cellPosition(table?.meta.shape.labelColumn ?? 0);
+  // A whole workbook opens on its first sheet the index read.
+  const sheet = source.anchor ? source.anchor.sheet ?? null : inFile[0]?.anchor.sheet ?? null;
+  const position = cellPosition(service.tableLabelColumn(source, sheet));
+  return topLeft(inFile.filter(object => (object.anchor.sheet ?? null) === sheet), position, column);
+}
+
+/** The highest, then leftmost, of these objects, kept to one column when one is given. */
+function topLeft(objects, position, column) {
   let best = null, bestAt = null;
-  for (const object of service.objectsAt(projectId, source.snapshotId)) {
-    if (object.path !== source.path || (object.anchor?.sheet ?? null) !== sheet || !isTableSource(object)) continue;
+  for (const object of objects) {
     const at = position(object);
     if (!Number.isInteger(at.row) || !Number.isInteger(at.column)) continue;
     if (column !== null && at.column !== column) continue;

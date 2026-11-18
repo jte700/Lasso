@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createApplication } from '../src/server.js';
-import { workbook } from './fixtures/workbook.js';
+import { workbook, workbookSheets } from './fixtures/workbook.js';
 import { navigateTableSource } from '../src/dependencies/table-navigation.js';
 
 test('table arrows preserve the other axis, reverse, skip empty values and stop at edges', async (t) => {
@@ -75,11 +75,69 @@ test('a dive starts at the suggested cell, or a whole file at its top-left cell'
   assert.equal(navigateTableSource(app.dependencies, fromFile, 'left'), null);
 });
 
+test('a ledger whose rows are named further right dives in at its first column, and its row stands at its name', async (t) => {
+  // Arrange: rows are named by Account Code, so Date in column A sits left of the names.
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-navigation-ledger-'));
+  const root = path.join(sandbox, 'Sources');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'Ledger.csv'), 'Date,Journal ID,Account Code,Account,Debit CAD,Credit CAD,Reference,Description\n'
+    + '2026-09-03,JE-0901,1100,Accounts receivable,38500,0,INV-0921,Customer invoice posted\n'
+    + '2026-09-03,JE-0901,4000,Revenue,0,38500,INV-0921,Customer invoice posted\n');
+  const app = createApplication({ dataDir: path.join(sandbox, 'data'), watchProjects: false });
+  t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  const { project } = app.timeline.importProject(root, { id: 'human:test', displayName: 'Test', actorType: 'HUMAN_SELF' }, { watch: false });
+  app.dependencies.ensureIndex(project.id);
+  const objects = app.dependencies.objectsAt(project.id).filter(o => o.path === 'Ledger.csv');
+  const file = objects.find(o => !o.anchor);
+  const dateColumn = objects.find(o => o.anchor?.kind === 'table-column' && o.label === 'Date');
+  const journal = objects.find(o => o.anchor?.kind === 'table-cell' && o.valueText === 'JE-0901');
+  const move = (source, direction) => navigateTableSource(app.dependencies, source, direction);
+  // Act
+  const fromFile = move(file, 'here');
+  const fromColumn = move(dateColumn, 'here');
+  // Assert
+  assert.equal(fromFile?.valueText, '2026-09-03');
+  assert.equal(fromColumn?.id, fromFile.id);
+  assert.equal(move(journal, 'left')?.valueText, '2026-09-03');
+  const name = move(journal, 'right');
+  assert.equal(name?.anchor.kind, 'table-row');
+  assert.equal(move(name, 'right')?.valueText, 'Accounts receivable');
+  assert.equal(move(name, 'left')?.id, journal.id);
+});
+
+test('a workbook dives into its first sheet at the top-left, and a column on another sheet at its top', async (t) => {
+  // Arrange: the second sheet starts lower down, below a title.
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-navigation-sheets-'));
+  const root = path.join(sandbox, 'Sources');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'Planning.xlsx'), workbookSheets({
+    Budget: { 1: ['Account', 'Actual', 'Budget'], 2: ['Rent', '18000', '19000'], 3: ['Travel', '4200', '5000'] },
+    Cash: { 1: ['Cash forecast'], 4: ['Week', 'Receipts', 'Payments'], 5: ['W1', '125400', '98000'], 6: ['W2', '47000', '51000'] },
+  }));
+  const app = createApplication({ dataDir: path.join(sandbox, 'data'), watchProjects: false });
+  t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  const { project } = app.timeline.importProject(root, { id: 'human:test', displayName: 'Test', actorType: 'HUMAN_SELF' }, { watch: false });
+  const objects = app.dependencies.objectsAt(project.id).filter(o => o.path === 'Planning.xlsx');
+  const file = objects.find(o => !o.anchor);
+  const payments = objects.find(o => o.anchor?.kind === 'table-column' && o.label === 'Payments');
+  const move = (source, direction) => navigateTableSource(app.dependencies, source, direction);
+  // Act
+  const fromFile = move(file, 'here');
+  const fromPayments = move(payments, 'here');
+  // Assert
+  assert.equal(fromFile?.label, 'Rent');
+  assert.equal(fromFile.anchor.sheet, 'Budget');
+  assert.equal(fromPayments?.valueText, '98000');
+  assert.equal(fromPayments.anchor.sheet, 'Cash');
+  assert.equal(move(fromPayments, 'down')?.valueText, '51000');
+  assert.equal(move(move(fromPayments, 'left'), 'left')?.label, 'W1');
+});
+
 test('table movement never crosses sheets or versions', () => {
   const cell = (id, sheet, snapshotId, columnIndex) => ({ id, path: 'Book.xlsx', projectId: 'p', snapshotId,
     anchor: { kind: 'table-cell', sheet, rowIndex: 4, columnIndex } });
   const origin = cell('a', 'First', 'v1', 1);
-  const service = { sourceProjectId: () => 'p', snapshotTables: () => [],
+  const service = { sourceProjectId: () => 'p', snapshotTables: () => [], tableLabelColumn: () => 0,
     objectsAt: (project, snapshot) => {
       assert.equal(project, 'p'); assert.equal(snapshot, 'v1');
       return [origin, cell('other-sheet', 'Second', 'v1', 2), cell('b', 'First', 'v1', 3)];
