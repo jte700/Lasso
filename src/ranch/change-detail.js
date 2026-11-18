@@ -233,10 +233,7 @@ export function placeOf(anchor, metadata, filePath) {
     }
     return anchor.lineStart === end ? `Line ${anchor.lineStart}` : `Lines ${anchor.lineStart}–${end}`;
   }
-  // A worksheet's anchors hold the sheet's own row number; the locator counts from the first row read.
-  const worksheet = anchor.rowCoordinate === 'worksheet' && Number.isInteger(anchor.rowIndex);
-  const counted = worksheet ? { ...anchor, rowIndex: anchor.rowIndex - 1 } : anchor;
-  const locator = sourceLocator({ anchor: counted, metadata: metadata ?? {}, path: filePath });
+  const locator = sourceLocator({ anchor, metadata: metadata ?? {}, path: filePath });
   return locator ? locator[0].toUpperCase() + locator.slice(1) : null;
 }
 

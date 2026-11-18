@@ -231,6 +231,18 @@ test('a cell named as a spreadsheet names it is read exactly, with its row and c
   assert.notEqual(missing.kind, 'cells', 'a sheet no file has is not a cell to read: the ask is answered as any other');
 });
 
+test('a row found by its name is cited at the row the sheet shows it in', async (t) => {
+  // Arrange
+  const { ask } = await library(t);
+
+  // Act
+  const [record] = ask('Net of SO-00100').answers;
+
+  // Assert
+  assert.deepEqual(record.items.map((item) => [item.row, item.at]), [['SO-00100', 'Orders!101:101']],
+    'the header is row 1, so the hundredth order is row 101');
+});
+
 test('a result too long to send whole is cut, says so, and is partial; a table shown in part says how to ask about all of it', async (t) => {
   // Arrange
   const { ask, text } = await library(t);
