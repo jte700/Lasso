@@ -156,22 +156,57 @@ export class FolderReview {
       .map((filePath) => this.timeline.snapshotFile(range.current.id, filePath))
       .filter(Boolean).map((file) => ({ change: 'UNCHANGED', before: file, after: file }));
     const all = [...edited, ...requested];
+    const context = { viewed, threads, editors };
+    return { total: all.length, requests: requested.length, files: all.slice(0, MAX_REVIEW_FILES).map((entry) => this.tab(entry, context)) };
+  }
+
+  /** One file as its tab draws it: what happened to it, its comments, whether it was looked at. */
+  tab(entry, { viewed, threads, editors }) {
+    const file = entry.after ?? entry.before;
+    const open = threads.filter((thread) => thread.path === file.path && !thread.resolved && !thread.applied);
     return {
-      total: all.length,
-      requests: requested.length,
-      files: all.slice(0, MAX_REVIEW_FILES).map((entry) => {
-        const file = entry.after ?? entry.before;
-        const open = threads.filter((thread) => thread.path === file.path && !thread.resolved && !thread.applied);
-        return {
-          path: file.path, previousPath: entry.change === 'RENAMED' || (entry.before && entry.before.path !== file.path) ? entry.before.path : null,
-          fileId: file.projectFileId, fileType: file.fileType, change: VERBS[entry.change] ?? 'unchanged', kind: viewKind(file.fileType),
-          contentHash: entry.after?.contentHash ?? null,
-          viewed: entry.after ? viewed.get(file.path) === entry.after.contentHash : viewed.has(file.path),
-          comments: threads.filter((thread) => thread.path === file.path).reduce((sum, thread) => sum + thread.comments.length, 0),
-          openThreads: open.length,
-          editors: editors.get(file.projectFileId) ?? [],
-        };
-      }),
+      path: file.path, previousPath: entry.change === 'RENAMED' || (entry.before && entry.before.path !== file.path) ? entry.before.path : null,
+      fileId: file.projectFileId, fileType: file.fileType, change: VERBS[entry.change] ?? entry.change.toLowerCase(), kind: viewKind(file.fileType),
+      contentHash: entry.after?.contentHash ?? null,
+      viewed: entry.after ? viewed.get(file.path) === entry.after.contentHash : viewed.has(file.path),
+      comments: threads.filter((thread) => thread.path === file.path).reduce((sum, thread) => sum + thread.comments.length, 0),
+      openThreads: open.length,
+      editors: editors.get(file.projectFileId) ?? [],
+    };
+  }
+
+  /**
+   * A review asked for by name: its files as the folder's review shows them,
+   * those edited since the folder was last approved with their changes and
+   * the rest whole, to be looked at ("review"); its title, note and reviewers.
+   */
+  requestSummary(request, viewerId) {
+    const projectId = request.projectId;
+    const project = this.timeline.getProject(projectId);
+    const range = reviewRange(this.db, this.records, projectId);
+    const context = { viewed: this.records.viewed(projectId, viewerId), threads: this.records.threads(projectId),
+      editors: editorsByFile(this.db, projectId, range.base, range.current) };
+    const edited = new Map(editedFiles(this.db, this.timeline, projectId, range.base, range.current)
+      .filter((entry) => this.meaningful(projectId, range, entry)).map((entry) => [entry.after.path, entry]));
+    const files = request.paths.flatMap((filePath) => {
+      const entry = edited.get(filePath);
+      if (entry) return [this.tab(entry, context)];
+      const file = this.timeline.snapshotFile(range.current.id, filePath);
+      return file ? [this.tab({ change: 'REVIEW', before: file, after: file }, context)] : [];
+    });
+    const { saves, people } = savers(this.db, projectId, range.base, range.current);
+    const pending = context.threads.filter((thread) => request.paths.includes(thread.path)).flatMap((thread) => thread.comments)
+      .filter((comment) => comment.pending && comment.author.id === viewerId).length;
+    return {
+      directoryId: projectId, name: project.name,
+      requestId: request.id, number: request.number, title: request.title, note: request.note, reviewers: request.reviewers,
+      requestedBy: request.requestedBy, requestedAt: request.at,
+      state: request.approved ? 'approved' : 'open',
+      base: { version: range.base.version, at: range.base.at, approvedBy: range.base.approval?.by ?? null },
+      current: { version: range.current.version, at: range.current.at },
+      saves, people, pendingComments: pending, requests: 0,
+      approval: request.approved ? { id: request.id, at: request.approved.at, by: request.approved.by, comments: 0 } : null,
+      files, moreFiles: 0,
     };
   }
 

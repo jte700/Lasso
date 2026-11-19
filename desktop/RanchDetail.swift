@@ -188,9 +188,9 @@ struct RanchSourceDetail: View {
                 .buttonStyle(RanchIconButtonStyle())
                 .help("Show in Finder (\u{2325}\u{2318}R)")
             }
-            Button { store.requestChange(source) } label: { Label("Request a Change", systemImage: "text.bubble") }
+            Button { store.requestReview(source) } label: { Label("Request Review", systemImage: "person.badge.plus") }
                 .buttonStyle(RanchIconButtonStyle())
-                .help("Ask for a change to this file, or start with \\ to have ChatGPT make it")
+                .help("Ask people to review this file")
         }
     }
 

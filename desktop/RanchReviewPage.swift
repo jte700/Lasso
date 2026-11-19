@@ -15,7 +15,7 @@ struct RanchReviewPage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                if shownFolders.count > 1 { chips }
+                chips
                 if let review = model.review, review.state != "empty" || model.tabs(review).count > 0 {
                     RanchReviewCard(store: store, model: model, review: review)
                 } else if model.review != nil || model.folders.isEmpty {
@@ -29,6 +29,17 @@ struct RanchReviewPage: View {
         .onAppear { model.serverURL = store.serverURL; model.refresh() }
         .onChange(of: store.overview.history.first?.id) { _ in model.refresh() }
         .overlay(alignment: .bottom) { problem }
+        .overlay {
+            if let draft = model.draft {
+                RanchNewReviewOverlay(store: store, model: model, draft: draft).transition(.opacity)
+            }
+        }
+        .animation(.spring(response: 0.42, dampingFraction: 0.86), value: model.draft)
+    }
+
+    /// Reviews asked for by name that are still open, and the one open now.
+    private var shownRequests: [RanchReviewRequest] {
+        model.requests.filter { $0.state == "open" || $0.id == model.chosenRequest }
     }
 
     /// Folders with something waiting, and the one open now.
@@ -37,11 +48,50 @@ struct RanchReviewPage: View {
     }
 
     private var chips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 12) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if shownFolders.count + shownRequests.count > 1 || !shownRequests.isEmpty {
+                        folderChips
+                        ForEach(shownRequests) { asked in requestChip(asked) }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+            Button { model.startReview(folder: model.chosenFolder) } label: {
+                Label("New Review", systemImage: "plus")
+                    .font(RanchLook.font(13.5, .medium)).foregroundStyle(RanchLook.onSky)
+                    .padding(.horizontal, 14).frame(height: 34)
+                    .background(Capsule().fill(RanchLook.sky))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(RanchDipButtonStyle())
+            .help("Ask for a review: choose reviewers and the files to look at")
+        }
+    }
+
+    private func requestChip(_ asked: RanchReviewRequest) -> some View {
+        let chosen = asked.id == model.chosenRequest
+        return Button { model.choose(request: asked.id) } label: {
             HStack(spacing: 8) {
-                ForEach(shownFolders) { folder in
-                    let chosen = folder.id == model.chosenFolder
-                    Button { model.chosenFolder = folder.id } label: {
+                Image(systemName: asked.state == "approved" ? "checkmark.circle" : "person.2")
+                    .font(.system(size: 11, weight: .medium)).foregroundStyle(RanchLook.sky)
+                Text(asked.title).font(RanchLook.font(13.5, chosen ? .medium : .regular))
+                    .foregroundStyle(chosen ? RanchLook.ink : RanchLook.ink2).lineLimit(1)
+                Text("\(asked.files)").font(RanchLook.font(12, .medium)).foregroundStyle(RanchLook.ink3)
+            }
+            .padding(.horizontal, 14).frame(height: 34)
+            .background(Capsule().fill(chosen ? RanchLook.raise : .clear))
+            .overlay(Capsule().strokeBorder(RanchLook.line, lineWidth: chosen ? 0 : 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var folderChips: some View {
+        ForEach(shownFolders) { folder in
+                    let chosen = folder.id == model.chosenFolder && model.chosenRequest == nil
+                    Button { model.choose(folder: folder.id) } label: {
                         HStack(spacing: 8) {
                             Circle().fill(store.directory(folder.id)?.color ?? RanchLook.ink3).frame(width: 7, height: 7)
                             Text(folder.name).font(RanchLook.font(13.5, chosen ? .medium : .regular))
@@ -56,15 +106,13 @@ struct RanchReviewPage: View {
                         .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
-                }
-            }
         }
     }
 
     private var empty: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Nothing to review").font(RanchLook.font(17, .medium)).foregroundStyle(RanchLook.ink)
-            Text("When someone edits a file in a switched-on folder, or asks for a change to one, it waits here until it is approved. To ask for a change yourself, choose Request a Change on a file.")
+            Text("When someone edits a file in a switched-on folder, it waits here until it is approved. To ask people to look at files, choose New Review, or Request Review on a file.")
                 .font(RanchLook.font(14)).foregroundStyle(RanchLook.ink2)
         }
         .padding(.top, 40)
@@ -101,6 +149,14 @@ struct RanchReviewCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             head.padding(.horizontal, 28).padding(.top, 24)
+            if let note = review.note, !note.isEmpty {
+                Text(note).font(RanchLook.font(14)).foregroundStyle(RanchLook.ink).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(RanchLook.raise.opacity(0.6)))
+                    .padding(.horizontal, 28).padding(.top, 16)
+            }
             if let approval = review.approval {
                 banner(approval).padding(.horizontal, 28).padding(.top, 16)
                     .transition(.move(edge: .top).combined(with: .opacity))
@@ -127,17 +183,26 @@ struct RanchReviewCard: View {
     private var head: some View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                (Text(review.name).foregroundColor(RanchLook.ink)
-                    + Text("  v\(review.current.version)").foregroundColor(RanchLook.ink3))
+                (Text(review.title ?? review.name).foregroundColor(RanchLook.ink)
+                    + Text(review.number.map { "  #\($0)" } ?? "  v\(review.current.version)").foregroundColor(RanchLook.ink3))
                     .font(RanchLook.font(21, .medium))
                 HStack(spacing: 10) {
                     HStack(spacing: -7) {
-                        ForEach(review.people.prefix(3), id: \.id) { person in
-                            RanchReviewAvatar(actor: person, size: 22).overlay(Circle().strokeBorder(RanchLook.panel, lineWidth: 2))
+                        if let reviewers = review.reviewers, review.requestId != nil {
+                            ForEach(reviewers.prefix(4), id: \.email) { reviewer in
+                                RanchReviewAvatar(actor: RanchReviewActor(id: "email:\(reviewer.email)", name: reviewer.name, type: "HUMAN_COLLABORATOR"),
+                                                  size: 22)
+                                    .overlay(Circle().strokeBorder(RanchLook.panel, lineWidth: 2))
+                                    .help("\(reviewer.name), \(reviewer.email): asked to review")
+                            }
+                        } else {
+                            ForEach(review.people.prefix(3), id: \.id) { person in
+                                RanchReviewAvatar(actor: person, size: 22).overlay(Circle().strokeBorder(RanchLook.panel, lineWidth: 2))
+                            }
                         }
                     }
                     Text(RanchReviewWords.headline(review)).font(RanchLook.font(14)).foregroundStyle(RanchLook.ink2).lineLimit(2)
-                    if review.saves > 0 {
+                    if review.saves > 0 && review.requestId == nil {
                         Text(review.saves == 1 ? "1 save" : "\(review.saves.formatted()) saves")
                             .font(RanchLook.font(12.5)).foregroundStyle(RanchLook.ink2)
                             .padding(.horizontal, 8).frame(height: 22).background(Capsule().fill(RanchLook.raise))
@@ -145,6 +210,14 @@ struct RanchReviewCard: View {
                 }
             }
             Spacer(minLength: 12)
+            if review.requestId == nil {
+                Button { model.startReview(folder: review.directoryId) } label: {
+                    Image(systemName: "person.badge.plus").font(.system(size: 14)).foregroundStyle(RanchLook.ink2)
+                        .frame(width: 40, height: 40).background(Circle().fill(RanchLook.raise))
+                }
+                .buttonStyle(RanchDipButtonStyle())
+                .help("Ask people to review these changes")
+            }
             RanchApproveButton(approved: review.approval != nil, working: model.approving,
                                enabled: !model.tabs(review).isEmpty) { model.approve() }
         }
@@ -345,7 +418,7 @@ struct RanchReviewFileArea: View {
     }
 
     @ViewBuilder private var counts: some View {
-        if file.change == "unchanged" {
+        if file.change == "unchanged" || file.change == "review" {
             EmptyView()
         } else if let lines = view?.lines {
             HStack(spacing: 6) {

@@ -4,6 +4,7 @@
 // adds nothing to a review on its own.
 
 import crypto from 'node:crypto';
+import { transaction } from '../db.js';
 import { HttpError } from '../history/errors.js';
 
 const now = () => new Date().toISOString();
@@ -164,6 +165,53 @@ export class ReviewRecords {
     const actor = this.actor(actorInput);
     this.db.prepare('UPDATE review_threads SET applied_at = ?, applied_by_actor_id = ? WHERE id = ? AND applied_at IS NULL')
       .run(at, actor.id, threadId);
+  }
+
+  // MARK: Reviews asked for by name
+
+  /** A review asked for: its title, note, files and reviewers, numbered within its folder. */
+  createRequest(projectId, { title, note, paths, reviewers }, actorInput) {
+    const actor = this.actor(actorInput);
+    const requestId = id();
+    transaction(this.db, () => {
+      const number = (this.db.prepare('SELECT MAX(number) AS last FROM review_requests WHERE project_id = ?').get(projectId)?.last ?? 0) + 1;
+      this.db.prepare(`INSERT INTO review_requests(id, project_id, number, title, note, requested_by_actor_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(requestId, projectId, number, title || `Review ${number}`, note || null, actor.id, now());
+      paths.forEach((path, position) => this.db.prepare('INSERT OR IGNORE INTO review_request_files(request_id, path, position) VALUES (?, ?, ?)')
+        .run(requestId, path, position));
+      reviewers.forEach((reviewer, position) => this.db.prepare(`INSERT OR IGNORE INTO review_request_reviewers(request_id, email, name, position)
+        VALUES (?, ?, ?, ?)`).run(requestId, reviewer.email, reviewer.name, position));
+    });
+    return requestId;
+  }
+
+  /** A review asked for by name, with its files and reviewers in the order they were given. */
+  request(requestId) {
+    const row = this.db.prepare(`SELECT r.*, a.id AS by_id, a.display_name AS by_name, a.actor_type AS by_type,
+        p.id AS approver_id, p.display_name AS approver_name, p.actor_type AS approver_type
+      FROM review_requests r JOIN actors a ON a.id = r.requested_by_actor_id LEFT JOIN actors p ON p.id = r.approved_by_actor_id
+      WHERE r.id = ?`).get(requestId);
+    if (!row) throw new HttpError(404, 'That review is gone.');
+    return {
+      id: row.id, projectId: row.project_id, number: row.number, title: row.title, note: row.note, at: row.created_at,
+      requestedBy: actorOf(row, 'by'),
+      approved: row.approved_at ? { at: row.approved_at, by: actorOf(row, 'approver') } : null,
+      paths: this.db.prepare('SELECT path FROM review_request_files WHERE request_id = ? ORDER BY position').all(requestId).map((file) => file.path),
+      reviewers: this.db.prepare('SELECT name, email FROM review_request_reviewers WHERE request_id = ? ORDER BY position').all(requestId)
+        .map((reviewer) => ({ name: reviewer.name, email: reviewer.email })),
+    };
+  }
+
+  /** The reviews asked for in switched-on folders, newest first. */
+  requests() {
+    return this.db.prepare(`SELECT r.id FROM review_requests r JOIN projects p ON p.id = r.project_id
+      WHERE p.workspace_active = 1 ORDER BY r.created_at DESC`).all().map((row) => this.request(row.id));
+  }
+
+  setRequestApproved(requestId, actorInput) {
+    const actor = actorInput ? this.actor(actorInput) : null;
+    this.db.prepare('UPDATE review_requests SET approved_at = ?, approved_by_actor_id = ? WHERE id = ?')
+      .run(actor ? now() : null, actor?.id ?? null, requestId);
   }
 
   // MARK: Looked at

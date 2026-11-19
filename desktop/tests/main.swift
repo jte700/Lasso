@@ -5492,6 +5492,13 @@ do {
     let asked = try? RanchReview.decode(Data(json.replacingOccurrences(of: #""pendingComments":0"#, with: #""pendingComments":0,"requests":2"#).utf8))
     check(asked.map { RanchReviewWords.headline($0, now: noon) } == "2 changes requested", "a review of requests alone says so")
     check(RanchReviewWords.change("unchanged") == "Change requested", "a file only asked to change says so")
+    check(RanchReviewWords.change("review") == "To review", "a file in a review asked for by name is there to be looked at")
+    let named = try? RanchReview.decode(Data(json.replacingOccurrences(of: #""pendingComments":0"#, with: #""pendingComments":0,"requestId":"r1","number":3,"title":"Check the hours","reviewers":[{"name":"Dana Kim","email":"dana@studio.co"},{"name":"Sam Lee","email":"sam@acme.io"}],"requestedBy":{"id":"human:desktop","name":"Desktop","type":"HUMAN_SELF"}"#).utf8))
+    check(named.map { RanchReviewWords.headline($0, now: noon) } == "You asked Dana Kim and Sam Lee to review 2 files in Accounting",
+          "a review asked for by name says who was asked to look at what")
+    check(RanchInvitee(email: " Dana.Kim@Studio.co").name == "Dana Kim" && RanchInvitee(email: "sam@acme.io", name: "Sam Lee").name == "Sam Lee",
+          "a reviewer is named from their address unless a name is given")
+    check(RanchInvitee.isAddress("nour@acme.io") && !RanchInvitee.isAddress("nour@acme"), "an address needs a domain with a dot")
     check(review.map(RanchReviewWords.viewed) == "1/2 viewed", "files looked at are counted")
     check(review?.approval.map { RanchReviewWords.approved($0).lead + " " + RanchReviewWords.approved($0).rest } == "You approved these changes with 1 comment",
           "the banner says who approved and what it sent")

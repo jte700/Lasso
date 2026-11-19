@@ -9,6 +9,12 @@ import SwiftUI
 
 final class RanchReviewModel: ObservableObject {
     @Published private(set) var folders: [RanchReviewFolder] = []
+    /// Reviews asked for by name, newest first.
+    @Published private(set) var requests: [RanchReviewRequest] = []
+    /// The review asked for by name that is open, when one is: its files are in `chosenFolder`.
+    @Published private(set) var chosenRequest: String?
+    /// A new review being put together: who reviews, then its title, note and files.
+    @Published var draft: RanchReviewDraft?
     @Published var chosenFolder: String? { didSet { if chosenFolder != oldValue { review = nil; files = [:]; chosenFile = nil; loadReview() } } }
     @Published private(set) var review: RanchReview?
     @Published var chosenFile: String? { didSet { if chosenFile != oldValue { loadFile() } } }
@@ -59,18 +65,29 @@ final class RanchReviewModel: ObservableObject {
         guard serverURL != nil else { return }
         guard !refreshing else { refreshAgain = true; return }
         refreshing = true
+        struct Envelope: Decodable {
+            let folders: [RanchReviewFolder]
+            var requests: [RanchReviewRequest]? = nil
+        }
         request("api/reviews", decode: { data in
-            struct Envelope: Decodable { let folders: [RanchReviewFolder] }
-            return try RanchOverview.decoder().decode(Envelope.self, from: data).folders
+            try RanchOverview.decoder().decode(Envelope.self, from: data)
         }) { [weak self] result in
             guard let self else { return }
             refreshing = false
             defer { if refreshAgain { refreshAgain = false; refresh() } }
-            guard case .success(let folders) = result else { return }
+            guard case .success(let envelope) = result else { return }
+            let folders = envelope.folders
             if folders != self.folders { self.folders = folders }
-            if chosenFolder == nil || !folders.contains(where: { $0.id == self.chosenFolder }) {
+            let requests = envelope.requests ?? []
+            if requests != self.requests { self.requests = requests }
+            if let asked = chosenRequest, requests.contains(where: { $0.id == asked }) {
+                loadReview()
+            } else if chosenFolder == nil || !folders.contains(where: { $0.id == self.chosenFolder }) {
+                chosenRequest = nil
                 chosenFolder = folders.first { $0.state == "open" }?.id ?? folders.first?.id
             } else {
+                // A review asked for that is gone leaves its folder's own review open.
+                if chosenRequest != nil { chosenRequest = nil }
                 loadReview()
             }
         }
@@ -78,10 +95,64 @@ final class RanchReviewModel: ObservableObject {
 
     private func loadReview() {
         guard let folder = chosenFolder else { return }
-        request("api/reviews/\(folder)", decode: RanchReview.decode) { [weak self] result in
-            guard let self, folder == self.chosenFolder, case .success(let review) = result else { return }
+        let asked = chosenRequest
+        let path = asked.map { "api/reviews/requests/\($0)" } ?? "api/reviews/\(folder)"
+        request(path, decode: RanchReview.decode) { [weak self] result in
+            guard let self, folder == self.chosenFolder, asked == self.chosenRequest, case .success(let review) = result else { return }
             take(review)
         }
+    }
+
+    /// Opens a folder's own review: the files edited since it was last approved.
+    func choose(folder: String) {
+        guard chosenRequest != nil || chosenFolder != folder else { return }
+        chosenRequest = nil
+        // In the same folder the card stays until the other review arrives, which keeps the open file if it has it.
+        if chosenFolder == folder { loadReview() } else { chosenFolder = folder }
+    }
+
+    /// Opens a review asked for by name.
+    func choose(request id: String) {
+        guard let asked = requests.first(where: { $0.id == id }), chosenRequest != id else { return }
+        chosenRequest = id
+        if chosenFolder == asked.directoryId { loadReview() } else { chosenFolder = asked.directoryId }
+    }
+
+    /// Starts putting a new review together, in a folder and with a file in it when one was chosen.
+    func startReview(folder: String?, path: String? = nil) {
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+            draft = RanchReviewDraft(folder: folder ?? chosenFolder ?? folders.first?.id, paths: path.map { [$0] } ?? [])
+        }
+    }
+
+    /// Asks for the review the draft describes, then opens it.
+    func createRequest(folder: String, title: String, note: String, paths: [String], reviewers: [RanchInvitee], done: @escaping (Bool) -> Void) {
+        guard let serverURL else { return done(false) }
+        var request = URLRequest(url: serverURL.appendingPathComponent("api/reviews/\(folder)/requests"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "title": title, "note": note, "paths": paths, "actor": Self.me,
+            "reviewers": reviewers.map { ["email": $0.email, "name": $0.name] },
+        ] as [String: Any])
+        session.dataTask(with: request) { [weak self] data, response, error in
+            let review = (response as? HTTPURLResponse)?.statusCode == 200 ? data.flatMap { try? RanchReview.decode($0) } : nil
+            let message = review == nil ? WorkspaceAPI.errorMessage(data: data, response: response, error: error) : nil
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if let review, let id = review.requestId {
+                    self.requests.insert(RanchReviewRequest(id: id, directoryId: review.directoryId, number: review.number ?? 0,
+                                                            title: review.title ?? "", state: review.state, files: review.files.count,
+                                                            reviewers: review.reviewers ?? []), at: 0)
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { self.draft = nil }
+                    self.choose(request: id)
+                    self.refresh()
+                } else if let message {
+                    withAnimation(RanchLook.spring) { self.problem = message }
+                }
+                done(review != nil)
+            }
+        }.resume()
     }
 
     private func take(_ review: RanchReview) {
@@ -165,13 +236,15 @@ final class RanchReviewModel: ObservableObject {
     func approve() {
         guard let folder = chosenFolder, !approving else { return }
         withAnimation(RanchLook.spring) { approving = true }
-        post("api/reviews/\(folder)/approve", [:]) { [weak self] _ in
+        let path = chosenRequest.map { "api/reviews/requests/\($0)/approve" } ?? "api/reviews/\(folder)/approve"
+        post(path, [:]) { [weak self] _ in
             withAnimation(RanchLook.spring) { self?.approving = false }
         }
     }
 
     func undo() {
         guard let folder = chosenFolder, let approval = review?.approval else { return }
+        if let asked = chosenRequest { return post("api/reviews/requests/\(asked)/undo", [:]) { _ in } }
         post("api/reviews/\(folder)/undo", ["approvalId": approval.id]) { _ in }
     }
 
@@ -242,8 +315,14 @@ final class RanchReviewModel: ObservableObject {
         if let file = try? RanchReviewFileView.decode(data) {
             withAnimation(RanchLook.spring) { files[file.path] = file }
         }
-        if let review = try? RanchReview.decode(data), review.directoryId == chosenFolder {
+        if let review = try? RanchReview.decode(data), review.directoryId == chosenFolder, review.requestId == chosenRequest {
             withAnimation(RanchLook.spring) { self.review = review }
         }
     }
+}
+
+/// A new review being put together.
+struct RanchReviewDraft: Equatable {
+    var folder: String?
+    var paths: [String]
 }

@@ -84,6 +84,14 @@ struct RanchReview: Decodable, Equatable {
     let files: [File]
     let moreFiles: Int
 
+    /// For a review asked for by name: its id, number in its folder, title, note, reviewers and who asked.
+    var requestId: String? = nil
+    var number: Int? = nil
+    var title: String? = nil
+    var note: String? = nil
+    var reviewers: [RanchReviewer]? = nil
+    var requestedBy: RanchReviewActor? = nil
+
     var viewedCount: Int { files.filter(\.viewed).count }
     /// Files someone edited, as against those only asked to change.
     var editedCount: Int { max(0, files.count + moreFiles - (requests ?? 0)) }
@@ -92,6 +100,48 @@ struct RanchReview: Decodable, Equatable {
     static func decode(_ data: Data) throws -> RanchReview {
         try RanchOverview.decoder().decode(Envelope.self, from: data).review
     }
+}
+
+/// Someone asked to review, by address. Recorded only: nothing is sent to them.
+struct RanchReviewer: Decodable, Equatable, Hashable {
+    let name: String
+    let email: String
+}
+
+/// Someone asked to review, by address; named by the address's first part unless a name is given.
+struct RanchInvitee: Identifiable, Equatable, Hashable {
+    let email: String
+    let name: String
+    var id: String { email }
+
+    init(email: String, name: String? = nil) {
+        self.email = email.trimmingCharacters(in: .whitespaces).lowercased()
+        self.name = name?.isEmpty == false ? name! : Self.name(from: self.email)
+    }
+
+    /// "dana.kim@studio.co" is Dana Kim.
+    static func name(from email: String) -> String {
+        String(email.split(separator: "@").first ?? "")
+            .split(whereSeparator: { ".-_".contains($0) })
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
+    }
+
+    static func isAddress(_ text: String) -> Bool {
+        text.range(of: #"^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$"#, options: .regularExpression) != nil
+    }
+}
+
+/// A review asked for by name, as the page's chips list it.
+struct RanchReviewRequest: Decodable, Identifiable, Equatable {
+    let id: String
+    let directoryId: String
+    let number: Int
+    let title: String
+    /// open or approved.
+    let state: String
+    let files: Int
+    let reviewers: [RanchReviewer]
 }
 
 struct RanchReviewComment: Decodable, Equatable, Identifiable {
@@ -287,8 +337,23 @@ enum RanchReviewWords {
         }
     }
 
+    /// "Dana Kim", "Dana Kim and Sam Lee", "Dana Kim, Sam Lee and 2 others".
+    static func reviewerNames(_ reviewers: [RanchReviewer]) -> String {
+        names(reviewers.map { RanchReviewActor(id: "email:\($0.email)", name: $0.name, type: "HUMAN_COLLABORATOR") })
+    }
+
+    /// The line under a review's title: who asked whom to look at how many files.
+    static func requestHeadline(_ review: RanchReview) -> String {
+        let asker = review.requestedBy.map { $0.isMe ? "You" : $0.shownName } ?? "Someone"
+        let files = review.files.count == 1 ? "1 file" : "\(review.files.count.formatted()) files"
+        let reviewers = review.reviewers ?? []
+        if reviewers.isEmpty { return "\(asker) asked for a review of \(files) in \(review.name)" }
+        return "\(asker) asked \(reviewerNames(reviewers)) to review \(files) in \(review.name)"
+    }
+
     /// The line under the folder's name: who edited how much since when, and the changes asked for.
     static func headline(_ review: RanchReview, now: Date = Date()) -> String {
+        if review.requestId != nil { return requestHeadline(review) }
         let edited = review.editedCount
         let requests = review.requests ?? 0
         let since: String
@@ -340,6 +405,7 @@ enum RanchReviewWords {
         case "renamed": return "Renamed"
         case "moved": return "Moved"
         case "unchanged": return "Change requested"
+        case "review": return "To review"
         default: return "Edited"
         }
     }
