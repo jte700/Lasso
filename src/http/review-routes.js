@@ -15,7 +15,16 @@ export async function reviewRoutes({ request, response, url, pathname, reviews }
   if (!pathname.startsWith('/api/reviews')) return false;
   const viewer = url.searchParams.get('actor') || DESKTOP.id;
   if (request.method === 'GET' && pathname === '/api/reviews') {
-    sendJson(response, 200, { folders: reviews.folders(viewer) });
+    sendJson(response, 200, { folders: reviews.folders(viewer), requests: reviews.requests() });
+    return true;
+  }
+  const asked = parts(pathname, /^\/api\/reviews\/requests\/([^/]+)(?:\/(approve|undo))?$/);
+  if (asked) {
+    const [requestId, action] = asked;
+    if (request.method === 'GET' && !action) { sendJson(response, 200, { review: reviews.requestSummary(requestId, viewer) }); return true; }
+    if (request.method !== 'POST' || !action) return false;
+    const body = await readJson(request, 64 * 1024);
+    sendJson(response, 200, action === 'approve' ? reviews.approveRequest(requestId, actorOf(body)) : reviews.undoRequest(requestId, actorOf(body)));
     return true;
   }
   const thread = parts(pathname, /^\/api\/reviews\/threads\/([^/]+)\/(replies|resolve|apply)$/);
@@ -27,7 +36,7 @@ export async function reviewRoutes({ request, response, url, pathname, reviews }
     if (action === 'apply') sendJson(response, 200, reviews.apply(threadId, actorOf(body)));
     return true;
   }
-  const folder = parts(pathname, /^\/api\/reviews\/([^/]+)(?:\/(file|threads|ask|viewed|approve|undo))?$/);
+  const folder = parts(pathname, /^\/api\/reviews\/([^/]+)(?:\/(file|threads|ask|viewed|approve|undo|requests))?$/);
   if (!folder) return false;
   const [directoryId, action] = folder;
   if (request.method === 'GET' && !action) {
@@ -41,6 +50,7 @@ export async function reviewRoutes({ request, response, url, pathname, reviews }
   if (request.method !== 'POST' || !action || action === 'file') return false;
   const body = await readJson(request, 256 * 1024);
   if (action === 'threads') sendJson(response, 200, reviews.comment(directoryId, body, actorOf(body)));
+  if (action === 'requests') sendJson(response, 200, reviews.request(directoryId, body, actorOf(body)));
   if (action === 'viewed') sendJson(response, 200, reviews.viewed(directoryId, body.path, body.viewed, actorOf(body)));
   if (action === 'approve') sendJson(response, 200, reviews.approve(directoryId, actorOf(body)));
   if (action === 'undo') sendJson(response, 200, reviews.undo(directoryId, body.approvalId, actorOf(body)));

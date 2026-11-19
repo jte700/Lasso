@@ -378,6 +378,43 @@ test('A workbook written again with no cell changed is not in the review, and a 
   assert.deepEqual([looked, again], [true, false]);
 });
 
+test('A review asked for by name lists its files, reviewers and note, and approving it closes it, not the folder\'s review', (t) => {
+  // Arrange
+  const { reviews, id, save } = folder(t);
+  save('crew.csv', 'Name,Hours\nAda,9\nBo,6\n');
+
+  // Act
+  const { review } = reviews.request(id, { title: 'Check the crew hours', note: 'Bo\'s hours look high.', paths: ['crew.csv', 'backoff.ts'],
+    reviewers: [{ email: 'dana.kim@studio.co' }, { email: 'Sam@Acme.io', name: 'Sam Lee' }] }, me);
+  const listed = reviews.requests(me.id);
+  const approved = reviews.approveRequest(review.requestId, me).review;
+  const folderAfter = reviews.summary(id, me.id);
+  const undone = reviews.undoRequest(review.requestId, me).review;
+
+  // Assert
+  assert.deepEqual([review.number, review.title, review.note, review.state], [1, 'Check the crew hours', 'Bo\'s hours look high.', 'open']);
+  assert.deepEqual(review.reviewers, [{ name: 'Dana Kim', email: 'dana.kim@studio.co' }, { name: 'Sam Lee', email: 'sam@acme.io' }]);
+  assert.deepEqual(review.files.map((file) => [file.path, file.change]), [['crew.csv', 'edited'], ['backoff.ts', 'review']]);
+  assert.equal(review.requestedBy.id, me.id);
+  assert.deepEqual(listed.map((item) => [item.title, item.state, item.files, item.reviewers.length]), [['Check the crew hours', 'open', 2, 2]]);
+  assert.deepEqual([approved.state, approved.approval.by.id], ['approved', me.id]);
+  assert.equal(folderAfter.state, 'open', 'the folder\'s own review is still waiting');
+  assert.equal(undone.state, 'open');
+});
+
+test('A review request needs a file in its folder, and a reviewer needs an email address', (t) => {
+  // Arrange
+  const { reviews, id } = folder(t);
+  const ask = (input) => () => reviews.request(id, { paths: ['crew.csv'], reviewers: [], ...input }, me);
+
+  // Act and Assert
+  assert.throws(ask({ paths: [] }), /Choose a file/);
+  assert.throws(ask({ paths: ['missing.txt'] }), /missing\.txt is not in this folder/);
+  assert.throws(ask({ reviewers: [{ email: 'nour@acme' }] }), /nour@acme is not an email address/);
+  const { review } = reviews.request(id, { paths: ['crew.csv'] }, me);
+  assert.deepEqual([review.title, review.reviewers], ['Review 1', []], 'a review asked for with no title is numbered');
+});
+
 test('The review routes list folders, start a thread and approve over HTTP', async (t) => {
   // Arrange
   const { app, id, save } = folder(t);
@@ -388,13 +425,16 @@ test('The review routes list folders, start a thread and approve over HTTP', asy
     .then((response) => response.json());
 
   // Act
-  const { folders } = await fetch(`${base}/api/reviews`).then((response) => response.json());
+  const created = await post(`/api/reviews/${id}/requests`, { title: 'Hours', paths: ['crew.csv'], reviewers: [{ email: 'ada@crew.co' }] });
+  const read = await fetch(`${base}/api/reviews/requests/${created.review.requestId}`).then((response) => response.json());
+  const { folders, requests } = await fetch(`${base}/api/reviews`).then((response) => response.json());
   const started = await post(`/api/reviews/${id}/threads`, { path: 'crew.csv', anchor: { kind: 'cell', sheet: 'crew.csv', row: 2, column: 1, value: '9' }, body: 'Check this' });
   const { review } = await post(`/api/reviews/${id}/approve`, {});
   await new Promise((resolve) => app.server.close(resolve));
 
   // Assert
   assert.deepEqual(folders.map((item) => [item.name, item.files, item.state]), [['Webhooks', 1, 'open']]);
+  assert.deepEqual([read.review.title, read.review.reviewers[0].name, requests.length], ['Hours', 'Ada', 1]);
   assert.deepEqual([started.file.threads[0].place, started.file.threads[0].comments[0].body], ['B2', 'Check this']);
   assert.deepEqual([review.state, review.approval.comments, review.approval.by.name], ['approved', 1, 'Desktop']);
 });

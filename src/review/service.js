@@ -24,6 +24,12 @@ function writeCells(file, bytes, edits) {
   return setWorkbookCells(bytes, edits);
 }
 
+const EMAIL = /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i;
+/** A name from an address, as the Invite People component makes one: "dana.kim@studio.co" is Dana Kim. */
+export function nameFromEmail(email) {
+  return email.split('@')[0].split(/[._-]+/).filter(Boolean).map((part) => part[0].toUpperCase() + part.slice(1)).join(' ');
+}
+
 /** The AI writer as history names it. */
 export const CHATGPT = Object.freeze({ id: 'agent:chatgpt', displayName: 'ChatGPT', actorType: 'AI_AGENT' });
 export const LONGEST_PROMPT = 4000;
@@ -199,6 +205,54 @@ export class ReviewService {
       executionId, initiatedBy: actor }, CHATGPT);
     if (changed) this.records.markApplied(id, CHATGPT);
     return { threadId: id, file: this.file(projectId, target, actor.id) };
+  }
+
+  // MARK: Reviews asked for by name
+
+  /** Asks for a review of files by name: a title, a note, and reviewers, who are recorded only. */
+  request(projectId, { title = '', note = '', paths = [], reviewers = [] } = {}, actorInput) {
+    const project = this.timeline.getProject(projectId);
+    const files = [...new Set(Array.isArray(paths) ? paths.filter((item) => typeof item === 'string' && item) : [])];
+    if (!files.length) throw new HttpError(400, 'Choose a file to review.');
+    for (const filePath of files) {
+      if (!this.timeline.snapshotFile(project.currentSnapshotId, filePath)) throw new HttpError(400, `${filePath} is not in this folder.`);
+    }
+    const people = [];
+    for (const reviewer of Array.isArray(reviewers) ? reviewers : []) {
+      const email = String(reviewer?.email ?? '').trim().toLowerCase();
+      if (!EMAIL.test(email)) throw new HttpError(400, `${reviewer?.email ?? 'That'} is not an email address.`);
+      if (people.some((person) => person.email === email)) continue;
+      people.push({ email, name: String(reviewer?.name ?? '').trim() || nameFromEmail(email) });
+    }
+    const actor = this.records.actor(actorInput);
+    const requestId = this.records.createRequest(projectId, { title: String(title ?? '').trim().slice(0, 200),
+      note: String(note ?? '').trim().slice(0, 4000), paths: files, reviewers: people }, actor);
+    return { review: this.requestSummary(requestId, actor.id) };
+  }
+
+  /** The reviews asked for in switched-on folders, each with how much is in it. */
+  requests() {
+    return this.records.requests().map((request) => ({ id: request.id, directoryId: request.projectId, number: request.number,
+      title: request.title, state: request.approved ? 'approved' : 'open', files: request.paths.length, reviewers: request.reviewers,
+      at: request.at }));
+  }
+
+  requestSummary(requestId, viewerId) {
+    return this.reviews.requestSummary(this.records.request(requestId), viewerId);
+  }
+
+  approveRequest(requestId, actorInput) {
+    const actor = this.records.actor(actorInput);
+    this.records.request(requestId);
+    this.records.setRequestApproved(requestId, actor);
+    return { review: this.requestSummary(requestId, actor.id) };
+  }
+
+  undoRequest(requestId, actorInput) {
+    const actor = this.records.actor(actorInput);
+    this.records.request(requestId);
+    this.records.setRequestApproved(requestId, null);
+    return { review: this.requestSummary(requestId, actor.id) };
   }
 
   // MARK: Looked at, approved
