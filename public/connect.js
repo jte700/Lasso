@@ -1,6 +1,6 @@
 // The Connect 3rd Party Apps window. It opens on "Lasso with …", the app's
-// name changing with a different animation each time, over the letter field,
-// with each app's icon and a Connect button under it. Connect opens a sheet
+// name changing with a different animation each time, with a card for each
+// app under it: its icon, name and a Connect button. Connect opens a sheet
 // with that app's short flow: choose what Lasso reads, sign in or paste what
 // the app issued, then watch its items come in. The Mac app hosts this page and answers `lasso`
 // messages for what only it can do: read the Calendar app, show app icons,
@@ -81,7 +81,6 @@
   const letters = word.querySelector('.letters');
   const measure = h('span', { class: 'letters', style: 'position:absolute;visibility:hidden;left:0;top:0', 'aria-hidden': 'true' });
   word.append(measure);
-  const SCRAMBLE = '·:;+=*<>/\\|{}[]01#%abcdefxyz';
   let cycle = { running: false, index: 0, token: 0 };
 
   function widthOf(text) {
@@ -97,29 +96,18 @@
     return characters;
   }
 
-  /** Each letter passes through the field's own symbols before it settles. */
-  async function scramble(from, to) {
-    const slots = Math.max(from.length, to.length);
-    const cells = spell(from.padEnd(slots, ' '));
-    let last = 0;
-    letters.style.transition = 'width .9s cubic-bezier(.3,.7,.2,1)';
+  /** The word drops away letter by letter, and the next falls in from above. */
+  async function drop(from, to) {
+    const out = spell(from);
+    await Promise.all(out.map((cell, index) => cell.animate(
+      [{ transform: 'none', opacity: 1 }, { transform: 'translateY(.45em) rotate(4deg)', opacity: 0 }],
+      { duration: 320, delay: index * 24, easing: 'cubic-bezier(.5,0,.75,0)', fill: 'forwards' }).finished));
+    letters.style.transition = 'width .6s cubic-bezier(.22,1,.36,1)';
     setWidth(to);
-    await frames(1100, (t) => {
-      const fresh = performance.now() - last > 55;
-      if (fresh) last = performance.now();
-      cells.forEach((cell, index) => {
-        const start = (index / slots) * 0.35, settle = 0.4 + (index / slots) * 0.55;
-        if (t < start) return;
-        if (t >= settle) {
-          cell.textContent = to[index] ?? '';
-          cell.className = 'ch';
-        } else if (fresh) {
-          cell.textContent = SCRAMBLE[(Math.random() * SCRAMBLE.length) | 0];
-          cell.className = 'ch scramble';
-        }
-      });
-    });
-    spell(to);
+    const cells = spell(to);
+    await Promise.all(cells.map((cell, index) => cell.animate(
+      [{ transform: 'translateY(-.5em)', opacity: 0 }, { transform: 'none', opacity: 1 }],
+      { duration: 520, delay: 60 + index * 30, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'backwards' }).finished));
   }
 
   /** A loop is thrown around the word and yanks it away; the next drops in. */
@@ -179,7 +167,7 @@
     cells.slice(typedPart.length).forEach((cell, index) => cell.animate(
       [{ opacity: 0, transform: 'translateX(-.15em)' }, { opacity: 1, transform: 'none' }],
       { duration: 260, delay: index * 14, easing: 'ease-out', fill: 'backwards' }));
-    word.animate([{ backgroundColor: 'rgba(41,204,87,.35)' }, { backgroundColor: 'rgba(41,204,87,0)' }], { duration: 700, easing: 'ease-out' });
+    word.animate([{ backgroundColor: 'rgba(142,197,244,.38)' }, { backgroundColor: 'rgba(142,197,244,.14)' }], { duration: 700, easing: 'ease-out' });
     await wait(650);
     caret.remove();
   }
@@ -205,7 +193,7 @@
   }
 
   // Calendar → Outlook → Notion → Google Calendar → Calendar, each change its own.
-  const TRANSITIONS = [scramble, lasso, typed, roll];
+  const TRANSITIONS = [drop, lasso, typed, roll];
 
   async function runCycle(token) {
     while (cycle.token === token) {
@@ -235,7 +223,6 @@
     sheet.hidden = false;
     sheet.classList.remove('leaving');
     go(screen);
-    requestAnimationFrame(() => window.lassoField?.refresh());
   }
 
   function closeSheet() {
@@ -247,7 +234,6 @@
     setTimeout(() => {
       sheet.hidden = true;
       sheet.classList.remove('leaving');
-      window.lassoField?.refresh();
       startCycle();
     }, 240);
     schedule();
@@ -375,9 +361,8 @@
         h('button', { class: 'btn', type: 'button', disabled: !entry.available, onclick: open,
           'aria-label': `${mine.length ? 'Manage' : 'Connect'} ${entry.name}` }, mine.length ? 'Manage…' : 'Connect'));
     }));
-    // They fade in the first time only; then the field keeps clear of them.
+    // They rise in the first time only.
     if (state.appsShown) for (const app of apps.children) app.style.animation = 'none';
-    else requestAnimationFrame(() => window.lassoField?.refresh());
     state.appsShown = true;
     if (focused) apps.querySelector(`[data-provider="${focused}"] .btn`)?.focus();
   }
@@ -789,6 +774,8 @@
   window.lassoConnect = { refresh: () => poll() };
 
   setWidth(WORDS[0]);
+  // Figtree arrives after the first measure; the word's box is measured again in it.
+  document.fonts?.ready.then(() => { if (!cycle.index) setWidth(WORDS[0]); });
   startCycle();
   load().then(() => { renderApps(); schedule(); }).catch(() => schedule());
   if (bridge) native('appIcons').then((icons) => { state.icons = icons ?? {}; renderApps(); if (!sheet.hidden) render({ quiet: true }); }).catch(() => {});
