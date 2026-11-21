@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="356" viewBox="0 0 760 356" role="img" aria-labelledby="t d">
+<title id="t">History storage, edit speed and memory</title><desc id="d">DB growth per 1-cell edit: 1.5 MB to 4 KB; Version rows written: 1,882 rows to 3 rows; Derived growth per CSV edit: 2.2 MB to 0 B; First edit after restart: 303 ms to 143 ms; Peak memory (RSS): 424 MB to 302 MB</desc>
+<style>
+  .surface { fill: #fffdf7; stroke: #e3dfd2; }
+  .tile-bg { fill: #f7f5ed; stroke: #e7e3d6; }
+  .title { fill: #1b1f17; font: 600 17px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; letter-spacing: -0.02em; }
+  .subtitle { fill: #5a5e55; font: 13px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .label { fill: #1b1f17; font: 13px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .strong { fill: #1b1f17; font: 600 13px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .value { fill: #1b1f17; font: 600 12px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .tick { fill: #6c7067; font: 11px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .grid { stroke: #e8e4d8; stroke-width: 1; }
+  .axis { stroke: #b8b4a6; stroke-width: 1; }
+  .reference { stroke: #6c7067; stroke-width: 1.5; stroke-dasharray: 4 4; }
+  .series-1 { fill: #2a6db0; }
+  .series-1-light { fill: #8ec5f4; }
+  .series-sage { fill: #5f7f51; }
+  .muted-bar { fill: #d0ccc0; }
+  .hero { fill: #1b1f17; font: 700 28px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; letter-spacing: -0.03em; }
+  .hero-label { fill: #5a5e55; font: 12px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .accent { fill: #2a6db0; }
+  .accent-sage { fill: #5f7f51; }
+  .accent-rope { fill: #a98643; }
+  .accent-terra { fill: #b8563a; }
+  .line-1 { fill: none; stroke: #2a6db0; stroke-width: 2.5; stroke-linejoin: round; }
+  .line-base { fill: none; stroke: #928f85; stroke-width: 2; stroke-linejoin: round; }
+  .dot-1 { fill: #2a6db0; stroke: #fffdf7; stroke-width: 2; }
+  .dot-base { fill: #928f85; stroke: #fffdf7; stroke-width: 2; }
+  .area-1 { fill: #2a6db0; fill-opacity: 0.10; }
+  .callout { fill: #2a6db0; font: 700 14px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .footnote { fill: #757970; font: 11px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  @media (prefers-color-scheme: dark) {
+    .surface { fill: #151513; stroke: #2c2c28; }
+    .tile-bg { fill: #1c1c19; stroke: #2d2d29; }
+    .title, .label, .strong, .value, .hero { fill: #f6f4ec; }
+    .subtitle, .hero-label { fill: #a9a79f; }
+    .tick { fill: #8a8880; }
+    .grid { stroke: #282824; }
+    .axis { stroke: #57564f; }
+    .reference { stroke: #99978f; }
+    .series-1, .accent { fill: #8ec5f4; }
+    .series-1-light { fill: #3c658a; }
+    .series-sage, .accent-sage { fill: #91a984; }
+    .accent-rope { fill: #d7bd85; }
+    .accent-terra { fill: #c96749; }
+    .muted-bar { fill: #494842; }
+    .line-1 { stroke: #8ec5f4; }
+    .line-base { stroke: #76746c; }
+    .dot-1 { fill: #8ec5f4; stroke: #151513; }
+    .dot-base { fill: #76746c; stroke: #151513; }
+    .area-1 { fill: #8ec5f4; fill-opacity: 0.12; }
+    .callout { fill: #8ec5f4; }
+    .footnote { fill: #7f7d75; }
+  }</style>
+<rect class="surface" x="0.5" y="0.5" width="759" height="355" rx="16"/>
+<text x="24" y="34" class="title" text-anchor="start">History storage, edit speed and memory</text>
+<text x="24" y="54" class="subtitle" text-anchor="start">Versioned provenance overhead before and after the indexing rework (docs/benchmarks/storage.json).</text>
+<rect class="muted-bar" x="24" y="72" width="12" height="12" rx="3"/><text x="42" y="82" class="tick" text-anchor="start">Before indexing rework</text><rect class="series-1" x="200" y="72" width="12" height="12" rx="3"/><text x="218" y="82" class="tick" text-anchor="start">Current build</text>
+<line class="axis" x1="220" x2="220" y1="100" y2="304"/>
+<text x="208" y="127" class="label" text-anchor="end">DB growth per 1-cell edit</text><path class="muted-bar" d="M220,108 h414 a4,4 0 0 1 4,4 v4 a4,4 0 0 1 -4,4 h-414 z"/><text x="646" y="118" class="tick" text-anchor="start">1.5 MB</text><path class="series-1" d="M220,123 h1.5 a1.5,1.5 0 0 1 1.5,1.5 v9 a1.5,1.5 0 0 1 -1.5,1.5 h-1.5 z"/><text x="231" y="133" class="value" text-anchor="start">4 KB</text>
+<text x="208" y="167" class="label" text-anchor="end">Version rows written</text><path class="muted-bar" d="M220,148 h414 a4,4 0 0 1 4,4 v4 a4,4 0 0 1 -4,4 h-414 z"/><text x="646" y="158" class="tick" text-anchor="start">1,882 rows</text><path class="series-1" d="M220,163 h1.5 a1.5,1.5 0 0 1 1.5,1.5 v9 a1.5,1.5 0 0 1 -1.5,1.5 h-1.5 z"/><text x="231" y="173" class="value" text-anchor="start">3 rows</text>
+<text x="208" y="207" class="label" text-anchor="end">Derived growth per CSV edit</text><path class="muted-bar" d="M220,188 h414 a4,4 0 0 1 4,4 v4 a4,4 0 0 1 -4,4 h-414 z"/><text x="646" y="198" class="tick" text-anchor="start">2.2 MB</text><text x="228" y="213" class="value" text-anchor="start">0 B</text>
+<text x="208" y="247" class="label" text-anchor="end">First edit after restart</text><path class="muted-bar" d="M220,228 h414 a4,4 0 0 1 4,4 v4 a4,4 0 0 1 -4,4 h-414 z"/><text x="646" y="238" class="tick" text-anchor="start">303 ms</text><path class="series-1" d="M220,243 h193.20105645427535 a4,4 0 0 1 4,4 v4 a4,4 0 0 1 -4,4 h-193.20105645427535 z"/><text x="425.2010564542753" y="253" class="value" text-anchor="start">143 ms</text>
+<text x="208" y="287" class="label" text-anchor="end">Peak memory (RSS)</text><path class="muted-bar" d="M220,268 h414 a4,4 0 0 1 4,4 v4 a4,4 0 0 1 -4,4 h-414 z"/><text x="646" y="278" class="tick" text-anchor="start">424 MB</text><path class="series-1" d="M220,283 h293.7173295978177 a4,4 0 0 1 4,4 v4 a4,4 0 0 1 -4,4 h-293.7173295978177 z"/><text x="525.7173295978178" y="293" class="value" text-anchor="start">302 MB</text>
+<text x="24" y="342" class="footnote" text-anchor="start">1,882-row (614 KB) CSV edit benchmark (npm run bench:storage). Row identities kept on top-row insert: 4 → 404/404.</text>
+</svg>

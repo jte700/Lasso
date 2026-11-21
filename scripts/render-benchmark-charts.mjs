@@ -1,7 +1,8 @@
 // Draws the README's benchmark charts as SVG files in docs/benchmarks, from
-// results.json (typing benchmarks, written by scripts/benchmark.mjs) and
-// mcp-summary.json (live MCP runs recorded in docs/agent). Each chart follows
-// the viewer's light or dark theme.
+// results.json (typing benchmarks, written by scripts/benchmark.mjs),
+// mcp-summary.json (live MCP runs recorded in docs/agent), and storage.json
+// (storage and memory runs written by scripts/bench-storage.mjs). Each chart
+// follows the viewer's light or dark theme in Lasso's site palette.
 //
 //   node scripts/render-benchmark-charts.mjs
 import fs from 'node:fs';
@@ -13,55 +14,66 @@ const outputDirectory = path.join(repoRoot, 'docs', 'benchmarks');
 const readJson = (name) => JSON.parse(fs.readFileSync(path.join(outputDirectory, name), 'utf8'));
 const typing = readJson('results.json');
 const mcp = readJson('mcp-summary.json');
+const storage = readJson('storage.json');
 
-const FONT = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
+const FONT = "'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
 const WIDTH = 760;
 const LEFT = 24;
 const BAR = 14;
 
-// Colour roles, light then dark, from a palette checked for colour-vision deficiency.
+// Lasso's site palette (trial.css / RanchLook): warm paper & ink in light mode,
+// near-black & warm white in dark mode, with sky blue as the primary accent.
 const STYLE = `
-  .surface { fill: #fcfcfb; stroke: #e6e5e1; }
-  .title { fill: #0b0b0b; font: 600 17px ${FONT}; }
-  .subtitle { fill: #52514e; font: 13px ${FONT}; }
-  .label { fill: #0b0b0b; font: 13px ${FONT}; }
-  .strong { fill: #0b0b0b; font: 600 13px ${FONT}; }
-  .value { fill: #0b0b0b; font: 600 12px ${FONT}; }
-  .tick { fill: #6f6e69; font: 11px ${FONT}; }
-  .grid { stroke: #e6e5e1; stroke-width: 1; }
-  .axis { stroke: #a8a7a1; stroke-width: 1; }
-  .reference { stroke: #52514e; stroke-width: 1.5; stroke-dasharray: 4 4; }
-  .series-1 { fill: #1f9d4c; }
-  .series-1-light { fill: #6abd86; }
-  .muted-bar { fill: #c9c8c2; }
-  .hero { fill: #0b0b0b; font: 700 30px ${FONT}; letter-spacing: -0.5px; }
-  .hero-label { fill: #52514e; font: 12.5px ${FONT}; }
-  .accent { fill: #1f9d4c; }
-  .line-1 { fill: none; stroke: #1f9d4c; stroke-width: 2.5; stroke-linejoin: round; }
-  .line-base { fill: none; stroke: #8f8e88; stroke-width: 2; stroke-linejoin: round; }
-  .dot-1 { fill: #1f9d4c; stroke: #fcfcfb; stroke-width: 2; }
-  .dot-base { fill: #8f8e88; stroke: #fcfcfb; stroke-width: 2; }
-  .area-1 { fill: #1f9d4c; fill-opacity: 0.08; }
-  .callout { fill: #0b0b0b; font: 700 15px ${FONT}; }
-  .footnote { fill: #8f8e88; font: 11px ${FONT}; }
+  .surface { fill: #fffdf7; stroke: #e3dfd2; }
+  .tile-bg { fill: #f7f5ed; stroke: #e7e3d6; }
+  .title { fill: #1b1f17; font: 600 17px ${FONT}; letter-spacing: -0.02em; }
+  .subtitle { fill: #5a5e55; font: 13px ${FONT}; }
+  .label { fill: #1b1f17; font: 13px ${FONT}; }
+  .strong { fill: #1b1f17; font: 600 13px ${FONT}; }
+  .value { fill: #1b1f17; font: 600 12px ${FONT}; }
+  .tick { fill: #6c7067; font: 11px ${FONT}; }
+  .grid { stroke: #e8e4d8; stroke-width: 1; }
+  .axis { stroke: #b8b4a6; stroke-width: 1; }
+  .reference { stroke: #6c7067; stroke-width: 1.5; stroke-dasharray: 4 4; }
+  .series-1 { fill: #2a6db0; }
+  .series-1-light { fill: #8ec5f4; }
+  .series-sage { fill: #5f7f51; }
+  .muted-bar { fill: #d0ccc0; }
+  .hero { fill: #1b1f17; font: 700 28px ${FONT}; letter-spacing: -0.03em; }
+  .hero-label { fill: #5a5e55; font: 12px ${FONT}; }
+  .accent { fill: #2a6db0; }
+  .accent-sage { fill: #5f7f51; }
+  .accent-rope { fill: #a98643; }
+  .accent-terra { fill: #b8563a; }
+  .line-1 { fill: none; stroke: #2a6db0; stroke-width: 2.5; stroke-linejoin: round; }
+  .line-base { fill: none; stroke: #928f85; stroke-width: 2; stroke-linejoin: round; }
+  .dot-1 { fill: #2a6db0; stroke: #fffdf7; stroke-width: 2; }
+  .dot-base { fill: #928f85; stroke: #fffdf7; stroke-width: 2; }
+  .area-1 { fill: #2a6db0; fill-opacity: 0.10; }
+  .callout { fill: #2a6db0; font: 700 14px ${FONT}; }
+  .footnote { fill: #757970; font: 11px ${FONT}; }
   @media (prefers-color-scheme: dark) {
-    .surface { fill: #1a1a19; stroke: #333330; }
-    .title, .label, .strong, .value, .hero { fill: #f0efec; }
-    .subtitle, .hero-label { fill: #c3c2b7; }
-    .tick { fill: #9d9c95; }
-    .grid { stroke: #333330; }
-    .axis { stroke: #6f6e69; }
-    .reference { stroke: #c3c2b7; }
-    .series-1, .accent { fill: #28a752; }
-    .series-1-light { fill: #1a6534; }
-    .muted-bar { fill: #5c5b56; }
-    .line-1 { stroke: #28a752; }
-    .line-base { stroke: #7d7c76; }
-    .dot-1 { fill: #28a752; stroke: #1a1a19; }
-    .dot-base { fill: #7d7c76; stroke: #1a1a19; }
-    .area-1 { fill: #28a752; }
-    .callout { fill: #f0efec; }
-    .footnote { fill: #7d7c76; }
+    .surface { fill: #151513; stroke: #2c2c28; }
+    .tile-bg { fill: #1c1c19; stroke: #2d2d29; }
+    .title, .label, .strong, .value, .hero { fill: #f6f4ec; }
+    .subtitle, .hero-label { fill: #a9a79f; }
+    .tick { fill: #8a8880; }
+    .grid { stroke: #282824; }
+    .axis { stroke: #57564f; }
+    .reference { stroke: #99978f; }
+    .series-1, .accent { fill: #8ec5f4; }
+    .series-1-light { fill: #3c658a; }
+    .series-sage, .accent-sage { fill: #91a984; }
+    .accent-rope { fill: #d7bd85; }
+    .accent-terra { fill: #c96749; }
+    .muted-bar { fill: #494842; }
+    .line-1 { stroke: #8ec5f4; }
+    .line-base { stroke: #76746c; }
+    .dot-1 { fill: #8ec5f4; stroke: #151513; }
+    .dot-base { fill: #76746c; stroke: #151513; }
+    .area-1 { fill: #8ec5f4; fill-opacity: 0.12; }
+    .callout { fill: #8ec5f4; }
+    .footnote { fill: #7f7d75; }
   }`;
 
 const escape = (value) => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -71,6 +83,12 @@ const thousands = (value) => Math.round(value).toLocaleString('en-US');
 const percent = (fraction) => `${Math.round(fraction * 100)}%`;
 const ms = (value) => (value < 10 ? value.toFixed(1) : String(Math.round(value)));
 const saving = (lasso, baseline) => 1 - lasso / baseline;
+const formatBytes = (bytes) => {
+  if (bytes === 0) return '0 B';
+  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+};
 
 // A bar growing right from x (or left, with a negative width), its data end
 // rounded and its base square on the axis.
@@ -92,7 +110,7 @@ function frame(height, title, subtitle, body, description) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}" role="img" aria-labelledby="t d">
 <title id="t">${escape(title)}</title><desc id="d">${escape(description)}</desc>
 <style>${STYLE}</style>
-<rect class="surface" x="0.5" y="0.5" width="${WIDTH - 1}" height="${height - 1}" rx="12"/>
+<rect class="surface" x="0.5" y="0.5" width="${WIDTH - 1}" height="${height - 1}" rx="16"/>
 ${text(LEFT, 34, title, 'title')}
 ${subtitle ? text(LEFT, 54, subtitle, 'subtitle') : ''}
 ${body}
@@ -106,36 +124,37 @@ function write(name, svg) {
 }
 
 function summaryCard() {
-  const savings = mcp.models.map((model) => saving(model.lasso.tokens, model.fileTools.tokens));
-  const costs = mcp.models.map((model) => saving(model.lasso.cost, model.fileTools.cost));
-  const tasks = mcp.models.reduce((sum, model) => sum + model.tasks, 0);
-  const lassoCorrect = mcp.models.reduce((sum, model) => sum + model.lasso.correct, 0);
-  const toolsCorrect = mcp.models.reduce((sum, model) => sum + model.fileTools.correct, 0);
-  const range = (values) => `${percent(Math.min(...values)).slice(0, -1)}–${percent(Math.max(...values))}`;
+  const pooled = mcp.pooled;
+  const tokenSaved = percent(saving(pooled.lasso.tokens, pooled.fileTools.tokens));
+  const costSaved = percent(saving(pooled.lasso.cost, pooled.fileTools.cost));
+  const finalEdit = formatBytes(storage.final.targets.dbGrowthPerEditBytes);
+  const baseEdit = formatBytes(storage.baseline.targets.dbGrowthPerEditBytes);
   const tiles = [
-    { value: range(savings), lines: ['fewer agent tokens', 'with Lasso MCP'] },
-    { value: range(costs), lines: ['lower model cost', 'on the same tasks'] },
-    { value: `${lassoCorrect}/${tasks}`, lines: ['answers correct', `vs ${toolsCorrect}/${tasks} file tools`] },
-    { value: `${ms(typing.wholeLibrary.score.latency.p50)} ms`, lines: ['median per keystroke', 'while typing'] },
+    { value: tokenSaved, accent: 'accent', lines: ['fewer agent tokens', `across ${pooled.tasks} live MCP tasks`] },
+    { value: costSaved, accent: 'accent-sage', lines: ['lower model cost', `${pooled.lasso.correct}/${pooled.tasks} right vs ${pooled.fileTools.correct}/${pooled.tasks}`] },
+    { value: `${ms(typing.wholeLibrary.score.latency.p50)} ms`, accent: 'accent-rope', lines: ['median per keystroke', `${typing.wholeLibrary.score.top1}/${typing.wholeLibrary.score.cases} top-1 · 0 tokens`] },
+    { value: finalEdit, accent: 'accent-terra', lines: ['per spreadsheet edit', `down from ${baseEdit}`] },
   ];
-  const tileWidth = (WIDTH - 2 * LEFT) / tiles.length;
+  const gap = 12;
+  const tileWidth = (WIDTH - 2 * LEFT - gap * (tiles.length - 1)) / tiles.length;
   const body = tiles.map((tile, index) => {
-    const x = LEFT + index * tileWidth;
-    return `<rect class="accent" x="${x}" y="80" width="3" height="62" rx="1.5"/>` +
-      text(x + 14, 108, tile.value, 'hero') +
-      tile.lines.map((line, row) => text(x + 14, 128 + row * 16, line, 'hero-label')).join('');
+    const x = LEFT + index * (tileWidth + gap);
+    return `<rect class="tile-bg" x="${x.toFixed(1)}" y="74" width="${tileWidth.toFixed(1)}" height="88" rx="12"/>` +
+      `<rect class="${tile.accent}" x="${(x + 14).toFixed(1)}" y="86" width="24" height="3" rx="1.5"/>` +
+      text((x + 14).toFixed(1), 118, tile.value, 'hero') +
+      tile.lines.map((line, row) => text((x + 14).toFixed(1), 137 + row * 15, line, 'hero-label')).join('');
   }).join('\n');
-  write('summary.svg', frame(166, 'Measured results',
-    'Agent figures: live model runs with provider-recorded token usage. Typing: local benchmark, Apple M3.', body,
+  write('summary.svg', frame(182, 'Measured results',
+    'MCP: live provider-recorded runs on gpt-5.4-mini. Typing & history: local benchmarks on Apple M3.', body,
     tiles.map((tile) => `${tile.value} ${tile.lines.join(' ')}`).join('; ')));
 }
 
 // Savings by kind of file, positive where Lasso used fewer tokens.
 function mcpByFileChart() {
   const rows = mcp.byFileKind.rows.map((row) => ({ ...row, saving: saving(row.lasso, row.fileTools) }));
-  const labelRight = LEFT + 236;
+  const labelRight = LEFT + 226;
   const zero = labelRight + 64;
-  const plotRight = WIDTH - 110;
+  const plotRight = WIDTH - 112;
   const scale = (fraction) => (plotRight - zero) * fraction;
   const top = 92;
   const rowHeight = 32;
@@ -158,8 +177,8 @@ function mcpByFileChart() {
 ${grid}
 <line class="axis" x1="${zero}" x2="${zero}" y1="${top - 6}" y2="${top + rows.length * rowHeight}"/>
 ${bars}
-${text(LEFT, height - 14, 'Tokens with Lasso against file tools on the same tasks, one live run. Small files cost less to read directly.', 'footnote')}`;
-  write('mcp-by-file.svg', frame(height, `Where the MCP saves tokens, by file (${mcp.byFileKind.model})`, '', body,
+${text(LEFT, height - 14, 'Tokens with Lasso against file tools on the same tasks (live runs in docs/agent). Small files cost less to read directly.', 'footnote')}`;
+  write('mcp-by-file.svg', frame(height, `Where Lasso MCP saves tokens, by file (${mcp.byFileKind.model})`, '', body,
     rows.map((row) => `${row.kind}: ${percent(row.saving)} saving`).join('; ')));
 }
 
@@ -218,9 +237,9 @@ ${text(left, plotBottom + 18, '0', 'tick', 'middle')}${text(endX, plotBottom + 1
 ${text(left + panelWidth / 2, plotBottom + 18, 'tasks completed', 'tick', 'middle')}`;
   }).join('\n');
   const height = plotBottom + 56;
-  const body = `${swatch(LEFT, 76, 'dot-base', 'File tools only (Read, Grep, Glob)')}${swatch(250, 76, 'series-1', 'With the Lasso MCP server')}
+  const body = `${swatch(LEFT, 76, 'muted-bar', 'File tools only (Read, Grep, Glob)')}${swatch(250, 76, 'series-1', 'With the Lasso MCP server')}
 ${panels}
-${text(LEFT, height - 14, 'Running total of tokens per run (input, including tool definitions and conversation, plus output). Provider usage records in docs/agent.', 'footnote')}`;
+${text(LEFT, height - 14, 'Running total of tokens per lookup run (input, including tool definitions and conversation, plus output). Provider records in docs/agent.', 'footnote')}`;
   write('mcp-cumulative.svg', frame(height, 'Tokens an agent spends answering from your files', '', body,
     runs.map((run) => `${run.model.model}: ${run.fileTools.at(-1)} tokens with file tools, ${run.lasso.at(-1)} with Lasso`).join('; ')));
 }
@@ -262,7 +281,73 @@ ${text(LEFT, height - 14, `${typing.wholeLibrary.score.latency.samples} keystrok
     rows.map((row) => `${row.name}: median ${row.latency.p50} ms, p95 ${row.latency.p95} ms`).join('; ')));
 }
 
+function storageChart() {
+  const b = storage.baseline.targets;
+  const f = storage.final.targets;
+  const metrics = [
+    {
+      name: 'DB growth per 1-cell edit',
+      before: b.dbGrowthPerEditBytes,
+      after: f.dbGrowthPerEditBytes,
+      beforeLabel: formatBytes(b.dbGrowthPerEditBytes),
+      afterLabel: formatBytes(f.dbGrowthPerEditBytes),
+    },
+    {
+      name: 'Version rows written',
+      before: b.versionRowsPerOneCellEdit,
+      after: f.versionRowsPerOneCellEdit,
+      beforeLabel: `${thousands(b.versionRowsPerOneCellEdit)} rows`,
+      afterLabel: `${f.versionRowsPerOneCellEdit} rows`,
+    },
+    {
+      name: 'Derived growth per CSV edit',
+      before: b.derivedGrowthPerCsvEditBytes,
+      after: f.derivedGrowthPerCsvEditBytes,
+      beforeLabel: formatBytes(b.derivedGrowthPerCsvEditBytes),
+      afterLabel: formatBytes(f.derivedGrowthPerCsvEditBytes),
+    },
+    {
+      name: 'First edit after restart',
+      before: b.firstEditAfterRestartMs,
+      after: f.firstEditAfterRestartMs,
+      beforeLabel: `${Math.round(b.firstEditAfterRestartMs)} ms`,
+      afterLabel: `${Math.round(f.firstEditAfterRestartMs)} ms`,
+    },
+    {
+      name: 'Peak memory (RSS)',
+      before: b.peakRssBytes,
+      after: f.peakRssBytes,
+      beforeLabel: `${Math.round(b.peakRssBytes / 1048576)} MB`,
+      afterLabel: `${Math.round(f.peakRssBytes / 1048576)} MB`,
+    },
+  ];
+  const plotLeft = LEFT + 196;
+  const plotWidth = WIDTH - plotLeft - 122;
+  const top = 104;
+  const rowHeight = 40;
+  const height = top + metrics.length * rowHeight + 52;
+  const rows = metrics.map((metric, index) => {
+    const y = top + index * rowHeight + 4;
+    const max = Math.max(metric.before, metric.after, 1);
+    const beforeW = plotWidth * (metric.before / max);
+    const afterW = metric.after === 0 ? 0 : Math.max(3, plotWidth * (metric.after / max));
+    return text(plotLeft - 12, y + 19, metric.name, 'label', 'end') +
+      bar(plotLeft, y, beforeW, 12, 'muted-bar') +
+      text(plotLeft + beforeW + 8, y + 10, metric.beforeLabel, 'tick') +
+      bar(plotLeft, y + 15, afterW, 12, 'series-1') +
+      text(plotLeft + afterW + 8, y + 25, metric.afterLabel, 'value');
+  }).join('\n');
+  const body = `${swatch(LEFT, 82, 'muted-bar', 'Before indexing rework')}${swatch(200, 82, 'series-1', 'Current build')}
+<line class="axis" x1="${plotLeft}" x2="${plotLeft}" y1="${top - 4}" y2="${top + metrics.length * rowHeight}"/>
+${rows}
+${text(LEFT, height - 14, `1,882-row (${formatBytes(f.csvFileBytes)}) CSV edit benchmark (npm run bench:storage). Row identities kept on top-row insert: ${b.identitiesKeptOnTopRowInsert.kept} → ${f.identitiesKeptOnTopRowInsert.kept}/${f.identitiesKeptOnTopRowInsert.total}.`, 'footnote')}`;
+  write('storage.svg', frame(height, 'History storage, edit speed and memory',
+    'Versioned provenance overhead before and after the indexing rework (docs/benchmarks/storage.json).', body,
+    metrics.map((m) => `${m.name}: ${m.beforeLabel} to ${m.afterLabel}`).join('; ')));
+}
+
 summaryCard();
 cumulativeChart();
 mcpByFileChart();
 latencyChart();
+storageChart();

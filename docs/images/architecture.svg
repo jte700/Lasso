@@ -1,77 +1,96 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="330" viewBox="0 0 760 330" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="404" viewBox="0 0 760 404" role="img" aria-labelledby="t d">
 <title id="t">How Lasso works</title>
-<desc id="d">The app you write in sends the text before the caret to the Lasso Mac app, which asks a local index server for suggestions. The server reads your watched folders. Tab inserts source-backed text and keeps a link to the exact source version. Nothing leaves the Mac.</desc>
+<desc id="d">The app you write in sends the text before the caret to the Lasso Mac app, which asks a local Node.js index server for suggestions and renders ghost text, the suggestion card, cell and passage pickers, source pills and The Ranch. The server watches your folders, USB drives and connected apps locally in SQLite, exposes an MCP server for AI agents, and runs an optional AI writer only when you trigger a backslash prompt.</desc>
 <style>
-  .surface { fill: #fcfcfb; stroke: #e6e5e1; }
-  .box { fill: #ffffff; stroke: #c9c8c2; stroke-width: 1.2; }
-  .box-accent { fill: #ffffff; stroke: #1f9d4c; stroke-width: 1.6; }
-  .title { fill: #0b0b0b; font: 600 17px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
-  .head { fill: #0b0b0b; font: 600 14px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
-  .line { fill: #52514e; font: 12.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
-  .edge { fill: #6f6e69; font: italic 11.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
-  .arrow { stroke: #6f6e69; stroke-width: 1.5; fill: none; }
-  .head-fill { fill: #6f6e69; }
-  .boundary { fill: none; stroke: #1f9d4c; stroke-width: 1.2; stroke-dasharray: 5 5; }
-  .boundary-label { fill: #1f9d4c; font: 600 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .surface { fill: #fffdf7; stroke: #e3dfd2; }
+  .box { fill: #f7f5ed; stroke: #d8d4c6; stroke-width: 1.2; }
+  .box-accent { fill: #fffdf7; stroke: #2a6db0; stroke-width: 1.6; }
+  .box-soft { fill: #f7f5ed; stroke: #5f7f51; stroke-width: 1.4; }
+  .title { fill: #1b1f17; font: 600 17px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; letter-spacing: -0.02em; }
+  .head { fill: #1b1f17; font: 600 13.5px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .line { fill: #5a5e55; font: 12px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .edge { fill: #6c7067; font: 500 10.5px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .arrow { stroke: #7b7f76; stroke-width: 1.4; fill: none; }
+  .head-fill { fill: #7b7f76; }
+  .boundary { fill: none; stroke: #2a6db0; stroke-width: 1.2; stroke-dasharray: 5 5; }
+  .boundary-label { fill: #2a6db0; font: 600 11.5px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
   @media (prefers-color-scheme: dark) {
-    .surface { fill: #1a1a19; stroke: #333330; }
-    .box, .box-accent { fill: #222221; }
-    .box { stroke: #4a4945; }
-    .box-accent { stroke: #28a752; }
-    .title, .head { fill: #f0efec; }
-    .line { fill: #c3c2b7; }
-    .edge { fill: #9d9c95; }
-    .arrow { stroke: #9d9c95; }
-    .head-fill { fill: #9d9c95; }
-    .boundary { stroke: #28a752; }
-    .boundary-label { fill: #28a752; }
+    .surface { fill: #151513; stroke: #2c2c28; }
+    .box { fill: #1d1d1a; stroke: #3a3a35; }
+    .box-accent { fill: #1a1d21; stroke: #8ec5f4; }
+    .box-soft { fill: #1b1e1a; stroke: #91a984; }
+    .title, .head { fill: #f6f4ec; }
+    .line { fill: #a9a79f; }
+    .edge { fill: #8a8880; }
+    .arrow { stroke: #8a8880; }
+    .head-fill { fill: #8a8880; }
+    .boundary { stroke: #8ec5f4; }
+    .boundary-label { fill: #8ec5f4; }
   }
 </style>
 <defs>
-  <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+  <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
     <path class="head-fill" d="M0,0 L10,5 L0,10 z"/>
   </marker>
 </defs>
-<rect class="surface" x="0.5" y="0.5" width="759" height="329" rx="12"/>
+<rect class="surface" x="0.5" y="0.5" width="759" height="403" rx="16"/>
 <text x="24" y="34" class="title">How Lasso works</text>
 
-<rect class="boundary" x="226" y="56" width="518" height="258" rx="12"/>
-<text x="242" y="76" class="boundary-label">Lasso, on your Mac: no model, no API key, nothing uploaded</text>
+<rect class="boundary" x="234" y="54" width="506" height="328" rx="14"/>
+<text x="250" y="74" class="boundary-label">Local on your Mac · no model while typing · nothing uploaded unless shared</text>
 
-<rect class="box" x="24" y="102" width="150" height="118" rx="10"/>
-<text x="40" y="128" class="head">Any app you write in</text>
-<text x="40" y="152" class="line">Mail, Notes, Word,</text>
-<text x="40" y="170" class="line">Messages, Chrome</text>
-<text x="40" y="188" class="line">and other apps</text>
+<rect class="box" x="22" y="94" width="144" height="152" rx="12"/>
+<text x="36" y="118" class="head">Any app you write in</text>
+<text x="36" y="140" class="line">Word, Mail, Notes,</text>
+<text x="36" y="157" class="line">Slack, Chrome, Docs</text>
+<text x="36" y="174" class="line">&amp; macOS Dictation</text>
+<text x="36" y="200" class="line">Inline ghost text</text>
+<text x="36" y="217" class="line">&amp; linked source pills</text>
 
-<rect class="box-accent" x="244" y="92" width="214" height="138" rx="10"/>
-<text x="258" y="118" class="head">Lasso for Mac (Swift)</text>
-<text x="258" y="142" class="line">Reads the text before the caret</text>
-<text x="258" y="160" class="line">through macOS Accessibility</text>
-<text x="258" y="184" class="line">Draws the suggestion card</text>
-<text x="258" y="208" class="line">Tab inserts and keeps the link</text>
+<rect class="box-accent" x="248" y="90" width="214" height="160" rx="12"/>
+<text x="262" y="114" class="head">Lasso for Mac (Swift)</text>
+<text x="262" y="136" class="line">Reads caret via Accessibility</text>
+<text x="262" y="153" class="line">Suggestion card &amp; ghost text</text>
+<text x="262" y="170" class="line">Cell &amp; passage pickers, dictation</text>
+<text x="262" y="187" class="line">Scope switcher &amp; source pills</text>
+<text x="262" y="204" class="line">The Ranch &amp; Review Changes</text>
+<text x="262" y="221" class="line">Share composer &amp; redaction</text>
 
-<rect class="box-accent" x="500" y="92" width="228" height="138" rx="10"/>
-<text x="516" y="118" class="head">Local index server (Node.js)</text>
-<text x="516" y="142" class="line">Reads PDF, Office, CAD, video</text>
-<text x="516" y="160" class="line">Ranks exact matches first</text>
-<text x="516" y="178" class="line">Versions every file it reads</text>
-<text x="516" y="196" class="line">Makes redacted share links</text>
-<text x="516" y="214" class="line">SQLite, content-addressed</text>
+<rect class="box-accent" x="504" y="90" width="222" height="160" rx="12"/>
+<text x="518" y="114" class="head">Local index server (Node.js)</text>
+<text x="518" y="136" class="line">Excel, CSV, PDF, Word, Slides</text>
+<text x="518" y="153" class="line">STEP, IFC, DXF, LandXML, video</text>
+<text x="518" y="170" class="line">Direct-match ranking &amp; history</text>
+<text x="518" y="187" class="line">SQLite, zstd, search index</text>
+<text x="518" y="204" class="line">Audit log &amp; PR-style reviews</text>
+<text x="518" y="221" class="line">48-hour shares via mylasso.ca</text>
 
-<rect class="box" x="500" y="258" width="228" height="44" rx="10"/>
-<text x="516" y="285" class="head">Your folders, watched</text>
+<rect class="box-soft" x="248" y="294" width="214" height="72" rx="12"/>
+<text x="262" y="317" class="head">MCP server &amp; AI writer</text>
+<text x="262" y="336" class="line">Claude, ChatGPT, Cursor over MCP</text>
+<text x="262" y="353" class="line">Backslash prompts with citations</text>
 
-<path class="arrow" d="M174,145 H242" marker-end="url(#arrowhead)"/>
-<path class="arrow" d="M242,180 H176" marker-end="url(#arrowhead)"/>
-<text x="180" y="138" class="edge">typing</text>
-<text x="180" y="196" class="edge">Tab</text>
+<rect class="box" x="504" y="294" width="222" height="72" rx="12"/>
+<text x="518" y="317" class="head">Your local sources</text>
+<text x="518" y="336" class="line">Watched folders &amp; USB drives</text>
+<text x="518" y="353" class="line">Outlook, Calendar &amp; Notion (opt-in)</text>
 
-<path class="arrow" d="M458,145 H498" marker-end="url(#arrowhead)"/>
-<path class="arrow" d="M498,180 H460" marker-end="url(#arrowhead)"/>
-<text x="462" y="138" class="edge">text</text>
-<text x="462" y="196" class="edge">ranked</text>
+<path class="arrow" d="M166,150 H246" marker-end="url(#arrowhead)"/>
+<path class="arrow" d="M246,186 H168" marker-end="url(#arrowhead)"/>
+<text x="200" y="142" class="edge" text-anchor="middle">typing</text>
+<text x="200" y="202" class="edge" text-anchor="middle">Tab / pills</text>
 
-<path class="arrow" d="M614,256 V232" marker-end="url(#arrowhead)"/>
-<text x="622" y="250" class="edge">changes</text>
+<path class="arrow" d="M462,150 H502" marker-end="url(#arrowhead)"/>
+<path class="arrow" d="M502,186 H464" marker-end="url(#arrowhead)"/>
+<text x="482" y="142" class="edge" text-anchor="middle">text</text>
+<text x="482" y="202" class="edge" text-anchor="middle">ranked</text>
+
+<path class="arrow" d="M615,292 V252" marker-end="url(#arrowhead)"/>
+<text x="624" y="276" class="edge">changes</text>
+
+<path class="arrow" d="M355,292 V252" marker-end="url(#arrowhead)" marker-start="url(#arrowhead)"/>
+<text x="364" y="276" class="edge">prompt</text>
+
+<path class="arrow" d="M462,312 L526,252" marker-end="url(#arrowhead)" marker-start="url(#arrowhead)"/>
+<text x="498" y="286" class="edge">index</text>
 </svg>

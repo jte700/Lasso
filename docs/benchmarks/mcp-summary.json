@@ -1,5 +1,27 @@
 {
-  "about": "Provider-recorded token usage from live runs of the Lasso MCP server (v4, one `lasso` tool) against the same model using only file tools (Read, Grep, Glob). Copied from the run records in docs/agent; see each entry's source.",
+  "about": "Provider-recorded token usage from live runs of the Lasso MCP server against the same model using only file tools (Read, Grep, Glob). Pooled gpt-5.4-mini figures combine all 92 current live questions (32 lookups, 15 large/3D, 36 post-fix mid-size reports, 9 small files), matching mylasso.ca/sources and the run records in docs/agent.",
+  "pooled": {
+    "model": "gpt-5.4-mini",
+    "tasks": 92,
+    "sources": [
+      "docs/agent/live-results-gpt-5.4-mini-v4.md",
+      "docs/agent/live-results-gpt-5.4-mini-geometry+scale+writing+documents.md",
+      "docs/agent/live-results-gpt-5.4-mini-documents-mcp-heldout2.md",
+      "docs/agent/live-results-gpt-5.4-mini-documents-mcp-heldout3.md"
+    ],
+    "fileTools": {
+      "tokens": 1131635,
+      "correct": 62,
+      "cost": 0.6483,
+      "modelCalls": 315
+    },
+    "lasso": {
+      "tokens": 302992,
+      "correct": 75,
+      "cost": 0.2910,
+      "modelCalls": 216
+    }
+  },
   "models": [
     {
       "model": "gpt-5.4-mini",
@@ -59,12 +81,28 @@
         "fileToolsCorrect": 3
       },
       {
-        "kind": "STEP parts and assemblies",
+        "kind": "STEP parts & assemblies",
         "tasks": 7,
         "lasso": 29229,
         "fileTools": 167941,
         "lassoCorrect": 7,
         "fileToolsCorrect": 6
+      },
+      {
+        "kind": "Code & file lookups",
+        "tasks": 32,
+        "lasso": 67439,
+        "fileTools": 219302,
+        "lassoCorrect": 32,
+        "fileToolsCorrect": 29
+      },
+      {
+        "kind": "PDF, 8 to 9 pages",
+        "tasks": 36,
+        "lasso": 137921,
+        "fileTools": 185796,
+        "lassoCorrect": 21,
+        "fileToolsCorrect": 17
       },
       {
         "kind": "Excel, 6 to 12 rows",
@@ -73,14 +111,6 @@
         "fileTools": 43554,
         "lassoCorrect": 7,
         "fileToolsCorrect": 4
-      },
-      {
-        "kind": "PDF, 8 to 9 pages",
-        "tasks": 19,
-        "lasso": 121491,
-        "fileTools": 114841,
-        "lassoCorrect": 10,
-        "fileToolsCorrect": 9
       },
       {
         "kind": "PDF, 1 to 2 pages",
