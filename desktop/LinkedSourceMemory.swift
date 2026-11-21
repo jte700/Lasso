@@ -40,8 +40,9 @@ struct LinkedSourceMemory {
         /// fn+Left stepped back one level from this focus.
         case movedOut(Source?)
         /// The source whose values the server actually showed on the card, or
-        /// nil for suggestions from every directory.
-        case displayed(Source?)
+        /// nil for suggestions from every directory. `rowMates` is true while
+        /// cells from a tabbed sheet row are listed beside that focus's values.
+        case displayed(Source?, rowMates: Bool = false)
     }
 
     /// The words typed to find a focus chosen with fn+Right ("brac" for Bracket).
@@ -82,6 +83,12 @@ struct LinkedSourceMemory {
         var chosen: [Level] = []
         var recent: Source?
         var displayed: Source?
+        /// Cells from a tabbed sheet row are listed alongside `displayed`: the
+        /// first fn+Left drops them back to `displayed`'s own values alone.
+        var showingRowMates = false
+        /// Where the tabbed value ends whose row mates fn+Left dropped. Only
+        /// values tabbed after this offset add their row's cells to the list.
+        var rowScopeBoundary: Int?
         /// Where the value ends that fn+Left stepped past with the list it was
         /// tabbed from. The words after it go to every directory, as they
         /// would have after a value before lists were kept.
@@ -129,6 +136,11 @@ struct LinkedSourceMemory {
     var stepBack: Source? {
         let focus = focus
         if let level = focus.chosen.last { return level.beneath }
+        // Row mates from a tabbed sheet cell step back to the kept source's own values first.
+        if focus.showingRowMates, let displayed = focus.displayed,
+           focus.pending.last?.level.keptList == true {
+            return displayed
+        }
         // A value whose list stayed on the card is stepped past with that list.
         return focus.pending.last { !$0.level.keptList }?.level.beneath
     }
@@ -172,9 +184,10 @@ struct LinkedSourceMemory {
     /// for nil. It is the parent of the next value accepted, where fn+Right
     /// returns, and what fn+Left steps back to from a focus chosen on it.
     /// Keeping this in the step history preserves delete-to-undo navigation.
-    mutating func noteFocus(_ source: Source?) {
-        if case .displayed(let previous) = steps.last, previous == source { return }
-        steps.append(.displayed(source))
+    mutating func noteFocus(_ source: Source?, hasRowMates: Bool = false) {
+        if case .displayed(let previous, let previousMates) = steps.last,
+           previous == source, previousMates == hasRowMates { return }
+        steps.append(.displayed(source, rowMates: hasRowMates))
         trim()
     }
 
@@ -190,7 +203,7 @@ struct LinkedSourceMemory {
         let kept = Set(projectIds)
         let removed = Set(steps.indices.filter { index in
             switch steps[index] {
-            case .accepted(let source, _), .chosen(let source, _), .displayed(let source?):
+            case .accepted(let source, _), .chosen(let source, _), .displayed(let source?, _):
                 return !kept.contains(source.projectId)
             case .displayed, .movedOut:
                 return false
@@ -307,6 +320,9 @@ struct LinkedSourceMemory {
                     "sourceObjectId": source.objectId, "sourceSnapshotId": source.snapshotId]
         }
         var fields: [String: Any] = pending.isEmpty ? [:] : ["pendingDependencies": pending]
+        if let boundary = focus.rowScopeBoundary {
+            fields["rowScopeBoundary"] = boundary
+        }
         if let released = focus.releasedAt {
             fields["settledValueEnd"] = released
             fields["sourceScopeBoundary"] = released
@@ -342,6 +358,8 @@ struct LinkedSourceMemory {
                     let level = Level(source: source, beneath: replay.focus.displayed, step: index)
                     replay.focus.pending.append((level, range, replay.focus.chosen))
                     replay.focus.releasedAt = nil
+                    replay.focus.showingRowMates = false
+                    if replay.focus.displayed == nil { replay.focus.rowScopeBoundary = nil }
                 case .unseen:
                     break
                 }
@@ -351,13 +369,17 @@ struct LinkedSourceMemory {
                 // fn+Right's way back once the server shows its values, since a
                 // value has nothing below it to go back into.
                 if let shown = replay.focus.displayed { replay.focus.recent = shown }
-            case .displayed(let source) where !undone:
+            case .displayed(let source, let rowMates) where !undone:
                 if let source { replay.focus.recent = source }
+                if source?.objectId != replay.focus.displayed?.objectId {
+                    replay.focus.rowScopeBoundary = nil
+                }
                 if let last = replay.focus.pending.indices.last, let source,
                    replay.focus.pending[last].level.beneath?.objectId == source.objectId {
                     replay.focus.pending[last].level.keptList = true
                 }
                 replay.focus.displayed = source
+                replay.focus.showingRowMates = source != nil && rowMates
             case .chosen(let source, let words):
                 let found = words.map { place(of: $0.anchor) }
                 switch found {
@@ -379,12 +401,20 @@ struct LinkedSourceMemory {
                 if case .at(let range)? = found { level.words = range }
                 replay.focus.chosen.append(level)
                 replay.focus.releasedAt = nil
+                replay.focus.rowScopeBoundary = nil
+                replay.focus.showingRowMates = false
                 replay.focus.recent = source
                 replay.focus.displayed = source
             case .movedOut(let source) where !undone:
                 if let level = replay.focus.chosen.popLast() {
                     replay.focus.displayed = level.beneath
+                    replay.focus.showingRowMates = false
                     replay.steppedOut[index] = level.step
+                } else if replay.focus.showingRowMates, let last = replay.focus.pending.last, last.level.keptList {
+                    // First fn+Left exits a tabbed sheet cell's row mates back to the kept source's own list.
+                    replay.focus.rowScopeBoundary = last.range.upperBound
+                    replay.focus.showingRowMates = false
+                    replay.steppedOut[index] = last.level.step
                 } else if var accepted = replay.focus.pending.popLast() {
                     // A value tabbed from the list on screen left that list
                     // there, so fn+Left steps past the value and out of the list.
@@ -394,6 +424,8 @@ struct LinkedSourceMemory {
                         accepted = below
                     }
                     replay.focus.releasedAt = released
+                    replay.focus.rowScopeBoundary = nil
+                    replay.focus.showingRowMates = false
                     // Out of a Tab, the focus it replaced comes back.
                     replay.focus.chosen = accepted.replaced
                     replay.focus.displayed = accepted.level.beneath

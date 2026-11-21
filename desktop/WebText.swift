@@ -157,7 +157,7 @@ enum WebTextReader {
     }
 
     // Undocumented but long-stable attribute names, shared by WebKit and Blink.
-    private static let selectedRange = "AXSelectedTextMarkerRange"
+    static let selectedRange = "AXSelectedTextMarkerRange"
     private static let startMarker = "AXStartTextMarker"
     private static let stringForRange = "AXStringForTextMarkerRange"
     private static let rangeForMarkers = "AXTextMarkerRangeForUnorderedTextMarkers"
@@ -169,7 +169,7 @@ enum WebTextReader {
         let caretRect: CGRect?
     }
 
-    private static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+    static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
         return value
@@ -183,10 +183,11 @@ enum WebTextReader {
     }
 
     /// Walks up to the enclosing web area, which is where browsers answer
-    /// document-level marker questions.
-    private static func webArea(from element: AXUIElement, before deadline: TimeInterval? = nil) -> AXUIElement? {
+    /// document-level marker questions. Deep React and Electron UI trees can
+    /// nest editors well past 25 containers below the web area.
+    static func webArea(from element: AXUIElement, before deadline: TimeInterval? = nil) -> AXUIElement? {
         var current = element
-        for _ in 0..<25 {
+        for _ in 0..<64 {
             if let deadline, !hasTime(before: deadline) { return nil }
             if let role = attribute(current, kAXRoleAttribute as String) as? String, role == "AXWebArea" {
                 return current
@@ -230,8 +231,36 @@ enum WebTextReader {
     /// Caret rectangle only. Cheap enough to run on every keystroke, which is
     /// what keeps the box pinned to the caret while typing.
     static func caretRect(from element: AXUIElement) -> CGRect? {
-        guard let (holder, _, selected) = selection(for: element, needsArea: false) else { return nil }
-        return rect(from: holder, selection: selected)
+        guard let (holder, area, selected) = selection(for: element, needsArea: false) else { return nil }
+        if let direct = rect(from: holder, selection: selected) { return direct }
+        if let fallback = area ?? webArea(from: element), !CFEqual(fallback, holder) {
+            return rect(from: fallback, selection: selected)
+        }
+        return nil
+    }
+
+    /// Reads only `element`'s own text through its text marker range, without
+    /// falling back to the enclosing web area's entire page. Returns nil when
+    /// the host does not support element-scoped marker ranges.
+    static func elementText(from element: AXUIElement) -> String? {
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.120
+        for attempt in 0..<2 {
+            guard hasTime(before: deadline) else { return nil }
+            let holder: AXUIElement
+            if attempt == 0 {
+                holder = element
+            } else {
+                guard let area = webArea(from: element, before: deadline), !CFEqual(area, element) else { return nil }
+                holder = area
+            }
+            guard hasTime(before: deadline),
+                  let value = parameterized(holder, "AXTextMarkerRangeForUIElement", element),
+                  CFGetTypeID(value) == AXTextMarkerRangeGetTypeID() else { continue }
+            guard hasTime(before: deadline),
+                  let text = parameterized(holder, stringForRange, value) as? String else { continue }
+            return text
+        }
+        return nil
     }
 
     // Chromium exposes these on the platform document, which lets an arbitrary
@@ -240,7 +269,7 @@ enum WebTextReader {
     private static let markerForIndex = "AXTextMarkerForIndex"
     private static let boundsForRange = "AXBoundsForTextMarkerRange"
 
-    private static func hasTime(before deadline: TimeInterval) -> Bool {
+    static func hasTime(before deadline: TimeInterval) -> Bool {
         ProcessInfo.processInfo.systemUptime < deadline
     }
 
@@ -257,13 +286,14 @@ enum WebTextReader {
         private let text: NSString
         private let frame: CGRect
         private let deadline: TimeInterval
+        private let verifyAXValue: Bool
         private var markers: [Int: AXTextMarker]
         private var remainingSteps = 192
         private var valid = true
 
         fileprivate init(holder: AXUIElement, element: AXUIElement, elementRange: AXTextMarkerRange,
                          start: AXTextMarker, end: AXTextMarker,
-                         text: String, frame: CGRect, deadline: TimeInterval) {
+                         text: String, frame: CGRect, deadline: TimeInterval, verifyAXValue: Bool = true) {
             self.holder = holder
             self.element = element
             self.elementRange = elementRange
@@ -273,6 +303,7 @@ enum WebTextReader {
             self.text = text as NSString
             self.frame = frame
             self.deadline = deadline
+            self.verifyAXValue = verifyAXValue
             self.markers = [0: start, text.utf16.count: end]
         }
 
@@ -288,10 +319,15 @@ enum WebTextReader {
         /// Recheck the text before and after measuring so a host edit during an
         /// Accessibility read cannot attach the old offsets to new content.
         private func matchesSnapshot() -> Bool {
-            guard hasTimeRemaining,
-                  let currentValue = attribute(element, kAXValueAttribute as String) as? String,
-                  currentValue.utf16.elementsEqual(units),
-                  let current = query(stringForRange, elementRange) as? String,
+            guard hasTimeRemaining else { valid = false; return false }
+            if verifyAXValue {
+                guard let currentValue = attribute(element, kAXValueAttribute as String) as? String,
+                      currentValue.utf16.elementsEqual(units) else {
+                    valid = false
+                    return false
+                }
+            }
+            guard let current = query(stringForRange, elementRange) as? String,
                   current.utf16.elementsEqual(units), hasTimeRemaining else {
                 valid = false
                 return false
@@ -436,8 +472,9 @@ enum WebTextReader {
     }
 
     /// Establishes element-relative marker offsets only when the marker range's
-    /// entire text is exactly the AXValue snapshot being highlighted.
-    static func elementGeometry(forText text: String, from element: AXUIElement) -> ElementGeometry? {
+    /// entire text is exactly the snapshot being highlighted.
+    static func elementGeometry(forText text: String, from element: AXUIElement,
+                                verifyAXValue: Bool = true) -> ElementGeometry? {
         let deadline = ProcessInfo.processInfo.systemUptime + 0.050
         guard !text.isEmpty,
               let position = attribute(element, kAXPositionAttribute as String),
@@ -475,7 +512,8 @@ enum WebTextReader {
             guard CFGetTypeID(start) == AXTextMarkerGetTypeID(),
                   CFGetTypeID(end) == AXTextMarkerGetTypeID() else { continue }
             let geometry = ElementGeometry(holder: holder, element: element, elementRange: range,
-                                           start: start, end: end, text: text, frame: frame, deadline: deadline)
+                                           start: start, end: end, text: text, frame: frame, deadline: deadline,
+                                           verifyAXValue: verifyAXValue)
 
             if geometry.hasTimeRemaining,
                let localValue = attribute(element, kAXSelectedTextRangeAttribute as String),
@@ -661,6 +699,7 @@ enum WebTextReader {
     static func read(from element: AXUIElement, limit: Int = 1200, includeText: Bool = true) -> Reading? {
         guard let (holder, area, selection) = selection(for: element, needsArea: includeText) else { return nil }
         let caretRect = rect(from: holder, selection: selection)
+            ?? (area ?? webArea(from: element)).flatMap { CFEqual($0, holder) ? nil : rect(from: $0, selection: selection) }
 
         // Text from the start of the document up to the caret.
         var text: String?

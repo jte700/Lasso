@@ -525,6 +525,76 @@ do {
           expectedPrefix: "sup", selectedPrefix: true), "a changed prefix selection is rejected")
     check(HostTextSafety.isSecure(role: "AXTextField", subrole: "AXSecureTextField"),
           "secure text subroles are excluded before text reads")
+    check(CompletionTransaction.resolvedSelectedText(direct: "", rangeText: "Inv", valueSlice: "Inv", expectedLength: 3) == "Inv"
+          && CompletionTransaction.resolvedSelectedText(direct: nil, rangeText: "", valueSlice: "Inv", expectedLength: 3) == "Inv"
+          && CompletionTransaction.resolvedSelectedText(direct: "xyz", rangeText: "Inv", valueSlice: "Inv", expectedLength: 3) == "xyz"
+          && CompletionTransaction.resolvedSelectedText(direct: "", rangeText: nil, valueSlice: nil, expectedLength: 0) == "",
+          "a lagging empty selected-text attribute falls back to the selected range while keeping genuine mismatches")
+    check(CompletionTransaction.canReuseHostValue(beforeValue: "Inv", afterValue: "Inv", caret: 3, wroteText: false)
+          && CompletionTransaction.canReuseHostValue(beforeValue: "Inv\u{00A0}", afterValue: "Inv ", caret: 4, wroteText: true),
+          "unchanged or space-equivalent host values remain reusable for keyboard fallback")
+    check(CompletionTransaction.canReuseHostValue(beforeValue: "Invoice", afterValue: "Inv", caret: 3, wroteText: false)
+          && CompletionTransaction.canReuseHostValue(beforeValue: "Invoice\nBody", afterValue: "Inv\nBody", caret: 3, wroteText: false)
+          && CompletionTransaction.canReuseHostValue(beforeValue: "Invoice", afterValue: "Inv", caret: 3, wroteText: false, markedRange: 3..<7),
+          "dismissing an inline prediction after the caret without writing text still permits keyboard fallback")
+    check(CompletionTransaction.canReuseHostValue(beforeValue: "Inv", afterValue: "Invoice", caret: 3, wroteText: false, afterMarkedRange: 3..<7)
+          && !CompletionTransaction.canReuseHostValue(beforeValue: "Inv", afterValue: "Invoice", caret: 3, wroteText: false),
+          "only an explicit marked prediction appearing after the caret permits keyboard fallback")
+    check(!CompletionTransaction.canReuseHostValue(beforeValue: "Inv hello", afterValue: "Inv world", caret: 3, wroteText: false)
+          && !CompletionTransaction.canReuseHostValue(beforeValue: "Inv hello", afterValue: "Inv hi", caret: 3, wroteText: false)
+          && !CompletionTransaction.canReuseHostValue(beforeValue: "Inv", afterValue: "In", caret: 3, wroteText: false)
+          && !CompletionTransaction.canReuseHostValue(beforeValue: "Inv", afterValue: "Invinvoice", caret: 3, wroteText: true),
+          "unrelated edits or partial accessibility writes block keyboard fallback")
+    check(CompletionTransaction.prefersKeyboardInsertion(bundleIdentifier: "com.apple.Notes")
+          && !CompletionTransaction.prefersKeyboardInsertion(bundleIdentifier: "com.apple.TextEdit")
+          && !CompletionTransaction.prefersKeyboardInsertion(bundleIdentifier: nil),
+          "Apple Notes replaces directly by keyboard instead of mutating AXSelectedTextRange")
+    check(CompletionTransaction.appliedWithUncollapsedSelection(
+            beforeValue: "Lasso\nInv", afterValue: "Lasso\nInvoice",
+            editRange: 6..<9, insertText: "Invoice", selection: 6..<9)
+          && CompletionTransaction.appliedWithUncollapsedSelection(
+            beforeValue: "Lasso\nInv", afterValue: "Lasso\nInvoice",
+            editRange: 6..<9, insertText: "Invoice", selection: 6..<13),
+          "an accessibility write that landed the exact text but left a selection inside it is recognised")
+    check(!CompletionTransaction.appliedWithUncollapsedSelection(
+            beforeValue: "Lasso\nInv", afterValue: "Lasso\nInv",
+            editRange: 6..<9, insertText: "Inv", selection: 6..<9)
+          && !CompletionTransaction.appliedWithUncollapsedSelection(
+            beforeValue: "Lasso\nInv", afterValue: "Lasso\nInvoiceoice",
+            editRange: 6..<9, insertText: "Invoice", selection: 6..<9)
+          && !CompletionTransaction.appliedWithUncollapsedSelection(
+            beforeValue: "Lasso\nInv", afterValue: "Lasso\nInvoice",
+            editRange: 6..<9, insertText: "Invoice", selection: 13..<13)
+          && !CompletionTransaction.appliedWithUncollapsedSelection(
+            beforeValue: "Lasso\nInv", afterValue: "Lasso\nInvoice",
+            editRange: 6..<9, insertText: "Invoice", selection: 0..<5),
+          "unchanged text, corrupted suffixes, collapsed carets and outside selections are not mistaken for an uncollapsed write")
+    let notesBefore = CompletionSnapshot(documentStart: 0, text: units("Lasso\nInv"))
+    check(CompletionTransaction.checkPrefixDeletion(
+            before: notesBefore, after: CompletionSnapshot(documentStart: 0, text: units("Lasso\n")),
+            expectedPrefix: "Inv") == .complete
+          && CompletionTransaction.checkPrefixDeletion(
+            before: CompletionSnapshot(documentStart: 0, text: units("Inv")),
+            after: CompletionSnapshot(documentStart: 0, text: units("")),
+            expectedPrefix: "Inv") == .complete,
+          "removing the full typed prefix passes the deletion check, including at offset 0")
+    check(CompletionTransaction.checkPrefixDeletion(
+            before: notesBefore, after: CompletionSnapshot(documentStart: 0, text: units("Lasso\nI")),
+            expectedPrefix: "Inv") == .incomplete(remaining: "I")
+          && CompletionTransaction.checkPrefixDeletion(
+            before: notesBefore, after: notesBefore,
+            expectedPrefix: "Inv") == .incomplete(remaining: "Inv"),
+          "a partial prefix left after backspaces reports the exact remaining characters")
+    check(CompletionTransaction.checkPrefixDeletion(
+            before: notesBefore, after: CompletionSnapshot(documentStart: 0, text: units("Lasso")),
+            expectedPrefix: "Inv") == .changed
+          && CompletionTransaction.checkPrefixDeletion(
+            before: notesBefore, after: CompletionSnapshot(documentStart: 0, text: units("Other\n")),
+            expectedPrefix: "Inv") == .changed
+          && CompletionTransaction.checkPrefixDeletion(
+            before: notesBefore, after: CompletionSnapshot(documentStart: 0, text: units("Lasso\nInvx")),
+            expectedPrefix: "Inv") == .changed,
+          "over-deletion, unrelated edits and new typing stop prefix deletion")
 }
 
 print("selection past an inline prediction")
@@ -614,6 +684,54 @@ do {
     let untouched = PredictingHost(caret: 62, prediction: false)
     check(HostSelection.selectForWrite(62..<62, caret: 62, in: untouched) && untouched.selectionWrites == 0,
           "without a prediction a plain insertion sets no selection")
+
+    // Notes can swallow the first selection write without exposing marked text.
+    final class SilentSwallowingHost: SelectableHostText {
+        var selected: Range<Int>
+        var swallowRemaining: Int
+        private(set) var selectionWrites = 0
+        init(caret: Int, swallowCount: Int) {
+            selected = caret..<caret
+            swallowRemaining = swallowCount
+        }
+        func setSelection(_ range: Range<Int>) -> Bool {
+            selectionWrites += 1
+            if swallowRemaining > 0 {
+                swallowRemaining -= 1
+                return true
+            }
+            selected = range
+            return true
+        }
+        var selection: Range<Int>? { selected }
+        var hasMarkedText: Bool { false }
+    }
+    let notesSwallow = SilentSwallowingHost(caret: 3, swallowCount: 1)
+    check(HostSelection.selectForWrite(0..<3, caret: 3, in: notesSwallow) && notesSwallow.selected == 0..<3
+          && notesSwallow.selectionWrites == 2,
+          "a host that swallows a selection without exposing marked text is retried until the range lands")
+    let stuckCollapsed = SilentSwallowingHost(caret: 3, swallowCount: 10)
+    check(!HostSelection.selectForWrite(0..<3, caret: 3, in: stuckCollapsed) && stuckCollapsed.selected == 3..<3,
+          "a host whose selection stays collapsed at the caret stops the Accessibility write instead of appending")
+
+    // A host that accepts the selection range while keeping marked text clears
+    // it only when selection actually changes off that range.
+    final class StickyMarkedHost: SelectableHostText {
+        var selected: Range<Int>
+        var marked = true
+        init(caret: Int) { selected = caret..<caret }
+        func setSelection(_ range: Range<Int>) -> Bool {
+            if range != selected && selected == 0..<3 { marked = false }
+            selected = range
+            return true
+        }
+        var selection: Range<Int>? { selected }
+        var hasMarkedText: Bool { marked }
+    }
+    let stickyMarked = StickyMarkedHost(caret: 3)
+    check(HostSelection.selectForWrite(0..<3, caret: 3, in: stickyMarked)
+          && stickyMarked.selected == 0..<3 && !stickyMarked.marked,
+          "retrying an already-selected range with lingering marked text steps off it first to clear the mark")
 }
 
 print("selection follows suggestion identity only within the same query")
@@ -911,6 +1029,16 @@ do {
           "acronyms keep their capitals; words with digits keep their form")
     check(cased("THE SYSTEM SHALL COMPLY", "", after: "It says ") == "THE SYSTEM SHALL COMPLY",
           "a value or passage added after the words is written as the source has it")
+    check(cased("invoice", "Inv", after: "") == "Invoice"
+          && cased("due date", "Due", after: "") == "Due date"
+          && cased("o'clock", "O'c", after: "") == "O'clock",
+          "a plain lower-case source word keeps the capital the writer typed on a title or sentence start")
+    check(cased("iPhone", "Iph", after: "") == "iPhone"
+          && cased("pH", "Ph", after: "") == "pH"
+          && cased("invoice.pdf", "Inv", after: "") == "invoice.pdf"
+          && cased("v2", "V2", after: "") == "v2"
+          && cased("invoice", "inv", after: "The ") == "invoice",
+          "mixed-case names, file names, tokens with digits and lower-case typing keep their original case")
 }
 
 print("saying \"tab\" while dictating accepts the card")
@@ -3037,31 +3165,35 @@ do {
     check(wholePage.focus == nil && !wholePage.highlighted, "a page without a cited passage is shown whole")
 }
 
-print("Escape keeps the card away for its sentence")
+print("Escape keeps the card away for its dismissed word")
 var escapeQuiet = EscapeQuiet()
 check(!escapeQuiet.holds(for: "Revenue was"), "nothing is held before Escape")
 escapeQuiet.escaped(at: "Thanks for the notes. Can we move the mee")
-check(escapeQuiet.holds(for: "Thanks for the notes. Can we move the meeting to Friday"), "typing on in the sentence stays quiet")
-check(escapeQuiet.holds(for: "Thanks for the notes. Can we"), "deleting within the sentence stays quiet")
-check(!escapeQuiet.holds(for: "Thanks for the notes. Can we move the meeting? Revenue"), "the next sentence gets suggestions again")
-check(!escapeQuiet.isHolding, "the hold ends with the sentence")
+check(escapeQuiet.holds(for: "Thanks for the notes. Can we move the meeting"), "finishing the dismissed word stays quiet")
+check(escapeQuiet.holds(for: "Thanks for the notes. Can we move the meeting "), "a trailing space after the dismissed word stays quiet")
+check(escapeQuiet.holds(for: "Thanks for the notes. Can we move the me"), "deleting within the dismissed word stays quiet")
+check(!escapeQuiet.holds(for: "Thanks for the notes. Can we move the meeting to"), "starting the next word in the same sentence brings suggestions back")
+check(!escapeQuiet.isHolding, "the hold ends once the next word starts")
+escapeQuiet.escaped(at: "Thanks for the notes. Can we move the mee")
+check(!escapeQuiet.holds(for: "Thanks for the notes. Can we move the "), "deleting the dismissed word completely brings suggestions back")
+escapeQuiet.escaped(at: "Inv")
+check(escapeQuiet.holds(for: "Invoice"), "finishing a leading dismissed word stays quiet")
+check(!escapeQuiet.holds(for: ""), "emptying the field clears the Escape hold")
+check(!escapeQuiet.holds(for: "Inv"), "retyping the word after emptying the field gets suggestions again")
+escapeQuiet.escaped(at: "Office supplies ")
+check(escapeQuiet.holds(for: "Office supplies "), "escaping after whitespace stays quiet at that spot")
+check(!escapeQuiet.holds(for: "Office supplies rev"), "starting a new word after an escaped space brings suggestions back")
 escapeQuiet.escaped(at: "Budget notes\nThe offi")
-check(!escapeQuiet.holds(for: "Budget notes\nThe office is closed\nRev"), "a new line gets suggestions again")
+check(!escapeQuiet.holds(for: "Budget notes\nThe office\n"), "a new line brings suggestions back")
 escapeQuiet.escaped(at: "First point. Second po")
-check(!escapeQuiet.holds(for: "First poi"), "going back into an earlier sentence ends the hold")
-escapeQuiet.escaped(at: "The total is 4.5 and the res")
-check(escapeQuiet.holds(for: "The total is 4.5 and the rest is 3.2 of"), "a decimal point ends no sentence")
+check(!escapeQuiet.holds(for: "First poi"), "going back into earlier text ends the hold")
 escapeQuiet.escaped(at: "Other field")
 escapeQuiet.clear()
 check(!escapeQuiet.holds(for: "Other field text"), "another field starts fresh")
-escapeQuiet.escaped(at: "Can we move the mee")
-check(escapeQuiet.holds(for: "Can we move the meeting"), "a field's first sentence stays quiet as it is written on")
-check(escapeQuiet.holds(for: "Ca"), "deleting into its first word stays quiet")
-check(!escapeQuiet.holds(for: ""), "a field emptied, as a chat app does on sending, gets suggestions again")
-escapeQuiet.escaped(at: "Can we move the mee")
-check(!escapeQuiet.holds(for: "Revenue was"), "a new message written over the escaped one gets suggestions")
-escapeQuiet.escaped(at: "Notes. Can we move the mee")
-check(!escapeQuiet.holds(for: "Notes. Revenue"), "the escaped sentence deleted and rewritten gets suggestions")
+escapeQuiet.escaped(at: "\\summarize the mee", throughSentence: true)
+check(escapeQuiet.holds(for: "\\summarize the meeting to Friday"), "a dismissed writer prompt stays quiet through its sentence")
+check(!escapeQuiet.holds(for: "\\summarize the meeting? Revenue"), "the next sentence clears a sentence-wide hold")
+check(!escapeQuiet.holds(for: ""), "emptying the field clears a sentence-wide hold")
 
 print("fields for finding things get no card")
 check(HostTextSafety.isLookup(role: "AXTextField", subrole: "AXSearchField", identifier: nil), "a search field is not written in")
@@ -3075,9 +3207,13 @@ let accented = String(repeating: "e\u{301}", count: 12) + "👩‍🔬 Café"
 let accentedChunks = accented.chunkedForTyping(16)
 check(accentedChunks.allSatisfy { $0.utf16.count <= 16 }, "every typing chunk fits the per-event UTF-16 limit")
 check(accentedChunks.joined() == accented, "chunking keeps decomposed accents and emoji intact")
-check(SyntheticKeyboard.canType("office supplies are up 4%"), "a phrase is typed where the host ignores Accessibility writes")
+check(SyntheticKeyboard.canType("office supplies are up 4%") && SyntheticKeyboard.canType("BILL-1160")
+      && SyntheticKeyboard.canType("$18,400.50"),
+      "plain words, numbers and single hyphens are typed where the host ignores Accessibility writes")
 check(["\n    allowed = [", "range(31)]\n", "a\r\nb", "one\u{2028}two"].allSatisfy { !SyntheticKeyboard.canType($0) },
       "text with a line break is pasted, never typed: typed line breaks arrived out of order in the Claude app")
+check(["O'Brien", "\"quoted\"", "Q1 -- Q2", "etc...", "two  spaces"].allSatisfy { !SyntheticKeyboard.canType($0) },
+      "quotes, double hyphens, ellipses and double spaces are pasted so AppKit substitutions cannot rewrite them")
 check(accentedChunks.allSatisfy { $0.unicodeScalars.first?.properties.generalCategory != .nonspacingMark },
       "a chunk never begins with a detached combining accent")
 check("Facilities".chunkedForTyping(16) == ["Facilities"], "short text is typed as one event")
@@ -3473,6 +3609,106 @@ do {
           "one fn+Left drops the list and the value tabbed from it, and the words after the value go to every directory")
     check(held.canMoveIn(focusedOn: nil, selected: nil) && held.recent == invoice,
           "fn+Right goes back into the list")
+
+    // With row mates added from a tabbed sheet cell, one fn+Left exits back to Invoice's own values,
+    // and a second fn+Left widens to every directory.
+    let bill2 = source("bill-1190", "BILL-1190"), amount = source("amount-22000", "22000")
+    var rowMates = LinkedSourceMemory()
+    let invText = accept(&rowMates, invoice, after: "")
+    rowMates.noteFocus(invoice)
+    let b1Text = accept(&rowMates, bill, after: invText + " was ")
+    rowMates.observe(b1Text + " and ", reachesStart: true)
+    rowMates.noteFocus(invoice, hasRowMates: true)
+    let b1End = b1Text.utf16.count
+    check(rowMates.stepBack == invoice,
+          "while row mates are shown, fn+Left names the kept column as the first step back")
+    rowMates.moveOut(from: invoice)
+    let invoiceOnlyFields = rowMates.requestFields
+    check(pendingIds(invoiceOnlyFields) == ["invoice", "bill-1160"]
+          && invoiceOnlyFields["rowScopeBoundary"] as? Int == b1End
+          && invoiceOnlyFields["settledValueEnd"] == nil
+          && rowMates.stepBack == nil,
+          "first fn+Left drops the tabbed cell's row mates and stays on Invoice's own values")
+    rowMates.noteFocus(invoice, hasRowMates: false)
+    check(rowMates.requestFields["rowScopeBoundary"] as? Int == b1End && rowMates.stepBack == nil,
+          "after the server returns Invoice alone, rowScopeBoundary stays and the next fn+Left goes to all directories")
+    rowMates.moveOut(from: invoice)
+    let allDirsFields = rowMates.requestFields
+    check(pendingIds(allDirsFields).isEmpty
+          && allDirsFields["rowScopeBoundary"] == nil
+          && allDirsFields["settledValueEnd"] as? Int == b1End
+          && allDirsFields["sourceScopeBoundary"] as? Int == b1End,
+          "second fn+Left exits Invoice and widens to all active directories")
+    check(rowMates.canMoveIn(focusedOn: nil, selected: nil) && rowMates.recent == invoice,
+          "fn+Right from all directories can return to Invoice")
+    rowMates.moveIn(focusedOn: nil, selected: nil)
+    check(pendingIds(rowMates.requestFields) == ["invoice", "bill-1160"]
+          && rowMates.requestFields["rowScopeBoundary"] as? Int == b1End,
+          "fn+Right straight after stepping out of Invoice returns to Invoice's own values")
+
+    // Tabbing another invoice after exiting the first cell's row mates brings only the new cell's row mates.
+    var nextBill = LinkedSourceMemory()
+    let nextInv = accept(&nextBill, invoice, after: "")
+    nextBill.noteFocus(invoice)
+    let firstTab = accept(&nextBill, bill, after: nextInv + " was ")
+    nextBill.observe(firstTab + " and ", reachesStart: true)
+    nextBill.noteFocus(invoice, hasRowMates: true)
+    nextBill.moveOut(from: invoice)
+    nextBill.noteFocus(invoice, hasRowMates: false)
+    let secondTab = accept(&nextBill, bill2, after: firstTab + " and ")
+    nextBill.observe(secondTab + " for ", reachesStart: true)
+    check(pendingIds(nextBill.requestFields) == ["invoice", "bill-1160", "bill-1190"]
+          && nextBill.requestFields["rowScopeBoundary"] as? Int == firstTab.utf16.count,
+          "tabbing a second bill keeps the earlier rowScopeBoundary so only the new row joins")
+    nextBill.noteFocus(invoice, hasRowMates: true)
+    check(nextBill.stepBack == invoice, "the new bill's row mates step back to Invoice first")
+    // Rapid double fn+Left without waiting for the server steps out of row mates then out of Invoice.
+    nextBill.moveOut(from: invoice)
+    check(nextBill.requestFields["rowScopeBoundary"] as? Int == secondTab.utf16.count
+          && nextBill.stepBack == nil,
+          "first rapid fn+Left advances rowScopeBoundary past the second bill")
+    nextBill.moveOut(from: invoice)
+    check(pendingIds(nextBill.requestFields).isEmpty
+          && nextBill.requestFields["settledValueEnd"] as? Int == secondTab.utf16.count,
+          "second rapid fn+Left exits Invoice to all active directories")
+
+    // Tabbing a row mate (22000) keeps Invoice; two fn+Left steps still exit row mates then Invoice.
+    var mateTab = LinkedSourceMemory()
+    let mateInv = accept(&mateTab, invoice, after: "")
+    mateTab.noteFocus(invoice)
+    let mateBill = accept(&mateTab, bill, after: mateInv + " was ")
+    mateTab.observe(mateBill + " for ", reachesStart: true)
+    mateTab.noteFocus(invoice, hasRowMates: true)
+    let mateAmt = accept(&mateTab, amount, after: mateBill + " for ")
+    mateTab.observe(mateAmt + " on ", reachesStart: true)
+    mateTab.noteFocus(invoice, hasRowMates: true)
+    mateTab.moveOut(from: invoice)
+    check(mateTab.requestFields["rowScopeBoundary"] as? Int == mateAmt.utf16.count
+          && pendingIds(mateTab.requestFields) == ["invoice", "bill-1160", "amount-22000"],
+          "first fn+Left after tabbing a row mate drops row mates past the row mate")
+    mateTab.moveOut(from: invoice)
+    check(pendingIds(mateTab.requestFields).isEmpty
+          && mateTab.requestFields["settledValueEnd"] as? Int == mateAmt.utf16.count,
+          "second fn+Left after tabbing a row mate exits to all active directories")
+
+    // Top-right label layout keeps "From BILL-1160" unclipped beside short and medium values,
+    // while preserving legible room for very long labels.
+    let labelFont = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
+    let detailFont = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+    let shortRow = AssistRowTitleLayout(label: "22000", detail: "From BILL-1160",
+                                        available: 273, labelFont: labelFont, detailFont: detailFont)
+    let fullDetailWidth = ceil(AssistTableLayout.textWidth("From BILL-1160", detailFont)) + 1
+    check(shortRow.detailWidth == fullDetailWidth && shortRow.labelWidth + AssistRowTitleLayout.gap + shortRow.detailWidth <= 273,
+          "top-right row-mate label fits whole beside a short value")
+    let supplierRow = AssistRowTitleLayout(label: "Maple Paper Distribution", detail: "From BILL-1160",
+                                           available: 273, labelFont: labelFont, detailFont: detailFont)
+    check(supplierRow.detailWidth == fullDetailWidth,
+          "top-right row-mate label still fits whole beside a supplier name")
+    let crowdedRow = AssistRowTitleLayout(label: String(repeating: "A", count: 40),
+                                          detail: "From " + String(repeating: "B", count: 40),
+                                          available: 273, labelFont: labelFont, detailFont: detailFont)
+    check(crowdedRow.labelWidth >= AssistRowTitleLayout.minimumLabelWidth && crowdedRow.detailWidth > 0,
+          "a very long label and detail both keep visible width without overlapping")
 
     let revenueText = accept(&memory, source("revenue", "Revenue", project: "finance"), after: "The Bracket is shown. ")
     memory.observe(revenueText + " was", reachesStart: true)
@@ -3983,7 +4219,7 @@ do {
         let role: String; let parent: Node?
         init(_ role: String, parent: Node?) { self.role = role; self.parent = parent }
     }
-    func owner(of editor: Node, named reported: Node, maxDepth: Int = AssistPopupHost.maxWindowDepth) -> Node? {
+    func owner(of editor: Node, named reported: Node?, maxDepth: Int = AssistPopupHost.maxWindowDepth) -> Node? {
         AssistPopupHost.owningWindow(named: reported, above: editor, parent: { $0.parent }, role: { $0.role },
                                      maxDepth: maxDepth)
     }
@@ -4001,6 +4237,8 @@ do {
     check(owner(of: field, named: window) === window, "an editor that names its window keeps it")
     check(owner(of: field, named: Node("AXGroup", parent: nil)) === window,
           "a named container that is not a window gives way to the window above the editor")
+    check(owner(of: field, named: nil) === window,
+          "an editor that reports no window attribute still finds the window above it")
     let loose = Node("AXTextField", parent: Node("AXGroup", parent: application))
     check(owner(of: loose, named: Node("AXGroup", parent: nil)) == nil, "an editor with no window above it has none")
     check(owner(of: addressBar, named: overlay, maxDepth: 3) == nil, "the walk up stops after its depth budget")
@@ -4030,11 +4268,19 @@ do {
     let browser = bundle("Browser", framework: "Browser Framework", resource: "chrome_100_percent.pak")
     let versioned = bundle("Versioned", framework: "Versioned Framework", resource: "chrome_100_percent.pak",
                            versioned: true)
+    let numbered = root.appendingPathComponent("Numbered.app", isDirectory: true)
+    let numberedResources = numbered.appendingPathComponent(
+        "Contents/Frameworks/Google Chrome Framework.framework/Versions/157.0.8103.79/Resources", isDirectory: true)
+    try? FileManager.default.createDirectory(at: numberedResources, withIntermediateDirectories: true)
+    FileManager.default.createFile(atPath: numberedResources.appendingPathComponent("chrome_100_percent.pak").path, contents: Data())
     let native = bundle("Native", framework: "Sparkle", resource: "Info.plist")
     check(HostAccessibilityMode.isChromiumBased(bundleURL: browser), "detects a Chromium framework bundle")
     check(HostAccessibilityMode.isChromiumBased(bundleURL: versioned), "detects a versioned framework layout")
+    check(HostAccessibilityMode.isChromiumBased(bundleURL: numbered), "detects a numbered Chromium version layout without a Current symlink")
     check(!HostAccessibilityMode.isChromiumBased(bundleURL: native), "a native app is not Chromium")
     check(!HostAccessibilityMode.isChromiumBased(bundleURL: nil), "an app without a bundle is not Chromium")
+    check(HostAccessibilityMode.isChromiumBundle(bundleURL: nil, bundleIdentifier: "com.google.Chrome.app.abc"),
+          "recognizes Chrome web app shims as Chromium")
     try? FileManager.default.removeItem(at: root)
 
     var writes: [(pid: pid_t, attribute: String, value: Bool)] = []
@@ -4099,6 +4345,68 @@ do {
           "a flag a previous run of Lasso set and never reverted is still Lasso's to revert")
     _ = makeMode().prime(pid: 505, application: AXUIElementCreateApplication(505))
     check(makeMode().restoreAll() == 0, "once reverted, a flag found on again belongs to someone else")
+
+    // Transient failure, external turn-off, and no-op AXManualAccessibility recovery in Chrome.
+    var clock = Date(timeIntervalSince1970: 1_000)
+    var enhancedResult = AXError.cannotComplete
+    var manualReadBack = false
+    var enhancedOn = false
+    var electronPids: Set<pid_t> = []
+    var recoveryWrites: [(pid: pid_t, attribute: String, value: Bool)] = []
+    let recovery = HostAccessibilityMode(
+        setFlag: { element, attribute, value in
+            var pid: pid_t = 0
+            AXUIElementGetPid(element, &pid)
+            recoveryWrites.append((pid, attribute, value))
+            if attribute == HostAccessibilityMode.manualAttribute { return manualResult }
+            if enhancedResult == .success { enhancedOn = value }
+            return enhancedResult
+        },
+        readFlag: { _, attribute in
+            attribute == HostAccessibilityMode.manualAttribute ? manualReadBack : enhancedOn
+        },
+        chromiumBased: { [606, 707, 808].contains($0) },
+        electronBased: { electronPids.contains($0) },
+        bundleIdentifier: { $0 == 606 ? "com.google.Chrome" : "com.example.app\($0)" },
+        defaults: defaults,
+        now: { clock })
+    manualResult = .attributeUnsupported
+    _ = recovery.prime(pid: 606, application: AXUIElementCreateApplication(606))
+    check(!enhancedOn, "a transient enhanced write failure leaves Chrome unprimed")
+    enhancedResult = .success
+    _ = recovery.prime(pid: 606, application: AXUIElementCreateApplication(606))
+    check(enhancedOn, "the next attempt retries and enables AXEnhancedUserInterface on Chrome")
+    enhancedOn = false
+    check(recovery.reprimeIfUnreadable(pid: 606, application: AXUIElementCreateApplication(606)) && enhancedOn,
+          "an unreadable Chrome window re-enables AXEnhancedUserInterface when it was turned off externally")
+    enhancedOn = false
+    check(!recovery.reprimeIfUnreadable(pid: 606, application: AXUIElementCreateApplication(606)) && !enhancedOn,
+          "re-priming is throttled within its cooldown")
+    clock = clock.addingTimeInterval(3)
+    check(recovery.reprimeIfUnreadable(pid: 606, application: AXUIElementCreateApplication(606)) && enhancedOn,
+          "after the cooldown an unreadable Chrome window re-enables accessibility again")
+
+    // A non-Electron browser that accepts AXManualAccessibility without keeping it falls back when unreadable.
+    manualResult = .success
+    manualReadBack = false
+    enhancedOn = false
+    _ = recovery.prime(pid: 707, application: AXUIElementCreateApplication(707))
+    check(!enhancedOn, "initial prime trusts AXManualAccessibility without enabling enhanced mode")
+    clock = clock.addingTimeInterval(3)
+    check(recovery.reprimeIfUnreadable(pid: 707, application: AXUIElementCreateApplication(707)) && enhancedOn,
+          "a non-Electron browser whose AXManualAccessibility did not hold falls back to AXEnhancedUserInterface when unreadable")
+
+    // Electron apps keep using AXManualAccessibility and never get AXEnhancedUserInterface.
+    electronPids = [808]
+    enhancedOn = false
+    _ = recovery.prime(pid: 808, application: AXUIElementCreateApplication(808))
+    clock = clock.addingTimeInterval(3)
+    let before808 = recoveryWrites.filter { $0.pid == 808 && $0.attribute == HostAccessibilityMode.manualAttribute }.count
+    _ = recovery.reprimeIfUnreadable(pid: 808, application: AXUIElementCreateApplication(808))
+    let after808 = recoveryWrites.filter { $0.pid == 808 && $0.attribute == HostAccessibilityMode.manualAttribute }.count
+    check(after808 == before808 + 1 && !enhancedOn,
+          "an unreadable Electron app re-sends AXManualAccessibility without touching AXEnhancedUserInterface")
+
     defaults.removePersistentDomain(forName: suite)
 }
 
@@ -5318,6 +5626,48 @@ do {
           "typing moves the phrases after the caret on its line and on the lines below")
     check(!before.mayMove(typingAt: line) && !above.mayMove(typingAt: line),
           "words just accepted before the caret, and lines above, stay drawn while typing goes on")
+    let inside = DependencyGeometry(referenceId: "e", fragments: [CGRect(x: 60, y: 500, width: 80, height: 18)])
+    let touching = DependencyGeometry(referenceId: "f", fragments: [CGRect(x: 60, y: 500, width: 40, height: 18)])
+    check(inside.mayMove(typingAt: line) && touching.mayMove(typingAt: line),
+          "typing inside or immediately at the end of a phrase quiets it")
+    check(before.mayMove(deletingAt: line) && touching.mayMove(deletingAt: line)
+          && after.mayMove(deletingAt: line) && below.mayMove(deletingAt: line),
+          "deleting quiets phrases anywhere on the caret line and on lines below")
+    check(!above.mayMove(deletingAt: line),
+          "deleting on a later line leaves phrases strictly above it untouched")
+
+    let overlay = OverlayView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
+    let chip = OverlayChip(id: "c1", text: "Invoice", fragments: [CGRect(x: 20, y: 20, width: 60, height: 18)],
+                           lines: nil, state: .healthy, tint: .systemBlue, page: .white, ink: .black,
+                           words: .systemBlue, sourcePath: "sheet.xlsx", roomBefore: true, roomAfter: true,
+                           badgeSide: nil, isNew: false)
+    overlay.show([chip])
+    check(overlay.hasContent && overlay.paintedBounds != nil, "overlay holds a shown phrase")
+    overlay.clear()
+    check(!overlay.hasContent && overlay.paintedBounds == nil, "clearing the overlay drops every phrase immediately")
+
+    var keys = HighlightKeyTracker()
+    check(keys.key(keyCode: 0, command: true, shift: false) == .ignore && keys.mayHaveSelection,
+          "Command-A marks a pending selection")
+    check(keys.key(keyCode: 51, command: false, shift: false) == .quietAll && !keys.mayHaveSelection,
+          "Backspace after Command-A quiets every visible phrase at once")
+    check(keys.key(keyCode: 51, command: false, shift: false) == .quietDeleting,
+          "plain Backspace quiets phrases on the caret line and below")
+    check(keys.key(keyCode: 51, command: true, shift: false) == .quietAll,
+          "Command-Backspace quiets every visible phrase")
+    check(keys.key(keyCode: 7, command: true, shift: false) == .quietAll
+          && keys.key(keyCode: 6, command: true, shift: false) == .quietAll
+          && keys.key(keyCode: 9, command: true, shift: false) == .quietAll,
+          "Cut, Undo and Paste quiet every visible phrase")
+    check(keys.key(keyCode: 36, command: false, shift: false) == .quietTyping(immediate: true),
+          "Return schedules an immediate refresh so sent chat messages clear their highlights")
+    check(keys.key(keyCode: 123, command: false, shift: true) == .ignore && keys.mayHaveSelection,
+          "Shift-arrow marks a selection")
+    check(keys.key(keyCode: 123, command: false, shift: false) == .ignore && !keys.mayHaveSelection,
+          "an unshifted arrow clears the selection mark")
+    keys.mouseDragged()
+    check(keys.key(keyCode: 14, command: false, shift: false) == .quietAll,
+          "typing over a mouse-dragged selection quiets every visible phrase")
 }
 
 // MARK: Change Source
@@ -5883,6 +6233,27 @@ do {
     let takesHeader = SheetClipboard.grid(sheet, [SheetRange(top: 1, bottom: 2, left: 0, right: 0)], headers: true)
     check(takesHeader.cells == [["Pump"], ["P-101"]] && takesHeader.headed,
           "a highlight that takes in the header row does not repeat it, and heads the picture with it")
+    let partialHeader = [SheetRange(top: 2, bottom: 3, left: 0, right: 0), SheetRange(top: 1, bottom: 3, left: 2, right: 2)]
+    let onlyHighlightedHeader = SheetClipboard.grid(sheet, partialHeader, headers: false)
+    check(onlyHighlightedHeader.cells == [["", "Head ft"], ["P-101", "120"], ["P-204", "95"]] && onlyHighlightedHeader.headed,
+          "highlighting a header cell includes that header without adding unhighlighted columns' headers")
+    let allColumnHeaders = SheetClipboard.grid(sheet, partialHeader, headers: true)
+    check(allColumnHeaders.cells == [["Pump", "Head ft"], ["P-101", "120"], ["P-204", "95"]] && allColumnHeaders.headed,
+          "with headers on, all highlighted columns get their headers even when one header was already highlighted")
+    let titled = SheetDocument(name: "Report.xlsx", sheet: "Summary", sheets: ["Summary"], columns: ["A", "B"],
+                               rows: [SheetRow(number: 1, cells: ["Q3 Summary", ""]),
+                                      SheetRow(number: 2, cells: ["Invoice", "Due Date"]),
+                                      SheetRow(number: 3, cells: ["BILL-1160", "2026-09-17"])],
+                               headerRow: 2, selection: nil, truncated: false)
+    let titledPartial = [SheetRange(top: 1, bottom: 1, left: 0, right: 0),
+                         SheetRange(top: 3, bottom: 3, left: 0, right: 0),
+                         SheetRange(top: 2, bottom: 3, left: 1, right: 1)]
+    check(SheetClipboard.grid(titled, titledPartial, headers: false).cells
+          == [["Q3 Summary", ""], ["", "Due Date"], ["BILL-1160", "2026-09-17"]],
+          "a title above a highlighted header keeps only the highlighted header when headers is off")
+    check(SheetClipboard.grid(titled, titledPartial, headers: true).cells
+          == [["Q3 Summary", ""], ["Invoice", "Due Date"], ["BILL-1160", "2026-09-17"]],
+          "with headers on, a header row below a highlighted title still fills every highlighted column's header")
     check(SheetClipboard.citation(sheet, twoApart) == "(Pumps.xlsx, 'Trial Balance'!B2, C5)", "the source cites each highlight in order")
     let csv = SheetDocument(name: "pumps.csv", sheet: nil, sheets: [], columns: ["A", "B"],
                             rows: [SheetRow(number: 1, cells: ["Pump", "Note"])], headerRow: 1, selection: nil, truncated: false)
@@ -5893,6 +6264,10 @@ do {
                                          SheetRow(number: 3, cells: [""])], headerRow: 1, selection: nil, truncated: false)
     check(SheetClipboard.grid(withBlank, [SheetRange(top: 1, bottom: 3, left: 0, right: 2)], headers: false).cells
           == [["Invoice", "Due"], ["BILL-1160", "2026-09-17"]], "rows and columns with nothing in them are left out of the picture")
+    let blankOnly = SheetClipboard.grid(withBlank, [SheetRange(top: 3, bottom: 3, left: 0, right: 0)], headers: true)
+    check(blankOnly.cells.isEmpty && !blankOnly.headed && !SheetClipboard.hasCells(withBlank, [SheetRange(top: 3, bottom: 3, left: 0, right: 0)], headers: true),
+          "highlighting only empty cells inserts nothing even with headers on")
+    check(SheetClipboard.hasCells(sheet, [flow], headers: false), "a non-empty highlight can be inserted")
 
     let typedInv = CompletionReplacement.capture(start: 0, end: 3, in: "inv")
     check(SheetClipboard.typedTrigger(nil, before: "inv") == typedInv,
@@ -5902,6 +6277,11 @@ do {
     check(SheetClipboard.typedTrigger(nil, before: "The invoices are ") == nil, "after a finished word nothing typed is removed")
     let named = CompletionReplacement.capture(start: 4, end: 14, in: "The accrued pa")
     check(SheetClipboard.typedTrigger(named, before: "The accrued pa") == named, "a matched name is replaced whole")
+    let nbspBefore = "The accrued\u{00A0}pa"
+    check(SheetClipboard.typedTrigger(named, before: nbspBefore) == CompletionReplacement.capture(start: 4, end: 14, in: nbspBefore),
+          "a matched name still replaces when a web editor turns spaces into non-breaking spaces")
+    check(SheetClipboard.typedTrigger(typedInv, before: "invo") == CompletionReplacement.capture(start: 0, end: 4, in: "invo"),
+          "a stale replacement falls back to the unfinished word now at the caret")
     check(SheetClipboard.typedTrigger(CompletionReplacement(start: 3, expectedText: ""), before: "inv") == typedInv,
           "a suggestion that only adds at the caret still takes away the unfinished word")
     check(RichTextInserter.deletesBeforePaste(selected: true, deletesFirst: true, replacing: 3, keyboardDeleteCount: 3) == 1,
@@ -5911,6 +6291,23 @@ do {
     check(RichTextInserter.deletesBeforePaste(selected: true, deletesFirst: false, replacing: 3, keyboardDeleteCount: 3) == 0
           && RichTextInserter.deletesBeforePaste(selected: true, deletesFirst: true, replacing: 0, keyboardDeleteCount: 0) == 0,
           "a link pastes over its selected word, and with nothing typed nothing is deleted")
+    check(!RichTextInserter.shouldSelectBeforePaste(replacing: 3, at: 3, deletesFirst: true, keyboardDeleteCount: 3, hasMarkedText: false),
+          "short picture pastes without marked text delete by keyboard instead of mutating AX selection")
+    check(RichTextInserter.shouldSelectBeforePaste(replacing: 3, at: 3, deletesFirst: true, keyboardDeleteCount: 3, hasMarkedText: true),
+          "picture pastes with pending marked text still clear it via selection")
+    check(RichTextInserter.shouldSelectBeforePaste(replacing: 3, at: 3, deletesFirst: false, keyboardDeleteCount: 3, hasMarkedText: false),
+          "share links still select the replaced word before pasting over it")
+    check(!RichTextInserter.shouldSelectBeforePaste(replacing: 3, at: 3, deletesFirst: false, keyboardDeleteCount: 3, hasMarkedText: true, avoidSelection: true)
+          && RichTextInserter.shouldSelectBeforePaste(replacing: 40, at: 40, deletesFirst: false, keyboardDeleteCount: 40, hasMarkedText: false, avoidSelection: true),
+          "hosts that avoid AX selection delete short prefixes by keyboard before pasting, even with marked text")
+    check(!RichTextInserter.shouldSelectBeforePaste(replacing: 3, at: -1, deletesFirst: false, keyboardDeleteCount: 3, hasMarkedText: false),
+          "editors addressed by markers never attempt an integer selection write")
+    check(RichTextInserter.bareCaretForPaste(replacing: 3, at: -1, deletesFirst: true) == nil,
+          "marker-addressed editors never compute a negative bare caret")
+    check(RichTextInserter.bareCaretForPaste(replacing: 3, at: 3, deletesFirst: true) == 0
+          && RichTextInserter.bareCaretForPaste(replacing: 0, at: 5, deletesFirst: false) == 5
+          && RichTextInserter.bareCaretForPaste(replacing: 3, at: 5, deletesFirst: false) == nil,
+          "bare caret is computed only for an integer caret after a deletion or at an empty range")
 
     let plainLayout = SheetPicture.layout(laid.cells, headed: false, caption: nil)
     let headedLayout = SheetPicture.layout(withHeaders.cells, headed: true, caption: nil)
@@ -5922,6 +6319,17 @@ do {
     let picture = SheetClipboard.pick(sheet, highlights: [flow, head], headers: true, citing: true)
     let png = picture.flatMap { NSBitmapImageRep(data: $0.png) }
     check(png != nil && picture?.tiff != nil, "the picture is put on the clipboard as PNG and TIFF")
+    let orderedFormats = picture.map(SheetClipboard.pasteboardFormats(for:)) ?? []
+    check(orderedFormats.map(\.0) == [.png, .tiff], "PNG is placed on the clipboard before TIFF")
+    let imageBoard = NSPasteboard.withUniqueName()
+    defer { imageBoard.releaseGlobally() }
+    if let picture {
+        check(RichTextInserter.writeFormats(SheetClipboard.pasteboardFormats(for: picture), to: imageBoard),
+              "the picture writes to a pasteboard item")
+        let writtenTypes = imageBoard.pasteboardItems?.first?.types ?? []
+        check(writtenTypes.first == .png && writtenTypes.contains(.tiff),
+              "the pasteboard item declares PNG first and keeps TIFF as a fallback")
+    }
     let expected = SheetPicture.layout(withHeaders.cells, headed: true, caption: picture?.citation)
     check(png?.pixelsWide == Int(expected.size.width * SheetPicture.scale) && png?.pixelsHigh == Int(expected.size.height * SheetPicture.scale),
           "the picture is drawn at Retina resolution")
@@ -6373,6 +6781,58 @@ do {
     motion.set(on: false, animated: false)
     check(!motion.isMoving && motion.progress == 0, "a flip that is not animated lands at once")
     check(SwitchMotion.kept(for: "header") === SwitchMotion.kept(for: "header"), "a rebuilt switch keeps its motion by key")
+}
+
+print("reconciling stale web AXValue against live markers and contenteditable leaves")
+do {
+    let emptyWebLeaves = WebTextReader.ContentEditableLeafState(hasContentChildren: true, leafTexts: [])
+    let nativeLeaves = WebTextReader.ContentEditableLeafState(hasContentChildren: false, leafTexts: nil)
+    let placeholder = "Ask anything, @ to mention, / for actions"
+    let staleValue = "Invoice for BILL-1160"
+
+    check(WebTextReader.reconcileTextValue(axValue: staleValue, placeholder: placeholder,
+                                           markerText: "\n", leaves: emptyWebLeaves) == .empty,
+          "a newline-only marker range from an emptied rich editor overrides a stale AXValue")
+    check(WebTextReader.reconcileTextValue(axValue: staleValue, placeholder: nil,
+                                           markerText: " \u{200B}\u{00A0}\n ", leaves: nil) == .empty,
+          "zero-width and whitespace-only marker text is treated as an empty editor")
+    check(WebTextReader.reconcileTextValue(axValue: staleValue, placeholder: nil,
+                                           markerText: nil, leaves: emptyWebLeaves) == .empty,
+          "a contenteditable whose live text leaves are empty overrides a stale AXValue even without markers")
+    check(WebTextReader.reconcileTextValue(axValue: staleValue, placeholder: placeholder,
+                                           markerText: placeholder, leaves: emptyWebLeaves) == .empty,
+          "marker text showing only the editor placeholder is treated as empty")
+    check(WebTextReader.reconcileTextValue(axValue: staleValue, placeholder: nil,
+                                           markerText: nil,
+                                           leaves: .init(hasContentChildren: true, leafTexts: [placeholder]))
+          == .stale(liveText: placeholder),
+          "placeholder leaves that contradict a stale AXValue replace it so old highlights disappear")
+    check(WebTextReader.reconcileTextValue(axValue: staleValue, placeholder: nil,
+                                           markerText: "Invoice",
+                                           leaves: .init(hasContentChildren: true, leafTexts: ["Invoice"]))
+          == .stale(liveText: "Invoice"),
+          "partial deletions reported by live markers supersede a stale AXValue")
+    check(WebTextReader.reconcileTextValue(axValue: "Invoice\u{00A0}@file\nBILL-1160", placeholder: nil,
+                                           markerText: "Invoice @file BILL-1160",
+                                           leaves: .init(hasContentChildren: true, leafTexts: ["Invoice ", " BILL-1160"]))
+          == .use("Invoice\u{00A0}@file\nBILL-1160"),
+          "a live contenteditable with non-breaking spaces, line breaks and inline chips keeps its AXValue")
+    check(WebTextReader.reconcileTextValue(axValue: staleValue, placeholder: placeholder,
+                                           markerText: nil, leaves: nativeLeaves)
+          == .use(staleValue),
+          "native controls without web children keep their AXValue untouched")
+
+    check(!WebTextReader.liveWebTextContains(phrase: "Invoice", markerText: "\n", leaves: emptyWebLeaves)
+          && !WebTextReader.liveWebTextContains(phrase: "BILL-1160", markerText: nil, leaves: emptyWebLeaves)
+          && !WebTextReader.liveWebTextContains(phrase: "BILL-1160", markerText: nil,
+                                                leaves: .init(hasContentChildren: true, leafTexts: ["Invoice "])),
+          "layout inference is blocked when live markers or contenteditable leaves no longer hold the phrase")
+    check(WebTextReader.liveWebTextContains(phrase: "Invoice", markerText: nil,
+                                            leaves: .init(hasContentChildren: true, leafTexts: ["Inv", "oice"]))
+          && WebTextReader.liveWebTextContains(phrase: "Hello World", markerText: nil,
+                                               leaves: .init(hasContentChildren: true, leafTexts: ["Hello", "World"]))
+          && WebTextReader.liveWebTextContains(phrase: "Invoice", markerText: nil, leaves: nativeLeaves),
+          "live text checks accept phrases spanning inline leaves, paragraphs and native editors")
 }
 
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")

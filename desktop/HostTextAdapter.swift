@@ -112,6 +112,13 @@ final class AccessibilityTextAdapter: HostTextAdapter {
     // layout across every dependency. Never retain layouts across host changes.
     private var cachedElement: AXUIElement?
     private var cachedValue: String?
+    private var cachedStaleFallback: String?
+    private var cachedElementMarkerText: String?
+    private var attemptedElementMarkerText = false
+    private var cachedLeafState: WebTextReader.ContentEditableLeafState?
+    private var attemptedLeafState = false
+    private var cachedIsWeb = false
+    private var attemptedIsWeb = false
     private var inferredLayout: PreparedLayout?
     private var attemptedInference = false
     private var markerGeometry: WebTextReader.ElementGeometry?
@@ -120,21 +127,128 @@ final class AccessibilityTextAdapter: HostTextAdapter {
     func beginRefresh() {
         cachedElement = nil
         cachedValue = nil
+        cachedStaleFallback = nil
+        cachedElementMarkerText = nil
+        attemptedElementMarkerText = false
+        cachedLeafState = nil
+        attemptedLeafState = false
+        cachedIsWeb = false
+        attemptedIsWeb = false
         inferredLayout = nil
         attemptedInference = false
         markerGeometry = nil
         attemptedMarkers = false
     }
 
-    private func textValue(of element: AXUIElement) -> String? {
-        if let cachedElement, CFEqual(cachedElement, element) { return cachedValue }
+    private func resetElementCache(for element: AXUIElement) {
         cachedElement = element
-        cachedValue = attribute(element, kAXValueAttribute as String) as? String
+        cachedValue = nil
+        cachedStaleFallback = nil
+        cachedElementMarkerText = nil
+        attemptedElementMarkerText = false
+        cachedLeafState = nil
+        attemptedLeafState = false
+        cachedIsWeb = false
+        attemptedIsWeb = false
         inferredLayout = nil
         attemptedInference = false
         markerGeometry = nil
         attemptedMarkers = false
+    }
+
+    private func isWeb(_ element: AXUIElement) -> Bool {
+        if cachedElement.map({ !CFEqual($0, element) }) ?? true {
+            _ = textValue(of: element)
+        }
+        if !attemptedIsWeb {
+            attemptedIsWeb = true
+            cachedIsWeb = WebTextReader.isWebElement(element)
+        }
+        return cachedIsWeb
+    }
+
+    private func leafState(of element: AXUIElement) -> WebTextReader.ContentEditableLeafState {
+        if cachedElement.map({ !CFEqual($0, element) }) ?? true {
+            _ = textValue(of: element)
+        }
+        if !attemptedLeafState {
+            attemptedLeafState = true
+            cachedLeafState = WebTextReader.contentEditableLeafState(of: element)
+        }
+        return cachedLeafState ?? WebTextReader.ContentEditableLeafState(hasContentChildren: false, leafTexts: nil)
+    }
+
+    private func textValue(of element: AXUIElement) -> String? {
+        if let cachedElement, CFEqual(cachedElement, element) { return cachedValue }
+        resetElementCache(for: element)
+        // Some editors report 0 characters (or a single `<br>` newline) while
+        // keeping a stale or placeholder AXValue.
+        let reportedCount = attribute(element, kAXNumberOfCharactersAttribute as String) as? Int
+        if reportedCount == 0 {
+            cachedValue = ""
+            return cachedValue
+        }
+        guard let raw = attribute(element, kAXValueAttribute as String) as? String else {
+            cachedValue = nil
+            return nil
+        }
+        if raw.isEmpty {
+            cachedValue = ""
+            return cachedValue
+        }
+        if reportedCount == 1, raw.utf16.count > 1 {
+            var span = CFRange(location: 0, length: 1)
+            if let axSpan = AXValueCreate(.cfRange, &span) {
+                var value: CFTypeRef?
+                if AXUIElementCopyParameterizedAttributeValue(
+                    element, kAXStringForRangeParameterizedAttribute as CFString, axSpan, &value) == .success,
+                   let first = value as? String, WebTextReader.canonicalWebText(first).isEmpty {
+                    cachedValue = ""
+                    return cachedValue
+                }
+            }
+        }
+        let placeholder = attribute(element, kAXPlaceholderValueAttribute as String) as? String
+        let role = attribute(element, kAXRoleAttribute as String) as? String
+        attemptedLeafState = true
+        let leaves = WebTextReader.contentEditableLeafState(of: element)
+        cachedLeafState = leaves
+        let marker: String?
+        if role != "AXWebArea" {
+            attemptedIsWeb = true
+            cachedIsWeb = leaves.hasContentChildren || WebTextReader.isWebElement(element)
+            if cachedIsWeb {
+                attemptedElementMarkerText = true
+                cachedElementMarkerText = WebTextReader.elementText(from: element)
+                marker = cachedElementMarkerText
+            } else {
+                marker = nil
+            }
+        } else {
+            marker = nil
+        }
+        switch WebTextReader.reconcileTextValue(axValue: raw, placeholder: placeholder,
+                                                markerText: marker, leaves: leaves) {
+        case .use(let value):
+            cachedValue = value
+        case .empty:
+            cachedValue = ""
+        case .stale(let liveText):
+            cachedValue = nil
+            cachedStaleFallback = liveText
+        }
         return cachedValue
+    }
+
+    private func elementMarkerText(of element: AXUIElement) -> String? {
+        if cachedElement.map({ !CFEqual($0, element) }) ?? true {
+            _ = textValue(of: element)
+        }
+        if !attemptedElementMarkerText {
+            attemptedElementMarkerText = true
+            cachedElementMarkerText = WebTextReader.elementText(from: element)
+        }
+        return cachedElementMarkerText
     }
 
     private func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
@@ -149,6 +263,7 @@ final class AccessibilityTextAdapter: HostTextAdapter {
               let bundle = application.bundleIdentifier else { return nil }
         let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
         AXUIElementSetMessagingTimeout(applicationElement, Self.messagingTimeout)
+        _ = HostAccessibilityMode.shared.prime(pid: application.processIdentifier, application: applicationElement)
         guard let focused = attribute(applicationElement, kAXFocusedUIElementAttribute as String),
               CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
         let element = FocusedTextElement.resolve(focused as! AXUIElement)
@@ -189,6 +304,20 @@ final class AccessibilityTextAdapter: HostTextAdapter {
         if let value = textValue(of: context.element) {
             return value
         }
+        // Scope to the focused web editor before falling back to the whole web
+        // area so clearing a chat box cannot match older messages on the page.
+        if attribute(context.element, kAXRoleAttribute as String) as? String != "AXWebArea" {
+            if let scoped = elementMarkerText(of: context.element) {
+                return scoped
+            }
+            if let staleFallback = cachedStaleFallback {
+                return staleFallback
+            }
+            let leaves = leafState(of: context.element)
+            if leaves.hasContentChildren, let leafTexts = leaves.leafTexts {
+                return leafTexts.joined(separator: "\n")
+            }
+        }
         return WebTextReader.documentText(from: context.element)
     }
 
@@ -202,7 +331,8 @@ final class AccessibilityTextAdapter: HostTextAdapter {
         // that text but refuses AXBoundsForRange, so direct geometry is followed
         // by a calibrated TextKit layout using the live caret rectangle.
         if let text = textValue(of: context.element) {
-            let visible = WebTextReader.visibleGeometryRanges(forRange: range, inUTF16: Array(text.utf16))
+            let units = Array(text.utf16)
+            let visible = WebTextReader.visibleGeometryRanges(forRange: range, inUTF16: units)
             guard !visible.isEmpty else { return [] }
             var direct: [CGRect] = []
             for textRange in visible {
@@ -219,30 +349,66 @@ final class AccessibilityTextAdapter: HostTextAdapter {
             if !descendantRects.isEmpty, let frame = elementFrame(context.element),
                matchesSnapshot(text, element: context.element) {
                 let visible = descendantRects.map { $0.intersection(frame) }.filter(HostGeometryConverter.isUsable)
-                if !visible.isEmpty { return visible }
+                if !visible.isEmpty { return clipped(visible, in: context) }
             }
             if !attemptedMarkers {
                 attemptedMarkers = true
                 markerGeometry = WebTextReader.elementGeometry(forText: text, from: context.element)
             }
             if let measured = markerGeometry?.rects(forRange: range), !measured.isEmpty {
-                return measured
+                return clipped(measured, in: context)
+            }
+            // Do not synthesize inferred rectangles when live browser markers or
+            // contenteditable leaves prove the editor is empty or lacks this phrase.
+            guard range.lowerBound >= 0, range.upperBound <= units.count else { return [] }
+            let phrase = String(decoding: units[range], as: UTF16.self)
+            let liveMarker = isWeb(context.element) ? elementMarkerText(of: context.element) : nil
+            let leaves = leafState(of: context.element)
+            guard WebTextReader.liveWebTextContains(phrase: phrase, markerText: liveMarker, leaves: leaves) else {
+                return []
             }
             guard matchesSnapshot(text, element: context.element) else { return [] }
             let inferred = inferredRects(for: range, text: text, in: context.element)
-            if !inferred.isEmpty && matchesSnapshot(text, element: context.element) { return inferred }
+            if !inferred.isEmpty && matchesSnapshot(text, element: context.element) { return clipped(inferred, in: context) }
             return []
         }
 
+        // Element-scoped marker or leaf text when AXValue was absent or stale:
+        // keep offsets in that element's own index space.
+        if attribute(context.element, kAXRoleAttribute as String) as? String != "AXWebArea" {
+            if let scoped = elementMarkerText(of: context.element) {
+                guard !WebTextReader.canonicalWebText(scoped).isEmpty else { return [] }
+                if !attemptedMarkers {
+                    attemptedMarkers = true
+                    markerGeometry = WebTextReader.elementGeometry(forText: scoped, from: context.element, verifyAXValue: false)
+                }
+                if let measured = markerGeometry?.rects(forRange: range), !measured.isEmpty {
+                    return clipped(measured, in: context)
+                }
+                return []
+            }
+            if cachedStaleFallback != nil { return [] }
+            let leaves = leafState(of: context.element)
+            if leaves.hasContentChildren, let leafTexts = leaves.leafTexts {
+                let fallbackText = leafTexts.joined(separator: "\n")
+                let leafRects = WebTextReader.rects(forElementRange: range, text: fallbackText, from: context.element)
+                if !leafRects.isEmpty, let frame = elementFrame(context.element) {
+                    let visible = leafRects.map { $0.intersection(frame) }.filter(HostGeometryConverter.isUsable)
+                    if !visible.isEmpty { return clipped(visible, in: context) }
+                }
+                return []
+            }
+        }
+
         // Document index space: go through markers on the web area, which is
-        // the element the offsets came from.
+        // the element the offsets came from, clipped to the focused editor.
         let viaMarkers = WebTextReader.rects(forRange: range, from: context.element)
-        if !viaMarkers.isEmpty { return viaMarkers }
+        if !viaMarkers.isEmpty { return clipped(viaMarkers, in: context) }
 
         // Last attempt: some editable web nodes answer directly despite not
         // publishing AXValue.
         if let whole = boundsForRange(context.element, range), HostGeometryConverter.isUsable(whole) {
-            return [whole]
+            return clipped([whole], in: context)
         }
         return []
     }

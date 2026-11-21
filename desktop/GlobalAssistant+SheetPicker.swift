@@ -17,6 +17,7 @@ extension GlobalAssistant {
         request?.cancel()
         request = nil
         flashTimer?.invalidate()
+        GhostTextOverlay.shared.cardClosed()
         SheetPickerController.shared.show(
             objectId: objectId, versionId: suggestion.versionId, snapshotId: suggestion.snapshotId,
             name: (suggestion.path as NSString).lastPathComponent, projectId: suggestion.projectId,
@@ -67,21 +68,21 @@ extension GlobalAssistant {
             let fresh = AccessibilityReader.focusedContext()
             DispatchQueue.main.async {
                 guard let self, token == self.generation else { return }
-                guard let fresh, fresh.element == context.element, fresh.absoluteCaret == context.absoluteCaret,
+                guard let fresh, CFEqual(fresh.element, context.element), fresh.absoluteCaret == context.absoluteCaret,
                       fresh.windowStart == context.windowStart,
                       CompletionTransaction.equivalentHostText(Array(fresh.text.utf16), Array(context.text.utf16)) else {
                     self.flash(["The insertion point changed. Nothing was inserted."])
                     return
                 }
                 let before = CompletionSnapshot(documentStart: fresh.windowStart, text: Array(fresh.text.utf16))
-                var formats: [NSPasteboard.PasteboardType: Data] = [.png: pick.png]
-                if let tiff = pick.tiff { formats[.tiff] = tiff }
+                let formats = SheetClipboard.pasteboardFormats(for: pick)
                 self.isInserting = true
                 self.markOwnWrite()
                 let element = context.element, caret = context.absoluteCaret
                 AccessibilityWork.queue.async { [weak self] in
                     RichTextInserter.insertFormats(formats, replacing: plan.range.count, at: caret, in: element,
                                                    keyboardDeleteCount: plan.expectedPrefix.count, deletesFirst: true,
+                                                   restoreClipboardAfter: RichTextInserter.imageRestoreDelay,
                                                    validateSelection: { selected in
                         AccessibilityReader.canPaste(in: element, before: before, caret: caret,
                                                      expectedPrefix: plan.expectedPrefix, selected: selected)

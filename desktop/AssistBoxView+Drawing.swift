@@ -37,14 +37,14 @@ extension AssistBoxView {
                 drawText("Arrow keys move between cells · fn ← to return",
                          in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
                          font: navigationFont, color: .secondaryLabelColor)
-            } else if suggestions.indices.contains(selected), suggestions[selected].tableNavigable {
-                drawLabel("Dive into cells", key: "fn →",
-                          in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
-                          font: navigationFont, color: .secondaryLabelColor)
             } else if sourceScoped {
                 drawLabel("‹ \(stepBackName ?? "All sources")", key: "fn ←",
                           in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
                           font: navigationFont, color: .controlAccentColor)
+            } else if suggestions.indices.contains(selected), suggestions[selected].tableNavigable {
+                drawLabel("Dive into cells", key: "fn →",
+                          in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
+                          font: navigationFont, color: .secondaryLabelColor)
             } else if let diveName = narrowsInto ?? returnFocusName {
                 drawLabel("Dive into \(diveName)", key: "fn →",
                           in: NSRect(x: 20, y: bodyTop + 10, width: width, height: 16),
@@ -119,18 +119,22 @@ extension AssistBoxView {
             drawSourceIcon(for: suggestion.path,
                            in: NSRect(x: 22, y: slotY + 26, width: 32, height: 32))
 
-            let detailWidth: CGFloat = suggestion.detail.isEmpty ? 0 : 82
+            let labelFont = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
+            let isRowMate = suggestion.rowMateOf != nil
+            let detailFont = NSFont.systemFont(ofSize: 11.5, weight: isRowMate ? .medium : .semibold)
+            let titleLayout = AssistRowTitleLayout(label: suggestion.label, detail: suggestion.detail,
+                                                   available: right - 75, labelFont: labelFont, detailFont: detailFont)
             drawText(suggestion.label,
                      in: NSRect(x: 65, y: slotY + 27,
-                               width: right - 75 - detailWidth, height: 17),
-                     font: NSFont.systemFont(ofSize: 12.5, weight: .semibold),
+                               width: titleLayout.labelWidth, height: 17),
+                     font: labelFont,
                      color: .labelColor)
-            if !suggestion.detail.isEmpty {
+            if titleLayout.detailWidth > 0 {
                 drawText(suggestion.detail,
-                         in: NSRect(x: right - detailWidth - 10, y: slotY + 27,
-                                   width: detailWidth, height: 17),
-                         font: NSFont.systemFont(ofSize: 11.5, weight: .semibold),
-                         color: .labelColor, alignment: .right)
+                         in: NSRect(x: right - titleLayout.detailWidth - 10, y: slotY + 27,
+                                   width: titleLayout.detailWidth, height: 17),
+                         font: detailFont,
+                         color: isRowMate ? .secondaryLabelColor : .labelColor, alignment: .right)
             }
             let source = (suggestion.path as NSString).lastPathComponent
             let breadcrumb = [suggestion.rankingReason ?? "", source.isEmpty ? "Project workspace" : source, suggestion.location]

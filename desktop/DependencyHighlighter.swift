@@ -26,13 +26,15 @@ final class DependencyHighlighter {
     private lazy var panel = OverlayPanel(view: view)
     private var currentContext: HostContext?
     private var geometries: [DependencyGeometry] = []
-    private var scheduled = false
+    private var refreshWork: DispatchWorkItem?
+    private var refreshIsImmediate = false
     private var monitors: [Any] = []
     private var settleTimer: Timer?
     private var isStarted = false
     private var systemSleeping = false
     private var displaySleeping = false
     private var lastRefresh = Date.distantPast
+    private var keyTracker = HighlightKeyTracker()
     /// Text goes missing briefly during an undo or a re-render, and a second
     /// editor in the same window shares this document's identity. A reference
     /// is deleted only when its text stays missing from the editor where it
@@ -97,7 +99,14 @@ final class DependencyHighlighter {
         if let click { monitors.append(click) }
         if let changes = NSEvent.addGlobalMonitorForEvents(
             matching: [.keyDown, .scrollWheel, .leftMouseDown, .leftMouseDragged, .leftMouseUp],
-            handler: { [weak self] _ in self?.scheduleRefresh() }) { monitors.append(changes) }
+            handler: { [weak self] event in
+                if event.type == .leftMouseDragged || (event.type == .leftMouseDown && event.clickCount >= 2) {
+                    self?.keyTracker.mouseDragged()
+                } else if event.type == .leftMouseDown {
+                    self?.keyTracker.mouseDown()
+                }
+                self?.scheduleRefresh()
+            }) { monitors.append(changes) }
         if let moving = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .scrollWheel], handler: { [weak self] event in
             self?.quietMovingText(event)
         }) { monitors.append(moving) }
@@ -330,16 +339,29 @@ final class DependencyHighlighter {
         scheduleRefresh()
     }
 
-    private func scheduleRefresh() {
+    /// Called from the keyboard tap on the main thread so highlights react to
+    /// deletions and edits even when Input Monitoring is not granted.
+    func noteHostKey(keyCode: Int64, flags: CGEventFlags) {
+        guard hasRelevantHost else { return }
+        handleKey(keyCode: UInt16(keyCode), command: flags.contains(.maskCommand), shift: flags.contains(.maskShift))
+    }
+
+    private func scheduleRefresh(immediate: Bool = false) {
         updatePolling()
         guard hasRelevantHost else { hide(); releaseReader(); return }
-        guard !scheduled else { return }
-        scheduled = true
-        let delay = max(0.04, 0.25 - Date().timeIntervalSince(lastRefresh))
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.scheduled = false
+        if refreshWork != nil {
+            guard immediate && !refreshIsImmediate else { return }
+            refreshWork?.cancel()
+        }
+        refreshIsImmediate = immediate
+        let delay = immediate ? 0.05 : max(0.04, 0.25 - Date().timeIntervalSince(lastRefresh))
+        let work = DispatchWorkItem { [weak self] in
+            self?.refreshWork = nil
+            self?.refreshIsImmediate = false
             self?.refresh()
         }
+        refreshWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func refresh() {
@@ -453,12 +475,15 @@ final class DependencyHighlighter {
 
     private func hide() {
         readGeneration += 1
+        settleWork?.cancel()
+        settleWork = nil
+        quieted = []
+        quietUntil = .distantPast
         guard !geometries.isEmpty || panel.isVisible else { return }
         geometries = []
         shownChips = []
         shownQuiet = []
-        view.show([])
-        view.hoveredId = nil
+        view.clear()
         panel.orderOut(nil)
     }
 
@@ -485,19 +510,49 @@ final class DependencyHighlighter {
     // MARK: Text on the move
 
     /// Hides the phrases a keystroke or scroll may move before the host has
-    /// drawn them anew, so a pill never sits over the wrong letters. Typing
-    /// moves only what comes after the caret; a scroll moves everything.
+    /// drawn them anew, so a pill never sits over the wrong letters.
     private func quietMovingText(_ event: NSEvent) {
-        guard panel.isVisible, !geometries.isEmpty else { return }
-        let ids: Set<String>
         if event.type == .scrollWheel {
-            guard event.scrollingDeltaY != 0 || event.scrollingDeltaX != 0 else { return }
+            guard panel.isVisible, !geometries.isEmpty,
+                  event.scrollingDeltaY != 0 || event.scrollingDeltaX != 0 else { return }
+            quiet(Set(geometries.map(\.referenceId)))
+            return
+        }
+        handleKey(keyCode: event.keyCode, command: event.modifierFlags.contains(.command),
+                  shift: event.modifierFlags.contains(.shift))
+    }
+
+    private func handleKey(keyCode: UInt16, command: Bool, shift: Bool) {
+        let effect = keyTracker.key(keyCode: keyCode, command: command, shift: shift)
+        guard effect != .ignore else { return }
+        let immediate: Bool
+        let ids: Set<String>
+        switch effect {
+        case .ignore:
+            return
+        case .quietAll:
+            immediate = true
             ids = Set(geometries.map(\.referenceId))
-        } else {
-            guard Self.mayEditText(event) else { return }
+        case .quietDeleting:
+            immediate = true
+            ids = Set(geometries.filter { $0.mayMove(deletingAt: lastCaret) }.map(\.referenceId))
+        case .quietTyping(let isImmediate):
+            immediate = isImmediate
             ids = Set(geometries.filter { $0.mayMove(typingAt: lastCaret) }.map(\.referenceId))
         }
-        guard !ids.isEmpty else { return }
+        if panel.isVisible && !geometries.isEmpty {
+            if !ids.isEmpty {
+                quiet(ids)
+            } else if immediate {
+                // Async web editors (Chromium/Electron) may not publish an AX
+                // change immediately; re-read once the edit has settled.
+                scheduleSettle(after: Self.quietTime)
+            }
+        }
+        scheduleRefresh(immediate: immediate)
+    }
+
+    private func quiet(_ ids: Set<String>) {
         quieted.formUnion(ids)
         quietUntil = Date().addingTimeInterval(Self.quietTime)
         view.quiet(ids)
@@ -509,7 +564,8 @@ final class DependencyHighlighter {
         let navigation: Set<UInt16> = [53, 115, 116, 119, 121, 123, 124, 125, 126]
         guard !navigation.contains(event.keyCode) else { return false }
         guard event.modifierFlags.contains(.command) else { return true }
-        // Paste, cut and undo change text; other shortcuts do not.
+        // Paste, cut, undo and Command-Delete change text; other shortcuts do not.
+        if event.keyCode == 51 || event.keyCode == 117 { return true }
         return ["v", "x", "z"].contains(event.charactersIgnoringModifiers?.lowercased() ?? "")
     }
 
@@ -523,11 +579,12 @@ final class DependencyHighlighter {
     }
 
     /// One more read once the text has stopped moving, to bring the phrases back.
-    private func scheduleSettle() {
+    private func scheduleSettle(after explicitDelay: TimeInterval? = nil) {
         settleWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.scheduleRefresh() }
+        let work = DispatchWorkItem { [weak self] in self?.scheduleRefresh(immediate: true) }
         settleWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + max(0.02, quietUntil.timeIntervalSinceNow + 0.02), execute: work)
+        let delay = explicitDelay ?? max(0.02, quietUntil.timeIntervalSinceNow + 0.02)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private static func primaryHeight() -> CGFloat {

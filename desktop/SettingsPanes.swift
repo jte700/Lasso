@@ -97,6 +97,7 @@ final class SettingsModel: ObservableObject {
     func allowsSuggestions(in app: SettingsApp) -> Binding<Bool> {
         Binding(get: { self.apps.first { $0.id == app.id }?.allowed ?? true }, set: { allowed in
             self.suggestionApps.setAllowed(allowed, for: app.id)
+            if allowed { HostAccessibilityMode.shared.forget(bundleIdentifier: app.id) }
             self.reloadApps()
         })
     }

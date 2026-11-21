@@ -381,6 +381,9 @@ final class KeyEventTap {
     private let onFirstKey: () -> Void
     /// Runs on the main thread when a key that starts Dictation is pressed.
     private let onDictationShortcut: () -> Void
+    /// Runs on the main thread for every non-synthetic key passed to the host,
+    /// so highlights stay in sync even without Input Monitoring permission.
+    private let onHostKey: (Int64, CGEventFlags) -> Void
     /// Set before the tap thread starts and never replaced, so the callback
     /// can read it without a lock.
     private var port: CFMachPort?
@@ -390,10 +393,12 @@ final class KeyEventTap {
     private var sawKey = false
 
     init(perform: @escaping (KeyAction) -> Void, onFirstKey: @escaping () -> Void,
-         onDictationShortcut: @escaping () -> Void = {}) {
+         onDictationShortcut: @escaping () -> Void = {},
+         onHostKey: @escaping (Int64, CGEventFlags) -> Void = { _, _ in }) {
         self.perform = perform
         self.onFirstKey = onFirstKey
         self.onDictationShortcut = onDictationShortcut
+        self.onHostKey = onHostKey
     }
 
     /// False when macOS refused the tap, which means Input Monitoring is missing.
@@ -459,6 +464,10 @@ final class KeyEventTap {
             keyCode: keyCode, flags: event.flags, synthetic: synthetic, state: state.value)
         switch decision {
         case .pass(let action):
+            if !synthetic {
+                let flags = event.flags
+                DispatchQueue.main.async { [onHostKey] in onHostKey(keyCode, flags) }
+            }
             if let action { DispatchQueue.main.async { [perform] in perform(action) } }
             return Unmanaged.passUnretained(event)
         case .swallow(let action):

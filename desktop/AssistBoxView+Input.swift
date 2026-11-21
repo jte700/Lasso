@@ -34,7 +34,6 @@ extension AssistBoxView {
             // list of every source.
             if point.y < bodyTop + navigationHeight {
                 if tableBrowsing { onReturnFromTable?() }
-                else if suggestions.indices.contains(selected), suggestions[selected].tableNavigable { return }
                 else if wordChoice != nil { onCloseWords?() }
                 else if sourceScoped { stepBackName == nil ? onAllSources?() : onStepBack?() }
                 return

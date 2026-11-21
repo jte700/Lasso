@@ -368,3 +368,35 @@ struct TableCitationMarks {
         rect.fill()
     }
 }
+
+/// How a suggestion row splits its top line between its main label and its
+/// top-right detail label ("$400", "From BILL-1160", "19,250 · was 18,400").
+/// Both show whole when they fit together; when they do not, the label keeps
+/// room to stay legible and the detail takes the rest.
+struct AssistRowTitleLayout: Equatable {
+    static let gap: CGFloat = 10
+    static let minimumLabelWidth: CGFloat = 110
+    static let minimumLabelShare: CGFloat = 0.45
+
+    let labelWidth: CGFloat
+    let detailWidth: CGFloat
+
+    init(label: String, detail: String, available: CGFloat, labelFont: NSFont, detailFont: NSFont,
+         measure: (String, NSFont) -> CGFloat = AssistTableLayout.textWidth) {
+        let total = max(0, available)
+        guard !detail.isEmpty, total > Self.gap else {
+            labelWidth = total
+            detailWidth = 0
+            return
+        }
+        let naturalLabel = ceil(measure(label, labelFont)) + 1
+        let naturalDetail = ceil(measure(detail, detailFont)) + 1
+        if naturalLabel + Self.gap + naturalDetail <= total {
+            detailWidth = naturalDetail
+        } else {
+            let floor = min(naturalLabel, max(Self.minimumLabelWidth, total * Self.minimumLabelShare))
+            detailWidth = min(naturalDetail, max(0, total - Self.gap - floor))
+        }
+        labelWidth = max(0, total - Self.gap - detailWidth)
+    }
+}
