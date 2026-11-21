@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sources · Lasso</title>
+<meta name="description" content="Where every number on this site comes from: the typing benchmarks, the Lasso MCP live runs, the savings calculator and product claims.">
+<link rel="canonical" href="https://www.mylasso.ca/sources/">
+<meta name="theme-color" content="#0b0b0a">
+<meta property="og:title" content="Sources · Lasso">
+<meta property="og:description" content="Where every number on this site comes from: the typing benchmarks, the Lasso MCP live runs, the savings calculator and product claims.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.mylasso.ca/sources/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:site" content="@typelasso">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script>/* light or dark follows the system setting, and keeps in step if it changes */
+(function(){var d=document.documentElement,m=matchMedia('(prefers-color-scheme: light)');try{localStorage.removeItem('lasso.theme')}catch(e){}var apply=function(){var t=m.matches?'light':'dark';d.dataset.theme=t;var c=document.querySelector('meta[name=theme-color]');if(c)c.content=t==='light'?'#f7f5ed':'#0b0b0a'};apply();m.addEventListener('change',function(){apply();document.dispatchEvent(new CustomEvent('lasso:theme'))})})();
+['pagereveal','pageswap'].forEach(function(n){addEventListener(n,function(e){var v=e.viewTransition;if(v){v.ready.catch(function(){});v.finished.catch(function(){})}})})</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/assets/css/site.css">
+<link rel="stylesheet" href="/assets/css/trial.css">
+<link rel="stylesheet" href="/assets/css/pages.css">
+
+<script defer src="/assets/js/data.js"></script>
+<script defer src="/assets/js/core.js"></script>
+<script defer src="/assets/js/sheet.js"></script>
+
+</head>
+<body class="trial">
+<a class="sr" href="#main">Skip to content</a>
+<header class="nav">
+  <a class="brand" href="/" aria-label="Lasso, home"><img class="logo-tile" src="/assets/img/logo.svg" width="30" height="30" alt=""><span>Lasso</span></a>
+  <nav class="nav-links" aria-label="Main">
+    <a class="nav-link" href="/">Home</a>
+    <a class="nav-link" href="/security/">Security</a>
+    <a class="nav-link" href="/benchmarks/">Benchmarks</a>
+    <a class="nav-link" href="/mcp/">MCP</a>
+    <a class="nav-link" href="/ranch/">The Ranch</a>
+  </nav>
+  <div class="nav-tools">
+    <button class="icon-btn slop" type="button" data-action="palette" aria-label="Search the site"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><span class="tip" aria-hidden="true"><kbd data-mod>⌘</kbd><kbd>K</kbd></span></button>
+    <a class="btn btn--ink btn--sm" href="/download/">Download</a>
+    <button class="icon-btn slop nav-burger" type="button" data-action="menu" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 9h14M5 15h14"/></svg></button>
+  </div>
+</header>
+<main id="main">
+
+
+<section class="page-hero"><div class="wrap"><nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="/">Home</a></li><li aria-current="page">Sources</li></ol></nav><script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"https://www.mylasso.ca/"},{"@type":"ListItem","position":2,"name":"Sources","item":"https://www.mylasso.ca/sources/"}]}</script><p class="eyebrow">Sources</p><h1 class="h1 split-words"><span class="w"><span style="--wi:0">Where</span></span> <span class="w"><span style="--wi:1">every</span></span> <span class="w"><span style="--wi:2">number</span></span> <span class="w"><span style="--wi:3">comes</span></span> <span class="w"><span style="--wi:4">from</span></span></h1><p class="lead">Every small number on this site leads here, to the run record behind it in our public repository.</p></div></section>
+<section class="section section--tight" style="padding-top:0"><div class="wrap" style="max-width:920px">
+  <div class="toc"><a class="chip slop" href="#typing">Typing</a><a class="chip slop" href="#mcp-runs">Lasso MCP</a><a class="chip slop" href="#calculator">Calculator</a><a class="chip slop" href="#product">Product claims</a></div>
+
+  <h2 class="src-group" id="typing">Typing benchmarks</h2>
+  <article class="src" id="s1"><b>[1]</b><div><h3>Accuracy, latency and indexing time</h3><p>27 of 28 prompts right first and 28 of 28 in the top three; 6.99 ms median, 18.94 ms 95th percentile and 221.69 ms 99th percentile per keystroke with 10 folders on (0.78 ms median with one); 5,216 items indexed in 11.4 s. Run of 2026-11-05 at commit 11727e7 on an Apple M3 with 8 cores and 16 GB, 577 keystrokes.</p>
+    <p>Record: <a href="https://github.com/jte700/Lasso/blob/main/docs/benchmarks/results.json" rel="noopener"><code>docs/benchmarks/results.json</code></a>. Prompts: <a href="https://github.com/jte700/Lasso/blob/main/scripts/benchmark-cases.json" rel="noopener"><code>scripts/benchmark-cases.json</code></a>. Reproduce with <code>npm run bench</code>.</p></div></article>
+  <article class="src" id="s2"><b>[2]</b><div><h3>No model while typing</h3><p>Suggestions are retrieved from a local index and ordered by fixed ranking rules: a direct match on a name, value or file name always comes first. No language model is called, so no tokens are spent.</p>
+    <p>Ranking rules: <a href="https://github.com/jte700/Lasso/blob/main/docs/lasso-ranking-algorithm.pdf" rel="noopener"><code>docs/lasso-ranking-algorithm.pdf</code></a>. Overview: <a href="https://github.com/jte700/Lasso/blob/main/README.md" rel="noopener"><code>README.md</code></a>.</p></div></article>
+  <article class="src" id="s3"><b>[3]</b><div><h3>Tokens in each test folder</h3><p>1,177,015 tokens across the ten folders, counted as characters of text divided by four, with binary files left out. It is a lower bound on what a model would read to see a folder once, not a measurement of any model.</p>
+    <p>Record: <a href="https://github.com/jte700/Lasso/blob/main/docs/benchmarks/results.json" rel="noopener"><code>docs/benchmarks/results.json</code></a>, field <code>corpora[].context</code>.</p></div></article>
+  <article class="src" id="s4"><b>[4]</b><div><h3>History, storage and memory</h3><p>A one-cell edit to a 628,911-byte CSV writes 3 history rows and 4,096 bytes, is recorded in 128.2 ms warm and 142.9 ms after a restart; 404 of 404 rows keep their identity when a row is inserted at the top; idle memory 90,505,216 bytes. "Before" figures are the baseline run of 2026-11-10 (commit c6ca3b4); "now" is the run of 2026-11-11 (commit 54d082a). Sizes are exact; times vary by about 5% between runs.</p>
+    <p>Record: <a href="https://github.com/jte700/Lasso/blob/main/docs/benchmarks/storage.json" rel="noopener"><code>docs/benchmarks/storage.json</code></a>. Reproduce with <code>npm run bench:storage</code>.</p></div></article>
+
+  <h2 class="src-group" id="mcp-runs">Lasso MCP, live runs</h2>
+  <article class="src" id="s5"><b>[5]</b><div><h3>Lookups on gpt-5.4-mini</h3><p>32 questions (16, run twice): 219,302 tokens with file tools and 67,439 with Lasso, 69.2% fewer; cost $0.1449 against $0.0798; 29 right against 32. Tokens and cost are OpenAI's usage records for every call, October 2026.</p>
+    <p>Report: <a href="https://github.com/jte700/Lasso/blob/main/docs/agent/live-results-gpt-5.4-mini-v4.md" rel="noopener"><code>docs/agent/live-results-gpt-5.4-mini-v4.md</code></a>. Records: <a href="https://github.com/jte700/Lasso/blob/main/docs/agent/live-results-gpt-5.4-mini-v4.json" rel="noopener"><code>docs/agent/live-results-gpt-5.4-mini-v4.json</code></a>.</p></div></article>
+  <article class="src" id="s6"><b>[6]</b><div><h3>Lookups on gpt-5.3-codex</h3><p>15 questions both arms answered: 127,293 tokens with file tools and 29,777 with Lasso, 76.6% fewer; cost $0.2108 against $0.1003; 13 right against 15.</p>
+    <p>Report: <a href="https://github.com/jte700/Lasso/blob/main/docs/agent/live-results-gpt-5.3-codex-v4.md" rel="noopener"><code>docs/agent/live-results-gpt-5.3-codex-v4.md</code></a>. Summary used for the charts: <a href="https://github.com/jte700/Lasso/blob/main/docs/benchmarks/mcp-summary.json" rel="noopener"><code>docs/benchmarks/mcp-summary.json</code></a>.</p></div></article>
+  <article class="src" id="s7"><b>[7]</b><div><h3>By kind of file, 30 October 2026</h3><p>One run of the 3D, large-file, writing and document questions on gpt-5.4-mini at low reasoning effort, three ways: Lasso, file tools, and the files attached. It cost $1.01 in all. Excel with 5,000 rows: 5,974 tokens against 369,647 (4 of 4 right against 2 of 4). PDF of 40 pages: 10,882 against 69,085. STEP models: 29,229 against 167,941. Excel with 6 to 12 rows: 41,632 against 43,554. PDF of 1 to 2 pages: 6,875 against 6,049, so Lasso cost more there. One IFC question was graded wrong both ways.</p>
+    <p>Report: <a href="https://github.com/jte700/Lasso/blob/main/docs/agent/live-results-gpt-5.4-mini-geometry+scale+writing+documents.md" rel="noopener"><code>docs/agent/live-results-gpt-5.4-mini-geometry+scale+writing+documents.md</code></a>. Method and discussion: <a href="https://github.com/jte700/Lasso/blob/main/docs/agent/README.md" rel="noopener"><code>docs/agent/README.md</code></a>.</p></div></article>
+  <article class="src" id="s8"><b>[8]</b><div><h3>Mid-size reports, 31 October 2026</h3><p>On 8 to 9 page reports the 30 October run showed no saving (121,491 tokens with Lasso against 114,841). After a retrieval fix, 36 questions took 137,921 tokens with Lasso against 185,796 with file tools, 25.8% fewer, with 21 right against 17. On the fresh set of 18 written after the fix, attaching the reports took 60,520 tokens and got 14 right; Lasso took 69,386 and got 12. This site uses the after-fix figures and shows the upload comparison.</p>
+    <p>Reports: <a href="https://github.com/jte700/Lasso/blob/main/docs/agent/live-results-gpt-5.4-mini-documents-mcp-heldout2.md" rel="noopener"><code>docs/agent/live-results-gpt-5.4-mini-documents-mcp-heldout2.md</code></a> and <a href="https://github.com/jte700/Lasso/blob/main/docs/agent/live-results-gpt-5.4-mini-documents-mcp-heldout3.md" rel="noopener"><code>docs/agent/live-results-gpt-5.4-mini-documents-mcp-heldout3.md</code></a>.</p></div></article>
+
+  <h2 class="src-group">The pooled average and the calculator</h2>
+  <article class="src" id="calculator"><b>[9]</b><div><h3>How the averages are worked out</h3><p>Savings depend on the size and kind of file, so the site does not quote the best case. It pools every current live question on gpt-5.4-mini (sources 5, 7 and 8; the superseded 30 October mid-size run is left out) and divides total by total: 302,992 tokens with Lasso against 1,131,635 with file tools over 92 questions, which is 73.2% fewer. Cost, as charged: $0.2910 against $0.6483, 55.1% lower. Right answers: 75 against 62.</p>
+    <div class="table-wrap" style="margin:14px 0"><table style="min-width:920px"><thead><tr><th>Files</th><th class="n">Questions</th><th class="n">Tokens each, file tools</th><th class="n">Tokens each, Lasso</th><th class="n">Fewer</th><th class="n">Cost each, file tools</th><th class="n">Cost each, Lasso</th><th class="n">Lower</th><th class="n">Right</th></tr></thead><tbody>
+      <tr><td>Large files and 3D</td><td class="n">15</td><td class="n">45,129</td><td class="n">3,275</td><td class="n">92.7%</td><td class="n">$0.0195</td><td class="n">$0.0030</td><td class="n">84.5%</td><td class="n">11 → 14</td></tr><tr><td>Mid-size reports</td><td class="n">36</td><td class="n">5,161</td><td class="n">3,831</td><td class="n">25.8%</td><td class="n">$0.0045</td><td class="n">$0.0036</td><td class="n">21.2%</td><td class="n">17 → 21</td></tr><tr><td>Small files</td><td class="n">9</td><td class="n">5,511</td><td class="n">5,390</td><td class="n">2.2%</td><td class="n">$0.0052</td><td class="n">$0.0041</td><td class="n">20.6%</td><td class="n">5 → 8</td></tr><tr><td>Code and lookups</td><td class="n">32</td><td class="n">6,853</td><td class="n">2,107</td><td class="n">69.2%</td><td class="n">$0.0045</td><td class="n">$0.0025</td><td class="n">44.9%</td><td class="n">29 → 32</td></tr><tr><td><b>Typical mix (all)</b></td><td class="n">92</td><td class="n">12,300</td><td class="n">3,293</td><td class="n">73.2%</td><td class="n">$0.0070</td><td class="n">$0.0032</td><td class="n">55.1%</td><td class="n">62 → 75</td></tr>
+    </tbody></table></div>
+    <p><b>The calculator</b> multiplies: people × hours a week × file questions an hour × 52 weeks × the per-question difference in the row you choose. Money is that row's cost difference, scaled by your model's input price over the $0.75 per million the runs paid, so it keeps the caching and output share of the real runs. On the benchmarks page, lookups a working day × 5 × 52 are multiplied by the file-tools average, because typing with Lasso spends no tokens.</p>
+    <p><b>What is assumed, not measured:</b> how often your AI looks into your files (you set it), that your questions resemble these, and that cost scales in step with input price. The runs are small and on OpenAI models only, so treat the result as an order of magnitude.</p></div></article>
+  <article class="src" id="s10"><b>[10]</b><div><h3>Worked examples</h3><p>The four questions on the MCP page are quoted word for word from the 30 October run, with Lasso's answers as the model received them, shortened where marked.</p><p>Records: <a href="https://github.com/jte700/Lasso/blob/main/docs/agent/live-results-gpt-5.4-mini-geometry+scale+writing+documents.json" rel="noopener"><code>docs/agent/live-results-gpt-5.4-mini-geometry+scale+writing+documents.json</code></a>.</p></div></article>
+
+  <h2 class="src-group" id="product">Product claims</h2>
+  <article class="src" id="s11"><b>[11]</b><div><h3>What Lasso reads and how it is used</h3><p>Supported formats, keyboard shortcuts, sharing scopes and system requirements are described in the user guide and README.</p><p><a href="https://github.com/jte700/Lasso/blob/main/docs/user-guide.md" rel="noopener"><code>docs/user-guide.md</code></a>, <a href="https://github.com/jte700/Lasso/blob/main/README.md" rel="noopener"><code>README.md</code></a>, <a href="https://github.com/jte700/Lasso/blob/main/docs/reader-contract.md" rel="noopener"><code>docs/reader-contract.md</code></a>.</p></div></article>
+  <article class="src" id="s12"><b>[12]</b><div><h3>Known limits</h3><p>Very large folders (a 614-file repository with about 167,000 items) take seconds per keystroke and are excluded from the typing runs. The timed study of people writing with and without Lasso is a protocol that has not been run. Live agent runs are small and on OpenAI models only.</p><p><a href="https://github.com/jte700/Lasso/blob/main/docs/limitations.md" rel="noopener"><code>docs/limitations.md</code></a>, <a href="https://github.com/jte700/Lasso/blob/main/docs/typing-study.md" rel="noopener"><code>docs/typing-study.md</code></a>, <a href="https://github.com/jte700/Lasso/blob/main/docs/agent/README.md" rel="noopener"><code>docs/agent/README.md</code></a>.</p></div></article>
+  <article class="src" id="s13"><b>[13]</b><div><h3>Privacy claims</h3><p>Indexing, ranking and history run on your machine; the app needs no account, API key or network connection. A share link exists only when you create one, and connected apps (Outlook, Google Calendar, Notion) are opt-in.</p><p><a href="https://github.com/jte700/Lasso/blob/main/README.md" rel="noopener"><code>README.md</code></a> (system requirements), <a href="https://github.com/jte700/Lasso/blob/main/docs/user-guide.md" rel="noopener"><code>docs/user-guide.md</code></a> (sharing, connected apps), and this site's <a href="/privacy/">privacy policy</a>.</p></div></article>
+  <p class="note" style="margin-top:28px">Links point at the <a href="https://github.com/jte700/Lasso">public repository</a>. Found a number that does not match its source? Write to <a href="mailto:support@mylasso.ca">support@mylasso.ca</a>.</p>
+</div></section>
+
+
+<section class="closing-sm" id="get" data-cmd="Download">
+  <img src="/assets/img/mascot/forest-happy.svg" width="84" height="84" alt="" loading="lazy">
+  <h2 class="rv">Start with one folder.</h2>
+  <p class="t-sub rv">Add the folder you work from, and keep writing where you already write.</p>
+  <div class="rv"><div class="stage-actions">
+    <a class="btn btn--pop btn--lg" href="/download/" data-waitlist="mac-arm"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.28-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.78.74 2.99.72 1.24-.02 2.02-1.12 2.77-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.39-3.69ZM14.1 5.85c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28Z"/></svg>Mac <small>Apple silicon</small></a>
+    <a class="btn btn--lg" href="/download/" data-waitlist="mac-intel"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.28-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.78.74 2.99.72 1.24-.02 2.02-1.12 2.77-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.39-3.69ZM14.1 5.85c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28Z"/></svg>Mac <small>Intel</small></a>
+    <a class="btn btn--lg" href="/download/" data-waitlist="windows"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 4.3 10 3.2v7.7H2V4.3Zm9-1.2L22 1.5v9.4H11V3.1ZM2 12h8v7.8l-8-1.1V12Zm9 0h11v9.5l-11-1.5V12Z"/></svg>Windows</a>
+  </div></div>
+  <p class="note rv">Early access. Each button saves your place on the waitlist.</p>
+</section>
+</main>
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer-grid footer-grid--5">
+      <div><a class="brand" href="/"><img class="logo-tile" src="/assets/img/logo.svg" width="30" height="30" alt=""><span>Lasso</span></a><p>Autocomplete from your own files, with the source attached.</p></div>
+      <div><h5>Product</h5><ul>
+        <li><a href="/product/">All features</a></li><li><a href="/product/autocomplete/">Autocomplete</a></li><li><a href="/product/picker/">Cell and passage picker</a></li><li><a href="/product/ai-writer/">AI writer</a></li><li><a href="/product/provenance/">Provenance</a></li><li><a href="/product/sharing/">Sharing</a></li></ul></div>
+      <div><h5>For your work</h5><ul>
+        <li><a href="/finance/">Finance and accounting</a></li><li><a href="/security/">Security</a></li><li><a href="/ranch/">The Ranch</a></li><li><a href="/download/">Download</a></li><li><a href="/product/#keys">Keyboard shortcuts</a></li></ul></div>
+      <div><h5>Evidence</h5><ul>
+        <li><a href="/benchmarks/">Benchmarks</a></li><li><a href="/mcp/">Lasso MCP</a></li><li><a href="/mcp/#calc">Savings calculator</a></li><li><a href="/sources/">Sources</a></li></ul></div>
+      <div><h5>Company</h5><ul>
+        <li><a href="/contact/">Contact</a></li><li><a href="/privacy/">Privacy</a></li><li><a href="/terms/">Terms</a></li><li><a href="https://x.com/typelasso" rel="noopener">X, @typelasso</a></li><li><a href="https://github.com/jte700/Lasso" rel="noopener">GitHub</a></li></ul></div>
+    </div>
+    <div class="footer-base"><span>© 2026 Lasso · Ontario, Canada · support@mylasso.ca</span><span>Press <kbd data-mod>⌘</kbd><kbd>K</kbd> to search</span></div>
+  </div>
+</footer>
+</body>
+</html>

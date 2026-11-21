@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Security and privacy · Lasso</title>
+<meta name="description" content="How Lasso handles your files: suggestions run on your computer with no language model, files are never edited, and nothing leaves unless you share a link or hand a prompt to an AI writer you chose.">
+<link rel="canonical" href="https://www.mylasso.ca/security/">
+<meta name="theme-color" content="#0b0b0a">
+<meta property="og:title" content="Security and privacy · Lasso">
+<meta property="og:description" content="How Lasso handles your files: suggestions run on your computer with no language model, files are never edited, and nothing leaves unless you share a link or hand a prompt to an AI writer you chose.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.mylasso.ca/security/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:site" content="@typelasso">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script>/* light or dark follows the system setting, and keeps in step if it changes */
+(function(){var d=document.documentElement,m=matchMedia('(prefers-color-scheme: light)');try{localStorage.removeItem('lasso.theme')}catch(e){}var apply=function(){var t=m.matches?'light':'dark';d.dataset.theme=t;var c=document.querySelector('meta[name=theme-color]');if(c)c.content=t==='light'?'#f7f5ed':'#0b0b0a'};apply();m.addEventListener('change',function(){apply();document.dispatchEvent(new CustomEvent('lasso:theme'))})})();
+['pagereveal','pageswap'].forEach(function(n){addEventListener(n,function(e){var v=e.viewTransition;if(v){v.ready.catch(function(){});v.finished.catch(function(){})}})})</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/assets/css/site.css">
+<link rel="stylesheet" href="/assets/css/trial.css">
+<link rel="stylesheet" href="/assets/css/pages.css">
+<link rel="stylesheet" href="/assets/css/showcase.css">
+
+<script defer src="/assets/js/data.js"></script>
+<script defer src="/assets/js/core.js"></script>
+<script defer src="/assets/js/sheet.js"></script>
+
+</head>
+<body class="trial">
+<a class="sr" href="#main">Skip to content</a>
+<header class="nav">
+  <a class="brand" href="/" aria-label="Lasso, home"><img class="logo-tile" src="/assets/img/logo.svg" width="30" height="30" alt=""><span>Lasso</span></a>
+  <nav class="nav-links" aria-label="Main">
+    <a class="nav-link" href="/">Home</a>
+    <a class="nav-link" href="/security/" aria-current="page">Security</a>
+    <a class="nav-link" href="/benchmarks/">Benchmarks</a>
+    <a class="nav-link" href="/mcp/">MCP</a>
+    <a class="nav-link" href="/ranch/">The Ranch</a>
+  </nav>
+  <div class="nav-tools">
+    <button class="icon-btn slop" type="button" data-action="palette" aria-label="Search the site"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><span class="tip" aria-hidden="true"><kbd data-mod>⌘</kbd><kbd>K</kbd></span></button>
+    <a class="btn btn--ink btn--sm" href="/download/">Download</a>
+    <button class="icon-btn slop nav-burger" type="button" data-action="menu" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 9h14M5 15h14"/></svg></button>
+  </div>
+</header>
+<main id="main">
+
+<section class="p-hero"><div class="wrap">
+  <nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="/">Home</a></li><li aria-current="page">Security</li></ol></nav><script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"https://www.mylasso.ca/"},{"@type":"ListItem","position":2,"name":"Security","item":"https://www.mylasso.ca/security/"}]}</script>
+  <img class="p-mascot" src="/assets/img/mascot/sage-idle.svg" width="120" height="120" alt="">
+  <p class="kicker">Security and privacy</p>
+  <h1 class="p-title">Your files stay where they are</h1>
+  <p class="p-lead">Lasso is retrieval, not generation. It reads only the folders you choose, keeps its index on your computer, and runs suggestions there. Two things can leave your machine, and only when you ask: a share link, and a prompt for an AI writer.</p>
+</div></section>
+
+<section class="sec sec--tight" data-cmd="What leaves your computer"><div class="wrap">
+  <div class="sec-head rv"><h2 class="sec-title">What leaves your computer, and when</h2></div>
+  <div class="table-wrap rv"><table class="ctable"><thead><tr><th>Data</th><th>Where it goes</th></tr></thead><tbody>
+    <tr><td>What you type, and the suggestions</td><td>Stays on your computer. Indexing, ranking and suggestions run locally. No language model is involved and nothing you type is sent anywhere.</td></tr><tr><td>Your files, index and version history</td><td>Stay on your computer, in a local library beside the folders you chose. Lasso reads your files and never edits them.</td></tr><tr><td>A prompt for the AI writer</td><td>Only when you hand one over with Tab. The prompt, and the values and passages the writer looks up, go to ChatGPT through the ChatGPT app on your Mac and your own account.</td></tr><tr><td>A share link</td><td>Only when you create one. A snapshot of the part you chose is stored privately on mylasso.ca and deleted when the link expires, at most 48 hours later.</td></tr><tr><td>Lasso MCP for AI agents</td><td>Only what a connected agent asks for, from the folders you name with --scope, goes to that agent and its provider. Credential files and anything you exclude stay out.</td></tr><tr><td>The waitlist on this website</td><td>Your name, email address and platform, so we can send a confirmation code and a download link.</td></tr>
+  </tbody></table></div>
+</div></section>
+
+<section class="sec sec--tight" data-cmd="Principles"><div class="wrap">
+  <div class="facts3 rv">
+    <div><h3>No account, no telemetry</h3><p>The app does not need an account and does not send us your files, your typing, usage analytics or crash reports.</p></div>
+    <div><h3>Accessibility, used locally</h3><p>On a Mac, Lasso asks for Accessibility permission to read the text before your caret and insert what you accept. That text is used on your computer only.</p></div>
+    <div><h3>Quiet where it should be</h3><p>Lasso never suggests in search fields or address bars, and you can switch it off for any app in Settings.</p></div>
+  </div>
+  <div class="facts3 rv" style="margin-top:32px">
+    <div><h3>AI writer off by default</h3><p>The writer is set to None until you choose ChatGPT with ⌥Tab. With None, a backslash is only a backslash.</p></div>
+    <div><h3>Shares are private and brief</h3><p>Each link carries a long random token, is not indexed by search engines, and stops working within 48 hours. Stop any link sooner from The Ranch.</p></div>
+    <div><h3>One client at a time</h3><p>⌥Tab limits suggestions to one folder, so figures from one engagement do not appear while you write about another.</p></div>
+  </div>
+</div></section>
+
+<section class="sec" data-cmd="Questions"><div class="wrap">
+  <div class="sec-head rv"><h2 class="sec-title">Questions</h2></div>
+  <div class="faq"><details class="rv"><summary>Can Lasso’s team see my files?</summary><div><p>No. Your files and Lasso’s index stay on your computer. We only ever receive the snapshot in a share link you create, which is stored privately and expires.</p></div></details><details class="rv"><summary>Does the AI writer train on my files?</summary><div><p>Lasso hands your prompt, and what the writer looks up for it, to ChatGPT through your own account, under OpenAI’s terms and your plan’s data settings. Nothing else from your files is sent.</p></div></details><details class="rv"><summary>What happens to a USB drive’s index when I unplug it?</summary><div><p>Lasso asks whether to keep the index or remove it. A kept index stays on your Mac; a removed one is deleted.</p></div></details><details class="rv"><summary>Where is the legal detail?</summary><div><p>In the <a href="/privacy/">privacy policy</a> and the <a href="/terms/">terms of service</a>. Questions go to support@mylasso.ca.</p></div></details></div>
+</div></section>
+
+<section class="closing-sm" id="get" data-cmd="Download">
+  <img src="/assets/img/mascot/forest-happy.svg" width="84" height="84" alt="" loading="lazy">
+  <h2 class="rv">Start with one folder.</h2>
+  <p class="t-sub rv">Add the folder you work from, and keep writing where you already write.</p>
+  <div class="rv"><div class="stage-actions">
+    <a class="btn btn--pop btn--lg" href="/download/" data-waitlist="mac-arm"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.28-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.78.74 2.99.72 1.24-.02 2.02-1.12 2.77-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.39-3.69ZM14.1 5.85c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28Z"/></svg>Mac <small>Apple silicon</small></a>
+    <a class="btn btn--lg" href="/download/" data-waitlist="mac-intel"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.28-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.78.74 2.99.72 1.24-.02 2.02-1.12 2.77-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.39-3.69ZM14.1 5.85c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28Z"/></svg>Mac <small>Intel</small></a>
+    <a class="btn btn--lg" href="/download/" data-waitlist="windows"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 4.3 10 3.2v7.7H2V4.3Zm9-1.2L22 1.5v9.4H11V3.1ZM2 12h8v7.8l-8-1.1V12Zm9 0h11v9.5l-11-1.5V12Z"/></svg>Windows</a>
+  </div></div>
+  <p class="note rv">Early access. Each button saves your place on the waitlist.</p>
+</section>
+</main>
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer-grid footer-grid--5">
+      <div><a class="brand" href="/"><img class="logo-tile" src="/assets/img/logo.svg" width="30" height="30" alt=""><span>Lasso</span></a><p>Autocomplete from your own files, with the source attached.</p></div>
+      <div><h5>Product</h5><ul>
+        <li><a href="/product/">All features</a></li><li><a href="/product/autocomplete/">Autocomplete</a></li><li><a href="/product/picker/">Cell and passage picker</a></li><li><a href="/product/ai-writer/">AI writer</a></li><li><a href="/product/provenance/">Provenance</a></li><li><a href="/product/sharing/">Sharing</a></li></ul></div>
+      <div><h5>For your work</h5><ul>
+        <li><a href="/finance/">Finance and accounting</a></li><li><a href="/security/">Security</a></li><li><a href="/ranch/">The Ranch</a></li><li><a href="/download/">Download</a></li><li><a href="/product/#keys">Keyboard shortcuts</a></li></ul></div>
+      <div><h5>Evidence</h5><ul>
+        <li><a href="/benchmarks/">Benchmarks</a></li><li><a href="/mcp/">Lasso MCP</a></li><li><a href="/mcp/#calc">Savings calculator</a></li><li><a href="/sources/">Sources</a></li></ul></div>
+      <div><h5>Company</h5><ul>
+        <li><a href="/contact/">Contact</a></li><li><a href="/privacy/">Privacy</a></li><li><a href="/terms/">Terms</a></li><li><a href="https://x.com/typelasso" rel="noopener">X, @typelasso</a></li><li><a href="https://github.com/jte700/Lasso" rel="noopener">GitHub</a></li></ul></div>
+    </div>
+    <div class="footer-base"><span>© 2026 Lasso · Ontario, Canada · support@mylasso.ca</span><span>Press <kbd data-mod>⌘</kbd><kbd>K</kbd> to search</span></div>
+  </div>
+</footer>
+</body>
+</html>

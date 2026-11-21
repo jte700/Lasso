@@ -1,5 +1,15 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    { "source": "/index.html", "destination": "/", "permanent": true },
+    { "source": "/benchmarks.html", "destination": "/benchmarks/", "permanent": true },
+    { "source": "/mcp.html", "destination": "/mcp/", "permanent": true },
+    { "source": "/contact.html", "destination": "/contact/", "permanent": true },
+    { "source": "/sources.html", "destination": "/sources/", "permanent": true },
+    { "source": "/privacy.html", "destination": "/privacy/", "permanent": true },
+    { "source": "/terms.html", "destination": "/terms/", "permanent": true },
+    { "source": "/craft.html", "destination": "/", "permanent": true }
+  ],
   "rewrites": [
     { "source": "/d/:token", "destination": "/api/shared?token=:token" },
     { "source": "/d/:token/:asset", "destination": "/api/shared?token=:token&asset=:asset" }

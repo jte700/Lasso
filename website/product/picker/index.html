@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cell and passage picker · Lasso</title>
+<meta name="description" content="fn + Tab opens a spreadsheet or CSV suggestion so you can highlight the cells you want and paste them as a table with the source. Tab on a PDF, Word, deck or recording passage opens it to choose the exact words.">
+<link rel="canonical" href="https://www.mylasso.ca/product/picker/">
+<meta name="theme-color" content="#0b0b0a">
+<meta property="og:title" content="Cell and passage picker · Lasso">
+<meta property="og:description" content="fn + Tab opens a spreadsheet or CSV suggestion so you can highlight the cells you want and paste them as a table with the source. Tab on a PDF, Word, deck or recording passage opens it to choose the exact words.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.mylasso.ca/product/picker/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:site" content="@typelasso">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script>/* light or dark follows the system setting, and keeps in step if it changes */
+(function(){var d=document.documentElement,m=matchMedia('(prefers-color-scheme: light)');try{localStorage.removeItem('lasso.theme')}catch(e){}var apply=function(){var t=m.matches?'light':'dark';d.dataset.theme=t;var c=document.querySelector('meta[name=theme-color]');if(c)c.content=t==='light'?'#f7f5ed':'#0b0b0a'};apply();m.addEventListener('change',function(){apply();document.dispatchEvent(new CustomEvent('lasso:theme'))})})();
+['pagereveal','pageswap'].forEach(function(n){addEventListener(n,function(e){var v=e.viewTransition;if(v){v.ready.catch(function(){});v.finished.catch(function(){})}})})</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/assets/css/site.css">
+<link rel="stylesheet" href="/assets/css/trial.css">
+<link rel="stylesheet" href="/assets/css/pages.css">
+<link rel="stylesheet" href="/assets/css/showcase.css">
+
+<script defer src="/assets/js/data.js"></script>
+<script defer src="/assets/js/core.js"></script>
+<script defer src="/assets/js/sheet.js"></script>
+<script defer src="/assets/js/media.js"></script>
+<script defer src="/assets/js/ui.js"></script>
+
+</head>
+<body class="trial">
+<a class="sr" href="#main">Skip to content</a>
+<header class="nav">
+  <a class="brand" href="/" aria-label="Lasso, home"><img class="logo-tile" src="/assets/img/logo.svg" width="30" height="30" alt=""><span>Lasso</span></a>
+  <nav class="nav-links" aria-label="Main">
+    <a class="nav-link" href="/">Home</a>
+    <a class="nav-link" href="/security/">Security</a>
+    <a class="nav-link" href="/benchmarks/">Benchmarks</a>
+    <a class="nav-link" href="/mcp/">MCP</a>
+    <a class="nav-link" href="/ranch/">The Ranch</a>
+  </nav>
+  <div class="nav-tools">
+    <button class="icon-btn slop" type="button" data-action="palette" aria-label="Search the site"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><span class="tip" aria-hidden="true"><kbd data-mod>⌘</kbd><kbd>K</kbd></span></button>
+    <a class="btn btn--ink btn--sm" href="/download/">Download</a>
+    <button class="icon-btn slop nav-burger" type="button" data-action="menu" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 9h14M5 15h14"/></svg></button>
+  </div>
+</header>
+<main id="main">
+
+<section class="p-hero"><div class="wrap">
+  <nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="/">Home</a></li><li><a href="/product/">Product</a></li><li aria-current="page">Picker</li></ol></nav><script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"https://www.mylasso.ca/"},{"@type":"ListItem","position":2,"name":"Product","item":"https://www.mylasso.ca/product/"},{"@type":"ListItem","position":3,"name":"Picker","item":"https://www.mylasso.ca/product/picker/"}]}</script>
+  <p class="kicker">Cell and passage picker</p>
+  <h1 class="p-title">Choose exactly what goes in</h1>
+  <p class="p-lead">Sometimes one value is not enough. Open the sheet behind a suggestion and highlight the cells you want, or open the document behind a passage and choose its exact words. Lasso puts them in with the source attached.</p>
+  <div class="p-actions"><a class="btn btn--pop" href="/download/" data-waitlist="mac-arm"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.28-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.78.74 2.99.72 1.24-.02 2.02-1.12 2.77-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.39-3.69ZM14.1 5.85c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28Z"/></svg>Download for Mac</a><a class="btn" href="#demo">Try the demo</a></div>
+</div></section>
+
+<section class="sec sec--tight" id="demo" data-cmd="Sheet picker"><div class="wrap">
+  <div class="ag-list">
+    <article class="ag rv">
+      <div class="ag-copy"><p class="ag-tag">Spreadsheets and CSV <i>fn ⇥</i></p><h3>Highlight cells, paste a table</h3><p>Press fn + Tab on a spreadsheet or CSV suggestion and its sheet opens on the cell the card offered. Drag across the cells you want; highlights need not touch. ⌘Z takes back the latest, and Tab pastes a picture of them, with the source written underneath if you choose.</p></div>
+      <div class="ag-media"><picture><source srcset="/assets/media/picker-dark.webp" media="(prefers-color-scheme: dark)"><img src="/assets/media/picker-light.webp" width="1088" height="1088" loading="lazy" decoding="async" alt="A forecast workbook with two rows highlighted, pasted into an email as a small table with its source."></picture></div>
+    </article>
+  </div>
+</div></section>
+
+<section class="sec" data-cmd="What is pasted"><div class="wrap">
+  <div class="feat">
+    <div class="copy rv"><p class="kicker">What is pasted</p><h2>A clean table that any app accepts</h2>
+      <p>The picture is drawn light, whatever your system look, so it reads well in a document or an email. The header row is shaded, numbers are set right, and the cells keep where they sit in the sheet.</p>
+      <ul class="checks"><li>Pasted as PNG and TIFF, which mail, documents and chat apps take</li><li>Switch on <b>Insert with source</b> to write it underneath, such as <q>(forecast_2026.xlsx, 'P&amp;L'!D12, B14:C14)</q></li><li>Switch on <b>Insert with the header row</b> to put the column names first</li></ul></div>
+    <div class="copy rv" style="--i:1"><p class="kicker">Which files</p><h2>Workbooks and exports</h2>
+      <p>The sheet picker opens Excel workbooks (.xlsx, .xls) and CSV or TSV exports from your bank, ledger or practice software. A CSV has no sheet name, so its source line names the file and cells. Tab on the card itself still inserts a single value as text.</p></div>
+  </div>
+</div></section>
+
+<section class="sec sec--tight" data-cmd="Passage picker"><div class="wrap">
+  <div class="ag-list">
+    <article class="ag rv">
+      <div class="ag-copy"><p class="ag-tag">PDF, Word, decks and recordings <i>⇥</i></p><h3>Check the words before they go in</h3><p>Tab on a passage suggestion opens its document at the passage, highlighted from the words you typed. Select other words to change the highlight, then Insert, or Insert Link to put in a share link instead.</p></div>
+      <div class="ag-media"><video data-light="/assets/media/passage-light.mp4" data-dark="/assets/media/passage-dark.mp4" data-light-poster="/assets/media/passage-light.webp" data-dark-poster="/assets/media/passage-dark.webp" muted loop playsinline preload="none" aria-label="The passage picker opens a signed lease at the clause; the highlight widens to the whole sentence and Insert puts it in the note, linked to page 1."></video><button class="ag-pause" type="button" aria-pressed="false" aria-label="Pause the clip"><svg class="i-pause" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="3.5" y="3" width="3" height="10" rx="1"/><rect x="9.5" y="3" width="3" height="10" rx="1"/></svg><svg class="i-play" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5 3.4v9.2a.8.8 0 0 0 1.2.7l7.4-4.6a.8.8 0 0 0 0-1.4L6.2 2.7A.8.8 0 0 0 5 3.4Z"/></svg></button></div>
+    </article>
+  </div>
+</div></section>
+
+<section class="sec" data-cmd="How it works"><div class="wrap">
+  <div class="sec-head rv"><h2 class="sec-title">How it works</h2></div>
+  <ol class="steps"><li class="rv" style="--i:0"><h3>Open it from the card</h3><p>fn + Tab on a spreadsheet or CSV suggestion opens the sheet. Tab on a passage from a PDF, Word file, deck or recording opens the document.</p></li><li class="rv" style="--i:1"><h3>Highlight what you need</h3><p>Drag across cells or select words. The arrow keys move the latest highlight, and with ⇧ they widen it.</p></li><li class="rv" style="--i:2"><h3>Put it in</h3><p>Tab pastes the cells as a picture, or inserts the words linked to their place in the file. Escape goes back to the card.</p></li></ol>
+</div></section>
+
+<section class="sec" data-cmd="Questions"><div class="wrap">
+  <div class="sec-head rv"><h2 class="sec-title">Questions</h2></div>
+  <div class="faq"><details class="rv"><summary>Can I paste the cells as editable text?</summary><div><p>The sheet picker pastes a picture, so the table looks the same wherever it lands. To insert a single value as text, press Tab on the card instead of fn + Tab.</p></div></details><details class="rv"><summary>Can the source be written under the picture?</summary><div><p>Yes. Switch on Insert with source in the picker. The line names the file, the sheet and each highlight in the order you made them, so a reader can see where the figures came from.</p></div></details><details class="rv"><summary>Does the picker change my file?</summary><div><p>No. It reads from Lasso’s index of the file. Nothing in the workbook or document is edited.</p></div></details><details class="rv"><summary>What does ⌘Z do in the picker?</summary><div><p>It takes back the latest highlight. ⇧⌘Z brings it back.</p></div></details></div>
+</div></section>
+<section class="sec sec--tight"><div class="wrap">
+  <div class="sec-head"><h2 class="sec-title" style="font-size:clamp(26px,3vw,36px)">Related</h2></div>
+  <div class="related"><a class="rel" href="/product/autocomplete/"><small>Before</small><b>Autocomplete</b><span>How the card finds the right source.</span></a><a class="rel" href="/finance/"><small>Use case</small><b>Lasso for finance</b><span>Variance tables and bank lines in close notes.</span></a><a class="rel" href="/product/sharing/"><small>Also</small><b>Sharing</b><span>Send the cited row or slide as a private link.</span></a></div>
+</div></section>
+
+<section class="closing-sm" id="get" data-cmd="Download">
+  <img src="/assets/img/mascot/forest-happy.svg" width="84" height="84" alt="" loading="lazy">
+  <h2 class="rv">Start with one folder.</h2>
+  <p class="t-sub rv">Add the folder you work from, and keep writing where you already write.</p>
+  <div class="rv"><div class="stage-actions">
+    <a class="btn btn--pop btn--lg" href="/download/" data-waitlist="mac-arm"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.28-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.78.74 2.99.72 1.24-.02 2.02-1.12 2.77-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.39-3.69ZM14.1 5.85c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28Z"/></svg>Mac <small>Apple silicon</small></a>
+    <a class="btn btn--lg" href="/download/" data-waitlist="mac-intel"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.28-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.78.74 2.99.72 1.24-.02 2.02-1.12 2.77-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.39-3.69ZM14.1 5.85c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28Z"/></svg>Mac <small>Intel</small></a>
+    <a class="btn btn--lg" href="/download/" data-waitlist="windows"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 4.3 10 3.2v7.7H2V4.3Zm9-1.2L22 1.5v9.4H11V3.1ZM2 12h8v7.8l-8-1.1V12Zm9 0h11v9.5l-11-1.5V12Z"/></svg>Windows</a>
+  </div></div>
+  <p class="note rv">Early access. Each button saves your place on the waitlist.</p>
+</section>
+</main>
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer-grid footer-grid--5">
+      <div><a class="brand" href="/"><img class="logo-tile" src="/assets/img/logo.svg" width="30" height="30" alt=""><span>Lasso</span></a><p>Autocomplete from your own files, with the source attached.</p></div>
+      <div><h5>Product</h5><ul>
+        <li><a href="/product/">All features</a></li><li><a href="/product/autocomplete/">Autocomplete</a></li><li><a href="/product/picker/">Cell and passage picker</a></li><li><a href="/product/ai-writer/">AI writer</a></li><li><a href="/product/provenance/">Provenance</a></li><li><a href="/product/sharing/">Sharing</a></li></ul></div>
+      <div><h5>For your work</h5><ul>
+        <li><a href="/finance/">Finance and accounting</a></li><li><a href="/security/">Security</a></li><li><a href="/ranch/">The Ranch</a></li><li><a href="/download/">Download</a></li><li><a href="/product/#keys">Keyboard shortcuts</a></li></ul></div>
+      <div><h5>Evidence</h5><ul>
+        <li><a href="/benchmarks/">Benchmarks</a></li><li><a href="/mcp/">Lasso MCP</a></li><li><a href="/mcp/#calc">Savings calculator</a></li><li><a href="/sources/">Sources</a></li></ul></div>
+      <div><h5>Company</h5><ul>
+        <li><a href="/contact/">Contact</a></li><li><a href="/privacy/">Privacy</a></li><li><a href="/terms/">Terms</a></li><li><a href="https://x.com/typelasso" rel="noopener">X, @typelasso</a></li><li><a href="https://github.com/jte700/Lasso" rel="noopener">GitHub</a></li></ul></div>
+    </div>
+    <div class="footer-base"><span>© 2026 Lasso · Ontario, Canada · support@mylasso.ca</span><span>Press <kbd data-mod>⌘</kbd><kbd>K</kbd> to search</span></div>
+  </div>
+</footer>
+</body>
+</html>
