@@ -259,12 +259,21 @@ final class ConnectAppsWindowController: NSObject, NSWindowDelegate, WKNavigatio
 
     var isVisible: Bool { window?.isVisible == true }
 
-    /// The page's sand, so the title bar and the page read as one surface.
-    private static let background = NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(srgbRed: 0x16 / 255, green: 0x16 / 255, blue: 0x15 / 255, alpha: 1)
-            : NSColor(srgbRed: 0xf5 / 255, green: 0xf3 / 255, blue: 0xf1 / 255, alpha: 1)
-    }
+    /// The Ranch's near-black page, so the title bar and the page read as one
+    /// surface. The window is dark whatever the Mac is set to, as The Ranch is.
+    private static let background = RanchLook.nsPage
+
+    /// Figtree, The Ranch's typeface, handed to the page from the app's own
+    /// fonts: the web content runs in its own process, which never sees fonts
+    /// registered for the app. Without them the page draws the system font.
+    private static let figtreeScript: WKUserScript? = {
+        guard let folder = Bundle.main.resourceURL?.appendingPathComponent("Fonts", isDirectory: true),
+              let data = try? Data(contentsOf: folder.appendingPathComponent("Figtree-VariableFont_wght.ttf")) else { return nil }
+        let css = "@font-face{font-family:'Figtree';src:url(data:font/ttf;base64,\(data.base64EncodedString())) format('truetype');"
+            + "font-weight:300 900;font-display:block}"
+        let source = "(()=>{const s=document.createElement('style');s.textContent=\"\(css)\";document.documentElement.appendChild(s)})()"
+        return WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+    }()
 
     func show(serverURL: URL) {
         if let window, self.serverURL == serverURL {
@@ -286,6 +295,7 @@ final class ConnectAppsWindowController: NSObject, NSWindowDelegate, WKNavigatio
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.backgroundColor = Self.background
+        window.appearance = NSAppearance(named: .darkAqua)
         window.minSize = NSSize(width: 860, height: 600)
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -294,6 +304,7 @@ final class ConnectAppsWindowController: NSObject, NSWindowDelegate, WKNavigatio
 
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.addScriptMessageHandler(ConnectMessageProxy(self), contentWorld: .page, name: "lasso")
+        if let figtree = Self.figtreeScript { configuration.userContentController.addUserScript(figtree) }
         configuration.websiteDataStore = .nonPersistent()
         let web = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: configuration)
         web.autoresizingMask = [.width, .height]
