@@ -2,6 +2,7 @@
 // a linked source's values may be offered.
 
 import { fieldCue } from './record-fields.js';
+import { isSheetPath, sameTableRow } from './held-rows.js';
 import { lineMentionAtEnd } from './code-lines.js';
 import { mapObjectRow } from './object-descriptors.js';
 import { acceptedAsValue } from './value-match.js';
@@ -98,9 +99,24 @@ export const linkedContextMethods = {
     if (input.focusSource) return null;
     // A row written by its name is a value only of a column naming the rows, found below.
     if (this.settledValueEnd({ ...input, settledValueEnd: undefined }, newest) < 0 && !writtenAsRowName(newest, input.text)) return null;
-    const holder = earlier.find((item) => item.anchor.end <= newest.anchor.start && this.holdsTableValue(item.source, newest.source));
+    let holder = earlier.find((item) => item.anchor.end <= newest.anchor.start && this.holdsTableValue(item.source, newest.source));
+    // A row mate tabbed from a kept sheet list (22000 from BILL-1160's row) keeps that list too.
+    if (!holder && isSheetPath(newest.source.path) && ['table-cell', 'table-row'].includes(newest.source.anchor?.kind)) {
+      const { sentenceStart } = writingSourceContext(String(input.text ?? ''), newest.anchor.end);
+      const mateIndex = earlier.findIndex((item) => item.anchor.start >= sentenceStart
+        && item.anchor.end <= newest.anchor.start && sameTableRow(item.source, newest.source));
+      if (mateIndex >= 0) {
+        const mate = earlier[mateIndex];
+        const candidate = earlier.slice(mateIndex + 1)
+          .find((item) => item.anchor.end <= mate.anchor.start && this.holdsTableValue(item.source, mate.source));
+        if (candidate && earlier.slice(0, earlier.indexOf(candidate))
+          .every((item) => item.source.path === candidate.source.path)) {
+          holder = candidate;
+        }
+      }
+    }
     if (!holder) return null;
-    const held = { ...holder, heldList: true };
+    const held = { ...holder, heldList: true, heldAfter: newest.anchor.end };
     return this.valuesFromLinkedProjectObject(projectId, input, cursor, held)?.completions.length ? held : null;
   },
 

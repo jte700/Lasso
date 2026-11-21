@@ -20,7 +20,9 @@ enum InsertionCasing {
         let heading = isHeadingInCapitals(insertion)
             && !(typedLetters.count > 1 && typedLetters.allSatisfy { !$0.isLowercase })
         let label = heading ? titleCased(insertion) : insertion
-        guard !typed.isEmpty, typed == typed.lowercased() else { return label }
+        guard !typed.isEmpty, typed == typed.lowercased() else {
+            return capitalizeLeadingWordIfPlainLowercase(label, matching: typed)
+        }
         let preceding = before.trimmingCharacters(in: .whitespacesAndNewlines)
         // Start of a sentence keeps its capital.
         guard let last = preceding.last, !".!?:".contains(last) else { return label }
@@ -64,5 +66,20 @@ enum InsertionCasing {
         guard word.count > 1,
               rest.allSatisfy({ $0.isLowercase || $0 == "'" || $0 == "-" }) else { return String(word) }
         return first.lowercased() + rest
+    }
+
+    /// When the writer started the replaced word with a capital ("Inv" on a
+    /// note title or sentence start) and the source starts with a plain
+    /// lower-case word ("invoice", "due date"), capitalise that first letter.
+    /// Mixed-case names ("iPhone", "pH") and tokens with digits or punctuation
+    /// ("v2", "invoice.pdf") keep their form.
+    private static func capitalizeLeadingWordIfPlainLowercase(_ text: String, matching typed: String) -> String {
+        guard let typedFirst = typed.first, typedFirst.isUppercase else { return text }
+        let parts = text.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let firstWord = parts.first, let firstChar = firstWord.first, firstChar.isLowercase else { return text }
+        let rest = firstWord.dropFirst()
+        guard rest.allSatisfy({ $0.isLowercase || $0 == "'" || $0 == "-" }) else { return text }
+        let capitalized = firstChar.uppercased() + rest
+        return parts.count > 1 ? capitalized + " " + parts[1] : capitalized
     }
 }

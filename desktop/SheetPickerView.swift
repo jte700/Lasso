@@ -209,12 +209,15 @@ final class SheetPickerView: NSView {
         return SheetClipboard.pick(document, highlights: grid.highlights.ranges, headers: headersSwitch.isOn, citing: sourceSwitch.isOn)
     }
 
-    var canInsert: Bool { currentPick != nil }
+    var canInsert: Bool {
+        guard let document = grid.document, !scroll.isHidden else { return false }
+        return SheetClipboard.hasCells(document, grid.highlights.ranges, headers: headersSwitch.isOn)
+    }
 
     private func updateControls() {
-        let pick = currentPick
-        insertButton.isEnabled = pick != nil
-        citationLabel.stringValue = pick?.citation ?? ""
+        let ready = canInsert
+        insertButton.isEnabled = ready
+        citationLabel.stringValue = ready ? grid.document.map { SheetClipboard.citation($0, grid.highlights.ranges) } ?? "" : ""
         citationLabel.textColor = sourceSwitch.isOn ? .secondaryLabelColor : .tertiaryLabelColor
         let count = grid.highlights.ranges.count
         hint.stringValue = count == 0 ? "Drag to highlight cells \u{00B7} Esc goes back"

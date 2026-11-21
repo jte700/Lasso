@@ -109,6 +109,118 @@ enum CompletionTransaction {
         return equivalentHostText(old, new)
     }
 
+    /// Resolves the text covered by an active selection. When `expectedLength > 0`,
+    /// an empty direct `AXSelectedText` value (which AppKit/Notes can report
+    /// right after `AXSelectedTextRange` changes) falls back to range-based reads.
+    static func resolvedSelectedText(direct: String?, rangeText: String?, valueSlice: String?,
+                                     expectedLength: Int) -> String? {
+        if let direct, expectedLength == 0 || !direct.isEmpty { return direct }
+        if let rangeText, expectedLength == 0 || !rangeText.isEmpty { return rangeText }
+        if let valueSlice, expectedLength == 0 || !valueSlice.isEmpty { return valueSlice }
+        return direct ?? rangeText ?? valueSlice
+    }
+
+    /// Hosts whose Accessibility selection/text writes interact unreliably with
+    /// inline predictive text or leave selections uncollapsed (Apple Notes).
+    /// Replacing directly by keyboard or paste avoids mutating `AXSelectedTextRange`.
+    static func prefersKeyboardInsertion(bundleIdentifier: String?) -> Bool {
+        bundleIdentifier == "com.apple.Notes"
+    }
+
+    /// What the host shows after synthetic Backspaces were sent to delete `expectedPrefix`.
+    enum PrefixDeletionCheck: Equatable {
+        /// All of `expectedPrefix` is gone and the caret sits where the insertion begins.
+        case complete
+        /// Only part of `expectedPrefix` is gone; `remaining` still sits before the caret.
+        case incomplete(remaining: String)
+        /// The surrounding text or caret diverged from `before`.
+        case changed
+    }
+
+    /// Checks whether synthetic Backspace keys have removed `expectedPrefix`
+    /// without touching earlier text.
+    static func checkPrefixDeletion(before: CompletionSnapshot, after: CompletionSnapshot,
+                                    expectedPrefix: String) -> PrefixDeletionCheck {
+        let prefixUnits = Array(expectedPrefix.utf16)
+        let length = prefixUnits.count
+        guard length > 0, length <= before.text.count,
+              before.documentStart >= 0, after.documentStart >= 0 else { return .changed }
+        let targetEnd = before.documentEnd - length
+        guard after.documentEnd >= targetEnd, after.documentEnd <= before.documentEnd else { return .changed }
+        let deletedUnits = before.documentEnd - after.documentEnd
+        let remainingUnits = length - deletedUnits
+        guard remainingUnits == 0 || CompletionReplacement.isScalarBoundary(remainingUnits, in: prefixUnits) else {
+            return .changed
+        }
+        let overlapStart = max(before.documentStart, after.documentStart)
+        guard overlapStart <= after.documentEnd else { return .changed }
+        let beforeLimit = before.text.count - deletedUnits
+        let old = Array(before.text[(overlapStart - before.documentStart)..<beforeLimit])
+        let new = Array(after.text[(overlapStart - after.documentStart)...])
+        guard equivalentHostText(old, new) else { return .changed }
+        if remainingUnits == 0 { return .complete }
+        return .incomplete(remaining: String(decoding: prefixUnits[..<remainingUnits], as: UTF16.self))
+    }
+
+    /// True when an Accessibility text write produced the exact intended host
+    /// value, but the host kept a selection inside the inserted range instead of
+    /// collapsing the caret to its end.
+    static func appliedWithUncollapsedSelection(beforeValue: String?, afterValue: String?,
+                                                editRange: Range<Int>, insertText: String,
+                                                selection: Range<Int>?) -> Bool {
+        guard let beforeValue, let afterValue, let selection, !selection.isEmpty else { return false }
+        let beforeUnits = Array(beforeValue.utf16)
+        let afterUnits = Array(afterValue.utf16)
+        let insertUnits = Array(insertText.utf16)
+        guard editRange.lowerBound >= 0, editRange.upperBound <= beforeUnits.count,
+              !insertUnits.isEmpty else { return false }
+        guard !equivalentHostText(beforeUnits, afterUnits) else { return false }
+        var expected = Array(beforeUnits[..<editRange.lowerBound])
+        expected.append(contentsOf: insertUnits)
+        expected.append(contentsOf: beforeUnits[editRange.upperBound...])
+        guard equivalentHostText(afterUnits, expected) else { return false }
+        let insertedEnd = editRange.lowerBound + insertUnits.count
+        return selection.lowerBound >= editRange.lowerBound && selection.upperBound <= insertedEnd
+    }
+
+    /// Checks whether the host's whole AXValue is still safe for keyboard
+    /// fallback after an Accessibility write did not land. When no text write
+    /// was issued, dismissing or showing an inline prediction can drop or add
+    /// only the predicted suffix immediately after `caret` while leaving the
+    /// rest untouched.
+    static func canReuseHostValue(beforeValue: String?, afterValue: String?,
+                                  caret: Int, wroteText: Bool,
+                                  markedRange: Range<Int>? = nil,
+                                  afterMarkedRange: Range<Int>? = nil) -> Bool {
+        guard let beforeValue else { return true }
+        guard let afterValue else { return false }
+        let beforeUnits = Array(beforeValue.utf16)
+        let afterUnits = Array(afterValue.utf16)
+        if equivalentHostText(beforeUnits, afterUnits) { return true }
+        guard !wroteText, caret >= 0, caret <= beforeUnits.count, caret <= afterUnits.count else {
+            return false
+        }
+        guard equivalentHostText(Array(beforeUnits[..<caret]), Array(afterUnits[..<caret])) else {
+            return false
+        }
+        func stripping(_ units: [UInt16], range: Range<Int>?) -> [UInt16]? {
+            guard let range, range.lowerBound >= caret, range.upperBound <= units.count else { return nil }
+            var stripped = Array(units[..<range.lowerBound])
+            stripped.append(contentsOf: units[range.upperBound...])
+            return stripped
+        }
+        let beforeStripped = stripping(beforeUnits, range: markedRange)
+        let afterStripped = stripping(afterUnits, range: afterMarkedRange)
+        if let beforeStripped, equivalentHostText(beforeStripped, afterUnits) { return true }
+        if let afterStripped, equivalentHostText(beforeUnits, afterStripped) { return true }
+        if let beforeStripped, let afterStripped, equivalentHostText(beforeStripped, afterStripped) { return true }
+        let beforeSuffix = Array(beforeUnits[caret...])
+        let afterSuffix = Array(afterUnits[caret...])
+        guard afterSuffix.count < beforeSuffix.count else { return false }
+        let dropped = beforeSuffix.count - afterSuffix.count
+        return equivalentHostText(Array(beforeSuffix[dropped...]), afterSuffix)
+    }
+
     /// What asking the host to select the text a completion rewrites achieved.
     enum SelectionCheck: Equatable {
         /// The host reports exactly that range, with no prediction pending.

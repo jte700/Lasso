@@ -40,9 +40,15 @@ enum SyntheticKeyboard {
     /// Whether `text` survives being typed as key events. A line break does
     /// not: Chromium hosts such as the Claude app dropped key events that
     /// began with one and moved the last character of the others to the end
-    /// of the insertion, so text that holds one is pasted instead.
+    /// of the insertion, so text that holds one is pasted instead. Straight
+    /// quotes, apostrophes, double hyphens, ellipses and double spaces are
+    /// pasted too so Smart Quotes, Smart Dashes and automatic period insertion
+    /// in AppKit editors (such as Notes) never rewrite them and break verification.
     static func canType(_ text: String) -> Bool {
-        !text.contains(where: \.isNewline)
+        guard !text.contains(where: \.isNewline) else { return false }
+        if text.contains("\"") || text.contains("'") { return false }
+        if text.contains("--") || text.contains("...") || text.contains("  ") { return false }
+        return true
     }
 
     /// Types text as unicode key events, which works regardless of layout.

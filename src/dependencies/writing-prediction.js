@@ -175,6 +175,7 @@ export const writingPredictionMethods = {
           variable: linkedProjectObject.variable,
           kind: 'PROJECT_OBJECT',
           exclusive: true,
+          ...(linkedProjectObject.hasRowMates ? { hasRowMates: true } : {}),
         },
         deterministic: true, generatedText: false,
       };

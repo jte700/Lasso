@@ -10,6 +10,7 @@ extension GlobalAssistant {
     func updateGhostText() {
         guard let panel, panel.isVisible, view.mode == .suggestions, view.wordChoice == nil,
               !PassagePickerController.shared.isPresented(in: panel),
+              !SheetPickerController.shared.isPresented(in: panel),
               !ShareComposerController.shared.isPresented(in: panel),
               let context, let caret = popupCaret, let suggestion = currentSuggestion,
               !suggestion.opensPassagePicker,

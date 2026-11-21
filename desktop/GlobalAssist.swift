@@ -76,7 +76,7 @@ final class GlobalAssistant {
     static let cachedPDFBudget = 64 * 1024 * 1024
     var context: CaretContext?
     /// The query the visible rows answer; `context` may already hold newer typing.
-    var displayedPrediction: (context: CaretContext, source: LinkedSourceMemory.Source?)?
+    var displayedPrediction: (context: CaretContext, source: LinkedSourceMemory.Source?, hasRowMates: Bool)?
     var generation = 0
     var feedbackDismissed = false
     /// Escape's hold on the card for the sentence it was pressed in, and the field that sentence is in.
@@ -249,7 +249,10 @@ final class GlobalAssistant {
         let created = KeyEventTap(
             perform: { [weak self] action in self?.perform(action) },
             onFirstKey: { [weak self] in self?.firstKeyArrived() },
-            onDictationShortcut: { [weak self] in self?.dictationShortcutPressed() })
+            onDictationShortcut: { [weak self] in self?.dictationShortcutPressed() },
+            onHostKey: { keyCode, flags in
+                DependencyHighlighter.shared.noteHostKey(keyCode: keyCode, flags: flags)
+            })
         guard created.start() else {
             if !input && requestPermissions { AssistPermission.requestInputMonitoring() }
             lastProblem = PermissionProblem(service: "Input Monitoring",
@@ -273,6 +276,8 @@ final class GlobalAssistant {
         dictation.onListeningChange = { [weak self] in self?.listeningChanged() }
         // Dictation stops when another app comes forward, and so does the pill.
         dictation.onAppChange = { [weak self] in
+            self?.escapeQuiet.clear()
+            self?.escapedElement = nil
             self?.withdrawWriterPrompt()
             guard NSWorkspace.shared.frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
             self?.stopDictationPill()
@@ -280,6 +285,8 @@ final class GlobalAssistant {
         startVoiceMeter()
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             self?.lastClickAt = Date()
+            self?.escapeQuiet.clear()
+            self?.escapedElement = nil
             // A click moves the caret off a prompt the pill was offering.
             self?.withdrawWriterPrompt()
         }
@@ -753,8 +760,8 @@ final class GlobalAssistant {
     /// stepped out of, so fn+Right goes straight back into it.
     func stepBack() {
         guard let focused = focusedSource else { return }
-        focusLanding = .row(objectId: focused.objectId)
         let beneath = linkedSources.stepBack
+        focusLanding = beneath?.objectId == focused.objectId ? .first : .row(objectId: focused.objectId)
         linkedSources.moveOut(from: focused)
         // Until the server answers, a second fn+Left steps back from here, not from the old card.
         focusedSource = beneath

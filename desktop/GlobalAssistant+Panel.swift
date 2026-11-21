@@ -156,8 +156,10 @@ extension GlobalAssistant {
     private func updateHostPosition() {
         guard let host = popupHost, hostReads.begin() else { return }
         let token = hostGeneration
+        let pinnedCaret = SheetPickerController.shared.isPresented(in: panel) ? popupCaret : nil
         AccessibilityWork.queue.async { [weak self] in
-            let rect = host.visibleCaret(using: AccessibilityReader.caretRect(of:))
+            let rect = pinnedCaret != nil ? (host.isCurrent ? pinnedCaret : nil)
+                : host.visibleCaret(using: AccessibilityReader.caretRect(of:))
             DispatchQueue.main.async {
                 guard let self else { return }
                 let again = self.hostReads.end()

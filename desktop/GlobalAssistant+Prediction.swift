@@ -38,7 +38,7 @@ extension GlobalAssistant {
                 snapshotId: object["snapshotId"] as? String, usageObjectId: id,
                 projectId: projectId, rankingReason: nil,
                 tableNavigable: Self.isTableSource(object) || Self.isSheetFile(object),
-                sheetPickable: Self.isSheetSource(object))
+                sheetPickable: Self.isSheetSource(object) || Self.isSheetFile(object))
             self.view.selected = 0
             self.view.sourceScoped = true
             self.showMeasuringHost([suggestion])
@@ -87,6 +87,7 @@ extension GlobalAssistant {
         let context: CaretContext?
         let host: AssistPopupHost?
         let caret: CGRect?
+        let primedAccessibility: Bool
     }
 
     private static func trimmedLength(_ context: CaretContext) -> Int {
@@ -95,16 +96,17 @@ extension GlobalAssistant {
 
     /// Accessibility queue only.
     private static func readHost(reusing previous: AssistPopupHost?) -> HostReading {
-        guard let context = AccessibilityReader.focusedContext() else {
-            return HostReading(context: nil, host: nil, caret: nil)
+        let (context, primed) = AccessibilityReader.focusedContextWithPrimeStatus()
+        guard let context else {
+            return HostReading(context: nil, host: nil, caret: nil, primedAccessibility: primed)
         }
         guard trimmedLength(context) >= minimumTypedCharacters else {
-            return HostReading(context: context, host: nil, caret: nil)
+            return HostReading(context: context, host: nil, caret: nil, primedAccessibility: primed)
         }
         let host = popupHost(for: context.element, reusing: previous)
         // The caret was measured with the context a moment ago.
         let caret = host?.visibleCaret(using: { _ in context.caretRect })
-        return HostReading(context: context, host: host, caret: caret)
+        return HostReading(context: context, host: host, caret: caret, primedAccessibility: primed)
     }
 
     /// Accessibility queue only.
@@ -149,9 +151,30 @@ extension GlobalAssistant {
     }
 
     private func didReadHost(_ reading: HostReading) {
-        guard isEnabled, let serverURL, !projectIds.isEmpty,
-              let captured = reading.context else { hide(); return }
+        guard isEnabled, let serverURL, !projectIds.isEmpty else { hide(); return }
+        guard let captured = reading.context else {
+            hide()
+            // Chromium builds its AX tree asynchronously right after priming.
+            if reading.primedAccessibility {
+                let token = generation
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                    guard let self, token == self.generation, self.isEnabled else { return }
+                    self.refresh()
+                }
+            }
+            return
+        }
         lastRead = (captured.element, captured.text, captured.absoluteCaret)
+        // Update Escape's hold before the minimum-length gate so clearing or
+        // emptying a field always releases it immediately.
+        if escapeQuiet.isHolding {
+            if escapedElement.map({ CFEqual($0, captured.element) }) != true {
+                escapeQuiet.clear()
+                escapedElement = nil
+            } else if !escapeQuiet.holds(for: captured.text) {
+                escapedElement = nil
+            }
+        }
         // Two characters are enough to ask, so the first word of an empty
         // field ("Re" → Revenue) is not skipped. The server decides whether
         // the typed fragment is long enough to match.
@@ -171,11 +194,7 @@ extension GlobalAssistant {
             linkedSources.forget()
         }
         context = captured
-        if escapeQuiet.isHolding {
-            if escapedElement.map({ CFEqual($0, captured.element) }) != true { escapeQuiet.clear() }
-            if escapeQuiet.holds(for: captured.text) { hide(); return }
-            escapedElement = nil
-        }
+        if escapeQuiet.isHolding { hide(); return }
         // A backslash prompt is offered to the chosen AI writer, in place of the card.
         if offersWriterPrompt(in: captured, caret: reading.caret) { return }
         guard let host = reading.host, let caret = reading.caret else {
@@ -238,6 +257,7 @@ extension GlobalAssistant {
             let parsed = Self.parse(data, requestedText: query.text, activeProjectIds: activeProjectIds)
             let heading = Self.heading(data)
             let focus = Self.focusedSource(data)
+            let hasRowMates = Self.hasRowMates(data)
             let returnedRevision = Self.predictionRevision(data)
             DispatchQueue.main.async {
                 guard token == self.generation, self.isEnabled,
@@ -250,7 +270,7 @@ extension GlobalAssistant {
                     return
                 }
                 self.deliverPrediction(parsed, heading: heading, sourceScoped: focus != nil, focus: focus,
-                                       captured: captured, pause: pause, token: token)
+                                       hasRowMates: hasRowMates, captured: captured, pause: pause, token: token)
             }
         }
         self.request = task
@@ -269,6 +289,14 @@ extension GlobalAssistant {
               let projectId = source["projectId"] as? String else { return nil }
         return .init(projectId: projectId, objectId: objectId, snapshotId: snapshotId,
                      text: source["label"] as? String ?? "")
+    }
+
+    /// Whether the server added row mates of a tabbed sheet cell beside the focused source's list.
+    private static func hasRowMates(_ data: Data) -> Bool {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let prediction = root["prediction"] as? [String: Any],
+              let context = prediction["sourceContext"] as? [String: Any] else { return false }
+        return context["hasRowMates"] as? Bool == true
     }
 
     /// The highlighted row as a source, whether or not it has values below it.
@@ -305,8 +333,8 @@ extension GlobalAssistant {
     /// `pause` is the length of the mark dictation put at a pause, which the
     /// card was asked about without: the card answers the words before it.
     func deliverPrediction(_ suggestions: [AssistSuggestion], heading: String?, sourceScoped: Bool,
-                           focus: LinkedSourceMemory.Source? = nil, captured: CaretContext,
-                           pause: Int = 0, token: Int) {
+                           focus: LinkedSourceMemory.Source? = nil, hasRowMates: Bool = false,
+                           captured: CaretContext, pause: Int = 0, token: Int) {
         guard token == generation, isEnabled else { return }
         request = nil
         if isDictating {
@@ -323,7 +351,8 @@ extension GlobalAssistant {
             var current: (context: CaretContext, caret: CGRect)?
             var movedOn = false
             if host.isCurrent, let fresh = AccessibilityReader.focusedContext(), CFEqual(fresh.element, captured.element) {
-                if fresh.text == captured.text, fresh.absoluteCaret == captured.absoluteCaret,
+                if CompletionTransaction.equivalentHostText(Array(fresh.text.utf16), Array(captured.text.utf16)),
+                   fresh.absoluteCaret == captured.absoluteCaret,
                    fresh.windowStart == captured.windowStart, let caret = host.caretIfVisible(fresh.caretRect) {
                     current = (fresh, caret)
                 } else {
@@ -346,7 +375,8 @@ extension GlobalAssistant {
                 guard let current else { self.hide(); return }
                 let answered = Self.trimmed(current.context, by: pause)
                 let sameQuery = self.displayedPrediction.map { previous in
-                    previous.source == focus && CFEqual(previous.context.element, answered.element)
+                    previous.source == focus && previous.hasRowMates == hasRowMates
+                        && CFEqual(previous.context.element, answered.element)
                         && previous.context.diagnosis == answered.diagnosis
                         && previous.context.text == answered.text
                         && previous.context.cursor == answered.cursor
@@ -358,7 +388,7 @@ extension GlobalAssistant {
                 self.adoptHost(host, caret: current.caret)
                 self.view.sourceScoped = sourceScoped
                 self.focusedSource = focus
-                self.linkedSources.noteFocus(focus)
+                self.linkedSources.noteFocus(focus, hasRowMates: hasRowMates)
                 self.view.stepBackName = focus == nil ? nil : self.linkedSources.stepBack?.text
                 self.view.returnFocusName = focus == nil && self.linkedSources.canMoveIn(focusedOn: nil, selected: nil)
                     ? self.linkedSources.recent?.text : nil
@@ -374,7 +404,7 @@ extension GlobalAssistant {
                     self.view.selected = AssistSuggestionSelection.index(keeping: selectedIdentity,
                         in: suggestions.map(\.selectionIdentity), sameQuery: sameQuery)
                 }
-                self.displayedPrediction = (answered, focus)
+                self.displayedPrediction = (answered, focus, hasRowMates)
                 self.view.title = heading ?? "dependency"
                 self.view.wordChoice = nil
                 self.show(suggestions)
@@ -488,9 +518,9 @@ extension GlobalAssistant {
             if identities.insert(identity).inserted {
                 var matched = suggestion
                 let candidate = (entry["dependencyCandidate"] as? [String: Any]) ?? entry
-                // A spreadsheet's own name dives in too, at its top-left cell.
+                // A spreadsheet's own name dives in too, at its top-left cell, and opens in the sheet picker.
                 matched.tableNavigable = Self.isTableSource(candidate) || Self.isSheetFile(candidate)
-                matched.sheetPickable = Self.isSheetSource(candidate)
+                matched.sheetPickable = Self.isSheetSource(candidate) || Self.isSheetFile(candidate)
                 matched.matchedWords = entry["matchedWords"] as? [String] ?? []
                 // A value that changed recently says what it was, in the same dim slot.
                 if let change = AssistValueChange(json: entry["change"]) {
@@ -552,6 +582,7 @@ extension GlobalAssistant {
                     narrowable: candidate["narrowable"] as? Bool == true,
                     verbatim: entry["verbatim"] as? Bool == true)
                 passage.opensPassagePicker = entry["verbatim"] as? Bool != true && PassageDocument.opensPicker(candidate: candidate)
+                passage.rowMateOf = entry["rowMateOf"] as? String
                 append(passage, rankedBy: entry)
             }
         }

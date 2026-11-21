@@ -135,10 +135,10 @@ extension GlobalAssistant {
         }
     }
 
-    /// Escape on the pill: it stays away for the rest of this sentence, as the card does.
+    /// Escape on the pill: it stays away for the rest of this sentence.
     private func dismissWriterPrompt() {
         if let offered = writer.offered {
-            escapeQuiet.escaped(at: offered.context.text)
+            escapeQuiet.escaped(at: offered.context.text, throughSentence: true)
             escapedElement = offered.context.element
         }
         dismiss()

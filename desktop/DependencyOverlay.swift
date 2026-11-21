@@ -248,6 +248,17 @@ final class OverlayView: NSView {
         if changed { needsDisplay = true; startLoopIfNeeded() }
     }
 
+    /// Drops every drawn or fading phrase at once, so closing the overlay never
+    /// leaves stale pills waiting for a paused display link to finish.
+    func clear() {
+        stopLoop()
+        presences.removeAll()
+        order.removeAll()
+        hoveredId = nil
+        activeId = nil
+        needsDisplay = true
+    }
+
     /// The writer chose another source: the words roll up and out while the
     /// host is written, and the new ones rise in when they arrive.
     func beginChange(_ id: String) {

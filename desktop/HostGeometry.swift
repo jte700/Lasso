@@ -153,14 +153,24 @@ struct DependencyGeometry: Equatable {
         fragments.contains { $0.insetBy(dx: -1, dy: -2).contains(point) }
     }
 
-    /// Typing at the caret moves a phrase that starts after it on its line, or
-    /// sits on a line below it. Without a caret, any phrase may move. AppKit
-    /// coordinates, so lines below have smaller y.
+    /// Typing at the caret moves a phrase that contains or starts after it on
+    /// its line, or sits on a line below it. Without a caret, any phrase may
+    /// move. AppKit coordinates, so lines below have smaller y.
     func mayMove(typingAt caret: CGRect?) -> Bool {
         guard let caret else { return true }
         return fragments.contains { fragment in
             let sameLine = abs(fragment.midY - caret.midY) < max(caret.height, fragment.height) / 2
-            return sameLine ? fragment.minX >= caret.minX - 1 : fragment.maxY <= caret.minY + 1
+            return sameLine ? fragment.maxX >= caret.minX - 1 : fragment.maxY <= caret.minY + 1
+        }
+    }
+
+    /// Deleting (Backspace, Option-Backspace, Forward Delete) can erase or shift
+    /// any phrase on the caret's line and anything on the lines below it.
+    func mayMove(deletingAt caret: CGRect?) -> Bool {
+        guard let caret else { return true }
+        return fragments.contains { fragment in
+            let sameLine = abs(fragment.midY - caret.midY) < max(caret.height, fragment.height) / 2
+            return sameLine || fragment.maxY <= caret.minY + 1
         }
     }
 
@@ -179,5 +189,40 @@ struct DependencyGeometry: Equatable {
             }
         }
         return DependencyGeometry(referenceId: referenceId, fragments: lines)
+    }
+}
+
+/// Tracks selection gestures and classifies host keystrokes so the highlight
+/// overlay hides affected phrases immediately before the host repaints.
+struct HighlightKeyTracker {
+    enum Effect: Equatable {
+        case ignore
+        case quietTyping(immediate: Bool)
+        case quietDeleting
+        case quietAll
+    }
+
+    private(set) var mayHaveSelection = false
+
+    mutating func mouseDown() { mayHaveSelection = false }
+    mutating func mouseDragged() { mayHaveSelection = true }
+
+    mutating func key(keyCode: UInt16, command: Bool, shift: Bool) -> Effect {
+        let navigation: Set<UInt16> = [53, 115, 116, 119, 121, 123, 124, 125, 126]
+        if navigation.contains(keyCode) {
+            mayHaveSelection = shift && keyCode != 53
+            return .ignore
+        }
+        if command && keyCode == 0 {
+            mayHaveSelection = true
+            return .ignore
+        }
+        let bulkEdit = command && [6, 7, 9, 51, 117].contains(keyCode)
+        if command && !bulkEdit { return .ignore }
+        let hadSelection = mayHaveSelection
+        mayHaveSelection = false
+        if bulkEdit || hadSelection { return .quietAll }
+        if keyCode == 51 || keyCode == 117 { return .quietDeleting }
+        return .quietTyping(immediate: keyCode == 36 || keyCode == 76)
     }
 }

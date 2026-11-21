@@ -50,6 +50,8 @@ struct AssistSuggestion {
     var fromPassagePicker = false
     /// Its value's recent change, which the detail slot names ("19,250 · was 18,400").
     var change: AssistValueChange? = nil
+    /// The tabbed sheet cell whose row brought this cell into the list ("BILL-1160").
+    var rowMateOf: String? = nil
 
     var isShareable: Bool { objectId != nil && shareable }
 

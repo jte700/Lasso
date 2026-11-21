@@ -293,7 +293,7 @@ extension GlobalAssistant {
                         objectId: id, versionId: object["versionId"] as? String,
                         snapshotId: object["snapshotId"] as? String, usageObjectId: id,
                         projectId: projectId, rankingReason: nil, tableNavigable: true,
-                        sheetPickable: Self.isSheetSource(object))
+                        sheetPickable: Self.isSheetSource(object) || Self.isSheetFile(object))
                     if self.tableNavigationOrigin == nil {
                         self.tableNavigationOrigin = (self.view.suggestions, self.view.selected)
                     }

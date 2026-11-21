@@ -15,29 +15,31 @@ struct AssistPopupHost {
     /// Parents walked from the editor to its window; Chrome's address bar is
     /// about eight levels below.
     static let maxWindowDepth = 40
+    /// Busy Chromium processes can exceed 150 ms under load; match the reader timeout.
+    private static let messagingTimeout: Float = 0.4
 
     init?(element: AXUIElement) {
         var pid: pid_t = 0
-        guard AXUIElementGetPid(element, &pid) == .success,
-              let container = Self.elementAttribute(element, kAXWindowAttribute as String),
-              let window = Self.owningWindow(named: container, above: element,
+        AXUIElementSetMessagingTimeout(element, Self.messagingTimeout)
+        guard AXUIElementGetPid(element, &pid) == .success else { return nil }
+        let reported = Self.elementAttribute(element, kAXWindowAttribute as String)
+        guard let window = Self.owningWindow(named: reported, above: element,
                                              parent: { Self.elementAttribute($0, kAXParentAttribute as String) },
                                              role: { Self.attribute($0, kAXRoleAttribute as String) as? String })
         else { return nil }
         self.element = element
         self.window = window
-        self.container = container
+        self.container = reported ?? window
         processIdentifier = pid
-        AXUIElementSetMessagingTimeout(element, 0.15)
-        AXUIElementSetMessagingTimeout(window, 0.15)
-        AXUIElementSetMessagingTimeout(container, 0.15)
+        AXUIElementSetMessagingTimeout(window, Self.messagingTimeout)
+        AXUIElementSetMessagingTimeout(self.container, Self.messagingTimeout)
     }
 
     /// The window an editor belongs to: the one it names, or, when it names
-    /// something that is not a window, the nearest window above it.
-    static func owningWindow<Node>(named reported: Node, above editor: Node, parent: (Node) -> Node?,
+    /// something that is not a window (or nothing), the nearest window above it.
+    static func owningWindow<Node>(named reported: Node?, above editor: Node, parent: (Node) -> Node?,
                                    role: (Node) -> String?, maxDepth: Int = maxWindowDepth) -> Node? {
-        if role(reported) == kAXWindowRole as String { return reported }
+        if let reported, role(reported) == kAXWindowRole as String { return reported }
         var current = parent(editor)
         for _ in 0..<maxDepth {
             guard let node = current else { return nil }
@@ -58,10 +60,16 @@ struct AssistPopupHost {
               Self.attribute(window, kAXRoleAttribute as String) as? String == kAXWindowRole as String,
               Self.attribute(window, kAXMinimizedAttribute as String) as? Bool != true else { return false }
         let application = AXUIElementCreateApplication(processIdentifier)
-        AXUIElementSetMessagingTimeout(application, 0.15)
-        guard let focused = Self.elementAttribute(application, kAXFocusedUIElementAttribute as String),
+        AXUIElementSetMessagingTimeout(application, Self.messagingTimeout)
+        let focused = Self.elementAttribute(application, kAXFocusedUIElementAttribute as String) ?? {
+            let system = AXUIElementCreateSystemWide()
+            AXUIElementSetMessagingTimeout(system, Self.messagingTimeout)
+            return Self.elementAttribute(system, kAXFocusedUIElementAttribute as String)
+        }()
+        guard let focused,
               CFEqual(FocusedTextElement.resolve(focused), element),
-              let focusedWindow = Self.elementAttribute(application, kAXFocusedWindowAttribute as String),
+              let focusedWindow = Self.elementAttribute(application, kAXFocusedWindowAttribute as String)
+                  ?? Self.elementAttribute(application, kAXMainWindowAttribute as String),
               CFEqual(focusedWindow, window) else { return false }
         return true
     }

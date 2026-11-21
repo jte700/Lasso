@@ -13,20 +13,22 @@ enum AccessibilityReader {
         return value
     }
 
-    private static func focusedElement() -> (AXUIElement, pid_t)? {
+    private static func focusedElement() -> (element: AXUIElement?, pid: pid_t?, primed: Bool) {
         // Ask the frontmost application directly; the system-wide element is a
         // fallback because some apps answer only one of the two.
+        var primed = false
         if let front = NSWorkspace.shared.frontmostApplication {
             let pid = front.processIdentifier
             // Lasso's own windows are never read: see `AccessibilityWork.mayRead`.
-            guard AccessibilityWork.mayRead(pid: pid) else { return nil }
+            guard AccessibilityWork.mayRead(pid: pid) else { return (nil, nil, false) }
             let application = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(application, 0.4)
             // Electron and Chromium publish their tree only once a client asks.
-            _ = HostAccessibilityMode.shared.prime(pid: pid, application: application)
+            let mode = HostAccessibilityMode.shared.prime(pid: pid, application: application)
+            primed = mode == "accessibility mode: manual" || mode == "accessibility mode: enhanced"
             if let focused = attribute(application, kAXFocusedUIElementAttribute as String),
                CFGetTypeID(focused) == AXUIElementGetTypeID() {
-                return (FocusedTextElement.resolve(focused as! AXUIElement), pid)
+                return (FocusedTextElement.resolve(focused as! AXUIElement), pid, primed)
             }
         }
         let system = AXUIElementCreateSystemWide()
@@ -35,20 +37,57 @@ enum AccessibilityReader {
            CFGetTypeID(focused) == AXUIElementGetTypeID() {
             var pid: pid_t = 0
             AXUIElementGetPid(focused as! AXUIElement, &pid)
-            guard AccessibilityWork.mayRead(pid: pid) else { return nil }
-            return (FocusedTextElement.resolve(focused as! AXUIElement), pid)
+            guard AccessibilityWork.mayRead(pid: pid) else { return (nil, nil, primed) }
+            return (FocusedTextElement.resolve(focused as! AXUIElement), pid, primed)
         }
-        return nil
+        return (nil, nil, primed)
+    }
+
+    /// True when the field is intentionally skipped (passwords, search/lookup),
+    /// so returning nil there must not trigger Chromium accessibility re-priming.
+    private static func isExcludedField(_ field: AXUIElement) -> Bool {
+        let role = attribute(field, kAXRoleAttribute as String) as? String ?? "?"
+        let subrole = attribute(field, kAXSubroleAttribute as String) as? String
+        if excludedRoles.contains(role) || HostTextSafety.isSecure(role: role, subrole: subrole) { return true }
+        return HostTextSafety.isLookup(role: role, subrole: subrole,
+                                       identifier: attribute(field, kAXIdentifierAttribute as String) as? String)
     }
 
     /// `extending` widens the window by that many characters, so an
     /// insertion longer than the usual window reads back whole, with the
     /// text before it.
     static func focusedContext(allowSelection: Bool = false, extending extra: Int = 0) -> CaretContext? {
-        guard let (field, _) = focusedElement() else {
-            return nil
+        focusedContextWithPrimeStatus(allowSelection: allowSelection, extending: extra).context
+    }
+
+    /// Reads the focused context and reports whether Chromium accessibility
+    /// was just activated or recovered, so the caller can re-read once Blink
+    /// finishes building its tree.
+    static func focusedContextWithPrimeStatus(allowSelection: Bool = false,
+                                              extending extra: Int = 0) -> (context: CaretContext?, primedAccessibility: Bool) {
+        let found = focusedElement()
+        if let element = found.element,
+           let read = context(of: element, allowSelection: allowSelection, extending: extra) {
+            return (read, found.primed)
         }
-        return context(of: field, allowSelection: allowSelection, extending: extra)
+        if let element = found.element, isExcludedField(element) {
+            return (nil, false)
+        }
+        if found.primed {
+            return (nil, true)
+        }
+        var primed = false
+        if let front = NSWorkspace.shared.frontmostApplication {
+            let pid = front.processIdentifier
+            if AccessibilityWork.mayRead(pid: pid) {
+                let application = AXUIElementCreateApplication(pid)
+                AXUIElementSetMessagingTimeout(application, 0.4)
+                if HostAccessibilityMode.shared.reprimeIfUnreadable(pid: pid, application: application) {
+                    primed = true
+                }
+            }
+        }
+        return (nil, primed)
     }
 
     /// Read a known editor directly, whichever app is frontmost. Checks made
@@ -119,6 +158,25 @@ enum AccessibilityReader {
             }
         }
 
+        // At offset 0 in an app without AXValue (such as Word or Pages when a
+        // leading word is selected), there are zero characters before the caret.
+        if window == nil, caret == 0 {
+            var hasRangeSupport = attribute(field, kAXNumberOfCharactersAttribute as String) != nil
+            if !hasRangeSupport, selection.length > 0 {
+                var selectedSpan = selection
+                if let axSpan = AXValueCreate(.cfRange, &selectedSpan) {
+                    var text: CFTypeRef?
+                    hasRangeSupport = AXUIElementCopyParameterizedAttributeValue(
+                        field, kAXStringForRangeParameterizedAttribute as CFString, axSpan, &text) == .success
+                        && text is String
+                }
+            }
+            if hasRangeSupport {
+                window = ""
+                windowStart = 0
+            }
+        }
+
         // Character ranges only work where the app answered with them. Web
         // content is addressed by markers instead, which carry no integer
         // offsets, so edits there fall back to synthesized keys.
@@ -138,9 +196,10 @@ enum AccessibilityReader {
                 if rect == nil, let markerRect = reading.caretRect { rect = markerRect }
             }
         }
-        // Measure the text, then settle for the field's own frame.
-        if rect == nil, caret >= 0, let frame = fieldFrame(field) {
-            rect = measuredCaretRect(field, caret: caret, field: frame) ?? frame
+        // Measure the text, then settle for the field's first line so tall
+        // web editors still have a valid caret height under 400 pt.
+        if rect == nil, let frame = fieldFrame(field) {
+            rect = (caret >= 0 ? measuredCaretRect(field, caret: caret, field: frame) : nil) ?? CaretLine.line(frame)
         }
 
         guard let text = window else { return nil }
@@ -258,8 +317,8 @@ enum AccessibilityReader {
         }
         if caret >= 0, let rect = caretRect(for: field, caret: caret, selection: selection) { return rect }
         if let rect = WebTextReader.caretRect(from: field) { return rect }
-        if caret >= 0, let frame = fieldFrame(field) {
-            return measuredCaretRect(field, caret: caret, field: frame) ?? frame
+        if let frame = fieldFrame(field) {
+            return (caret >= 0 ? measuredCaretRect(field, caret: caret, field: frame) : nil) ?? CaretLine.line(frame)
         }
         return nil
     }
@@ -288,7 +347,9 @@ enum AccessibilityReader {
         }
 
         static func contains(_ bundle: String?) -> Bool {
-            guard let bundle, let record = records[bundle], record.count == 2 else { return false }
+            guard let bundle else { return false }
+            if CompletionTransaction.prefersKeyboardInsertion(bundleIdentifier: bundle) { return true }
+            guard let record = records[bundle], record.count == 2 else { return false }
             return Int(record[0]) >= strikes && Date().timeIntervalSince1970 - record[1] < retryAfter
         }
 
@@ -315,6 +376,106 @@ enum AccessibilityReader {
         return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
     }
 
+    private static func writeByKeyboard(_ text: String, verbatim: Bool, in element: AXUIElement,
+                                        completion: ((Bool) -> Void)?) {
+        if verbatim || !SyntheticKeyboard.canType(text) {
+            // Typed, code would meet the host's auto-indent, closing brackets
+            // and smart quotes, and line breaks arrive out of order or send
+            // a chat message.
+            RichTextInserter.pastePlainText(text)
+            AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.14) {
+                RichTextInserter.verifyEventually(verify: { landed(text, in: element) }) { completion?($0) }
+            }
+            return
+        }
+        SyntheticKeyboard.type(text)
+        // Confirm the typed result rather than assuming it arrived.
+        AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.12) {
+            RichTextInserter.verifyEventually(attempts: 6, interval: 0.08,
+                                              verify: { landed(text, in: element) }) { completion?($0) }
+        }
+    }
+
+    private static func deletePrefixAndWrite(expectedPrefix: String, before: CompletionSnapshot, caret: Int,
+                                             hasSelectedPrefix: Bool, hadMarkedText: Bool,
+                                             text: String, verbatim: Bool, in element: AXUIElement,
+                                             completion: ((Bool) -> Void)?) {
+        // A live selection already covers the partial word.
+        let deleteCount = hasSelectedPrefix ? 0 : expectedPrefix.count
+        guard deleteCount > 0 else {
+            let needsClear = !hasSelectedPrefix && caret >= 0
+                && AccessibilitySelectableText(element: element).hasMarkedText
+                && (verbatim || !SyntheticKeyboard.canType(text) || text.first?.isWhitespace == true)
+            if needsClear {
+                guard HostSelection.selectForWrite(caret..<caret, caret: caret, in: element) else {
+                    completion?(false)
+                    return
+                }
+                AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.025) {
+                    writeByKeyboard(text, verbatim: verbatim, in: element, completion: completion)
+                }
+                return
+            }
+            writeByKeyboard(text, verbatim: verbatim, in: element, completion: completion)
+            return
+        }
+
+        SyntheticKeyboard.deleteBackwards(deleteCount)
+        let initialSettle = 0.035 + min(0.08, Double(deleteCount) * 0.003)
+        guard caret >= 0, before.documentStart >= 0 else {
+            AccessibilityWork.queue.asyncAfter(deadline: .now() + initialSettle) {
+                writeByKeyboard(text, verbatim: verbatim, in: element, completion: completion)
+            }
+            return
+        }
+
+        func waitForDeletion(attemptsLeft: Int, retriedDelete: Bool, lastRemaining: String?) {
+            guard let after = focusedContext(), CFEqual(after.element, element) else {
+                if attemptsLeft > 1 {
+                    AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.035) {
+                        waitForDeletion(attemptsLeft: attemptsLeft - 1, retriedDelete: retriedDelete,
+                                        lastRemaining: lastRemaining)
+                    }
+                    return
+                }
+                completion?(false)
+                return
+            }
+            let snapshot = CompletionSnapshot(documentStart: after.windowStart, text: Array(after.text.utf16))
+            switch CompletionTransaction.checkPrefixDeletion(before: before, after: snapshot,
+                                                             expectedPrefix: expectedPrefix) {
+            case .complete:
+                writeByKeyboard(text, verbatim: verbatim, in: element, completion: completion)
+            case .changed:
+                completion?(false)
+            case .incomplete(let remaining):
+                let canRetryRemaining = lastRemaining == remaining && !retriedDelete && !remaining.isEmpty
+                    && (remaining.count < deleteCount || (deleteCount == 1 && hadMarkedText && markedTextRange(of: element) == nil))
+                if canRetryRemaining {
+                    // An initial Backspace only dismissed an inline prediction; remove the remaining prefix once.
+                    SyntheticKeyboard.deleteBackwards(remaining.count)
+                    let retrySettle = 0.035 + min(0.06, Double(remaining.count) * 0.003)
+                    AccessibilityWork.queue.asyncAfter(deadline: .now() + retrySettle) {
+                        waitForDeletion(attemptsLeft: 3, retriedDelete: true, lastRemaining: nil)
+                    }
+                    return
+                }
+                if attemptsLeft > 1 {
+                    AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.035) {
+                        waitForDeletion(attemptsLeft: attemptsLeft - 1, retriedDelete: retriedDelete,
+                                        lastRemaining: remaining)
+                    }
+                    return
+                }
+                completion?(false)
+            }
+        }
+
+        AccessibilityWork.queue.asyncAfter(deadline: .now() + initialSettle) {
+            waitForDeletion(attemptsLeft: 5, retriedDelete: false, lastRemaining: nil)
+        }
+    }
+
     /// Accessibility queue only, where `completion` is called too.
     static func replace(length: Int, at caret: Int, with text: String, in element: AXUIElement,
                         expected: CaretContext, expectedPrefix: String, verbatim: Bool = false,
@@ -326,57 +487,130 @@ enum AccessibilityReader {
         }
         let before = CompletionSnapshot(documentStart: expected.windowStart, text: Array(expected.text.utf16))
         let originalValue = attribute(element, kAXValueAttribute as String) as? String
-        var selectedRange = false
-        var wroteText = false
+        let originalMarkedRange = markedTextRange(of: element)
         let bundle = bundleIdentifier(of: element)
 
-        if caret >= 0, caret - length >= 0, !IgnoredTextWrites.contains(bundle) {
-            let ready = HostSelection.selectForWrite((caret - length)..<caret, caret: caret, in: element)
-            selectedRange = length > 0 && ready
-            if ready {
-                wroteText = AXUIElementSetAttributeValue(
-                    element, kAXSelectedTextAttribute as CFString, text as CFTypeRef) == .success
+        guard caret >= 0, caret - length >= 0, !IgnoredTextWrites.contains(bundle) else {
+            deletePrefixAndWrite(expectedPrefix: expectedPrefix, before: before, caret: caret,
+                                 hasSelectedPrefix: false, hadMarkedText: originalMarkedRange != nil,
+                                 text: text, verbatim: verbatim, in: element, completion: completion)
+            return
+        }
+
+        let editRange = (caret - length)..<caret
+        let attemptedSelection = length > 0
+        var ready = HostSelection.selectForWrite(editRange, caret: caret, in: element)
+        if ready, length > 0,
+           let actual = selectedText(of: element, caret: editRange.lowerBound, length: length),
+           !CompletionTransaction.equivalentHostText(Array(actual.utf16), Array(expectedPrefix.utf16)) {
+            ready = false
+        }
+        let valueBeforeWrite = attribute(element, kAXValueAttribute as String) as? String
+        let markedBeforeWrite = markedTextRange(of: element)
+        if ready,
+           !CompletionTransaction.canReuseHostValue(beforeValue: originalValue, afterValue: valueBeforeWrite,
+                                                    caret: caret, wroteText: false,
+                                                    markedRange: originalMarkedRange,
+                                                    afterMarkedRange: markedBeforeWrite) {
+            ready = false
+        }
+        var wroteText = false
+        if ready {
+            wroteText = AXUIElementSetAttributeValue(
+                element, kAXSelectedTextAttribute as CFString, text as CFTypeRef) == .success
+        }
+
+        func collapseUncollapsedSelectionIfApplied(done: @escaping (Bool) -> Void) {
+            let currentValue = attribute(element, kAXValueAttribute as String) as? String
+            let currentSelection = AccessibilitySelectableText(element: element).selection
+            guard CompletionTransaction.appliedWithUncollapsedSelection(
+                beforeValue: valueBeforeWrite, afterValue: currentValue,
+                editRange: editRange, insertText: text, selection: currentSelection) else {
+                done(false); return
             }
+            let finalCaret = editRange.lowerBound + text.utf16.count
+            _ = AccessibilitySelectableText(element: element).setSelection(finalCaret..<finalCaret)
+            AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.03) {
+                done(landed(text, in: element))
+            }
+        }
+
+        func finishAfterAXWrite() {
+            if wroteText { IgnoredTextWrites.remember(bundle) }
+            guard let current = focusedContext(allowSelection: true), CFEqual(current.element, element) else {
+                completion?(false); return
+            }
+            let hasSelectedPrefix = attemptedSelection && length > 0 && current.selectionLength == length
+            guard CompletionTransaction.canRetry(before: before,
+                    current: CompletionSnapshot(documentStart: current.windowStart, text: Array(current.text.utf16)),
+                    selectionLength: current.selectionLength, expectedPrefix: expectedPrefix,
+                    selectedPrefix: hasSelectedPrefix) else { completion?(false); return }
+            let currentValue = attribute(element, kAXValueAttribute as String) as? String
+            let currentMarkedRange = markedTextRange(of: element)
+            let baselineValue = wroteText ? valueBeforeWrite : originalValue
+            let baselineMarked = wroteText ? markedBeforeWrite : originalMarkedRange
+            guard CompletionTransaction.canReuseHostValue(
+                    beforeValue: baselineValue, afterValue: currentValue,
+                    caret: caret, wroteText: wroteText,
+                    markedRange: baselineMarked, afterMarkedRange: currentMarkedRange) else {
+                completion?(false); return
+            }
+            if hasSelectedPrefix {
+                guard let actual = selectedText(of: element, caret: current.absoluteCaret,
+                                                length: current.selectionLength),
+                      CompletionTransaction.equivalentHostText(Array(actual.utf16), Array(expectedPrefix.utf16)) else {
+                    completion?(false); return
+                }
+            }
+            deletePrefixAndWrite(expectedPrefix: expectedPrefix, before: before, caret: caret,
+                                 hasSelectedPrefix: hasSelectedPrefix, hadMarkedText: originalMarkedRange != nil,
+                                 text: text, verbatim: verbatim, in: element, completion: completion)
         }
 
         // Let the application apply the change before judging it.
         AccessibilityWork.queue.asyncAfter(deadline: .now() + (wroteText ? 0.12 : 0.05)) {
-            if wroteText, landed(text, in: element) {
-                IgnoredTextWrites.forget(bundle)
-                completion?(true)
-                return
-            }
-            if wroteText { IgnoredTextWrites.remember(bundle) }
-            guard let current = focusedContext(allowSelection: true), CFEqual(current.element, element),
-                  CompletionTransaction.canRetry(before: before,
-                    current: CompletionSnapshot(documentStart: current.windowStart, text: Array(current.text.utf16)),
-                    selectionLength: current.selectionLength, expectedPrefix: expectedPrefix,
-                    selectedPrefix: selectedRange) else { completion?(false); return }
-            if let originalValue, attribute(element, kAXValueAttribute as String) as? String != originalValue {
-                completion?(false); return
-            }
-            if selectedRange,
-               attribute(element, kAXSelectedTextAttribute as String) as? String != expectedPrefix {
-                completion?(false); return
-            }
-            // A live selection already covers the partial word.
-            SyntheticKeyboard.deleteBackwards(selectedRange ? 0 : expectedPrefix.count)
-            if verbatim || !SyntheticKeyboard.canType(text) {
-                // Typed, code would meet the host's auto-indent, closing brackets
-                // and smart quotes, and line breaks arrive out of order or send
-                // a chat message.
-                RichTextInserter.pastePlainText(text)
-                AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.14) {
-                    RichTextInserter.verifyEventually(verify: { landed(text, in: element) }) { completion?($0) }
+            if wroteText {
+                if landed(text, in: element) {
+                    IgnoredTextWrites.forget(bundle)
+                    completion?(true)
+                    return
+                }
+                collapseUncollapsedSelectionIfApplied { collapsed in
+                    if collapsed {
+                        IgnoredTextWrites.forget(bundle)
+                        completion?(true)
+                        return
+                    }
+                    let currentValue = attribute(element, kAXValueAttribute as String) as? String
+                    let unchanged: Bool = {
+                        guard let valueBeforeWrite, let currentValue else { return false }
+                        return CompletionTransaction.equivalentHostText(
+                            Array(valueBeforeWrite.utf16), Array(currentValue.utf16))
+                    }()
+                    if unchanged {
+                        finishAfterAXWrite()
+                        return
+                    }
+                    RichTextInserter.verifyEventually(attempts: 3, interval: 0.05,
+                                                      verify: { landed(text, in: element) }) { ok in
+                        if ok {
+                            IgnoredTextWrites.forget(bundle)
+                            completion?(true)
+                            return
+                        }
+                        collapseUncollapsedSelectionIfApplied { collapsedLate in
+                            if collapsedLate {
+                                IgnoredTextWrites.forget(bundle)
+                                completion?(true)
+                                return
+                            }
+                            finishAfterAXWrite()
+                        }
+                    }
                 }
                 return
             }
-            SyntheticKeyboard.type(text)
-            // Confirm the typed result rather than assuming it arrived.
-            AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.14) {
-                let ok = landed(text, in: element)
-                completion?(ok)
-            }
+            finishAfterAXWrite()
         }
     }
 
@@ -413,12 +647,12 @@ enum AccessibilityReader {
             return after
         }
         let bundle = bundleIdentifier(of: element)
+        let tryAX = caret >= 0 && caret - length >= 0 && !IgnoredTextWrites.contains(bundle)
         var wrote = false
-        if caret >= 0, caret - length >= 0, !IgnoredTextWrites.contains(bundle),
-           HostSelection.selectForWrite((caret - length)..<caret, caret: caret, in: element) {
+        if tryAX, HostSelection.selectForWrite((caret - length)..<caret, caret: caret, in: element) {
             wrote = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, "" as CFTypeRef) == .success
         }
-        AccessibilityWork.queue.asyncAfter(deadline: .now() + (wrote ? 0.12 : 0.05)) {
+        let finishErase = {
             if wrote, let after = erased() {
                 IgnoredTextWrites.forget(bundle)
                 completion(after)
@@ -431,7 +665,8 @@ enum AccessibilityReader {
             }
             if current.selectionLength > 0 {
                 // Lasso's own selection of the prompt is still live: one Backspace deletes it.
-                guard attribute(element, kAXSelectedTextAttribute as String) as? String == erasedText else {
+                guard let actual = selectedText(of: element, caret: current.absoluteCaret, length: current.selectionLength),
+                      CompletionTransaction.equivalentHostText(Array(actual.utf16), Array(erasedText.utf16)) else {
                     completion(nil); return
                 }
                 SyntheticKeyboard.deleteBackwards(1)
@@ -445,6 +680,11 @@ enum AccessibilityReader {
             let wait = 0.14 + min(0.6, Double(erasedText.count) * 0.004)
             AccessibilityWork.queue.asyncAfter(deadline: .now() + wait) { completion(erased()) }
         }
+        if tryAX {
+            AccessibilityWork.queue.asyncAfter(deadline: .now() + (wrote ? 0.12 : 0.05), execute: finishErase)
+        } else {
+            finishErase()
+        }
     }
 
     /// Takes back an insertion that ends at the caret: selects its text and
@@ -457,7 +697,8 @@ enum AccessibilityReader {
         let caret = expected.absoluteCaret
         let before = CompletionSnapshot(documentStart: expected.windowStart, text: Array(expected.text.utf16))
         let bundle = bundleIdentifier(of: element)
-        let selected = !IgnoredTextWrites.contains(bundle)
+        let tryAX = !IgnoredTextWrites.contains(bundle)
+        let selected = tryAX
             && HostSelection.selectForWrite((caret - plan.range.count)..<caret, caret: caret, in: element)
         func write(_ text: String) -> Bool {
             AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFTypeRef) == .success
@@ -472,8 +713,8 @@ enum AccessibilityReader {
             if case .success = CompletionTransaction.verify(before: before, after: snapshot, plan: plan) { return true }
             return false
         }
-        AccessibilityWork.queue.asyncAfter(deadline: .now() + (wrote ? 0.12 : 0.05)) {
-            if reverted() { completion(true); return }
+        let finishRevert = {
+            if wrote, reverted() { completion(true); return }
             // Type it only over the untouched insertion, never over a late write.
             guard let current = focusedContext(allowSelection: true, extending: plan.range.count),
                   CFEqual(current.element, element),
@@ -481,10 +722,65 @@ enum AccessibilityReader {
                     current: CompletionSnapshot(documentStart: current.windowStart, text: Array(current.text.utf16)),
                     selectionLength: current.selectionLength, expectedPrefix: plan.expectedPrefix,
                     selectedPrefix: current.selectionLength > 0) else { completion(false); return }
-            SyntheticKeyboard.deleteBackwards(current.selectionLength > 0 ? 1 : plan.expectedPrefix.count)
-            if !plan.insertText.isEmpty { SyntheticKeyboard.type(plan.insertText) }
-            AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.14) { completion(reverted()) }
+            let deleteCount = current.selectionLength > 0 ? 1 : plan.expectedPrefix.count
+            SyntheticKeyboard.deleteBackwards(deleteCount)
+            let settle: TimeInterval = deleteCount > 0 ? 0.04 + min(0.16, Double(deleteCount) * 0.004) : 0
+            AccessibilityWork.queue.asyncAfter(deadline: .now() + settle) {
+                if !plan.insertText.isEmpty {
+                    if SyntheticKeyboard.canType(plan.insertText) {
+                        SyntheticKeyboard.type(plan.insertText)
+                    } else {
+                        RichTextInserter.pastePlainText(plan.insertText)
+                    }
+                }
+                AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.12) {
+                    RichTextInserter.verifyEventually(attempts: 4, interval: 0.06, verify: reverted, completion: completion)
+                }
+            }
         }
+        if tryAX {
+            AccessibilityWork.queue.asyncAfter(deadline: .now() + (wrote ? 0.12 : 0.05), execute: finishRevert)
+        } else {
+            finishRevert()
+        }
+    }
+
+    private static func markedTextRange(of element: AXUIElement) -> Range<Int>? {
+        guard let value = attribute(element, "AXTextInputMarkedRange"),
+              CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var range = CFRange()
+        guard AXValueGetValue(value as! AXValue, .cfRange, &range),
+              range.location >= 0, range.length > 0 else { return nil }
+        return range.location..<(range.location + range.length)
+    }
+
+    private static func selectedText(of element: AXUIElement, caret: Int, length: Int) -> String? {
+        let direct = attribute(element, kAXSelectedTextAttribute as String) as? String
+        if let direct, length == 0 || !direct.isEmpty {
+            return direct
+        }
+        var rangeText: String?
+        var valueSlice: String?
+        if caret >= 0, length > 0 {
+            var span = CFRange(location: caret, length: length)
+            if let axSpan = AXValueCreate(.cfRange, &span) {
+                var value: CFTypeRef?
+                if AXUIElementCopyParameterizedAttributeValue(
+                    element, kAXStringForRangeParameterizedAttribute as CFString, axSpan, &value) == .success,
+                   let string = value as? String {
+                    rangeText = string
+                }
+            }
+            if rangeText?.isEmpty != false,
+               let full = attribute(element, kAXValueAttribute as String) as? String {
+                let units = Array(full.utf16)
+                if caret + length <= units.count {
+                    valueSlice = String(decoding: units[caret..<(caret + length)], as: UTF16.self)
+                }
+            }
+        }
+        return CompletionTransaction.resolvedSelectedText(
+            direct: direct, rangeText: rangeText, valueSlice: valueSlice, expectedLength: length)
     }
 
     static func canPaste(in element: AXUIElement, before: CompletionSnapshot, caret: Int,
@@ -495,7 +791,10 @@ enum AccessibilityReader {
                 selectionLength: current.selectionLength, expectedPrefix: expectedPrefix,
                 selectedPrefix: selected) else { return false }
         if selected {
-            return attribute(element, kAXSelectedTextAttribute as String) as? String == expectedPrefix
+            guard let actual = selectedText(of: element, caret: current.absoluteCaret, length: current.selectionLength) else {
+                return false
+            }
+            return CompletionTransaction.equivalentHostText(Array(actual.utf16), Array(expectedPrefix.utf16))
         }
         return current.absoluteCaret == caret
     }
