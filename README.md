@@ -1,68 +1,104 @@
 <p align="center">
-  <img src="website/favicon.svg" width="64" height="64" alt="Lasso logo">
+  <img src="docs/images/lasso-icon.png" width="84" height="84" alt="Lasso app icon">
 </p>
 
 <h1 align="center">Lasso</h1>
 
-<p align="center"><b>Autocomplete from your own files in any Mac app, and an MCP server that answers AI agents from the same index.</b></p>
+<p align="center"><b>The right figure, from the right file.</b><br>Autocomplete exact figures, clauses and passages from your own files in any Mac app, with versioned provenance, an AI writer, review workflows, and a local MCP server.</p>
 
 <p align="center">
-  <a href="#what-it-is">What it is</a> ·
-  <a href="#system-requirements">Requirements</a> ·
-  <a href="#install-and-run">Install and run</a> ·
-  <a href="#how-to-use-it">How to use it</a> ·
+  <a href="https://mylasso.ca">Website</a> ·
+  <a href="#what-lasso-does">Features</a> ·
+  <a href="#install-and-run">Install</a> ·
   <a href="#keyboard-shortcuts">Shortcuts</a> ·
   <a href="#lasso-mcp-for-ai-agents">MCP for AI agents</a> ·
-  <a href="#benchmarks">Benchmarks</a>
+  <a href="#benchmarks">Benchmarks</a> ·
+  <a href="docs/user-guide.md">User guide</a>
 </p>
 
 <p align="center">
-  <img src="docs/benchmarks/summary.svg" width="760" alt="Measured results: 69 to 77% fewer agent tokens with the MCP, 45 to 52% lower model cost, 47 of 47 answers correct, 7 ms per keystroke">
+  <img src="docs/benchmarks/summary.svg" width="760" alt="Measured results: 73% fewer agent tokens across 92 live MCP tasks, 55% lower model cost with 75 of 92 right vs 62 of 92, 7.0 ms median per keystroke with 27 of 28 top-1 and 0 tokens, and 4 KB per spreadsheet edit down from 1.5 MB">
 </p>
-
-## What it is
-
-Lasso reads the folders you choose (spreadsheets, PDFs, Word, PowerPoint, CAD models, code) and, as you type in any app, offers the exact value or sentence from those files. Press `Tab` to insert it. Every insertion remains linked to the file and version it came from.
-
-- **Exact, not generated.** Suggestions are text that exists in your files. No language model is involved.
-- **Private.** Indexing and suggestions run on your Mac. Only content you explicitly share is uploaded to mylasso.ca; no account or API key is needed.
-- **For AI agents too.** The Lasso MCP server gives Claude, ChatGPT and other agents the same exact answers, with 69 to 77% fewer tokens than reading the files in live tests.
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/lasso-excel-value-dark.png">
-    <img src="docs/images/lasso-excel-value-light.png" width="760" alt="Typing 'Office supplies spending was 12' in a document shows Lasso's card offering 1,250 from two Excel workbooks, with the matched cell highlighted in its sheet">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/card-excel-dark.png">
+    <img src="docs/images/card-excel-light.png" width="760" alt="Lasso suggestion card offering 4.82 for Operating revenue Q3 actual from forecast_2026.xlsx with cell P&L D12 highlighted in its sheet">
   </picture>
-  <br><sub>Typing <code>Office supplies spending was 12</code> offers the 1,250 recorded in both workbooks, with the cell shown in its sheet. <code>Tab</code> inserts it.</sub>
+  <br><sub>Typing in any app surfaces the exact cell from <code>forecast_2026.xlsx</code> in its sheet before <code>Tab</code> inserts it, with its source version attached.</sub>
 </p>
 
 <details>
-<summary><b>More examples</b>: a CAD measurement, a slide sentence, how it works</summary>
+<summary><b>More examples</b>: PDF contracts, STEP 3D models, IFC floor plans, research reports, and how Lasso works</summary>
 <br>
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/lasso-cad-value-dark.png">
-  <img src="docs/images/lasso-cad-value-light.png" width="760" alt="Typing 'The plate is 100' offers Bracket overall X extent, 100 mm, measured from a STEP model, with a wireframe of the part">
-</picture>
-<p><sub>Typing <code>The plate is 100</code> offers the 100 mm extent measured from <code>Bracket.step</code>.</sub></p>
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/lasso-deck-sentence-dark.png">
-  <img src="docs/images/lasso-deck-sentence-light.png" width="760" alt="Typing 'Rate limit of 1' completes the sentence from slide 3 of a PowerPoint deck">
-</picture>
-<p><sub>Typing <code>Rate limit of 1</code> completes the sentence from slide 3 of a PowerPoint deck.</sub></p>
-<img src="docs/images/architecture.svg" width="760" alt="How Lasso works: the Mac app reads text before the caret and asks a local index server that watches your folders">
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/card-pdf-dark.png">
+    <img src="docs/images/card-pdf-light.png" width="760" alt="Lasso suggestion card completing a renewal notice clause from lease_unit4_signed.pdf with the sentence highlighted on Page 1">
+  </picture>
+  <br><sub>From a signed PDF lease: the clause completed word for word, highlighted on its page.</sub>
+</p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/card-cad-dark.png">
+    <img src="docs/images/card-cad-light.png" width="760" alt="Lasso suggestion card offering Bracket Ø8 hole diameter, 8 mm, from motor_mount_revC.step with an interactive 3D wireframe highlighting the holes">
+  </picture>
+  <br><sub>From a STEP assembly: exact part dimensions with an interactive 3D wireframe of the highlighted feature.</sub>
+</p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/card-ifc-dark.png">
+    <img src="docs/images/card-ifc-light.png" width="760" alt="Lasso suggestion card offering net floor area 21.410325 m² from plan_L2.ifc with the room highlighted on the floor plan">
+  </picture>
+  <br><sub>From an IFC building model: room areas and quantities with the room highlighted on its floor plan.</sub>
+</p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/card-report-dark.png">
+    <img src="docs/images/card-report-light.png" width="760" alt="Lasso suggestion card completing a sentence from smith2023.pdf with the source passage highlighted on Page 1">
+  </picture>
+  <br><sub>From a PDF report: exact findings and confidence intervals, matched straight from the page.</sub>
+</p>
+<p align="center">
+  <img src="docs/images/architecture.svg" width="760" alt="How Lasso works: the Mac app reads text before the caret, draws the suggestion card, ghost text, pickers and The Ranch, and talks to a local Node.js index server backed by SQLite, watched folders, USB drives, connected apps and an MCP server">
+</p>
 </details>
+
+## What Lasso does
+
+Lasso indexes the folders you choose on your Mac and offers exact values, clauses and passages while you write in any app. Press `Tab` to insert one, with a link back to the file and version it came from.
+
+- **Exact autocomplete & inline ghost text.** Suggestions are verbatim text and measured values from your files, never generated by a language model. Matching completions preview inline as ghost text after the caret and in a Liquid Glass card with live sheet, page, slide, CAD or video previews.
+- **Cell & passage pickers.** Press `fn Tab` on a spreadsheet or CSV suggestion to open its sheet, drag over non-contiguous cells (`⌘Z` undoes the latest highlight), and press `Tab` to paste them as a formatted table picture with its citation. Press `Tab` on a document, slide or video passage to highlight the exact words before inserting.
+- **Provenance pills.** Inserted values render as pills in their folder's colour. Click any pill to inspect its exact versioned source or swap to another source the card offered; when an underlying file changes, Lasso flags what relied on it without rewriting your document.
+- **AI writer (opt-in).** Choose an AI writer with `⌥Tab ↓` (ChatGPT via your own account). Start any sentence with `\` and press `Tab`: the writer queries your local Lasso index, writes in place with linked source pills, stops on `Esc`, and reverts cleanly on `⌘Z`.
+- **The Ranch & Review Changes (`⇧⌘R`).** Lasso's library window in a dark Figtree UI: a live **Recent Changes** audit log (typed cell edits first, recalculated formula cells folded, inline diffs), **Review Changes** (PR-style file tabs for edits since last approval, line/cell/passage comments, Apply edits including `.xls`, `\...` AI edits, Add Reviewers, Approve and Undo), morphing chip search (`⌘F`), active share links, and items needing review.
+- **Private expiring share links (`⇧⌘↩`).** Share the exact cited part, the whole file, or a redacted/marked-up copy through a 48-hour link on `mylasso.ca`, revocable at any time from The Ranch. Only content you explicitly share leaves your Mac.
+- **Dictation, USB drives, source scopes & connected apps.** A voice-wave glass pill follows macOS Dictation and morphs into the card as you speak (say "tab" to accept). Plug in any USB drive and Lasso asks whether to index the drive or chosen folders. Press `⌥Tab` to narrow suggestions to one folder or opt-in connected app (Outlook, Google Calendar, Apple Calendar, Notion, iCal feeds).
+- **Local MCP server for AI agents.** Gives Claude Code, Claude Desktop, Cursor and ChatGPT one local tool over your scoped folders, saving 73% of tokens across 92 live tasks.
+
+## Supported sources
+
+| Kind | Formats & capabilities |
+| --- | --- |
+| **Spreadsheets & tables** | `.xlsx`, `.xlsm`, `.xls`, `.csv`, `.tsv`, `.ods` · row/column value lists, row-mate follow-ups, formula recalculation tracking, cell picker (`fn Tab`), whole-table MCP queries |
+| **Documents & decks** | `.pdf`, `.docx`, `.pptx`, `.md`, `.txt`, `.rtf` · sentence completion, live page & slide previews, passage picker, word-level change highlights |
+| **3D CAD & drawings** | `.step` / `.stp`, `.ifc`, `.dxf`, `.xml` (LandXML) · part dimensions, assembly placements, interactive 3D wireframe and floor-plan previews |
+| **Code & structured data** | Source code, `.json`, `.yaml`, `.xml`, `.ipynb` · filename and symbol lookup, cite by `line N` or `lines N-M` with original indentation |
+| **Video recordings** | `.mov`, `.mp4`, `.m4v` · on-device speech transcription (macOS 26), quoted phrase search, in-card playback cued to the exact moment |
+| **Connected apps & drives** | Outlook, Google Calendar, Apple Calendar, Notion, iCal feeds (opt-in) · external USB-A / USB-C drives indexed on request |
 
 ## System requirements
 
 | | Requirement |
 | --- | --- |
-| **Operating system** | macOS 13.5 or later. Windows 10 (1809) or later is in preview. |
+| **Operating system** | macOS 13.5 or later (Liquid Glass UI and on-device video transcription on macOS 26). Windows 10 (1809) or later is in preview. |
 | **To build from source** | Node.js 24 or later, and the Xcode Command Line Tools |
 | **Permissions** | Accessibility, granted once in System Settings, so Lasso can read and insert text |
-| **For the MCP server** | Any MCP host: Claude Desktop, Claude Code, Cursor and others |
-| **Network** | Indexing and suggestions work offline. Creating, viewing or revoking hosted shares needs internet access. |
+| **For the MCP server** | Any MCP host: Claude Code, Claude Desktop, Cursor, ChatGPT and others |
+| **Network** | Indexing, suggestions, The Ranch and local MCP work offline. Hosted shares (`mylasso.ca`), connected apps and the opt-in AI writer need internet access. |
 
-The built app bundles its own Node.js, so a Mac that only runs Lasso needs nothing else installed.
+The built Mac app bundles its own Node.js runtime, so a Mac running `Lasso.app` needs nothing else installed.
 
 ## Install and run
 
@@ -74,41 +110,44 @@ npm run desktop
 open dist/Lasso.app
 ```
 
-Lasso appears in the menu bar. It starts at login from then on; after quitting, press `⌘L` to start it again.
+Lasso appears in the menu bar and launches at login. After quitting, press `⌘L` to start it again.
 
 <details>
-<summary>Run only the local server, without the Mac app</summary>
+<summary>Run only the local index server, without the Mac app</summary>
 
 ```bash
 npm ci
-npm start                       # then open http://127.0.0.1:4317
+npm start                       # opens local server on http://127.0.0.1:4317
 ```
 </details>
 
 ## How to use it
 
-1. Click the Lasso icon in the menu bar and choose **Add Work Directories…** to pick the folders Lasso should read.
-2. Turn on **Suggest While Typing**, and allow Accessibility access when macOS asks.
-3. Type in any app. After two letters of a name, value or sentence from your files, a card appears next to the caret.
-4. Press `Tab` to insert the suggestion, or `↑` `↓` to choose another. Dictating works too: the card follows dictated words, and saying "tab" accepts it.
-5. Press `⇧⌘R` to open **The Ranch**, Lasso's library window: every source, recent changes, share links and anything that needs review.
+1. Click the Lasso icon in the menu bar and choose **Add Work Directories…** to pick the folders Lasso should watch (or connect an app / plug in a USB drive).
+2. Turn on **Suggest While Typing**, and grant Accessibility access when macOS prompts.
+3. Write in any app. As you type a name, figure, clause or quoted phrase from your files, ghost text and the suggestion card appear by the caret.
+4. Press `Tab` to insert, `↑` `↓` to pick another source, `fn Tab` on a spreadsheet to highlight cells, or `⌥Tab` to narrow to one folder or enable the AI writer.
+5. Press `⇧⌘R` from any app to open **The Ranch**: browse every source, inspect recent changes, review edits, and manage shared links.
 
-The [user guide](docs/user-guide.md) covers sharing, connected apps (Outlook, Google Calendar, Notion), external drives and CAD sources.
+The [user guide](docs/user-guide.md) covers sharing, redaction, connected apps, USB drives, dictation, and CAD sources in detail.
 
 ## Keyboard shortcuts
 
-**While a suggestion card is showing**
+**While writing or with a suggestion card showing**
 
 | Keys | Action |
 | --- | --- |
-| `Tab` | Insert the suggestion |
-| `↑` `↓` | Choose another suggestion |
-| `⌘↩` | Insert as plain text |
-| `⇧⌘↩` | Insert a share link to the source |
-| `fn →` / `fn ←` | Narrow to the selected source / step back |
-| `⇧fn →` / `⇧fn ←` | Choose some of a highlighted line's words to insert |
-| `⌘Z` | Undo what Lasso just inserted |
-| `Esc` | Dismiss |
+| `Tab` | Insert the suggestion (on a passage, opens its document to highlight exact words) |
+| `↑` `↓` | Choose another suggestion or source |
+| `fn →` / `fn ←` | Dive into the selected source or sheet values / step back |
+| `⇧fn →` / `⇧fn ←` | Choose which words of a highlighted line to insert |
+| `fn Tab` | Open a spreadsheet or CSV suggestion in the cell picker |
+| `⌥Tab` | Switch source scope (All or one folder/app); `↓` chooses the AI writer |
+| `\ …` then `Tab` | Send the sentence to the selected AI writer as a prompt |
+| `⌘↩` | Insert with local provenance tracking, never as a share link |
+| `⇧⌘↩` | Share the cited reference as an expiring private link |
+| `⌘Z` | Undo what Lasso or the AI writer just inserted |
+| `Esc` | Dismiss for the current word (or stop the AI writer) |
 
 **Anywhere**
 
@@ -118,11 +157,11 @@ The [user guide](docs/user-guide.md) covers sharing, connected apps (Outlook, Go
 | `⌘L` | Start Lasso again after quitting |
 | `⌘,` | Settings |
 
-In The Ranch, `⌘1` to `⌘5` switch views and `⌘F` searches. The full list is in Settings → Shortcuts.
+In The Ranch, `⌘1` to `⌘5` switch views, `⌘F` opens morphing chip search, and `↑` `↓` / `→` `←` step through and expand Recent Changes. The complete list is in **Settings → Shortcuts**.
 
 ## Lasso MCP for AI agents
 
-The MCP server lets an AI agent ask Lasso instead of reading your files itself. The agent sends every question in one call and gets back only the lines, cells or sentences that answer it, each with its source.
+The Lasso MCP server lets an AI agent ask your local index instead of reading raw files. One tool returns the exact lines, cells, passages or computed totals with their source locations and revision state.
 
 **Claude Code**
 
@@ -130,7 +169,7 @@ The MCP server lets an AI agent ask Lasso instead of reading your files itself. 
 claude mcp add lasso -- node /path/to/Lasso/src/agent/cli.js mcp --scope Finance
 ```
 
-**Claude Desktop and other hosts** (`mcpServers` in the host's config)
+**Claude Desktop and other hosts** (`mcpServers` in the host config)
 
 ```json
 {
@@ -143,47 +182,61 @@ claude mcp add lasso -- node /path/to/Lasso/src/agent/cli.js mcp --scope Finance
 }
 ```
 
-`--scope` names the folders the agent may read (repeat it for more, or `"*"` for all). Add the folders in Lasso first. Setup, the REST API and tool reference: [docs/agent](docs/agent/README.md).
+`--scope` names the folders the agent may read (repeat for multiple folders, or `"*"` for all enabled folders). Add the folders in Lasso first. Setup, REST API and tool reference: [docs/agent](docs/agent/README.md).
 
 ## Benchmarks
 
-### Token savings with the MCP server
+### Token savings & accuracy with Lasso MCP
 
-The same models answered the same tasks twice: once with only file tools (Read, Grep, Glob), once with Lasso's MCP server added. Token counts are OpenAI's own usage records for every call, including the prompt, tool definitions and reasoning.
+The same models answered identical tasks twice: once with file tools only (`Read`, `Grep`, `Glob`), once with Lasso's MCP server added. Token counts and costs come directly from provider usage records for every call (prompts, tool definitions, conversation and reasoning included).
 
-<p align="center"><img src="docs/benchmarks/mcp-cumulative.svg" width="760" alt="Running token totals per task. gpt-5.4-mini: 219,302 tokens with file tools versus 67,439 with Lasso, 69% fewer. gpt-5.3-codex: 127,293 versus 29,777, 77% fewer."></p>
+| Run | Tasks | Tokens, file tools | Tokens, Lasso MCP | Saved | Cost | Correct |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| **gpt-5.4-mini, pooled mix** | 92 | 1,131,635 | 302,992 | **73%** | \$0.648 → \$0.291 (**55%**) | 62 → **75** |
+| gpt-5.4-mini, lookups | 32 | 219,302 | 67,439 | **69%** | \$0.145 → \$0.080 (**45%**) | 29 → **32** |
+| gpt-5.3-codex, lookups | 15 | 127,293 | 29,777 | **77%** | \$0.211 → \$0.100 (**52%**) | 13 → **15** |
 
-| Model | Tokens, file tools | Tokens, Lasso MCP | Saved | Cost | Correct |
-| --- | --- | --- | --- | --- | --- |
-| gpt-5.4-mini (32 tasks) | 219,302 | 67,439 | **69%** | $0.145 → $0.080 | 29 → **32** |
-| gpt-5.3-codex (15 tasks) | 127,293 | 29,777 | **77%** | $0.211 → $0.100 | 13 → **15** |
+<p align="center"><img src="docs/benchmarks/mcp-cumulative.svg" width="760" alt="Running token totals on lookup tasks. gpt-5.4-mini: 219,302 tokens with file tools versus 67,439 with Lasso, 69% fewer. gpt-5.3-codex: 127,293 versus 29,777, 77% fewer."></p>
 
-The savings depend on the file. Lasso returns the one row, sentence or measurement asked for, so large files gain most. Very small files are cheaper to read directly.
+Savings depend on file size and structure. Large spreadsheets, multi-page reports and 3D assemblies gain the most; very small 1 to 2 page PDFs are cheaper to read directly.
 
-<p align="center"><img src="docs/benchmarks/mcp-by-file.svg" width="760" alt="Savings by kind of file: Excel with 5,000 rows 98% fewer tokens, 40-page PDF 84%, STEP models 83%, small Excel 4%, 8 to 9 page PDFs 6% more, 1 to 2 page PDFs 14% more"></p>
+<p align="center"><img src="docs/benchmarks/mcp-by-file.svg" width="760" alt="Savings by kind of file on gpt-5.4-mini: 5,000-row Excel 98% fewer tokens, 40-page PDF 84%, STEP models 83%, code and file lookups 69%, 8 to 9 page PDFs 26%, small Excel 4%, 1 to 2 page PDFs 14% more"></p>
 
-### Typing speed and accuracy
+### Typing speed & accuracy
 
-Suggestions refresh on every keystroke. Replaying 28 prompts one key at a time across 10 test folders (577 keystrokes on an Apple M3):
+Replaying 28 prompts one keystroke at a time across 10 test folders (577 keystrokes, 5,216 indexed items indexed in 11.4 s on an Apple M3):
 
-- **27 of 28** prompts got the right suggestion first; **28 of 28** within the top three.
-- **7 ms** median and 19 ms p95 per keystroke with all folders on; under 1 ms with one folder.
+- **27 of 28** prompts ranked the right source first; **28 of 28** within the top three.
+- **7.0 ms** median and **19 ms** p95 per keystroke with all 10 folders on (**0.8 ms** median with one folder).
 - **0** model tokens: typing suggestions never call a language model.
 
-<p align="center"><img src="docs/benchmarks/latency.svg" width="760" alt="Per-keystroke latency: under 1 ms median per folder, 7 ms median with all 10 folders on, far below the 100 ms threshold for feeling instant"></p>
+<p align="center"><img src="docs/benchmarks/latency.svg" width="760" alt="Per-keystroke latency: under 1 ms median per folder, 7.0 ms median and 19 ms p95 with all 10 folders on, well under the 100 ms threshold for feeling instant"></p>
 
-Very large folders are the current limit: a 614-file repository with about 167,000 indexed items takes several seconds per keystroke and is left out of these runs.
+Folders with more than 25,000 indexed objects use a compact on-disk search index (`derived/search-index`) so lookups stay bounded without holding every object in memory.
+
+### History storage, edit speed & memory
+
+Every file version is stored content-addressed in SQLite so provenance stays exact over time. Following the indexing rework (`npm run bench:storage` on a 1,882-row, 614 KB CSV):
+
+- **4 KB** database growth per 1-cell edit (3 version rows written), down from **1.5 MB** (1,882 rows), with **0 B** derived table growth.
+- **404 of 404** row identities preserved when a row is inserted at the top (up from 4 of 404).
+- **128 ms** warm edit and **143 ms** first edit after restart (down from 303 ms); **90.5 MB** idle RSS with a shared 64 MB cache budget (shrinking to 8 MB idle) and zstd compression on superseded text versions.
+
+<p align="center"><img src="docs/benchmarks/storage.svg" width="760" alt="Before and after the indexing rework: DB growth per 1-cell edit dropped from 1.5 MB to 4 KB, version rows written from 1,882 to 3, derived growth from 2.2 MB to 0 B, first edit after restart from 303 ms to 143 ms, and peak RSS from 424 MB to 302 MB"></p>
 
 <details>
 <summary>Methodology and reproducing the numbers</summary>
 
-- **MCP runs:** [`scripts/agent-benchmark-live.mjs`](scripts/agent-benchmark-live.mjs), reasoning effort low, graded against known answers. Full records: [gpt-5.4-mini](docs/agent/live-results-gpt-5.4-mini-v4.md), [gpt-5.3-codex](docs/agent/live-results-gpt-5.3-codex-v4.md), [by kind of file](docs/agent/live-results-gpt-5.4-mini-geometry+scale+writing+documents.md). Runs are small (one or two per model), and the same task can vary widely between runs; the large-file differences are consistent.
-- **Typing runs:** `npm run bench` replays the prompts in [`scripts/benchmark-cases.json`](scripts/benchmark-cases.json) and writes [`docs/benchmarks/results.json`](docs/benchmarks/results.json). Set `LASSO_BENCH_ROOT` to the test folders. Each run uses a temporary library.
-- **Charts:** `npm run bench:charts` redraws every chart from those files.
+- **MCP runs:** [`scripts/agent-benchmark-live.mjs`](scripts/agent-benchmark-live.mjs), low reasoning effort, graded against known answers. Full records: [gpt-5.4-mini lookups](docs/agent/live-results-gpt-5.4-mini-v4.md), [gpt-5.3-codex lookups](docs/agent/live-results-gpt-5.3-codex-v4.md), [by kind of file](docs/agent/live-results-gpt-5.4-mini-geometry+scale+writing+documents.md), [post-fix mid-size reports (heldout2)](docs/agent/live-results-gpt-5.4-mini-documents-mcp-heldout2.md) and [(heldout3)](docs/agent/live-results-gpt-5.4-mini-documents-mcp-heldout3.md). Pooled totals combine the 92 current live questions on `gpt-5.4-mini` (excluding the superseded pre-fix 8 to 9 page PDF run), matching [`docs/benchmarks/mcp-summary.json`](docs/benchmarks/mcp-summary.json).
+- **Typing runs:** `npm run bench` replays [`scripts/benchmark-cases.json`](scripts/benchmark-cases.json) against a temporary library and writes [`docs/benchmarks/results.json`](docs/benchmarks/results.json).
+- **Storage & memory runs:** `npm run bench:storage` writes [`docs/benchmarks/storage.json`](docs/benchmarks/storage.json).
+- **Charts:** `npm run bench:charts` redraws every SVG in `docs/benchmarks/` from those JSON files.
 </details>
 
-## Documentation
+## Documentation & development
 
-[User guide](docs/user-guide.md) · [MCP and agent API](docs/agent/README.md) · [Building and configuration](docs/building.md) · [Ranking algorithm (PDF)](docs/lasso-ranking-algorithm.pdf) · [Known limitations](docs/limitations.md)
+[User guide](docs/user-guide.md) · [MCP & agent API](docs/agent/README.md) · [Building & configuration](docs/building.md) · [Reader contract](docs/reader-contract.md) · [Ranking algorithm (PDF)](docs/lasso-ranking-algorithm.pdf) · [Known limitations](docs/limitations.md)
 
-**Development:** `npm test` runs the 876-test Node suite, `npm run desktop:test` the native checks. Source layout: `src/` local server, `desktop/` Mac app (Swift), `desktop/windows/` and `desktop-windows/` Windows preview, `test/` tests, `docs/` documentation.
+**Tests:** `npm test` runs the **1,407**-test Node suite, and `npm run desktop:test` runs **1,615** native Swift checks.
+
+**Source layout:** `src/` local index server, MCP server, AI writer and review service · `desktop/` native macOS app (Swift / AppKit / SwiftUI) · `desktop/windows/` and `desktop-windows/` Windows preview · `public/` Connect Apps and browser workbench UI · `test/` automated tests · `docs/` guides and benchmark records.

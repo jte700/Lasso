@@ -1,52 +1,61 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="378" viewBox="0 0 760 378" role="img" aria-labelledby="t d">
 <title id="t">Tokens an agent spends answering from your files</title><desc id="d">gpt-5.4-mini: 219302 tokens with file tools, 67439 with Lasso; gpt-5.3-codex: 127293 tokens with file tools, 29777 with Lasso</desc>
 <style>
-  .surface { fill: #fcfcfb; stroke: #e6e5e1; }
-  .title { fill: #0b0b0b; font: 600 17px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
-  .subtitle { fill: #52514e; font: 13px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
-  .label { fill: #0b0b0b; font: 13px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
-  .strong { fill: #0b0b0b; font: 600 13px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
-  .value { fill: #0b0b0b; font: 600 12px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
-  .tick { fill: #6f6e69; font: 11px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
-  .grid { stroke: #e6e5e1; stroke-width: 1; }
-  .axis { stroke: #a8a7a1; stroke-width: 1; }
-  .reference { stroke: #52514e; stroke-width: 1.5; stroke-dasharray: 4 4; }
-  .series-1 { fill: #1f9d4c; }
-  .series-1-light { fill: #6abd86; }
-  .muted-bar { fill: #c9c8c2; }
-  .hero { fill: #0b0b0b; font: 700 30px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; letter-spacing: -0.5px; }
-  .hero-label { fill: #52514e; font: 12.5px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
-  .accent { fill: #1f9d4c; }
-  .line-1 { fill: none; stroke: #1f9d4c; stroke-width: 2.5; stroke-linejoin: round; }
-  .line-base { fill: none; stroke: #8f8e88; stroke-width: 2; stroke-linejoin: round; }
-  .dot-1 { fill: #1f9d4c; stroke: #fcfcfb; stroke-width: 2; }
-  .dot-base { fill: #8f8e88; stroke: #fcfcfb; stroke-width: 2; }
-  .area-1 { fill: #1f9d4c; fill-opacity: 0.08; }
-  .callout { fill: #0b0b0b; font: 700 15px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
-  .footnote { fill: #8f8e88; font: 11px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .surface { fill: #fffdf7; stroke: #e3dfd2; }
+  .tile-bg { fill: #f7f5ed; stroke: #e7e3d6; }
+  .title { fill: #1b1f17; font: 600 17px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; letter-spacing: -0.02em; }
+  .subtitle { fill: #5a5e55; font: 13px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .label { fill: #1b1f17; font: 13px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .strong { fill: #1b1f17; font: 600 13px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .value { fill: #1b1f17; font: 600 12px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .tick { fill: #6c7067; font: 11px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .grid { stroke: #e8e4d8; stroke-width: 1; }
+  .axis { stroke: #b8b4a6; stroke-width: 1; }
+  .reference { stroke: #6c7067; stroke-width: 1.5; stroke-dasharray: 4 4; }
+  .series-1 { fill: #2a6db0; }
+  .series-1-light { fill: #8ec5f4; }
+  .series-sage { fill: #5f7f51; }
+  .muted-bar { fill: #d0ccc0; }
+  .hero { fill: #1b1f17; font: 700 28px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; letter-spacing: -0.03em; }
+  .hero-label { fill: #5a5e55; font: 12px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .accent { fill: #2a6db0; }
+  .accent-sage { fill: #5f7f51; }
+  .accent-rope { fill: #a98643; }
+  .accent-terra { fill: #b8563a; }
+  .line-1 { fill: none; stroke: #2a6db0; stroke-width: 2.5; stroke-linejoin: round; }
+  .line-base { fill: none; stroke: #928f85; stroke-width: 2; stroke-linejoin: round; }
+  .dot-1 { fill: #2a6db0; stroke: #fffdf7; stroke-width: 2; }
+  .dot-base { fill: #928f85; stroke: #fffdf7; stroke-width: 2; }
+  .area-1 { fill: #2a6db0; fill-opacity: 0.10; }
+  .callout { fill: #2a6db0; font: 700 14px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .footnote { fill: #757970; font: 11px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
   @media (prefers-color-scheme: dark) {
-    .surface { fill: #1a1a19; stroke: #333330; }
-    .title, .label, .strong, .value, .hero { fill: #f0efec; }
-    .subtitle, .hero-label { fill: #c3c2b7; }
-    .tick { fill: #9d9c95; }
-    .grid { stroke: #333330; }
-    .axis { stroke: #6f6e69; }
-    .reference { stroke: #c3c2b7; }
-    .series-1, .accent { fill: #28a752; }
-    .series-1-light { fill: #1a6534; }
-    .muted-bar { fill: #5c5b56; }
-    .line-1 { stroke: #28a752; }
-    .line-base { stroke: #7d7c76; }
-    .dot-1 { fill: #28a752; stroke: #1a1a19; }
-    .dot-base { fill: #7d7c76; stroke: #1a1a19; }
-    .area-1 { fill: #28a752; }
-    .callout { fill: #f0efec; }
-    .footnote { fill: #7d7c76; }
+    .surface { fill: #151513; stroke: #2c2c28; }
+    .tile-bg { fill: #1c1c19; stroke: #2d2d29; }
+    .title, .label, .strong, .value, .hero { fill: #f6f4ec; }
+    .subtitle, .hero-label { fill: #a9a79f; }
+    .tick { fill: #8a8880; }
+    .grid { stroke: #282824; }
+    .axis { stroke: #57564f; }
+    .reference { stroke: #99978f; }
+    .series-1, .accent { fill: #8ec5f4; }
+    .series-1-light { fill: #3c658a; }
+    .series-sage, .accent-sage { fill: #91a984; }
+    .accent-rope { fill: #d7bd85; }
+    .accent-terra { fill: #c96749; }
+    .muted-bar { fill: #494842; }
+    .line-1 { stroke: #8ec5f4; }
+    .line-base { stroke: #76746c; }
+    .dot-1 { fill: #8ec5f4; stroke: #151513; }
+    .dot-base { fill: #76746c; stroke: #151513; }
+    .area-1 { fill: #8ec5f4; fill-opacity: 0.12; }
+    .callout { fill: #8ec5f4; }
+    .footnote { fill: #7f7d75; }
   }</style>
-<rect class="surface" x="0.5" y="0.5" width="759" height="377" rx="12"/>
+<rect class="surface" x="0.5" y="0.5" width="759" height="377" rx="16"/>
 <text x="24" y="34" class="title" text-anchor="start">Tokens an agent spends answering from your files</text>
 
-<rect class="dot-base" x="24" y="66" width="12" height="12" rx="3"/><text x="42" y="76" class="tick" text-anchor="start">File tools only (Read, Grep, Glob)</text><rect class="series-1" x="250" y="66" width="12" height="12" rx="3"/><text x="268" y="76" class="tick" text-anchor="start">With the Lasso MCP server</text>
+<rect class="muted-bar" x="24" y="66" width="12" height="12" rx="3"/><text x="42" y="76" class="tick" text-anchor="start">File tools only (Read, Grep, Glob)</text><rect class="series-1" x="250" y="66" width="12" height="12" rx="3"/><text x="268" y="76" class="tick" text-anchor="start">With the Lasso MCP server</text>
 <line class="axis" x1="66" x2="362" y1="322" y2="322"/><text x="58" y="326" class="tick" text-anchor="end">0</text><line class="grid" x1="66" x2="362" y1="282.8" y2="282.8"/><text x="58" y="286.8" class="tick" text-anchor="end">50K</text><line class="grid" x1="66" x2="362" y1="243.6" y2="243.6"/><text x="58" y="247.6" class="tick" text-anchor="end">100K</text><line class="grid" x1="66" x2="362" y1="204.4" y2="204.4"/><text x="58" y="208.4" class="tick" text-anchor="end">150K</text><line class="grid" x1="66" x2="362" y1="165.2" y2="165.2"/><text x="58" y="169.2" class="tick" text-anchor="end">200K</text><line class="grid" x1="66" x2="362" y1="126" y2="126"/><text x="58" y="130" class="tick" text-anchor="end">250K</text>
 <text x="66" y="104" class="strong" text-anchor="start">gpt-5.4-mini · 32 tasks</text>
 <text x="362" y="104" class="callout" text-anchor="end">69% fewer tokens</text>
@@ -71,5 +80,5 @@
 <text x="728" y="288.654832" class="value" text-anchor="end">29,777</text>
 <text x="440" y="340" class="tick" text-anchor="middle">0</text><text x="736" y="340" class="tick" text-anchor="middle">15</text>
 <text x="588" y="340" class="tick" text-anchor="middle">tasks completed</text>
-<text x="24" y="364" class="footnote" text-anchor="start">Running total of tokens per run (input, including tool definitions and conversation, plus output). Provider usage records in docs/agent.</text>
+<text x="24" y="364" class="footnote" text-anchor="start">Running total of tokens per lookup run (input, including tool definitions and conversation, plus output). Provider records in docs/agent.</text>
 </svg>
