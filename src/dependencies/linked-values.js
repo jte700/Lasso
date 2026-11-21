@@ -69,6 +69,13 @@ export const linkedValuesMethods = {
     if (!variable) return null;
     const variableKey = normalizedVariable(variable);
     const tail = String(input.text ?? '').slice(dependency.anchor.end, cursor);
+    // A kept list reads only what was typed after the latest value tabbed from it
+    // for row codes and typed prefixes, so an already-tabbed code (BILL-1160, B-2)
+    // never narrows the list back to itself while explicit column cues earlier in
+    // the clause ("Facilities for the September Budget CAD was 21000") still count.
+    const heldStart = Number.isInteger(dependency.heldAfter)
+      ? Math.max(dependency.anchor.end, dependency.heldAfter) : dependency.anchor.end;
+    const activeTail = String(input.text ?? '').slice(heldStart, cursor);
     const changeIntent = /\b(?:increas|decreas|reduc|higher|lower|rais|rise|drop|declin|change|difference|effect)\w*\b/i.test(tail);
     const sourceColumn = String(source.anchor?.column ?? source.metadata.column ?? '').trim();
     const dependencyText = String(input.text ?? '').slice(dependency.anchor.start, dependency.anchor.end);
@@ -131,9 +138,9 @@ export const linkedValuesMethods = {
       .filter((object) => object.path === source.path
         && String(object.metadata.sheet ?? '') === String(source.metadata.sheet ?? ''));
     const relatedObjects = sameSourceObjects.length ? sameSourceObjects : allRelatedObjects;
-    const requestedRows = rowReferencesInText(tail,
+    const requestedRows = rowReferencesInText(activeTail,
       relatedObjects.map((object) => object.anchor?.rowKey ?? object.metadata.row));
-    const fragments = requestedRows.size || dependencySelectsRow ? [] : rowCompletionFragments(tail);
+    const fragments = requestedRows.size || dependencySelectsRow ? [] : rowCompletionFragments(activeTail);
     const rows = new Map();
     for (const object of relatedObjects) {
       const rowKey = String(object.anchor?.rowKey ?? object.metadata.row ?? '').trim();
@@ -263,7 +270,7 @@ export const linkedValuesMethods = {
     }
     // The first digits of a value ("was 48") pick out the values they begin,
     // and a word of a column's name ("budget") breaks ties between its cells.
-    const typedNumber = typedNumberPrefix(tail, requestedRows);
+    const typedNumber = typedNumberPrefix(activeTail, requestedRows);
     const written = this.valuesWrittenInSentence(projectId, input, cursor);
     const completesTypedNumber = (text) => Boolean(typedNumber) && comparableNumber(text).startsWith(typedNumber);
     const fieldWordsNamed = (object) => namedFieldWords(tail, object.metadata.column ?? object.anchor?.column);
@@ -303,7 +310,7 @@ export const linkedValuesMethods = {
       && objects.some((object) => object.anchor?.kind === 'table-cell' || isNamingRow(object));
     const suggestions = [];
     const seen = new Set();
-    for (const object of listsInOrder ? typedFirst(inSheetOrder(objects, source), tail) : objects) {
+    for (const object of listsInOrder ? typedFirst(inSheetOrder(objects, source), activeTail) : objects) {
       // Every cell of a row or column is listed, so the arrows reach each one:
       // equal values in two cells keep two places. The card names a CAD
       // measurement's feature ("Ø8 hole depth"), which keeps those apart too.
@@ -321,7 +328,7 @@ export const linkedValuesMethods = {
         category: object.objectType === 'RESULT' ? 'Result' : 'Value',
         provenanceLabel: tabularProvenanceLabel(object),
         ...contextualCompletionRange(input.text, cursor, object.contextualText, {
-          floor: dependency.anchor.end,
+          floor: heldStart,
           preserveSuffixes: [
             ...fields,
             ...scopedObjects.flatMap((candidate) => rowSearchAliases(candidate.anchor?.rowKey ?? candidate.metadata.row)),

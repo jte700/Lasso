@@ -149,3 +149,26 @@ test('The sheet route serves a workbook sheet named in the request, and refuses 
   assert.equal(cellAt(document, document.selection.top, document.selection.left), '18400');
   if (refused) assert.equal(refused.status, 415);
 });
+
+test('The sheet route opens a spreadsheet file suggestion with its cells ready to highlight', async (t) => {
+  // Arrange
+  const csv = 'Invoice,Due Date\nBILL-1160,2026-09-17\nBILL-1174,2026-10-12\n';
+  const { app, base } = await served(t, { 'Vendor-Invoices.csv': csv });
+  const text = 'We checked vendor invoices';
+  const prediction = await app.workspace.predict({ text, cursor: text.length, blockIndex: 0 });
+  const fileSuggestion = prediction.claims.flatMap((claim) => claim.candidates ?? [])
+    .find((candidate) => candidate?.path?.endsWith('.csv') && candidate.fileReference);
+  assert.ok(fileSuggestion, 'the CSV file itself is suggested');
+
+  // Act
+  const answer = await fetch(sheetURL(base, fileSuggestion));
+  const { document } = await answer.json();
+
+  // Assert
+  assert.equal(answer.status, 200);
+  assert.equal(document.name, 'Vendor-Invoices.csv');
+  assert.equal(document.headerRow, 1);
+  assert.equal(document.selection, null);
+  assert.equal(cellAt(document, 2, 0), 'BILL-1160');
+  assert.equal(cellAt(document, 2, 1), '2026-09-17');
+});

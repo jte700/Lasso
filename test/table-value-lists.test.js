@@ -42,8 +42,8 @@ async function directory(t, name, contents, others = {}, options = {}) {
   return app;
 }
 
-const typed = (app, text, pendingDependencies) => app.workspace.predict({
-  text, cursor: text.length, blockIndex: 0, ...(pendingDependencies.length ? { pendingDependencies } : {}),
+const typed = (app, text, pendingDependencies, extra = {}) => app.workspace.predict({
+  text, cursor: text.length, blockIndex: 0, ...(pendingDependencies.length ? { pendingDependencies } : {}), ...extra,
 });
 const link = (candidate, start, end) => ({ projectId: candidate.projectId, blockIndex: 0, start, end,
   sourceObjectId: candidate.id, sourceSnapshotId: candidate.snapshotId });
@@ -477,4 +477,193 @@ test('a wide table lists a column down past its first indexed rows, as far as th
   // Assert
   assert.deepEqual(counts, GENES.slice(0, LINKED_VALUES_SHOWN).map((_, row) => count(row, 6)));
   assert.deepEqual(names, GENES.slice(0, LINKED_VALUES_SHOWN));
+});
+
+// Row mates of a tabbed Excel or CSV cell carry that tabbed cell in their top-right label,
+// and fn+Left first exits back to the column's own values only before widening to all directories.
+async function checkMarkedRowMatesAndStepBack(app) {
+  // Arrange: accept Invoice, then BILL-1160.
+  const column = await acceptName(app, 'Inv', 'Invoice', []);
+  const before = `${column.text} was `;
+  const bill1160 = (await typed(app, before, column.links)).workspaceCompletions
+    .find(item => item.replacementText === 'BILL-1160');
+  assert.ok(bill1160, 'BILL-1160 is offered for Invoice');
+  const after1160 = before + bill1160.replacementText;
+  const bill1160End = after1160.length;
+  const links1160 = [...column.links, link(bill1160.dependencyCandidate, before.length, bill1160End)];
+
+  // Act: with BILL-1160 tabbed, its row mates join the list marked as related to BILL-1160.
+  const withMates = await typed(app, `${after1160} and `, links1160);
+  const mates = withMates.workspaceCompletions.filter(item => item.rowMateOf);
+  const ownValues = withMates.workspaceCompletions.filter(item => !item.rowMateOf);
+
+  // Assert: row mates (including the supplier label cell) are marked for BILL-1160; Invoice's own values are not.
+  assert.equal(withMates.sourceContext?.hasRowMates, true);
+  assert.deepEqual(mates.map(item => item.replacementText), ['Maple Paper Distribution', '2026-08-18', '22000']);
+  for (const mate of mates) {
+    assert.equal(mate.rowMateOf, 'BILL-1160');
+    assert.equal(mate.detail, 'From BILL-1160');
+  }
+  assert.ok(ownValues.length > 0 && ownValues.every(item => item.detail == null && item.rowMateOf == null));
+
+  // Act: tabbing a row mate (22000) keeps Invoice and the remaining BILL-1160 row mates listed.
+  const beforeAmount = `${after1160} for `;
+  const amount22000 = mates.find(item => item.replacementText === '22000');
+  const afterAmount = beforeAmount + amount22000.replacementText;
+  const linksWithAmount = [...links1160, link(amount22000.dependencyCandidate, beforeAmount.length, afterAmount.length)];
+  const stillHeld = await typed(app, `${afterAmount} on `, linksWithAmount);
+  assert.equal(stillHeld.workspaceHeading, 'Values for Invoice');
+  assert.equal(stillHeld.sourceContext?.hasRowMates, true);
+  assert.deepEqual(stillHeld.workspaceCompletions.filter(item => item.rowMateOf).map(item => item.replacementText),
+    ['Maple Paper Distribution', '2026-08-18']);
+
+  // Act: first fn+Left sends rowScopeBoundary at the end of BILL-1160, returning to Invoice's own values only.
+  const invoiceOnly = await typed(app, `${after1160} and `, links1160, { rowScopeBoundary: bill1160End });
+  assert.equal(invoiceOnly.workspaceHeading, 'Values for Invoice');
+  assert.ok(!invoiceOnly.sourceContext?.hasRowMates);
+  assert.deepEqual(invoiceOnly.workspaceCompletions.filter(item => item.rowMateOf), []);
+  assert.ok(offered(invoiceOnly).includes('BILL-1174') && !offered(invoiceOnly).includes('22000'));
+
+  // Act: tabbing BILL-1190 after stepping out of BILL-1160's row brings only BILL-1190's row mates.
+  const before1190 = `${after1160} and `;
+  const bill1190 = invoiceOnly.workspaceCompletions.find(item => item.replacementText === 'BILL-1190');
+  assert.ok(bill1190);
+  const after1190 = before1190 + bill1190.replacementText;
+  const links1190 = [...links1160, link(bill1190.dependencyCandidate, before1190.length, after1190.length)];
+  const secondMates = await typed(app, `${after1190} for `, links1190, { rowScopeBoundary: bill1160End });
+  assert.equal(secondMates.sourceContext?.hasRowMates, true);
+  assert.deepEqual(secondMates.workspaceCompletions.filter(item => item.rowMateOf).map(item => [item.replacementText, item.detail]), [
+    ['Pine Facilities Supply', 'From BILL-1190'],
+    ['2026-09-28', 'From BILL-1190'],
+    ['32500', 'From BILL-1190'],
+  ]);
+
+  // Act: second fn+Left drops the column and releases past the tabbed value, returning to all active directories.
+  const allDirs = await typed(app, `${after1160} and `, [], { settledValueEnd: bill1160End, sourceScopeBoundary: bill1160End });
+  assert.notEqual(allDirs.workspaceHeading, 'Values for Invoice');
+}
+
+test('tabbed CSV cell row mates are marked for that cell and fn+Left exits them before widening', async t => {
+  const app = await directory(t, 'Accounts-Payable.csv', `${PAYABLES.map(row => row.join(',')).join('\n')}\n`);
+  await checkMarkedRowMatesAndStepBack(app);
+});
+
+test('tabbed Excel cell row mates are marked for that cell and fn+Left exits them before widening', async t => {
+  const rows = Object.fromEntries(PAYABLES.map((row, index) => [index + 1, row]));
+  const app = await directory(t, 'Accounts-Payable.xlsx', workbook('Payables', rows));
+  await checkMarkedRowMatesAndStepBack(app);
+});
+
+test('two tabbed cells in one sentence mark each row mate with its own tabbed cell', async t => {
+  // Arrange
+  const app = await directory(t, 'Accounts-Payable.csv', `${PAYABLES.map(row => row.join(',')).join('\n')}\n`);
+  const column = await acceptName(app, 'Inv', 'Invoice', []);
+  let text = `${column.text} was `;
+  let links = column.links;
+  for (const bill of ['BILL-1160', 'BILL-1190']) {
+    const value = (await typed(app, text, links)).workspaceCompletions.find(item => item.replacementText === bill);
+    links = [...links, link(value.dependencyCandidate, text.length, text.length + bill.length)];
+    text += bill === 'BILL-1160' ? `${bill} and ` : `${bill} with `;
+  }
+
+  // Act
+  const prediction = await typed(app, text, links);
+  const byValue = new Map(prediction.workspaceCompletions.map(item => [item.replacementText, item]));
+
+  // Assert
+  assert.equal(byValue.get('22000')?.detail, 'From BILL-1160');
+  assert.equal(byValue.get('2026-08-18')?.detail, 'From BILL-1160');
+  assert.equal(byValue.get('Maple Paper Distribution')?.detail, 'From BILL-1160');
+  assert.equal(byValue.get('32500')?.detail, 'From BILL-1190');
+  assert.equal(byValue.get('2026-09-28')?.detail, 'From BILL-1190');
+  assert.equal(byValue.get('Pine Facilities Supply')?.detail, 'From BILL-1190');
+});
+
+test('row mates work for row-naming code columns, unnamed rows, and row-naming text columns alike', async t => {
+  // Arrange: Batches.csv has a row-naming code column (B-1, B-2), Numeric.csv has no naming column at all.
+  const batches = 'Year,Batch,Amount\n2026,B-1,1500\n2026,B-1,2500\n2025,B-2,3500\n';
+  const numeric = 'Year,Quarter,Amount\n2026,1,1500\n2026,1,2500\n2025,2,3500\n';
+  const app = await directory(t, 'Batches.csv', batches, { 'Numeric.csv': numeric, 'Accounts-Payable.csv': OPEN_BILLS });
+
+  // Act 1: code column that names rows (tab Batch -> B-2 -> row mates 2025 and 3500 marked From B-2).
+  const batch = await acceptName(app, 'Bat', 'Batch', []);
+  const beforeBatch = `${batch.text} was `;
+  const b2 = (await typed(app, beforeBatch, batch.links)).workspaceCompletions.find(item => item.replacementText === 'B-2');
+  assert.ok(b2);
+  const afterB2 = beforeBatch + b2.replacementText;
+  const codeRowResult = await typed(app, `${afterB2} `, [...batch.links, link(b2.dependencyCandidate, beforeBatch.length, afterB2.length)]);
+
+  // Act 2: genuinely unnamed row (all numeric columns: tab Quarter -> 2 -> row mates 2025 and 3500 marked From 2).
+  const quarter = await acceptName(app, 'Quar', 'Quarter', []);
+  const beforeQuarter = `${quarter.text} was `;
+  const q2 = (await typed(app, beforeQuarter, quarter.links)).workspaceCompletions.find(item => item.replacementText === '2');
+  assert.ok(q2);
+  const afterQ2 = beforeQuarter + q2.replacementText;
+  const unnamedResult = await typed(app, `${afterQ2} `, [...quarter.links, link(q2.dependencyCandidate, beforeQuarter.length, afterQ2.length)]);
+
+  // Act 3: text column that names rows (tab Supplier -> North Ridge -> row mates BILL-1181 and 35000 marked From North Ridge).
+  const supplier = await acceptName(app, 'The top supplier', 'Supplier', []);
+  const beforeSupplier = `${supplier.text} was `;
+  const north = (await typed(app, beforeSupplier, supplier.links)).workspaceCompletions.find(item => item.replacementText === 'North Ridge');
+  assert.ok(north);
+  const afterNorth = beforeSupplier + north.replacementText;
+  const namedResult = await typed(app, `${afterNorth} `, [...supplier.links, link(north.dependencyCandidate, beforeSupplier.length, afterNorth.length)]);
+
+  // Assert
+  assert.equal(codeRowResult.sourceContext?.hasRowMates, true);
+  assert.deepEqual(codeRowResult.workspaceCompletions.filter(item => item.rowMateOf).map(item => [item.replacementText, item.detail]), [
+    ['2025', 'From B-2'],
+    ['3500', 'From B-2'],
+  ]);
+  assert.equal(unnamedResult.sourceContext?.hasRowMates, true);
+  assert.deepEqual(unnamedResult.workspaceCompletions.filter(item => item.rowMateOf).map(item => [item.replacementText, item.detail]), [
+    ['2025', 'From 2'],
+    ['3500', 'From 2'],
+  ]);
+  assert.equal(namedResult.sourceContext?.hasRowMates, true);
+  assert.deepEqual(namedResult.workspaceCompletions.filter(item => item.rowMateOf).map(item => [item.replacementText, item.detail]), [
+    ['BILL-1181', 'From North Ridge'],
+    ['35000', 'From North Ridge'],
+  ]);
+});
+
+test('typing a row-mate supplier name brings it up, and large folders and tall sheets keep marked row mates', async t => {
+  // Arrange: a folder searched in its search index AND a tall CSV exceeding LINKED_VALUES_SHOWN rows.
+  const tallRows = Array.from({ length: LINKED_VALUES_SHOWN + 15 }, (_, index) =>
+    `Supplier ${index + 1},INV-${1000 + index},${10000 + index * 25}`);
+  const tallCsv = `Supplier,Invoice,Amount\n${tallRows.join('\n')}\n`;
+  const indexedApp = await directory(t, 'Accounts-Payable.csv', `${PAYABLES.map(row => row.join(',')).join('\n')}\n`,
+    {}, { searchIndexObjects: 1 });
+  const tallApp = await directory(t, 'Tall.csv', tallCsv);
+
+  // Act 1: typing "Map" after Invoice -> BILL-1160 brings Maple Paper Distribution to top replacing "Map".
+  const column = await acceptName(indexedApp, 'Inv', 'Invoice', []);
+  const before = `${column.text} was `;
+  const bill1160 = (await typed(indexedApp, before, column.links)).workspaceCompletions
+    .find(item => item.replacementText === 'BILL-1160');
+  const after = before + bill1160.replacementText;
+  const links = [...column.links, link(bill1160.dependencyCandidate, before.length, after.length)];
+  const typedSupplier = await typed(indexedApp, `${after} from Map`, links);
+
+  // Act 2: in a tall sheet (> LINKED_VALUES_SHOWN rows), row mates of INV-1000 survive the list limit.
+  const tallCol = await acceptName(tallApp, 'Inv', 'Invoice', []);
+  const tallBefore = `${tallCol.text} was `;
+  const inv1000 = (await typed(tallApp, tallBefore, tallCol.links)).workspaceCompletions
+    .find(item => item.replacementText === 'INV-1000');
+  const tallAfter = tallBefore + inv1000.replacementText;
+  const tallLinks = [...tallCol.links, link(inv1000.dependencyCandidate, tallBefore.length, tallAfter.length)];
+  const tallWithMates = await typed(tallApp, `${tallAfter} `, tallLinks);
+  const tallExited = await typed(tallApp, `${tallAfter} `, tallLinks, { rowScopeBoundary: tallAfter.length });
+
+  // Assert
+  assert.equal(typedSupplier.workspaceCompletions[0].replacementText, 'Maple Paper Distribution');
+  assert.equal(typedSupplier.workspaceCompletions[0].detail, 'From BILL-1160');
+  assert.equal(typedSupplier.workspaceCompletions[0].claimStart, `${after} from `.length);
+  assert.equal(tallWithMates.sourceContext?.hasRowMates, true);
+  assert.deepEqual(tallWithMates.workspaceCompletions.filter(item => item.rowMateOf).map(item => [item.replacementText, item.detail]), [
+    ['Supplier 1', 'From INV-1000'],
+    ['10000', 'From INV-1000'],
+  ]);
+  assert.ok(!tallExited.sourceContext?.hasRowMates);
+  assert.deepEqual(tallExited.workspaceCompletions.filter(item => item.rowMateOf), []);
 });
