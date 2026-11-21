@@ -1,0 +1,773 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lasso card scenes</title>
+<!-- The pictures and clips in the homepage and Ranch cards are drawn here and captured by render.mjs.
+     Open ?s=writer&theme=dark&live to watch a scene play. Each scene is a 1000 by 1000 drawing with
+     a tick(t) that sets every element for a time in milliseconds, so a capture is the same each run. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #f4f5f1; --win: #ffffff; --bar: #f3f3f1; --ink: #1d1d1f; --ink-2: rgb(29 29 31 / .62); --ink-3: rgb(29 29 31 / .42);
+  --line: rgb(0 0 0 / .085); --raise: #f4f4f2; --key: #ffffff; --link: #1a66d6; --wash: rgb(23 125 255 / .09); --under: rgb(23 125 255 / .9);
+  --sel: rgb(10 132 255 / .14); --sel-edge: rgb(10 110 255 / .6); --menu: rgb(250 250 250 / .97);
+  --shadow: 0 50px 90px -46px rgb(40 50 20 / .45), 0 0 0 1px rgb(0 0 0 / .08);
+  --glow: .62; --hl: #ffe066; --good: #1f9d55; --bad: #d64545;
+  --sky: #8ec5f4; --lime: #d4f75c; --rope: #d7bd85; --sage: #91a984; --terracotta: #c96749; --forest: #2f4322;
+}
+:root[data-theme="dark"] {
+  --bg: #0d0e0f; --win: #1e1e1f; --bar: #2a2a2b; --ink: rgb(255 255 255 / .92); --ink-2: rgb(255 255 255 / .6); --ink-3: rgb(255 255 255 / .4);
+  --line: rgb(255 255 255 / .09); --raise: #262628; --key: #2f2f31; --link: #5aa2ff; --wash: rgb(23 125 255 / .16); --under: rgb(90 162 255 / .95);
+  --sel: rgb(10 132 255 / .26); --sel-edge: rgb(64 140 255 / .85); --menu: rgb(40 40 42 / .97);
+  --shadow: 0 50px 100px -40px rgb(0 0 0 / .9), 0 0 0 1px rgb(255 255 255 / .1);
+  --glow: .42; --good: #3ccf7a; --bad: #ff6b6b;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
+body { -webkit-font-smoothing: antialiased; }
+#card { position: absolute; left: 0; top: 0; width: 1000px; height: 1000px; overflow: hidden; transform-origin: 0 0; background: var(--bg);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; color: var(--ink); letter-spacing: -.005em; }
+.glow { position: absolute; border-radius: 80px; filter: blur(64px); opacity: var(--glow);
+  background: conic-gradient(from var(--a, 0deg), var(--sky), #b9a7ff, #ff9fbf, #ffc87a, var(--lime), #8fe3c8, var(--sky)); }
+.stars { position: absolute; inset: 0; background-image:
+  radial-gradient(1.6px 1.6px at 12% 18%, #fff8, transparent), radial-gradient(1.4px 1.4px at 78% 9%, #fff7, transparent), radial-gradient(1.2px 1.2px at 64% 30%, #fff5, transparent),
+  radial-gradient(1.8px 1.8px at 88% 62%, #fff8, transparent), radial-gradient(1.2px 1.2px at 30% 84%, #fff6, transparent), radial-gradient(1.5px 1.5px at 8% 70%, #fff6, transparent),
+  radial-gradient(1.2px 1.2px at 52% 92%, #fff5, transparent), radial-gradient(1.4px 1.4px at 94% 88%, #fff7, transparent), radial-gradient(1.1px 1.1px at 40% 6%, #fff6, transparent),
+  radial-gradient(1.3px 1.3px at 22% 44%, #fff4, transparent), radial-gradient(1.2px 1.2px at 70% 76%, #fff5, transparent), radial-gradient(1.5px 1.5px at 96% 34%, #fff6, transparent); }
+.win { position: absolute; border-radius: 24px; background: var(--win); box-shadow: var(--shadow); overflow: hidden; }
+.bar { position: relative; height: 58px; display: flex; align-items: center; justify-content: center; background: var(--bar); box-shadow: inset 0 -1px 0 var(--line); font-size: 21px; font-weight: 600; color: var(--ink-2); }
+.lights { position: absolute; left: 22px; top: 21px; display: flex; gap: 10px; }
+.lights b { width: 16px; height: 16px; border-radius: 50%; background: #ff5f57; }
+.lights b:nth-child(2) { background: #febc2e; } .lights b:nth-child(3) { background: #28c840; }
+.bar small { position: absolute; right: 24px; font-size: 18px; font-weight: 500; color: var(--ink-3); }
+.doc { padding: 40px 54px; font-size: 31px; line-height: 1.55; }
+.doc p { margin: 0 0 18px; }
+.mute { color: var(--ink-2); }
+.caret { display: inline-block; width: 3px; height: 1.12em; margin-left: 2px; vertical-align: -.2em; background: #2f7cf6; }
+.lk { border-radius: 6px; padding: 1px 2px; margin: 0 -1px; background: var(--wash); text-decoration: underline 2.5px var(--under); text-underline-offset: .2em; text-decoration-skip-ink: none; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.url { color: var(--link); }
+.kc { display: inline-grid; place-items: center; min-width: 54px; height: 54px; padding: 0 14px; border-radius: 13px; background: var(--key); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line), 0 3px 0 var(--line), 0 14px 30px -14px rgb(0 0 0 / .4); font: 600 25px/1 -apple-system, sans-serif; }
+.kc.sm { min-width: 34px; height: 30px; padding: 0 8px; border-radius: 8px; font-size: 17px; box-shadow: inset 0 0 0 1px var(--line); }
+.kc.down { transform: translateY(3px) scale(.96); box-shadow: inset 0 0 0 1px var(--line), 0 0 0 var(--line); }
+.ficon { --size: 34px; --ft: #1f8a4c; position: relative; flex: none; display: inline-block; width: var(--size); height: calc(var(--size) * 1.18); border-radius: calc(var(--size) * .14) calc(var(--size) * .3) calc(var(--size) * .14) calc(var(--size) * .14);
+  background: linear-gradient(180deg, #fbfbfb, #e9e9ea); box-shadow: inset 0 0 0 1px rgb(0 0 0 / .1), 0 1px 2px rgb(0 0 0 / .2); }
+.ficon i { position: absolute; left: -12%; bottom: 10%; min-width: 62%; padding: 0 3px; height: 46%; border-radius: 4px; display: grid; place-items: center; background: var(--ft); color: #fff; font: 700 calc(var(--size) * .3)/1 -apple-system, sans-serif; font-style: normal; }
+.row { display: flex; align-items: center; gap: 14px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 50px; padding: 0 24px; border-radius: 14px; font-size: 21px; font-weight: 600; background: var(--raise); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink); }
+.btn.blue { background: #2f7cf6; color: #fff; box-shadow: none; }
+.fade { transition: none; }
+
+/* the writer's pill by the caret */
+.wpill { position: absolute; display: inline-flex; align-items: center; gap: 12px; height: 56px; padding: 0 12px 0 18px; border-radius: 999px; background: var(--menu); font-size: 22px; font-weight: 600; color: var(--ink);
+  box-shadow: 0 0 0 1px var(--line), 0 18px 40px -18px rgb(0 0 0 / .5); transform-origin: 0 50%; }
+.spark { width: 22px; height: 22px; background: conic-gradient(from 0deg, var(--sky), #b9a7ff, #ff9fbf, #ffc87a, var(--sky)); clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); }
+.think { background: linear-gradient(90deg, var(--ink-3) 0%, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%, var(--ink-3) 100%); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; }
+.mail-f { display: flex; gap: 10px; padding: 16px 54px; font-size: 23px; color: var(--ink); box-shadow: inset 0 -1px 0 var(--line); }
+.mail-f span { color: var(--ink-3); }
+
+/* sheets */
+.grid { border-collapse: collapse; font-size: 22px; font-variant-numeric: tabular-nums; }
+.grid td { height: 52px; padding: 0 16px; border: 1px solid var(--line); white-space: nowrap; }
+.grid td.h { background: var(--raise); color: var(--ink-3); text-align: center; font-size: 18px; font-weight: 600; padding: 0 10px; }
+.grid td.n { text-align: right; }
+.grid td.on { background: var(--sel); }
+.hl-box { position: absolute; border: 3px solid var(--sel-edge); border-radius: 3px; pointer-events: none; }
+.hl-box::after { content: ""; position: absolute; right: -7px; bottom: -7px; width: 11px; height: 11px; border-radius: 50%; background: var(--sel-edge); box-shadow: 0 0 0 2px var(--win); }
+
+/* menus and sheets drawn over a window */
+.menu { position: absolute; border-radius: 18px; background: var(--menu); box-shadow: 0 0 0 1px var(--line), 0 30px 60px -24px rgb(0 0 0 / .55); padding: 10px; font-size: 22px; }
+.menu .mi { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 16px; border-radius: 10px; }
+.menu .mi.on { background: #2f7cf6; color: #fff; }
+.menu hr { border: 0; height: 1px; margin: 8px 6px; background: var(--line); }
+.notice { margin: 4px 6px 6px; padding: 16px; border-radius: 12px; background: color-mix(in srgb, #ffb020 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, #ffb020 40%, transparent); font-size: 20px; }
+.strike { text-decoration: line-through 2px; color: var(--ink-3); }
+.new { color: var(--good); font-weight: 600; }
+
+/* terminal */
+.term { font: 400 20.5px/1.62 "Geist Mono", ui-monospace, Menlo, monospace; color: #e9e9e4; }
+.term .dim { color: #8a8d86; } .term .lime { color: var(--lime); } .term .sky { color: var(--sky); } .term .you { color: #fff; }
+
+/* The Ranch: its own dark look and the website's typeface */
+.ranch { position: absolute; border-radius: 26px; overflow: hidden; background: #1a1b18; box-shadow: 0 60px 110px -40px rgb(0 0 0 / .85), 0 0 0 1px rgb(255 255 255 / .1);
+  font-family: "Figtree", -apple-system, sans-serif; color: #f6f4ec; letter-spacing: -.01em; }
+.ranch .side { position: absolute; left: 0; top: 0; bottom: 0; width: 226px; padding: 70px 14px 0; font-size: 20px; color: rgb(246 244 236 / .7); }
+.ranch .side .lights { top: 24px; }
+.ranch .si { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 10px; border-radius: 12px; white-space: nowrap; font-size: 18.5px; }
+.ranch .si.on { background: rgb(246 244 236 / .1); color: #f6f4ec; }
+.ranch .si b { margin-left: auto; min-width: 26px; height: 24px; padding: 0 7px; border-radius: 999px; background: var(--terracotta); color: #fff; font-size: 15px; display: grid; place-items: center; }
+.ranch .si svg { width: 22px; height: 22px; flex: none; opacity: .85; }
+.ranch .sh { margin: 22px 14px 8px; font-size: 16px; font-weight: 600; color: rgb(246 244 236 / .4); }
+.ranch .tree { padding-left: 30px; }
+.ranch .page { position: absolute; left: 226px; top: 64px; right: 10px; bottom: 10px; border-radius: 18px; background: #0f100e; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .06); overflow: hidden; }
+.ranch .title { position: absolute; left: 252px; top: 14px; font-size: 25px; font-weight: 600; display: flex; align-items: center; gap: 14px; }
+.ranch .bell { position: absolute; right: 30px; top: 18px; width: 26px; height: 26px; opacity: .7; }
+.ranch .lrow { display: grid; grid-template-columns: 64px 30px 1fr 236px 14px; align-items: center; gap: 12px; height: 70px; padding: 0 26px; font-size: 20px; box-shadow: inset 0 -1px 0 rgb(255 255 255 / .06); }
+.ranch .lrow .t { color: rgb(246 244 236 / .45); font-variant-numeric: tabular-nums; }
+.ranch .who { display: flex; align-items: center; gap: 10px; }
+.ranch .av { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; font-weight: 700; color: #10110f; flex: none; }
+.ranch .src { display: flex; align-items: center; gap: 10px; color: rgb(246 244 236 / .7); overflow: hidden; white-space: nowrap; }
+.ranch .chev { width: 14px; height: 14px; border-right: 2.5px solid rgb(246 244 236 / .4); border-bottom: 2.5px solid rgb(246 244 236 / .4); transform: rotate(-45deg); }
+.ranch .newpill { position: absolute; left: 50%; top: 18px; translate: -50% 0; height: 44px; padding: 0 20px; border-radius: 999px; background: var(--sky); color: #0b1a28; font-size: 19px; font-weight: 600; display: flex; align-items: center; gap: 8px; box-shadow: 0 16px 30px -14px rgb(0 0 0 / .8); }
+.ranch .diff { overflow: hidden; background: rgb(246 244 236 / .035); box-shadow: inset 0 -1px 0 rgb(255 255 255 / .06); }
+.ranch .dl { display: grid; grid-template-columns: 30px 1fr 90px 90px; align-items: center; height: 46px; padding: 0 30px; font-size: 19px; font-variant-numeric: tabular-nums; }
+.ranch .dl.minus { background: rgb(255 107 107 / .12); } .ranch .dl.plus { background: rgb(60 207 122 / .13); }
+.ranch .fact { display: flex; flex-wrap: wrap; gap: 6px 22px; padding: 18px 30px 14px; font-size: 17px; color: rgb(246 244 236 / .5); }
+.ranch .fact b { color: rgb(246 244 236 / .85); font-weight: 600; }
+.ranch .glass { background: rgb(40 41 37 / .82); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .1), inset 0 1px 0 rgb(255 255 255 / .12), 0 24px 50px -20px rgb(0 0 0 / .8); }
+.ranch .chip { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px; border-radius: 999px; background: rgb(142 197 244 / .18); color: var(--sky); font-size: 18px; font-weight: 600; }
+.ranch .btn { font-family: inherit; background: rgb(246 244 236 / .1); color: #f6f4ec; box-shadow: none; border-radius: 999px; }
+.ranch .btn.ink { background: #f6f4ec; color: #10110f; }
+
+/* the suggestion card, drawn for scenes without a captured picture */
+.lc { position: absolute; display: grid; grid-template-columns: 44% 56%; border-radius: 22px; overflow: hidden; background: var(--menu); color: var(--ink);
+  box-shadow: 0 0 0 1px var(--line), 0 40px 80px -30px rgb(0 0 0 / .6); font-size: 19px; transform-origin: 60px 0; }
+.lc-l { padding: 16px 14px 0; box-shadow: inset -1px 0 0 var(--line); display: grid; grid-template-rows: auto 1fr auto; }
+.lc-l h6 { margin: 2px 8px 12px; font-size: 17px; font-weight: 600; color: var(--ink-3); }
+.lc-row { display: flex; gap: 12px; align-items: center; padding: 12px; border-radius: 14px; background: var(--sel); box-shadow: inset 0 0 0 1.5px var(--sel-edge); }
+.lc-row b { display: block; font-size: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc-row small { display: block; font-size: 15.5px; color: var(--ink-3); white-space: nowrap; }
+.lc-foot { display: flex; gap: 10px; align-items: center; padding: 14px 6px; font-size: 15px; color: var(--ink-3); box-shadow: inset 0 1px 0 var(--line); margin: 0 -14px; padding-left: 20px; }
+.lc-r { padding: 18px; display: grid; gap: 12px; align-content: start; }
+.lc-r h5 { margin: 0; font-size: 20px; }
+.lc-r small { color: var(--ink-3); font-size: 15.5px; }
+.vframe { position: relative; height: 190px; border-radius: 12px; overflow: hidden; background: radial-gradient(70% 90% at 30% 30%, #3a3456, #131218); }
+.vframe .cap { position: absolute; left: 12px; right: 12px; bottom: 34px; padding: 6px 10px; border-radius: 6px; background: rgb(0 0 0 / .55); color: #fff; font-size: 15px; text-align: center; }
+.vframe .bar2 { position: absolute; left: 12px; right: 12px; bottom: 14px; height: 5px; border-radius: 3px; background: rgb(255 255 255 / .25); }
+.vframe .bar2 i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: #fff; }
+.vframe .tm { position: absolute; right: 12px; top: 10px; font-size: 14px; color: rgb(255 255 255 / .8); font-variant-numeric: tabular-nums; }
+.vframe .who { position: absolute; left: 50%; top: 34px; translate: -50% 0; width: 70px; height: 70px; border-radius: 50%; background: linear-gradient(#7c6bb0, #4a3f72); box-shadow: 0 60px 0 30px #3f3664; }
+
+/* a desktop, for the USB scene */
+.desk { position: absolute; border-radius: 24px; overflow: hidden; background: linear-gradient(160deg, #7fa7c9, #b9c9a4 60%, #d7bd85); box-shadow: var(--shadow); }
+:root[data-theme="dark"] .desk { background: linear-gradient(160deg, #1d2a3a, #2a3324 60%, #3a3122); }
+.menubar { height: 46px; display: flex; align-items: center; gap: 22px; padding: 0 20px; background: rgb(255 255 255 / .55); color: #1d1d1f; font-size: 18px; -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
+:root[data-theme="dark"] .menubar { background: rgb(20 20 22 / .6); color: #f2f2f2; }
+.menubar .end { margin-left: auto; display: flex; align-items: center; gap: 18px; }
+.mb-lasso { width: 34px; height: 30px; display: grid; place-items: center; border-radius: 8px; }
+.mb-lasso img { width: 22px; height: 22px; }
+.mb-lasso.lit { background: rgb(47 124 246 / .9); box-shadow: 0 0 0 4px rgb(47 124 246 / .25); }
+.drive { position: absolute; display: grid; justify-items: center; gap: 8px; color: #fff; font-size: 17px; font-weight: 600; text-shadow: 0 1px 3px rgb(0 0 0 / .5); }
+.drive i { width: 86px; height: 62px; border-radius: 12px; background: linear-gradient(#f4f4f4, #cfcfd2); box-shadow: inset 0 -10px 0 #b9b9bd, 0 8px 16px -6px rgb(0 0 0 / .5); position: relative; }
+.drive i::after { content: ""; position: absolute; right: 12px; bottom: 16px; width: 8px; height: 8px; border-radius: 50%; background: #3ccf7a; }
+.pop { position: absolute; width: 470px; border-radius: 20px; background: var(--menu); color: var(--ink); padding: 22px; font-size: 19px; box-shadow: 0 0 0 1px var(--line), 0 30px 60px -20px rgb(0 0 0 / .55); transform-origin: 90% 0; }
+.pop b { font-size: 21px; }
+.pop p { margin: 6px 0 0; color: var(--ink-2); font-size: 17.5px; }
+.pop .acts { display: flex; gap: 10px; margin-top: 16px; }
+.pop .acts .btn { height: 44px; font-size: 17.5px; padding: 0 18px; }
+.chk { display: flex; align-items: center; gap: 12px; height: 44px; font-size: 18px; }
+.chk i { width: 24px; height: 24px; border-radius: 7px; box-shadow: inset 0 0 0 2px var(--ink-3); display: grid; place-items: center; font-style: normal; font-size: 15px; color: #fff; }
+.chk i.on { background: #2f7cf6; box-shadow: none; }
+.chk span { margin-left: auto; color: var(--ink-3); font-size: 16px; font-variant-numeric: tabular-nums; }
+.prog { height: 10px; border-radius: 5px; background: var(--line); margin-top: 16px; overflow: hidden; }
+.prog i { display: block; height: 100%; border-radius: 5px; background: #2f7cf6; }
+.dirs { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 18px; }
+.dirs li { display: flex; gap: 10px; align-items: center; color: var(--ink-2); }
+.dirs li.new { color: var(--ink); font-weight: 600; }
+.dirs li::before { content: ""; width: 20px; height: 16px; border-radius: 4px; background: #7fb2ef; }
+
+/* the ⌥Tab switcher */
+.sw { position: absolute; border-radius: 26px; padding: 10px; background: color-mix(in srgb, var(--menu) 88%, transparent); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px);
+  box-shadow: inset 0 0 0 1px var(--line), inset 0 1px 0 rgb(255 255 255 / .2), 0 30px 60px -24px rgb(0 0 0 / .55); display: grid; gap: 8px; font-size: 19px; }
+.sw-line { display: flex; align-items: center; gap: 6px; }
+.sw-line > span { width: 118px; padding-left: 10px; font-size: 15.5px; font-weight: 600; color: var(--ink-3); }
+.sw-seg { display: inline-flex; align-items: center; gap: 8px; height: 46px; padding: 0 16px; border-radius: 999px; color: var(--ink-2); white-space: nowrap; }
+.sw-seg.on { background: #2f7cf6; color: #fff; font-weight: 600; }
+.sw-seg .ficon { --size: 20px; }
+
+/* keys */
+.keygrid { position: absolute; left: 90px; right: 90px; top: 150px; display: grid; grid-template-columns: 1fr 1fr; gap: 26px 30px; font-family: "Figtree", -apple-system, sans-serif; }
+.keycell { display: grid; gap: 12px; padding: 22px; border-radius: 24px; background: color-mix(in srgb, var(--win) 80%, transparent); box-shadow: inset 0 0 0 1px var(--line); }
+.keycell .ks { display: flex; gap: 10px; }
+.keycell .kc { min-width: 62px; height: 62px; font-size: 26px; border-radius: 14px; }
+.keycell b { font-size: 22px; font-weight: 600; }
+.keycell small { font-size: 18px; color: var(--ink-2); }
+.keycell.star { grid-column: span 2; grid-template-columns: auto 1fr; align-items: center; column-gap: 26px; }
+.keycell.star .kc { min-width: 150px; height: 92px; font-size: 38px; border-radius: 20px; background: #2f7cf6; color: #fff; box-shadow: 0 6px 0 #1f5fc8, 0 24px 40px -16px rgb(47 124 246 / .7); }
+.keycell.star b { font-size: 30px; }
+
+/* the passage picker */
+.ppk { position: absolute; border-radius: 24px; overflow: hidden; background: var(--menu); box-shadow: 0 0 0 1px var(--line), 0 50px 100px -40px rgb(0 0 0 / .7); }
+.ppk .page { margin: 22px 26px 0; padding: 34px 40px; border-radius: 10px 10px 0 0; background: #fff; color: #222; font-size: 20px; line-height: 1.65; box-shadow: 0 0 0 1px rgb(0 0 0 / .1); height: 520px; }
+.ppk .page h4 { margin: 0 0 16px; font-size: 24px; }
+.ppk .page p { margin: 0 0 14px; }
+.ppk mark { background: rgb(255 224 102 / .95); color: inherit; border-radius: 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.ppk .foot { display: flex; align-items: center; gap: 12px; padding: 16px 22px; box-shadow: inset 0 1px 0 var(--line); font-size: 17px; color: var(--ink-3); }
+.ppk .foot .btn { height: 44px; font-size: 18px; }
+</style>
+</head>
+<body>
+<div id="card"></div>
+<script src="/assets/js/ascii-mascot.js"></script>
+<script>
+'use strict';
+const params = new URLSearchParams(location.search);
+document.documentElement.dataset.theme = params.get('theme') === 'dark' ? 'dark' : 'light';
+const card = document.getElementById('card');
+const fit = () => { card.style.transform = `scale(${innerWidth / 1000})`; };
+addEventListener('resize', fit); fit();
+
+/* ---------- time helpers ---------- */
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const out3 = (x) => 1 - (1 - x) ** 3;
+const spring = (x) => { const s = clamp(x); return 1 - Math.cos(s * Math.PI * 1.25) * Math.exp(-s * 5.2); };
+const $ = (s, el = card) => el.querySelector(s);
+const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const set = (el, styles) => Object.assign(el.style, styles);
+const fade = (el, o, dy = 0, s = 1) => set(el, { opacity: o, transform: `translateY(${dy}px) scale(${s})` });
+const icon = (label, color, size = 34) => `<span class="ficon" style="--ft:${color};--size:${size}px"><i>${label}</i></span>`;
+const KIND = { xlsx: ['X', '#1f8a4c'], csv: ['CSV', '#2f8f5b'], pdf: ['PDF', '#d1453b'], docx: ['W', '#2b65c9'], pptx: ['P', '#d0612e'], mov: ['▶', '#6e56cf'], step: ['3D', '#6b7280'] };
+const fileIcon = (kind, size) => icon(KIND[kind][0], KIND[kind][1], size);
+const LIGHTS = '<i class="lights"><b></b><b></b><b></b></i>';
+/* a string of words, some linked: "Revenue was [4.82] million" */
+const words = (text) => text.split(/(\[[^\]]+\]|\s+)/).filter(Boolean).map((w) => (w.startsWith('[') ? { w: w.slice(1, -1), link: true } : { w }));
+const wordsHTML = (list, n) => list.slice(0, n).map((x) => (x.link ? `<span class="lk">${esc(x.w)}</span>` : esc(x.w).replace(/\n/g, '<br>'))).join('');
+
+const ICONS = {
+  sources: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg>',
+  changes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>',
+  links: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>',
+  review: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/><path d="m9 10 2 2 4-4"/></svg>',
+  flag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4h11l-2 4 2 4H5"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>',
+  bell: '<svg class="bell" viewBox="0 0 24 24" fill="none" stroke="#f6f4ec" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>',
+  folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg>',
+};
+/* The Ranch's sidebar, with one row chosen */
+const ranchSide = (on) => {
+  const row = (key, label, extra = '') => `<div class="si${on === key ? ' on' : ''}">${ICONS[key === 'needs' ? 'flag' : key]}${label}${extra}</div>`;
+  return `<div class="side">${LIGHTS}
+    ${row('search', 'Search')}${row('sources', 'All Sources')}${row('changes', 'Recent Changes')}${row('links', 'Links')}${row('needs', 'Needs Review', '<b>2</b>')}${row('review', 'Review Changes')}
+    <p class="sh">Directories</p>
+    <div class="si">${ICONS.folder}Accounting</div><div class="si tree">${ICONS.folder}Halden Ltd</div><div class="si tree">${ICONS.folder}Board</div><div class="si">${ICONS.folder}Leases</div></div>`;
+};
+const AV = { P: ['PS', '#8ec5f4'], Y: ['You', '#d4f75c'], C: ['AI', '#b9a7ff'], L: ['LM', '#d7bd85'] };
+const avatar = (k) => `<span class="av" style="background:${AV[k][1]};${AV[k][0].length > 2 ? 'font-size:11px' : ''}">${AV[k][0]}</span>`;
+
+/* ======================================================================
+   Scenes
+   ====================================================================== */
+const SCENES = {};
+
+/* ---------- AI writer: a backslash prompt, handed over with Tab, answered with linked figures ---------- */
+SCENES.writer = {
+  duration: 11000, still: 9000,
+  build() {
+    card.innerHTML = `<div class="glow" style="left:70px;top:110px;width:860px;height:900px;--a:210deg"></div>
+    <div class="win" style="left:90px;top:140px;width:820px;height:940px">
+      <div class="bar">${LIGHTS}<span>New Message</span></div>
+      <div class="mail-f"><span>To:</span>Priya Raman</div>
+      <div class="mail-f"><span>Subject:</span>Income tax expense</div>
+      <div class="doc" style="font-size:29px"><div id="flow"></div></div>
+      <div class="wpill" id="pill" style="left:54px;top:252px"><i class="spark"></i><span id="pillText">Write with ChatGPT</span><span class="kc sm" id="pillKey">⇥</span></div>
+    </div>`;
+    this.prompt = '\\Write an email about the income tax expense';
+    this.answer = words('Hi Priya,\n\nIncome tax expense was [5,200 in the current period], compared with [3,200 in the prior period], an increase of [2,000]. The statement does not give a reason for the increase.\n\nBest regards,\nSam');
+  },
+  tick(t) {
+    const flow = $('#flow'), pill = $('#pill'), key = $('#pillKey'), label = $('#pillText');
+    const TYPE_AT = 500, TYPE_MS = 48, PILL_AT = 2800, TAB_AT = 3700, ANSWER_AT = 5000, WORD_MS = 62, FADE_AT = 10300;
+    if (t < TAB_AT + 150) {
+      const n = Math.floor(clamp((t - TYPE_AT) / TYPE_MS, 0, this.prompt.length));
+      flow.innerHTML = `${esc(this.prompt.slice(0, n))}<span class="caret"></span>`;
+      flow.style.opacity = 1;
+    } else if (t < ANSWER_AT) {
+      flow.innerHTML = '<span class="caret"></span>';
+    } else {
+      const n = Math.floor((t - ANSWER_AT) / WORD_MS);
+      flow.innerHTML = wordsHTML(this.answer, n) + '<span class="caret"></span>';
+      flow.style.opacity = 1 - seg(t, FADE_AT, FADE_AT + 500);
+    }
+    // the pill: offered under the prompt, pressed, then a thinking line until the first words
+    const shown = spring(seg(t, PILL_AT, PILL_AT + 420));
+    const gone = seg(t, ANSWER_AT - 100, ANSWER_AT + 200);
+    set(pill, { opacity: shown * (1 - gone), transform: `scale(${0.85 + 0.15 * shown})` });
+    key.classList.toggle('down', t > TAB_AT && t < TAB_AT + 200);
+    if (t > TAB_AT + 150) {
+      label.innerHTML = '<span class="think">Looking up income tax expense</span>';
+      label.firstChild.style.backgroundPosition = `${100 - ((t - TAB_AT) / 12) % 300}% 0`;
+      key.style.display = 'none';
+      pill.style.top = '196px';
+    } else { label.textContent = 'Write with ChatGPT'; key.style.display = ''; pill.style.top = '252px'; }
+  },
+};
+
+/* ---------- Sharing: ⇧⌘Return, a redacted copy, a link that expires ---------- */
+SCENES.share = {
+  duration: 11000, still: 7600,
+  build() {
+    card.innerHTML = `<div class="glow" style="left:40px;top:90px;width:900px;height:920px;--a:40deg"></div>
+    <div class="win" id="notes" style="left:70px;top:120px;width:860px;height:760px">
+      <div class="bar">${LIGHTS}<span>Renewal notes</span></div>
+      <div class="doc"><p class="mute">Unit 4 lease, for the meeting with Martin.</p>
+        <p>Under clause 12.3, notice to renew is <span class="lk">six months’ written notice</span> before expiry.<span id="tail"></span><span class="caret"></span></p></div>
+    </div>
+    <div id="keys" class="row" style="position:absolute;left:0;right:0;top:600px;justify-content:center;gap:14px"><span class="kc">⇧</span><span class="kc">⌘</span><span class="kc">↩</span></div>
+    <div class="menu" id="sheet" style="left:110px;top:300px;width:780px;padding:26px">
+      <div class="row" style="gap:16px">${fileIcon('pdf', 40)}<div><div style="font-size:24px;font-weight:600">lease_unit4_signed.pdf</div><div style="font-size:18px;color:var(--ink-3)">Share a private link</div></div></div>
+      <div style="display:grid;grid-template-columns:1fr 250px;gap:22px;margin-top:22px">
+        <div style="position:relative;display:grid;gap:6px" id="ways">
+          <div id="waySel" style="position:absolute;left:0;right:0;height:62px;border-radius:12px;background:var(--sel);box-shadow:inset 0 0 0 2px var(--sel-edge)"></div>
+          <div class="mi" style="height:62px;position:relative"><span>The clause<br><small style="color:var(--ink-3);font-size:16px">Page 1, highlighted</small></span></div>
+          <div class="mi" style="height:62px;position:relative"><span>Whole file</span></div>
+          <div class="mi" style="height:62px;position:relative"><span>Redacted copy<br><small style="color:var(--ink-3);font-size:16px">Names and sums hidden</small></span></div>
+        </div>
+        <div style="border-radius:12px;background:#fff;box-shadow:inset 0 0 0 1px rgb(0 0 0 / .12);padding:18px 16px;color:#222;font-size:10px;line-height:1.5">
+          <b style="font-size:12px">Lease Agreement · Unit 4</b><p style="margin:8px 0">Between <span class="red">Halden Holdings Ltd</span> and <span class="red">Martin Okafor</span>.</p>
+          <p style="margin:8px 0">12.3 <span style="background:#ffe066">The Tenant shall give the Landlord not less than six (6) months’ written notice of its intention to renew.</span></p>
+          <p style="margin:8px 0">18.1 Aggregate liability shall not exceed <span class="red">€250,000</span>.</p></div>
+      </div>
+      <div class="row" style="justify-content:flex-end;margin-top:22px;gap:12px"><span class="btn">Cancel</span><span class="btn blue" id="make">Create link</span></div>
+    </div>
+    <div class="win" id="browser" style="left:250px;top:430px;width:820px;height:640px">
+      <div class="bar" style="justify-content:flex-start;padding-left:120px">${LIGHTS}<span style="flex:1;margin-right:40px;height:38px;border-radius:10px;background:var(--raise);display:flex;align-items:center;justify-content:center;font-weight:500;color:var(--ink-2)">🔒 mylasso.ca/d/Q3n8x2</span></div>
+      <div style="padding:26px 40px">
+        <div class="row" style="justify-content:space-between;font-size:18px;color:var(--ink-3)"><span>Shared from Lasso · redacted copy</span><span>Expires in 48 hours</span></div>
+        <div style="margin-top:18px;border-radius:14px;background:#fff;color:#1d1d1f;box-shadow:0 0 0 1px rgb(0 0 0 / .1);padding:28px 32px;font-size:19px;line-height:1.6">
+          <b style="font-size:22px">Lease Agreement · Unit 4</b>
+          <p style="margin:12px 0">Between <span class="redact">Halden Holdings Ltd</span> and <span class="redact">Martin Okafor</span>.</p>
+          <p style="margin:12px 0">12.3 Notice to renew. <span style="background:#ffe066">The Tenant shall give the Landlord not less than six (6) months’ written notice of its intention to renew prior to expiry.</span></p>
+          <p style="margin:12px 0">18.1 The Landlord’s aggregate liability shall not exceed <span class="redact">€250,000</span>.</p></div>
+      </div>
+    </div>
+    <style>.redact{background:#111;color:transparent;border-radius:3px}.red{transition:none}</style>`;
+  },
+  tick(t) {
+    const KEYS_AT = 700, SHEET_AT = 1700, PICK_AT = 2900, MAKE_AT = 4300, CLOSE_AT = 5400, TAIL_AT = 5700, BROWSER_AT = 6500, FADE_AT = 10200;
+    const keys = [...$('#keys').children];
+    const kIn = seg(t, KEYS_AT, KEYS_AT + 250), kOut = seg(t, SHEET_AT - 150, SHEET_AT + 100);
+    keys.forEach((k, i) => { k.classList.toggle('down', t > KEYS_AT + 300 + i * 160 && t < SHEET_AT); });
+    fade($('#keys'), kIn * (1 - kOut), 20 * (1 - kIn));
+    const sIn = spring(seg(t, SHEET_AT, SHEET_AT + 500)), sOut = seg(t, CLOSE_AT, CLOSE_AT + 250);
+    fade($('#sheet'), clamp(sIn) * (1 - sOut), 0, 0.94 + 0.06 * sIn - 0.03 * sOut);
+    const move = out3(seg(t, PICK_AT, PICK_AT + 380));
+    $('#waySel').style.top = `${move * 2 * 68}px`;
+    const redacted = seg(t, PICK_AT + 300, PICK_AT + 700);
+    card.querySelectorAll('#sheet .red').forEach((el) => set(el, { background: `rgb(17 17 17 / ${redacted})`, color: redacted > 0.5 ? 'transparent' : '#222', borderRadius: '2px' }));
+    const make = $('#make');
+    make.classList.toggle('down', t > MAKE_AT && t < MAKE_AT + 180);
+    make.style.transform = t > MAKE_AT && t < MAKE_AT + 180 ? 'scale(.96)' : '';
+    make.innerHTML = t > MAKE_AT + 200 ? '✓ Copied mylasso.ca/d/Q3n8x2' : 'Create link';
+    make.style.background = t > MAKE_AT + 200 ? 'var(--good)' : '';
+    const n = Math.floor(clamp((t - TAIL_AT) / 30, 0, 22));
+    $('#tail').innerHTML = n ? ` <span class="url">${'mylasso.ca/d/Q3n8x2'.slice(0, n - 3) || ''}</span>` : '';
+    const bIn = spring(seg(t, BROWSER_AT, BROWSER_AT + 700)), bOut = seg(t, FADE_AT, FADE_AT + 500);
+    set($('#browser'), { opacity: clamp(bIn * 1.4) * (1 - bOut), transform: `translateY(${(1 - bIn) * 380}px)` });
+    $('#tail').style.opacity = 1 - bOut;
+  },
+};
+
+/* ---------- The Ranch: a change arrives, opens in place to what changed ---------- */
+const RANCH_ROWS = [
+  ['13:47', 'C', 'ChatGPT', 'Website development 0 → 50', 'xlsx', 'Income-Statement.xlsx'],
+  ['11:20', 'P', 'Priya Shah', 'Added clause 18.3', 'pdf', 'lease_unit4_signed.pdf'],
+  ['10:02', 'L', 'Lee Moreau', 'New slide, Margin bridge', 'pptx', 'board_q3.pptx'],
+  ['09:15', 'Y', 'You', 'Bank export for October', 'csv', 'bank_export_oct.csv'],
+  ['Mon', 'P', 'Priya Shah', 'Revenue cut-off memo', 'docx', 'audit_memo_q3.docx'],
+  ['Mon', 'Y', 'You', 'Hole Ø8 → Ø8.5', 'step', 'Bracket.step'],
+];
+const ranchRow = ([time, who, name, change, kind, file], extra = '') => `<div class="lrow" ${extra}><span class="t">${time}</span><span class="who" title="${name}">${avatar(who)}</span><span>${change}</span><span class="src">${fileIcon(kind, 26)}${file}</span><i class="chev"></i></div>`;
+SCENES.ranch = {
+  duration: 11000, still: 6400,
+  build() {
+    card.innerHTML = `<div class="glow" style="left:40px;top:80px;width:1000px;height:1000px;--a:120deg"></div>
+    <div class="ranch" style="left:50px;top:110px;width:900px;height:980px">
+      ${ranchSide('changes')}
+      <div class="title">Recent Changes</div>${ICONS.bell}
+      <div class="page"><div id="list" style="position:absolute;left:0;right:0;top:0"></div><div class="newpill" id="newpill">↑ 1 new change</div></div>
+    </div>`;
+    this.fresh = ['14:02', 'Y', 'You', 'Q3 operating revenue 4.82 → 4.86', 'xlsx', 'forecast_2026.xlsx'];
+  },
+  tick(t) {
+    const PILL_AT = 1300, CLICK_AT = 2500, OPEN_AT = 3900, CLOSE_AT = 9200, FADE_AT = 10300;
+    const arrived = t > CLICK_AT;
+    const slide = out3(seg(t, CLICK_AT, CLICK_AT + 500));
+    const open = out3(seg(t, OPEN_AT, OPEN_AT + 550)) * (1 - out3(seg(t, CLOSE_AT, CLOSE_AT + 450)));
+    const reset = seg(t, FADE_AT, FADE_AT + 600);
+    const diffH = 330 * open;
+    let html = '';
+    if (arrived && reset < 1) {
+      html += ranchRow(this.fresh, `style="background:rgb(142 197 244 / ${0.16 * (1 - seg(t, OPEN_AT + 2200, OPEN_AT + 3200))});opacity:${slide * (1 - reset)}"`);
+      html += `<div class="diff" style="height:${diffH}px">
+        <div class="fact"><span>Sheet <b>P&amp;L</b></span><span>Cell <b>D12</b></span><span>Version <b>6 → 7</b></span><span>Saved by <b>you</b>, 14:02</span></div>
+        <div class="dl minus"><span>−</span><span>Operating revenue · Q3</span><span>4.82</span><span></span></div>
+        <div class="dl plus"><span>+</span><span>Operating revenue · Q3</span><span></span><span>4.86</span></div>
+        <div class="fact" style="padding-top:16px">Recalculated · 2 cells</div>
+        <div class="dl"><span></span><span>Gross profit · Q3</span><span class="strike">1.85</span><span class="new">1.89</span></div>
+        <div class="dl"><span></span><span>Gross margin · Q3</span><span class="strike">38.4%</span><span class="new">38.9%</span></div></div>`;
+    }
+    html += RANCH_ROWS.map((r) => ranchRow(r)).join('');
+    const list = $('#list');
+    list.innerHTML = html;
+    list.style.transform = arrived ? `translateY(${(1 - slide) * -70 + reset * -70}px)` : '';
+    const pIn = spring(seg(t, PILL_AT, PILL_AT + 450)), pOut = seg(t, CLICK_AT, CLICK_AT + 200);
+    set($('#newpill'), { opacity: clamp(pIn) * (1 - pOut), transform: `translateY(${(1 - pIn) * -30}px) scale(${t > CLICK_AT - 160 && t < CLICK_AT ? 0.95 : 1})` });
+  },
+};
+
+/* ---------- stills ---------- */
+SCENES.picker = {
+  build() {
+    const rows = [['', 'Q1', 'Q2', 'Q3', 'Q4 fc'], ['Operating revenue', '4.31', '4.58', '4.82', '5.02'], ['Cost of goods sold', '2.62', '2.70', '2.97', '3.04'],
+      ['Gross profit', '1.69', '1.88', '1.85', '1.98'], ['Gross margin', '39.2%', '41.0%', '38.4%', '39.4%'], ['Operating expenses', '1.12', '1.15', '1.21', '1.24'], ['EBITDA', '0.57', '0.73', '0.64', '0.74'], ['', '', '', '', '']];
+    const on = (r, c) => (r <= 1 && c <= 3) || (r === 4 && c <= 3);
+    const grid = `<table class="grid"><tr><td class="h"></td>${'ABCDE'.split('').map((c) => `<td class="h">${c}</td>`).join('')}</tr>${rows.map((row, r) => `<tr><td class="h">${r + 1}</td>${row.map((v, c) => `<td class="${c ? 'n' : ''}${on(r, c) ? ' on' : ''}" style="${c ? '' : 'min-width:250px'}">${v}</td>`).join('')}</tr>`).join('')}</table>`;
+    card.innerHTML = `<div class="glow" style="left:30px;top:90px;width:900px;height:620px;--a:300deg"></div><div class="glow" style="left:420px;top:560px;width:620px;height:480px;--a:80deg"></div>
+    <div class="win" style="left:60px;top:110px;width:900px;height:640px">
+      <div class="bar">${LIGHTS}<span>forecast_2026.xlsx</span><small>P&amp;L</small></div>
+      <div style="position:relative;padding:26px 30px">${grid}
+      </div>
+      <div class="wpill" style="left:30px;top:520px;height:50px;font-size:20px"><span>2 highlights</span><span style="color:var(--ink-3)">Paste</span><span class="kc sm">⇥</span></div>
+    </div>
+    <div class="win" style="left:400px;top:600px;width:700px;height:520px">
+      <div class="bar">${LIGHTS}<span>Re: Q3 numbers</span></div>
+      <div class="doc" style="font-size:24px;padding:26px 36px"><p>Hi Priya, here are the figures:</p>
+        <div style="display:inline-block;border-radius:6px;box-shadow:0 0 0 1px var(--line);overflow:hidden"><table class="grid" style="font-size:18px"><tr><td style="min-width:200px"></td><td class="n">Q1</td><td class="n">Q2</td><td class="n">Q3</td></tr><tr><td>Operating revenue</td><td class="n">4.31</td><td class="n">4.58</td><td class="n">4.82</td></tr><tr><td>Gross margin</td><td class="n">39.2%</td><td class="n">41.0%</td><td class="n">38.4%</td></tr></table></div>
+        <p style="margin-top:8px;font-size:16px;color:var(--ink-3)">forecast_2026.xlsx · P&amp;L!A1:D2, A5:D5</p></div>
+    </div>`;
+    // a box around each run of chosen rows, measured in the drawing's own units
+    const host = card.querySelector('.grid').parentElement, origin = host.getBoundingClientRect(), k = origin.width / host.offsetWidth;
+    const runs = [];
+    card.querySelectorAll('.grid tr').forEach((tr) => {
+      const on = [...tr.querySelectorAll('td.on')];
+      if (!on.length) { runs.push(null); return; }
+      const a = on[0].getBoundingClientRect(), b = on[on.length - 1].getBoundingClientRect();
+      const box = { left: a.left, top: a.top, right: b.right, bottom: b.bottom };
+      const last = runs[runs.length - 1];
+      if (last) { last.bottom = box.bottom; last.right = Math.max(last.right, box.right); } else runs.push(box);
+    });
+    runs.filter(Boolean).forEach((r) => host.insertAdjacentHTML('beforeend', `<div class="hl-box" style="left:${(r.left - origin.left) / k - 2}px;top:${(r.top - origin.top) / k - 2}px;width:${(r.right - r.left) / k + 4}px;height:${(r.bottom - r.top) / k + 4}px"></div>`));
+  },
+};
+
+SCENES.provenance = {
+  build() {
+    card.innerHTML = `<div class="glow" style="left:50px;top:100px;width:900px;height:900px;--a:150deg"></div>
+    <div class="win" style="left:80px;top:130px;width:840px;height:960px">
+      <div class="bar">${LIGHTS}<span>Q3 board memo.docx</span><small>linked · 3 values</small></div>
+      <div class="doc" style="font-size:30px">
+        <p class="mute" style="font-size:20px;font-weight:600;letter-spacing:.08em;text-transform:uppercase">Results</p>
+        <p>Q3 operating revenue was <span class="lk" style="background:rgb(23 125 255 / .2)">4.82</span> million euros, against a budget of <span class="lk" style="--under:#22a35a;text-decoration-color:#22a35a;background:rgb(34 163 90 / .12)">4.95</span>. Gross margin was <span class="lk" style="text-decoration-color:#d99a1e;background:rgb(217 154 30 / .14)">38.4%</span>, down from 41.0% in Q2.</p>
+        <p class="mute" style="margin-top:400px">Operating expenses stayed close to budget. Cash position and hiring are covered in the appendix.</p>
+      </div>
+    </div>
+    <div class="menu" style="left:360px;top:440px;width:520px">
+      <div class="row" style="padding:10px 12px 14px">${fileIcon('xlsx', 40)}<div><div style="font-weight:600">forecast_2026.xlsx</div><div style="font-size:18px;color:var(--ink-3)">P&amp;L · D15 · version 6</div></div></div>
+      <div class="mi on">Inspect Source</div>
+      <div class="mi">Change Source <span style="color:var(--ink-3)">›</span></div>
+      <hr>
+      <div class="notice">Changed today: <span class="strike">38.4%</span> → <b>38.9%</b><div class="row" style="margin-top:12px;gap:10px"><span class="btn" style="height:40px;font-size:18px">Review</span><span class="btn" style="height:40px;font-size:18px;background:transparent">Keep 38.4%</span></div></div>
+    </div>`;
+  },
+};
+
+SCENES.mcp = {
+  async build() {
+    card.innerHTML = `<div style="position:absolute;inset:0;background:#07080a"></div><div class="stars"></div>
+    <div class="glow" style="left:160px;top:200px;width:700px;height:700px;--a:0deg;opacity:.22;filter:blur(110px)"></div>
+    <div class="win term" style="left:80px;top:150px;width:860px;height:780px;background:#141513;box-shadow:0 0 0 1px rgb(255 255 255 / .1),0 50px 100px -40px #000">
+      <div class="bar" style="background:#1d1e1b;color:#8a8d86">${LIGHTS}<span style="font-family:-apple-system,sans-serif">claude · ~/Finance</span></div>
+      <div style="padding:26px 34px">
+        <div class="row" style="align-items:flex-start;gap:26px"><canvas id="asc" width="220" height="150" style="width:220px;height:150px"></canvas>
+          <div style="padding-top:22px"><div class="lime" style="font-size:24px">Lasso MCP</div><div class="dim">scope Finance · 3 folders · on this Mac</div><div class="dim">no port, account or API key</div></div></div>
+        <div style="margin-top:22px"><span class="dim">&gt;</span> <span class="you">What is the total Amount for the West region in Transactions 2025.xlsx?</span></div>
+        <div style="margin-top:16px"><span class="sky">⏺</span> lasso.ask(<span class="lime">"West total Amount"</span>)</div>
+        <div class="dim" style="padding-left:30px">⎿ Transactions "Amount" total where Region is "West":<br>&nbsp;&nbsp;4867231.76, over 1014 of 5000 rows</div>
+        <div style="margin-top:16px"><span class="you">⏺</span> The West region’s Amount totals <b class="you">4,867,231.76</b>, across 1,014 of the 5,000 rows.</div>
+        <div style="margin-top:22px" class="lime">3,293 tokens · file tools took 12,300</div>
+      </div>
+    </div>`;
+    const picture = await LassoAscii.loadImage('/assets/img/mascot/lime-happy.svg');
+    const cols = 30, rows = 17, canvas = $('#asc'), ctx = canvas.getContext('2d');
+    const cells = LassoAscii.cells(picture, cols, rows);
+    const ratio = 2; canvas.width = 220 * ratio; canvas.height = 150 * ratio; ctx.scale(ratio, ratio);
+    const cw = 220 / cols, rh = 150 / rows;
+    ctx.font = `500 ${cw / 0.6}px "Geist Mono", Menlo, monospace`; ctx.textBaseline = 'top';
+    cells.forEach((line, r) => line.forEach((cell, c) => { if (cell) { ctx.fillStyle = cell.color; ctx.fillText(cell.ch, c * cw, r * rh); } }));
+  },
+};
+
+SCENES['ranch-review'] = {
+  build() {
+    const cell = (a, b, changed) => (changed ? `<span><span class="strike">${a}</span> <span class="new">${b}</span></span>` : `<span>${a}</span>`);
+    const line = (label, cur, prior, changed) => `<div class="dl" style="grid-template-columns:1fr 150px 90px;padding:0 26px;${changed ? 'background:rgb(60 207 122 / .1)' : ''}"><span>${label}</span>${cur}<span style="color:rgb(246 244 236 / .55)">${prior}</span></div>`;
+    card.innerHTML = `<div class="glow" style="left:30px;top:80px;width:1000px;height:1000px;--a:260deg"></div>
+    <div class="ranch" style="left:50px;top:110px;width:900px;height:980px">
+      ${ranchSide('review')}
+      <div class="title">Review Changes</div>${ICONS.bell}
+      <div class="page" style="padding:26px">
+        <div class="row" style="justify-content:space-between"><div><div style="font-size:28px;font-weight:600">Accounting <span style="color:rgb(246 244 236 / .4);font-weight:500">v63</span></div>
+          <div style="font-size:18px;color:rgb(246 244 236 / .5);margin-top:4px">Priya, Lee and you edited 3 files since it was approved on 18 Aug</div></div>
+          <span class="btn ink" style="height:48px">Approve</span></div>
+        <div class="row" style="gap:10px;margin-top:22px;font-size:18px"><span class="chip" style="background:rgb(246 244 236 / .12);color:#f6f4ec">${fileIcon('xlsx', 22)} Income-Statement.xlsx · 3 cells</span><span class="chip" style="background:transparent;color:rgb(246 244 236 / .55)">${fileIcon('pdf', 22)} lease_unit4_signed.pdf</span></div>
+        <div style="margin-top:18px;border-radius:14px;overflow:hidden;box-shadow:inset 0 0 0 1px rgb(255 255 255 / .08)">
+          <div class="dl" style="grid-template-columns:1fr 150px 90px;padding:0 26px;color:rgb(246 244 236 / .45);font-size:16px"><span>Operating expenses</span><span>Current period</span><span>Prior period</span></div>
+          ${line('Advertising and promotion', cell('300'), '206')}
+          ${line('Website development', cell('0', '50', true), '0', true)}
+          ${line('Total operating expenses', cell('11,907', '11,957', true), '7,062', true)}
+        </div>
+        <div style="margin:18px 0 0 40px;padding:18px 20px;border-radius:16px;background:rgb(246 244 236 / .05);box-shadow:inset 0 0 0 1px rgb(255 255 255 / .07);font-size:19px">
+          <div class="row" style="gap:10px">${avatar('P')}<b>Priya Shah</b><span style="color:rgb(246 244 236 / .4)">on D24</span></div>
+          <p style="margin:8px 0 14px 40px">\\Set website development for the current period to 50</p>
+          <div class="row" style="gap:10px">${avatar('C')}<b>ChatGPT</b><span style="color:rgb(246 244 236 / .4)">asked by Priya · agent edit</span></div>
+          <div style="margin:10px 0 0 40px;padding:12px 16px;border-radius:12px;background:rgb(60 207 122 / .1);font-size:18px">Website development · current period <span class="strike">0</span> → <span class="new">50</span></div>
+          <div class="row" style="gap:10px;margin:14px 0 0 40px"><span class="btn" style="height:40px;font-size:17px">Applied</span><span class="btn" style="height:40px;font-size:17px;background:transparent">Reply</span><span class="btn" style="height:40px;font-size:17px;background:transparent">Resolve</span></div>
+        </div>
+      </div>
+    </div>`;
+  },
+};
+
+SCENES['ranch-sources'] = {
+  build() {
+    const rows = [['xlsx', 'forecast_2026.xlsx', 'Spreadsheet', 'Accounting', '14:02'], ['docx', 'audit_memo_q3.docx', 'Word', 'Accounting', '11:40'], ['pptx', 'board_q3.pptx', 'Deck', 'Board', '10:02'],
+      ['mov', 'Q3 close call.mov', 'Recording', 'Accounting', 'Mon'], ['csv', 'q3_bank_export.csv', 'Export', 'Accounting', 'Mon'], ['pdf', 'Q3 statement.pdf', 'PDF', 'Accounting', '2 Oct']];
+    card.innerHTML = `<div class="glow" style="left:30px;top:80px;width:1000px;height:1000px;--a:20deg"></div>
+    <div class="ranch" style="left:50px;top:110px;width:900px;height:980px">
+      ${ranchSide('sources')}
+      <div class="title">All Sources <span style="font-size:18px;color:rgb(246 244 236 / .4);font-weight:500">6 of 1,284</span></div>${ICONS.bell}
+      <div class="page">
+        <div class="lrow" style="grid-template-columns:1fr 130px 130px 70px;color:rgb(246 244 236 / .42);font-size:16px;height:52px"><span>Name</span><span>Kind</span><span>Folder</span><span>Changed</span></div>
+        ${rows.map(([k, n, kind, f, d]) => `<div class="lrow" style="grid-template-columns:1fr 130px 130px 70px"><span class="src" style="color:#f6f4ec">${fileIcon(k, 28)}${n}</span><span style="color:rgb(246 244 236 / .6)">${kind}</span><span style="color:rgb(246 244 236 / .6)">${f}</span><span class="t">${d}</span></div>`).join('')}
+        <div class="glass" style="position:absolute;left:50%;top:560px;translate:-50% 0;width:520px;border-radius:26px;padding:14px">
+          <div style="display:grid;gap:4px;padding:6px 6px 12px;font-size:18px;color:rgb(246 244 236 / .65)"><span style="font-size:15px;color:rgb(246 244 236 / .4)">Narrow by</span><span>Kind: Spreadsheet</span><span>Changed: this week</span></div>
+          <div class="row" style="gap:10px;height:52px;padding:0 10px;border-radius:999px;background:rgb(0 0 0 / .25)">${ICONS.search.replace('<svg', '<svg width="24" height="24" style="opacity:.6"')}<span class="chip">Accounting ✕</span><span style="font-size:21px">q3</span><span class="caret" style="background:var(--sky);height:24px"></span></div>
+        </div>
+      </div>
+    </div>`;
+  },
+};
+
+SCENES['ranch-share'] = {
+  build() {
+    card.innerHTML = `<div class="glow" style="left:60px;top:80px;width:880px;height:880px;--a:330deg"></div>
+    <div class="ranch" style="left:80px;top:110px;width:840px;height:900px;padding:26px">
+      <div style="position:relative;height:300px;border-radius:20px;overflow:hidden;background:radial-gradient(80% 90% at 30% 20%, rgb(142 197 244 / .55), transparent 70%),radial-gradient(70% 80% at 80% 90%, rgb(201 103 73 / .5), transparent 70%),#22241f">
+        <img src="/assets/img/mascot/sky-happy.svg" style="position:absolute;left:190px;top:46px;width:220px;transform:rotate(-6deg)">
+        <img src="/assets/img/mascot/terracotta-happy.svg" style="position:absolute;left:400px;top:62px;width:210px;transform:rotate(7deg)">
+        <span style="position:absolute;left:50%;bottom:20px;translate:-50% 0;font-size:18px;color:rgb(246 244 236 / .7)">You’re invited to a source</span></div>
+      <div class="row" style="margin-top:24px;gap:16px">${fileIcon('pdf', 42)}<div><div style="font-size:26px;font-weight:600">Share lease_unit4_signed.pdf</div><div style="font-size:18px;color:rgb(246 244 236 / .5)">A private link, for 48 hours</div></div></div>
+      <div style="display:grid;gap:8px;margin-top:22px;font-size:21px">
+        <div class="row" style="height:60px;padding:0 18px;border-radius:14px;color:rgb(246 244 236 / .6)">Whole file</div>
+        <div class="row" style="height:60px;padding:0 18px;border-radius:14px;background:rgb(142 197 244 / .16);box-shadow:inset 0 0 0 2px rgb(142 197 244 / .6);justify-content:space-between"><span>Redacted <span style="color:rgb(246 244 236 / .5);font-size:17px">· 3 marks</span></span><span style="color:var(--sky)">✓</span></div>
+        <div class="row" style="height:60px;padding:0 18px;border-radius:14px;color:rgb(246 244 236 / .6)">Marked up</div>
+      </div>
+      <div class="row" style="margin-top:20px;gap:10px;height:58px;padding:0 16px;border-radius:14px;background:rgb(246 244 236 / .06);font-size:19px"><span style="color:rgb(246 244 236 / .45)">To</span><span class="chip">martin@halden.example</span></div>
+      <div class="row" style="justify-content:flex-end;gap:12px;margin-top:22px"><span class="btn">Cancel</span><span class="btn ink">Send</span></div>
+    </div>`;
+  },
+};
+
+/* ---------- the card under the caret: placed so its pointer tip sits below the caret ---------- */
+const unit = () => card.getBoundingClientRect().width / 1000;
+const caretBox = (el) => { const r = el.getBoundingClientRect(), o = card.getBoundingClientRect(), k = unit(); return { x: (r.left - o.left) / k, y: (r.top - o.top) / k, bottom: (r.bottom - o.top) / k }; };
+function placeUnder(caret, el, width, tipAt) {
+  const c = caretBox(caret);
+  const left = Math.max(24, Math.min(1000 - width - 24, c.x - tipAt));
+  set(el, { left: `${left}px`, top: `${c.bottom + 4}px`, width: `${width}px` });
+}
+const docBar = (title, id = 'st', status = 'editing') => `<div class="bar">${LIGHTS}<span>${title}</span><small id="${id}">${status}</small></div>`;
+const headLine = (t) => `<p class="mute" style="font-size:19px;font-weight:600;letter-spacing:.08em;text-transform:uppercase">${t}</p>`;
+const keyOverlay = (keys, top = 860) => `<div id="keys" class="row" style="position:absolute;left:0;right:0;top:${top}px;justify-content:center;gap:12px">${keys.map((k) => `<span class="kc">${k}</span>`).join('')}</div>`;
+function pressKeys(t, at, holdFrom, holdTo) {
+  const box = $('#keys');
+  const k = spring(seg(t, at, at + 380)), out = seg(t, holdTo, holdTo + 250);
+  fade(box, clamp(k * 1.3) * (1 - out), 24 * (1 - k));
+  [...box.children].forEach((el, i) => el.classList.toggle('down', t > holdFrom + i * 120 && t < holdTo));
+}
+
+/* ---------- autocomplete: the real card, captured from the Mac app, under a sentence being written ---------- */
+SCENES.autocomplete = {
+  duration: 10000, still: 4300,
+  build() {
+    const theme = document.documentElement.dataset.theme;
+    card.innerHTML = `<div class="glow" style="left:50px;top:100px;width:900px;height:900px;--a:200deg"></div>
+    <div class="win" style="left:70px;top:130px;width:860px;height:960px">${docBar('q3-board-memo.md')}
+      <div class="doc">${headLine('Q3 board memo')}<p class="mute">Prepared for the November board meeting.</p><p style="max-width:440px"><span id="typed"></span><span class="caret" id="caret"></span></p></div></div>
+    <img id="lcard" src="/assets/img/card/finance-0-${theme}.png" alt="" style="position:absolute;max-width:none;filter:drop-shadow(0 30px 40px rgb(0 0 0 / .35));transform-origin:22% 0">
+    ${keyOverlay(['⇥'])}`;
+    this.text = 'Q3 actual operating revenue was 4';
+    $('#typed').textContent = this.text;
+    placeUnder($('#caret'), $('#lcard'), 640, 640 * (340 / 1520));
+  },
+  tick(t) {
+    const TYPE_AT = 400, TYPE_MS = 52, CARD_AT = 2500, KEY_AT = 4700, TAB_AT = 5300, AFTER_AT = 5700, FADE_AT = 9200;
+    const after = ' million euros.';
+    const typed = $('#typed');
+    if (t < TAB_AT) typed.textContent = this.text.slice(0, Math.floor(clamp((t - TYPE_AT) / TYPE_MS, 0, this.text.length)));
+    else typed.innerHTML = `${esc(this.text.slice(0, -1))}<span class="lk">4.82</span>${esc(after.slice(0, Math.floor(clamp((t - AFTER_AT) / 45, 0, after.length))))}`;
+    typed.parentElement.style.opacity = 1 - seg(t, FADE_AT, FADE_AT + 500);
+    const c = spring(seg(t, CARD_AT, CARD_AT + 420)), gone = seg(t, TAB_AT, TAB_AT + 160);
+    set($('#lcard'), { opacity: clamp(c * 1.4) * (1 - gone), transform: `scale(${0.94 + 0.06 * c}) translateY(${(1 - c) * -6}px)` });
+    $('#st').textContent = t < CARD_AT ? 'editing' : t < TAB_AT ? 'previewing' : 'linked · pinned v1';
+    pressKeys(t, KEY_AT, TAB_AT - 120, TAB_AT + 200);
+  },
+};
+
+/* ---------- the card on its own: the list of sources and the page it found ---------- */
+SCENES.card = {
+  build() {
+    const theme = document.documentElement.dataset.theme;
+    card.innerHTML = `<div class="glow" style="left:40px;top:90px;width:920px;height:900px;--a:110deg"></div>
+    <div class="win" style="left:70px;top:120px;width:860px;height:960px">${docBar('advice-note.md')}
+      <div class="doc">${headLine('Advice note · Unit 4 lease renewal')}<p style="max-width:430px"><span id="typed">The Tenant shall give the Landlord not less</span><span class="caret" id="caret"></span></p></div></div>
+    <img id="lcard" src="/assets/img/card/legal-0-${theme}.png" alt="" style="position:absolute;max-width:none;filter:drop-shadow(0 30px 40px rgb(0 0 0 / .35))">`;
+    placeUnder($('#caret'), $('#lcard'), 860, 860 * (478 / 1520));
+  },
+};
+
+/* ---------- USB drives: plug in, choose folders, indexed on the Mac, asked again on unplugging ---------- */
+SCENES.usb = {
+  duration: 12500, still: 7600,
+  build() {
+    const folders = [['FY2025 Year-end', '214'], ['Client statements', '486'], ['Bank exports', '92'], ['Old backups', '412']];
+    card.innerHTML = `<div class="glow" style="left:40px;top:90px;width:920px;height:900px;--a:60deg"></div>
+    <div class="desk" style="left:60px;top:110px;width:880px;height:960px">
+      <div class="menubar"><b></b><b>Finder</b><span>File</span><span>Edit</span><span>View</span><span class="end"><span class="mb-lasso" id="icon"><img src="/assets/img/logo.svg" alt=""></span><span>Fri 9:41</span></span></div>
+      <div class="drive" id="drive" style="right:70px;top:640px"><i></i>ARCHIVE</div>
+      <div class="pop" id="pop" style="right:40px;top:58px">
+        <div id="p-ask"><b>ARCHIVE connected</b><p>Index it so Lasso can find what is inside?</p><div class="acts"><span class="btn blue" id="b-choose">Choose folders</span><span class="btn">Whole drive</span><span class="btn" style="background:transparent">Not now</span></div></div>
+        <div id="p-choose"><b>Choose folders to index</b><p>ARCHIVE · 64 GB</p><div style="margin-top:10px">${folders.map(([n, c], i) => `<div class="chk"><i id="c${i}">✓</i>${n}<span>${c} files</span></div>`).join('')}</div><div class="acts"><span class="btn blue" id="b-index">Index 3 folders</span><span class="btn" style="background:transparent">Cancel</span></div></div>
+        <div id="p-indexing"><b>Indexing ARCHIVE</b><p>Read on this Mac. Nothing is uploaded.</p><div class="prog"><i id="bar"></i></div></div>
+        <div id="p-added"><b>Added to your working directories</b><ul class="dirs"><li>Documents</li><li>Desktop</li><li class="new">ARCHIVE / FY2025 Year-end</li><li class="new">ARCHIVE / Client statements</li><li class="new">ARCHIVE / Bank exports</li></ul></div>
+        <div id="p-removed"><b>ARCHIVE was removed</b><p>Keep its index? You can still search it, and its files open again when you plug it back in.</p><div class="acts"><span class="btn blue" id="b-keep">Keep index</span><span class="btn">Remove</span></div></div>
+        <div id="p-kept"><b>Index kept</b><p>ARCHIVE · 3 folders · offline until reconnected</p></div>
+      </div>
+    </div>`;
+  },
+  tick(t) {
+    const PLUG = 700, ASK = 1300, CHOOSE = 2800, TICK = 3700, INDEX = 4700, ADDED = 7000, UNPLUG = 9200, KEEP = 10600, OUT = 11800;
+    const d = spring(seg(t, PLUG, PLUG + 450)) * (1 - seg(t, UNPLUG, UNPLUG + 250));
+    fade($('#drive'), clamp(d * 1.3), 0, 0.7 + 0.3 * d);
+    $('#icon').classList.toggle('lit', t > PLUG && t < OUT);
+    const p = spring(seg(t, ASK, ASK + 450)), pOut = seg(t, OUT, OUT + 300);
+    fade($('#pop'), clamp(p * 1.4) * (1 - pOut), (1 - p) * -10, 0.96 + 0.04 * p);
+    const stage = t < CHOOSE + 150 ? 'ask' : t < INDEX + 150 ? 'choose' : t < ADDED ? 'indexing' : t < UNPLUG + 200 ? 'added' : t < KEEP + 200 ? 'removed' : 'kept';
+    ['ask', 'choose', 'indexing', 'added', 'removed', 'kept'].forEach((s) => { $(`#p-${s}`).style.display = s === stage ? '' : 'none'; });
+    $('#b-choose').style.transform = t > CHOOSE - 150 && t < CHOOSE + 100 ? 'scale(.95)' : '';
+    $('#b-index').style.transform = t > INDEX - 150 && t < INDEX + 100 ? 'scale(.95)' : '';
+    $('#b-keep').style.transform = t > KEEP - 150 && t < KEEP + 100 ? 'scale(.95)' : '';
+    [true, t > TICK, true, false].forEach((on, i) => $(`#c${i}`).classList.toggle('on', on));
+    $('#bar').style.width = `${out3(seg(t, INDEX + 300, ADDED - 200)) * 100}%`;
+  },
+};
+
+/* ---------- ⌥Tab: suggestions from one folder, and the writer on the second row ---------- */
+SCENES.scope = {
+  build() {
+    card.innerHTML = `<div class="glow" style="left:40px;top:90px;width:920px;height:900px;--a:250deg"></div>
+    <div class="win" style="left:70px;top:130px;width:860px;height:960px">${docBar('Halden year-end letter.docx')}
+      <div class="doc"><p class="mute">Dear Martin,</p><p>Following our call, the accrued audit fee for Halden Ltd is<span class="caret" id="caret"></span></p></div></div>
+    <div class="sw" id="sw" style="left:96px;top:420px">
+      <div class="sw-line"><span>Suggest from</span><span class="sw-seg">All</span><span class="sw-seg">Accounting</span><span class="sw-seg on">Halden Ltd</span><span class="sw-seg">Board</span></div>
+      <div class="sw-line"><span>Write with</span><span class="sw-seg">None</span><span class="sw-seg on"><i class="spark"></i>ChatGPT</span></div>
+    </div>
+    <div class="row" style="position:absolute;left:110px;top:560px;gap:18px;font-size:18px;color:var(--ink-3)"><span class="row" style="gap:8px"><span class="kc sm">⇥</span>next</span><span class="row" style="gap:8px"><span class="kc sm">↩</span>keep</span><span class="row" style="gap:8px"><span class="kc sm">↓</span>writer</span></div>`;
+  },
+};
+
+/* ---------- keys: Tab does almost everything ---------- */
+SCENES.keys = {
+  build() {
+    const cell = (keys, title, text) => `<div class="keycell"><div class="ks">${keys.map((k) => `<span class="kc">${k}</span>`).join('')}</div><div><b>${title}</b><br><small>${text}</small></div></div>`;
+    card.innerHTML = `<div class="glow" style="left:60px;top:120px;width:880px;height:820px;--a:20deg;opacity:calc(var(--glow) * .8)"></div>
+    <div class="keygrid">
+      <div class="keycell star"><div class="ks"><span class="kc">⇥</span></div><div><b>Tab</b><br><small>Accept the suggestion</small></div></div>
+      ${cell(['↑', '↓'], 'Arrows', 'Another source first')}
+      ${cell(['fn', '⇥'], 'Fn Tab', 'Highlight cells, paste them')}
+      ${cell(['⌥', '⇥'], 'Option Tab', 'Choose where from')}
+      ${cell(['\\', '⇥'], 'Backslash, Tab', 'Hand it to the writer')}
+      ${cell(['⇧', '⌘', '↩'], 'Shift Command Return', 'Share it as a link')}
+      ${cell(['esc'], 'Escape', 'Dismiss, keep typing')}
+    </div>`;
+  },
+};
+
+/* ---------- recordings: a quote typed, the card plays the call from that moment ---------- */
+SCENES.recording = {
+  duration: 10500, still: 4600,
+  build() {
+    card.innerHTML = `<div class="glow" style="left:50px;top:100px;width:900px;height:900px;--a:280deg"></div>
+    <div class="win" style="left:70px;top:130px;width:860px;height:960px">${docBar('Q3 close notes.docx')}
+      <div class="doc">${headLine('Q3 close')}<p class="mute">Accruals were discussed on the close call.</p><p style="max-width:470px"><span id="typed"></span><span class="caret" id="caret"></span></p></div></div>
+    <div class="lc" id="lc">
+      <div class="lc-l"><h6>All sources</h6><div><div class="lc-row">${fileIcon('mov', 32)}<div style="min-width:0"><b>accruals are booked by the fifth</b><small>Q3 close call.mov · 12:41</small></div></div></div>
+        <div class="lc-foot"><span class="kc sm" id="tabkey">⇥</span>Insert <span class="kc sm">↑</span><span class="kc sm">↓</span>Choose</div></div>
+      <div class="lc-r"><div class="row" style="gap:12px">${fileIcon('mov', 34)}<div><h5>Q3 close call.mov</h5><small>Plays from 12:41</small></div></div>
+        <div class="vframe"><span class="who"></span><span class="tm" id="tm">12:41</span><div class="cap">…so accruals are booked by the fifth, every month.</div><div class="bar2"><i id="prog"></i></div></div>
+        <small>Matched words: <b style="color:var(--ink)">accruals are booked</b></small></div>
+    </div>`;
+    this.text = 'The controller said “accruals are booked';
+    $('#typed').textContent = this.text;
+    const c = caretBox($('#caret'));
+    set($('#lc'), { left: '40px', top: `${c.bottom + 10}px`, width: '920px' });
+  },
+  tick(t) {
+    const TYPE_AT = 400, TYPE_MS = 50, CARD_AT = 2700, TAB_AT = 7000, FADE_AT = 9600;
+    const rest = ' by the fifth”';
+    const typed = $('#typed');
+    if (t < TAB_AT) typed.textContent = this.text.slice(0, Math.floor(clamp((t - TYPE_AT) / TYPE_MS, 0, this.text.length)));
+    else typed.innerHTML = `The controller said <span class="lk">“accruals are booked${rest}</span>.`;
+    typed.parentElement.style.opacity = 1 - seg(t, FADE_AT, FADE_AT + 500);
+    const c = spring(seg(t, CARD_AT, CARD_AT + 420)), gone = seg(t, TAB_AT, TAB_AT + 160);
+    set($('#lc'), { opacity: clamp(c * 1.4) * (1 - gone), transform: `scale(${0.94 + 0.06 * c})` });
+    const played = clamp((t - CARD_AT - 300) / 1000, 0, 4);
+    $('#prog').style.width = `${38 + played * 1.6}%`;
+    $('#tm').textContent = `12:${String(41 + Math.floor(played)).padStart(2, '0')}`;
+    $('#tabkey').classList.toggle('down', t > TAB_AT - 220 && t < TAB_AT);
+    $('#st').textContent = t < CARD_AT ? 'editing' : t < TAB_AT ? 'previewing' : 'linked · 12:41';
+  },
+};
+
+/* ---------- the passage picker: the highlight widened to the whole sentence, then Insert ---------- */
+SCENES.passage = {
+  duration: 10500, still: 5200,
+  build() {
+    card.innerHTML = `<div class="glow" style="left:40px;top:90px;width:920px;height:900px;--a:20deg"></div>
+    <div class="win" style="left:70px;top:130px;width:860px;height:960px">${docBar('Advice note.docx')}
+      <div class="doc">${headLine('Unit 4 lease renewal')}<p>Under clause 12.3, <span id="ins"></span><span class="caret"></span></p></div></div>
+    <div class="ppk" id="ppk" style="left:60px;top:200px;width:880px;height:800px">
+      <div class="bar" style="background:transparent">${LIGHTS}<span>lease_unit4_signed.pdf · Page 1</span></div>
+      <div class="page"><h4>Lease Agreement · Unit 4</h4><p>12.2 The Tenant may renew this Lease for a further term of five (5) years.</p><p id="clause"></p><p>18.1 The Landlord’s aggregate liability under this Lease shall not exceed €250,000.</p></div>
+      <div class="foot"><span>Select other words to change the highlight</span><span style="margin-left:auto" class="btn">Insert Link</span><span class="btn blue" id="insert">Insert</span></div>
+    </div>`;
+    this.words = '12.3 Notice to renew. The Tenant shall give the Landlord not less than six (6) months’ written notice of its intention to renew prior to expiry.'.split(' ');
+  },
+  tick(t) {
+    const OPEN_AT = 300, GROW_AT = 1900, GROW_MS = 200, INSERT_AT = 6400, FADE_AT = 9600;
+    const first = 4, firstEnd = 12; // the words typed: "The Tenant shall give the Landlord not less"
+    const end = Math.min(this.words.length, firstEnd + Math.max(0, Math.floor((t - GROW_AT) / GROW_MS)));
+    $('#clause').innerHTML = this.words.map((w, i) => (i === first ? '<mark>' : '') + esc(w) + (i === end - 1 ? '</mark>' : '')).join(' ');
+    const o = spring(seg(t, OPEN_AT, OPEN_AT + 450)), gone = seg(t, INSERT_AT + 150, INSERT_AT + 450);
+    set($('#ppk'), { opacity: clamp(o * 1.4) * (1 - gone), transform: `scale(${0.95 + 0.05 * o})` });
+    $('#insert').style.transform = t > INSERT_AT - 160 && t < INSERT_AT + 80 ? 'scale(.95)' : '';
+    $('#ins').innerHTML = t > INSERT_AT + 300 ? `<span class="lk">${esc(this.words.slice(first, end).join(' ').replace(/^The/, 'the'))}</span>` : '';
+    $('#ins').parentElement.style.opacity = 1 - seg(t, FADE_AT, FADE_AT + 500);
+    $('#st').textContent = t < INSERT_AT + 300 ? 'choosing words' : 'linked · page 1';
+  },
+};
+
+/* ---------- running ---------- */
+const name = params.get('s') || 'writer';
+const scene = SCENES[name];
+window.render = (t) => { if (scene.tick) scene.tick(t); return true; };
+window.sceneInfo = { duration: scene.duration || 0, still: scene.still ?? 0 };
+(async () => {
+  await scene.build();
+  await document.fonts.ready;
+  await Promise.all([...card.querySelectorAll('img')].map((img) => img.decode().catch(() => {})));
+  render(params.has('live') ? 0 : (scene.still ?? 0));
+  window.ready = true;
+  if (params.has('live') && scene.tick) {
+    const start = performance.now();
+    const loop = (now) => { render((now - start) % scene.duration); requestAnimationFrame(loop); };
+    requestAnimationFrame(loop);
+  }
+})();
+</script>
+</body>
+</html>

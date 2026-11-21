@@ -1,65 +1,74 @@
-// POST /api/waitlist: saves a waitlist signup to Upstash Redis (connected through Vercel's Storage tab).
-// Uses Upstash's REST API directly, so the site needs no package.json or install step.
-//
-// Keys:
-//   waitlist:emails     set of every email, so a repeat signup is not counted twice
-//   waitlist:joined     sorted set, email scored by signup time (ms)
-//   waitlist:<email>    hash: email, platform, use, source, os, page, country, joinedAt
-//   waitlist:platforms  hash: mac / windows / both counters
-//   waitlist:rl:<ip>    signups from one address this hour (rate limit)
+// POST   /api/waitlist   saves a signup (name, email, platform) and, when an email sender is configured, emails a 6-digit code.
+// DELETE /api/waitlist   removes a signup; allowed only with the Idempotency-Key that created it (the site's Undo).
+// Requests carry an Idempotency-Key header, so a retry or double click is answered once. Storage: see _waitlist-store.mjs.
 
-const PLATFORMS = new Set(['mac', 'windows', 'both']);
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PER_HOUR = 10;
+import { CODE_ATTEMPTS, CODE_TTL_SECONDS, EMAIL, IDEMPOTENCY_KEY, PLATFORMS, clip, hashCode, idempotent, json, newCode, readBody, redis, sendCode, withinRateLimit } from './_waitlist-store.mjs';
 
-const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
-const clip = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+async function issueCode(run, email, name) {
+  const code = newCode();
+  const sent = await sendCode(email, name, code);
+  if (!sent) return false;
+  await run([
+    ['HSET', `waitlist:code:${email}`, 'hash', hashCode(email, code), 'left', CODE_ATTEMPTS],
+    ['EXPIRE', `waitlist:code:${email}`, CODE_TTL_SECONDS],
+  ]);
+  return true;
+}
 
-// the Vercel Upstash integration names these KV_REST_API_*; a database made in Upstash's own console uses UPSTASH_REDIS_REST_*
-function redis(env = process.env) {
-  const url = env.KV_REST_API_URL || env.UPSTASH_REDIS_REST_URL, token = env.KV_REST_API_TOKEN || env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return null;
-  return async (commands) => {
-    const res = await fetch(`${url.replace(/\/$/, '')}/pipeline`, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(commands) });
-    if (!res.ok) throw new Error(`redis ${res.status}`);
-    const out = await res.json();
-    const bad = out.find((r) => r.error);
-    if (bad) throw new Error(`redis ${bad.error}`);
-    return out.map((r) => r.result);
-  };
+async function join(run, request, body, key) {
+  const email = clip(body.email, 254).toLowerCase();
+  const name = clip(body.name, 80);
+  const platform = PLATFORMS.has(body.platform) ? body.platform : 'mac-arm';
+  const [added] = await run([['SADD', 'waitlist:emails', email]]);
+  if (added === 1) {
+    const now = Date.now();
+    await run([
+      ['HSET', `waitlist:${email}`, 'name', name, 'email', email, 'platform', platform, 'source', clip(body.source, 40), 'page', clip(body.page, 100),
+        'country', clip(request.headers.get('x-vercel-ip-country'), 8), 'joinedAt', new Date(now).toISOString(), 'verified', '0', 'key', key || ''],
+      ['ZADD', 'waitlist:joined', now, email],
+      ['HINCRBY', 'waitlist:platforms', platform, 1],
+    ]);
+  }
+  const verify = await issueCode(run, email, name);
+  return { status: 200, body: { ok: true, already: added !== 1, verify } };
 }
 
 export async function POST(request) {
-  let body;
-  try { body = await request.json(); } catch { return json(400, { error: 'bad_json' }); }
-  if (!body || typeof body !== 'object') return json(400, { error: 'bad_json' });
-  if (body.company) return json(200, { ok: true }); // honeypot: bots get a quiet success
-
-  const email = clip(body.email, 254).toLowerCase();
-  if (!EMAIL.test(email)) return json(400, { error: 'bad_email' });
-  const platform = PLATFORMS.has(body.platform) ? body.platform : 'mac';
+  const body = await readBody(request);
+  if (!body) return json(400, { error: 'bad_json' });
+  if (body.company) return json(200, { ok: true, verify: false }); // honeypot: bots get a quiet success
+  if (!EMAIL.test(clip(body.email, 254))) return json(400, { error: 'bad_email' });
 
   const run = redis();
   if (!run) return json(503, { error: 'not_configured' });
-
-  const ip = (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
   try {
-    const [hits] = await run([['INCR', `waitlist:rl:${ip}`], ['EXPIRE', `waitlist:rl:${ip}`, 3600, 'NX']]);
-    if (hits > PER_HOUR) return json(429, { error: 'rate_limited' });
-
-    const [added] = await run([['SADD', 'waitlist:emails', email]]);
-    if (added === 1) {
-      const now = Date.now();
-      await run([
-        ['HSET', `waitlist:${email}`, 'email', email, 'platform', platform, 'use', clip(body.use, 200), 'source', clip(body.source, 40),
-          'os', clip(body.os, 20), 'page', clip(body.page, 100), 'country', clip(request.headers.get('x-vercel-ip-country'), 8), 'joinedAt', new Date(now).toISOString()],
-        ['ZADD', 'waitlist:joined', now, email],
-        ['HINCRBY', 'waitlist:platforms', platform, 1],
-      ]);
-    }
-    return json(200, { ok: true, already: added !== 1 });
+    if (!(await withinRateLimit(run, request))) return json(429, { error: 'rate_limited' });
+    return await idempotent(run, request, (key) => join(run, request, body, key));
   } catch (err) {
     console.error('waitlist', err);
+    return json(502, { error: 'store_failed' });
+  }
+}
+
+export async function DELETE(request) {
+  const body = await readBody(request);
+  const key = request.headers.get('idempotency-key') || '';
+  if (!body || !EMAIL.test(clip(body.email, 254)) || !IDEMPOTENCY_KEY.test(key)) return json(400, { error: 'bad_request' });
+  const email = clip(body.email, 254).toLowerCase();
+
+  const run = redis();
+  if (!run) return json(503, { error: 'not_configured' });
+  try {
+    if (!(await withinRateLimit(run, request))) return json(429, { error: 'rate_limited' });
+    const [owner, platform] = await run([['HGET', `waitlist:${email}`, 'key'], ['HGET', `waitlist:${email}`, 'platform']]);
+    if (!owner || owner !== key) return json(403, { error: 'not_yours' });
+    await run([
+      ['SREM', 'waitlist:emails', email], ['ZREM', 'waitlist:joined', email], ['DEL', `waitlist:${email}`, `waitlist:code:${email}`, `waitlist:idem:${key}`],
+      ['HINCRBY', 'waitlist:platforms', platform || 'mac-arm', -1],
+    ]);
+    return json(200, { ok: true });
+  } catch (err) {
+    console.error('waitlist delete', err);
     return json(502, { error: 'store_failed' });
   }
 }
