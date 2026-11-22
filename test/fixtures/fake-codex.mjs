@@ -10,6 +10,11 @@
 //   FAKE_CODEX_REJECT_FLAGS=1  started with --disable, it refuses to run
 //   FAKE_CODEX_LOG=<file>      each request's method (and thread/start's params) is appended there
 //   FAKE_CODEX_REPLY_FILE=<file>  while the file exists, each turn answers with its contents and nothing else
+//   FAKE_CODEX_NO_MODEL_LIST=1  model/list is a method it does not know
+//
+// The account can use the models in ACCOUNT_MODELS, the first its default. A
+// thread started on any other model (or on none, which stands for the
+// person's own Codex settings naming one their plan lacks) fails its turn.
 
 import fs from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -27,6 +32,8 @@ const notify = (method, params) => send({ method, params });
 const waiting = new Map();
 let nextRequest = 1000;
 let turns = 0;
+const ACCOUNT_MODELS = ['fake-default', 'fake-other'];
+const threadModels = new Map();
 const interrupted = new Map();
 
 function ask(method, params) {
@@ -100,11 +107,26 @@ createInterface({ input: process.stdin }).on('line', (text) => {
       reply(process.env.FAKE_CODEX_SIGNED_OUT ? { account: null, requiresOpenaiAuth: true }
         : { account: { type: 'chatgpt', email: null, planType: 'plus' }, requiresOpenaiAuth: true });
       break;
-    case 'thread/start': reply({ thread: { id: `thread-${process.pid}-${message.id}` } }); break;
+    case 'model/list':
+      if (process.env.FAKE_CODEX_NO_MODEL_LIST) send({ id: message.id, error: { code: -32601, message: 'Unknown method.' } });
+      else reply({ data: ACCOUNT_MODELS.map((model, index) => ({ id: model, model, hidden: false, isDefault: index === 0 })), nextCursor: null });
+      break;
+    case 'thread/start': {
+      const threadId = `thread-${process.pid}-${message.id}`;
+      threadModels.set(threadId, message.params.model ?? 'personal-setting');
+      reply({ thread: { id: threadId } });
+      break;
+    }
     case 'turn/start': {
       turns += 1;
       const turnId = `turn-${turns}`;
       reply({ turn: { id: turnId } });
+      const model = threadModels.get(message.params.threadId);
+      if (!ACCOUNT_MODELS.includes(model) && !process.env.FAKE_CODEX_NO_MODEL_LIST) {
+        notify('turn/completed', { threadId: message.params.threadId,
+          turn: { id: turnId, status: 'failed', error: { message: `The '${model}' model is not supported when using Codex with a ChatGPT account.` } } });
+        break;
+      }
       turn(message.params.threadId, turnId, message.params.input.map((part) => part.text).join(' '));
       break;
     }
