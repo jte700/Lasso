@@ -5575,6 +5575,35 @@ do {
                                     style: style) == nil,
           "words across paragraphs keep the host's own letters")
 
+    // The Claude app's message box answered a header's bounds with its whole
+    // multi-line field, and "Supplier" was drawn about 160 points tall over it.
+    let wholeField = CGRect(x: 60, y: 300, width: 650, height: 165)
+    check(DependencyGeometry.drawable([wholeField], referenceId: "supplier", fontSize: nil, caret: nil) == nil,
+          "a whole field's frame given for a word draws no pill, even where the host states no size or caret")
+    check(DependencyGeometry.drawable([wholeField], referenceId: "supplier", fontSize: 16, caret: nil) == nil
+          && DependencyGeometry.drawable([wholeField], referenceId: "supplier", fontSize: nil,
+                                         caret: CGRect(x: 80, y: 310, width: 0, height: 19)) == nil,
+          "a whole field's frame draws no pill beside a stated size or a measured caret")
+    let twoLines = CGRect(x: 60, y: 300, width: 300, height: 40)
+    check(DependencyGeometry.drawable([twoLines], referenceId: "supplier", fontSize: 16, caret: nil) == nil
+          && DependencyGeometry.drawable([twoLines], referenceId: "supplier", fontSize: nil,
+                                         caret: CGRect(x: 80, y: 310, width: 0, height: 19)) == nil,
+          "a paragraph's two lines given as one rectangle draw no pill")
+    let supplierLine = CGRect(x: 60, y: 300, width: ReferenceChipLayout.width("Supplier", font), height: 24)
+    check(DependencyGeometry.drawable([supplierLine], referenceId: "supplier", fontSize: 15, caret: nil)?.fragments
+          == [supplierLine]
+          && DependencyGeometry.drawable([supplierLine], referenceId: "supplier", fontSize: nil,
+                                         caret: CGRect(x: 80, y: 300, width: 0, height: 17))?.fragments == [supplierLine]
+          && DependencyGeometry.drawable([supplierLine], referenceId: "supplier", fontSize: nil, caret: nil) != nil,
+          "a word's own line with generous spacing is drawn")
+    check(DependencyGeometry.drawable([CGRect(x: 60, y: 300, width: 400, height: 88)], referenceId: "title",
+                                      fontSize: 72, caret: nil) != nil,
+          "a large title's line is drawn when the host states its size")
+    if let line = DependencyGeometry.drawable([supplierLine], referenceId: "supplier", fontSize: nil, caret: nil),
+       let drawnLine = ReferenceChipLayout.lines(text: "Supplier", fragments: line.fragments, style: nil)?.first {
+        check(drawnLine.textHeight <= supplierLine.height + 1, "a drawn pill's words stay within their line")
+    }
+
     let first = "the retaining wall needs a second", second = "inspection before the pour"
     let wrapped = ReferenceChipLayout.lines(text: first + " " + second, fragments: [
         CGRect(x: 300, y: 400, width: ReferenceChipLayout.width(first, font), height: 18),
