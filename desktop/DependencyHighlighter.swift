@@ -436,8 +436,9 @@ final class DependencyHighlighter {
                     let converted = rects.map {
                         HostGeometryConverter.toAppKit($0, primaryHeight: Self.primaryHeight())
                     }
-                    let geometry = DependencyGeometry.coalesce(converted, referenceId: reference.id)
-                    guard !geometry.fragments.isEmpty else { continue }
+                    guard let geometry = DependencyGeometry.drawable(
+                        converted, referenceId: reference.id,
+                        fontSize: reading.styles[reference.id]?.fontSize, caret: reading.caret) else { continue }
                     found.append(geometry)
                     chips.append(Self.chip(for: reference, geometry: geometry, state: state, slot: slot,
                                            directoryColor: directoryColor, style: reading.styles[reference.id],

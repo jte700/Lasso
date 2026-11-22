@@ -190,6 +190,40 @@ struct DependencyGeometry: Equatable {
         }
         return DependencyGeometry(referenceId: referenceId, fragments: lines)
     }
+
+    /// The phrase's lines as a pill may be drawn over them, or nil when any is
+    /// taller than one line of the host's text. A host that cannot measure the
+    /// words can answer with its paragraph's or its whole field's frame (the
+    /// Claude app's message box did), and a pill fitted to that drew the words
+    /// hundreds of points tall across the field. Where the words sit in such a
+    /// frame is unknown, so nothing is drawn rather than a guess.
+    static func drawable(_ rects: [CGRect], referenceId: String, fontSize: CGFloat?, caret: CGRect?) -> DependencyGeometry? {
+        let geometry = coalesce(rects, referenceId: referenceId)
+        let tallest = TextLineLimit.tallest(fontSize: fontSize, caret: caret)
+        guard !geometry.fragments.isEmpty, geometry.fragments.allSatisfy({ $0.height <= tallest }) else { return nil }
+        return geometry
+    }
+}
+
+/// How tall one line of a host's text can be: from the size the host states
+/// for the phrase's font, else from its caret, else the tallest caret taken as
+/// one line.
+enum TextLineLimit {
+    /// A line box is at most this many times its font's size, leaving room for
+    /// generous line spacing while two lines of the smallest spacing exceed it.
+    static let fontSizeRatio: CGFloat = 2
+    /// A line of words is at most this many times as tall as the caret.
+    static let caretRatio: CGFloat = 1.75
+    /// Sizes and carets this small say nothing about the line.
+    static let smallestMeasure: CGFloat = 2
+
+    static func tallest(fontSize: CGFloat?, caret: CGRect?) -> CGFloat {
+        if let fontSize, fontSize > smallestMeasure { return fontSize * fontSizeRatio }
+        if let caret, caret.height > smallestMeasure, caret.height <= CaretLine.tallestLine {
+            return caret.height * caretRatio
+        }
+        return CaretLine.tallestLine
+    }
 }
 
 /// Tracks selection gestures and classifies host keystrokes so the highlight
