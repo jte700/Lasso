@@ -500,11 +500,13 @@ async function checkMarkedRowMatesAndStepBack(app) {
   // Assert: row mates (including the supplier label cell) are marked for BILL-1160; Invoice's own values are not.
   assert.equal(withMates.sourceContext?.hasRowMates, true);
   assert.deepEqual(mates.map(item => item.replacementText), ['Maple Paper Distribution', '2026-08-18', '22000']);
-  for (const mate of mates) {
-    assert.equal(mate.rowMateOf, 'BILL-1160');
-    assert.equal(mate.detail, 'From BILL-1160');
-  }
-  assert.ok(ownValues.length > 0 && ownValues.every(item => item.detail == null && item.rowMateOf == null));
+  assert.deepEqual(mates.map(item => [item.rowMateOf, item.detail]), [
+    ['BILL-1160', 'Supplier of BILL-1160'],
+    ['BILL-1160', 'Invoice Date of BILL-1160'],
+    ['BILL-1160', 'Outstanding CAD of BILL-1160'],
+  ]);
+  assert.ok(ownValues.length > 0 && ownValues.every(item => item.rowMateOf == null
+    && /^Invoice column · /.test(item.detail)), 'own values name their column and row');
 
   // Act: tabbing a row mate (22000) keeps Invoice and the remaining BILL-1160 row mates listed.
   const beforeAmount = `${after1160} for `;
@@ -533,9 +535,9 @@ async function checkMarkedRowMatesAndStepBack(app) {
   const secondMates = await typed(app, `${after1190} for `, links1190, { rowScopeBoundary: bill1160End });
   assert.equal(secondMates.sourceContext?.hasRowMates, true);
   assert.deepEqual(secondMates.workspaceCompletions.filter(item => item.rowMateOf).map(item => [item.replacementText, item.detail]), [
-    ['Pine Facilities Supply', 'From BILL-1190'],
-    ['2026-09-28', 'From BILL-1190'],
-    ['32500', 'From BILL-1190'],
+    ['Pine Facilities Supply', 'Supplier of BILL-1190'],
+    ['2026-09-28', 'Invoice Date of BILL-1190'],
+    ['32500', 'Outstanding CAD of BILL-1190'],
   ]);
 
   // Act: second fn+Left drops the column and releases past the tabbed value, returning to all active directories.
@@ -571,12 +573,12 @@ test('two tabbed cells in one sentence mark each row mate with its own tabbed ce
   const byValue = new Map(prediction.workspaceCompletions.map(item => [item.replacementText, item]));
 
   // Assert
-  assert.equal(byValue.get('22000')?.detail, 'From BILL-1160');
-  assert.equal(byValue.get('2026-08-18')?.detail, 'From BILL-1160');
-  assert.equal(byValue.get('Maple Paper Distribution')?.detail, 'From BILL-1160');
-  assert.equal(byValue.get('32500')?.detail, 'From BILL-1190');
-  assert.equal(byValue.get('2026-09-28')?.detail, 'From BILL-1190');
-  assert.equal(byValue.get('Pine Facilities Supply')?.detail, 'From BILL-1190');
+  assert.equal(byValue.get('22000')?.detail, 'Outstanding CAD of BILL-1160');
+  assert.equal(byValue.get('2026-08-18')?.detail, 'Invoice Date of BILL-1160');
+  assert.equal(byValue.get('Maple Paper Distribution')?.detail, 'Supplier of BILL-1160');
+  assert.equal(byValue.get('32500')?.detail, 'Outstanding CAD of BILL-1190');
+  assert.equal(byValue.get('2026-09-28')?.detail, 'Invoice Date of BILL-1190');
+  assert.equal(byValue.get('Pine Facilities Supply')?.detail, 'Supplier of BILL-1190');
 });
 
 test('row mates work for row-naming code columns, unnamed rows, and row-naming text columns alike', async t => {
@@ -585,7 +587,7 @@ test('row mates work for row-naming code columns, unnamed rows, and row-naming t
   const numeric = 'Year,Quarter,Amount\n2026,1,1500\n2026,1,2500\n2025,2,3500\n';
   const app = await directory(t, 'Batches.csv', batches, { 'Numeric.csv': numeric, 'Accounts-Payable.csv': OPEN_BILLS });
 
-  // Act 1: code column that names rows (tab Batch -> B-2 -> row mates 2025 and 3500 marked From B-2).
+  // Act 1: code column that names rows (tab Batch -> B-2 -> row mates 2025 and 3500 marked Year of B-2 and Amount of B-2).
   const batch = await acceptName(app, 'Bat', 'Batch', []);
   const beforeBatch = `${batch.text} was `;
   const b2 = (await typed(app, beforeBatch, batch.links)).workspaceCompletions.find(item => item.replacementText === 'B-2');
@@ -593,7 +595,7 @@ test('row mates work for row-naming code columns, unnamed rows, and row-naming t
   const afterB2 = beforeBatch + b2.replacementText;
   const codeRowResult = await typed(app, `${afterB2} `, [...batch.links, link(b2.dependencyCandidate, beforeBatch.length, afterB2.length)]);
 
-  // Act 2: genuinely unnamed row (all numeric columns: tab Quarter -> 2 -> row mates 2025 and 3500 marked From 2).
+  // Act 2: genuinely unnamed row (all numeric columns: tab Quarter -> 2 -> row mates 2025 and 3500 marked by their fields).
   const quarter = await acceptName(app, 'Quar', 'Quarter', []);
   const beforeQuarter = `${quarter.text} was `;
   const q2 = (await typed(app, beforeQuarter, quarter.links)).workspaceCompletions.find(item => item.replacementText === '2');
@@ -601,7 +603,7 @@ test('row mates work for row-naming code columns, unnamed rows, and row-naming t
   const afterQ2 = beforeQuarter + q2.replacementText;
   const unnamedResult = await typed(app, `${afterQ2} `, [...quarter.links, link(q2.dependencyCandidate, beforeQuarter.length, afterQ2.length)]);
 
-  // Act 3: text column that names rows (tab Supplier -> North Ridge -> row mates BILL-1181 and 35000 marked From North Ridge).
+  // Act 3: text column that names rows (tab Supplier -> North Ridge -> row mates BILL-1181 and 35000 marked by their fields).
   const supplier = await acceptName(app, 'The top supplier', 'Supplier', []);
   const beforeSupplier = `${supplier.text} was `;
   const north = (await typed(app, beforeSupplier, supplier.links)).workspaceCompletions.find(item => item.replacementText === 'North Ridge');
@@ -612,18 +614,18 @@ test('row mates work for row-naming code columns, unnamed rows, and row-naming t
   // Assert
   assert.equal(codeRowResult.sourceContext?.hasRowMates, true);
   assert.deepEqual(codeRowResult.workspaceCompletions.filter(item => item.rowMateOf).map(item => [item.replacementText, item.detail]), [
-    ['2025', 'From B-2'],
-    ['3500', 'From B-2'],
+    ['2025', 'Year of B-2'],
+    ['3500', 'Amount of B-2'],
   ]);
   assert.equal(unnamedResult.sourceContext?.hasRowMates, true);
   assert.deepEqual(unnamedResult.workspaceCompletions.filter(item => item.rowMateOf).map(item => [item.replacementText, item.detail]), [
-    ['2025', 'From 2'],
-    ['3500', 'From 2'],
+    ['2025', 'Year of 2'],
+    ['3500', 'Amount of 2'],
   ]);
   assert.equal(namedResult.sourceContext?.hasRowMates, true);
   assert.deepEqual(namedResult.workspaceCompletions.filter(item => item.rowMateOf).map(item => [item.replacementText, item.detail]), [
-    ['BILL-1181', 'From North Ridge'],
-    ['35000', 'From North Ridge'],
+    ['BILL-1181', 'Invoice of North Ridge'],
+    ['35000', 'Outstanding CAD of North Ridge'],
   ]);
 });
 
@@ -657,12 +659,12 @@ test('typing a row-mate supplier name brings it up, and large folders and tall s
 
   // Assert
   assert.equal(typedSupplier.workspaceCompletions[0].replacementText, 'Maple Paper Distribution');
-  assert.equal(typedSupplier.workspaceCompletions[0].detail, 'From BILL-1160');
+  assert.equal(typedSupplier.workspaceCompletions[0].detail, 'Supplier of BILL-1160');
   assert.equal(typedSupplier.workspaceCompletions[0].claimStart, `${after} from `.length);
   assert.equal(tallWithMates.sourceContext?.hasRowMates, true);
   assert.deepEqual(tallWithMates.workspaceCompletions.filter(item => item.rowMateOf).map(item => [item.replacementText, item.detail]), [
-    ['Supplier 1', 'From INV-1000'],
-    ['10000', 'From INV-1000'],
+    ['Supplier 1', 'Supplier of INV-1000'],
+    ['10000', 'Amount of INV-1000'],
   ]);
   assert.ok(!tallExited.sourceContext?.hasRowMates);
   assert.deepEqual(tallExited.workspaceCompletions.filter(item => item.rowMateOf), []);

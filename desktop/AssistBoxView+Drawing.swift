@@ -120,21 +120,23 @@ extension AssistBoxView {
                            in: NSRect(x: 22, y: slotY + 26, width: 32, height: 32))
 
             let labelFont = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
-            let isRowMate = suggestion.rowMateOf != nil
-            let detailFont = NSFont.systemFont(ofSize: 11.5, weight: isRowMate ? .medium : .semibold)
+            // A detail saying where the suggestion sits reads dimmer than a value would.
+            let describes = suggestion.rowMateOf != nil || suggestion.detailDescribesSource
+            let detailFont = NSFont.systemFont(ofSize: 11.5, weight: describes ? .medium : .semibold)
             let titleLayout = AssistRowTitleLayout(label: suggestion.label, detail: suggestion.detail,
-                                                   available: right - 75, labelFont: labelFont, detailFont: detailFont)
+                                                   available: right - 75, labelFont: labelFont, detailFont: detailFont,
+                                                   dropsParts: suggestion.detailDescribesSource)
             drawText(suggestion.label,
                      in: NSRect(x: 65, y: slotY + 27,
                                width: titleLayout.labelWidth, height: 17),
                      font: labelFont,
                      color: .labelColor)
             if titleLayout.detailWidth > 0 {
-                drawText(suggestion.detail,
+                drawText(titleLayout.detail,
                          in: NSRect(x: right - titleLayout.detailWidth - 10, y: slotY + 27,
                                    width: titleLayout.detailWidth, height: 17),
                          font: detailFont,
-                         color: isRowMate ? .secondaryLabelColor : .labelColor, alignment: .right)
+                         color: describes ? .secondaryLabelColor : .labelColor, alignment: .right)
             }
             let source = (suggestion.path as NSString).lastPathComponent
             let breadcrumb = [suggestion.rankingReason ?? "", source.isEmpty ? "Project workspace" : source, suggestion.location]

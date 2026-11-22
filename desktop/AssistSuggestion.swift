@@ -52,6 +52,9 @@ struct AssistSuggestion {
     var change: AssistValueChange? = nil
     /// The tabbed sheet cell whose row brought this cell into the list ("BILL-1160").
     var rowMateOf: String? = nil
+    /// The detail says where the suggestion sits ("Invoice column · Maple Paper…")
+    /// rather than being its value, so it is drawn dimmer than the label.
+    var detailDescribesSource = false
 
     var isShareable: Bool { objectId != nil && shareable }
 

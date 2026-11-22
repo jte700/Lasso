@@ -160,7 +160,8 @@ extension GlobalAssistant {
     }
 
     static func parsePreview(_ data: Data) -> AssistDocumentPreview? {
-        AssistDocumentPreview.parse(data)
+        // The card's header names each column once, so a header row sent among the rows is folded into it.
+        AssistDocumentPreview.parse(data)?.foldingHeaderRow()
     }
 
     func selectRow(_ index: Int) {

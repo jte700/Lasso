@@ -125,7 +125,9 @@ public static class PredictionParser
                     results.Add(new AssistSuggestion(
                         InsertText: insertText,
                         Label: insertText,
-                        Detail: (candidate is { } valued ? JsonReading.String(valued, "valueText") : null)
+                        // The server says where a table value sits ("Invoice column · Maple Paper Distribution").
+                        Detail: JsonReading.String(entry, "detail")
+                            ?? (candidate is { } valued ? JsonReading.String(valued, "valueText") : null)
                             ?? JsonReading.String(entry, "category") ?? "",
                         Path: AssistSourceIdentity.CanonicalPath(
                             candidate is { } pathed ? JsonReading.String(pathed, "path") : null,
@@ -163,7 +165,8 @@ public static class PredictionParser
                     results.Add(new AssistSuggestion(
                         InsertText: insertText,
                         Label: label,
-                        Detail: value ?? JsonReading.String(candidate, "objectType") ?? "",
+                        Detail: JsonReading.String(candidate, "detail") ?? value
+                            ?? JsonReading.String(candidate, "objectType") ?? "",
                         Path: path,
                         Location: SourceLocation(candidate),
                         ReplaceFrom: start,

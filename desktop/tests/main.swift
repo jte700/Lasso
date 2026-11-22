@@ -2738,6 +2738,30 @@ do {
                                    listing: .init(moreRows: 40), measure: measure)
     check(unsent.rowRange == 0..<4 && unsent.rowsBelow == 40 && unsent.lastFirstRow == 0,
           "rows of the column the server left out are counted too")
+
+    // A column name suggested comes with its header row among the rows; the card shows its names once, in the header.
+    func preview(_ headers: [String], _ rows: [AssistPreviewRow], headerRows: [Int]) -> AssistDocumentPreview {
+        var result = AssistDocumentPreview(filename: "Payables.csv", path: "/Payables.csv", location: "", context: "",
+                                           valueText: nil, objectType: "VARIABLE", snapshotVersion: nil,
+                                           columns: headers.indices.map { String(UnicodeScalar(65 + $0)!) },
+                                           headers: headers, rows: rows)
+        result.headerRowNumbers = headerRows
+        return result
+    }
+    let named = preview(["Supplier", "Invoice"], [row(1, ["Supplier", "Invoice"], cited: 0),
+                                                   row(2, ["Maple", "BILL-1160"]), row(3, ["Harbour", "BILL-1174"])],
+                        headerRows: [1]).foldingHeaderRow()
+    check(named.rows.map(\.rowNumber) == [2, 3], "the header row is not repeated under the column names")
+    check(named.citedHeadings == [0], "the cited column name is marked in the header instead")
+    let unlisted = preview(["Supplier", "Invoice"], [row(1, ["Supplier", "Invoice"]), row(2, ["Maple", "BILL-1160"])],
+                           headerRows: []).foldingHeaderRow()
+    check(unlisted.rows.map(\.rowNumber) == [2] && unlisted.citedHeadings.isEmpty,
+          "a row that repeats the column names is folded even when the server does not say it is the header")
+    let values = preview(["Supplier", "Invoice"], [row(2, ["Maple", "BILL-1160"], cited: 1)], headerRows: [1])
+        .foldingHeaderRow()
+    check(values.rows.count == 1 && values.citedHeadings.isEmpty, "rows below the header are left as they are")
+    let lone = preview(["Supplier"], [row(1, ["Supplier"], cited: 0)], headerRows: [1]).foldingHeaderRow()
+    check(lone.rows.count == 1, "a header row with nothing below it stays, so the table still shows")
 }
 
 print("directory colors follow accepted source references")
@@ -3707,8 +3731,37 @@ do {
     let crowdedRow = AssistRowTitleLayout(label: String(repeating: "A", count: 40),
                                           detail: "From " + String(repeating: "B", count: 40),
                                           available: 273, labelFont: labelFont, detailFont: detailFont)
-    check(crowdedRow.labelWidth >= AssistRowTitleLayout.minimumLabelWidth && crowdedRow.detailWidth > 0,
+    check(crowdedRow.detailWidth >= AssistRowTitleLayout.minimumDetailWidth
+          && crowdedRow.labelWidth + AssistRowTitleLayout.gap + crowdedRow.detailWidth <= 273,
           "a very long label and detail both keep visible width without overlapping")
+    let supplierName = "Maple Paper Distribution"
+    let describedRow = AssistRowTitleLayout(label: supplierName, detail: "Row · Invoice BILL-1160, Invoice Date 2026-08-18",
+                                            available: 273, labelFont: labelFont, detailFont: detailFont)
+    check(describedRow.labelWidth >= ceil(AssistTableLayout.textWidth(supplierName, labelFont)) + 1
+          && describedRow.detailWidth > 0
+          && describedRow.labelWidth + AssistRowTitleLayout.gap + describedRow.detailWidth <= 273,
+          "a long description is shortened beside a title, never the title")
+    let narrowRow = AssistRowTitleLayout(label: String(repeating: "Maple ", count: 6), detail: "Invoice column · Maple Paper…",
+                                         available: 200, labelFont: labelFont, detailFont: detailFont)
+    check(narrowRow.detailWidth == 0 || narrowRow.detailWidth >= AssistRowTitleLayout.minimumDetailWidth,
+          "a description too squeezed to read is left out rather than crammed against the title")
+    let partedRow = AssistRowTitleLayout(label: supplierName, detail: "Row · Invoice BILL-1160",
+                                         available: 273, labelFont: labelFont, detailFont: detailFont, dropsParts: true)
+    let tightRow = AssistRowTitleLayout(label: supplierName, detail: "Row · Invoice BILL-1160 · Invoice Date 2026-08-18",
+                                        available: 273, labelFont: labelFont, detailFont: detailFont, dropsParts: true)
+    check([partedRow, tightRow].allSatisfy { row in
+              row.detailWidth >= ceil(AssistTableLayout.textWidth(row.detail, detailFont)) + 1
+              && row.detail.hasPrefix("Row")
+          } && tightRow.detail != "Row · Invoice BILL-1160 · Invoice Date 2026-08-18",
+          "a description too long beside its title drops whole parts instead of ending mid-value")
+    let changeRow = AssistRowTitleLayout(label: supplierName, detail: "19,250 · was 18,400 since Tuesday",
+                                         available: 273, labelFont: labelFont, detailFont: detailFont)
+    check(changeRow.detail == "19,250 · was 18,400 since Tuesday",
+          "a value's change keeps all its parts, shortened at the end if it must be")
+    let valueRow = AssistRowTitleLayout(label: String(repeating: "October forecast ", count: 4), detail: "190000",
+                                        available: 273, labelFont: labelFont, detailFont: detailFont)
+    check(valueRow.detailWidth == ceil(AssistTableLayout.textWidth("190000", detailFont)) + 1,
+          "a short value beside a long title still shows whole")
 
     let revenueText = accept(&memory, source("revenue", "Revenue", project: "finance"), after: "The Bracket is shown. ")
     memory.observe(revenueText + " was", reachesStart: true)

@@ -8,6 +8,7 @@ import { LINKED_VALUES_SHOWN } from './constants.js';
 import { mapObjectRow } from './object-descriptors.js';
 import { tabularProvenanceLabel } from './row-field-match.js';
 import { contextualStoredValue } from './value-match.js';
+import { rowMateDetail } from './suggestion-detail.js';
 import { contextualCompletionRange, typedValueCloseness } from './workspace-completion.js';
 import { writingSourceContext } from './writing-context.js';
 
@@ -62,6 +63,7 @@ export const heldRowsMethods = {
     const seen = new Set(list.completions.map((item) => item.dependencyCandidate?.id));
     const added = [];
     for (const { value, row, tabbedValue } of tabbed) {
+      const labelColumn = this.tableLabelColumn(value, value.anchor?.sheet ?? value.metadata?.sheet ?? null);
       for (const object of this.rowMateObjects(projectId, value, row)) {
         if (object.id === value.id || object.id === held.source.id || seen.has(object.id)) continue;
         const replacementText = object.anchor?.kind === 'table-row'
@@ -73,7 +75,7 @@ export const heldRowsMethods = {
           id: `${object.id}:row-mate:${added.length}`,
           replacementText,
           category: object.objectType === 'RESULT' ? 'Result' : 'Value',
-          detail: `From ${tabbedValue}`,
+          detail: rowMateDetail(object, tabbedValue, labelColumn),
           rowMateOf: tabbedValue,
           provenanceLabel: tabularProvenanceLabel(object),
           ...contextualCompletionRange(text, cursor, replacementText, { floor }),

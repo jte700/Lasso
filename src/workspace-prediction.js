@@ -9,6 +9,7 @@ import { currentClauseStart, LINKED_VALUES_SHOWN, namesFocusedFile, SUGGESTIONS_
 import { dictatedNameEnds, hasSuggestions, namesInFull, softenDictatedPauses } from './dependencies/dictation.js';
 import { matchedSourceWords, typedSentence } from './dependencies/direct-match.js';
 import { focusedDependency, tag, distinctRanked } from './workspace-ranking.js';
+import { suggestionDetail } from './dependencies/suggestion-detail.js';
 
 /** Asks whether the writer has typed past this request; carried with the input through every reading of it. */
 const CANCELLED = Symbol('cancelled');
@@ -237,10 +238,20 @@ export const workspacePredictionMethods = {
       const change = this.dependencies.suggestionChange(object.projectId ?? item.projectId, object.snapshotId, object);
       return change ? { ...item, change } : item;
     };
+    // A table suggestion says where it sits (a column what it holds, a value
+    // its column and row) unless its producer already said something.
+    const withDetail = (item) => {
+      if (item.group === 'completion' || item.detail) return item;
+      const object = item.dependencyCandidate ?? item;
+      const detail = suggestionDetail(object,
+        item.group === 'claim' ? item.label : item.label ?? item.replacementText ?? item.insertText,
+        { rowCells: this.rowCells(object.projectId ?? item.projectId, object) });
+      return detail ? { ...item, detail } : item;
+    };
     const ordered = typed.some((slot) => slot.group === 'claim' || slot.group === 'completion')
       ? [...distinctRanked(typed, limit, { keepOrder }), ...distinctRanked(sharing, limit, { keepOrder })].slice(0, limit)
       : distinctRanked(current, limit, { keepOrder });
-    const selected = ordered.map(withChange).map((item, rankOrder) => ({ ...item, rankOrder,
+    const selected = ordered.map(withChange).map(withDetail).map((item, rankOrder) => ({ ...item, rankOrder,
       matchedWords: namesWholeFile(item) ? [] : matchedSourceWords(item.quotedPhrase ?? sentence, [item.sourceSentence, item.replacementText, item.dependencyCandidate?.valueText,
         item.dependencyCandidate?.label, item.dependencyCandidate?.metadata?.variable, item.valueText, item.label,
         item.metadata?.variable].filter((text) => typeof text === 'string').join(' ')) }));
@@ -266,5 +277,13 @@ export const workspacePredictionMethods = {
         ...(context.prediction.sourceContext.source ? { source: tag(context.prediction.sourceContext.source, context.project, projectsById) } : {}) } } : {}),
       ...(context?.prediction.workspaceHeading ? { workspaceHeading: context.prediction.workspaceHeading } : {}),
       ...(context?.prediction.notice && !selected.length ? { notice: context.prediction.notice } : {}) };
+  },
+
+  /** A named row's cells, left to right, for its detail on the card; none for anything else. */
+  rowCells(projectId, object) {
+    if (object?.objectType !== 'DATASET_ROW' || object.anchor?.kind !== 'table-row' || !object.snapshotId) return [];
+    return this.dependencies.rowMateObjects(projectId, object, object)
+      .filter((mate) => mate.anchor?.kind === 'table-cell')
+      .map((mate) => ({ column: String(mate.metadata?.column ?? mate.anchor.column ?? ''), value: mate.valueText }));
   },
 };

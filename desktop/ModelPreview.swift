@@ -510,10 +510,14 @@ struct AssistDocumentPreview {
     let snapshotVersion: Int?
     let columns: [String]
     let headers: [String]
-    let rows: [AssistPreviewRow]
+    var rows: [AssistPreviewRow]
     /// Set when `rows` list a whole column from its first row: how many rows
     /// of the column the server left out after them. Nil around a cited cell.
     var moreRows: Int? = nil
+    /// The sheet rows the column names were read from, such as [1].
+    var headerRowNumbers: [Int] = []
+    /// Indexes into `headers` whose name is itself the citation; set by `foldingHeaderRow`.
+    var citedHeadings: Set<Int> = []
     var model: AssistModelPreview? = nil
     var unavailableReason: String? = nil
     var pdf: AssistPDFPreview? = nil
@@ -610,6 +614,7 @@ struct AssistDocumentPreview {
             result.location = result.location.isEmpty ? line : "\(result.location) \u{00B7} \(line)"
         }
         result.moreRows = (preview["moreRows"] as? NSNumber)?.intValue
+        result.headerRowNumbers = (preview["headerRowNumbers"] as? [NSNumber] ?? []).map(\.intValue)
         result.slideNumber = (preview["slideNumber"] as? NSNumber)?.intValue
         result.deck = AssistSlideDeck(json: preview["deck"])
         if kind == "video" {

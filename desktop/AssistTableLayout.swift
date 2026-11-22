@@ -369,34 +369,83 @@ struct TableCitationMarks {
     }
 }
 
+extension AssistDocumentPreview {
+    /// The preview with a header row sent among its rows (as it is when a
+    /// column name is suggested) taken out, since the card's header already
+    /// shows those names; a name that was cited is kept in `citedHeadings`.
+    /// A row is the header when the server lists it as one or when its values
+    /// are the column names. A header with no rows below it is left in place.
+    func foldingHeaderRow() -> AssistDocumentPreview {
+        guard let first = rows.first, rows.count > 1, headers.contains(where: { !$0.isEmpty }),
+              repeatsHeaders(first) else { return self }
+        var folded = self
+        folded.rows = Array(rows.dropFirst())
+        folded.citedHeadings = citedHeadings.union(first.cells.indices.filter { first.cells[$0].cited })
+        return folded
+    }
+
+    private func repeatsHeaders(_ row: AssistPreviewRow) -> Bool {
+        if let number = row.rowNumber, headerRowNumbers.contains(number) { return true }
+        let named = headers.indices.filter { !headers[$0].isEmpty }
+        let normal = { (text: String) in text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        return named.allSatisfy { row.cells.indices.contains($0) && normal(row.cells[$0].value) == normal(headers[$0]) }
+    }
+}
+
 /// How a suggestion row splits its top line between its main label and its
-/// top-right detail label ("$400", "From BILL-1160", "19,250 · was 18,400").
-/// Both show whole when they fit together; when they do not, the label keeps
-/// room to stay legible and the detail takes the rest.
+/// top-right detail label ("$400", "Supplier of BILL-1160", "19,250 · was 18,400").
+/// Both show whole when they fit together. When they do not, the label keeps
+/// its whole width and the detail is shortened into what is left, never below
+/// a legible width, so the two never run into each other; a label too long for
+/// that is shortened instead, down to where the detail still shows. A detail
+/// made of parts ("Invoice column · Maple Paper Distribution") can drop its
+/// last parts to fit whole rather than end mid-word.
 struct AssistRowTitleLayout: Equatable {
-    static let gap: CGFloat = 10
-    static let minimumLabelWidth: CGFloat = 110
-    static let minimumLabelShare: CGFloat = 0.45
+    static let gap: CGFloat = 14
+    /// The narrowest a shortened detail is drawn; a short value keeps its own width.
+    static let minimumDetailWidth: CGFloat = 64
+    static let partSeparator = " · "
 
     let labelWidth: CGFloat
     let detailWidth: CGFloat
+    /// The detail as drawn: whole, or its first parts when only those fit.
+    let detail: String
 
     init(label: String, detail: String, available: CGFloat, labelFont: NSFont, detailFont: NSFont,
-         measure: (String, NSFont) -> CGFloat = AssistTableLayout.textWidth) {
+         dropsParts: Bool = false, measure: (String, NSFont) -> CGFloat = AssistTableLayout.textWidth) {
         let total = max(0, available)
         guard !detail.isEmpty, total > Self.gap else {
             labelWidth = total
             detailWidth = 0
+            self.detail = ""
             return
         }
-        let naturalLabel = ceil(measure(label, labelFont)) + 1
-        let naturalDetail = ceil(measure(detail, detailFont)) + 1
-        if naturalLabel + Self.gap + naturalDetail <= total {
-            detailWidth = naturalDetail
+        func width(_ text: String, _ font: NSFont) -> CGFloat { ceil(measure(text, font)) + 1 }
+        let naturalLabel = width(label, labelFont)
+        let label = min(naturalLabel, max(0, total - Self.gap - min(width(detail, detailFont), Self.minimumDetailWidth)))
+        let room = max(0, total - Self.gap - label)
+        let shown = dropsParts ? Self.wholeParts(of: detail, within: room) { width($0, detailFont) } : detail
+        let naturalDetail = width(shown, detailFont)
+        let fitted = min(naturalDetail, room)
+        if fitted < min(naturalDetail, Self.minimumDetailWidth) {
+            labelWidth = total
+            detailWidth = 0
+            self.detail = ""
         } else {
-            let floor = min(naturalLabel, max(Self.minimumLabelWidth, total * Self.minimumLabelShare))
-            detailWidth = min(naturalDetail, max(0, total - Self.gap - floor))
+            detailWidth = fitted
+            labelWidth = max(0, total - Self.gap - fitted)
+            self.detail = shown
         }
-        labelWidth = max(0, total - Self.gap - detailWidth)
+    }
+
+    /// The most of the detail's leading parts that fits whole, or all of it when not even its first part does.
+    private static func wholeParts(of detail: String, within room: CGFloat, width: (String) -> CGFloat) -> String {
+        guard width(detail) > room else { return detail }
+        let parts = detail.components(separatedBy: partSeparator)
+        for count in stride(from: parts.count - 1, through: 1, by: -1) {
+            let leading = parts.prefix(count).joined(separator: partSeparator)
+            if width(leading) <= room { return leading }
+        }
+        return detail
     }
 }

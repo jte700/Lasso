@@ -541,28 +541,36 @@ extension AssistBoxView {
         let padding = AssistTableLayout.cellPadding
         // The cited cell's column letter is marked; its wash leads down into the cell.
         let marked = citationMarks(preview, layout: layout).markedColumns
+        var citedOutline: NSRect?
         for (index, column) in layout.visibleColumns.enumerated() {
             let letter = column < preview.columns.count ? preview.columns[column] : spreadsheetColumn(column)
             let heading = column < preview.headers.count ? preview.headers[column] : ""
-            let alignment: NSTextAlignment = layout.numericColumns.contains(index) ? .right : .left
             let x = table.minX + AssistTableLayout.rowHeaderWidth + layout.offset(of: index)
             let width = layout.columnWidths[index] - 2 * padding
             let top = table.minY + AssistTableLayout.headerTopPadding
-            let isMarked = marked.contains(index)
-            if isMarked {
-                TableCitationMarks.wash(NSRect(x: x, y: table.minY, width: layout.columnWidths[index], height: layout.headerHeight),
-                                        color: tableSourceColor)
-            }
+            // A column name suggested is itself the citation: its letter is marked and its name outlined.
+            let headingCited = preview.citedHeadings.contains(column)
+            let isMarked = marked.contains(index) || headingCited
+            let cell = NSRect(x: x, y: table.minY, width: layout.columnWidths[index], height: layout.headerHeight)
+            if isMarked { TableCitationMarks.wash(cell, color: tableSourceColor) }
+            if headingCited { citedOutline = cell }
+            // The letter sits centred over its column with the name under it, each said once.
             drawText(letter, in: NSRect(x: x + padding, y: top, width: width, height: AssistTableLayout.letterHeight),
                      font: isMarked ? AssistTableLayout.markedLetterFont : AssistTableLayout.letterFont,
-                     color: isMarked ? tableSourceColor : .tertiaryLabelColor, alignment: alignment)
+                     color: isMarked ? tableSourceColor : .tertiaryLabelColor, alignment: .center)
             let headingTop = top + AssistTableLayout.letterHeight
             drawMultilineText(heading.isEmpty ? "Column \(letter)" : heading,
                               in: NSRect(x: x + padding, y: headingTop, width: width,
                                          height: table.minY + layout.headerHeight - headingTop - 4),
-                              font: AssistTableLayout.headingFont, color: .labelColor, alignment: alignment,
-                              lineSpacing: 0)
+                              font: AssistTableLayout.headingFont, color: headingCited ? tableSourceColor : .labelColor,
+                              alignment: .center, lineSpacing: 0)
             if index > 0 { drawGridLine(x: x, from: table.minY, to: table.minY + layout.headerHeight) }
+        }
+        if let outline = citedOutline {
+            tableSourceColor.withAlphaComponent(0.65).setStroke()
+            let path = NSBezierPath(rect: outline.insetBy(dx: 0.5, dy: 0.5))
+            path.lineWidth = 0.8
+            path.stroke()
         }
     }
 
