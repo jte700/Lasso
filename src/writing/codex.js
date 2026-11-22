@@ -27,6 +27,8 @@ const START_TIMEOUT_MS = 15_000;
 const IDLE_MS = 10 * 60 * 1000;
 // How long an interrupted turn may take to say it has stopped.
 const INTERRUPT_WAIT_MS = 3000;
+// Pages of model/list read at most; one has always been enough.
+const MODEL_PAGES = 5;
 
 /** A failure worded for the person, such as not being signed in. */
 export class WriterError extends Error {
@@ -74,6 +76,7 @@ export class CodexAppServer {
     this.nextId = 1;
     this.idleTimer = null;
     this.lean = true;
+    this.writingModel = model;
     // Counts stops, so a start that was stopped meanwhile is not mistaken for one Codex refused.
     this.stops = 0;
     this.closed = false;
@@ -124,6 +127,31 @@ export class CodexAppServer {
       throw new WriterError('ChatGPT is not signed in. Open the ChatGPT app and sign in, then try again.', { code: 'writer-signed-out' });
     }
     this.account = account ?? null;
+    this.writingModel = await this.chooseModel();
+  }
+
+  /**
+   * The model writing runs on: the one Lasso was given when the account offers
+   * it, else the account's own default. Never left to the person's Codex
+   * settings, which may name a model their plan does not include. Null, and
+   * Codex chooses, when this Codex cannot list its models.
+   */
+  async chooseModel() {
+    const models = [];
+    try {
+      let cursor = null;
+      for (let page = 0; page < MODEL_PAGES; page += 1) {
+        const { data = [], nextCursor = null } = await this.request('model/list', cursor ? { cursor } : {});
+        models.push(...data);
+        if (!nextCursor) break;
+        cursor = nextCursor;
+      }
+    } catch {
+      return this.model;
+    }
+    if (this.model && models.some((entry) => entry.model === this.model || entry.id === this.model)) return this.model;
+    const preferred = models.find((entry) => entry.isDefault) ?? models.find((entry) => !entry.hidden) ?? models[0];
+    return preferred?.model ?? preferred?.id ?? this.model;
   }
 
   async launch(codex, flags) {
@@ -256,7 +284,7 @@ export class CodexAppServer {
       baseInstructions: instructions,
       dynamicTools: tools.map((tool) => ({ type: 'function', name: tool.name, description: tool.description, inputSchema: tool.inputSchema })),
       config: { model_reasoning_effort: this.effort },
-      ...(this.model ? { model: this.model } : {}),
+      ...(this.writingModel ? { model: this.writingModel } : {}),
     });
   }
 

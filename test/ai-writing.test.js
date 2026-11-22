@@ -153,6 +153,38 @@ test('a prompt is answered as words to write, the cited ones with their source',
   assert.equal(thread.ephemeral, true);
 });
 
+test('a writer is started on the model the account offers, not one the person\'s own Codex settings name', async (t) => {
+  const { app, requests } = await library(t);
+  const base = await serve(app);
+  const events = await written(base, { prompt: 'Write a message detailing the budget' });
+  assert.equal(events.at(-1).type, 'done');
+  assert.equal(requests().find((entry) => entry.method === 'thread/start').params.model, 'fake-default');
+});
+
+test('a writer model chosen for Lasso is used when the account offers it', async (t) => {
+  const { app, requests } = await library(t, { writerModel: 'fake-other' });
+  const base = await serve(app);
+  const events = await written(base, { prompt: 'Write a message detailing the budget' });
+  assert.equal(events.at(-1).type, 'done');
+  assert.equal(requests().find((entry) => entry.method === 'thread/start').params.model, 'fake-other');
+});
+
+test('a writer model chosen for Lasso that the account lacks gives way to the account\'s default', async (t) => {
+  const { app, requests } = await library(t, { writerModel: 'gpt-not-on-this-plan' });
+  const base = await serve(app);
+  const events = await written(base, { prompt: 'Write a message detailing the budget' });
+  assert.equal(events.at(-1).type, 'done');
+  assert.equal(requests().find((entry) => entry.method === 'thread/start').params.model, 'fake-default');
+});
+
+test('a Codex that cannot list its models still writes, on its own choice', async (t) => {
+  const { app, requests } = await library(t, { environment: { FAKE_CODEX_NO_MODEL_LIST: '1' } });
+  const base = await serve(app);
+  const events = await written(base, { prompt: 'Write a message detailing the budget' });
+  assert.equal(events.at(-1).type, 'done');
+  assert.equal('model' in requests().find((entry) => entry.method === 'thread/start').params, false);
+});
+
 test('a writer that fails says why and writes nothing', async (t) => {
   const { app } = await library(t);
   const base = await serve(app);
