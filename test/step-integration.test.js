@@ -286,7 +286,8 @@ function firstInsertion(prediction) {
   return first && { text: first.text, start: first.start, label: first.label };
 }
 
-test('a value being typed after a CAD feature is completed with its measurement and unit', async t => {
+// A work directory holding the NIST test part, whose holes, arcs and edges are all measured.
+async function nistWorkspace(t) {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-step-values-'));
   const root = path.join(sandbox, 'Models');
   fs.mkdirSync(root);
@@ -294,6 +295,11 @@ test('a value being typed after a CAD feature is completed with its measurement 
   const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
   await app.workspace.add([fs.realpathSync(root)], actor);
   t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  return app;
+}
+
+test('a value being typed after a CAD feature is completed with its measurement and unit', async t => {
+  const app = await nistWorkspace(t);
   const part = 'nist_ctc_01_asme1_rd';
 
   // "4" begins the Ø20 holes' 45 mm depth: Tab writes the value in place of the
@@ -305,6 +311,46 @@ test('a value being typed after a CAD feature is completed with its measurement 
   for (const text of ['The Ø20 hole diameter is 2', 'The Ø20 holes are 2']) {
     assert.deepEqual(firstInsertion(await typed(app, text)),
       { text: '20 mm', start: text.length - 1, label: `${part} Ø20 hole diameter` }, text);
+  }
+});
+
+test('a CAD measurement named in a sentence under way is written as its value and unit, not its whole line', async t => {
+  const app = await nistWorkspace(t);
+  const part = 'nist_ctc_01_asme1_rd';
+  const depth = { text: '45 mm', label: `${part} Ø20 hole depth` };
+  const diameter = { text: '20 mm', label: `${part} Ø20 hole diameter` };
+  // After a verb, a preposition or another word, before any digit is typed:
+  // Tab writes the value at the caret, which the card's feature line names.
+  for (const [text, expected] of [
+    ['The Ø20 holes are ', depth],
+    ['The Ø20 holes are', depth],
+    ['The Ø20 hole depth is ', depth],
+    ['The Ø20 hole diameter is ', diameter],
+    ['The Ø20 holes were drilled to a depth of ', depth],
+    ['The part is machined. Its Ø20 holes are ', depth],
+    [`The ${part} Ø20 hole depth is `, depth],
+  ]) {
+    assert.deepEqual(firstInsertion(await typed(app, text)), { ...expected, start: text.length }, text);
+  }
+  // Whichever measurement leads, a sentence under way is never given a part's whole line.
+  for (const text of ['the holes are ', 'The edges are ', 'We measured the arcs at ']) {
+    const prediction = await typed(app, text);
+    assert.ok(prediction.workspaceCompletions.length > 0, text);
+    for (const completion of prediction.workspaceCompletions.filter(item => item.category === 'Drawing measurement')) {
+      assert.equal(completion.replacementText, completion.dependencyCandidate.valueText, text);
+      assert.equal(completion.claimStart, text.length, text);
+    }
+  }
+});
+
+test('a CAD measurement that begins a sentence is still written as its whole line', async t => {
+  const app = await nistWorkspace(t);
+  const part = 'nist_ctc_01_asme1_rd';
+  // The words typed so far are the line's own beginning: Tab writes all of it in their place.
+  for (const [earlier, typedLine] of [['', `${part} Ø20 hole depth is`], ['The part is machined. ', `${part} Ø20 hole depth is`]]) {
+    const text = `${earlier}${typedLine}`;
+    assert.deepEqual(firstInsertion(await typed(app, text)),
+      { text: `${part} Ø20 hole depth is 45 mm`, start: earlier.length, label: `${part} Ø20 hole depth` }, text);
   }
 });
 

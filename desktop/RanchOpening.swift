@@ -1,11 +1,13 @@
 // How The Ranch opens: a card pops up in the middle of the window, over the
 // library dimmed behind it. The first time, the card is the tour
 // (RanchTour.swift), four light steps with live demos. Its last step turns it
-// into the Begin card: green gas moving inside it, its name at the bottom left
-// and a slab of glass in the middle saying Begin. Pressed, the gas clears from
-// the middle and the slab grows into the directories Lasso reads, ticked, with
-// a way to add more. Next (or Skip, with none) sends the card and its gas
-// outward and the library comes into focus.
+// into the Begin card: the window's dark panel with a field of dots that
+// gather in colour round the pointer (RanchDotField.swift), its name at the
+// bottom left and a slab of glass in the middle saying Begin. Pressed, the
+// slab grows into the directories Lasso reads, ticked, with a way to add more.
+// Next (or Skip, with none) sends the card outward and the library comes into
+// focus. After the tour, the card shows once each time Lasso starts, so after
+// an update or a restart, not every time the window opens (`RanchWindow`).
 
 import Cocoa
 import SwiftUI
@@ -40,10 +42,10 @@ struct RanchOpening: View {
                     .clipShape(RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous)
                         .strokeBorder(touring ? Color.black.opacity(0.06) : Color.white.opacity(0.1), lineWidth: 1))
-                    // Leaving, its edges soften, so it spreads like gas rather than moving as a pane.
+                    // Leaving, its edges soften, so it dissolves rather than moving as a pane.
                     .blur(radius: isLeaving ? 36 : 0)
                     .shadow(color: .black.opacity(isLeaving ? 0 : 0.55), radius: 50, y: 24)
-                    // Popping up it rises from a little smaller; leaving, the gas spreads out past the window.
+                    // Popping up it rises from a little smaller; leaving, it spreads out past the window.
                     .scaleEffect(isLeaving ? 1.5 : shown ? 1 : 0.9)
                     .opacity(isLeaving || !shown ? 0 : 1)
                     .accessibilityElement(children: .contain)
@@ -58,7 +60,7 @@ struct RanchOpening: View {
         }
     }
 
-    /// The tour, or the gas and its glass; as one gives way to the other the
+    /// The tour, or the dots and their glass; as one gives way to the other the
     /// card grows from the tour's tall card to the Begin card.
     @ViewBuilder
     private func cardBody(_ card: CGSize) -> some View {
@@ -68,10 +70,10 @@ struct RanchOpening: View {
                     .transition(.opacity.animation(.easeOut(duration: 0.18)))
             } else {
                 ZStack {
-                    // A deep green under the gas, so the card stays a card once its gas has cleared.
-                    RanchLook.rgb(0x08130D).opacity(isLeaving ? 0 : 1)
+                    // The window's own panel, so the card is of a piece with the library behind it.
+                    RanchLook.panel.opacity(isLeaving ? 0 : 1)
                         .animation(.easeOut(duration: 0.16), value: isLeaving)
-                    RanchGasView(disperse: gas)
+                    RanchDotField(disperse: fade)
                     wordmark
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                         .padding(.leading, 34)
@@ -114,11 +116,11 @@ struct RanchOpening: View {
         return CGSize(width: width, height: min(window.height - 56, max(base, step + Self.cardInset * 2)))
     }
 
-    /// How far the gas has gone at each step.
-    private var gas: Double {
+    /// How far the dots have faded at each step: mostly gone behind the directories.
+    private var fade: Double {
         switch store.stage {
         case .tour, .welcome: return 0
-        case .directories: return 0.7
+        case .directories: return 0.6
         case .leaving, .home: return 1
         }
     }
@@ -127,8 +129,8 @@ struct RanchOpening: View {
         Text(Ranch.title)
             .font(RanchLook.font(Self.wordmarkSize, .medium))
             .ranchTracking(-0.035, size: Self.wordmarkSize)
-            .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.18), radius: 18, y: 4)
+            .foregroundStyle(RanchLook.ink)
+            .shadow(color: .black.opacity(0.35), radius: 18, y: 4)
             // It steps back while the directories are up, so the glass never sits over it.
             .opacity(store.stage == .welcome ? 1 : 0)
             .animation(.easeOut(duration: 0.25), value: store.stage)
@@ -213,12 +215,12 @@ struct RanchOpening: View {
     }
 }
 
-/// Glass over the gas: Liquid Glass on macOS 26, a frosted pane before it.
+/// Glass over the dots: Liquid Glass on macOS 26, a frosted pane before it.
 private struct RanchOpeningGlass<Outline: InsettableShape>: ViewModifier {
     let shape: Outline
     /// Brighter while the pointer is on the Begin button.
     let lit: Bool
-    /// How milky the glass is: more over the gas, less once it has cleared.
+    /// How milky the glass is: more for the Begin button, less once it holds the directories.
     let frost: Double
 
     func body(content: Content) -> some View {

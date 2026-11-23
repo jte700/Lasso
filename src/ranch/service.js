@@ -32,6 +32,8 @@ const REFRESH_BUCKET_MS = 10 * 60 * 1000;
 const MAX_OUTGOING_LINKS = 300;
 const MAX_RECEIVED_LINKS = 300;
 
+/** What a link carries, as the card names it: the value, else its label, else the words linked. */
+const linkedWords = (dependency) => dependency.source?.valueText || dependency.source?.label || dependency.spanText || null;
 const iso = (milliseconds) => (Number.isFinite(milliseconds) && milliseconds > 0 ? new Date(milliseconds).toISOString() : null);
 
 export class RanchService {
@@ -141,12 +143,14 @@ export class RanchService {
     for (const dependency of dependencies) {
       const sourceId = fileIdAt(dependency.source.projectId ?? dependency.projectId, dependency.source.path);
       count(sourceId, 'references');
-      network.add(fileIdAt(dependency.projectId, dependency.documentPath), sourceId, 'link');
+      const documentId = fileIdAt(dependency.projectId, dependency.documentPath);
+      network.add(documentId, sourceId, 'link', 1, { from: documentId, text: linkedWords(dependency) });
     }
     for (const row of this.db.prepare(`SELECT DISTINCT project_file_id, document_project_file_id
       FROM recommendation_document_usage`).all()) {
       if (fileIds.has(row.project_file_id) && fileIds.has(row.document_project_file_id)) {
-        network.add(row.project_file_id, row.document_project_file_id, 'used-in');
+        network.add(row.project_file_id, row.document_project_file_id, 'used-in', 1,
+          { from: row.project_file_id, text: null });
       }
     }
     const received = this.receivedLinks(files, network);
@@ -327,7 +331,9 @@ export class RanchService {
           directoryId: file.directoryId, path: file.path, fileId: file.id, receivedAt: file.modifiedAt });
       }
       for (const name of found.names) {
-        for (const target of mentionTargets(filesByName, name, file)) network.add(file.id, target.id, 'mention');
+        for (const target of mentionTargets(filesByName, name, file)) {
+          network.add(file.id, target.id, 'mention', 1, { from: file.id, text: name });
+        }
       }
     }
     return received.sort((left, right) => String(right.receivedAt).localeCompare(String(left.receivedAt)));

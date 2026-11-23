@@ -24,10 +24,13 @@ struct RanchActivityPage: View {
     @State private var feed = RanchChangeFeed()
     /// Where the list's top sits in the page's view, for the pill to float over it.
     @State private var listTop: CGFloat = 80
-    @StateObject private var pull = RanchPull()
+    // Held, not watched: the pull redraws only its own parts, at 120 frames a second while it moves.
+    @State private var pull = RanchPull()
 
     private static let scrollSpace = "ranch-activity-scroll"
     private static let topID = "ranch-activity-top"
+    /// How far below the page's top the new-changes pill sits once the list scrolls under it.
+    private static let pillTop: CGFloat = 14
 
     var body: some View {
         let content = listContent
@@ -70,7 +73,12 @@ struct RanchActivityPage: View {
                     }
                     .coordinateSpace(name: Self.scrollSpace)
                     .onPreferenceChange(RanchPullTopKey.self) { top in pull.atTop = top >= -0.5 }
-                    .onPreferenceChange(RanchListTopKey.self) { top in listTop = top }
+                    .onPreferenceChange(RanchListTopKey.self) { top in
+                        // Kept only while it moves the pill: every change redraws the whole page,
+                        // which scrolling would otherwise do on every frame.
+                        let pinned = max(Self.pillTop - 4, top.rounded())
+                        if pinned != listTop { listTop = pinned }
+                    }
                     .overlay(alignment: .top) { newChangesPill(proxy) }
                     .animation(RanchLook.spring, value: waitingChanges.count)
                 }
@@ -169,7 +177,7 @@ struct RanchActivityPage: View {
         if count > 0 {
             RanchNewChangesPill(count: count) { takeInChanges(scrolling: proxy) }
                 // Over the top of the list, and at the top of the page once the list scrolls under it.
-                .padding(.top, max(14, listTop + 4))
+                .padding(.top, max(Self.pillTop, listTop + 4))
                 .transition(.move(edge: .top).combined(with: .opacity))
         }
     }

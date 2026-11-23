@@ -31,7 +31,8 @@ final class RanchPull: ObservableObject {
     /// When the last refresh finished, for "Updated just now".
     @Published private(set) var refreshed: Date?
 
-    /// Whether the page is scrolled all the way up, where a pull can start.
+    /// Whether the page is scrolled all the way up, where a pull can start, as
+    /// SwiftUI last reported it; the scroll view itself is asked first (`scrolledToTop`).
     var atTop = true
     /// While true, as when a file is open over the page, nothing is pulled.
     var blocked = false
@@ -96,7 +97,7 @@ final class RanchPull: ObservableObject {
             }
             return true
         case .idle:
-            guard !blocked, atTop, delta > 0, event.momentumPhase.isEmpty, over(event),
+            guard !blocked, delta > 0, event.momentumPhase.isEmpty, scrolledToTop, over(event),
                   wheel || event.phase == .began || event.phase == .changed else { return false }
             begin()
             pull(by: delta)
@@ -104,9 +105,23 @@ final class RanchPull: ObservableObject {
             return true
         case .loading, .settling:
             // A pull during a refresh is not passed on, so the page does not jump under the spinner.
-            return over(event) && atTop && delta > 0
+            return over(event) && scrolledToTop && delta > 0
         }
     }
+
+    /// Whether the page is scrolled all the way up, read from the scroll view
+    /// itself. On newer macOS a SwiftUI scroll view stops reporting where its
+    /// content sits while it scrolls, so `atTop` can stay true far down the
+    /// page, and every scroll up would be taken for a pull.
+    private var scrolledToTop: Bool {
+        guard let scroll = area?.enclosingScrollView, let document = scroll.documentView else { return atTop }
+        let clip = scroll.contentView
+        if document.isFlipped { return clip.bounds.minY <= -clip.contentInsets.top + Self.topSlack }
+        return clip.bounds.maxY >= document.bounds.maxY - Self.topSlack
+    }
+
+    /// How near the top, in points, still counts as the top.
+    private static let topSlack: CGFloat = 0.5
 
     private func over(_ event: NSEvent) -> Bool {
         guard let area, let window = area.window else { return false }

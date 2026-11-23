@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+ <Units><Metric linearUnit="meter" areaUnit="squareMeter" volumeUnit="cubicMeter" diameterUnit="millimeter"/></Units>
+ <Project name="Fictional Juniper Hub Site"/>
+ <CgPoints name="Topo">
+  <CgPoint name="101" desc="TOP OF CURB">5000.000 1000.000 100.250</CgPoint>
+  <CgPoint name="102" desc="BENCHMARK">5060.000 1080.000 101.600</CgPoint>
+ </CgPoints>
+ <Parcels name="Juniper Site">
+  <Parcel name="Juniper Lot" area="1850.5">
+   <CoordGeom>
+    <Line><Start>5000 1000</Start><End>5000 1050</End></Line>
+    <Line><Start>5000 1050</Start><End>5037 1050</End></Line>
+    <Line><Start>5037 1050</Start><End>5037 1000</End></Line>
+    <Line><Start>5037 1000</Start><End>5000 1000</End></Line>
+   </CoordGeom>
+  </Parcel>
+ </Parcels>
+ <Alignments name="Site Access">
+  <Alignment name="Juniper Access Road" length="125.75" staStart="0">
+   <CoordGeom>
+    <Line length="50"><Start>4990 990</Start><End>4990 1040</End></Line>
+    <Curve rot="cw" radius="30" length="47.12"><Start>4990 1040</Start><Center>4960 1040</Center><End>4960 1070</End></Curve>
+    <Line length="28.63"><Start>4960 1070</Start><End>4960 1098.63</End></Line>
+   </CoordGeom>
+   <Profile name="Juniper Access Road">
+    <ProfAlign name="Juniper Access Road FG">
+     <PVI>0 99.80</PVI>
+     <ParaCurve length="30">62.5 98.95</ParaCurve>
+     <PVI>125.75 100.40</PVI>
+    </ProfAlign>
+   </Profile>
+  </Alignment>
+ </Alignments>
+ <PipeNetworks>
+  <PipeNetwork name="Storm">
+   <Structs>
+    <Struct name="JH-MH1" elevRim="101.2" elevSump="98.1"><Center>5010 1010</Center><CircStruct diameter="1200"/><Invert refPipe="JH-P1" elev="98.40" flowDir="out"/></Struct>
+    <Struct name="JH-MH2" elevRim="100.9" elevSump="97.5"><Center>5010 1052.5</Center><CircStruct diameter="1200"/><Invert refPipe="JH-P1" elev="97.89" flowDir="in"/></Struct>
+   </Structs>
+   <Pipes><Pipe name="JH-P1" refStart="JH-MH1" refEnd="JH-MH2" length="42.5" material="PVC"><CircPipe diameter="300"/></Pipe></Pipes>
+  </PipeNetwork>
+ </PipeNetworks>
+ <Surfaces><Surface name="Existing Ground"><Definition surfType="TIN" elevMin="97.2" elevMax="102.8" area2DSurf="4200"/></Surface></Surfaces>
+</LandXML>

@@ -18,7 +18,8 @@ struct RanchSourcesPage: View {
     @AppStorage("RanchSourcesCompact") private var compact = false
     /// When the list was last laid out afresh, so its rows rise in turn.
     @State private var laidOut = Date()
-    @StateObject private var pull = RanchPull()
+    // Held, not watched: the pull redraws only its own parts, at 120 frames a second while it moves.
+    @State private var pull = RanchPull()
     @StateObject private var shortcut = RanchSearchShortcut()
     /// Counts asks to put the cursor in the search bar: F, ⌘F and the sidebar's Search row.
     @State private var searchFocus = 0

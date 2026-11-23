@@ -33,6 +33,13 @@ export const READERS = Object.freeze([
   { id: 'table', version: 5, extract: 'table', accepts: (file) => ['table', 'spreadsheet'].includes(file.fileType) },
   // A PDF is read as a drawing when its pages are drawings, otherwise as a paper.
   { id: 'pdf', version: 1, extract: 'file', accepts: (file) => file.fileType === 'pdf' },
+  // LandXML, and any .xml file, which may be a LandXML export. Before it had a
+  // reader of its own it was read by the design reader, which still reads it.
+  // 1: profiles, curves, stations, pipe routes, materials and slopes, structure
+  //    sizes and depths, survey points and surfaces; values rounded as plans show them.
+  // 2: labels say a property once, without its attribute name ("rim elevation", not "rim elevation elev Rim").
+  { id: 'landxml', version: 2, extract: 'file',
+    accepts: (file) => file.fileType === 'xml' || path.extname(file.path).toLowerCase() === '.landxml' },
   { id: 'design', version: 1, extract: 'file', accepts: (file) => isDesignFile(file) },
   { id: 'document', version: 1, extract: 'file', accepts: (file) => file.fileType === 'document' },
   { id: 'presentation', version: 1, extract: 'file', accepts: (file) => file.fileType === 'presentation' },

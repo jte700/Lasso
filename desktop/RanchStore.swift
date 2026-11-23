@@ -56,8 +56,8 @@ final class RanchStore: ObservableObject {
     }
 
     /// How far the window is through its opening: the tour (the first time),
-    /// the gas and Begin, the directories, the last of the gas leaving, then
-    /// the library itself.
+    /// the dots and Begin, the directories, the card leaving, then the
+    /// library itself.
     enum Stage { case tour, welcome, directories, leaving, home }
     @Published var stage = Stage.home
     /// Which of the tour's steps is showing (RanchTourStep).
@@ -75,9 +75,13 @@ final class RanchStore: ObservableObject {
             sourcesByID = Dictionary(overview.sources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             sourcesByDirectory = Dictionary(grouping: overview.sources, by: \.directoryId)
             termsCache.removeAll()
+            localURLs.removeAll()
             clearLists()
         }
     }
+    /// Whether each file is on this Mac, asked of the disk once per read of
+    /// the library rather than for every row on every redraw.
+    private var localURLs: [String: URL?] = [:]
     /// The terms the search offers on each sources page, made once per library read.
     private var termsCache: [String: RanchChipSearch.Terms] = [:]
     private var sourcesByID: [String: RanchSource] = [:]
@@ -246,7 +250,7 @@ final class RanchStore: ObservableObject {
     func reload(then done: (() -> Void)? = nil) {
         if let done { reloadWaiters.append(done) }
         guard let serverURL else {
-            loadError = "Lasso\u{2019}s server is starting. The Ranch will fill in as soon as it is ready."
+            setLoadError("Lasso\u{2019}s server is starting. The Ranch will fill in as soon as it is ready.")
             finishWaiters()
             return
         }
@@ -275,13 +279,15 @@ final class RanchStore: ObservableObject {
 
     private func apply(_ result: Result<RanchOverview?, Error>, tag: String?) {
         request = nil
+        // Files can come and go without the library changing; look again from now on.
+        localURLs.removeAll()
         defer { if reloadAgain { reloadAgain = false; reload() } else { finishWaiters() } }
         switch result {
         case .success(nil):
-            loadError = nil
+            setLoadError(nil)
         case .success(let next?):
-            loadError = nil
-            hasLoaded = true
+            setLoadError(nil)
+            if !hasLoaded { hasLoaded = true }
             etag = tag
             if next != overview {
                 // A new save may start or grow a folder's review.
@@ -290,15 +296,24 @@ final class RanchStore: ObservableObject {
             }
             if let id = selectedSourceID, source(id) == nil { selectedSourceID = nil }
             // A resolved item leaves the list; one still open keeps its newest details.
-            if let focus = reviewFocus { reviewFocus = overview.review.first { $0.id == focus.id } }
+            if let focus = reviewFocus {
+                let latest = overview.review.first { $0.id == focus.id }
+                if latest != focus { reviewFocus = latest }
+            }
             // A directory removed since the window last showed it.
             if case .directory(let id) = section, directory(id) == nil { section = .sources }
             if let id = networkDirectory, directory(id) == nil { networkDirectory = nil }
         case .failure(let error):
             if (error as NSError).code == NSURLErrorCancelled { return }
             NSLog("The Ranch could not load the library: %@", error.localizedDescription)
-            loadError = "The library couldn\u{2019}t be loaded. \(error.localizedDescription)"
+            setLoadError("The library couldn\u{2019}t be loaded. \(error.localizedDescription)")
         }
+    }
+
+    /// Set only when it changes: every set redraws the whole window, and the
+    /// poll every few seconds would otherwise make scrolling stutter.
+    private func setLoadError(_ message: String?) {
+        if loadError != message { loadError = message }
     }
 
     private func finishWaiters() {
@@ -488,9 +503,15 @@ final class RanchStore: ObservableObject {
 
     /// Where the file is on this Mac, or nil when its drive is disconnected.
     func localURL(for source: RanchSource) -> URL? {
-        guard let directory = directory(source.directoryId), !directory.offline else { return nil }
-        let url = URL(fileURLWithPath: directory.rootPath).appendingPathComponent(source.path)
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        let key = source.directoryId + "\u{0}" + source.path
+        if let known = localURLs[key] { return known }
+        let found = directory(source.directoryId).flatMap { directory -> URL? in
+            guard !directory.offline else { return nil }
+            let url = URL(fileURLWithPath: directory.rootPath).appendingPathComponent(source.path)
+            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        }
+        localURLs[key] = .some(found)
+        return found
     }
 
     /// The file itself, or Lasso's saved copy when the original is out of reach.
