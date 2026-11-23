@@ -241,6 +241,8 @@ export const writingPredictionMethods = {
           relatedPaths: this.relatedSourcePaths(sourceProjectId, input),
           minimumMatchStrength: input.surface === 'search' ? 0 : 0.4,
           limit: input.surface === 'search' ? 12 : 8,
+          // The sentence up to the value, for the measurement it names.
+          measuredText: text.slice(writingSourceContext(text, claim.end, input.section).sentenceStart, claim.end),
           sourcePath: scopedToLinkedPaper ? linkedDependency.source.path : null,
           snapshotId: scopedToLinkedPaper ? linkedDependency.source.snapshotId : null,
         });

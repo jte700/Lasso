@@ -6,6 +6,7 @@ import { markdownBlocks } from '../sharing/markdown.js';
 import { humanVariable, normalizedVariable } from './tabular.js';
 import { SLIDE_SENTENCE_LIMITS } from './file-objects.js';
 import { matchedSourceWords } from './direct-match.js';
+import { measurementMatch, measurementRelevance } from './drawing-objects.js';
 import { authorSimilarity, referenceSimilarity, referenceTitleSimilarity } from './reference-match.js';
 import { prefixTokenScore, tokenOverlap, wordTokens } from './text-similarity.js';
 import { measurementDescriptor, numericDescriptor, valueMatch } from './value-match.js';
@@ -167,6 +168,16 @@ export const claimCandidatesMethods = {
       }
       const candidateVariable = object.metadata.variable ?? object.metadata.column;
       if (claim.variable && candidateVariable && variable < 0.2) score *= 0.42;
+      // A drawing measurement whose name the sentence writes ("Ø20 holes") rises
+      // with the words of it written and with a value being typed that its own
+      // begins ("are 4" for the 45 mm depth), which Tab completes. Measurements
+      // of one part match a value's words alike, so these keep them apart.
+      const measuredText = options.measuredText ?? claim.text;
+      const measured = claim.type === 'QUANTITATIVE' && object.objectType === 'DRAWING_ANNOTATION'
+        ? measurementMatch(object, measuredText) : null;
+      const namedMeasurement = Boolean(measured?.namedWords);
+      if (namedMeasurement) score += (1 - score) * measurementRelevance(object, measuredText, 1);
+      const begunValue = namedMeasurement && measured.typedValue;
       const reasons = [];
       if (value.score >= 0.8) reasons.push(staleTyped ? 'matching an earlier value' : 'matching value');
       if (author === 1) reasons.push('matching author');
@@ -191,7 +202,7 @@ export const claimCandidatesMethods = {
         diversityKey: object.objectType === 'REFERENCE' ? object.id : object.path,
         score: Number(score.toFixed(3)),
         reasons,
-        matchStrength: Math.max(value.score, entity, variable, reference, component),
+        matchStrength: Math.max(value.score, entity, variable, reference, component, begunValue ? 0.8 : 0),
         matchTier: (!staleTyped && value.score >= 0.8 && (!claim.variable || variable >= 0.7))
           || reference >= 0.9 || author === 1 || component >= 0.9
           || variable >= 0.9 || (['ENTITY', 'METHOD'].includes(claim.type) && entity >= 0.9) ? 0 : 1,

@@ -274,6 +274,40 @@ test('an accepted CAD part name offers its measurements, ranked by the words aft
   assert.ok(unmeasured.claims.some(claim => claim.candidates.some(candidate => candidate.label === 'Bracket Ø8 hole diameter')));
 });
 
+// What Tab writes first, as the native card orders the server's suggestions: a
+// completion writes its replacement text, a value claim its source's value.
+function firstInsertion(prediction) {
+  const completions = prediction.workspaceCompletions.map(item => ({ rankOrder: item.rankOrder,
+    text: item.replacementText, start: item.claimStart, label: item.dependencyCandidate.label }));
+  const values = prediction.claims.filter(claim => claim.type === 'QUANTITATIVE').flatMap(claim => claim.candidates
+    .map(candidate => ({ rankOrder: candidate.rankOrder, text: candidate.valueText, start: claim.end - claim.value.length,
+      label: candidate.label })));
+  const [first] = [...completions, ...values].sort((left, right) => left.rankOrder - right.rankOrder);
+  return first && { text: first.text, start: first.start, label: first.label };
+}
+
+test('a value being typed after a CAD feature is completed with its measurement and unit', async t => {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-step-values-'));
+  const root = path.join(sandbox, 'Models');
+  fs.mkdirSync(root);
+  fs.copyFileSync(new URL('./fixtures/drawings/nist_ctc_01_asme1_rd.stp', import.meta.url), path.join(root, 'nist_ctc_01_asme1_rd.stp'));
+  const app = createApplication({ dataDir: path.join(sandbox, 'history'), watchProjects: false });
+  await app.workspace.add([fs.realpathSync(root)], actor);
+  t.after(async () => { await app.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  const part = 'nist_ctc_01_asme1_rd';
+
+  // "4" begins the Ø20 holes' 45 mm depth: Tab writes the value in place of the
+  // digit, not the measurement's whole line.
+  const depth = 'The Ø20 holes are 4';
+  assert.deepEqual(firstInsertion(await typed(app, depth)),
+    { text: '45 mm', start: depth.length - 1, label: `${part} Ø20 hole depth` });
+  // "2" begins their 20 mm diameter, which the sentence names, ahead of the depth.
+  for (const text of ['The Ø20 hole diameter is 2', 'The Ø20 holes are 2']) {
+    assert.deepEqual(firstInsertion(await typed(app, text)),
+      { text: '20 mm', start: text.length - 1, label: `${part} Ø20 hole diameter` }, text);
+  }
+});
+
 test('typing a model file name offers that drawing, not facts that match its unfinished extension', async t => {
   const app = await typingWorkspace(t);
   // A dot inside a name does not end the sentence: "st" alone would match every
