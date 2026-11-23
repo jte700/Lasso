@@ -1,7 +1,7 @@
 /* Stale while revalidate for the site's own files: answer from the cache at once,
    fetch a fresh copy in the background, and serve that one next time. */
-const CACHE = 'lasso-site-v3';
-const SHELL = ['/', '/security/', '/benchmarks/', '/mcp/', '/ranch/', '/assets/css/site.css', '/assets/css/trial.css', '/assets/css/pages.css', '/assets/css/showcase.css', '/assets/js/data.js', '/assets/js/core.js', '/assets/js/sheet.js', '/assets/js/ui.js', '/assets/js/film.js', '/assets/js/media.js', '/assets/js/carousel.js', '/assets/js/voice.js', '/assets/js/ascii-mascot.js', '/assets/js/mascot3d.js'];
+const CACHE = 'lasso-site-v4';
+const SHELL = ['/', '/security/', '/benchmarks/', '/mcp/', '/ranch/', '/assets/css/site.css', '/assets/css/trial.css', '/assets/css/pages.css', '/assets/css/showcase.css', '/assets/css/hero-quirks.css', '/assets/js/data.js', '/assets/js/core.js', '/assets/js/sheet.js', '/assets/js/ui.js', '/assets/js/film-picker.js', '/assets/js/film.js', '/assets/js/hero-quirks.js', '/assets/js/media.js', '/assets/js/carousel.js', '/assets/js/voice.js', '/assets/js/ascii-mascot.js', '/assets/js/mascot3d.js'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));

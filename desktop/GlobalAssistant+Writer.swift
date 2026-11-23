@@ -354,7 +354,41 @@ extension GlobalAssistant {
             answer.furtherReferenceIds = Array(session.referenceIds.dropFirst())
             undoableInsertion = answer
         }
+        if !session.written.isEmpty { recordAnswer(of: session) }
         publishKeyRouting()
+    }
+
+    /// The answer is kept as the writer's: bracketed where it was typed, and
+    /// reported so a save of the file marks those words as the AI's.
+    private func recordAnswer(of session: WriterSession) {
+        let written = session.written
+        let element = session.element
+        let agent = session.agent
+        let instruction = String(session.prompt.drop { $0 == "\\" || $0.isWhitespace })
+        AccessibilityWork.queue.async {
+            let wide = AccessibilityReader.context(of: element, extending: written.utf16.count + 16)
+            let anchor = wide.flatMap { Self.answerAnchor(written, in: $0) }
+            DispatchQueue.main.async {
+                AIAuthorshipHighlighter.shared.recordWritten(
+                    kind: "writer", agentName: agent.title, agentId: "agent:\(agent.id ?? agent.title.lowercased())",
+                    tool: "Lasso\u{2019}s writer", prompt: instruction.isEmpty ? nil : instruction, text: written,
+                    anchor: anchor, element: element)
+            }
+        }
+    }
+
+    /// Where the answer sits: ending at the caret, where the writer left it,
+    /// or found before the caret when the person has moved it since.
+    static func answerAnchor(_ written: String, in wide: CaretContext) -> TextAnchor? {
+        let units = Array(wide.text.utf16)
+        let count = written.utf16.count
+        if count > 0, units.count >= count {
+            let range = (units.count - count)..<units.count
+            if CompletionTransaction.equivalentHostText(Array(units[range]), Array(written.utf16)) {
+                return TextAnchor.make(in: units, range: range, documentOffset: max(0, wide.windowStart))
+            }
+        }
+        return AIPasteWatch.anchor(of: written, before: wide)
     }
 
     private func restorePrompt(of session: WriterSession) {

@@ -594,6 +594,19 @@ final class DependencyHighlighter {
 
     // MARK: Interaction
 
+    /// Whether a linked phrase's pill is drawn under `point`, which other overlays make way for.
+    func covers(_ point: NSPoint) -> Bool {
+        panel.isVisible && geometries.contains { $0.contains(point) }
+    }
+
+    /// How many linked phrases are drawn within these lines (AppKit coordinates).
+    func linkCount(inside lines: [CGRect]) -> Int {
+        guard panel.isVisible else { return 0 }
+        return geometries.filter { geometry in
+            geometry.fragments.contains { fragment in lines.contains { $0.insetBy(dx: -1, dy: -1).intersects(fragment) } }
+        }.count
+    }
+
     private func handleHover(_ point: NSPoint) {
         guard panel.isVisible else { return }
         let hovered = geometries.first { $0.contains(point) }?.referenceId

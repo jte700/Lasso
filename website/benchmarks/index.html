@@ -24,10 +24,12 @@
 <link rel="stylesheet" href="/assets/css/trial.css">
 <link rel="stylesheet" href="/assets/css/pages.css">
 <link rel="stylesheet" href="/assets/css/showcase.css">
+<link rel="stylesheet" href="/assets/css/hero-quirks.css">
 
 <script defer src="/assets/js/data.js"></script>
 <script defer src="/assets/js/core.js"></script>
 <script defer src="/assets/js/sheet.js"></script>
+<script defer src="/assets/js/hero-quirks.js"></script>
 <script defer src="/assets/js/calc.js"></script>
 <script defer src="/assets/js/pages.js"></script>
 
@@ -54,10 +56,13 @@
 
 <section class="page-hero">
   <div class="wrap"><nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="/">Home</a></li><li aria-current="page">Benchmarks</li></ol></nav><script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"https://www.mylasso.ca/"},{"@type":"ListItem","position":2,"name":"Benchmarks","item":"https://www.mylasso.ca/benchmarks/"}]}</script>
-    <img class="p-mascot" src="/assets/img/mascot/rope-thinking.svg" width="120" height="120" alt="">
+    <div class="pet pet--clock" role="button" tabindex="0" aria-label="Lasso, the mascot, inside a stopwatch that times prompts from the test. Press it for the next one."><span class="clock-dial" aria-hidden="true"></span><span class="clock-fill" aria-hidden="true"></span><span class="pet-face"><img src="/assets/img/mascot/rope-thinking.svg" width="140" height="140" alt=""><img src="/assets/img/mascot/rope-happy.svg" width="140" height="140" alt=""></span></div>
+    <div class="clock-line" aria-hidden="true"><span class="clock-typed"></span><span class="clock-caret"></span><span class="clock-offer"><span></span><kbd>⇥</kbd></span></div>
+    <p class="clock-meta" aria-hidden="true"></p>
     <p class="eyebrow">Benchmarks</p>
     <h1 class="h1 split-words"><span class="w"><span style="--wi:0">Measured</span></span> <span class="w"><span style="--wi:1">keystroke</span></span><br><span class="w"><span style="--wi:2">by</span></span> <span class="w"><span style="--wi:3">keystroke</span></span></h1>
     <p class="lead">28 prompts across 10 test folders, typed one key at a time on an Apple M3 laptop. One command reruns all of it.<sup class="ref"><a class="slop" href="/sources/#s1" aria-label="Source 1">1</a></sup></p>
+    <div class="dls"><a class="btn btn--pop btn--lg" href="#accuracy">Replay all 28 prompts</a><a class="btn btn--lg" href="#speed">Speed per keystroke</a></div>
   </div>
 </section>
 

@@ -31,6 +31,8 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var appearance = AppearancePreference.current()
     @Published private(set) var folderColor = DirectoryColorPreferences.defaultColor()
     @Published private(set) var insertion = InsertionMode.current
+    @Published private(set) var marksAIText = AIProvenancePreferences.showsMarks
+    @Published private(set) var remembersAICopies = AIProvenancePreferences.remembersCopies
     @Published private(set) var startState = LaunchHelper.State.on
     @Published private(set) var version = ""
     @Published private(set) var apps: [SettingsApp] = []
@@ -50,6 +52,8 @@ final class SettingsModel: ObservableObject {
         appearance = AppearancePreference.current()
         folderColor = DirectoryColorPreferences.defaultColor()
         insertion = InsertionMode.current
+        marksAIText = AIProvenancePreferences.showsMarks
+        remembersAICopies = AIProvenancePreferences.remembersCopies
         startState = LaunchHelper.state
         version = actions.version()
         reloadApps()
@@ -90,6 +94,20 @@ final class SettingsModel: ObservableObject {
     var insertionChoice: Binding<InsertionMode> {
         Binding(get: { self.insertion }, set: { value in
             InsertionMode.set(value)
+            self.changed()
+        })
+    }
+
+    var marksAITextChoice: Binding<Bool> {
+        Binding(get: { self.marksAIText }, set: { value in
+            AIProvenancePreferences.showsMarks = value
+            self.changed()
+        })
+    }
+
+    var remembersAICopiesChoice: Binding<Bool> {
+        Binding(get: { self.remembersAICopies }, set: { value in
+            AIProvenancePreferences.remembersCopies = value
             self.changed()
         })
     }
@@ -169,6 +187,16 @@ struct SettingsGeneralView: View {
                     ForEach(InsertionMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 } label: {
                     SettingsLabel("Tab inserts", note: model.insertion.explanation)
+                }
+            }
+            Section {
+                Toggle(isOn: model.marksAITextChoice) {
+                    SettingsLabel("Mark AI-written text",
+                                  note: "Brackets in each AI\u{2019}s colour around what ChatGPT, Claude and others wrote, from Lasso\u{2019}s records. Hover one to see who wrote it and why.")
+                }
+                Toggle(isOn: model.remembersAICopiesChoice) {
+                    SettingsLabel("Remember text copied from AI apps",
+                                  note: "Text copied in ChatGPT, Claude or their websites is marked where you paste it. Copies from other apps are never read.")
                 }
             }
             // A start-up problem needs the user, so it never hides under Advanced.
