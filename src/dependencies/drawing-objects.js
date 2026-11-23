@@ -108,12 +108,12 @@ const writtenWords = (value) => String(value ?? '').toLowerCase().match(/[\p{L}\
 const sameWord = (word, written) => [word, `${word}s`, `${word}es`].includes(written);
 
 /**
- * How closely the words written after a drawing or part name describe one of
- * its measurements. Words of the measurement's name count most ("holes with a
- * diameter of"), its search terms less ("bore"); a written count ("four holes")
- * or the start of a value being typed picks out the matching feature.
+ * Which words written after a drawing or part name describe one of its
+ * measurements: words of its name ("holes with a diameter of"), its search
+ * terms ("bore"), a written count ("four holes") and the start of a value being
+ * typed ("6", "60 m"), which is completed rather than replaced.
  */
-export function measurementRelevance(object, tail) {
+export function measurementMatch(object, tail) {
   const written = writtenWords(tail);
   const mentioned = (word) => written.some((item) => sameWord(word, item));
   // Sizes and units in a name ("10 mm straight edge") are not words to match.
@@ -124,12 +124,22 @@ export function measurementRelevance(object, tail) {
     const count = COUNT_WORDS.indexOf(word) + 1 || Number(word);
     return count > 0 && count === object.metadata?.count && named.some((name) => sameWord(name, written[index + 1]));
   });
-  // A value being typed, with or without its unit ("6", "60 m"), is completed rather than replaced.
   const compact = (value) => String(value ?? '').toLowerCase().replace(/\s+/g, '');
   const typing = String(tail ?? '').match(/(?:^|\s)(\d+(?:\.\d*)?(?:\s*\p{L}+)?)$/u)?.[1];
   const typedValue = Boolean(typing) && compact(object.valueText).startsWith(compact(typing));
-  // "10" is the 10 mm value, ahead of the 100 mm one it also begins.
-  const exactValue = typedValue && Number.parseFloat(object.valueText) === Number.parseFloat(typing);
-  return Math.min(0.5, 0.12 * named.filter(mentioned).length + 0.04 * related.filter(mentioned).length
+  return {
+    namedWords: named.filter(mentioned).length, relatedWords: related.filter(mentioned).length, counted, typedValue,
+    // "10" is the 10 mm value, ahead of the 100 mm one it also begins.
+    exactValue: typedValue && Number.parseFloat(object.valueText) === Number.parseFloat(typing),
+  };
+}
+
+/**
+ * How closely the words written after a drawing or part name describe one of
+ * its measurements, at most `limit`.
+ */
+export function measurementRelevance(object, tail, limit = 0.5) {
+  const { namedWords, relatedWords, counted, typedValue, exactValue } = measurementMatch(object, tail);
+  return Math.min(limit, 0.12 * namedWords + 0.04 * relatedWords
     + (counted ? 0.06 : 0) + (typedValue ? 0.3 : 0) + (exactValue ? 0.05 : 0));
 }
