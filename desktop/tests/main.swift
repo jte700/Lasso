@@ -6917,5 +6917,38 @@ do {
           "live text checks accept phrases spanning inline leaves, paragraphs and native editors")
 }
 
+// AI-written text: the server's answer, each AI's colour, and brackets kept
+// within two fifths of a space so no neighbouring letter is touched.
+do {
+    let json = """
+    {"found":true,"spans":[{"markId":"m1","start":5,"end":24,"text":"Two, from Claude.","prefix":"One.\\n","suffix":"",
+      "pieces":[{"text":"Two, from Claude.","prefix":"One.\\n","suffix":""}]}],
+     "marks":[{"id":"m1","kind":"edit","agent":{"id":"agent:claude","name":"Claude"},"model":"claude-opus-5-5","tool":"Claude Code",
+      "prompt":"Add a line","initiatedBy":{"id":"human:desktop","name":"Desktop","type":"HUMAN_SELF"},"at":"2026-11-23T06:00:00.000Z",
+      "written":17,"kept":15,"editedInside":2}]}
+    """
+    let answer = AIAuthorshipAnswer.parse(Data(json.utf8), path: "/notes.md")
+    check(answer?.spans.count == 1 && answer?.spans.first?.anchor.prefixContext == "One.\n", "a file's AI-written part is read with the words before it")
+    let mark = answer?.marks["m1"]
+    check(mark?.askedBy == "You" && mark?.model == "claude-opus-5-5" && mark?.at != nil, "its record says who asked, which model, and when")
+    check(abs((mark?.keptShare ?? 0) - 15.0 / 17.0) < 0.001, "the share still as written counts letters changed since")
+    check(AIAuthorshipAnswer.parse(Data("{\"found\":false}".utf8), path: "/x")?.spans.isEmpty == true, "a file outside Lasso's folders has no parts")
+    check(AIAgentStyle.of(agentId: "agent:claude", name: "Claude").key == "claude"
+          && AIAgentStyle.of(agentId: "agent:someone", name: "Someone").color == AIAgentStyle.other, "each AI has its colour, any other is violet")
+
+    let units = Array("well. The flow\n    mean = 1\nend.Next".utf16)
+    let the = 6..<9
+    check(AIRoom.before(the, in: units) == .tight && AIRoom.after(the, in: units) == .tight, "one space either side is tight room")
+    let mean = 19..<23
+    check(AIRoom.before(mean, in: units) == .wide, "an indent is wide room")
+    let end = 29..<33
+    check(AIRoom.after(end, in: units) == .none, "a letter right after leaves no room")
+    let line = CGRect(x: 100, y: 0, width: 80, height: 22)
+    let space = line.height * 0.19
+    let reach = AIBracketShape.gap(.tight, line: line) + AIBracketShape.width / 2
+    check(reach <= space * 0.4 + 0.001, "a bracket in one space keeps within two fifths of it")
+    check(AIBracketShape.gap(.wide, line: line) == AIBracketShape.wideGap, "with more room it stands further off")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)
