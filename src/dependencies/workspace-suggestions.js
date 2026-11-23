@@ -3,8 +3,9 @@
 import { ownWordKeys, typedWordKeys, unfinishedWord } from './direct-match.js';
 import { sharedWordsEarnCard } from './show-gate.js';
 import { variableTokens } from './text-similarity.js';
-import { contextualCompletionRange, workspaceSuggestionCategory } from './workspace-completion.js';
+import { workspaceInsertion, workspaceSuggestionCategory } from './workspace-completion.js';
 import { RETRIEVABLE_TYPES } from './constants.js';
+import { measurementRelevance } from './drawing-objects.js';
 import { retrievalFeatures, retrievalObject, retrievalScore } from './workspace-retrieval.js';
 import { currentClauseStart, writingSourceContext } from './writing-context.js';
 
@@ -82,12 +83,16 @@ export const workspaceSuggestionsMethods = {
       if (!sharedWordsEarnCard(begun ? [...sharedWords, begun] : sharedWords, ownWordKeys({ label: object.label }))) return null;
       if (input.documentPath && object.path === input.documentPath) return null;
       if (!permitted(object)) return null;
-      const score = retrievalScore({
+      const retrieved = retrievalScore({
         coverage: sharedCount / typedWords.length, endsOnMatch,
         intended: (resultIntent && resultType) || (methodIntent && methodType),
         dictionary: Boolean(object.metadata.dictionary),
         rowCount: object.metadata.metric === 'row-count' && !sampleSizeIntent, identifier,
       });
+      // Measurements of one part share most of their words; the feature and
+      // measure the sentence names ("Ø20 hole diameter") keep them apart.
+      const score = object.objectType === 'DRAWING_ANNOTATION'
+        ? retrieved + (1 - retrieved) * measurementRelevance(object, context.sentence, 1) : retrieved;
       // The reasons go with the object into ranking, which then has no fallback score to work out.
       return score >= 0.34 && score >= minimumScore ? { object: { ...object, score, reasons }, priority } : null;
     };
@@ -127,9 +132,8 @@ export const workspaceSuggestionsMethods = {
       const candidate = this.enrichObject(projectId, object);
       suggestions.push({
         id: `${object.id}:workspace:${suggestions.length}`,
-        replacementText: object.retrievalText,
+        ...workspaceInsertion(object, input.text, cursor, context.sentenceStart),
         category: workspaceSuggestionCategory(object),
-        ...contextualCompletionRange(input.text, cursor, object.retrievalText),
         confidence: object.score,
         dependencyCandidate: candidate,
         generated: false,

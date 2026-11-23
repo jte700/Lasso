@@ -118,6 +118,28 @@ export function contextualCompletionRange(text, cursor, replacementText, options
   return { claimStart: floor + last.index, claimEnd: cursor };
 }
 
+/**
+ * What Tab writes for a workspace object, and the part of the sentence it
+ * replaces. A drawing measurement's whole line ("nist Ø20 hole depth is
+ * 45 mm") begins a sentence: the words typed so far are its own beginning, or
+ * only cue words such as "The". Once the sentence is under way ("The Ø20
+ * holes are "), only the value and its unit fit, written at the caret unless
+ * the word there begins the value.
+ */
+export function workspaceInsertion(object, text, cursor, sentenceStart) {
+  const line = object.retrievalText;
+  const lineRange = contextualCompletionRange(text, cursor, line);
+  const value = String(object.valueText ?? '').trim();
+  if (object.objectType !== 'DRAWING_ANNOTATION' || !value) return { replacementText: line, ...lineRange };
+  const before = normalizedCompletionPhrase(String(text ?? '').slice(sentenceStart, lineRange.claimStart));
+  const underWay = before.split(' ').some((word) => word && !CONTEXTUAL_INSERTION_CUES.has(word));
+  if (!underWay) return { replacementText: line, ...lineRange };
+  const valueRange = contextualCompletionRange(text, cursor, value);
+  const replaced = normalizedCompletionPhrase(String(text ?? '').slice(valueRange.claimStart, cursor));
+  const beginsValue = normalizedCompletionPhrase(value).startsWith(replaced);
+  return { replacementText: value, ...(beginsValue ? valueRange : { claimStart: cursor, claimEnd: cursor }) };
+}
+
 // Sentence and paragraph objects indexed from a source's own prose: PDF pages,
 // and Markdown or plain-text files. Each one cites exactly its passage.
 const EXCERPT_COMPONENTS = new Set(['PDF_EXCERPT', 'TEXT_EXCERPT']);
