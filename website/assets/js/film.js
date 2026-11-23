@@ -1,6 +1,6 @@
 /* The homepage reel: real Lasso cards, rendered by the Mac app from example files, appearing under
    the caret as a document is written. It plays itself through each example; the labels under it
-   show which one is playing, and the one control pauses it. */
+   show which one is playing and jump to another when clicked, and the round control pauses it. */
 (() => {
   'use strict';
   const $ = (s, el = document) => el.querySelector(s);
@@ -19,6 +19,15 @@
     const tabs = $$('.film-tab', film);
     const caption = $('.film-caption', film);
     const pause = $('.film-pause', film);
+    // Every caption sits hidden in the same cell, so the bar is as tall as the longest one and the
+    // reel keeps its size whichever example plays.
+    tabs.forEach((tab) => {
+      const ghost = document.createElement('p');
+      ghost.className = 'film-caption film-caption--ghost';
+      ghost.setAttribute('aria-hidden', 'true');
+      ghost.innerHTML = tab.dataset.caption; // written in this page's own markup
+      caption.parentElement.append(ghost);
+    });
     const title = $('.demo-title', scene);
     const status = $('.demo-status', scene);
     const head = $('.demo-head', scene);
@@ -32,17 +41,17 @@
     const KEYS = { tab: [18.5, 355.5, 25, 17.5], up: [101.5, 355.5, 23, 17.5], down: [129.5, 355.5, 23, 17.5] };
     const CASES = {
       arch: { doc: 'site-report.md', head: 'FZK-Haus · room schedule', text: 'The Schlafzimmer net floor area is 2', replace: 1, insert: '21.410325 m²', after: '.', steps: [] },
-      cad: { doc: 'bracket-spec.md', head: 'Motor mount bracket · machining notes', text: 'The bracket holes are 8', replace: 1, insert: '8 mm', after: ' across.', steps: ['down', 'up'] },
+      cad: { doc: 'plate-inspection.md', head: 'NIST CTC-01 test plate · inspection notes', text: 'The Ø20 holes are 4', replace: 1, insert: '45 mm', after: ' deep.', steps: ['down', 'up'] },
       finance: { doc: 'q3-board-memo.md', head: 'Q3 board memo', text: 'Q3 actual operating revenue was 4', replace: 1, insert: '4.82', after: ' million euros.', steps: [] },
       research: { doc: 'lit-review.md', head: 'Literature review · chapter 2', text: 'Adjuvant therapy lowered the risk of recurrence', replace: 0, insert: ' across the whole cohort (HR 0.72, 95% CI 0.61–0.85), with the largest effect in patients under 65.', after: '', steps: [] },
-      legal: { doc: 'advice-note.md', head: 'Advice note · Unit 4 lease renewal', text: 'The Tenant shall give the Landlord not less', replace: 0, insert: ' than six (6) months’ written notice of its intention to renew prior to expiry.', after: '', steps: [] },
+      legal: { doc: 'advice-note.md', head: 'Advice note · Unit 4 lease renewal', text: 'The Tenant shall give the Landlord not less', replace: 0, insert: ' than six (6) months’ written notice of its intention to renew prior to expiry.', after: '', steps: [], picker: true },
     };
     // the document around the line being written, which the card's glass shows through
     const PAGE = {
       arch: { above: 'Areas below are read from plan_L2.ifc, ground floor, as issued last week.',
         below: ['The Küche and Bad keep their current finishes. Skirting is replaced throughout.', 'Doors are rehung where the new flooring raises the threshold.', 'Next visit: check the window reveals in the Wohnen before blinds are ordered.'] },
-      cad: { above: 'Plate stock is 10 mm. Deburr every edge after machining.',
-        below: ['Counterbore the centre hole to the drawing. Do not tap it.', 'Inspect the first part before the batch is run.', 'Parts ship anodised, with the revision stamped on the underside.'] },
+      cad: { above: 'Dimensions are read from nist_ctc_01_asme1_rd.stp, NIST test case 1.',
+        below: ['The plate is 800 by 450 mm overall and 150 mm high.', 'Check the Ø25 and Ø35 holes against the same model before the CMM run.', 'Record any hole out of tolerance on the deviation sheet.'] },
       finance: { above: 'Prepared for the November board meeting.',
         below: ['Cost of goods sold rose faster than revenue, so gross margin fell from the second quarter.', 'Operating expenses stayed close to budget.', 'Cash position and hiring are covered in the appendix.'] },
       research: { above: 'Several cohort studies have looked at adjuvant therapy after resection.',
@@ -53,6 +62,10 @@
     const before = $('.demo-before', scene);
     const after = $('.demo-after', scene);
     const TYPE_MS = 42, SHOW_MS = 1800, STEP_MS = 1300, HOLD_MS = 2800;
+    // Tab on a PDF passage opens the passage picker: it opens, a drag picks the words, the source is
+    // switched on, and Tab inserts. PICKER_MS is how long that takes, for the label's progress fill.
+    const PICKER_OPEN_MS = 1100, PICKER_CITE_MS = 600, PICKER_READ_MS = 1100, PICKER_MS = 5300;
+    const picker = window.LassoFilmPicker ? window.LassoFilmPicker.mount(scene) : null;
     const theme = () => (document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
     // AVIF where the browser reads it, the PNG otherwise
     const src = (k, state, ext = 'avif') => `/assets/img/card/${k}-${state}-${theme()}.${ext}`;
@@ -100,19 +113,36 @@
     const reset = (c) => {
       title.textContent = c.doc; head.textContent = c.head; status.textContent = 'editing';
       typed.textContent = ''; card.classList.remove('on'); state = 0;
+      if (picker) picker.close();
       const page = PAGE[current];
       before.textContent = page.above;
       after.replaceChildren(...page.below.map((line) => { const p = document.createElement('p'); p.textContent = line; return p; }));
     };
-    const insert = (c) => {
+    const insert = (c, words = c.insert) => {
       typed.textContent = c.text.slice(0, c.text.length - c.replace);
       const mark = document.createElement('mark');
       mark.className = 'demo-ins';
-      mark.textContent = c.insert;
+      mark.textContent = words;
       typed.append(mark);
       return mark;
     };
-    const duration = (c) => 500 + c.text.length * TYPE_MS + 300 + SHOW_MS + c.steps.length * STEP_MS + 300 + c.after.length * TYPE_MS + HOLD_MS;
+    const duration = (c) => 500 + c.text.length * TYPE_MS + 300 + SHOW_MS + c.steps.length * STEP_MS + 300
+      + (c.picker && picker ? PICKER_MS : 0) + c.after.length * TYPE_MS + HOLD_MS;
+
+    /* the passage picker: the page opens, a drag picks the words, the source goes on, Tab inserts */
+    async function pick(t) {
+      const pause = (ms) => wait(ms, t);
+      picker.open();
+      status.textContent = 'choosing words';
+      await pause(PICKER_OPEN_MS);
+      await picker.drag(pause);
+      await pause(PICKER_CITE_MS);
+      await picker.citeSource(pause);
+      await pause(PICKER_READ_MS);
+      picker.pressInsert();
+      await pause(320);
+      picker.close();
+    }
 
     /* a still frame, for reduced motion and a paused reel: the sentence typed and the card up */
     function showStill(k) {
@@ -149,7 +179,9 @@
       press('tab');
       await wait(300, t);
       card.classList.remove('on');
-      const mark = insert(c);
+      const usesPicker = c.picker && picker;
+      if (usesPicker) await pick(t);
+      const mark = insert(c, usesPicker ? picker.inserted(c.insert) : c.insert);
       status.textContent = 'linked · pinned v1';
       const tail = document.createTextNode('');
       typed.append(tail);
@@ -174,8 +206,9 @@
       strip.scrollTo({ left: tab.offsetLeft - strip.clientWidth / 2 + tab.offsetWidth / 2, behavior: reducedMotion ? 'auto' : 'smooth' });
       if (userPaused) showStill(current); else run(current);
     };
-    // the labels only show which example is playing; the reel moves itself on
-    const select = (tab) => { tabs.forEach((t) => t.toggleAttribute('data-on', t === tab)); chosen(tab); };
+    // the labels show which example is playing, and clicking one starts that example
+    const select = (tab) => { tabs.forEach((t) => t.setAttribute('aria-selected', String(t === tab))); chosen(tab); };
+    tabs.forEach((tab) => tab.addEventListener('click', () => select(tab)));
     pause.addEventListener('click', () => {
       userPaused = !userPaused;
       if (!userPaused && still) run(current);
