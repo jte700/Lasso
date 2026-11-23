@@ -45,8 +45,20 @@ enum RanchFormat {
 
     static func ago(_ date: Date?, now: Date = Date()) -> String {
         guard let date else { return "Unknown" }
-        return abs(now.timeIntervalSince(date)) < 60 ? "just now" : relative.localizedString(for: date, relativeTo: now)
+        let seconds = date.timeIntervalSince(now)
+        guard abs(seconds) >= 60 else { return "just now" }
+        // The formatter is slow and a list asks once a row per redraw, so its
+        // words are kept by the whole minute they describe.
+        let minutes = Int((seconds / 60).rounded(.towardZero))
+        if let said = agoByMinute[minutes] { return said }
+        if agoByMinute.count >= maxAgoKept { agoByMinute.removeAll() }
+        let said = relative.localizedString(fromTimeInterval: Double(minutes) * 60)
+        agoByMinute[minutes] = said
+        return said
     }
+
+    private static var agoByMinute: [Int: String] = [:]
+    private static let maxAgoKept = 4096
 
     static func clock(_ date: Date?) -> String { date.map(time.string(from:)) ?? "" }
     static func full(_ date: Date?) -> String { date.map(medium.string(from:)) ?? "Unknown" }
@@ -64,7 +76,7 @@ enum RanchFormat {
 }
 
 extension RanchDirectory {
-    var color: Color { Color(nsColor: DirectoryColorPreferences.color(for: id)?.color ?? .controlAccentColor) }
+    var color: Color { RanchDirectoryColors.color(for: id) }
 
     /// The connected app's own symbol, a drive while it is disconnected, or a folder.
     var sidebarSymbol: String {
@@ -77,6 +89,22 @@ extension RanchDirectory {
     var filledSymbol: String {
         let filled = sidebarSymbol + ".fill"
         return NSImage(systemSymbolName: filled, accessibilityDescription: nil) == nil ? sidebarSymbol : filled
+    }
+}
+
+/// Each directory's colour, read from Settings once and again only after a
+/// colour changes, not for every row a list draws.
+enum RanchDirectoryColors {
+    private static var known: [String: Color] = [:]
+    private static let watcher = NotificationCenter.default.addObserver(
+        forName: .directoryColorsDidChange, object: nil, queue: .main) { _ in known.removeAll() }
+
+    static func color(for id: String) -> Color {
+        _ = watcher
+        if let color = known[id] { return color }
+        let color = Color(nsColor: DirectoryColorPreferences.color(for: id)?.color ?? .controlAccentColor)
+        known[id] = color
+        return color
     }
 }
 
