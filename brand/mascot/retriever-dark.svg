@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Lasso retriever mascot">
+  <g fill="none" stroke="#f5f3f1" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M62 72 C74 46 126 46 138 72"/>
+    <path d="M62 72 C42 74 32 102 38 130 C42 144 58 142 62 126"/>
+    <path d="M138 72 C158 74 168 102 162 130 C158 144 142 142 138 126"/>
+    <path d="M64 100 C64 128 76 146 100 148 C124 146 136 128 136 100"/>
+    <path d="M100 126 V133 M100 133 C96 139 89 139 86 134 M100 133 C104 139 111 139 114 134"/>
+  </g>
+  <g fill="#f5f3f1">
+    <path d="M89 113 Q100 108 111 113 Q107 124 100 126 Q93 124 89 113 Z" stroke="#f5f3f1" stroke-width="3" stroke-linejoin="round"/>
+    <circle cx="82" cy="94" r="5.5"/>
+    <circle cx="118" cy="94" r="5.5"/>
+  </g>
+  <g fill="none" stroke="#29cc57" stroke-width="7" stroke-linecap="round">
+    <path d="M60 146 C74 163 126 163 140 146"/>
+    <path d="M123 157 C127 168 133 177 142 189"/>
+  </g>
+  <circle cx="122" cy="156" r="7" fill="#29cc57"/>
+</svg>
