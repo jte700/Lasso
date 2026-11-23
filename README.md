@@ -159,6 +159,25 @@ The [user guide](docs/user-guide.md) covers sharing, redaction, connected apps, 
 
 In The Ranch, `⌘1` to `⌘5` switch views, `⌘F` opens morphing chip search, and `↑` `↓` / `→` `←` step through and expand Recent Changes. The complete list is in **Settings → Shortcuts**.
 
+## Lasso in the terminal
+
+`lasso` answers provenance questions about any file on your computer, on the spot. For files in your Lasso folders it reads the history the Mac app keeps (who changed what, and when); for every other file it reads what the file and the system already know: the address it was downloaded from, the app that wrote it, who created and last saved it, identical copies elsewhere on the Mac, files named like it, and git. Nothing is indexed or kept, and without the app it never writes a library. No language model is involved.
+
+```bash
+npm link                                  # once, from this folder: puts `lasso` on your PATH
+lasso                                     # the interactive shell (type / for commands, or drop in a file)
+lasso whence ~/Downloads/q3.xlsx          # where a file came from: Lasso's record, this Mac, the file itself, its copies
+lasso diff budget.xlsx "budget final.xlsx"  # two files compared cell by cell (or line by line, passage by passage)
+lasso verify memo.docx --against ~/Desktop/Accounting   # every number checked against its sources; exits 1 if one is stale
+lasso blame notes.docx                    # who wrote what: Lasso's record, Word's tracked changes, or git blame
+lasso log ~/Desktop --since 2d            # what changed lately in any folder
+lasso hooks install                       # record what Claude Code writes into your Lasso folders
+```
+
+Every answer says what an AI wrote, from what the tools recorded when they wrote it, never guessed from the words. For files in your Lasso folders that is the app's record: Claude Code's edits (once `lasso hooks install` has added Lasso's hook to Claude Code's settings), answers from Lasso's writer, and answers pasted from AI apps. `whence` gives each AI's share of the text and the prompt that asked for it, `blame` lists each part, `diff` marks the lines an AI wrote, and `log` names what an AI wrote in each save. For any other file it is what the file and git say of themselves: an image's IPTC source type and Content Credentials (ChatGPT's images name ChatGPT), Stable Diffusion's or ComfyUI's generation settings in a PNG, and commits that name an AI as author or co-author.
+
+Add `--json` for scripts. `lasso help` lists every command.
+
 ## Lasso MCP for AI agents
 
 The Lasso MCP server lets an AI agent ask your local index instead of reading raw files. One tool returns the exact lines, cells, passages or computed totals with their source locations and revision state.

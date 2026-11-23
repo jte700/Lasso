@@ -400,7 +400,7 @@ export class TimelineService {
   /** Steps of captureSteps (capture-tracking.js), which counts them as a capture. */
   *recordCaptureSteps(projectId, actorInput, options) {
     const project = this.getProject(projectId);
-    const actor = normalizeActor(actorInput, options.source === 'SYSTEM' ? 'SYSTEM' : 'HUMAN_SELF');
+    let actor = normalizeActor(actorInput, options.source === 'SYSTEM' ? 'SYSTEM' : 'HUMAN_SELF');
     if (options.expectedSnapshotId && options.expectedSnapshotId !== project.currentSnapshotId) {
       throw new VersionConflictError(options.expectedSnapshotId, project.currentSnapshotId);
     }
@@ -419,6 +419,12 @@ export class TimelineService {
       pathAfter: change.after?.path,
     })));
 
+    // A save every change of which an AI's own record explains (Claude Code's
+    // edit of the file, a command it was running) is that AI's, asked for by
+    // the person it would otherwise be recorded as. Events never change once
+    // written, so this is settled before the event is.
+    const credited = actor.actorType === 'AI_AGENT' ? null : this.authorship?.creditFor(projectId, comparison.changes) ?? null;
+
     this.files.transaction(snapshotId, () => {
       const current = this.db.prepare('SELECT current_snapshot_id FROM projects WHERE id = ?').get(projectId);
       if (current.current_snapshot_id !== previous.id) throw new VersionConflictError(previous.id, current.current_snapshot_id);
@@ -427,6 +433,10 @@ export class TimelineService {
       if (options.initiatedBy) {
         initiatedBy = normalizeActor(options.initiatedBy);
         this.upsertActor(initiatedBy);
+      }
+      if (credited) {
+        initiatedBy = actor;
+        actor = this.upsertActor(credited);
       }
       const filesBase = this.files.baseFor(previous.id);
       this.db.prepare(`

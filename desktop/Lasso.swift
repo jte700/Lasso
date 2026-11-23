@@ -551,6 +551,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Local dependency highlights remain available without a workspace window.
     private func startHighlighting() {
+        // Text an AI wrote is bracketed in its colour; copies from AI apps are remembered for where they are pasted.
+        AIAuthorshipHighlighter.shared.start()
+        AIPasteWatch.shared.start()
         let highlighter = DependencyHighlighter.shared
         highlighter.onInspect = { [weak self] reference, rect in
             guard let self, let url = self.server.url else { return }
@@ -882,6 +885,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .ready:
             GlobalAssistant.shared.serverURL = server.url
             DependencyHighlighter.shared.serverURL = server.url
+            AIAuthorshipHighlighter.shared.serverURL = server.url
             if ranchLoaded { ranch.store.serverURL = server.url }
             if let url = server.url { driveMonitor.start(serverURL: url, token: server.driveToken) }
             driveMenu.refresh(base: server.url)
