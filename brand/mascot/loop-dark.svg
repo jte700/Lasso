@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Lasso loop mascot">
+  <g fill="none" stroke="#29cc57" stroke-width="14">
+    <ellipse cx="94" cy="80" rx="68" ry="46" transform="rotate(-10 94 80)"/>
+    <path d="M122 120 C132 140 150 150 168 182" stroke-linecap="round"/>
+  </g>
+  <circle cx="121" cy="119" r="14" fill="#29cc57"/>
+  <g fill="#f5f3f1">
+    <circle cx="76" cy="80" r="7"/>
+    <circle cx="108" cy="74" r="7"/>
+  </g>
+</svg>

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lasso avatar kit</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f7f5ed;color:#2f4322;font:16px system-ui,sans-serif}main{max-width:1280px;margin:auto;padding:40px 24px}h1{margin:0 0 8px}p{color:#67705e}.controls{display:flex;gap:20px;flex-wrap:wrap;align-items:center;margin:24px 0}label{display:grid;gap:8px}select{font:inherit;padding:8px;border:1px solid #bcc4b3;border-radius:8px;background:#fffdf7}.stage{display:grid;place-items:center;background:#fffdf7;border-radius:24px;min-height:280px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:16px}.card{display:grid;justify-items:center;background:#fffdf7;border:1px solid #e6e5da;border-radius:18px;padding:12px}.card p{font-size:13px;margin:8px}button:focus-visible,select:focus-visible{outline:3px solid #6b894e;outline-offset:3px}
+</style>
+<main>
+<h1>Lasso avatar kit</h1><p>Six palettes. Three expressions. Choose a combination below.</p>
+<div class="controls"><label>Colour<select id="palette"></select></label><label>Expression<select id="expression"></select></label></div>
+<div class="stage"><div id="hero"></div></div>
+<h2>All combinations</h2><div class="grid" id="grid"></div>
+</main>
+<script type="module">
+import {mountLasso,palettes,expressions} from './lasso-avatar.js';
+const paletteSelect=document.querySelector('#palette');
+const expressionSelect=document.querySelector('#expression');
+for(const name of Object.keys(palettes)) paletteSelect.add(new Option(name,name));
+for(const name of expressions) expressionSelect.add(new Option(name,name));
+const avatar=mountLasso(document.querySelector('#hero'),{size:240});
+for(const select of [paletteSelect,expressionSelect]) select.addEventListener('change',()=>avatar.update({palette:paletteSelect.value,expression:expressionSelect.value}));
+for(const expression of expressions) for(const palette of Object.keys(palettes)) {
+ const card=document.createElement('div');card.className='card';
+ const host=document.createElement('div');const label=document.createElement('p');label.textContent=palette+' / '+expression;
+ card.append(host,label);document.querySelector('#grid').append(card);mountLasso(host,{palette,expression,size:156});
+}
+</script>
+</html>
