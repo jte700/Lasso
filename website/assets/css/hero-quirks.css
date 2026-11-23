@@ -1,0 +1,86 @@
+/* The mascot heroes on Security, Benchmarks and The Ranch, centred like the home page's,
+   each with a quirk of its own: files that stay inside a ring, a stopwatch that times a
+   real prompt, and a herd wandering a paddock. hero-quirks.js runs the moving parts. */
+
+.page-hero .wrap > .pet { animation: mascot-in 1.2s var(--spring) both; }
+.page-hero .wrap > .pet + * { animation-delay: .3s; }
+
+/* The mascot itself, in its glow, with a shadow under it. */
+.pet { --look: var(--sky); position: relative; width: clamp(176px, 20vw, 232px); aspect-ratio: 1; margin: 4px 0 6px; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; border-radius: 44px; }
+.pet:focus-visible { outline-offset: 6px; }
+.pet::before { content: ""; position: absolute; inset: -38%; z-index: -1; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--look) 24%, transparent), transparent); }
+:root[data-theme="light"] .pet::before { background: radial-gradient(closest-side, color-mix(in srgb, var(--look) 40%, transparent), transparent); }
+.pet-face { position: absolute; inset: 20%; width: 60%; height: 60%; animation: pet-float 5s ease-in-out infinite; }
+.pet-face img { position: absolute; inset: 0; width: 100%; height: 100%; transition: opacity .25s; }
+.pet-face img + img { opacity: 0; }
+.pet.is-happy .pet-face img:first-child { opacity: 0; }
+.pet.is-happy .pet-face img + img { opacity: 1; }
+.pet-face::after { content: ""; position: absolute; left: 18%; right: 18%; bottom: -12%; height: 9%; border-radius: 50%; z-index: -1; background: radial-gradient(closest-side, rgb(0 0 0 / .5), transparent); }
+:root[data-theme="light"] .pet-face::after { background: radial-gradient(closest-side, rgb(40 50 20 / .24), transparent); }
+@keyframes pet-float { 50% { translate: 0 -6px; } }
+
+/* Security: a dashed ring around the mascot that files circle inside. Now and then one
+   drifts to the edge, the ring lights up, and it is sent back in. */
+.pet--vault { --look: var(--sage); }
+.vault-ring { position: absolute; inset: 0; border-radius: 50%; border: 1.5px dashed color-mix(in srgb, var(--sage) 60%, transparent); animation: vault-turn 60s linear infinite, vault-flash 7s ease-in-out infinite; }
+.vault-orbit { position: absolute; inset: 9%; animation: vault-turn var(--t, 22s) linear infinite; animation-delay: var(--d, 0s); pointer-events: none; }
+.vault-arm { position: absolute; left: 50%; top: 0; display: block; translate: -50% -50%; }
+.vault-arm .ficon { --size: 24px; display: block; animation: vault-turn var(--t, 22s) linear infinite reverse; animation-delay: var(--d, 0s); }
+.vault-orbit--bolt .vault-arm { animation: vault-bolt 7s var(--spring) infinite; }
+.vault-lock { position: absolute; left: 50%; bottom: -14px; translate: -50% 0; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 8px; border-radius: 999px; background: var(--raise); box-shadow: inset 0 0 0 1px var(--line); font-size: 12px; font-weight: 600; color: var(--ink-2); white-space: nowrap; opacity: 0; scale: .8; animation: vault-lock 7s var(--spring) infinite; }
+.vault-lock svg { width: 12px; height: 12px; color: var(--sage); }
+.pet--vault.nope .pet-face { animation: pet-nope .6s ease-in-out; }
+.pet--vault.nope .vault-ring { animation: vault-turn 60s linear infinite, vault-flash-now .8s ease-out; }
+.pet--vault.nope .vault-lock { animation: vault-lock-now 1.6s var(--spring); }
+@keyframes vault-turn { to { rotate: 1turn; } }
+@keyframes vault-bolt { 0%, 52% { translate: -50% -50%; } 64% { translate: -50% -118%; } 70% { translate: -50% -30%; } 78%, 100% { translate: -50% -50%; } }
+@keyframes vault-flash { 0%, 58%, 82%, 100% { border-color: color-mix(in srgb, var(--sage) 60%, transparent); box-shadow: none; }
+  64% { border-color: var(--sage); box-shadow: 0 0 0 4px color-mix(in srgb, var(--sage) 18%, transparent), 0 0 32px color-mix(in srgb, var(--sage) 35%, transparent); } }
+@keyframes vault-flash-now { 20% { border-color: var(--sage); box-shadow: 0 0 0 5px color-mix(in srgb, var(--sage) 20%, transparent), 0 0 36px color-mix(in srgb, var(--sage) 40%, transparent); } }
+@keyframes vault-lock { 0%, 58%, 90%, 100% { opacity: 0; scale: .8; } 64%, 84% { opacity: 1; scale: 1; } }
+@keyframes vault-lock-now { 10%, 80% { opacity: 1; scale: 1; } }
+@keyframes pet-nope { 20% { rotate: -9deg; } 45% { rotate: 8deg; } 70% { rotate: -4deg; } }
+
+/* Benchmarks: a stopwatch dial around the mascot fills one tick per keystroke while a real
+   prompt from the test is typed below, then the suggestion Lasso gave lands. */
+.pet--clock { --look: var(--rope); --p: 0; transition: --p .12s ease-out; }
+.clock-dial, .clock-fill { position: absolute; inset: -2%; border-radius: 50%;
+  -webkit-mask: radial-gradient(closest-side, transparent 86%, #000 87% 97%, transparent 98%), repeating-conic-gradient(#000 0 3deg, transparent 3deg 12deg);
+  -webkit-mask-composite: source-in; mask: radial-gradient(closest-side, transparent 86%, #000 87% 97%, transparent 98%) intersect, repeating-conic-gradient(#000 0 3deg, transparent 3deg 12deg); }
+.clock-dial { background: var(--line); }
+.clock-fill { background: conic-gradient(var(--rope) calc(var(--p) * 1turn), transparent 0); }
+.pet--clock.is-happy .clock-fill { animation: clock-done .7s ease-out; }
+@keyframes clock-done { 30% { filter: drop-shadow(0 0 10px var(--rope)); } }
+.clock-line { display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: min(100%, 520px); min-height: 46px; padding: 8px 10px 8px 18px; border-radius: 999px; background: var(--raise); box-shadow: inset 0 0 0 1px var(--line); font: 500 14.5px/1.3 var(--mono); color: var(--ink); }
+.clock-typed { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.clock-caret { flex: none; width: 2px; height: 1.2em; margin-left: -8px; background: var(--rope); animation: clock-blink 1s steps(1) infinite; }
+.clock-offer { flex: none; display: inline-flex; align-items: center; gap: 7px; padding: 4px 6px 4px 11px; border-radius: 999px; background: color-mix(in srgb, var(--rope) 22%, transparent); color: var(--ink); font-family: inherit; opacity: 0; scale: .7; transition: opacity .2s, scale .35s var(--spring); }
+.clock-offer kbd { padding: 1px 6px; border-radius: 6px; background: var(--rope); color: #1b1f17; font: 600 11px/1.5 var(--mono); }
+.clock-line.has-offer .clock-offer { opacity: 1; scale: 1; }
+.clock-meta { margin-top: -10px; font-size: 13px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+@keyframes clock-blink { 50% { opacity: 0; } }
+@property --p { syntax: "<number>"; inherits: true; initial-value: 0; }
+
+/* The Ranch: the herd wanders a fenced paddock; click one and it hops. */
+.paddock { position: relative; width: min(100%, 560px); height: clamp(150px, 19vw, 196px); margin: 0 0 4px; }
+.paddock::before { content: ""; position: absolute; left: 50%; bottom: -10%; width: 70%; aspect-ratio: 2; translate: -50% 0; z-index: -1; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--sky) 22%, transparent), transparent); }
+.paddock-fence { position: absolute; z-index: 2; left: 0; right: 0; bottom: 4px; height: 34px; pointer-events: none; opacity: .7;
+  background: linear-gradient(var(--ink-3) 0 0) 0 9px / 100% 2px no-repeat, linear-gradient(var(--ink-3) 0 0) 0 21px / 100% 2px no-repeat, repeating-linear-gradient(90deg, transparent 0 40px, var(--ink-3) 40px 43px, transparent 43px 70px);
+  -webkit-mask: linear-gradient(90deg, transparent, #000 12% 88%, transparent); mask: linear-gradient(90deg, transparent, #000 12% 88%, transparent); }
+.cow { --w: 74px; position: absolute; bottom: 16px; left: var(--x); width: var(--w); margin-left: calc(var(--w) / -2); padding: 0; border: 0; background: none; cursor: pointer; animation: cow-roam var(--d, 9s) ease-in-out infinite alternate; animation-delay: var(--at, 0s); -webkit-tap-highlight-color: transparent; }
+.cow img { display: block; width: 100%; height: auto; transform-origin: 50% 100%; animation: perch-bob 4.8s ease-in-out infinite; animation-delay: var(--at, 0s); }
+.cow img + img { position: absolute; inset: 0; opacity: 0; }
+.cow.hop { translate: none; }
+.cow.hop img { animation: cow-hop .7s var(--spring); }
+.cow.hop img:first-child { opacity: 0; }
+.cow.hop img + img { opacity: 1; }
+.cow--lead { --w: 112px; z-index: 1; }
+@keyframes cow-roam { from { translate: calc(var(--r, 24px) * -1) 0; } to { translate: var(--r, 24px) 0; } }
+@keyframes cow-hop { 0% { transform: scale(1.1, .86); } 35% { transform: translateY(-38%) scale(.94, 1.08); } 65% { transform: translateY(0) scale(1.08, .9); } 100% { transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pet-face, .vault-ring, .vault-orbit, .vault-arm, .vault-arm .ficon, .vault-lock, .cow, .cow img, .clock-caret { animation: none !important; }
+  .vault-lock { opacity: 1; scale: 1; }
+}

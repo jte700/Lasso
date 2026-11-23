@@ -15,6 +15,10 @@
 .ag-list { display: grid; gap: clamp(56px, 8vw, 112px); }
 .ag { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 544px); align-items: center; gap: clamp(28px, 6vw, 96px); }
 .ag-copy { display: grid; gap: 14px; align-content: center; max-width: 400px; }
+/* every other row turns round, so the words and pictures stagger down the page */
+.ag:nth-child(even) { grid-template-columns: minmax(0, 544px) minmax(0, 1fr); }
+.ag:nth-child(even) .ag-media { order: -1; }
+.ag:nth-child(even) .ag-copy { justify-self: end; }
 .ag-copy h3 { font-size: clamp(28px, 3.2vw, 40px); line-height: 1.08; letter-spacing: -.028em; font-weight: 500; }
 .ag-copy p { font-size: 16.5px; line-height: 1.55; color: var(--ink-2); }
 .ag-copy kbd { font: 600 .82em/1.5 var(--sans); padding: 1px 6px; border-radius: 6px; color: var(--ink); }
@@ -34,8 +38,8 @@
 .ag-media:hover .ag-pause, .ag-pause:focus-visible, .ag-media[data-paused] .ag-pause { opacity: 1; }
 @media (hover: none) { .ag-pause { opacity: .8; } }
 @media (max-width: 820px) {
-  .ag { grid-template-columns: 1fr; gap: 22px; }
-  .ag-copy { max-width: 560px; }
+  .ag, .ag:nth-child(even) { grid-template-columns: 1fr; gap: 22px; }
+  .ag-copy, .ag:nth-child(even) .ag-copy { max-width: 560px; justify-self: start; }
   .ag-media { order: -1; }
 }
 
@@ -73,6 +77,24 @@
 .fa-sheet td:not(:first-child) { text-align: right; }
 .fa-sheet tr:first-child td { color: var(--os-ink-3); font-weight: 600; }
 .fa-sheet .on { background: var(--lc-sel); box-shadow: inset 0 0 0 2px var(--lc-sel-edge); font-weight: 600; }
+/* a workbook as Excel draws it: the formula bar, column letters, row numbers and sheet tabs, so the
+   named cell is the one highlighted */
+.fa-body--grid { display: flex; flex-direction: column; padding: 0; }
+.fa-fx { display: flex; align-items: center; gap: 10px; height: 24px; flex: none; padding: 0 10px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--os-ink); box-shadow: inset 0 -1px 0 var(--os-line); }
+.fa-fx b { min-width: 34px; font-weight: 600; color: var(--os-ink-2); }
+.fa-fx i { font-style: italic; color: var(--os-ink-3); }
+.fa-sheet--grid td { height: 22px; }
+.fa-sheet--grid td:first-child, .fa-sheet--grid tr:first-child td { width: 26px; padding: 0 4px; text-align: center; font-size: 10px; font-weight: 500; color: var(--os-ink-3); background: var(--os-bar); }
+.fa-sheet--grid tr:first-child td { height: 18px; }
+.fa-sheet--grid tr:nth-child(2) td:not(:first-child) { font-weight: 600; color: var(--os-ink-2); }
+.fa-sheet--grid td:nth-child(2) { text-align: left; }
+.fa-sheet--grid .hd { color: var(--os-ink); background: var(--lc-sel); box-shadow: inset 0 -2px 0 var(--lc-sel-edge); }
+.fa-sheet--grid td.hd:first-child { box-shadow: inset -2px 0 0 var(--lc-sel-edge); }
+.fa-sheet--grid { border-style: hidden; }
+.fa-sheets { display: flex; align-items: stretch; gap: 2px; height: 24px; margin-top: auto; padding: 0 8px; font-size: 10.5px; color: var(--os-ink-3); background: var(--os-bar); box-shadow: inset 0 1px 0 var(--os-line); }
+.fa-sheets > * { display: grid; place-items: center; padding: 0 10px; }
+.fa-sheets b { font-weight: 600; color: var(--os-ink); background: var(--os-win); box-shadow: inset 0 -2px 0 var(--lc-sel-edge); }
+.fa-body--grid .fa-tag { bottom: 3px; }
 .fa-mono { font: 500 11px/1.75 var(--mono); color: var(--os-ink-2); white-space: pre; }
 .fa-mono b { color: var(--os-ink); font-weight: 500; background: var(--lc-sel); border-radius: 3px; }
 .fa-mono i { font-style: normal; color: var(--os-ink-3); }
@@ -163,11 +185,56 @@
 .herd img:nth-child(4) { animation-delay: -2.4s; width: clamp(54px, 7.4vw, 92px); }
 .herd img:nth-child(5) { animation-delay: -3.2s; }
 
-/* the reel's example labels show progress only */
-.film-tabs[aria-hidden] { pointer-events: none; }
-.film-tab[data-on] { color: var(--ink); }
-.film-tab[data-on] i { transform: scaleX(1); }
-.film[data-playing] .film-tab[data-on] i { animation: film-progress var(--film-ms, 8000ms) linear both; }
+/* the passage picker in the reel, after the Mac app's window: 700 by 620 points, a header with the
+   file and a hint, the page to highlight from, and Insert, Insert Link and "Insert with source" */
+.demo-picker { --dp-bg: #2b2b2c; --dp-ink: rgb(255 255 255 / .92); --dp-ink-2: rgb(255 255 255 / .55); --dp-ink-3: rgb(255 255 255 / .3);
+  --dp-line: rgb(255 255 255 / .1); --dp-well: #1c1c1d; --dp-hl: rgb(10 132 255 / .35); --dp-accent: #0a84ff;
+  position: absolute; left: 192px; top: 40px; width: 700px; height: 620px; transform: scale(.92); transform-origin: 0 0;
+  display: grid; grid-template-rows: 56px 1fr 64px; padding: 0 18px; border-radius: 18px; background: var(--dp-bg); color: var(--dp-ink);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--sans); box-shadow: inset 0 0 0 1px var(--dp-line), 0 30px 60px -20px rgb(0 0 0 / .55);
+  opacity: 0; visibility: hidden; translate: 0 8px; transition: opacity .2s ease, translate .25s ease, visibility 0s .25s; pointer-events: none; }
+.demo-picker.on { opacity: 1; visibility: visible; translate: 0 0; transition-delay: 0s; }
+:root[data-theme="light"] .demo-picker { --dp-bg: #f4f4f5; --dp-ink: rgb(0 0 0 / .86); --dp-ink-2: rgb(0 0 0 / .5); --dp-ink-3: rgb(0 0 0 / .28);
+  --dp-line: rgb(0 0 0 / .1); --dp-well: #e2e2e4; --dp-hl: rgb(0 122 255 / .3); --dp-accent: #007aff; }
+.dp-head { display: flex; align-items: center; gap: 12px; }
+.dp-head .ficon { --size: 26px; margin-left: 3px; }
+.dp-names { display: grid; gap: 1px; min-width: 0; flex: 1; }
+.dp-names b { font-size: 13px; font-weight: 600; }
+.dp-hint { font-size: 11.5px; color: var(--dp-ink-2); }
+.dp-close { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--dp-line); color: var(--dp-ink-2); font-size: 17px; line-height: 1; }
+.dp-body { position: relative; overflow: hidden; border-radius: 10px; background: var(--dp-well); padding: 22px 34px 0; }
+.dp-page { height: 100%; padding: 46px 48px; background: #fff; color: #111; box-shadow: 0 4px 16px rgb(0 0 0 / .25); font: 12.5px/1.55 Helvetica, Arial, sans-serif; }
+.dp-page p { margin: 0 0 10px; }
+.dp-page .dp-kick { font-size: 10px; font-weight: 700; letter-spacing: .02em; margin-bottom: 8px; }
+.dp-page .dp-title { font-size: 19px; font-weight: 700; margin-bottom: 20px; }
+.dp-page .dp-h { font-size: 13.5px; font-weight: 700; margin: 18px 0 8px; }
+.dp-page span { border-radius: 2px; transition: background-color .08s linear; }
+.dp-page span.on { background: var(--dp-hl); box-shadow: 2px 0 0 var(--dp-hl); }
+.dp-foot { display: flex; align-items: center; gap: 8px; }
+.dp-btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 14px; border-radius: 16px; font-size: 13px; font-weight: 600; background: var(--dp-line); color: var(--dp-ink); transition: opacity .15s, filter .15s; }
+.dp-insert { min-width: 96px; justify-content: center; background: var(--dp-accent); color: #fff; }
+.dp-insert kbd { font: 600 12px/1 var(--sans); opacity: .85; }
+.dp-btn.off { opacity: .45; }
+.dp-insert.press { animation: dp-press .32s ease-out; }
+@keyframes dp-press { 40% { filter: brightness(1.35); scale: .96; } }
+.dp-src { margin-left: auto; display: grid; justify-items: end; font-size: 13px; line-height: 16px; }
+.dp-cite { font-size: 11px; line-height: 14px; color: var(--dp-ink-3); transition: color .2s; }
+.dp-cite.on { color: var(--dp-ink-2); }
+.dp-toggle { position: relative; flex: none; width: 38px; height: 22px; margin-left: 10px; border-radius: 11px; background: var(--dp-line); transition: background-color .2s; }
+.dp-toggle::after { content: ""; position: absolute; left: 2px; top: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / .3); transition: translate .22s cubic-bezier(.3, 1.4, .5, 1); }
+.dp-toggle.on { background: var(--dp-accent); }
+.dp-toggle.on::after { translate: 16px 0; }
+.dp-pointer { position: absolute; z-index: 3; left: 0; top: 0; width: 17px; height: 22px; fill: #000; stroke: #fff; stroke-width: 1.4; stroke-linejoin: round; opacity: 0;
+  transition: left .18s ease, top .18s ease, opacity .2s; filter: drop-shadow(0 1px 2px rgb(0 0 0 / .4)); }
+.dp-pointer.on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .demo-picker, .dp-pointer, .dp-toggle::after { transition: none; } }
+
+.film-caption-box { display: grid; }
+.film-caption-box > * { grid-area: 1 / 1; }
+.film-caption--ghost { visibility: hidden; }
+
+/* the reel's example labels: the one playing fills as it runs, the others answer the pointer */
+.film-tab:hover { background: var(--line); }
 
 @media (prefers-reduced-motion: reduce) {
   .perch, .head-mascot img, .p-mascot, .herd img { animation: none; }
