@@ -450,7 +450,7 @@ export function renderInspectorPanel(resolved, reference, preview, { shareable =
     // The cited cell's column letter and row number are marked, and the way from them into the cell.
     const citedColumn = (index) => preview.rows.some((row) => row.cells[index]?.cited);
     const onPath = wayIntoCitedCell(preview.rows);
-    content = `<div class="preview-scroll"><table aria-label="Source worksheet"><thead><tr><th class="row-number" aria-label="Row number"></th>${preview.columns.map((column, index) => `<th scope="col"${citedColumn(index) ? ' class="cited"' : ''}>${escapeHtml(column)}</th>`).join('')}</tr></thead>
+    content = `<div class="preview-scroll"><table aria-label="Source worksheet"><thead><tr><th class="row-number" aria-label="Row number"></th>${preview.columns.map((column, index) => `<th scope="col"${citedColumn(index) ? ' class="cited"' : ''}>${escapeHtml(preview.headers?.[index] || column)}</th>`).join('')}</tr></thead>
       <tbody>${preview.rows.map((row, rowIndex) => `<tr><th class="row-number${row.cells.some((cell) => cell.cited) ? ' cited' : ''}" scope="row">${row.rowNumber}</th>${row.cells.map((cell, column) => ({ cell, column })).filter(({ cell }) => !cell.covered).map(({ cell, column }) => `<td class="${cellClass(cell, onPath(rowIndex, column))}" rowspan="${cell.rowSpan ?? 1}" colspan="${cell.colSpan ?? 1}">${escapeHtml(cell.value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   } else if (preview?.kind === 'video') {
     previewLabel = 'Video';

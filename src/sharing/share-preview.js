@@ -12,6 +12,7 @@ import { MARKDOWN_LAYOUT, isMarkdownPath, markdownBlocks, markdownPlainText } fr
 import { LINE_LAYOUT, fullTextLayout } from './text-layout.js';
 import { deckSummary, isPresentationPath, presentationOutline, readPresentation, slideAtLine } from '../dependencies/presentation-extraction.js';
 import { isCodePath } from '../history/file-types.js';
+import { buildLandXmlPreview, isLandXmlFile } from './landxml-preview.js';
 
 /// Legacy paragraph blocks are used when any stored text redaction predates
 /// the file's structured layout; otherwise the structured layout is used.
@@ -305,6 +306,10 @@ export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = 
     if (!outline.slides.length) return null;
     return buildTextPreview(file.path, outline.text, anchor, metadata, label, objectType, { ...options, outline });
   }
+  if (isLandXmlFile(file)) {
+    const model = buildLandXmlPreview(file.content, anchor, options.context ?? TEXT_PREVIEW_CONTEXT);
+    if (model) return model;
+  }
   if (isTextPreviewPath(file.path)) {
     const text = extension === '.docx' ? extractDocxFullText(file.content) : file.content.toString('utf8');
     if (!text) return null;
@@ -313,8 +318,8 @@ export function buildInspectorPreview(file, anchor = {}, metadata = {}, label = 
   return null;
 }
 
-/** Plain XML formats with no drawable geometry; their preview is the cited element in context. */
-const XML_PREVIEW_EXTENSIONS = new Set(['.landxml']);
+/** XML read as text; LandXML (a .landxml file, or one saved as .xml) previews as its model first, and as its lines when unreadable. */
+const XML_PREVIEW_EXTENSIONS = new Set(['.landxml', '.xml']);
 
 export function isTextPreviewPath(filePath) {
   const extension = path.extname(String(filePath ?? '')).toLowerCase();

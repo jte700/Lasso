@@ -69,7 +69,11 @@ test('LandXML sources show the complete document and share and redact it line by
   assert.equal(local.format, 'lines');
   assert.equal(local.blocks.length, 7);
   const cited = (await (await fetch(`${base}/api/dependency-objects/${parcel.objectId}/preview?version=${parcel.versionId}`)).json()).preview;
-  assert.deepEqual(cited.lines.filter(line => line.cited).map(line => line.lineNumber), [5]);
+  // The card shows the parcel's property table; the XML lines above stay for full shares and redaction.
+  assert.equal(cited.kind, 'table');
+  assert.deepEqual(cited.headers, ['Parcel', 'Area']);
+  assert.deepEqual(cited.rows.flatMap(row => row.cells.filter(cell => cell.cited).map(cell => cell.value)), ['1850.5 m²']);
+  assert.deepEqual(cited.openAt, { line: 5 });
 
   const share = async (object, accessScope, redactions = []) => {
     const response = await fetch(`${base}/api/projects/${project.id}/object-shares`, {

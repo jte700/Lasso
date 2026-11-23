@@ -1,7 +1,7 @@
 import { extractDrawingDocument } from './drawing-extraction.js';
 import { extractIfcDocument } from './ifc-extraction.js';
 import { extractDxfDocument } from './dxf-extraction.js';
-import { extractLandXmlDocument } from './landxml-extraction.js';
+import { extractLandXmlDocument, isLandXmlContent } from './landxml-extraction.js';
 import { extractStepDocument, FEATURE_TIER } from './step-extraction.js';
 import path from 'node:path';
 
@@ -16,7 +16,7 @@ export function extractDesignDocument(file, buffer) {
   if (extension === '.ifc') return extractIfcDocument(buffer);
   if (extension === '.step' || extension === '.stp') return extractStepDocument(buffer);
   if (extension === '.dxf') return extractDxfDocument(buffer, { filePath: file.path });
-  if (extension === '.landxml' || extension === '.xml' && /<(?:[\w.-]+:)?LandXML\b/i.test(buffer.subarray(0, 8192).toString())) {
+  if (extension === '.landxml' || extension === '.xml' && isLandXmlContent(buffer)) {
     const extracted = extractLandXmlDocument(buffer);
     return extension === '.landxml' ? { ...extracted, isDrawing: true } : extracted;
   }
@@ -58,7 +58,8 @@ export function drawingDescriptors(file, buffer) {
       metadata: { ...common, textExcerpt: String(page.text ?? '').slice(0, 20_000), annotationCount: page.annotations.length },
     });
     for (const annotation of page.annotations) {
-      const propertyWords = String(annotation.propertyName ?? '').replace(/([a-z])([A-Z])/g, '$1 $2');
+      // A LandXML label already says its property in words ("rim elevation"); its attribute name (elevRim) is not added.
+      const propertyWords = drawing.format === 'LandXML' ? '' : String(annotation.propertyName ?? '').replace(/([a-z])([A-Z])/g, '$1 $2');
       const label = propertyWords && !annotation.label.toLowerCase().replace(/\s/g, '').includes(propertyWords.toLowerCase().replace(/\s/g, ''))
         ? `${annotation.label} ${propertyWords}` : annotation.label;
       descriptors.push({
