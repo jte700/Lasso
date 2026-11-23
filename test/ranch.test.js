@@ -80,9 +80,25 @@ test('edges add up repeats, ignore self links and keep the strongest first', () 
   collector.add('a', 'a', 'link');
   collector.add('a', 'c', 'same-name');
   assert.deepEqual(collector.edges(), [
-    { from: 'a', to: 'b', kind: 'link', weight: 2 },
-    { from: 'a', to: 'c', kind: 'same-name', weight: 0.5 },
+    { from: 'a', to: 'b', kind: 'link', weight: 2, reasons: [] },
+    { from: 'a', to: 'c', kind: 'same-name', weight: 0.5, reasons: [] },
   ]);
+});
+
+test('an edge keeps a few distinct reasons, each saying which file it starts from', () => {
+  // Arrange
+  const collector = edgeCollector();
+
+  // Act
+  collector.add('b', 'a', 'link', 1, { from: 'b', text: '18,400' });
+  collector.add('b', 'a', 'link', 1, { from: 'b', text: '18,400' });
+  for (const text of ['Total load', 'Span', 'Depth']) collector.add('a', 'b', 'link', 1, { from: 'b', text });
+
+  // Assert
+  assert.deepEqual(collector.edges()[0].reasons, [
+    { from: 'b', text: '18,400' }, { from: 'b', text: 'Total load' }, { from: 'b', text: 'Span' },
+  ]);
+  assert.equal(collector.edges()[0].weight, 5);
 });
 
 test('a mention prefers the named file in its own directory and skips common names', () => {
@@ -199,6 +215,9 @@ test('the overview lists every directory and file with use, links, history and c
     && pair === [byName.get('Notes.md').id, statement.id].sort().join('|')), 'Notes.md names the statement');
   assert.ok(edges.some(([kind, pair]) => kind === 'same-name'
     && pair === [byName.get('Bracket.csv').id, byName.get('Bracket.step').id].sort().join('|')), 'one bracket, two files');
+  const reasons = (kind) => overview.network.edges.find((edge) => edge.kind === kind).reasons;
+  assert.deepEqual(reasons('mention'), [{ from: byName.get('Notes.md').id, text: 'income-statement.csv' }]);
+  assert.deepEqual(reasons('same-name'), [{ from: null, text: 'bracket' }]);
   assert.deepEqual(overview.history.filter((entry) => entry.change === 'directory-added').map((entry) => entry.directoryId).sort(),
     [financeId, modelsId].sort());
   assert.ok(overview.history.some((entry) => entry.change === 'added' && entry.path === 'Notes.md'

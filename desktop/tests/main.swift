@@ -5050,7 +5050,8 @@ do {
      "review": [{"id": "r1", "kind": "changed", "title": "Linked value changed", "directoryId": "d1",
                  "path": "Reports/Budget.xlsx", "fileId": "a", "documents": ["Memo.md"], "detail": "Changed."}],
      "network": {"edges": [{"from": "a", "to": "c", "kind": "mention", "weight": 0.75},
-                           {"from": "a", "to": "b", "kind": "link", "weight": 2}]}}
+                           {"from": "a", "to": "b", "kind": "link", "weight": 2,
+                            "reasons": [{"from": "b", "text": "18,400"}, {"from": "b", "text": null}]}]}}
     """
     let overview = try? RanchOverview.decode(Data(json.utf8))
     check(overview?.sources.count == 4 && overview?.history.last?.fileCount == 2
@@ -5091,6 +5092,29 @@ do {
               && layout.lines.contains { $0.kind == "link" && !$0.crossesDirectories },
               "lines say whether they cross directories")
         check(layout == RanchNetworkLayout.make(overview), "the same library always lays out the same way")
+        let at = { (id: String) in layout.index(of: id)! }
+        let joined = layout.connections(of: at("a"))
+        check(joined.map { layout.nodes[$0.other].label } == ["Actuals.xlsx", "Bracket.step"],
+              "a file's connections come strongest first")
+        check(joined.first?.sentences == ["Actuals.xlsx links \u{201C}18,400\u{201D} from Budget.xlsx",
+                                          "Actuals.xlsx links a value from Budget.xlsx"]
+              && joined.first?.tag == "\u{201C}18,400\u{201D}" && joined.first?.crossesDirectories == false,
+              "a link says which file links what from which")
+        check(joined.last?.sentences == ["One names the other"] && joined.last?.tag == "names"
+              && joined.last?.crossesDirectories == true,
+              "a connection the server gave no reason for still says what kind it is")
+        check(layout.whereConnected(at("a"), at("c")) == "Across Finance and Models"
+              && layout.whereConnected(at("a"), at("b")) == "Within Finance",
+              "a connection says whether it stays in one directory")
+        check(layout.connections(of: layout.index(of: "hub:d1")!).isEmpty, "a hub lists no file connections")
+        let named = RanchNetworkLine(from: at("a"), to: at("c"), kind: "mention", weight: 1, crossesDirectories: true,
+                                     reasons: [RanchEdgeReason(from: "c", text: "budget.xlsx")])
+        let shared = RanchNetworkLine(from: at("a"), to: at("c"), kind: "same-name", weight: 1, crossesDirectories: true,
+                                      reasons: [RanchEdgeReason(from: nil, text: "bracket")])
+        check(RanchConnectionWords.sentences(for: named, nodes: layout.nodes) == ["Bracket.step names Budget.xlsx"]
+              && RanchConnectionWords.sentences(for: shared, nodes: layout.nodes)
+                == ["Both are named \u{201C}bracket\u{201D}, likely one thing in two forms"],
+              "a mention names the file by its own name, and a shared name is quoted")
 
         // The sources page's overview, counted from the same library.
         let today = ISO8601DateFormatter().date(from: "2026-10-23T12:00:00Z")!

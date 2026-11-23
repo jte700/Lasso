@@ -56,8 +56,8 @@ final class RanchStore: ObservableObject {
     }
 
     /// How far the window is through its opening: the tour (the first time),
-    /// the gas and Begin, the directories, the last of the gas leaving, then
-    /// the library itself.
+    /// the dots and Begin, the directories, the card leaving, then the
+    /// library itself.
     enum Stage { case tour, welcome, directories, leaving, home }
     @Published var stage = Stage.home
     /// Which of the tour's steps is showing (RanchTourStep).

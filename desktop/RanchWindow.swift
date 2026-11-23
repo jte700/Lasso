@@ -53,12 +53,14 @@ final class RanchWindowController: NSWindowController, NSWindowDelegate {
     func show(section: RanchStore.Section? = nil, serverURL: URL?) {
         store.serverURL = serverURL
         if let section { store.section = section }
-        // Opened afresh, the window starts with its tour the first time and its
-        // gas and Begin after that; sent to a particular view, or already open,
-        // it goes straight there.
+        // Opened afresh, the window starts with its tour the first time, and
+        // after that with its Begin card once each time Lasso starts: after an
+        // update or a restart, not every time the window opens. Sent to a
+        // particular view, or already open, it goes straight there.
         if section == nil, window?.isVisible != true {
             store.tourStep = 0
-            store.stage = RanchTour.finished() ? .welcome : .tour
+            store.stage = Self.openingStage(tourFinished: RanchTour.finished(), shownThisLaunch: Self.openedThisLaunch)
+            Self.openedThisLaunch = true
         } else if section != nil {
             store.stage = .home
         }
@@ -67,6 +69,16 @@ final class RanchWindowController: NSWindowController, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Whether the window has opened since Lasso started.
+    private static var openedThisLaunch = false
+
+    /// Where a window opened afresh starts: the tour until it has been seen,
+    /// then the Begin card on the first opening after Lasso starts, then the library.
+    static func openingStage(tourFinished: Bool, shownThisLaunch: Bool) -> RanchStore.Stage {
+        guard tourFinished else { return .tour }
+        return shownThisLaunch ? .home : .welcome
     }
 
     func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? { store.undoManager }

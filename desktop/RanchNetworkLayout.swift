@@ -27,6 +27,8 @@ struct RanchNetworkLine: Equatable {
     let kind: String
     let weight: Double
     let crossesDirectories: Bool
+    /// Why the two files connect, as the server gave it.
+    var reasons: [RanchEdgeReason] = []
 }
 
 struct RanchNetworkLayout: Equatable {
@@ -94,7 +96,8 @@ struct RanchNetworkLayout: Equatable {
         for edge in relevant {
             guard let from = index[edge.from], let to = index[edge.to] else { continue }
             lines.append(RanchNetworkLine(from: from, to: to, kind: edge.kind, weight: edge.weight,
-                                          crossesDirectories: nodes[from].directoryId != nodes[to].directoryId))
+                                          crossesDirectories: nodes[from].directoryId != nodes[to].directoryId,
+                                          reasons: edge.reasons ?? []))
         }
         return RanchNetworkLayout(nodes: relax(nodes, lines: lines, hubCount: fileStart), lines: lines, isStarter: isStarter)
     }

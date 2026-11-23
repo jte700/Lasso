@@ -441,6 +441,15 @@ struct RanchEdge: Decodable, Equatable {
     /// link, used-in, mention or same-name.
     let kind: String
     let weight: Double
+    /// Why the two files connect; missing from a server older than this app.
+    let reasons: [RanchEdgeReason]?
+}
+
+/// One reason two files connect: the value linked, the name mentioned or
+/// shared, with the file it starts from (nil when it runs both ways).
+struct RanchEdgeReason: Decodable, Equatable {
+    let from: String?
+    let text: String?
 }
 
 struct RanchNetworkData: Decodable, Equatable {

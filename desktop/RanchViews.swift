@@ -199,7 +199,7 @@ struct RanchRootView: View {
                 RanchOpening(store: store, actions: actions)
             }
         }
-        // Everything runs up under the window's buttons, the gas included.
+        // Everything runs up under the window's buttons, the opening card's dim included.
         .ignoresSafeArea()
         .ranchDark()
         .frame(minWidth: 860, minHeight: 520)
@@ -225,7 +225,11 @@ struct RanchRootView: View {
                     RanchColumnDivider(width: $sidebarWidth, range: Self.sidebarWidths, showsLine: false)
                 }
                 VStack(spacing: 0) {
+                    // Above the page: a page's scroll view reaches up under this row
+                    // (it extends into the window's title bar area), and would
+                    // otherwise take the bell's clicks.
                     RanchTitleRow(store: store, leading: store.sidebarHidden ? Self.windowButtons : 0)
+                        .zIndex(1)
                     page
                         .background(RanchTheme.surface)
                         .clipShape(panel)

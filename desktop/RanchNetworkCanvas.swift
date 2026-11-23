@@ -2,8 +2,9 @@
 // with the view, lines from each file to its directory in that directory's
 // colour, connections between files (blue where they cross directories,
 // dashed where only a name is shared), directory hubs ringed in their colour,
-// files from grey to lime by how much they are used, and labels set where
-// they do not cover one already drawn.
+// files from grey to lime by how much they are used, labels set where they do
+// not cover one already drawn, and on the lines in focus a tag saying what
+// joins their two files.
 
 import Cocoa
 import SwiftUI
@@ -14,6 +15,8 @@ struct RanchNetworkScene {
     let zoom: CGFloat
     let pan: CGSize
     let hovered: Int?
+    /// The two files of a hovered line.
+    let hoveredPair: (Int, Int)?
     let selected: Int?
     /// The nodes lit by a hover or a search; nil lights everything.
     let lit: Set<Int>?
@@ -43,7 +46,47 @@ struct RanchNetworkScene {
         drawGrid(in: &context, size: size)
         drawLines(in: &context)
         drawNodes(in: &context)
-        drawLabels(in: &context, size: size)
+        let taken = drawLabels(in: &context, size: size)
+        drawTags(in: &context, around: taken)
+    }
+
+    /// Where a connection's gentle curve bends, so crossing lines stay apart.
+    static func bend(from: CGPoint, to: CGPoint) -> CGPoint {
+        let middle = CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2)
+        return CGPoint(x: middle.x - (to.y - from.y) * 0.12, y: middle.y + (to.x - from.x) * 0.12)
+    }
+
+    /// The halfway point of a connection's curve, where its tag sits.
+    static func middle(from: CGPoint, to: CGPoint) -> CGPoint {
+        let control = bend(from: from, to: to)
+        return CGPoint(x: 0.25 * from.x + 0.5 * control.x + 0.25 * to.x, y: 0.25 * from.y + 0.5 * control.y + 0.25 * to.y)
+    }
+
+    /// How far a point is from a connection's curve, measured along a few straight pieces.
+    static func distance(from point: CGPoint, toCurveFrom from: CGPoint, to: CGPoint) -> CGFloat {
+        let control = bend(from: from, to: to)
+        let pieces = 14
+        var previous = from, nearest = CGFloat.greatestFiniteMagnitude
+        for step in 1...pieces {
+            let t = CGFloat(step) / CGFloat(pieces), u = 1 - t
+            let next = CGPoint(x: u * u * from.x + 2 * u * t * control.x + t * t * to.x,
+                               y: u * u * from.y + 2 * u * t * control.y + t * t * to.y)
+            nearest = min(nearest, distance(from: point, toSegment: previous, next))
+            previous = next
+        }
+        return nearest
+    }
+
+    private static func distance(from point: CGPoint, toSegment a: CGPoint, _ b: CGPoint) -> CGFloat {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let length = dx * dx + dy * dy
+        let t = length == 0 ? 0 : min(1, max(0, ((point.x - a.x) * dx + (point.y - a.y) * dy) / length))
+        return hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy))
+    }
+
+    private func isPair(_ line: RanchNetworkLine) -> Bool {
+        guard let (a, b) = hoveredPair else { return false }
+        return (line.from == a && line.to == b) || (line.from == b && line.to == a)
     }
 
     private func color(_ node: RanchNetworkNode) -> Color { colors[node.directoryId] ?? RanchLook.ink2 }
@@ -77,7 +120,7 @@ struct RanchNetworkScene {
     }
 
     private func drawLines(in context: inout GraphicsContext) {
-        let quiet = hovered != nil || lit != nil
+        let quiet = hovered != nil || hoveredPair != nil || lit != nil
         for line in layout.lines {
             let from = place(layout.nodes[line.from].position), to = place(layout.nodes[line.to].position)
             let lineLit = isLit(line.from) && isLit(line.to)
@@ -89,13 +132,12 @@ struct RanchNetworkScene {
                 context.stroke(path, with: .color(tint.opacity(lineLit ? (quiet ? 0.4 : 0.22) : 0.05)), lineWidth: 1)
                 continue
             }
-            // A gentle curve keeps crossing lines apart.
-            let middle = CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2)
-            let bend = CGPoint(x: middle.x - (to.y - from.y) * 0.12, y: middle.y + (to.x - from.x) * 0.12)
-            path.addQuadCurve(to: to, control: bend)
+            path.addQuadCurve(to: to, control: Self.bend(from: from, to: to))
             let tint = line.crossesDirectories ? RanchLook.sky : RanchLook.ink
-            let opacity = lineLit ? (hovered == nil ? (line.crossesDirectories ? 0.5 : 0.28) : 0.9) : 0.05
-            let style = StrokeStyle(lineWidth: 1 + 0.55 * min(3, line.weight), lineCap: .round,
+            let focused = isPair(line) || (hovered != nil && (line.from == hovered || line.to == hovered))
+            let opacity = focused ? 0.95 : hoveredPair != nil ? 0.05
+                : lineLit ? (hovered == nil ? (line.crossesDirectories ? 0.5 : 0.28) : 0.9) : 0.05
+            let style = StrokeStyle(lineWidth: 1 + 0.55 * min(3, line.weight) + (isPair(line) ? 1.5 : 0), lineCap: .round,
                                     dash: line.kind == "same-name" ? [3, 4] : [])
             context.stroke(path, with: .color(tint.opacity(opacity)), style: style)
         }
@@ -127,17 +169,20 @@ struct RanchNetworkScene {
 
     /// Labels go on in order of importance and are left off where they would
     /// cover one already drawn, so the picture never turns to mush.
-    private func drawLabels(in context: inout GraphicsContext, size: CGSize) {
+    @discardableResult
+    private func drawLabels(in context: inout GraphicsContext, size: CGSize) -> [CGRect] {
         let nodes = layout.nodes
-        let order = [hovered, selected].compactMap { $0 }
+        let pair = hoveredPair.map { [$0.0, $0.1] } ?? []
+        let inFocus = Set([hovered, selected].compactMap { $0 } + pair)
+        let order = [hovered, selected].compactMap { $0 } + pair
             + nodes.indices.filter { nodes[$0].role == .hub }
             + nodes.indices.filter { labelled.contains($0) }.sorted { nodes[$0].activity > nodes[$1].activity }
         // Hubs, and the file in focus, keep their own space clear.
-        var taken = nodes.indices.filter { nodes[$0].role == .hub || $0 == hovered || $0 == selected }.map(rect)
+        var taken = nodes.indices.filter { nodes[$0].role == .hub || inFocus.contains($0) }.map(rect)
         var seen = Set<Int>()
         for index in order where seen.insert(index).inserted {
             let node = nodes[index]
-            let focus = index == hovered || index == selected
+            let focus = inFocus.contains(index)
             if !focus, let lit, !lit.contains(index) { continue }
             let text = context.resolve(Text(node.label)
                 .font(node.role == .hub ? RanchLook.font(13, .medium) : RanchLook.font(11.5, focus ? .medium : .regular))
@@ -154,6 +199,32 @@ struct RanchNetworkScene {
                 let backing = Path(roundedRect: frame.insetBy(dx: -5, dy: -2), cornerRadius: 6)
                 context.fill(backing, with: .color(RanchLook.panel.opacity(0.85)))
             }
+            context.draw(text, in: frame)
+        }
+        return taken
+    }
+
+    /// On each line in focus, what joins its two files: "names", "same name",
+    /// the linked value. One tag a pair, left off where it would cover a name.
+    private func drawTags(in context: inout GraphicsContext, around labels: [CGRect]) {
+        let ends: [(Int, Int)] = hoveredPair.map { [$0] }
+            ?? hovered.map { node in layout.neighbours(of: node).filter { layout.nodes[$0].role == .file }.map { (node, $0) } }
+            ?? []
+        var taken = labels + layout.nodes.indices.map(rect)
+        for (a, b) in ends.sorted(by: { $0.1 < $1.1 }) {
+            guard let connection = layout.connection(between: a, and: b) else { continue }
+            let text = context.resolve(Text(connection.tag).font(RanchLook.font(11, .medium))
+                .foregroundColor(connection.crossesDirectories ? RanchLook.sky : RanchLook.ink))
+            let measured = text.measure(in: CGSize(width: 200, height: 30))
+            let middle = Self.middle(from: place(layout.nodes[a].position), to: place(layout.nodes[b].position))
+            let frame = CGRect(x: middle.x - measured.width / 2, y: middle.y - measured.height / 2,
+                               width: measured.width, height: measured.height)
+            let backing = frame.insetBy(dx: -7, dy: -3)
+            if hoveredPair == nil && taken.contains(where: { $0.intersects(backing) }) { continue }
+            taken.append(backing)
+            let shape = Path(roundedRect: backing, cornerRadius: backing.height / 2)
+            context.fill(shape, with: .color(RanchLook.raise))
+            context.stroke(shape, with: .color((connection.crossesDirectories ? RanchLook.sky : RanchLook.ink).opacity(0.35)), lineWidth: 1)
             context.draw(text, in: frame)
         }
     }
