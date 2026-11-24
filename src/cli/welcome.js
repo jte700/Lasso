@@ -1,11 +1,10 @@
-// The welcome: Lasso's wordmark in blue pixel letters, then a
-// rounded box in two columns, as Claude Code opens: on the left a greeting,
+// The welcome: a rounded box in two columns, as Claude Code opens: on the left a greeting,
 // the mascot and the library in numbers; on the right tips and the latest
 // changes. While the library opens the mascot twirls its rope loop and the
 // right column says so.
 
 import { PALETTE, box, center, padEnd, truncate, truncateStart } from './style.js';
-import { mascotLines, wordmarkLines, MASCOT_WIDTH } from './pixels.js';
+import { mascotLines, MASCOT_WIDTH } from './pixels.js';
 import { ago, count, plural, tilde } from './format.js';
 import { actorText } from './views.js';
 
@@ -15,15 +14,6 @@ const TIPS = [
   ['/verify <doc>', 'check a report\'s numbers'],
   ['/blame <file>', 'who wrote what, AI included'],
 ];
-
-/** The wordmark above the box, or nothing when the window is too narrow for it. */
-export function bannerLines(paint, columns, { version = null } = {}) {
-  if (columns < 40) return [];
-  const scale = columns >= 72 ? 2 : 1;
-  const mark = wordmarkLines(paint, { scale });
-  const tagline = paint.dim(`provenance for every file you keep${version ? `  ·  v${version}` : ''}`);
-  return ['', ...mark.map((line) => ` ${line}`), ` ${tagline}`, ''];
-}
 
 /**
  * @param {object} state
