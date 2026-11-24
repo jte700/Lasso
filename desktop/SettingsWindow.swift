@@ -2,8 +2,8 @@
 //
 // General holds options that change how Lasso looks and behaves, and that the
 // status panel does not already show: appearance and what Tab
-// inserts, with the folder colour, starting at login and the version under
-// Advanced. Apps switches suggestions off in chosen apps. Shortcuts lists
+// inserts, with the folder colour, starting at login, the terminal command
+// and the version under Advanced. Apps switches suggestions off in chosen apps. Shortcuts lists
 // every keyboard shortcut Lasso has on the Mac. The first two are SwiftUI
 // grouped forms (SettingsPanes.swift), so they match System Settings.
 

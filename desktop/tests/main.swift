@@ -6985,5 +6985,55 @@ do {
     check(AIBracketShape.gap(.wide, line: line) == AIBracketShape.wideGap, "with more room it stands further off")
 }
 
+print("terminal command")
+do {
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("lasso-terminal-\(UUID().uuidString)", isDirectory: true).path
+    let system = root + "/usr-local-bin", brew = root + "/homebrew-bin"
+    let app = root + "/Applications/Lasso.app/Contents/Resources/bin/lasso"
+    let older = root + "/dist/Lasso.app/Contents/Resources/bin/lasso"
+    try? fm.createDirectory(atPath: (app as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+    try? fm.createDirectory(atPath: brew, withIntermediateDirectories: true)
+    let folders = [system, brew]
+    func destination(_ link: String) -> String? { try? fm.destinationOfSymbolicLink(atPath: link) }
+
+    check(TerminalCommand.place(launcher: app, folders: folders) == .installed(brew + "/lasso")
+          && destination(brew + "/lasso") == app, "the command is linked into the first PATH folder that exists and can be written")
+    check(TerminalCommand.state(launcher: app, folders: folders) == .installed(brew + "/lasso"), "once linked it reads as installed")
+
+    try? fm.removeItem(atPath: brew + "/lasso")
+    try? fm.createSymbolicLink(atPath: brew + "/lasso", withDestinationPath: older)
+    check(TerminalCommand.state(launcher: app, folders: folders) == .absent(needsPassword: false), "another copy's link is not this one's")
+    check(TerminalCommand.place(launcher: app, folders: folders) == .installed(brew + "/lasso")
+          && destination(brew + "/lasso") == app, "the copy of Lasso that runs takes over a link to another copy, or to one since deleted")
+
+    try? fm.createDirectory(atPath: system, withIntermediateDirectories: true)
+    let npmLink = "../lib/node_modules/lasso/src/cli/main.js"
+    try? fm.createSymbolicLink(atPath: system + "/lasso", withDestinationPath: npmLink)
+    check(TerminalCommand.place(launcher: app, folders: folders) == .other(system + "/lasso")
+          && destination(system + "/lasso") == npmLink, "a lasso that npm link made is left alone")
+    check(TerminalCommand.unlink(system + "/lasso") && destination(system + "/lasso") == npmLink, "and is never taken away")
+
+    try? fm.removeItem(atPath: system + "/lasso")
+    try? fm.removeItem(atPath: brew + "/lasso")
+    try? fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: system)
+    try? fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: brew)
+    check(TerminalCommand.place(launcher: app, folders: folders) == .absent(needsPassword: true)
+          && destination(system + "/lasso") == nil, "with no folder it may write to, it waits for a password")
+    try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: system)
+    try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: brew)
+    check(TerminalCommand.place(launcher: app, folders: folders) == .installed(system + "/lasso"), "the folder every Mac searches comes first")
+    check(TerminalCommand.unlink(system + "/lasso") && destination(system + "/lasso") == nil, "Remove takes away a Lasso app's link")
+
+    check(TerminalCommand.isLasting(URL(fileURLWithPath: root + "/Applications/Lasso.app"))
+          && !TerminalCommand.isLasting(URL(fileURLWithPath: "/private/var/folders/x/T/AppTranslocation/1234/d/Lasso.app")),
+          "an app macOS moved aside to open it gets no link, since its path is gone once it quits")
+    check(TerminalCommand.shellQuoted("/Users/a/Lasso's Builds/Lasso.app") == "'/Users/a/Lasso'\\''s Builds/Lasso.app'",
+          "a path is quoted for the shell the password runs")
+    check(TerminalCommand.note(for: .installed("/opt/homebrew/bin/lasso")).hasSuffix("It is in /opt/homebrew/bin."),
+          "Settings says where the command is")
+    try? fm.removeItem(atPath: root)
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

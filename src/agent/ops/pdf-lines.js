@@ -9,11 +9,13 @@ import { pathToFileURL } from 'node:url';
 const require = createRequire(import.meta.url);
 let pdfjsPromise = null;
 const pdfjs = () => (pdfjsPromise ??= import(pathToFileURL(require.resolve('pdfjs-dist/legacy/build/pdf.mjs')).href));
-const STANDARD_FONTS = `${path.join(path.dirname(require.resolve('pdfjs-dist/package.json')), 'standard_fonts')}/`;
+// Found when a PDF is first read, so code that never reads one (the Mac app's
+// `lasso`, which carries no pdf.js) still starts.
+const standardFonts = () => `${path.join(path.dirname(require.resolve('pdfjs-dist/package.json')), 'standard_fonts')}/`;
 
 export async function extractLines(buffer) {
   const { getDocument } = await pdfjs();
-  const document = await getDocument({ data: new Uint8Array(buffer), standardFontDataUrl: STANDARD_FONTS, isEvalSupported: false, verbosity: 0 }).promise;
+  const document = await getDocument({ data: new Uint8Array(buffer), standardFontDataUrl: standardFonts(), isEvalSupported: false, verbosity: 0 }).promise;
   const lines = [];
   for (let number = 1; number <= document.numPages; number += 1) {
     const page = await document.getPage(number);

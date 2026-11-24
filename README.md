@@ -163,8 +163,15 @@ In The Ranch, `⌘1` to `⌘5` switch views, `⌘F` opens morphing chip search, 
 
 `lasso` answers provenance questions about any file on your computer, on the spot. For files in your Lasso folders it reads the history the Mac app keeps (who changed what, and when); for every other file it reads what the file and the system already know: the address it was downloaded from, the app that wrote it, who created and last saved it, identical copies elsewhere on the Mac, files named like it, and git. Nothing is indexed or kept, and without the app it never writes a library. No language model is involved.
 
+Lasso.app puts `lasso` on your PATH each time it starts, so after installing or rebuilding the app, open a new Terminal window and type `lasso`. The app links its own copy (with its own Node.js) into `/usr/local/bin`, or into `/opt/homebrew/bin` when only Homebrew's folder can be written. Where neither can be written without your password, **Settings → General → Advanced → Terminal command → Install…** asks for it. A `lasso` you linked yourself is left alone.
+
+To run the checkout's own copy instead, from this folder:
+
 ```bash
-npm link                                  # once, from this folder: puts `lasso` on your PATH
+npm ci && npm link                        # needs Node.js 24 or later; links `lasso` to this folder
+```
+
+```bash
 lasso                                     # the interactive shell (type / for commands, or drop in a file)
 lasso whence ~/Downloads/q3.xlsx          # where a file came from: Lasso's record, this Mac, the file itself, its copies
 lasso diff budget.xlsx "budget final.xlsx"  # two files compared cell by cell (or line by line, passage by passage)
