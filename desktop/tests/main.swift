@@ -1988,6 +1988,17 @@ do {
     let listed = [(id: "legal", on: false), (id: "finance", on: true), (id: "health", on: false), (id: "cad", on: true)]
     check(WorkspaceAPI.switchedOnFirst(listed, isOn: \.on).map(\.id) == ["finance", "cad", "legal", "health"],
           "directories that are on are listed above those that are off, each group in its usual order")
+    let switchedOff = [(id: "legal", on: false), (id: "finance", on: false), (id: "health", on: false), (id: "cad", on: true)]
+    check(WorkspaceAPI.listed(switchedOff, isOn: \.on, id: \.id, holding: ["finance", "cad", "legal", "health"]).map(\.id)
+            == ["finance", "cad", "legal", "health"],
+          "a directory switched off while the menu is open stays where it was")
+    check(WorkspaceAPI.listed(switchedOff + [(id: "new", on: true)], isOn: \.on, id: \.id,
+                              holding: ["finance", "cad", "legal", "health"]).map(\.id)
+            == ["finance", "cad", "legal", "health", "new"],
+          "a directory added while the menu is open goes after the ones it shows")
+    check(WorkspaceAPI.listed(switchedOff, isOn: \.on, id: \.id, holding: nil).map(\.id)
+            == ["cad", "legal", "finance", "health"],
+          "with the menu closed, directories that are off move below those that are on")
     check(WorkspaceAPI.fixDirectoryPath("abc") == "api/workspace/directories/abc/fix"
           && WorkspaceAPI.fixDirectoryBody()["actor"] != nil,
           "the Fix button asks the server to fix that folder")
