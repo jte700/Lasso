@@ -501,7 +501,7 @@ struct RanchTitleRow: View {
             .font(RanchLook.font(15, .medium))
             .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
-            RanchBell(count: store.reviewCount) { store.section = .review }
+            RanchNotificationBell(store: store, reviews: store.reviews)
                 .scaleEffect(0.84)
         }
         .padding(.leading, leading + 14)
