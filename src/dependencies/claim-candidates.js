@@ -11,6 +11,7 @@ import { authorSimilarity, referenceSimilarity, referenceTitleSimilarity } from 
 import { prefixTokenScore, tokenOverlap, wordTokens } from './text-similarity.js';
 import { measurementDescriptor, numericDescriptor, valueMatch } from './value-match.js';
 import { objectMatchingFeatures, variableSimilarity } from './variable-match.js';
+import { figureRequest, valueRequest } from './value-cue.js';
 import { isPassageExcerpt } from './workspace-completion.js';
 import { writingSourceContext } from './writing-context.js';
 
@@ -26,6 +27,37 @@ function namesReference(typed, object) {
     metadata.textExcerpt, metadata.fileName, path.basename(String(object.path ?? ''))]
     .filter((text) => typeof text === 'string').join(' ');
   return matchedSourceWords(typed, own).length > 0;
+}
+
+// An identifier such as CO-003 or BILL-1160 names one row. Its neighbours
+// (CO-001, CO-002) share its letters, not its meaning: an object filed under
+// an identifier answers only when that identifier begins with the one typed,
+// so "CO-00" still offers each change and "CO-003" offers only its own.
+const IDENTIFIER = /^[A-Z]{2,}\d*(?:-\d+)+$|^[A-Z]{2,}\d{1,3}$/i;
+
+/** The identifier an object is filed under (its row, or its own name), upper-cased; null when it has none. */
+function objectIdentifier(object) {
+  const filed = [object.anchor?.rowKey, object.metadata?.row, object.label]
+    .find((name) => typeof name === 'string' && IDENTIFIER.test(name.trim()));
+  return filed ? filed.trim().toUpperCase() : null;
+}
+
+/**
+ * Whether `object` may answer `claim`: always, unless the claim is an
+ * identifier and the object is filed under a different one, or under none
+ * and never writes it ("CONFERENCE 202" begins with the letters of "CO-003").
+ * @param {{ type: string, value?: string | null, text: string }} claim
+ * @param {{ anchor?: object | null, metadata?: object, label?: string }} object
+ * @returns {boolean}
+ */
+function identifierFits(claim, object) {
+  if (claim.type !== 'ENTITY') return true;
+  const typed = String(claim.value ?? claim.text).trim();
+  if (!IDENTIFIER.test(typed)) return true;
+  const own = objectIdentifier(object);
+  if (own) return own.startsWith(typed.toUpperCase());
+  return [object.label, object.valueText, object.anchor?.rowKey]
+    .some((text) => typeof text === 'string' && text.toUpperCase().includes(typed.toUpperCase()));
 }
 
 export const claimCandidatesMethods = {
@@ -226,7 +258,8 @@ export const claimCandidatesMethods = {
           path: object.path,
         } : null,
       };
-    }).filter((object) => object.score >= (options.minimumScore ?? (claim.type === 'LITERATURE' ? 0.08 : 0.2))
+    }).filter((object) => identifierFits(claim, object)
+      && object.score >= (options.minimumScore ?? (claim.type === 'LITERATURE' ? 0.08 : 0.2))
       && (object.matchTier === 0 || object.matchStrength >= (options.minimumMatchStrength ?? 0))
       && (!referenceQuery || object.referenceSimilarity >= 0.68 || object.authorSimilarity >= 0.7)
       && (claim.type !== 'LITERATURE' || object.authorSimilarity >= 0.7 || namesReference(referenceWords, object))
@@ -236,6 +269,8 @@ export const claimCandidatesMethods = {
         || b.snapshotVersion - a.snapshotVersion || a.label.localeCompare(b.label));
     return this.ranking.rank(projectId, ranked, {
       query: claimTokens, documentPath: options.documentPath, relatedPaths: options.relatedPaths,
+      // A number being typed asks for a figure, so the named row's figures fill a file's places first.
+      valueRequest: claim.type === 'QUANTITATIVE' ? figureRequest(claim.text) : null,
       limit: options.limit ?? 8, diversify: !options.sourcePath,
     }).map((object) => this.enrichObject(projectId, object));
   },
@@ -262,7 +297,8 @@ export const claimCandidatesMethods = {
       completion,
     })), {
       query: input.text, documentPath: rankingProjectId === projectId ? input.documentPath : null,
-      relatedPaths: this.relatedSourcePaths(rankingProjectId, input), ...options,
+      relatedPaths: this.relatedSourcePaths(rankingProjectId, input),
+      valueRequest: valueRequest(input.text, Number.isInteger(input.cursor) ? input.cursor : undefined), ...options,
     }).map(({ completion, ranking }) => ({
       ...completion,
       dependencyCandidate: { ...completion.dependencyCandidate, ranking },

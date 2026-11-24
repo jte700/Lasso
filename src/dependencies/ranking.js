@@ -2,6 +2,7 @@ import path from 'node:path';
 import { HttpError } from '../history/errors.js';
 import { BoundedCache } from '../cache.js';
 import { isWholeFile } from './file-reference.js';
+import { valueAnswerScore } from './value-cue.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SESSION_MS = 30 * 60 * 1000;
@@ -306,6 +307,8 @@ export class RecommendationRanking {
             : usage?.recentScore > 0.05 ? 'Recently used in this project'
               : usage?.frequencyScore > 0.01 ? 'Frequently used in this project' : 'Available in this project';
       const ranking = {
+        // A figure whose row the sentence named, asked for with "was" or "is" (value-cue.js).
+        answersValue: valueAnswerScore(source, options.valueRequest),
         tier, relevanceScore, relevanceBand: recommendationRelevanceBand(relevanceScore),
         // Only an exact name, identifier or value is most specific. A name the
         // query begins, and a match only its caller vouches for (a drawing
@@ -327,6 +330,8 @@ export class RecommendationRanking {
       const a = left.candidate.ranking;
       const b = right.candidate.ranking;
       return a.tier - b.tier
+        // Within a tier, so a typed number's own match still comes first.
+        || b.answersValue - a.answersValue
         || b.directSpecificity - a.directSpecificity
         || (query ? b.relevanceBand - a.relevanceBand : 0)
         || (query ? b.contextScore - a.contextScore : 0)
@@ -350,7 +355,7 @@ export class RecommendationRanking {
     const groups = new Map();
     for (const item of prepared) {
       const ranking = item.candidate.ranking;
-      const key = `${ranking.tier}:${ranking.directSpecificity}:${query ? ranking.relevanceBand : 0}`;
+      const key = `${ranking.tier}:${ranking.answersValue}:${ranking.directSpecificity}:${query ? ranking.relevanceBand : 0}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(item);
     }
