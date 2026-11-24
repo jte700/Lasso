@@ -17,13 +17,28 @@ function sentenceStartBefore(before) {
   return start;
 }
 
+// A citation noun written into a name ("Maple Paper Distribution", "Acme
+// Publications") names a company, not a publication. Hidden here, at the same
+// length, so positions read from the masked text hold in the original.
+const NAMED_CITATION_NOUN = /(?<=\b(?!(?:The|This|That|These|Those|A|An|Our|Their|His|Her|Its|In|From|By)\b)\p{Lu}[\p{L}'’&-]*\s+)(?:Paper|Article|Publication)s?\b/gu;
+
+/**
+ * `text` with each citation noun that is part of a capitalized name blanked out.
+ * @param {string} text
+ * @returns {string}
+ */
+export function withoutNamedCitationNouns(text) {
+  return String(text ?? '').replace(NAMED_CITATION_NOUN, (noun) => '_'.repeat(noun.length));
+}
+
 export function writingSourceContext(text, cursor, section = '') {
   const source = String(text ?? '');
   const before = source.slice(0, cursor);
   const sentenceStart = sentenceStartBefore(before);
   const sentence = before.slice(sentenceStart);
   const words = variableTokens(sentence);
-  const literatureIntent = /\b(?:et\s+al|according\s+to|cited\s+by|paper|article|publication|authors?|researchers?|investigators?|prior\s+(?:work|studies)|previous\s+(?:work|studies)|(?:study|work|report)\s+(?:by|from))\b/i.test(sentence);
+  const literatureIntent = /\b(?:et\s+al|according\s+to|cited\s+by|paper|article|publication|authors?|researchers?|investigators?|prior\s+(?:work|studies)|previous\s+(?:work|studies)|(?:study|work|report)\s+(?:by|from))\b/i
+    .test(withoutNamedCitationNouns(sentence));
   const firstPerson = words.some((word) => ['we', 'our', 'ours', 'us'].includes(word));
   const studyNoun = words.some((word) => /^(?:study|analysis|dataset|data|result|results|cohort|experiment|samples?|model)$/.test(word));
   const reportingVerb = words.some((word) => /^(?:find|found|show|showed|observe|observed|detect|detected|identify|identified|report|reported|measure|measured|quantify|quantified|record|recorded|reveal|revealed|indicate|indicated|demonstrate|demonstrated|estimate|estimated|calculate|calculated|analyze|analysed|analyzed|assess|assessed|discover|discovered)$/.test(word));
@@ -70,12 +85,13 @@ export function currentClauseStart(text, cursor) {
 }
 
 /**
- * Whether a value claim was written before the words at the caret ("rises
- * from 6% to"). The writer has moved past it, so it is not the value being
- * typed. Only spaces or punctuation after it leave it at the caret ("by 50%.").
+ * Whether a value or identifier claim was written before the words at the
+ * caret ("rises from 6% to", "The CO-003 drainage reroute is"). The writer
+ * has moved past it, so it is not what is being typed. Only spaces or
+ * punctuation after it leave it at the caret ("by 50%.").
  */
 export function writtenBeforeCaret(claim, text, cursor) {
-  return ['QUANTITATIVE', 'SAMPLE_SIZE'].includes(claim.type) && claim.end <= cursor
+  return ['QUANTITATIVE', 'SAMPLE_SIZE', 'ENTITY'].includes(claim.type) && claim.end <= cursor
     && /[\p{L}\p{N}]/u.test(String(text ?? '').slice(claim.end, cursor));
 }
 

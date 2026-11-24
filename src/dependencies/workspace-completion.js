@@ -3,6 +3,7 @@
 
 import { humanVariable } from './tabular.js';
 import { STOP_WORDS } from './text-similarity.js';
+import { valueRequest } from './value-cue.js';
 
 // The values of a focus chosen on the words being typed replace those words
 // and a word typed after them to narrow the list ("brac ho" → "100 mm").
@@ -118,6 +119,8 @@ export function contextualCompletionRange(text, cursor, replacementText, options
   return { claimStart: floor + last.index, claimEnd: cursor };
 }
 
+const TABLE_FIGURE_TYPES = new Set(['DATASET_VALUE', 'RESULT', 'VALUE']);
+
 /**
  * What Tab writes for a workspace object, and the part of the sentence it
  * replaces. A drawing measurement's whole line ("nist Ø20 hole depth is
@@ -130,6 +133,11 @@ export function workspaceInsertion(object, text, cursor, sentenceStart) {
   const line = object.retrievalText;
   const lineRange = contextualCompletionRange(text, cursor, line);
   const value = String(object.valueText ?? '').trim();
+  // "The deposit in transit was " already says what the figure is: Tab writes the figure.
+  if (TABLE_FIGURE_TYPES.has(object.objectType) && value && valueRequest(text, cursor)) {
+    const unit = object.metadata?.units ? ` ${object.metadata.units}` : '';
+    return { replacementText: `${value}${unit}`, claimStart: cursor, claimEnd: cursor };
+  }
   if (object.objectType !== 'DRAWING_ANNOTATION' || !value) return { replacementText: line, ...lineRange };
   const before = normalizedCompletionPhrase(String(text ?? '').slice(sentenceStart, lineRange.claimStart));
   const underWay = before.split(' ').some((word) => word && !CONTEXTUAL_INSERTION_CUES.has(word));

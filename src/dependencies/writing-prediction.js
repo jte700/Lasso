@@ -3,6 +3,7 @@
 import { indexSentenceCorpus } from './completion.js';
 import { runSync } from '../history/work.js';
 import { typedWordKeys } from './direct-match.js';
+import { figureRequest } from './value-cue.js';
 import { detectClaimSpans } from './claim-detection.js';
 import { LINKED_VALUES_SHOWN, SUGGESTIONS_SHOWN, WHOLE_FILE_TYPES } from './constants.js';
 import { referenceCompletionText } from './reference-match.js';
@@ -57,6 +58,8 @@ export const writingPredictionMethods = {
       const rankingProjectId = eligible.length ? this.sourceProjectId(eligible[0]) ?? projectId : projectId;
       return { ...claim, candidates: take(withSameNamed(this.ranking.rank(rankingProjectId, eligible, {
         query: claim.text, documentPath: rankingProjectId === projectId ? input.documentPath : null,
+        // A number being typed asks for a figure: the one whose row the sentence named comes first.
+        valueRequest: claim.type === 'QUANTITATIVE' ? figureRequest(claim.text) : null,
         relatedPaths: this.relatedSourcePaths(rankingProjectId, input),
         limit: remaining, diversify: !scoped,
       }))) };

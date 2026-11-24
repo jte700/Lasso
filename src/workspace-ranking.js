@@ -30,6 +30,7 @@ export function compare(a, b) {
   const right = b.ranking ?? {};
   const browsing = (left.tier ?? a.matchTier) === 3 && (right.tier ?? b.matchTier) === 3;
   return (left.tier ?? a.matchTier ?? 1) - (right.tier ?? b.matchTier ?? 1)
+    || (right.answersValue ?? 0) - (left.answersValue ?? 0)
     || (right.directSpecificity ?? 0) - (left.directSpecificity ?? 0)
     || (browsing ? (right.recentScore ?? 0) - (left.recentScore ?? 0)
       || (right.frequencyScore ?? 0) - (left.frequencyScore ?? 0) : 0)

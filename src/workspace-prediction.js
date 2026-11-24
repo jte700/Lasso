@@ -7,7 +7,7 @@ import { setImmediate as yieldTurn } from 'node:timers/promises';
 import { HttpError } from './history/errors.js';
 import { currentClauseStart, LINKED_VALUES_SHOWN, namesFocusedFile, SUGGESTIONS_SHOWN, writtenBeforeCaret } from './dependencies/service.js';
 import { dictatedNameEnds, hasSuggestions, namesInFull, softenDictatedPauses } from './dependencies/dictation.js';
-import { matchedSourceWords, typedSentence } from './dependencies/direct-match.js';
+import { matchedSourceWords, ownWordKeys, typedSentence, typedWordKeys } from './dependencies/direct-match.js';
 import { focusedDependency, tag, distinctRanked } from './workspace-ranking.js';
 import { suggestionDetail } from './dependencies/suggestion-detail.js';
 
@@ -220,9 +220,21 @@ export const workspacePredictionMethods = {
     const nested = (claim) => claim.type === 'STUDY_VARIABLE' && variables.some((other) => other !== claim
       && other.start <= claim.start && other.end >= claim.end && other.end - other.start > claim.end - claim.start);
     const current = continuing.filter((slot) => slot.group !== 'claim' || !nested(slot.claim));
+    // One word of the clause read as a name ("total" for a TOTAL row) is not
+    // what is being written when a passage holds every word of it ("Pending
+    // changes total"): that name follows the passages.
+    const clauseWords = typedWordKeys(String(input.text ?? '').slice(clauseStart, cursor));
+    const holdsClause = (slot) => {
+      const own = ownWordKeys(slot.dependencyCandidate ?? slot, slot.replacementText ?? '');
+      return clauseWords.every((word) => own.includes(word));
+    };
+    const wholeClause = clauseWords.length > 1 && current.some((slot) => slot.sharedWordsOnly && holdsClause(slot));
+    const narrow = (slot) => wholeClause && slot.group === 'claim' && slot.claim.type === 'STUDY_VARIABLE'
+      && typedWordKeys(slot.claim.text).length < clauseWords.length && !holdsClause(slot);
+    const narrowNames = current.filter(narrow);
     // A name, a value or the sentence's own continuation is what is being
     // typed: passages that only share its words follow it, whatever they scored.
-    const typed = current.filter((slot) => !slot.sharedWordsOnly);
+    const typed = current.filter((slot) => !slot.sharedWordsOnly && !narrow(slot));
     const sharing = current.filter((slot) => slot.sharedWordsOnly);
     // Each keeps its place in the one ranked order, which the groups below split
     // up, and the typed words its source has, which the card's preview marks.
@@ -248,9 +260,10 @@ export const workspacePredictionMethods = {
         { rowCells: this.rowCells(object.projectId ?? item.projectId, object) });
       return detail ? { ...item, detail } : item;
     };
-    const ordered = typed.some((slot) => slot.group === 'claim' || slot.group === 'completion')
-      ? [...distinctRanked(typed, limit, { keepOrder }), ...distinctRanked(sharing, limit, { keepOrder })].slice(0, limit)
-      : distinctRanked(current, limit, { keepOrder });
+    const leading = typed.some((slot) => slot.group === 'claim' || slot.group === 'completion')
+      ? [...distinctRanked(typed, limit, { keepOrder }), ...distinctRanked(sharing, limit, { keepOrder })]
+      : distinctRanked([...typed, ...sharing], limit, { keepOrder });
+    const ordered = [...leading, ...distinctRanked(narrowNames, limit, { keepOrder })].slice(0, limit);
     const selected = ordered.map(withChange).map(withDetail).map((item, rankOrder) => ({ ...item, rankOrder,
       matchedWords: namesWholeFile(item) ? [] : matchedSourceWords(item.quotedPhrase ?? sentence, [item.sourceSentence, item.replacementText, item.dependencyCandidate?.valueText,
         item.dependencyCandidate?.label, item.dependencyCandidate?.metadata?.variable, item.valueText, item.label,
