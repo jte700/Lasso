@@ -4471,6 +4471,46 @@ do {
     check(after808 == before808 + 1 && !enhancedOn,
           "an unreadable Electron app re-sends AXManualAccessibility without touching AXEnhancedUserInterface")
 
+    // Chrome 158 applies AXEnhancedUserInterface but answers every write with
+    // "not implemented", so whether a write took is read back from the flag.
+    var chromeFlag = false
+    var chromeWrites: [Bool] = []
+    func makeChrome() -> HostAccessibilityMode {
+        HostAccessibilityMode(
+            setFlag: { _, attribute, value in
+                guard attribute == HostAccessibilityMode.enhancedAttribute else { return .attributeUnsupported }
+                chromeWrites.append(value)
+                chromeFlag = value
+                return .notImplemented
+            },
+            readFlag: { _, attribute in attribute == HostAccessibilityMode.enhancedAttribute && chromeFlag },
+            chromiumBased: { _ in true },
+            electronBased: { _ in false },
+            bundleIdentifier: { _ in "com.google.Chrome" },
+            defaults: defaults,
+            now: { clock })
+    }
+    let chrome = makeChrome()
+    check(chrome.prime(pid: 909, application: AXUIElementCreateApplication(909)) == "accessibility mode: enhanced"
+          && chromeFlag,
+          "Chrome's flag counts as set when it reads back on, whatever Chrome answers")
+    check(chrome.prime(pid: 909, application: AXUIElementCreateApplication(909)) == nil && chromeWrites == [true],
+          "Chrome is primed once even though it answers with an error")
+    check(chrome.restoreAll() == 1 && !chromeFlag,
+          "turning suggestions off gives Chrome its flag back")
+    _ = chrome.prime(pid: 909, application: AXUIElementCreateApplication(909))
+    check(chromeFlag && makeChrome().prime(pid: 909, application: AXUIElementCreateApplication(909))
+            == "accessibility mode: enhanced (left on by an earlier run)",
+          "a Chrome flag left on by a run that quit or crashed is still Lasso's after a relaunch")
+    _ = chrome.restoreAll()
+    let rechecked = makeChrome()
+    _ = rechecked.prime(pid: 909, application: AXUIElementCreateApplication(909))
+    chromeFlag = false
+    clock = clock.addingTimeInterval(3)
+    check(rechecked.reprimeIfUnreadable(pid: 909, application: AXUIElementCreateApplication(909)) && chromeFlag
+          && rechecked.restoreAll() == 1 && !chromeFlag,
+          "Chrome's flag turned back on after it went off is recorded and reverted")
+
     defaults.removePersistentDomain(forName: suite)
 }
 

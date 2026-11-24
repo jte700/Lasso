@@ -154,16 +154,21 @@ extension GlobalAssistant {
         guard isEnabled, let serverURL, !projectIds.isEmpty else { hide(); return }
         guard let captured = reading.context else {
             hide()
-            // Chromium builds its AX tree asynchronously right after priming.
-            if reading.primedAccessibility {
+            // Chromium builds its AX tree asynchronously right after priming,
+            // which took Chrome up to 0.7 s, so each empty read after it waits
+            // a little longer and reads again. Typing in between reads anyway.
+            if reading.primedAccessibility { primedRereads = Self.primedRereadGaps }
+            if let gap = primedRereads.first {
+                primedRereads.removeFirst()
                 let token = generation
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + gap) { [weak self] in
                     guard let self, token == self.generation, self.isEnabled else { return }
                     self.refresh()
                 }
             }
             return
         }
+        primedRereads = []
         lastRead = (captured.element, captured.text, captured.absoluteCaret)
         // Update Escape's hold before the minimum-length gate so clearing or
         // emptying a field always releases it immediately.

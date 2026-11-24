@@ -126,6 +126,11 @@ final class GlobalAssistant {
     /// How many times one keystroke's suggestions are asked for again because
     /// the editor's text moved on while they were found.
     static let maximumRereads = 2
+    /// Waits between reads while a just-primed Chromium app builds its tree:
+    /// 0.2, 0.5 and 1 s after priming.
+    static let primedRereadGaps: [TimeInterval] = [0.2, 0.3, 0.5]
+    /// The waits still to come after the latest priming.
+    var primedRereads: [TimeInterval] = []
     private static let restoreWait: TimeInterval = 1
     var messageShownAt = Date.distantPast
     var lastTrack = Date.distantPast

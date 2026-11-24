@@ -8,6 +8,8 @@
 //  for Chromium builds that refuse the manual flag, and turned off again when
 //  suggestions stop. The apps it was set for are remembered across launches,
 //  so a quit or crash before it was turned off does not leave it on for good.
+//  Chrome applies the flag but answers every write with "not implemented", so
+//  whether a write took is read back from the flag, not from Chrome's answer.
 
 import Cocoa
 import ApplicationServices
@@ -131,8 +133,8 @@ final class HostAccessibilityMode {
         guard Self.needsEnhancedInterface(manualAccepted: manual, chromiumBased: chromiumBased(pid)) else {
             return "accessibility mode: \(manual ? "manual" : "native")"
         }
-        let bundle = bundleIdentifier(pid)
         if readFlag(application, Self.enhancedAttribute) {
+            let bundle = bundleIdentifier(pid)
             // Left on by a run of Lasso that ended before turning it off.
             // Otherwise VoiceOver or another tool relies on it, and it stays theirs.
             guard let bundle, ownedBundles().contains(bundle) else {
@@ -141,14 +143,27 @@ final class HostAccessibilityMode {
             remember(pid: pid, application: application, bundle: bundle)
             return "accessibility mode: enhanced (left on by an earlier run)"
         }
-        guard setFlag(application, Self.enhancedAttribute, true) == .success else {
+        guard enableEnhanced(pid: pid, application: application) else {
             lock.lock()
             primed.remove(pid)
             lock.unlock()
             return "accessibility mode: enhanced refused"
         }
-        remember(pid: pid, application: application, bundle: bundle)
         return "accessibility mode: enhanced"
+    }
+
+    /// Turns the enhanced flag on. The app is recorded as Lasso's before the
+    /// write, so a crash straight after it cannot leave the flag on unowned.
+    private func enableEnhanced(pid: pid_t, application: AXUIElement) -> Bool {
+        let bundle = bundleIdentifier(pid)
+        claim(bundle)
+        guard setFlag(application, Self.enhancedAttribute, true) == .success
+                || readFlag(application, Self.enhancedAttribute) else {
+            unclaim(bundle)
+            return false
+        }
+        remember(pid: pid, application: application, bundle: bundle)
+        return true
     }
 
     /// Recovers a Chromium process whose accessibility tree disappeared after
@@ -173,20 +188,17 @@ final class HostAccessibilityMode {
             let reasserted = setFlag(application, Self.manualAttribute, true) == .success
             if !electronBased(pid), !readFlag(application, Self.manualAttribute),
                !readFlag(application, Self.enhancedAttribute) {
-                if setFlag(application, Self.enhancedAttribute, true) == .success {
+                if enableEnhanced(pid: pid, application: application) {
                     lock.lock()
                     manualAccepted.remove(pid)
                     lock.unlock()
-                    remember(pid: pid, application: application, bundle: bundleIdentifier(pid))
                     return true
                 }
             }
             return reasserted
         }
         guard !readFlag(application, Self.enhancedAttribute) else { return false }
-        guard setFlag(application, Self.enhancedAttribute, true) == .success else { return false }
-        remember(pid: pid, application: application, bundle: bundleIdentifier(pid))
-        return true
+        return enableEnhanced(pid: pid, application: application)
     }
 
     /// Clears priming memory for running processes of `bundleIdentifier`, so
@@ -213,6 +225,22 @@ final class HostAccessibilityMode {
         if let bundle {
             defaults.set(Array(ownedBundles().union([bundle])).sorted(), forKey: Self.ownedBundlesKey)
         }
+        lock.unlock()
+    }
+
+    private func claim(_ bundle: String?) {
+        guard let bundle else { return }
+        lock.lock()
+        defaults.set(Array(ownedBundles().union([bundle])).sorted(), forKey: Self.ownedBundlesKey)
+        lock.unlock()
+    }
+
+    /// Drops a claim whose write did not take, unless another process of the
+    /// same app still has Lasso's flag.
+    private func unclaim(_ bundle: String?) {
+        guard let bundle else { return }
+        lock.lock()
+        if !enhanced.values.contains(where: { $0.bundle == bundle }) { release(bundles: [bundle]) }
         lock.unlock()
     }
 
