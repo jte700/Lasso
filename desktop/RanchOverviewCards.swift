@@ -166,12 +166,10 @@ private struct RanchBubbleCluster: View {
             ForEach(Array(sources.prefix(Self.spots.count).enumerated()), id: \.element.id) { index, source in
                 let spot = Self.spots[index]
                 let lifted = hovered == source.id
+                // Hover and taps are read before the bubble is positioned: after
+                // `.position` a bubble fills the whole cluster, and the lifted one
+                // would keep the pointer from every other bubble.
                 RanchSourceBubble(source: source, diameter: spot.d, lifted: lifted, nameBelow: spot.y < 60)
-                    .scaleEffect(shown ? 1 : 0.3)
-                    .opacity(shown ? 1 : 0)
-                    .animation(.spring(response: 0.5, dampingFraction: 0.68).delay(0.12 + Double(index) * 0.05), value: shown)
-                    .position(x: spot.x, y: spot.y)
-                    .zIndex(lifted ? 2 : 0)
                     .onHover { inside in
                         withAnimation(.spring(response: 0.32, dampingFraction: 0.6)) {
                             if inside { hovered = source.id } else if hovered == source.id { hovered = nil }
@@ -182,6 +180,11 @@ private struct RanchBubbleCluster: View {
                     .accessibilityLabel(source.name)
                     .accessibilityAddTraits(.isButton)
                     .accessibilityAction { select(source) }
+                    .scaleEffect(shown ? 1 : 0.3)
+                    .opacity(shown ? 1 : 0)
+                    .animation(.spring(response: 0.5, dampingFraction: 0.68).delay(0.12 + Double(index) * 0.05), value: shown)
+                    .position(x: spot.x, y: spot.y)
+                    .zIndex(lifted ? 2 : 0)
             }
             if more > 0 {
                 Text("+\(RanchLibrarySummary.short(more))")
