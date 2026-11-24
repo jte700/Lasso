@@ -318,6 +318,10 @@ final class StatusPopoverController {
     /// Lasso active; closing it with Escape or the menu bar icon gives focus
     /// back, so the next keystrokes reach the user's document.
     private var previousApplication: NSRunningApplication?
+    /// What the panel points at, so it opens over full-screen apps too.
+    private let anchor = StatusPopoverAnchor()
+    /// When the panel last closed, so the click that closed it does not reopen it.
+    private var closingClick = ClosingClick(closedAt: nil)
 
     init() {
         LassoTransientUI.shared.register(self, priority: 10,
@@ -341,8 +345,18 @@ final class StatusPopoverController {
         popover.animates = false
         NotificationCenter.default.addObserver(forName: NSPopover.didCloseNotification, object: popover,
                                                queue: .main) { [weak self] _ in
-            self?.hideIssue()
-            self?.onClose?()
+            guard let self else { return }
+            self.closingClick = ClosingClick(closedAt: Date())
+            self.anchor.hide()
+            self.hideIssue()
+            self.onClose?()
+        }
+        // A panel left open on a Space the person swiped away from would count
+        // as open there, and the next click on the icon would only close it.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self, self.popover.isShown, !self.isOnScreen else { return }
+            self.popover.close()
         }
         issueCard.onFix = { [weak self] in
             guard let self else { return }
@@ -424,26 +438,36 @@ final class StatusPopoverController {
         }
     }
 
+    /// Shown on the Space in front, not merely counted as shown.
+    private var isOnScreen: Bool {
+        guard popover.isShown, let window = controller.view.window, window.isVisible else { return false }
+        return StatusPopoverAnchor.isOnScreen(windowNumber: window.windowNumber)
+    }
+
     func toggle(relativeTo button: NSStatusBarButton) {
-        if popover.isShown {
+        if isOnScreen {
             closeReturningFocus()
+        } else if !popover.isShown, closingClick.isSameClick(at: Date()) {
+            return
         } else {
             show(relativeTo: button)
         }
     }
 
     func show(relativeTo button: NSStatusBarButton) {
-        if !popover.isShown, button.window != nil {
-            layoutRows()
-            refreshHover()
-            let frontmost = NSWorkspace.shared.frontmostApplication
-            previousApplication = frontmost?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : frontmost
-            NSApp.activate(ignoringOtherApps: true)
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            controller.view.window?.makeKey()
-            refreshHover()
-            if directoryList.superview != nil { directoryList.flashScrollers() }
-        }
+        if popover.isShown, !isOnScreen { popover.close() }
+        guard !popover.isShown, let anchorView = anchor.view(over: button) else { return }
+        layoutRows()
+        refreshHover()
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        previousApplication = frontmost?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : frontmost
+        // Shown before Lasso becomes active: activating hides a full-screen
+        // app's menu bar, and with it the icon the panel would point at.
+        popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
+        NSApp.activate(ignoringOtherApps: true)
+        controller.view.window?.makeKey()
+        refreshHover()
+        if directoryList.superview != nil { directoryList.flashScrollers() }
     }
 
     private func closeReturningFocus() {

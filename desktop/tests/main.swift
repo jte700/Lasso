@@ -7035,5 +7035,28 @@ do {
     try? fm.removeItem(atPath: root)
 }
 
+print("the menu bar panel opens over full-screen apps")
+do {
+    let screen = CGRect(x: 0, y: 0, width: 1920, height: 1243)
+    let shown = CGRect(x: 1466, y: 1205, width: 26, height: 38)
+    check(StatusPopoverAnchor.frame(over: shown, screens: [screen]) == shown,
+          "the anchor sits exactly over an icon the menu bar is showing")
+    let hidden = CGRect(x: 1466, y: 1243, width: 26, height: 38)
+    check(StatusPopoverAnchor.frame(over: hidden, screens: [screen]) == shown,
+          "an icon above the screen, where a full-screen app hides the menu bar, anchors at the screen's top")
+    let second = CGRect(x: 1920, y: 0, width: 1440, height: 900)
+    check(StatusPopoverAnchor.frame(over: CGRect(x: 3000, y: 900, width: 26, height: 30), screens: [screen, second])
+          == CGRect(x: 3000, y: 870, width: 26, height: 30),
+          "an icon on a second display anchors at that display's top")
+    check(StatusPopoverAnchor.frame(over: .zero, screens: [screen]) == nil, "an icon with no size gives no anchor")
+
+    let closed = Date(timeIntervalSinceReferenceDate: 1000)
+    check(ClosingClick(closedAt: closed).isSameClick(at: closed.addingTimeInterval(0.15)),
+          "the click whose mouse-down closed the panel does not open it again")
+    check(!ClosingClick(closedAt: closed).isSameClick(at: closed.addingTimeInterval(1)),
+          "a later click on the icon opens the panel")
+    check(!ClosingClick(closedAt: nil).isSameClick(at: closed), "the first click opens the panel")
+}
+
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)
