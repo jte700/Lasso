@@ -58,8 +58,9 @@ export function reviewRange(db, records, projectId) {
   return { base, current: { id: current.id, version: current.version, at: current.created_at }, approved };
 }
 
-// A save that edited a file: not a folder's first reading or a re-read, and not a capture of many files at once.
-const EDITING_SAVE = `e.source NOT IN ('IMPORT', 'REINDEX')
+// A save that edited a file: not a folder's first reading, a re-read or Lasso writing its AI record into a
+// document, and not a capture of many files at once.
+const EDITING_SAVE = `e.source NOT IN ('IMPORT', 'REINDEX', 'AI_RECORD')
   AND (SELECT COUNT(*) FROM file_changes g WHERE g.event_id = e.id) <= ?
   AND EXISTS (SELECT 1 FROM file_changes m WHERE m.event_id = e.id AND m.change_type = 'MODIFIED')`;
 

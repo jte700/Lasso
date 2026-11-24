@@ -26,6 +26,9 @@ struct AIProvenanceCard: View {
             kept
             Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
             row(symbol: "checkmark.seal.fill", tint: accent, text: Self.evidence(info))
+            if let by = info.recordedElsewhereBy {
+                row(symbol: "signature", tint: .secondary, text: "Carried in the document, signed by \(by)\u{2019}s Lasso.")
+            }
             if linked > 0 {
                 row(symbol: "link", tint: .secondary,
                     text: "\(linked) linked source\(linked == 1 ? "" : "s") inside. Click a link to open it.")
@@ -78,15 +81,21 @@ struct AIProvenanceCard: View {
     @ViewBuilder private var kept: some View {
         if Self.edited(info) {
             VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 10) {
-                    legend(color: accent, text: "\(Self.percent(info.keptShare))% as \(info.agentName) wrote it")
-                    legend(color: person, text: "\(100 - Self.percent(info.keptShare))% edited since")
+                // Side by side when they fit, one above the other when names make them long.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) { keptLegends }
+                    VStack(alignment: .leading, spacing: 3) { keptLegends }
                 }
                 AIKeptBar(share: info.keptShare, accent: accent, person: person)
             }
         } else {
             row(symbol: "text.badge.checkmark", tint: .secondary, text: Self.untouched(info))
         }
+    }
+
+    @ViewBuilder private var keptLegends: some View {
+        legend(color: accent, text: "\(Self.percent(info.keptShare))% as \(info.agentName) wrote it")
+        legend(color: person, text: Self.editedWords(info))
     }
 
     private func legend(color: Color, text: String) -> some View {
@@ -99,6 +108,7 @@ struct AIProvenanceCard: View {
     private func row(symbol: String, tint: Color, text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: symbol).font(.system(size: 10, weight: .semibold)).foregroundStyle(tint)
+                .frame(width: 14, alignment: .center)
             Text(text).font(RanchLook.font(11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -120,7 +130,14 @@ struct AIProvenanceCard: View {
         return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
     }
 
+    /// How Lasso knows, and on whose Mac when the record came in the document.
     static func evidence(_ info: AIMarkInfo) -> String {
+        let said = recorded(info)
+        guard let by = info.recordedElsewhereBy, said.hasSuffix(".") else { return said }
+        return "\(said.dropLast()) on \(by)\u{2019}s Mac."
+    }
+
+    private static func recorded(_ info: AIMarkInfo) -> String {
         switch info.kind {
         case "edit": return "Recorded by \(info.tool ?? "Claude Code")\u{2019}s hook as it edited the file."
         case "command":
@@ -138,6 +155,16 @@ struct AIProvenanceCard: View {
     /// Whether people have changed some of what the AI wrote. Words still
     /// found here exactly as written, before a save, are unedited.
     static func edited(_ info: AIMarkInfo) -> Bool { !info.unsaved && info.keptShare < 0.995 }
+
+    /// "15% edited by you and Sam"; with no one recorded, "15% edited since".
+    static func editedWords(_ info: AIMarkInfo) -> String {
+        let share = "\(100 - percent(info.keptShare))% edited"
+        var names: [String] = info.editors.contains(where: \.you) ? ["you"] : []
+        for editor in info.editors where !editor.you && !names.contains(editor.name) { names.append(editor.name) }
+        guard let last = names.last else { return "\(share) since" }
+        let listed = names.count == 1 ? last : "\(names.dropLast().joined(separator: ", ")) and \(last)"
+        return "\(share) by \(listed)"
+    }
 
     static func untouched(_ info: AIMarkInfo) -> String {
         info.kind == "paste" ? "Not edited since it was pasted." : "Not edited since \(info.agentName) wrote it."

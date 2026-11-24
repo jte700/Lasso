@@ -44,6 +44,22 @@ const COMMAND_SLACK_MS = 1500;
 
 const clip = (text, length = LONGEST_TEXT) => (text == null ? null : String(text).slice(0, length));
 
+function parsed(json) {
+  try { return JSON.parse(json ?? '[]'); } catch { return []; }
+}
+
+/** Editors as a record lists them: { name, key?, at? }, at most 20. */
+export function editorsOf(list) {
+  return (Array.isArray(list) ? list : []).filter((editor) => editor && typeof editor.name === 'string' && editor.name.trim())
+    .slice(0, 20).map((editor) => ({
+      name: editor.name.trim().slice(0, 60),
+      ...(typeof editor.key === 'string' && editor.key ? { key: editor.key.slice(0, 64) } : {}),
+      ...(typeof editor.at === 'string' ? { at: editor.at } : {}),
+    }));
+}
+
+const editorKey = (editor) => editor.key ?? `name:${editor.name}`;
+
 export class AiMarks {
   constructor({ db, timeline, config }) {
     this.db = db;
@@ -236,6 +252,47 @@ export class AiMarks {
       VALUES (?, 'agent', ?, ?, 'Lasso', ?, ?, ?, ?)`)
       .run(markId, event.actor.id, event.initiatedBy?.id ?? null, request, `event:${event.id}`, event.occurredAt, event.occurredAt);
     return this.mark(markId);
+  }
+
+  // ── marks another Mac's Lasso recorded ───────────────────────────────
+
+  /**
+   * A mark read from a record a document carried, kept under its own id so
+   * the same mark coming back is the same mark. A mark already kept takes the
+   * record's editors into its own. Returns the mark's id.
+   */
+  adopt(mark, signer) {
+    const markId = String(mark?.id ?? '').slice(0, 80);
+    if (!markId) return null;
+    const known = this.mark(markId);
+    if (known) {
+      this.addEditors(markId, mark.editors);
+      return markId;
+    }
+    const recordedBy = mark.recordedBy?.key ? mark.recordedBy : signer;
+    const agent = this.timeline.upsertActor(agentActor(mark.agent || 'AI'));
+    const kind = ['edit', 'command', 'writer', 'paste', 'agent'].includes(mark.kind) ? mark.kind : 'paste';
+    const at = typeof mark.at === 'string' ? mark.at : now();
+    this.db.prepare(`INSERT INTO ai_marks(id, kind, agent_actor_id, model, tool, prompt, host_app, command, started_at, ended_at,
+        matched_at, written_chars, recorded_by_name, recorded_by_key, editors_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(markId, kind, agent.id, clip(mark.model, 80), clip(mark.tool, 80), clip(mark.prompt, 4000), clip(mark.hostApp, 120),
+        clip(mark.command, 4000), at, at, now(), Number.isInteger(mark.written) ? mark.written : null,
+        clip(recordedBy?.name, 60) ?? 'Someone', clip(recordedBy?.key, 64), JSON.stringify(editorsOf(mark.editors)));
+    return markId;
+  }
+
+  /** Adds people (or AIs) who edited inside what a mark wrote; one entry each, the latest time kept. */
+  addEditors(markId, editors) {
+    const row = this.db.prepare('SELECT editors_json FROM ai_marks WHERE id = ?').get(markId);
+    if (!row) return;
+    const merged = new Map(editorsOf(parsed(row.editors_json)).map((editor) => [editorKey(editor), editor]));
+    for (const editor of editorsOf(editors)) {
+      const known = merged.get(editorKey(editor));
+      if (!known || String(known.at ?? '') < String(editor.at ?? '')) merged.set(editorKey(editor), editor);
+    }
+    const next = JSON.stringify([...merged.values()].sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? ''))));
+    if (next !== (row.editors_json ?? '[]')) this.db.prepare('UPDATE ai_marks SET editors_json = ? WHERE id = ?').run(next, markId);
   }
 
   matched(markId, snapshotId, written) {

@@ -88,6 +88,8 @@ export function openDatabase(config) {
   const alreadyApplied = {
     21: () => columnsOf('snapshot_object_indexes').has('spreadsheet_index_version'),
     22: () => hasTable('removable_drives'),
+    // Adds columns, which cannot be added twice; its tables come in the same transaction.
+    36: () => columnsOf('ai_marks').has('recorded_by_name'),
   };
 
   // Two branches shipped different migration 018s. A store from the Windows

@@ -107,12 +107,16 @@ struct AIMarkInfo: Equatable {
     let editedInside: Int
     /// True for words written here that no saved file holds yet.
     var unsaved = false
+    /// The person whose Lasso recorded it, when that was another Mac's: the record came in the document.
+    var recordedElsewhereBy: String?
+    /// Who has edited inside what it wrote since.
+    var editors: [AIEditor] = []
 
     var style: AIAgentStyle { .of(agentId: agentId, name: agentName) }
 
     init(id: String, kind: String, agentId: String, agentName: String, model: String?, tool: String?, prompt: String?,
          hostApp: String?, command: String?, askedBy: String?, at: Date?, written: Int, kept: Int, editedInside: Int,
-         unsaved: Bool = false) {
+         unsaved: Bool = false, recordedElsewhereBy: String? = nil, editors: [AIEditor] = []) {
         self.id = id
         self.kind = kind
         self.agentId = agentId
@@ -128,20 +132,30 @@ struct AIMarkInfo: Equatable {
         self.kept = kept
         self.editedInside = editedInside
         self.unsaved = unsaved
+        self.recordedElsewhereBy = recordedElsewhereBy
+        self.editors = editors
     }
 
     init?(json: [String: Any]) {
         guard let id = json["id"] as? String, let agent = json["agent"] as? [String: Any],
               let agentId = agent["id"] as? String, let agentName = agent["name"] as? String else { return nil }
-        let asked = json["initiatedBy"] as? [String: Any]
-        let askedType = asked?["type"] as? String
+        let initiated = json["initiatedBy"] as? [String: Any]
+        let asked = json["askedBy"] as? [String: Any]
+        let askedBy = asked.map { $0["you"] as? Bool == true ? "You" : Self.text($0["name"]) }
+            ?? (initiated?["type"] as? String == "HUMAN_SELF" ? "You" : Self.text(initiated?["name"]))
+        let recorded = json["recordedBy"] as? [String: Any]
+        let editors = (json["editors"] as? [[String: Any]] ?? []).compactMap { editor in
+            Self.text(editor["name"]).map { AIEditor(name: $0, you: editor["you"] as? Bool ?? false) }
+        }
         self.init(id: id, kind: json["kind"] as? String ?? "edit", agentId: agentId, agentName: agentName,
                   model: Self.text(json["model"]), tool: Self.text(json["tool"]), prompt: Self.text(json["prompt"]),
                   hostApp: Self.text(json["hostApp"]), command: Self.text(json["command"]),
-                  askedBy: askedType == "HUMAN_SELF" ? "You" : Self.text(asked?["name"]),
+                  askedBy: askedBy,
                   at: (json["at"] as? String).flatMap(AIDates.parse),
                   written: json["written"] as? Int ?? 0, kept: json["kept"] as? Int ?? 0,
-                  editedInside: json["editedInside"] as? Int ?? 0)
+                  editedInside: json["editedInside"] as? Int ?? 0,
+                  recordedElsewhereBy: recorded?["you"] as? Bool == false ? Self.text(recorded?["name"]) : nil,
+                  editors: editors)
     }
 
     private static func text(_ value: Any?) -> String? {
@@ -235,6 +249,44 @@ enum AIAuthorshipClient {
             let root = data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
             let id = (response as? HTTPURLResponse)?.statusCode == 201 ? (root?["mark"] as? [String: Any])?["id"] as? String : nil
             DispatchQueue.main.async { completion?(id) }
+        }.resume()
+    }
+}
+
+/// Someone who edited inside what an AI wrote: a person, or another AI.
+struct AIEditor: Equatable {
+    let name: String
+    /// This Mac's own person.
+    let you: Bool
+}
+
+/// Whether Lasso writes its AI record into Word documents, whether prompts go in, and the name it signs with.
+struct AIRecordSettings: Equatable {
+    var name: String
+    var carry: Bool
+    var includePrompts: Bool
+
+    init?(json: [String: Any]) {
+        guard let name = json["name"] as? String, let carry = json["carry"] as? Bool,
+              let includePrompts = json["includePrompts"] as? Bool else { return nil }
+        self.name = name
+        self.carry = carry
+        self.includePrompts = includePrompts
+    }
+
+    /// Read from the server, or changed there when `changes` is given; nil when it could not be reached.
+    static func exchange(serverURL: URL, changes: [String: Any]? = nil, completion: @escaping (AIRecordSettings?) -> Void) {
+        var request = URLRequest(url: serverURL.appendingPathComponent("api/ai-record"))
+        request.timeoutInterval = 4
+        if let changes {
+            request.httpMethod = "PUT"
+            request.setValue("application/json", forHTTPHeaderField: "content-type")
+            request.httpBody = try? JSONSerialization.data(withJSONObject: changes)
+        }
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            let root = data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+            let settings = (response as? HTTPURLResponse)?.statusCode == 200 ? root.flatMap(AIRecordSettings.init(json:)) : nil
+            DispatchQueue.main.async { completion(settings) }
         }.resume()
     }
 }

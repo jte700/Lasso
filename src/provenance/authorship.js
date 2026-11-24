@@ -8,15 +8,16 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { AiMarks, PERSON } from './marks.js';
+import { AiMarks, PERSON, editorsOf } from './marks.js';
 import { FRESH, carryForward, claimText, ownersOf, settle, spansOf } from './text-runs.js';
 import { readableKind, readableText } from './readable-text.js';
+import { RecordIdentity } from './record-identity.js';
+import { AI_RECORD_SOURCE, RecordStamps, isWordDocument } from './record-stamps.js';
+import { keptByMark, shapeSpans } from './span-shapes.js';
+import { recordMethods } from './record-views.js';
 
 /** How often the hook spool is read while nothing else asks for it. */
 const SPOOL_POLL_MS = 3000;
-/** The most spans one file's answer lists. */
-const MOST_SPANS = 400;
-const CONTEXT = 48;
 const CACHED_TEXTS = 8;
 
 export class AuthorshipService {
@@ -24,7 +25,11 @@ export class AuthorshipService {
     this.db = db;
     this.timeline = timeline;
     this.marks = new AiMarks({ db, timeline, config });
+    this.identity = new RecordIdentity({ dataDir: config.dataDir });
+    this.stamps = new RecordStamps({ db, timeline, authorship: this, settleMs: config.aiRecordSettleMs ?? 3000 });
     this.texts = new Map();
+    /** Records read from documents, by content hash, and from files outside the folders, by path. */
+    this.carriedCache = new Map();
     /** Edits whose finish was read while a save was being recorded, attributed after that save. */
     this.lateEdits = [];
     this.queue = Promise.resolve();
@@ -32,9 +37,20 @@ export class AuthorshipService {
     this.unsubscribe = timeline.onCapture((result) => this.enqueue(() => this.afterCapture(result)));
     this.timer = null;
     if (config.watchProjects) {
-      this.timer = setInterval(() => this.enqueue(() => this.ingest()), SPOOL_POLL_MS);
+      this.timer = setInterval(() => this.enqueue(() => {
+        this.ingest();
+        return this.stamps.tick();
+      }), SPOOL_POLL_MS);
       this.timer.unref?.();
     }
+  }
+
+  /** Writes the AI records waiting for their documents to close. */
+  stampPending() {
+    return this.enqueue(() => {
+      this.stamps.soon();
+      return this.stamps.tick();
+    });
   }
 
   close() {
@@ -83,6 +99,13 @@ export class AuthorshipService {
         beforeHash: change.content_hash_before, afterHash: change.content_hash_after,
         modifiedMs: after?.mtimeMs ?? null,
       });
+      // A document with AI-written parts (or a record already in it) carries its record; Lasso's own write of one asks for none.
+      if (event.source !== AI_RECORD_SOURCE && event.source !== 'IMPORT' && isWordDocument(change.path_after)
+        && (this.storedSpans(change.project_file_id, change.content_hash_after)?.length
+          || this.storedSpans(change.project_file_id, change.content_hash_before)?.length
+          || this.db.prepare('SELECT 1 FROM ai_carried_records WHERE project_file_id = ? LIMIT 1').get(change.project_file_id))) {
+        this.stamps.consider(project.id, change.project_file_id, change.path_after);
+      }
     }
     // Edits this save did not hold finished after an earlier one did.
     for (const edit of late) this.attributeLate(edit);
@@ -179,7 +202,9 @@ export class AuthorshipService {
     const command = edits.length ? null : this.marks.commandFor(absolute, modifiedMs);
     const agentSave = event?.actor?.actorType === 'AI_AGENT';
     const typed = this.marks.typed(absolute);
-    if (!prior?.length && !edits.length && !command && !agentSave && !typed.length) return null;
+    // A record the document brought from another Mac (a folder's first reading leaves it to the overlay).
+    const arrived = event?.source === 'IMPORT' ? null : this.arrivedRecord(projectFileId, afterHash, filePath);
+    if (!prior?.length && !edits.length && !command && !agentSave && !typed.length && !arrived) return null;
     const before = this.readable(beforeHash, filePath);
     const after = this.readable(afterHash, filePath);
     if (before == null || after == null) return null;
@@ -214,6 +239,7 @@ export class AuthorshipService {
     } else {
       owners = carryForward(before, after, owners, FRESH);
     }
+    if (arrived) this.layRecord(arrived, projectFileId, after, owners, indexOf);
     for (const mark of typed) {
       if (claimText(after, owners, mark.text ?? '', indexOf(mark.id))) used.push(mark);
     }
@@ -222,6 +248,8 @@ export class AuthorshipService {
     const counts = new Map();
     for (const owner of owners) if (owner >= 0) counts.set(owner, (counts.get(owner) ?? 0) + 1);
     for (const mark of used) this.marks.matched(mark.id, snapshotId, counts.get(ids.indexOf(mark.id)) ?? 0);
+    // Whoever made this save edited inside what an AI wrote, unless the words came in with a record.
+    if (prior?.length && !arrived && event?.source !== AI_RECORD_SOURCE) this.noteEditors(prior, ids, counts, event);
     const spans = spansOf(owners, after, (index) => ids[index]);
     if (spans.length) {
       this.db.prepare(`INSERT INTO ai_spans(project_file_id, content_hash, spans_json) VALUES (?, ?, ?)
@@ -235,11 +263,18 @@ export class AuthorshipService {
 
   // ── what is asked ────────────────────────────────────────────────────
 
-  /** The AI-written parts of a file named by its absolute path, or null when no folder holds it. */
+  /**
+   * The AI-written parts of a file named by its absolute path. A file no
+   * folder holds answers from the record it carries, if any; else null.
+   */
   forPath(absolute) {
     const located = this.marks.locate(absolute);
-    if (!located) return null;
+    if (!located) return this.carriedForPath(absolute);
     return this.forFile(located.project.id, located.path);
+  }
+
+  absoluteOf(project, filePath) {
+    return absoluteOf(project, filePath);
   }
 
   /**
@@ -254,39 +289,31 @@ export class AuthorshipService {
     const empty = { projectId, path: filePath, kind: readableKind(filePath), spans: [], marks: [], total: 0 };
     if (!file) return empty;
     const stored = this.storedSpans(file.projectFileId, file.contentHash);
-    if (!stored?.length) return empty;
+    if (!stored?.length) {
+      // A document whose record Lasso has not read into its history yet (a folder's first reading) answers from the record.
+      const carried = isWordDocument(filePath) ? this.carriedIn(file.contentHash, filePath) : null;
+      return carried ? this.carriedView(carried, this.readable(file.contentHash, filePath), empty) : empty;
+    }
     const text = this.readable(file.contentHash, filePath);
     if (text == null) return empty;
-    const lineAt = lineNumbers(text);
-    const spans = stored.slice(0, MOST_SPANS).map((span) => ({
-      markId: span.m, start: span.s, end: span.e,
-      lineStart: lineAt(span.s), lineEnd: lineAt(Math.max(span.s, span.e - 1)),
-      text: text.slice(span.s, span.e),
-      prefix: text.slice(Math.max(0, span.s - CONTEXT), span.s),
-      suffix: text.slice(span.e, span.e + CONTEXT),
-      pieces: piecesOf(text, span),
-    }));
-    return { ...empty, spans, marks: this.describe(stored, text), total: stored.length };
+    return { ...empty, spans: shapeSpans(text, stored), marks: this.describe(stored, text), total: stored.length };
   }
 
-  /** Each mark the spans name: who, what, when, and how much of what it wrote is still as written. */
+  /** Each mark the spans name: who, what, when, who recorded it, who has edited it, and how much is still as written. */
   describe(spans, text) {
-    const byMark = new Map();
-    for (const span of spans) {
-      const entry = byMark.get(span.m) ?? { kept: 0, first: span.s, last: span.e };
-      entry.kept += span.e - span.s;
-      entry.first = Math.min(entry.first, span.s);
-      entry.last = Math.max(entry.last, span.e);
-      byMark.set(span.m, entry);
-    }
     const read = this.db.prepare(`SELECT m.*, a.display_name AS agent_name, i.display_name AS initiator_name, i.actor_type AS initiator_type
       FROM ai_marks m JOIN actors a ON a.id = m.agent_actor_id LEFT JOIN actors i ON i.id = m.initiated_by_actor_id WHERE m.id = ?`);
-    return [...byMark].map(([markId, entry]) => {
+    const own = this.identity.ownKey()?.fingerprint ?? null;
+    const name = this.identity.settings().name;
+    return [...keptByMark(spans, text)].map(([markId, entry]) => {
       const mark = read.get(markId);
       if (!mark) return null;
-      const inside = text.slice(entry.first, entry.last).replace(/\s+/g, '').length;
-      const keptVisible = spans.filter((span) => span.m === markId)
-        .reduce((sum, span) => sum + text.slice(span.s, span.e).replace(/\s+/g, '').length, 0);
+      const recordedBy = mark.recorded_by_key
+        ? { name: mark.recorded_by_name, key: mark.recorded_by_key, you: mark.recorded_by_key === own }
+        : { name, key: own, you: true };
+      const askedBy = mark.recorded_by_key ? { name: recordedBy.name, you: recordedBy.you }
+        : mark.initiator_type === 'HUMAN_SELF' ? { name, you: true }
+          : mark.initiator_name ? { name: mark.initiator_name, you: false } : null;
       return {
         id: markId,
         kind: mark.kind,
@@ -303,7 +330,10 @@ export class AuthorshipService {
         written: mark.written_chars ?? entry.kept,
         kept: entry.kept,
         // Letters inside what it wrote that someone else has written since.
-        editedInside: Math.max(0, inside - keptVisible),
+        editedInside: entry.editedInside,
+        askedBy,
+        recordedBy,
+        editors: editorsOf(parsedList(mark.editors_json)).map((editor) => ({ name: editor.name, you: Boolean(own && editor.key === own), at: editor.at ?? null })),
       };
     }).filter(Boolean);
   }
@@ -312,44 +342,15 @@ export class AuthorshipService {
   static get person() { return PERSON; }
 }
 
+function parsedList(json) {
+  try { return JSON.parse(json ?? '[]'); } catch { return []; }
+}
+
 function absoluteOf(project, filePath) {
   let root = path.resolve(project.rootPath);
   try { root = fs.realpathSync(root); } catch { /* a drive away */ }
   return path.join(root, ...filePath.split('/'));
 }
 
-/** A function from a character offset to its 1-based line. */
-function lineNumbers(text) {
-  const starts = [0];
-  for (let index = 0; index < text.length; index += 1) if (text.charCodeAt(index) === 10) starts.push(index + 1);
-  return (offset) => {
-    let low = 0;
-    let high = starts.length - 1;
-    while (low < high) {
-      const middle = (low + high + 1) >> 1;
-      if (starts[middle] <= offset) low = middle;
-      else high = middle - 1;
-    }
-    return low + 1;
-  };
-}
-
-/** A span's lines, each trimmed, with the text either side of it. */
-function piecesOf(text, span) {
-  const pieces = [];
-  let start = span.s;
-  while (start < span.e) {
-    const newline = text.indexOf('\n', start);
-    const end = newline === -1 || newline >= span.e ? span.e : newline;
-    let from = start;
-    let to = end;
-    while (from < to && /\s/.test(text[from])) from += 1;
-    while (to > from && /\s/.test(text[to - 1])) to -= 1;
-    if (from < to) {
-      pieces.push({ text: text.slice(from, to), prefix: text.slice(Math.max(0, from - CONTEXT), from),
-        suffix: text.slice(to, to + CONTEXT) });
-    }
-    start = end + 1;
-  }
-  return pieces.slice(0, 200);
-}
+// Records carried in Word documents: read, laid into a file's spans, written.
+Object.assign(AuthorshipService.prototype, recordMethods);

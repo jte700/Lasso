@@ -105,7 +105,7 @@ export class Provenance {
   summary() {
     const folders = this.folders().map((folder) => {
       const stats = this.db.prepare(`SELECT COUNT(*) AS events, MIN(occurred_at) AS first, MAX(occurred_at) AS last
-        FROM timeline_events WHERE project_id = ? AND source <> 'REINDEX'`).get(folder.id);
+        FROM timeline_events WHERE project_id = ? AND source NOT IN ('REINDEX', 'AI_RECORD')`).get(folder.id);
       return { id: folder.id, name: folder.name, rootPath: folder.rootPath, version: folder.currentVersion,
         files: folder.currentSnapshotId ? this.timeline.files.count(folder.currentSnapshotId) : 0,
         events: stats.events, firstAt: stats.first, lastAt: stats.last };
@@ -116,7 +116,7 @@ export class Provenance {
       JOIN snapshots s ON s.id = c.snapshot_id WHERE s.project_id IN (${marks})`).get(...ids).count : 0;
     const people = ids.length ? this.db.prepare(`SELECT a.display_name AS name, a.actor_type AS type, COUNT(*) AS events,
         MAX(e.occurred_at) AS last FROM timeline_events e JOIN actors a ON a.id = e.actor_id
-      WHERE e.project_id IN (${marks}) AND e.source NOT IN ('REINDEX', 'IMPORT') GROUP BY a.id ORDER BY events DESC`).all(...ids) : [];
+      WHERE e.project_id IN (${marks}) AND e.source NOT IN ('REINDEX', 'IMPORT', 'AI_RECORD') GROUP BY a.id ORDER BY events DESC`).all(...ids) : [];
     const failures = this.db.prepare('SELECT COUNT(*) AS count FROM index_failures WHERE resolved_at IS NULL').get().count;
     return {
       folders,
@@ -139,7 +139,7 @@ export class Provenance {
     start.setDate(start.getDate() - (days - 1));
     const counts = new Array(days).fill(0);
     const rows = this.db.prepare(`SELECT e.occurred_at FROM timeline_events e
-      WHERE e.project_id IN (${ids.map(() => '?').join(',')}) AND e.occurred_at >= ? AND e.source NOT IN ('REINDEX', 'IMPORT')`)
+      WHERE e.project_id IN (${ids.map(() => '?').join(',')}) AND e.occurred_at >= ? AND e.source NOT IN ('REINDEX', 'IMPORT', 'AI_RECORD')`)
       .all(...ids, start.toISOString());
     for (const row of rows) {
       const day = Math.floor((Date.parse(row.occurred_at) - start.getTime()) / 86_400_000);
@@ -612,7 +612,7 @@ export class Provenance {
     const rows = this.db.prepare(`SELECT e.rowid AS position, e.id, e.project_id, e.occurred_at, e.source, e.title,
         a.display_name AS actor_name, a.actor_type
       FROM timeline_events e JOIN actors a ON a.id = e.actor_id WHERE e.rowid > ? ORDER BY e.rowid LIMIT 200`).all(cursor);
-    const events = rows.filter((row) => folders.has(row.project_id) && row.source !== 'REINDEX').map((row) => ({
+    const events = rows.filter((row) => folders.has(row.project_id) && row.source !== 'REINDEX' && row.source !== 'AI_RECORD').map((row) => ({
       id: row.id, folder: folders.get(row.project_id), at: row.occurred_at, how: row.source, title: row.title, actor: actorOf(row),
       files: this.db.prepare(`SELECT change_type, COALESCE(path_after, path_before) AS path FROM file_changes
         WHERE event_id = ? ORDER BY rowid LIMIT 6`).all(row.id).map((file) => ({ change: file.change_type, path: file.path })),
