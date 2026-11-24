@@ -271,6 +271,38 @@ test('the shell opens with the mascot, runs a slash command, completes from the 
   assert.deepEqual(fs.readFileSync(path.join(library.sandbox, 'history'), 'utf8').trim().split('\n'), ['/blame Q3/Income-Statement.csv']);
 });
 
+test('narrowing the window leaves one prompt box, with no old borders behind it', async (t) => {
+  // Arrange
+  const library = buildLibrary(t);
+  await library.close();
+  const screen = new Screen({ columns: 120 });
+  const listeners = [];
+  const output = { columns: 120, isTTY: true, write: (chunk) => screen.write(chunk), on: (name, listener) => { if (name === 'resize') listeners.push(listener); } };
+  const input = new PassThrough();
+  const finished = runShell({ dataDir: library.dataDir, cwd: library.sandbox, paint: createPainter('truecolor'), version: '9.9.9',
+    intro: false, input, output, historyFile: path.join(library.sandbox, 'history') });
+  const started = Date.now();
+  while (!screen.text().includes('for commands')) {
+    if (Date.now() - started > 15_000) assert.fail(`never showed the prompt:\n${screen.text()}`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  const welcomeBox = screen.lines().findIndex((line) => line.trimStart().startsWith('╭'));
+
+  // Act
+  for (const columns of [100, 80, 64]) {
+    screen.resize(columns);
+    output.columns = columns;
+    for (const listener of listeners) listener();
+  }
+  const after = screen.lines().slice(welcomeBox + 1);
+  input.write('\u0004');
+  await finished;
+
+  // Assert
+  const tops = after.filter((line) => line.trimStart().startsWith('╭'));
+  assert.equal(tops.length, 1, `one prompt box, not old borders too:\n${after.join('\n')}`);
+});
+
 test('the line editor moves and deletes by word and walks history, keeping the line being typed', () => {
   // Arrange
   const editor = new LineEditor({ history: ['log', 'blame model.csv'] });

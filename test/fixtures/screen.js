@@ -104,6 +104,26 @@ export class Screen {
     }
   }
 
+  /**
+   * Narrows the window as Terminal.app does: a row wider than the new width
+   * is re-wrapped onto the rows under it, and the caret moves with its text.
+   */
+  resize(columns) {
+    const rows = [];
+    let caret = null;
+    this.rows.forEach((row, y) => {
+      const chunks = Math.max(1, Math.ceil(row.length / columns));
+      if (y === this.y) caret = { y: rows.length + Math.floor(this.x / columns), x: this.x % columns };
+      for (let index = 0; index < chunks; index += 1) rows.push(row.slice(index * columns, (index + 1) * columns));
+    });
+    this.rows = rows;
+    this.columns = columns;
+    this.y = caret.y;
+    this.x = caret.x;
+    this.pendingWrap = false;
+    this.ensure();
+  }
+
   /** The screen as plain text lines, trailing spaces removed. */
   lines() {
     return this.rows.map((row) => row.map((cell) => cell?.char ?? ' ').join('').replace(/\s+$/, ''));
