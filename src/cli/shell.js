@@ -10,7 +10,7 @@
 import readline from 'node:readline';
 import { PALETTE, box, cursor as move, padEnd, truncate, width } from './style.js';
 import { SPINNER_FRAMES, SPINNER_WORDS } from './pixels.js';
-import { bannerLines, welcomeLines } from './welcome.js';
+import { welcomeLines } from './welcome.js';
 import { COMMANDS, commandMatches, commandNamed, complete, execute } from './commands.js';
 import { HISTORY_FILE, LineEditor, loadHistory, saveHistory } from './editor.js';
 import { renderEvent } from './views.js';
@@ -79,7 +79,7 @@ class Shell {
     process.once('exit', restore);
     this.output.on('resize', () => this.render());
 
-    for (const line of bannerLines(this.paint, this.columns, { version: this.version })) this.output.write(`${line}\n`);
+    this.output.write('\n');
     this.backend = startBackendWorker({ dataDir: this.dataDir, cwd: this.cwd });
     const opened = this.openLibrary();
     await this.playIntro(opened);
