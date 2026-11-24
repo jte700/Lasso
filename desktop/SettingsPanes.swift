@@ -33,6 +33,11 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var insertion = InsertionMode.current
     @Published private(set) var marksAIText = AIProvenancePreferences.showsMarks
     @Published private(set) var remembersAICopies = AIProvenancePreferences.remembersCopies
+    /// The AI record's choices, kept by the server; nil until it answers.
+    @Published private(set) var aiRecord: AIRecordSettings?
+    /// The name as typed, sent once typing pauses.
+    @Published var aiRecordName = ""
+    private var pendingName: DispatchWorkItem?
     @Published private(set) var startState = LaunchHelper.State.on
     /// Nil in a build without the command.
     @Published private(set) var terminalCommand: TerminalCommand.State?
@@ -56,11 +61,57 @@ final class SettingsModel: ObservableObject {
         insertion = InsertionMode.current
         marksAIText = AIProvenancePreferences.showsMarks
         remembersAICopies = AIProvenancePreferences.remembersCopies
+        reloadAIRecord()
         startState = LaunchHelper.state
         terminalCommand = TerminalCommand.launcher.map { TerminalCommand.state(launcher: $0) }
         version = actions.version()
         reloadApps()
         onResize?()
+    }
+
+    func reloadAIRecord() {
+        guard let serverURL = AIAuthorshipHighlighter.shared.serverURL else { return }
+        AIRecordSettings.exchange(serverURL: serverURL) { [weak self] settings in
+            guard let self, let settings else { return }
+            let appeared = self.aiRecord == nil
+            self.aiRecord = settings
+            if self.pendingName == nil { self.aiRecordName = settings.name }
+            if appeared { self.onResize?() }
+        }
+    }
+
+    private func changeAIRecord(_ changes: [String: Any]) {
+        guard let serverURL = AIAuthorshipHighlighter.shared.serverURL else { return }
+        AIRecordSettings.exchange(serverURL: serverURL, changes: changes) { [weak self] settings in
+            if let settings { self?.aiRecord = settings }
+        }
+    }
+
+    var carriesAIRecordChoice: Binding<Bool> {
+        Binding(get: { self.aiRecord?.carry ?? true }, set: { value in
+            self.aiRecord?.carry = value
+            self.changeAIRecord(["carry": value])
+        })
+    }
+
+    var includesPromptsChoice: Binding<Bool> {
+        Binding(get: { self.aiRecord?.includePrompts ?? false }, set: { value in
+            self.aiRecord?.includePrompts = value
+            self.changeAIRecord(["includePrompts": value])
+        })
+    }
+
+    var aiRecordNameChoice: Binding<String> {
+        Binding(get: { self.aiRecordName }, set: { value in
+            self.aiRecordName = value
+            self.pendingName?.cancel()
+            let send = DispatchWorkItem { [weak self] in
+                self?.pendingName = nil
+                self?.changeAIRecord(["name": value])
+            }
+            self.pendingName = send
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: send)
+        })
     }
 
     func reloadApps() {
@@ -210,6 +261,23 @@ struct SettingsGeneralView: View {
                 Toggle(isOn: model.remembersAICopiesChoice) {
                     SettingsLabel("Remember text copied from AI apps",
                                   note: "Text copied in ChatGPT, Claude or their websites is marked where you paste it. Copies from other apps are never read.")
+                }
+            }
+            if model.aiRecord != nil {
+                Section {
+                    Toggle(isOn: model.carriesAIRecordChoice) {
+                        SettingsLabel("Carry the AI record in Word documents",
+                                      note: "Once you close a Word document with AI-written parts, Lasso writes which parts an AI wrote into the file, signed by your Lasso. Anyone with Lasso you send it to sees the same brackets.")
+                    }
+                    Toggle(isOn: model.includesPromptsChoice) {
+                        SettingsLabel("Include prompts",
+                                      note: "Off, the record says which AI wrote each part but not what it was asked.")
+                    }
+                    .disabled(!(model.aiRecord?.carry ?? true))
+                    TextField(text: model.aiRecordNameChoice, prompt: Text("Your name")) {
+                        SettingsLabel("Your name on records", note: "Shown to the people you send documents to.")
+                    }
+                    .disabled(!(model.aiRecord?.carry ?? true))
                 }
             }
             // A start-up problem needs the user, so it never hides under Advanced.

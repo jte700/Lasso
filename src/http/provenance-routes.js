@@ -6,6 +6,12 @@ import { readJson, sendJson } from './responses.js';
 
 /** Answers the request when it is one of these routes; whether it did. */
 export async function provenanceRoutes({ request, response, url, pathname, authorship }) {
+  if (pathname === '/api/ai-record' && (request.method === 'GET' || request.method === 'PUT')) {
+    // Whether Lasso writes its AI record into Word documents, whether prompts go in, and the name it signs with.
+    const settings = request.method === 'PUT' ? authorship.identity.update(await readJson(request)) : authorship.identity.settings();
+    sendJson(response, 200, settings);
+    return true;
+  }
   if (request.method === 'POST' && pathname === '/api/ai-marks') {
     const body = await readJson(request);
     sendJson(response, 201, { mark: authorship.record(body) });

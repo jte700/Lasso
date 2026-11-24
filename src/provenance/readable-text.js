@@ -11,6 +11,8 @@ const TEXT = new Set(['markdown', 'text', 'code', 'json', 'yaml', 'xml', 'notebo
 const DOCUMENTS = new Set(['document', 'pdf', 'presentation']);
 /** Larger files are not followed character by character. */
 export const LONGEST_READABLE = 4 * 1024 * 1024;
+/** A Word document's words are one part of it, so pictures can make it far larger. */
+export const LONGEST_DOCUMENT = 64 * 1024 * 1024;
 
 /** 'text', 'document' or null: how a file's authorship is kept. */
 export function readableKind(filePath) {
@@ -28,11 +30,11 @@ function deckText(buffer) {
 
 /** A version's readable text, or null when it cannot be read. */
 export function readableText(buffer, filePath) {
-  if (!buffer || buffer.length > LONGEST_READABLE) return null;
   const kind = readableKind(filePath);
+  const type = detectFileType(filePath);
+  if (!buffer || buffer.length > (type === 'document' ? LONGEST_DOCUMENT : LONGEST_READABLE)) return null;
   if (kind === 'text') return buffer.toString('utf8');
   if (kind !== 'document') return null;
-  const type = detectFileType(filePath);
   let text;
   try {
     text = type === 'document' ? extractDocxFullText(buffer) : type === 'pdf' ? extractPdfFullText(buffer) : deckText(buffer);

@@ -397,9 +397,16 @@ final class AISnippetReader {
             AXUIElementGetPid(element, &pid)
             window = attribute(AXUIElementCreateApplication(pid), kAXFocusedWindowAttribute as String)
         }
-        guard let window, CFGetTypeID(window) == AXUIElementGetTypeID(),
-              let document = attribute(window as! AXUIElement, kAXDocumentAttribute as String) as? String,
-              let url = URL(string: document), url.isFileURL else { return nil }
-        return url.standardizedFileURL.resolvingSymlinksInPath().path
+        guard let window, CFGetTypeID(window) == AXUIElementGetTypeID() else { return nil }
+        if let document = attribute(window as! AXUIElement, kAXDocumentAttribute as String) as? String,
+           let url = URL(string: document), url.isFileURL {
+            return url.standardizedFileURL.resolvingSymlinksInPath().path
+        }
+        // Word does not always say which file a window shows; its title names it.
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        guard let bundle = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier, AIDocumentLocator.apps.contains(bundle),
+              let title = attribute(window as! AXUIElement, kAXTitleAttribute as String) as? String else { return nil }
+        return AIDocumentLocator.path(forTitle: title)
     }
 }

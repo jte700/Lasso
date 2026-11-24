@@ -119,5 +119,7 @@ export function createConfig(overrides = {}) {
     connectorApps: overrides.connectorApps ?? connectorApps(),
     // Pause between Notion requests, within its rate limit.
     notionSpacingMs: overrides.notionSpacingMs ?? 340,
+    // A Word document is left this long after its last save before Lasso writes its AI record into it.
+    aiRecordSettleMs: wholeNumber(overrides.aiRecordSettleMs, 3000, 0),
   };
 }

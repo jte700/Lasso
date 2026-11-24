@@ -111,7 +111,8 @@ export class TimelineService {
     const environments = new Set();
     const files = yield* scanSteps(project.rootPath, this.blobs, {
       exclude, failures, fileCache: cache, environments,
-      reuseUnchanged: (options.source === 'WATCHER' && Array.isArray(options.dirtyPaths))
+      // A save the watcher heard, or Lasso writing its AI record into one file, reads only the files named.
+      reuseUnchanged: (['WATCHER', 'AI_RECORD'].includes(options.source) && Array.isArray(options.dirtyPaths))
         || options.source === 'OPEN_RECONCILE',
       dirtyPaths: options.dirtyPaths,
       previousFiles: options.previousFiles,

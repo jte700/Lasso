@@ -6983,6 +6983,19 @@ do {
     let reach = AIBracketShape.gap(.tight, line: line) + AIBracketShape.width / 2
     check(reach <= space * 0.4 + 0.001, "a bracket in one space keeps within two fifths of it")
     check(AIBracketShape.gap(.wide, line: line) == AIBracketShape.wideGap, "with more room it stands further off")
+
+    let carried = AIMarkInfo(json: ["id": "m2", "kind": "paste", "agent": ["id": "agent:chatgpt", "name": "ChatGPT"],
+                                    "askedBy": ["name": "Adel", "you": false], "recordedBy": ["name": "Adel", "you": false],
+                                    "editors": [["name": "Sam", "you": false], ["name": "Me", "you": true]], "written": 40, "kept": 34])
+    check(carried?.askedBy == "Adel" && carried?.recordedElsewhereBy == "Adel", "a part recorded on another Mac says whose Lasso recorded it")
+    check(carried?.editors == [AIEditor(name: "Sam", you: false), AIEditor(name: "Me", you: true)], "and who has edited it since")
+    let own = AIMarkInfo(json: ["id": "m3", "agent": ["id": "agent:claude", "name": "Claude"],
+                                "recordedBy": ["name": "Me", "you": true], "askedBy": ["name": "Me", "you": true]])
+    check(own?.recordedElsewhereBy == nil && own?.askedBy == "You", "a part this Mac recorded is yours")
+    check(AIRecordSettings(json: ["name": "Adel", "carry": true, "includePrompts": false])?.carry == true, "the record's choices are read from the server")
+    check(AIDocumentLocator.names(forTitle: "Report [Compatibility Mode]") == ["Report.docx"]
+          && AIDocumentLocator.names(forTitle: "notes.docx") == ["notes.docx"] && AIDocumentLocator.names(forTitle: " ").isEmpty,
+          "a Word window's title names its document")
 }
 
 print("terminal command")

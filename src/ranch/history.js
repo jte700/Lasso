@@ -171,6 +171,8 @@ export function recentHistory(db, projectIds, now, { shown = null } = {}) {
     LIMIT ?
   `).all(...projectIds, since, MAX_HISTORY_ENTRIES + 1);
   const listed = events.filter((event) => event.source !== 'IMPORT' && event.file_count <= MAX_FILES_PER_EVENT);
+  // Lasso writing its AI record into a document changed none of its words, and is no one's edit.
+  const visible = events.filter((event) => event.source !== 'AI_RECORD');
   const snapshotOf = new Map(listed.map((event) => [event.id, event.resulting_snapshot_id]));
   const changes = new Map();
   const values = valueChangesBySnapshot(db, listed.map((event) => event.resulting_snapshot_id).filter(Boolean), shown);
@@ -189,7 +191,7 @@ export function recentHistory(db, projectIds, now, { shown = null } = {}) {
   const unchanged = unchangedWorkbooks(db, [...changes.values()].flat());
   const changedSomething = (row) => !(row.change_type === 'MODIFIED'
     && unchanged.has(`${row.snapshot_id}\u0000${row.path_after ?? row.path_before}`));
-  const entries = events.slice(0, MAX_HISTORY_ENTRIES).flatMap((event) => {
+  const entries = visible.slice(0, MAX_HISTORY_ENTRIES).flatMap((event) => {
     // Who history says made the change and how Lasso came to record it
     // (WATCHER for a save it saw, AGENT_EDIT, IMPORT for a first reading).
     const base = { directoryId: event.project_id, at: event.occurred_at, source: event.source,
@@ -211,5 +213,5 @@ export function recentHistory(db, projectIds, now, { shown = null } = {}) {
     }));
   });
   return { entries: entries.slice(0, MAX_HISTORY_ENTRIES),
-    truncated: events.length > MAX_HISTORY_ENTRIES || entries.length > MAX_HISTORY_ENTRIES };
+    truncated: visible.length > MAX_HISTORY_ENTRIES || entries.length > MAX_HISTORY_ENTRIES };
 }

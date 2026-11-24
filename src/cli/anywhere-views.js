@@ -128,6 +128,9 @@ function labelRows(answer, labels) {
       : p.dim('carries Content Credentials (C2PA)')) : null],
     ['generated with', generation ? `${generation.by ?? 'settings'} ${p.dim(`in its "${generation.key}" text:`)} ${p.italic(truncate(generation.text, Math.max(20, answer.columns - LABEL - 40)))}` : null],
     ['software', labels.software],
+    ['AI record', labels.record ? (labels.record.valid
+      ? `${labels.record.agents.map((agent) => `${p.bold(agent.name)} wrote ${plural(agent.parts, 'part')}`).join(', ') || 'no AI-written parts'} ${p.dim(`· recorded by ${labels.record.by}\u2019s Lasso and signed by it`)}`
+      : p.dim(`a record naming ${labels.record.by}\u2019s Lasso, changed since it was signed`)) : null],
   ]);
 }
 
@@ -286,11 +289,14 @@ export function renderAnywhereBlame(data, paint, columns, now = Date.now()) {
     if (tracked.total > 80) answer.row(p.dim(`… and ${tracked.total - 80} more`));
     return answer.done();
   }
-  answer.head(data.name, { colour: PALETTE.accent, note: 'no record of who wrote each part' });
+  answer.head(data.name, { colour: PALETTE.accent,
+    note: data.aiLabels?.record?.valid ? 'an AI record carried in the file' : 'no record of who wrote each part' });
   const where = data.git?.state === 'untracked' ? `It sits in the git repository ${tilde(data.git.root)} but was never committed`
     : data.git?.state === 'ignored' ? `Git ignores it in ${tilde(data.git.root)}`
       : `It is in no ${data.inLibrary ? 'Lasso folder or ' : ''}git repository`;
-  answer.para(`${where}, and holds no tracked changes, so nothing recorded who wrote each part.`, { style: p.dim });
+  const record = data.aiLabels?.record?.valid ? data.aiLabels.record : null;
+  answer.para(record ? `${where}, but it carries the AI record ${record.by}\u2019s Lasso wrote into it.`
+    : `${where}, and holds no tracked changes, so nothing recorded who wrote each part.`, { style: p.dim });
   const properties = data.properties;
   if (properties || data.pdf) {
     fields(answer, [

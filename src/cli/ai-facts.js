@@ -2,11 +2,13 @@
 // it, for files Lasso never saw being written: the IPTC digital source type
 // an image or video carries in its XMP, the tools named in its Content
 // Credentials (C2PA), the generation settings Stable Diffusion, ComfyUI or
-// InvokeAI write into a PNG, and commits an AI made or is named a co-author
-// of. Each is a label a tool wrote; nothing is guessed from the content.
+// InvokeAI write into a PNG, the AI record a Lasso wrote into a Word
+// document, and commits an AI made or is named a co-author of. Each is a
+// label a tool wrote; nothing is guessed from the content.
 
 import fs from 'node:fs';
 import { inflateSync } from 'node:zlib';
+import { readCarried } from '../provenance/carried-record.js';
 
 /** Files whose own bytes may carry these labels. */
 const LABELLED = /\.(png|jpe?g|webp|heic|heif|avif|gif|tiff?|dng|mp4|mov|m4v|m4a|mp3|wav|pdf|svg)$/i;
@@ -32,6 +34,7 @@ const GENERATION_KEYS = new Map([
  * settings. madeWithAi: the file itself says a trained model made it.
  */
 export function aiLabels(absolute) {
+  if (/\.docx$/i.test(absolute)) return recordLabels(absolute);
   if (!LABELLED.test(absolute)) return null;
   let head;
   try { head = readHead(absolute, HEAD_BYTES); } catch { return null; }
@@ -56,6 +59,31 @@ export function aiLabels(absolute) {
   found.madeWithAi = Boolean(found.sourceType || found.generation);
   return found.sourceType || found.credentials || found.generation ? found : null;
 }
+
+/** A Word document's Lasso record: who recorded it, whether its signature holds, and which AIs wrote how many parts. */
+function recordLabels(absolute) {
+  let carried = null;
+  try {
+    if (fs.statSync(absolute).size <= LONGEST_DOCUMENT) carried = readCarried(fs.readFileSync(absolute));
+  } catch { return null; }
+  if (!carried) return null;
+  const agentOf = new Map((carried.payload.marks ?? []).map((mark) => [mark.id, String(mark.agent ?? 'AI')]));
+  const agents = new Map();
+  for (const span of carried.payload.spans ?? []) {
+    const name = agentOf.get(span.mark);
+    if (!name) continue;
+    const entry = agents.get(name) ?? { name, parts: 0, characters: 0 };
+    entry.parts += 1;
+    entry.characters += String(span.text ?? '').length;
+    agents.set(name, entry);
+  }
+  const record = { by: carried.signer.name, valid: carried.valid, writtenAt: carried.payload.writtenAt ?? null,
+    agents: carried.valid ? [...agents.values()] : [] };
+  return { sourceType: null, credentials: null, generation: null, software: null, record,
+    madeWithAi: Boolean(carried.valid && agents.size) };
+}
+
+const LONGEST_DOCUMENT = 64 * 1024 * 1024;
 
 function readHead(file, length) {
   const handle = fs.openSync(file, 'r');
