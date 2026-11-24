@@ -178,22 +178,39 @@ class Shell {
     const columns = this.columns;
     const safe = lines.map((line) => truncate(line, columns - 1));
     let out = '\u001b[?2026h' + move.hide;
-    out += move.up(this.live.cursorRow) + '\r' + move.clearDown;
+    out += move.up(this.rowsAboveCaret()) + '\r' + move.clearDown;
     out += safe.join('\n');
     const last = safe.length - 1;
     if (caret) {
       out += move.up(last - caret.row) + move.column(caret.column) + move.show;
       this.live.cursorRow = caret.row;
+      this.live.caretColumn = caret.column;
     } else {
       this.live.cursorRow = last;
+      this.live.caretColumn = 0;
     }
     out += '\u001b[?2026l';
     this.live.rows = safe.length;
+    this.live.widths = safe.map((line) => width(line));
     this.output.write(out);
   }
 
+  /**
+   * How many screen rows the caret sits below the live area's first line.
+   * A narrowed window re-wraps the lines already drawn, so a line drawn
+   * wider than the window now takes more than one row; counting only the
+   * lines drawn would leave the top of the old prompt box behind.
+   */
+  rowsAboveCaret() {
+    const { cursorRow, widths = [], caretColumn = 0 } = this.live;
+    const columns = this.columns;
+    let rows = 0;
+    for (let index = 0; index < cursorRow; index += 1) rows += Math.max(1, Math.ceil((widths[index] ?? 0) / columns));
+    return rows + Math.floor(caretColumn / columns);
+  }
+
   clearLive() {
-    this.output.write(move.up(this.live.cursorRow) + '\r' + move.clearDown);
+    this.output.write(move.up(this.rowsAboveCaret()) + '\r' + move.clearDown);
     this.live = { rows: 0, cursorRow: 0 };
   }
 
