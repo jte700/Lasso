@@ -131,6 +131,11 @@ final class GlobalAssistant {
     static let primedRereadGaps: [TimeInterval] = [0.2, 0.3, 0.5]
     /// The waits still to come after the latest priming.
     var primedRereads: [TimeInterval] = []
+    /// Docs' and Slides' caret is found on screen once it blinks, which it
+    /// does not while keys arrive: reads that missed it are tried again.
+    static let screenCaretRereads = 3
+    static let screenCaretRereadGap: TimeInterval = 0.35
+    var screenCaretRereads = (text: "", left: 0)
     private static let restoreWait: TimeInterval = 1
     var messageShownAt = Date.distantPast
     var lastTrack = Date.distantPast

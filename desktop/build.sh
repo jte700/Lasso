@@ -216,7 +216,7 @@ done
 swift_binary "$CONTENTS/MacOS/Lasso" ${SWIFT_EXTRA[@]+"${SWIFT_EXTRA[@]}"} \
   -framework Cocoa -framework WebKit -framework PDFKit -framework ServiceManagement -framework DiskArbitration \
   -framework EventKit -framework SwiftUI -framework Quartz -framework SceneKit -framework ModelIO -framework Carbon \
-  -framework Vision -framework AVFoundation -framework AVKit -framework Metal -framework MetalKit \
+  -framework Vision -framework AVFoundation -framework AVKit -framework Metal -framework MetalKit -framework ScreenCaptureKit \
   "${APP_SOURCES[@]}"
 
 # The Ranch's typefaces, Figtree and Geist Mono, drawn from inside the app with

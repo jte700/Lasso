@@ -11,6 +11,8 @@ struct AssistPopupHost {
     /// and the address bar names the group that holds it, below the window.
     let container: AXUIElement
     let processIdentifier: pid_t
+    /// Docs' and Slides' hidden field: its caret is checked against the page.
+    let isGoogleEditor: Bool
 
     /// Parents walked from the editor to its window; Chrome's address bar is
     /// about eight levels below.
@@ -31,6 +33,7 @@ struct AssistPopupHost {
         self.window = window
         self.container = reported ?? window
         processIdentifier = pid
+        isGoogleEditor = GoogleEditorText.isTextTarget(element)
         AXUIElementSetMessagingTimeout(window, Self.messagingTimeout)
         AXUIElementSetMessagingTimeout(self.container, Self.messagingTimeout)
     }
@@ -87,7 +90,8 @@ struct AssistPopupHost {
         guard let caret,
               caret.minX.isFinite, caret.minY.isFinite,
               caret.width.isFinite, caret.height > 0, caret.height < 400,
-              let windowFrame = Self.frame(container), let editorFrame = Self.frame(element),
+              let windowFrame = Self.frame(container),
+              let editorFrame = isGoogleEditor ? GoogleEditorText.pageFrame(of: element) : Self.frame(element),
               windowFrame.intersects(caret.insetBy(dx: -1, dy: 0)),
               editorFrame.insetBy(dx: -2, dy: -2).intersects(caret.insetBy(dx: -1, dy: 0)) else { return nil }
         return caret

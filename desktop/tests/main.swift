@@ -3234,8 +3234,77 @@ print("fields for finding things get no card")
 check(HostTextSafety.isLookup(role: "AXTextField", subrole: "AXSearchField", identifier: nil), "a search field is not written in")
 check(HostTextSafety.isLookup(role: "AXComboBox", subrole: nil, identifier: nil), "a combo box is a picker")
 check(HostTextSafety.isLookup(role: "AXTextField", subrole: nil, identifier: "WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD"), "a browser's address bar is a query")
+check(HostTextSafety.isLookup(role: "AXTextField", subrole: nil, identifier: nil, classes: ["OmniboxViewViews"]),
+      "Chromium's address bar is a query even without its old identifier")
+check(!HostTextSafety.isLookup(role: "AXTextArea", subrole: nil, identifier: nil, classes: ["kix-appview"]),
+      "a page's own text area is written in")
 check(!HostTextSafety.isLookup(role: "AXTextArea", subrole: nil, identifier: nil), "a text area is written in")
 check(!HostTextSafety.isLookup(role: "AXTextField", subrole: nil, identifier: "subject"), "an ordinary text field is written in")
+
+print("Google Docs and Slides text")
+check(GoogleEditorText.readiness(value: "\u{200B}\u{200B}", screenReaderOn: { true }) == .needsBraille,
+      "a hidden field holding only zero-width spaces needs braille support")
+check(GoogleEditorText.readiness(value: "", screenReaderOn: { false }) == .needsBraille,
+      "an empty hidden field without screen reader support needs braille support")
+check(GoogleEditorText.readiness(value: "", screenReaderOn: { true }) == .readable,
+      "an empty text box with screen reader support on is simply empty")
+check(GoogleEditorText.readiness(value: "Total revenue was ", screenReaderOn: { false }) == .readable,
+      "a hidden field holding the document's text is readable")
+var braillePresses: [pid_t] = []
+var brailleClock = Date(timeIntervalSince1970: 0)
+let braille = GoogleEditorBraille(press: { braillePresses.append($0) }, now: { brailleClock })
+check(braille.switchOn(pid: 7) && braillePresses == [7], "braille support is switched on with one press")
+check(!braille.switchOn(pid: 7) && braillePresses == [7], "a second press waits, since the shortcut toggles")
+brailleClock = brailleClock.addingTimeInterval(GoogleEditorBraille.retryAfter + 1)
+check(braille.switchOn(pid: 7) && braillePresses == [7, 7], "a press that did not take is tried once more later")
+brailleClock = brailleClock.addingTimeInterval(GoogleEditorBraille.retryAfter + 1)
+check(!braille.switchOn(pid: 7), "an editor that ignores the shortcut is left alone")
+check(braille.switchOn(pid: 8), "another browser process gets its own presses")
+
+print("drawn caret found on screen")
+func pageGrid(width: Int, height: Int, marks: [(x: Int, top: Int, width: Int, height: Int, shade: UInt8)]) -> PixelGrid {
+    var bytes = [UInt8](repeating: 255, count: width * height * 4)
+    for mark in marks {
+        for y in mark.top..<(mark.top + mark.height) {
+            for x in mark.x..<(mark.x + mark.width) {
+                let index = (y * width + x) * 4
+                bytes[index] = mark.shade; bytes[index + 1] = mark.shade; bytes[index + 2] = mark.shade
+            }
+        }
+    }
+    return PixelGrid(width: width, height: height, bytesPerRow: width * 4, bytes: bytes)
+}
+// At 2x: Docs' caret is four pixels of ink 34 tall; an "l" is two pixels of
+// ink between grey edges, 21 tall; a "T" stem is wider.
+let docsCaret = (x: 40, top: 20, width: 4, height: 34, shade: UInt8(0))
+let letterL = [(x: 80, top: 27, width: 1, height: 21, shade: UInt8(120)), (x: 81, top: 27, width: 2, height: 21, shade: UInt8(0)),
+               (x: 83, top: 27, width: 1, height: 21, shade: UInt8(125))]
+let stemT = (x: 120, top: 27, width: 10, height: 21, shade: UInt8(0))
+let typedPage = pageGrid(width: 200, height: 80, marks: [docsCaret] + letterL + [stemT])
+check(ScreenCaret.bars(in: typedPage, scale: 2) == [CaretBar(x: 40, width: 4, top: 20, height: 34)],
+      "Docs' caret is found among letters")
+let blinkedOff = pageGrid(width: 200, height: 80, marks: letterL + [stemT])
+check(ScreenCaret.bars(in: blinkedOff, scale: 2).isEmpty, "letters with softened edges are not taken for a caret")
+let slidesCaret = pageGrid(width: 120, height: 320, marks: [(x: 60, top: 20, width: 1, height: 271, shade: 40),
+                                                             (x: 61, top: 20, width: 3, height: 271, shade: 0)])
+check(ScreenCaret.bars(in: slidesCaret, scale: 2) == [CaretBar(x: 60, width: 4, top: 20, height: 271)],
+      "Slides' tall caret in a title is found")
+let blueOutline = pageGrid(width: 120, height: 80, marks: [])
+check(ScreenCaret.bars(in: blueOutline, scale: 2).isEmpty, "a blank page has no caret")
+let caretBar = CaretBar(x: 40, width: 4, top: 20, height: 34)
+let crispLetter = CaretBar(x: 90, width: 3, top: 27, height: 21)
+let tableRule = CaretBar(x: 150, width: 2, top: 10, height: 60)
+check(ScreenCaret.blinking(in: [[caretBar, crispLetter, tableRule], [crispLetter, tableRule]]) == caretBar,
+      "of several bars, the one that blinked is the caret")
+check(ScreenCaret.blinking(in: [[crispLetter, tableRule], [caretBar, crispLetter, tableRule]]) == caretBar,
+      "a caret that blinks on in the second picture is found")
+check(ScreenCaret.blinking(in: [[caretBar, crispLetter], [caretBar, crispLetter]]) == nil,
+      "a caret held steady while typing gives no answer from blinking")
+check(ScreenCaret.follow([crispLetter, CaretBar(x: 52, width: 4, top: 20, height: 34)], from: caretBar, reach: 400)
+        == CaretBar(x: 52, width: 4, top: 20, height: 34),
+      "a caret that moved along its line is followed by its height")
+check(ScreenCaret.follow([crispLetter], from: caretBar, reach: 400) == nil,
+      "a shorter letter is never followed as the caret")
 
 print("synthetic typing chunks")
 let accented = String(repeating: "e\u{301}", count: 12) + "👩‍🔬 Café"

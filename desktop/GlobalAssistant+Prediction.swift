@@ -205,6 +205,7 @@ extension GlobalAssistant {
         guard let host = reading.host, let caret = reading.caret else {
             if isDictating { dictationLog.debug("read: no caret to show the card at") }
             hide()
+            if reading.host?.isGoogleEditor == true { rereadForScreenCaret(captured.text) }
             return
         }
         adoptHost(host, caret: caret)
@@ -213,6 +214,18 @@ extension GlobalAssistant {
         if panel?.isVisible == true, view.mode == .suggestions { reposition(near: popupCaret) }
         if acceptsSpokenTab(in: captured) { return }
         requestPrediction(for: captured, serverURL: serverURL)
+    }
+
+    /// A few more reads, a blink apart, for the same text.
+    private func rereadForScreenCaret(_ text: String) {
+        if screenCaretRereads.text != text { screenCaretRereads = (text, Self.screenCaretRereads) }
+        guard screenCaretRereads.left > 0 else { return }
+        screenCaretRereads.left -= 1
+        let token = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.screenCaretRereadGap) { [weak self] in
+            guard let self, token == self.generation, self.isEnabled else { return }
+            self.refresh()
+        }
     }
 
     private func requestPrediction(for captured: CaretContext, serverURL: URL) {
