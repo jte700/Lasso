@@ -34,6 +34,8 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var marksAIText = AIProvenancePreferences.showsMarks
     @Published private(set) var remembersAICopies = AIProvenancePreferences.remembersCopies
     @Published private(set) var startState = LaunchHelper.State.on
+    /// Nil in a build without the command.
+    @Published private(set) var terminalCommand: TerminalCommand.State?
     @Published private(set) var version = ""
     @Published private(set) var apps: [SettingsApp] = []
     @Published var advancedOpen = false { didSet { onResize?() } }
@@ -55,6 +57,7 @@ final class SettingsModel: ObservableObject {
         marksAIText = AIProvenancePreferences.showsMarks
         remembersAICopies = AIProvenancePreferences.remembersCopies
         startState = LaunchHelper.state
+        terminalCommand = TerminalCommand.launcher.map { TerminalCommand.state(launcher: $0) }
         version = actions.version()
         reloadApps()
         onResize?()
@@ -154,6 +157,16 @@ final class SettingsModel: ObservableObject {
 
     func openLoginItems() { LaunchHelper.openSettings() }
 
+    func installTerminalCommand() {
+        _ = TerminalCommand.install()
+        refresh()
+    }
+
+    func removeTerminalCommand() {
+        TerminalCommand.remove()
+        refresh()
+    }
+
     private func changed() {
         actions.didChange()
         refresh()
@@ -209,7 +222,7 @@ struct SettingsGeneralView: View {
         .scrollDisabled(true)
     }
 
-    /// Collapsed until someone opens it: the default colour, starting at login and the version.
+    /// Collapsed until someone opens it: the default colour, starting at login, the terminal command and the version.
     @ViewBuilder private var advanced: some View {
         if #available(macOS 14.0, *) {
             Section("Advanced", isExpanded: $model.advancedOpen) { advancedRows }
@@ -232,6 +245,7 @@ struct SettingsGeneralView: View {
                           note: "For folders you haven\u{2019}t given their own colour, and the text you accept from them.")
         }
         if model.startState == .on { startRow }
+        if let state = model.terminalCommand { terminalRow(state) }
         LabeledContent("Version") {
             Text(model.version).textSelection(.enabled).multilineTextAlignment(.trailing)
         }
@@ -244,6 +258,18 @@ struct SettingsGeneralView: View {
             }
         } label: {
             SettingsLabel("Start at login", note: LaunchHelper.note(for: model.startState))
+        }
+    }
+
+    private func terminalRow(_ state: TerminalCommand.State) -> some View {
+        LabeledContent {
+            switch state {
+            case .installed: Button("Remove", action: model.removeTerminalCommand)
+            case .absent(let needsPassword): Button(needsPassword ? "Install\u{2026}" : "Install", action: model.installTerminalCommand)
+            case .other: EmptyView()
+            }
+        } label: {
+            SettingsLabel("Terminal command", note: TerminalCommand.note(for: state))
         }
     }
 }

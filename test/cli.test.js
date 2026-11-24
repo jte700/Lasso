@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { PassThrough } from 'node:stream';
 import { createApplication } from '../src/server.js';
 import { openBackend } from '../src/cli/backend.js';
@@ -314,4 +315,31 @@ test('the mascot and wordmark keep their shape without colour, and painted text 
   assert.equal(word[2], '█▄▄▄ █  █ ▄▄▄▀ ▄▄▄▀ ▀▄▄▀');
   assert.equal(width(green), 12);
   assert.equal(strip(truncate(green, 8)), 'Revenue…');
+});
+
+test('The terminal command starts as the Mac app carries it, with no pdf.js', (t) => {
+  // Arrange: the app's copy of the server, whose node_modules hold only what build.sh bundles.
+  const app = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-cli-bundle-'));
+  t.after(() => fs.rmSync(app, { recursive: true, force: true }));
+  const root = path.resolve(import.meta.dirname, '..');
+  for (const item of ['src', 'public', 'migrations', 'scripts', 'package.json']) fs.cpSync(path.join(root, item), path.join(app, item), { recursive: true });
+  for (const dependency of ['web-ifc', 'polygon-clipping', 'robust-predicates', 'splaytree']) {
+    fs.cpSync(path.join(root, 'node_modules', dependency), path.join(app, 'node_modules', dependency), { recursive: true });
+  }
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-cli-home-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const env = { ...process.env, HOME: home };
+  delete env.LASSO_DATA_DIR;
+  const run = (...words) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(app, 'src/cli/main.js'),
+    '--no-color', ...words], { encoding: 'utf8', env });
+
+  // Act
+  const version = run('--version');
+  const whence = run('whence', path.join(app, 'package.json'));
+
+  // Assert
+  assert.equal(version.status, 0, version.stderr);
+  assert.match(version.stdout, /^lasso \d+\.\d+\.\d+/);
+  assert.equal(whence.status, 0, whence.stderr);
+  assert.match(whence.stdout, /package\.json\s+not in your Lasso folders/);
 });

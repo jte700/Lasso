@@ -301,6 +301,10 @@ for item in src public migrations scripts package.json package-lock.json; do
 done
 # Finder leaves .DS_Store files in folders it has shown; the app needs none.
 find "$RESOURCES/app" -name .DS_Store -delete
+# The `lasso` terminal command, which the app links into a folder on the PATH.
+mkdir -p "$RESOURCES/bin"
+cp "$ROOT/desktop/lasso-command.sh" "$RESOURCES/bin/lasso"
+chmod 755 "$RESOURCES/bin/lasso"
 # The app registrations connected apps sign in with, when this build has its
 # own. Without them, the Connect window asks for one the first time.
 if [ -n "${LASSO_MICROSOFT_CLIENT_ID:-}${LASSO_GOOGLE_CLIENT_ID:-}" ]; then

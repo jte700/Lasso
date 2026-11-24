@@ -491,6 +491,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             GlobalAssistant.shared.showDesignFixture()
             return
         }
+        TerminalCommand.placeAtLaunch()
 
         let resources = Bundle.main.resourceURL!.appendingPathComponent("app", isDirectory: true)
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
