@@ -53,7 +53,7 @@ struct RanchHover<Content: View>: View {
     }
 }
 
-/// The bell at the top right, with how many things need review.
+/// The bell at the top right, with how many notifications are waiting.
 struct RanchBell: View {
     let count: Int
     let action: () -> Void
@@ -84,8 +84,8 @@ struct RanchBell: View {
                     .allowsHitTesting(false)
             }
         }
-        .help(count == 0 ? "Nothing needs review" : count == 1 ? "1 thing needs review" : "\(count) things need review")
-        .accessibilityLabel("Needs Review")
+        .help(count == 0 ? "No notifications" : count == 1 ? "1 notification" : "\(count) notifications")
+        .accessibilityLabel("Notifications")
         .accessibilityValue("\(count)")
     }
 }

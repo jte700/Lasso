@@ -92,9 +92,12 @@ struct RanchActivityPage: View {
             if !isOpen, kind != .changes { chosen = nil }
         }
         .onChange(of: store.linkTab) { _ in laidOut = Date() }
+        // An item opened from the bell is chosen in the list too.
+        .onChange(of: store.reviewFocus?.id) { id in if kind == .review, let id { chosen = id } }
         .onChange(of: store.hasLoaded) { loaded in if loaded { feed.begin(with: store.overview.history) } }
         .onAppear {
             if store.hasLoaded { feed.begin(with: store.overview.history) }
+            if kind == .review, let id = store.reviewFocus?.id { chosen = id }
             pull.blocked = open
             // Pulled down, the log takes in what the read brings, as its pill would.
             pull.onRefresh = { store.reload(then: { takeInChanges() }) }
@@ -251,7 +254,8 @@ struct RanchActivityPage: View {
         url.replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "http://", with: "")
     }
 
-    private static let reviewKinds: [String: String] = [
+    /// How a Needs Review item's kind is said, here and in the bell's list.
+    static let reviewKinds: [String: String] = [
         "directory": "Directory", "changed": "Value changed", "missing": "Source missing", "unverified": "To verify",
         "drifted": "Changed since shared", "unreadable": "Not fully read",
     ]

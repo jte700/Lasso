@@ -53,6 +53,19 @@ enum WorkspaceAPI {
         directories.filter(isOn) + directories.filter { !isOn($0) }
     }
 
+    /// While the menu is open, rows keep the order it showed them in
+    /// (`holding`), so a switch turned off does not jump to the bottom; ones
+    /// it has not shown yet follow. With the menu closed (`holding` nil),
+    /// directories that are on come first.
+    static func listed<Directory>(_ directories: [Directory], isOn: (Directory) -> Bool,
+                                  id: (Directory) -> String, holding: [String]?) -> [Directory] {
+        let sorted = switchedOnFirst(directories, isOn: isOn)
+        guard let holding else { return sorted }
+        let place = Dictionary(holding.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let shown = sorted.filter { place[id($0)] != nil }.sorted { place[id($0)]! < place[id($1)]! }
+        return shown + sorted.filter { place[id($0)] == nil }
+    }
+
     /// Folders named in a removal alert before the rest are only counted.
     private static let namedRemovalLimit = 5
 

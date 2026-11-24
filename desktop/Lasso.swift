@@ -622,7 +622,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.rebuildMenu()
         }
         statusPopover.onEscape = { [weak self] in self?.endRemovingDirectories() ?? false }
-        statusPopover.onClose = { [weak self] in _ = self?.endRemovingDirectories() }
+        statusPopover.onClose = { [weak self] in
+            guard let self else { return }
+            _ = self.endRemovingDirectories()
+            self.sortSwitchedOnFirst()
+        }
+        rebuildMenu()
+    }
+
+    /// Directories switched off while the menu was open move below the ones
+    /// that are on, ready for the next time it opens.
+    private func sortSwitchedOnFirst() {
+        directories = WorkspaceAPI.switchedOnFirst(directories, isOn: \.active)
+        connections = WorkspaceAPI.switchedOnFirst(connections, isOn: \.active)
         rebuildMenu()
     }
 
@@ -1060,10 +1072,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyWorkspace(_ state: [String: Any]) {
-        directories = WorkspaceAPI.switchedOnFirst(
-            (state["directories"] as? [[String: Any]] ?? []).compactMap(WorkDirectory.init), isOn: \.active)
-        connections = WorkspaceAPI.switchedOnFirst(
-            (state["connections"] as? [[String: Any]] ?? []).compactMap(ConnectedApp.init), isOn: \.active)
+        // Rows stay put while the menu is open; they re-sort when it closes.
+        let open = statusPopover.popover.isShown
+        directories = WorkspaceAPI.listed(
+            (state["directories"] as? [[String: Any]] ?? []).compactMap(WorkDirectory.init), isOn: \.active,
+            id: \.id, holding: open ? directories.map(\.id) : nil)
+        connections = WorkspaceAPI.listed(
+            (state["connections"] as? [[String: Any]] ?? []).compactMap(ConnectedApp.init), isOn: \.active,
+            id: \.id, holding: open ? connections.map(\.id) : nil)
         removalSelection = removalSelection.pruned(to: directories.map(\.id))
         // The Calendar app's events are read here and sent to the server.
         let calendars = connections.filter { $0.isNative && $0.active && $0.projectId != nil }
