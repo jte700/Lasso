@@ -49,8 +49,13 @@ enum AccessibilityReader {
         let role = attribute(field, kAXRoleAttribute as String) as? String ?? "?"
         let subrole = attribute(field, kAXSubroleAttribute as String) as? String
         if excludedRoles.contains(role) || HostTextSafety.isSecure(role: role, subrole: subrole) { return true }
-        return HostTextSafety.isLookup(role: role, subrole: subrole,
-                                       identifier: attribute(field, kAXIdentifierAttribute as String) as? String)
+        return isLookupField(field, role: role, subrole: subrole)
+    }
+
+    private static func isLookupField(_ field: AXUIElement, role: String?, subrole: String?) -> Bool {
+        HostTextSafety.isLookup(role: role, subrole: subrole,
+                                identifier: attribute(field, kAXIdentifierAttribute as String) as? String,
+                                classes: attribute(field, "AXDOMClassList") as? [String] ?? [])
     }
 
     /// `extending` widens the window by that many characters, so an
@@ -66,6 +71,11 @@ enum AccessibilityReader {
     static func focusedContextWithPrimeStatus(allowSelection: Bool = false,
                                               extending extra: Int = 0) -> (context: CaretContext?, primedAccessibility: Bool) {
         let found = focusedElement()
+        if let element = found.element, GoogleEditorText.needsBraille(element) {
+            var pid: pid_t = 0
+            AXUIElementGetPid(element, &pid)
+            return (nil, GoogleEditorBraille.shared.switchOn(pid: pid))
+        }
         if let element = found.element,
            let read = context(of: element, allowSelection: allowSelection, extending: extra) {
             return (read, found.primed)
@@ -105,8 +115,7 @@ enum AccessibilityReader {
         if excludedRoles.contains(role) || HostTextSafety.isSecure(role: role, subrole: subrole) {
             return nil
         }
-        if HostTextSafety.isLookup(role: role, subrole: subrole,
-                                   identifier: attribute(field, kAXIdentifierAttribute as String) as? String) {
+        if isLookupField(field, role: role, subrole: subrole) {
             return nil
         }
 
@@ -201,6 +210,9 @@ enum AccessibilityReader {
         if rect == nil, let frame = fieldFrame(field) {
             rect = (caret >= 0 ? measuredCaretRect(field, caret: caret, field: frame) : nil) ?? CaretLine.line(frame)
         }
+
+        // Docs and Slides report their caret on a hidden strip; it is found on screen.
+        if GoogleEditorText.isTextTarget(field) { rect = GoogleEditorCaret.shared.locate(in: field) }
 
         guard let text = window else { return nil }
 
@@ -305,6 +317,7 @@ enum AccessibilityReader {
     /// Measure a known editor after its owner has been validated. Avoid a
     /// second focus lookup that could accidentally measure another window.
     static func caretRect(of field: AXUIElement) -> CGRect? {
+        if GoogleEditorText.isTextTarget(field) { return GoogleEditorCaret.shared.locate(in: field) }
         var selection = CFRange(location: 0, length: 0)
         var caret = -1
         if let rangeValue = attribute(field, kAXSelectedTextRangeAttribute as String),

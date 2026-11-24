@@ -768,9 +768,14 @@ final class HighlightReader {
         var stillOpenElsewhere = Set<String>()
         var textStyles: [String: HostTextStyle] = [:]
         var room: [String: Room] = [:]
+        // Docs' and Slides' hidden field has no geometry to measure: asking
+        // character by character only holds up the card's reads. Their links
+        // are kept but drawn without pills.
+        let measurable = !GoogleEditorText.isTextTarget(context.element)
         for reference in references {
             switch matches[reference.id] {
             case .resolved(let range)?:
+                guard measurable else { break }
                 rects[reference.id] = geometry.rects(for: range, in: snapshot) { [adapter] range in
                     adapter.measuredRects(for: range, in: context)
                 }

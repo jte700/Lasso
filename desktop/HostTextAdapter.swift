@@ -16,10 +16,17 @@ enum HostTextSafety {
     /// A field for finding things, not for writing: a search field, a combo
     /// box, a browser's address bar. What is typed there is a query, and a
     /// card over it only gets in the way of the app's own suggestions.
-    static func isLookup(role: String?, subrole: String?, identifier: String?) -> Bool {
+    /// Chromium 158 dropped the address bar's identifier; its view class
+    /// `OmniboxViewViews` still names it, in Chrome, Edge and the rest. The
+    /// new tab page's search box hands its typing to that same bar.
+    static func isLookup(role: String?, subrole: String?, identifier: String?,
+                         classes: [String] = []) -> Bool {
         subrole == "AXSearchField" || role == "AXComboBox"
             || (identifier?.localizedCaseInsensitiveContains("ADDRESS_AND_SEARCH") ?? false)
+            || classes.contains(chromiumAddressBarClass)
     }
+
+    static let chromiumAddressBarClass = "OmniboxViewViews"
 }
 
 /// Identity of the surface being written in, so highlights never appear over an
