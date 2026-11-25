@@ -13,7 +13,7 @@ struct SourceScopeEntry: Equatable {
     /// The SF Symbol drawn beside the title, as the Lasso menu draws it.
     let symbol: String
 
-    static let all = SourceScopeEntry(projectId: nil, title: "All", symbol: "lasso")
+    static let all = SourceScopeEntry(projectId: nil, title: "All", symbol: MascotMark.symbolName)
 }
 
 struct SourceScope: Equatable {

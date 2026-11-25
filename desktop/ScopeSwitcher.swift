@@ -148,8 +148,7 @@ private struct ScopeEntryLabel: View {
 
     var body: some View {
         HStack(spacing: ScopeSwitcherView.symbolGap) {
-            Image(systemName: entry.symbol)
-                .font(.system(size: 13, weight: .semibold))
+            LassoSymbol(name: entry.symbol, size: 13, weight: .semibold)
                 .foregroundStyle(tint)
                 .frame(width: ScopeSwitcherView.symbolWidth)
             Text(entry.title)

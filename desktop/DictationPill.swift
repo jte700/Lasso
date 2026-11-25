@@ -48,14 +48,13 @@ struct DictationPillView: View {
     }
 }
 
-/// The lasso and the waves, as the pill shows them.
+/// Lasso's mascot and the waves, as the pill shows them.
 private struct DictationWaves: View {
     @ObservedObject var model: DictationPillModel
 
     var body: some View {
         HStack(spacing: 9) {
-            Image(systemName: "lasso")
-                .font(.system(size: 13, weight: .semibold))
+            LassoSymbol(name: MascotMark.symbolName, size: 13, weight: .semibold)
                 .foregroundStyle(.secondary)
             if model.hearsVoice {
                 bars(model.heights)

@@ -263,16 +263,16 @@ struct LoopChangeActor: View {
                 .overlay(Circle().fill(RadialGradient(colors: [Color.white.opacity(0.45), .clear],
                                                       center: .init(x: 0.32, y: 0.28), startRadius: 0, endRadius: 9)))
         case .agent:
-            ring(Image(systemName: "sparkles"))
+            ring("sparkles")
         case .disk:
-            ring(Image(systemName: "internaldrive"))
+            ring("internaldrive")
         case .lasso:
-            ring(Image(systemName: "lasso"))
+            ring(MascotMark.symbolName)
         }
     }
 
-    private func ring(_ image: Image) -> some View {
-        image.font(.system(size: compact ? 9 : 10.5, weight: .medium)).foregroundStyle(LoopLook.ink2)
+    private func ring(_ symbol: String) -> some View {
+        LassoSymbol(name: symbol, size: compact ? 9 : 10.5, weight: .medium).foregroundStyle(LoopLook.ink2)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(Circle().strokeBorder(LoopLook.line, lineWidth: 1))
     }
