@@ -430,6 +430,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var progressRequest: URLSessionDataTask?
     private static let progressInterval: TimeInterval = 0.25
     private var progressFollowUp = false
+    /// A switch flipped in the panel usually answers at once; its bar and busy
+    /// line wait this long, so a quick change does not make the panel jump.
+    private static let switchProgressDelay: TimeInterval = 5
+    /// Whether the running request's busy line and bar are on show yet.
+    private var isBusyShown = true
+    private var busyRevealTimer: Timer?
+    /// Changes asked for while a request runs unseen, sent in turn once it answers.
+    private var queuedChanges: [() -> Void] = []
+    /// Where a folder's or app's switch was flipped to, kept until the server answers.
+    private var flippedSwitches: [String: Bool] = [:]
+    /// The panel's controls stay lit while a request runs unseen; changes made then wait their turn.
+    private var areControlsLocked: Bool { busyMessage != nil && isBusyShown }
     /// Folders show selection circles until Cancel, Escape, a removal or the
     /// panel closes. Chosen folders are removed together in one step.
     private var isRemovingDirectories = false
@@ -683,7 +695,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             || connections.contains { $0.progress != nil }
         // A folder being read shows its own bar; the header has one only for
         // requests no folder reports, such as a removal.
-        statusMenu.addItem(headerItem(activeCount: activeCount, busy: busyMessage != nil && !reading && adding == nil))
+        statusMenu.addItem(headerItem(activeCount: activeCount,
+                                      busy: busyMessage != nil && isBusyShown && !reading && adding == nil))
         addPermissionCommands()
         if let workspaceError {
             let item = label(workspaceError)
@@ -723,7 +736,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Add Work Directories as the island, showing how the last addition is going.
     private func addDirectoriesItem() -> NSMenuItem {
         let add = command("Add Work Directories\u{2026}", action: #selector(addDirectoriesFromPanel),
-                          enabled: isServerReady && busyMessage == nil)
+                          enabled: isServerReady && !areControlsLocked)
         add.toolTip = "Choose folders for Lasso to read. Command-click to choose several."
         addIsland.actionItem = add
         addIsland.show(folderAddition?.state(folders: directories.map(\.additionStatus)) ?? .idle)
@@ -769,8 +782,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let note = !directory.available ? " (unavailable)"
                 : directory.needsAttention ? " (needs attention)" : ""
             let item = command(title + note, action: #selector(toggleDirectory(_:)),
-                               enabled: isServerReady && busyMessage == nil && directory.progress == nil)
-            item.state = directory.active ? .on : .off
+                               enabled: isServerReady && !areControlsLocked && directory.progress == nil)
+            item.state = (flippedSwitches[directory.id] ?? directory.active) ? .on : .off
             item.representedObject = directory.id
             let usage = directory.progress != nil ? "Lasso is reading this folder."
                 : directory.needsAttention ? "Click to try this folder again."
@@ -805,7 +818,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         group.toolTip = "External drives, mail and calendar apps, and removing work directories."
         let items = NSMenu()
         items.autoenablesItems = false
-        items.addItem(driveMenu.item(ready: isServerReady, idle: busyMessage == nil))
+        items.addItem(driveMenu.item(ready: isServerReady, idle: !areControlsLocked))
         let connect = command("Connect 3rd Party Apps\u{2026}", action: #selector(showConnectApps), enabled: isServerReady)
         connect.toolTip = "Bring in mail, calendars and notes from Outlook, Google Calendar, Notion and more."
         items.addItem(connect)
@@ -833,9 +846,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let id = connection.id
             let signingIn = connection.status == "connecting"
             let item = command(connection.name + (signingIn ? " (signing in)" : ""), action: #selector(toggleConnection(_:)),
-                               enabled: isServerReady && busyMessage == nil && connection.projectId != nil
+                               enabled: isServerReady && !areControlsLocked && connection.projectId != nil
                                 && connection.progress == nil && !signingIn)
-            item.state = connection.active ? .on : .off
+            item.state = (flippedSwitches[id] ?? connection.active) ? .on : .off
             item.representedObject = id
             let synced = connection.lastSyncedAt.map {
                 "Synced " + RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) + "."
@@ -874,7 +887,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The header's line: what Lasso is doing, or what it needs.
     private func statusSubtitle(activeCount: Int) -> String {
         // The add control says which folders are being added.
-        if let busyMessage, folderAddition?.outcome != .running { return busyMessage }
+        if let busyMessage, isBusyShown, folderAddition?.outcome != .running { return busyMessage }
         switch server?.state {
         case .ready: break
         case .failed: return "The server is unavailable."
@@ -894,6 +907,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspaceRequest = nil
         stopProgressPolling()
         busyMessage = nil
+        queuedChanges = []
+        flippedSwitches = [:]
         switch state {
         case .ready:
             GlobalAssistant.shared.serverURL = server.url
@@ -1166,6 +1181,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func stopProgressPolling() {
+        busyRevealTimer?.invalidate()
+        busyRevealTimer = nil
         progressTimer?.invalidate()
         progressTimer = nil
         progressRequest?.cancel()
@@ -1179,7 +1196,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// (`answersWithWorkspace` false); the workspace is read again afterwards.
     private func mutateWorkspace(path: String, method: String = "POST", body: [String: Any]? = nil, message: String,
                                  failureTitle: String = "Work Directories Couldn\u{2019}t Be Updated",
-                                 answersWithWorkspace: Bool = true, finished: ((Bool) -> Void)? = nil) {
+                                 answersWithWorkspace: Bool = true, showsProgressAfter delay: TimeInterval = 0,
+                                 finished: ((Bool) -> Void)? = nil) {
+        if isServerReady, busyMessage != nil, !isBusyShown {
+            queuedChanges = queuedChanges + [{ [weak self] in
+                self?.mutateWorkspace(path: path, method: method, body: body, message: message, failureTitle: failureTitle,
+                                      answersWithWorkspace: answersWithWorkspace, showsProgressAfter: delay, finished: finished)
+            }]
+            return
+        }
         guard isServerReady, busyMessage == nil, let base = server.url else {
             if let finished {
                 finished(false)
@@ -1191,13 +1216,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let token = workspaceGeneration
         workspaceRequest?.cancel()
         busyMessage = message
+        isBusyShown = delay <= 0
         workspaceError = nil
         // In-flight predictions cannot outlive a directory selection change.
         GlobalAssistant.shared.suspendWorkspace()
         rebuildMenu()
         // The issue card closes when its button is pressed. Bring the progress
         // header into view even when that folder was below the menu's fold.
-        statusPopover.revealProgress()
+        if isBusyShown { statusPopover.revealProgress() }
         var request = URLRequest(url: base.appendingPathComponent(path))
         request.httpMethod = method
         request.timeoutInterval = method == "DELETE" ? 120 : Self.indexingRequestTimeout
@@ -1228,10 +1254,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.showError(message, title: failureTitle)
                     self.refreshWorkspace()
                 }
+                self.sendQueuedChange()
             }
         }
         workspaceRequest?.resume()
-        startProgressPolling(token: token)
+        if isBusyShown {
+            startProgressPolling(token: token)
+        } else {
+            revealBusy(token: token, after: delay)
+        }
+    }
+
+    /// Sends the next change made while the last request ran, once nothing else runs.
+    private func sendQueuedChange() {
+        guard busyMessage == nil, let next = queuedChanges.first else { return }
+        queuedChanges = Array(queuedChanges.dropFirst())
+        next()
+    }
+
+    /// Keeps a flipped switch where it was flipped to until its request answers.
+    private func flipSwitch(_ id: String, to active: Bool) -> (Bool) -> Void {
+        flippedSwitches = flippedSwitches.merging([id: active]) { _, new in new }
+        return { [weak self] _ in
+            // A later flip of the same switch keeps its own position.
+            guard let self, self.flippedSwitches[id] == active else { return }
+            self.flippedSwitches = self.flippedSwitches.filter { $0.key != id }
+        }
+    }
+
+    /// Shows a request's busy line and bar once it has run longer than `delay`.
+    private func revealBusy(token: Int, after delay: TimeInterval) {
+        stopProgressPolling()
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+            guard let self, token == self.workspaceGeneration, self.busyMessage != nil else { return }
+            self.isBusyShown = true
+            self.rebuildMenu()
+            self.statusPopover.revealProgress()
+            self.startProgressPolling(token: token)
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        busyRevealTimer = timer
     }
 
     @objc private func addDirectoriesFromPanel() {
@@ -1242,7 +1304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func addDirectories() {
         let fromPanel = addingFromPanel
         addingFromPanel = false
-        guard isServerReady, busyMessage == nil else { return }
+        guard isServerReady, !areControlsLocked else { return }
         let panel = NSOpenPanel()
         panel.title = "Add Work Directories"
         panel.message = "Choose the folders Lasso should use. Command-click to select several, or Shift-click to select a range."
@@ -1272,10 +1334,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let directory = directories.first(where: { $0.id == id }) else { return }
         // A folder that is on but failed to start is retried, not paused:
         // pausing it would take a second click to get it working.
-        let activate = !directory.active || directory.needsAttention
+        // A switch flipped while an earlier change runs turns from where it was flipped to.
+        let activate = flippedSwitches[id].map { !$0 } ?? (!directory.active || directory.needsAttention)
         mutateWorkspace(path: "api/workspace/directories/" + id,
                         body: WorkspaceAPI.toggleDirectoryBody(active: activate),
-                        message: activate ? "Activating and indexing directory…" : "Pausing directory…")
+                        message: activate ? "Activating and indexing directory…" : "Pausing directory…",
+                        showsProgressAfter: Self.switchProgressDelay, finished: flipSwitch(id, to: activate))
     }
 
     /// Pauses and resumes directories one after another, as The Ranch's
@@ -1285,7 +1349,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let name = directories.first { $0.id == change.id }?.name ?? "directory"
         mutateWorkspace(path: "api/workspace/directories/" + change.id,
                         body: WorkspaceAPI.toggleDirectoryBody(active: change.active),
-                        message: change.active ? "Activating and indexing \(name)\u{2026}" : "Pausing \(name)\u{2026}") { [weak self] _ in
+                        message: change.active ? "Activating and indexing \(name)\u{2026}" : "Pausing \(name)\u{2026}",
+                        showsProgressAfter: Self.switchProgressDelay) { [weak self] _ in
             self?.ranch.store.reload()
             self?.setDirectoriesActive(Array(changes.dropFirst()))
         }
@@ -1317,7 +1382,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func addRemovalCommands() {
         let order = directories.map(\.id)
         let count = removalSelection.ordered(order).count
-        let ready = isServerReady && busyMessage == nil
+        let ready = isServerReady && !areControlsLocked
         let remove = command(WorkspaceAPI.removalCommandTitle(count: count),
                              action: #selector(removeSelectedDirectories), enabled: ready && count > 0)
         remove.toolTip = count == 0 ? "Click folders below to select them. Shift-click selects a range."
@@ -1347,7 +1412,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let shown = Dictionary(uniqueKeysWithValues: zip(directories.map(\.id),
             WorkspaceAPI.distinctNames(directories.map { (name: $0.name, path: $0.rootPath) })))
         let names = ids.compactMap { shown[$0] }
-        guard !ids.isEmpty, isServerReady, busyMessage == nil, confirmRemoval(of: names) else { return }
+        guard !ids.isEmpty, isServerReady, !areControlsLocked, confirmRemoval(of: names) else { return }
         isRemovingDirectories = false
         removalSelection = DirectorySelection()
         mutateWorkspace(path: "api/workspace/directories", method: "DELETE",
@@ -1434,10 +1499,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleConnection(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String,
               let connection = connections.first(where: { $0.id == id }) else { return }
-        let activate = !connection.active
+        let activate = !(flippedSwitches[id] ?? connection.active)
         mutateWorkspace(path: "api/connections/" + id, body: ["active": activate],
                         message: activate ? "Switching on \(connection.name)…" : "Pausing \(connection.name)…",
-                        failureTitle: "The Connected App Couldn\u{2019}t Be Updated")
+                        failureTitle: "The Connected App Couldn\u{2019}t Be Updated",
+                        showsProgressAfter: Self.switchProgressDelay, finished: flipSwitch(id, to: activate))
     }
 
     /// Reads the app again. Its row shows how far that has got.
