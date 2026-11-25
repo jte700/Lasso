@@ -619,13 +619,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func buildStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            if let symbol = NSImage(systemSymbolName: "lasso", accessibilityDescription: "Lasso")
-                ?? NSImage(systemSymbolName: "link", accessibilityDescription: "Lasso") {
-                symbol.isTemplate = true
-                button.image = symbol
-            } else {
-                button.title = ">_"
-            }
+            button.image = MascotMark.menuBarImage()
             button.toolTip = "Lasso work directories"
             button.target = self
             button.action = #selector(toggleStatusPopover(_:))

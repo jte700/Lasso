@@ -360,14 +360,16 @@ case "$ICON_STYLE" in
   *) echo "error: LASSO_ICON_STYLE must be full-bleed or squircle." >&2; exit 1 ;;
 esac
 ICON_CACHE="${LASSO_ICON_CACHE:-${TMPDIR:-/tmp}/lasso-app-icon}"
-ICON_HASH="$(shasum -a 256 "$ROOT/scripts/render-app-icon.swift" | awk '{ print $1 }')"
+ICON_HASH="$(cat "$ROOT/scripts/render-app-icon.swift" "$ROOT/desktop/MascotShape.swift" | shasum -a 256 | awk '{ print $1 }')"
 ICON_FILE="$ICON_CACHE/AppIcon-$ICON_STYLE-$ICON_HASH.icns"
 if [ ! -f "$ICON_FILE" ]; then
-  mkdir -p "$ICON_CACHE"
+  mkdir -p "$ICON_CACHE" "$BUILD_DIR/render-app-icon-src"
   # The icon renderer runs only here and is not shipped, so it keeps this
-  # Mac's default target.
+  # Mac's default target. It shares the mascot's paths with the app, and its
+  # top-level code must be main.swift when compiled with another file.
+  cp "$ROOT/scripts/render-app-icon.swift" "$BUILD_DIR/render-app-icon-src/main.swift"
   swiftc -O -module-cache-path "${LASSO_SWIFT_MODULE_CACHE:-${TMPDIR:-/tmp}/lasso-swift-module-cache}" -framework AppKit \
-    -o "$BUILD_DIR/render-app-icon" "$ROOT/scripts/render-app-icon.swift"
+    -o "$BUILD_DIR/render-app-icon" "$BUILD_DIR/render-app-icon-src/main.swift" "$ROOT/desktop/MascotShape.swift"
   "$BUILD_DIR/render-app-icon" "$BUILD_DIR/AppIcon.iconset" ${ICON_FLAGS[@]+"${ICON_FLAGS[@]}"}
   iconutil -c icns -o "$BUILD_DIR/AppIcon.icns" "$BUILD_DIR/AppIcon.iconset"
   mv "$BUILD_DIR/AppIcon.icns" "$ICON_FILE"
