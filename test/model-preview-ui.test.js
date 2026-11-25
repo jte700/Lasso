@@ -197,6 +197,22 @@ test('dragging the drawing never selects it, and still gives it keyboard focus',
   assert.deepEqual(focused, { preventScroll: true }, 'arrow keys keep working after a drag');
 });
 
+test('dragging the drawing draws no focus ring, but a key pressed in it or a later Tab shows one', () => {
+  // Arrange
+  assert.match(MODEL_PLAN_STYLE, /\.model-plan-svg\[data-pointer-focus\]:focus-visible\{outline:none\}/);
+  const view = boundPlan(renderModelPlan(solid));
+  view.svg.focus = () => {};
+
+  // Act and Assert
+  view.fire('pointerdown', { button: 0, pointerId: 4, clientX: 0, clientY: 0 });
+  assert.equal(view.svg.dataset.pointerFocus, 'true', 'a drag hides the ring');
+  view.fire('keydown', { key: 'ArrowLeft' });
+  assert.equal(view.svg.dataset.pointerFocus, undefined, 'a key shows it again');
+  view.fire('pointerdown', { button: 0, pointerId: 5, clientX: 0, clientY: 0 });
+  view.fire('blur');
+  assert.equal(view.svg.dataset.pointerFocus, undefined, 'tabbing back in shows it');
+});
+
 test('shift-dragging a 3D view pans instead of rotating', () => {
   const view = boundPlan(renderModelPlan(solid));
   const initial = view.paths[0].d;
