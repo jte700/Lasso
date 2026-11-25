@@ -110,7 +110,7 @@
     { label: 'Security', href: '/security/', keys: ['G', 'Y'], icon: '-' },
     { label: 'Benchmarks', href: '/benchmarks/', keys: ['G', 'B'], icon: '#' },
     { label: 'Lasso MCP', href: '/mcp/', keys: ['G', 'M'], icon: '>' },
-    { label: 'The Ranch', href: '/ranch/', keys: ['G', 'R'], icon: '~' },
+    { label: 'The Loop', href: '/loop/', keys: ['G', 'R'], icon: '~' },
     { label: 'Savings calculator', href: '/mcp/#calc', keys: ['G', 'A'], icon: '$' },
     { label: 'Download', href: '/download/', keys: ['G', 'D'], icon: '!' },
     { label: 'Sources', href: '/sources/', keys: ['G', 'S'], icon: '*' },

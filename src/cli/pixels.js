@@ -1,7 +1,7 @@
 // Lasso's mascot and wordmark as terminal pixel art. Each character cell
 // holds two pixels, one above the other, drawn with half blocks (▀ ▄ █), so
 // pixels come out close to square. The mascot is the open-bot-avatar kit's
-// figure the website and The Ranch use (brand/mascot/open-bot-avatar): a
+// figure the website and The Loop use (brand/mascot/open-bot-avatar): a
 // rounded body under a pinched cowboy-hat crown, its brim tips raised, two
 // pill eyes. During the intro it twirls a rope loop above its hat.
 
@@ -35,7 +35,7 @@ const EYES = {
 
 export const EXPRESSIONS = Object.keys(EYES);
 
-/** The mascot's colours by look, as the 3D mascot's palettes pair body and eyes (RanchMascot3D.swift). */
+/** The mascot's colours by look, as the 3D mascot's palettes pair body and eyes (LoopMascot3D.swift). */
 export const LOOKS = Object.freeze({
   green: { body: PALETTE.green, eye: PALETTE.ink },
   lime: { body: PALETTE.lime, eye: '#20281b' },
@@ -172,7 +172,7 @@ function mixAt(stops, t) {
 export const SPINNER_FRAMES = ['◜', '◠', '◝', '◞', '◡', '◟'];
 
 /**
- * What the spinner says while a command runs: Lasso's own work, in ranch
+ * What the spinner says while a command runs: Lasso's own work, in cowboy
  * words, as Claude Code's spinner has its verbs.
  */
 export const SPINNER_WORDS = [

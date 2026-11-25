@@ -2,7 +2,7 @@
 // the names a line declares, as Xcode's default themes draw them. The
 // languages and colours are code-syntax.json, which the Mac app reads too
 // (desktop/CodeSyntax.swift), so a file looks alike in the suggestion card,
-// The Ranch and the source inspector. Both read text as UTF-16 code units,
+// The Loop and the source inspector. Both read text as UTF-16 code units,
 // step for step alike, and must agree on every token;
 // test/fixtures/code-syntax-cases.json holds them to it.
 

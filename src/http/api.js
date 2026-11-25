@@ -21,7 +21,7 @@ import { connectionRoutes } from './connection-routes.js';
 import { driveRoutes } from './drive-routes.js';
 import { passageRoutes } from './passage-routes.js';
 import { sheetRoutes } from './sheet-routes.js';
-import { ranchRoutes } from './ranch-routes.js';
+import { loopRoutes } from './loop-routes.js';
 import { reviewRoutes } from './review-routes.js';
 import { workspaceRoutes } from './workspace-routes.js';
 import { writingRoutes } from './writing-routes.js';
@@ -51,7 +51,7 @@ function pinnedQuery(versionId, resolved, askedSnapshotId) {
   return askedSnapshotId ? `${version}&snapshot=${encodeURIComponent(resolved.internal.snapshotId)}` : version;
 }
 
-export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null, workspace = null, connections = null, ranch = null, writing = null, reviews = null, authorship = null) {
+export function createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal = null, workspace = null, connections = null, loop = null, writing = null, reviews = null, authorship = null) {
   const { resolvedModelPreview, resolvedModelDocument, sharedContent } = sharedContentReader({ timeline, dependencies });
   // A word inserted with a share link previews that link in the inspector,
   // never a link made for another source. One that ended says so.
@@ -223,7 +223,7 @@ export function createRequestHandler(timeline, rfi, dependencies, config, object
         return sendJson(response, 200, { ok: true, service: 'scientific-version-timeline' });
       }
       if (workspace && await workspaceRoutes({ request, response, url, pathname, workspace, dependencies, terminal })) return;
-      if (ranch && await ranchRoutes({ request, response, url, pathname, ranch })) return;
+      if (loop && await loopRoutes({ request, response, url, pathname, loop })) return;
       if (writing && await writingRoutes({ request, response, pathname, writing })) return;
       if (reviews && await reviewRoutes({ request, response, url, pathname, reviews })) return;
       if (authorship && await provenanceRoutes({ request, response, url, pathname, authorship })) return;

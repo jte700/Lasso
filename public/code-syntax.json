@@ -1,5 +1,5 @@
 {
-  "about": "How code is coloured in The Ranch, the suggestion card and the source inspector. Read by public/code-syntax.js and desktop/CodeSyntax.swift, which must colour alike (test/fixtures/code-syntax-cases.json). Word lists are separated by spaces; where typesAfter is given, a built-in type name is coloured only after one of its characters, so `number` the variable stays plain. Colours are Xcode's default light and dark themes.",
+  "about": "How code is coloured in The Loop, the suggestion card and the source inspector. Read by public/code-syntax.js and desktop/CodeSyntax.swift, which must colour alike (test/fixtures/code-syntax-cases.json). Word lists are separated by spaces; where typesAfter is given, a built-in type name is coloured only after one of its characters, so `number` the variable stays plain. Colours are Xcode's default light and dark themes.",
   "colors": {
     "comment": { "light": "#5D6C79", "dark": "#7F8C98" },
     "string": { "light": "#C41A16", "dark": "#FC6A5D" },

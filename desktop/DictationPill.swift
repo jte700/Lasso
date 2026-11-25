@@ -102,7 +102,7 @@ private struct DictationGlass: View {
         if #available(macOS 26.0, *), NativeMaterial.usesGlass {
             Color.clear.glassEffect(.regular, in: shape)
         } else {
-            RanchVisualEffect(material: .popover)
+            LoopVisualEffect(material: .popover)
                 .clipShape(shape)
                 .overlay(shape.stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
         }

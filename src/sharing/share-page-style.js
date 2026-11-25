@@ -1,5 +1,5 @@
 // How recipient pages look: a macOS document on a quiet ground, with a glass
-// toolbar, grey capsule controls and hairlines, as The Ranch draws its own.
+// toolbar, grey capsule controls and hairlines, as The Loop draws its own.
 // Scoped so the native inspector keeps its own sizing and toolbar.
 export const RECIPIENT_STYLE = `
   body.shared-recipient{--canvas:#f5f5f7;--paper:#fff;--surface:#fafafb;--wash:rgba(0,0,0,.05);--wash-strong:rgba(0,0,0,.1);

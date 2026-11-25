@@ -144,7 +144,7 @@ test("A share link's download and copy buttons are grey like the suggestion card
     'the main download is told apart by weight, not colour');
 });
 
-test("A share page shows its source's file type as The Ranch does: a page with the type on a band in its colour", () => {
+test("A share page shows its source's file type as The Loop does: a page with the type on a band in its colour", () => {
   // Arrange
   const page = (filename) => renderSharePage({ source: { label: 'Administration · Budget', filename },
     share: { accessScope: 'INDEXED', redactions: [] } }, 'token', null);
@@ -155,5 +155,5 @@ test("A share page shows its source's file type as The Ranch does: a page with t
 
   // Assert
   assert.match(workbook, /<svg class="file-type-icon"[^>]*>[\s\S]*fill="#107C41"[\s\S]*>XLSX<\/text>/, 'a workbook in Excel green');
-  assert.match(pdf, /fill="#D93025"[\s\S]*>PDF<\/text>/, 'a PDF in red, as in The Ranch');
+  assert.match(pdf, /fill="#D93025"[\s\S]*>PDF<\/text>/, 'a PDF in red, as in The Loop');
 });

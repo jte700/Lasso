@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lasso card scenes</title>
-<!-- The pictures and clips in the homepage and Ranch cards are drawn here and captured by render.mjs.
+<!-- The pictures and clips in the homepage and Loop cards are drawn here and captured by render.mjs.
      Open ?s=writer&theme=dark&live to watch a scene play. Each scene is a 1000 by 1000 drawing with
      a tick(t) that sets every element for a time in milliseconds, so a capture is the same each run. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -91,36 +91,36 @@ body { -webkit-font-smoothing: antialiased; }
 .term { font: 400 20.5px/1.62 "Geist Mono", ui-monospace, Menlo, monospace; color: #e9e9e4; }
 .term .dim { color: #8a8d86; } .term .lime { color: var(--lime); } .term .sky { color: var(--sky); } .term .you { color: #fff; }
 
-/* The Ranch: its own dark look and the website's typeface */
-.ranch { position: absolute; border-radius: 26px; overflow: hidden; background: #1a1b18; box-shadow: 0 60px 110px -40px rgb(0 0 0 / .85), 0 0 0 1px rgb(255 255 255 / .1);
+/* The Loop: its own dark look and the website's typeface */
+.loop { position: absolute; border-radius: 26px; overflow: hidden; background: #1a1b18; box-shadow: 0 60px 110px -40px rgb(0 0 0 / .85), 0 0 0 1px rgb(255 255 255 / .1);
   font-family: "Figtree", -apple-system, sans-serif; color: #f6f4ec; letter-spacing: -.01em; }
-.ranch .side { position: absolute; left: 0; top: 0; bottom: 0; width: 226px; padding: 70px 14px 0; font-size: 20px; color: rgb(246 244 236 / .7); }
-.ranch .side .lights { top: 24px; }
-.ranch .si { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 10px; border-radius: 12px; white-space: nowrap; font-size: 18.5px; }
-.ranch .si.on { background: rgb(246 244 236 / .1); color: #f6f4ec; }
-.ranch .si b { margin-left: auto; min-width: 26px; height: 24px; padding: 0 7px; border-radius: 999px; background: var(--terracotta); color: #fff; font-size: 15px; display: grid; place-items: center; }
-.ranch .si svg { width: 22px; height: 22px; flex: none; opacity: .85; }
-.ranch .sh { margin: 22px 14px 8px; font-size: 16px; font-weight: 600; color: rgb(246 244 236 / .4); }
-.ranch .tree { padding-left: 30px; }
-.ranch .page { position: absolute; left: 226px; top: 64px; right: 10px; bottom: 10px; border-radius: 18px; background: #0f100e; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .06); overflow: hidden; }
-.ranch .title { position: absolute; left: 252px; top: 14px; font-size: 25px; font-weight: 600; display: flex; align-items: center; gap: 14px; }
-.ranch .bell { position: absolute; right: 30px; top: 18px; width: 26px; height: 26px; opacity: .7; }
-.ranch .lrow { display: grid; grid-template-columns: 64px 30px 1fr 236px 14px; align-items: center; gap: 12px; height: 70px; padding: 0 26px; font-size: 20px; box-shadow: inset 0 -1px 0 rgb(255 255 255 / .06); }
-.ranch .lrow .t { color: rgb(246 244 236 / .45); font-variant-numeric: tabular-nums; }
-.ranch .who { display: flex; align-items: center; gap: 10px; }
-.ranch .av { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; font-weight: 700; color: #10110f; flex: none; }
-.ranch .src { display: flex; align-items: center; gap: 10px; color: rgb(246 244 236 / .7); overflow: hidden; white-space: nowrap; }
-.ranch .chev { width: 14px; height: 14px; border-right: 2.5px solid rgb(246 244 236 / .4); border-bottom: 2.5px solid rgb(246 244 236 / .4); transform: rotate(-45deg); }
-.ranch .newpill { position: absolute; left: 50%; top: 18px; translate: -50% 0; height: 44px; padding: 0 20px; border-radius: 999px; background: var(--sky); color: #0b1a28; font-size: 19px; font-weight: 600; display: flex; align-items: center; gap: 8px; box-shadow: 0 16px 30px -14px rgb(0 0 0 / .8); }
-.ranch .diff { overflow: hidden; background: rgb(246 244 236 / .035); box-shadow: inset 0 -1px 0 rgb(255 255 255 / .06); }
-.ranch .dl { display: grid; grid-template-columns: 30px 1fr 90px 90px; align-items: center; height: 46px; padding: 0 30px; font-size: 19px; font-variant-numeric: tabular-nums; }
-.ranch .dl.minus { background: rgb(255 107 107 / .12); } .ranch .dl.plus { background: rgb(60 207 122 / .13); }
-.ranch .fact { display: flex; flex-wrap: wrap; gap: 6px 22px; padding: 18px 30px 14px; font-size: 17px; color: rgb(246 244 236 / .5); }
-.ranch .fact b { color: rgb(246 244 236 / .85); font-weight: 600; }
-.ranch .glass { background: rgb(40 41 37 / .82); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .1), inset 0 1px 0 rgb(255 255 255 / .12), 0 24px 50px -20px rgb(0 0 0 / .8); }
-.ranch .chip { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px; border-radius: 999px; background: rgb(142 197 244 / .18); color: var(--sky); font-size: 18px; font-weight: 600; }
-.ranch .btn { font-family: inherit; background: rgb(246 244 236 / .1); color: #f6f4ec; box-shadow: none; border-radius: 999px; }
-.ranch .btn.ink { background: #f6f4ec; color: #10110f; }
+.loop .side { position: absolute; left: 0; top: 0; bottom: 0; width: 226px; padding: 70px 14px 0; font-size: 20px; color: rgb(246 244 236 / .7); }
+.loop .side .lights { top: 24px; }
+.loop .si { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 10px; border-radius: 12px; white-space: nowrap; font-size: 18.5px; }
+.loop .si.on { background: rgb(246 244 236 / .1); color: #f6f4ec; }
+.loop .si b { margin-left: auto; min-width: 26px; height: 24px; padding: 0 7px; border-radius: 999px; background: var(--terracotta); color: #fff; font-size: 15px; display: grid; place-items: center; }
+.loop .si svg { width: 22px; height: 22px; flex: none; opacity: .85; }
+.loop .sh { margin: 22px 14px 8px; font-size: 16px; font-weight: 600; color: rgb(246 244 236 / .4); }
+.loop .tree { padding-left: 30px; }
+.loop .page { position: absolute; left: 226px; top: 64px; right: 10px; bottom: 10px; border-radius: 18px; background: #0f100e; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .06); overflow: hidden; }
+.loop .title { position: absolute; left: 252px; top: 14px; font-size: 25px; font-weight: 600; display: flex; align-items: center; gap: 14px; }
+.loop .bell { position: absolute; right: 30px; top: 18px; width: 26px; height: 26px; opacity: .7; }
+.loop .lrow { display: grid; grid-template-columns: 64px 30px 1fr 236px 14px; align-items: center; gap: 12px; height: 70px; padding: 0 26px; font-size: 20px; box-shadow: inset 0 -1px 0 rgb(255 255 255 / .06); }
+.loop .lrow .t { color: rgb(246 244 236 / .45); font-variant-numeric: tabular-nums; }
+.loop .who { display: flex; align-items: center; gap: 10px; }
+.loop .av { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; font-weight: 700; color: #10110f; flex: none; }
+.loop .src { display: flex; align-items: center; gap: 10px; color: rgb(246 244 236 / .7); overflow: hidden; white-space: nowrap; }
+.loop .chev { width: 14px; height: 14px; border-right: 2.5px solid rgb(246 244 236 / .4); border-bottom: 2.5px solid rgb(246 244 236 / .4); transform: rotate(-45deg); }
+.loop .newpill { position: absolute; left: 50%; top: 18px; translate: -50% 0; height: 44px; padding: 0 20px; border-radius: 999px; background: var(--sky); color: #0b1a28; font-size: 19px; font-weight: 600; display: flex; align-items: center; gap: 8px; box-shadow: 0 16px 30px -14px rgb(0 0 0 / .8); }
+.loop .diff { overflow: hidden; background: rgb(246 244 236 / .035); box-shadow: inset 0 -1px 0 rgb(255 255 255 / .06); }
+.loop .dl { display: grid; grid-template-columns: 30px 1fr 90px 90px; align-items: center; height: 46px; padding: 0 30px; font-size: 19px; font-variant-numeric: tabular-nums; }
+.loop .dl.minus { background: rgb(255 107 107 / .12); } .loop .dl.plus { background: rgb(60 207 122 / .13); }
+.loop .fact { display: flex; flex-wrap: wrap; gap: 6px 22px; padding: 18px 30px 14px; font-size: 17px; color: rgb(246 244 236 / .5); }
+.loop .fact b { color: rgb(246 244 236 / .85); font-weight: 600; }
+.loop .glass { background: rgb(40 41 37 / .82); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .1), inset 0 1px 0 rgb(255 255 255 / .12), 0 24px 50px -20px rgb(0 0 0 / .8); }
+.loop .chip { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px; border-radius: 999px; background: rgb(142 197 244 / .18); color: var(--sky); font-size: 18px; font-weight: 600; }
+.loop .btn { font-family: inherit; background: rgb(246 244 236 / .1); color: #f6f4ec; box-shadow: none; border-radius: 999px; }
+.loop .btn.ink { background: #f6f4ec; color: #10110f; }
 
 /* the suggestion card, drawn for scenes without a captured picture */
 .lc { position: absolute; display: grid; grid-template-columns: 44% 56%; border-radius: 22px; overflow: hidden; background: var(--menu); color: var(--ink);
@@ -237,8 +237,8 @@ const ICONS = {
   bell: '<svg class="bell" viewBox="0 0 24 24" fill="none" stroke="#f6f4ec" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>',
   folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg>',
 };
-/* The Ranch's sidebar, with one row chosen */
-const ranchSide = (on) => {
+/* The Loop's sidebar, with one row chosen */
+const loopSide = (on) => {
   const row = (key, label, extra = '') => `<div class="si${on === key ? ' on' : ''}">${ICONS[key === 'needs' ? 'flag' : key]}${label}${extra}</div>`;
   return `<div class="side">${LIGHTS}
     ${row('search', 'Search')}${row('sources', 'All Sources')}${row('changes', 'Recent Changes')}${row('links', 'Links')}${row('needs', 'Needs Review', '<b>2</b>')}${row('review', 'Review Changes')}
@@ -361,8 +361,8 @@ SCENES.share = {
   },
 };
 
-/* ---------- The Ranch: a change arrives, opens in place to what changed ---------- */
-const RANCH_ROWS = [
+/* ---------- The Loop: a change arrives, opens in place to what changed ---------- */
+const LOOP_ROWS = [
   ['13:47', 'C', 'ChatGPT', 'Website development 0 → 50', 'xlsx', 'Income-Statement.xlsx'],
   ['11:20', 'P', 'Priya Shah', 'Added clause 18.3', 'pdf', 'lease_unit4_signed.pdf'],
   ['10:02', 'L', 'Lee Moreau', 'New slide, Margin bridge', 'pptx', 'board_q3.pptx'],
@@ -370,13 +370,13 @@ const RANCH_ROWS = [
   ['Mon', 'P', 'Priya Shah', 'Revenue cut-off memo', 'docx', 'audit_memo_q3.docx'],
   ['Mon', 'Y', 'You', 'Hole Ø8 → Ø8.5', 'step', 'Bracket.step'],
 ];
-const ranchRow = ([time, who, name, change, kind, file], extra = '') => `<div class="lrow" ${extra}><span class="t">${time}</span><span class="who" title="${name}">${avatar(who)}</span><span>${change}</span><span class="src">${fileIcon(kind, 26)}${file}</span><i class="chev"></i></div>`;
-SCENES.ranch = {
+const loopRow = ([time, who, name, change, kind, file], extra = '') => `<div class="lrow" ${extra}><span class="t">${time}</span><span class="who" title="${name}">${avatar(who)}</span><span>${change}</span><span class="src">${fileIcon(kind, 26)}${file}</span><i class="chev"></i></div>`;
+SCENES.loop = {
   duration: 11000, still: 6400,
   build() {
     card.innerHTML = `<div class="glow" style="left:40px;top:80px;width:1000px;height:1000px;--a:120deg"></div>
-    <div class="ranch" style="left:50px;top:110px;width:900px;height:980px">
-      ${ranchSide('changes')}
+    <div class="loop" style="left:50px;top:110px;width:900px;height:980px">
+      ${loopSide('changes')}
       <div class="title">Recent Changes</div>${ICONS.bell}
       <div class="page"><div id="list" style="position:absolute;left:0;right:0;top:0"></div><div class="newpill" id="newpill">↑ 1 new change</div></div>
     </div>`;
@@ -391,7 +391,7 @@ SCENES.ranch = {
     const diffH = 330 * open;
     let html = '';
     if (arrived && reset < 1) {
-      html += ranchRow(this.fresh, `style="background:rgb(142 197 244 / ${0.16 * (1 - seg(t, OPEN_AT + 2200, OPEN_AT + 3200))});opacity:${slide * (1 - reset)}"`);
+      html += loopRow(this.fresh, `style="background:rgb(142 197 244 / ${0.16 * (1 - seg(t, OPEN_AT + 2200, OPEN_AT + 3200))});opacity:${slide * (1 - reset)}"`);
       html += `<div class="diff" style="height:${diffH}px">
         <div class="fact"><span>Sheet <b>P&amp;L</b></span><span>Cell <b>D12</b></span><span>Version <b>6 → 7</b></span><span>Saved by <b>you</b>, 14:02</span></div>
         <div class="dl minus"><span>−</span><span>Operating revenue · Q3</span><span>4.82</span><span></span></div>
@@ -400,7 +400,7 @@ SCENES.ranch = {
         <div class="dl"><span></span><span>Gross profit · Q3</span><span class="strike">1.85</span><span class="new">1.89</span></div>
         <div class="dl"><span></span><span>Gross margin · Q3</span><span class="strike">38.4%</span><span class="new">38.9%</span></div></div>`;
     }
-    html += RANCH_ROWS.map((r) => ranchRow(r)).join('');
+    html += LOOP_ROWS.map((r) => loopRow(r)).join('');
     const list = $('#list');
     list.innerHTML = html;
     list.style.transform = arrived ? `translateY(${(1 - slide) * -70 + reset * -70}px)` : '';
@@ -491,13 +491,13 @@ SCENES.mcp = {
   },
 };
 
-SCENES['ranch-review'] = {
+SCENES['loop-review'] = {
   build() {
     const cell = (a, b, changed) => (changed ? `<span><span class="strike">${a}</span> <span class="new">${b}</span></span>` : `<span>${a}</span>`);
     const line = (label, cur, prior, changed) => `<div class="dl" style="grid-template-columns:1fr 150px 90px;padding:0 26px;${changed ? 'background:rgb(60 207 122 / .1)' : ''}"><span>${label}</span>${cur}<span style="color:rgb(246 244 236 / .55)">${prior}</span></div>`;
     card.innerHTML = `<div class="glow" style="left:30px;top:80px;width:1000px;height:1000px;--a:260deg"></div>
-    <div class="ranch" style="left:50px;top:110px;width:900px;height:980px">
-      ${ranchSide('review')}
+    <div class="loop" style="left:50px;top:110px;width:900px;height:980px">
+      ${loopSide('review')}
       <div class="title">Review Changes</div>${ICONS.bell}
       <div class="page" style="padding:26px">
         <div class="row" style="justify-content:space-between"><div><div style="font-size:28px;font-weight:600">Accounting <span style="color:rgb(246 244 236 / .4);font-weight:500">v63</span></div>
@@ -522,13 +522,13 @@ SCENES['ranch-review'] = {
   },
 };
 
-SCENES['ranch-sources'] = {
+SCENES['loop-sources'] = {
   build() {
     const rows = [['xlsx', 'forecast_2026.xlsx', 'Spreadsheet', 'Accounting', '14:02'], ['docx', 'audit_memo_q3.docx', 'Word', 'Accounting', '11:40'], ['pptx', 'board_q3.pptx', 'Deck', 'Board', '10:02'],
       ['mov', 'Q3 close call.mov', 'Recording', 'Accounting', 'Mon'], ['csv', 'q3_bank_export.csv', 'Export', 'Accounting', 'Mon'], ['pdf', 'Q3 statement.pdf', 'PDF', 'Accounting', '2 Oct']];
     card.innerHTML = `<div class="glow" style="left:30px;top:80px;width:1000px;height:1000px;--a:20deg"></div>
-    <div class="ranch" style="left:50px;top:110px;width:900px;height:980px">
-      ${ranchSide('sources')}
+    <div class="loop" style="left:50px;top:110px;width:900px;height:980px">
+      ${loopSide('sources')}
       <div class="title">All Sources <span style="font-size:18px;color:rgb(246 244 236 / .4);font-weight:500">6 of 1,284</span></div>${ICONS.bell}
       <div class="page">
         <div class="lrow" style="grid-template-columns:1fr 130px 130px 70px;color:rgb(246 244 236 / .42);font-size:16px;height:52px"><span>Name</span><span>Kind</span><span>Folder</span><span>Changed</span></div>
@@ -542,10 +542,10 @@ SCENES['ranch-sources'] = {
   },
 };
 
-SCENES['ranch-share'] = {
+SCENES['loop-share'] = {
   build() {
     card.innerHTML = `<div class="glow" style="left:60px;top:80px;width:880px;height:880px;--a:330deg"></div>
-    <div class="ranch" style="left:80px;top:110px;width:840px;height:900px;padding:26px">
+    <div class="loop" style="left:80px;top:110px;width:840px;height:900px;padding:26px">
       <div style="position:relative;height:300px;border-radius:20px;overflow:hidden;background:radial-gradient(80% 90% at 30% 20%, rgb(142 197 244 / .55), transparent 70%),radial-gradient(70% 80% at 80% 90%, rgb(201 103 73 / .5), transparent 70%),#22241f">
         <img src="/assets/img/mascot/sky-happy.svg" style="position:absolute;left:190px;top:46px;width:220px;transform:rotate(-6deg)">
         <img src="/assets/img/mascot/terracotta-happy.svg" style="position:absolute;left:400px;top:62px;width:210px;transform:rotate(7deg)">

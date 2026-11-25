@@ -343,7 +343,7 @@ final class AssistSlidePreviewView: NSView {
     let pdfView = AssistSlidePDFView()
     let navigator: SlideDeckNavigator
     private let opening: Int
-    /// The Ranch puts the slide menu above the slides; the card puts it beneath.
+    /// The Loop puts the slide menu above the slides; the card puts it beneath.
     private let menuAtTop: Bool
     private var opened = false
     private let words: [String]

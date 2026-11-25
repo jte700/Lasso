@@ -8,7 +8,9 @@
     { "source": "/sources.html", "destination": "/sources/", "permanent": true },
     { "source": "/privacy.html", "destination": "/privacy/", "permanent": true },
     { "source": "/terms.html", "destination": "/terms/", "permanent": true },
-    { "source": "/craft.html", "destination": "/", "permanent": true }
+    { "source": "/craft.html", "destination": "/", "permanent": true },
+    { "source": "/ranch", "destination": "/loop/", "permanent": true },
+    { "source": "/ranch/", "destination": "/loop/", "permanent": true }
   ],
   "rewrites": [
     { "source": "/d/:token", "destination": "/api/shared?token=:token" },

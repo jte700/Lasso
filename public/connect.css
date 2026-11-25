@@ -1,4 +1,4 @@
-/* The Connect 3rd Party Apps window, in The Ranch's look (desktop/RanchLook.swift)
+/* The Connect 3rd Party Apps window, in The Loop's look (desktop/LoopLook.swift)
    and the website's: a near-black page, warm white type in Figtree, soft
    rounded panels, capsule buttons and the mascot's sky blue for what is on.
    It opens on "Lasso with …" cycling through the apps; the apps themselves
@@ -148,7 +148,7 @@ body[data-screen="sheet"] .intro * { pointer-events: none; }
 .glyph.notion { background: #fff; color: #191919; }
 .glyph.ics { background: var(--lift); color: var(--ink); }
 
-/* Capsule buttons, as The Ranch and the website draw them; the one strong
+/* Capsule buttons, as The Loop and the website draw them; the one strong
    button is filled with the page's ink. */
 .btn { display: inline-flex; align-items: center; justify-content: center; height: 30px; padding: 0 15px; border: 0; border-radius: 999px;
   background: var(--raise); color: var(--ink); font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;

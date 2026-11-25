@@ -16,7 +16,7 @@ import { RemovableDriveService } from './drives/service.js';
 import { createTerminal } from './terminal/service.js';
 import { WorkspaceService } from './workspace.js';
 import { ConnectionService } from './connections/service.js';
-import { RanchService } from './ranch/service.js';
+import { LoopService } from './loop/service.js';
 import { ReviewService } from './review/service.js';
 import { WritingService } from './writing/service.js';
 import { AuthorshipService } from './provenance/authorship.js';
@@ -73,7 +73,7 @@ export function createApplication(overrides = {}) {
   const drives = new RemovableDriveService(timeline, dependencies, config);
   const workspace = new WorkspaceService({ timeline, dependencies, terminal });
   const connections = new ConnectionService({ db, timeline, dependencies, workspace, config, fetchImpl: overrides.fetch });
-  const ranch = new RanchService({ timeline, dependencies, terminal, workspace, objectShares });
+  const loop = new LoopService({ timeline, dependencies, terminal, workspace, objectShares });
   const writing = new WritingService({ workspace, dependencies, config });
   const reviews = new ReviewService({ timeline, writing });
   // What an AI wrote into each file, kept as saves are recorded.
@@ -90,7 +90,7 @@ export function createApplication(overrides = {}) {
   retention.start();
   compaction.start();
   connections.start();
-  const handle = createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal, workspace, connections, ranch, writing, reviews, authorship);
+  const handle = createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal, workspace, connections, loop, writing, reviews, authorship);
   objectShares.publisher = new HostedSharePublisher({ config, db, handler: handle });
   const server = http.createServer((request, response) => {
     if (!isBackgroundPoll(request)) caches.active();
@@ -110,7 +110,7 @@ export function createApplication(overrides = {}) {
     drives,
     workspace,
     connections,
-    ranch,
+    loop,
     writing,
     reviews,
     authorship,

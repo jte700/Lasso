@@ -219,14 +219,14 @@ swift_binary "$CONTENTS/MacOS/Lasso" ${SWIFT_EXTRA[@]+"${SWIFT_EXTRA[@]}"} \
   -framework Vision -framework AVFoundation -framework AVKit -framework Metal -framework MetalKit -framework ScreenCaptureKit \
   "${APP_SOURCES[@]}"
 
-# The Ranch's typefaces, Figtree and Geist Mono, drawn from inside the app with
+# The Loop's typefaces, Figtree and Geist Mono, drawn from inside the app with
 # their licences beside them; nothing is installed on the Mac.
 if compgen -G "$ROOT/desktop/Fonts/*.[ot]tf" > /dev/null; then
   mkdir -p "$RESOURCES/Fonts"
   cp "$ROOT"/desktop/Fonts/*.[ot]tf "$RESOURCES/Fonts/"
   if compgen -G "$ROOT/desktop/Fonts/*.txt" > /dev/null; then cp "$ROOT"/desktop/Fonts/*.txt "$RESOURCES/Fonts/"; fi
 fi
-# The licence of the avatar kit whose shape The Ranch's 3D mascot is built from (MIT).
+# The licence of the avatar kit whose shape The Loop's 3D mascot is built from (MIT).
 if compgen -G "$ROOT/desktop/Mascot/LICENSE.*" > /dev/null; then
   mkdir -p "$RESOURCES/Mascot"
   cp "$ROOT"/desktop/Mascot/LICENSE.* "$RESOURCES/Mascot/"

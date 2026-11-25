@@ -34,7 +34,7 @@ Unchanged files and objects are carried forward rather than copied into every ve
 
 ### Change records and value history
 
-Each index built on an earlier one records what it changed, one row per object, in `object_changes` ([migrations/028_object_changes.sql](../migrations/028_object_changes.sql)): added, modified (its value or label changed), moved (only its place changed) or removed, with the version before and after by id. A folder's first index and an upgrade pass record none. `objectHistory` and `snapshotChanges` (`src/dependencies/object-history.js`) read them, and they feed the value history in previews, the `change` field on suggestions, and Recent Changes and Needs Review in The Ranch.
+Each index built on an earlier one records what it changed, one row per object, in `object_changes` ([migrations/028_object_changes.sql](../migrations/028_object_changes.sql)): added, modified (its value or label changed), moved (only its place changed) or removed, with the version before and after by id. A folder's first index and an upgrade pass record none. `objectHistory` and `snapshotChanges` (`src/dependencies/object-history.js`) read them, and they feed the value history in previews, the `change` field on suggestions, and Recent Changes and Needs Review in The Loop.
 
 Table rows keep their identity across edits: a named row is keyed by its label (and its order among rows with the same label), a column by its name, a note by its text, and a row without a name by a token carried over from the file's previous version by matching row contents (`src/dependencies/row-identity.js`). Inserting, sorting or editing rows therefore records moves and changes, not removals.
 

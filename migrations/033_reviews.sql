@@ -1,5 +1,5 @@
 -- Reviews of what changed in a folder since it was last approved, in The
--- Ranch: comments pinned to a line, a cell or a passage of a changed file,
+-- Loop: comments pinned to a line, a cell or a passage of a changed file,
 -- suggested changes, which files were looked at, and the approvals.
 
 -- A folder approved up to one of its versions; the next review shows what

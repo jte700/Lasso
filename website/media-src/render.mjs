@@ -12,8 +12,8 @@ const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/M
 const BASE = process.env.BASE || 'http://localhost:8765';
 const OUT = fileURLToPath(new URL('../assets/media/', import.meta.url));
 const JOBS = {
-  writer: 'clip', share: 'clip', ranch: 'clip', autocomplete: 'clip', usb: 'clip', recording: 'clip', passage: 'clip',
-  picker: 'still', provenance: 'still', mcp: 'still', 'ranch-review': 'still', 'ranch-sources': 'still', 'ranch-share': 'still',
+  writer: 'clip', share: 'clip', loop: 'clip', autocomplete: 'clip', usb: 'clip', recording: 'clip', passage: 'clip',
+  picker: 'still', provenance: 'still', mcp: 'still', 'loop-review': 'still', 'loop-sources': 'still', 'loop-share': 'still',
   card: 'still', scope: 'still', keys: 'still',
 };
 const STILL_PX = 1088; // twice the card's width on a wide screen

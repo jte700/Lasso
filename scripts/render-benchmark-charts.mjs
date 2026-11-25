@@ -21,7 +21,7 @@ const WIDTH = 760;
 const LEFT = 24;
 const BAR = 14;
 
-// Lasso's site palette (trial.css / RanchLook): warm paper & ink in light mode,
+// Lasso's site palette (trial.css / LoopLook): warm paper & ink in light mode,
 // near-black & warm white in dark mode, with sky blue as the primary accent.
 const STYLE = `
   .surface { fill: #fffdf7; stroke: #e3dfd2; }

@@ -1,7 +1,7 @@
 // A suggested value that changed recently says what it was, once, in the
 // suggestion's own `change` field; a value typed as it was before the change
 // is offered its current value; a preview lists the value's history; and
-// The Ranch's Recent Changes name the value a save changed.
+// The Loop's Recent Changes name the value a save changed.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -140,8 +140,8 @@ test('Recent Changes name the value a save changed', async (t) => {
   save('19250');
 
   // Act
-  const { entries } = app.ranch.recentChanges ? app.ranch.recentChanges() : { entries: [] };
-  const { recentHistory } = await import('../src/ranch/history.js');
+  const { entries } = app.loop.recentChanges ? app.loop.recentChanges() : { entries: [] };
+  const { recentHistory } = await import('../src/loop/history.js');
   const history = recentHistory(app.db, [project.id], Date.now());
   const edited = history.entries.find((entry) => entry.change === 'edited');
 
@@ -153,7 +153,7 @@ test('Recent Changes name the value a save changed', async (t) => {
 
 test('A Needs Review row for a changed link says the old and new value and the claim', async (t) => {
   // Arrange
-  const { linkReviewItems, shareReviewItems } = await import('../src/ranch/review.js');
+  const { linkReviewItems, shareReviewItems } = await import('../src/loop/review.js');
   const link = { id: 'd1', projectId: 'p', documentPath: 'memo.md', status: 'STALE', spanText: 'Payroll came to 18400',
     statusDetails: { linkedSourceValue: '18400', currentSourceValue: '19250' },
     source: { projectId: 'p', path: 'budget.csv', label: 'Payroll · Amount', valueText: '18400' } };
@@ -172,7 +172,7 @@ test('A Needs Review row for a changed link says the old and new value and the c
   assert.deepEqual(drifted.documents, []);
 });
 
-test('The Ranch sheet view names the cells its latest version changed and lists the file versions', async (t) => {
+test('The Loop sheet view names the cells its latest version changed and lists the file versions', async (t) => {
   // Arrange
   const { storedZip } = await import('./fixtures/workbook.js');
   const book = (total) => storedZip({
@@ -184,7 +184,7 @@ test('The Ranch sheet view names the cells its latest version changed and lists 
       <row r="3"><c r="A3" t="inlineStr"><is><t>Payroll</t></is></c><c r="B3"><v>${total}</v></c></row>
     </sheetData></worksheet>`,
   });
-  const sandbox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-ranch-sheet-')));
+  const sandbox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-loop-sheet-')));
   const root = path.join(sandbox, 'Budget');
   fs.mkdirSync(root);
   fs.writeFileSync(path.join(root, 'budget.xlsx'), book(18400));
@@ -197,8 +197,8 @@ test('The Ranch sheet view names the cells its latest version changed and lists 
   app.dependencies.ensureIndex(project.id);
 
   // Act
-  const latest = app.ranch.sheet({ directoryId: project.id, path: 'budget.xlsx' });
-  const first = app.ranch.sheet({ directoryId: project.id, path: 'budget.xlsx', version: latest.versions.at(-1).snapshotId });
+  const latest = app.loop.sheet({ directoryId: project.id, path: 'budget.xlsx' });
+  const first = app.loop.sheet({ directoryId: project.id, path: 'budget.xlsx', version: latest.versions.at(-1).snapshotId });
 
   // Assert
   assert.equal(latest.versions.length, 2);

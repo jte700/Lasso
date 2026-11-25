@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="404" viewBox="0 0 760 404" role="img" aria-labelledby="t d">
 <title id="t">How Lasso works</title>
-<desc id="d">The app you write in sends the text before the caret to the Lasso Mac app, which asks a local Node.js index server for suggestions and renders ghost text, the suggestion card, cell and passage pickers, source pills and The Ranch. The server watches your folders, USB drives and connected apps locally in SQLite, exposes an MCP server for AI agents, and runs an optional AI writer only when you trigger a backslash prompt.</desc>
+<desc id="d">The app you write in sends the text before the caret to the Lasso Mac app, which asks a local Node.js index server for suggestions and renders ghost text, the suggestion card, cell and passage pickers, source pills and The Loop. The server watches your folders, USB drives and connected apps locally in SQLite, exposes an MCP server for AI agents, and runs an optional AI writer only when you trigger a backslash prompt.</desc>
 <style>
   .surface { fill: #fffdf7; stroke: #e3dfd2; }
   .box { fill: #f7f5ed; stroke: #d8d4c6; stroke-width: 1.2; }
@@ -53,7 +53,7 @@
 <text x="262" y="153" class="line">Suggestion card &amp; ghost text</text>
 <text x="262" y="170" class="line">Cell &amp; passage pickers, dictation</text>
 <text x="262" y="187" class="line">Scope switcher &amp; source pills</text>
-<text x="262" y="204" class="line">The Ranch &amp; Review Changes</text>
+<text x="262" y="204" class="line">The Loop &amp; Review Changes</text>
 <text x="262" y="221" class="line">Share composer &amp; redaction</text>
 
 <rect class="box-accent" x="504" y="90" width="222" height="160" rx="12"/>

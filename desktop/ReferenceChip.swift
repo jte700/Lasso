@@ -252,11 +252,11 @@ enum ReferenceSourceType {
 
     private static var icons: [String: NSImage] = [:]
 
-    /// The type's icon, as The Ranch lists it: Lasso's own for types macOS draws
+    /// The type's icon, as The Loop lists it: Lasso's own for types macOS draws
     /// as plain pages, the apps' own for the rest.
     static func icon(forPath path: String, size: CGFloat) -> NSImage {
         let ext = fileExtension(path)
-        if let drawn = RanchTypeIcon.image(for: ext, size: size) { return drawn }
+        if let drawn = LoopTypeIcon.image(for: ext, size: size) { return drawn }
         if let cached = icons[ext] { return cached }
         let icon = UTType(filenameExtension: ext).map(NSWorkspace.shared.icon(for:)) ?? NSWorkspace.shared.icon(for: .data)
         icons[ext] = icon

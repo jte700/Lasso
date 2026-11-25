@@ -176,7 +176,7 @@ private struct ScopeSwitcherSurface: ViewModifier {
             content.glassEffect(.regular, in: Capsule())
         } else {
             content
-                .background(RanchVisualEffect(material: .popover).clipShape(Capsule()))
+                .background(LoopVisualEffect(material: .popover).clipShape(Capsule()))
                 .overlay(Capsule().strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5))
         }
     }

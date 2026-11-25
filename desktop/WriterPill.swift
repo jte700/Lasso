@@ -171,7 +171,7 @@ private struct WriterPillSurface: ViewModifier {
             content.glassEffect(.regular, in: shape)
         } else {
             content
-                .background(RanchVisualEffect(material: .popover).clipShape(shape))
+                .background(LoopVisualEffect(material: .popover).clipShape(shape))
                 .overlay(shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5))
         }
     }

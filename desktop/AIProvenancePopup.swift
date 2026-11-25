@@ -45,16 +45,16 @@ struct AIProvenanceCard: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(Self.headline(info))
-                        .font(RanchLook.font(13.5, .semibold))
+                        .font(LoopLook.font(13.5, .semibold))
                         .foregroundStyle(accent)
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     if let at = info.at {
-                        Text(Self.when(at, now: now)).font(RanchLook.font(11)).foregroundStyle(.secondary).lineLimit(1)
+                        Text(Self.when(at, now: now)).font(LoopLook.font(11)).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
                 if let detail = Self.detail(info) {
-                    Text(detail).font(RanchLook.font(11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    Text(detail).font(LoopLook.font(11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
             }
         }
@@ -63,10 +63,10 @@ struct AIProvenanceCard: View {
     private func asked(_ prompt: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(info.askedBy.map { "Asked by \($0 == "You" ? "you" : $0)" } ?? "Asked")
-                .font(RanchLook.font(10.5, .semibold))
+                .font(LoopLook.font(10.5, .semibold))
                 .foregroundStyle(.secondary)
             Text("\u{201C}\(prompt)\u{201D}")
-                .font(RanchLook.font(12))
+                .font(LoopLook.font(12))
                 .foregroundStyle(.primary)
                 .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
@@ -101,7 +101,7 @@ struct AIProvenanceCard: View {
     private func legend(color: Color, text: String) -> some View {
         HStack(spacing: 5) {
             Circle().fill(color).frame(width: 6, height: 6)
-            Text(text).font(RanchLook.font(11)).foregroundStyle(.secondary).lineLimit(1)
+            Text(text).font(LoopLook.font(11)).foregroundStyle(.secondary).lineLimit(1)
         }
     }
 
@@ -109,7 +109,7 @@ struct AIProvenanceCard: View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: symbol).font(.system(size: 10, weight: .semibold)).foregroundStyle(tint)
                 .frame(width: 14, alignment: .center)
-            Text(text).font(RanchLook.font(11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(text).font(LoopLook.font(11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -202,7 +202,7 @@ struct AIAgentBadge: View {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(Color(nsColor: style.color))
                 .overlay(Text(String(style.name.prefix(1)).uppercased())
-                    .font(RanchLook.font(14, .bold)).foregroundStyle(.white))
+                    .font(LoopLook.font(14, .bold)).foregroundStyle(.white))
                 .frame(width: 27, height: 27)
                 .padding(3.5)
         }

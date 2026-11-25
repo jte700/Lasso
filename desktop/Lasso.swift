@@ -399,13 +399,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.calendar.onSynced = { [weak self] in self?.refreshWorkspace() }
         return controller
     }()
-    /// The Ranch, the library window that took the browser workspace's place on the Mac.
-    private var ranchLoaded = false
-    /// ⇧⌘R opens The Ranch from any app, as the launcher's ⌘L starts Lasso.
-    private var ranchHotKey: GlobalHotKey?
-    private lazy var ranch: RanchWindowController = {
-        let controller = RanchWindowController(actions: RanchActions(
-            createShareLink: { [weak self] target, anchor in self?.composeRanchShare(target, near: anchor) },
+    /// The Loop, the library window that took the browser workspace's place on the Mac.
+    private var loopLoaded = false
+    /// ⇧⌘R opens The Loop from any app, as the launcher's ⌘L starts Lasso.
+    private var loopHotKey: GlobalHotKey?
+    private lazy var loop: LoopWindowController = {
+        let controller = LoopWindowController(actions: LoopActions(
+            createShareLink: { [weak self] target, anchor in self?.composeLoopShare(target, near: anchor) },
             addDirectories: { [weak self] in self?.addDirectories() },
             openSettings: { [weak self] in self?.showSettings() },
             setDirectoriesActive: { [weak self] changes in self?.setDirectoriesActive(changes) }))
@@ -482,9 +482,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        LoopRename.carryOver()
+        DispatchQueue.global(qos: .utility).async { LoopRename.removeOldCache() }
         MainMenu.install(MainMenu.Commands(
             target: self, about: #selector(showAbout), settings: #selector(showSettings),
-            addDirectories: #selector(addDirectories), openRanch: #selector(openRanch),
+            addDirectories: #selector(addDirectories), openLoop: #selector(openLoop),
             help: #selector(openHelp)))
         LassoTransientUI.shared.register(self, priority: 5,
             isOpen: { NSApp.modalWindow != nil || NSApp.keyWindow?.attachedSheet != nil },
@@ -525,8 +527,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         removeTypingLog(beside: logs)
         LaunchHelper.start()
 
-        ranchHotKey = GlobalHotKey(keyCode: kVK_ANSI_R, modifiers: Ranch.modifiers, id: 1) { [weak self] in
-            self?.showRanch()
+        loopHotKey = GlobalHotKey(keyCode: kVK_ANSI_R, modifiers: Loop.modifiers, id: 1) { [weak self] in
+            self?.showLoop()
         }
         buildStatusItem()
         GlobalAssistant.shared.onStateChange = { [weak self] in
@@ -720,7 +722,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusMenu.addItem(addDirectoriesItem())
         statusMenu.addItem(moreGroup())
         statusMenu.addItem(.separator())
-        statusMenu.addItem(command("Open \(Ranch.title)", action: #selector(openRanch), key: Ranch.key, modifiers: Ranch.modifiers,
+        statusMenu.addItem(command("Open \(Loop.title)", action: #selector(openLoop), key: Loop.key, modifiers: Loop.modifiers,
                                    enabled: isServerReady))
         // Look, Tab, apps and startup options live in Settings, not here.
         statusMenu.addItem(command("Settings\u{2026}", action: #selector(showSettings), key: ","))
@@ -914,7 +916,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             GlobalAssistant.shared.serverURL = server.url
             DependencyHighlighter.shared.serverURL = server.url
             AIAuthorshipHighlighter.shared.serverURL = server.url
-            if ranchLoaded { ranch.store.serverURL = server.url }
+            if loopLoaded { loop.store.serverURL = server.url }
             if let url = server.url { driveMonitor.start(serverURL: url, token: server.driveToken) }
             driveMenu.refresh(base: server.url)
             refreshWorkspace()
@@ -1342,16 +1344,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         showsProgressAfter: Self.switchProgressDelay, finished: flipSwitch(id, to: activate))
     }
 
-    /// Pauses and resumes directories one after another, as The Ranch's
+    /// Pauses and resumes directories one after another, as The Loop's
     /// opening step was ticked, through the same request as the menu's switches.
-    private func setDirectoriesActive(_ changes: [RanchDirectoryChange]) {
+    private func setDirectoriesActive(_ changes: [LoopDirectoryChange]) {
         guard let change = changes.first else { return }
         let name = directories.first { $0.id == change.id }?.name ?? "directory"
         mutateWorkspace(path: "api/workspace/directories/" + change.id,
                         body: WorkspaceAPI.toggleDirectoryBody(active: change.active),
                         message: change.active ? "Activating and indexing \(name)\u{2026}" : "Pausing \(name)\u{2026}",
                         showsProgressAfter: Self.switchProgressDelay) { [weak self] _ in
-            self?.ranch.store.reload()
+            self?.loop.store.reload()
             self?.setDirectoriesActive(Array(changes.dropFirst()))
         }
     }
@@ -1486,8 +1488,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             let settingsOpen = self.settingsLoaded && self.settings.window?.isVisible == true
             let connectOpen = self.connectAppsLoaded && self.connectApps.isVisible
-            let ranchOpen = self.ranchLoaded && self.ranch.isVisible
-            if !settingsOpen && !connectOpen && !ranchOpen { NSApp.setActivationPolicy(.accessory) }
+            let loopOpen = self.loopLoaded && self.loop.isVisible
+            if !settingsOpen && !connectOpen && !loopOpen { NSApp.setActivationPolicy(.accessory) }
         }
     }
 
@@ -1605,22 +1607,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.runModal()
     }
 
-    @objc private func openRanch() { showRanch() }
+    @objc private func openLoop() { showLoop() }
 
-    /// The Ranch opens as a regular app window, like Settings, on `section` when given.
-    private func showRanch(section: RanchStore.Section? = nil) {
-        ranchLoaded = true
+    /// The Loop opens as a regular app window, like Settings, on `section` when given.
+    private func showLoop(section: LoopStore.Section? = nil) {
+        loopLoaded = true
         statusPopover.popover.performClose(nil)
         NSApp.setActivationPolicy(.regular)
         // As for Settings: the window shows on the next turn, once the policy has applied.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.ranch.show(section: section, serverURL: self.isServerReady ? self.server.url : nil)
+            self.loop.show(section: section, serverURL: self.isServerReady ? self.server.url : nil)
         }
     }
 
-    /// A share link for a whole file, from The Ranch, through the same composer as suggestions.
-    private func composeRanchShare(_ target: RanchShareTarget, near anchor: NSRect) {
+    /// A share link for a whole file, from The Loop, through the same composer as suggestions.
+    private func composeLoopShare(_ target: LoopShareTarget, near anchor: NSRect) {
         guard isServerReady, let url = server.url else { return }
         ShareComposerController.shared.show(
             objectId: target.objectId, versionId: target.versionId, label: target.label, sourcePath: target.path,
@@ -1629,7 +1631,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ShareClient.createShare(serverURL: url, projectId: target.projectId, objectId: target.objectId,
                                         versionId: target.versionId, configuration: configuration) { result in
                     finished(result)
-                    DispatchQueue.main.async { self?.ranch.store.reload() }
+                    DispatchQueue.main.async { self?.loop.store.reload() }
                 }
             })
     }

@@ -177,7 +177,7 @@
 .mcp-hero .lead { margin-inline: auto; }
 .mcp-hero .dls { justify-content: center; }
 
-/* The Ranch's herd */
+/* The Loop's herd */
 .herd { display: flex; justify-content: center; align-items: flex-end; gap: clamp(6px, 1.4vw, 16px); margin-bottom: 8px; }
 .herd img { width: clamp(46px, 6.4vw, 78px); animation: perch-bob 4.8s ease-in-out infinite; }
 .herd img:nth-child(2) { animation-delay: -.8s; width: clamp(54px, 7.4vw, 92px); }

@@ -11,4 +11,4 @@ Opening index.html directly will not work fully; the browser blocks the 3D masco
 
 Card pictures and clips (assets/media) are drawn from media-src/scenes.html. To make them again after
 changing a scene: start the site as above, then run  node media-src/render.mjs  (or name scenes:
-node media-src/render.mjs writer ranch). It needs Google Chrome and ffmpeg. media-src is not deployed (.vercelignore).
+node media-src/render.mjs writer loop). It needs Google Chrome and ffmpeg. media-src is not deployed (.vercelignore).

@@ -2,7 +2,7 @@
 // passage and removes the old one. When the new one is mostly the old one's
 // words, in the same file, Lasso records that it replaces it: its history
 // then reaches back through the old wording, the card can mark the words
-// that changed, and The Ranch can tint the passage with what it was.
+// that changed, and The Loop can tint the passage with what it was.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -77,7 +77,7 @@ test('A new sentence in other words does not take an old one\'s history', (t) =>
   assert.deepEqual(history.map((entry) => entry.value), [other]);
 });
 
-test('The Ranch names the passages a file\'s latest version changed, with what they were', (t) => {
+test('The Loop names the passages a file\'s latest version changed, with what they were', (t) => {
   // Arrange
   const text = `${LEAD}\n\n${PUMP}\n\n${TAIL}\n`;
   const { app, project, save } = folder(t, { 'log.txt': text, 'log.pdf': textPdf(`${LEAD} ${PUMP} ${TAIL}`) });
@@ -86,8 +86,8 @@ test('The Ranch names the passages a file\'s latest version changed, with what t
   const edited = `${LEAD}\n\n${PUMP_EDITED}\n\n${TAIL}\n`;
   save('log.txt', edited);
   save('log.pdf', textPdf(`${LEAD} ${PUMP_EDITED} ${TAIL}`));
-  const plain = app.ranch.passages({ directoryId: project.id, path: 'log.txt' });
-  const pdf = app.ranch.passages({ directoryId: project.id, path: 'log.pdf' });
+  const plain = app.loop.passages({ directoryId: project.id, path: 'log.txt' });
+  const pdf = app.loop.passages({ directoryId: project.id, path: 'log.pdf' });
 
   // Assert
   const sentence = plain.changes.find((change) => change.after === PUMP_EDITED);
@@ -114,7 +114,7 @@ test('A sentence edited and then put back has each wording in its history once',
   assert.deepEqual(history.map((entry) => entry.value), [PUMP, PUMP_EDITED, PUMP]);
 });
 
-test('The Ranch still names a file\'s changed passages after the file is renamed', (t) => {
+test('The Loop still names a file\'s changed passages after the file is renamed', (t) => {
   // Arrange
   const { app, project, save } = folder(t, { 'log.txt': `${LEAD}\n\n${PUMP}\n\n${TAIL}\n` });
   save('log.txt', `${LEAD}\n\n${PUMP_EDITED}\n\n${TAIL}\n`);
@@ -124,7 +124,7 @@ test('The Ranch still names a file\'s changed passages after the file is renamed
   fs.renameSync(path.join(root, 'log.txt'), path.join(root, 'site log.txt'));
   app.timeline.capture(project.id, actor);
   app.dependencies.ensureIndex(project.id);
-  const { changes } = app.ranch.passages({ directoryId: project.id, path: 'site log.txt' });
+  const { changes } = app.loop.passages({ directoryId: project.id, path: 'site log.txt' });
 
   // Assert
   assert.deepEqual(changes.map(({ before, after }) => [before, after]), [[PUMP, PUMP_EDITED]]);
