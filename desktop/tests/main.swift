@@ -3252,6 +3252,34 @@ check(GoogleEditorText.readiness(value: "Total revenue was ", screenReaderOn: { 
       "a hidden field holding the document's text is readable")
 var braillePresses: [pid_t] = []
 var brailleClock = Date(timeIntervalSince1970: 0)
+// Docs reports its caret with the breaks between paragraphs taking no room;
+// only the break the field begins with counts.
+let docsValue = "\nTotal revenue was \n485000\nThe drywall crew starts on X\nY"
+check(GoogleEditorText.valueIndex(reported: 54, in: docsValue) == 57,
+      "Docs' caret at the end of four paragraphs is found three places on in the field's text")
+check(GoogleEditorText.valueIndex(reported: 19, in: docsValue) == 19,
+      "a caret before the first paragraph break needs no shift")
+check(GoogleEditorText.valueIndex(reported: 25, in: docsValue) == 26,
+      "a caret where one paragraph ends and the next begins is read at the end of the first, where typing usually is")
+check(GoogleEditorText.valueIndex(reported: 7, in: "\n485000") == 7,
+      "the break the field begins with counts")
+check(GoogleEditorText.valueIndex(reported: 6, in: "Total ") == 6,
+      "a Slides text box without breaks reads its caret as it is")
+check(GoogleEditorText.valueIndex(reported: 90, in: "Total ") == 6,
+      "a caret past the text is held at its end")
+
+let emptiedValue = "\nTotal revenue was \n485000\nThe drywall crew starts on X\nY\n"
+check(GoogleEditorText.valueIndex(reported: 54, in: emptiedValue,
+                                  previous: (emptiedValue + "The drywall crew starts on ", 85)) == 58,
+      "after a paragraph's words are deleted the caret is read in the emptied paragraph, where the deletion ended")
+check(GoogleEditorText.valueIndex(reported: 31, in: "\nAB\nThe drywall crew starts on X\n",
+                                  previous: ("\nAB\nThe drywall crew starts on X", 32)) == 33,
+      "after Return the caret is read on the new line")
+check(GoogleEditorText.valueIndex(reported: 4, in: "\nABd\nnext", previous: ("\nAB\nnext", 3)) == 4,
+      "a letter typed at a paragraph's end leaves the caret before the break")
+check(GoogleEditorText.valueIndex(reported: 3, in: "\nAB\nnext", previous: ("\nAB\nnext", 8)) == 3,
+      "with nothing edited, a caret on a break is read at the end of the paragraph before it")
+
 let braille = GoogleEditorBraille(press: { braillePresses.append($0) }, now: { brailleClock })
 check(braille.switchOn(pid: 7) && braillePresses == [7], "braille support is switched on with one press")
 check(!braille.switchOn(pid: 7) && braillePresses == [7], "a second press waits, since the shortcut toggles")
@@ -3289,6 +3317,12 @@ let slidesCaret = pageGrid(width: 120, height: 320, marks: [(x: 60, top: 20, wid
                                                              (x: 61, top: 20, width: 3, height: 271, shade: 0)])
 check(ScreenCaret.bars(in: slidesCaret, scale: 2) == [CaretBar(x: 60, width: 4, top: 20, height: 271)],
       "Slides' tall caret in a title is found")
+// Slides' grey caret in a subtitle, drawn at a fractional position: three
+// pixels of its text's grey with a half-shaded pixel on the right.
+let fractionalCaret = pageGrid(width: 120, height: 200, marks: [(x: 60, top: 20, width: 3, height: 144, shade: 89),
+                                                                 (x: 63, top: 20, width: 1, height: 144, shade: 136)])
+check(ScreenCaret.bars(in: fractionalCaret, scale: 2) == [CaretBar(x: 60, width: 3, top: 20, height: 144)],
+      "a caret with a half-shaded pixel on one side is still found")
 let blueOutline = pageGrid(width: 120, height: 80, marks: [])
 check(ScreenCaret.bars(in: blueOutline, scale: 2).isEmpty, "a blank page has no caret")
 let caretBar = CaretBar(x: 40, width: 4, top: 20, height: 34)
@@ -3305,6 +3339,12 @@ check(ScreenCaret.follow([crispLetter, CaretBar(x: 52, width: 4, top: 20, height
       "a caret that moved along its line is followed by its height")
 check(ScreenCaret.follow([crispLetter], from: caretBar, reach: 400) == nil,
       "a shorter letter is never followed as the caret")
+let followPage = CGRect(x: 0, y: 126, width: 1920, height: 1117)
+let followBand = ScreenCaret.followBand(around: CGRect(x: 600, y: 400, width: 0, height: 16), in: followPage)
+check(followBand.minX == 0 && followBand.width == 1920 && followBand.minY == 352 && followBand.height == 112,
+      "the caret is looked for again across the page's width, three lines above and below where it was")
+check(ScreenCaret.followBand(around: CGRect(x: 600, y: 130, width: 0, height: 16), in: followPage).minY == 126,
+      "the band stays inside the editor's page")
 
 print("synthetic typing chunks")
 let accented = String(repeating: "e\u{301}", count: 12) + "👩‍🔬 Café"
@@ -3321,6 +3361,12 @@ check(["O'Brien", "\"quoted\"", "Q1 -- Q2", "etc...", "two  spaces"].allSatisfy 
 check(accentedChunks.allSatisfy { $0.unicodeScalars.first?.properties.generalCategory != .nonspacingMark },
       "a chunk never begins with a detached combining accent")
 check("Facilities".chunkedForTyping(16) == ["Facilities"], "short text is typed as one event")
+check(SyntheticKeyboard.keyEvents(for: "485000", webContent: true) == ["4", "8", "5", "0", "0", "0"],
+      "a web page gets one character per key event: Google Docs, Sheets and Slides keep only the first of several")
+check(SyntheticKeyboard.keyEvents(for: "Café 👩‍🔬", webContent: true) == ["C", "a", "f", "é", " ", "👩‍🔬"],
+      "one character per event keeps an accent or emoji whole")
+check(SyntheticKeyboard.keyEvents(for: "Facilities", webContent: false) == ["Facilities"],
+      "a native field still takes several characters per key event")
 
 print("node runtime discovery")
 let bundledNode = "/Applications/Lasso.app/Contents/MacOS/node"

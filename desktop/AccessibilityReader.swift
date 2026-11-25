@@ -134,12 +134,24 @@ enum AccessibilityReader {
         guard allowSelection || selection.length == 0 else { return nil }
         if caret < 0, WebTextReader.hasNonemptySelection(from: field) { return nil }
 
+        // Docs' and Slides' hidden field numbers its caret, and gives ranges of
+        // text, without the breaks between paragraphs, which would run one
+        // sentence into the next: its whole value is read instead.
+        let googleEditor = GoogleEditorText.isTextTarget(field)
+        if googleEditor, caret >= 0, let full = attribute(field, kAXValueAttribute as String) as? String {
+            let start = GoogleEditorText.caretIndex(reported: caret, in: full, of: field)
+            let end = selection.length > 0
+                ? GoogleEditorText.valueIndex(reported: caret + selection.length, in: full) : start
+            caret = start
+            selection = CFRange(location: start, length: max(0, end - start))
+        }
+
         var window: String?
         var windowStart = -1
 
         // Preferred: ask for just the span before the caret. Works in apps that
         // never expose a whole AXValue (Word, Pages, large documents).
-        if caret >= 0 {
+        if caret >= 0, !googleEditor {
             let start = max(0, caret - reach)
             var span = CFRange(location: start, length: caret - start)
             if span.length > 0, let axSpan = AXValueCreate(.cfRange, &span) {
@@ -212,7 +224,7 @@ enum AccessibilityReader {
         }
 
         // Docs and Slides report their caret on a hidden strip; it is found on screen.
-        if GoogleEditorText.isTextTarget(field) { rect = GoogleEditorCaret.shared.locate(in: field) }
+        if googleEditor { rect = GoogleEditorCaret.shared.locate(in: field) }
 
         guard let text = window else { return nil }
 
@@ -383,6 +395,13 @@ enum AccessibilityReader {
         }
     }
 
+    /// Whether an Accessibility write is worth trying. Never in Docs' and
+    /// Slides' hidden field: its positions are not the ones Lasso reads by,
+    /// so a selection made for a write would land on the wrong letters.
+    private static func acceptsTextWrites(_ element: AXUIElement, bundle: String?) -> Bool {
+        !IgnoredTextWrites.contains(bundle) && !GoogleEditorText.isTextTarget(element)
+    }
+
     private static func bundleIdentifier(of element: AXUIElement) -> String? {
         var pid: pid_t = 0
         guard AXUIElementGetPid(element, &pid) == .success else { return nil }
@@ -401,7 +420,7 @@ enum AccessibilityReader {
             }
             return
         }
-        SyntheticKeyboard.type(text)
+        SyntheticKeyboard.type(text, webContent: WebTextReader.isWebElement(element))
         // Confirm the typed result rather than assuming it arrived.
         AccessibilityWork.queue.asyncAfter(deadline: .now() + 0.12) {
             RichTextInserter.verifyEventually(attempts: 6, interval: 0.08,
@@ -503,7 +522,7 @@ enum AccessibilityReader {
         let originalMarkedRange = markedTextRange(of: element)
         let bundle = bundleIdentifier(of: element)
 
-        guard caret >= 0, caret - length >= 0, !IgnoredTextWrites.contains(bundle) else {
+        guard caret >= 0, caret - length >= 0, acceptsTextWrites(element, bundle: bundle) else {
             deletePrefixAndWrite(expectedPrefix: expectedPrefix, before: before, caret: caret,
                                  hasSelectedPrefix: false, hadMarkedText: originalMarkedRange != nil,
                                  text: text, verbatim: verbatim, in: element, completion: completion)
@@ -660,7 +679,7 @@ enum AccessibilityReader {
             return after
         }
         let bundle = bundleIdentifier(of: element)
-        let tryAX = caret >= 0 && caret - length >= 0 && !IgnoredTextWrites.contains(bundle)
+        let tryAX = caret >= 0 && caret - length >= 0 && acceptsTextWrites(element, bundle: bundle)
         var wrote = false
         if tryAX, HostSelection.selectForWrite((caret - length)..<caret, caret: caret, in: element) {
             wrote = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, "" as CFTypeRef) == .success
@@ -710,7 +729,7 @@ enum AccessibilityReader {
         let caret = expected.absoluteCaret
         let before = CompletionSnapshot(documentStart: expected.windowStart, text: Array(expected.text.utf16))
         let bundle = bundleIdentifier(of: element)
-        let tryAX = !IgnoredTextWrites.contains(bundle)
+        let tryAX = acceptsTextWrites(element, bundle: bundle)
         let selected = tryAX
             && HostSelection.selectForWrite((caret - plan.range.count)..<caret, caret: caret, in: element)
         func write(_ text: String) -> Bool {
@@ -741,7 +760,7 @@ enum AccessibilityReader {
             AccessibilityWork.queue.asyncAfter(deadline: .now() + settle) {
                 if !plan.insertText.isEmpty {
                     if SyntheticKeyboard.canType(plan.insertText) {
-                        SyntheticKeyboard.type(plan.insertText)
+                        SyntheticKeyboard.type(plan.insertText, webContent: WebTextReader.isWebElement(element))
                     } else {
                         RichTextInserter.pastePlainText(plan.insertText)
                     }
