@@ -86,27 +86,64 @@
     }
   }
 
-  // The Loop: one of the herd hops now and then, and any of them when clicked.
-  const HOP_MS = 700, IDLE_HOP_MS = 3200;
-  function paddock(field) {
-    const cows = [...field.querySelectorAll('.cow')];
-    const hop = (cow) => replay(cow, 'hop', HOP_MS);
-    cows.forEach((cow) => cow.addEventListener('click', () => hop(cow)));
+  // The Loop: the herd rides round the ring, nearer and larger at the front, and stops
+  // while the pointer is over it so a rider can be clicked. One hops now and then, and
+  // any of them when clicked.
+  const HOP_MS = 700, IDLE_HOP_MS = 3200, LAP_MS = 24000;
+  // The ring as drawn in the page, in percent of the track (cx 280, cy 133, rx 246, ry 39 of 560 by 196).
+  const RING = { cx: 50, cy: 67.9, rx: 43.9, ry: 19.9 };
+  const NEAR = { scale: [0.68, 1], opacity: [0.5, 1] };
+  const between = ([far, near], depth) => far + (near - far) * depth;
+
+  function place(rider, turn) {
+    const angle = turn * 2 * Math.PI;
+    const depth = (Math.sin(angle) + 1) / 2;
+    rider.style.setProperty('--x', `${RING.cx + RING.rx * Math.cos(angle)}%`);
+    rider.style.setProperty('--y', `${RING.cy + RING.ry * Math.sin(angle)}%`);
+    rider.style.setProperty('--s', between(NEAR.scale, depth).toFixed(3));
+    rider.style.setProperty('--o', between(NEAR.opacity, depth).toFixed(3));
+    rider.style.zIndex = String(Math.round(depth * 20));
+  }
+
+  function loopTrack(track) {
+    const lead = track.querySelector('.rider--lead');
+    const riders = [...track.querySelectorAll('.rider:not(.rider--lead)')];
+    const everyone = [lead, ...riders].filter(Boolean);
+    const phases = riders.map((r) => Number(r.style.getPropertyValue('--phase')) || 0);
+    const hop = (rider) => replay(rider, 'hop', HOP_MS);
+    everyone.forEach((rider) => rider.addEventListener('click', () => hop(rider)));
+    track.style.setProperty('--lap', `${LAP_MS / 1000}s`);
+    riders.forEach((rider, i) => place(rider, phases[i]));
     if (still) return;
+
+    let held = false, visible = true, turn = 0, then = performance.now();
+    track.addEventListener('pointerenter', () => { held = true; });
+    track.addEventListener('pointerleave', () => { held = false; });
+    new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; }).observe(track);
+    const frame = (now) => {
+      const moving = !held && visible;
+      track.classList.toggle('is-held', !moving);
+      if (moving) turn = (turn + (now - then) / LAP_MS) % 1;
+      then = now;
+      riders.forEach((rider, i) => place(rider, phases[i] + turn));
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+
     let last = -1;
     setInterval(() => {
-      if (document.hidden) return;
-      let next = Math.floor(Math.random() * cows.length);
-      if (next === last) next = (next + 1) % cows.length;
+      if (document.hidden || !visible) return;
+      let next = Math.floor(Math.random() * everyone.length);
+      if (next === last) next = (next + 1) % everyone.length;
       last = next;
-      hop(cows[next]);
+      hop(everyone[next]);
     }, IDLE_HOP_MS);
   }
 
   const start = () => {
     document.querySelectorAll('.pet--vault').forEach(vault);
     document.querySelectorAll('.pet--clock').forEach((pet) => { clock(pet); });
-    document.querySelectorAll('.paddock').forEach(paddock);
+    document.querySelectorAll('.loop-track').forEach(loopTrack);
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
