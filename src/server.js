@@ -21,26 +21,41 @@ import { ReviewService } from './review/service.js';
 import { WritingService } from './writing/service.js';
 import { AuthorshipService } from './provenance/authorship.js';
 import { watchParent } from './parent-watchdog.js';
+import { releaseToSystem } from './memory.js';
 
 const FORCE_CLOSE_AFTER_MS = 1000;
 // The desktop app force-quits a server that has not exited after 3 seconds.
 const SHUTDOWN_DEADLINE_MS = 2500;
 
+// What the desktop apps ask for on a timer whether or not anyone is using
+// Lasso: the folder list every 15 s and the mounted drives every 5 s. They are
+// cheap, and counting them as use would keep the server from ever going quiet.
+const BACKGROUND_POLLS = new Set(['GET /api/workspace', 'POST /api/drives/sync']);
+
+function isBackgroundPoll(request) {
+  const pathname = (request.url ?? '').split('?', 1)[0];
+  return BACKGROUND_POLLS.has(`${request.method} ${pathname}`);
+}
+
 /**
- * Lets the caches use their whole budget while requests arrive, and shrinks
- * them to the budget's floor once none has come for `idleMs`. One unref'd
- * timer, restarted by each request; nothing runs while the server is idle.
+ * Lets the caches use their whole budget while requests arrive. Once nothing
+ * has been asked of the server for `idleMs`, and no index has finished in that
+ * time, shrinks them to the budget's floor and gives freed memory back to the
+ * system. One unref'd timer; nothing runs while the server stays idle.
  */
-function cachesShrinkWhenIdle(budget, idleMs) {
+function quietUpkeep(budget, idleMs, release) {
   let timer = null;
-  const idle = () => { timer = null; budget.idle(); };
+  const quiet = () => { timer = null; budget.idle(); release(); };
+  const later = () => {
+    clearTimeout(timer);
+    timer = setTimeout(quiet, idleMs);
+    timer.unref();
+  };
   return {
-    active() {
-      budget.active();
-      clearTimeout(timer);
-      timer = setTimeout(idle, idleMs);
-      timer.unref();
-    },
+    /** A request someone is waiting on. */
+    active() { budget.active(); later(); },
+    /** Work done without a request, such as indexing a save. */
+    worked: later,
     close() { clearTimeout(timer); timer = null; },
   };
 }
@@ -68,15 +83,17 @@ export function createApplication(overrides = {}) {
   const retention = new BlobRetention({ db, timeline, config });
   // On unless config.blobCompressionEnabled is false; it compresses only versions no folder holds now.
   const compaction = new BlobCompaction({ db, timeline, config });
+  // Wired before the folders are restored, so their first indexes count as work.
+  const caches = quietUpkeep(timeline.memoryBudget, config.cacheIdleMs, overrides.releaseToSystem ?? releaseToSystem);
+  dependencies.onIndexed = caches.worked;
   if (config.watchProjects) workspace.ready = workspace.restore();
   retention.start();
   compaction.start();
   connections.start();
   const handle = createRequestHandler(timeline, rfi, dependencies, config, objectShares, terminal, workspace, connections, ranch, writing, reviews, authorship);
   objectShares.publisher = new HostedSharePublisher({ config, db, handler: handle });
-  const caches = cachesShrinkWhenIdle(timeline.memoryBudget, config.cacheIdleMs);
   const server = http.createServer((request, response) => {
-    caches.active();
+    if (!isBackgroundPoll(request)) caches.active();
     return handle(request, response);
   });
   // Resolve ephemeral desktop ports before any share links are generated.

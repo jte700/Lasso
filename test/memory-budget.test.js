@@ -192,3 +192,90 @@ test('Suggestions after an idle spell or a full budget read no folder again', as
   assert.equal(reads, 0, 'the objects suggestions read on each key stay in memory');
   assert.ok((prediction.claims ?? []).some((claim) => claim.candidates?.some((candidate) => /other revenue/i.test(candidate.label))));
 });
+
+test('Memory freed inside the process goes back to the system, not only back to the heap', async () => {
+  // Arrange: garbage the size of a large edit, collected the way indexing collects it.
+  const { releaseAfterWork, releaseToSystem, COLLECT_AFTER_BYTES } = await import('../src/memory.js');
+  let rows = Array.from({ length: 30 }, () => Array.from({ length: 50_000 }, (_, index) => ({ index, label: `Row ${index}` })));
+  assert.equal(rows.length, 30);
+  rows = null;
+  releaseAfterWork(COLLECT_AFTER_BYTES);
+  const heldAfterCollection = process.memoryUsage().heapTotal;
+
+  // Act
+  const released = releaseToSystem();
+
+  // Assert
+  assert.equal(released, true);
+  assert.ok(process.memoryUsage().heapTotal < heldAfterCollection / 2,
+    'the heap gives up the pages an ordinary collection keeps');
+});
+
+/** A server on an empty library whose memory releases are counted. */
+async function quietServer(t, overrides = {}) {
+  const { createApplication } = await import('../src/server.js');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-quiet-'));
+  const releases = [];
+  const application = createApplication({ dataDir: path.join(sandbox, 'state'), watchProjects: false, port: 0,
+    cacheBytes: kilobytes(400), cacheIdleBytes: kilobytes(40), releaseToSystem: () => { releases.push(Date.now()); return true; },
+    ...overrides });
+  t.after(async () => { await application.close(); fs.rmSync(sandbox, { recursive: true, force: true }); });
+  application.server.listen(0, '127.0.0.1');
+  await new Promise((resolve) => application.server.once('listening', resolve));
+  const base = `http://127.0.0.1:${application.server.address().port}`;
+  return { application, base, releases, sandbox, fs, path };
+}
+
+test('A server with no requests for a while gives its memory back to the system', async (t) => {
+  // Arrange
+  const { base, releases } = await quietServer(t, { cacheIdleMs: 20 });
+  await fetch(`${base}/api/health`);
+
+  // Act
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  // Assert
+  assert.equal(releases.length, 1);
+});
+
+test('The desktop app\'s background polls do not keep the server from going quiet', async (t) => {
+  // Arrange: the app asks for the folder list every 15 s and syncs drives every 5 s.
+  const { application, base, releases } = await quietServer(t, { cacheIdleMs: 60 });
+  const budget = application.timeline.memoryBudget;
+  const cache = new BoundedCache({ maxEntries: 100, budget, bytes: (value) => value.length });
+  await fetch(`${base}/api/health`);
+  for (let index = 0; index < 20; index += 1) cache.set(`k${index}`, 'x'.repeat(kilobytes(10)));
+
+  // Act
+  const until = Date.now() + 250;
+  while (Date.now() < until) {
+    await fetch(`${base}/api/workspace?pending=1`).then((response) => response.text());
+    await fetch(`${base}/api/drives/sync`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"volumes":[]}' })
+      .then((response) => response.text());
+    await new Promise((resolve) => setTimeout(resolve, 15));
+  }
+
+  // Assert
+  assert.ok(budget.bytes <= kilobytes(40), 'the caches shrank although polls kept arriving');
+  assert.ok(releases.length >= 1, 'memory went back to the system although polls kept arriving');
+});
+
+test('Indexing a save gives memory back once the server is quiet, with no request after it', async (t) => {
+  // Arrange
+  const { application, releases, sandbox, fs, path } = await quietServer(t, { cacheIdleMs: 20 });
+  const root = path.join(sandbox, 'Notes');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'notes.md'), '# Notes\n\nThe measured load was 40 kN.\n');
+  const writer = { id: 'human:writer', displayName: 'Writer', actorType: 'HUMAN_SELF' };
+  const project = application.timeline.importProject(root, writer, { watch: false }).project;
+
+  // Act
+  application.dependencies.ensureIndex(project.id);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  // Assert
+  assert.equal(releases.length, 1);
+});

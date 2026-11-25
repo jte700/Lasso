@@ -131,6 +131,7 @@ export const indexLifecycleMethods = {
     // it back now rather than letting the heap grow across a run of edits.
     this.releaseMemory((carry ? files.filter((file) => !carry.carriedPaths.has(file.path)) : files)
       .reduce((bytes, file) => bytes + (file.size ?? 0), 0));
+    this.onIndexed?.();
     this.completionCorpusCache.delete(targetSnapshotId);
     this.workspaceRetrievalCache.delete(targetSnapshotId);
     this.ranking.invalidateSnapshot(targetSnapshotId);
