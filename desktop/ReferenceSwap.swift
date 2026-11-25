@@ -58,7 +58,7 @@ enum ReferenceSwap {
             // still exactly the phrase and nothing else has changed.
             guard after == document, selection.selection == range else { completion(nil); return }
             if SyntheticKeyboard.canType(text) {
-                SyntheticKeyboard.type(text)
+                SyntheticKeyboard.type(text, webContent: WebTextReader.isWebElement(element))
             } else {
                 RichTextInserter.pastePlainText(text)
             }

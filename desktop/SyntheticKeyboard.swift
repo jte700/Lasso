@@ -51,10 +51,25 @@ enum SyntheticKeyboard {
         return true
     }
 
+    /// macOS carries at most this many UTF-16 units in one key event.
+    static let unitsPerEvent = 16
+    /// Pause between key events, longer for a web page's one-character events
+    /// so its script keeps up.
+    private static let eventGap: TimeInterval = 0.006
+    private static let webEventGap: TimeInterval = 0.008
+
+    /// The key events `text` is typed as. A web page gets one character per
+    /// event: Google Docs, Sheets and Slides read only the first character of
+    /// a longer event, and some drop it entirely.
+    static func keyEvents(for text: String, webContent: Bool) -> [String] {
+        webContent ? text.map(String.init) : text.chunkedForTyping(unitsPerEvent)
+    }
+
     /// Types text as unicode key events, which works regardless of layout.
-    static func type(_ text: String) {
+    static func type(_ text: String, webContent: Bool = false) {
         let source = source()
-        for chunk in text.chunkedForTyping(16) {
+        let gap = webContent ? webEventGap : eventGap
+        for chunk in keyEvents(for: text, webContent: webContent) {
             var buffer = Array(chunk.utf16)
             guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
                   let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) else { continue }
@@ -62,7 +77,7 @@ enum SyntheticKeyboard {
             up.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: &buffer)
             post(down)
             post(up)
-            Thread.sleep(forTimeInterval: 0.006)
+            Thread.sleep(forTimeInterval: gap)
         }
     }
 

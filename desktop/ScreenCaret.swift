@@ -112,6 +112,18 @@ enum ScreenCaret {
         return bars.filter { abs($0.height - last.height) <= 3 && distance($0) <= reach }.min { distance($0) < distance($1) }
     }
 
+    /// Lines looked through above and below the last caret.
+    static let followLines: CGFloat = 3
+
+    /// Where to look for a caret that was at `last`: the page's width, a few
+    /// lines above and below, so a typed letter, a wrapped line or a little
+    /// scrolling is followed with one small picture instead of the page.
+    static func followBand(around last: CGRect, in page: CGRect) -> CGRect {
+        let reach = last.height * followLines
+        let band = CGRect(x: page.minX, y: last.minY - reach, width: page.width, height: last.height + reach * 2)
+        return band.intersection(page)
+    }
+
     /// The one bar missing from some of the pictures, which were taken a
     /// fraction of a blink apart. Nil while none or several blinked.
     static func blinking(in frames: [[CaretBar]]) -> CaretBar? {
@@ -143,14 +155,21 @@ enum ScreenCaret {
         return runs
     }
 
-    /// Blank page on both sides and just above and below.
+    /// Blank page on both sides and just above and below. A caret drawn at
+    /// a fractional position may have one half-shaded pixel on one side;
+    /// a letter's edges are softened on both.
     private static func standsAlone(_ bar: CaretBar, in grid: PixelGrid) -> Bool {
         let rows = (0..<sideSamples).map { bar.top + bar.height * ($0 + 1) / (sideSamples + 1) }
         let needed = Int((Double(sideSamples) * blankShare).rounded(.up))
-        let left = rows.filter { grid.isBlank(bar.x - 1, $0) }.count
-        let right = rows.filter { grid.isBlank(bar.x + bar.width, $0) }.count
+        func blank(_ x: Int) -> Bool { rows.filter { grid.isBlank(x, $0) }.count >= needed }
+        // Shaded lighter than ink, so a column inside a wider bar is not one.
+        func fringe(_ x: Int) -> Bool { x >= 0 && x < grid.width && rows.allSatisfy { !grid.isInk(x, $0) } }
+        let left = blank(bar.x - 1)
+        let right = blank(bar.x + bar.width)
+        let sides = (left && right)
+            || (left && fringe(bar.x + bar.width) && blank(bar.x + bar.width + 1))
+            || (right && fringe(bar.x - 1) && blank(bar.x - 2))
         let middle = bar.x + bar.width / 2
-        return left >= needed && right >= needed
-            && grid.isBlank(middle, bar.top - 1) && grid.isBlank(middle, bar.top + bar.height)
+        return sides && grid.isBlank(middle, bar.top - 1) && grid.isBlank(middle, bar.top + bar.height)
     }
 }

@@ -41,6 +41,7 @@ struct GhostFieldRead {
         }
 
         var read = GhostFieldRead()
+        if GoogleEditorText.isTextTarget(element) { return googleEditorRead(element, caret: caret) }
         if tailLength > 0, let rect = axValue(parameterized(kAXBoundsForRangeParameterizedAttribute as String,
                                                             caret - tailLength, tailLength), .cgRect, CGRect.zero),
            HostGeometryConverter.isUsable(rect) {
@@ -68,6 +69,28 @@ struct GhostFieldRead {
             read.field = CGRect(origin: origin, size: size)
         }
         return read
+    }
+
+    /// Docs and Slides type into a hidden one-point strip whose letters,
+    /// font and frame say nothing about the page: the ghost is sized from
+    /// the caret found on screen and may run to the page's edge.
+    private static func googleEditorRead(_ element: AXUIElement, caret: Int) -> GhostFieldRead {
+        var read = GhostFieldRead()
+        var value: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value) == .success,
+           let text = value as? String {
+            read.textFollows = textFollows(caret: caret, in: text)
+        }
+        read.field = GoogleEditorText.pageFrame(of: element)
+        return read
+    }
+
+    /// Whether anything but spaces follows `caret` (UTF-16) on its line.
+    static func textFollows(caret: Int, in text: String) -> Bool {
+        let units = Array(text.utf16)
+        guard caret >= 0, caret <= units.count else { return true }
+        let after = String(decoding: units[caret..<min(units.count, caret + 40)], as: UTF16.self)
+        return after.prefix { !$0.isNewline }.contains { !$0.isWhitespace && $0 != GoogleEditorText.zeroWidthSpace }
     }
 }
 

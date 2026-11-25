@@ -40,6 +40,63 @@ enum GoogleEditorText {
         return .readable
     }
 
+    /// Where Docs' reported caret falls in the field's text (UTF-16). Docs
+    /// counts every character but the breaks between paragraphs, apart from
+    /// the one the field begins with, and its ranges of text leave those
+    /// breaks out too. Where one paragraph ends and the next begins the two
+    /// share a number: the caret is where the latest edit ended, when that
+    /// is one of them (Return, or a paragraph's words deleted), and
+    /// otherwise at the end of the first, where typing usually is.
+    static func valueIndex(reported: Int, in value: String,
+                           previous: (value: String, index: Int)? = nil) -> Int {
+        let units = Array(value.utf16)
+        let newline: UInt16 = 0x0A
+        var index = 0
+        var counted = 0
+        while index < units.count, counted < reported {
+            if index == 0 || units[index] != newline { counted += 1 }
+            index += 1
+        }
+        var latest = index
+        while latest < units.count, latest > 0, units[latest] == newline { latest += 1 }
+        guard latest > index, let previous else { return index }
+        let edited = editEnd(from: Array(previous.value.utf16), to: units)
+        return edited.map { (index...latest).contains($0) ? $0 : index } ?? index
+    }
+
+    private static let readLock = NSLock()
+    private static var lastRead: (element: AXUIElement, value: String, reported: Int, index: Int)?
+
+    /// `valueIndex` for the focused field, remembering the last answer so a
+    /// caret placed by an edit stays placed while nothing more changes.
+    static func caretIndex(reported: Int, in value: String, of element: AXUIElement) -> Int {
+        readLock.lock()
+        let last = lastRead.flatMap { CFEqual($0.element, element) ? $0 : nil }
+        readLock.unlock()
+        let index: Int
+        if let last, last.value == value, last.reported == reported {
+            index = last.index
+        } else {
+            index = valueIndex(reported: reported, in: value, previous: last.map { ($0.value, $0.index) })
+        }
+        readLock.lock()
+        lastRead = (element, value, reported, index)
+        readLock.unlock()
+        return index
+    }
+
+    /// Where an edit that turned `old` into `new` ends in `new`; nil when
+    /// nothing changed.
+    static func editEnd(from old: [UInt16], to new: [UInt16]) -> Int? {
+        guard old != new else { return nil }
+        let shorter = min(old.count, new.count)
+        var prefix = 0
+        while prefix < shorter, old[prefix] == new[prefix] { prefix += 1 }
+        var suffix = 0
+        while suffix < shorter - prefix, old[old.count - 1 - suffix] == new[new.count - 1 - suffix] { suffix += 1 }
+        return new.count - suffix
+    }
+
     /// True for the hidden field Docs and Slides type into.
     static func isTextTarget(_ element: AXUIElement) -> Bool {
         role(element) == kAXTextAreaRole as String && isInsideTextTarget(element)
