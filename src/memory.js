@@ -41,3 +41,19 @@ export function releaseAfterWork(bytesRead) {
   gc();
   return true;
 }
+
+// An ordinary collection frees objects but V8 keeps the emptied pages, so the
+// system still counts them: a server whose live data was 60 MB held 600 MB
+// once a few hours of typing and saves had passed through it. The engine's
+// last-resort collection also gives those pages back, in about 10 ms, at the
+// cost of compiled code it rebuilds on the next request. So it runs only once
+// the server has gone quiet (server.js), never between keystrokes.
+const TO_SYSTEM = Object.freeze({ type: 'major', execution: 'sync', flavor: 'last-resort' });
+
+/** Collects everything and hands the freed pages back to the system. Returns whether it ran. */
+export function releaseToSystem() {
+  const gc = fullCollection();
+  if (!gc) return false;
+  gc(TO_SYSTEM);
+  return true;
+}

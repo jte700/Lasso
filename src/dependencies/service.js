@@ -144,6 +144,8 @@ export class PredictiveProvenanceService {
     this.reconcilingProjects = new Set();
     // Runs a full collection after an index read many bytes (memory.js).
     this.releaseMemory = releaseAfterWork;
+    // Told after each index, so the server can give memory back once it is quiet (server.js).
+    this.onIndexed = null;
     // Recent indexes' summaries, which later indexes carry unchanged files forward from.
     // Each is also stored in the database (index-summaries.js), so a restart keeps them.
     this.indexedHere = new BoundedCache({ maxEntries: 64 });
