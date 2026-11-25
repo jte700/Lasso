@@ -617,10 +617,8 @@ extension GlobalAssistant {
                 ? CompletionReplacement.capture(start: claimStart, end: claimEnd, in: requestedText,
                     expectedText: claim["text"] as? String) : nil
             if nameCompletion && matchedName == nil { continue }
-            let replacement = matchedName
-                ?? (["QUANTITATIVE", "SAMPLE_SIZE"].contains(claimType ?? "")
-                    ? CompletionReplacement.terminalNumber(in: requestedText) : nil)
-                ?? CompletionReplacement(start: requestedText.utf16.count, expectedText: "")
+            let typedNumber = ["QUANTITATIVE", "SAMPLE_SIZE"].contains(claimType ?? "")
+                ? CompletionReplacement.terminalNumber(in: requestedText) : nil
             for candidate in (claim["candidates"] as? [[String: Any]] ?? []) {
                 let label = candidate["label"] as? String ?? ""
                 let value = candidate["valueText"] as? String ?? candidate["displayValue"] as? String
@@ -628,6 +626,10 @@ extension GlobalAssistant {
                     claimType: claimType, label: label, value: value,
                     completionText: candidate["completionText"] as? String)
                 guard !insert.isEmpty, let projectId = owner(candidate, claim) else { continue }
+                // Words typed as the source spells them, whole or begun, are written over.
+                let replacement = matchedName ?? typedNumber
+                    ?? CompletionReplacement.typedSpelling(start: claimStart, end: claimEnd, in: requestedText, insert: insert)
+                    ?? CompletionReplacement(start: requestedText.utf16.count, expectedText: "")
                 // A quote is rewritten from its opening mark, so its link covers the whole quoted sentence and citation.
                 let wholeQuote = claimType == "QUOTED_PHRASE"
                     ? CompletionReplacement.capture(start: claimStart, end: requestedText.utf16.count, in: requestedText) : nil

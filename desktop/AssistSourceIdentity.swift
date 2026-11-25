@@ -131,6 +131,11 @@ enum AssistSuggestionSemantics {
             }
             return label
         }
+        // A typed identifier held in a table cell writes the identifier, not "Supplier · Invoice".
+        if claimType == "ENTITY", let completionText,
+           !completionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return completionText
+        }
         let labelFirst = Set(["ENTITY", "DATASET_REFERENCE", "FIGURE", "TABLE_REFERENCE", "METHOD"])
         if let claimType, labelFirst.contains(claimType), !label.isEmpty { return label }
         return value ?? label

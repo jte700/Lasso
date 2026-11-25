@@ -7,8 +7,12 @@ import { figureRequest } from './value-cue.js';
 import { detectClaimSpans } from './claim-detection.js';
 import { LINKED_VALUES_SHOWN, SUGGESTIONS_SHOWN, WHOLE_FILE_TYPES } from './constants.js';
 import { referenceCompletionText } from './reference-match.js';
+import { namesOrCells } from './typed-cells.js';
 import { replacingFocusWords, withSameNamed } from './workspace-completion.js';
 import { currentClauseStart, namesFocusedFile, writingSourceContext, writtenBeforeCaret } from './writing-context.js';
+
+// Claims that ask for a document, figure, table or method rather than a value.
+const REFERENCE_INTENT = new Set(['LITERATURE', 'TABLE_REFERENCE', 'FIGURE', 'METHOD', 'DATASET_REFERENCE']);
 
 export const writingPredictionMethods = {
   warmPredictionCaches(projectId, snapshotId = null) {
@@ -92,6 +96,25 @@ export const writingPredictionMethods = {
     return candidates.length ? { ...named, candidates } : null;
   },
 
+  /**
+   * The value the words at the caret type when a file is named by them too:
+   * an identifier with sources of its own, or text cells spelled over at least
+   * the file's words. Null when the words are only the file's.
+   */
+  valueTypedWithFile(projectId, input, cursor, settledAt, file) {
+    const text = String(input.text ?? '');
+    const identifier = detectClaimSpans(text).find((claim) => claim.type === 'ENTITY' && !claim.partial
+      && claim.end > settledAt && !text.slice(claim.end, cursor).trim());
+    const candidates = identifier ? this.candidatesForClaim(projectId, identifier, {
+      context: text, documentPath: input.documentPath, minimumMatchStrength: 0.4, limit: SUGGESTIONS_SHOWN,
+    }) : [];
+    if (candidates.length) return { ...identifier, candidates };
+    const cells = this.typedTextCells(projectId, input, cursor, settledAt);
+    if (!cells || cells.fragment.end - cells.fragment.start < file.end - file.start) return null;
+    return { ...cells.fragment, type: 'STUDY_VARIABLE', value: cells.fragment.text, partial: true,
+      studyResult: true, candidates: cells.candidates };
+  },
+
   predictionCandidates(projectId, input) {
     const text = String(input.text ?? '');
     const cursor = Number.isInteger(input.cursor) ? input.cursor : text.length;
@@ -142,10 +165,14 @@ export const writingPredictionMethods = {
     const linkedDependency = newestDependency?.anchor.end > settledAt ? newestDependency : null;
     const file = this.namedFile(projectId, input, cursor, text, settledAt);
     if (file && !(linkedDependency && file.end <= linkedDependency.anchor.end)
-      && !namesFocusedFile(file, linkedDependency)) return {
-      claims: [file], completion: null, sourceCompletions: [], workspaceCompletions: [],
-      sourceContext: null, deterministic: true, generatedText: false,
-    };
+      && !namesFocusedFile(file, linkedDependency)) {
+      // A value typed in full that the file's name also holds ("LC-26-008") goes first.
+      const value = this.valueTypedWithFile(projectId, input, cursor, settledAt, file);
+      return {
+        claims: value ? [value, file] : [file], completion: null, sourceCompletions: [], workspaceCompletions: [],
+        sourceContext: null, deterministic: true, generatedText: false,
+      };
+    }
     const linkedPaper = this.findingsFromLinkedPaper(projectId, input, cursor, linkedDependency);
     if (linkedPaper) {
       return {
@@ -190,10 +217,19 @@ export const writingPredictionMethods = {
     const clauseStart = currentClauseStart(text, cursor);
     const current = detected.filter((claim) => claim.end > clauseStart);
     const hasStudyValue = current.some((claim) => ['QUANTITATIVE', 'SAMPLE_SIZE'].includes(claim.type));
-    const hasReferenceIntent = current.some((claim) => ['LITERATURE', 'TABLE_REFERENCE', 'FIGURE', 'METHOD', 'DATASET_REFERENCE']
-      .includes(claim.type));
-    const studyPrediction = hasStudyValue || hasReferenceIntent
-      ? null : this.progressiveStudyVariable(projectId, input, cursor, settledAt);
+    const hasReferenceIntent = current.some((claim) => REFERENCE_INTENT.has(claim.type));
+    // An identifier at the caret ("INV-0921") is that value, not the start of a
+    // column name its letters happen to begin ("Invoice").
+    const identifierAtCaret = current.some((claim) => claim.type === 'ENTITY' && !claim.partial
+      && !text.slice(claim.end, cursor).trim());
+    const namePrediction = hasStudyValue || identifierAtCaret ? null
+      : hasReferenceIntent ? this.nameHoldingCitationNoun(projectId, input, cursor, settledAt)
+        : this.progressiveStudyVariable(projectId, input, cursor, settledAt);
+    const typedCells = hasStudyValue || identifierAtCaret ? null : this.typedTextCells(projectId, input, cursor, settledAt);
+    // "file executed agreement" is a cell when the reference cue is one of its own words.
+    const referenceStart = Math.min(...current.filter((claim) => REFERENCE_INTENT.has(claim.type)).map((claim) => claim.start));
+    const cellPrediction = typedCells && (!hasReferenceIntent || typedCells.fragment.start < referenceStart) ? typedCells : null;
+    const studyPrediction = namesOrCells(namePrediction, cellPrediction);
     if (studyPrediction) {
       const { fragment, candidates } = studyPrediction;
       const hasVariableChoices = Boolean(fragment && candidates.length);

@@ -56,6 +56,17 @@ struct CompletionReplacement: Equatable {
         return CompletionReplacement(start: start, expectedText: fragment + suffix, preservedSuffix: suffix)
     }
 
+    /// The typed span a suggestion rewrites when that span spells the start of
+    /// what Tab writes, in any case ("bill-1160" or "bill-11" for BILL-1160).
+    /// A value typed in full is then written over, not a second time after it.
+    static func typedSpelling(start: Int?, end: Int?, in text: String, insert: String) -> CompletionReplacement? {
+        guard let replacement = capture(start: start, end: end, in: text) else { return nil }
+        let typed = replacement.typedText.trimmingCharacters(in: .whitespaces)
+        guard !typed.isEmpty,
+              insert.range(of: typed, options: [.anchored, .caseInsensitive]) != nil else { return nil }
+        return replacement
+    }
+
     static func terminalNumber(in text: String) -> CompletionReplacement? {
         let trimmed = String(text.reversed().drop(while: { $0.isWhitespace && $0 != "\n" && $0 != "\r" }).reversed())
         let expression = try! NSRegularExpression(pattern: #"(?:[$€£¥]\s*)?[+−-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:[eE][+-]?\d*)?%?$"#)

@@ -14,6 +14,9 @@ import { measuredPartWords, namesMeasuredPart, variableNameMatch } from './varia
 import { CONTEXTUAL_INSERTION_CUES, sameDocument } from './workspace-completion.js';
 import { FRAGMENT_FUNCTION_WORDS, progressiveVariableFragments, writingSourceContext } from './writing-context.js';
 
+// The nouns that make a sentence read as citing a publication (see `writingSourceContext`).
+const CITATION_NOUN = /\b(?:paper|article|publication)s?\b/i;
+
 // How much the table index adds to a suggestion: rows matched per table, rows
 // shown among the names offered, and cells offered for an accepted source.
 const INDEXED_MATCHES_PER_TABLE = 12;
@@ -336,6 +339,28 @@ export const studyVariablesMethods = {
       if (named.length) return { fragment, candidates: named, context };
     }
     return context.projectIntent ? { fragment: null, candidates: [], context } : null;
+  },
+
+  /**
+   * A name typed in lower case whose words hold a citation noun ("maple paper
+   * distribution") reads as a citation until a source is found that the words
+   * begin to spell, from its first word. Then it is that name, as when it is
+   * capitalized; "the paper distribution of" begins no name and stays a citation.
+   */
+  nameHoldingCitationNoun(projectId, input, cursor, settledAt = -1) {
+    const context = writingSourceContext(input.text, cursor, input.section);
+    if (!context.literatureIntent) return null;
+    const spelled = (text) => String(text ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const fragments = progressiveVariableFragments(input.text, cursor, settledAt, { pastCitationNouns: true })
+      .filter((fragment) => CITATION_NOUN.test(fragment.text));
+    for (const fragment of fragments) {
+      const typed = spelled(fragment.text);
+      const named = this.candidatesForStudyVariable(projectId, fragment, {
+        documentPath: input.documentPath, relatedPaths: this.relatedSourcePaths(projectId, input), limit: 40,
+      }).filter((candidate) => spelled(candidate.label).startsWith(typed));
+      if (named.length) return { fragment, candidates: named, context };
+    }
+    return null;
   },
 
   /** A whole file (drawing, dataset or worksheet, document, PDF) the words at

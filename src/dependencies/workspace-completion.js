@@ -129,6 +129,13 @@ const TABLE_FIGURE_TYPES = new Set(['DATASET_VALUE', 'RESULT', 'VALUE']);
  * holes are "), only the value and its unit fit, written at the caret unless
  * the word there begins the value.
  */
+/** The typed words before the caret that spell the start of `value`, as a range; null when none do. */
+function typedValueRange(text, cursor, value) {
+  const range = contextualCompletionRange(text, cursor, value);
+  const typed = normalizedCompletionPhrase(String(text ?? '').slice(range.claimStart, cursor));
+  return typed && normalizedCompletionPhrase(value).startsWith(typed) ? range : null;
+}
+
 export function workspaceInsertion(object, text, cursor, sentenceStart) {
   const line = object.retrievalText;
   const lineRange = contextualCompletionRange(text, cursor, line);
@@ -138,6 +145,9 @@ export function workspaceInsertion(object, text, cursor, sentenceStart) {
     const unit = object.metadata?.units ? ` ${object.metadata.units}` : '';
     return { replacementText: `${value}${unit}`, claimStart: cursor, claimEnd: cursor };
   }
+  // A text cell whose words are being typed ("due within seven days") is written as the cell holds it.
+  const typedCell = object.objectType === 'TABLE' && value ? typedValueRange(text, cursor, value) : null;
+  if (typedCell) return { replacementText: value, ...typedCell };
   if (object.objectType !== 'DRAWING_ANNOTATION' || !value) return { replacementText: line, ...lineRange };
   const before = normalizedCompletionPhrase(String(text ?? '').slice(sentenceStart, lineRange.claimStart));
   const underWay = before.split(' ').some((word) => word && !CONTEXTUAL_INSERTION_CUES.has(word));
