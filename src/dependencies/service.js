@@ -34,6 +34,7 @@ import { rowIdentityMethods } from './row-identity.js';
 import { sourceSearchMethods } from './source-search.js';
 import { sourceUpdatesMethods } from './source-updates.js';
 import { studyVariablesMethods } from './study-variables.js';
+import { typedCellsMethods } from './typed-cells.js';
 import { tableReadingMethods } from './table-reading.js';
 import { TABLE_CLEANUP_DELAY_MS, tableRetentionMethods } from './table-retention.js';
 import { isPassageExcerpt } from './workspace-completion.js';
@@ -284,6 +285,7 @@ installMethods(PredictiveProvenanceService.prototype,
   objectAccessMethods,
   objectHistoryMethods,
   studyVariablesMethods,
+  typedCellsMethods,
   workspaceSuggestionsMethods,
   claimCandidatesMethods,
   linkedContextMethods,

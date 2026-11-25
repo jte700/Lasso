@@ -113,7 +113,10 @@ export function detectClaimSpans(text) {
     const start = boundary + 1 + relation.index;
     add(start, end, 'QUANTITATIVE', numericText, { variable, unit, studyResult: true });
   }
-  for (const match of source.matchAll(/\b(?:[A-Z]{2,}\d*(?:-\d+)+|[A-Z]{2,}\d{1,3})\b/g)) {
+  // An identifier is often typed in lower case ("bill-1160" for BILL-1160);
+  // its digits, not its capitals, say it is one. One letter is enough before a
+  // hyphen and number (L-004).
+  for (const match of source.matchAll(/\b(?:[A-Z]+\d*(?:-\d+)+|[A-Z]{2,}\d{1,3})\b/gi)) {
     const sentenceStart = Math.max(source.lastIndexOf('.', match.index - 1), source.lastIndexOf('\n', match.index - 1)) + 1;
     const nextPeriod = source.indexOf('.', match.index);
     const nextLine = source.indexOf('\n', match.index);

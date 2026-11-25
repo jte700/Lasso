@@ -33,7 +33,10 @@ function namesReference(typed, object) {
 // (CO-001, CO-002) share its letters, not its meaning: an object filed under
 // an identifier answers only when that identifier begins with the one typed,
 // so "CO-00" still offers each change and "CO-003" offers only its own.
-const IDENTIFIER = /^[A-Z]{2,}\d*(?:-\d+)+$|^[A-Z]{2,}\d{1,3}$/i;
+const NUMBERED_IDENTIFIER = /^[A-Z]+\d*(?:-\d+)+$|^[A-Z]{2,}\d{1,3}$/i;
+// One ending in letters (PAYROLL-SEP, FA-SEP) is told from a hyphenated word by its capitals.
+const LETTERED_IDENTIFIER = /^[A-Z]{2,}\d*(?:-[A-Z0-9]+)+$/;
+const IDENTIFIER = { test: (text) => NUMBERED_IDENTIFIER.test(text) || LETTERED_IDENTIFIER.test(text) };
 
 /** The identifier an object is filed under (its row, or its own name), upper-cased; null when it has none. */
 function objectIdentifier(object) {
@@ -51,13 +54,53 @@ function objectIdentifier(object) {
  * @returns {boolean}
  */
 function identifierFits(claim, object) {
-  if (claim.type !== 'ENTITY') return true;
-  const typed = String(claim.value ?? claim.text).trim();
-  if (!IDENTIFIER.test(typed)) return true;
+  const typed = typedIdentifier(claim);
+  if (!typed) return true;
+  // A cell is judged by what it holds, not by the identifier naming its row.
+  if (object.objectType === 'TABLE') return heldIdentifier(object, typed) !== null;
   const own = objectIdentifier(object);
-  if (own) return own.startsWith(typed.toUpperCase());
-  return [object.label, object.valueText, object.anchor?.rowKey]
-    .some((text) => typeof text === 'string' && text.toUpperCase().includes(typed.toUpperCase()));
+  if (own) return own.startsWith(typed);
+  // A column's description lists a few of its values as examples; it is not any of them.
+  const named = object.objectType === 'VARIABLE' ? [object.label] : [object.label, object.valueText, object.anchor?.rowKey];
+  return named.some((text) => typeof text === 'string' && text.toUpperCase().includes(typed));
+}
+
+/** The identifier an ENTITY claim types, upper-cased; null when it types none. */
+function typedIdentifier(claim) {
+  if (claim.type !== 'ENTITY') return null;
+  const typed = String(claim.value ?? claim.text).trim();
+  return IDENTIFIER.test(typed) ? typed.toUpperCase() : null;
+}
+
+/**
+ * The identifier a table cell holds when it begins with the one typed
+ * ("BILL-1160" for "bill-11"), as the cell writes it; null otherwise. An
+ * invoice number in a later column is a cell of its row, not the row's name.
+ */
+function heldIdentifier(object, typed) {
+  const value = String(object.valueText ?? '').trim();
+  return IDENTIFIER.test(value) && value.toUpperCase().startsWith(typed) ? value : null;
+}
+
+/**
+ * How directly `object` is the identifier typed: 1 when filed under it or
+ * holding it whole, 0.9 when its identifier begins with the one typed, else 0.
+ * A short identifier's letter ("L" of L-004) is too short a word to match on.
+ */
+function identifierNamed(claim, object) {
+  const typed = typedIdentifier(claim);
+  if (!typed) return 0;
+  // A cell is filed under its row's identifier; only the one holding the identifier is it.
+  const own = object.objectType === 'TABLE' ? heldIdentifier(object, typed)?.toUpperCase() : objectIdentifier(object);
+  if (!own || !own.startsWith(typed)) return 0;
+  return own === typed ? 1 : 0.9;
+}
+
+/** Tab writes the identifier a cell holds, not the cell's row and column. */
+function withIdentifierText(claim, object) {
+  const typed = typedIdentifier(claim);
+  const held = typed && object.objectType === 'TABLE' ? heldIdentifier(object, typed) : null;
+  return held ? { ...object, completionText: held } : object;
 }
 
 export const claimCandidatesMethods = {
@@ -122,7 +165,7 @@ export const claimCandidatesMethods = {
       ? (citedAuthor(claim.text) || (claim.partial ? claim.value : '')) : '';
     const documentReference = claim.type === 'LITERATURE'
       && /^(?:document|report|file|note|memo|proposal|manuscript|protocol|spreadsheet|workbook|presentation|slides?)$/i.test(claim.referenceKind ?? '');
-    const typePreference = claim.type === 'LITERATURE'
+    const claimTypes = claim.type === 'LITERATURE'
       ? new Set(documentReference ? ['REFERENCE', 'PAPER', 'DOCUMENT'] : ['REFERENCE', 'PAPER']) : ({
       QUANTITATIVE: new Set(['RESULT', 'VALUE', 'DATASET_VALUE', 'TABLE', 'PARAMETER', 'VARIABLE', 'DRAWING_ANNOTATION']),
       SAMPLE_SIZE: new Set(['RESULT', 'VALUE', 'DATASET', 'DATASET_VALUE', 'TABLE', 'VARIABLE']),
@@ -134,6 +177,8 @@ export const claimCandidatesMethods = {
       FIGURE: new Set(['FIGURE']), TABLE_REFERENCE: new Set(['TABLE']),
       METHOD: new Set(['METHOD', 'MODEL', 'CODE', 'CODE_BLOCK', 'CODE_LINE', 'NOTEBOOK_CELL', 'PROTOCOL']),
     }[claim.type] ?? new Set());
+    // A typed identifier may be a text cell of its row (an invoice number beside its supplier).
+    const typePreference = typedIdentifier(claim) ? new Set([...claimTypes, 'TABLE']) : claimTypes;
     const permitted = this.autocompleteFilter(projectId);
     // A folder too large to hold is searched in its index for what can back the claim.
     const searchIndex = this.searchIndexFor(projectId, options.snapshotId);
@@ -171,6 +216,8 @@ export const claimCandidatesMethods = {
       const entity = Math.max(
         tokenOverlap(claimWords, features.words),
         claim.type === 'ENTITY' ? prefixTokenScore(claim.value ?? claim.text, object.searchText) : 0,
+        // An object filed under the identifier typed, or holding it, is named directly ("L-004").
+        identifierNamed(claim, object),
       );
       const directVariable = variableSimilarity(expectedVariable, expectedVariableWords, features);
       const definition = features.definitionKeys.map((key) => variableDefinitions.get(key) ?? variableProfiles.get(key)).find(Boolean);
@@ -272,7 +319,7 @@ export const claimCandidatesMethods = {
       // A number being typed asks for a figure, so the named row's figures fill a file's places first.
       valueRequest: claim.type === 'QUANTITATIVE' ? figureRequest(claim.text) : null,
       limit: options.limit ?? 8, diversify: !options.sourcePath,
-    }).map((object) => this.enrichObject(projectId, object));
+    }).map((object) => withIdentifierText(claim, this.enrichObject(projectId, object)));
   },
 
   relatedSourcePaths(projectId, input) {

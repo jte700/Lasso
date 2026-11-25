@@ -954,6 +954,26 @@ do {
           "sentence continuations append even when their first letters overlap the typed suffix")
 }
 
+print("a value typed in full or begun is rewritten by Tab, not written again after it")
+do {
+    let whole = "bill-1160"
+    let typed = CompletionReplacement.typedSpelling(start: 0, end: whole.utf16.count, in: whole, insert: "BILL-1160")
+    check(typed.map { accept(whole, insert: "BILL-1160", replacement: $0).after } == "BILL-1160",
+          "an identifier typed whole in lower case becomes the source's spelling")
+    let sentence = "Paid bill-11"
+    let begun = CompletionReplacement.typedSpelling(start: 5, end: sentence.utf16.count, in: sentence, insert: "BILL-1160")
+    check(begun.map { accept(sentence, insert: "BILL-1160", replacement: $0).after } == "Paid BILL-1160",
+          "a begun identifier is completed in place")
+    let spaced = "BILL-1160 "
+    let kept = CompletionReplacement.typedSpelling(start: 0, end: 9, in: spaced, insert: "BILL-1160")
+    check(kept.map { accept(spaced, insert: "BILL-1160", replacement: $0).after } == "BILL-1160 ",
+          "a space typed after the value stays after it")
+    check(CompletionReplacement.typedSpelling(start: 0, end: 7, in: "Revenue", insert: "485000") == nil,
+          "words the insertion does not spell are left alone")
+    check(CompletionReplacement.typedSpelling(start: nil, end: nil, in: "Revenue", insert: "Revenue") == nil,
+          "a claim with no span replaces nothing")
+}
+
 print("acceptance spacing and retained source boundaries")
 do {
     let typed = "the marketing rows for our"

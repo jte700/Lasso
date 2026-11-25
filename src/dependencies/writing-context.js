@@ -111,11 +111,11 @@ export function namesFocusedFile(claim, dependency) {
 
 /** Name fragments ending at the cursor, longest first. None starts at or before
  * `after`, the end of a value already accepted ("100 mm" is not "mm"). */
-export function progressiveVariableFragments(text, cursor, after = -1) {
+export function progressiveVariableFragments(text, cursor, after = -1, { pastCitationNouns = false } = {}) {
   const source = String(text ?? '');
   if (cursor !== source.length) return [];
   const context = writingSourceContext(source, cursor);
-  if (context.literatureIntent) return [];
+  if (context.literatureIntent && !pastCitationNouns) return [];
   const matches = [...context.sentence.matchAll(/[A-Za-z][A-Za-z0-9_./+-]*/g)];
   if (!matches.length) return [];
   const output = [];
