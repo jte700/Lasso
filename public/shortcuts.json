@@ -2,10 +2,10 @@
   "sections": [
     {
       "title": "Lasso",
-      "note": "While the Lasso panel or Settings is open. ⇧⌘R works in any app while Lasso runs, and ⌘L works anywhere once Lasso has quit.",
+      "note": "While the Lasso panel or Settings is open. ⇧⌘L works in any app while Lasso runs, and ⌘L works anywhere once Lasso has quit.",
       "shortcuts": [
         { "action": "Open Settings", "macos": "⌘," },
-        { "action": "Open The Loop, from any app", "macos": "⇧⌘R" },
+        { "action": "Open The Loop, from any app", "macos": "⇧⌘L" },
         { "action": "Lasso Help", "macos": "⌘?" },
         { "action": "Quit Lasso", "macos": "⌘Q" },
         { "action": "Start Lasso again after quitting", "macos": "⌘L" }
@@ -21,7 +21,7 @@
         { "action": "Open or close a directory in the sidebar", "macos": "→ ←" },
         { "action": "Show or hide the sidebar", "macos": "⌃⌘S" },
         { "action": "Edit the file in its app", "macos": "⌘E" },
-        { "action": "Copy a share link to the file", "macos": "⇧⌘L" },
+        { "action": "Copy a share link to the file", "macos": "⌥⌘L" },
         { "action": "Show the file in Finder", "macos": "⌥⌘R" },
         { "action": "Back to the directory the network showed before", "macos": "⌘[" },
         { "action": "Undo a pin or colour, or go back to the whole network", "macos": "⌘Z" },
@@ -106,7 +106,7 @@
         { "action": "Save", "macos": "⌘S", "windows": "Ctrl+S" },
         { "action": "Undo", "macos": "⌘Z", "windows": "Ctrl+Z" },
         { "action": "Redo", "macos": "⇧⌘Z", "windows": "Ctrl+Shift+Z" },
-        { "action": "Link a source to the selection", "macos": "⇧⌘L", "windows": "Ctrl+Shift+L" },
+        { "action": "Link a source to the selection", "macos": "⌘.", "windows": "Ctrl+Shift+L" },
         { "action": "End the current source", "macos": "⌘↩", "windows": "Ctrl+Enter" },
         { "action": "Accept the suggestion", "macos": "⇥", "windows": "Tab" },
         { "action": "Choose another suggestion", "macos": "↑↓", "windows": "↑↓" },

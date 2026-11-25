@@ -4740,13 +4740,13 @@ do {
     check(shortcut("Edit", "f")?.tag == Int(NSFindPanelAction.showFindPanel.rawValue), "Command-F opens Find")
     check(shortcut("Window", "m")?.action == #selector(NSWindow.performMiniaturize(_:)), "Command-M minimizes")
     check(shortcut("Help", "?")?.action == #selector(MenuTarget.help), "Command-? opens Lasso Help")
-    let loop = shortcut("File", "r", [.command, .shift])
+    let loop = shortcut("File", "l", [.command, .shift])
     check(loop?.action == #selector(MenuTarget.loop) && loop?.title == "Open The Loop" && loop?.isHidden == false,
-          "Shift-Command-R opens The Loop, as the key held in every app")
-    let loopAlias = shortcut("File", "r")
+          "Shift-Command-L opens The Loop, as the key held in every app")
+    let loopAlias = shortcut("File", "l")
     check(loopAlias?.action == #selector(MenuTarget.loop) && loopAlias?.isHidden == true
           && loopAlias?.allowsKeyEquivalentWhenHidden == true,
-          "plain Command-R still opens The Loop inside Lasso, without a second menu row")
+          "plain Command-L still opens The Loop inside Lasso, without a second menu row")
     check(!(bar?.items ?? []).flatMap({ $0.submenu?.items ?? [] }).contains { $0.title.localizedCaseInsensitiveContains("browser") },
           "nothing in the menu bar sends you to the browser")
     check(NSApp.windowsMenu?.title == "Window" && NSApp.helpMenu?.title == "Help",
@@ -5015,8 +5015,8 @@ do {
     let keys = mac.flatMap { $0.rows.map(\.keys) }
     check(mac.first?.title == "Lasso" && keys.contains("⌘,") && keys.contains("⌘L"),
           "the shipped list starts with Lasso's own commands, including ⌘L")
-    check(mac.first?.rows.filter { $0.keys == "⇧⌘R" }.count == 1 && keys.filter { $0 == "⇧⌘R" }.count == 1,
-          "⇧⌘R is listed once, for The Loop, since Lasso holds it in every app")
+    check(mac.first?.rows.filter { $0.keys == "⇧⌘L" }.count == 1 && keys.filter { $0 == "⇧⌘L" }.count == 1,
+          "⇧⌘L is listed once, for The Loop, since Lasso holds it in every app")
     check(keys.contains("⇥") && keys.contains("⌘↩") && keys.contains("⇧⌘↩") && keys.contains("fn ←"),
           "the shipped list names every key the suggestion card answers to")
     check(!keys.contains("F4") && !keys.contains { $0.contains("Ctrl") },

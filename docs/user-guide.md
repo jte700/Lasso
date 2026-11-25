@@ -19,7 +19,7 @@ The app runs in the menu bar and starts its own local server, restarting it auto
 - While a folder is added, brought up to date or re-read, its row shows a bar in the folder's colour with a percentage that counts up from 0% to 100%, in place of its switch. Folders already in use keep giving suggestions meanwhile, and a folder being brought up to date answers from its last index until its new version is ready.
 - When an update to Lasso improves its file reader, folders are re-read in the background after it starts, one at a time, and their rows show the progress. Only the kinds of file the new reader reads differently are read again; the rest of each folder's recorded reading carries over. **Re-read Files** records the new reading as a new version of the folder; earlier versions, links and shares are unchanged. `index reindex` in the workspace does the same.
 - **Suggest While Typing** to show or stop suggestions in other apps. This is the switch for suggestions; Lasso itself stays on.
-- **Open The Loop** (`⇧⌘R`, from any app) to look through every source, its recent changes, share links and anything that needs review, in a Mac window (see [The Loop](#the-loop)).
+- **Open The Loop** (`⇧⌘L`, from any app) to look through every source, its recent changes, share links and anything that needs review, in a Mac window (see [The Loop](#the-loop)).
 - **Settings…** (`⌘,`) for the options below.
 - **Quit Lasso** to turn Lasso off.
 
@@ -71,7 +71,7 @@ New share links use `https://www.mylasso.ca/d/<random-token>`. Creating a link u
 
 ## The Loop
 
-**Open The Loop** (`⇧⌘R`) opens Lasso's library as a Mac window, in place of the browser workspace. It only shows files; it never changes one. Lasso holds `⇧⌘R` in every app while it runs, so it opens The Loop from anywhere, and Safari's Show Reader, Mail's Reply All and Chrome's hard reload don't get it then.
+**Open The Loop** (`⇧⌘L`) opens Lasso's library as a Mac window, in place of the browser workspace. It only shows files; it never changes one. Lasso holds `⇧⌘L` in every app while it runs, so it opens The Loop from anywhere, and Safari's Show Sidebar, Xcode's Library and VS Code's Select All Occurrences don't get it then.
 
 - **Recent Changes**: what was added, edited, renamed, moved or removed in every directory over the last two weeks, by day.
 - **All Sources**: every file Lasso has read, grouped by directory, with the search field at the top of the sidebar.

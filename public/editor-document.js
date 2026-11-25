@@ -233,7 +233,7 @@ function renderDocumentEditor() {
       <aside id="dependency-inspector" class="dependency-inspector" hidden aria-label="Source inspector"></aside>
       <aside id="source-peek" class="source-peek" hidden aria-label="Source preview"></aside>
     </div>
-    <div class="t-editor-status" aria-hidden="true"><span><kbd>${shortcut('Z')}</kbd> Undo</span><span><kbd>${shortcut('L', true)}</kbd> Link source</span><span><kbd>Tab</kbd> Accept suggestion</span><span><kbd>Esc</kbd> Dismiss</span></div>
+    <div class="t-editor-status" aria-hidden="true"><span><kbd>${shortcut('Z')}</kbd> Undo</span><span><kbd>${shortcut('.')}</kbd> Link source</span><span><kbd>Tab</kbd> Accept suggestion</span><span><kbd>Esc</kbd> Dismiss</span></div>
   </div>`;
   elements['detail-column'].scrollTop = 0;
   bindEditorSurface();

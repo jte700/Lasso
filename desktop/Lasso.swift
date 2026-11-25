@@ -401,7 +401,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }()
     /// The Loop, the library window that took the browser workspace's place on the Mac.
     private var loopLoaded = false
-    /// ⇧⌘R opens The Loop from any app, as the launcher's ⌘L starts Lasso.
+    /// ⇧⌘L opens The Loop from any app, as the launcher's ⌘L starts Lasso.
     private var loopHotKey: GlobalHotKey?
     private lazy var loop: LoopWindowController = {
         let controller = LoopWindowController(actions: LoopActions(
@@ -527,7 +527,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         removeTypingLog(beside: logs)
         LaunchHelper.start()
 
-        loopHotKey = GlobalHotKey(keyCode: kVK_ANSI_R, modifiers: Loop.modifiers, id: 1) { [weak self] in
+        loopHotKey = GlobalHotKey(keyCode: kVK_ANSI_L, modifiers: Loop.modifiers, id: 1) { [weak self] in
             self?.showLoop()
         }
         buildStatusItem()

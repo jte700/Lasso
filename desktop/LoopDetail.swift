@@ -123,9 +123,9 @@ struct LoopSourceDetail: View {
                 LoopHiddenShortcut(key: "e") { editor.open(url) }
             }
             if source.canShareLink {
-                LoopHiddenShortcut(key: "l", modifiers: [.command, .shift], action: createShareLink)
+                LoopHiddenShortcut(key: "l", modifiers: [.command, .option], action: createShareLink)
             }
-            // ⌥⌘R: Lasso holds ⇧⌘R in every app, for opening The Loop.
+            // ⌥⌘L above and ⌥⌘R here: Lasso holds ⇧⌘L in every app, for opening The Loop.
             if let localURL {
                 LoopHiddenShortcut(key: "r", modifiers: [.command, .option]) {
                     NSWorkspace.shared.activateFileViewerSelecting([localURL])
